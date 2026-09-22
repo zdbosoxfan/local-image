@@ -54,7 +54,7 @@ SRGB = ImageCms.ImageCmsProfile(ImageCms.createProfile('sRGB'))
 HEADERS = {'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'}
 ASSET_HEADERS = {'Cache-Control': 'private, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff'}
 SUPPORTED = {'.jpg', '.jpeg', '.png', '.tif', '.tiff', '.webp'}
-RemovalModel = Literal['klein', 'qwen']
+RemovalModel = Literal['klein']
 
 
 def guard(request, write=False):
@@ -162,7 +162,7 @@ def read_settings():
     try:
         saved = json.loads((ROOT / 'settings.json').read_text(encoding='utf-8'))
         model = saved.get('model')
-        if model in ('klein', 'qwen'):
+        if model == 'klein':
             return {'model': model}
     except (OSError, ValueError, AttributeError):
         pass
@@ -438,7 +438,7 @@ async def page(request:Request):
 async def runtime(request: Request):
     guard(request)
     return {'application': 'local-remove', 'version': APP_VERSION,
-            'data_root': str(data_root().resolve())}
+            'data_root': str(data_root().absolute())}
 
 
 @router.post('/api/local-remove/reload-config')
@@ -481,15 +481,12 @@ async def status(request:Request):
               'retouch_ready': heal_option()['available']}
     if selected and selected.get('reason'):
         result['reason'] = selected['reason']
-    try:
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as client:
-            async with client.get(config.http_url+'/system_stats') as response:
-                stats=await response.json()
-        device=stats['devices'][0]
-        return {**result, 'ready':device['type']=='cuda' and bool(selected and selected.get('available')),
-                'device':device['name']}
-    except Exception:
-        return {**result, 'ready':False,'device':'Backend starting'}
+    from managed_ai import service_state
+    service = await service_state()
+    if service.get('reason') and not result.get('reason'):
+        result['reason'] = service['reason']
+    return {**result, 'ready':service['ready'] and bool(selected and selected.get('available')),
+            'device':service['device'] or 'Backend not running'}
 
 
 @router.get('/api/local-remove/sessions')
@@ -718,7 +715,7 @@ async def layer_display(sid:str,lid:str,request:Request):
 class RemoveRequest(BaseModel):
     mask:str
     revision:int
-    model:Literal['klein', 'qwen', 'heal']|None=None
+    model:Literal['klein', 'heal']|None=None
     heal_method:Literal['texture', 'telea']='texture'
 
 

@@ -52,7 +52,9 @@ The primary design references and initial role scenarios are in [UI-DESIGN.md](U
   `tests/test_ui_browser.cjs` using a generated synthetic image and an isolated
   development data folder. See [DEVELOPMENT.md](DEVELOPMENT.md) for reproduction.
 
-## Limits
+## Initial source-only pass limits
+
+The following limits describe the initial UI pass. See [Windows and AI setup validation](AI-SETUP-VALIDATION.md) for the subsequent installed 0.3.0 tests.
 
 The real-browser pass uses Microsoft Edge against the source backend. The native
 installer was not rebuilt or exercised in this pass. Native bridge behavior is

@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from engine import config, cache, ComfyClient, run_inpaint
 from quality_settings import router as quality_settings_router
 from local_remove import router as local_remove_router
+from setup_routes import router as setup_router
 
 class EndpointFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
@@ -88,6 +89,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Local Remove", lifespan=lifespan)
 app.include_router(quality_settings_router)
 app.include_router(local_remove_router)
+app.include_router(setup_router)
 
 app.add_middleware(
     CORSMiddleware,

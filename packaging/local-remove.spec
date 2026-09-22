@@ -12,10 +12,14 @@ datas = [(str(backend / 'local_remove.html'), '.'),
          (str(backend / 'licenses'), 'licenses'),
          (str(backend / 'LICENSE'), '.'),
          (str(backend / 'THIRD_PARTY_NOTICES.md'), '.')]
-binaries = [(str(backend / 'tools' / 'texture-synthesis' / 'texture-synthesis.exe'), 'tools/texture-synthesis')]
+binaries = [(str(backend / 'tools' / 'texture-synthesis' / 'texture-synthesis.exe'), 'tools/texture-synthesis'),
+            (str(backend / 'tools' / '7zip' / '7za.exe'), 'tools/7zip')]
+# Distribute the unchanged helper's notices, full license, and matching source.
+datas += [(str(path), 'tools/7zip') for path in (backend / 'tools' / '7zip').iterdir()
+          if path.is_file() and path.suffix.lower() != '.exe']
 hiddenimports = ['uvicorn.logging', 'uvicorn.protocols.http.h11_impl',
                  'uvicorn.protocols.websockets.websockets_impl', 'uvicorn.lifespan.on']
-for package in ('imagecodecs',):
+for package in ('imagecodecs', 'py7zr', 'Cryptodome'):
     collected_data, collected_binaries, collected_imports = collect_all(package)
     datas += collected_data
     binaries += collected_binaries

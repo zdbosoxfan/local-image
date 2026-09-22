@@ -62,7 +62,7 @@ internal static class LocalRemoveLauncher
         catch (Exception error)
         {
             WriteError(error);
-            if (args.Contains("--no-open") || args.Contains("--self-test") || args.Contains("--probe-webview")) WriteResult(output, new { ok = false, error = error.Message });
+            if (args.Contains("--no-open") || args.Contains("--self-test") || args.Contains("--probe-webview") || args.Contains("--shutdown-backend")) WriteResult(output, new { ok = false, error = error.Message });
             else MessageBox.Show(error.Message, "Local Remove could not start", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return 1;
         }
@@ -131,7 +131,7 @@ internal static class LocalRemoveLauncher
                     if (!response.IsSuccessStatusCode) return false;
                     var result = Json.Deserialize<Dictionary<string, object>>(await response.Content.ReadAsStringAsync().ConfigureAwait(false));
                     return result != null && Name(result, "application", "") == "local-remove"
-                        && Name(result, "version", "") == "0.2.0"
+                        && Name(result, "version", "") == "0.3.0"
                         && String.Equals(StringValue(result, "data_root", "").TrimEnd('\\'), DataDirectory.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
                 }
             }
@@ -140,17 +140,18 @@ internal static class LocalRemoveLauncher
         catch (TaskCanceledException) { return false; }
         catch (ArgumentException) { return false; }
     }
-    internal static async Task ConfigureAi(IWin32Window owner)
+    internal static async Task<bool> ConfigureAi(IWin32Window owner)
     {
         using (var dialog = new LocalRemoveSettings())
         {
-            if (dialog.ShowDialog(owner) != DialogResult.OK) return;
+            if (dialog.ShowDialog(owner) != DialogResult.OK) return false;
         }
         if (await BackendReady().ConfigureAwait(false))
         {
             LauncherKey = File.ReadAllText(Path.Combine(DataDirectory, "state", "launcher.key"), Encoding.ASCII).Trim();
             await Api("/api/local-remove/reload-config", new Dictionary<string, object>()).ConfigureAwait(false);
         }
+        return true;
     }
     private static async Task ShutdownBackend()
     {
@@ -186,6 +187,19 @@ internal static class LocalRemoveLauncher
     internal static async Task<Dictionary<string, object>> ReadSession(string sessionId)
     {
         return await Request(HttpMethod.Get, "/api/local-remove/session/" + Uri.EscapeDataString(sessionId), null);
+    }
+    internal static bool IsSetupAction(string action)
+    {
+        return new[] { "setupUseInstallation", "setupChooseComfyDirectory", "setupChooseModelDirectory", "setupInstall",
+            "setupDownloadModels", "setupStart", "setupEject" }.Contains(action);
+    }
+    internal static Dictionary<string, object> SetupSelectionPayload(Dictionary<string, object> message)
+    {
+        string installation = StringValue(message, "installation_id", "");
+        if (String.IsNullOrWhiteSpace(installation) || installation.Length > 128)
+            throw new InvalidOperationException("Choose one of the detected ComfyUI installations.");
+        // Only an opaque detection ID is accepted. Paths and commands from the page are ignored.
+        return new Dictionary<string, object> { { "installation_id", installation } };
     }
     private static async Task<Dictionary<string, object>> Request(HttpMethod method, string path, object payload)
     {
@@ -303,6 +317,15 @@ internal static class LocalRemoveLauncher
         });
         if (savePayload.Count != 2 || Convert.ToInt64(savePayload["revision"]) != 7)
             throw new InvalidOperationException("The project-save payload allowlist test failed.");
+        var setupPayload = SetupSelectionPayload(new Dictionary<string, object> {
+            { "installation_id", "detected-123" }, { "comfy_directory", "C:\\untrusted-folder" },
+            { "command", "untrusted-command" }, { "model_directory", "C:\\untrusted-models" } });
+        bool missingSetupIdRejected = false;
+        try { SetupSelectionPayload(new Dictionary<string, object> { { "comfy_directory", "C:\\untrusted-folder" } }); }
+        catch (InvalidOperationException) { missingSetupIdRejected = true; }
+        if (setupPayload.Count != 1 || (string)setupPayload["installation_id"] != "detected-123" || !missingSetupIdRejected
+            || !IsSetupAction("setupInstall") || !IsSetupAction("setupEject") || IsSetupAction("setupRunCommand"))
+            throw new InvalidOperationException("The AI setup bridge allowlist test failed.");
         bool badRevisionRejected = false, badSessionRejected = false, mixedProjectsRejected = false;
         try { ProjectSavePayload(new Dictionary<string, object> { { "session_id", "e2419d61-d78b-4f8a-b138-8e65386aa3e9" }, { "revision", true } }); }
         catch (InvalidOperationException) { badRevisionRejected = true; }
@@ -324,7 +347,7 @@ internal static class LocalRemoveLauncher
         string nextClose = gate.Begin();
         if (nextClose == firstClose || gate.Complete(firstClose, true) || gate.Approved || !gate.Complete(nextClose, true) || !gate.Approved)
             throw new InvalidOperationException("The explicit close approval test failed.");
-        WriteResult(output, new { ok = true, trusted_origin_checks = 12, project_boundary_checks = 7, close_handshake_checks = 7,
+        WriteResult(output, new { ok = true, trusted_origin_checks = 12, project_boundary_checks = 7, close_handshake_checks = 7, setup_bridge_checks = 6,
             bridge_version = 2, projects = true, closeRequests = true, runtime = CoreWebView2Environment.GetAvailableBrowserVersionString(), architecture = Environment.Is64BitProcess ? "x64" : "x86" });
     }
 }
@@ -500,7 +523,7 @@ internal sealed class LocalRemoveWindow : Form
             if (message == null || !message.TryGetValue("id", out id) || !(id is string) || ((string)id).Length > 128
                 || !message.TryGetValue("action", out action) || !(action is string)) return;
             string verb = (string)action;
-            if (verb == "ready") { trustedEditorReady = true; Reply(id, new { native = true, version = 2, projects = true, closeRequests = true }, null); return; }
+            if (verb == "ready") { trustedEditorReady = true; Reply(id, new { native = true, version = 2, projects = true, closeRequests = true, setup = true }, null); return; }
             if (verb == "closeReady")
             {
                 object approved;
@@ -510,14 +533,18 @@ internal sealed class LocalRemoveWindow : Form
                     BeginInvoke(new Action(delegate { if (!IsDisposed) Close(); }));
                 return;
             }
-            if (verb != "openFiles" && verb != "openFolder" && verb != "openProject" && verb != "saveProject" && verb != "drop" && verb != "configureAi") throw new InvalidOperationException("Unknown desktop action.");
+            if (verb != "openFiles" && verb != "openFolder" && verb != "openProject" && verb != "saveProject" && verb != "drop" && verb != "configureAi" && !LocalRemoveLauncher.IsSetupAction(verb)) throw new InvalidOperationException("Unknown desktop action.");
             if (bridgeBusy) throw new InvalidOperationException("Finish opening the current selection first.");
             bridgeBusy = true; ownsBusy = true;
+            if (LocalRemoveLauncher.IsSetupAction(verb))
+            {
+                Reply(id, await RunSetupAction(verb, message), null); return;
+            }
             if (verb == "configureAi")
             {
                 await Task.Yield();
-                await LocalRemoveLauncher.ConfigureAi(this);
-                Reply(id, new { ok = true }, null); return;
+                bool configured = await LocalRemoveLauncher.ConfigureAi(this);
+                Reply(id, configured ? new { ok = true } : null, null); return;
             }
             if (verb == "saveProject")
             {
@@ -561,6 +588,32 @@ internal sealed class LocalRemoveWindow : Form
         }
         catch (Exception error) { Reply(id, null, error.Message); }
         finally { if (ownsBusy) bridgeBusy = false; }
+    }
+    private async Task<Dictionary<string, object>> RunSetupAction(string verb, Dictionary<string, object> message)
+    {
+        if (verb == "setupUseInstallation")
+            return await LocalRemoveLauncher.Api("/api/local-remove/setup/configure", LocalRemoveLauncher.SetupSelectionPayload(message));
+        if (verb == "setupDownloadModels")
+            return await LocalRemoveLauncher.Api("/api/local-remove/setup/download-models", new Dictionary<string, object>());
+        if (verb == "setupStart")
+            return await LocalRemoveLauncher.Api("/api/local-remove/setup/start", new Dictionary<string, object>());
+        if (verb == "setupEject")
+            return await LocalRemoveLauncher.Api("/api/local-remove/setup/eject", new Dictionary<string, object>());
+        // Folder paths are supplied by Windows, never by the embedded page.
+        await Task.Yield();
+        if (IsDisposed) return null;
+        bool installing = verb == "setupInstall", models = verb == "setupChooseModelDirectory";
+        string description = installing
+            ? "Choose where to install ComfyUI. A dedicated LocalRemove-ComfyUI folder will be created here."
+            : models ? "Choose where to store the FLUX model files. Existing complete model files will be reused."
+            : "Choose your existing ComfyUI folder or Windows portable folder.";
+        using (var picker = new FolderBrowserDialog { Description = description, ShowNewFolderButton = installing || models })
+        {
+            if (picker.ShowDialog(this) != DialogResult.OK) return null;
+            string folder = Path.GetFullPath(picker.SelectedPath);
+            return await LocalRemoveLauncher.Api("/api/local-remove/setup/" + (installing ? "install" : "configure"),
+                new Dictionary<string, object> { { installing ? "directory" : models ? "model_directory" : "comfy_directory", folder } });
+        }
     }
     private async Task<Dictionary<string, object>> SaveProject(Dictionary<string, object> message)
     {

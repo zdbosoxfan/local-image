@@ -209,6 +209,59 @@ dialog label.dialog-check{display:flex;margin:18px 0 0}
 .about-retouch h3{font-size:13px;font-weight:600;margin:0}
 .about-retouch a{color:#e1c294;text-decoration:none}
 .about-retouch a:hover{text-decoration:underline}
+.settings-dialog{width:min(700px,calc(100vw - 32px));padding:25px 28px}
+.settings-dialog .dialog-header{margin-bottom:20px}
+.setup-intro{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}
+.setup-intro h3{margin:0;font-size:16px;font-weight:550;letter-spacing:-.2px}
+.setup-intro .muted{margin:7px 0 14px}
+.setup-intro>button{flex:none;min-height:32px;font-size:11px}
+.setup-state{font-size:12px;line-height:1.6;margin:0 0 4px;color:#c4d0b9}
+.setup-state.error{color:#efb3a8}
+.setup-state.needs-attention{color:#e2c694}
+.setup-notice{border:1px solid #756345;background:#383127;color:#e4c594;border-radius:5px;padding:10px 12px;font-size:12px;line-height:1.6;margin:0 0 15px}
+.setup-section{padding:19px 0;border-bottom:1px solid #484940}
+.setup-section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.setup-section h4,.setup-memory h4{margin:0;font-size:13px;font-weight:600}
+.setup-badge{font-size:10px;line-height:1.5;color:#b9b7ad;border:1px solid #55564c;padding:2px 7px;border-radius:4px}
+.setup-badge.ready{color:#c0d1ad;border-color:#627453;background:#30382c}
+.setup-badge.attention{color:#e2c694;border-color:#7a6747;background:#383126}
+.setup-description{font-size:12px;line-height:1.6;margin:7px 0 11px;color:#b7b8ae}
+.setup-path{display:block;min-height:35px;border:1px solid #46483f;background:#222423;padding:8px 10px;border-radius:4px;font-size:11px;color:#d6d5ca;overflow-wrap:anywhere;line-height:1.55}
+.setup-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:11px}
+.setup-actions button{font-size:11px;min-height:34px;padding-inline:10px}
+.setup-actions #ai-start{margin-left:auto}
+.setup-installations{margin-top:16px}
+.setup-installations>div{display:flex;gap:8px;align-items:center}
+.setup-installations select{min-width:0;flex:1;font-size:12px}
+.setup-installations button{white-space:nowrap;font-size:12px}
+.setup-model-files{list-style:none;padding:0;margin:12px 0 0}
+.setup-model-files li{display:flex;align-items:baseline;gap:9px;font-size:11px;line-height:1.6;padding:4px 1px;color:#c0c2b5}
+.setup-model-files li::before{content:"";width:5px;height:5px;border-radius:50%;background:#858779;flex:none;align-self:center}
+.setup-model-files li.available::before{background:#adc791}
+.setup-model-files .file-label{flex:1;min-width:0;overflow-wrap:anywhere}
+.setup-model-files .file-state{font-size:10px;white-space:nowrap;color:#a3a697}
+.setup-model-files li.available .file-state{color:#b9c9a8}
+.setup-job{padding:14px 15px;background:#322d24;border:1px solid #66543a;border-radius:5px;margin:18px 0}
+.setup-job.error{background:#372a26;border-color:#785449}
+.setup-job-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px;color:#eed0a2}
+.setup-job-heading strong{font-weight:550}
+.setup-job p{font-size:11px;line-height:1.6;margin:8px 0 0;color:#d7c6ad;overflow-wrap:anywhere}
+.setup-job progress{display:block;width:100%;height:5px;border:0;border-radius:3px;overflow:hidden;margin-top:11px;accent-color:var(--accent)}
+.setup-job progress::-webkit-progress-bar{background:#4d4334}
+.setup-job progress::-webkit-progress-value{background:var(--accent)}
+.setup-job .setup-transfer{color:#b7ac98;font-variant-numeric:tabular-nums}
+.setup-memory{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:18px 0 8px}
+.setup-memory>div{min-width:0}
+.setup-memory button{white-space:nowrap;font-size:11px}
+.setup-memory .setup-description{margin-bottom:0;overflow-wrap:anywhere}
+.setup-advanced{margin-top:14px;font-size:12px}
+.setup-advanced summary,.about-retouch summary{cursor:pointer;color:#c8c7bb;padding:4px 0;font-size:12px}
+.setup-advanced summary:focus-visible,.about-retouch summary:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
+.setup-advanced .muted{margin:9px 0}
+.setup-advanced button{font-size:12px}
+.settings-dialog .about-retouch{margin-top:18px;padding-top:13px}
+.settings-dialog #model-description{min-height:0}
+@media(max-width:540px){.settings-dialog{padding:20px}.setup-intro{gap:10px}.setup-intro .muted br{display:none}.setup-actions #ai-start{margin-left:0}.setup-section{padding-block:16px}.setup-badge{max-width:45%;text-align:right}.setup-memory{align-items:flex-start}.setup-model-files li{align-items:flex-start}.setup-model-files .file-state{max-width:32%;white-space:normal;text-align:right}}
 .busy{animation:pulse 1.5s infinite}
 @keyframes pulse{50%{opacity:.68}}
 @keyframes progress{0%{transform:translateX(-100%)}100%{transform:translateX(460%)}}

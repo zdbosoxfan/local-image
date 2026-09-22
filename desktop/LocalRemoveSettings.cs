@@ -24,12 +24,12 @@ internal sealed class LocalRemoveSettings : Form
         Controls.Add(new Label { Text = "ComfyUI port", Location = new Point(20, 86), AutoSize = true });
         port = new NumericUpDown { Location = new Point(190, 82), Width = 110, Minimum = 1, Maximum = 65535, Value = 8188 };
         Controls.Add(port);
-        Controls.Add(new Label { Text = "AI model folder", Location = new Point(20, 132), AutoSize = true });
+        Controls.Add(new Label { Text = "FLUX model folder", Location = new Point(20, 132), AutoSize = true });
         models = new TextBox { Location = new Point(20, 159), Width = 425 };
         Controls.Add(models);
         var browse = new Button { Text = "Browse...", Location = new Point(454, 157), Width = 96, Height = 30 };
         browse.Click += delegate {
-            using (var picker = new FolderBrowserDialog { Description = "Choose the ComfyUI models folder containing diffusion_models, text_encoders, vae, and loras.", ShowNewFolderButton = false })
+            using (var picker = new FolderBrowserDialog { Description = "Choose the model folder containing diffusion_models, text_encoders, and vae.", ShowNewFolderButton = false })
                 if (picker.ShowDialog(this) == DialogResult.OK) models.Text = picker.SelectedPath;
         };
         Controls.Add(browse);
@@ -58,10 +58,17 @@ internal sealed class LocalRemoveSettings : Form
             if (folder.Length > 0 && !Directory.Exists(folder)) throw new InvalidOperationException("Choose an existing model folder, or leave it blank to use Quick Heal only.");
             Directory.CreateDirectory(LocalRemoveLauncher.DataDirectory);
             string target = Path.Combine(LocalRemoveLauncher.DataDirectory, "config.json");
+            // Preserve installation and setup fields maintained by the guided setup service.
+            var settings = File.Exists(target)
+                ? LocalRemoveLauncher.Json.Deserialize<Dictionary<string, object>>(File.ReadAllText(target))
+                : new Dictionary<string, object>();
+            if (settings == null) settings = new Dictionary<string, object>();
+            settings["comfy_port"] = (int)port.Value;
+            settings["model_directory"] = folder;
             string temporary = target + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try
             {
-                File.WriteAllText(temporary, LocalRemoveLauncher.Json.Serialize(new { comfy_port = (int)port.Value, model_directory = folder }), new UTF8Encoding(false));
+                File.WriteAllText(temporary, LocalRemoveLauncher.Json.Serialize(settings), new UTF8Encoding(false));
                 if (File.Exists(target)) File.Replace(temporary, target, null); else File.Move(temporary, target);
             }
             finally { if (File.Exists(temporary)) File.Delete(temporary); }

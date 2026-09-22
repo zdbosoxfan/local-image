@@ -1,8 +1,10 @@
 param(
-    [string]$OutputDirectory = (Join-Path $PSScriptRoot 'native-host'),
-    [string]$PackageRoot = (Join-Path $PSScriptRoot 'webview2-sdk\package')
+    [string]$OutputDirectory = '',
+    [string]$PackageRoot = ''
 )
 $ErrorActionPreference = 'Stop'
+if (-not $OutputDirectory) { $OutputDirectory = Join-Path $PSScriptRoot 'native-host' }
+if (-not $PackageRoot) { $PackageRoot = Join-Path $PSScriptRoot 'webview2-sdk\package' }
 $framework = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319'
 $compiler = Join-Path $framework 'csc.exe'
 if (-not (Test-Path -LiteralPath (Join-Path $packageRoot 'lib\net462\Microsoft.Web.WebView2.Core.dll'))) {

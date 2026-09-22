@@ -11,6 +11,7 @@ let points=[],undo=[],hasSelection=false,requestVersion=0;
 let zoom=1,panX=0,panY=0,fitMode=true,spaceHeld=false,gesture=null,viewportWidth=0,viewportHeight=0;
 let modelId='klein',models=[],settingsLoaded=false,settingsSaving=false,handActive=false,menuOpen=null,operation='heal',retouchReady=false;
 let activeTask=null;
+let setupState=null,setupRequestBusy=false,setupTimer=null,setupRefreshRunning=false,setupCandidatesOpen=false,nativeSetup=false;
 let collection=null,collectionIndex=-1,nativeReady=false,nativeBridge=null,nativeRequestNumber=0,dragDepth=0,brushPointer=null,saveInProgress=false,outputFormat='original';
 let healMethod='texture',askBeforeOverwrite=true,overwritePrompt=null;
 const OVERWRITE_PREFERENCE='local-remove-ask-before-overwrite';
@@ -34,7 +35,7 @@ async function json(path,body,method='POST'){
 }
 const url=tail=>'/api/local-remove/session/'+session.id+tail;
 const currentModel=()=>models.find(model=>model.id===modelId);
-const modelLabel=()=>currentModel()?.label||(modelId==='qwen'?'Qwen removal':'FLUX Klein');
+const modelLabel=()=>currentModel()?.label||'FLUX.2 Klein';
 const selectedHealMethod=()=>models.find(model=>model.id==='heal')?.methods?.find(method=>method.id===healMethod);
 const operationReady=()=>operation==='heal'?retouchReady&&selectedHealMethod()?.available!==false:ready&&settingsLoaded&&currentModel()?.available!==false;
 function message(text,error=false){$('message').textContent=text;$('message').title=text;$('message').classList.toggle('error',error);if(activeTask==='repair'&&$('progress-label'))$('progress-label').textContent=text;}
@@ -218,7 +219,7 @@ async function connectNative(){
     if(data.error)pending.reject(Error(typeof data.error==='string'?data.error:'The desktop command failed.'));
     else pending.resolve(data.cancelled?null:data.result);
   });
-  try{const result=await nativeRequest('ready');nativeReady=result?.native===true;nativeProjects=result?.projects===true;}catch{nativeReady=false;nativeProjects=false;}
+  try{const result=await nativeRequest('ready');nativeReady=result?.native===true;nativeProjects=result?.projects===true;nativeSetup=result?.setup===true;}catch{nativeReady=false;nativeProjects=false;nativeSetup=false;}
   controls();
 }
 async function openNative(action,files=null){
@@ -623,49 +624,118 @@ $('actual-size').onclick=()=>setPhotoZoom(1);
 $('model-shortcut').onclick=()=>$('settings').click();
 
 function describeModel(){
-  const model=models.find(item=>item.id===$('model').value);
-  $('model-description').textContent=model?(model.available===false?(model.reason||'This model is not available yet.'):(model.description||'Fills the selected area automatically.')):'Choose which model fills the selected area.';
+  $('model-description').textContent='Required model files are stored in the folder you choose. Existing complete files are reused.';
 }
 function applySettings(data){
-  if(!data||!Array.isArray(data.models)||!['klein','qwen'].includes(data.model))throw Error('Could not read model settings.');
-  modelId=data.model;models=data.models;settingsLoaded=true;
-  $('model').replaceChildren();
-  for(const model of models.filter(model=>['klein','qwen'].includes(model.id))){
-    const option=document.createElement('option');option.value=model.id;
-    option.textContent=model.label+(model.available===false?' — unavailable':'');option.disabled=model.available===false;option.title=model.reason||'';
-    $('model').append(option);
-  }
-  const unavailable=models.filter(model=>['klein','qwen'].includes(model.id)&&model.available===false);
-  $('model-availability').textContent=unavailable.map(model=>model.label+': '+(model.reason||'Not available yet.')).join(' ');
-  $('model-availability').hidden=!unavailable.length;
-  $('model').value=modelId;describeModel();renderHealth();controls();
+  if(!data||!Array.isArray(data.models)||!data.models.some(item=>item.id==='klein'))throw Error('Could not read FLUX settings.');
+  modelId='klein';models=data.models.filter(item=>['klein','heal'].includes(item.id));settingsLoaded=true;
+  $('model').replaceChildren();const option=document.createElement('option');option.value='klein';option.textContent=modelLabel();$('model').append(option);$('model').value='klein';
+  $('model-availability').hidden=true;describeModel();renderHealth();controls();
 }
 async function loadSettings(){applySettings(await(await api('/api/local-remove/settings')).json());}
+const setupJobActive=()=>setupState?.job?.status==='running';
+function setupBytes(value){
+  const amount=Number(value)||0;if(amount>=1073741824)return(amount/1073741824).toFixed(1)+' GB';
+  if(amount>=1048576)return(amount/1048576).toFixed(0)+' MB';
+  if(amount>=1024)return(amount/1024).toFixed(0)+' KB';return amount+' B';
+}
+function scheduleSetupRefresh(){
+  clearTimeout(setupTimer);setupTimer=null;
+  if($('settings-dialog').open&&(setupJobActive()||setupState?.service?.starting))setupTimer=setTimeout(()=>loadSetup().catch(error=>{settingsMessage(error.message,true);scheduleSetupRefresh();}),1500);
+}
+function renderSetup(){
+  const state=setupState||{},service=state.service||{},job=state.job,files=Array.isArray(state.models)?state.models:[];
+  const activeJob=job?.status==='running',locked=busy||settingsSaving||setupRequestBusy||activeJob||!!service.starting||!!service.busy;
+  const completeFiles=files.filter(file=>file.exists).length,allFiles=files.length>0&&completeFiles===files.length;
+  const aiReady=service.ready===true,needsAttention=!!service.running&&!aiReady;
+  $('ai-native-note').hidden=nativeSetup;
+  $('ai-native-note').textContent=nativeReady?'Update the Local Remove desktop app to use guided AI setup.':'Open the Local Remove desktop app to choose folders, install ComfyUI, or download model files.';
+  $('configure-ai').hidden=!nativeReady;
+  $('ai-runtime-status').textContent=service.running?(aiReady?'Running':'Running · setup needed'):service.starting?'Starting':state.installation?'Ready to start':'Not selected';
+  $('ai-runtime-status').classList.toggle('ready',!!service.running&&aiReady);$('ai-runtime-status').classList.toggle('attention',needsAttention);
+  $('ai-runtime-path').textContent=state.installation?.path||'No installation selected';$('ai-runtime-path').title=state.installation?.path||'';
+  const runtimeIssue=service.reason||'ComfyUI is connected, but FLUX is not ready.';
+  const restartGuidance=/restart/i.test(runtimeIssue)?'':' If you changed model folders or added files, restart ComfyUI from its own window, then refresh here.';
+  $('ai-runtime-detail').textContent=needsAttention?runtimeIssue+restartGuidance:service.running?'Connected to ComfyUI on this PC, port '+service.port+'.':service.starting?'ComfyUI is starting. You can keep this window open to follow its progress.':state.installation?state.installation.startable?'This installation is ready. Start the backend when you want to use AI Remove.':'This installation was found. Start it from ComfyUI, or install a dedicated copy below.':'Use an existing installation or install a dedicated copy for Local Remove.';
+  $('ai-model-path').textContent=state.model_directory||'No model folder selected';$('ai-model-path').title=state.model_directory||'';
+  $('ai-models-status').textContent=files.length?completeFiles+' of '+files.length+' files ready':'Not configured';$('ai-models-status').classList.toggle('ready',allFiles);
+  const fileRows=files.map(file=>{const li=document.createElement('li');li.classList.toggle('available',!!file.exists);const label=document.createElement('span');label.className='file-label';label.textContent=file.label||file.name;label.title=(file.folder?file.folder+'/':'')+file.name;const status=document.createElement('span');status.className='file-state';const bytes=file.exists?file.bytes:file.expected_bytes;status.textContent=(file.exists?'Ready':'Required')+(bytes?' · '+setupBytes(bytes):'');li.append(label,status);return li;});$('ai-model-files').replaceChildren(...fileRows);
+  let summary=!setupState?'Checking your setup…':job?.status==='error'?job.error||job.message||'Setup could not finish. Check the details below.':activeJob?job.message||'Setting up local AI…':service.running&&aiReady&&allFiles?'AI Remove is ready. Your next edit will use FLUX.2 Klein.':needsAttention&&allFiles?'ComfyUI is running, but FLUX needs attention. Check the connection details below.':!state.installation?'Choose how you want to run ComfyUI.':!state.model_directory?'Choose a folder for the FLUX model files.':!allFiles?'Download the required FLUX files to finish setting up.':service.starting?'Starting the AI backend…':'FLUX is installed. Start the backend to use AI Remove.';
+  $('ai-setup-state').textContent=summary;$('ai-setup-state').classList.toggle('error',job?.status==='error');$('ai-setup-state').classList.toggle('needs-attention',needsAttention);
+  const candidates=Array.isArray(state.installations)?state.installations:[],select=$('ai-installation-choice'),previous=select.value;
+  select.replaceChildren(...candidates.map(candidate=>{const option=document.createElement('option');option.value=candidate.id;option.textContent=(candidate.name||'ComfyUI')+' · '+candidate.path;return option;}));
+  if(candidates.some(candidate=>candidate.id===previous))select.value=previous;else if(state.installation?.id)select.value=state.installation.id;
+  $('ai-installations').hidden=!setupCandidatesOpen||!candidates.length;
+  for(const id of ['ai-choose-runtime','ai-install','ai-start','ai-choose-models','ai-download','ai-use-installation','ai-eject'])$(id).disabled=!nativeSetup||locked;
+  $('ai-detect').disabled=setupRefreshRunning||locked;$('ai-refresh').disabled=setupRefreshRunning||setupRequestBusy;
+  $('ai-start').disabled=!nativeSetup||locked||!service.can_start||!!service.running;
+  $('ai-start').textContent=service.starting?'Starting…':service.running?'Backend running':'Start backend';
+  $('ai-download').disabled=!nativeSetup||locked||!state.model_directory||allFiles;
+  $('ai-download').textContent=allFiles?'FLUX models ready':'Download FLUX models';
+  $('ai-use-installation').disabled=!nativeSetup||locked||!select.value;
+  $('ai-installation-choice').disabled=locked;
+  $('configure-ai').disabled=locked;
+  $('ai-eject').disabled=!nativeSetup||locked||!service.can_eject;
+  $('ai-device').textContent=service.device||(!service.running?'Start the backend to check your device.':'Release loaded models when you need GPU memory for another app.');
+  $('ai-eject').title='Unload models from the GPU. Model files stay on disk; the next removal loads them again.';
+  $('ai-job').hidden=!job;$('ai-job').classList.toggle('error',job?.status==='error');
+  if(job){
+    const names={install:'Installing ComfyUI',download:'Downloading FLUX models','download-models':'Downloading FLUX models',start:'Starting ComfyUI',eject:'Releasing GPU memory'};
+    $('ai-job-title').textContent=job.status==='complete'?'Setup complete':job.status==='error'?'Setup needs attention':names[job.action]||'Setting up local AI';
+    const progress=Number(job.progress);if(job.progress!=null&&Number.isFinite(progress)){$('ai-job-progress').value=Math.max(0,Math.min(100,progress));$('ai-job-percent').textContent=Math.round(progress)+'%';}else{$('ai-job-progress').removeAttribute('value');$('ai-job-percent').textContent='';}
+    $('ai-job-message').textContent=job.error||job.message||job.phase||'';
+    $('ai-job-bytes').textContent=job.total_bytes?setupBytes(job.downloaded_bytes)+' of '+setupBytes(job.total_bytes):job.downloaded_bytes?setupBytes(job.downloaded_bytes)+' downloaded':'';
+  }
+}
+async function loadSetup(refresh=false){
+  if(setupRefreshRunning)return;
+  setupRefreshRunning=true;renderSetup();
+  const wasActive=setupJobActive();
+  try{setupState=await(await api('/api/local-remove/setup'+(refresh?'/detect':''))).json();if(wasActive&&!setupJobActive()){await loadSettings();await health();}}
+  finally{setupRefreshRunning=false;renderSetup();scheduleSetupRefresh();}
+}
+async function runSetupAction(action,details={},success=''){
+  if(!nativeSetup||setupRequestBusy||setupJobActive()||busy)return;
+  setupRequestBusy=true;settingsSaving=true;settingsMessage('');renderSetup();controls();
+  try{
+    const result=await nativeRequest(action,null,details);if(!result)return;
+    if(result.service)setupState=result;
+    if(success)settingsMessage(success);
+    await loadSettings();await health();await loadSetup();
+  }catch(error){settingsMessage(error.message,true);}
+  finally{setupRequestBusy=false;settingsSaving=false;renderSetup();controls();scheduleSetupRefresh();}
+}
 $('settings').onclick=async()=>{
   if(busy||modalOpen())return;
   $('ask-before-overwrite').checked=askBeforeOverwrite;
-  $('configure-ai').hidden=!nativeReady;
-  closeMenus();resetTransientInput();settingsMessage('');$('settings-dialog').showModal();
-  try{await loadSettings();}catch(error){settingsMessage(error.message,true);}
+  closeMenus();resetTransientInput();settingsMessage('');$('settings-dialog').showModal();renderSetup();
+  const checks=await Promise.allSettled([loadSettings(),loadSetup()]);
+  for(const check of checks)if(check.status==='rejected')settingsMessage(check.reason?.message||'Could not read AI setup.',true);
 };
+$('ai-refresh').onclick=()=>loadSetup(true).catch(error=>settingsMessage(error.message,true));
+$('ai-detect').onclick=async()=>{setupCandidatesOpen=true;settingsMessage('Looking for ComfyUI on this PC…');try{await loadSetup(true);settingsMessage(setupState?.installations?.length?'Choose the installation you want to use.':'No installation found in the usual locations. Choose a folder or install a dedicated copy.');}catch(error){settingsMessage(error.message,true);}};
+$('ai-use-installation').onclick=()=>runSetupAction('setupUseInstallation',{installation_id:$('ai-installation-choice').value},'ComfyUI installation selected.');
+$('ai-choose-runtime').onclick=()=>runSetupAction('setupChooseComfyDirectory',{},'ComfyUI folder selected.');
+$('ai-install').onclick=()=>runSetupAction('setupInstall');
+$('ai-choose-models').onclick=()=>runSetupAction('setupChooseModelDirectory',{},'Model folder selected.');
+$('ai-download').onclick=()=>runSetupAction('setupDownloadModels');
+$('ai-start').onclick=()=>runSetupAction('setupStart');
+$('ai-eject').onclick=()=>runSetupAction('setupEject',{},'GPU unload requested. Files remain on disk.');
 $('configure-ai').onclick=async()=>{
-  if(busy||!nativeReady)return;
-  try{await nativeRequest('configureAi');await loadSettings();settingsMessage('AI connection saved. Start ComfyUI to use AI Remove.');}
+  if(busy||!nativeReady||setupJobActive()||setupRequestBusy)return;
+  try{const configured=await nativeRequest('configureAi');if(!configured)return;await loadSettings();await health();await loadSetup();settingsMessage('AI connection saved.');}
   catch(error){settingsMessage(error.message,true);}
 };
 $('settings-close').onclick=()=>$('settings-dialog').close();
-$('settings-dialog').addEventListener('close',resetTransientInput);
-$('model').onchange=async()=>{
-  const chosen=$('model').value;if(chosen===modelId)return;
-  settingsSaving=true;describeModel();controls();settingsMessage('Saving choice…');
-  try{
-    const data=await json('/api/local-remove/settings',{model:chosen},'PATCH');
-    if(Array.isArray(data.models))applySettings(data);else await loadSettings();
-    settingsMessage(modelLabel()+' will be used for the next removal.');
-  }catch(error){$('model').value=modelId;describeModel();settingsMessage(error.message,true);}
-  finally{settingsSaving=false;controls();}
-};
-
+$('settings-dialog').addEventListener('keydown',event=>{
+  if(event.key!=='Tab')return;
+  const dialog=$('settings-dialog'),items=[...dialog.querySelectorAll('button,input,select,summary,a[href],[tabindex]')].filter(item=>!item.disabled&&item.tabIndex>=0&&item.getClientRects().length&&(!item.closest('details:not([open])')||item.tagName==='SUMMARY'));
+  if(!items.length)return;
+  const first=items[0],last=items[items.length-1];
+  if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
+  else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
+});
+$('settings-dialog').addEventListener('close',()=>{clearTimeout(setupTimer);setupTimer=null;resetTransientInput();});
 // Original and transparent patches are immutable. Toggling only changes a DOM image's visibility.
 async function displayAssets(data){
   let assets=displayCache.get(data.id);

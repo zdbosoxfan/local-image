@@ -1,5 +1,35 @@
 # Local Remove third-party credits
 
+## Optional AI setup
+
+Portable archive metadata validation uses unmodified **py7zr 1.1.3**, licensed under
+**LGPL-2.1-or-later**. The package's Python source is included by the installer
+build alongside its complete `py7zr-1.1.3.dist-info/licenses/LICENSE` notice.
+The corresponding upstream source is available from
+[py7zr](https://github.com/miurahr/py7zr/tree/v1.1.3). YAML configuration discovery
+uses unmodified **PyYAML**, under the **MIT license**; its copyright and complete
+license are retained in `pyyaml-*.dist-info/licenses/LICENSE`. The installer
+retains installed distribution metadata and license notices for their bundled
+dependencies as well.
+
+Archive decoding uses the unmodified **7-Zip Extra 26.03 x64** standalone helper
+by **Igor Pavlov**, distributed at `tools/7zip/7za.exe`. This supports the official
+ComfyUI archive's BCJ2 compression without requiring a system 7-Zip installation.
+The same folder contains the upstream `License.txt`, complete LGPL 2.1 text in
+`copying.txt`, upstream `readme.txt`, matching complete source archive
+`7z2603-src.7z`, and `NOTICE.md`/`SOURCE.json` with publisher links and verified
+checksums. Its main license is **LGPL-2.1-or-later**, with BSD components detailed
+in `License.txt`. Source and releases are also available from the
+[official 7-Zip 26.03 release](https://github.com/ip7z/7zip/releases/tag/26.03).
+
+Optional ComfyUI and FLUX artifacts are downloaded separately from their verified
+publishers. ComfyUI's portable archive is retained unchanged during verification
+and its extracted notices remain in the selected installation. The pinned URLs,
+sizes, and SHA-256 values are recorded in `ai_download_catalog.py`. The required
+`qwen_3_4b.safetensors` file is FLUX's text encoder, independent of the removed
+Qwen image-edit option. Existing compatible user-provided model files are
+verified and reused; Local Remove does not relicense those files.
+
 ## Quick Heal: Texture
 
 Quick Heal's default Texture method uses **texture-synthesis 0.8.2** by **Embark Studios, Anastasia Opara, and Tomasz Stachowiak**. This is their existing multiresolution stochastic texture synthesis implementation, not an algorithm or model developed by Local Remove. It copies appropriate detail from unselected image pixels without downloading model weights or using ComfyUI.
@@ -35,9 +65,3 @@ The optional Dust & scratches method uses the existing **OpenCV `cv2.inpaint` im
 OpenCV 5.0.0 is already installed in this application environment. The OpenCV binary is distributed under Apache License 2.0; its Python packaging carries the MIT license. The inpainting source retains its original permissive Intel license notice. Complete installed package notices remain in `.venv/Lib/site-packages/cv2/LICENSE.txt` and `LICENSE-3RD-PARTY.txt`; retain these notices when redistributing the package. The library implementation is used without modification.
 
 This method is intended for dust, scratches, cracks, and other narrow defects on smooth areas. It propagates nearby colors and can smear texture on larger objects. Processing runs locally on the CPU without downloaded model weights or ComfyUI. It remains an explicit choice and is never silently substituted if the Texture helper fails.
-
-## Qwen decoder lattice cleanup
-
-`qwen_degrid.py` derives from [ComfyUI-DeGrid](https://github.com/lunaaispace-eng/ComfyUI-DeGrid) by **lunaaispace-eng**, released under **Apache License 2.0**. The audited source is `degrid_core.py` at commit [`5699bc33f71e1be12523fdea105cc9c2abfe1cd0`](https://github.com/lunaaispace-eng/ComfyUI-DeGrid/blob/5699bc33f71e1be12523fdea105cc9c2abfe1cd0/degrid_core.py). A complete copy of its license is included in `licenses/ComfyUI-DeGrid-LICENSE.txt`. Upstream credits the GLSL Nyquist-notch approach shared by u/Haiku-575 on r/StableDiffusion.
-
-Local Remove modifications replace Torch tensor operations with NumPy/OpenCV CPU operations and expose a single RGB Pillow image interface. The 9-tap separable notch, phase-locked lattice detection, amplitude limit, and clean-image threshold are retained. Cleanup is applied to native Qwen decoder output before resizing; images without a detected lattice pass through unchanged. This targets the fine, repeated 2-pixel VAE grid. It does not guarantee removal of other generated texture, inaccurate detail, or model hallucinations.

@@ -34,12 +34,13 @@ def main():
 
         async def serve():
             import runtime_lifecycle
+            from managed_ai import manager as setup_manager
             from main import generation_lock
 
             async def watch():
                 while not server.should_exit:
                     await asyncio.sleep(5)
-                    if not generation_lock.locked() and (runtime_lifecycle.shutdown_requested or
+                    if not generation_lock.locked() and not setup_manager.active and (runtime_lifecycle.shutdown_requested or
                             time.monotonic() - runtime_lifecycle.last_heartbeat > 75):
                         server.should_exit = True
 

@@ -2,14 +2,14 @@
 
 **A Windows photo editor for local object removal, quick healing, and editable layers.**
 
-Local Remove helps you remove unwanted objects and repair small distractions in photos. Quick Heal runs on your PC's CPU. AI Remove connects to an existing local ComfyUI installation for FLUX Klein or experimental Qwen removal.
+Local Remove helps you remove unwanted objects and repair small distractions in photos. Quick Heal runs on your PC's CPU. AI Remove uses FLUX Klein through a local ComfyUI backend. Settings can find an existing installation, install a separate copy, download the FLUX files, start the backend, and release its GPU memory.
 
 The Windows installer includes the application, Python runtime, and healing tools. You do not need ChatGPT, Codex, a source checkout, or a separate Python installation to use it.
 
 ## Interface preview
 
-The refreshed interface is available in this development branch. The 0.2.0
-installer linked below still has the previous interface.
+Version 0.3.0 includes the refreshed photo workspace and integrated AI setup.
+This development branch builds the 0.3.0 Windows installer; older published releases may have the previous interface.
 
 ![Local Remove photo workspace](docs/images/editor-empty.png)
 
@@ -19,7 +19,7 @@ and keeps image copies separate from editable projects. See the
 
 ## Install
 
-1. Open [Releases](https://github.com/zdbosoxfan/local-remove/releases) and download **Local-Remove-Setup-0.2.0.exe**.
+1. Run **Local-Remove-Setup-0.3.0.exe** from the Windows build output. See [build instructions](docs/DEVELOPMENT.md); published installers are listed under [Releases](https://github.com/zdbosoxfan/local-remove/releases).
 2. Run the installer for your Windows account. It creates Start menu shortcuts and an optional desktop shortcut.
 3. Open **Local Remove** from the Start menu.
 
@@ -29,7 +29,7 @@ Quick Heal is included and works without ComfyUI or model downloads. To enable A
 
 ## Edit a photo
 
-1. Use **File → Open** or **Open Folder**, or drop images from File Explorer into the desktop window.
+1. Use **File â†’ Open** or **Open Folder**, or drop images from File Explorer into the desktop window.
 2. Select the object with the brush, pen, rectangle, or ellipse tool. Include the object's shadow when needed.
 3. Choose **Quick Heal** for small distractions or **AI Remove** for larger objects and scene reconstruction.
 4. Apply the removal, review the result, and use **Original** to compare it with the starting image.
@@ -50,24 +50,29 @@ Supported formats are **JPEG, PNG, TIFF, and WebP**. For camera RAW files, send 
 
 - **Texture repair** copies nearby texture to repair small objects and blemishes.
 - **Dust & scratches** fills narrow defects using nearby colors.
-- **AI Remove** uses the selected local AI model. FLUX Klein is the default; Qwen removal is experimental and may be slower or alter fine texture.
+- **AI Remove** uses FLUX Klein for larger objects and scene reconstruction.
 
-### Connect an existing ComfyUI installation
+### Set up AI removal
 
-1. Start ComfyUI on this PC.
-2. Open **Settings → AI connection** in Local Remove, or **AI connection settings** from its Start menu folder.
-3. Enter the port used by ComfyUI. The default is `8188`; use the port shown by your installation.
-4. Browse to the model folder that ComfyUI uses, then save.
-5. Select an available model in Local Remove's Settings.
+Open **Settings** in the editor. The desktop app provides these controls:
 
-The installer does not install ComfyUI or download AI models. Both applications must use the same local model files:
+1. **Find existing** finds existing ComfyUI source, portable, and supported Desktop layouts. Choose the one to use, or browse to it. **Install ComfyUI** downloads the official NVIDIA portable runtime into a separate `LocalRemove-ComfyUI` subfolder of the folder you choose.
+2. **Choose model folder** selects where to keep the FLUX files. Select an existing model folder to reuse your downloads. **Download FLUX models** fetches missing files and verifies all four files against pinned publisher checksums. The complete set is about 15.1 GiB; ComfyUI needs additional disk space.
+3. **Start backend** starts the selected local runtime. FLUX loads into GPU memory when you apply the first AI removal.
+4. **Eject model** asks an idle ComfyUI backend to unload its models and release GPU memory. It leaves ComfyUI running. Active or queued work prevents unloading.
 
-| Choice | Required files beneath the model folder |
+Use **Advanced connection** for a different local port. Quick Heal is always independent of ComfyUI. Folder picking, downloads, installation, and backend controls require the Windows desktop app; a browser preview can inspect setup status.
+
+| FLUX component | File beneath the model folder |
 | --- | --- |
-| **FLUX Klein** | `diffusion_models/flux-2-klein-base-4b.safetensors`<br>`text_encoders/qwen_3_4b.safetensors`<br>`vae/flux2-vae.safetensors`<br>`loras/flux-2-klein-object-remove.safetensors` |
-| **Qwen removal** | `diffusion_models/qwen_image_edit_2511_fp8mixed.safetensors`<br>`text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors`<br>`vae/qwen_image_vae.safetensors`<br>`loras/Qwen-Image-Edit-2511-Object-Remover-v2-9200.safetensors` |
+| Base model | `diffusion_models/flux-2-klein-base-4b.safetensors` |
+| Text encoder | `text_encoders/qwen_3_4b.safetensors` |
+| Image decoder | `vae/flux2-vae.safetensors` |
+| Removal adapter | `loras/flux-2-klein-object-remove.safetensors` |
 
-ComfyUI must support the workflow nodes used by the selected model. The workflows are defined in [local_removal_models.py](backend/local_removal_models.py) and [specialized_removal.py](backend/specialized_removal.py).
+The Qwen3-named text encoder is required by FLUX. The separate Qwen image-edit removal model is no longer offered. Earlier projects keep their existing rendered layers.
+
+Downloads use pinned official release/model URLs with byte-count and SHA-256 validation. Existing files with unknown checksums are preserved, and interrupted downloads never appear as completed models. See [the artifact catalog](backend/ai_download_catalog.py). FLUX uses built-in ComfyUI nodes from [specialized_removal.py](backend/specialized_removal.py).
 
 ### Use with Capture One
 
@@ -97,7 +102,7 @@ Logs rotate automatically. Thumbnail cleanup removes old or excess thumbnails wh
 
 Save your edits, close Local Remove, and run a newer installer to update it. Setup stops the idle background service before replacing program files.
 
-To uninstall, use **Windows Settings → Apps → Installed apps → Local Remove → Uninstall**. Uninstalling removes the app and shortcuts while retaining settings, recoverable sessions, and your saved photos/projects.
+To uninstall, use **Windows Settings â†’ Apps â†’ Installed apps â†’ Local Remove â†’ Uninstall**. Uninstalling removes the app and shortcuts while retaining settings, recoverable sessions, and your saved photos/projects.
 
 If you used the earlier Documents-based version, save its unfinished work as `.lremove` projects and open those projects in the installed version. The installer leaves the earlier installation and its local data untouched.
 
@@ -105,7 +110,7 @@ If you used the earlier Documents-based version, save its unfinished work as `.l
 
 | Problem | Check |
 | --- | --- |
-| AI Remove is unavailable | Start ComfyUI, confirm its port in **AI connection**, and check the selected model files. Quick Heal remains available. |
+| AI Remove is unavailable | Open **Settings**, check the four FLUX files, and use **Start backend**. Confirm the port in **Advanced connection**. Quick Heal remains available. |
 | Texture repair is unavailable | Re-run the installer to restore the bundled helper and dependencies. |
 | The editor window cannot load | Re-run setup and confirm Microsoft WebView2 installed successfully. Details are saved in the app's `logs` folder. |
 | Save a copy or Overwrite original is unavailable | Open the image through the desktop app's native file/folder picker or Explorer drag-and-drop. |
@@ -121,7 +126,7 @@ If you used the earlier Documents-based version, save its unfinished work as `.l
 
 ## Credits and licenses
 
-Local Remove uses the RapidRAW AI Connector, Microsoft WebView2, Embark Studios texture-synthesis, OpenCV, and code derived from ComfyUI-DeGrid. Existing component licenses are retained:
+Local Remove uses the RapidRAW AI Connector, Microsoft WebView2, Embark Studios texture-synthesis, OpenCV, py7zr, and PyYAML. Existing component licenses are retained:
 
 - [Backend license](backend/LICENSE)
 - [Third-party notices](backend/THIRD_PARTY_NOTICES.md)

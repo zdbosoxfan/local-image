@@ -2,9 +2,10 @@ param(
     [string]$Python = 'python',
     [Parameter(Mandatory=$true)][string]$WebView2Package,
     [Parameter(Mandatory=$true)][string]$InnoCompiler,
-    [string]$OutputDirectory = (Join-Path $PSScriptRoot '..\dist')
+    [string]$OutputDirectory = ''
 )
 $ErrorActionPreference = 'Stop'
+if (-not $OutputDirectory) { $OutputDirectory = Join-Path $PSScriptRoot '..\dist' }
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $output = [IO.Path]::GetFullPath($OutputDirectory)
 $package = Join-Path $output 'package'

@@ -4,7 +4,7 @@ End users should install the Windows release. These instructions are for working
 
 ## Development environment
 
-Use 64-bit Windows, Python 3.13, and Node.js for the editor tests. From the repository root:
+Use 64-bit Windows, Python 3.12 or 3.13, and Node.js for the editor tests. From the repository root:
 
 ```powershell
 python -m venv .venv
@@ -23,7 +23,7 @@ Set-Location .\backend
 
 Open `http://127.0.0.1:51247/remove`. This development mode stays running until Ctrl+C. Native file access and native save dialogs require the desktop host. Set `LOCAL_REMOVE_DATA_DIR` on both the host and backend when testing an isolated profile. Do not run two profiles on the same port simultaneously.
 
-The installed host starts `backend/LocalRemoveBackend.exe` beside its own executable. That packaged backend automatically exits after 75 seconds without a desktop heartbeat, once any active AI generation has finished. The service is bound to loopback and its native management endpoints require the per-user launcher credential.
+The installed host starts `backend/LocalRemoveBackend.exe` beside its own executable. That packaged backend automatically exits after 75 seconds without a desktop heartbeat, once any active AI generation or setup job has finished. The service is bound to loopback and its native management endpoints require the per-user launcher credential.
 
 ## Build the installer
 
@@ -46,7 +46,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\packaging\Build-Window
   -InnoCompiler 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 ```
 
-The build produces `dist/package/` and `dist/installer/Local-Remove-Setup-0.2.0.exe`, plus a SHA-256 checksum. The build downloads Microsoft's WebView2 bootstrapper and verifies its Microsoft signature. Setup invokes it only if the WebView2 Runtime is missing, following [Microsoft's deployment guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution).
+The build produces `dist/package/` and `dist/installer/Local-Remove-Setup-0.3.0.exe`, plus a SHA-256 checksum. The build downloads Microsoft's WebView2 bootstrapper and verifies its Microsoft signature. Setup invokes it only if the WebView2 Runtime is missing, following [Microsoft's deployment guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution).
 
 Build artifacts are ignored by Git. Publish the installer and checksum as GitHub release assets. Production distribution should use a code-signing certificate; the first preview is unsigned.
 
@@ -56,6 +56,8 @@ Run from the repository root:
 
 ```powershell
 .\.venv\Scripts\python.exe tests\test_app_paths.py
+.\.venv\Scripts\python.exe tests\test_managed_ai.py
+.\.venv\Scripts\python.exe tests\test_setup_routes.py
 .\.venv\Scripts\python.exe tests\test_frontend_render.py
 .\.venv\Scripts\python.exe tests\test_layer_projects.py
 .\.venv\Scripts\python.exe tests\texture\test_backend_texture.py
@@ -87,7 +89,17 @@ For a packaged smoke test, set an isolated data folder, start the native host wi
 .\.venv\Scripts\python.exe tests\smoke_installed.py $env:LOCAL_REMOVE_DATA_DIR
 ```
 
-The smoke test uses a generated 16-bit TIFF, runs both healing modes, saves an editable project, verifies the original is unchanged, and checks that unauthenticated runtime changes are rejected. It needs a running test backend and writes only beneath the specified test profile. Run it promptly after starting the host or keep a desktop window open to renew the service heartbeat.
+The smoke test uses a generated 16-bit TIFF, runs both healing modes, saves an editable project, verifies the original is unchanged, and checks that unauthenticated runtime changes are rejected. It needs a running test backend and writes only beneath the specified test profile. Run it promptly after starting the host or keep a desktop window open to renew the service heartbeat. When scripting startup, use `Start-Process -PassThru` followed by the returned process's `WaitForExit()`; PowerShell's `Start-Process -Wait` waits for the entire descendant tree, including the idle backend.
+
+The AI setup regressions are `tests/test_managed_ai.py`, `tests/test_setup_routes.py`, and `tests/test_ui_setup.cjs` (Playwright). The first two use isolated fixtures; the browser suite simulates the native bridge and never installs software.
+
+For an explicit real-GPU acceptance run after starting a configured ComfyUI backend:
+
+```powershell
+.\.venv\Scripts\python.exe tests\smoke_ai_installed.py "$env:LOCALAPPDATA\Local Remove" .\qa-artifacts\gpu
+```
+
+This performs one FLUX removal on a synthetic scene, saves a preview and project, verifies the original, records GPU memory, and closes its own session. It does not start, stop or unload ComfyUI. Use Settings' **Eject model** afterward to test unloading separately.
 
 ## Runtime layout
 

@@ -38,8 +38,6 @@ class BackendSettingsTests(unittest.IsolatedAsyncioTestCase):
         self.options = [
             {'id': 'klein', 'label': 'FLUX.2 Klein 4B Object Removal',
              'description': 'Current removal model', 'available': True},
-            {'id': 'qwen', 'label': 'Qwen Object Removal',
-             'description': 'Larger removal model', 'available': True},
         ]
         self.engine = types.ModuleType('engine')
         self.engine.config = types.SimpleNamespace(http_url='http://127.0.0.1:1')
@@ -98,12 +96,20 @@ class BackendSettingsTests(unittest.IsolatedAsyncioTestCase):
     async def test_default_and_atomic_persistence_survive_reload(self):
         initial = await self.app.get_settings(self.request())
         self.assertEqual(initial['model'], 'klein')
-        self.assertEqual([x['id'] for x in initial['models']], ['klein', 'qwen', 'heal'])
-        result = await self.app.update_settings(self.request(), self.app.RemovalSettings(model='qwen'))
-        self.assertEqual(result['model'], 'qwen')
+        self.assertEqual([x['id'] for x in initial['models']], ['klein', 'heal'])
+        result = await self.app.update_settings(self.request(), self.app.RemovalSettings(model='klein'))
+        self.assertEqual(result['model'], 'klein')
         reloaded = self.load_backend('backend_reloaded')
-        self.assertEqual(reloaded.read_settings(), {'model': 'qwen'})
+        self.assertEqual(reloaded.read_settings(), {'model': 'klein'})
         self.assertEqual(list(self.app.ROOT.glob('settings-*.tmp')), [])
+
+    async def test_old_qwen_setting_migrates_to_flux(self):
+        (self.app.ROOT / 'settings.json').write_text('{"model":"qwen"}', encoding='utf-8')
+        self.assertEqual(self.app.read_settings(), {'model': 'klein'})
+        with self.assertRaises(ValidationError):
+            self.app.RemovalSettings(model='qwen')
+        with self.assertRaises(ValidationError):
+            self.app.RemoveRequest(mask='unused', revision=0, model='qwen')
 
     async def test_unknown_models_are_rejected(self):
         with self.assertRaises(ValidationError):
@@ -112,7 +118,7 @@ class BackendSettingsTests(unittest.IsolatedAsyncioTestCase):
             self.app.RemoveRequest(mask='unused', revision=0, model='untrusted-workflow')
 
     async def test_settings_writes_require_csrf_and_local_origin(self):
-        payload = self.app.RemovalSettings(model='qwen')
+        payload = self.app.RemovalSettings(model='klein')
         for request in (self.request(token=False), self.request(origin='https://outside.example')):
             with self.assertRaises(HTTPException) as rejected:
                 await self.app.update_settings(request, payload)
@@ -120,39 +126,39 @@ class BackendSettingsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.app.read_settings()['model'], 'klein')
 
     async def test_unavailable_models_do_not_overwrite_settings(self):
-        self.options[1].update(available=False, reason='Qwen model files are still downloading.')
+        self.options[0].update(available=False, reason='FLUX model files are still downloading.')
         with self.assertRaises(HTTPException) as rejected:
-            await self.app.update_settings(self.request(), self.app.RemovalSettings(model='qwen'))
+            await self.app.update_settings(self.request(), self.app.RemovalSettings(model='klein'))
         self.assertEqual(rejected.exception.status_code, 409)
         self.assertIn('downloading', rejected.exception.detail)
         self.assertEqual(self.app.read_settings()['model'], 'klein')
         session = self.session()
         with self.assertRaises(HTTPException) as removal:
-            await self.app.remove(session['id'], self.request(), self.remove_payload('qwen'))
+            await self.app.remove(session['id'], self.request(), self.remove_payload('klein'))
         self.assertEqual(removal.exception.status_code, 409)
         self.models.run_local_removal.assert_not_called()
 
-    async def test_backend_down_preserves_qwen_choice_and_reason(self):
-        await self.app.update_settings(self.request(), self.app.RemovalSettings(model='qwen'))
-        self.options[1].update(available=False, reason='Qwen model files are missing.')
+    async def test_backend_down_preserves_flux_choice_and_reason(self):
+        await self.app.update_settings(self.request(), self.app.RemovalSettings(model='klein'))
+        self.options[0].update(available=False, reason='FLUX model files are missing.')
         before = (self.app.ROOT / 'settings.json').read_bytes()
         with patch.object(self.app.aiohttp, 'ClientSession', side_effect=OSError('offline')):
             result = await self.app.status(self.request())
         self.assertFalse(result['ready'])
-        self.assertEqual(result['model_id'], 'qwen')
-        self.assertEqual(result['model'], 'Qwen Object Removal')
+        self.assertEqual(result['model_id'], 'klein')
+        self.assertEqual(result['model'], 'FLUX.2 Klein 4B Object Removal')
         self.assertIn('missing', result['reason'])
         self.assertEqual((self.app.ROOT / 'settings.json').read_bytes(), before)
-        self.assertEqual((await self.app.get_settings(self.request()))['model'], 'qwen')
+        self.assertEqual((await self.app.get_settings(self.request()))['model'], 'klein')
 
     async def test_explicit_model_routes_standalone_and_preserves_layers(self):
         session = self.session()
-        result = await self.app.remove(session['id'], self.request(), self.remove_payload('qwen'))
-        self.assertEqual(self.models.run_local_removal.await_args.args[3], 'qwen')
+        result = await self.app.remove(session['id'], self.request(), self.remove_payload('klein'))
+        self.assertEqual(self.models.run_local_removal.await_args.args[3], 'klein')
         self.engine.run_inpaint.assert_not_called()
         self.assertEqual(self.app.read_settings()['model'], 'klein')
         layer = result['layers'][0]
-        self.assertEqual((layer['model'], layer['model_label']), ('qwen', 'Qwen Object Removal'))
+        self.assertEqual((layer['model'], layer['model_label']), ('klein', 'FLUX.2 Klein 4B Object Removal'))
         self.assertEqual(result['revision'], 1)
         rendered = np.asarray(self.app.render(result))
         np.testing.assert_array_equal(rendered[0, 0], (20, 30, 40))
@@ -162,20 +168,20 @@ class BackendSettingsTests(unittest.IsolatedAsyncioTestCase):
         np.testing.assert_array_equal(np.asarray(self.app.render(hidden)),
                                       np.full((12, 12, 3), (20, 30, 40), dtype=np.uint8))
 
-    async def test_queued_request_snapshots_saved_model_before_settings_change(self):
+    async def test_queued_request_uses_saved_flux_model(self):
         session = self.session()
         await self.main.generation_lock.acquire()
         task = asyncio.create_task(self.app.remove(session['id'], self.request(), self.remove_payload()))
         await asyncio.sleep(0)
         self.assertFalse(task.done())
-        await self.app.update_settings(self.request(), self.app.RemovalSettings(model='qwen'))
+        await self.app.update_settings(self.request(), self.app.RemovalSettings(model='klein'))
         self.main.generation_lock.release()
         result = await task
         self.assertEqual(self.models.run_local_removal.await_args.args[3], 'klein')
         self.assertEqual(result['layers'][0]['model'], 'klein')
-        self.assertEqual(self.app.read_settings()['model'], 'qwen')
+        self.assertEqual(self.app.read_settings()['model'], 'klein')
 
-    async def test_qwen_route_keeps_tiff_precision_profile_and_original(self):
+    async def test_flux_route_keeps_tiff_precision_profile_and_original(self):
         source = self.directory / 'source16.tif'
         raw = (np.arange(12 * 12 * 3, dtype=np.uint16).reshape(12, 12, 3) * 101 + 3)
         profile = self.app.SRGB.tobytes()
@@ -183,7 +189,7 @@ class BackendSettingsTests(unittest.IsolatedAsyncioTestCase):
                                   extratags=[(34675, 'B', len(profile), profile, False)])
         original_bytes = source.read_bytes()
         session = self.app.create_session(source, source.name)
-        result = await self.app.remove(session['id'], self.request(), self.remove_payload('qwen'))
+        result = await self.app.remove(session['id'], self.request(), self.remove_payload('klein'))
         flattened = self.directory / 'flattened.tif'
         self.app.flatten(result, flattened)
         with self.app.tifffile.TiffFile(flattened) as image:
