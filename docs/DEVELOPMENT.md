@@ -56,6 +56,7 @@ Run from the repository root:
 
 ```powershell
 .\.venv\Scripts\python.exe tests\test_app_paths.py
+.\.venv\Scripts\python.exe tests\test_frontend_render.py
 .\.venv\Scripts\python.exe tests\test_layer_projects.py
 .\.venv\Scripts\python.exe tests\texture\test_backend_texture.py
 .\.venv\Scripts\python.exe tests\texture\test_fast_inpaint.py
@@ -64,6 +65,21 @@ node tests\test_ui_projects_layers.cjs
 ```
 
 The Python tests create isolated temporary data. An optional historical photo comparison is skipped when its private fixture is absent.
+
+For browser acceptance, start the development server above with an isolated data
+folder, then install the optional test driver and run the browser suite:
+
+```powershell
+npm install --no-save --package-lock=false playwright@1.62.1
+node tests\test_ui_browser.cjs
+```
+
+The browser suite uses installed Microsoft Edge in headless mode. It creates a
+synthetic image, applies real local texture repair, compares layers, exports an
+image and editable project, and checks keyboard operation and narrow layouts.
+Screenshots and downloads go into ignored `qa-artifacts/` (or the directory
+passed as the first argument). It does not contact an AI model or use personal
+photos. These are automated checks, not human usability-study results.
 
 For a packaged smoke test, set an isolated data folder, start the native host with `--no-open`, then run:
 
@@ -74,6 +90,14 @@ For a packaged smoke test, set an isolated data folder, start the native host wi
 The smoke test uses a generated 16-bit TIFF, runs both healing modes, saves an editable project, verifies the original is unchanged, and checks that unauthenticated runtime changes are rejected. It needs a running test backend and writes only beneath the specified test profile. Run it promptly after starting the host or keep a desktop window open to renew the service heartbeat.
 
 ## Runtime layout
+
+The editor sources are split between `backend/local_remove.html` (markup),
+`backend/frontend/editor.css` (presentation), and `backend/frontend/editor.js`
+(interaction). `local_remove_frontend.py` assembles these local resources for each
+`/remove` response, with the request nonce and current session token. This keeps
+the existing Content Security Policy and desktop trusted-page boundary intact;
+there is no frontend build step or remote asset dependency. The installer bundles
+the `frontend` directory alongside the markup.
 
 `backend/app_paths.py` owns the user data layout. Code and bundled resources are read from the installation; mutable workflow settings are copied into AppData once and preserved across updates. Recovery sessions are separate from disposable caches. `LOCAL_REMOVE_DATA_DIR` is a development override; normal installations use the current user's `%LOCALAPPDATA%\Local Remove`.
 

@@ -7,6 +7,7 @@ from PyInstaller.utils.hooks import collect_all, copy_metadata
 root = Path(SPECPATH).parent
 backend = root / 'backend'
 datas = [(str(backend / 'local_remove.html'), '.'),
+         (str(backend / 'frontend'), 'frontend'),
          (str(backend / 'workflow.json'), '.'),
          (str(backend / 'licenses'), 'licenses'),
          (str(backend / 'LICENSE'), '.'),

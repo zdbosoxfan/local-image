@@ -4,7 +4,7 @@ const vm=require('node:vm');
 const assert=require('node:assert/strict');
 const path=require('node:path');
 const html=fs.readFileSync(path.join(__dirname,'..','backend','local_remove.html'),'utf8');
-const source=html.match(/<script nonce="__NONCE__">([\s\S]*?)<\/script>/)[1].replace(/\ninit\(\);\s*$/,'');
+const source=fs.readFileSync(path.join(__dirname,'..','backend','frontend','editor.js'),'utf8').replace(/\ninit\(\);\s*$/,'');
 
 class Emitter {
   constructor(){this.listeners={};}
@@ -83,6 +83,7 @@ const state=()=>JSON.parse(run('JSON.stringify({zoom:photoZoom(),panX,panY,point
 const nearly=(a,b)=>assert.ok(Math.abs(a-b)<1e-8,`${a} differs from ${b}`);
 
 async function main(){
+  assert.equal(run('operation'),'heal','First use defaults to local healing without an AI connection');
   run(`session={id:'test',width:6000,height:4000,name:'Test',revision:0,layers:[]}; setSizes(3000,2000);`);
   assert.ok(state().zoom<.2,'Fit uses actual-photo pixels');
   run('setPhotoZoom(1)');nearly(run('zoom'),2);assert.equal(elements.get('zoom').value,'1');
@@ -136,7 +137,7 @@ async function main(){
   elements.get('model').value='qwen';await elements.get('model').onchange();
   assert.equal(run('modelId'),'qwen');assert.equal(run('requests[0].method'),'PATCH');
   assert.equal(run('requests[0].body.model'),'qwen');
-  run('ready=true;hasSelection=true;');await elements.get('remove').onclick();
+  run('setOperation("ai");ready=true;hasSelection=true;');await elements.get('remove').onclick();
   assert.equal(run('requests[1].body.model'),'qwen','Removal uses the selected model');
   run('setBusy(true)');assert.equal(elements.get('settings').disabled,true);assert.equal(elements.get('model').disabled,true);
   run('setBusy(false)');
@@ -145,7 +146,7 @@ async function main(){
   elements.get('mode-heal').onclick();
   assert.deepEqual(state().points,[{x:25,y:50},{x:75,y:100}],'Changing editing operation preserves the unfinished pen path');
   assert.equal(elements.get('remove').disabled,false,'Local healing works while the GPU is offline');
-  assert.equal(elements.get('remove').textContent,'Heal');
+  assert.equal(elements.get('remove').textContent,'Heal selection');
   assert.equal(elements.get('model').options.some(option=>option.value==='heal'),false,'Quick Heal is separate from the saved AI model selector');
   assert.equal(run('modelId'),'qwen');assert.equal(run('requests.length'),2,'Switching operation does not change persisted AI settings');
   run('handActive=true;updateToolChrome()');key('KeyJ','j');
@@ -225,7 +226,7 @@ async function main(){
   assert.match(elements.get('output-format').options.find(option=>option.value==='png').textContent,/8-bit/);
   await run('save("unique")');assert.equal(run('navRequests.at(-1).body.mode'),'unique');assert.equal(run('navRequests.at(-1).body.format'),'png');assert.equal(state().paint,7);
   // All overwrite entry points pause before any write; cancel and dialog keys retain the working selection.
-  assert.match(html,/>Save Overwrite<\/button>/);assert.match(html,/>Save Overwrite…<\/span>/);assert.match(html,/>Save Unique<\/button>/);
+  assert.match(html,/>Overwrite…<\/button>/);assert.match(html,/>Overwrite original…<\/span>/);assert.match(html,/>Save a copy<\/button>/);
   run('loadOverwritePreference()');assert.equal(run('askBeforeOverwrite'),true);
   const beforeConfirm=run('navRequests.length'),selectionBeforeConfirm=state();
   const pendingCancel=elements.get('document-save').onclick();
@@ -302,6 +303,29 @@ async function main(){
   assert.equal(run('healMethod'),'telea');assert.deepEqual(state().points,methodSelection,'Changing heal method preserves selection');
   const maskBeforeMethodKey=state().paint;key('BracketRight',']',elements.get('heal-method'));assert.equal(state().paint,maskBeforeMethodKey,'Method dropdown keys do not paint');
   run('setBusy(true)');assert.equal(elements.get('heal-method').disabled,true);run('setBusy(false)');
+  run('points=[];showOriginal=false;hasSelection=true;controls()');
+  assert.equal(run('workflowState().status'),'Selection ready');
+  assert.equal(storage.get('local-remove-operation'),'heal','Explicit method choice is remembered');
+  run('setOperation("ai");ready=false;controls()');
+  assert.equal(run('workflowState().status'),'AI connection needed');
+  assert.equal(elements.get('remove').disabled,true);
+  assert.equal(run('hasSelection'),true,'Unavailable AI preserves the selection');
+  run('setOperation("heal");showOriginal=true;controls()');
+  assert.equal(run('workflowState().status'),'Original view');
+  assert.equal(elements.get('before').textContent,'Back to edits');
+  assert.equal(elements.get('remove').disabled,true,'Original comparison cannot apply edits');
+  key('Backslash','\\');assert.equal(run('showOriginal'),false);
+  run('activeTask="repair";setBusy(true)');
+  assert.equal(run('workflowState().title'),'Repairing your selection');
+  assert.equal(elements.get('viewport').attributes['aria-busy'],'true');
+  run('activeTask=null;setBusy(false)');
+  run('showOriginal=false;points=[{x:10,y:10},{x:20,y:20}];controls();selectTool("rectangle")');
+  assert.notEqual(run('workflowState().title'),'Finish your selection','Changing tools clears obsolete path guidance immediately');
+  run('models=models.filter(model=>model.id!=="heal");models.push({id:"heal",methods:[{id:"texture",available:false},{id:"telea",available:true}]});healMethod="texture";hasSelection=true;controls()');
+  assert.equal(elements.get('remove').disabled,true,'A missing texture helper is unavailable before submission');
+  assert.match(run('workflowState().description'),/Dust & scratches/,'Unavailable texture offers the installed alternative');
+  run('healMethod="telea";controls()');
+  assert.equal(elements.get('remove').disabled,false,'The installed dust repair method remains available');
   console.log('PASS: camera/pan/pen and AI/Heal regressions; native-pixel brush ring and bracket keys; two-image selection/undo/view preservation; navigation failure and busy guards; merge preservation; unique/overwrite/export formats and save errors; overwrite confirmation across buttons/keyboard, Cancel/Escape, modal isolation, copy routing, opt-out persistence and Settings reset; native File-object bridge; browser drop fallback; folder/save shortcuts.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

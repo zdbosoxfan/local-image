@@ -29,6 +29,7 @@ from engine import config
 from local_removal_models import model_options as ai_model_options, run_local_removal
 from fast_inpaint import heal_image, heal_option
 from local_remove_project import write_project, extract_project, MAX_TOTAL
+from local_remove_frontend import render_editor
 from app_paths import APP_VERSION, cache_dir, data_root, read_config, state_dir
 
 router = APIRouter()
@@ -428,8 +429,7 @@ def flatten(data, target, allow_8bit=False):
 async def page(request:Request):
     guard(request)
     nonce=secrets.token_urlsafe(24)
-    html=Path(__file__).with_name('local_remove.html').read_text(encoding='utf-8')
-    return HTMLResponse(html.replace('__NONCE__',nonce).replace('__TOKEN__',CSRF),headers={**HEADERS,
+    return HTMLResponse(render_editor(nonce,CSRF),headers={**HEADERS,
         'X-Frame-Options':'DENY','Referrer-Policy':'no-referrer',
         'Content-Security-Policy':f"default-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'nonce-{nonce}'; script-src 'nonce-{nonce}'; img-src 'self' blob: data:; connect-src 'self'; form-action 'self'"})
 

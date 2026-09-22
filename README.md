@@ -6,6 +6,17 @@ Local Remove helps you remove unwanted objects and repair small distractions in 
 
 The Windows installer includes the application, Python runtime, and healing tools. You do not need ChatGPT, Codex, a source checkout, or a separate Python installation to use it.
 
+## Interface preview
+
+The refreshed interface is available in this development branch. The 0.2.0
+installer linked below still has the previous interface.
+
+![Local Remove photo workspace](docs/images/editor-empty.png)
+
+The editor groups repair controls beside the photo, starts with local Quick Heal,
+and keeps image copies separate from editable projects. See the
+[design review](docs/UI-DESIGN.md) and [validation notes](docs/UI-VALIDATION.md).
+
 ## Install
 
 1. Open [Releases](https://github.com/zdbosoxfan/local-remove/releases) and download **Local-Remove-Setup-0.2.0.exe**.
@@ -27,8 +38,8 @@ Quick Heal is included and works without ComfyUI or model downloads. To enable A
 | Save option | What it keeps |
 | --- | --- |
 | **Save Project** | The original and applied layers in an editable `.lremove` file. |
-| **Save Unique** | A separate flattened image beside the source file. |
-| **Save Overwrite** | A flattened result that replaces the source image. |
+| **Save a copy** | A separate flattened image beside the source file. |
+| **Overwrite original** | A flattened result that replaces the source image. |
 | **Export** | A flattened image saved through a save dialog. |
 
 Layers can be hidden, discarded, or merged into a new layer. Save an editable project to continue retouching later. Unapplied brush selections and unfinished pen paths are not included in projects.
@@ -60,7 +71,7 @@ ComfyUI must support the workflow nodes used by the selected model. The workflow
 
 ### Use with Capture One
 
-Choose **Edit With** in Capture One and select the installed `Local Remove.exe`. Send a rendered TIFF or JPEG. After editing, use **Save Overwrite** to update that rendered file. Also use **Save Project** if you want to retain the editable Local Remove layers.
+Choose **Edit With** in Capture One and select the installed `Local Remove.exe`. Send a rendered TIFF or JPEG. After editing, use **Overwrite original** to update that rendered file. Also use **Save Project** if you want to retain the editable Local Remove layers.
 
 The default executable location is `%LOCALAPPDATA%\Programs\Local Remove\Local Remove.exe`.
 
@@ -97,7 +108,7 @@ If you used the earlier Documents-based version, save its unfinished work as `.l
 | AI Remove is unavailable | Start ComfyUI, confirm its port in **AI connection**, and check the selected model files. Quick Heal remains available. |
 | Texture repair is unavailable | Re-run the installer to restore the bundled helper and dependencies. |
 | The editor window cannot load | Re-run setup and confirm Microsoft WebView2 installed successfully. Details are saved in the app's `logs` folder. |
-| Save Unique or Save Overwrite is unavailable | Open the image through the desktop app's native file/folder picker or Explorer drag-and-drop. |
+| Save a copy or Overwrite original is unavailable | Open the image through the desktop app's native file/folder picker or Explorer drag-and-drop. |
 | An exported image has no editable layers | Open the `.lremove` project. JPEG, PNG, TIFF, and WebP exports are flattened. |
 
 ## Development and backup
