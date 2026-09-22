@@ -59,9 +59,12 @@ function controls(){
   $('model').disabled=busy||settingsSaving||!settingsLoaded;
   $('remove').disabled=!active||!operationReady()||!hasSelection||showOriginal||settingsSaving;
   $('remove').classList.toggle('busy',busy);
-  $('remove').textContent=busy?'Working…':operation==='heal'?'Heal selection':'Remove selection';
+  $('remove').textContent=busy?'Working…':operation==='heal'?'Heal':'Remove';
   $('edit-action-label').textContent=operation==='heal'?'Heal selected area':'Remove selected area';
   $('undo').disabled=!active||(!undo.length&&!points.length);
+  $('clear').disabled=!active||(!hasSelection&&!points.length);
+  $('finish').disabled=!active||points.length<3;
+  $('merge').disabled=!active||!session.layers?.some(layer=>layer.visible&&!layer.discarded);
   $('return').hidden=!session?.can_return;
   $('save-unique').hidden=!session?.can_return;
   $('document-save').hidden=!session?.can_return;$('document-unique').hidden=!session?.can_return;
@@ -72,8 +75,21 @@ function controls(){
   for(const button of document.querySelectorAll('[data-folder-entry]'))button.disabled=busy;
   for(const button of document.querySelectorAll('#recent button,#layers button,#layers input'))button.disabled=busy;
   $('restore').disabled=busy;
-  for(const command of document.querySelectorAll('[data-command]'))command.disabled=$(command.dataset.command).disabled;
+  for(const command of document.querySelectorAll('[data-command]')){
+    const source=$(command.dataset.command);command.disabled=source.disabled;
+    if(command.dataset.command==='before')command.setAttribute('aria-checked',String(showOriginal));
+  }
+  for(const command of document.querySelectorAll('[data-needs-photo]'))if(!session)command.disabled=true;
+  updateContextualControls();
   updateDocumentState();updateBrushCursor();updateWorkflowChrome();
+}
+function updateContextualControls(){
+  const context={photo:!!session,selection:!!session&&(hasSelection||points.length>0),
+    layers:!!session?.layers?.some(layer=>!layer.discarded),pen:!!session&&tool==='pen'&&points.length>0&&!handActive,
+    brush:!!session&&tool==='brush'&&!handActive};
+  for(const element of document.querySelectorAll('[data-context]'))element.hidden=!context[element.dataset.context];
+  const repairControls=document.querySelector?.('.context-actions');
+  if(repairControls)repairControls.hidden=handActive;
 }
 
 // One derived view of the editing workflow keeps guidance, readiness, and the
@@ -121,9 +137,16 @@ function updateDocumentState(){
     const labels={original:'Original',png:'PNG',jpg:'JPEG',tif:'TIFF',webp:'WebP'};
     option.textContent=labels[option.value]+(session?.bit_depth===16&&option.value!=='original'?(option.value==='tif'?' (16-bit)':' (8-bit)'):'');
   }
+  for(const item of document.querySelectorAll('[data-output-format]')){
+    item.setAttribute('aria-checked',String(item.dataset.outputFormat===outputFormat));item.disabled=busy;
+    item.textContent=[...$('output-format').options].find(option=>option.value===item.dataset.outputFormat)?.textContent||item.textContent;
+  }
   $('format-hint').textContent='Save a copy and Export use this format. Overwrite keeps '+suffix+'.'+(session?.bit_depth===16&&['png','jpg','webp'].includes(outputFormat)?' This copy will be 8-bit.':'');
 }
 $('output-format').onchange=()=>{outputFormat=$('output-format').value;try{localStorage.setItem('local-remove-copy-format',outputFormat);}catch{}updateDocumentState();};
+for(const item of document.querySelectorAll('[data-output-format]'))item.onclick=()=>{
+  $('output-format').value=item.dataset.outputFormat;$('output-format').onchange();closeMenus();
+};
 
 // Keep selections and view state per image; compressed snapshots avoid retaining full raw pixel buffers.
 function rememberCurrentView(){
@@ -150,7 +173,7 @@ function collectionEntryState(entry){
   return entry.edited?'Edited':'Original';
 }
 function renderCollection(scrollActive=false){
-  $('folder-panel').hidden=!collection;
+  $('folder-panel').hidden=!collection||collection.entries.length<=1;
   if(!collection){$('filmstrip').replaceChildren();return;}
   $('folder-name').textContent=collection.name;$('folder-name').title=collection.local?'Browser upload copies; export downloads a new file.':collection.name;
   $('folder-count').textContent=(collectionIndex+1)+' / '+collection.entries.length;
@@ -473,22 +496,22 @@ function selectTool(value){
   endGesture();
   if(tool!==value){points=[];$('finish').hidden=true;dc.clearRect(0,0,draft.width,draft.height);}
   tool=value;handActive=false;updateToolChrome();
-  $('tool-hint').textContent=tool==='pen'?'Click points; Enter closes the path.':tool==='brush'?(operation==='heal'?healHint():'Brush over the object and its shadow.'):'Drag to select. Selections add together.';
+  $('tool-hint').textContent=tool==='pen'?'Click to add points · Enter to close':tool==='brush'?(operation==='heal'?healHint():'Brush to select · Subtract to erase'):'Drag to select · Subtract to erase';
   controls();
 }
 function setOperation(value){
   if(busy||settingsSaving)return;
   endGesture();operation=value;try{localStorage.setItem('local-remove-operation',operation);}catch{}updateToolChrome();renderHealth();controls();
-  $('tool-hint').textContent=operation==='heal'?healHint():'Select an object, then click Remove.';
-  message(operation==='heal'?healHint()+' No model download.':'AI Remove · '+modelLabel());
+  $('tool-hint').textContent=operation==='heal'?healHint():'Select an object · Remove to apply';
+  message(operation==='heal'?(healMethod==='texture'?'Texture repair':'Dust & scratches'):'AI Remove · '+modelLabel());
 }
-function healHint(){return healMethod==='texture'?'Brush over a small object and its shadow. Uses nearby texture.':'Brush over dust or a thin scratch. For objects, choose Texture repair.';}
+function healHint(){return healMethod==='texture'?'Brush to select · Repairs from nearby texture':'Brush over dust or narrow scratches';}
 $('heal-method').onchange=()=>{healMethod=$('heal-method').value;try{localStorage.setItem('local-remove-heal-method',healMethod);}catch{}$('tool-hint').textContent=healHint();message(healHint());renderHealth();controls();};
 function activateSelectionTool(value){if(value==='brush')setOperation('ai');selectTool(value);}
 for(const button of document.querySelectorAll('[data-tool]'))button.onclick=()=>activateSelectionTool(button.dataset.tool);
 $('mode-ai').onclick=()=>setOperation('ai');$('mode-heal').onclick=()=>setOperation('heal');
 $('heal-brush').onclick=()=>{setOperation('heal');selectTool('brush');};
-$('hand').onclick=()=>{endGesture();handActive=!handActive;if(points.length)penDraft();updateToolChrome();};
+$('hand').onclick=()=>{endGesture();handActive=!handActive;if(points.length)penDraft();updateToolChrome();controls();};
 function selectionMode(value){subtract=value;$('subtract').setAttribute('aria-pressed',String(subtract));$('add').setAttribute('aria-pressed',String(!subtract));}
 $('subtract').onclick=()=>selectionMode(true);$('add').onclick=()=>selectionMode(false);
 $('size').oninput=()=>setBrushSize(Number($('size').value));
@@ -516,6 +539,11 @@ document.addEventListener('keydown',event=>{
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'&&session){
     event.preventDefault();if(!busy){closeMenus();$(session.can_return?(event.shiftKey?'save-unique':'return'):'save').click();}return;
   }
+  if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='o'){event.preventDefault();if(!busy){closeMenus();$(event.shiftKey?'open-folder':'open').click();}return;}
+  if(menuOpen&&(event.ctrlKey||event.metaKey)){
+    const command=event.key.toLowerCase()==='z'?'undo':event.altKey&&event.shiftKey&&event.key.toLowerCase()==='e'?'merge':null;
+    if(command){event.preventDefault();closeMenus();$(command).click();return;}
+  }
   const rangeBracket=event.target===$('size')&&['[',']'].includes(event.key);
   // Space/Enter activate focused buttons and links. Canvas shortcuts must not
   // consume those native actions or start a pan while keyboard users operate UI.
@@ -523,7 +551,6 @@ document.addEventListener('keydown',event=>{
   const folderTarget=event.target instanceof Element&&!!event.target.closest('[data-folder-entry]');
   if(menuOpen||modalOpen()||(textEntry(event.target)&&!rangeBracket&&!folderTarget))return;
   if(folderTarget&&event.code==='Space')return;
-  if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='o'){event.preventDefault();if(!busy)$(event.shiftKey?'open-folder':'open').click();return;}
   if(!session)return;
   if(event.code==='Space'&&!event.ctrlKey&&!event.metaKey&&!event.altKey){
     event.preventDefault();
@@ -574,51 +601,146 @@ window.addEventListener('blur',resetTransientInput);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)resetTransientInput();});
 
 // Application menus use actual commands and retain selections while open.
-function closeMenus(restoreFocus=false){
-  if(!menuOpen)return;
-  const trigger=menuOpen;$(trigger.dataset.menu).hidden=true;trigger.setAttribute('aria-expanded','false');menuOpen=null;
-  if(restoreFocus)trigger.focus();else viewport.focus({preventScroll:true});
+let menuReturnFocus=null,menuTypeahead='',menuTypeaheadTime=0,menuAltPressed=false,submenuOpen=null;
+function closeSubmenu(restoreFocus=false){
+  if(!submenuOpen)return;
+  const summary=submenuOpen.querySelector('summary');submenuOpen.open=false;submenuOpen=null;
+  summary.setAttribute('aria-expanded','false');menuTypeahead='';
+  if(restoreFocus)summary.focus();
 }
-function menuItems(){return menuOpen?[...$(menuOpen.dataset.menu).querySelectorAll('button:not(:disabled)')].filter(button=>!button.hidden):[];}
+function closeMenus(restoreFocus=false,keepFocus=false){
+  if(!menuOpen)return;
+  closeSubmenu();
+  const trigger=menuOpen;$(trigger.dataset.menu).hidden=true;trigger.setAttribute('aria-expanded','false');menuOpen=null;
+  menuTypeahead='';
+  if(restoreFocus)trigger.focus();else if(!keepFocus&&!modalOpen())viewport.focus({preventScroll:true});
+  updateBrushCursor();
+}
+function menuItems(scope=null){
+  if(!menuOpen)return [];
+  const focusedSubmenu=document.activeElement?.closest('.submenu');
+  scope=scope||(submenuOpen&&focusedSubmenu===submenuOpen.querySelector('.submenu')?focusedSubmenu:$(menuOpen.dataset.menu));
+  return [...scope.querySelectorAll('button:not(:disabled),summary')].filter(element=>{
+    if(element.closest('[hidden]'))return false;
+    return scope.classList.contains('submenu')?element.closest('.submenu')===scope:!element.closest('.submenu');
+  });
+}
+function openSubmenu(foldout,focusFirst=false){
+  if(!menuOpen)return;
+  const submenu=foldout.querySelector('.submenu'),summary=foldout.querySelector('summary');
+  if(!submenu)return;
+  if(submenuOpen!==foldout)closeSubmenu();
+  submenuOpen=foldout;foldout.open=true;summary.setAttribute('aria-expanded','true');menuTypeahead='';
+  submenu.style.maxWidth=Math.max(120,window.innerWidth-12)+'px';
+  submenu.style.maxHeight=Math.max(120,window.innerHeight-12)+'px';
+  const parent=$(menuOpen.dataset.menu).getBoundingClientRect(),anchor=summary.getBoundingClientRect();
+  const width=submenu.offsetWidth,height=submenu.offsetHeight;
+  const left=parent.right+width>window.innerWidth-6?parent.left-width+1:parent.right-1;
+  submenu.style.left=Math.max(6,Math.min(left,window.innerWidth-width-6))+'px';
+  submenu.style.top=Math.max(6,Math.min(anchor.top-4,window.innerHeight-height-6))+'px';
+  if(focusFirst)menuItems(submenu)[0]?.focus();
+}
+function focusMenuItem(item){
+  if(!item)return;
+  if(submenuOpen&&!item.closest('.submenu'))closeSubmenu();
+  item.focus();
+}
+const menuTriggers=[...document.querySelectorAll('[data-menu]')];
+const menubarTriggers=menuTriggers.filter(trigger=>trigger.closest('[role="menubar"]'));
+function focusMenuTrigger(trigger){
+  if(menubarTriggers.includes(trigger))for(const item of menubarTriggers)item.tabIndex=item===trigger?0:-1;
+  trigger.focus({preventScroll:true});
+}
+function adjacentMenuTrigger(trigger,direction){
+  const current=menubarTriggers.find(item=>item.dataset.menu===trigger.dataset.menu);
+  return menubarTriggers[(menubarTriggers.indexOf(current)+direction+menubarTriggers.length)%menubarTriggers.length];
+}
 function openMenu(trigger,focusFirst=false){
-  if(modalOpen())return;
-  closeMenus();endGesture();controls();
+  if(modalOpen()||trigger.disabled)return;
+  if(!menuOpen&&!document.activeElement?.closest('.menu,[data-menu]'))menuReturnFocus=document.activeElement;
+  closeMenus(false,true);endGesture();controls();
   const menu=$(trigger.dataset.menu),rect=trigger.getBoundingClientRect();
+  for(const foldout of menu.querySelectorAll('details.menu-foldout'))foldout.open=false;
+  menu.style.maxHeight=Math.max(120,window.innerHeight-rect.bottom-8)+'px';
   menu.hidden=false;menu.style.top=(rect.bottom+2)+'px';menu.style.left=Math.max(6,Math.min(rect.left,window.innerWidth-menu.offsetWidth-6))+'px';
   menuOpen=trigger;trigger.setAttribute('aria-expanded','true');
   updateBrushCursor();
-  if(focusFirst)menuItems()[0]?.focus();
+  if(focusFirst&&menuItems().length)menuItems()[0].focus();else focusMenuTrigger(trigger);
 }
-const menuTriggers=[...document.querySelectorAll('[data-menu]')];
+for(const [index,trigger] of menubarTriggers.entries())trigger.tabIndex=index===0?0:-1;
 for(const trigger of menuTriggers){
-  trigger.onclick=()=>menuOpen===trigger?closeMenus():openMenu(trigger);
-  trigger.addEventListener('pointerenter',()=>{if(menuOpen&&menuOpen!==trigger)openMenu(trigger);});
+  trigger.onclick=()=>menuOpen===trigger?closeMenus(true):openMenu(trigger);
+  trigger.addEventListener('focus',()=>{if(menubarTriggers.includes(trigger))for(const item of menubarTriggers)item.tabIndex=item===trigger?0:-1;});
+  trigger.addEventListener('pointerenter',()=>{if(menuOpen&&menuOpen!==trigger&&menubarTriggers.includes(trigger))openMenu(trigger);});
   trigger.addEventListener('keydown',event=>{
     if(['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();event.stopPropagation();openMenu(trigger,true);if(event.key==='ArrowUp')menuItems().at(-1)?.focus();}
     if(['ArrowLeft','ArrowRight'].includes(event.key)){
-      event.preventDefault();event.stopPropagation();const index=menuTriggers.indexOf(trigger),next=menuTriggers[(index+(event.key==='ArrowRight'?1:-1)+menuTriggers.length)%menuTriggers.length];
-      if(menuOpen)openMenu(next);next.focus();
+      event.preventDefault();event.stopPropagation();const next=adjacentMenuTrigger(trigger,event.key==='ArrowRight'?1:-1);
+      if(next){if(menuOpen)openMenu(next);focusMenuTrigger(next);}
     }
   });
 }
-document.addEventListener('pointerdown',event=>{if(menuOpen&&!event.target.closest('.menu,[data-menu]'))closeMenus();});
-document.addEventListener('click',event=>{if(event.target.closest('.menu button'))closeMenus();});
+for(const foldout of document.querySelectorAll('details.menu-foldout')){
+  const summary=foldout.querySelector('summary');summary.tabIndex=-1;
+  summary.addEventListener('click',event=>{event.preventDefault();openSubmenu(foldout,true);});
+  summary.addEventListener('pointerenter',()=>openSubmenu(foldout));
+  summary.addEventListener('keydown',event=>{
+    if(['ArrowRight','Enter',' '].includes(event.key)){event.preventDefault();event.stopPropagation();openSubmenu(foldout,true);}
+  });
+}
+for(const item of document.querySelectorAll('.menu button,.menu select'))item.tabIndex=-1;
+document.addEventListener('pointerdown',event=>{if(menuOpen&&!event.target.closest('.menu,[data-menu]'))closeMenus(false,true);});
+document.addEventListener('pointerover',event=>{
+  const item=event.target.closest('.menu button,.menu summary');
+  if(submenuOpen&&item&&!item.closest('.submenu')&&item.closest('details.menu-foldout')!==submenuOpen)closeSubmenu();
+});
+// Close before dispatch so opening a dialog never loses focus back to the canvas.
+document.addEventListener('click',event=>{if(menuOpen&&event.target.closest('.menu button:not(:disabled)'))closeMenus();},true);
 document.addEventListener('keydown',event=>{
-  if(modalOpen()||!menuOpen)return;
+  if(modalOpen())return;
+  if(event.key==='Alt'){menuAltPressed=!event.ctrlKey&&!event.metaKey;return;}
+  menuAltPressed=false;
+  if(event.key==='F10'&&!event.shiftKey){
+    event.preventDefault();
+    if(menuOpen||menubarTriggers.includes(document.activeElement)){closeMenus(false,true);(menuReturnFocus||viewport).focus();}
+    else if(menubarTriggers.length){menuReturnFocus=document.activeElement;focusMenuTrigger(menubarTriggers[0]);}
+    return;
+  }
+  if(event.altKey&&!event.ctrlKey&&!event.metaKey&&event.key.length===1){
+    const trigger=menubarTriggers.find(item=>item.textContent.trim().toLowerCase().startsWith(event.key.toLowerCase()));
+    if(trigger){event.preventDefault();openMenu(trigger,true);return;}
+  }
+  if(!menuOpen){
+    if(event.key==='Escape'&&menubarTriggers.includes(document.activeElement)){event.preventDefault();(menuReturnFocus||viewport).focus();}
+    return;
+  }
   const items=menuItems(),index=items.indexOf(document.activeElement);
-  if(event.key==='Escape'){event.preventDefault();closeMenus(true);return;}
-  if(event.key==='Tab'){closeMenus();return;}
+  if(event.key==='Escape'){event.preventDefault();if(submenuOpen)closeSubmenu(true);else closeMenus(true);return;}
+  if(event.key==='Tab'){closeMenus(true);return;}
+  if(event.key==='ArrowLeft'&&submenuOpen){event.preventDefault();closeSubmenu(true);return;}
   if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){
     event.preventDefault();
-    if(event.key==='Home')items[0]?.focus();else if(event.key==='End')items.at(-1)?.focus();
-    else items[(index+(event.key==='ArrowDown'?1:-1)+items.length)%items.length]?.focus();
+    if(event.key==='Home')focusMenuItem(items[0]);else if(event.key==='End')focusMenuItem(items.at(-1));
+    else focusMenuItem(items[(index+(event.key==='ArrowDown'?1:-1)+items.length)%items.length]);
+    return;
   }
   if(['ArrowLeft','ArrowRight'].includes(event.key)&&!menuTriggers.includes(document.activeElement)){
-    event.preventDefault();const index=menuTriggers.indexOf(menuOpen);openMenu(menuTriggers[(index+(event.key==='ArrowRight'?1:-1)+menuTriggers.length)%menuTriggers.length],true);
+    event.preventDefault();const next=adjacentMenuTrigger(menuOpen,event.key==='ArrowRight'?1:-1);if(next)openMenu(next,true);return;
+  }
+  if(event.key.length===1&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&event.key!==' '){
+    event.preventDefault();const now=Date.now();menuTypeahead=now-menuTypeaheadTime<700?menuTypeahead+event.key.toLowerCase():event.key.toLowerCase();menuTypeaheadTime=now;
+    const match=prefix=>items.slice(index+1).concat(items.slice(0,index+1)).find(item=>item.textContent.trim().toLowerCase().startsWith(prefix));
+    const next=match(menuTypeahead)||match(event.key.toLowerCase());focusMenuItem(next);
   }
 });
-window.addEventListener('resize',()=>closeMenus());
-window.addEventListener('blur',()=>closeMenus());
+document.addEventListener('keyup',event=>{
+  if(event.key!=='Alt'||!menuAltPressed||modalOpen())return;
+  event.preventDefault();menuAltPressed=false;
+  if(menuOpen||menubarTriggers.includes(document.activeElement)){closeMenus(false,true);(menuReturnFocus||viewport).focus();}
+  else if(menubarTriggers.length){menuReturnFocus=document.activeElement;focusMenuTrigger(menubarTriggers[0]);}
+});
+window.addEventListener('resize',()=>closeMenus(false,true));
+window.addEventListener('blur',()=>{menuAltPressed=false;closeMenus(false,true);});
 for(const button of document.querySelectorAll('[data-command]'))button.onclick=()=>$(button.dataset.command).click();
 $('actual-size').onclick=()=>setPhotoZoom(1);
 $('model-shortcut').onclick=()=>$('settings').click();
@@ -903,7 +1025,7 @@ async function openSession(data,options={}){
 async function recent(){
   const sessions=await(await api('/api/local-remove/sessions')).json();$('recent').replaceChildren();
   for(const data of sessions.slice(0,6)){
-    const button=document.createElement('button');button.className='recent';button.textContent=data.name;button.title=data.name;button.disabled=busy;button.setAttribute('role','menuitem');
+    const button=document.createElement('button');button.className='recent';button.textContent=data.name;button.title=data.name;button.disabled=busy;button.tabIndex=-1;button.setAttribute('role','menuitem');
     button.onclick=async()=>{if(busy)return;try{await openSession(await(await api('/api/local-remove/session/'+data.id)).json());}catch(error){message(error.message,true);}};
     $('recent').append(button);
   }

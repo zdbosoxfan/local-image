@@ -131,7 +131,7 @@ internal static class LocalRemoveLauncher
                     if (!response.IsSuccessStatusCode) return false;
                     var result = Json.Deserialize<Dictionary<string, object>>(await response.Content.ReadAsStringAsync().ConfigureAwait(false));
                     return result != null && Name(result, "application", "") == "local-remove"
-                        && Name(result, "version", "") == "0.3.0"
+                        && Name(result, "version", "") == "0.3.1"
                         && String.Equals(StringValue(result, "data_root", "").TrimEnd('\\'), DataDirectory.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
                 }
             }

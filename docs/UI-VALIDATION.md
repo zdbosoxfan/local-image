@@ -1,5 +1,7 @@
 # Interface overhaul validation
 
+Historical 0.3.0 validation. Current interface changes and checks are recorded in [DESKTOP-VALIDATION.md](DESKTOP-VALIDATION.md).
+
 The overhaul was reviewed across visual design, editor architecture, interaction
 behavior, and simulated user roles. These are expert reviews and automated
 acceptance checks. No participant focus group was conducted.

@@ -46,7 +46,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\packaging\Build-Window
   -InnoCompiler 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 ```
 
-The build produces `dist/package/` and `dist/installer/Local-Remove-Setup-0.3.0.exe`, plus a SHA-256 checksum. The build downloads Microsoft's WebView2 bootstrapper and verifies its Microsoft signature. Setup invokes it only if the WebView2 Runtime is missing, following [Microsoft's deployment guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution).
+The build produces `dist/package/` and `dist/installer/Local-Remove-Setup-0.3.1.exe`, plus a SHA-256 checksum. The build downloads Microsoft's WebView2 bootstrapper and verifies its Microsoft signature. Setup invokes it only if the WebView2 Runtime is missing, following [Microsoft's deployment guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution).
 
 Build artifacts are ignored by Git. Publish the installer and checksum as GitHub release assets. Production distribution should use a code-signing certificate; the first preview is unsigned.
 
@@ -75,6 +75,8 @@ folder, then install the optional test driver and run the browser suite:
 npm install --no-save --package-lock=false playwright@1.62.1
 node tests\test_ui_browser.cjs
 ```
+
+Set `LOCAL_REMOVE_TEST_URL` to an isolated development server URL when the installed app is already using port 51247. For example, use `http://127.0.0.1:51248` with a separate `LOCAL_REMOVE_DATA_DIR`. The browser test creates synthetic images and checks repair, export, projects, desktop menus, and four desktop window sizes.
 
 The browser suite uses installed Microsoft Edge in headless mode. It creates a
 synthetic image, applies real local texture repair, compares layers, exports an

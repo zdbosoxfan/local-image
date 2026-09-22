@@ -11,7 +11,7 @@
 [Setup]
 AppId=LocalRemove.Windows
 AppName=Local Remove
-AppVersion=0.3.0
+AppVersion=0.3.1
 AppPublisher=Local Remove
 AppPublisherURL=https://github.com/zdbosoxfan/local-remove
 DefaultDirName={localappdata}\Programs\Local Remove
@@ -21,7 +21,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputDir={#InstallerDir}
-OutputBaseFilename=Local-Remove-Setup-0.3.0
+OutputBaseFilename=Local-Remove-Setup-0.3.1
 SetupIconFile=..\desktop\icon\local-remove.ico
 UninstallDisplayIcon={app}\Local Remove.exe
 Compression=lzma2

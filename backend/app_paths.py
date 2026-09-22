@@ -6,7 +6,7 @@ import shutil
 import time
 import uuid
 
-APP_VERSION = '0.3.0'
+APP_VERSION = '0.3.1'
 APP_PORT = 51247
 RESOURCE_DIR = Path(__file__).resolve().parent
 

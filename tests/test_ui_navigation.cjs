@@ -61,12 +61,14 @@ for(const value of [.1,.25,.5,1,2,4]){const option=new Element('option');option.
 for(const value of ['original','png','jpg','tif','webp']){const option=new Element('option');option.value=value;elements.get('output-format').append(option);}
 elements.get('size').value='50';
 const buttons=['brush','pen','rectangle','ellipse'].map(tool=>{const button=new Element('button');button.dataset={tool};return button;});
+const repairControls=new Element('div'),penContext=new Element('button');penContext.dataset.context='pen';
 const document=new Emitter();
 document.getElementById=id=>elements.get(id);
 document.createElement=tag=>new Element(tag);
 document.createElementNS=(namespace,tag)=>new Element(tag);
 document.createTextNode=text=>({textContent:text});
-document.querySelectorAll=selector=>selector==='[data-tool]'?buttons:selector==='[data-command]'?[...elements.values()].filter(element=>element.dataset.command):[];
+document.querySelector=selector=>selector==='.context-actions'?repairControls:null;
+document.querySelectorAll=selector=>selector==='[data-tool]'?buttons:selector==='[data-command]'?[...elements.values()].filter(element=>element.dataset.command):selector==='[data-context]'?[penContext]:[];
 const window=new Emitter();
 const storage=new Map();
 const context=vm.createContext({document,window,Element,ResizeObserver:class{constructor(callback){this.callback=callback;}observe(){}},
@@ -125,9 +127,13 @@ async function main(){
   key('Space',' ');assert.equal(state().spaceHeld,false,'Dialog keyboard input does not reach the photo');
   elements.get('settings-dialog').open=false;
   elements.get('hand').onclick();assert.equal(run('handActive'),true);
+  assert.equal(repairControls.hidden,true,'Hand mode hides repair settings and Apply');
+  assert.equal(penContext.hidden,true,'Hand mode immediately hides pen-only commands');
   pointer('pointerdown',400,300);pointer('pointermove',460,340);pointer('pointerup',460,340);
   assert.deepEqual(state().points,savedPen,'Persistent Hand tool also retains the pen path');
   run('selectTool("pen")');assert.equal(run('handActive'),false);assert.deepEqual(state().points,savedPen);
+  assert.equal(repairControls.hidden,false,'Returning to a selection tool restores repair controls');
+  assert.equal(penContext.hidden,false,'The retained pen path restores its contextual command');
   elements.get('zoom').value='1';elements.get('zoom').onchange();assert.equal(document.activeElement,viewport,'Selecting a zoom level returns keyboard focus to the canvas');
 
   // Exercise the actual settings handler and removal payload with in-memory API responses.
@@ -144,7 +150,7 @@ async function main(){
   elements.get('mode-heal').onclick();
   assert.deepEqual(state().points,[{x:25,y:50},{x:75,y:100}],'Changing editing operation preserves the unfinished pen path');
   assert.equal(elements.get('remove').disabled,false,'Local healing works while the GPU is offline');
-  assert.equal(elements.get('remove').textContent,'Heal selection');
+  assert.equal(elements.get('remove').textContent,'Heal');
   assert.equal(elements.get('model').options.some(option=>option.value==='heal'),false,'Quick Heal is separate from the saved AI model selector');
   assert.equal(run('modelId'),'klein');assert.equal(run('requests.length'),1,'Switching operation does not change persisted AI settings');
   run('handActive=true;updateToolChrome()');key('KeyJ','j');
@@ -203,6 +209,12 @@ async function main(){
          throw Error('Unexpected test endpoint '+path);
        };`);
   await run('openSession(photoA,{collection:folder,index:0})');
+  assert.equal(elements.get('folder-panel').hidden,false,'Multiple images show folder navigation');
+  run('collection={...folder,entries:[folder.entries[0]]};renderCollection()');
+  assert.equal(elements.get('folder-panel').hidden,true,'A single photo does not show a redundant folder row');
+  assert.equal(run('session.id'),'a','Hiding a single-photo folder row preserves the open document');
+  run('collection=folder;renderCollection()');
+  assert.equal(elements.get('folder-panel').hidden,false,'Folder navigation returns for multiple images');
   run(`mask.paints=7;hasSelection=true;undo=[mask.toDataURL('image/png')];points=[{x:120,y:160},{x:280,y:240}];tool='pen';setPhotoZoom(.8);panX=-420;panY=-310;applyCamera();`);
   const aState=state();
   await run('openCollectionEntry(1)');assert.equal(run('session.id'),'b');assert.equal(run('hasSelection'),false);assert.deepEqual(state().points,[]);
@@ -224,7 +236,7 @@ async function main(){
   assert.match(elements.get('output-format').options.find(option=>option.value==='png').textContent,/8-bit/);
   await run('save("unique")');assert.equal(run('navRequests.at(-1).body.mode'),'unique');assert.equal(run('navRequests.at(-1).body.format'),'png');assert.equal(state().paint,7);
   // All overwrite entry points pause before any write; cancel and dialog keys retain the working selection.
-  assert.match(html,/>Overwrite…<\/button>/);assert.match(html,/>Overwrite original…<\/span>/);assert.match(html,/>Save a copy<\/button>/);
+  assert.match(html,/>Overwrite original…<\/span>/);assert.match(html,/>Save a copy<\/span>/);
   run('loadOverwritePreference()');assert.equal(run('askBeforeOverwrite'),true);
   const beforeConfirm=run('navRequests.length'),selectionBeforeConfirm=state();
   const pendingCancel=elements.get('document-save').onclick();

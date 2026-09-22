@@ -28,105 +28,105 @@
 <symbol id="i-next" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
 </defs></svg>
 <header class="menubar">
-  <div class="brand"><svg class="brand-mark" viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M17 5H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="m5 18 6-6 7 7 5-5M18 5h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="app-name">Local Remove</span></div>
+  <div class="brand"><span class="app-name">Local Remove</span></div>
   <nav class="menu-navigation" role="menubar" aria-label="Application menu">
     <button class="menu-trigger" id="file-menu-trigger" data-menu="file-menu" role="menuitem" aria-haspopup="menu" aria-expanded="false">File</button>
     <button class="menu-trigger" id="edit-menu-trigger" data-menu="edit-menu" role="menuitem" aria-haspopup="menu" aria-expanded="false">Edit</button>
+    <button class="menu-trigger" id="layer-menu-trigger" data-menu="layer-menu" role="menuitem" aria-haspopup="menu" aria-expanded="false">Layer</button>
+    <button class="menu-trigger" id="select-menu-trigger" data-menu="select-menu" role="menuitem" aria-haspopup="menu" aria-expanded="false">Select</button>
     <button class="menu-trigger" id="view-menu-trigger" data-menu="view-menu" role="menuitem" aria-haspopup="menu" aria-expanded="false">View</button>
-    <button class="menu-trigger" id="settings" role="menuitem" aria-haspopup="dialog">Settings</button>
   </nav>
-  <div class="header-end"><div class="status" id="status" role="status">Connecting…</div><button class="header-open secondary" data-command="open"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Open photo</button></div>
+  <div class="header-end"><div class="status" id="status" role="status">Connecting…</div></div>
 </header>
 <div class="menu" id="file-menu" role="menu" aria-labelledby="file-menu-trigger" hidden>
   <button id="open" role="menuitem"><span>Open photo…</span><kbd>Ctrl+O</kbd></button>
-  <button id="open-project" role="menuitem"><span>Open editable project…</span><kbd>Ctrl+Alt+O</kbd></button>
+  <button id="open-project" role="menuitem"><span>Open project…</span><kbd>Ctrl+Alt+O</kbd></button>
   <button id="open-folder" role="menuitem"><span>Open folder…</span><kbd>Ctrl+Shift+O</kbd></button>
   <div class="menu-separator" role="separator"></div>
-  <button id="save-project" role="menuitem" disabled><span>Save editable project…</span><kbd>Ctrl+Alt+S</kbd></button>
+  <button id="save-project" role="menuitem" disabled><span>Save project</span><kbd>Ctrl+Alt+S</kbd></button>
   <button id="save-project-as" role="menuitem" disabled><span>Save project as…</span></button>
   <button id="close-image" role="menuitem" disabled><span>Close image…</span><kbd>Ctrl+W</kbd></button>
   <div class="menu-separator" role="separator"></div>
   <button id="return" role="menuitem" hidden><span>Overwrite original…</span><kbd>Ctrl+S</kbd></button>
   <button id="save-unique" role="menuitem" hidden><span>Save a copy</span><kbd>Ctrl+Shift+S</kbd></button>
   <button id="save" role="menuitem" disabled><span>Export a copy…</span></button>
-  <div class="copy-format"><label for="output-format">Copy format</label><select id="output-format" aria-label="Copy format"><option value="original">Original</option><option value="png">PNG</option><option value="jpg">JPEG</option><option value="tif">TIFF</option><option value="webp">WebP</option></select></div><p class="browser-note" id="format-hint">Used by Save a copy and Export. Overwrite keeps the original format.</p>
-  <p class="browser-note" id="browser-note" hidden>Open Local Remove on your desktop for folders and saving beside originals. Browser uploads export a copy.</p>
-  <div class="menu-separator" role="separator"></div><div class="menu-heading">Recent sessions</div>
-  <div id="recent"><p class="muted">No recent sessions</p></div>
+  <details class="menu-foldout"><summary role="menuitem" aria-haspopup="menu" aria-expanded="false">Copy format</summary><div class="submenu" role="menu" aria-label="Copy format"><button role="menuitemradio" data-output-format="original" aria-checked="true">Original format</button><button role="menuitemradio" data-output-format="png" aria-checked="false">PNG</button><button role="menuitemradio" data-output-format="jpg" aria-checked="false">JPEG</button><button role="menuitemradio" data-output-format="tif" aria-checked="false">TIFF</button><button role="menuitemradio" data-output-format="webp" aria-checked="false">WebP</button></div></details>
+  <div class="menu-separator" role="separator"></div>
+  <details class="menu-foldout"><summary role="menuitem" aria-haspopup="menu" aria-expanded="false">Recent sessions</summary><div class="submenu" role="menu" aria-label="Recent sessions"><div id="recent"><p class="muted">No recent sessions</p></div></div></details>
 </div>
 <div class="menu" id="edit-menu" role="menu" aria-labelledby="edit-menu-trigger" hidden>
   <button id="undo" role="menuitem" disabled><span>Undo selection</span><kbd>Ctrl+Z</kbd></button>
-  <button id="clear" role="menuitem" disabled><span>Clear selection</span></button>
-  <div class="menu-separator" role="separator"></div><button id="restore" role="menuitem" hidden>Restore discarded layer</button>
   <button data-command="remove" data-needs-photo role="menuitem"><span id="edit-action-label">Remove selected area</span></button>
-  <button data-command="merge" data-needs-photo role="menuitem"><span>Merge visible to new layer</span><kbd>Ctrl+Alt+Shift+E</kbd></button>
+  <div class="menu-separator" role="separator"></div><button id="settings" role="menuitem" aria-haspopup="dialog">Settings…</button>
+</div>
+<div class="menu" id="layer-menu" role="menu" aria-labelledby="layer-menu-trigger" hidden>
+  <button id="merge" role="menuitem" disabled title="Copy visible layers into a new layer. Keep earlier layers editable."><span>Merge visible to new layer</span><kbd>Ctrl+Alt+Shift+E</kbd></button>
+  <button id="restore" role="menuitem" hidden>Restore discarded layer</button>
+</div>
+<div class="menu" id="select-menu" role="menu" aria-labelledby="select-menu-trigger" hidden>
+  <button id="clear" role="menuitem" disabled><span>Clear selection</span></button>
+  <button data-command="finish" data-context="pen" role="menuitem" hidden><span>Close path</span><kbd>Enter</kbd></button>
 </div>
 <div class="menu" id="view-menu" role="menu" aria-labelledby="view-menu-trigger" hidden>
   <button data-command="fit" data-needs-photo role="menuitem"><span>Fit image</span><kbd>F</kbd></button>
   <button id="actual-size" data-needs-photo role="menuitem"><span>Actual size (100%)</span><kbd>1</kbd></button>
   <button data-command="zoom-in" data-needs-photo role="menuitem"><span>Zoom in</span><kbd>+</kbd></button>
   <button data-command="zoom-out" data-needs-photo role="menuitem"><span>Zoom out</span><kbd>−</kbd></button>
-  <div class="menu-separator" role="separator"></div><button data-command="before" data-needs-photo role="menuitem">Show original</button>
+  <div class="menu-separator" role="separator"></div><button data-command="before" data-needs-photo role="menuitemcheckbox" aria-checked="false">Show original</button>
 </div>
 <input id="file" type="file" multiple accept=".jpg,.jpeg,.png,.tif,.tiff,.webp" hidden>
 <section class="optionsbar" aria-label="Tool options">
+  <div class="operation-modes" aria-label="Repair method"><button id="mode-heal" aria-pressed="true" title="Quick Heal (J)">Quick Heal</button><button id="mode-ai" aria-pressed="false" title="AI Remove (B)">AI Remove</button></div>
   <div class="context-scroll"><span class="tool-name" id="tool-name">Brush</span><div class="context-divider"></div>
     <div class="brush-options" id="brush-options"><label for="size">Size</label><input id="size" type="range" min="1" max="2000" value="50" title="Brush diameter in photo pixels. [ smaller, ] larger."><span id="size-label">50</span><span>px</span></div>
     <div class="selection-modes" id="selection-modes" aria-label="Selection mode"><button id="add" aria-pressed="true" title="Add to selection">Add</button><button id="subtract" aria-pressed="false" title="Subtract from selection">Subtract</button></div>
-    <button id="finish" hidden>Close path · Enter</button>
+    <button id="finish" hidden title="Close path (Enter)">Close path</button>
   </div>
-  <div class="selection-actions"><button data-command="undo" title="Undo the last selection stroke (Ctrl+Z)" disabled>Undo selection</button><button data-command="clear" title="Clear the current selection" disabled>Clear</button></div>
+  <div class="context-actions">
+    <span id="selection-status" data-context="selection" hidden></span>
+    <select class="heal-method" id="heal-method" aria-label="Quick Heal method" title="Quick Heal method"><option value="texture">Texture repair</option><option value="telea">Dust &amp; scratches</option></select>
+    <button class="model-shortcut" id="model-shortcut" title="AI settings" hidden><span id="model-indicator">FLUX Klein</span></button>
+    <button id="workflow-settings" class="workflow-settings" data-command="settings" hidden>Set up AI…</button>
+    <button id="remove" class="primary" disabled>Heal</button>
+  </div>
 </section>
 <main class="shell">
   <aside class="toolrail" aria-label="Tools">
-    <button id="heal-brush" aria-label="Quick Heal brush (J)" title="Quick Heal brush (J) · Small objects, texture, and blemishes" aria-pressed="true"><svg class="icon" aria-hidden="true"><use href="#i-heal"/></svg><span>Heal</span></button>
-    <button data-tool="brush" aria-label="AI Remove brush (B)" title="AI Remove brush (B)" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-brush"/></svg><span>AI brush</span></button>
+    <button id="heal-brush" aria-label="Quick Heal brush (J)" title="Quick Heal brush (J) · Small objects, texture, and blemishes" aria-pressed="true"><svg class="icon" aria-hidden="true"><use href="#i-heal"/></svg></button>
+    <button data-tool="brush" aria-label="AI Remove brush (B)" title="AI Remove brush (B)" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-brush"/></svg></button>
     <div class="rail-divider"></div>
-    <button data-tool="pen" aria-label="Pen selection (P)" title="Pen selection (P)" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-pen"/></svg><span>Pen</span></button>
-    <button data-tool="rectangle" aria-label="Rectangle selection (R)" title="Rectangle selection (R)" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-rectangle"/></svg><span>Rectangle</span></button>
-    <button data-tool="ellipse" aria-label="Ellipse selection (E)" title="Ellipse selection (E)" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-ellipse"/></svg><span>Ellipse</span></button>
+    <button data-tool="pen" aria-label="Pen selection (P)" title="Pen selection (P)" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-pen"/></svg></button>
+    <button data-tool="rectangle" aria-label="Rectangle selection (R)" title="Rectangle selection (R)" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-rectangle"/></svg></button>
+    <button data-tool="ellipse" aria-label="Ellipse selection (E)" title="Ellipse selection (E)" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-ellipse"/></svg></button>
     <div class="rail-divider"></div>
-    <button id="hand" aria-label="Hand tool (H). Hold Space for temporary pan." title="Hand tool (H) · Hold Space to pan temporarily" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-hand"/></svg><span>Pan</span></button>
+    <button id="hand" aria-label="Hand tool (H). Hold Space for temporary pan." title="Hand tool (H) · Hold Space to pan temporarily" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-hand"/></svg></button>
   </aside>
   <section class="canvas-area">
     <div class="documentbar">
       <div class="document-tab"><svg class="icon" aria-hidden="true"><use href="#i-image"/></svg><div class="document-identity"><span class="filename" id="filename">No photo open</span><span class="photo-meta" id="photo-meta"></span></div><button class="document-close" id="document-close" data-command="close-image" aria-label="Close image" title="Close image (Ctrl+W)" hidden><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
-      <div class="document-actions"><span id="document-state" class="document-state"></span><button id="before" aria-pressed="false" disabled title="Compare with original"><svg class="icon" aria-hidden="true"><use href="#i-eye"/></svg>Original</button><button id="document-save" data-command="return" title="Overwrite the source image (Ctrl+S)" hidden>Overwrite…</button><button id="document-unique" class="save-button save-copy" data-command="save-unique" title="Save a new file in the source folder (Ctrl+Shift+S)" hidden>Save a copy</button><button id="document-export" class="save-button save-copy" data-command="save" disabled>Export copy</button></div>
+      <div class="document-actions"><span id="document-state" class="document-state"></span><button id="before" aria-pressed="false" disabled title="Compare with original">Original</button></div>
     </div>
     <section class="folder-panel" id="folder-panel" aria-label="Folder images" hidden><div class="folderbar"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg><span id="folder-name" class="folder-name"></span><span id="folder-count" class="folder-count"></span><button id="folder-previous" aria-label="Previous image" title="Previous image (Alt+Left or Page Up)"><svg class="icon" aria-hidden="true"><use href="#i-previous"/></svg></button><button id="folder-next" aria-label="Next image" title="Next image (Alt+Right or Page Down)"><svg class="icon" aria-hidden="true"><use href="#i-next"/></svg></button></div><div id="filmstrip" class="filmstrip" aria-label="Images in this folder"></div></section>
     <div id="progress-strip" class="progress-strip" role="status" hidden><svg class="icon" aria-hidden="true"><use href="#i-heal"/></svg><span id="progress-label">Working on your selection…</span></div>
     <div class="viewport" id="viewport" tabindex="0" aria-label="Photo canvas. Scroll to zoom. Hold Space and drag to pan.">
       <div class="empty" id="empty">
-        <svg class="empty-art" viewBox="0 0 180 128" fill="none" aria-hidden="true"><path d="M31 24H143V110H31z" fill="#202122" stroke="#444743"/><path d="M20 13H132V99H20z" fill="#252727" stroke="#70756b"/><path d="m21 78 28-28 30 31 21-21 31 30v8H21Z" fill="#30352f"/><path d="m21 78 28-28 30 31 21-21 31 30" stroke="#89907d"/><circle cx="100" cy="39" r="9" stroke="#bba580"/><path d="M113 16h27v29" stroke="#171819" stroke-width="9"/><path d="M126 31h27" stroke="#e6bc78" stroke-width="2" stroke-linecap="round"/><path d="M10 8V2h9M144 113v7h-9" stroke="#51554e" stroke-linecap="round"/><path d="M39 114h58" stroke="#383b36"/></svg>
-        <h1>Start with a photo.</h1>
-        <p class="empty-description">Brush over the distractions. Keep the details.<br>Every edit stays on its own layer.</p>
-        <div class="empty-actions"><button class="primary" data-command="open"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Open photo</button><button class="secondary" data-command="open-project">Open project</button></div>
-        <p class="file-types">or drop a photo here · JPEG, PNG, TIFF, WebP</p>
-        <p class="local-note"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>Your photos stay on your device.</p>
+        <svg class="empty-icon icon" aria-hidden="true"><use href="#i-image"/></svg>
+        <button class="secondary" data-command="open">Open photo…</button>
+        <p class="file-types">Drop an image here</p>
       </div>
       <div class="stage" id="stage" hidden><img class="photo-image" id="photo-image" alt="" draggable="false"><canvas id="photo"></canvas><div class="layer-stack" id="layer-stack"></div><canvas class="overlay" id="selection"></canvas><canvas class="draft" id="draft"></canvas></div><div id="brush-cursor" class="brush-cursor" hidden></div><div id="drop-notice" class="drop-notice" hidden>Drop to open</div>
     </div>
   </section>
-  <aside class="right" aria-label="Repair and layers">
-    <section class="repair-panel" aria-labelledby="workflow-title">
-      <p class="section-eyebrow" id="workflow-status">Photo retouching</p>
-      <h2 id="workflow-title">A clean starting point</h2>
-      <p class="workflow-description" id="workflow-description">Open a photo, then brush over the area you want to repair.</p>
-      <span class="field-label" id="repair-method-label">Repair method</span>
-      <div class="operation-modes" aria-labelledby="repair-method-label"><button id="mode-heal" aria-pressed="true" title="Fast texture repair for small objects and blemishes">Quick Heal</button><button id="mode-ai" aria-pressed="false" title="AI object removal with the selected model">AI Remove</button></div>
-      <div class="method-detail"><select class="heal-method" id="heal-method" aria-label="Quick Heal method" title="Texture repair copies nearby texture. Dust &amp; scratches smooths tiny defects."><option value="texture">Texture repair</option><option value="telea">Dust &amp; scratches</option></select><button class="model-shortcut" id="model-shortcut" title="Removal model settings" hidden><span id="model-indicator">FLUX Klein</span><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg></button></div>
-      <div class="selection-summary"><span id="selection-status">No selection</span></div>
-      <button id="remove" class="primary" disabled>Heal selection</button>
-      <button id="workflow-settings" class="workflow-settings" data-command="settings" hidden>Set up AI Remove</button>
-    </section>
-    <section class="layer-panel" aria-label="Layers"><div class="panel-heading">Layers<span id="layer-count"></span></div><div class="layer-list" id="layers"><p class="muted">Your edits will appear here.<br>The original stays intact.</p></div><div class="layer-actions"><button id="merge" disabled title="Copy the visible result to a new layer. Earlier layers stay editable. Ctrl+Alt+Shift+E">Merge visible to new layer</button></div><div class="panel-footer"><button class="project-save" data-command="save-project" disabled><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg>Save editable project</button><p class="save-note" id="save-note">Keep your original and layers in a project. Export a copy when you are ready to share.</p></div></section>
+  <aside class="right" aria-label="Layers">
+    <section class="layer-panel" aria-label="Layers"><div class="panel-heading"><span>Layers</span><span id="layer-count"></span><button class="panel-menu-trigger" id="layers-options" data-menu="layer-menu" aria-label="Layer options" aria-haspopup="menu" aria-expanded="false"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"/></svg></button></div><div class="layer-list" id="layers"><p class="muted">No layers</p></div></section>
   </aside>
 </main>
+<div hidden aria-hidden="true"><span id="workflow-status"></span><span id="workflow-title"></span><span id="workflow-description"></span><span id="save-note"></span><button id="document-save" data-command="return"></button><button id="document-unique" data-command="save-unique"></button><button id="document-export" data-command="save"></button><select id="output-format" aria-label="Copy format"><option value="original">Original</option><option value="png">PNG</option><option value="jpg">JPEG</option><option value="tif">TIFF</option><option value="webp">WebP</option></select><p id="format-hint"></p><p id="browser-note"></p></div>
 <footer class="statusbar"><span class="tool-hint" id="tool-hint">Brush over the object and its shadow.</span><p class="message" id="message" role="status">Ready</p><span class="navigation-hint">Space + drag to pan</span><div class="view-controls"><button id="zoom-out" class="zoom-step" aria-label="Zoom out" title="Zoom out (−)" disabled><svg class="icon" aria-hidden="true"><use href="#i-minus"/></svg></button><select class="zoom" id="zoom" aria-label="Image zoom" disabled><option value="0.1">10%</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select><button id="zoom-in" class="zoom-step" aria-label="Zoom in" title="Zoom in (+)" disabled><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button><button id="fit" title="Fit image (F)" disabled>Fit</button></div></footer>
 <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
   <div class="dialog-header"><h2 id="settings-title">Settings</h2><button id="settings-close" aria-label="Close settings"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
   <section class="ai-setup" aria-labelledby="ai-setup-title">
-    <div class="setup-intro"><div><h3 id="ai-setup-title">Local AI setup</h3><p class="muted">Set up FLUX once for larger objects and complex repairs.<br>Quick Heal works without an AI model.</p></div><button id="ai-refresh" class="secondary">Refresh</button></div>
+    <div class="setup-intro"><div><h3 id="ai-setup-title">AI backend</h3><p class="muted">ComfyUI and FLUX.2 Klein</p></div><button id="ai-refresh" class="secondary">Refresh</button></div>
     <p id="ai-native-note" class="setup-notice" hidden>Open the Local Remove desktop app to choose folders, install ComfyUI, or download model files.</p>
     <p id="ai-setup-state" class="setup-state" role="status">Checking your setup…</p>
     <section class="setup-section" aria-labelledby="ai-runtime-title">
@@ -141,7 +141,7 @@
       <p id="model-description" class="setup-description">Required model files are stored in the folder you choose.</p>
       <output id="ai-model-path" class="setup-path">No model folder selected</output>
       <div class="setup-actions"><button id="ai-choose-models" class="secondary">Choose model folder…</button><button id="ai-download" class="secondary" disabled>Download FLUX models</button></div>
-      <ul id="ai-model-files" class="setup-model-files" aria-label="Required model files"></ul>
+      <details class="setup-components"><summary>Model files</summary><ul id="ai-model-files" class="setup-model-files" aria-label="Required model files"></ul></details>
       <select id="model" aria-label="AI removal model" hidden disabled><option value="klein">FLUX.2 Klein</option></select><p id="model-availability" class="muted" hidden></p>
     </section>
     <section id="ai-job" class="setup-job" aria-label="Setup progress" hidden><div class="setup-job-heading"><strong id="ai-job-title">Setting up</strong><span id="ai-job-percent"></span></div><progress id="ai-job-progress" max="100" aria-label="Setup progress"></progress><p id="ai-job-message"></p><p id="ai-job-bytes" class="setup-transfer"></p></section>

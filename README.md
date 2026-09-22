@@ -8,18 +8,18 @@ The Windows installer includes the application, Python runtime, and healing tool
 
 ## Interface preview
 
-Version 0.3.0 includes the refreshed photo workspace and integrated AI setup.
-This development branch builds the 0.3.0 Windows installer; older published releases may have the previous interface.
+Version 0.3.1 restores a compact Photoshop-style desktop workspace and retains integrated AI setup.
+This development branch builds the 0.3.1 Windows installer; older published releases may have the previous interface.
 
 ![Local Remove photo workspace](docs/images/editor-empty.png)
 
-The editor groups repair controls beside the photo, starts with local Quick Heal,
-and keeps image copies separate from editable projects. See the
-[design review](docs/UI-DESIGN.md) and [validation notes](docs/UI-VALIDATION.md).
+The editor places tool options above the photo and keeps a full-height Layers panel beside it.
+File, Edit, Layer, Select, and View menus hold occasional commands. AI setup is under **Edit > Settings**.
+See the [desktop references](docs/DESKTOP-REFERENCES.md) and [validation notes](docs/DESKTOP-VALIDATION.md).
 
 ## Install
 
-1. Run **Local-Remove-Setup-0.3.0.exe** from the Windows build output. See [build instructions](docs/DEVELOPMENT.md); published installers are listed under [Releases](https://github.com/zdbosoxfan/local-remove/releases).
+1. Run **Local-Remove-Setup-0.3.1.exe** from the Windows build output. See [build instructions](docs/DEVELOPMENT.md); published installers are listed under [Releases](https://github.com/zdbosoxfan/local-remove/releases).
 2. Run the installer for your Windows account. It creates Start menu shortcuts and an optional desktop shortcut.
 3. Open **Local Remove** from the Start menu.
 
@@ -54,7 +54,7 @@ Supported formats are **JPEG, PNG, TIFF, and WebP**. For camera RAW files, send 
 
 ### Set up AI removal
 
-Open **Settings** in the editor. The desktop app provides these controls:
+Open **Edit > Settings** in the editor. The desktop app provides these controls:
 
 1. **Find existing** finds existing ComfyUI source, portable, and supported Desktop layouts. Choose the one to use, or browse to it. **Install ComfyUI** downloads the official NVIDIA portable runtime into a separate `LocalRemove-ComfyUI` subfolder of the folder you choose.
 2. **Choose model folder** selects where to keep the FLUX files. Select an existing model folder to reuse your downloads. **Download FLUX models** fetches missing files and verifies all four files against pinned publisher checksums. The complete set is about 15.1 GiB; ComfyUI needs additional disk space.

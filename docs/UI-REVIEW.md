@@ -1,5 +1,7 @@
 # Local Remove — second-cycle usability and visual review
 
+Historical 0.3.0 review. The current compact workspace is documented in [DESKTOP-REFERENCES.md](DESKTOP-REFERENCES.md) and [DESKTOP-VALIDATION.md](DESKTOP-VALIDATION.md).
+
 Reviewed 22 September 2026. This is an expert heuristic review using simulated roles, source inspection, actual browser screenshots, and the implementation team's automated checks. No participants or real focus groups were involved. The visual review covers `browser-cycle-1`, `browser-cycle-2`, and `browser-cycle-3` screenshots, including 1440px desktop, 1100px laptop, 800×560 minimum native viewport, and additional 560px/430px browser layouts.
 
 ## Result

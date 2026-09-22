@@ -1,5 +1,7 @@
 # Local Remove — design and usability review
 
+Historical 0.3.0 proposal. The user rejected this expanded layout; [DESKTOP-REFERENCES.md](DESKTOP-REFERENCES.md) defines the current compact desktop direction.
+
 Reviewed 22 September 2026. Evidence: current editor HTML, README, desktop host documentation, regression-test structure, and primary sources below. This is an expert heuristic review with simulated user roles; no real focus group or observed-user research has been conducted.
 
 ## Direction
