@@ -382,6 +382,52 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(popen.call_args.kwargs['shell'])
         process.terminate.assert_not_called(); process.kill.assert_not_called()
 
+    async def test_frozen_start_restores_dll_directory_after_success_and_launch_failure(self):
+        code, python = create_runtime(self.root / 'portable')
+        ai.configure(comfy_directory=str(code), comfy_port=8189)
+        bundle = self.root / 'application' / '_internal'
+        original_dll_directory = str(self.root / 'original-dll-directory')
+        kept_paths = [str(bundle) + '-other', str(self.root / 'system-bin')]
+        original_path = os.pathsep.join([str(bundle), '"' + str(bundle / 'cv2') + '"', *kept_paths])
+        for fails in (False, True):
+            with self.subTest(launch_fails=fails):
+                events = []
+                kernel32 = Mock()
+                def get_directory(capacity, buffer):
+                    buffer.value = original_dll_directory
+                    return len(original_dll_directory)
+                kernel32.GetDllDirectoryW.side_effect = get_directory
+                def set_directory(value):
+                    events.append(('dll', value))
+                    return 1
+                kernel32.SetDllDirectoryW.side_effect = set_directory
+                process = Mock(); process.poll.return_value = None
+                def launch(*args, **options):
+                    events.append(('launch', None))
+                    self.assertEqual(options['env']['PATH'], os.pathsep.join(kept_paths))
+                    self.assertEqual(os.environ['PATH'], original_path)
+                    self.assertFalse(options['shell'])
+                    if fails:
+                        raise OSError('synthetic launch failure')
+                    return process
+                states = [{'running': False, 'busy': False, 'port': 8189},
+                          {'running': True, 'busy': False, 'ready': True, 'port': 8189}]
+                with (patch.object(ai.sys, 'frozen', True, create=True),
+                      patch.object(ai.sys, '_MEIPASS', str(bundle), create=True),
+                      patch.object(ai.ctypes, 'WinDLL', return_value=kernel32),
+                      patch.dict(os.environ, {'PATH': original_path}),
+                      patch.object(ai, 'service_state', AsyncMock(side_effect=states)),
+                      patch.object(ai, '_port_in_use', return_value=False),
+                      patch.object(ai.subprocess, 'Popen', side_effect=launch)):
+                    manager = ai.SetupManager()
+                    if fails:
+                        with self.assertRaisesRegex(OSError, 'synthetic launch failure'):
+                            await manager.start()
+                    else:
+                        await manager.start()
+                    self.assertEqual(os.environ['PATH'], original_path)
+                self.assertEqual(events, [('dll', None), ('launch', None), ('dll', original_dll_directory)])
+
     async def test_install_rejects_existing_destination_without_changing_it(self):
         destination = self.root / ai.MANAGED_FOLDER; destination.mkdir()
         keep = destination / 'user-file'; keep.write_bytes(b'preserve')

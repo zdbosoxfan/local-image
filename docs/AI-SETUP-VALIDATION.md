@@ -21,6 +21,7 @@ This continues the initial source-interface review in UI-VALIDATION.md.
 - Windows package folder redirection can resolve a logical AppData directory to a different physical path. Preserve the native host's logical absolute profile identity and retain launcher-key authorization. Verified ordinary startup through Windows Explorer outside the development host's package context.
 - The full official ComfyUI archive uses BCJ2 compression, which the Python decoder could inspect but could not decode. Bundle the official native 7-Zip helper, matching source and notices. Validate archive metadata before decoding and the extracted file set afterward. A real BCJ2 regression and the complete installed archive passed.
 - Installation could complete during a status request's service probe. Read installation state after that await so the completed job returns the new runtime and enables Start consistently; an asynchronous regression covers this race.
+- A packaged backend's DLL search path was inherited by ComfyUI, which locked an application DLL during updates. Clear the packaged DLL directory and bundled PATH entries when launching the separate runtime, then restore the application process's settings. Regression coverage verifies restoration after both successful and failed launches.
 
 ## Regression coverage
 

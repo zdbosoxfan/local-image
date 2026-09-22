@@ -4,6 +4,8 @@ This module never runs page-supplied commands. The HTTP adapter accepts setup
 mutations only from the credentialed native host after its own folder pickers.
 """
 import asyncio
+from contextlib import contextmanager
+import ctypes
 import hashlib
 import json
 import os
@@ -12,6 +14,7 @@ import shutil
 import socket
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 from urllib.parse import urljoin, urlsplit
@@ -434,6 +437,41 @@ def launch_command(item, port, extra_config):
     return command
 
 
+@contextmanager
+def external_process_environment():
+    """Keep an external ComfyUI runtime independent of PyInstaller's DLLs."""
+    environment = os.environ.copy()
+    if sys.platform != 'win32' or not getattr(sys, 'frozen', False):
+        yield environment
+        return
+    bundle = Path(sys._MEIPASS).resolve()
+    if 'PATH' in environment:
+        environment['PATH'] = os.pathsep.join(entry for entry in environment['PATH'].split(os.pathsep)
+            if not Path(os.path.expandvars(entry.strip('"'))).resolve().is_relative_to(bundle))
+    # PyInstaller documents that SetDllDirectory is inherited by subprocesses.
+    # This block is synchronous: restore the exact parent setting before any
+    # coroutine can launch another helper or import a lazily loaded extension.
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    get_directory = kernel32.GetDllDirectoryW
+    get_directory.argtypes = [ctypes.c_uint32, ctypes.c_wchar_p]
+    get_directory.restype = ctypes.c_uint32
+    set_directory = kernel32.SetDllDirectoryW
+    set_directory.argtypes = [ctypes.c_wchar_p]
+    set_directory.restype = ctypes.c_int
+    previous = ctypes.create_unicode_buffer(32768)
+    ctypes.set_last_error(0)
+    length = get_directory(len(previous), previous)
+    if length >= len(previous) or (not length and ctypes.get_last_error()):
+        raise SetupError('Could not read the application DLL search path before starting ComfyUI.')
+    if not set_directory(None):
+        raise SetupError('Could not isolate the ComfyUI DLL search path.')
+    try:
+        yield environment
+    finally:
+        if not set_directory(previous.value or None):
+            raise SetupError('Could not restore the application DLL search path after starting ComfyUI.')
+
+
 class SetupManager:
     def __init__(self):
         self.job = None
@@ -590,9 +628,9 @@ class SetupManager:
             'diffusion_models': 'diffusion_models', 'text_encoders': 'text_encoders', 'vae': 'vae', 'loras': 'loras'}}), encoding='utf-8')
         command = launch_command(item, state['port'], extra)
         log_dir().mkdir(parents=True, exist_ok=True)
-        with (log_dir() / 'comfyui.log').open('ab') as log:
+        with (log_dir() / 'comfyui.log').open('ab') as log, external_process_environment() as environment:
             self.process = subprocess.Popen(command, cwd=item['path'], stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
-                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), shell=False)
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), shell=False, env=environment)
         self.update(phase='starting', message='Starting ComfyUI. The first launch may take a few minutes…', progress=10)
         deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
