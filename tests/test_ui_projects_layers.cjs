@@ -3,7 +3,7 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const assert=require('node:assert/strict');
 const path=require('node:path');
-const html=fs.readFileSync(path.join(__dirname,'local_remove.html'),'utf8');
+const html=fs.readFileSync(path.join(__dirname,'..','backend','local_remove.html'),'utf8');
 const source=html.match(/<script nonce="__NONCE__">([\s\S]*?)<\/script>/)[1].replace(/\ninit\(\);\s*$/,'');
 
 class Emitter {

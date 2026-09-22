@@ -23,6 +23,7 @@ import websockets
 import numpy as np
 from PIL import Image
 from pydantic_settings import BaseSettings
+from app_paths import APP_PORT, cache_dir, read_config, workflow_file
 
 logger = logging.getLogger("Engine")
 
@@ -36,12 +37,12 @@ REMOVAL_NEGATIVE_PROMPT = (
 )
 
 class Settings(BaseSettings):
-    HOST: str = "0.0.0.0"
-    PORT: int = 5000
+    HOST: str = "127.0.0.1"
+    PORT: int = APP_PORT
     COMFY_HOST: str = "127.0.0.1"
-    COMFY_PORT: int = 5545
-    CACHE_DIR: Path = Path("./cache")
-    WORKFLOW_FILE: Path = Path("workflow.json")
+    COMFY_PORT: int = read_config()['comfy_port']
+    CACHE_DIR: Path = cache_dir()
+    WORKFLOW_FILE: Path = workflow_file()
     MAX_CACHE_FILES: int = 20
     MAX_CACHE_SIZE_MB: int = 2048
 

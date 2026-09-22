@@ -16,6 +16,7 @@ $arguments += $references | ForEach-Object { '/reference:' + (Join-Path $framewo
 $arguments += '/reference:' + (Join-Path $packageRoot 'lib\net462\Microsoft.Web.WebView2.Core.dll')
 $arguments += '/reference:' + (Join-Path $packageRoot 'lib\net462\Microsoft.Web.WebView2.WinForms.dll')
 $arguments += Join-Path $PSScriptRoot 'LocalRemoveLauncher.cs'
+$arguments += Join-Path $PSScriptRoot 'LocalRemoveSettings.cs'
 & $compiler $arguments
 if ($LASTEXITCODE -ne 0) { throw "Native host compilation failed ($LASTEXITCODE)." }
 Copy-Item -LiteralPath (Join-Path $packageRoot 'lib\net462\Microsoft.Web.WebView2.Core.dll') -Destination $OutputDirectory -Force

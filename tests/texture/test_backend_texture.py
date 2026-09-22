@@ -3,8 +3,8 @@ from pathlib import Path
 import sys
 import unittest
 
-HERE=Path(__file__).resolve().parent
-sys.path[:0]=[str(HERE),str(HERE.parent/'local-remove-v3'),r'C:\Users\Owner\Documents\RapidRAW-AI-Connector']
+HERE=Path(__file__).resolve().parents[2]/'backend'
+sys.path[:0]=[str(HERE),str(HERE.parent/'tests'/'helpers')]
 import fast_inpaint
 assert Path(fast_inpaint.__file__).resolve().parent == HERE
 import backend_folder_save_test as previous

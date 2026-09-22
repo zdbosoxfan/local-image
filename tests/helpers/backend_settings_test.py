@@ -3,6 +3,7 @@ import asyncio
 import base64
 import copy
 import io
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -17,8 +18,9 @@ from pydantic import ValidationError
 from starlette.requests import Request
 
 
-SOURCE = Path(__file__).with_name('local_remove.py')
-INSTALLED = Path(r'C:\Users\Owner\Documents\RapidRAW-AI-Connector')
+INSTALLED = Path(__file__).resolve().parents[2] / 'backend'
+SOURCE = INSTALLED / 'local_remove.py'
+sys.path.insert(0, str(INSTALLED))
 
 
 def png64(image):
@@ -31,6 +33,8 @@ class BackendSettingsTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='local-remove-settings-test-')
         self.directory = Path(self.temporary.name)
+        self.data_patch = patch.dict(os.environ, {'LOCAL_REMOVE_DATA_DIR': str(self.directory)})
+        self.data_patch.start()
         self.options = [
             {'id': 'klein', 'label': 'FLUX.2 Klein 4B Object Removal',
              'description': 'Current removal model', 'available': True},
@@ -62,6 +66,7 @@ class BackendSettingsTests(unittest.IsolatedAsyncioTestCase):
 
     def tearDown(self):
         self.modules_patch.stop()
+        self.data_patch.stop()
         self.temporary.cleanup()
 
     def load_backend(self, name):

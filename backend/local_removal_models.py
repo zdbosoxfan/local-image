@@ -12,9 +12,9 @@ import numpy as np
 
 from removal_blend import clean_selection_mask, blend_patch
 from qwen_degrid import degrid_qwen
+from app_paths import model_directory
 
 logger = logging.getLogger('Engine')
-MODEL_ROOT = Path(os.environ.get('LOCAL_REMOVE_MODELS_DIR', r'C:\Users\Owner\ComfyUI-Shared\models'))
 QWEN_MODEL = 'qwen_image_edit_2511_fp8mixed.safetensors'
 QWEN_ENCODER = 'qwen_2.5_vl_7b_fp8_scaled.safetensors'
 QWEN_VAE = 'qwen_image_vae.safetensors'
@@ -42,7 +42,7 @@ def model_options():
          'description': 'Experimental removal model. Slower; may introduce artificial texture or alter details.'},
     ]
     for choice in choices:
-        missing = [name for folder, name in FILES[choice['id']] if not (MODEL_ROOT / folder / name).is_file()]
+        missing = [name for folder, name in FILES[choice['id']] if not (model_directory() / folder / name).is_file()]
         choice['available'] = not missing
         if missing:
             choice['reason'] = choice['label'] + ' model files are not installed. Choose another model.'

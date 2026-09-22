@@ -80,12 +80,12 @@ async def lifespan(app: FastAPI):
     if is_up:
         logger.info("Connection to ComfyUI established")
     else:
-        logger.critical("Could not connect to ComfyUI! Make sure it is running.")
+        logger.info("ComfyUI is not connected. Quick Heal remains available.")
 
     yield
     logger.info("Shutting down...")
 
-app = FastAPI(title="AI Connector", lifespan=lifespan)
+app = FastAPI(title="Local Remove", lifespan=lifespan)
 app.include_router(quality_settings_router)
 app.include_router(local_remove_router)
 

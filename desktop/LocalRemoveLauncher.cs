@@ -18,12 +18,15 @@ using Microsoft.Web.WebView2.WinForms;
 // The browser never receives the launcher credential or an arbitrary-path API.
 internal static class LocalRemoveLauncher
 {
-    internal const string ApiBase = "http://127.0.0.1:5000";
-    internal static readonly string Connector = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "RapidRAW-AI-Connector");
+    internal const string ApiBase = "http://127.0.0.1:51247";
+    internal static readonly string InstallDirectory = AppDomain.CurrentDomain.BaseDirectory;
+    internal static readonly string DataDirectory = Path.GetFullPath(Environment.GetEnvironmentVariable("LOCAL_REMOVE_DATA_DIR") ??
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Local Remove"));
     internal static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = 16 * 1024 * 1024 };
     internal static readonly HttpClient Http = new HttpClient(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false }) { Timeout = TimeSpan.FromMinutes(3) };
     internal static string LauncherKey;
     internal static int ExitCode;
+    private static System.Threading.Mutex desktopMutex;
 
     [STAThread]
     private static int Main(string[] args)
@@ -32,6 +35,16 @@ internal static class LocalRemoveLauncher
         try
         {
             if (args.Contains("--self-test")) { RunSelfTest(output); return 0; }
+            if (args.Contains("--shutdown-backend"))
+            {
+                ShutdownBackend().GetAwaiter().GetResult(); return 0;
+            }
+            if (args.Contains("--configure"))
+            {
+                Application.EnableVisualStyles();
+                ConfigureAi(null).GetAwaiter().GetResult();
+                return 0;
+            }
             string[] paths = ReadPaths(args);
             if (args.Contains("--no-open"))
             {
@@ -40,6 +53,7 @@ internal static class LocalRemoveLauncher
                 WriteResult(output, new { ok = true, url = CollectionUrl(result), result = result });
                 return 0;
             }
+            desktopMutex = new System.Threading.Mutex(false, "Local\\LocalRemoveDesktop");
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new LocalRemoveWindow(paths, args.Contains("--probe-webview"), output));
@@ -52,6 +66,7 @@ internal static class LocalRemoveLauncher
             else MessageBox.Show(error.Message, "Local Remove could not start", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return 1;
         }
+        finally { if (desktopMutex != null) desktopMutex.Dispose(); }
     }
     internal static string Option(string[] args, string key)
     {
@@ -73,32 +88,35 @@ internal static class LocalRemoveLauncher
     {
         Uri uri;
         return Uri.TryCreate(address, UriKind.Absolute, out uri)
-            && uri.Scheme == "http" && uri.Host == "127.0.0.1" && uri.Port == 5000
+            && uri.Scheme == "http" && uri.Host == "127.0.0.1" && uri.Port == 51247
             && uri.AbsolutePath == "/remove" && String.IsNullOrEmpty(uri.UserInfo);
     }
     internal static bool TrustedDownload(string address)
     {
         Uri uri;
         return Uri.TryCreate(address, UriKind.Absolute, out uri)
-            && uri.Scheme == "http" && uri.Host == "127.0.0.1" && uri.Port == 5000
+            && uri.Scheme == "http" && uri.Host == "127.0.0.1" && uri.Port == 51247
             && String.IsNullOrEmpty(uri.UserInfo)
             && Regex.IsMatch(uri.AbsolutePath, "^/api/local-remove/session/[0-9a-fA-F-]{36}/(?:download|download-project)$");
     }
     internal static async Task EnsureBackend()
     {
-        // The idempotent launcher also revives a stopped GPU service when the
-        // connector is already running. Its mutex preserves active jobs.
-        string script = Path.Combine(Connector, "Start-RapidRAW-AI.ps1");
-        if (!File.Exists(script)) throw new FileNotFoundException("The Local Remove backend launcher is missing.", script);
-        Process.Start(new ProcessStartInfo("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -File \"" + script + "\" -NoOpen")
-        { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden, WorkingDirectory = Connector });
+        Directory.CreateDirectory(DataDirectory);
+        if (!await BackendReady())
+        {
+            string backend = Path.Combine(InstallDirectory, "backend", "LocalRemoveBackend.exe");
+            if (!File.Exists(backend)) throw new FileNotFoundException("Local Remove is missing an application file. Reinstall Local Remove.", backend);
+            Process.Start(new ProcessStartInfo(backend)
+            { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden,
+                WorkingDirectory = Path.GetDirectoryName(backend) });
+        }
         DateTime deadline = DateTime.UtcNow.AddMinutes(3);
         while (!await BackendReady())
         {
             if (DateTime.UtcNow >= deadline) throw new InvalidOperationException("Local Remove could not start. Check the connector logs.");
             await Task.Delay(1000);
         }
-        LauncherKey = File.ReadAllText(Path.Combine(Connector, "local-remove-data", "launcher.key"), Encoding.ASCII).Trim();
+        LauncherKey = File.ReadAllText(Path.Combine(DataDirectory, "state", "launcher.key"), Encoding.ASCII).Trim();
         if (LauncherKey.Length < 32) throw new InvalidOperationException("The Local Remove launcher credential is invalid.");
     }
     private static async Task<bool> BackendReady()
@@ -108,11 +126,39 @@ internal static class LocalRemoveLauncher
             using (var client = new HttpClient(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false }))
             {
                 client.Timeout = TimeSpan.FromSeconds(3);
-                using (var response = await client.GetAsync(ApiBase + "/api/local-remove/status")) return response.IsSuccessStatusCode;
+                using (var response = await client.GetAsync(ApiBase + "/api/local-remove/runtime").ConfigureAwait(false))
+                {
+                    if (!response.IsSuccessStatusCode) return false;
+                    var result = Json.Deserialize<Dictionary<string, object>>(await response.Content.ReadAsStringAsync().ConfigureAwait(false));
+                    return result != null && Name(result, "application", "") == "local-remove"
+                        && Name(result, "version", "") == "0.2.0"
+                        && String.Equals(StringValue(result, "data_root", "").TrimEnd('\\'), DataDirectory.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+                }
             }
         }
         catch (HttpRequestException) { return false; }
         catch (TaskCanceledException) { return false; }
+        catch (ArgumentException) { return false; }
+    }
+    internal static async Task ConfigureAi(IWin32Window owner)
+    {
+        using (var dialog = new LocalRemoveSettings())
+        {
+            if (dialog.ShowDialog(owner) != DialogResult.OK) return;
+        }
+        if (await BackendReady().ConfigureAwait(false))
+        {
+            LauncherKey = File.ReadAllText(Path.Combine(DataDirectory, "state", "launcher.key"), Encoding.ASCII).Trim();
+            await Api("/api/local-remove/reload-config", new Dictionary<string, object>()).ConfigureAwait(false);
+        }
+    }
+    private static async Task ShutdownBackend()
+    {
+        if (!await BackendReady()) return;
+        LauncherKey = File.ReadAllText(Path.Combine(DataDirectory, "state", "launcher.key"), Encoding.ASCII).Trim();
+        await Api("/api/local-remove/shutdown", new Dictionary<string, object>());
+        for (int attempt = 0; attempt < 20 && await BackendReady(); attempt++) await Task.Delay(500);
+        if (await BackendReady()) throw new InvalidOperationException("Local Remove is still working. Wait for it to finish, then retry.");
     }
     internal static async Task<Dictionary<string, object>> RegisterPaths(string[] paths)
     {
@@ -209,6 +255,11 @@ internal static class LocalRemoveLauncher
         return value != null && value.TryGetValue(key, out raw) && raw is string && !String.IsNullOrWhiteSpace((string)raw)
             ? Path.GetFileName((string)raw) : fallback;
     }
+    internal static string StringValue(Dictionary<string, object> value, string key, string fallback)
+    {
+        object raw;
+        return value != null && value.TryGetValue(key, out raw) && raw is string ? (string)raw : fallback;
+    }
     internal static string HashFile(string path)
     {
         using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -224,7 +275,7 @@ internal static class LocalRemoveLauncher
     {
         try
         {
-            string logs = Path.Combine(Connector, "logs");
+            string logs = Path.Combine(DataDirectory, "logs");
             Directory.CreateDirectory(logs);
             File.WriteAllText(Path.Combine(logs, "local-remove-launcher-error.txt"), DateTime.Now + Environment.NewLine + error.ToString());
         }
@@ -232,9 +283,12 @@ internal static class LocalRemoveLauncher
     }
     private static void RunSelfTest(string output)
     {
-        if (!TrustedPage(ApiBase + "/remove?collection=test") || TrustedPage("https://127.0.0.1:5000/remove")
-            || TrustedPage("http://localhost:5000/remove") || TrustedPage("http://127.0.0.1:5001/remove")
-            || TrustedPage("http://127.0.0.1:5000/remove-other") || TrustedPage("http://user@127.0.0.1:5000/remove")
+        var pathSetting = new Dictionary<string, object> { { "model_directory", @"C:\Sample User\AI Models" } };
+        if (StringValue(pathSetting, "model_directory", "") != @"C:\Sample User\AI Models")
+            throw new InvalidOperationException("The installed path settings test failed.");
+        if (!TrustedPage(ApiBase + "/remove?collection=test") || TrustedPage("https://127.0.0.1:51247/remove")
+            || TrustedPage("http://localhost:51247/remove") || TrustedPage("http://127.0.0.1:51248/remove")
+            || TrustedPage("http://127.0.0.1:51247/remove-other") || TrustedPage("http://user@127.0.0.1:51247/remove")
             || TrustedPage("https://example.com/remove")) throw new InvalidOperationException("The trusted-page boundary test failed.");
         if (!TrustedDownload(ApiBase + "/api/local-remove/session/e2419d61-d78b-4f8a-b138-8e65386aa3e9/download?ext=tif")
             || !TrustedDownload(ApiBase + "/api/local-remove/session/e2419d61-d78b-4f8a-b138-8e65386aa3e9/download-project")
@@ -296,6 +350,7 @@ internal sealed class CloseRequestGate
 internal sealed class LocalRemoveWindow : Form
 {
     private readonly WebView2 view;
+    private readonly System.Windows.Forms.Timer heartbeat = new System.Windows.Forms.Timer { Interval = 10000 };
     private readonly Label startup;
     private readonly string[] paths;
     private readonly bool probe;
@@ -318,14 +373,21 @@ internal sealed class LocalRemoveWindow : Form
         Controls.Add(view); Controls.Add(startup);
         Shown += async delegate { await Initialize(); };
         FormClosing += OnFormClosing;
+        heartbeat.Tick += async delegate {
+            try { await LocalRemoveLauncher.Api("/api/local-remove/heartbeat", new Dictionary<string, object>()); }
+            catch (Exception error) { LocalRemoveLauncher.WriteError(error); }
+        };
+        FormClosed += delegate { heartbeat.Stop(); heartbeat.Dispose(); };
     }
     private async Task Initialize()
     {
         try
         {
             await LocalRemoveLauncher.EnsureBackend();
+            await LocalRemoveLauncher.Api("/api/local-remove/heartbeat", new Dictionary<string, object>());
+            heartbeat.Start();
             var collection = paths.Length > 0 ? await LocalRemoveLauncher.RegisterPaths(paths) : null;
-            string profile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, probe ? "WebView2-Probe" : "WebView2");
+            string profile = Path.Combine(LocalRemoveLauncher.DataDirectory, probe ? "WebView2-Probe" : "WebView2");
             var environment = await CoreWebView2Environment.CreateAsync(null, profile);
             await view.EnsureCoreWebView2Async(environment);
             var core = view.CoreWebView2;
@@ -448,9 +510,15 @@ internal sealed class LocalRemoveWindow : Form
                     BeginInvoke(new Action(delegate { if (!IsDisposed) Close(); }));
                 return;
             }
-            if (verb != "openFiles" && verb != "openFolder" && verb != "openProject" && verb != "saveProject" && verb != "drop") throw new InvalidOperationException("Unknown desktop action.");
+            if (verb != "openFiles" && verb != "openFolder" && verb != "openProject" && verb != "saveProject" && verb != "drop" && verb != "configureAi") throw new InvalidOperationException("Unknown desktop action.");
             if (bridgeBusy) throw new InvalidOperationException("Finish opening the current selection first.");
             bridgeBusy = true; ownsBusy = true;
+            if (verb == "configureAi")
+            {
+                await Task.Yield();
+                await LocalRemoveLauncher.ConfigureAi(this);
+                Reply(id, new { ok = true }, null); return;
+            }
             if (verb == "saveProject")
             {
                 var saved = await SaveProject(message);

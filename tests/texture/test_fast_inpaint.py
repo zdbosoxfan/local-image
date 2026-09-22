@@ -14,9 +14,8 @@ import cv2
 import numpy as np
 from PIL import Image
 
-HERE = Path(__file__).resolve().parent
-# Reuse unchanged installed mask cleanup without importing the installed healer.
-sys.path.append(r'C:\Users\Owner\Documents\RapidRAW-AI-Connector')
+HERE = Path(__file__).resolve().parents[2] / 'backend'
+sys.path.insert(0, str(HERE))
 spec = importlib.util.spec_from_file_location('candidate_fast_inpaint', HERE / 'fast_inpaint.py')
 heal = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(heal)

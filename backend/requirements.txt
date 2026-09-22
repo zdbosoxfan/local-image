@@ -8,3 +8,5 @@ numpy
 Pillow
 python-multipart
 opencv-python-headless>=4.12,<6
+tifffile
+imagecodecs

@@ -1,0 +1,21 @@
+# Build products and local Python environments
+dist/
+build/
+.venv/
+__pycache__/
+*.py[cod]
+desktop/webview2-sdk/
+desktop/native-host/
+
+# Local credentials, settings, caches, and recovered edits
+.env
+.env.*
+*.key
+local-remove-data/
+cache/
+logs/
+WebView2/
+WebView2-Probe/
+
+# User-created editable projects
+*.lremove

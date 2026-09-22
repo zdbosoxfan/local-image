@@ -29,9 +29,10 @@ from engine import config
 from local_removal_models import model_options as ai_model_options, run_local_removal
 from fast_inpaint import heal_image, heal_option
 from local_remove_project import write_project, extract_project, MAX_TOTAL
+from app_paths import APP_VERSION, cache_dir, data_root, read_config, state_dir
 
 router = APIRouter()
-ROOT = Path(__file__).resolve().parent / 'local-remove-data'
+ROOT = state_dir()
 SESSIONS = ROOT / 'sessions'
 SESSIONS.mkdir(parents=True, exist_ok=True)
 COLLECTIONS = ROOT / 'collections'
@@ -433,6 +434,43 @@ async def page(request:Request):
         'Content-Security-Policy':f"default-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'nonce-{nonce}'; script-src 'nonce-{nonce}'; img-src 'self' blob: data:; connect-src 'self'; form-action 'self'"})
 
 
+@router.get('/api/local-remove/runtime')
+async def runtime(request: Request):
+    guard(request)
+    return {'application': 'local-remove', 'version': APP_VERSION,
+            'data_root': str(data_root().resolve())}
+
+
+@router.post('/api/local-remove/reload-config')
+async def reload_config(request: Request):
+    launcher_guard(request)
+    from main import generation_lock
+    if generation_lock.locked():
+        raise HTTPException(409, 'Wait for the current removal to finish before changing AI settings.')
+    config.COMFY_HOST = '127.0.0.1'
+    config.COMFY_PORT = read_config()['comfy_port']
+    return {'ok': True}
+
+
+@router.post('/api/local-remove/heartbeat')
+async def heartbeat(request: Request):
+    launcher_guard(request)
+    import runtime_lifecycle
+    runtime_lifecycle.heartbeat()
+    return {'ok': True}
+
+
+@router.post('/api/local-remove/shutdown')
+async def shutdown(request: Request):
+    launcher_guard(request)
+    from main import generation_lock
+    if generation_lock.locked():
+        raise HTTPException(409, 'Wait for the current removal to finish before closing the service.')
+    import runtime_lifecycle
+    runtime_lifecycle.shutdown_requested = True
+    return {'ok': True}
+
+
 @router.get('/api/local-remove/status')
 async def status(request:Request):
     guard(request)
@@ -570,7 +608,7 @@ async def collection_thumbnail(cid:str,eid:str,request:Request):
                 stat=Path(entry['path']).stat()
                 identity=f'{stat.st_mtime_ns}:{stat.st_size}'
             key=hashlib.sha256(identity.encode('utf-8')).hexdigest()[:24]
-            cache=ROOT/'thumbnails'; cache.mkdir(exist_ok=True)
+            cache=cache_dir()/'thumbnails'; cache.mkdir(parents=True, exist_ok=True)
             prefix=cid+'-'+eid+'-'
             target=cache/(prefix+key+'.jpg')
             if not target.is_file():

@@ -16,8 +16,8 @@ from PIL import Image, ImageOps
 from pydantic import ValidationError
 from starlette.requests import Request
 
-V3 = Path(__file__).parent
-sys.path.insert(0, str(V3.parent / 'local-remove-v2'))
+V3 = Path(__file__).resolve().parents[2] / 'backend'
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import backend_settings_test as fixtures
 
 

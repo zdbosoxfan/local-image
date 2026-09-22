@@ -16,8 +16,8 @@ import tifffile
 from fastapi import HTTPException, UploadFile
 from PIL import Image
 
-HERE=Path(__file__).resolve().parent
-sys.path[:0]=[str(HERE),str(HERE.parent/'local-remove-v3'),r'C:\Users\Owner\Documents\RapidRAW-AI-Connector']
+HERE=Path(__file__).resolve().parents[1]/'backend'
+sys.path[:0]=[str(HERE),str(HERE.parent/'tests'/'helpers')]
 import fast_inpaint  # Bind the installed v4 healer before older fixture paths.
 import backend_folder_save_test as previous
 previous.V3=HERE
