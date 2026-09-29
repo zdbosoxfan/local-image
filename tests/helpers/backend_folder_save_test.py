@@ -136,6 +136,18 @@ class FolderSaveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(refreshed['entries'][0]['id'], eid)
         self.assertEqual(source.read_bytes(), before)
 
+    def test_equal_clock_ticks_preserve_session_edit_order_when_reopening(self):
+        source = self.make_image()
+        with patch.object(self.app.time, 'time', return_value=1_800_000_000.0):
+            first = self.bind(source)
+            second = self.bind(source)
+            self.assertGreater(second['modified'], first['modified'])
+            self.assertEqual(self.app.reuse_or_create_session(source)['id'], second['id'])
+            edited_first = self.layer(first['id'])
+            self.assertGreater(edited_first['modified'], second['modified'])
+            self.assertEqual(self.app.reuse_or_create_session(source)['id'], first['id'])
+            self.assertEqual(len(self.app.reuse_or_create_session(source)['layers']), 1)
+
     async def test_bad_entry_does_not_block_other_photos(self):
         (self.images / 'bad.png').write_bytes(b'broken')
         self.make_image('good.png')

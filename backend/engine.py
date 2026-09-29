@@ -217,7 +217,9 @@ class ComfyClient:
     @staticmethod
     async def check_health() -> bool:
         try:
-            async with aiohttp.ClientSession() as session:
+            # First launch must reach the CPU editor even when a local AI
+            # service accepts connections but never answers.
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as session:
                 async with session.get(config.http_url) as resp:
                     return True
         except Exception:

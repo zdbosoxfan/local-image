@@ -1,6 +1,8 @@
 # Build products and local Python environments
 dist/
 build/
+qa-artifacts/
+node_modules/
 .venv/
 __pycache__/
 *.py[cod]

@@ -1,0 +1,49 @@
+# Generated image library
+
+Open **File → Generated image library…**, or choose **Library…** in Image Gen. The library keeps completed generation results and upscaled results with their settings. It also brings existing generated recovery documents into the library on first use.
+
+Select a card to inspect it. **Open in editor** creates a fresh editable document; **Use as draft** loads a copy into Draft & Refine. Neither action changes the library image. The library stores the original completed result, so later retouching or cutout changes in an open document do not replace that saved library copy. Save a `.lremove` project to keep those later edits.
+
+## Storage and deletion
+
+The displayed cache size is the actual size of the library's image PNGs, thumbnails and entry metadata. It excludes model weights, ComfyUI's own output directory, editor recovery sessions and saved project files. Independent copies take additional disk space so the library can be cleared safely while its images remain open for editing.
+
+Use **Delete selected** to remove checked entries, or **Clear library…** to remove the library copies. Confirm with **Delete library copies**. These actions preserve:
+
+- Open documents and their unsaved edits.
+- Original imported files.
+- Saved images and `.lremove` projects.
+- Model files and other application caches.
+
+An empty library can therefore coexist with open generated documents. The first-use migration record is kept separately from the image cache, so clearing the library does not make old recovery documents reappear on the next launch. New generations are added normally afterward.
+
+If an entry is damaged, its owned cache files still count toward storage usage. Clear can remove incomplete entries containing only known library files. Unexpected files or links are protected: the app reports the problem instead of following them or deleting unrelated data.
+
+A library-write failure does not discard a successful generation or upscale. The result still opens as a document and the app reports that its library copy could not be saved. Save the document as an image or project to retain it.
+
+## Draft, refinement and upscaling
+
+**Draft & Refine…** has a draft side and a refinement side. A library result can become the selected draft without submitting another generation job. Refinement and upscaling create separate results, keeping the draft available for comparison.
+
+When SeedVR2 upscaling is enabled and its model is ready, **Finish with SeedVR2 upscale** adds a restoration pass after refinement. **Upscale selected draft only** restores the selected image without a semantic refinement pass. The output must enlarge the source, keep its aspect ratio within two pixels of rounding, and use even dimensions from 256 to 4096 pixels. The maximum area is 16,777,216 pixels. A 3840-pixel long edge preserves the source aspect ratio; it does not necessarily produce 3840 × 2160.
+
+The upscaler snapshots the current visible image, including repair layers, cutout composition and source alpha. The source document and source file remain unchanged. Restored results are new 8-bit image documents; alpha is resized separately and retained. Restoration can synthesize fine detail, so compare the result with its source before keeping it.
+
+Projects retain original generation settings in `generation` and the most recent restoration settings in a separate `upscale` field. For example, a generated 1024 × 1024 image restored to 4096 × 4096 keeps its 1024-pixel generation history while recording the 4096-pixel result separately. An upscaled imported photograph can have `upscale` metadata without `generation` metadata. Stock-image credits continue into the result and its saved project.
+
+## Local API
+
+All routes use the normal local-origin guard. Mutations also require the current `x-local-remove-token`; IDs must be canonical UUIDs. No route accepts a filesystem destination or an arbitrary image URL.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/local-remove/generation/library` | List entries, count and cache bytes. Each entry includes its thumbnail, actual dimensions, settings and creation time in Unix seconds. |
+| `GET /api/local-remove/generation/library/{id}/thumbnail` | Read a local PNG thumbnail. |
+| `POST /api/local-remove/generation/library/{id}/open` | Return `{session}` for a new editable copy. |
+| `POST /api/local-remove/generation/library/delete` | Accept `{ids: [...]}` or `{all: true}`. Return the updated listing, deleted IDs and bytes freed. |
+| `GET /api/local-remove/generation/upscale/models` | Report feature enablement, model readiness and output limits. |
+| `POST /api/local-remove/generation/upscale` | Accept `session_id`, current `revision`, `width`, `height` and an optional integer `seed`. Return a new session, restoration metadata and any library warning. |
+
+Generation and upscale responses include `library_warning`, normally an empty string. A warning concerns the additional cache copy; the returned editor document remains usable. A stale upscale revision is rejected before a GPU job, and library deletion validates the complete requested selection before deleting its first entry.
+
+Related: [Image Gen](IMAGE-GENERATION.md), [SeedVR2 workflow and validation](SEEDVR2.md), [validation report](LOCAL-IMAGE-VALIDATION.md).

@@ -5,9 +5,10 @@ import hashlib
 import json
 from pathlib import Path
 import struct
+import sys
 
 root = Path(__file__).resolve().parents[1]
-exe = root / 'native-host' / 'Local Remove.exe'
+exe = Path(sys.argv[1]) if len(sys.argv) > 1 else root / 'native-host' / 'Local Image.exe'
 kernel = ctypes.WinDLL('kernel32', use_last_error=True)
 kernel.LoadLibraryExW.argtypes = [wintypes.LPCWSTR, wintypes.HANDLE, wintypes.DWORD]
 kernel.LoadLibraryExW.restype = wintypes.HMODULE
@@ -27,6 +28,11 @@ module = kernel.LoadLibraryExW(str(exe), None, 2)  # LOAD_LIBRARY_AS_DATAFILE
 if not module:
     raise ctypes.WinError(ctypes.get_last_error())
 groups = []
+icon_bytes = (root / 'icon' / 'local-image.ico').read_bytes()
+source_frames = {}
+for index in range(struct.unpack_from('<H', icon_bytes, 4)[0]):
+    width, height, colors, reserved, planes, bits, byte_size, offset = struct.unpack_from('<BBBBHHII', icon_bytes, 6 + 16 * index)
+    source_frames[width or 256] = icon_bytes[offset:offset + byte_size]
 
 def resource_bytes(kind, name):
     resource = kernel.FindResourceW(module, name, kind)
@@ -49,6 +55,7 @@ try:
         width, height, colors, reserved, planes, bits, byte_size, resource_id = struct.unpack_from('<BBBBHHIH', raw, 6 + 14 * index)
         assert width == height and bits == 32
         assert len(resource_bytes(3, resource_id)) == byte_size
+        assert resource_bytes(3, resource_id) == source_frames[width or 256], 'Embedded icon differs from the Local Image asset'
         sizes.append(width or 256)
     assert sorted(sizes) == [16, 20, 24, 32, 40, 48, 64, 96, 128, 256]
 finally:
@@ -59,9 +66,9 @@ result = {
     'embedded_icon_sizes': sorted(sizes),
     'bit_depth': 32,
     'executable_sha256': hashlib.sha256(exe.read_bytes()).hexdigest(),
-    'ico_sha256': hashlib.sha256((root / 'icon' / 'local-remove.ico').read_bytes()).hexdigest(),
-    'source_png': str(root / 'icon' / 'local-remove-icon.png'),
-    'extracted_icon_preview': str(root / 'icon' / 'embedded-icon-preview.png'),
+    'ico_sha256': hashlib.sha256((root / 'icon' / 'local-image.ico').read_bytes()).hexdigest(),
+    'source_png': str(root / 'icon' / 'local-image-icon.png'),
+    'source_frames_match': True,
 }
 (root / 'icon-verification.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
 print(json.dumps(result))

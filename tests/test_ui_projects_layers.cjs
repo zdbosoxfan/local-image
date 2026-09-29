@@ -4,7 +4,7 @@ const vm=require('node:vm');
 const assert=require('node:assert/strict');
 const path=require('node:path');
 const html=fs.readFileSync(path.join(__dirname,'..','backend','local_remove.html'),'utf8');
-const source=html.match(/<script nonce="__NONCE__">([\s\S]*?)<\/script>/)[1].replace(/\ninit\(\);\s*$/,'');
+const source=fs.readFileSync(path.join(__dirname,'..','backend','frontend','editor.js'),'utf8').replace(/\ninit\(\);\s*$/,'');
 
 class Emitter {
   constructor(){this.listeners={};}
@@ -62,6 +62,7 @@ for(const value of ['original','png','jpg','tif','webp']){const option=new Eleme
 elements.get('size').value='50';
 const buttons=['brush','pen','rectangle','ellipse'].map(tool=>{const button=new Element('button');button.dataset={tool};return button;});
 const document=new Emitter();
+document.body=new Element('body');
 document.getElementById=id=>elements.get(id);
 document.createElement=tag=>new Element(tag);
 document.createElementNS=(namespace,tag)=>new Element(tag);
@@ -187,4 +188,3 @@ async function main(){
   console.log('PASS: immutable base/patch caching; native-resolution patch coordinates; immediate visibility; rapid serialized intents; stale-response protection; failure rollback and replay; no toggle asset reloads or row replacement; restored layers; compare original; new-layer-only loading; close after flattened save warning; Cancel/Escape preserves selection/layers; browser download keeps documents; native multi-document save/cancel/batch discard; private native paths; Save As; application close handshake.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});
-

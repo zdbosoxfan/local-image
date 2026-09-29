@@ -4,7 +4,7 @@ const vm=require('node:vm');
 const assert=require('node:assert/strict');
 const path=require('node:path');
 const html=fs.readFileSync(path.join(__dirname,'..','backend','local_remove.html'),'utf8');
-const source=html.match(/<script nonce="__NONCE__">([\s\S]*?)<\/script>/)[1].replace(/\ninit\(\);\s*$/,'');
+const source=fs.readFileSync(path.join(__dirname,'..','backend','frontend','editor.js'),'utf8').replace(/\ninit\(\);\s*$/,'');
 
 class Emitter {
   constructor(){this.listeners={};}
@@ -61,12 +61,15 @@ for(const value of [.1,.25,.5,1,2,4]){const option=new Element('option');option.
 for(const value of ['original','png','jpg','tif','webp']){const option=new Element('option');option.value=value;elements.get('output-format').append(option);}
 elements.get('size').value='50';
 const buttons=['brush','pen','rectangle','ellipse'].map(tool=>{const button=new Element('button');button.dataset={tool};return button;});
+const repairControls=new Element('div'),penContext=new Element('button');penContext.dataset.context='pen';
 const document=new Emitter();
+document.body=new Element('body');
 document.getElementById=id=>elements.get(id);
 document.createElement=tag=>new Element(tag);
 document.createElementNS=(namespace,tag)=>new Element(tag);
 document.createTextNode=text=>({textContent:text});
-document.querySelectorAll=selector=>selector==='[data-tool]'?buttons:selector==='[data-command]'?[...elements.values()].filter(element=>element.dataset.command):[];
+document.querySelector=selector=>selector==='.context-actions'?repairControls:null;
+document.querySelectorAll=selector=>selector==='[data-tool]'?buttons:selector==='[data-command]'?[...elements.values()].filter(element=>element.dataset.command):selector==='[data-context]'?[penContext]:[];
 const window=new Emitter();
 const storage=new Map();
 const context=vm.createContext({document,window,Element,ResizeObserver:class{constructor(callback){this.callback=callback;}observe(){}},
@@ -83,6 +86,7 @@ const state=()=>JSON.parse(run('JSON.stringify({zoom:photoZoom(),panX,panY,point
 const nearly=(a,b)=>assert.ok(Math.abs(a-b)<1e-8,`${a} differs from ${b}`);
 
 async function main(){
+  assert.equal(run('operation'),'heal','First use defaults to local healing without an AI connection');
   run(`session={id:'test',width:6000,height:4000,name:'Test',revision:0,layers:[]}; setSizes(3000,2000);`);
   assert.ok(state().zoom<.2,'Fit uses actual-photo pixels');
   run('setPhotoZoom(1)');nearly(run('zoom'),2);assert.equal(elements.get('zoom').value,'1');
@@ -124,20 +128,22 @@ async function main(){
   key('Space',' ');assert.equal(state().spaceHeld,false,'Dialog keyboard input does not reach the photo');
   elements.get('settings-dialog').open=false;
   elements.get('hand').onclick();assert.equal(run('handActive'),true);
+  assert.equal(repairControls.hidden,true,'Hand mode hides repair settings and Apply');
+  assert.equal(penContext.hidden,true,'Hand mode immediately hides pen-only commands');
   pointer('pointerdown',400,300);pointer('pointermove',460,340);pointer('pointerup',460,340);
   assert.deepEqual(state().points,savedPen,'Persistent Hand tool also retains the pen path');
   run('selectTool("pen")');assert.equal(run('handActive'),false);assert.deepEqual(state().points,savedPen);
+  assert.equal(repairControls.hidden,false,'Returning to a selection tool restores repair controls');
+  assert.equal(penContext.hidden,false,'The retained pen path restores its contextual command');
   elements.get('zoom').value='1';elements.get('zoom').onchange();assert.equal(document.activeElement,viewport,'Selecting a zoom level returns keyboard focus to the canvas');
 
   // Exercise the actual settings handler and removal payload with in-memory API responses.
   run(`applySettings({model:'klein',models:[{id:'klein',label:'FLUX Klein',available:true},{id:'qwen',label:'Qwen removal',available:true}]});
        globalThis.requests=[];json=async(path,body,method)=>{requests.push({path,body,method});return path.endsWith('/settings')?{model:body.model,models}:session;};
        refreshPreview=async()=>{};recent=async()=>{};`);
-  elements.get('model').value='qwen';await elements.get('model').onchange();
-  assert.equal(run('modelId'),'qwen');assert.equal(run('requests[0].method'),'PATCH');
-  assert.equal(run('requests[0].body.model'),'qwen');
-  run('ready=true;hasSelection=true;');await elements.get('remove').onclick();
-  assert.equal(run('requests[1].body.model'),'qwen','Removal uses the selected model');
+  assert.equal(run('modelId'),'klein');assert.deepEqual(elements.get('model').options.map(option=>option.value),['klein'],'Only FLUX is offered for AI removal');
+  run('setOperation("ai");ready=true;hasSelection=true;');await elements.get('remove').onclick();
+  assert.equal(run('requests[0].body.model'),'klein','Removal uses FLUX');
   run('setBusy(true)');assert.equal(elements.get('settings').disabled,true);assert.equal(elements.get('model').disabled,true);
   run('setBusy(false)');
   run(`applySettings({model:'qwen',models:[{id:'klein',label:'FLUX Klein',available:true},{id:'qwen',label:'Qwen removal',available:true},{id:'heal',label:'Quick Heal',available:true}]});
@@ -147,21 +153,21 @@ async function main(){
   assert.equal(elements.get('remove').disabled,false,'Local healing works while the GPU is offline');
   assert.equal(elements.get('remove').textContent,'Heal');
   assert.equal(elements.get('model').options.some(option=>option.value==='heal'),false,'Quick Heal is separate from the saved AI model selector');
-  assert.equal(run('modelId'),'qwen');assert.equal(run('requests.length'),2,'Switching operation does not change persisted AI settings');
+  assert.equal(run('modelId'),'klein');assert.equal(run('requests.length'),1,'Switching operation does not change persisted AI settings');
   run('handActive=true;updateToolChrome()');key('KeyJ','j');
   assert.equal(run('operation'),'heal');assert.equal(run('handActive'),false);assert.equal(state().tool,'brush');
   assert.equal(elements.get('heal-brush').attributes['aria-pressed'],'true');
   key('Space',' ');pointer('pointerdown',400,300);pointer('pointermove',450,330);pointer('pointerup',450,330);document.fire('keyup',{code:'Space'});
   assert.equal(run('operation'),'heal','Temporary panning preserves Quick Heal mode');
   run('hasSelection=true');await elements.get('remove').onclick();
-  assert.equal(run('requests[2].body.model'),'heal');assert.equal(run('modelId'),'qwen','Healing keeps the selected AI model intact');
-  assert.equal(run('requests[2].body.heal_method'),'texture','Quick Heal defaults to texture repair');
+  assert.equal(run('requests[1].body.model'),'heal');assert.equal(run('modelId'),'klein','Healing keeps FLUX as the AI model');
+  assert.equal(run('requests[1].body.heal_method'),'texture','Quick Heal defaults to texture repair');
   assert.equal(elements.get('heal-method').hidden,false);assert.equal(elements.get('model-shortcut').hidden,true);
   run('hasSelection=true');elements.get('mode-ai').onclick();
   assert.equal(elements.get('remove').disabled,true,'AI removal still requires the GPU');
   run('ready=true;controls()');assert.equal(elements.get('remove').disabled,false);
-  await elements.get('remove').onclick();assert.equal(run('requests[3].body.model'),'qwen','Returning to AI uses the previous selected model');
-  assert.equal(run('requests[3].body.heal_method'),undefined,'AI removal does not request a healing method');
+  await elements.get('remove').onclick();assert.equal(run('requests[2].body.model'),'klein','Returning to AI uses FLUX');
+  assert.equal(run('requests[2].body.heal_method'),undefined,'AI removal does not request a healing method');
   assert.equal(elements.get('heal-method').hidden,true);assert.equal(elements.get('model-shortcut').hidden,false);
   run('hasSelection=true;retouchReady=false');elements.get('mode-heal').onclick();assert.equal(elements.get('remove').disabled,true,'Unavailable local retouch is disabled');
   run('handActive=true;updateToolChrome()');key('KeyB','b');assert.equal(run('operation'),'ai');assert.equal(run('handActive'),false);
@@ -204,6 +210,12 @@ async function main(){
          throw Error('Unexpected test endpoint '+path);
        };`);
   await run('openSession(photoA,{collection:folder,index:0})');
+  assert.equal(elements.get('folder-panel').hidden,false,'Multiple images show folder navigation');
+  run('collection={...folder,entries:[folder.entries[0]]};renderCollection()');
+  assert.equal(elements.get('folder-panel').hidden,true,'A single photo does not show a redundant folder row');
+  assert.equal(run('session.id'),'a','Hiding a single-photo folder row preserves the open document');
+  run('collection=folder;renderCollection()');
+  assert.equal(elements.get('folder-panel').hidden,false,'Folder navigation returns for multiple images');
   run(`mask.paints=7;hasSelection=true;undo=[mask.toDataURL('image/png')];points=[{x:120,y:160},{x:280,y:240}];tool='pen';setPhotoZoom(.8);panX=-420;panY=-310;applyCamera();`);
   const aState=state();
   await run('openCollectionEntry(1)');assert.equal(run('session.id'),'b');assert.equal(run('hasSelection'),false);assert.deepEqual(state().points,[]);
@@ -225,7 +237,7 @@ async function main(){
   assert.match(elements.get('output-format').options.find(option=>option.value==='png').textContent,/8-bit/);
   await run('save("unique")');assert.equal(run('navRequests.at(-1).body.mode'),'unique');assert.equal(run('navRequests.at(-1).body.format'),'png');assert.equal(state().paint,7);
   // All overwrite entry points pause before any write; cancel and dialog keys retain the working selection.
-  assert.match(html,/>Save Overwrite<\/button>/);assert.match(html,/>Save Overwrite…<\/span>/);assert.match(html,/>Save Unique<\/button>/);
+  assert.match(html,/>Overwrite original…<\/span>/);assert.match(html,/>Save a copy<\/span>/);
   run('loadOverwritePreference()');assert.equal(run('askBeforeOverwrite'),true);
   const beforeConfirm=run('navRequests.length'),selectionBeforeConfirm=state();
   const pendingCancel=elements.get('document-save').onclick();
@@ -302,6 +314,29 @@ async function main(){
   assert.equal(run('healMethod'),'telea');assert.deepEqual(state().points,methodSelection,'Changing heal method preserves selection');
   const maskBeforeMethodKey=state().paint;key('BracketRight',']',elements.get('heal-method'));assert.equal(state().paint,maskBeforeMethodKey,'Method dropdown keys do not paint');
   run('setBusy(true)');assert.equal(elements.get('heal-method').disabled,true);run('setBusy(false)');
+  run('points=[];showOriginal=false;hasSelection=true;controls()');
+  assert.equal(run('workflowState().status'),'Selection ready');
+  assert.equal(storage.get('local-remove-operation'),'heal','Explicit method choice is remembered');
+  run('setOperation("ai");ready=false;controls()');
+  assert.equal(run('workflowState().status'),'AI connection needed');
+  assert.equal(elements.get('remove').disabled,true);
+  assert.equal(run('hasSelection'),true,'Unavailable AI preserves the selection');
+  run('setOperation("heal");showOriginal=true;controls()');
+  assert.equal(run('workflowState().status'),'Original view');
+  assert.equal(elements.get('before').textContent,'Back to edits');
+  assert.equal(elements.get('remove').disabled,true,'Original comparison cannot apply edits');
+  key('Backslash','\\');assert.equal(run('showOriginal'),false);
+  run('activeTask="repair";setBusy(true)');
+  assert.equal(run('workflowState().title'),'Repairing your selection');
+  assert.equal(elements.get('viewport').attributes['aria-busy'],'true');
+  run('activeTask=null;setBusy(false)');
+  run('showOriginal=false;points=[{x:10,y:10},{x:20,y:20}];controls();selectTool("rectangle")');
+  assert.notEqual(run('workflowState().title'),'Finish your selection','Changing tools clears obsolete path guidance immediately');
+  run('models=models.filter(model=>model.id!=="heal");models.push({id:"heal",methods:[{id:"texture",available:false},{id:"telea",available:true}]});healMethod="texture";hasSelection=true;controls()');
+  assert.equal(elements.get('remove').disabled,true,'A missing texture helper is unavailable before submission');
+  assert.match(run('workflowState().description'),/Dust & scratches/,'Unavailable texture offers the installed alternative');
+  run('healMethod="telea";controls()');
+  assert.equal(elements.get('remove').disabled,false,'The installed dust repair method remains available');
   console.log('PASS: camera/pan/pen and AI/Heal regressions; native-pixel brush ring and bracket keys; two-image selection/undo/view preservation; navigation failure and busy guards; merge preservation; unique/overwrite/export formats and save errors; overwrite confirmation across buttons/keyboard, Cancel/Escape, modal isolation, copy routing, opt-out persistence and Settings reset; native File-object bridge; browser drop fallback; folder/save shortcuts.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

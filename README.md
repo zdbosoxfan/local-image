@@ -1,119 +1,60 @@
-# Local Remove
+# Local Image
 
-**A Windows photo editor for local object removal, quick healing, and editable layers.**
+A local Windows image workspace with **Retouch**, **Cutout** and **Image Gen** personas. Version **0.6.0** adds deployment for other Windows PCs, with selectable installation and AI storage folders. The flat, canvas-first interface uses conventional menus, contextual tools, tabbed Studio panels and a compact bottom filmstrip. One image keeps the filmstrip hidden; multiple images or an imported folder show it.
 
-Local Remove helps you remove unwanted objects and repair small distractions in photos. Quick Heal runs on your PC's CPU. AI Remove connects to an existing local ComfyUI installation for FLUX Klein or experimental Qwen removal.
+- **Retouch:** CPU Quick Heal and local AI object removal. Brush, pen and geometric selections; editable repair layers.
+- **Cutout:** Qwen background removal, brush/pen refinement, subject movement, scaling and rotation, editable shadows and imported or generated backgrounds.
+- **Image Gen:** text-to-image and model-specific image inputs, reference imports, repeatable seeds, dimensions and optional LoRAs. Generated results can continue into Retouch or Cutout, or become another document's background. Draft & Refine compares stages side by side, with a persistent image library and optional SeedVR2 enlargement.
 
-The Windows installer includes the application, Python runtime, and healing tools. You do not need ChatGPT, Codex, a source checkout, or a separate Python installation to use it.
+| Model | Best suited to | Image inputs | Transparent generation |
+| --- | --- | --- | --- |
+| Qwen Image 2.1 | Edits and transparent assets | Up to 10 semantic references | Yes, native RGBA |
+| Z-Image Turbo | Fast generation | One starting image for latent variations | No |
+| FLUX.2 Klein 4B | Fast reference editing | Up to 4 semantic references | No |
+| FLUX.2 Klein 9B | Larger reference-editing model | Up to 4 semantic references | No |
+| ERNIE-Image Base | Text-heavy posters and graphic layouts | Text only | No |
 
-## Install
+Qwen offers Compact INT8 and Full BF16 presets of the same model. Klein 4B uses BF16; Klein 9B uses an FP8 preset. Model availability is checked against the running ComfyUI service. Klein 9B's publisher repository currently requires access approval; it remains listed in the model browser but cannot be downloaded anonymously. The UI shows only applicable inputs: for example, Z-Image Turbo exposes variation strength while Qwen exposes transparent output. LoRAs are optional and belong to a specific base model.
 
-1. Open [Releases](https://github.com/zdbosoxfan/local-remove/releases) and download **Local-Remove-Setup-0.2.0.exe**.
-2. Run the installer for your Windows account. It creates Start menu shortcuts and an optional desktop shortcut.
-3. Open **Local Remove** from the Start menu.
+ERNIE reproduced all five requested strings in the local poster test, but still missed a no-mockup layout instruction. No model guarantees perfect text or layout. Qwen's opaque generation composites unexpected transparency over white; dedicated background generation rejects substantial transparency instead of accepting an incomplete scene.
 
-**Requirements:** Windows 10 or 11, 64-bit. Setup installs Microsoft's WebView2 Runtime if it is missing; that prerequisite download requires an internet connection. The current preview installer is not code-signed.
+## Install and start
 
-Quick Heal is included and works without ComfyUI or model downloads. To enable AI Remove, follow the connection steps below.
+Use the Windows installer built under `dist/local-image-v06/installer/Local-Image-Setup-0.6.0.exe`. Choose installation for all users in **Program Files**, or for the current user in **AppData**, and change the application folder if needed. Optional folder choices reserve a location for model downloads and the dedicated portable ComfyUI runtime. Settings, browser data, recovery and caches belong to each Windows user's AppData. See [the installation guide](docs/INSTALLATION.md) for storage, upgrades and setup on a new PC.
 
-## Edit a photo
+The installer includes the app, Python backend and Windows WebView2 host; ComfyUI and model weights are separate optional downloads. In **Edit > Settings**, detect or browse for an existing ComfyUI installation, or install a dedicated runtime. In **Image Gen > Browse models…**, compare strengths, precision, download sizes and GPU memory recommendations, then choose or download a model. **Models folder…** selects storage that can also be shared with an existing ComfyUI. Downloads verify publisher revisions, byte sizes and SHA-256 checksums.
 
-1. Use **File → Open** or **Open Folder**, or drop images from File Explorer into the desktop window.
-2. Select the object with the brush, pen, rectangle, or ellipse tool. Include the object's shadow when needed.
-3. Choose **Quick Heal** for small distractions or **AI Remove** for larger objects and scene reconstruction.
-4. Apply the removal, review the result, and use **Original** to compare it with the starting image.
-5. Save your work using the appropriate option:
+Image Gen's **Output** tab exposes resolution and steps together, with a suggested step count for the chosen model. Optional guidance is under **Advanced sampling**. See the [Image Gen user guide](docs/IMAGE-GENERATION.md) for references, adapters, the two-pane Draft & Refine workspace, and optional SeedVR2 upscaling.
 
-| Save option | What it keeps |
-| --- | --- |
-| **Save Project** | The original and applied layers in an editable `.lremove` file. |
-| **Save Unique** | A separate flattened image beside the source file. |
-| **Save Overwrite** | A flattened result that replaces the source image. |
-| **Export** | A flattened image saved through a save dialog. |
+SeedVR2 is a separate optional photo enhancer. Its real 3840 x 2160 test improved apparent detail over Lanczos, but synthesized fine textures and slightly outlined lettering. Review results at full size; transparent output retains the resized source alpha rather than repairing its edges.
 
-Layers can be hidden, discarded, or merged into a new layer. Save an editable project to continue retouching later. Unapplied brush selections and unfinished pen paths are not included in projects.
+The first launch displays a hardware guide with detected GPU memory and planning recommendations for each function. Open **Help > Hardware guide** to see it again. CPU editing and Quick Heal do not require a dedicated GPU. Model file sizes describe disk storage, not VRAM. ComfyUI can offload to system RAM, with a speed cost; large canvases and many references increase memory use.
 
-Supported formats are **JPEG, PNG, TIFF, and WebP**. For camera RAW files, send a rendered image from your RAW editor.
+Fresh profiles use `%LOCALAPPDATA%\Local Image`. An existing `%LOCALAPPDATA%\Local Remove` profile is retained so upgrades preserve settings, recovery sessions, model paths and editable projects. The `.lremove` project format and internal loopback endpoint `http://127.0.0.1:51247/remove` remain compatible. Normal editing runs without administrator rights.
 
-### Choose a healing method
+## Workspaces and guides
 
-- **Texture repair** copies nearby texture to repair small objects and blemishes.
-- **Dust & scratches** fills narrow defects using nearby colors.
-- **AI Remove** uses the selected local AI model. FLUX Klein is the default; Qwen removal is experimental and may be slower or alter fine texture.
-
-### Connect an existing ComfyUI installation
-
-1. Start ComfyUI on this PC.
-2. Open **Settings → AI connection** in Local Remove, or **AI connection settings** from its Start menu folder.
-3. Enter the port used by ComfyUI. The default is `8188`; use the port shown by your installation.
-4. Browse to the model folder that ComfyUI uses, then save.
-5. Select an available model in Local Remove's Settings.
-
-The installer does not install ComfyUI or download AI models. Both applications must use the same local model files:
-
-| Choice | Required files beneath the model folder |
-| --- | --- |
-| **FLUX Klein** | `diffusion_models/flux-2-klein-base-4b.safetensors`<br>`text_encoders/qwen_3_4b.safetensors`<br>`vae/flux2-vae.safetensors`<br>`loras/flux-2-klein-object-remove.safetensors` |
-| **Qwen removal** | `diffusion_models/qwen_image_edit_2511_fp8mixed.safetensors`<br>`text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors`<br>`vae/qwen_image_vae.safetensors`<br>`loras/Qwen-Image-Edit-2511-Object-Remover-v2-9200.safetensors` |
-
-ComfyUI must support the workflow nodes used by the selected model. The workflows are defined in [local_removal_models.py](backend/local_removal_models.py) and [specialized_removal.py](backend/specialized_removal.py).
-
-### Use with Capture One
-
-Choose **Edit With** in Capture One and select the installed `Local Remove.exe`. Send a rendered TIFF or JPEG. After editing, use **Save Overwrite** to update that rendered file. Also use **Save Project** if you want to retain the editable Local Remove layers.
-
-The default executable location is `%LOCALAPPDATA%\Programs\Local Remove\Local Remove.exe`.
-
-## Where your files are stored
-
-Local Remove follows a per-user Windows installation layout. Updates replace application files without replacing your settings or recoverable edits.
-
-| Files | Default location |
-| --- | --- |
-| Application and bundled runtime | `%LOCALAPPDATA%\Programs\Local Remove` |
-| AI connection settings | `%LOCALAPPDATA%\Local Remove\config.json` |
-| Editor settings and recoverable sessions | `%LOCALAPPDATA%\Local Remove\state` |
-| Disposable image cache and thumbnails | `%LOCALAPPDATA%\Local Remove\cache` |
-| Diagnostic logs | `%LOCALAPPDATA%\Local Remove\logs` |
-| Embedded browser profile | `%LOCALAPPDATA%\Local Remove\WebView2` |
-| Saved photos and `.lremove` projects | The location you choose in the app. |
-
-`%LOCALAPPDATA%` is your Windows account's local AppData folder. Paste a path from the table into File Explorer's address bar to open it.
-
-Logs rotate automatically. Thumbnail cleanup removes old or excess thumbnails when the app starts. Recoverable edits are kept separately and are never removed by disposable-cache cleanup. The background service shuts down after the last desktop window has been closed and it has been idle for about 75 seconds.
-
-## Update or uninstall
-
-Save your edits, close Local Remove, and run a newer installer to update it. Setup stops the idle background service before replacing program files.
-
-To uninstall, use **Windows Settings → Apps → Installed apps → Local Remove → Uninstall**. Uninstalling removes the app and shortcuts while retaining settings, recoverable sessions, and your saved photos/projects.
-
-If you used the earlier Documents-based version, save its unfinished work as `.lremove` projects and open those projects in the installed version. The installer leaves the earlier installation and its local data untouched.
-
-## Troubleshooting
-
-| Problem | Check |
-| --- | --- |
-| AI Remove is unavailable | Start ComfyUI, confirm its port in **AI connection**, and check the selected model files. Quick Heal remains available. |
-| Texture repair is unavailable | Re-run the installer to restore the bundled helper and dependencies. |
-| The editor window cannot load | Re-run setup and confirm Microsoft WebView2 installed successfully. Details are saved in the app's `logs` folder. |
-| Save Unique or Save Overwrite is unavailable | Open the image through the desktop app's native file/folder picker or Explorer drag-and-drop. |
-| An exported image has no editable layers | Open the `.lremove` project. JPEG, PNG, TIFF, and WebP exports are flattened. |
-
-## Development and backup
-
+- [Cutout editing and compositing](docs/CUTOUT-WORKSPACE.md)
+- [Installation, AI setup and storage on another PC](docs/INSTALLATION.md)
+- [Image generation models and input behavior](docs/GEN-MODELS.md)
+- [Generated-image library](docs/GENERATION-LIBRARY.md)
+- [Ten reviewed styles and the live LoRA browser](docs/LORA-LIBRARY.md)
+- [SeedVR2 upscaling and measured quality limits](docs/SEEDVR2.md)
+- [ERNIE poster preset and exact-text evaluation](docs/ERNIE-IMAGE.md)
+- [Stock image search, import and attribution](docs/STOCK-LIBRARY.md)
+- [Interface references and design decisions](docs/WORKSPACE-REFERENCES.md)
+- [Qwen integration details](docs/QWEN-IMAGE-21.md)
 - [Build and test instructions](docs/DEVELOPMENT.md)
-- [Desktop host details](desktop/NativeHost-README.md)
-- [Original backup provenance](docs/BACKUP.md)
+- [Earlier 0.4.0 cutout validation](docs/QWEN-VALIDATION.md)
+- [0.6.0 installation and deployment validation](docs/INSTALLATION-VALIDATION.md)
+- [0.5.0 model-quality findings and GPU validation](docs/LOCAL-IMAGE-VALIDATION.md)
 
-`backend/` contains the runnable editor and server, `desktop/` contains the Windows host source, `packaging/` builds the installer, and `tests/` contains the regression tests. Generated files, credentials, caches, and personal photo projects are excluded from Git.
+Transparent PNG, WebP and RGBA TIFF exports preserve alpha. TIFF editing retains native 16-bit source precision. Projects retain original pixels, repair layers, cutout masks, backgrounds, shadows, transforms and generation parameters. The generated image is portable; model weights and LoRA files are separate dependencies for regenerating it.
 
-## Credits and licenses
+The LoRA browser queries Hugging Face for newly published adapters when searched or refreshed. Ten exact-family starting points passed local GPU loading and visual review: three Qwen, two Z, two Klein 4B and three Klein 9B styles. Curated recommendations and unverified community results are labeled separately. Exact model compatibility and licensing still need checking for community adapters. The browser only downloads selected Safetensors files and does not install Python code or custom nodes.
 
-Local Remove uses the RapidRAW AI Connector, Microsoft WebView2, Embark Studios texture-synthesis, OpenCV, and code derived from ComfyUI-DeGrid. Existing component licenses are retained:
+**File > Stock library…** searches Openverse inside the app. Preview images and review their source and license, then open an image, use it as a cutout background, or add it as a generation reference. Imported credits stay with editable projects and are available through **File > Image credits…**. Pexels and Unsplash remain clearly labeled external website links followed by local import. Compositor is a visual/workflow reference for this release; no Compositor code is integrated.
 
-- [Backend license](backend/LICENSE)
-- [Third-party notices](backend/THIRD_PARTY_NOTICES.md)
-- [Microsoft WebView2 license](desktop/licenses/Microsoft-WebView2-LICENSE.txt) and [notices](desktop/licenses/Microsoft-WebView2-NOTICE.txt)
+## Model licenses
 
-No new project-wide license has been selected.
+Qwen Image 2.1 uses the [Qwen Research License](https://github.com/QwenLM/Qwen-Image-2.1/blob/main/LICENSE). FLUX.2 Klein 9B uses a [noncommercial model license](https://huggingface.co/black-forest-labs/FLUX.2-klein-9B/blob/main/LICENSE.md). Z-Image Turbo, FLUX.2 Klein 4B, ERNIE-Image and SeedVR2 are Apache 2.0. Separate LoRAs and stock images have their own licenses. The installer does not bundle model weights or grant additional model rights.

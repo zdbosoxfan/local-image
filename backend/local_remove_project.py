@@ -7,9 +7,13 @@ import stat
 import zipfile
 
 from PIL import Image
+from cutout_composite import cutout_assets
+from generation_metadata import validate_generation_metadata
+from stock_attribution import validate_attribution, validate_attributions
+from upscale_metadata import validate_upscale_metadata
 
 FORMAT = 'local-remove-project'
-VERSION = 1
+VERSION = 2
 MAX_LAYERS = 1000
 MAX_PIXELS = 150_000_000
 MAX_ASSET = 2 * 1024**3
@@ -40,6 +44,8 @@ def write_project(root, data, target):
         raise ValueError('The original asset is invalid.')
     layers = []
     names = [original, 'base.png']
+    if data.get('cutout') is not None:
+        names.extend(cutout_assets(data['cutout']))
     for source in data['layers']:
         layer = {key: value for key, value in source.items() if key in LAYER_KEYS}
         lid = layer['id']
@@ -70,6 +76,16 @@ def write_project(root, data, target):
     manifest = {'format': FORMAT, 'version': VERSION, 'name': data['name'],
                 'width': data['width'], 'height': data['height'], 'bit_depth': data['bit_depth'],
                 'revision': data['revision'], 'original': original, 'layers': layers, 'assets': assets}
+    if data.get('cutout') is not None:
+        manifest['cutout'] = data['cutout']
+    if data.get('generation') is not None:
+        manifest['generation'] = validate_generation_metadata(data['generation'])
+    if data.get('upscale') is not None:
+        manifest['upscale'] = validate_upscale_metadata(data['upscale'])
+    if data.get('source_attribution') is not None:
+        manifest['source_attribution'] = validate_attribution(data['source_attribution'])
+    if data.get('reference_attributions') is not None:
+        manifest['reference_attributions'] = validate_attributions(data['reference_attributions'])
     metadata = json.dumps(manifest, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
     if len(metadata) > MAX_MANIFEST:
         raise ValueError('Project metadata is too large.')
@@ -82,7 +98,7 @@ def write_project(root, data, target):
 
 def read_manifest(archive):
     infos = archive.infolist()
-    if len(infos) > MAX_LAYERS * 3 + 3:
+    if len(infos) > MAX_LAYERS * 3 + 5:
         raise ValueError('The project contains too many assets.')
     names = [info.filename for info in infos]
     if len(set(names)) != len(names) or 'manifest.json' not in names:
@@ -104,12 +120,27 @@ def read_manifest(archive):
         raise ValueError('The project metadata is too large.')
     manifest = json.loads(archive.read(info))
     required = {'format', 'version', 'name', 'width', 'height', 'bit_depth', 'revision', 'original', 'layers', 'assets'}
-    if not isinstance(manifest, dict) or set(manifest) != required or manifest['format'] != FORMAT or manifest['version'] != VERSION:
+    optional = {'cutout', 'generation', 'upscale', 'source_attribution', 'reference_attributions'}
+    if (not isinstance(manifest, dict) or not required <= set(manifest) or not set(manifest) <= required | optional
+            or manifest['format'] != FORMAT or type(manifest['version']) is not int or manifest['version'] not in (1, VERSION)
+            or (manifest['version'] == 1 and bool(optional.intersection(manifest)))):
         raise ValueError('This is not a supported Local Remove project.')
     if not safe_name(manifest['name']) or not all(integer(manifest[key], 1, 100000) for key in ('width', 'height')):
         raise ValueError('Project image metadata is invalid.')
     if manifest['width'] * manifest['height'] > MAX_PIXELS or manifest['bit_depth'] not in (8, 16) or not integer(manifest['revision'], 0, 2**53 - 1):
         raise ValueError('Project precision or dimensions are invalid.')
+    if 'upscale' in manifest:
+        provenance = validate_upscale_metadata(manifest['upscale'])
+        if (provenance['width'], provenance['height']) != (manifest['width'], manifest['height']):
+            raise ValueError('Upscaled image dimensions do not match the project.')
+    if 'generation' in manifest:
+        provenance = validate_generation_metadata(manifest['generation'])
+        if 'upscale' not in manifest and (provenance['width'], provenance['height']) != (manifest['width'], manifest['height']):
+            raise ValueError('Generated image dimensions do not match the project.')
+    if 'source_attribution' in manifest:
+        validate_attribution(manifest['source_attribution'])
+    if 'reference_attributions' in manifest:
+        validate_attributions(manifest['reference_attributions'])
     original = manifest['original']
     if not isinstance(original, str) or original != 'original' + Path(original).suffix.lower() or Path(original).suffix not in SUFFIXES:
         raise ValueError('The project original is invalid.')
@@ -117,6 +148,8 @@ def read_manifest(archive):
     if not isinstance(layers, list) or len(layers) > MAX_LAYERS:
         raise ValueError('The project layer list is invalid.')
     allowed = {original, 'base.png'}
+    if 'cutout' in manifest:
+        allowed.update(cutout_assets(manifest['cutout']))
     seen = set()
     for layer in layers:
         required_layer = {'id', 'name', 'x', 'y', 'width', 'height', 'visible', 'discarded', 'color', 'mask'}
@@ -186,6 +219,17 @@ def extract_project(source, target, decode_original):
         if base.format != 'PNG' or base.mode != 'RGB' or base.size != size:
             raise ValueError('The project display base is invalid.')
         base.load()
+    if 'cutout' in manifest:
+        state = manifest['cutout']
+        with Image.open(target / state['alpha']) as alpha:
+            if alpha.format != 'PNG' or alpha.mode != 'L' or alpha.size != size:
+                raise ValueError('The cutout alpha image is invalid.')
+            alpha.load()
+        if state['background'].get('asset'):
+            with Image.open(target / state['background']['asset']) as background:
+                if background.format != 'PNG' or background.mode not in ('RGB', 'RGBA') or background.width * background.height > MAX_PIXELS:
+                    raise ValueError('The background image is invalid.')
+                background.load()
     for layer in manifest['layers']:
         patch_size = (layer['width'], layer['height'])
         for role, modes in (('color', ('RGB', 'RGBA')), ('mask', ('L',))):

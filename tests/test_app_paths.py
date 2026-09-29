@@ -26,7 +26,44 @@ class UserStorageTests(unittest.TestCase):
         with patch.dict(os.environ, {'LOCALAPPDATA': str(self.root / 'Local AppData')}):
             with patch.dict(os.environ):
                 os.environ.pop('LOCAL_REMOVE_DATA_DIR')
-                self.assertEqual(app_paths.data_root(), self.root / 'Local AppData' / 'Local Remove')
+                self.assertEqual(app_paths.data_root(), self.root / 'Local AppData' / 'Local Image')
+
+    def test_profile_identity_preserves_native_logical_path(self):
+        # A Store/MSIX parent can redirect a physical handle under Packages.
+        # Native GetFullPath and runtime identity must use the same logical path.
+        expected = self.root / 'User Data'
+        with patch.object(Path, 'resolve', side_effect=AssertionError('Physical path lookup')):
+            self.assertEqual(app_paths.data_root(), expected)
+            with patch.dict(os.environ, {'LOCALAPPDATA': str(self.root / 'Local AppData')}):
+                with patch.dict(os.environ):
+                    os.environ.pop('LOCAL_REMOVE_DATA_DIR')
+                    self.assertEqual(app_paths.data_root(), self.root / 'Local AppData' / 'Local Image')
+
+    def test_legacy_profile_is_adopted_without_copying_or_overriding_current_profile(self):
+        base = self.root / 'Other User AppData'
+        legacy, current = base / 'Local Remove', base / 'Local Image'
+        legacy.mkdir(parents=True)
+        (legacy / 'config.json').write_text('{"comfy_port": 8189}')
+        with patch.dict(os.environ, {'LOCALAPPDATA': str(base)}):
+            with patch.dict(os.environ):
+                os.environ.pop('LOCAL_REMOVE_DATA_DIR')
+                os.environ.pop('LOCAL_IMAGE_DATA_DIR', None)
+                self.assertEqual(app_paths.data_root(), legacy)
+                self.assertEqual(app_paths.read_config()['comfy_port'], 8189)
+                (current / 'state').mkdir(parents=True)
+                self.assertEqual(app_paths.data_root(), current)
+        self.assertEqual((legacy / 'config.json').read_text(), '{"comfy_port": 8189}')
+
+    def test_selected_model_and_portable_runtime_folders_are_independent_of_installation(self):
+        app_paths.write_config({'model_directory': str(self.root / 'Models on another drive'),
+                               'managed_ai_directory': str(self.root / 'Portable AI'), 'setup_mode': 'portable'})
+        with patch.dict(os.environ):
+            os.environ.pop('LOCAL_IMAGE_MODELS_DIR', None)
+            os.environ.pop('LOCAL_REMOVE_MODELS_DIR', None)
+            os.environ.pop('LOCAL_IMAGE_AI_DIR', None)
+            self.assertEqual(app_paths.model_directory(), self.root / 'Models on another drive')
+            self.assertEqual(app_paths.managed_ai_dir(), self.root / 'Portable AI')
+        self.assertEqual(app_paths.read_config()['setup_mode'], 'portable')
 
     def test_workflow_is_copied_once_and_user_changes_survive(self):
         resources = self.root / 'Read Only Install'

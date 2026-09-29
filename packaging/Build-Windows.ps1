@@ -2,9 +2,10 @@ param(
     [string]$Python = 'python',
     [Parameter(Mandatory=$true)][string]$WebView2Package,
     [Parameter(Mandatory=$true)][string]$InnoCompiler,
-    [string]$OutputDirectory = (Join-Path $PSScriptRoot '..\dist')
+    [string]$OutputDirectory = ''
 )
 $ErrorActionPreference = 'Stop'
+if (-not $OutputDirectory) { $OutputDirectory = Join-Path $PSScriptRoot '..\dist' }
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $output = [IO.Path]::GetFullPath($OutputDirectory)
 $package = Join-Path $output 'package'
@@ -24,7 +25,14 @@ if ($LASTEXITCODE -ne 0) { throw 'Backend packaging failed.' }
 & (Join-Path $repository 'desktop\Build-NativeHost.ps1') -PackageRoot $WebView2Package -OutputDirectory $package
 if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed.' }
 Copy-Item -LiteralPath (Join-Path $repository 'README.md') -Destination $package -Force
-& $InnoCompiler ('/DPackageDir=' + $package) ('/DInstallerDir=' + $installer) ('/DPrerequisiteDir=' + $prerequisites) (Join-Path $PSScriptRoot 'LocalRemove.iss')
+Copy-Item -LiteralPath (Join-Path $repository 'docs') -Destination $package -Recurse -Force
+$packageEntries = Get-ChildItem -LiteralPath $package -Recurse -Force
+$longestFile = ($packageEntries | Where-Object { -not $_.PSIsContainer } | ForEach-Object { $_.FullName.Length - $package.Length - 1 } | Measure-Object -Maximum).Maximum
+$longestDirectory = ($packageEntries | Where-Object { $_.PSIsContainer } | ForEach-Object { $_.FullName.Length - $package.Length - 1 } | Measure-Object -Maximum).Maximum
+# Keep two characters of margin below Win32's file and directory path limits.
+$appPathLimit = [Math]::Min(256 - $longestFile, 244 - $longestDirectory)
+if ($appPathLimit -lt 64) { throw 'The package contains paths too deep for a normal Windows installation.' }
+& $InnoCompiler ('/DPackageDir=' + $package) ('/DInstallerDir=' + $installer) ('/DPrerequisiteDir=' + $prerequisites) ('/DAppPathLimit=' + $appPathLimit) (Join-Path $PSScriptRoot 'LocalRemove.iss')
 if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
 Get-ChildItem -LiteralPath $installer -Filter '*.exe' | ForEach-Object {
     $checksum = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()

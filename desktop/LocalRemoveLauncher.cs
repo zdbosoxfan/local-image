@@ -14,14 +14,20 @@ using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
+[assembly: System.Reflection.AssemblyTitle("Local Image")]
+[assembly: System.Reflection.AssemblyProduct("Local Image")]
+[assembly: System.Reflection.AssemblyVersion("0.6.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.6.0.0")]
+
 // Paths come only from native pickers, OS launch arguments, or WebView2 File objects.
 // The browser never receives the launcher credential or an arbitrary-path API.
 internal static class LocalRemoveLauncher
 {
     internal const string ApiBase = "http://127.0.0.1:51247";
     internal static readonly string InstallDirectory = AppDomain.CurrentDomain.BaseDirectory;
-    internal static readonly string DataDirectory = Path.GetFullPath(Environment.GetEnvironmentVariable("LOCAL_REMOVE_DATA_DIR") ??
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Local Remove"));
+    internal static readonly string DataDirectory = LocalImageStorage.ResolveProfileRoot(
+        FirstEnvironmentValue("LOCALAPPDATA") ?? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        FirstEnvironmentValue("LOCAL_IMAGE_DATA_DIR", "LOCAL_REMOVE_DATA_DIR"));
     internal static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = 16 * 1024 * 1024 };
     internal static readonly HttpClient Http = new HttpClient(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false }) { Timeout = TimeSpan.FromMinutes(3) };
     internal static string LauncherKey;
@@ -62,8 +68,8 @@ internal static class LocalRemoveLauncher
         catch (Exception error)
         {
             WriteError(error);
-            if (args.Contains("--no-open") || args.Contains("--self-test") || args.Contains("--probe-webview")) WriteResult(output, new { ok = false, error = error.Message });
-            else MessageBox.Show(error.Message, "Local Remove could not start", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            if (args.Contains("--no-open") || args.Contains("--self-test") || args.Contains("--probe-webview") || args.Contains("--shutdown-backend")) WriteResult(output, new { ok = false, error = error.Message });
+            else MessageBox.Show(error.Message, "Local Image could not start", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return 1;
         }
         finally { if (desktopMutex != null) desktopMutex.Dispose(); }
@@ -72,6 +78,15 @@ internal static class LocalRemoveLauncher
     {
         int position = Array.IndexOf(args, key);
         return position >= 0 && position + 1 < args.Length ? args[position + 1] : null;
+    }
+    internal static string FirstEnvironmentValue(params string[] names)
+    {
+        foreach (string name in names)
+        {
+            string value = Environment.GetEnvironmentVariable(name);
+            if (!String.IsNullOrWhiteSpace(value)) return value;
+        }
+        return null;
     }
     internal static string[] ReadPaths(string[] args)
     {
@@ -101,11 +116,24 @@ internal static class LocalRemoveLauncher
     }
     internal static async Task EnsureBackend()
     {
-        Directory.CreateDirectory(DataDirectory);
+        LocalImageStorage.InitializeProfile(DataDirectory, InstallDirectory);
         if (!await BackendReady())
         {
+            using (var probe = new System.Net.Sockets.TcpClient())
+            {
+                try
+                {
+                    var connection = probe.ConnectAsync("127.0.0.1", 51247);
+                    if (await Task.WhenAny(connection, Task.Delay(1500)) == connection)
+                    {
+                        await connection;
+                        if (probe.Connected) throw new InvalidOperationException("Another Local Image session or application is using port 51247. Close it before opening this installation.");
+                    }
+                }
+                catch (System.Net.Sockets.SocketException) { }
+            }
             string backend = Path.Combine(InstallDirectory, "backend", "LocalRemoveBackend.exe");
-            if (!File.Exists(backend)) throw new FileNotFoundException("Local Remove is missing an application file. Reinstall Local Remove.", backend);
+            if (!File.Exists(backend)) throw new FileNotFoundException("Local Image is missing an application file. Reinstall Local Image.", backend);
             Process.Start(new ProcessStartInfo(backend)
             { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden,
                 WorkingDirectory = Path.GetDirectoryName(backend) });
@@ -113,11 +141,11 @@ internal static class LocalRemoveLauncher
         DateTime deadline = DateTime.UtcNow.AddMinutes(3);
         while (!await BackendReady())
         {
-            if (DateTime.UtcNow >= deadline) throw new InvalidOperationException("Local Remove could not start. Check the connector logs.");
+            if (DateTime.UtcNow >= deadline) throw new InvalidOperationException("Local Image could not start. Check the connector logs.");
             await Task.Delay(1000);
         }
         LauncherKey = File.ReadAllText(Path.Combine(DataDirectory, "state", "launcher.key"), Encoding.ASCII).Trim();
-        if (LauncherKey.Length < 32) throw new InvalidOperationException("The Local Remove launcher credential is invalid.");
+        if (LauncherKey.Length < 32) throw new InvalidOperationException("The Local Image launcher credential is invalid.");
     }
     private static async Task<bool> BackendReady()
     {
@@ -131,7 +159,7 @@ internal static class LocalRemoveLauncher
                     if (!response.IsSuccessStatusCode) return false;
                     var result = Json.Deserialize<Dictionary<string, object>>(await response.Content.ReadAsStringAsync().ConfigureAwait(false));
                     return result != null && Name(result, "application", "") == "local-remove"
-                        && Name(result, "version", "") == "0.2.0"
+                        && Name(result, "version", "") == "0.6.0"
                         && String.Equals(StringValue(result, "data_root", "").TrimEnd('\\'), DataDirectory.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
                 }
             }
@@ -140,25 +168,49 @@ internal static class LocalRemoveLauncher
         catch (TaskCanceledException) { return false; }
         catch (ArgumentException) { return false; }
     }
-    internal static async Task ConfigureAi(IWin32Window owner)
+    internal static async Task<bool> ConfigureAi(IWin32Window owner)
     {
+        LocalImageStorage.InitializeProfile(DataDirectory, InstallDirectory);
         using (var dialog = new LocalRemoveSettings())
         {
-            if (dialog.ShowDialog(owner) != DialogResult.OK) return;
+            if (dialog.ShowDialog(owner) != DialogResult.OK) return false;
         }
         if (await BackendReady().ConfigureAwait(false))
         {
             LauncherKey = File.ReadAllText(Path.Combine(DataDirectory, "state", "launcher.key"), Encoding.ASCII).Trim();
             await Api("/api/local-remove/reload-config", new Dictionary<string, object>()).ConfigureAwait(false);
         }
+        return true;
     }
     private static async Task ShutdownBackend()
     {
-        if (!await BackendReady()) return;
+        if (!await BackendReady())
+        {
+            using (var client = new HttpClient(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false }))
+            using (var request = new HttpRequestMessage(HttpMethod.Get, ApiBase + "/api/local-remove/runtime"))
+            {
+                client.Timeout = TimeSpan.FromSeconds(3);
+                try
+                {
+                    using (var response = await client.SendAsync(request))
+                    {
+                        if (response.IsSuccessStatusCode)
+                        {
+                            var runtime = Json.Deserialize<Dictionary<string, object>>(await response.Content.ReadAsStringAsync());
+                            if (Name(runtime, "application", "") == "local-remove")
+                                throw new InvalidOperationException("Close Local Image for other Windows users and wait for background work to finish before updating or uninstalling.");
+                        }
+                    }
+                }
+                catch (HttpRequestException) { }
+                catch (TaskCanceledException) { }
+            }
+            return;
+        }
         LauncherKey = File.ReadAllText(Path.Combine(DataDirectory, "state", "launcher.key"), Encoding.ASCII).Trim();
         await Api("/api/local-remove/shutdown", new Dictionary<string, object>());
         for (int attempt = 0; attempt < 20 && await BackendReady(); attempt++) await Task.Delay(500);
-        if (await BackendReady()) throw new InvalidOperationException("Local Remove is still working. Wait for it to finish, then retry.");
+        if (await BackendReady()) throw new InvalidOperationException("Local Image is still working. Wait for it to finish, then retry.");
     }
     internal static async Task<Dictionary<string, object>> RegisterPaths(string[] paths)
     {
@@ -166,8 +218,8 @@ internal static class LocalRemoveLauncher
         string[] projects = paths.Where(IsProjectPath).ToArray();
         if (projects.Length > 0)
         {
-            if (paths.Length != 1) throw new InvalidOperationException("Open one Local Remove project at a time. Do not mix projects with images or folders.");
-            if (!File.Exists(projects[0])) throw new FileNotFoundException("The selected Local Remove project no longer exists.");
+            if (paths.Length != 1) throw new InvalidOperationException("Open one Local Image project at a time. Do not mix projects with images or folders.");
+            if (!File.Exists(projects[0])) throw new FileNotFoundException("The selected Local Image project no longer exists.");
             return await Api("/api/local-remove/open-project", new { path = projects[0] });
         }
         string[] folders = paths.Where(Directory.Exists).ToArray();
@@ -187,6 +239,23 @@ internal static class LocalRemoveLauncher
     {
         return await Request(HttpMethod.Get, "/api/local-remove/session/" + Uri.EscapeDataString(sessionId), null);
     }
+    internal static async Task<Dictionary<string, object>> ReadSetup()
+    {
+        return await Request(HttpMethod.Get, "/api/local-remove/setup", null);
+    }
+    internal static bool IsSetupAction(string action)
+    {
+        return new[] { "setupUseInstallation", "setupChooseComfyDirectory", "setupChooseModelDirectory", "setupChooseInstallDirectory", "setupInstall",
+            "setupDownloadModels", "setupDownloadQwen", "setupDownloadGenerationModel", "loraDownload", "setupStart", "setupEject" }.Contains(action);
+    }
+    internal static Dictionary<string, object> SetupSelectionPayload(Dictionary<string, object> message)
+    {
+        string installation = StringValue(message, "installation_id", "");
+        if (String.IsNullOrWhiteSpace(installation) || installation.Length > 128)
+            throw new InvalidOperationException("Choose one of the detected ComfyUI installations.");
+        // Only an opaque detection ID is accepted. Paths and commands from the page are ignored.
+        return new Dictionary<string, object> { { "installation_id", installation } };
+    }
     private static async Task<Dictionary<string, object>> Request(HttpMethod method, string path, object payload)
     {
         using (var request = new HttpRequestMessage(method, ApiBase + path))
@@ -201,10 +270,10 @@ internal static class LocalRemoveLauncher
                 if (!response.IsSuccessStatusCode)
                 {
                     object detail;
-                    string message = decoded != null && decoded.TryGetValue("detail", out detail) ? Convert.ToString(detail) : "The Local Remove command could not be completed.";
+                    string message = decoded != null && decoded.TryGetValue("detail", out detail) ? Convert.ToString(detail) : "The Local Image command could not be completed.";
                     throw new InvalidOperationException(message);
                 }
-                if (decoded == null) throw new InvalidOperationException("The Local Remove backend returned an invalid response.");
+                if (decoded == null) throw new InvalidOperationException("The Local Image backend returned an invalid response.");
                 return decoded;
             }
         }
@@ -303,6 +372,16 @@ internal static class LocalRemoveLauncher
         });
         if (savePayload.Count != 2 || Convert.ToInt64(savePayload["revision"]) != 7)
             throw new InvalidOperationException("The project-save payload allowlist test failed.");
+        var setupPayload = SetupSelectionPayload(new Dictionary<string, object> {
+            { "installation_id", "detected-123" }, { "comfy_directory", "C:\\untrusted-folder" },
+            { "command", "untrusted-command" }, { "model_directory", "C:\\untrusted-models" } });
+        bool missingSetupIdRejected = false;
+        try { SetupSelectionPayload(new Dictionary<string, object> { { "comfy_directory", "C:\\untrusted-folder" } }); }
+        catch (InvalidOperationException) { missingSetupIdRejected = true; }
+        if (setupPayload.Count != 1 || (string)setupPayload["installation_id"] != "detected-123" || !missingSetupIdRejected
+            || !IsSetupAction("setupInstall") || !IsSetupAction("setupChooseInstallDirectory")
+            || !IsSetupAction("setupEject") || IsSetupAction("setupRunCommand"))
+            throw new InvalidOperationException("The AI setup bridge allowlist test failed.");
         bool badRevisionRejected = false, badSessionRejected = false, mixedProjectsRejected = false;
         try { ProjectSavePayload(new Dictionary<string, object> { { "session_id", "e2419d61-d78b-4f8a-b138-8e65386aa3e9" }, { "revision", true } }); }
         catch (InvalidOperationException) { badRevisionRejected = true; }
@@ -324,7 +403,7 @@ internal static class LocalRemoveLauncher
         string nextClose = gate.Begin();
         if (nextClose == firstClose || gate.Complete(firstClose, true) || gate.Approved || !gate.Complete(nextClose, true) || !gate.Approved)
             throw new InvalidOperationException("The explicit close approval test failed.");
-        WriteResult(output, new { ok = true, trusted_origin_checks = 12, project_boundary_checks = 7, close_handshake_checks = 7,
+        WriteResult(output, new { ok = true, trusted_origin_checks = 12, project_boundary_checks = 7, close_handshake_checks = 7, setup_bridge_checks = 6,
             bridge_version = 2, projects = true, closeRequests = true, runtime = CoreWebView2Environment.GetAvailableBrowserVersionString(), architecture = Environment.Is64BitProcess ? "x64" : "x86" });
     }
 }
@@ -362,13 +441,13 @@ internal sealed class LocalRemoveWindow : Form
     internal LocalRemoveWindow(string[] initialPaths, bool hiddenProbe, string resultPath)
     {
         paths = initialPaths; probe = hiddenProbe; output = resultPath;
-        Text = "Local Remove";
+        Text = "Local Image";
         Icon = Icon.ExtractAssociatedIcon(System.Reflection.Assembly.GetExecutingAssembly().Location);
         BackColor = Color.FromArgb(31, 32, 34); MinimumSize = new Size(800, 560); Size = new Size(1380, 940);
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         if (probe) { Opacity = 0; ShowInTaskbar = false; }
         view = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = BackColor, AllowExternalDrop = true };
-        startup = new Label { Dock = DockStyle.Fill, Text = "Starting Local Remove…", TextAlign = ContentAlignment.MiddleCenter,
+        startup = new Label { Dock = DockStyle.Fill, Text = "Starting Local Image…", TextAlign = ContentAlignment.MiddleCenter,
             ForeColor = Color.Gainsboro, Font = new Font("Segoe UI", 12), BackColor = BackColor };
         Controls.Add(view); Controls.Add(startup);
         Shown += async delegate { await Initialize(); };
@@ -402,7 +481,7 @@ internal sealed class LocalRemoveWindow : Form
             core.NavigationCompleted += delegate(object sender, CoreWebView2NavigationCompletedEventArgs e)
             {
                 if (ignoredNavigations.Remove(e.NavigationId)) return;
-                if (!e.IsSuccess) { FinishError(new InvalidOperationException("Local Remove could not load its editor (" + e.WebErrorStatus + ").")); return; }
+                if (!e.IsSuccess) { FinishError(new InvalidOperationException("Local Image could not load its editor (" + e.WebErrorStatus + ").")); return; }
                 startup.Visible = false;
                 if (probe)
                 {
@@ -418,7 +497,7 @@ internal sealed class LocalRemoveWindow : Form
     {
         LocalRemoveLauncher.ExitCode = 1; LocalRemoveLauncher.WriteError(error);
         if (probe) { LocalRemoveLauncher.WriteResult(output, new { ok = false, error = error.Message }); Close(); }
-        else { startup.Text = "Local Remove could not start.\n\n" + error.Message; startup.Visible = true; startup.BringToFront(); }
+        else { startup.Text = "Local Image could not start.\n\n" + error.Message; startup.Visible = true; startup.BringToFront(); }
     }
     private void OnFormClosing(object sender, FormClosingEventArgs e)
     {
@@ -429,7 +508,7 @@ internal sealed class LocalRemoveWindow : Form
         if (view.IsDisposed || view.CoreWebView2 == null || !LocalRemoveLauncher.TrustedPage(view.CoreWebView2.Source))
         {
             MessageBox.Show(this, "The editor is not available to review your open edits. The window has been kept open so no layers are discarded.",
-                "Local Remove", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                "Local Image", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
         string id = closeGate.Begin();
@@ -441,7 +520,7 @@ internal sealed class LocalRemoveWindow : Form
         catch (Exception error)
         {
             closeGate.Complete(id, false); LocalRemoveLauncher.WriteError(error);
-            MessageBox.Show(this, "The editor could not review your open edits. The window has been kept open.", "Local Remove", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "The editor could not review your open edits. The window has been kept open.", "Local Image", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }
     private void OnNavigation(object sender, CoreWebView2NavigationStartingEventArgs e)
@@ -466,7 +545,7 @@ internal sealed class LocalRemoveWindow : Form
                 if (IsDisposed) { e.Cancel = true; return; }
                 bool projectDownload = new Uri(e.DownloadOperation.Uri).AbsolutePath.EndsWith("/download-project", StringComparison.Ordinal);
                 using (var picker = new SaveFileDialog { Title = projectDownload ? "Export editable project" : "Export image", FileName = Path.GetFileName(e.ResultFilePath),
-                    Filter = projectDownload ? "Local Remove project (*.lremove)|*.lremove" : "Image file|*.*", DefaultExt = projectDownload ? "lremove" : "", AddExtension = true, OverwritePrompt = true, RestoreDirectory = true })
+                    Filter = projectDownload ? "Local Image project (*.lremove)|*.lremove" : "Image file|*.*", DefaultExt = projectDownload ? "lremove" : "", AddExtension = true, OverwritePrompt = true, RestoreDirectory = true })
                 {
                     if (picker.ShowDialog(this) == DialogResult.OK) e.ResultFilePath = picker.FileName;
                     else e.Cancel = true;
@@ -500,7 +579,7 @@ internal sealed class LocalRemoveWindow : Form
             if (message == null || !message.TryGetValue("id", out id) || !(id is string) || ((string)id).Length > 128
                 || !message.TryGetValue("action", out action) || !(action is string)) return;
             string verb = (string)action;
-            if (verb == "ready") { trustedEditorReady = true; Reply(id, new { native = true, version = 2, projects = true, closeRequests = true }, null); return; }
+            if (verb == "ready") { trustedEditorReady = true; Reply(id, new { native = true, version = 2, projects = true, closeRequests = true, setup = true }, null); return; }
             if (verb == "closeReady")
             {
                 object approved;
@@ -510,27 +589,42 @@ internal sealed class LocalRemoveWindow : Form
                     BeginInvoke(new Action(delegate { if (!IsDisposed) Close(); }));
                 return;
             }
-            if (verb != "openFiles" && verb != "openFolder" && verb != "openProject" && verb != "saveProject" && verb != "drop" && verb != "configureAi") throw new InvalidOperationException("Unknown desktop action.");
+            if (verb != "openFiles" && verb != "openFolder" && verb != "chooseBackgroundFolder" && verb != "openProject" && verb != "saveProject" && verb != "drop" && verb != "configureAi" && !LocalRemoveLauncher.IsSetupAction(verb)) throw new InvalidOperationException("Unknown desktop action.");
             if (bridgeBusy) throw new InvalidOperationException("Finish opening the current selection first.");
             bridgeBusy = true; ownsBusy = true;
+            if (LocalRemoveLauncher.IsSetupAction(verb))
+            {
+                Reply(id, await RunSetupAction(verb, message), null); return;
+            }
             if (verb == "configureAi")
             {
                 await Task.Yield();
-                await LocalRemoveLauncher.ConfigureAi(this);
-                Reply(id, new { ok = true }, null); return;
+                bool configured = await LocalRemoveLauncher.ConfigureAi(this);
+                Reply(id, configured ? new { ok = true } : null, null); return;
             }
             if (verb == "saveProject")
             {
                 var saved = await SaveProject(message);
                 Reply(id, saved, null); return;
             }
+            if (verb == "chooseBackgroundFolder")
+            {
+                await Task.Yield();
+                if (IsDisposed) return;
+                using (var picker = new FolderBrowserDialog { Description = "Choose a folder of background images for your cutouts.", ShowNewFolderButton = false })
+                {
+                    if (picker.ShowDialog(this) != DialogResult.OK) { Reply(id, null, null); return; }
+                    var library = await LocalRemoveLauncher.Api("/api/local-remove/backgrounds/register-folder", new { path = Path.GetFullPath(picker.SelectedPath) });
+                    Reply(id, library, null); return;
+                }
+            }
             string[] selected = new string[0];
             if (verb == "openFiles")
             {
                 await Task.Yield();
                 if (IsDisposed) return;
-                using (var picker = new OpenFileDialog { Title = "Open images or a Local Remove project", Multiselect = true, CheckFileExists = true,
-                    Filter = "Images and Local Remove projects|*.jpg;*.jpeg;*.png;*.tif;*.tiff;*.webp;*.lremove|Images|*.jpg;*.jpeg;*.png;*.tif;*.tiff;*.webp|Local Remove project (*.lremove)|*.lremove", RestoreDirectory = true })
+                using (var picker = new OpenFileDialog { Title = "Open images or a Local Image project", Multiselect = true, CheckFileExists = true,
+                    Filter = "Images and Local Image projects|*.jpg;*.jpeg;*.png;*.tif;*.tiff;*.webp;*.lremove|Images|*.jpg;*.jpeg;*.png;*.tif;*.tiff;*.webp|Local Image project (*.lremove)|*.lremove", RestoreDirectory = true })
                     if (picker.ShowDialog(this) == DialogResult.OK) selected = picker.FileNames;
             }
             else if (verb == "openProject")
@@ -538,14 +632,14 @@ internal sealed class LocalRemoveWindow : Form
                 await Task.Yield();
                 if (IsDisposed) return;
                 using (var picker = new OpenFileDialog { Title = "Open editable project", Multiselect = false, CheckFileExists = true,
-                    Filter = "Local Remove project (*.lremove)|*.lremove", DefaultExt = "lremove", RestoreDirectory = true })
+                    Filter = "Local Image project (*.lremove)|*.lremove", DefaultExt = "lremove", RestoreDirectory = true })
                     if (picker.ShowDialog(this) == DialogResult.OK) selected = new[] { picker.FileName };
             }
             else if (verb == "openFolder")
             {
                 await Task.Yield();
                 if (IsDisposed) return;
-                using (var picker = new FolderBrowserDialog { Description = "Choose a folder of images to edit in Local Remove.", ShowNewFolderButton = false })
+                using (var picker = new FolderBrowserDialog { Description = "Choose a folder of images to edit in Local Image.", ShowNewFolderButton = false })
                     if (picker.ShowDialog(this) == DialogResult.OK) selected = new[] { picker.SelectedPath };
             }
             else
@@ -562,6 +656,73 @@ internal sealed class LocalRemoveWindow : Form
         catch (Exception error) { Reply(id, null, error.Message); }
         finally { if (ownsBusy) bridgeBusy = false; }
     }
+    private async Task<Dictionary<string, object>> RunSetupAction(string verb, Dictionary<string, object> message)
+    {
+        if (verb == "setupUseInstallation")
+            return await LocalRemoveLauncher.Api("/api/local-remove/setup/configure", LocalRemoveLauncher.SetupSelectionPayload(message));
+        if (verb == "setupDownloadModels")
+            return await LocalRemoveLauncher.Api("/api/local-remove/setup/download-models", new Dictionary<string, object>());
+        if (verb == "setupDownloadQwen")
+        {
+            string variant = LocalRemoveLauncher.StringValue(message, "variant", "int8");
+            if (variant != "int8" && variant != "bf16") throw new InvalidOperationException("Choose Compact INT8 or Full precision BF16.");
+            return await LocalRemoveLauncher.Api("/api/local-remove/qwen/download", new { variant = variant });
+        }
+        if (verb == "setupStart")
+            return await LocalRemoveLauncher.Api("/api/local-remove/setup/start", new Dictionary<string, object>());
+        if (verb == "setupDownloadGenerationModel")
+        {
+            string model = LocalRemoveLauncher.StringValue(message, "model", "qwen");
+            string variant = LocalRemoveLauncher.StringValue(message, "variant", "int8");
+            if (!((model == "qwen" && (variant == "int8" || variant == "bf16"))
+                || ((model == "z-image-turbo" || model == "flux2-klein-4b" || model == "ernie-image") && variant == "bf16")
+                || ((model == "flux2-dev" || model == "flux2-klein-9b") && variant == "fp8")
+                || (model == "seedvr2" && variant == "fp16")))
+                throw new InvalidOperationException("Choose one of the supported image model presets.");
+            return await LocalRemoveLauncher.Api("/api/local-remove/generator/download", new { model = model, variant = variant });
+        }
+        if (verb == "loraDownload")
+        {
+            string model = LocalRemoveLauncher.StringValue(message, "model", "");
+            if (!new[] { "qwen", "z-image-turbo", "flux2-klein-4b", "flux2-klein-9b", "flux2-dev", "hidream-o1" }.Contains(model))
+                throw new InvalidOperationException("Choose a supported model for this LoRA.");
+            // The server resolves fixed Hugging Face endpoints and revalidates the
+            // repository, revision, exact file, checksum and compatibility.
+            var payload = new Dictionary<string, object> { { "model", model },
+                { "repo_id", LocalRemoveLauncher.StringValue(message, "repo_id", "") },
+                { "filename", LocalRemoveLauncher.StringValue(message, "filename", "") },
+                { "revision", LocalRemoveLauncher.StringValue(message, "revision", "") },
+                { "allow_unverified", LocalRemoveLauncher.Flag(message, "allow_unverified") } };
+            return await LocalRemoveLauncher.Api("/api/local-remove/loras/download", payload);
+        }
+        if (verb == "setupEject")
+            return await LocalRemoveLauncher.Api("/api/local-remove/setup/eject", new Dictionary<string, object>());
+        if (verb == "setupInstall")
+        {
+            // This path comes from authenticated server state configured by a
+            // Windows picker or installer, never from the page's message.
+            var status = await LocalRemoveLauncher.ReadSetup();
+            string directory = LocalRemoveLauncher.StringValue(status, "managed_directory", "");
+            if (String.IsNullOrWhiteSpace(directory)) throw new InvalidOperationException("Choose a portable ComfyUI folder first.");
+            return await LocalRemoveLauncher.Api("/api/local-remove/setup/install", new { directory = directory });
+        }
+        // Folder paths are supplied by Windows, never by the embedded page.
+        await Task.Yield();
+        if (IsDisposed) return null;
+        bool installing = verb == "setupChooseInstallDirectory", models = verb == "setupChooseModelDirectory";
+        string description = installing
+            ? "Choose where to install ComfyUI. A dedicated LocalRemove-ComfyUI folder will be created here."
+            : models ? "Choose where to store AI model files. Existing complete model files will be reused."
+            : "Choose your existing ComfyUI folder or Windows portable folder.";
+        using (var picker = new FolderBrowserDialog { Description = description, ShowNewFolderButton = installing || models })
+        {
+            if (picker.ShowDialog(this) != DialogResult.OK) return null;
+            string folder = Path.GetFullPath(picker.SelectedPath);
+            if (installing || models) folder = LocalImageStorage.StoragePath(folder, LocalRemoveLauncher.InstallDirectory);
+            return await LocalRemoveLauncher.Api("/api/local-remove/setup/configure",
+                new Dictionary<string, object> { { installing ? "managed_ai_directory" : models ? "model_directory" : "comfy_directory", folder } });
+        }
+    }
     private async Task<Dictionary<string, object>> SaveProject(Dictionary<string, object> message)
     {
         var payload = LocalRemoveLauncher.ProjectSavePayload(message);
@@ -574,7 +735,7 @@ internal sealed class LocalRemoveWindow : Form
             string sourceName = LocalRemoveLauncher.Name(session, "name", "Untitled");
             string suggested = LocalRemoveLauncher.Name(session, "project_name", Path.GetFileNameWithoutExtension(sourceName) + ".lremove");
             using (var picker = new SaveFileDialog { Title = "Save editable project", FileName = Path.ChangeExtension(suggested, ".lremove"),
-                Filter = "Local Remove project (*.lremove)|*.lremove", DefaultExt = "lremove", AddExtension = true, OverwritePrompt = true, RestoreDirectory = true })
+                Filter = "Local Image project (*.lremove)|*.lremove", DefaultExt = "lremove", AddExtension = true, OverwritePrompt = true, RestoreDirectory = true })
             {
                 if (picker.ShowDialog(this) != DialogResult.OK) return null;
                 string destination = Path.GetFullPath(picker.FileName);

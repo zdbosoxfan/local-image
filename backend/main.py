@@ -13,6 +13,14 @@ from pydantic import BaseModel
 from engine import config, cache, ComfyClient, run_inpaint
 from quality_settings import router as quality_settings_router
 from local_remove import router as local_remove_router
+from setup_routes import router as setup_router
+from qwen_setup import router as qwen_setup_router
+from image_generation import router as image_generation_router
+from hardware_guide import router as hardware_guide_router
+from lora_library import router as lora_library_router
+from stock_library import router as stock_library_router
+from generation_library import router as generation_library_router
+from image_upscale import router as image_upscale_router
 
 class EndpointFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
@@ -85,9 +93,17 @@ async def lifespan(app: FastAPI):
     yield
     logger.info("Shutting down...")
 
-app = FastAPI(title="Local Remove", lifespan=lifespan)
+app = FastAPI(title="Local Image", lifespan=lifespan)
 app.include_router(quality_settings_router)
 app.include_router(local_remove_router)
+app.include_router(setup_router)
+app.include_router(qwen_setup_router)
+app.include_router(image_generation_router)
+app.include_router(generation_library_router)
+app.include_router(image_upscale_router)
+app.include_router(hardware_guide_router)
+app.include_router(lora_library_router)
+app.include_router(stock_library_router)
 
 app.add_middleware(
     CORSMiddleware,

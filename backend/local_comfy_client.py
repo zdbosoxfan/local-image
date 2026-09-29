@@ -21,8 +21,9 @@ class LocalComfyClient(ComfyClient):
                 if node.get('class_type') == 'LoadImage':
                     node['inputs']['image'] = await self._upload_image(Path(node['inputs']['image']))
             prompt_id = await self._queue_prompt(workflow)
-            logger.info('Local removal queued: %s', prompt_id)
-            deadline = time.monotonic() + 20 * 60
+            logger.info('Local image job queued: %s', prompt_id)
+            started = time.monotonic()
+            deadline = started + 20 * 60
             while time.monotonic() < deadline:
                 try:
                     history = await self._get_history(prompt_id)
@@ -34,12 +35,19 @@ class LocalComfyClient(ComfyClient):
                     status = item.get('status', {})
                     for kind, details in status.get('messages', []):
                         if kind in ('execution_error', 'execution_interrupted'):
-                            raise RuntimeError('Removal failed: ' + details.get('exception_message', kind))
+                            raise RuntimeError('Image operation failed: ' + details.get('exception_message', kind))
                     if status.get('status_str') == 'error':
-                        raise RuntimeError('The GPU could not complete this removal.')
+                        raise RuntimeError('The GPU could not complete this image operation.')
                     if item.get('outputs'):
                         return await self._fetch_image(item['outputs'])
                     if status.get('completed'):
-                        raise RuntimeError('The removal finished without an image.')
-                await asyncio.sleep(2)
-            raise TimeoutError('The GPU did not finish this removal within 20 minutes.')
+                        raise RuntimeError('The image operation finished without an image.')
+                # Fast warm jobs should not wait behind a two-second poll.
+                # Ease off for loading/sampling jobs that are still running.
+                elapsed = time.monotonic() - started
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                interval = 0.15 if elapsed < 10 else 0.5 if elapsed < 60 else 1.0
+                await asyncio.sleep(min(interval, remaining))
+            raise TimeoutError('The GPU did not finish this image operation within 20 minutes.')

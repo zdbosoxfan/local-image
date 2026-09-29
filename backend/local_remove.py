@@ -5,6 +5,7 @@ from contextlib import AsyncExitStack, nullcontext
 import hashlib
 import io
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -12,6 +13,7 @@ import secrets
 import shutil
 import stat
 import tempfile
+import threading
 import time
 from typing import Literal
 import uuid
@@ -19,7 +21,7 @@ import uuid
 import aiohttp
 import numpy as np
 import tifffile
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from PIL import Image, ImageCms, ImageOps
 from pydantic import BaseModel, Field, model_validator
@@ -29,14 +31,23 @@ from engine import config
 from local_removal_models import model_options as ai_model_options, run_local_removal
 from fast_inpaint import heal_image, heal_option
 from local_remove_project import write_project, extract_project, MAX_TOTAL
+from local_remove_frontend import render_editor
 from app_paths import APP_VERSION, cache_dir, data_root, read_config, state_dir
+from cutout_composite import (initial_cutout, validate_cutout, refine_alpha,
+                              compose_image, compose_native, DEFAULT_TRANSFORM,
+                              DEFAULT_SHADOW, inverse_selection, underlay)
+from stock_attribution import validate_attribution, validate_attributions, collect_attributions
 
 router = APIRouter()
+_session_clock_lock = threading.Lock()
+_last_session_modified = 0.0
 ROOT = state_dir()
 SESSIONS = ROOT / 'sessions'
 SESSIONS.mkdir(parents=True, exist_ok=True)
 COLLECTIONS = ROOT / 'collections'
 COLLECTIONS.mkdir(parents=True, exist_ok=True)
+BACKGROUNDS = ROOT / 'backgrounds'
+BACKGROUNDS.mkdir(parents=True, exist_ok=True)
 SECRET_FILE = ROOT / 'launcher.key'
 if not SECRET_FILE.exists():
     SECRET_FILE.write_text(secrets.token_urlsafe(48), encoding='ascii')
@@ -53,19 +64,19 @@ SRGB = ImageCms.ImageCmsProfile(ImageCms.createProfile('sRGB'))
 HEADERS = {'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'}
 ASSET_HEADERS = {'Cache-Control': 'private, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff'}
 SUPPORTED = {'.jpg', '.jpeg', '.png', '.tif', '.tiff', '.webp'}
-RemovalModel = Literal['klein', 'qwen']
+RemovalModel = Literal['klein']
 
 
 def guard(request, write=False):
     _local_request(request)
     if write and not secrets.compare_digest(request.headers.get('x-local-remove-token', ''), CSRF):
-        raise HTTPException(403, 'Reload Local Remove and try again.')
+        raise HTTPException(403, 'Reload Local Image and try again.')
 
 
 def launcher_guard(request):
     guard(request)
     if not secrets.compare_digest(request.headers.get('x-local-launcher', ''), LAUNCHER_KEY):
-        raise HTTPException(403, 'Choose files or folders using the Local Remove application.')
+        raise HTTPException(403, 'Choose files or folders using the Local Image application.')
 
 
 def path_key(path):
@@ -161,7 +172,7 @@ def read_settings():
     try:
         saved = json.loads((ROOT / 'settings.json').read_text(encoding='utf-8'))
         model = saved.get('model')
-        if model in ('klein', 'qwen'):
+        if model == 'klein':
             return {'model': model}
     except (OSError, ValueError, AttributeError):
         pass
@@ -231,7 +242,13 @@ def read_session(sid):
 
 
 def write_session(path, data):
-    data['modified'] = time.time()
+    # Windows clock ticks can cover several edits. Keep write order distinct so
+    # reopening a source never chooses an older document by its random UUID.
+    global _last_session_modified
+    with _session_clock_lock:
+        previous = max(_last_session_modified, data.get('modified', 0))
+        data['modified'] = max(time.time(), math.nextafter(previous, math.inf))
+        _last_session_modified = data['modified']
     tmp = path / ('session-' + uuid.uuid4().hex + '.tmp')
     tmp.write_text(json.dumps(data, indent=2), encoding='utf-8')
     tmp.replace(path / 'session.json')
@@ -248,7 +265,7 @@ def decode_original(path):
         with tifffile.TiffFile(path) as tif:
             page = tif.pages[0]
             if int(page.photometric) != 2:
-                raise ValueError('Export an RGB TIFF from Capture One for Local Remove.')
+                raise ValueError('Export an RGB TIFF from Capture One for Local Image.')
             data = page.asarray()
             if page.planarconfig == 2:
                 data = np.moveaxis(data, 0, -1)
@@ -265,7 +282,7 @@ def decode_original(path):
         with Image.open(path) as img:
             icc = img.info.get('icc_profile')
             preview = ImageOps.exif_transpose(img).convert('RGB')
-            data = np.asarray(ImageOps.exif_transpose(img).convert('RGBA' if 'A' in img.getbands() else 'RGB')).copy()
+            data = np.asarray(ImageOps.exif_transpose(img).convert('RGBA' if 'A' in img.getbands() or 'transparency' in img.info else 'RGB')).copy()
     if icc:
         preview = ImageCms.profileToProfile(preview, ImageCms.ImageCmsProfile(io.BytesIO(icc)), SRGB, outputMode='RGB')
     return data, icc, preview
@@ -274,7 +291,17 @@ def decode_original(path):
 def public(data):
     if not isinstance(data,dict) or not all(key in data for key in ('id','name','revision','layers')):
         raise ValueError('Malformed session')
-    result = {k: v for k, v in data.items() if k not in {'source_path', 'source_hash', 'last_saved_hash', 'last_saved_path', 'project_path', 'project_hash'}}
+    if data.get('cutout'):
+        validate_cutout(data['cutout'])
+    result = {k: v for k, v in data.items() if k not in {'source_path', 'source_hash', 'last_saved_hash', 'last_saved_path', 'project_path', 'project_hash', 'cutout_undo', 'cutout_redo'}}
+    result['cutout_can_undo'] = bool(data.get('cutout_undo'))
+    result['cutout_can_redo'] = bool(data.get('cutout_redo'))
+    if data.get('cutout'):
+        key = (data['id'], 'cutout:' + data['cutout']['alpha'])
+        if key not in geometry_cache:
+            with Image.open(SESSIONS / data['id'] / data['cutout']['alpha']) as alpha:
+                geometry_cache[key] = alpha.getbbox()
+        result['cutout_bounds'] = geometry_cache[key]
     result['layers'] = []
     for layer in data['layers']:
         item = dict(layer)
@@ -349,16 +376,41 @@ def reuse_or_create_session(path):
     return data
 
 
-def render(data, original=False):
+def render(data, original=False, include_cutout=True):
     root = folder(data['id'])
     with Image.open(root / 'base.png') as img:
         image = img.convert('RGB')
+    if original:
+        image = attach_source_alpha(root, data, image)
     if not original:
         for layer in data['layers']:
             if layer['visible'] and not layer.get('discarded'):
                 with Image.open(root / layer['color']) as color, Image.open(root / layer['mask']) as mask:
                     image.paste(color, (layer['x'],layer['y']), mask.convert('L'))
+        if include_cutout and data.get('cutout', {}).get('enabled'):
+            state = validate_cutout(data['cutout'])
+            image = attach_source_alpha(root, data, image)
+            with Image.open(root / state['alpha']) as alpha:
+                image = compose_image(image, alpha, cutout_background(root, state), state['shadow'], state['feather'], state['transform'])
     return image
+
+
+def attach_source_alpha(root, data, image):
+    with Image.open(root / data['original']) as original:
+        if 'A' in original.getbands() or 'transparency' in original.info:
+            image = image.convert('RGBA')
+            image.putalpha(ImageOps.exif_transpose(original).convert('RGBA').getchannel('A'))
+    return image
+
+
+def cutout_background(root, state):
+    bg = state['background']
+    if bg['mode'] == 'color':
+        return bg['color']
+    if bg['mode'] == 'image':
+        with Image.open(root / bg['asset']) as image:
+            return image.convert('RGBA')
+    return None
 
 
 def export_exif(original, size):
@@ -403,6 +455,27 @@ def flatten(data, target, allow_8bit=False):
         x,y=layer['x'],layer['y']; h,w=color.shape[:2]
         area = raw[y:y+h, x:x+w, :3]
         area[:] = np.rint(area.astype(np.float32)*(1-mask)+color*mask).astype(raw.dtype)
+    if data.get('cutout', {}).get('enabled'):
+        state = validate_cutout(data['cutout'])
+        background = cutout_background(root, state)
+        shadow = dict(state['shadow'])
+        # Working backgrounds and UI colors are sRGB; match the original profile
+        # before compositing into its native uint8/uint16 pixel array.
+        if icc:
+            def to_native_color(color):
+                sample = Image.new('RGB', (1, 1), color)
+                return ImageCms.profileToProfile(sample, SRGB, ImageCms.ImageCmsProfile(io.BytesIO(icc)), outputMode='RGB')
+            if isinstance(background, str):
+                background = to_native_color(background).resize((data['width'], data['height']))
+            elif background is not None:
+                bg_alpha = background.getchannel('A')
+                background = ImageCms.profileToProfile(background.convert('RGB'), SRGB, ImageCms.ImageCmsProfile(io.BytesIO(icc)), outputMode='RGB').convert('RGBA')
+                background.putalpha(bg_alpha)
+            shadow['color'] = '#%02x%02x%02x' % to_native_color(shadow['color']).getpixel((0, 0))
+        with Image.open(root / state['alpha']) as alpha:
+            raw = compose_native(raw, alpha, background, shadow, state['feather'], state['transform'])
+        if target.suffix.lower() in {'.jpg', '.jpeg'} and np.any(raw[..., 3] < np.iinfo(raw.dtype).max):
+            raise ValueError('JPEG cannot store transparency. Choose PNG, TIFF, or WebP, or add a solid background.')
     if target.suffix.lower() in {'.tif','.tiff'}:
         tags = [(34675, 'B', len(icc), icc, False)] if icc else []
         tifffile.imwrite(target, raw, photometric='rgb', metadata=None, compression='deflate', extratags=tags)
@@ -428,8 +501,7 @@ def flatten(data, target, allow_8bit=False):
 async def page(request:Request):
     guard(request)
     nonce=secrets.token_urlsafe(24)
-    html=Path(__file__).with_name('local_remove.html').read_text(encoding='utf-8')
-    return HTMLResponse(html.replace('__NONCE__',nonce).replace('__TOKEN__',CSRF),headers={**HEADERS,
+    return HTMLResponse(render_editor(nonce,CSRF),headers={**HEADERS,
         'X-Frame-Options':'DENY','Referrer-Policy':'no-referrer',
         'Content-Security-Policy':f"default-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'nonce-{nonce}'; script-src 'nonce-{nonce}'; img-src 'self' blob: data:; connect-src 'self'; form-action 'self'"})
 
@@ -438,7 +510,7 @@ async def page(request:Request):
 async def runtime(request: Request):
     guard(request)
     return {'application': 'local-remove', 'version': APP_VERSION,
-            'data_root': str(data_root().resolve())}
+            'data_root': str(data_root().absolute())}
 
 
 @router.post('/api/local-remove/reload-config')
@@ -481,15 +553,12 @@ async def status(request:Request):
               'retouch_ready': heal_option()['available']}
     if selected and selected.get('reason'):
         result['reason'] = selected['reason']
-    try:
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as client:
-            async with client.get(config.http_url+'/system_stats') as response:
-                stats=await response.json()
-        device=stats['devices'][0]
-        return {**result, 'ready':device['type']=='cuda' and bool(selected and selected.get('available')),
-                'device':device['name']}
-    except Exception:
-        return {**result, 'ready':False,'device':'Backend starting'}
+    from managed_ai import service_state
+    service = await service_state()
+    if service.get('reason') and not result.get('reason'):
+        result['reason'] = service['reason']
+    return {**result, 'ready':service['ready'] and bool(selected and selected.get('available')),
+            'device':service['device'] or 'Backend not running'}
 
 
 @router.get('/api/local-remove/sessions')
@@ -678,7 +747,8 @@ async def preview(sid:str,request:Request,original:bool=False,full:bool=False):
         if not full:
             img.thumbnail((3000,3000),Image.Resampling.LANCZOS)
         prefix='full-' if full else ''
-        path=folder(sid)/(prefix+('original-preview.jpg' if original else f'preview-{data["revision"]}.jpg'))
+        suffix = 'png' if img.mode == 'RGBA' else 'jpg'
+        path=folder(sid)/(prefix+(f'original-preview.{suffix}' if original else f'preview-{data["revision"]}.{suffix}'))
         img.save(path,quality=95,icc_profile=SRGB.tobytes()); return path
     target=await asyncio.to_thread(make_preview)
     return FileResponse(target,headers=HEADERS)
@@ -687,7 +757,14 @@ async def preview(sid:str,request:Request,original:bool=False,full:bool=False):
 @router.get('/api/local-remove/session/{sid}/base-display')
 async def base_display(sid:str,request:Request):
     guard(request)
-    return FileResponse(folder(sid)/'base.png',media_type='image/png',headers=ASSET_HEADERS)
+    async with locks.setdefault(sid, asyncio.Lock()):
+        data = read_session(sid); root = folder(sid)
+        with Image.open(root / data['original']) as original:
+            has_alpha = 'A' in original.getbands() or 'transparency' in original.info
+        target = root / ('base-display.png' if has_alpha else 'base.png')
+        if has_alpha and not target.is_file():
+            await asyncio.to_thread(lambda: render(data, original=True).save(target, icc_profile=SRGB.tobytes()))
+    return FileResponse(target,media_type='image/png',headers=ASSET_HEADERS)
 
 
 @router.get('/api/local-remove/session/{sid}/layer/{lid}/display')
@@ -718,8 +795,10 @@ async def layer_display(sid:str,lid:str,request:Request):
 class RemoveRequest(BaseModel):
     mask:str
     revision:int
-    model:Literal['klein', 'qwen', 'heal']|None=None
+    model:Literal['klein', 'heal', 'qwen']|None=None
     heal_method:Literal['texture', 'telea']='texture'
+    variant:Literal['int8', 'bf16']='int8'
+    prompt:str=Field(default='',max_length=4000)
 
 
 @router.post('/api/local-remove/session/{sid}/remove')
@@ -727,7 +806,7 @@ async def remove(sid:str,request:Request,payload:RemoveRequest):
     guard(request,True)
     # Snapshot before waiting for either lock: changing settings cannot change a queued edit.
     model = payload.model if payload.model is not None else read_settings()['model']
-    selected = available_model(model)
+    selected = {'label': 'Qwen Image 2.1'} if model == 'qwen' else available_model(model)
     generation_gate = nullcontext()
     if model != 'heal':
         from main import generation_lock
@@ -742,12 +821,24 @@ async def remove(sid:str,request:Request,payload:RemoveRequest):
                 mask=received.convert('L').resize((data['width'],data['height']),Image.Resampling.LANCZOS)
             if not mask.getbbox(): raise ValueError('Select an object first.')
             if model == 'heal':
-                result=await asyncio.to_thread(lambda: heal_image(render(data),mask,payload.heal_method))
+                result=await asyncio.to_thread(lambda: heal_image(render(data,include_cutout=False),mask,payload.heal_method))
             else:
                 buf=io.BytesIO(); mask.save(buf,format='PNG')
                 source=root/'generation-source.png'
-                await asyncio.to_thread(lambda: render(data).save(source))
-                result=await run_local_removal(source,buf.getvalue(),secrets.randbits(48),model)
+                await asyncio.to_thread(lambda: render(data,include_cutout=False).save(source))
+                if model == 'qwen':
+                    from qwen_image import run_qwen_removal
+                    mask_path = root / 'generation-mask.png'
+                    mask.save(mask_path)
+                    edited = await run_qwen_removal(source, mask_path, prompt=payload.prompt, variant=payload.variant, seed=secrets.randbits(48))
+                    # Qwen's adapter already composites the selection. Store the
+                    # edited bounding rectangle once (do not multiply soft alpha twice).
+                    box = mask.getbbox()
+                    color_buf = io.BytesIO(); edited.convert('RGB').crop(box).save(color_buf, format='PNG')
+                    mask_buf = io.BytesIO(); Image.new('L', (box[2]-box[0], box[3]-box[1]), 255).save(mask_buf, format='PNG')
+                    result = {'x': box[0], 'y': box[1], 'color': base64.b64encode(color_buf.getvalue()), 'mask': base64.b64encode(mask_buf.getvalue())}
+                else:
+                    result=await run_local_removal(source,buf.getvalue(),secrets.randbits(48),model)
             lid=uuid.uuid4().hex
             for kind in ('color','mask'):
                 (root/f'{lid}-{kind}.png').write_bytes(base64.b64decode(result[kind]))
@@ -795,6 +886,8 @@ async def merge_visible(sid:str,request:Request,payload:MergeRequest):
         data=read_session(sid)
         if data['revision']!=payload.revision:
             raise HTTPException(409,'The edit changed. Reload the session before merging.')
+        if data.get('cutout', {}).get('enabled'):
+            raise HTTPException(400, 'Disable the cutout before merging repair layers. Cutout settings remain separately editable in the project.')
         root=folder(sid); lid=uuid.uuid4().hex
         names={kind:f'{lid}-{kind}{".tif" if kind=="snapshot" else ".png"}' for kind in ('snapshot','color','mask')}
         def make_snapshot():
@@ -881,7 +974,7 @@ async def save(sid:str,request:Request,payload:SaveRequest):
         mode=payload.mode or ('overwrite' if payload.return_to_source else 'export')
         source=Path(data['source_path']) if data.get('source_path') else None
         if mode in {'overwrite','unique'} and source is None:
-            raise HTTPException(400,'Open this image through the Local Remove application to save beside its source. Use download export for an uploaded image.')
+            raise HTTPException(400,'Open this image through the Local Image application to save beside its source. Use download export for an uploaded image.')
         if mode == 'overwrite' and payload.format != 'original' and payload.format != normalized_format(source.suffix):
             raise HTTPException(400,'Use Save Unique to change format. Overwrite keeps the source format.')
         if mode in {'overwrite','unique'}:
@@ -966,7 +1059,7 @@ def publish_project(temporary,destination,expected_hash):
         except OSError:
             current=None
         if current!=expected_hash:
-            raise HTTPException(409,'The project changed outside Local Remove. Use Save Project As to keep both versions.')
+            raise HTTPException(409,'The project changed outside Local Image. Use Save Project As to keep both versions.')
         os.replace(temporary,destination)
     else:
         try:
@@ -1011,7 +1104,7 @@ async def save_project(request:Request,payload:ProjectSaveRequest):
                 except OSError:
                     current=None
                 if current!=expected:
-                    raise HTTPException(409,'The project changed outside Local Remove. Use Save Project As to keep both versions.')
+                    raise HTTPException(409,'The project changed outside Local Image. Use Save Project As to keep both versions.')
             temporary=destination.parent/('.local-remove-project-'+uuid.uuid4().hex+'.tmp')
             try:
                 await asyncio.to_thread(write_project,root,data,temporary)
@@ -1034,6 +1127,13 @@ def import_project(source,project_path=None):
     try:
         manifest=extract_project(source,target,decode_original)
         data={key:manifest[key] for key in ('name','width','height','bit_depth','revision','original','layers')}
+        if 'cutout' in manifest:
+            data['cutout'] = manifest['cutout']
+        if 'generation' in manifest:
+            data['generation'] = manifest['generation']
+        for key in ('source_attribution', 'reference_attributions', 'upscale'):
+            if key in manifest:
+                data[key] = manifest[key]
         data.update(id=sid,source_path=None,source_hash=None,can_return=False,saved_revision=None,created=time.time())
         if project_path is not None:
             data.update(project_path=str(project_path),project_name=project_path.name,project_hash=file_hash(source),
@@ -1052,7 +1152,7 @@ async def open_project(request:Request,payload:OpenLocal):
     launcher_guard(request)
     source=Path(payload.path).resolve()
     if not source.is_file() or source.suffix.lower()!='.lremove':
-        raise HTTPException(400,'Choose a Local Remove .lremove project.')
+        raise HTTPException(400,'Choose a Local Image .lremove project.')
     async with source_gate(source):
         try:
             if source.stat().st_size>MAX_TOTAL+2*1024**2:
@@ -1073,7 +1173,7 @@ async def open_project(request:Request,payload:OpenLocal):
 async def upload_project(request:Request,file:UploadFile=File(...)):
     guard(request,True)
     if Path(file.filename or '').suffix.lower()!='.lremove':
-        raise HTTPException(400,'Choose a Local Remove .lremove project.')
+        raise HTTPException(400,'Choose a Local Image .lremove project.')
     try:
         with tempfile.TemporaryDirectory(dir=ROOT) as temporary:
             path=Path(temporary)/'project.lremove'; total=0
@@ -1217,3 +1317,466 @@ async def close_sessions(request:Request,payload:CloseSessionsRequest):
 @router.post('/api/local-remove/session/{sid}/close')
 async def close_session(sid:str,request:Request,payload:CloseRequest):
     return await close_sessions(request,CloseSessionsRequest(sessions=[CloseSessionItem(id=sid,revision=payload.revision)],discard=True))
+
+
+class CutoutRequest(BaseModel):
+    revision: int = Field(ge=0)
+    variant: Literal['int8', 'bf16'] = 'int8'
+    prompt: str = Field(default='', max_length=4000)
+    seed: int = Field(default_factory=lambda: secrets.randbits(48), ge=0, le=2**53-1)
+
+
+class CutoutUpdate(BaseModel):
+    revision: int = Field(ge=0)
+    enabled: bool | None = None
+    feather: float | None = Field(default=None, ge=0, le=40, allow_inf_nan=False)
+    background: dict | None = None
+    shadow: dict | None = None
+    transform: dict | None = None
+
+
+class CutoutRefine(BaseModel):
+    revision: int = Field(ge=0)
+    mask: str = Field(max_length=90 * 1024 * 1024)
+    operation: Literal['restore', 'erase', 'replace']
+
+
+class LibraryBackground(BaseModel):
+    revision: int = Field(ge=0)
+    library_id: str
+    entry_id: str
+
+
+class GeneratedBackground(BaseModel):
+    revision: int = Field(ge=0)
+    generated_session_id: str
+
+
+def cutout_session(sid, revision, require=True):
+    data = read_session(sid)
+    if data['revision'] != revision:
+        raise HTTPException(409, 'The edit changed. Reload the session before editing the cutout.')
+    if require and not data.get('cutout'):
+        raise HTTPException(400, 'Remove the background or apply a cutout selection first.')
+    if data.get('cutout'):
+        validate_cutout(data['cutout'])
+    return data, folder(sid)
+
+
+def save_cutout_alpha(root, alpha):
+    name = 'cutout-' + uuid.uuid4().hex + '-alpha.png'
+    alpha.convert('L').save(root / name)
+    return name
+
+
+def commit_cutout(root, data):
+    validate_cutout(data['cutout'])
+    previous = read_session(data['id']).get('cutout')
+    if previous == data['cutout']:
+        return public(data)
+    data['cutout_undo'] = (data.get('cutout_undo', []) + [previous])[-20:]
+    data['cutout_redo'] = []
+    data['revision'] += 1
+    write_session(root, data)
+    return public(data)
+
+
+def selection_image(encoded, size):
+    with Image.open(io.BytesIO(base64.b64decode(encoded, validate=True))) as image:
+        if image.width * image.height > 150_000_000 or max(image.size) > 32768:
+            raise ValueError('The cutout selection is too large.')
+        return image.convert('L').resize(size, Image.Resampling.LANCZOS)
+
+
+def set_background_image(root, data, image, name, attribution=None, reference_attributions=None):
+    if image.width * image.height > 150_000_000:
+        raise ValueError('The background image is too large.')
+    attribution = validate_attribution(attribution) if attribution is not None else None
+    reference_attributions = validate_attributions(reference_attributions or [])
+    asset = 'cutout-' + uuid.uuid4().hex + '-background.png'
+    image.convert('RGBA').save(root / asset, icc_profile=SRGB.tobytes())
+    previous = data['cutout']['background']
+    data['cutout']['background'] = {'mode': 'image', 'color': previous.get('color', '#ffffff'), 'asset': asset, 'name': Path(name).name[:255]}
+    if attribution is not None:
+        data['cutout']['background']['attribution'] = attribution
+    if reference_attributions:
+        data['cutout']['background']['reference_attributions'] = reference_attributions
+    return commit_cutout(root, data)
+
+
+def decode_background(source):
+    with Image.open(source) as image:
+        if image.width * image.height > 150_000_000:
+            raise ValueError('The background image is too large.')
+        oriented = ImageOps.exif_transpose(image)
+        result = oriented.convert('RGBA')
+        profile = image.info.get('icc_profile')
+        if profile:
+            alpha = result.getchannel('A')
+            result = ImageCms.profileToProfile(result.convert('RGB'), ImageCms.ImageCmsProfile(io.BytesIO(profile)), SRGB, outputMode='RGB').convert('RGBA')
+            result.putalpha(alpha)
+        return result
+
+
+def decode_stock_image(contents):
+    if not isinstance(contents, bytes) or not 0 < len(contents) <= 40 * 1024 * 1024:
+        raise ValueError('Choose a stock image smaller than 40 MB.')
+    with Image.open(io.BytesIO(contents)) as image:
+        if image.format != 'PNG' or image.width * image.height > 40_000_000 or max(image.size) > 32768:
+            raise ValueError('The stock image is too large or is not a normalized PNG.')
+        image.verify()
+    return decode_background(io.BytesIO(contents))
+
+
+async def import_stock_image(contents, attribution, *, target='image', session_id=None, revision=None):
+    """Import only provider-fetched bytes; callers enforce the web write guard.
+
+    Downloading happens before this helper. Background edits compare revisions
+    under the target lock, so a slow network request never replaces newer work.
+    """
+    attribution = validate_attribution(attribution)
+    if target not in ('image', 'background'):
+        raise ValueError('Choose an image document or a cutout background.')
+    if target == 'background':
+        validate_id(session_id, 'Session')
+        if type(revision) is not int or revision < 0:
+            raise ValueError('The current document revision is required.')
+    elif session_id is not None or revision is not None:
+        raise ValueError('Image imports do not replace an existing document.')
+    image = await asyncio.to_thread(decode_stock_image, contents)
+    title = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', attribution['title']).strip(' .')[:180] or 'Stock image'
+    name = 'Stock - ' + title + '.png'
+    if target == 'image':
+        def create():
+            with tempfile.TemporaryDirectory(prefix='stock-import-', dir=ROOT) as temporary:
+                source = Path(temporary) / 'stock.png'
+                image.save(source, icc_profile=SRGB.tobytes())
+                result = create_session(source, name)
+                data = read_session(result['id'])
+                data.update(source_attribution=attribution, revision=1)
+                write_session(folder(result['id']), data)
+                return public(data)
+        result = await asyncio.to_thread(create)
+    else:
+        async with locks.setdefault(session_id, asyncio.Lock()):
+            data, root = cutout_session(session_id, revision, require=False)
+            if not data.get('cutout'):
+                # Preserve transparency already present in the source image.
+                original_alpha = await asyncio.to_thread(lambda: attach_source_alpha(root, data, render(data, include_cutout=False)).convert('RGBA').getchannel('A'))
+                data['cutout'] = initial_cutout(await asyncio.to_thread(save_cutout_alpha, root, original_alpha))
+            data['cutout']['enabled'] = True
+            result = await asyncio.to_thread(set_background_image, root, data, image, name, attribution)
+    return {'session': result, 'target': target, 'attribution': attribution}
+
+
+@router.get('/api/local-remove/qwen/status')
+async def qwen_status(request: Request):
+    guard(request)
+    from qwen_image import get_qwen_status
+    return await get_qwen_status()
+
+
+@router.post('/api/local-remove/session/{sid}/cutout/generated-background')
+async def use_generated_background(sid: str, request: Request, payload: GeneratedBackground):
+    guard(request, True)
+    validate_id(sid, 'session')
+    validate_id(payload.generated_session_id, 'session')
+    if sid == payload.generated_session_id:
+        raise HTTPException(400, 'Choose a different generated image for the background.')
+    # Consistent lock order lets two open documents exchange backgrounds safely.
+    async with AsyncExitStack() as stack:
+        for session_id in sorted({sid, payload.generated_session_id}):
+            await stack.enter_async_context(locks.setdefault(session_id, asyncio.Lock()))
+        data, root = cutout_session(sid, payload.revision)
+        generated = read_session(payload.generated_session_id)
+        image = await asyncio.to_thread(render, generated)
+        if not generated.get('cutout', {}).get('enabled'):
+            image = await asyncio.to_thread(attach_source_alpha, folder(generated['id']), generated, image)
+        return await asyncio.to_thread(set_background_image, root, data, image, generated['name'],
+                                      generated.get('source_attribution'), collect_attributions(generated))
+
+
+@router.post('/api/local-remove/session/{sid}/cutout')
+async def remove_background(sid: str, request: Request, payload: CutoutRequest):
+    guard(request, True)
+    from main import generation_lock
+    from qwen_image import run_qwen_image, qwen_canvas_size
+    async with locks.setdefault(sid, asyncio.Lock()), generation_lock:
+        data, root = cutout_session(sid, payload.revision, require=False)
+        source = root / 'cutout-source.png'
+        try:
+            await asyncio.to_thread(lambda: render(data, include_cutout=False).save(source))
+            result = await run_qwen_image(source, payload.prompt, variant=payload.variant,
+                                          size=qwen_canvas_size((data['width'], data['height'])), seed=payload.seed, task='cutout')
+            if 'A' not in result.getbands():
+                raise ValueError('Qwen returned an opaque image. Use an RGBA-capable Qwen workflow or refine a manual cutout selection.')
+            alpha = result.getchannel('A').resize((data['width'], data['height']), Image.Resampling.LANCZOS)
+            low, high = alpha.getextrema()
+            if low >= 250 or high <= 5:
+                raise ValueError('Qwen did not produce a usable transparent cutout. Check that its RGBA decoder is installed, or refine a manual selection.')
+            asset = await asyncio.to_thread(save_cutout_alpha, root, alpha)
+            state = data.get('cutout') or initial_cutout(asset)
+            state.update(alpha=asset, enabled=True)
+            data['cutout'] = state
+            return commit_cutout(root, data)
+        except HTTPException:
+            raise
+        except Exception as error:
+            raise HTTPException(400, 'Background removal failed: ' + str(error)) from error
+
+
+@router.patch('/api/local-remove/session/{sid}/cutout')
+async def update_cutout(sid: str, request: Request, payload: CutoutUpdate):
+    guard(request, True)
+    async with locks.setdefault(sid, asyncio.Lock()):
+        data, root = cutout_session(sid, payload.revision)
+        state = data['cutout']
+        try:
+            for field in ('enabled', 'feather'):
+                value = getattr(payload, field)
+                if value is not None:
+                    state[field] = value
+            if payload.background is not None:
+                if not set(payload.background) <= {'mode', 'color'}:
+                    raise ValueError('Use the background picker to choose an image.')
+                state['background'].update(payload.background)
+            if payload.shadow is not None:
+                state['shadow'].update(payload.shadow)
+            if payload.transform is not None:
+                state['transform'].update(payload.transform)
+            return commit_cutout(root, data)
+        except (ValueError, TypeError) as error:
+            raise HTTPException(400, str(error)) from error
+
+
+@router.post('/api/local-remove/session/{sid}/cutout/refine')
+async def refine_cutout(sid: str, request: Request, payload: CutoutRefine):
+    guard(request, True)
+    async with locks.setdefault(sid, asyncio.Lock()):
+        data, root = cutout_session(sid, payload.revision, require=False)
+        try:
+            selection = await asyncio.to_thread(selection_image, payload.mask, (data['width'], data['height']))
+            if not selection.getbbox():
+                raise ValueError('Paint or draw a selection first.')
+            existing = data.get('cutout', {}).get('enabled')
+            if existing:
+                with Image.open(root / data['cutout']['alpha']) as image:
+                    alpha = image.convert('L')
+                selection = await asyncio.to_thread(inverse_selection, selection, data['cutout']['transform'])
+                if not selection.getbbox():
+                    raise ValueError('The selection lies outside the transformed subject image. Select an area on the subject to refine.')
+            else:
+                alpha = Image.new('L', selection.size, 255)
+            alpha = await asyncio.to_thread(refine_alpha, alpha, selection, payload.operation)
+            asset = await asyncio.to_thread(save_cutout_alpha, root, alpha)
+            state = data.get('cutout') or initial_cutout(asset)
+            state.update(alpha=asset, enabled=True)
+            if not existing:
+                state['transform'] = dict(DEFAULT_TRANSFORM)
+            data['cutout'] = state
+            return commit_cutout(root, data)
+        except HTTPException:
+            raise
+        except Exception as error:
+            raise HTTPException(400, 'The cutout could not be refined: ' + str(error)) from error
+
+
+@router.post('/api/local-remove/session/{sid}/cutout/background')
+async def upload_background(sid: str, request: Request, revision: int = Form(...), file: UploadFile = File(...)):
+    guard(request, True)
+    async with locks.setdefault(sid, asyncio.Lock()):
+        data, root = cutout_session(sid, revision)
+        try:
+            contents = await file.read(64 * 1024 * 1024 + 1)
+            if len(contents) > 64 * 1024 * 1024:
+                raise ValueError('Choose a background image smaller than 64 MB.')
+            image = await asyncio.to_thread(decode_background, io.BytesIO(contents))
+            return await asyncio.to_thread(set_background_image, root, data, image, file.filename or 'Background.png')
+        except Exception as error:
+            raise HTTPException(400, 'The background could not be imported: ' + str(error)) from error
+
+
+@router.post('/api/local-remove/session/{sid}/cutout/generate-background')
+async def generate_background(sid: str, request: Request, payload: CutoutRequest):
+    guard(request, True)
+    from main import generation_lock
+    from qwen_image import run_qwen_image, qwen_canvas_size
+    async with locks.setdefault(sid, asyncio.Lock()), generation_lock:
+        data, root = cutout_session(sid, payload.revision)
+        if not payload.prompt.strip():
+            raise HTTPException(400, 'Describe the empty background to generate.')
+        try:
+            image = await run_qwen_image(None, payload.prompt, variant=payload.variant,
+                                         size=qwen_canvas_size((data['width'], data['height'])), seed=payload.seed, task='background')
+            return await asyncio.to_thread(set_background_image, root, data, image, 'Generated background.png')
+        except Exception as error:
+            raise HTTPException(400, 'Background generation failed: ' + str(error)) from error
+
+
+def read_background_library(library_id):
+    validate_id(library_id, 'Background library')
+    try:
+        data = json.loads((BACKGROUNDS / (library_id + '.json')).read_text(encoding='utf-8'))
+        if data.get('id') != library_id or not isinstance(data.get('entries'), list):
+            raise ValueError('Invalid library')
+        return data
+    except (OSError, ValueError, AttributeError):
+        raise HTTPException(404, 'Background library not found')
+
+
+def public_background_library(data):
+    return {'id': data['id'], 'name': data['name'], 'entries': [
+        {'id': item['id'], 'name': item['name'],
+         'thumbnail': f'/api/local-remove/backgrounds/{data["id"]}/{item["id"]}/thumbnail'} for item in data['entries']]}
+
+
+def background_library_entry(library_id, entry_id):
+    validate_id(entry_id, 'Background')
+    data = read_background_library(library_id)
+    entry = next((item for item in data['entries'] if item['id'] == entry_id), None)
+    if entry is None:
+        raise HTTPException(404, 'Background not found')
+    source = Path(entry['path'])
+    if not source.is_file() or source.suffix.lower() not in SUPPORTED:
+        raise HTTPException(404, 'This background is unavailable. Choose its folder again.')
+    return source
+
+
+@router.get('/api/local-remove/backgrounds')
+async def background_libraries(request: Request):
+    guard(request)
+    libraries = []
+    for path in sorted(BACKGROUNDS.glob('*.json')):
+        try:
+            libraries.append(public_background_library(read_background_library(path.stem)))
+        except HTTPException:
+            continue
+    return {'libraries': libraries}
+
+
+@router.post('/api/local-remove/backgrounds/register-folder')
+async def register_background_folder(request: Request, payload: OpenLocal):
+    launcher_guard(request)
+    source = Path(payload.path).expanduser().resolve()
+    if not source.is_dir():
+        raise HTTPException(400, 'Choose an existing backgrounds folder.')
+    async with registration_lock:
+        files = await asyncio.to_thread(lambda: sorted((p for p in source.iterdir() if p.is_file() and not p.is_symlink() and p.suffix.lower() in SUPPORTED), key=natural_name))
+        if not files:
+            raise HTTPException(400, 'This folder has no supported background images.')
+        if len(files) > 1000:
+            raise HTTPException(400, 'Choose a backgrounds folder with at most 1,000 images.')
+        library_id = str(uuid.uuid5(uuid.NAMESPACE_URL, 'local-remove-background:' + path_key(source)))
+        data = {'id': library_id, 'name': source.name, 'entries': [
+            {'id': str(uuid.uuid5(uuid.UUID(library_id), path_key(path))), 'name': path.name, 'path': str(path)} for path in files]}
+        temporary = BACKGROUNDS / (uuid.uuid4().hex + '.tmp')
+        try:
+            temporary.write_text(json.dumps(data), encoding='utf-8')
+            os.replace(temporary, BACKGROUNDS / (library_id + '.json'))
+        finally:
+            temporary.unlink(missing_ok=True)
+        return public_background_library(data)
+
+
+@router.get('/api/local-remove/backgrounds/{library_id}/{entry_id}/thumbnail')
+async def background_thumbnail(library_id: str, entry_id: str, request: Request):
+    guard(request)
+    source = background_library_entry(library_id, entry_id)
+    async with thumbnail_gate:
+        try:
+            stamp = source.stat().st_mtime_ns
+            target = BACKGROUNDS / (library_id + '-' + entry_id + '-' + str(stamp) + '.png')
+            if not target.is_file():
+                def make_thumbnail():
+                    image = decode_background(source)
+                    image.thumbnail((240, 160), Image.Resampling.LANCZOS)
+                    image.save(target)
+                await asyncio.to_thread(make_thumbnail)
+            return FileResponse(target, media_type='image/png', headers=HEADERS)
+        except Exception as error:
+            raise HTTPException(400, 'This background preview is unavailable.') from error
+
+
+@router.post('/api/local-remove/session/{sid}/cutout/library-background')
+async def apply_library_background(sid: str, request: Request, payload: LibraryBackground):
+    guard(request, True)
+    async with locks.setdefault(sid, asyncio.Lock()):
+        data, root = cutout_session(sid, payload.revision)
+        source = background_library_entry(payload.library_id, payload.entry_id)
+        try:
+            image = await asyncio.to_thread(decode_background, source)
+            return await asyncio.to_thread(set_background_image, root, data, image, source.name)
+        except Exception as error:
+            raise HTTPException(400, 'This background could not be opened: ' + str(error)) from error
+
+
+async def change_cutout_history(sid, request, revision, direction):
+    guard(request, True)
+    async with locks.setdefault(sid, asyncio.Lock()):
+        data, root = cutout_session(sid, revision, require=False)
+        source = 'cutout_' + direction
+        destination = 'cutout_redo' if direction == 'undo' else 'cutout_undo'
+        history = data.get(source, [])
+        if not history:
+            raise HTTPException(400, 'There is no cutout change to ' + direction + '.')
+        previous = history.pop()
+        if previous is not None:
+            validate_cutout(previous)
+        data[destination] = (data.get(destination, []) + [data.get('cutout')])[-20:]
+        if previous is None:
+            data.pop('cutout', None)
+        else:
+            data['cutout'] = previous
+        data['revision'] += 1
+        write_session(root, data)
+        return public(data)
+
+
+@router.post('/api/local-remove/session/{sid}/cutout/undo')
+async def undo_cutout(sid: str, request: Request, payload: MergeRequest):
+    return await change_cutout_history(sid, request, payload.revision, 'undo')
+
+
+@router.post('/api/local-remove/session/{sid}/cutout/redo')
+async def redo_cutout(sid: str, request: Request, payload: MergeRequest):
+    return await change_cutout_history(sid, request, payload.revision, 'redo')
+
+
+@router.get('/api/local-remove/session/{sid}/cutout/foreground')
+async def cutout_foreground(sid: str, request: Request, full: bool = True):
+    """Original-position foreground for responsive client-side drag previews."""
+    guard(request)
+    data = read_session(sid)
+    if not data.get('cutout'):
+        raise HTTPException(404, 'No cutout is available.')
+    root = folder(sid); state = validate_cutout(data['cutout'])
+    target = root / ('cutout-foreground-' + str(data['revision']) + ('-full' if full else '') + '.png')
+    if not target.is_file():
+        def make_foreground():
+            image = attach_source_alpha(root, data, render(data, include_cutout=False))
+            with Image.open(root / state['alpha']) as alpha:
+                image = compose_image(image, alpha, None, DEFAULT_SHADOW, state['feather'])
+            if not full:
+                image.thumbnail((3000, 3000), Image.Resampling.LANCZOS)
+            image.save(target, icc_profile=SRGB.tobytes())
+        await asyncio.to_thread(make_foreground)
+    return FileResponse(target, media_type='image/png', headers=HEADERS)
+
+
+@router.get('/api/local-remove/session/{sid}/cutout/background-preview')
+async def cutout_background_preview(sid: str, request: Request, full: bool = True):
+    guard(request)
+    data = read_session(sid)
+    if not data.get('cutout'):
+        raise HTTPException(404, 'No cutout is available.')
+    root = folder(sid); state = validate_cutout(data['cutout'])
+    target = root / ('cutout-background-preview-' + str(data['revision']) + ('-full' if full else '') + '.png')
+    if not target.is_file():
+        def make_background():
+            size = (data['width'], data['height'])
+            image = underlay(size, Image.new('L', size), cutout_background(root, state), DEFAULT_SHADOW)
+            if not full:
+                image.thumbnail((3000, 3000), Image.Resampling.LANCZOS)
+            image.save(target, icc_profile=SRGB.tobytes())
+        await asyncio.to_thread(make_background)
+    return FileResponse(target, media_type='image/png', headers=HEADERS)
