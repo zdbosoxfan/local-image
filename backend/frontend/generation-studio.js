@@ -38,10 +38,71 @@
     tab.setAttribute('aria-controls', panel);
     viewTabs.append(tab);
   }
-  context.prepend(viewTabs);
+  document.querySelector('.workspace-modes').after(viewTabs);
   byId('generation-summary').classList.add('generation-view-summary');
+  byId('generation-summary').hidden = true;
+  byId('generated-library-open').hidden = true;
   byId('generated-library-open').textContent = 'Image library';
   byId('gen-prompt-tab').textContent = 'Prompt';
+  const resultTrigger = element('button', 'generation-use-result', 'Use result');
+  resultTrigger.id = 'generation-use-result';
+  resultTrigger.type = 'button';
+  resultTrigger.setAttribute('aria-haspopup', 'menu');
+  resultTrigger.setAttribute('aria-expanded', 'false');
+  resultTrigger.setAttribute('aria-controls', 'generation-result-menu');
+  const resultMenu = element('div', 'generation-result-menu');
+  resultMenu.id = 'generation-result-menu';
+  resultMenu.setAttribute('role', 'menu');
+  resultMenu.setAttribute('aria-label', 'Use generated result');
+  resultMenu.setAttribute('popover', 'auto');
+  const resultButtons = ['generated-retouch', 'generated-cutout', 'generated-background'].map(byId);
+  for (const button of resultButtons) {
+    button.setAttribute('role', 'menuitem');
+    resultMenu.append(button);
+    button.addEventListener('click', () => closeResultMenu());
+  }
+  viewTabs.after(resultTrigger);
+  document.body.append(resultMenu);
+  function closeResultMenu(restoreFocus = false) {
+    if (resultMenu.matches(':popover-open')) resultMenu.hidePopover();
+    resultTrigger.setAttribute('aria-expanded', 'false');
+    if (restoreFocus && !resultTrigger.hidden) resultTrigger.focus();
+  }
+  function openResultMenu(focusFirst = false) {
+    if (resultTrigger.hidden || resultTrigger.disabled) return;
+    closeMenus();
+    const bounds = resultTrigger.getBoundingClientRect();
+    resultMenu.style.left = Math.max(8, Math.min(bounds.left, innerWidth - 260)) + 'px';
+    resultMenu.style.top = Math.min(bounds.bottom + 6, innerHeight - 150) + 'px';
+    resultMenu.showPopover();
+    resultTrigger.setAttribute('aria-expanded', 'true');
+    if (focusFirst) resultButtons.find(button => !button.disabled)?.focus();
+  }
+  resultTrigger.addEventListener('click', () => resultMenu.matches(':popover-open') ? closeResultMenu() : openResultMenu());
+  resultTrigger.addEventListener('keydown', event => {
+    if (event.key === 'ArrowDown') { event.preventDefault();openResultMenu(true); }
+  });
+  resultMenu.addEventListener('toggle', () => resultTrigger.setAttribute('aria-expanded', String(resultMenu.matches(':popover-open'))));
+  resultMenu.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault();event.stopPropagation();closeResultMenu(true);return; }
+    if (event.key === 'Tab') { closeResultMenu();return; }
+    const available = resultButtons.filter(button => !button.disabled);
+    const current = available.indexOf(document.activeElement);
+    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+      event.preventDefault();event.stopPropagation();
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? available.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + available.length) % available.length;
+      available[next]?.focus();
+    }
+  });
+  function syncGenerationPresentation() {
+    const generating = document.body.dataset.persona === 'generate';
+    resultTrigger.hidden = !generating || dialog.open || !resultButtons.some(button => !button.disabled);
+    if (resultTrigger.hidden) closeResultMenu();
+    const empty = String(typeof session === 'undefined' || !session);
+    if (document.body.dataset.generationEmpty !== empty) document.body.dataset.generationEmpty = empty;
+  }
+  const resultObserver = new MutationObserver(syncGenerationPresentation);
+  for (const button of resultButtons) resultObserver.observe(button, { attributes: true, attributeFilter: ['disabled'] });
 
   // Create: keep the frequently used numbers next to the prompt, while the
   // Output tab contains seed, alpha and advanced sampling controls.
@@ -274,6 +335,7 @@
       if (typeof controls === 'function') controls();
     }
     syncInlineCommands();
+    syncGenerationPresentation();
     window.LocalImageStudio?.sync();
     if (typeof resize === 'function') requestAnimationFrame(resize);
   }
@@ -296,6 +358,7 @@
     updateView(true);
     if (!dialog.open) nativeShow();
     syncInlineCommands();
+    syncGenerationPresentation();
     window.LocalImageStudio?.sync();
     requestAnimationFrame(() => {
       if (typeof applyRefineComparison === 'function') applyRefineComparison();
@@ -315,6 +378,7 @@
       nativeClose();
       updateView(false);
     }
+    syncGenerationPresentation();
   }).observe(document.body, { attributes: true, attributeFilter: ['data-persona'] });
   const keyboardTabs = (host, items, activate) => host.addEventListener('keydown', event => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
@@ -391,6 +455,7 @@
   controls = function (...args) {
     const result = previousControls.apply(this, args);
     syncInlineCommands();
+    syncGenerationPresentation();
     return result;
   };
   updateView(false);

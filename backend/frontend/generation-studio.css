@@ -117,3 +117,34 @@ body[data-generation-view=refine] #generation-context :is(#generated-retouch,#ge
 :root[data-ui-density=large] #refine-dialog[data-inline-studio=true] .generation-inspector-scroll{overflow:visible}
 :root[data-ui-density=large] :is(#refine-dialog[data-inline-studio=true],#generation-panel) :is(button,input,select,textarea,label,summary,.field-label,.cutout-note){font-size:var(--ui-body,20px);min-height:var(--ui-control,40px)}
 @media(prefers-reduced-motion:no-preference){.generation-view-tabs>button,.generation-stage-tabs>button{transition:color 120ms ease,background-color 120ms ease}}
+
+/* Generation commands live in the shared toolbar, not a duplicate options row. */
+#generation-summary,#generated-library-open{display:none!important}
+body[data-persona=generate] #optionsbar,
+body[data-persona=generate] .shell>.toolrail,
+body[data-persona=generate] .persona-description,
+body[data-persona=generate][data-generation-empty=true] .documentbar{display:none!important}
+body:not([data-persona=generate]) .generation-view-tabs,
+body:not([data-persona=generate]) #generation-use-result{display:none!important}
+body[data-persona=generate] .persona-toolbar{flex-wrap:wrap;column-gap:16px;row-gap:4px}
+.persona-toolbar>.generation-view-tabs{align-self:center;gap:4px;padding-left:12px;border-left:1px solid #3a424e}
+.persona-toolbar>.generation-view-tabs>button{min-height:36px;padding:6px 10px;white-space:nowrap}
+#generation-use-result{min-height:34px;white-space:nowrap;padding:6px 10px;color:#c1d6ef;background:transparent;border-color:transparent}
+#generation-use-result::after{content:'▾';margin-left:8px;font-size:11px;color:#9eafc3}
+#generation-result-menu{position:fixed;inset:auto;margin:0;padding:6px;min-width:236px;max-width:calc(100vw - 16px);background:#252a32;border:1px solid #485362;border-radius:8px;color:#edf0f5;box-shadow:0 12px 36px #0008}
+#generation-result-menu:popover-open{display:flex;flex-direction:column;gap:2px}
+#generation-result-menu>button{display:block!important;text-align:left;min-height:36px;border:0;background:transparent;padding:8px 12px;font-size:14px;color:#edf0f5;border-radius:4px;white-space:nowrap}
+#generation-result-menu>button:hover:not(:disabled),#generation-result-menu>button:focus-visible{background:#364357}
+#generation-result-menu>button:disabled{color:#8290a2;opacity:.55}
+body[data-persona=generate] .shell{grid-template-columns:minmax(0,1fr) var(--studio-size);grid-template-rows:minmax(0,1fr)}
+body[data-persona=generate][data-assets-open=true] .shell{grid-template-columns:var(--asset-size) minmax(0,1fr) var(--studio-size)}
+body[data-persona=generate][data-inspector-hidden=true] .shell{grid-template-columns:minmax(0,1fr)}
+body[data-persona=generate][data-assets-open=true][data-inspector-hidden=true] .shell{grid-template-columns:var(--asset-size) minmax(0,1fr)}
+body[data-persona=generate] .shell>.canvas-area{grid-column:1;grid-row:1}
+body[data-persona=generate] .shell>.right{grid-column:2;grid-row:1}
+body[data-persona=generate][data-assets-open=true] .shell>#studio-assets{grid-column:1;grid-row:1}
+body[data-persona=generate][data-assets-open=true] .shell>.canvas-area{grid-column:2}
+body[data-persona=generate][data-assets-open=true] .shell>.right{grid-column:3}
+@media(max-width:1200px){body[data-persona=generate] .persona-toolbar{gap:8px}.persona-toolbar>.generation-view-tabs{padding-left:8px}.persona-toolbar>.generation-view-tabs>button{padding-inline:8px}}
+@media(max-width:860px){body[data-persona=generate] .studio-header-actions{flex-wrap:wrap;gap:4px}body[data-persona=generate] .generation-view-tabs{flex:none}body[data-persona=generate] .studio-header-actions .header-action-label{display:none}}
+@media(max-width:650px){body[data-persona=generate] .shell,body[data-persona=generate][data-assets-open=true] .shell{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(160px,1fr) minmax(210px,42%)}body[data-persona=generate] .shell>#studio-assets{display:none}body[data-persona=generate] .shell>.canvas-area,body[data-persona=generate][data-assets-open=true] .shell>.canvas-area{grid-column:1;grid-row:1}body[data-persona=generate] .shell>.right,body[data-persona=generate][data-assets-open=true] .shell>.right{grid-column:1;grid-row:2}body[data-persona=generate][data-inspector-hidden=true] .shell{grid-template-rows:minmax(0,1fr)}body[data-persona=generate][data-generation-view=refine] .shell{grid-template-rows:minmax(0,1fr)}}

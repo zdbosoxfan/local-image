@@ -147,11 +147,11 @@ async function main() {
     const cx=photo.x+photo.width/2, cy=photo.y+photo.height/2;
     await page.mouse.move(cx-36,cy-36);await page.mouse.down();await page.mouse.move(cx+36,cy+36,{steps:8});await page.mouse.up();
     assert.equal(await page.locator('#remove').isEnabled(),true,'A painted selection enables healing');
-    await page.locator('#mode-ai').focus();await page.keyboard.press('Space');
-    assert.equal(await page.locator('#mode-ai').getAttribute('aria-pressed'),'true','Space activates a focused button rather than panning the canvas');
+    await page.locator('.toolrail [data-tool=brush]').focus();await page.keyboard.press('Space');
+    assert.equal(await page.locator('.toolrail [data-tool=brush]').getAttribute('aria-pressed'),'true','Space activates a focused button rather than panning the canvas');
     assert.equal(await page.locator('#remove').isEnabled(),false,'Unavailable AI cannot submit a repair');
     assert.equal(await page.locator('#workflow-settings').isVisible(),true,'Unavailable AI offers settings');
-    await page.locator('#mode-heal').click();
+    await page.locator('#heal-brush').click();
     assert.equal(await page.locator('#remove').isEnabled(),true,'Switching methods preserves selection');
     await page.locator('#hand').click();
     assert.equal(await page.locator('.context-actions').isVisible(),false,'Pan hides repair actions');

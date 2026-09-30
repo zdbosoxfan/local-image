@@ -1829,7 +1829,14 @@ function updateLoraDownloadButton(){
   $('lora-compatibility-note').textContent=file?.warning||loraFiles?.warning||(compatibility==='curated'?'This exact adapter file is recommended for this model. Downloading does not automatically enable it.':compatibility==='declared'?'The publisher names this base model. This file has not been reviewed; check the model page before using it.':'Community metadata does not confirm compatibility. Check the model page before assigning this file.');
   $('lora-apply-settings').hidden=!file?.recommended_settings;
   $('lora-file-description').textContent=file?.description||'';$('lora-file-usage').textContent=file?loraUsageText(file):'';$('lora-file-trigger').textContent=file?.trigger_phrase?'Trigger: '+file.trigger_phrase:'';$('lora-add-trigger').hidden=!file?.trigger_phrase;
-  $('lora-download').disabled=!nativeSetup||loraFilesModelId!==contextModelId()||!file||loraFiles?.supported===false||file.supported===false||loraInventory?.job?.running||compatibility!=='curated'&&!$('lora-unverified').checked;
+  const blocked=!nativeSetup?'LoRA downloads need the desktop app. This browser preview can browse and use installed adapters. Open the desktop preview to download.'
+    :loraFilesModelId!==contextModelId()||!file?'Select an adapter file for the current model.'
+    :loraFiles?.supported===false||file.supported===false?(file.warning||loraFiles.warning||'This adapter is not supported by the selected workflow.')
+    :loraInventory?.job?.running?'An adapter download is already running.'
+    :compatibility!=='curated'&&!$('lora-unverified').checked?'Review the compatibility information and check the assignment box above before downloading.':'';
+  $('lora-download').disabled=!!blocked;$('lora-download').title=blocked||'Download into your configured models folder';
+  let note=$('lora-download-availability');if(!note){note=document.createElement('p');note.id='lora-download-availability';note.className='cutout-note';note.setAttribute('role','status');$('lora-download').parentElement.after(note);}
+  note.textContent=blocked;note.hidden=!blocked;
 }
 async function downloadLora(){
   if($('lora-download').disabled||loraFilesModelId!==contextModelId())return;const scope=loraScope('files'),payload={model:scope.model,repo_id:loraFiles.repo_id,filename:$('lora-file').value,revision:loraFiles.revision,allow_unverified:selectedLoraCompatibility()!=='curated'&&$('lora-unverified').checked};$('lora-download').disabled=true;if(loraInventory)loraInventory.job={running:true,model:scope.model};

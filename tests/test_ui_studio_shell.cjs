@@ -65,6 +65,14 @@ async function main(){
     assert.equal(await page.locator('#studio-export').isEnabled(),true);
     record('Single-image opening gives the canvas the filmstrip space');
 
+    assert.equal(await page.locator('#retouch-modes').isVisible(),false,'Repair method is not duplicated above the canvas');
+    const aiBrush=page.locator('.toolrail [data-tool=brush]');await aiBrush.focus();await page.keyboard.press('Space');
+    assert.equal(await page.evaluate(()=>operation),'ai');assert.equal(await aiBrush.getAttribute('aria-pressed'),'true');
+    assert.equal(await page.locator('#ai-provider').isVisible(),true,'AI settings follow the selected rail tool');
+    await page.locator('#heal-brush').click();assert.equal(await page.evaluate(()=>operation),'heal');
+    assert.equal(await page.locator('#heal-method').isVisible(),true,'Heal settings follow the selected rail tool');
+    record('Tool rail selects repair methods without duplicate mode cards');
+
     const inspector=page.locator('#studio-inspector-toggle');
     assert.equal(await inspector.getAttribute('aria-expanded'),'true');
     const openWidth=(await page.locator('#viewport').boundingBox()).width;
@@ -136,7 +144,7 @@ async function main(){
     await page.locator('#stock-close').click();await clearSelection();
     record('Stock expands for browsing and returns to its left Assets dock');
 
-    await page.locator('#mode-heal').click();await page.locator('#heal-method').selectOption('telea');
+    await page.locator('#heal-brush').click();await page.locator('#heal-method').selectOption('telea');
     await rectangle(.47,.45,.53,.55);
     await page.locator('#studio-undo').click();await page.waitForFunction(()=>!hasSelection&&!busy);
     await page.locator('#studio-redo').click();await page.waitForFunction(()=>hasSelection&&!busy);

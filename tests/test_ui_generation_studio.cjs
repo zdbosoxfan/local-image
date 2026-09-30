@@ -23,6 +23,24 @@ async function main(){
  });
  try{
    await page.goto(base+'/remove');await page.waitForFunction(()=>settingsLoaded);
+   await page.locator('#workspace-generate').click();await page.waitForFunction(()=>!generationLoading);
+   assert.equal(await page.locator('.persona-toolbar .generation-view-tabs').count(),1,'Create and Draft & Refine are shared-toolbar controls');
+   assert.equal(await page.locator('#optionsbar').isVisible(),false,'Generate has no duplicate options toolbar');
+   assert.equal(await page.locator('#generation-summary').isVisible(),false,'Model summary is absent from the toolbar');
+   assert.doesNotMatch(await page.locator('.persona-toolbar').innerText(),/Qwen|1024/);
+   assert.equal(await page.locator('.toolrail').isVisible(),false,'Unused editing tools do not occupy generation canvas space');
+   assert.equal(await page.locator('.documentbar').isVisible(),false,'No empty document heading before an image exists');
+   assert.equal(await page.locator('#generation-use-result').isVisible(),false,'No result actions before a result exists');
+   for(const width of [1440,1024,800]){
+     await page.setViewportSize({width,height:900});
+     const toolbar=await page.locator('.persona-toolbar').evaluate(node=>({width:node.clientWidth,scroll:node.scrollWidth,tabs:[...node.querySelectorAll('.generation-view-tabs button')].map(button=>{const r=button.getBoundingClientRect();return{left:r.left,right:r.right,height:r.height};})}));
+     assert.ok(toolbar.scroll<=toolbar.width+1,'Toolbar wraps without clipping at '+width);
+     assert.ok(toolbar.tabs.every(tab=>tab.left>=0&&tab.right<=width&&tab.height>=32),'Create/refine labels remain usable at '+width);
+     await page.screenshot({path:path.join(output,'create-declutter-'+width+'.png'),animations:'disabled'});
+   }
+   await page.setViewportSize({width:1440,height:1000});
+   await page.locator('#workspace-retouch').click();
+   assert.equal(await page.locator('#optionsbar').isVisible(),true,'Retouch retains its context tools');
    await page.locator('#file').setInputFiles({name:'Existing editor image.png',mimeType:'image/png',buffer:fixture});
    await page.waitForFunction(()=>session&&!busy);
    const existingEditorId=await page.evaluate(()=>session.id);
@@ -154,6 +172,18 @@ async function main(){
    assert.equal(fs.readFileSync(path.join(output,'selected-refinement-export.png')).subarray(1,4).toString(),'PNG');
    await page.locator('#draft-refine-open').click();await page.waitForFunction(()=>document.getElementById('refine-dialog').open);
    await page.locator('#workspace-retouch').click();assert.equal(await page.locator('#refine-dialog').isVisible(),false);assert.equal(await page.evaluate(()=>modalOpen()),false);
+   await page.locator('#workspace-generate').click();await page.waitForFunction(()=>!generationLoading);
+   await page.locator('#gen-prompt-tab').click();await page.locator('#gen-prompt').fill('A simple studio image for result actions');
+   await page.locator('#gen-run').click();await page.waitForFunction(()=>!busy&&!!session?.generation);
+   assert.equal(await page.locator('#generation-use-result').isVisible(),true);
+   assert.equal(await page.locator('#generated-library-open').isVisible(),false,'The header Library is the only main library trigger');
+   await page.locator('#generation-use-result').focus();await page.keyboard.press('ArrowDown');
+   assert.equal(await page.locator('#generation-use-result').getAttribute('aria-expanded'),'true');
+   assert.equal(await page.evaluate(()=>document.activeElement.id),'generated-retouch','Keyboard opening focuses the first result action');
+   await page.keyboard.press('Escape');assert.equal(await page.locator('#generation-use-result').getAttribute('aria-expanded'),'false');
+   await page.locator('#generation-use-result').click();await page.locator('#generated-cutout').click();
+   assert.equal(await page.evaluate(()=>workspace),'cutout','Existing result actions retain their real handlers');
+   assert.equal(await page.locator('#generation-result-menu').evaluate(node=>node.matches(':popover-open')),false);
    assert.deepEqual(errors,[]);
    console.log('PASS: inline refinement, independent stage settings, reference handoff, library/compare, responsive and large text layouts, native text undo, safe File/menu/proxy/keyboard PNG and project exports, disabled hidden-editor commands, safe open/close and persona exit. Generation mocked; image imports and exports real.');
  }catch(error){await page.screenshot({path:path.join(output,'failure.png'),animations:'disabled'});throw error;}

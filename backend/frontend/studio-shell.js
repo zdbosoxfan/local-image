@@ -19,6 +19,9 @@
   });exportButton.className='secondary';
   const settings=document.querySelector('.persona-settings');if(settings)actions.append(settings);
   document.querySelector('.persona-toolbar').append(actions);
+  // Repair methods are selected with the two tool-rail buttons. Preserve the
+  // command hooks for shortcuts/startup without displaying a second selector.
+  $('output-format').parentElement.append($('retouch-modes'));
   document.querySelector('.right').id='studio-inspector';
   $('workspace-generate').querySelector('span').textContent='Generate';
   $('workspace-generate').title='Generate · Create images with local models';
