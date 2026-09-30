@@ -2,13 +2,13 @@
 
 Open **File → Generated image library…**, or choose **Library…** in Image Gen. The library keeps completed generation results and upscaled results with their settings. It also brings existing generated recovery documents into the library on first use.
 
-Select a card to inspect it. **Open in editor** creates a fresh editable document; **Use as draft** loads a copy into Draft & Refine. Neither action changes the library image. The library stores the original completed result, so later retouching or cutout changes in an open document do not replace that saved library copy. Save a `.lremove` project to keep those later edits.
+Click an image to focus it. An ordinary click replaces the current focus, so browsing several candidates still leaves one image available to open. **Open in editor** creates a fresh editable document; **Use as draft** loads a copy into Draft & Refine. Neither action changes the library image. The library stores the original completed result, so later retouching or cutout changes in an open document do not replace that saved library copy. Save a `.lremove` project to keep those later edits.
 
 ## Storage and deletion
 
 The displayed cache size is the actual size of the library's image PNGs, thumbnails and entry metadata. It excludes model weights, ComfyUI's own output directory, editor recovery sessions and saved project files. Independent copies take additional disk space so the library can be cleared safely while its images remain open for editing.
 
-Use **Delete selected** to remove checked entries, or **Clear library…** to remove the library copies. Confirm with **Delete library copies**. These actions preserve:
+Choose **Select** to enter checkbox selection for deletion. Check the copies to remove, or use **Select all** for the currently filtered results, then **Delete selected**. **Done** returns to ordinary image browsing. **Clear library…** removes all library copies, including entries outside a filter. Confirm with **Delete library copies**. These actions preserve:
 
 - Open documents and their unsaved edits.
 - Original imported files.
@@ -24,6 +24,8 @@ A library-write failure does not discard a successful generation or upscale. The
 ## Draft, refinement and upscaling
 
 **Draft & Refine…** has a draft side and a refinement side. A library result can become the selected draft without submitting another generation job. Refinement and upscaling create separate results, keeping the draft available for comparison.
+
+Use **Compare larger** for more image space, then **100%** to inspect real output pixels. Fit and zoom controls share the comparison position; drag either image to pan both. The comparison uses each document's full-resolution PNG, so lettering and edges can be checked beyond a thumbnail. The two images retain their own pixel dimensions: at 100%, a larger refinement occupies more canvas space than the draft. **Back to settings** restores the stage controls. See [the Image Gen guide](IMAGE-GENERATION.md) for stage-specific styles, transparency and saved recipes.
 
 When SeedVR2 upscaling is enabled and its model is ready, **Finish with SeedVR2 upscale** adds a restoration pass after refinement. **Upscale selected draft only** restores the selected image without a semantic refinement pass. The output must enlarge the source, keep its aspect ratio within two pixels of rounding, and use even dimensions from 256 to 4096 pixels. The maximum area is 16,777,216 pixels. A 3840-pixel long edge preserves the source aspect ratio; it does not necessarily produce 3840 × 2160.
 

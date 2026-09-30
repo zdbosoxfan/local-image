@@ -1,7 +1,7 @@
 """Validate real installer plans without installing an application.
 
 Run on Windows with an Inno build containing the production PLANONLY handler:
-    python tests/installer_plan_smoke.py path/to/Local-Image-Setup-0.6.0.exe
+    python tests/installer_plan_smoke.py path/to/Local-Image-Setup-0.7.0.exe
 
 Each invocation uses /CURRENTUSER and /PLANONLY=1. The installer must emit its
 plan and abort before installation. No elevated process or GPU job is started.
@@ -17,10 +17,9 @@ import time
 import uuid
 
 
-def cases_for(output):
+def cases_for(output, targets):
     # Keep application destinations short regardless of where the QA reports go.
     # The actual bundled PyInstaller files must still fit below Windows MAX_PATH.
-    targets = Path(__file__).resolve().parents[1] / 'qa-artifacts' / 'v06' / 'p'
     folders = output / 'uncreated AI targets'
     program_files = os.environ.get('ProgramW6432', os.environ.get('ProgramFiles', r'C:\Program Files'))
     windows = os.environ.get('WINDIR', r'C:\Windows')
@@ -60,8 +59,7 @@ def cases_for(output):
     ]
 
 
-def run_case(installer, output, case):
-    targets = Path(__file__).resolve().parents[1] / 'qa-artifacts' / 'v06' / 'p'
+def run_case(installer, output, targets, case):
     installation = Path(case.get('application', str(targets / case['name'])))
     report = output / (case['name'] + '-' + uuid.uuid4().hex + '.json')
     if installation.exists():
@@ -122,26 +120,42 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('installer', type=Path)
     parser.add_argument('--output', type=Path,
-                        default=Path('qa-artifacts/v06/installer-plan-matrix'))
+                        default=Path('qa-artifacts/v07/installer-plan-matrix'))
     args = parser.parse_args()
     if os.name != 'nt':
         parser.error('The Inno installer plan test requires Windows.')
     installer = args.installer.resolve(strict=True)
     output = args.output.resolve()
+    workspace = Path(__file__).resolve().parents[1]
+    if not output.is_relative_to(workspace / 'qa-artifacts'):
+        parser.error('QA output must be inside this workspace qa-artifacts directory.')
     output.mkdir(parents=True, exist_ok=True)
+    targets = workspace / 'qa-artifacts' / ('ip-' + uuid.uuid4().hex[:8])
+    # Verify no installer registration or shortcut changes occur, in addition
+    # to checking that neither application nor optional AI folders are created.
+    from smoke_windows_installer_qa import registry_snapshot, shortcuts_snapshot
+    from smoke_windows_installer import windows_username
+    app_identity = 'LocalImage.PlanOnly.' + uuid.uuid4().hex
+    project_identity = app_identity + '.Project'
+    before_registry = registry_snapshot(app_identity, project_identity)
+    before_shortcuts = shortcuts_snapshot()
     results = []
-    for case in cases_for(output):
+    for case in cases_for(output, targets):
         try:
-            result = run_case(installer, output, case)
+            result = run_case(installer, output, targets, case)
         except Exception as error:
             result = {'name': case['name'], 'passed': False, 'failures': [str(error)]}
         results.append(result)
         print(json.dumps({'case': result['name'], 'passed': result['passed'],
                           'failures': result.get('failures', [])}, ensure_ascii=False), flush=True)
+    registry_preserved = registry_snapshot(app_identity, project_identity) == before_registry
+    shortcuts_preserved = shortcuts_snapshot() == before_shortcuts
     report = {'installer': str(installer),
+              'windows_account': windows_username(),
               'sha256': hashlib.sha256(installer.read_bytes()).hexdigest(),
               'plan_only': True, 'scope': 'current-user', 'case_count': len(results),
-              'passed': all(item['passed'] for item in results),
+              'passed': all(item['passed'] for item in results) and registry_preserved and shortcuts_preserved,
+              'registry_preserved': registry_preserved, 'shortcuts_preserved': shortcuts_preserved,
               'passed_count': sum(item['passed'] for item in results), 'cases': results}
     (output / 'results.json').write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding='utf-8')
     print(json.dumps({'passed': report['passed'], 'passed_count': report['passed_count'],

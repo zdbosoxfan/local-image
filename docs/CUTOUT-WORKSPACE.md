@@ -1,8 +1,10 @@
 # Cutouts, backgrounds, and shadows
 
-Local Remove has two switchable workspaces: **Retouch** for healing and object
-removal, and **Cutout** for isolating a subject and composing it over a background.
-They edit the same document. Switching workspaces keeps your applied changes.
+Local Image has three personas. **Retouch** heals or removes objects, **Cutout**
+isolates a subject and composes it over a background, and **Image Gen** creates new
+images. Switching personas keeps your applied changes to the current document.
+Cutout's **Subject**, **Background** and **Transform** tabs keep the tools relevant
+to the current task.
 
 Open an image with **File > Open**, or drop it into the window. A single image has
 no filmstrip. Opening a folder or several images displays the filmstrip at the
@@ -44,15 +46,20 @@ You can work without the model: select the subject, choose **Keep**, then
 **Keep selection**. This creates a cutout directly from the selection. Erasing a
 selection before making a cutout removes that area from the full image.
 
-**Undo cutout** and **Redo** cover the last 20 applied cutout changes, including
-refinement, backgrounds, transforms, shadows, and visibility. They leave repair
-layers intact. In the Cutout workspace, Ctrl+Z first undoes pending selection
-changes; once none remain, it undoes an applied cutout change. Ctrl+Shift+Z redoes
-an applied cutout change. A new applied change clears the redo history.
+The **Edit** menu, keyboard shortcuts and Cutout footer use the same undo target.
+**Ctrl+Z** first undoes unfinished pen points or selection changes, then the last
+applied cutout edit. **Ctrl+Shift+Z** redoes selection changes before applied
+cutout edits. The button and menu labels say which action they will undo or redo.
+Cutout history is available from all three Studio tabs and covers the last 20
+applied changes, including refinement, backgrounds, transforms, shadows and
+visibility. It leaves repair layers intact; those layers have their own visibility
+and removal controls. A new applied cutout change clears its redo history.
 
 ## Position, scale, and rotate the subject
 
-Open **Transform subject** in the Cutout panel.
+Open **Transform** in the Cutout panel. Use a slider for a quick adjustment or
+enter a precise number in its existing value field. Feather and shadow values
+also accept direct numeric entry, with their units shown beside them.
 
 - Choose **Move subject · V**, or press V, and drag the subject on the canvas.
   Its position previews while dragging and is applied when you release.
@@ -101,7 +108,7 @@ and click **Generate empty background**. For example:
 
 > Warm studio, beige plaster wall, pale stone surface, soft window light from the left.
 
-Local Remove automatically adds instructions for an empty scene and exclusions
+Local Image automatically adds instructions for an empty scene and exclusions
 for people, products, text, and foreground subjects. It supplies both positive
 instructions and negative conditioning. The default Qwen guidance setting ignores
 negative conditioning, so inspect the result: a prompt cannot guarantee that
@@ -114,10 +121,10 @@ Enable **Shadow**, then adjust:
 
 | Control | Effect |
 | --- | --- |
-| Opacity | Strength of the shadow. |
-| Softness | Blur around its edge. |
-| Offset X / Offset Y | Horizontal and vertical distance from the subject. |
-| Height | Compresses the shadow vertically around the subject's lower edge. |
+| Opacity | Strength of the shadow, in percent. |
+| Softness | Blur around its edge, in pixels. |
+| Offset X / Offset Y | Horizontal and vertical distance from the subject, in pixels. |
+| Height | Compresses the shadow vertically around the subject's lower edge, in percent. |
 
 The shadow is built from the current transformed cutout alpha. It sits behind the
 subject and above the background, and remains separate from the original pixels.
@@ -138,6 +145,13 @@ the working session and starts fresh when a project is reopened. Save the projec
 before closing a document if you want to continue editing it.
 
 Use **Export PNG…** in the Cutout panel for a flattened image with real alpha.
+If a selection or unfinished pen path remains, the footer explains that it is
+pending. **Apply selection** applies a closed selection using the current Erase,
+Restore or Keep operation. **Export current image…** explicitly exports the
+applied composition and retains the pending selection. Ordinary save commands
+point you back to that choice instead of silently treating a pending refinement
+as an applied edit.
+
 Transparent PNG, WebP, and RGBA TIFF are supported. JPEG export requires an opaque
 background. Exporting a 16-bit source as TIFF retains its native precision;
 explicit PNG, JPEG, or WebP exports are 8-bit. Project originals retain their
@@ -156,3 +170,7 @@ To remove an object from the scene instead of making a cutout, switch to
 apply it. The generated repair is restricted to the selected area and remains
 an editable repair layer. Merge repair layers while the cutout is disabled, then
 enable it again to continue composing.
+
+To reuse a backdrop, placement and shadow for multiple products, see
+[Batch treatment & export](BATCH-WORKSPACE.md). Each photo uses its own cutout;
+a treatment never copies one product's foreground or mask onto another.

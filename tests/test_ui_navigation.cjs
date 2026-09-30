@@ -18,12 +18,23 @@ class Element extends Emitter {
     this.capture=new Set();this.paints=0;this.width=3000;this.height=2000;
   }
   get options(){return this.children;}
+  get parentElement(){return this.parent instanceof Element?this.parent:null;}
   get width(){return this._width;}
   set width(value){this._width=value;if(this.tagName==='CANVAS')this.paints=0;}
   get height(){return this._height;}
   set height(value){this._height=value;if(this.tagName==='CANVAS')this.paints=0;}
   append(...children){for(const child of children){child.parent=this;this.children.push(child);}}
   prepend(child){child.parent=this;this.children.unshift(child);}
+  before(...nodes){
+    if(!this.parent)return;
+    const parent=this.parent;
+    for(let node of nodes){
+      if(node===this)continue;
+      if(typeof node==='string')node={textContent:node};
+      if(node.parent)node.parent.children.splice(node.parent.children.indexOf(node),1);
+      node.parent=parent;parent.children.splice(parent.children.indexOf(this),0,node);
+    }
+  }
   remove(){if(this.parent)this.parent.children.splice(this.parent.children.indexOf(this),1);}
   replaceChildren(...children){this.children=[];this.append(...children);}
   setAttribute(key,value){this.attributes[key]=value;}
@@ -51,6 +62,10 @@ class Element extends Emitter {
   }
 }
 const elements=new Map([...html.matchAll(/id="([^"]+)"/g)].map(match=>[match[1],new Element('div',match[1])]));
+for(const side of ['draft','result']){
+  const area=new Element();area.className='refine-image-area';
+  area.append(elements.get('refine-'+side+'-image'),elements.get('refine-'+side+'-empty'));
+}
 for(const match of html.matchAll(/<button\b([^>]*\bid="([^"]+)"[^>]*)>/g)){
   const command=match[1].match(/data-command="([^"]+)"/);
   if(command)elements.get(match[2]).dataset.command=command[1];
@@ -86,6 +101,11 @@ const state=()=>JSON.parse(run('JSON.stringify({zoom:photoZoom(),panX,panY,point
 const nearly=(a,b)=>assert.ok(Math.abs(a-b)<1e-8,`${a} differs from ${b}`);
 
 async function main(){
+  const host=new Element(),anchor=new Element(),sibling=new Element();
+  anchor.before(sibling);assert.equal(sibling.parent,undefined,'before() on a detached node leaves siblings detached');
+  host.append(anchor,sibling);anchor.before(sibling);
+  assert.deepEqual(host.children,[sibling,anchor],'before() moves an existing sibling rather than duplicating it');
+  assert.equal(sibling.parent,host);
   assert.equal(run('operation'),'heal','First use defaults to local healing without an AI connection');
   run(`session={id:'test',width:6000,height:4000,name:'Test',revision:0,layers:[]}; setSizes(3000,2000);`);
   assert.ok(state().zoom<.2,'Fit uses actual-photo pixels');

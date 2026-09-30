@@ -20,6 +20,8 @@ from generation_metadata import validate_generation_metadata, validate_lora_meta
 from generation_model_details import enrich_model
 from app_paths import model_directory
 from stock_attribution import collect_attributions, unique_attributions
+from comfy_inventory import read_inventory
+from operation_progress import operation, snapshot as progress_snapshot
 
 router = APIRouter(prefix='/api/local-remove/generation')
 MODEL_DEFAULTS = {
@@ -165,15 +167,21 @@ def model_inventory(info, *, connected=True, connection_reason=''):
 
 
 @router.get('/models')
-async def generation_models(request: Request):
+async def generation_models(request: Request, refresh: bool = False):
     editor.guard(request)
     from main import generation_lock
     try:
-        result = model_inventory(await qwen_image._object_info())
+        result = model_inventory(await read_inventory(qwen_image._object_info, refresh=refresh))
     except qwen_image.QwenImageError as error:
         result = model_inventory({}, connected=False, connection_reason=str(error))
     result['busy'] = generation_lock.locked()
     return result
+
+
+@router.get('/progress')
+async def generation_progress(request: Request):
+    editor.guard(request, True)
+    return progress_snapshot()
 
 
 def generation_parameters(payload):
@@ -222,6 +230,35 @@ def create_generated_session(image, parameters, directory, reference_attribution
     return editor.public(data)
 
 
+async def execute_generation(parameters, payload, references, loras):
+    if parameters['model'] == 'qwen':
+        image = await qwen_image.run_qwen_image(
+            references[0] if references else None, parameters['prompt'], variant=parameters['variant'],
+            reference_paths=references[1:], size=(payload.width, payload.height), seed=parameters['seed'],
+            task='generate', steps=parameters['steps'], negative_prompt=parameters['negative_prompt'],
+            cfg=parameters['guidance'], transparent=parameters['transparent'], loras=loras)
+    elif parameters['model'] == 'z-image-turbo':
+        image = await z_image.run_z_image(parameters['prompt'], input_path=references[0] if references else None,
+            size=(payload.width, payload.height), seed=parameters['seed'], steps=parameters['steps'], denoise=parameters['denoise'], loras=loras)
+    elif parameters['model'] == 'ernie-image':
+        image = await ernie_image.run_ernie_image(parameters['prompt'], negative_prompt=parameters['negative_prompt'],
+            size=(payload.width, payload.height), seed=parameters['seed'], steps=parameters['steps'], guidance=parameters['guidance'])
+    elif parameters['model'] == 'hidream-o1':
+        image = await hidream_image.run_hidream_image(parameters['prompt'], negative_prompt=parameters['negative_prompt'],
+            references=references, size=(payload.width, payload.height), seed=parameters['seed'],
+            steps=parameters['steps'], guidance=parameters['guidance'], loras=loras)
+    else:
+        image = await flux2_image.run_flux2_image(parameters['prompt'], model=parameters['model'], references=references,
+            size=(payload.width, payload.height), seed=parameters['seed'], steps=parameters['steps'], guidance=parameters['guidance'], loras=loras)
+    if parameters['transparent']:
+        qwen_image.validate_cutout(image)
+    elif 'A' in image.getbands():
+        image = image.copy(); image.putalpha(255)
+    if image.size != (payload.width, payload.height):
+        raise ValueError('The model returned unexpected dimensions. Retry with another output size.')
+    return image
+
+
 @router.post('')
 async def generate_image(request: Request, payload: GenerationRequest):
     editor.guard(request, True)
@@ -241,39 +278,17 @@ async def generate_image(request: Request, payload: GenerationRequest):
             attributions = unique_attributions(attributions)
             if generation_lock.locked():
                 raise HTTPException(409, 'Another image operation started. Generate again when it has finished.')
-            async with generation_lock:
-                if parameters['model'] == 'qwen':
-                    image = await qwen_image.run_qwen_image(
-                        references[0] if references else None, parameters['prompt'], variant=parameters['variant'],
-                        reference_paths=references[1:], size=(payload.width, payload.height), seed=parameters['seed'],
-                        task='generate', steps=parameters['steps'], negative_prompt=parameters['negative_prompt'],
-                        cfg=parameters['guidance'], transparent=parameters['transparent'], loras=loras)
-                elif parameters['model'] == 'z-image-turbo':
-                    image = await z_image.run_z_image(parameters['prompt'], input_path=references[0] if references else None,
-                        size=(payload.width, payload.height), seed=parameters['seed'], steps=parameters['steps'], denoise=parameters['denoise'], loras=loras)
-                elif parameters['model'] == 'ernie-image':
-                    image = await ernie_image.run_ernie_image(parameters['prompt'], negative_prompt=parameters['negative_prompt'],
-                        size=(payload.width, payload.height), seed=parameters['seed'], steps=parameters['steps'], guidance=parameters['guidance'])
-                elif parameters['model'] == 'hidream-o1':
-                    image = await hidream_image.run_hidream_image(parameters['prompt'], negative_prompt=parameters['negative_prompt'],
-                        references=references, size=(payload.width, payload.height), seed=parameters['seed'],
-                        steps=parameters['steps'], guidance=parameters['guidance'], loras=loras)
-                else:
-                    image = await flux2_image.run_flux2_image(parameters['prompt'], model=parameters['model'], references=references,
-                        size=(payload.width, payload.height), seed=parameters['seed'], steps=parameters['steps'], guidance=parameters['guidance'], loras=loras)
-                if parameters['transparent']:
-                    qwen_image.validate_cutout(image)
-                elif 'A' in image.getbands():
-                    image = image.copy(); image.putalpha(255)
-                if image.size != (payload.width, payload.height):
-                    raise ValueError('The model returned unexpected dimensions. Retry with another output size.')
-                session = await asyncio.to_thread(create_generated_session, image, parameters, directory, attributions)
-            from generation_library import add_generated
-            warning = ''
-            try:
-                await asyncio.to_thread(add_generated, image, session)
-            except (ValueError, OSError) as error:
-                warning = 'The image opened successfully, but its library copy could not be saved: ' + str(error)
+            with operation(parameters['model']) as progress:
+                async with generation_lock:
+                    image = await execute_generation(parameters, payload, references, loras)
+                    progress.update('saving')
+                    session = await asyncio.to_thread(create_generated_session, image, parameters, directory, attributions)
+                from generation_library import add_generated
+                warning = ''
+                try:
+                    await asyncio.to_thread(add_generated, image, session)
+                except (ValueError, OSError) as error:
+                    warning = 'The image opened successfully, but its library copy could not be saved: ' + str(error)
             return {'session': session, **parameters, 'library_warning': warning}
     except HTTPException:
         raise

@@ -102,12 +102,22 @@ def qa_registrations_absent(snapshot):
                if key.endswith(('/qa_uninstall', '/qa_project')))
 
 
+def payload_manifest(directory):
+    """Verify every frozen package file; installer-generated files are separate."""
+    return {str(path.relative_to(directory)): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(directory.rglob('*')) if path.is_file()}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output', type=Path, default=Path('qa-artifacts/v06/qa-installer'))
-    parser.add_argument('--package', type=Path, default=Path('dist/local-image-v06/package'))
-    parser.add_argument('--prerequisites', type=Path, default=Path('dist/local-image-v06/prerequisites'))
+    parser.add_argument('--output', type=Path, default=Path('qa-artifacts/v07/qa-installer'))
+    parser.add_argument('--package', type=Path, default=Path('dist/local-image-v07/package'))
+    parser.add_argument('--prerequisites', type=Path, default=Path('dist/local-image-v07/prerequisites'))
     parser.add_argument('--compiler', type=Path, default=Path('dist/tools/inno/ISCC.exe'))
+    parser.add_argument('--expected-version', default='0.7.0')
+    parser.add_argument('--storage-mode', choices=('both', 'models-only', 'runtime-only'), default='both')
+    parser.add_argument('--release-installer', type=Path,
+                        help='Record the production candidate checksum alongside the equivalent QA payload.')
     args = parser.parse_args()
     if os.name != 'nt':
         parser.error('This test requires Windows.')
@@ -125,6 +135,8 @@ def main():
         parser.error('Use a shorter QA output location or a fresh unique run directory.')
     models = run_root / '\u6a21\u578b models \u2013 caf\u00e9'
     runtime = run_root / '\u753b\u50cf portable parent'
+    selected_models = str(models) if args.storage_mode != 'runtime-only' else ''
+    selected_runtime = str(runtime) if args.storage_mode != 'models-only' else ''
     profile = run_root / 'isolated application profile'
     environment = os.environ.copy()
     environment.update(LOCALAPPDATA=str(run_root / 'isolated Local AppData'),
@@ -135,6 +147,7 @@ def main():
     report = {
         'status': 'pending', 'passed': False, 'windows_account': windows_username(),
         'scope': 'current-user', 'app_launched': False, 'model_downloads': False,
+        'expected_version': args.expected_version, 'storage_mode': args.storage_mode,
         'identity_difference': 'Only installer AppIdentity and ProjectIdentity differ from release.',
         'app_identity': app_identity, 'project_identity': project_identity,
         'folders': {'application': str(app), 'models': str(models), 'runtime': str(runtime),
@@ -158,13 +171,22 @@ def main():
         compiler = args.compiler.resolve(strict=True)
         package = args.package.resolve(strict=True)
         prerequisites = args.prerequisites.resolve(strict=True)
+        package_version = file_version(package / 'Local Image.exe')
+        assert package_version == args.expected_version + '.0', 'Frozen package native version differs.'
+        report['package'] = str(package)
+        report['package_manifest'] = payload_manifest(package)
+        report['installer_source_sha256'] = hashlib.sha256((workspace / 'packaging' / 'LocalRemove.iss').read_bytes()).hexdigest()
+        if args.release_installer:
+            release_installer = args.release_installer.resolve(strict=True)
+            report['production_installer'] = str(release_installer)
+            report['production_installer_sha256'] = hashlib.sha256(release_installer.read_bytes()).hexdigest()
         report['compile'] = hidden_run([
             compiler, '/Qp', '/DAppIdentity=' + app_identity,
             '/DProjectIdentity=' + project_identity, '/DPackageDir=' + str(package),
             '/DPrerequisiteDir=' + str(prerequisites), '/DInstallerDir=' + str(output),
             workspace / 'packaging' / 'LocalRemove.iss'], timeout=300)
         assert report['compile']['exit_code'] == 0, 'QA installer compilation failed.'
-        installer = output / 'Local-Image-Setup-0.6.0.exe'
+        installer = output / ('Local-Image-Setup-' + args.expected_version + '.exe')
         report['installer'] = str(installer)
         report['sha256'] = hashlib.sha256(installer.read_bytes()).hexdigest()
         assert registry_snapshot(app_identity, project_identity) == before_registry, 'Registry changed before install.'
@@ -172,8 +194,8 @@ def main():
         assert port_idle(), 'Local Image started after preflight; installation cancelled.'
         report['install'] = hidden_run([
             installer, '/CURRENTUSER', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/SP-', '/NOICONS',
-            '/AISETUP=portable', '/DIR=' + str(app), '/MODELDIR=' + str(models),
-            '/AIDIR=' + str(runtime), '/LOG=' + str(output / 'install.log')],
+            '/AISETUP=portable', '/DIR=' + str(app), '/MODELDIR=' + selected_models,
+            '/AIDIR=' + selected_runtime, '/LOG=' + str(output / 'install.log')],
             environment=environment)
         assert report['install']['exit_code'] == 0, 'Actual installation failed; inspect install.log.'
         native = app / 'Local Image.exe'
@@ -181,11 +203,17 @@ def main():
         defaults = app / 'installation-defaults.json'
         assert native.is_file() and backend.is_file(), 'Native host or backend is missing.'
         report['native_version'] = file_version(native)
-        assert report['native_version'] == '0.6.0.0', 'Installed native version is incorrect.'
+        assert report['native_version'] == args.expected_version + '.0', 'Installed native version is incorrect.'
+        installed_manifest = payload_manifest(app)
+        report['installed_payload_matches_frozen_package'] = all(
+            installed_manifest.get(relative) == checksum
+            for relative, checksum in report['package_manifest'].items())
+        assert report['installed_payload_matches_frozen_package'], 'Installed files differ from the frozen package.'
+        report['installed_payload_file_count'] = len(report['package_manifest'])
         report['installed_defaults'] = json.loads(defaults.read_text(encoding='utf-8-sig'))
         assert report['installed_defaults'] == {
-            'schema': 1, 'setup_mode': 'portable', 'model_directory': str(models),
-            'managed_ai_directory': str(runtime)}, 'Unicode storage choices changed during installation.'
+            'schema': 1, 'setup_mode': 'portable', 'model_directory': selected_models,
+            'managed_ai_directory': selected_runtime}, 'Unicode or blank AppData storage choices changed during installation.'
         after_install = registry_snapshot(app_identity, project_identity)
         report['registry_after_install'] = after_install
         assert original_registry(after_install, project_identity) == original_registry(before_registry), 'Production registrations or original associations changed.'
@@ -193,7 +221,7 @@ def main():
         assert qa_uninstall is not None, 'QA per-user uninstall registration is missing.'
         registered = {entry['name']: entry['value'] for entry in qa_uninstall['values']}
         assert Path(registered['InstallLocation']).resolve() == app, 'QA uninstall registration targets another folder.'
-        assert registered['DisplayVersion'] == '0.6.0', 'QA uninstall version differs.'
+        assert registered['DisplayVersion'] == args.expected_version, 'QA uninstall version differs.'
         assert after_install['HKCU/64/qa_project'] is not None, 'QA project association is missing.'
         assert all(value is None for key, value in after_install.items()
                    if key.startswith('HKLM/') and key.endswith(('/qa_uninstall', '/qa_project'))), 'Per-user installer unexpectedly registered all-users.'

@@ -1,0 +1,214 @@
+"""Real CPU treatment/export checks; GPU execution alone uses a controlled fake."""
+import asyncio
+import importlib.util
+import json
+from pathlib import Path
+import sys
+import types
+import unittest
+from unittest.mock import AsyncMock, patch
+import uuid
+import zipfile
+
+import numpy as np
+from fastapi import HTTPException
+from PIL import Image
+from pydantic import ValidationError
+import tifffile
+
+BACKEND = Path(__file__).resolve().parents[1] / 'backend'
+sys.path[:0] = [str(BACKEND), str(Path(__file__).resolve().parent / 'helpers')]
+import backend_folder_save_test as fixtures
+fixtures.V3 = BACKEND
+from cutout_composite import initial_cutout, transform_matrix
+from stock_attribution import collect_attributions
+
+
+class BatchTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.fixture = fixtures.FolderSaveTests(); self.fixture.setUp(); self.editor = self.fixture.app
+        self.module_patch = patch.dict(sys.modules, {'local_remove': self.editor}); self.module_patch.start()
+        spec = importlib.util.spec_from_file_location('batch_under_test', BACKEND / 'batch_tools.py')
+        self.batch = importlib.util.module_from_spec(spec); sys.modules[spec.name] = self.batch; spec.loader.exec_module(self.batch)
+
+    async def asyncTearDown(self):
+        for task in list(self.batch.tasks.values()):
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        self.module_patch.stop(); self.fixture.tearDown()
+
+    def request(self, **kwargs):
+        return self.fixture.request(**kwargs)
+
+    def image(self, name='product.png', size=(80, 60), bounds=(25, 15, 55, 45), cutout=True):
+        data = self.fixture.bind(self.fixture.make_image(name, (160, 80, 20), size))
+        if cutout:
+            root = self.editor.folder(data['id']); alpha = Image.new('L', size); alpha.paste(255, bounds)
+            data['cutout'] = initial_cutout(self.editor.save_cutout_alpha(root, alpha)); data['revision'] = 1
+            self.editor.write_session(root, data)
+        return self.editor.read_session(data['id'])
+
+    async def treatment(self, data, format='png', background=None):
+        state = data['cutout']; state['transform'].update(scale=.8, rotation=12, offset_x=8, offset_y=-3)
+        state['shadow'].update(enabled=True, opacity=.4, blur=2, offset_x=3, offset_y=4)
+        if background:
+            asset='cutout-'+uuid.uuid4().hex+'-background.png'; Image.new('RGB',(31,23),(10,40,90)).save(self.editor.folder(data['id'])/asset)
+            state['background']={'mode':'image','color':'#ffffff','asset':asset,'name':'Studio', 'attribution':background}
+        self.editor.write_session(self.editor.folder(data['id']), data)
+        return await self.batch.save_treatment(self.request(), self.batch.SaveTreatment(name='Warm studio 水彩',session_id=data['id'],revision=data['revision'],format=format))
+
+    async def create(self, data, **kwargs):
+        return await self.batch.create_job(self.request(), self.batch.CreateJob(sessions=[self.batch.SessionSelection(session_id=item['id'],revision=item['revision']) for item in data], **kwargs))
+
+    async def finish(self, identifier):
+        task=self.batch.tasks.get(identifier)
+        if task:
+            await task
+            await asyncio.sleep(0)
+        return self.batch.job(identifier)
+
+    async def test_treatment_normalizes_different_masks_and_keeps_each_subject(self):
+        first=self.image(); second=self.image('other.png',(160,120),(65,35,105,95))
+        preset=await self.treatment(first); hashes={item['id']:self.editor.file_hash(self.editor.folder(item['id'])/item['original']) for item in (first,second)}
+        queue=await self.create([first,second],treatment_id=preset['id']); value=await self.finish(queue['id'])
+        self.assertEqual([item['status'] for item in value['items']],['ready','ready'],value['items'])
+        definition=self.batch.treatment(preset['id']); directory=self.batch.own_directory('jobs',queue['id'])
+        for item, source in zip(value['items'],(first,second)):
+            data=json.loads((directory/item['id']/'snapshot.json').read_text()); state=data['cutout']
+            self.assertEqual(state['alpha'],source['cutout']['alpha']); self.assertNotIn('source_path',data)
+            with Image.open(directory/item['id']/state['alpha']) as alpha: bounds=alpha.getbbox()
+            matrix=transform_matrix((data['width'],data['height']),state['transform']);cx,cy=(bounds[0]+bounds[2]-1)/2,(bounds[1]+bounds[3]-1)/2
+            self.assertAlmostEqual((matrix[0,0]*cx+matrix[0,1]*cy+matrix[0,2])/data['width'],definition['placement']['center_x'])
+            self.assertAlmostEqual((matrix[1,0]*cx+matrix[1,1]*cy+matrix[1,2])/data['height'],definition['placement']['center_y'])
+            self.assertEqual(self.editor.read_session(source['id'])['cutout'],source['cutout'])
+            self.assertEqual(hashes[source['id']],self.editor.file_hash(self.editor.folder(source['id'])/source['original']))
+        self.assertEqual(len(list(self.editor.SESSIONS.glob('*/session.json'))),2,'No batch copies in editor recovery')
+
+    async def test_reviewed_public_settings_and_export_contract_are_immutable(self):
+        data=self.image();preset=await self.treatment(data,format='png');queue=await self.create([data],treatment_id=preset['id'],qwen_variant='bf16');value=await self.finish(queue['id']);public=self.batch.public_job(value)
+        self.assertEqual(public['treatment_id'],preset['id']);self.assertEqual(public['treatment_name'],preset['name']);self.assertEqual(public['format'],'png');self.assertEqual(public['qwen_variant'],'bf16')
+        await self.batch.delete_treatment(preset['id'],self.request());self.assertEqual(self.batch.public_job(self.batch.job(queue['id']))['treatment_id'],preset['id'],'Deleted presets retain their immutable queue settings')
+        with self.assertRaises(ValidationError):self.batch.ExportSelection(format='jpg')
+        await self.batch.export_zip(queue['id'],self.request(),self.batch.ExportSelection());value=await self.finish(queue['id']);self.assertTrue(value['items'][0]['output_name'].endswith('.png'))
+
+    async def test_background_and_stock_credits_survive_preset_deletion_and_zip(self):
+        credit={'provider':'openverse','asset_id':'studio','title':'Studio','creator':'Photographer','creator_url':'https://www.flickr.com/photos/person/','source_url':'https://www.flickr.com/photos/person/1/','license':'CC BY 4.0','license_url':'https://creativecommons.org/licenses/by/4.0/','attribution':'Studio by Photographer, CC BY 4.0.'}
+        first=self.image();second=self.image('other.png');saved=await self.treatment(first,background=credit)
+        queue=await self.create([second],treatment_id=saved['id']);await self.finish(queue['id'])
+        await self.batch.delete_treatment(saved['id'],self.request())
+        await self.batch.export_zip(queue['id'],self.request(),self.batch.ExportSelection());value=await self.finish(queue['id'])
+        item=value['items'][0]; self.assertEqual(item['status'],'exported'); self.assertEqual(item['credits'],[credit])
+        directory=self.batch.own_directory('jobs',queue['id'])
+        with zipfile.ZipFile(directory/'exports.zip') as archive:
+            self.assertIn(item['output_name'],archive.namelist());self.assertIn(item['credits_name'],archive.namelist());self.assertIn('export-report.json',archive.namelist())
+            self.assertIn('CC BY 4.0',archive.read(item['credits_name']).decode())
+        self.assertEqual(collect_attributions(json.loads((directory/item['id']/'snapshot.json').read_text())),[credit])
+
+    async def test_no_treatment_exports_own_layers_and_precision(self):
+        path=self.fixture.images/'precision.tif';raw=np.full((20,30,3),(12001,32002,64003),dtype=np.uint16);tifffile.imwrite(path,raw,photometric='rgb')
+        data=self.fixture.bind(path);queue=await self.create([data]);await self.finish(queue['id']);await self.batch.export_zip(queue['id'],self.request(),self.batch.ExportSelection());value=await self.finish(queue['id'])
+        item=value['items'][0];self.assertEqual(item['export_bit_depth'],16);np.testing.assert_array_equal(tifffile.imread(self.batch.own_directory('jobs',queue['id'])/'exports'/item['output_name']),raw)
+
+    async def test_explicit_png_allows_eight_bit_and_keeps_alpha(self):
+        data=self.image(); queue=await self.create([data],format='png');await self.finish(queue['id']);await self.batch.export_zip(queue['id'],self.request(),self.batch.ExportSelection());value=await self.finish(queue['id']);item=value['items'][0]
+        with Image.open(self.batch.own_directory('jobs',queue['id'])/'exports'/item['output_name']) as image:self.assertEqual(image.mode,'RGBA');self.assertEqual(image.getchannel('A').getextrema(),(0,255))
+        self.assertEqual(item['export_bit_depth'],8)
+
+    async def test_full_preview_and_original_comparison_keep_native_dimensions(self):
+        data=self.image(size=(960,720),bounds=(200,100,700,600));queue=await self.create([data]);value=await self.finish(queue['id']);item=value['items'][0]
+        response=await self.batch.preview_item(queue['id'],item['id'],self.request(),full=True)
+        with Image.open(response.path) as image:self.assertEqual(image.size,(960,720));self.assertEqual(image.getpixel((0,0))[3],0)
+        original=await self.batch.preview_item(queue['id'],item['id'],self.request(),full=True,original=True)
+        with Image.open(original.path) as image:self.assertEqual(image.size,(960,720));self.assertEqual(image.mode,'RGB')
+
+    async def test_resume_recognizes_a_published_file_after_interrupted_manifest_commit(self):
+        data=self.image();queue=await self.create([data],format='png');await self.finish(queue['id']);await self.batch.export_zip(queue['id'],self.request(),self.batch.ExportSelection());value=await self.finish(queue['id']);original_name=value['items'][0]['output_name'];value['items'][0]['status']='ready';value['items'][0].pop('output_name');value.update(phase='paused',running=False);self.batch.save_job(value)
+        await self.batch.resume_job(queue['id'],self.request());value=await self.finish(queue['id']);self.assertEqual(value['items'][0]['output_name'],original_name);self.assertEqual(len(list((self.batch.own_directory('jobs',queue['id'])/'exports').glob('*.png'))),1)
+
+    async def test_transparent_jpeg_fails_individually_other_images_export(self):
+        first=self.image();second=self.image('opaque.png',cutout=False);queue=await self.create([first,second],format='jpg');await self.finish(queue['id']);await self.batch.export_zip(queue['id'],self.request(),self.batch.ExportSelection());value=await self.finish(queue['id'])
+        self.assertEqual([item['status'] for item in value['items']],['failed','exported']);self.assertIn('transparency',value['items'][0]['error']);self.assertTrue(value['archive_ready'])
+
+    async def test_missing_cutout_requires_opt_in_and_never_borrows_product_mask(self):
+        first=self.image();preset=await self.treatment(first);second=self.image('uncut.png',cutout=False);queue=await self.create([second],treatment_id=preset['id']);value=await self.finish(queue['id']);self.assertEqual(value['items'][0]['status'],'needs-cutout');self.assertNotIn('cutout',self.editor.read_session(second['id']))
+
+    async def test_optional_qwen_serializes_with_generation_and_uses_independent_alpha(self):
+        first=self.image();preset=await self.treatment(first);second=self.image('uncut.png',cutout=False);lock=self.fixture.fixture.main.generation_lock;await lock.acquire();rgba=Image.new('RGBA',(80,60),(0,0,0,0));rgba.paste((120,40,30,255),(20,10,60,50))
+        with patch('qwen_image.run_qwen_image',AsyncMock(return_value=rgba)) as model:
+            queue=await self.create([second],treatment_id=preset['id'],prepare_cutouts=True);await asyncio.sleep(.05);self.assertEqual(model.await_count,0);lock.release();value=await self.finish(queue['id']);self.assertEqual(value['items'][0]['status'],'ready');self.assertEqual(model.await_count,1)
+        snapshot=json.loads((self.batch.own_directory('jobs',queue['id'])/value['items'][0]['id']/'snapshot.json').read_text());self.assertNotEqual(snapshot['cutout']['alpha'],first['cutout']['alpha']);self.assertNotIn('cutout',self.editor.read_session(second['id']))
+
+    async def test_revision_conflict_before_prepare_does_not_touch_image(self):
+        data=self.image();before=data['revision'];data['revision']+=1;self.editor.write_session(self.editor.folder(data['id']),data)
+        queue=await self.batch.create_job(self.request(),self.batch.CreateJob(sessions=[self.batch.SessionSelection(session_id=data['id'],revision=before)]));value=await self.finish(queue['id']);self.assertEqual(value['items'][0]['status'],'conflict');self.assertEqual(self.editor.read_session(data['id'])['revision'],before+1)
+
+    async def test_revision_conflict_after_preview_cannot_export_stale_snapshot(self):
+        data=self.image();queue=await self.create([data]);await self.finish(queue['id']);data['revision']+=1;self.editor.write_session(self.editor.folder(data['id']),data);await self.batch.export_zip(queue['id'],self.request(),self.batch.ExportSelection());value=await self.finish(queue['id']);self.assertEqual(value['items'][0]['status'],'conflict');self.assertFalse(value.get('archive_ready'))
+
+    async def test_reviewed_snapshot_survives_explicit_editor_document_close(self):
+        data=self.image();queue=await self.create([data]);await self.finish(queue['id']);await self.editor.close_session(data['id'],self.request(),self.editor.CloseRequest(revision=data['revision'],discard=True))
+        await self.batch.export_zip(queue['id'],self.request(),self.batch.ExportSelection());value=await self.finish(queue['id']);self.assertEqual(value['items'][0]['status'],'exported')
+
+    async def test_cancel_resumes_remaining_images_without_duplicate_export(self):
+        first=self.image();second=self.image('other.png');queue=await self.create([first,second]);await self.finish(queue['id']);entered=asyncio.Event();release=asyncio.Event();original=self.batch.export_item
+        async def delay(value,item):entered.set();await release.wait();await original(value,item)
+        with patch.object(self.batch,'export_item',delay):
+            await self.batch.export_zip(queue['id'],self.request(),self.batch.ExportSelection());await entered.wait();await self.batch.cancel_job(queue['id'],self.request());release.set();value=await self.finish(queue['id'])
+        self.assertEqual(value['phase'],'paused');self.assertEqual([item['status'] for item in value['items']],['ready','ready']);await self.batch.resume_job(queue['id'],self.request());value=await self.finish(queue['id']);self.assertEqual([item['status'] for item in value['items']],['exported','exported']);self.assertEqual(len(list((self.batch.own_directory('jobs',queue['id'])/'exports').glob('*.png'))),2)
+
+    async def test_native_folder_export_unique_names_and_no_browser_path_authority(self):
+        data=self.image();queue=await self.create([data],format='png');await self.finish(queue['id']);out=self.fixture.images/'exports';out.mkdir();existing=out/'product-local-image.png';existing.write_bytes(b'keep')
+        with self.assertRaises(HTTPException) as rejected:await self.batch.export_folder(queue['id'],self.request(),self.batch.ExportFolder(path=str(out)))
+        self.assertEqual(rejected.exception.status_code,403);await self.batch.export_folder(queue['id'],self.request(native=True,csrf=False),self.batch.ExportFolder(path=str(out)));value=await self.finish(queue['id']);self.assertEqual(existing.read_bytes(),b'keep');self.assertEqual(value['items'][0]['output_name'],'product-local-image-2.png')
+        await self.batch.delete_job(queue['id'],self.request());self.assertTrue((out/'product-local-image-2.png').is_file());self.assertTrue(self.editor.folder(data['id']).is_dir())
+
+    async def test_only_selected_review_rows_are_exported(self):
+        queue=await self.create([self.image(),self.image('other.png')]);value=await self.finish(queue['id']);selected=[value['items'][1]['id']];await self.batch.export_zip(queue['id'],self.request(),self.batch.ExportSelection(item_ids=selected));value=await self.finish(queue['id']);self.assertEqual([item['status'] for item in value['items']],['ready','exported'])
+
+    async def test_queue_recovery_reads_interrupted_state_and_clear_is_separate(self):
+        queue=await self.create([self.image()]);value=await self.finish(queue['id']);value.update(running=True,phase='preparing');value['items'][0]['status']='preparing';self.batch.save_job(value);recovered=self.batch.job(queue['id']);self.assertFalse(recovered['running']);self.assertEqual(recovered['phase'],'paused');self.assertEqual(recovered['items'][0]['status'],'pending');await self.batch.resume_job(queue['id'],self.request());await self.finish(queue['id']);await self.batch.delete_job(queue['id'],self.request());self.assertFalse(self.batch.own_directory('jobs',queue['id'],False).exists())
+
+    async def test_requests_are_bounded_strict_and_local(self):
+        data=self.image()
+        with self.assertRaises(ValidationError):self.batch.CreateJob(sessions=[{'session_id':data['id'],'revision':1}]*101)
+        with self.assertRaises(ValidationError):self.batch.CreateJob(sessions=[{'session_id':data['id'],'revision':1}]*2)
+        with self.assertRaises(ValidationError):self.batch.CreateJob(sessions=[{'session_id':data['id'],'revision':1}],output_directory='C:/unsafe')
+        with self.assertRaises(HTTPException) as rejection:await self.batch.create_job(self.request(csrf=False),self.batch.CreateJob(sessions=[{'session_id':data['id'],'revision':1}]))
+        self.assertEqual(rejection.exception.status_code,403)
+
+    async def test_collection_selection_is_authoritative_and_broken_entry_is_individual(self):
+        good=self.fixture.make_image('good.png');bad=self.fixture.images/'bad.png';bad.write_bytes(b'invalid');collection=self.editor.register_collection([good,bad],'Products');queue=await self.batch.create_job(self.request(),self.batch.CreateJob(collection_id=collection['id'],entry_ids=[item['id'] for item in collection['entries']]));value=await self.finish(queue['id']);self.assertEqual([item['status'] for item in value['items']],['ready','failed']);self.assertEqual(self.editor.read_collection(collection['id'])['index'],0)
+        with self.assertRaises(HTTPException):await self.batch.create_job(self.request(),self.batch.CreateJob(collection_id=collection['id'],entry_ids=[str(uuid.uuid4())]))
+
+    async def test_active_batch_cannot_be_started_or_cleared_twice(self):
+        original=self.batch.prepare_item;entered=asyncio.Event();release=asyncio.Event()
+        async def delay(value,item):entered.set();await release.wait();await original(value,item)
+        with patch.object(self.batch,'prepare_item',delay):
+            queue=await self.create([self.image()]);await entered.wait()
+            with self.assertRaises(HTTPException) as rejection:await self.create([self.image('second.png')])
+            self.assertEqual(rejection.exception.status_code,409)
+            with self.assertRaises(HTTPException):await self.batch.delete_job(queue['id'],self.request())
+            release.set();await self.finish(queue['id'])
+
+    async def test_per_job_storage_limit_reports_failure_without_export(self):
+        with patch.object(self.batch,'MAX_STORAGE',1):queue=await self.create([self.image()]);value=await self.finish(queue['id'])
+        self.assertEqual(value['items'][0]['status'],'failed');self.assertIn('storage limit',value['items'][0]['error'])
+
+    async def test_unsafe_asset_copy_and_cache_contents_are_rejected(self):
+        target=self.fixture.fixture.directory/'safe';target.mkdir()
+        for name in ('../source.png','C:\\outside.png','/outside.png'):
+            with self.assertRaises(ValueError):self.batch.safe_copy(self.fixture.images,name,target)
+        preset=await self.treatment(self.image());folder=self.batch.own_directory('treatments',preset['id']);(folder/'customer-project.lremove').write_text('never delete')
+        with self.assertRaises(HTTPException):await self.batch.delete_treatment(preset['id'],self.request())
+        self.assertTrue((folder/'customer-project.lremove').is_file());self.assertTrue((folder/'treatment.json').is_file())
+
+    async def test_queue_cache_clear_refuses_any_unexpected_saved_project(self):
+        data=self.image();queue=await self.create([data]);await self.finish(queue['id']);directory=self.batch.own_directory('jobs',queue['id']);project=directory/'saved-product.lremove';project.write_bytes(b'customer project')
+        with self.assertRaises(HTTPException):await self.batch.delete_job(queue['id'],self.request())
+        self.assertEqual(project.read_bytes(),b'customer project');self.assertTrue((directory/'job.json').is_file())
+
+
+if __name__=='__main__':unittest.main()

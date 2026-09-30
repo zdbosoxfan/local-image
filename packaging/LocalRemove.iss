@@ -20,7 +20,7 @@
 [Setup]
 AppId={#AppIdentity}
 AppName=Local Image
-AppVersion=0.6.0
+AppVersion=0.7.0
 AppPublisher=Local Image
 AppPublisherURL=https://github.com/zdbosoxfan/local-remove
 DefaultDirName={autopf}\Local Image
@@ -31,7 +31,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputDir={#InstallerDir}
-OutputBaseFilename=Local-Image-Setup-0.6.0
+OutputBaseFilename=Local-Image-Setup-0.7.0
 SetupIconFile=..\desktop\icon\local-image.ico
 UninstallDisplayIcon={app}\Local Image.exe
 Compression=lzma2

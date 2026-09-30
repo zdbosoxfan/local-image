@@ -16,8 +16,8 @@ using Microsoft.Web.WebView2.WinForms;
 
 [assembly: System.Reflection.AssemblyTitle("Local Image")]
 [assembly: System.Reflection.AssemblyProduct("Local Image")]
-[assembly: System.Reflection.AssemblyVersion("0.6.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.6.0.0")]
+[assembly: System.Reflection.AssemblyVersion("0.7.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.7.0.0")]
 
 // Paths come only from native pickers, OS launch arguments, or WebView2 File objects.
 // The browser never receives the launcher credential or an arbitrary-path API.
@@ -112,7 +112,8 @@ internal static class LocalRemoveLauncher
         return Uri.TryCreate(address, UriKind.Absolute, out uri)
             && uri.Scheme == "http" && uri.Host == "127.0.0.1" && uri.Port == 51247
             && String.IsNullOrEmpty(uri.UserInfo)
-            && Regex.IsMatch(uri.AbsolutePath, "^/api/local-remove/session/[0-9a-fA-F-]{36}/(?:download|download-project)$");
+            && (Regex.IsMatch(uri.AbsolutePath, "^/api/local-remove/session/[0-9a-fA-F-]{36}/(?:download|download-project|download-credits)$")
+                || Regex.IsMatch(uri.AbsolutePath, "^/api/local-remove/batch/jobs/[0-9a-fA-F-]{36}/download$"));
     }
     internal static async Task EnsureBackend()
     {
@@ -159,7 +160,7 @@ internal static class LocalRemoveLauncher
                     if (!response.IsSuccessStatusCode) return false;
                     var result = Json.Deserialize<Dictionary<string, object>>(await response.Content.ReadAsStringAsync().ConfigureAwait(false));
                     return result != null && Name(result, "application", "") == "local-remove"
-                        && Name(result, "version", "") == "0.6.0"
+                        && Name(result, "version", "") == "0.7.0"
                         && String.Equals(StringValue(result, "data_root", "").TrimEnd('\\'), DataDirectory.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
                 }
             }
@@ -255,6 +256,23 @@ internal static class LocalRemoveLauncher
             throw new InvalidOperationException("Choose one of the detected ComfyUI installations.");
         // Only an opaque detection ID is accepted. Paths and commands from the page are ignored.
         return new Dictionary<string, object> { { "installation_id", installation } };
+    }
+    internal static Dictionary<string, object> BatchSelectionPayload(Dictionary<string, object> message)
+    {
+        Guid parsed;
+        string job = StringValue(message, "job_id", "");
+        if (!Guid.TryParseExact(job, "D", out parsed)) throw new InvalidOperationException("Choose a prepared batch.");
+        object rawItems;
+        var ids = message.TryGetValue("item_ids", out rawItems) ? rawItems as System.Collections.IList : null;
+        if (ids == null || ids.Count < 1 || ids.Count > 100) throw new InvalidOperationException("Select up to 100 reviewed images.");
+        var selected = new List<string>();
+        foreach (object item in ids)
+        {
+            if (!(item is string) || !Guid.TryParseExact((string)item, "D", out parsed) || selected.Contains((string)item))
+                throw new InvalidOperationException("Choose distinct reviewed images from this batch.");
+            selected.Add((string)item);
+        }
+        return new Dictionary<string, object> { { "job_id", job }, { "item_ids", selected.ToArray() } };
     }
     private static async Task<Dictionary<string, object>> Request(HttpMethod method, string path, object payload)
     {
@@ -361,10 +379,24 @@ internal static class LocalRemoveLauncher
             || TrustedPage("https://example.com/remove")) throw new InvalidOperationException("The trusted-page boundary test failed.");
         if (!TrustedDownload(ApiBase + "/api/local-remove/session/e2419d61-d78b-4f8a-b138-8e65386aa3e9/download?ext=tif")
             || !TrustedDownload(ApiBase + "/api/local-remove/session/e2419d61-d78b-4f8a-b138-8e65386aa3e9/download-project")
+            || !TrustedDownload(ApiBase + "/api/local-remove/session/e2419d61-d78b-4f8a-b138-8e65386aa3e9/download-credits")
+            || !TrustedDownload(ApiBase + "/api/local-remove/batch/jobs/e2419d61-d78b-4f8a-b138-8e65386aa3e9/download")
+            || TrustedDownload(ApiBase + "/api/local-remove/batch/jobs/e2419d61-d78b-4f8a-b138-8e65386aa3e9/preview")
             || TrustedDownload(ApiBase + "/api/local-remove/session/e2419d61-d78b-4f8a-b138-8e65386aa3e9/preview")
             || TrustedDownload(ApiBase + "/api/local-remove/session/e2419d61-d78b-4f8a-b138-8e65386aa3e9/download-project/extra")
             || TrustedDownload("https://example.com/api/local-remove/session/e2419d61-d78b-4f8a-b138-8e65386aa3e9/download"))
             throw new InvalidOperationException("The download boundary test failed.");
+        var batchPayload = BatchSelectionPayload(new Dictionary<string, object> {
+            { "job_id", "e2419d61-d78b-4f8a-b138-8e65386aa3e9" },
+            { "item_ids", new[] { "f2419d61-d78b-4f8a-b138-8e65386aa3e9" } },
+            { "path", "C:\\untrusted-batch-folder" }, { "command", "untrusted" } });
+        bool duplicateBatchRejected = false;
+        try { BatchSelectionPayload(new Dictionary<string, object> {
+            { "job_id", "e2419d61-d78b-4f8a-b138-8e65386aa3e9" },
+            { "item_ids", new[] { "f2419d61-d78b-4f8a-b138-8e65386aa3e9", "f2419d61-d78b-4f8a-b138-8e65386aa3e9" } } }); }
+        catch (InvalidOperationException) { duplicateBatchRejected = true; }
+        if (batchPayload.Count != 2 || batchPayload.ContainsKey("path") || !duplicateBatchRejected)
+            throw new InvalidOperationException("The batch export payload boundary test failed.");
         var savePayload = ProjectSavePayload(new Dictionary<string, object>
         {
             { "session_id", "e2419d61-d78b-4f8a-b138-8e65386aa3e9" }, { "revision", 7 },
@@ -403,7 +435,7 @@ internal static class LocalRemoveLauncher
         string nextClose = gate.Begin();
         if (nextClose == firstClose || gate.Complete(firstClose, true) || gate.Approved || !gate.Complete(nextClose, true) || !gate.Approved)
             throw new InvalidOperationException("The explicit close approval test failed.");
-        WriteResult(output, new { ok = true, trusted_origin_checks = 12, project_boundary_checks = 7, close_handshake_checks = 7, setup_bridge_checks = 6,
+        WriteResult(output, new { ok = true, trusted_origin_checks = 15, project_boundary_checks = 7, close_handshake_checks = 7, setup_bridge_checks = 6, batch_boundary_checks = 3,
             bridge_version = 2, projects = true, closeRequests = true, runtime = CoreWebView2Environment.GetAvailableBrowserVersionString(), architecture = Environment.Is64BitProcess ? "x64" : "x86" });
     }
 }
@@ -544,8 +576,10 @@ internal sealed class LocalRemoveWindow : Form
             {
                 if (IsDisposed) { e.Cancel = true; return; }
                 bool projectDownload = new Uri(e.DownloadOperation.Uri).AbsolutePath.EndsWith("/download-project", StringComparison.Ordinal);
-                using (var picker = new SaveFileDialog { Title = projectDownload ? "Export editable project" : "Export image", FileName = Path.GetFileName(e.ResultFilePath),
-                    Filter = projectDownload ? "Local Image project (*.lremove)|*.lremove" : "Image file|*.*", DefaultExt = projectDownload ? "lremove" : "", AddExtension = true, OverwritePrompt = true, RestoreDirectory = true })
+                bool creditsDownload = new Uri(e.DownloadOperation.Uri).AbsolutePath.EndsWith("/download-credits", StringComparison.Ordinal);
+                bool batchDownload = new Uri(e.DownloadOperation.Uri).AbsolutePath.StartsWith("/api/local-remove/batch/jobs/", StringComparison.Ordinal);
+                using (var picker = new SaveFileDialog { Title = projectDownload ? "Export editable project" : creditsDownload ? "Export image credits" : batchDownload ? "Export batch ZIP" : "Export image", FileName = Path.GetFileName(e.ResultFilePath),
+                    Filter = projectDownload ? "Local Image project (*.lremove)|*.lremove" : creditsDownload ? "Image credits (*.txt)|*.txt" : batchDownload ? "ZIP archive (*.zip)|*.zip" : "Image file|*.*", DefaultExt = projectDownload ? "lremove" : creditsDownload ? "txt" : batchDownload ? "zip" : "", AddExtension = true, OverwritePrompt = true, RestoreDirectory = true })
                 {
                     if (picker.ShowDialog(this) == DialogResult.OK) e.ResultFilePath = picker.FileName;
                     else e.Cancel = true;
@@ -573,13 +607,13 @@ internal sealed class LocalRemoveWindow : Form
         try
         {
             string raw = e.WebMessageAsJson;
-            if (raw == null || raw.Length > 4096) return;
+            if (raw == null || raw.Length > 16384) return;
             var message = LocalRemoveLauncher.Json.Deserialize<Dictionary<string, object>>(raw);
             object action;
             if (message == null || !message.TryGetValue("id", out id) || !(id is string) || ((string)id).Length > 128
                 || !message.TryGetValue("action", out action) || !(action is string)) return;
             string verb = (string)action;
-            if (verb == "ready") { trustedEditorReady = true; Reply(id, new { native = true, version = 2, projects = true, closeRequests = true, setup = true }, null); return; }
+            if (verb == "ready") { trustedEditorReady = true; Reply(id, new { native = true, version = 2, projects = true, closeRequests = true, setup = true, batch = true }, null); return; }
             if (verb == "closeReady")
             {
                 object approved;
@@ -589,7 +623,7 @@ internal sealed class LocalRemoveWindow : Form
                     BeginInvoke(new Action(delegate { if (!IsDisposed) Close(); }));
                 return;
             }
-            if (verb != "openFiles" && verb != "openFolder" && verb != "chooseBackgroundFolder" && verb != "openProject" && verb != "saveProject" && verb != "drop" && verb != "configureAi" && !LocalRemoveLauncher.IsSetupAction(verb)) throw new InvalidOperationException("Unknown desktop action.");
+            if (verb != "openFiles" && verb != "openFolder" && verb != "chooseBackgroundFolder" && verb != "openProject" && verb != "saveProject" && verb != "drop" && verb != "configureAi" && verb != "batchExportFolder" && !LocalRemoveLauncher.IsSetupAction(verb)) throw new InvalidOperationException("Unknown desktop action.");
             if (bridgeBusy) throw new InvalidOperationException("Finish opening the current selection first.");
             bridgeBusy = true; ownsBusy = true;
             if (LocalRemoveLauncher.IsSetupAction(verb))
@@ -606,6 +640,20 @@ internal sealed class LocalRemoveWindow : Form
             {
                 var saved = await SaveProject(message);
                 Reply(id, saved, null); return;
+            }
+            if (verb == "batchExportFolder")
+            {
+                var payload = LocalRemoveLauncher.BatchSelectionPayload(message);
+                string job = (string)payload["job_id"];
+                await Task.Yield();
+                if (IsDisposed) return;
+                using (var picker = new FolderBrowserDialog { Description = "Choose a folder for unique exported batch copies. Originals are kept.", ShowNewFolderButton = true })
+                {
+                    if (picker.ShowDialog(this) != DialogResult.OK) { Reply(id, null, null); return; }
+                    var batchResult = await LocalRemoveLauncher.Api("/api/local-remove/batch/jobs/" + job + "/export-folder",
+                        new { path = Path.GetFullPath(picker.SelectedPath), item_ids = (string[])payload["item_ids"] });
+                    Reply(id, batchResult, null); return;
+                }
             }
             if (verb == "chooseBackgroundFolder")
             {

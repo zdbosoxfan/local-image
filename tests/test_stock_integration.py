@@ -46,6 +46,25 @@ class StockIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.editor.write_project(self.editor.folder(data['id']), data, path)
         return self.editor.import_project(path)['session']
 
+    async def test_credit_sidecar_contains_portable_attribution_and_no_local_path(self):
+        data = (await self.editor.import_stock_image(png(Image.new('RGBA',(256,256),(90,100,120,255))),credit()))['session']
+        response = await self.editor.download_credits(data['id'],self.fixture.request())
+        text = response.body.decode('utf-8')
+        self.assertIn('Example Photographer',text)
+        self.assertIn('CC BY 4.0',text)
+        self.assertIn(credit()['source_url'],text)
+        self.assertNotIn(str(self.fixture.images),text)
+        self.assertIn('attachment',response.headers['content-disposition'])
+
+    async def test_full_resolution_preview_is_lossless_rendered_pixels(self):
+        data = (await self.editor.import_stock_image(png(Image.new('RGB',(256,256),(91,103,127))),credit()))['session']
+        response = await self.editor.preview(data['id'],self.fixture.request(),full=True)
+        self.assertTrue(str(response.path).endswith('.png'))
+        with Image.open(response.path) as image:
+            expected=self.editor.render(self.editor.read_session(data['id']))
+            self.assertEqual(image.size,expected.size)
+            self.assertTrue(np.array_equal(np.asarray(image),np.asarray(expected)))
+
     async def test_image_import_keeps_rgba_credit_and_unsaved_project_state(self):
         image = Image.new('RGBA', (256, 256), (80, 120, 180, 255)); image.putpixel((0, 0), (80, 120, 180, 0))
         attribution = credit(); attribution['title'] = 'File: beach / sunset?.png'

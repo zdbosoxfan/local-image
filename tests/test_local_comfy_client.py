@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 import aiohttp
 
 HERE = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(HERE / 'backend'))
 
 
 class LocalComfyClientTests(unittest.IsolatedAsyncioTestCase):

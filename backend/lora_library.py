@@ -16,12 +16,13 @@ from urllib.parse import quote
 import uuid
 
 import aiohttp
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app_paths import model_directory, state_dir
 from local_remove import guard, launcher_guard
 from managed_ai import SetupError, download_verified, writable_directory
+from lora_previews import with_example, preview as example_preview
 
 router = APIRouter(prefix='/api/local-remove/loras')
 ModelId = Literal['qwen', 'z-image-turbo', 'flux2-dev', 'flux2-klein-4b', 'flux2-klein-9b', 'hidream-o1']
@@ -158,10 +159,10 @@ async def search_hub(model, query='', page=0):
             warning = SPECIAL_WORKFLOWS.get(repo.casefold(), '')
             card = metadata.get('cardData')
             card = card if isinstance(card, dict) else {}
-            found[repo] = {'repo_id': repo, 'title': repo.split('/')[-1], 'downloads': metadata.get('downloads', 0),
+            found[repo] = with_example({'repo_id': repo, 'title': repo.split('/')[-1], 'downloads': metadata.get('downloads', 0),
                 'license': card.get('license', next((tag[8:] for tag in tags if str(tag).startswith('license:')), 'Not specified')),
                 'compatibility': match, 'updated_at': metadata.get('lastModified') if isinstance(metadata.get('lastModified'), str) else '', 'warning': warning,
-                'supported': not bool(warning), 'url': 'https://huggingface.co/' + repo}
+                'supported': not bool(warning), 'url': 'https://huggingface.co/' + repo}, metadata)
     if errors and len(errors) == len(replies):
         raise ValueError(errors[0])
     results = sorted(found.values(), key=lambda item: item['updated_at'] or '', reverse=True)
@@ -277,7 +278,7 @@ def installed(model=None):
                     public['compatibility'] = 'curated'
                 if entry['repo_id'].casefold() in SPECIAL_WORKFLOWS:
                     public.update(supported=False, warning=SPECIAL_WORKFLOWS[entry['repo_id'].casefold()])
-                entries.append(public)
+                entries.append(with_example(public))
         except (OSError, ValueError):
             continue
     return entries
@@ -404,8 +405,18 @@ manager = LoraDownloadManager()
 @router.get('')
 async def library(request: Request, model: ModelId | None = None):
     guard(request)
-    return {'installed': installed(model), 'curated': [dict(item, compatibility='curated', supported=True)
+    return {'installed': installed(model), 'curated': [with_example(dict(item, compatibility='curated', supported=True))
             for item in CURATED if model is None or item['model'] == model], 'job': manager.status()}
+
+
+@router.get('/preview/{identity}')
+async def lora_example(identity: str, request: Request):
+    guard(request)
+    try:
+        return Response(await example_preview(identity), media_type='image/png',
+                        headers={'Cache-Control': 'private, max-age=600'})
+    except (ValueError, aiohttp.ClientError, asyncio.TimeoutError) as error:
+        raise HTTPException(400, 'Example unavailable. ' + str(error)) from error
 
 
 @router.get('/search')

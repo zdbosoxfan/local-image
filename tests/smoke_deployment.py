@@ -205,7 +205,7 @@ class ReadOnlyInstall:
         return ok
 
 
-def run(package, output, comfy_directory=None, coordinated=False):
+def run(package, output, comfy_directory=None, coordinated=False, expected_version='0.7.0'):
     output.mkdir(parents=True, exist_ok=True)
     run_dir = output / ('run-' + uuid.uuid4().hex[:12])
     run_dir.mkdir()
@@ -254,7 +254,7 @@ def run(package, output, comfy_directory=None, coordinated=False):
         owns_backend = True
         runtime = request('/api/local-remove/runtime')
         report['first_runtime'] = runtime
-        assert runtime['version'] == '0.6.0', runtime
+        assert runtime['version'] == expected_version, runtime
         assert Path(runtime['data_root']).resolve() == profiles[0].resolve(), runtime
         config_path = profiles[0] / 'config.json'
         config = json.loads(config_path.read_text(encoding='utf-8-sig'))
@@ -380,12 +380,13 @@ def run(package, output, comfy_directory=None, coordinated=False):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--package', type=Path, default=ROOT / 'dist/local-image-v06/package')
-    parser.add_argument('--output', type=Path, default=ROOT / 'qa-artifacts/v06/deployment')
+    parser.add_argument('--package', type=Path, default=ROOT / 'dist/local-image-v07/package')
+    parser.add_argument('--output', type=Path, default=ROOT / 'qa-artifacts/v07/deployment')
+    parser.add_argument('--expected-version', default='0.7.0')
     parser.add_argument('--comfy-directory', type=Path)
     parser.add_argument('--coordinate-ui', action='store_true')
     args = parser.parse_args()
-    result = run(args.package.resolve(), args.output.resolve(), args.comfy_directory, args.coordinate_ui)
+    result = run(args.package.resolve(), args.output.resolve(), args.comfy_directory, args.coordinate_ui, args.expected_version)
     print(json.dumps({key: result.get(key) for key in ('passed', 'install_tree_unchanged', 'two_profiles_isolated',
         'existing_config_preserved', 'external_comfy_queue_unchanged', 'acl_restored')}), flush=True)
     raise SystemExit(0 if result['passed'] else 1)

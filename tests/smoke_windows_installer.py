@@ -139,8 +139,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('installer', type=Path)
     parser.add_argument('--output', type=Path,
-                        default=Path('qa-artifacts/v06/i'))
+                        default=Path('qa-artifacts/v07/i'))
     parser.add_argument('--check-only', action='store_true')
+    parser.add_argument('--expected-version', default='0.7.0')
     args = parser.parse_args()
     if os.name != 'nt':
         parser.error('This test requires Windows.')
@@ -152,6 +153,7 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     report = {'installer': str(installer), 'sha256': hashlib.sha256(installer.read_bytes()).hexdigest(),
               'windows_account': windows_username(),
+              'expected_version': args.expected_version,
               'scope': 'current-user', 'app_launched': False, 'model_downloads': False,
               'preflight': preflight(), 'status': 'pending', 'passed': False}
     result_file = output / 'results.json'
@@ -206,7 +208,7 @@ def main():
         defaults = app / 'installation-defaults.json'
         assert native.is_file() and backend.is_file(), 'Missing installed host or bundled backend.'
         report['native_version'] = file_version(native)
-        assert report['native_version'] == '0.6.0.0', 'Installed native version differs.'
+        assert report['native_version'] == args.expected_version + '.0', 'Installed native version differs.'
         report['installed_defaults'] = json.loads(defaults.read_text(encoding='utf-8-sig'))
         assert report['installed_defaults'] == expected_defaults, 'Unicode folder choices were not preserved.'
         report['legacy_shortcuts_after_install'] = legacy_shortcuts()
@@ -219,7 +221,7 @@ def main():
                        for item in report['after_install_registrations']), 'Installer registered all-users unexpectedly.'
         registered = uninstall[0]['values']
         assert Path(registered['InstallLocation']).resolve() == app, 'Uninstall registration points outside QA.'
-        assert registered['DisplayVersion'] == '0.6.0', 'Uninstall display version differs.'
+        assert registered['DisplayVersion'] == args.expected_version, 'Uninstall display version differs.'
         owned_uninstaller = app / 'unins000.exe'
         assert owned_uninstaller.is_file(), 'Installed uninstaller missing.'
         assert str(owned_uninstaller).casefold() in registered['UninstallString'].casefold(), 'Uninstaller path differs.'

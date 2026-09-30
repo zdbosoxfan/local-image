@@ -117,9 +117,10 @@ async def _object_info():
         raise QwenImageError(f'Cannot reach ComfyUI on port {port}. Start ComfyUI with Qwen Image 2.1 installed, then reconnect.') from exc
 
 
-async def get_qwen_status():
+async def get_qwen_status(refresh=False):
     try:
-        variants = qwen_model_options(await _object_info())
+        from comfy_inventory import read_inventory
+        variants = qwen_model_options(await read_inventory(_object_info, refresh=refresh))
         ready = any(item['available'] for item in variants)
         return {'connected': True, 'ready': ready, 'variants': variants,
                 'reason': '' if ready else variants[0]['reason'], 'license': 'qwen-research',

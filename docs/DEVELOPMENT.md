@@ -1,6 +1,6 @@
 # Build and test Local Image
 
-End users should install the Windows release. These instructions are for working on the **0.6.0** source code, including Retouch, Cutout, Image Gen and deployment to other PCs. User-facing setup is described in [Installation and storage](INSTALLATION.md); Qwen graphs, models, and licensing are covered in [Qwen Image 2.1](QWEN-IMAGE-21.md).
+End users should install the Windows release. These instructions are for working on the **0.7.0** source code, including Retouch, Cutout, Image Gen, batch treatment/export and deployment to other PCs. User-facing setup is described in [Installation and storage](INSTALLATION.md); Qwen graphs, models, and licensing are covered in [Qwen Image 2.1](QWEN-IMAGE-21.md).
 
 ## Development environment
 
@@ -27,7 +27,7 @@ The installed host starts `backend/LocalRemoveBackend.exe` beside its own execut
 
 ## Build the installer
 
-Install the [Inno Setup compiler](https://jrsoftware.org/isdl.php). The 0.6.0 build uses Inno Setup **6.7.3** and PyInstaller **6.22.3**. The example uses `dist/tools/inno/ISCC.exe`; it is an ignored build tool, so a fresh checkout must supply its own compiler. PyInstaller bundles the interpreter and application dependencies, so users do not need Python; see its [bundle documentation](https://pyinstaller.org/en/stable/operating-mode.html).
+Install the [Inno Setup compiler](https://jrsoftware.org/isdl.php). The current build uses Inno Setup **6.7.3** and PyInstaller **6.22.3**. The example uses `dist/tools/inno/ISCC.exe`; it is an ignored build tool, so a fresh checkout must supply its own compiler. PyInstaller bundles the interpreter and application dependencies, so users do not need Python; see its [bundle documentation](https://pyinstaller.org/en/stable/operating-mode.html).
 
 Download **Microsoft.Web.WebView2 1.0.4191.47** from NuGet and extract the package into `desktop/webview2-sdk/package/`. The original package SHA-256 is:
 
@@ -44,10 +44,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\packaging\Build-Window
   -Python .\.venv\Scripts\python.exe `
   -WebView2Package .\desktop\webview2-sdk\package `
   -InnoCompiler .\dist\tools\inno\ISCC.exe `
-  -OutputDirectory .\dist\local-image-v06
+  -OutputDirectory .\dist\local-image-v07
 ```
 
-With that output argument, the build produces `dist/local-image-v06/package/` and `dist/local-image-v06/installer/Local-Image-Setup-0.6.0.exe`, plus a SHA-256 checksum. The build derives the maximum application-folder length from its bundled file and directory paths, leaving room below Windows' path limits. The build downloads Microsoft's WebView2 bootstrapper and verifies its Microsoft signature. Setup invokes it only if the WebView2 Runtime is missing, following [Microsoft's deployment guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution). This bootstrapper needs internet access on a PC without the runtime; the package does not claim fully offline prerequisite installation.
+With that output argument, the build produces `dist/local-image-v07/package/` and `dist/local-image-v07/installer/Local-Image-Setup-0.7.0.exe`, plus a SHA-256 checksum. The build derives the maximum application-folder length from its bundled file and directory paths, leaving room below Windows' path limits. The build downloads Microsoft's WebView2 bootstrapper and verifies its Microsoft signature. Setup invokes it only if the WebView2 Runtime is missing, following [Microsoft's deployment guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution). This bootstrapper needs internet access on a PC without the runtime; the package does not claim fully offline prerequisite installation.
 
 Build artifacts are ignored by Git. Publish the installer and checksum as GitHub release assets. Production distribution should use a code-signing certificate; the first preview is unsigned.
 
@@ -80,6 +80,11 @@ npm install --no-save --package-lock=false playwright@1.62.1
 node tests\test_ui_browser.cjs
 node tests\test_ui_setup.cjs
 node tests\test_ui_cutout.cjs
+node tests\test_ui_edit_confidence.cjs
+node tests\test_ui_usability.cjs
+node tests\test_ui_generation_workflows.cjs
+node tests\test_ui_lora_gallery.cjs
+node tests\test_ui_batch.cjs
 ```
 
 Set `LOCAL_REMOVE_TEST_URL` to an isolated development server URL when the installed app is already using port 51247. For example, use `http://127.0.0.1:51248` with a separate `LOCAL_REMOVE_DATA_DIR`. The browser test creates synthetic images and checks repair, export, projects, desktop menus, and four desktop window sizes.
@@ -108,12 +113,23 @@ The smoke test uses a generated 16-bit TIFF, runs both healing modes, saves an e
 
 The AI setup regressions are `tests/test_managed_ai.py`, `tests/test_setup_routes.py`, and `tests/test_ui_setup.cjs` (Playwright). The first two use isolated fixtures; the browser suite simulates the native bridge and never installs software.
 
+The 0.7.0 additions have targeted Python regressions in `test_batch_tools.py`,
+`test_lora_previews.py`, `test_comfy_inventory.py` and `test_operation_progress.py`.
+The new browser suites cover undo target consistency, precise cutout values,
+pending export choices, all interface sizes, task-based first launch, stage-specific
+styles/transparency, recipe dependency handling, full-size comparison, library
+focus/selection, image-led LoRA browsing and sequential batch review/export.
+Use an isolated data folder for each suite. Most generation responses are controlled
+fixtures; those checks establish UI and request behavior, not new model quality.
+The batch suite exercises real local compositing and cache/export behavior while
+AI cutout preparation remains a controlled response.
+
 The installer has a plan-only QA mode that emits its real wizard/CLI choices and aborts before installing files or registering associations. To check path validation against a built installer:
 
 ```powershell
 .\.venv\Scripts\python.exe tests\installer_plan_smoke.py `
-  .\dist\local-image-v06\installer\Local-Image-Setup-0.6.0.exe `
-  --output .\qa-artifacts\v06\installer-plan-matrix
+  .\dist\local-image-v07\installer\Local-Image-Setup-0.7.0.exe `
+  --output .\qa-artifacts\v07\installer-plan-matrix
 ```
 
 The runner uses `/CURRENTUSER /VERYSILENT /SUPPRESSMSGBOXES /SP- /PLANONLY=1` and a unique report path for each case. It checks recommended, custom, Unicode, protected, relative and invalid locations, with assertions that the application and AI destinations remain uncreated. This matrix does not exercise UAC elevation, installation, uninstall or actual downloads; those require separate acceptance checks. `/PLANONLY` is a diagnostics option, not a normal installation mode.
@@ -125,10 +141,10 @@ isolated-identity runner:
 
 ```powershell
 .\.venv\Scripts\python.exe tests\smoke_windows_installer_qa.py `
-  --package .\dist\local-image-v06\package `
-  --prerequisites .\dist\local-image-v06\prerequisites `
+  --package .\dist\local-image-v07\package `
+  --prerequisites .\dist\local-image-v07\prerequisites `
   --compiler .\dist\tools\inno\ISCC.exe `
-  --output .\qa-artifacts\v06\qa-installer
+  --output .\qa-artifacts\v07\qa-installer
 ```
 
 This compiles the same installer and packaged runtime with unique `AppIdentity`
@@ -137,7 +153,7 @@ differences from the release build. It snapshots the complete original uninstall
 project association and `.lremove` registry trees in HKCU/HKLM and both registry
 views, plus the hashes of existing Local Remove/Image shortcut files. It then
 installs per user with `/NOICONS` into a short, unique QA folder, verifies version
-0.6.0 and Unicode model/runtime choices, and runs that folder's registered
+the packaged release version and Unicode model/runtime choices, and runs that folder's registered
 uninstaller. The final registry and shortcut snapshots must exactly match their
 original state, and model, runtime and profile markers must survive. It requires
 the normal Windows account and an idle Local Image port; it never launches the
@@ -201,7 +217,9 @@ requires a separate Qwen license. The installer does not bundle model weights.
 
 The editor sources are split between `backend/local_remove.html` (markup),
 `backend/frontend/editor.css` (presentation), and `backend/frontend/editor.js`
-(interaction). `local_remove_frontend.py` assembles these local resources for each
+(interaction). The additional `usability`, `generation-workflows` and `batch-tools`
+resources extend the same workspace without a frontend build step.
+`local_remove_frontend.py` assembles these local resources for each
 `/remove` response, with the request nonce and current session token. This keeps
 the existing Content Security Policy and desktop trusted-page boundary intact;
 there is no frontend build step or remote asset dependency. The installer bundles
@@ -216,13 +234,32 @@ only for a multi-image collection. The Openverse connector searches and imports
 Flickr-hosted stock with portable image credits. Pexels and Unsplash remain
 external search shortcuts followed by local import.
 
+`batch_tools.py` owns saved treatment backdrops and durable queue snapshots under
+the active profile's `batch-tools/`. Prepared queue settings are immutable; resume
+uses the same queue and records completed unique exports so an interrupted request
+does not publish duplicates. Native folder export accepts IDs through the trusted
+bridge and gets the destination from its own picker. Queue cleanup validates owned
+files and does not delete source documents, projects or folder exports.
+
+`lora_previews.py` serves bundled exact-adapter examples and bounded publisher
+previews through local PNG routes. Compatibility comes from `lora_library.py`
+and the exact artifact catalog, not an example image. Bundled gallery images
+are test examples intended as product resources; full diagnostic fixtures and
+test outputs remain excluded from the release package.
+
+`operation_progress.py` follows the active ComfyUI prompt through its reported
+events. It records stages and real sampling counts with a stale-connection fallback;
+it does not estimate completion or inject sampling changes. `comfy_inventory.py`
+shares bounded loader capability reads among status checks. Explicit refresh
+invalidates cached loader choices after model or adapter changes.
+
 `backend/app_paths.py` owns the user data layout. Code and bundled resources are read from the installation; mutable workflow settings are copied into AppData once and preserved across updates. Recovery sessions are separate from disposable caches. `LOCAL_REMOVE_DATA_DIR` is a development override; fresh profiles use the current user's `%LOCALAPPDATA%\Local Image`, while existing Local Remove profiles retain their legacy location. The host and backend must resolve the same root.
 
 The native host reads its packaged backend relative to its executable. It stores its WebView2 profile and logs in the same AppData root and verifies the backend's application identity, version, and profile before reading its credential. No user-specific development paths are needed at runtime.
 
-## Local Image 0.5.0 additions
+## Earlier Local Image 0.5.0 additions
 
-Use `-OutputDirectory dist/local-image` for this release to keep the earlier preview build separate. The native executable is now `Local Image.exe`. Existing profile directories, native message identifiers, API paths and project extensions retain their earlier names for compatibility.
+That earlier release used `-OutputDirectory dist/local-image`. Use the 0.7.0 output directory above for current builds. The native executable remains `Local Image.exe`. Existing profile directories, native message identifiers, API paths and project extensions retain their earlier names for compatibility.
 
 New Python regressions cover `tests/test_image_generation.py`, `tests/test_z_image.py`, `tests/test_flux2_image.py`, `tests/test_lora_library.py` and `tests/test_hardware_guide.py`. Check actual filenames in `tests/` when running individually. The generation smoke runner is explicit real-GPU work:
 

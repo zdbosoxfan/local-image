@@ -21,6 +21,7 @@ from lora_library import router as lora_library_router
 from stock_library import router as stock_library_router
 from generation_library import router as generation_library_router
 from image_upscale import router as image_upscale_router
+from batch_tools import router as batch_tools_router
 
 class EndpointFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
@@ -101,6 +102,7 @@ app.include_router(qwen_setup_router)
 app.include_router(image_generation_router)
 app.include_router(generation_library_router)
 app.include_router(image_upscale_router)
+app.include_router(batch_tools_router)
 app.include_router(hardware_guide_router)
 app.include_router(lora_library_router)
 app.include_router(stock_library_router)

@@ -1,10 +1,10 @@
 # Install Local Image on another Windows PC
 
-Local Image 0.6.0 uses a Windows EXE installer. The application, bundled Python backend and native WebView2 host are installed together. Users do not need to install Python, Node.js, Git or development tools. ComfyUI and AI model weights are optional and are downloaded separately.
+Local Image 0.7.0 uses a Windows EXE installer. The application, bundled Python backend and native WebView2 host are installed together. Users do not need to install Python, Node.js, Git or development tools. ComfyUI and AI model weights are optional and are downloaded separately.
 
 ## Choose the application and AI folders
 
-Run `Local-Image-Setup-0.6.0.exe` normally. Setup offers installation for all users or only the current Windows user:
+Run `Local-Image-Setup-0.7.0.exe` normally. Setup offers installation for all users or only the current Windows user:
 
 | Location | Default | Purpose |
 | --- | --- | --- |
@@ -24,7 +24,9 @@ Folder preferences from setup are imported into the launching user's profile. Up
 
 ## Start with CPU tools or connect AI
 
-Open Local Image from the Start menu or the optional desktop shortcut. The first launch shows the hardware guide. CPU editing, selections, compositing and Quick Heal work before any AI runtime or model is installed.
+Open Local Image from the Start menu or the optional desktop shortcut. The first launch offers **Repair a photo**, **Remove a background**, **Create an image** and **Set up AI**, with detected GPU memory and expandable **VRAM guidance by function and model**. CPU editing, selections, compositing and Quick Heal work before any AI runtime or model is installed. Choosing a task does not download models automatically. **Help > Hardware guide** opens the same guidance later.
+
+For larger controls and supporting text, choose **Edit > Settings > Interface size**. **Compact** keeps the dense desktop workspace; **Comfortable** increases spacing and text; **Large · 200% text** increases text further and lets the Studio panels scroll. The choice is saved for the current profile.
 
 To enable AI, open **Edit > Settings**:
 
@@ -45,13 +47,13 @@ Downloads use pinned publisher revisions, expected byte sizes and SHA-256 checks
 
 FLUX.2 Klein 9B requires publisher approval through a Hugging Face account. Follow the access link shown by the app, accept the license if suitable and download the exact requested file into the displayed model subfolder. Retry in Local Image to verify the installed file. Local Image does not collect account credentials or bypass gated downloads. Other models and individual LoRAs also retain their publisher license terms; see [model licenses and preset files](GEN-MODELS.md).
 
-The LoRA browser searches the live Hugging Face catalog when searched or refreshed. Curated styles and community results are labeled separately. LoRAs must match the exact base model. Downloading an adapter does not automatically enable it or change generation settings.
+The LoRA library shows image examples first, with details behind a small **i** button. The browser searches the live Hugging Face catalog when searched or refreshed. Curated styles and community results are labeled separately, as are local test and publisher examples. LoRAs must match the exact base model. Downloading an adapter does not automatically enable it or change generation settings.
 
 ## Update, uninstall and move to a new PC
 
 Save edits and close Local Image before updating or uninstalling. Let active generation and download jobs finish. The editor backend exits after it becomes idle and loses the desktop heartbeat; wait briefly and retry if Windows still reports a file in use. Avoid force-closing a generation or deleting a running ComfyUI folder.
 
-The uninstaller removes installed application files and shortcuts. User settings, recovery, generated-image library, selected model folders, dedicated ComfyUI and saved projects are retained. This avoids deleting shared model files or work during an update. The generated-image library can be cleared selectively or in full from inside Local Image; its displayed storage total covers its own image copies, thumbnails and metadata, not model weights or saved projects.
+The uninstaller removes installed application files and shortcuts. User settings, recovery, generated-image library, saved recipes and treatments, batch queue caches, selected model folders, dedicated ComfyUI and saved projects are retained. This avoids deleting shared model files or work during an update. The generated-image library can be cleared selectively or in full from inside Local Image; its displayed storage total covers its own image copies, thumbnails and metadata, not model weights or saved projects. **Batch treatment & export > Previous queues & cache** separately manages batch storage. Clearing either cache retains files already exported elsewhere.
 
 To move work to another PC, save editable `.lremove` projects and copy them to the new machine. Projects contain the image pixels and editing state. Install Local Image normally on the new PC, select local storage and detect or install ComfyUI there. Copy model files into the new selected model folder if desired, then let the app verify and discover them. Regeneration requires the same model and optional LoRA dependencies. Old machine-specific paths in a copied profile do not establish a valid installation on the new PC; choose those folders again in Settings.
 
@@ -60,9 +62,9 @@ To move work to another PC, save editable `.lremove` projects and copy them to t
 The installer supports Inno Setup's installation scope and destination parameters, plus optional AI preferences:
 
 ```powershell
-.\Local-Image-Setup-0.6.0.exe /CURRENTUSER /DIR="D:\Applications\Local Image"
-.\Local-Image-Setup-0.6.0.exe /ALLUSERS /DIR="C:\Program Files\Local Image"
-.\Local-Image-Setup-0.6.0.exe /CURRENTUSER /AISETUP=portable /MODELDIR="D:\AI Models" /AIDIR="D:\AI Apps"
+.\Local-Image-Setup-0.7.0.exe /CURRENTUSER /DIR="D:\Applications\Local Image"
+.\Local-Image-Setup-0.7.0.exe /ALLUSERS /DIR="C:\Program Files\Local Image"
+.\Local-Image-Setup-0.7.0.exe /CURRENTUSER /AISETUP=portable /MODELDIR="D:\AI Models" /AIDIR="D:\AI Apps"
 ```
 
 `/AISETUP` accepts `discover` (default), `portable` or `later`. `/MODELDIR` selects model storage; `/AIDIR` selects the parent in which a dedicated portable runtime will be installed later. Omitted paths use each user's AppData. Folder choices are validated during setup and again with the launching user's permissions. Existing user settings take priority over installation defaults.
@@ -75,7 +77,7 @@ Use **Help > Hardware guide** to review GPU memory guidance, and the logs folder
 
 Developer build and smoke-test instructions are in [DEVELOPMENT.md](DEVELOPMENT.md). The release package contains no personal photos, generated test images, model weights, account tokens, or developer virtual environment.
 
-## Installer plan validation
+## Earlier installer plan validation
 
 The 0.6.0 plan-only acceptance matrix passed 23 cases using the real installer wizard and parameter handling. It checked all three AI setup modes, default AppData choices, custom folders with Unicode and spaces, independent model/runtime choices, protected and application-contained folders, UNC paths, relative paths, invalid characters, extra colons, non-letter drive identifiers, an invalid AI setup mode and the application-folder length boundary. Valid choices were preserved and invalid choices were reported. No application or AI destination was created.
 

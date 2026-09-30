@@ -15,8 +15,12 @@ def render_editor(nonce: str, token: str) -> str:
     # part of the first selector and can silently invalidate the design tokens.
     template = (RESOURCE_DIR / 'local_remove.html').read_text(encoding='utf-8-sig')
     frontend = RESOURCE_DIR / 'frontend'
-    html = template.replace('__EDITOR_STYLE__', (frontend / 'editor.css').read_text(encoding='utf-8-sig'))
-    html = html.replace('__EDITOR_SCRIPT__', (frontend / 'editor.js').read_text(encoding='utf-8-sig'))
+    styles = ('editor.css', 'generation-workflows.css', 'usability.css', 'batch-tools.css')
+    scripts = ('editor.js', 'usability.js', 'batch-tools.js')
+    html = template.replace('__EDITOR_STYLE__', '\n'.join((frontend / name).read_text(encoding='utf-8-sig')
+        for name in styles if (frontend / name).is_file()))
+    html = html.replace('__EDITOR_SCRIPT__', '\n'.join((frontend / name).read_text(encoding='utf-8-sig')
+        for name in scripts if (frontend / name).is_file()))
     if '__APP_ICON__' in html:
         icon = base64.b64encode((frontend / 'app-icon.png').read_bytes()).decode('ascii')
         html = html.replace('__APP_ICON__', 'data:image/png;base64,' + icon)

@@ -22,7 +22,7 @@ import aiohttp
 import numpy as np
 import tifffile
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from PIL import Image, ImageCms, ImageOps
 from pydantic import BaseModel, Field, model_validator
 
@@ -376,8 +376,8 @@ def reuse_or_create_session(path):
     return data
 
 
-def render(data, original=False, include_cutout=True):
-    root = folder(data['id'])
+def render(data, original=False, include_cutout=True, *, root_override=None):
+    root = Path(root_override) if root_override is not None else folder(data['id'])
     with Image.open(root / 'base.png') as img:
         image = img.convert('RGB')
     if original:
@@ -431,8 +431,8 @@ def export_exif(original, size):
         return exif.tobytes()
 
 
-def flatten(data, target, allow_8bit=False):
-    root = folder(data['id'])
+def flatten(data, target, allow_8bit=False, *, root_override=None):
+    root = Path(root_override) if root_override is not None else folder(data['id'])
     raw, icc, _ = decode_original(root / data['original'])
     for layer in data['layers']:
         if not layer['visible'] or layer.get('discarded'):
@@ -536,8 +536,9 @@ async def heartbeat(request: Request):
 async def shutdown(request: Request):
     launcher_guard(request)
     from main import generation_lock
-    if generation_lock.locked():
-        raise HTTPException(409, 'Wait for the current removal to finish before closing the service.')
+    from batch_tools import active_queue
+    if generation_lock.locked() or active_queue():
+        raise HTTPException(409, 'Wait for the current image or batch operation to finish before closing the service.')
     import runtime_lifecycle
     runtime_lifecycle.shutdown_requested = True
     return {'ok': True}
@@ -747,7 +748,7 @@ async def preview(sid:str,request:Request,original:bool=False,full:bool=False):
         if not full:
             img.thumbnail((3000,3000),Image.Resampling.LANCZOS)
         prefix='full-' if full else ''
-        suffix = 'png' if img.mode == 'RGBA' else 'jpg'
+        suffix = 'png' if full or img.mode == 'RGBA' else 'jpg'
         path=folder(sid)/(prefix+(f'original-preview.{suffix}' if original else f'preview-{data["revision"]}.{suffix}'))
         img.save(path,quality=95,icc_profile=SRGB.tobytes()); return path
     target=await asyncio.to_thread(make_preview)
@@ -1218,6 +1219,25 @@ async def download_project(sid:str,request:Request):
     return FileResponse(path,filename=Path(data['name']).stem+'.lremove',media_type='application/zip',headers=HEADERS)
 
 
+@router.get('/api/local-remove/session/{sid}/download-credits')
+async def download_credits(sid: str, request: Request):
+    guard(request)
+    from stock_attribution import collect_attributions
+    from urllib.parse import quote
+    data = read_session(sid)
+    credits = collect_attributions(data)
+    if not credits:
+        raise HTTPException(404, 'This image has no stock credits to export.')
+    lines = ['Local Image — image credits', 'Image: ' + data['name'], '']
+    for credit in credits:
+        lines.extend([credit['title'] + ' — ' + credit['creator'],
+                      'License: ' + credit['license'], 'Source: ' + credit['source_url'],
+                      'License details: ' + credit['license_url'], credit['attribution'], ''])
+    name = quote(Path(data['name']).stem + '-credits.txt', safe='')
+    return Response('\n'.join(lines), media_type='text/plain; charset=utf-8',
+                    headers={**HEADERS, 'Content-Disposition': "attachment; filename*=UTF-8''" + name})
+
+
 class CloseRequest(BaseModel):
     revision:int=Field(ge=0)
     discard:Literal[True]
@@ -1470,10 +1490,10 @@ async def import_stock_image(contents, attribution, *, target='image', session_i
 
 
 @router.get('/api/local-remove/qwen/status')
-async def qwen_status(request: Request):
+async def qwen_status(request: Request, refresh: bool = False):
     guard(request)
     from qwen_image import get_qwen_status
-    return await get_qwen_status()
+    return await get_qwen_status(refresh=True) if refresh else await get_qwen_status()
 
 
 @router.post('/api/local-remove/session/{sid}/cutout/generated-background')
