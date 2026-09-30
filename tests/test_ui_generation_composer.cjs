@@ -4,7 +4,7 @@ const {chromium}=require('playwright');
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const base=process.env.LOCAL_REMOVE_TEST_URL||'http://127.0.0.1:51274';
 const out=path.resolve(process.argv[2]||'qa-artifacts/ui-redesign/generation-composer-test');fs.mkdirSync(out,{recursive:true});
-const example=path.resolve('docs/images/examples/klein-teal-lighthouse.png');
+const example=path.resolve('docs/images/examples/klein-orange-illustration.png');
 const fixture=fs.existsSync(example)?fs.readFileSync(example):require('./helpers/image-fixture.cjs').imageFixture();
 const models=['qwen','z-image-turbo','flux2-klein-9b'].map(id=>({id,label:{qwen:'Qwen Image 2.1','z-image-turbo':'Z-Image Turbo','flux2-klein-9b':'FLUX.2 Klein 9B'}[id],short_benefit:id==='qwen'?'Edits & alpha':id==='z-image-turbo'?'Fast drafts':'Detailed edits',available:true,variants:(id==='qwen'?['int8','bf16']:['bf16']).map(id=>({id,label:id.toUpperCase(),available:true})),capabilities:{text_to_image:true,image_reference:id!=='z-image-turbo',image_to_image:id==='z-image-turbo',max_references:id==='qwen'?10:id==='z-image-turbo'?1:4,transparent:id==='qwen',negative_prompt:id==='qwen',denoise:id==='z-image-turbo',lora:true},defaults:{variant:id==='qwen'?'int8':'bf16',width:1024,height:1024,steps:id==='qwen'?40:id==='z-image-turbo'?8:4,guidance:1},limits:{min_dimension:256,max_dimension:4096,dimension_step:32,max_pixels:4194304,min_steps:1,max_steps:100,min_guidance:1,max_guidance:id==='qwen'?10:1}}));
 for(const model of models)model.sampling_guidance={steps:{recommended:model.defaults.steps,source_label:model.id==='qwen'?'Qwen publisher default':'Workflow recommendation',source_url:model.id==='qwen'?'https://github.com/QwenLM/Qwen-Image-2.1':'https://github.com/Comfy-Org/workflow_templates',note:'Audited recommendation for this local model workflow.'}};
@@ -79,4 +79,3 @@ for(const model of models)model.sampling_guidance={steps:{recommended:model.defa
    console.log('Generation composer: collapsed defaults, single disclosure, prompt/action adjacency, stateful Create/Edit/Draft/Refine, 6 responsive screenshots passed.');
  }catch(error){await page.screenshot({path:path.join(out,'failure.png'),animations:'disabled'}).catch(()=>{});console.error('Page errors:',errors);throw error;}finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});
-

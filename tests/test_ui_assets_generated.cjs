@@ -12,7 +12,7 @@ const inventory=()=>({items,count:items.length,bytes:items.length*1024});
  await page.addInitScript(()=>{localStorage.setItem('local-image.hardware-guide.v1','1');localStorage.setItem('local-image.first-ai-setup.v1','1');});
  await page.route('**/api/local-remove/stock/providers',route=>route.fulfill({json:{providers:[{id:'openverse',label:'Openverse',available:true}],default_provider:'openverse'}}));
  await page.route('**/api/local-remove/generation/library',route=>route.fulfill({json:inventory()}));
- await page.route('**/generated-preview.png',route=>route.fulfill({contentType:'image/png',body:fs.readFileSync('docs/images/examples/klein-teal-lighthouse.png')}));
+ await page.route('**/generated-preview.png',route=>route.fulfill({contentType:'image/png',body:fs.readFileSync('docs/images/examples/klein-orange-illustration.png')}));
  await page.route('**/api/local-remove/generation/library/delete',route=>{const payload=route.request().postDataJSON();deletes.push(payload);const deleted=items.filter(item=>payload.all||payload.ids.includes(item.id)).map(item=>item.id);items=items.filter(item=>!deleted.includes(item.id));return route.fulfill({json:{...inventory(),deleted,freed_bytes:deleted.length*1024}});});
  try{
   await page.goto(base+'/remove');await page.waitForFunction(()=>settingsLoaded&&!stockLoading);
