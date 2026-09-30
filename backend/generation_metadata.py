@@ -32,8 +32,10 @@ def validate_generation_metadata(value):
         raise ValueError('Image generation model settings are invalid.')
     if not isinstance(value['prompt'], str) or not 1 <= len(value['prompt']) <= 4000 or not isinstance(value['negative_prompt'], str) or len(value['negative_prompt']) > 2000:
         raise ValueError('Image generation prompts are invalid.')
-    if (not all(integer(value[key], 256, 4096) and value[key] % 32 == 0 for key in ('width', 'height'))
-            or value['width'] * value['height'] > 4194304 or not integer(value['seed'], 0, 2**53-1)
+    # Provenance records the image that actually exists; it must not apply a
+    # current workflow's constraints to older documents or require a connection.
+    if (not all(integer(value[key], 1, 2**53-1) for key in ('width', 'height'))
+            or not integer(value['seed'], 0, 2**53-1)
             or type(value['transparent']) is not bool or not integer(value['steps'], 1, 100)
             or not number(value['guidance'], 1, 10) or not integer(value['reference_count'], 0, 10)):
         raise ValueError('Image generation dimensions or sampling settings are invalid.')

@@ -56,7 +56,9 @@ class UpscaleTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(self.api.qwen_image, '_object_info', AsyncMock(return_value={'ready': {}})):
             status = await self.api.upscale_models(self.fixture.request())
         self.assertFalse(status['enabled']); self.assertTrue(status['model']['available'])
-        self.assertEqual(status['limits']['max_pixels'], 16777216)
+        self.assertIsNone(status['limits']['max_pixels'])
+        self.assertIsNone(status['limits']['max_dimension'])
+        self.assertEqual(status['limits']['dimension_step'], 2)
         _, data, _ = self.source()
         with self.assertRaises(HTTPException) as error:
             await self.api.upscale_image(self.fixture.request(), self.request(data))
@@ -138,7 +140,7 @@ class UpscaleTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_invalid_size_aspect_path_and_dimensions_rejected(self):
         _, data, _ = self.source()
-        for changes in ({'session_id': '../outside'}, {'width': 511}, {'height': 4098}, {'seed': True}, {'revision': -1}):
+        for changes in ({'session_id': '../outside'}, {'width': 1}, {'height': -1}, {'width': 513}, {'seed': True}, {'revision': -1}):
             values = {'session_id': data['id'], 'revision': 0, 'width': 512, 'height': 512, **changes}
             with self.assertRaises(ValidationError):
                 self.api.UpscaleRequest(**values)
@@ -147,6 +149,9 @@ class UpscaleTests(unittest.IsolatedAsyncioTestCase):
                 await self.api.upscale_image(self.fixture.request(), self.api.UpscaleRequest(session_id=data['id'], revision=0, width=output[0], height=output[1]))
             self.assertEqual(error.exception.status_code, 400)
         validate_upscale_size((333, 250), (1024, 768))
+        validate_upscale_size((1536, 864), (7680, 4320))
+        with self.assertRaisesRegex(ValueError, 'even output dimensions'):
+            validate_upscale_size((256, 256), (513, 513))
         self.adapter.run_seedvr2_image.assert_not_called()
 
     async def test_wrong_model_output_dimensions_cannot_create_result_or_library_copy(self):
@@ -161,7 +166,7 @@ class UpscaleTests(unittest.IsolatedAsyncioTestCase):
     async def test_malformed_portable_upscale_metadata_is_rejected(self):
         value = {'model': 'seedvr2', 'variant': 'fp16', 'source_width': 256, 'source_height': 256, 'width': 512, 'height': 512, 'seed': 0}
         self.assertEqual(validate_upscale_metadata(value), value)
-        for changes in ({'width': 513}, {'seed': True}, {'variant': 'fp8'}, {'path': 'C:/private.png'}, {'source_width': 1024}):
+        for changes in ({'width': 0}, {'width': 513}, {'seed': True}, {'variant': 'fp8'}, {'path': 'C:/private.png'}, {'source_width': 1024}):
             with self.assertRaises(ValueError):
                 validate_upscale_metadata({**value, **changes})
 

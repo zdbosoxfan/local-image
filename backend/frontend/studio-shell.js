@@ -9,7 +9,6 @@
   make('studio-redo','Redo','redo',()=>invoke('redo'),true);
   const divider=document.createElement('span');divider.className='header-divider';divider.setAttribute('aria-hidden','true');actions.append(divider);
   make('studio-stock-open','Assets','stock',()=>window.LocalImageStockStudio?.open());
-  make('studio-generated-open','Library','library',()=>invoke('generated-library-open'));
   const inspector=make('studio-inspector-toggle','Inspector','inspector',()=>{document.body.dataset.inspectorHidden=String(document.body.dataset.inspectorHidden!=='true');syncChrome();});
   inspector.setAttribute('aria-controls','studio-inspector');inspector.setAttribute('aria-expanded','true');
   const exportButton=make('studio-export','Export','export',async()=>{

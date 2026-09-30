@@ -20,6 +20,8 @@ def inventory():
         info[node]['input']['required'][field] = [[f'flux/{preset["files"][role]}' for preset in flux.PRESETS.values()]]
     info['CLIPLoader']['input']['required']['type'] = [['flux2']]
     info['KSamplerSelect']['input']['required']['sampler_name'] = [['euler']]
+    info['EmptyFlux2LatentImage']['input']['required'].update({axis: ['INT', {'min': 16, 'max': 16384, 'step': 16}] for axis in ('width', 'height')})
+    info['Flux2Scheduler']['input']['required'].update({axis: ['INT', {'min': 16, 'max': 16384, 'step': 1}] for axis in ('width', 'height')})
     return info
 
 

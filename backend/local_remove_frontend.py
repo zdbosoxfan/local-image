@@ -17,10 +17,11 @@ def render_editor(nonce: str, token: str) -> str:
     frontend = RESOURCE_DIR / 'frontend'
     styles = ('workflow-panels.css', 'generation-workflows.css', 'batch-tools.css',
               'editor.css', 'usability.css', 'stock-studio.css', 'generation-studio.css',
-              'quiet-controls.css', 'layers-studio.css')
+              'quiet-controls.css', 'layers-studio.css', 'generation-composer.css', 'stock-connections.css')
     scripts = ('editor.js', 'usability.js', 'batch-tools.js', 'studio-shell.js',
                'stock-studio.js', 'generation-studio.js', 'quiet-controls.js',
-               'layers-studio.js')
+               'layers-studio.js', 'generation-size.js', 'generation-composer.js',
+               'generation-guidance.js', 'stock-connections.js')
     html = template.replace('__EDITOR_STYLE__', '\n'.join((frontend / name).read_text(encoding='utf-8-sig')
         for name in styles if (frontend / name).is_file()))
     html = html.replace('__EDITOR_SCRIPT__', '\n'.join((frontend / name).read_text(encoding='utf-8-sig')

@@ -3,6 +3,7 @@ from pathlib import Path
 
 from app_paths import model_directory
 from hardware_guide import PROFILES, NOTE
+from generation_guidance import model_guidance
 from qwen_download_catalog import QWEN_FILES, LICENSE_URL as QWEN_LICENSE_URL, LICENSE_NOTE as QWEN_LICENSE_NOTE
 from hidream_download_catalog import HIDREAM_FILES, LICENSE_URL as HIDREAM_LICENSE_URL, LICENSE_NOTE as HIDREAM_LICENSE_NOTE
 from ernie_download_catalog import ERNIE_FILES, LICENSE_URL as ERNIE_LICENSE_URL, LICENSE_NOTE as ERNIE_LICENSE_NOTE
@@ -83,6 +84,7 @@ def enrich_model(model, root=None):
     model['storage_bytes'] = default['total_bytes']
     model['hardware'] = dict(default['hardware'])
     model['recommended'] = {key: model['defaults'][key] for key in ('steps', 'guidance', 'width', 'height')}
+    model['sampling_guidance'] = model_guidance(model['id'], model.get('limits'))
     model['storage_note'] = 'Full preset size includes its image model, text encoder and VAE. Shared files can reduce the download. Disk size is separate from GPU memory.'
     model['availability_note'] = 'Files in the selected download folder and models visible to running ComfyUI are checked separately. Downloading verifies existing file contents.'
     return model

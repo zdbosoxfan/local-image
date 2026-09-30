@@ -666,7 +666,7 @@ async def page(request:Request):
     nonce=secrets.token_urlsafe(24)
     return HTMLResponse(render_editor(nonce,CSRF),headers={**HEADERS,
         'X-Frame-Options':'DENY','Referrer-Policy':'no-referrer',
-        'Content-Security-Policy':f"default-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'nonce-{nonce}'; script-src 'nonce-{nonce}'; img-src 'self' blob: data:; connect-src 'self'; form-action 'self'"})
+        'Content-Security-Policy':f"default-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'nonce-{nonce}'; script-src 'nonce-{nonce}'; img-src 'self' blob: data: https://images.unsplash.com https://plus.unsplash.com; connect-src 'self'; form-action 'self'"})
 
 
 @router.get('/api/local-remove/runtime')
@@ -1551,6 +1551,19 @@ class CloseSessionsRequest(BaseModel):
 def discard_sessions(ids):
     """Stage all session removals before committing collection reference changes."""
     moved=[]; old_collections=[]
+    def rename_when_released(source,destination):
+        # Windows can deny a directory rename while a preview FileResponse or
+        # thumbnail reader still holds one of its files. Retry the staging
+        # move too, not only the later deletion. Persistent failures still
+        # raise and restore every session already staged by this operation.
+        for attempt in range(5):
+            try:
+                os.rename(source,destination)
+                return
+            except OSError as error:
+                if getattr(error,'winerror',None) not in (5,32,33) or attempt==4:
+                    raise
+                time.sleep(0.1*(2**attempt))
     try:
         for sid in ids:
             source=folder(sid).resolve()
@@ -1559,7 +1572,7 @@ def discard_sessions(ids):
             destination=(ROOT/('.closing-'+uuid.uuid4().hex)).resolve()
             if destination.parent!=ROOT.resolve():
                 raise ValueError('Invalid session cleanup location.')
-            os.rename(source,destination)
+            rename_when_released(source,destination)
             moved.append((source,destination))
         for path in COLLECTIONS.glob('*.json'):
             try:
@@ -1577,7 +1590,7 @@ def discard_sessions(ids):
         for path,contents in reversed(old_collections):
             path.write_bytes(contents)
         for source,destination in reversed(moved):
-            os.rename(destination,source)
+            rename_when_released(destination,source)
         raise
     def remove_readonly(function,path,error):
         # A source photo marked read-only may give its cached original the

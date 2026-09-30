@@ -492,13 +492,17 @@
   }
   function initialGenerationSettings(mode, source) {
     const selected = generationModels.find(model => !model.historical && model.available && (mode !== 'edit' || supportsImageEditing(model)) && model.id === 'qwen') || generationModels.find(model => !model.historical && (mode !== 'edit' || supportsImageEditing(model)));
-    const defaults = selected?.defaults || {}, limits = selected?.limits || {};
+    const defaults = selected?.defaults || {}, limits = generationWorkflowLimits(selected, mode === 'edit');
     let width = defaults.width || 1024, height = defaults.height || 1024;
     if (mode === 'edit' && source?.width && source?.height) {
-      const step = limits.dimension_step || 32, maximum = limits.max_dimension || 4096, minimum = limits.min_dimension || 256;
-      const scale = Math.min(1, maximum / source.width, maximum / source.height, Math.sqrt((limits.max_pixels || 4194304) / (source.width * source.height)));
-      width = Math.max(minimum, Math.floor(source.width * scale / step) * step);
-      height = Math.max(minimum, Math.floor(source.height * scale / step) * step);
+      if (window.LocalImageGenerationSize) {
+        const fitted = window.LocalImageGenerationSize.fitDimensions({width:source.width,height:source.height,ratio:source.width/source.height,locked:true},limits);
+        width=fitted.width;height=fitted.height;
+      } else {
+        const bounds=generationCanvasBounds(selected,true),scale=Math.min(1,bounds.width.max/source.width,bounds.height.max/source.height,Math.sqrt(bounds.pixels/(source.width*source.height)));
+        width=Math.max(bounds.width.min,Math.floor(source.width*scale/bounds.width.step)*bounds.width.step);
+        height=Math.max(bounds.height.min,Math.floor(source.height*scale/bounds.height.step)*bounds.height.step);
+      }
     }
     return { model: selected?.id || generationModelId, fields: { 'gen-variant': defaults.variant || selected?.variants?.[0]?.id || '', 'gen-prompt': '', 'gen-negative': '', 'gen-width': String(width), 'gen-height': String(height), 'gen-steps': String(defaults.steps || 25), 'gen-guidance': String(defaults.guidance || 1), 'gen-denoise': '65', 'gen-aspect': mode === 'edit' ? 'custom' : '1:1', 'gen-seed': '', 'gen-transparent': false }, references: [], loras: [], missing: 0, tab: 'prompt', target: mode === 'create' ? generationTargetSession : null };
   }

@@ -12,6 +12,7 @@ from pathlib import Path
 from PIL import Image, ImageOps
 
 from qwen_image import _object_info, _choices, _normalized_name, _execute_workflow, qwen_canvas_size
+from generation_resolution import exact_canvas_size, validate_generation_size
 
 MODEL_FILES = {'unet': 'z_image_turbo_bf16.safetensors', 'clip': 'qwen_3_4b.safetensors', 'vae': 'ae.safetensors'}
 LOADERS = {'unet': ('UNETLoader', 'unet_name'), 'clip': ('CLIPLoader', 'clip_name'), 'vae': ('VAELoader', 'vae_name')}
@@ -43,7 +44,7 @@ def z_image_model_option(info):
 
 
 def build_z_image_workflow(models, *, prompt, size=(1024, 1024), seed=0, steps=8, input_path=None, denoise=1.0, loras=()):
-    width, height = qwen_canvas_size(size)
+    width, height = exact_canvas_size(size)
     graph = {
         '1': {'class_type': 'UNETLoader', 'inputs': {'unet_name': models['unet'], 'weight_dtype': 'default'}},
         '2': {'class_type': 'CLIPLoader', 'inputs': {'clip_name': models['clip'], 'type': 'lumina2', 'device': 'default'}},
@@ -82,7 +83,7 @@ async def run_z_image(prompt, *, input_path=None, size=(1024, 1024), seed=None, 
     loras = available_loras(info, loras)
     if input_path and any(node not in info for node in ('VAEEncode', 'LoadImage')):
         raise ZImageError('Update ComfyUI: image variations require VAEEncode and LoadImage.')
-    size = qwen_canvas_size(size)
+    size = validate_generation_size(size, 'z-image-turbo', info, references=input_path is not None)
     try:
         with tempfile.TemporaryDirectory(prefix='local-image-z-') as temporary:
             normalized = None
@@ -99,7 +100,7 @@ async def run_z_image(prompt, *, input_path=None, size=(1024, 1024), seed=None, 
         with Image.open(io.BytesIO(result)) as image:
             output = image.convert('RGB')
         if output.size != size:
-            output = output.resize(size, Image.Resampling.LANCZOS)
+            raise ZImageError('Z-Image Turbo returned unexpected dimensions; the result was not resized. Refresh ComfyUI and retry.')
         return output
     except ZImageError:
         raise

@@ -90,7 +90,57 @@ class StockLibraryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(params['source'], 'flickr'); self.assertEqual(params['license'], 'by,by-sa,cc0,pdm')
         inventory = await self.module.providers(self.request())
         self.assertEqual(inventory['default_provider'], 'openverse')
-        self.assertEqual([x['id'] for x in inventory['providers']], ['openverse'])
+        self.assertEqual([x['id'] for x in inventory['providers']], ['openverse', 'pexels', 'unsplash'])
+
+    async def test_pexels_results_and_original_import_keep_photographer(self):
+        self.module.provider_json = AsyncMock(return_value={'photos': [{'id': 2014422, 'width': 3024, 'height': 3024,
+            'url': 'https://www.pexels.com/photo/2014422/', 'photographer': 'Joey',
+            'photographer_url': 'https://www.pexels.com/@joey/', 'alt': '<b>Rocks</b>',
+            'src': {'original': 'https://images.pexels.com/photos/2014422/photo.jpeg',
+                    'medium': 'https://images.pexels.com/photos/2014422/photo.jpeg?h=350'}}], 'next_page': 'next'})
+        result = await self.module.search_stock('pexels', 'rocks')
+        item = result['results'][0]
+        self.assertEqual(item['title'], 'Rocks'); self.assertEqual(item['creator'], 'Joey')
+        self.assertEqual(result['next_page'], 1)
+        self.module.bounded_get = AsyncMock(return_value=self.png)
+        _, attribution = await self.module.fetch_stock_image(item['id'])
+        self.assertIn('on Pexels', attribution['attribution'])
+
+    async def test_unsplash_hotlinks_previews_and_tracks_user_import(self):
+        location = 'https://api.unsplash.com/photos/abc_123/download?ixid=source'
+        self.module.provider_json = AsyncMock(return_value={'results': [{'id': 'abc_123', 'width': 3000, 'height': 2000,
+            'alt_description': 'Mountains', 'user': {'name': 'Alex', 'links': {'html': 'https://unsplash.com/@alex'}},
+            'links': {'html': 'https://unsplash.com/photos/abc_123', 'download_location': location},
+            'urls': {'full': 'https://images.unsplash.com/photo-123?ixid=source',
+                     'small': 'https://images.unsplash.com/photo-123?ixid=source&w=400'}}], 'total_pages': 2})
+        item = (await self.module.search_stock('unsplash', 'mountains'))['results'][0]
+        self.assertTrue(item['thumbnail_url'].startswith('https://images.unsplash.com/'))
+        self.assertIn('utm_source=local_image', item['creator_url'])
+        self.module.bounded_get = AsyncMock(return_value=self.png)
+        await self.module.fetch_stock_image(item['id'])
+        self.module.provider_json.assert_awaited_with(location, {})
+        self.module.bounded_get.assert_awaited_once_with('https://images.unsplash.com/photo-123?ixid=source')
+
+    async def test_api_credentials_never_follow_redirects_or_attach_to_media(self):
+        factory, calls = self.http([self.response(status=302, headers={'Location': 'https://images.pexels.com/photo.jpg'})])
+        with patch.object(self.module, 'get_key', return_value='synthetic-key'), patch.object(self.module.aiohttp, 'ClientSession', factory), self.assertRaisesRegex(ValueError, 'redirect'):
+            await self.module.bounded_get('https://api.pexels.com/v1/search', api=True)
+        self.assertEqual(len(calls), 1)
+        factory, calls = self.http([self.response(b'image')])
+        with patch.object(self.module, 'get_key', side_effect=AssertionError('Media must not read keys')), patch.object(self.module.aiohttp, 'ClientSession', factory):
+            await self.module.bounded_get('https://images.pexels.com/photo.jpg')
+        with patch.object(self.module, 'get_key', return_value=''), self.assertRaisesRegex(ValueError, 'Connect'):
+            await self.module.bounded_get('https://api.unsplash.com/search/photos', api=True)
+
+    async def test_connection_write_requires_csrf_and_never_returns_secret(self):
+        self.module.save_key = lambda *args: None
+        self.module.get_key = lambda provider: 'synthetic-key'
+        payload = self.module.StockConnection(key='synthetic-key')
+        with self.assertRaises(HTTPException):
+            await self.module.connect_provider('pexels', payload, self.request(token=False))
+        result = await self.module.connect_provider('pexels', payload, self.request())
+        self.assertEqual(result, {'provider': 'pexels', 'connected': True})
+        self.assertNotIn('synthetic-key', json.dumps(await self.module.providers(self.request())))
 
     async def test_search_skips_unsupported_hosts_licenses_and_malformed_results(self):
         records = [None, {}, {**self.source, 'url': 'https://localhost/secret.png'},

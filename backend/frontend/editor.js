@@ -34,7 +34,7 @@ let generatedLibrary={items:[],count:0,bytes:0},generatedLibrarySelection=new Se
 let generatedLibraryFocused=null,generatedLibrarySelectMode=false;
 const OVERWRITE_PREFERENCE='local-remove-ask-before-overwrite';
 let closePrompt=null,closeInProgress=false,nativeProjects=false;
-const modalOpen=()=>$('settings-dialog').open||$('overwrite-dialog').open||$('close-dialog').open||$('hardware-dialog').open||$('shortcuts-dialog').open||$('lora-dialog').open||$('model-browser-dialog').open||($('stock-dialog').open&&$('stock-dialog').dataset.docked!=='true')||$('credits-dialog').open||($('refine-dialog').open&&$('refine-dialog').dataset.inlineStudio!=='true')||$('generated-library-dialog').open||!!document.querySelector?.('dialog:modal')||window.LocalImageBatch?.isOpen()||!!overwritePrompt||!!closePrompt;
+const modalOpen=()=>$('settings-dialog').open||$('overwrite-dialog').open||$('close-dialog').open||$('hardware-dialog').open||$('shortcuts-dialog').open||$('lora-dialog').open||$('model-browser-dialog').open||($('stock-dialog').open&&$('stock-dialog').dataset.docked!=='true')||$('credits-dialog').open||($('refine-dialog').open&&$('refine-dialog').dataset.inlineStudio!=='true')||($('generated-library-dialog').open&&$('generated-library-dialog').dataset.docked!=='true')||!!document.querySelector?.('dialog:modal')||window.LocalImageBatch?.isOpen()||!!overwritePrompt||!!closePrompt;
 const viewStates=new Map(),nativePending=new Map(),openDocuments=new Map(),displayCache=new Map(),layerQueues=new Map();
 const cloneDocument=data=>JSON.parse(JSON.stringify(data));
 const layerChangesPending=()=>[...layerQueues.values()].some(queue=>queue.pending.length>0);
@@ -1582,14 +1582,28 @@ function loadGenerationModels(force=false){
     if(generationRefreshQueued){generationRefreshQueued=false;return await loadGenerationModels(true);}if(failure)throw failure;
   })();return generationLoadPromise;
 }
+function generationWorkflowLimits(model,hasReferences=false){const limits=model?.limits||{};return hasReferences&&limits.reference_dimensions?{...limits,...limits.reference_dimensions}:limits;}
+function generationCanvasBounds(model,hasReferences=false){
+  const limits=generationWorkflowLimits(model,hasReferences);
+  if(window.LocalImageGenerationSize)return window.LocalImageGenerationSize.sizeLimits(limits);
+  const axis=name=>({min:limits[name]?.min||limits.min_dimension||1,max:limits[name]?.max||limits.max_dimension||Infinity,step:limits[name]?.step||limits.dimension_step||1});
+  return{width:axis('width'),height:axis('height'),pixels:limits.max_pixels||Infinity};
+}
+function generationCanvasValid(width,height,model,hasReferences=false){
+  const limits=generationCanvasBounds(model,hasReferences);
+  return Number.isSafeInteger(width)&&Number.isSafeInteger(height)&&width>=limits.width.min&&height>=limits.height.min&&width<=limits.width.max&&height<=limits.height.max&&width%limits.width.step===0&&height%limits.height.step===0&&width*height<=limits.pixels;
+}
+function configureGenerationDimension(input,axis,model,hasReferences=false){
+  const limits=generationCanvasBounds(model,hasReferences)[axis];input.min=limits.min;input.step=limits.step;if(Number.isFinite(limits.max))input.max=limits.max;else input.removeAttribute('max');
+}
 function syncGenerationModel(){
   const model=generationModel(),previous=$('gen-variant').value;$('gen-variant').replaceChildren();
   for(const variant of model?.variants||[]){const option=document.createElement('option');option.value=variant.id;option.textContent=variant.label;$('gen-variant').append(option);}
   $('gen-variant').value=model?.variants?.some(item=>item.id===previous)?previous:model?.defaults?.variant||model?.variants?.[0]?.id||'int8';
   if(generationSamplingModel!==model?.id){$('gen-guidance').value=String(model?.defaults?.guidance||1);$('gen-steps').value=String(model?.defaults?.steps||25);const dimensions=generationPresetDimensions($('gen-aspect').value);if(dimensions){$('gen-width').value=String(dimensions[0]);$('gen-height').value=String(dimensions[1]);}generationSamplingModel=model?.id;}
-  const limits=model?.limits||{};for(const id of ['gen-width','gen-height']){$(id).min=limits.min_dimension||256;$(id).max=limits.max_dimension||4096;$(id).step=limits.dimension_step||32;}
+  const limits=model?.limits||{};for(const axis of ['width','height'])configureGenerationDimension($('gen-'+axis),axis,model,generationReferences.length>0);
   $('gen-steps').min=limits.min_steps||1;$('gen-steps').max=limits.max_steps||100;$('gen-guidance').min=limits.min_guidance||1;$('gen-guidance').max=limits.max_guidance||1;
-  $('gen-size-note').textContent=(limits.min_dimension||256)+'–'+(limits.max_dimension||4096)+' px per side · up to '+Math.round((limits.max_pixels||4194304)/1048576)+' megapixels'+((model?.defaults?.width||0)>1024?' · Recommended canvas: '+model.defaults.width+' × '+model.defaults.height+'.':'');
+  $('gen-size-note').textContent=limits.resolution_note||'';
   renderGenerationReferences();updateGenerationControls();
 }
 function updateGenerationControls(){
@@ -1610,8 +1624,8 @@ function updateGenerationControls(){
   $('gen-sampling-note').textContent='Recommended for this model: '+(model?.recommended?.steps||model?.defaults?.steps||25)+' steps.';
   $('gen-sampling-options').hidden=(model?.limits?.max_guidance||1)<=1;
   for(const id of ['gen-prompt','gen-guidance','gen-steps','gen-denoise','gen-aspect','gen-width','gen-height','gen-seed','gen-random-seed'])$(id).disabled=busy;
-  const width=Number($('gen-width').value),height=Number($('gen-height').value),limits=model?.limits||{},step=limits.dimension_step||32;
-  const sizeValid=width>=(limits.min_dimension||256)&&height>=(limits.min_dimension||256)&&width<=(limits.max_dimension||4096)&&height<=(limits.max_dimension||4096)&&width*height<=(limits.max_pixels||4194304)&&width%step===0&&height%step===0;
+  const width=Number($('gen-width').value),height=Number($('gen-height').value),limits=model?.limits||{},step=generationCanvasBounds(model,generationReferences.length>0).width.step;
+  const sizeValid=generationCanvasValid(width,height,model,generationReferences.length>0);
   const steps=Number($('gen-steps').value),guidance=Number($('gen-guidance').value),samplingValid=Number.isInteger(steps)&&steps>=(limits.min_steps||1)&&steps<=(limits.max_steps||100)&&guidance>=(limits.min_guidance||1)&&guidance<=(limits.max_guidance||1);
   const missingLoras=generationLoras.some(item=>item.missing),referenceLoraMissingImage=generationLoras.some(item=>item.usage==='reference-edit')&&(!refs||!generationReferences.length);
   $('gen-lora-note').textContent=referenceLoraMissingImage?'This adapter requires an image. Add one in References before generating.':'Optional adapters for a particular style or subject. Up to three per image.';$('gen-lora-note').classList.toggle('error',referenceLoraMissingImage);
@@ -1663,7 +1677,7 @@ $('gen-prompt').oninput=updateGenerationControls;$('gen-guidance').oninput=updat
 $('gen-use-current').onclick=()=>{if(session)addGenerationReference(session);};$('gen-add-reference').onclick=()=>$('generation-reference-file').click();
 $('generation-reference-file').onchange=async()=>{if(busy)return;setBusy(true);try{const max=generationModel()?.capabilities?.max_references||0;for(const file of Array.from($('generation-reference-file').files||[]).slice(0,Math.max(0,max-generationReferences.length))){const form=new FormData();form.append('file',file);addGenerationReference(await(await api('/api/local-remove/import',{method:'POST',body:form})).json());}}catch(error){message(error.message,true);}finally{$('generation-reference-file').value='';setBusy(false);}};
 $('gen-denoise').oninput=()=>{$('gen-denoise-value').textContent=$('gen-denoise').value+'%';};
-function generationPresetDimensions(shape){const presets={'1:1':[1024,1024],'3:2':[1536,1024],'2:3':[1024,1536],'16:9':[1536,864]},base=presets[shape],model=generationModel();if(!base)return null;const area=(model?.defaults?.width||1024)*(model?.defaults?.height||1024);if(area<=1048576)return base;const budget=Math.min(area,model?.limits?.max_pixels||4194304),step=model?.limits?.dimension_step||32,ratio=Number(shape.split(':')[0])/Number(shape.split(':')[1]),width=Math.floor(Math.sqrt(budget*ratio)/step)*step,height=Math.floor(width/ratio/step)*step;return[width,height];}
+function generationPresetDimensions(shape){const presets={'1:1':[1024,1024],'3:2':[1536,1024],'2:3':[1024,1536],'16:9':[1536,864]},base=presets[shape],model=generationModel();if(!base)return null;const area=(model?.defaults?.width||1024)*(model?.defaults?.height||1024),limits=generationWorkflowLimits(model,generationReferences.length>0),ratio=Number(shape.split(':')[0])/Number(shape.split(':')[1]);const width=area<=1048576?base[0]:Math.sqrt(area*ratio),height=area<=1048576?base[1]:width/ratio;if(window.LocalImageGenerationSize){const fitted=window.LocalImageGenerationSize.fitDimensions({width,height,ratio,locked:true},limits);return[fitted.width,fitted.height];}return[Math.round(width),Math.round(height)];}
 $('gen-aspect').onchange=()=>{const dimensions=generationPresetDimensions($('gen-aspect').value);if(dimensions){$('gen-width').value=String(dimensions[0]);$('gen-height').value=String(dimensions[1]);}updateGenerationControls();};
 for(const id of ['gen-width','gen-height'])$(id).oninput=()=>{$('gen-aspect').value='custom';updateGenerationControls();};
 $('gen-random-seed').onclick=()=>{$('gen-seed').value='';};$('gen-run').onclick=generateImage;
@@ -1737,7 +1751,7 @@ async function searchStock(page=0){
 }
 async function openStockLibrary(origin='image',opener=$('stock-open')){
   if(busy||modalOpen())return;stockOrigin=origin;stockOpener=opener;closeMenus();resetTransientInput();$('stock-dialog').showModal();stockLoading=true;updateStockControls();
-  try{const data=await(await api('/api/local-remove/stock/providers')).json();stockProviders=data.providers||[];const previous=$('stock-provider').value;$('stock-provider').replaceChildren();for(const provider of stockProviders){const option=document.createElement('option');option.value=provider.id;option.textContent=provider.label+(provider.available===false?' · unavailable':'');option.disabled=provider.available===false;option.title=provider.reason||'';$('stock-provider').append(option);}$('stock-provider').value=stockProviders.some(item=>item.id===previous&&item.available!==false)?previous:data.default_provider||stockProviders.find(item=>item.available!==false)?.id;$('stock-provider').hidden=stockProviders.length<=1;$('stock-title').textContent=stockProviders.length===1?'Stock images · '+stockProviders[0].label:'Stock library';stockStatus(stockProviders.some(item=>item.available!==false)?'Online search · Review source and license before importing.':'Stock providers are unavailable. Close and reopen the library to retry.',!stockProviders.some(item=>item.available!==false));}
+  try{const data=await(await api('/api/local-remove/stock/providers')).json();stockProviders=data.providers||[];const previous=$('stock-provider').value;$('stock-provider').replaceChildren();for(const provider of stockProviders){const option=document.createElement('option');option.value=provider.id;option.textContent=provider.label;option.disabled=false;option.title=provider.reason||'';$('stock-provider').append(option);}$('stock-provider').value=stockProviders.some(item=>item.id===previous)?previous:data.default_provider||stockProviders.find(item=>item.available!==false)?.id;$('stock-provider').hidden=stockProviders.length<=1;$('stock-title').textContent=stockProviders.length===1?'Stock images · '+stockProviders[0].label:'Stock library';stockStatus(stockProviders.some(item=>item.available!==false)?'Online search · Review source and license before importing.':'Stock providers are unavailable. Close and reopen the library to retry.',!stockProviders.some(item=>item.available!==false));}
   catch(error){stockStatus('Could not load stock providers: '+error.message,true);}finally{stockLoading=false;updateStockControls();$('stock-query').focus();}
 }
 async function importStock(target){
@@ -1765,7 +1779,7 @@ $('credits-copy').onclick=async()=>{try{await navigator.clipboard.writeText(cred
 $('credits-download').onclick=()=>{if(!session)return;const link=document.createElement('a');link.href='/api/local-remove/session/'+encodeURIComponent(session.id)+'/download-credits';link.download=(session.name||'image').replace(/\.[^.]+$/,'')+'-credits.txt';document.body.append(link);link.click();link.remove();$('credits-status').textContent='Credits text file prepared for sharing alongside the image.';};
 function showImageCredits(){if(busy||modalOpen())return;closeMenus();$('credits-list').replaceChildren();for(const credit of documentCredits()){const section=document.createElement('section');section.className='credits-item';const heading=document.createElement('h3');heading.textContent=credit.label+(credit.title?' · '+credit.title:'');const text=document.createElement('p');text.textContent=credit.attribution||[credit.title,credit.creator,credit.license].filter(Boolean).join(' · ');const source=document.createElement('a'),license=document.createElement('a');for(const link of [source,license]){link.target='_blank';link.rel='noopener noreferrer';}setCreditLink(source,credit.source_url,'Original source ↗');setCreditLink(license,credit.license_url,credit.license||'License details ↗');section.append(heading,text,source,license);$('credits-list').append(section);}$('credits-dialog').showModal();}
 $('stock-open').onclick=()=>openStockLibrary('image',$('stock-open'));$('background-stock').onclick=()=>openStockLibrary('background',$('background-stock'));$('gen-stock').onclick=()=>openStockLibrary('reference',$('gen-stock'));
-$('stock-close').onclick=()=>$('stock-dialog').close();$('stock-dialog').addEventListener('cancel',event=>{if(stockImporting)event.preventDefault();});$('stock-dialog').addEventListener('close',()=>{stockOpener?.focus();});$('stock-search-form').onsubmit=event=>{event.preventDefault();searchStock(0);};$('stock-query').oninput=updateStockControls;$('stock-provider').onchange=()=>{stockResults=[];stockSelectedId=null;stockPage=0;stockNextPage=null;renderStockResults();if($('stock-query').value.trim())searchStock(0);};$('stock-previous').onclick=()=>searchStock(Math.max(0,stockPage-1));$('stock-next').onclick=()=>searchStock(stockNextPage);
+$('stock-close').onclick=()=>$('stock-dialog').close();$('stock-dialog').addEventListener('cancel',event=>{if(stockImporting)event.preventDefault();});$('stock-dialog').addEventListener('close',()=>{stockOpener?.focus();});$('stock-search-form').onsubmit=event=>{event.preventDefault();searchStock(0);};$('stock-query').oninput=updateStockControls;$('stock-provider').onchange=()=>{stockResults=[];stockSelectedId=null;stockPage=0;stockNextPage=null;renderStockResults();if($('stock-query').value.trim()&&stockProviders.some(item=>item.id===$('stock-provider').value&&item.available!==false))searchStock(0);updateStockControls();};$('stock-previous').onclick=()=>searchStock(Math.max(0,stockPage-1));$('stock-next').onclick=()=>searchStock(stockNextPage);
 $('stock-import-image').onclick=()=>importStock('image');$('stock-import-background').onclick=()=>importStock('background');$('stock-import-reference').onclick=()=>importStock('reference');$('image-credits').onclick=showImageCredits;$('credits-close').onclick=()=>$('credits-dialog').close();$('credits-dialog').addEventListener('close',()=>viewport.focus({preventScroll:true}));
 
 const contextLoras=()=>loraContext==='generate'?generationLoras:refineLoras[loraContext];
@@ -1979,12 +1993,13 @@ function fillRefineModels(stage){
 }
 function refinePreset(){
   const model=refineModel('final'),shape=$('refine-aspect').value;if(shape==='custom'||!model)return;
-  const [aspectWidth,aspectHeight]=shape.split(':').map(Number),step=model.limits?.dimension_step||32;
-  const area=Math.min((model.defaults?.width||1024)*(model.defaults?.height||1024),model.limits?.max_pixels||4194304);
+  const [aspectWidth,aspectHeight]=shape.split(':').map(Number),limits=generationWorkflowLimits(model,true);
+  const area=(model.defaults?.width||1024)*(model.defaults?.height||1024);
   const presets={'1:1':[1024,1024],'3:2':[1536,1024],'2:3':[1024,1536],'16:9':[1536,864]};
-  const unit=Math.floor(Math.sqrt(area/(aspectWidth*aspectHeight))/step)*step;
+  const unit=Math.sqrt(area/(aspectWidth*aspectHeight));
   const [width,height]=area<=1048576?presets[shape]:[aspectWidth*unit,aspectHeight*unit];
-  $('refine-final-width').value=String(width);$('refine-final-height').value=String(height);
+  const fitted=window.LocalImageGenerationSize?window.LocalImageGenerationSize.fitDimensions({width,height,ratio:aspectWidth/aspectHeight,locked:true},limits):{width:Math.round(width),height:Math.round(height)};
+  $('refine-final-width').value=String(fitted.width);$('refine-final-height').value=String(fitted.height);
 }
 function syncRefineModel(stage,{reset=true}={}){
   const model=refineModel(stage),variant=$('refine-'+stage+'-variant'),previous=variant.value;variant.replaceChildren();
@@ -1993,7 +2008,7 @@ function syncRefineModel(stage,{reset=true}={}){
   variant.value=!reset&&previous?previous:model?.defaults?.variant||model?.variants?.[0]?.id||'';
   variant.hidden=(model?.variants?.length||0)<=1;
   const limits=model?.limits||{};
-  for(const dimension of ['width','height']){const input=$('refine-'+stage+'-'+dimension);input.min=limits.min_dimension||256;input.max=limits.max_dimension||4096;input.step=limits.dimension_step||32;}
+  for(const dimension of ['width','height'])configureGenerationDimension($('refine-'+stage+'-'+dimension),dimension,model,stage==='final'||refineReferences.length>0);
   for(const key of ['steps','guidance']){const input=$('refine-'+stage+'-'+key);input.min=limits['min_'+key]||1;input.max=limits['max_'+key]||1;if(reset)input.value=String(model?.defaults?.[key]||1);}
   if(reset){if(stage==='final')refinePreset();else{for(const dimension of ['width','height'])$('refine-draft-'+dimension).value=String(model?.defaults?.[dimension]||1024);}}
   $('refine-'+stage+'-guidance-row').hidden=(limits.max_guidance||1)<=1;
@@ -2003,8 +2018,8 @@ function syncRefineModel(stage,{reset=true}={}){
   renderRefineReferences();updateRefineControls();
 }
 function refineInputsValid(stage){
-  const model=refineModel(stage),limits=model?.limits||{},width=Number($('refine-'+stage+'-width').value),height=Number($('refine-'+stage+'-height').value),steps=Number($('refine-'+stage+'-steps').value),guidance=Number($('refine-'+stage+'-guidance').value),step=limits.dimension_step||32,seed=$('refine-'+stage+'-seed').value.trim();
-  return width>=(limits.min_dimension||256)&&height>=(limits.min_dimension||256)&&width<=(limits.max_dimension||4096)&&height<=(limits.max_dimension||4096)&&width*height<=(limits.max_pixels||4194304)&&width%step===0&&height%step===0&&Number.isInteger(steps)&&steps>=(limits.min_steps||1)&&steps<=(limits.max_steps||100)&&guidance>=(limits.min_guidance||1)&&guidance<=(limits.max_guidance||1)&&(!seed||(Number.isSafeInteger(Number(seed))&&Number(seed)>=0));
+  const model=refineModel(stage),limits=model?.limits||{},width=Number($('refine-'+stage+'-width').value),height=Number($('refine-'+stage+'-height').value),steps=Number($('refine-'+stage+'-steps').value),guidance=Number($('refine-'+stage+'-guidance').value),seed=$('refine-'+stage+'-seed').value.trim();
+  return generationCanvasValid(width,height,model,stage==='final'||refineReferences.length>0)&&Number.isInteger(steps)&&steps>=(limits.min_steps||1)&&steps<=(limits.max_steps||100)&&guidance>=(limits.min_guidance||1)&&guidance<=(limits.max_guidance||1)&&(!seed||(Number.isSafeInteger(Number(seed))&&Number(seed)>=0));
 }
 function refinementReferences(){
   const selected=refineSelectedDraft();if(!selected)return[];
@@ -2012,15 +2027,16 @@ function refinementReferences(){
 }
 function upscaleTarget(source){
   const preset=$('refine-upscale-preset').value;if(preset==='custom')return{width:Number($('refine-upscale-width').value),height:Number($('refine-upscale-height').value)};
-  const scale=Number(preset)/Math.max(source.width,source.height);return{width:Math.round(source.width*scale/2)*2,height:Math.round(source.height*scale/2)*2};
+  const scale=Number(preset)/Math.max(source.width,source.height),bounds=generationCanvasBounds({limits:refineUpscaleStatus?.limits||{}});return{width:Math.round(source.width*scale/bounds.width.step)*bounds.width.step,height:Math.round(source.height*scale/bounds.height.step)*bounds.height.step};
 }
 function upscaleSizeValid(source,target){
   if(!source)return false;const limits=refineUpscaleStatus?.limits||{},width=target.width,height=target.height;
-  return Number.isInteger(width)&&Number.isInteger(height)&&width%2===0&&height%2===0&&width>=(limits.min_dimension||256)&&height>=(limits.min_dimension||256)&&width<=(limits.max_dimension||4096)&&height<=(limits.max_dimension||4096)&&width*height<=(limits.max_pixels||16777216)&&width>=source.width&&height>=source.height&&(width>source.width||height>source.height)&&Math.abs(height-width*source.height/source.width)<=2;
+  return generationCanvasValid(width,height,{limits})&&width>=source.width&&height>=source.height&&(width>source.width||height>source.height)&&Math.min(Math.abs(height-width*source.height/source.width),Math.abs(width-height*source.width/source.height))<=2;
 }
 function updateRefineUpscaleControls(){
   const enabled=!!refineUpscaleStatus?.enabled,available=enabled&&!!refineUpscaleStatus?.model?.available,locked=!!refineJob||busy||refineRecipeLoading;
   $('refine-upscale-options').hidden=!enabled;if(!enabled)$('refine-upscale').checked=false;
+  for(const dimension of ['width','height'])configureGenerationDimension($('refine-upscale-'+dimension),dimension,{limits:refineUpscaleStatus?.limits||{}});
   $('refine-size-label').textContent=$('refine-upscale').checked?'Refinement canvas':'Final resolution';
   const canvas={width:Number($('refine-final-width').value),height:Number($('refine-final-height').value)},target=upscaleTarget(canvas);
   if($('refine-upscale-preset').value!=='custom'){for(const key of ['width','height'])$('refine-upscale-'+key).value=String(target[key]||'');}
@@ -2036,7 +2052,7 @@ function updateRefineUpscaleControls(){
   $('refine-upscale-download').title=nativeSetup?'Install SeedVR2 in the configured models folder':'Model downloads are available in the desktop app.';
   $('refine-upscale-refresh').disabled=locked||refineUpscaleSetupBusy;$('refine-upscale-progress').hidden=!(seedJob&&job.running);$('refine-upscale-progress').value=job?.progress||0;
   if(seedJob&&(job.running||job.phase==='error'))$('refine-upscale-note').textContent=job.message||job.error;
-  if($('refine-upscale').checked&&(!available||!upscaleSizeValid(canvas,target))){$('refine-final-run').disabled=true;$('refine-final-run').title='Upscaled output must enlarge the refinement canvas, preserve its aspect ratio, and fit within 4096 px per side.';}
+  if($('refine-upscale').checked&&(!available||!upscaleSizeValid(canvas,target))){$('refine-final-run').disabled=true;$('refine-final-run').title='Upscaled output must enlarge the refinement canvas and preserve its aspect ratio.';}
 }
 function updateRefineControls(){
   const locked=!!refineJob||busy||refineRecipeLoading||generationLoading,draft=refineSelectedDraft(),result=refineSelectedResult();

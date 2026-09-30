@@ -11,6 +11,7 @@ import tempfile
 from PIL import Image, ImageOps
 
 from qwen_image import _object_info, _choices, _normalized_name, _execute_workflow
+from upscale_metadata import validate_upscale_size
 
 MODEL_FILES = {'unet': 'seedvr2_7b_fp16.safetensors', 'vae': 'seedvr2_ema_vae_fp16.safetensors'}
 REQUIRED_NODES = ('UNETLoader', 'VAELoader', 'LoadImage', 'SeedVR2Preprocess',
@@ -41,15 +42,8 @@ def seedvr2_model_option(info):
 
 
 def validate_size(source_size, size):
-    if (len(size) != 2 or any(type(value) is not int or value < 256 or value > 4096 or value % 2 for value in size)
-            or size[0] * size[1] > 16777216):
-        raise ValueError('Use even dimensions between 256 and 4096 pixels, up to 16 megapixels.')
-    sw, sh = source_size
-    if size[0] < sw or size[1] < sh or size == source_size:
-        raise ValueError('Choose an output larger than the source image.')
-    if abs(size[0] - size[1] * sw / sh) > 2 and abs(size[1] - size[0] * sh / sw) > 2:
-        raise ValueError('Keep the source aspect ratio when upscaling.')
-    return size
+    validate_upscale_size(source_size, size)
+    return tuple(size)
 
 
 def build_seedvr2_workflow(models, source_path, *, seed=0):

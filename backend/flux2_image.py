@@ -12,6 +12,7 @@ from pathlib import Path
 from PIL import Image, ImageOps
 
 from qwen_image import _object_info, _choices, _normalized_name, _execute_workflow, qwen_canvas_size
+from generation_resolution import exact_canvas_size, validate_generation_size
 
 PRESETS = {
     'flux2-dev': {'variant': 'fp8', 'label': 'FLUX.2 Dev', 'steps': 20, 'guidance': 4.0,
@@ -52,7 +53,7 @@ def flux2_model_option(info, model):
 
 def build_flux2_workflow(models, *, model, prompt, size=(1024, 1024), seed=0, steps=None, guidance=None, references=(), loras=()):
     preset = PRESETS[model]; dev = model == 'flux2-dev'
-    width, height = qwen_canvas_size(size)
+    width, height = exact_canvas_size(size)
     graph = {
         '1': {'class_type': 'UNETLoader', 'inputs': {'unet_name': models['unet'], 'weight_dtype': 'default'}},
         '2': {'class_type': 'CLIPLoader', 'inputs': {'clip_name': models['clip'], 'type': 'flux2', 'device': 'default'}},
@@ -109,7 +110,7 @@ async def run_flux2_image(prompt, *, model, references=(), size=(1024, 1024), se
     loras = available_loras(info, loras)
     if references and any(node not in info for node in ('LoadImage', 'VAEEncode', 'ReferenceLatent')):
         raise Flux2ImageError('Update ComfyUI: reference editing requires LoadImage, VAEEncode, and ReferenceLatent.')
-    size = qwen_canvas_size(size)
+    size = validate_generation_size(size, model, info)
     try:
         with tempfile.TemporaryDirectory(prefix='local-image-flux2-') as temporary:
             normalized = []
@@ -129,7 +130,7 @@ async def run_flux2_image(prompt, *, model, references=(), size=(1024, 1024), se
         with Image.open(io.BytesIO(result)) as image:
             output = image.convert('RGB')
         if output.size != size:
-            output = output.resize(size, Image.Resampling.LANCZOS)
+            raise Flux2ImageError('FLUX.2 returned unexpected dimensions; the result was not resized. Refresh ComfyUI and retry.')
         return output
     except Flux2ImageError:
         raise

@@ -59,6 +59,7 @@ fs.mkdirSync(output,{recursive:true});
     await page.evaluate(()=>setWorkspace('retouch'));
     assert.equal(await page.locator('#stock-import-image').evaluate(e=>e.classList.contains('primary')),true,'Retouch restores image import as the primary action');
     await page.evaluate(()=>{void closeCurrentImage();});
+    await page.waitForFunction(()=>!session||document.getElementById('close-dialog').open);
     if(await page.locator('#close-dialog').isVisible())await page.locator('#close-discard').click();
     await page.waitForFunction(()=>!session&&!busy);
     assert.equal(await page.locator('#stock-import-background').isEnabled(),false,'Closing the document clears background import eligibility');
@@ -94,7 +95,7 @@ fs.mkdirSync(output,{recursive:true});
     await page.locator('#stock-close').click();assert.equal(await dock.isVisible(),false);
     await page.evaluate(()=>LocalImageStockStudio.open());assert.equal(await dock.isVisible(),true);
     assert.deepEqual(errors,[]);
-    console.log('PASS: persistent nonmodal stock dock; busy-state import guards; real document open/close refresh; workspace action updates; provider failure/reopen retry without a focus loop; unavailable thumbnails retain source/license; selection, escaped metadata, info/Escape/focus, expanded resize and retained state. Fixture stock responses; real local document import; no GPU work.');
+    console.log('PASS: persistent nonmodal stock dock; busy-state import guards; real document open/close refresh; workspace action updates; provider failure/reopen retry without a focus loop; unavailable thumbnails retain source/license; selection, escaped metadata, info/Escape/focus, expanded resize and retained state. Fixture stock responses; real local document import/close; no GPU work.');
   }catch(error){await page.screenshot({path:path.join(output,'failure.png')});throw error;}
   finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

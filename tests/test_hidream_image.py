@@ -17,6 +17,7 @@ def inventory():
     info['CheckpointLoaderSimple']['input']['required']['ckpt_name'] = [['models/' + hd.CHECKPOINT]]
     info['KSamplerSelect']['input']['required']['sampler_name'] = ['COMBO', {'options': ['dpmpp_2m_sde_gpu']}]
     info['BasicScheduler']['input']['required']['scheduler'] = ['COMBO', {'options': ['normal']}]
+    info['EmptyHiDreamO1LatentImage']['input']['required'].update({axis: ['INT', {'min': 64, 'max': 4096, 'step': 32}] for axis in ('width', 'height')})
     return info
 
 

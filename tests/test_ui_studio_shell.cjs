@@ -46,7 +46,7 @@ async function main(){
     assert.equal(new Set(ids).size,ids.length,'All control IDs are unique');
     const typography=await page.evaluate(()=>({size:getComputedStyle(document.body).fontSize,font:getComputedStyle(document.body).fontFamily}));
     assert.equal(typography.size,'14px');assert.match(typography.font,/Segoe|Inter|sans-serif/i);
-    for(const id of ['studio-stock-open','studio-generated-open','studio-export','studio-undo','studio-redo','studio-inspector-toggle']){
+    for(const id of ['studio-stock-open','studio-export','studio-undo','studio-redo','studio-inspector-toggle']){
       assert.equal(await page.locator('#'+id).count(),1,id+' is available once');
       assert.ok(await page.locator('#'+id).getAttribute('aria-label')||await page.locator('#'+id).textContent(),id+' has an accessible name');
     }

@@ -156,7 +156,9 @@ def migrate_existing():
                     or source.resolve().parent != path.resolve() or source.stat().st_size > MAX_IMAGE_BYTES):
                 continue
             with Image.open(source) as original:
-                if original.width * original.height > (16777216 if data.get('upscale') else 4194304):
+                provenance = (validate_upscale_metadata(data['upscale']) if data.get('upscale')
+                              else validate_generation_metadata(data['generation']))
+                if original.size != (provenance['width'], provenance['height']):
                     continue
                 image = original.copy()
         except (ValueError, OSError, HTTPException, KeyError, TypeError):

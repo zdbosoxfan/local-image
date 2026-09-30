@@ -12,6 +12,7 @@ import ernie_image as er
 
 def inventory():
     info = {name: {'input': {'required': {}}} for name in er.REQUIRED_NODES}
+    info['EmptyFlux2LatentImage']['input']['required'].update({axis: ['INT', {'min': 16, 'max': 16384, 'step': 16}] for axis in ('width', 'height')})
     for node, field, options in [('UNETLoader', 'unet_name', ['nested/' + er.MODEL_FILES['unet']]),
                                  ('CLIPLoader', 'clip_name', [er.MODEL_FILES['clip']]), ('CLIPLoader', 'type', ['flux2']),
                                  ('VAELoader', 'vae_name', [er.MODEL_FILES['vae']]),

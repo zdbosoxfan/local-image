@@ -181,6 +181,47 @@ class LayerProjectTests(previous.FolderSaveTests):
         await self.app.close_sessions(self.request(),payload)
         self.assertEqual(list(self.app.SESSIONS.iterdir()),[])
 
+    async def test_close_retries_windows_preview_handle_during_staging(self):
+        source=self.make_image();original=source.read_bytes();session=self.bind(source)
+        session_root=self.app.folder(session['id'])
+        real_rename=os.rename;attempts=[]
+        def release_after_two_reads(source_path,destination):
+            attempts.append((source_path,destination))
+            if len(attempts)<=2:
+                error=PermissionError(13,'A preview response still holds the image')
+                error.winerror=5
+                raise error
+            return real_rename(source_path,destination)
+        with patch.object(self.app.os,'rename',side_effect=release_after_two_reads),patch.object(self.app.time,'sleep') as sleep:
+            await self.app.close_session(session['id'],self.request(),self.app.CloseRequest(revision=session['revision'],discard=True))
+        self.assertEqual(len(attempts),3)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list],[0.1,0.2])
+        self.assertFalse(session_root.exists())
+        self.assertEqual(source.read_bytes(),original)
+        self.assertFalse(list(self.app.ROOT.glob('.closing-*')))
+
+    async def test_close_persistent_staging_lock_restores_prior_session(self):
+        first=self.bind(self.make_image('first.png'));second=self.bind(self.make_image('second.png'))
+        first_root=self.app.folder(first['id']);second_root=self.app.folder(second['id'])
+        first_before=(first_root/'session.json').read_bytes();second_before=(second_root/'session.json').read_bytes()
+        real_rename=os.rename;attempts=[]
+        def second_is_locked(source,destination):
+            attempts.append((Path(source),Path(destination)))
+            if Path(source)==second_root:
+                error=PermissionError(13,'A persistent Windows reader holds the second session')
+                error.winerror=32
+                raise error
+            return real_rename(source,destination)
+        with patch.object(self.app.os,'rename',side_effect=second_is_locked),patch.object(self.app.time,'sleep') as sleep:
+            with self.assertRaises(PermissionError):
+                self.app.discard_sessions([first['id'],second['id']])
+        self.assertEqual(sum(source==second_root for source,_ in attempts),5)
+        self.assertEqual(sleep.call_count,4)
+        self.assertEqual(attempts[-1][1],first_root,'The staged first session is rolled back')
+        self.assertEqual((first_root/'session.json').read_bytes(),first_before)
+        self.assertEqual((second_root/'session.json').read_bytes(),second_before)
+        self.assertFalse(list(self.app.ROOT.glob('.closing-*')))
+
     async def test_hostile_project_archives_leave_no_sessions_or_outside_files(self):
         session=self.layer(self.bind(self.make_image())['id']); clean=self.images/'clean.lremove'; await self.save_project(session,clean)
         with zipfile.ZipFile(clean) as archive: contents={item.filename:archive.read(item) for item in archive.infolist()}

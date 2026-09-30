@@ -136,3 +136,59 @@
 #studio-assets #stock-dialog.stock-studio .stock-empty span{font-size:12px}
 #studio-assets #stock-dialog.stock-studio .stock-results-pane{padding:2px}
 body[data-assets-open=false] #studio-assets{display:none}
+
+/* Generated is an Assets source, using the same explicit expand affordance. */
+#generated-library-dialog.assets-generated-library{position:static;inset:auto;width:100%;height:auto;max-width:none;max-height:none;min-width:0;min-height:0;flex:1;margin:0;padding:8px 12px 12px;border:0;border-radius:0;background:transparent;color:#edf0f5;box-shadow:none;overflow:hidden}
+#generated-library-dialog.assets-generated-library[open]{display:flex;flex-direction:column;gap:12px}
+#generated-library-dialog.assets-generated-library[hidden],#studio-assets[data-asset-tab=generated] #stock-dialog{display:none!important}
+#generated-library-dialog.assets-generated-library .dialog-header{padding:0;margin:0;border:0;align-items:center;min-height:24px;gap:8px}
+#generated-library-dialog.assets-generated-library .dialog-header>div{min-width:0;flex:1}
+#generated-library-dialog.assets-generated-library #generated-library-title{display:none}
+#generated-library-dialog.assets-generated-library #generated-library-usage{margin:0;font-size:12px;line-height:1.5;color:#adb5c3}
+#generated-library-dialog.assets-generated-library #generated-library-close{display:none}
+#generated-library-dialog.assets-generated-library .generated-library-toolbar{display:grid;grid-template-columns:1fr auto;gap:8px;margin:0;padding:0;border:0}
+#generated-library-dialog.assets-generated-library #generated-library-search{grid-row:1;grid-column:1/-1;min-width:0;width:100%;height:36px;padding:8px 10px;background:#17191e;color:#edf0f5;border:1px solid #ffffff12;border-radius:5px;font-size:14px}
+#generated-library-dialog.assets-generated-library #generated-library-select-mode{justify-self:start}
+#generated-library-dialog.assets-generated-library #generated-library-refresh{grid-row:2;grid-column:2;justify-self:end}
+#generated-library-dialog.assets-generated-library .generated-library-toolbar button{min-height:32px;background:transparent;border:0;padding:4px 0;font-size:13px;color:#a5c9ed}
+#generated-library-dialog.assets-generated-library #generated-library-select-all-row{grid-column:1/-1;margin:0;font-size:13px;min-height:24px}
+#generated-library-dialog.assets-generated-library .generated-library-body{min-height:0;flex:1;overflow:auto;padding:2px;scrollbar-width:thin}
+#generated-library-dialog.assets-generated-library .generated-library-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:0;align-content:start}
+#generated-library-dialog.assets-generated-library .generated-library-item{position:relative;min-width:0;padding:0;border:0;border-radius:5px;overflow:hidden;background:#17191e;box-shadow:none;aspect-ratio:1}
+#generated-library-dialog.assets-generated-library .generated-library-item img{display:block;width:100%;height:100%;object-fit:cover;margin:0;border-radius:0}
+#generated-library-dialog.assets-generated-library .generated-library-item strong,#generated-library-dialog.assets-generated-library .generated-library-item small{display:none}
+#generated-library-dialog.assets-generated-library .generated-library-item input{position:absolute;top:8px;left:8px;z-index:1;width:18px;height:18px;margin:0}
+#generated-library-dialog.assets-generated-library .generated-library-item[aria-pressed=true]{outline:2px solid #58a6ff;outline-offset:-2px}
+#generated-library-dialog.assets-generated-library .generated-library-item[aria-pressed=true]::after{content:'\2713';position:absolute;right:6px;top:6px;width:20px;height:20px;display:grid;place-items:center;background:#58a6ff;color:#101a27;border-radius:50%;font-size:13px;font-weight:700}
+#generated-library-dialog.assets-generated-library .generated-library-footer{padding-top:12px;border-top:1px solid #ffffff12;display:flex;flex-direction:column;gap:8px}
+#generated-library-dialog.assets-generated-library .generated-library-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#generated-library-dialog.assets-generated-library .generated-library-actions button{min-height:32px;min-width:0;padding:6px 8px;font-size:12px}
+#generated-library-dialog.assets-generated-library #generated-library-clear{background:none;border:0;color:#9caabd;grid-column:1/-1;grid-row:2;justify-self:start;padding:4px 0}
+#generated-library-dialog.assets-generated-library #generated-library-delete{grid-column:1/-1}
+#generated-library-dialog.assets-generated-library .library-action-spacer{display:none}
+#generated-library-dialog.assets-generated-library .library-preservation-note{display:none}
+#generated-library-dialog.assets-generated-library #generated-library-status:not(.error){display:none}
+#generated-library-dialog.assets-generated-library #generated-library-status.error{font-size:12px;line-height:1.5;color:#ffadad;margin:0}
+#generated-library-dialog.assets-generated-library .library-delete-confirm{display:flex;flex-wrap:wrap;gap:8px;padding:8px 0;border:0;border-radius:0;background:none;font-size:13px}
+#generated-library-dialog.assets-generated-library .library-delete-confirm>span{flex-basis:100%}
+#generated-library-dialog.assets-generated-library .stock-empty{padding:24px 0;margin:0;text-align:center;font-size:13px;line-height:1.5;color:#adb5c3}
+#generated-library-dialog.assets-generated-library.assets-library-expanded{position:fixed;inset:24px;width:min(1200px,calc(100vw - 48px));height:min(860px,calc(100dvh - 48px));z-index:200;margin:auto;padding:24px;background:#22252b;border:1px solid #ffffff18;border-radius:8px;box-shadow:0 20px 60px #0007}
+#generated-library-dialog.assets-library-expanded #generated-library-title{display:block;font-size:16px;margin:0 0 4px}
+#generated-library-dialog.assets-library-expanded .dialog-header>button{width:32px;height:32px;padding:6px;border:0;background:none;color:#adb5c3}
+#generated-library-dialog.assets-library-expanded .dialog-header>button svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.5}
+#generated-library-dialog.assets-library-expanded .generated-library-toolbar{display:flex;gap:16px;align-items:center}
+#generated-library-dialog.assets-library-expanded #generated-library-search{flex:1}
+#generated-library-dialog.assets-library-expanded .generated-library-grid{grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
+#generated-library-dialog.assets-library-expanded .generated-library-actions{display:flex;justify-content:flex-end;align-items:center;gap:8px}
+#generated-library-dialog.assets-library-expanded #generated-library-clear{margin-right:auto}
+#generated-library-dialog.assets-library-expanded .generated-library-actions button{font-size:14px;min-height:36px;padding:8px 16px}
+#studio-assets #stock-dialog.stock-studio .stock-empty{font-size:13px;line-height:1.5;text-align:center;color:#adb5c3;padding:16px 0;margin:16px 0}
+#studio-assets #stock-dialog.stock-studio .stock-empty span{display:none}
+#studio-assets #stock-dialog.stock-studio:not(.stock-has-selection) .stock-selection{display:none}
+#studio-assets #stock-dialog.stock-studio:not(.stock-has-selection) .stock-import-actions,#studio-assets #stock-dialog.stock-studio:not(.stock-has-selection) .stock-pagination{display:none}
+#studio-assets #stock-dialog.stock-studio:not(.stock-has-selection) .stock-footer{padding-top:0;border:0}
+#studio-assets #stock-dialog.stock-studio #stock-status:not(.error){display:none}
+#studio-assets #stock-dialog.stock-studio .stock-search-form input::placeholder{font-size:13px}
+body[data-persona=generate][data-generation-view=refine][data-assets-open=true] #refine-dialog[data-inline-studio=true]{grid-column:2/-1}
+@media(max-width:1100px){#generated-library-dialog.assets-library-expanded .generated-library-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:650px){#generated-library-dialog.assets-library-expanded{inset:12px;width:calc(100vw - 24px);height:calc(100dvh - 24px);padding:16px}#generated-library-dialog.assets-library-expanded .generated-library-grid{grid-template-columns:repeat(3,minmax(0,1fr))}body[data-persona=generate][data-generation-view=refine][data-assets-open=true] #refine-dialog[data-inline-studio=true]{grid-column:1/-1}}
