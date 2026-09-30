@@ -28,6 +28,7 @@ from test_flux2_image import inventory as flux_inventory
 from test_hidream_image import inventory as hidream_inventory
 from test_ernie_image import inventory as ernie_inventory
 from generation_metadata import validate_generation_metadata
+from generation_resolution import validate_generation_size
 
 
 def combined_inventory():
@@ -45,7 +46,7 @@ def combined_inventory():
             else:
                 for field, value in node.get('input', {}).get('required', {}).items():
                     fields = info[name]['input']['required']
-                    fields[field] = [list(dict.fromkeys(choices(fields.get(field, [[]])) + choices(value)))]
+                    fields[field] = value if value and value[0] == 'INT' else [list(dict.fromkeys(choices(fields.get(field, [[]])) + choices(value)))]
     info['LoraLoaderModelOnly'] = {'input': {'required': {'lora_name': [[]]}}}
     return info
 
@@ -108,11 +109,73 @@ class GenerationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(model['recommended']['steps'], model['defaults']['steps'])
             self.assertGreater(model['storage_bytes'], 0)
 
+    async def test_catalogue_sampling_guidance_distinguishes_publisher_examples_and_workflow_limits(self):
+        models = self.api.model_inventory(combined_inventory())['models']
+        expected = {'qwen': 40, 'z-image-turbo': 8, 'flux2-klein-4b': 4, 'flux2-klein-9b': 4, 'ernie-image': 50}
+        for model in models:
+            with self.subTest(model=model['id']):
+                guidance = model['sampling_guidance']
+                self.assertEqual(model['defaults']['steps'], expected[model['id']])
+                self.assertEqual(guidance['steps']['recommended'], model['defaults']['steps'])
+                self.assertTrue(guidance['steps']['source_url'].startswith('https://'))
+                self.assertEqual(model['limits']['resolution_policy'], 'comfy-workflow')
+                self.assertEqual(model['limits']['max_dimension'], 16384)
+                self.assertIsNone(model['limits']['max_pixels'])
+                self.assertIsNone(guidance['resolution']['published_max_pixels'])
+                self.assertIn('workflow', guidance['resolution']['workflow_limits']['label'])
+                self.assertTrue(guidance['resolution']['recommended_sizes'])
+                for size in guidance['resolution']['recommended_sizes']:
+                    self.api.GenerationRequest(model=model['id'], prompt='An empty landscape', **size)
+                if model['id'].startswith('flux2-klein-'):
+                    self.assertEqual((model['limits']['min_steps'], model['limits']['max_steps']), (4, 4))
+                    self.assertEqual((model['limits']['min_guidance'], model['limits']['max_guidance']), (1, 1))
+        qwen = models[0]['sampling_guidance']['resolution']
+        self.assertEqual(qwen['publisher_sizes'], qwen['recommended_sizes'])
+        self.assertIn({'width': 848, 'height': 1264}, models[-1]['sampling_guidance']['resolution']['recommended_sizes'])
+        # Catalog callers must not mutate shared publisher facts.
+        qwen['recommended_sizes'][0]['width'] = 256
+        self.assertEqual(self.api.model_inventory({})['models'][0]['sampling_guidance']['resolution']['recommended_sizes'][0]['width'], 2048)
+
+    async def test_distilled_klein_new_requests_are_four_steps_but_legacy_projects_still_open(self):
+        for model in ('flux2-klein-4b', 'flux2-klein-9b'):
+            for steps in (None, 4):
+                self.assertEqual(self.api.generation_parameters(self.payload(model=model, steps=steps))['steps'], 4)
+            for steps in (1, 3, 5, 20, 50):
+                with self.subTest(model=model, steps=steps), self.assertRaisesRegex(ValidationError, 'exactly 4 steps'):
+                    self.payload(model=model, steps=steps)
+            for legacy_steps in (1, 20, 50):
+                legacy = self.api.generation_parameters(self.payload(model=model, seed=0))
+                legacy['steps'] = legacy_steps
+                self.assertEqual(validate_generation_metadata(legacy)['steps'], legacy_steps)
+                source = self.fixture.bind(self.fixture.make_image(size=(256, 256)))
+                data = self.editor.read_session(source['id']); data['generation'] = legacy
+                path = self.fixture.images / f'{model}-{legacy_steps}.lremove'
+                self.editor.write_project(self.editor.folder(data['id']), data, path)
+                self.assertEqual(self.editor.import_project(path)['session']['generation'], legacy)
+
+    async def test_qwen_generation_dispatch_uses_publisher_default_for_both_precisions(self):
+        for variant in ('int8', 'bf16'):
+            with patch.object(qwen_image, 'run_qwen_image', AsyncMock(return_value=Image.new('RGB', (256, 256), 'green'))) as generate:
+                result = await self.api.generate_image(self.fixture.request(), self.payload(variant=variant, seed=0))
+            self.assertEqual(generate.await_args.kwargs['steps'], 40)
+            self.assertEqual(result['session']['generation']['steps'], 40)
+        self.assertEqual(self.api.generation_parameters(self.payload(steps=25))['steps'], 25)
+
+    async def test_generation_dimensions_use_workflow_constraints_without_an_app_area_cap(self):
+        for model in ('qwen', 'z-image-turbo', 'flux2-klein-4b', 'flux2-klein-9b', 'ernie-image'):
+            for width, height in ((224, 256), (256, 4128), (1024, 1040), (3840, 2160), (4096, 2304), (7680, 4320)):
+                payload = self.api.GenerationRequest(model=model, prompt='A room', width=width, height=height)
+                validate_generation_metadata(self.api.generation_parameters(payload))
+                self.assertEqual(validate_generation_size((width, height), model, combined_inventory()), (width, height))
+            for size in ((15, 16), (16385, 512), (1024, 1041)):
+                with self.subTest(model=model, size=size), self.assertRaises(ValueError):
+                    validate_generation_size(size, model, combined_inventory())
+
     async def test_model_specific_validation_rejects_paths_dimensions_and_unsupported_controls(self):
         invalid = [{'reference_session_ids': ['../private.png']}, {'transparent': True, 'model': 'z-image-turbo'},
                    {'model': 'z-image-turbo', 'variant': 'int8'}, {'model': 'z-image-turbo', 'negative_prompt': 'text'},
                    {'model': 'z-image-turbo', 'guidance': 2}, {'denoise': .5},
-                   {'model': 'z-image-turbo', 'denoise': .3}, {'seed': True}, {'width': 257}, {'width': 4096, 'height': 4096},
+                   {'model': 'z-image-turbo', 'denoise': .3}, {'seed': True}, {'width': 0}, {'height': -1}, {'width': True},
                    {'model': 'qwen', 'variant': 'fp8'}, {'model': 'flux2-dev', 'variant': 'bf16'},
                    {'model': 'flux2-dev', 'transparent': True}, {'model': 'flux2-dev', 'negative_prompt': 'text'},
                    {'model': 'flux2-klein-4b', 'guidance': 4}, {'model': 'flux2-klein-4b', 'denoise': .5},

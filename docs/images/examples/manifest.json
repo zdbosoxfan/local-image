@@ -152,6 +152,114 @@
       "transparent_fraction": 0.0,
       "sha256": "b97d2fedca3a47d727788b9e463b8af948571510c208e7de5d0dafcb0aa4f0bf",
       "bytes": 1087993
+    },
+    {
+      "file": "klein-teal-lighthouse.png",
+      "source_case": "061-flux2-klein-9b-fp8-text-to-image-opaque-teal-dark-illustration",
+      "caption": "FLUX.2 Klein 9B + Teal dark illustration: a lighthouse glowing through a storm.",
+      "alt": "A luminous teal lighthouse on a rocky island, surrounded by black storm clouds, diagonal rain and turquoise reflections.",
+      "model": "flux2-klein-9b",
+      "variant": "fp8",
+      "mode": "text-to-image",
+      "loras": [
+        {
+          "title": "Teal dark illustration",
+          "strength": 1.0
+        }
+      ],
+      "width": 512,
+      "height": 512,
+      "prompt": "dvr_tldr_style. dvr_tldr_style, a lighthouse on a rocky island in a storm, black background, dramatic illustration Balanced clear composition on a pale clean background.",
+      "steps": 4,
+      "guidance": 1.0,
+      "seed": 290960,
+      "transparent": false,
+      "alpha_min": 255,
+      "alpha_max": 255,
+      "transparent_fraction": 0.0,
+      "sha256": "6d8497c6a34e3c375c14aaa84e6d4e60e8926b7fee1c0500c62eeabac603ee5f",
+      "bytes": 248882
+    },
+    {
+      "file": "klein-blueprint-espresso.png",
+      "source_case": "063-flux2-klein-9b-fp8-text-to-image-opaque-blueprint-wireframe",
+      "caption": "FLUX.2 Klein 9B + Blueprint wireframe: an espresso machine drawn in blue linework.",
+      "alt": "Blue wireframe illustration of an espresso machine with a pressure gauge and two cups on its drip tray.",
+      "model": "flux2-klein-9b",
+      "variant": "fp8",
+      "mode": "text-to-image",
+      "loras": [
+        {
+          "title": "Blueprint wireframe",
+          "strength": 1.0
+        }
+      ],
+      "width": 512,
+      "height": 512,
+      "prompt": "dvr_wf_style. dvr_wf_style, an elegant espresso machine with two cups, precise-looking technical line illustration Balanced clear composition on a pale clean background.",
+      "steps": 4,
+      "guidance": 1.0,
+      "seed": 290962,
+      "transparent": false,
+      "alpha_min": 255,
+      "alpha_max": 255,
+      "transparent_fraction": 0.0,
+      "sha256": "e5b5ed642d626860cf36a469ad7d5096b54bb63f88ba10de345ecf03d3382a88",
+      "bytes": 232698
+    },
+    {
+      "file": "z-image-playful-submarine.png",
+      "source_case": "045-z-image-turbo-bf16-text-to-image-opaque-children-s-drawings",
+      "caption": "Z-Image Turbo + Children's drawings: a cheerful submarine in a sea of colorful fish.",
+      "alt": "A smiling yellow submarine above blue scribbled waves and colorful fish, in a playful hand-drawn style.",
+      "model": "z-image-turbo",
+      "variant": "bf16",
+      "mode": "text-to-image",
+      "loras": [
+        {
+          "title": "Children's drawings",
+          "strength": 1.0
+        }
+      ],
+      "width": 512,
+      "height": 512,
+      "prompt": "A friendly yellow submarine sailing through a blue sea with colorful fish, playful hand-drawn illustration Balanced clear composition on a pale clean background.",
+      "steps": 8,
+      "guidance": 1.0,
+      "seed": 290944,
+      "transparent": false,
+      "alpha_min": 255,
+      "alpha_max": 255,
+      "transparent_fraction": 0.0,
+      "sha256": "4ac366250072f0781b22567dbbbe5a907f008ad8b006bbed126aa4e5455404b4",
+      "bytes": 312790
+    },
+    {
+      "file": "qwen-anime-reference.png",
+      "source_case": "007-qwen-int8-image-to-image-opaque-anime-character-consistency",
+      "caption": "Qwen INT8 + Anime character consistency: a portrait generated from a character reference.",
+      "alt": "Anime portrait of a woman with short dark blue hair and amber eyes, wearing a green jacket and cream scarf.",
+      "model": "qwen",
+      "variant": "int8",
+      "mode": "image-to-image",
+      "loras": [
+        {
+          "title": "Anime character consistency",
+          "strength": 0.7
+        }
+      ],
+      "width": 512,
+      "height": 512,
+      "prompt": "Preserve the adult anime woman from the reference, short dark blue hair and amber eyes, green jacket and cream scarf, relaxed smile, waist-up portrait, clean linework, no text. Balanced clear composition on a pale clean background.",
+      "steps": 25,
+      "guidance": 1.0,
+      "seed": 290906,
+      "transparent": false,
+      "alpha_min": 255,
+      "alpha_max": 255,
+      "transparent_fraction": 0.0,
+      "sha256": "8c5cbf7e5f6d9bf272d214439043a9f1823d8c8ec801b4004954540ce1cbba32",
+      "bytes": 246054
     }
   ]
 }

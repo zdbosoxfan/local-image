@@ -90,6 +90,20 @@ class GenerationLibraryTests(unittest.IsolatedAsyncioTestCase):
         reopened = self.editor.import_project(project)['session']
         self.assertEqual(reopened['generation'], data['generation'])
 
+    async def test_larger_generated_result_is_recovered_and_reopens_at_exact_dimensions(self):
+        size = (4096, 2304)
+        path = self.fixture.make_image(size=size)
+        created = self.editor.create_session(path, 'large-generated.png')
+        data = self.editor.read_session(created['id'])
+        data.update(generation={**parameters(), 'width': size[0], 'height': size[1], 'transparent': False}, revision=1)
+        self.editor.write_session(self.editor.folder(data['id']), data)
+        result = self.library.listing()
+        self.assertEqual(result['count'], 1)
+        self.assertEqual((result['items'][0]['width'], result['items'][0]['height']), size)
+        reopened = self.library.open_image(data['id'])['session']
+        self.assertEqual((reopened['width'], reopened['height']), size)
+        self.assertEqual(reopened['generation'], data['generation'])
+
     async def test_deleted_items_do_not_reappear_after_restart_or_next_generated_image(self):
         _, first = self.generated()
         self.library.listing()

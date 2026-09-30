@@ -40,9 +40,10 @@ class SeedVR2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(graph['5']['inputs']['overlap'], 128)
         self.assertFalse(any(node['class_type'] in ('CLIPLoader', 'CLIPTextEncode', 'EmptyLatentImage') for node in graph.values()))
 
-    def test_bounds_reject_crop_shrink_odd_and_excessive_dimensions(self):
+    def test_bounds_preserve_source_geometry_without_app_size_caps(self):
         self.assertEqual(sv.validate_size((1536, 864), (3840, 2160)), (3840, 2160))
-        for size in ((2048, 2048), (768, 432), (1536, 864), (3841, 2160), (7680, 4320), (True, 256)):
+        self.assertEqual(sv.validate_size((1536, 864), (7680, 4320)), (7680, 4320))
+        for size in ((2048, 2048), (768, 432), (1536, 864), (3841, 2161), (1, 1), (True, 256)):
             with self.assertRaises(ValueError):
                 sv.validate_size((1536, 864), size)
 

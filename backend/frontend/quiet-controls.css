@@ -1,0 +1,33 @@
+/* A control gets a box when it is a field, preview, or primary action. Shared
+ * commands and navigation use spacing and selection indicators instead. */
+#stock-dialog.stock-studio .stock-empty span{display:block}
+#cutout-panel .cutout-history,
+#cutout-panel #cutout-export{display:none!important}
+#cutout-panel>.studio-footer:not(:has(.cutout-export-state.pending)){display:none}
+#cutout-panel>.studio-footer:has(.cutout-export-state.pending){padding-top:10px;padding-bottom:12px}
+#cutout-panel #studio-heading{display:none}
+#cutout-panel .studio-caption{justify-content:flex-end;padding-top:10px}
+#cutout-panel [data-studio-panel=background]>h3:first-child{display:none}
+body[data-assets-open=true] #background-folder,
+body[data-assets-open=true] #background-stock{display:none}
+#cutout-panel .background-actions{justify-content:flex-start}
+#cutout-panel .background-actions button{flex:none;background:transparent;border-color:transparent;padding-left:0;color:var(--text)}
+#cutout-panel .background-actions button:hover:not(:disabled){background:var(--hover);border-color:transparent}
+#cutout-panel #transform-move{width:auto;background:transparent;border-color:transparent;padding-left:0;color:var(--text)}
+#model-browser-list button{border:0;border-radius:0;background:transparent;box-shadow:none}
+#model-browser-list button[aria-current=true]{background:#ffffff06;box-shadow:inset 2px 0 var(--accent)}
+.hardware-starter button{background:transparent;border-color:transparent;border-radius:0;color:var(--text)}
+.hardware-starter button:hover:not(:disabled){background:var(--hover)}
+.generated-library-actions button.secondary{background:transparent;border-color:transparent}
+.generated-library-actions button.secondary:hover:not(:disabled){background:var(--hover)}
+#stock-dialog.stock-studio .stock-import-actions{flex-wrap:nowrap}
+#studio-assets #stock-dialog.stock-studio .stock-import-actions>button.primary{flex:1;min-width:0}
+#stock-dialog.stock-studio .stock-import-actions>.quiet-overflow-trigger,
+#studio-assets #stock-dialog.stock-studio .stock-import-actions>.quiet-overflow-trigger{flex:0 0 36px;min-width:36px;width:36px;padding:0;font-size:22px;background:transparent;border-color:transparent;line-height:1}
+#stock-dialog.stock-studio .stock-import-actions>.quiet-overflow-trigger:hover:not(:disabled){background:var(--hover)}
+#stock-import-menu.quiet-action-menu{position:fixed;inset:auto;margin:0;padding:6px;min-width:218px;max-width:calc(100vw - 16px);background:var(--panel);border:1px solid #485362;border-radius:8px;color:var(--text);box-shadow:0 12px 36px #0008;overflow:auto}
+#stock-import-menu.quiet-action-menu:popover-open{display:flex;flex-direction:column;gap:2px}
+#stock-import-menu.quiet-action-menu>button{display:block;text-align:left;min-height:36px;padding:8px 12px;background:transparent;border:0;border-radius:4px;font:inherit;font-size:var(--ui-font);white-space:nowrap}
+#stock-import-menu.quiet-action-menu>button[hidden]{display:none!important}
+#stock-import-menu.quiet-action-menu>button:hover:not(:disabled),
+#stock-import-menu.quiet-action-menu>button:focus-visible{background:var(--hover)}

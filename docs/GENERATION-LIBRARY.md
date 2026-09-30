@@ -1,6 +1,6 @@
 # Generated image library
 
-Open **File → Generated image library…**, or choose **Library…** in Image Gen. The library keeps completed generation results and upscaled results with their settings. It also brings existing generated recovery documents into the library on first use.
+Choose **Generated** inside Assets. Images stay in that dock; the diagonal-arrow expand control opens the larger browser. The same control restores the dock. The collection keeps completed generation and upscale results with their settings, shows cache storage, and supports selective deletion or clearing the collection.
 
 Click an image to focus it. An ordinary click replaces the current focus, so browsing several candidates still leaves one image available to open. **Open in editor** creates a fresh editable document; **Use as draft** loads a copy into Draft & Refine. Neither action changes the library image. The library stores the original completed result, so later retouching or cutout changes in an open document do not replace that saved library copy. Save a `.lremove` project to keep those later edits.
 
@@ -27,7 +27,7 @@ A library-write failure does not discard a successful generation or upscale. The
 
 Use **Compare larger** for more image space, then **100%** to inspect real output pixels. Fit and zoom controls share the comparison position; drag either image to pan both. The comparison uses each document's full-resolution PNG, so lettering and edges can be checked beyond a thumbnail. The two images retain their own pixel dimensions: at 100%, a larger refinement occupies more canvas space than the draft. **Back to settings** restores the stage controls. See [the Image Gen guide](IMAGE-GENERATION.md) for stage-specific styles, transparency and saved recipes.
 
-When SeedVR2 upscaling is enabled and its model is ready, **Finish with SeedVR2 upscale** adds a restoration pass after refinement. **Upscale selected draft only** restores the selected image without a semantic refinement pass. The output must enlarge the source, keep its aspect ratio within two pixels of rounding, and use even dimensions from 256 to 4096 pixels. The maximum area is 16,777,216 pixels. A 3840-pixel long edge preserves the source aspect ratio; it does not necessarily produce 3840 × 2160.
+When SeedVR2 is ready, **Finish with SeedVR2 upscale** adds a restoration pass after refinement. **Upscale selected draft only** restores the selected image without semantic refinement. The output must enlarge the source and retain its aspect ratio within rounding tolerance. Size validation follows the connected workflow; the previous 4096-pixel and 16 MP application limits have been removed. Long-edge presets preserve the source aspect ratio, so a 3840-pixel long edge is not necessarily 3840 by 2160.
 
 The upscaler snapshots the current visible image, including repair layers, cutout composition and source alpha. The source document and source file remain unchanged. Restored results are new 8-bit image documents; alpha is resized separately and retained. Restoration can synthesize fine detail, so compare the result with its source before keeping it.
 

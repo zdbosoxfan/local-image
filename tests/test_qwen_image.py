@@ -18,6 +18,7 @@ def inventory():
         names = sorted({files[key] for files in qwen.MODEL_FILES.values()})
         info[node]['input']['required'][field] = [[f'qwen/{name}' for name in names]]
     info['CLIPLoader']['input']['required']['type'] = [['qwen_image']]
+    info['EmptyLatentImage']['input']['required'].update({axis: ['INT', {'min': 16, 'max': 16384, 'step': 8}] for axis in ('width', 'height')})
     info['QwenImage21Cache'] = {}
     return info
 
@@ -69,10 +70,10 @@ class QwenGraphTests(unittest.TestCase):
         self.assertEqual(graph['25']['inputs']['alpha'], ['24', 1])
         self.assertEqual(graph['8']['class_type'], 'SaveImage')
 
-    def test_background_graph_uses_native_model_and_rounded_canvas(self):
+    def test_background_graph_preserves_requested_canvas(self):
         graph = qwen.build_qwen_workflow(qwen.MODEL_FILES['bf16'], prompt='Empty studio',
-                                        size=(1025, 767), seed=123, use_cache=False)
-        self.assertEqual(graph['5']['inputs'], {'width': 992, 'height': 736, 'batch_size': 1})
+                                        size=(3840, 2160), seed=123, use_cache=False)
+        self.assertEqual(graph['5']['inputs'], {'width': 3840, 'height': 2160, 'batch_size': 1})
         self.assertEqual(graph['6']['inputs']['model'], ['1', 0])
         self.assertEqual(graph['6']['inputs']['seed'], 123)
         self.assertEqual(graph['2']['inputs']['type'], 'qwen_image')

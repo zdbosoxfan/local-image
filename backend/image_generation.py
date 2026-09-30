@@ -18,6 +18,7 @@ import hidream_image
 import ernie_image
 from generation_metadata import validate_generation_metadata, validate_lora_metadata, VARIANTS
 from generation_model_details import enrich_model
+from generation_resolution import resolution_limits
 from app_paths import model_directory
 from stock_attribution import collect_attributions, unique_attributions
 from comfy_inventory import read_inventory
@@ -25,7 +26,7 @@ from operation_progress import operation, snapshot as progress_snapshot
 
 router = APIRouter(prefix='/api/local-remove/generation')
 MODEL_DEFAULTS = {
-    'qwen': {'variant': 'int8', 'steps': 25, 'guidance': 1.0},
+    'qwen': {'variant': 'int8', 'steps': 40, 'guidance': 1.0},
     'z-image-turbo': {'variant': 'bf16', 'steps': 8, 'guidance': 1.0},
     'flux2-dev': {'variant': 'fp8', 'steps': 20, 'guidance': 4.0},
     'flux2-klein-4b': {'variant': 'bf16', 'steps': 4, 'guidance': 1.0},
@@ -47,8 +48,8 @@ class GenerationRequest(BaseModel):
     variant: Literal['int8', 'bf16', 'fp8'] | None = None
     prompt: str = Field(min_length=1, max_length=4000)
     negative_prompt: str = Field(default='', max_length=2000)
-    width: int = Field(default=1024, ge=256, le=4096, multiple_of=32)
-    height: int = Field(default=1024, ge=256, le=4096, multiple_of=32)
+    width: int = Field(default=1024, ge=1)
+    height: int = Field(default=1024, ge=1)
     seed: int | None = Field(default=None, ge=0, le=2**53-1)
     transparent: bool = False
     reference_session_ids: list[str] = Field(default_factory=list, max_length=10)
@@ -68,8 +69,6 @@ class GenerationRequest(BaseModel):
     def valid_model_inputs(self):
         if not self.prompt.strip():
             raise ValueError('Describe the image to generate.')
-        if self.width * self.height > 4194304:
-            raise ValueError('Choose an output size up to 4 megapixels.')
         if self.variant is not None and self.variant not in VARIANTS[self.model]:
             raise ValueError('Choose a precision preset supported by this model.')
         validate_lora_metadata([item.model_dump() for item in self.loras])
@@ -106,15 +105,14 @@ class GenerationRequest(BaseModel):
                     raise ValueError('FLUX.2 generates opaque images and does not use a negative prompt.')
                 if len(self.reference_session_ids) > 4:
                     raise ValueError('Use at most four FLUX.2 reference images.')
-                if self.model.startswith('flux2-klein-') and (self.guidance not in (None, 1) or self.steps is not None and self.steps > 50):
-                    raise ValueError('Distilled FLUX.2 Klein uses guidance 1 and between 1 and 50 steps.')
+                if self.model.startswith('flux2-klein-') and (self.guidance not in (None, 1) or self.steps not in (None, 4)):
+                    raise ValueError('This distilled FLUX.2 Klein preset requires exactly 4 steps and guidance 1. Klein Base uses a different sampling preset.')
         return self
 
 
 def model_inventory(info, *, connected=True, connection_reason=''):
     qwen_variants = qwen_image.qwen_model_options(info)
     z_variants = [z_image.z_image_model_option(info)]
-    dimensions = {'min': 256, 'max': 4096, 'step': 32, 'default_width': 1024, 'default_height': 1024, 'max_pixels': 4194304}
     models = []
     entries = [('qwen', 'Qwen Image 2.1', 'edits & transparent assets', qwen_variants),
                ('z-image-turbo', 'Z-Image Turbo', 'fast image generation', z_variants),
@@ -127,6 +125,8 @@ def model_inventory(info, *, connected=True, connection_reason=''):
         is_ernie = model == 'ernie-image'
         default_side = 2048 if is_hidream else 1024
         variable_guidance = model in ('qwen', 'flux2-dev', 'hidream-o1', 'ernie-image')
+        distilled_klein = model.startswith('flux2-klein-')
+        canvas = resolution_limits(info if connected else {}, model)
         if not connected:
             for variant in variants:
                 variant.update(available=False, reason=connection_reason)
@@ -138,10 +138,11 @@ def model_inventory(info, *, connected=True, connection_reason=''):
                 'references': not is_ernie, 'reference_mode': None if is_ernie else 'init' if is_z else 'semantic',
                 'transparent': is_qwen, 'max_references': 0 if is_ernie else 10 if is_qwen or is_hidream else 1 if is_z else 4,
                 'negative_prompt': is_qwen or is_hidream or is_ernie, 'denoise': is_z, 'loras': loras_available, 'lora': loras_available},
-            'dimensions': {**dimensions, 'default_width': default_side, 'default_height': default_side},
+            'dimensions': {'min': canvas['min_dimension'], 'max': canvas['max_dimension'], 'step': canvas['dimension_step'],
+                           'default_width': default_side, 'default_height': default_side, 'max_pixels': None},
             'defaults': {**MODEL_DEFAULTS[model], 'width': default_side, 'height': default_side, 'denoise': 0.6 if is_z else None},
-            'limits': {'min_dimension': 256, 'max_dimension': 4096, 'dimension_step': 32, 'max_pixels': 4194304,
-                       'min_steps': 1, 'max_steps': 100 if variable_guidance else 50, 'min_guidance': 1,
+            'limits': {**canvas,
+                       'min_steps': 4 if distilled_klein else 1, 'max_steps': 4 if distilled_klein else 100 if variable_guidance else 50, 'min_guidance': 1,
                        'max_guidance': 10 if variable_guidance else 1, 'max_loras': 3},
             'notes': (['Designed for posters, dense text and graphic layouts. Review every letter before publishing.',
                        'Base model: 50 steps and guidance 4. Uses your prompt directly; no hidden prompt enhancer.',
@@ -208,7 +209,7 @@ async def snapshot_references(ids, destination, attributions=None):
                 attributions.extend(collect_attributions(data))
             def snapshot(data=data, path=path):
                 image = editor.render(data)
-                if not data.get('cutout', {}).get('enabled'):
+                if not data.get('cutout', {}).get('enabled') and not data.get('layer_stack'):
                     image = editor.attach_source_alpha(editor.folder(data['id']), data, image)
                 image.save(path)
             await asyncio.to_thread(snapshot)

@@ -13,20 +13,20 @@ import qwen_image
 from generation_metadata import validate_generation_metadata
 from stock_attribution import collect_attributions, validate_attribution
 from upscale_metadata import validate_upscale_metadata, validate_upscale_size
+from generation_resolution import upscale_resolution_limits
 
 router = APIRouter(prefix='/api/local-remove/generation/upscale')
 # Accepted on RTX 5090: native 3840x2160 photo restoration and RGBA preservation.
 # It is an optional photo enhancement; synthesized fine detail is not ground truth.
 ENABLE_UPSCALE = True
-LIMITS = {'min_dimension': 256, 'max_dimension': 4096, 'dimension_step': 2, 'max_pixels': 16777216}
 
 
 class UpscaleRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     session_id: str
     revision: int = Field(ge=0)
-    width: int = Field(ge=256, le=4096, multiple_of=2)
-    height: int = Field(ge=256, le=4096, multiple_of=2)
+    width: int = Field(ge=2, multiple_of=2)
+    height: int = Field(ge=2, multiple_of=2)
     seed: int | None = Field(default=None, ge=0, le=2**53 - 1)
 
     @model_validator(mode='after')
@@ -53,13 +53,13 @@ async def upscale_models(request: Request):
     return {'enabled': ENABLE_UPSCALE, 'connected': connected,
             'model': {'id': 'seedvr2', 'label': 'SeedVR2 7B', 'variant': 'fp16',
                       'available': option['available'], 'reason': option['reason'], 'variants': [option]},
-            'limits': dict(LIMITS),
+            'limits': upscale_resolution_limits(info),
             'reason': '' if ENABLE_UPSCALE else 'Upscaling is withheld while real-image quality is being validated.'}
 
 
 def snapshot(data, path):
     image = editor.render(data)
-    if not data.get('cutout', {}).get('enabled'):
+    if not data.get('cutout', {}).get('enabled') and not data.get('layer_stack'):
         image = editor.attach_source_alpha(editor.folder(data['id']), data, image)
     image.save(path, icc_profile=editor.SRGB.tobytes())
     return image

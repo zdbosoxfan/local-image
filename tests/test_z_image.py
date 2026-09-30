@@ -18,6 +18,7 @@ def inventory():
         info[node]['input']['required'][field] = [[f'zimage/{z.MODEL_FILES[role]}']]
     info['CLIPLoader']['input']['required']['type'] = [['lumina2']]
     info['KSampler']['input']['required']['sampler_name'] = [['res_multistep', 'euler']]
+    info['EmptySD3LatentImage']['input']['required'].update({axis: ['INT', {'min': 16, 'max': 16384, 'step': 16}] for axis in ('width', 'height')})
     return info
 
 

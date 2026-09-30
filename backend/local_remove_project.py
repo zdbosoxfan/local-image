@@ -11,9 +11,10 @@ from cutout_composite import cutout_assets
 from generation_metadata import validate_generation_metadata
 from stock_attribution import validate_attribution, validate_attributions
 from upscale_metadata import validate_upscale_metadata
+from layer_stack import validate_stack, assets as stack_assets
 
 FORMAT = 'local-remove-project'
-VERSION = 2
+VERSION = 3
 MAX_LAYERS = 1000
 MAX_PIXELS = 150_000_000
 MAX_ASSET = 2 * 1024**3
@@ -46,6 +47,9 @@ def write_project(root, data, target):
     names = [original, 'base.png']
     if data.get('cutout') is not None:
         names.extend(cutout_assets(data['cutout']))
+    if data.get('layer_stack') is not None:
+        validate_stack(data['layer_stack'], data['layers'])
+        names.extend(stack_assets(data['layer_stack']))
     for source in data['layers']:
         layer = {key: value for key, value in source.items() if key in LAYER_KEYS}
         lid = layer['id']
@@ -62,6 +66,7 @@ def write_project(root, data, target):
         layers.append(layer)
     if len(layers) > MAX_LAYERS:
         raise ValueError('A project can contain up to 1,000 layers.')
+    names = list(dict.fromkeys(names))
     assets = {}
     total = 0
     for name in names:
@@ -73,11 +78,13 @@ def write_project(root, data, target):
         assets[name] = {'size': size, 'sha256': digest(path)}
     if total > MAX_TOTAL:
         raise ValueError('This project exceeds the 12 GB project limit.')
-    manifest = {'format': FORMAT, 'version': VERSION, 'name': data['name'],
+    manifest = {'format': FORMAT, 'version': VERSION if data.get('layer_stack') else 2, 'name': data['name'],
                 'width': data['width'], 'height': data['height'], 'bit_depth': data['bit_depth'],
                 'revision': data['revision'], 'original': original, 'layers': layers, 'assets': assets}
     if data.get('cutout') is not None:
         manifest['cutout'] = data['cutout']
+    if data.get('layer_stack') is not None:
+        manifest['layer_stack'] = data['layer_stack']
     if data.get('generation') is not None:
         manifest['generation'] = validate_generation_metadata(data['generation'])
     if data.get('upscale') is not None:
@@ -98,7 +105,7 @@ def write_project(root, data, target):
 
 def read_manifest(archive):
     infos = archive.infolist()
-    if len(infos) > MAX_LAYERS * 3 + 5:
+    if len(infos) > MAX_LAYERS * 5 + 5:
         raise ValueError('The project contains too many assets.')
     names = [info.filename for info in infos]
     if len(set(names)) != len(names) or 'manifest.json' not in names:
@@ -120,9 +127,9 @@ def read_manifest(archive):
         raise ValueError('The project metadata is too large.')
     manifest = json.loads(archive.read(info))
     required = {'format', 'version', 'name', 'width', 'height', 'bit_depth', 'revision', 'original', 'layers', 'assets'}
-    optional = {'cutout', 'generation', 'upscale', 'source_attribution', 'reference_attributions'}
+    optional = {'cutout', 'generation', 'upscale', 'source_attribution', 'reference_attributions', 'layer_stack'}
     if (not isinstance(manifest, dict) or not required <= set(manifest) or not set(manifest) <= required | optional
-            or manifest['format'] != FORMAT or type(manifest['version']) is not int or manifest['version'] not in (1, VERSION)
+            or manifest['format'] != FORMAT or type(manifest['version']) is not int or manifest['version'] not in (1, 2, VERSION)
             or (manifest['version'] == 1 and bool(optional.intersection(manifest)))):
         raise ValueError('This is not a supported Local Remove project.')
     if not safe_name(manifest['name']) or not all(integer(manifest[key], 1, 100000) for key in ('width', 'height')):
@@ -150,6 +157,10 @@ def read_manifest(archive):
     allowed = {original, 'base.png'}
     if 'cutout' in manifest:
         allowed.update(cutout_assets(manifest['cutout']))
+    if 'layer_stack' in manifest:
+        if manifest['version'] < 3: raise ValueError('Layer stacks require project version 3.')
+        validate_stack(manifest['layer_stack'], layers)
+        allowed.update(stack_assets(manifest['layer_stack']))
     seen = set()
     for layer in layers:
         required_layer = {'id', 'name', 'x', 'y', 'width', 'height', 'visible', 'discarded', 'color', 'mask'}
@@ -247,4 +258,21 @@ def extract_project(source, target, decode_original):
             snapshot, snapshot_profile, _ = decode_original(target / layer['snapshot'])
             if snapshot.shape != raw.shape or snapshot.dtype != raw.dtype or snapshot_profile != profile:
                 raise ValueError('A merged project layer has incompatible precision or profile.')
+    for layer in manifest.get('layer_stack', []):
+        if layer.get('source'):
+            with Image.open(target / layer['source']) as source:
+                if source.width * source.height > MAX_PIXELS:
+                    raise ValueError('A layer source image is too large.')
+                if layer['source'].endswith('.png') and (source.format != 'PNG' or source.mode not in ('RGB', 'RGBA')):
+                    raise ValueError('The layer source image is invalid.')
+                if layer['source'].endswith('.png'): source.load()
+            if layer['source'].endswith('.tif'):
+                native, native_profile, _ = decode_original(target / layer['source'])
+                if native.shape[:2] != raw.shape[:2] or native.dtype != raw.dtype or native_profile != profile:
+                    raise ValueError('The native layer source has incompatible precision or profile.')
+        if layer['kind'] == 'cutout':
+            with Image.open(target / layer['cutout']['alpha']) as alpha:
+                if alpha.format != 'PNG' or alpha.mode != 'L' or alpha.size != size:
+                    raise ValueError('The layer alpha mask is invalid.')
+                alpha.load()
     return manifest

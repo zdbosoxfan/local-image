@@ -12,6 +12,7 @@ import tempfile
 from PIL import Image, ImageOps
 
 from qwen_image import _object_info, _choices, _normalized_name, _execute_workflow, qwen_canvas_size
+from generation_resolution import exact_canvas_size, validate_generation_size
 
 CHECKPOINT = 'hidream_o1_image_fp8_scaled.safetensors'
 REQUIRED_NODES = ('CheckpointLoaderSimple', 'CLIPTextEncode', 'ModelNoiseScale',
@@ -39,7 +40,7 @@ def hidream_model_option(info):
 
 def build_hidream_workflow(models, *, prompt, negative_prompt='', size=(2048, 2048),
                            seed=0, steps=50, guidance=5.0, references=(), loras=()):
-    width, height = qwen_canvas_size(size)
+    width, height = exact_canvas_size(size)
     graph = {
         '1': {'class_type': 'CheckpointLoaderSimple', 'inputs': {'ckpt_name': models['checkpoint']}},
         '2': {'class_type': 'CLIPTextEncode', 'inputs': {'clip': ['1', 1], 'text': prompt}},
@@ -84,7 +85,7 @@ async def run_hidream_image(prompt, *, negative_prompt='', references=(), size=(
         raise HiDreamImageError('Update ComfyUI: HiDream reference editing nodes are unavailable.')
     from lora_workflow import available_loras
     loras = available_loras(info, loras)
-    size = qwen_canvas_size(size)
+    size = validate_generation_size(size, 'hidream-o1', info)
     try:
         with tempfile.TemporaryDirectory(prefix='local-image-hidream-') as temporary:
             normalized = []

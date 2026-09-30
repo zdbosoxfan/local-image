@@ -83,7 +83,7 @@ async function main(){
     before=await revision();await page.locator('#background-grid button').click();await waitEdit(before);assert.match(await page.locator('#background-name').textContent(),/Folder backdrop/,'Browser folder thumbnails apply the chosen image');
     await page.locator('#workspace-retouch').click();assert.equal(await page.locator('#retouch-panel').isVisible(),true);
     assert.equal(await page.locator('#stage').evaluate(element=>element.classList.contains('cutout-preview')),true,'Switching toolsets retains composition');
-    await page.locator('#mode-ai').click();await page.locator('#ai-provider').selectOption('qwen');await rectangle(.3,.3,.4,.4);assert.equal(await page.locator('#remove').isEnabled(),true);
+    await page.locator('.toolrail [data-tool=brush]').click();await page.locator('#ai-provider').selectOption('qwen');await rectangle(.3,.3,.4,.4);assert.equal(await page.locator('#remove').isEnabled(),true);
     await page.locator('#retouch-qwen-variant').selectOption('bf16');assert.equal(await page.locator('#remove').isEnabled(),false,'Qwen repair respects model availability');
     await page.locator('#retouch-qwen-variant').selectOption('int8');await page.locator('#workspace-cutout').click();
     await studio('background');before=await revision();await page.locator('#background-mode').selectOption('transparent');await waitEdit(before);

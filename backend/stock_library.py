@@ -22,12 +22,17 @@ from PIL import Image, ImageCms, ImageOps
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from local_remove import guard
+from stock_credentials import get_key, save_key
 
 router = APIRouter(prefix='/api/local-remove/stock')
-Provider = Literal['openverse']
+Provider = Literal['openverse', 'pexels', 'unsplash']
 PROVIDERS = [
     {'id': 'openverse', 'label': 'Openverse', 'available': True,
      'description': 'Creative Commons and public-domain stock images from Flickr.'},
+    {'id': 'pexels', 'label': 'Pexels', 'connect_url': 'https://www.pexels.com/api/',
+     'description': 'Free stock photography from Pexels.'},
+    {'id': 'unsplash', 'label': 'Unsplash', 'connect_url': 'https://unsplash.com/developers',
+     'description': 'Photography from Unsplash.'},
 ]
 PAGE_SIZE = 12
 MAX_BYTES = 40 * 1024 * 1024
@@ -35,8 +40,8 @@ MAX_PIXELS = 40_000_000
 RESULT_TTL = 60 * 60
 MAX_RESULTS = 600
 USER_AGENT = 'LocalImage/0.5 (desktop stock-image browser)'
-MEDIA_HOSTS = {'live.staticflickr.com', 'api.openverse.org'}
-API_HOSTS = {'api.openverse.org'}
+MEDIA_HOSTS = {'live.staticflickr.com', 'api.openverse.org', 'images.pexels.com', 'images.unsplash.com', 'plus.unsplash.com'}
+API_HOSTS = {'api.openverse.org', 'api.pexels.com', 'api.unsplash.com'}
 _results = OrderedDict()
 _search_cache = OrderedDict()
 _thumbnails = OrderedDict()
@@ -98,9 +103,17 @@ def checked_url(value, api=False):
 
 async def bounded_get(url, *, params=None, limit=MAX_BYTES, api=False):
     checked_url(url, api)
+    headers = {'User-Agent': USER_AGENT}
+    # Credentials are scoped to exact API hosts. API redirects are rejected.
+    host = urlsplit(url).hostname
+    provider = {'api.pexels.com': 'pexels', 'api.unsplash.com': 'unsplash'}.get(host) if api else None
+    if provider:
+        key = get_key(provider)
+        if not key: raise ValueError('Connect ' + provider.title() + ' with an API key to search this source.')
+        headers['Authorization'] = ('Client-ID ' if provider == 'unsplash' else '') + key
     timeout = aiohttp.ClientTimeout(total=45, connect=10, sock_read=20)
     try:
-        async with _network_limit, aiohttp.ClientSession(timeout=timeout, headers={'User-Agent': USER_AGENT}) as session:
+        async with _network_limit, aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
             for attempt in range(4):
                 async with session.get(url, params=params, allow_redirects=False) as response:
                     if response.status in (301, 302, 303, 307, 308):
@@ -110,7 +123,9 @@ async def bounded_get(url, *, params=None, limit=MAX_BYTES, api=False):
                         params = None
                         continue
                     if response.status == 429:
-                        raise ValueError('Openverse is temporarily rate limited. Wait a little and search again.')
+                        raise ValueError('This source is temporarily rate limited. Wait a little and search again.')
+                    if response.status in (401, 403) and provider:
+                        raise ValueError('This stock connection was rejected. Check the API key and account access.')
                     if response.status != 200:
                         raise ValueError(f'The stock provider returned HTTP {response.status}. Try another image or search again.')
                     if response.content_length is not None and response.content_length > limit:
@@ -143,7 +158,7 @@ def dimensions(width, height):
     return width, height
 
 
-def remember(item, download_url, thumbnail):
+def remember(item, download_url, thumbnail, download_location=None):
     checked_url(download_url)
     checked_url(thumbnail)
     if not item['source_url'] or not item['license']:
@@ -153,8 +168,16 @@ def remember(item, download_url, thumbnail):
     while _results and (len(_results) >= MAX_RESULTS or next(iter(_results.values()))['expires'] <= stamp):
         removed, _ = _results.popitem(last=False)
         _thumbnails.pop(removed, None)
-    _results[identity] = {'item': dict(item), 'download': download_url, 'thumbnail': thumbnail, 'expires': stamp + RESULT_TTL}
-    return {**item, 'id': identity, 'thumbnail_url': '/api/local-remove/stock/thumbnail/' + identity}
+    if download_location:
+        checked_url(download_location, api=True)
+        location = urlsplit(download_location)
+        if location.hostname != 'api.unsplash.com' or not re.fullmatch(r'/photos/[A-Za-z0-9_-]+/download', location.path):
+            raise ValueError('Invalid Unsplash download tracking endpoint.')
+    _results[identity] = {'item': dict(item), 'download': download_url, 'thumbnail': thumbnail,
+                          'download_location': download_location, 'expires': stamp + RESULT_TTL}
+    # Unsplash requires API image URLs to be hotlinked during browsing.
+    preview = thumbnail if item['provider'] == 'unsplash' else '/api/local-remove/stock/thumbnail/' + identity
+    return {**item, 'id': identity, 'thumbnail_url': preview}
 
 
 def result_entry(identity):
@@ -196,13 +219,66 @@ async def openverse_search(query, page):
     return results, page + 1 if type(count) is int and page + 1 < count and page < 49 else None
 
 
+async def pexels_search(query, page):
+    payload = await provider_json('https://api.pexels.com/v1/search', {
+        'query': query, 'page': page + 1, 'per_page': PAGE_SIZE})
+    records = payload.get('photos')
+    if not isinstance(records, list): raise ValueError('Pexels returned invalid search results.')
+    results = []
+    for source in records:
+        try:
+            if not isinstance(source, dict) or type(source.get('id')) is not int: continue
+            width, height = dimensions(source.get('width'), source.get('height'))
+            if not width or width * height > MAX_PIXELS: continue
+            item = {'provider': 'pexels', 'asset_id': str(source['id']),
+                    'title': plain(source.get('alt')) or 'Pexels photo',
+                    'creator': plain(source.get('photographer')) or 'Pexels photographer',
+                    'creator_url': public_link(source.get('photographer_url')),
+                    'source_url': public_link(source.get('url')), 'license': 'Pexels License',
+                    'license_url': 'https://www.pexels.com/license/', 'width': width, 'height': height}
+            item['attribution'] = f"Photo by {item['creator']} on Pexels. {item['source_url']}"
+            results.append(remember(item, source['src']['original'], source['src']['medium']))
+        except (KeyError, TypeError, ValueError, AttributeError): continue
+    return results, page + 1 if payload.get('next_page') and page < 49 else None
+
+
+def unsplash_link(value):
+    link = public_link(value)
+    return link + ('&' if '?' in link else '?') + 'utm_source=local_image&utm_medium=referral' if link else ''
+
+
+async def unsplash_search(query, page):
+    payload = await provider_json('https://api.unsplash.com/search/photos', {
+        'query': query, 'page': page + 1, 'per_page': PAGE_SIZE, 'content_filter': 'high'})
+    records = payload.get('results')
+    if not isinstance(records, list): raise ValueError('Unsplash returned invalid search results.')
+    results = []
+    for source in records:
+        try:
+            if not isinstance(source, dict) or not re.fullmatch(r'[A-Za-z0-9_-]+', source.get('id', '')): continue
+            width, height = dimensions(source.get('width'), source.get('height'))
+            if not width or width * height > MAX_PIXELS: continue
+            user = source['user']
+            item = {'provider': 'unsplash', 'asset_id': source['id'],
+                    'title': plain(source.get('description') or source.get('alt_description')) or 'Unsplash photo',
+                    'creator': plain(user.get('name')) or 'Unsplash photographer',
+                    'creator_url': unsplash_link(user['links']['html']),
+                    'source_url': unsplash_link(source['links']['html']), 'license': 'Unsplash License',
+                    'license_url': 'https://unsplash.com/license', 'width': width, 'height': height}
+            item['attribution'] = f"Photo by {item['creator']} on Unsplash. {item['source_url']}"
+            results.append(remember(item, source['urls']['full'], source['urls']['small'], source['links']['download_location']))
+        except (KeyError, TypeError, ValueError, AttributeError): continue
+    count = payload.get('total_pages', 0)
+    return results, page + 1 if type(count) is int and page + 1 < count and page < 49 else None
+
+
 async def search_stock(provider, query, page=0):
-    if provider != 'openverse' or not isinstance(query, str) or not 1 <= len(query.strip()) <= 120 or any(ord(c) < 32 for c in query) or type(page) is not int or not 0 <= page <= 49:
+    if provider not in {'openverse', 'pexels', 'unsplash'} or not isinstance(query, str) or not 1 <= len(query.strip()) <= 120 or any(ord(c) < 32 for c in query) or type(page) is not int or not 0 <= page <= 49:
         raise ValueError('Choose a stock provider and enter a search of 1–120 characters.')
     key = (provider, query.strip(), page)
     cached = _search_cache.get(key)
     if cached and cached[0] > time.monotonic(): return cached[1]
-    results, next_page = await openverse_search(query.strip(), page)
+    results, next_page = await {'openverse': openverse_search, 'pexels': pexels_search, 'unsplash': unsplash_search}[provider](query.strip(), page)
     response = {'results': results, 'next_page': next_page, 'page': page, 'checked_at': now(),
         'warning': '' if results else 'No supported images on this page. Try another search or the next page.'}
     _search_cache[key] = (time.monotonic() + 60, response)
@@ -239,6 +315,8 @@ def normalize_image(content, thumbnail=False):
 
 async def fetch_stock_image(identity):
     entry = result_entry(identity)
+    if entry.get('download_location'):
+        await provider_json(entry['download_location'], {})
     content = await bounded_get(entry['download'])
     data = await asyncio.to_thread(normalize_image, content)
     attribution = {key: entry['item'][key] for key in ('provider', 'asset_id', 'title', 'creator', 'creator_url',
@@ -252,11 +330,12 @@ class StockImport(BaseModel):
     target: Literal['image', 'background'] = 'image'
     session_id: str | None = Field(default=None, max_length=100)
     revision: int | None = Field(default=None, ge=0)
+    layer_id: str | None = Field(default=None, max_length=100)
     @model_validator(mode='after')
     def require_background_session(self):
         if self.target == 'background' and (not self.session_id or self.revision is None):
             raise ValueError('Choose the current image and revision for this background.')
-        if self.target == 'image' and (self.session_id is not None or self.revision is not None):
+        if self.target == 'image' and (self.session_id is not None or self.revision is not None or self.layer_id is not None):
             raise ValueError('Open stock images as a new image without a target session.')
         if self.session_id is not None and not re.fullmatch('[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}', self.session_id):
             raise ValueError('Choose an open image as the background target.')
@@ -266,7 +345,24 @@ class StockImport(BaseModel):
 @router.get('/providers')
 async def providers(request: Request):
     guard(request)
-    return {'providers': PROVIDERS, 'default_provider': 'openverse'}
+    return {'providers': [{**item, 'available': item['id'] == 'openverse' or bool(get_key(item['id'])),
+                           'needs_key': item['id'] != 'openverse'} for item in PROVIDERS],
+            'default_provider': 'openverse'}
+
+
+class StockConnection(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    key: str = Field(max_length=512)
+
+
+@router.put('/connection/{provider}')
+async def connect_provider(provider: Literal['pexels', 'unsplash'], payload: StockConnection, request: Request):
+    guard(request, True)
+    try:
+        save_key(provider, payload.key.strip())
+        _search_cache.clear()
+        return {'provider': provider, 'connected': bool(get_key(provider))}
+    except ValueError as error: raise HTTPException(400, str(error)) from error
 
 
 @router.get('/search')
@@ -296,5 +392,6 @@ async def import_stock(request: Request, payload: StockImport):
         content, attribution = await fetch_stock_image(payload.id)
         import local_remove as editor
         return await editor.import_stock_image(content, attribution, target=payload.target,
-                                              session_id=payload.session_id, revision=payload.revision)
+                                              session_id=payload.session_id, revision=payload.revision,
+                                              **({'layer_id':payload.layer_id} if payload.layer_id is not None else {}))
     except ValueError as error: raise HTTPException(400, str(error)) from error

@@ -14,6 +14,7 @@ import aiohttp
 from PIL import Image, ImageOps
 
 from app_paths import read_config
+from generation_resolution import exact_canvas_size, validate_generation_size
 
 LICENSE_URL = 'https://github.com/QwenLM/Qwen-Image-2.1/blob/main/LICENSE'
 NEGATIVE_PROMPT_NOTE = ('At guidance 1 the model ignores negative conditioning. '
@@ -66,7 +67,11 @@ def _normalized_name(name):
 
 
 def qwen_canvas_size(size):
-    """Fit to the native budget without rounding a boundary image over 4 MP."""
+    """Preprocess reference/repair inputs; never use for a generation canvas.
+
+    This existing reference preset reduces encoder work. It is not a model
+    maximum or an output-size restriction.
+    """
     width, height = map(int, size)
     if width <= 0 or height <= 0:
         raise ValueError('Image dimensions must be positive.')
@@ -141,7 +146,7 @@ def build_qwen_workflow(models, *, prompt, negative_prompt='', references=(), si
     Editing must sample the encoder's latent output: forcing a different canvas
     changes alignment. EmptyLatentImage is used only for text-to-image.
     """
-    width, height = qwen_canvas_size(size)
+    width, height = exact_canvas_size(size)
     graph = {
         '1': {'class_type': 'UNETLoader', 'inputs': {'unet_name': models['unet'], 'weight_dtype': 'default'}},
         '2': {'class_type': 'CLIPLoader', 'inputs': {'clip_name': models['clip'], 'type': 'qwen_image', 'device': 'default'}},
@@ -230,12 +235,11 @@ async def run_qwen_image(input_path=None, prompt='', variant='int8', size=(1024,
         raise ValueError('Use 1–100 steps and guidance between 1 and 10.')
     if len(reference_paths) + (input_path is not None) > 10:
         raise ValueError('Qwen editing supports up to ten reference images.')
-    if len(size) != 2 or any(int(v) < 32 or int(v) > 4096 for v in size) or int(size[0]) * int(size[1]) > 4194304:
-        raise ValueError('Choose an image size up to 4 megapixels and 4096 pixels per side.')
     info = await _object_info()
     chosen = next(item for item in qwen_model_options(info) if item['id'] == variant)
     if not chosen['available']:
         raise QwenImageError(chosen['reason'])
+    size = validate_generation_size(size, 'qwen', info, references=input_path is not None or bool(reference_paths))
     from lora_workflow import available_loras
     loras = available_loras(info, loras)
     prompt = str(prompt).strip()
@@ -262,14 +266,16 @@ async def run_qwen_image(input_path=None, prompt='', variant='int8', size=(1024,
                     image = ImageOps.exif_transpose(opened).convert('RGBA')
                 if index == 0 and task != 'generate':
                     original_size = image.size
-                # Cap reference area to 2K while preserving its aspect ratio.
-                target = qwen_canvas_size(image.size)
-                if image.size != target:
-                    image = image.resize(target, Image.Resampling.LANCZOS)
                 if index == 0 and task == 'generate':
                     # The native encoder derives its edit latent from reference 1.
                     # Padding keeps all reference content while honoring the chosen canvas.
-                    image = ImageOps.pad(image, qwen_canvas_size(size), method=Image.Resampling.LANCZOS, color=(0, 0, 0, 0))
+                    image = ImageOps.pad(image, size, method=Image.Resampling.LANCZOS, color=(0, 0, 0, 0))
+                else:
+                    # Secondary references and repair inputs use a separate
+                    # encoder preset; the requested output canvas is untouched.
+                    target = qwen_canvas_size(image.size)
+                    if image.size != target:
+                        image = image.resize(target, Image.Resampling.LANCZOS)
                 destination = Path(temporary) / f'reference-{index}.png'
                 image.save(destination)
                 normalized.append(destination)
@@ -284,8 +290,8 @@ async def run_qwen_image(input_path=None, prompt='', variant='int8', size=(1024,
         if original_size and image.size != original_size:
             image = image.resize(original_size, Image.Resampling.LANCZOS)
         if task == 'generate':
-            if image.size != qwen_canvas_size(size):
-                image = image.resize(qwen_canvas_size(size), Image.Resampling.LANCZOS)
+            if image.size != size:
+                raise QwenImageError('Qwen returned unexpected dimensions; the result was not resized. Refresh ComfyUI and retry with a size supported by its workflow.')
             return finish_output_alpha(image, 'cutout' if transparent else 'opaque')
         return finish_output_alpha(image, task)
     except QwenImageError:

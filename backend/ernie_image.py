@@ -9,6 +9,7 @@ import secrets
 from PIL import Image
 
 from qwen_image import _object_info, _choices, _normalized_name, _execute_workflow, qwen_canvas_size
+from generation_resolution import exact_canvas_size, validate_generation_size
 
 MODEL_FILES = {'unet': 'ernie-image.safetensors', 'clip': 'ministral-3-3b.safetensors', 'vae': 'flux2-vae.safetensors'}
 REQUIRED_NODES = ('UNETLoader', 'CLIPLoader', 'VAELoader', 'CLIPTextEncode',
@@ -37,7 +38,7 @@ def ernie_model_option(info):
 
 
 def build_ernie_workflow(models, *, prompt, negative_prompt='', size=(1024, 1024), seed=0, steps=50, guidance=4.0):
-    width, height = qwen_canvas_size(size)
+    width, height = exact_canvas_size(size)
     return {
         '1': {'class_type': 'UNETLoader', 'inputs': {'unet_name': models['unet'], 'weight_dtype': 'default'}},
         '2': {'class_type': 'CLIPLoader', 'inputs': {'clip_name': models['clip'], 'type': 'flux2', 'device': 'default'}},
@@ -58,10 +59,11 @@ async def run_ernie_image(prompt, *, negative_prompt='', size=(1024, 1024), seed
         raise ValueError('Provide a prompt and between 1 and 100 ERNIE steps.')
     if type(guidance) not in (int, float) or not math.isfinite(guidance) or not 1 <= guidance <= 10:
         raise ValueError('ERNIE guidance must be between 1 and 10.')
-    selected = ernie_model_option(await _object_info())
+    info = await _object_info()
+    selected = ernie_model_option(info)
     if not selected['available']:
         raise ErnieImageError(selected['reason'])
-    size = qwen_canvas_size(size)
+    size = validate_generation_size(size, 'ernie-image', info)
     graph = build_ernie_workflow(selected['files'], prompt=prompt, negative_prompt=negative_prompt,
         size=size, seed=secrets.randbits(48) if seed is None else seed, steps=steps, guidance=guidance)
     try:

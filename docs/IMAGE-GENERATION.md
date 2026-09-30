@@ -1,16 +1,16 @@
 # Image Gen in Local Image
 
-Choose **Image Gen** in the top persona toolbar to create a new image. The right studio has **Prompt**, **References** and **Output** tabs. Generated images open as normal documents: use **Retouch result**, **Cut out result**, or export them through the File menu.
+Choose **Generate** in the top toolbar. An open image starts in **Edit image**; **Create new** and **Draft & Refine** are adjacent toolbar commands. The prompt and its Generate or Apply edit action sit together beneath the image. Model, Output, References and Style are collapsed inspector sections; opening one closes the others. Generated results are ordinary documents that can move into Retouch or Cutout.
 
 ## Pick a model and describe the result
 
-The model menu includes a short description of each model's strengths. Choose **Browse models…** to compare all supported models before downloading: strengths, limitations, precision, full and remaining download size, recommended steps, GPU memory guidance and a license link. These catalogue descriptions are available even when ComfyUI is offline. **Use this model** selects it; **Download model** installs its selected preset. You can also expand **Model setup** in the Prompt tab to download the current preset.
+The model menu includes a short description of each model's strengths. Choose **Browse models…** to compare all supported models before downloading: strengths, limitations, precision, full and remaining download size, recommended steps, GPU memory guidance and a license link. These catalogue descriptions are available even when ComfyUI is offline. **Use this model** selects it; **Download model** installs its selected preset. You can also expand **Model setup** inside Model to download the current preset.
 
 Choose **Models folder…** in the model browser to select the shared download folder. Files already present there and models visible to the running ComfyUI are separate statuses. If you change the folder while ComfyUI is running, close ComfyUI, then choose **Start AI backend** from Local Image so it launches with the new folder configuration; refresh the connection afterward. Downloading to a folder does not change another running ComfyUI process's model paths. The app does not terminate that process automatically.
 
 | Model | Useful for | Reference input | Default sampling |
 | --- | --- | --- | --- |
-| Qwen Image 2.1 | Image edits, new images and transparent assets | Up to 10 ordered images | 25 steps, guidance 1 |
+| Qwen Image 2.1 | Image edits, new images and transparent assets | Up to 10 ordered images | 40 steps, guidance 1 |
 | Z-Image Turbo | Fast image generation and variations | One optional starting image | 8 steps, fixed guidance 1 |
 | FLUX.2 Klein 4B | Fast reference editing and new images | Up to 4 ordered images | 4 steps, fixed guidance 1 |
 | FLUX.2 Klein 9B | Larger reference-editing model | Up to 4 ordered images | 4 steps, fixed guidance 1 |
@@ -41,7 +41,7 @@ Z-Image Turbo's input is a **starting image** for a variation. It initializes th
 
 ## Set the canvas, transparency and seed
 
-Open **Output** and choose a canvas shape or enter custom dimensions. Each side must be 256–4096 pixels in multiples of 32, and total area must not exceed 4,194,304 pixels. Large images and multiple references need more GPU memory. Smaller canvases help test models quickly.
+Open **Output** to choose an aspect ratio or enter dimensions. The chain control links width and height. Local Image uses the connected ComfyUI workflow's actual dimension constraints; it does not impose a 4 MP area cap or 4096-pixel ceiling. Current latent nodes report a 16384-pixel side limit, while reference encoders may report no maximum. Qwen generation uses a 16-pixel grid, and its reference-editing workflow uses 32; other active generation workflows use 16. Available memory determines whether a large job can finish. Resolution defaults are starting points, not model maxima.
 
 For Qwen, select **Transparent background** to request a real RGBA image. Local Image checks for a usable alpha channel and reports a failure if the model returns an opaque result. Generated edges can still need refinement in Cutout. Export transparent output as PNG; JPEG cannot preserve alpha.
 
@@ -49,7 +49,7 @@ With transparency off, any transparent Qwen pixels are composited over white. Th
 
 Leave **Seed** empty for a fresh random seed, or enter a number, including zero, to repeat sampling with the same inputs and settings. The result reports the actual seed. Reproducibility can also depend on the model files, ComfyUI version and hardware.
 
-**Steps** is shown directly on the Output tab, with the recommended default for the selected model. Width and height remain editable on that tab. Expand **Advanced sampling** to change supported guidance. Qwen's negative prompt has no effect at guidance 1; higher guidance is experimental. Z and the two FLUX presets do not use negative prompts in these workflows. Klein and Z have fixed guidance 1.
+**Steps** appears inside Output with a short recommendation and an info button linking to its source. Qwen uses the publisher's 40-step default, Z-Image Turbo uses the ComfyUI 8-step preset, distilled Klein uses 4, and ERNIE Base uses 50. Z's publisher Diffusers example specifies 9 inference steps but explicitly describes 8 model forwards. Qwen negative conditioning is inactive at guidance 1. The fixed-guidance distilled workflows retain their supported settings.
 
 ## Add an optional LoRA
 
@@ -92,3 +92,6 @@ The generated-image library keeps results available independently of the current
 During generation, the status can show ComfyUI's current stage, elapsed time and sampling steps. If the engine does not report fresh progress, the app keeps its elapsed-time message; it does not invent a completion percentage or estimated finish time.
 
 Related: [Cutout workspace](CUTOUT-WORKSPACE.md), [model installation and native workflows](GEN-MODELS.md), [Qwen Image 2.1 details](QWEN-IMAGE-21.md), [stock library](STOCK-LIBRARY.md).
+
+
+Sampling sources (checked 2026-09-30): [Qwen publisher defaults](https://github.com/QwenLM/Qwen-Image-2.1#default-parameters), [Z-Image ComfyUI template](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_z_image_turbo.json), [BFL Klein](https://github.com/black-forest-labs/flux2#the-klein-family), [ERNIE Base](https://huggingface.co/baidu/ERNIE-Image#recommended-parameters).

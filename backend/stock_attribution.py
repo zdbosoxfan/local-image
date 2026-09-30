@@ -40,6 +40,10 @@ def collect_attributions(data):
     if data.get('source_attribution') is not None:
         values.append(validate_attribution(data['source_attribution']))
     values.extend(validate_attributions(data.get('reference_attributions', [])))
+    for layer in data.get('layer_stack', []):
+        if layer.get('visible') and not layer.get('discarded'):
+            if layer.get('attribution') is not None: values.append(validate_attribution(layer['attribution']))
+            values.extend(validate_attributions(layer.get('reference_attributions', [])))
     state = data.get('cutout', {})
     if state.get('enabled') and state.get('background', {}).get('mode') == 'image':
         background = state['background']

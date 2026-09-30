@@ -8,6 +8,8 @@ Local Image is a Windows image workspace with **Retouch**, **Cutout** and **Imag
 
 **Personal project:** This is a **vibe-coded personal project**, shared as-is. There is **no guaranteed support and no guarantee of updates or improvements**.
 
+**GPU requirement:** The AI features need a **capable NVIDIA CUDA GPU with enough VRAM for the selected model**. This project was tested on an **RTX 5090 with 32 GB VRAM**. The included presets have planning recommendations of roughly **16–32 GB VRAM**; larger images, multiple references and 4K enhancement can demand more memory. Manual editing and CPU Quick Heal remain available without a dedicated GPU. Check the [hardware guidance](#gpu-and-memory) before downloading models.
+
 [![Local Image Cutout workspace with a tan backpack composited onto a studio background and editable transform controls](docs/images/ui/cutout-workspace.png)](docs/images/ui/cutout-workspace.png)
 
 *A real Qwen cutout and generated background, with subject position, scale, rotation and shadows still editable. Click any screenshot or example to view the original image.*
@@ -20,6 +22,50 @@ The interface uses conventional menus, contextual tools, tabbed Studio panels an
 - **Repeated work:** save a product treatment, prepare selected images one at a time, inspect the results and export unique copies. Each product retains its own cutout; originals and editor documents remain available.
 
 ## Inside the app
+
+The screenshots below show the 0.7 interface and its completed workflows. The current `main` branch includes a newer workspace under active redesign; these captures do not represent its final layout.
+
+### Brush to remove
+
+Paint over a distraction, run **AI Remove**, and keep the repair on its own layer. The original stays protected, so you can compare, hide or discard the edit.
+
+| 1. Brush over the unwanted mug | 2. Review the removal and its layer |
+| --- | --- |
+| [![Real brush selection covering the red mug beside a backpack in the Retouch workspace](docs/images/ui/retouch-brush.png)](docs/images/ui/retouch-brush.png) | [![The mug removed from the same scene, with a separate Remove 1 layer above the protected original](docs/images/ui/retouch-result-layers.png)](docs/images/ui/retouch-result-layers.png) |
+
+This example used one actual local FLUX.2 Klein removal. The brush overlay is the app's real selection, and the second screenshot shows the completed edit.
+
+<details>
+<summary>View the original and exported result without the interface</summary>
+
+| Original synthetic demo image | Actual exported removal |
+| --- | --- |
+| [![Tan backpack and red mug on a stone ledge before editing](docs/images/examples/removal-before.png)](docs/images/examples/removal-before.png) | [![The same backpack and stone ledge after the red mug was removed](docs/images/examples/removal-after.png)](docs/images/examples/removal-after.png) |
+
+</details>
+
+### Layers and familiar commands
+
+Edits remain visible in the Layers panel. Layer commands, project saves and export formats live in conventional menus, leaving the canvas free for the image.
+
+[![The Layer menu in Local Image, alongside the generated repair layer and protected original](docs/images/ui/workspace-layers-menu.png)](docs/images/ui/workspace-layers-menu.png)
+
+<details>
+<summary>See the File menu and export formats</summary>
+
+[![Local Image's File menu with project, library and export commands](docs/images/ui/workspace-file-menu.png)](docs/images/ui/workspace-file-menu.png)
+
+*The browser preview shown here disables native-only folder opening. The installed desktop app provides the Windows folder picker.*
+
+</details>
+
+### Find a background in the stock library
+
+Search Openverse from the workspace, inspect a larger preview and its license, then open the image or use it as a background. Source and creator credits travel with imported images and editable projects.
+
+[![Live Openverse mountain search in Local Image with image thumbnails, a larger CC0 preview and creator/license details](docs/images/ui/stock-library.png)](docs/images/ui/stock-library.png)
+
+*This is a live search capture, with a CC0 image selected. Stock thumbnails retain their original licenses; [creators and source credits](docs/images/ui/STOCK-CREDITS.md) are included.*
 
 ### Image generation
 
@@ -54,6 +100,16 @@ A few actual exports from the release test matrix. Each image links to its origi
 | [![A red fox leaping through autumn leaves, generated with FLUX.2 Klein 9B and its orange splatter style](docs/images/examples/klein-orange-illustration.png)](docs/images/examples/klein-orange-illustration.png) | [![ERNIE-generated travel poster with the text Weekend Away and Take the Scenic Route](docs/images/examples/ernie-poster.png)](docs/images/examples/ernie-poster.png) |
 | **FLUX.2 Klein 9B · FP8** — Orange splatter illustration | **ERNIE-Image Base** — Local poster generation |
 
+| Atmospheric illustration | Blueprint-inspired linework |
+| --- | --- |
+| [![A lighthouse glowing through a dark teal storm, generated with FLUX.2 Klein 9B](docs/images/examples/klein-teal-lighthouse.png)](docs/images/examples/klein-teal-lighthouse.png) | [![An espresso machine rendered in blue wireframe-style linework with FLUX.2 Klein 9B](docs/images/examples/klein-blueprint-espresso.png)](docs/images/examples/klein-blueprint-espresso.png) |
+| **FLUX.2 Klein 9B** — Teal dark illustration | **FLUX.2 Klein 9B** — Blueprint wireframe, an illustration rather than an engineering drawing |
+
+| Playful drawing | Reference-guided character edit |
+| --- | --- |
+| [![A cheerful yellow submarine surrounded by colorful fish in a children's drawing style](docs/images/examples/z-image-playful-submarine.png)](docs/images/examples/z-image-playful-submarine.png) | [![An anime-style portrait with dark blue hair, green jacket and cream scarf generated from a character reference](docs/images/examples/qwen-anime-reference.png)](docs/images/examples/qwen-anime-reference.png) |
+| **Z-Image Turbo** — Children's drawings | **Qwen Image 2.1 · INT8** — Anime character consistency |
+
 The release run exercised **88 real cases and 440 exports**, including compatible curated LoRA combinations, transparency, reference edits, removal, compositing and UHD 4K enlargement. Artistic quality varies with the prompt and style mix; exact identity, geometry and lettering are not guaranteed. See the [validation report](docs/LOCAL-IMAGE-07-VALIDATION.md) for coverage and observed limitations.
 
 ## Models
@@ -71,6 +127,18 @@ Qwen offers Compact INT8 and Full BF16 presets of the same model. Klein 4B uses 
 ERNIE reproduced all five requested strings in the local poster test, but still missed a no-mockup layout instruction. No model guarantees perfect text or layout. Qwen's opaque generation composites unexpected transparency over white; dedicated background generation rejects substantial transparency instead of accepting an incomplete scene.
 
 ## Install and start
+
+### GPU and memory
+
+| AI workload | App planning recommendation |
+| --- | --- |
+| Z-Image Turbo, FLUX.2 Klein 4B and Klein AI Remove | 16 GB VRAM |
+| Qwen Compact INT8, Klein 9B and ERNIE-Image | 24 GB VRAM |
+| Qwen Full BF16 and SeedVR2 4K enhancement | 32 GB VRAM |
+
+These are planning figures for the included presets. Actual memory use depends on image size, reference count and ComfyUI offloading. Offloading needs system RAM and can make generation substantially slower. The current validation machine has a 32 GB NVIDIA GPU; lower-memory systems and other GPU platforms are not guaranteed. Model files also require substantial disk space. See [installation and AI setup](docs/INSTALLATION.md#start-with-cpu-tools-or-connect-ai) for the supported runtime.
+
+### Download
 
 [Download Local Image 0.7 for Windows x64](https://github.com/zdbosoxfan/local-image/releases/download/v0.7.0/Local-Image-Setup-0.7.0.exe), or see the [release page and checksum](https://github.com/zdbosoxfan/local-image/releases/tag/v0.7.0). Choose installation for all users in **Program Files**, or for the current user in **AppData**, and change the application folder if needed. Optional folder choices reserve a location for model downloads and the dedicated portable ComfyUI runtime. Settings, browser data, recovery and caches belong to each Windows user's AppData. See [the installation guide](docs/INSTALLATION.md) for storage, upgrades and setup on a new PC, or [build from source](docs/DEVELOPMENT.md).
 

@@ -4,10 +4,9 @@ KEYS = {'model', 'variant', 'source_width', 'source_height', 'width', 'height', 
 
 def validate_upscale_size(source, output):
     sw, sh = source; width, height = output
-    if (any(type(value) is not int for value in (*source, *output)) or min(sw, sh) < 1
-            or not 256 <= width <= 4096 or not 256 <= height <= 4096
-            or width % 2 or height % 2 or width * height > 16777216):
-        raise ValueError('Upscaling requires even dimensions from 256 to 4096 pixels, up to 16 megapixels.')
+    if (any(type(value) is not int or not 1 <= value <= 2**53 - 1 for value in (*source, *output))
+            or min(width, height) < 2 or width % 2 or height % 2):
+        raise ValueError('SeedVR2 requires even output dimensions with a shorter edge of at least 2 pixels; its postprocessor crops odd edges.')
     if width < sw or height < sh or (width, height) == (sw, sh):
         raise ValueError('Choose a larger output size; upscaling never reduces the source image.')
     if min(abs(height - width * sh / sw), abs(width - height * sw / sh)) > 2:
