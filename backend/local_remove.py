@@ -32,7 +32,8 @@ from engine import config
 from local_removal_models import model_options as ai_model_options, run_local_removal
 from fast_inpaint import heal_image, heal_option
 from local_remove_project import write_project, extract_project, MAX_TOTAL
-from local_remove_frontend import render_editor
+from local_remove_frontend import render_editor, frontend_mode, frontend_asset
+from frontend_tokens import issue_browser_token, valid_browser_token
 from app_paths import APP_VERSION, cache_dir, data_root, read_config, state_dir
 from cutout_composite import (initial_cutout, validate_cutout, refine_alpha,
                               compose_image, compose_native, DEFAULT_TRANSFORM,
@@ -71,7 +72,7 @@ RemovalModel = Literal['klein']
 
 def guard(request, write=False):
     _local_request(request)
-    if write and not secrets.compare_digest(request.headers.get('x-local-remove-token', ''), CSRF):
+    if write and not valid_browser_token(request.headers.get('x-local-remove-token', ''), CSRF):
         raise HTTPException(403, 'Reload Local Image and try again.')
 
 
@@ -664,9 +665,28 @@ def flatten(data, target, allow_8bit=False, *, root_override=None):
 async def page(request:Request):
     guard(request)
     nonce=secrets.token_urlsafe(24)
-    return HTMLResponse(render_editor(nonce,CSRF),headers={**HEADERS,
+    mode = frontend_mode()
+    try:
+        html = render_editor(nonce, issue_browser_token(CSRF), mode=mode)
+    except RuntimeError as error:
+        raise HTTPException(503, str(error)) from error
+    # Imported modules and compiled CSS load only from the dedicated manifest
+    # route. Runtime Griffel styles still require this document's random nonce.
+    assets = f" {request.url.scheme}://{request.url.netloc}/frontend-assets/" if mode == 'react' else ''
+    fonts = f'; font-src{assets}' if mode == 'react' else ''
+    return HTMLResponse(html,headers={**HEADERS,
         'X-Frame-Options':'DENY','Referrer-Policy':'no-referrer',
-        'Content-Security-Policy':f"default-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'nonce-{nonce}'; script-src 'nonce-{nonce}'; img-src 'self' blob: data: https://images.unsplash.com https://plus.unsplash.com; connect-src 'self'; form-action 'self'"})
+        'Content-Security-Policy':f"default-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'nonce-{nonce}'{assets}; script-src 'nonce-{nonce}'{assets}; img-src 'self' blob: data: https://images.unsplash.com https://plus.unsplash.com; connect-src 'self'; form-action 'self'{fonts}"})
+
+
+@router.get('/frontend-assets/{asset:path}')
+async def editor_asset(asset: str, request: Request):
+    guard(request)
+    try:
+        path, media_type = frontend_asset(asset)
+    except FileNotFoundError as error:
+        raise HTTPException(404, 'Frontend asset not found') from error
+    return FileResponse(path, media_type=media_type, headers=ASSET_HEADERS)
 
 
 @router.get('/api/local-remove/runtime')

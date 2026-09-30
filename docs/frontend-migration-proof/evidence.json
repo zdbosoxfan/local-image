@@ -1,0 +1,1230 @@
+{
+  "source": {
+    "passed": true,
+    "checks": [
+      "Actual browser upload creates an unchanged original and revision-zero stack",
+      "Two actual CPU Quick Heals persist real repair patches in the selected retouch layer",
+      "React rename, zero/55% opacity, visibility and locking reach and persist in the real backend",
+      "Manual alpha creates a real editable cutout; persistent pointer gesture commits one backend transform",
+      "Real stack Undo/Redo and browser-selection priority work; transformed mask refinement persists",
+      "Fluent layer reorder changes the actual persisted order while the canvas remains mounted",
+      "Downloaded v3 .lremove contains exact original bytes; real reopen retains all layers, repair links and masks",
+      "Actual Python PNG export has correct size and both opaque subject pixels and transparent background",
+      "Cancel close preserves the reopened editable document after browser project download"
+    ],
+    "baseRevision": "e42aab6a49f222796dbbc9dc1ebf4211f46e9876",
+    "sourceInventory": [
+      {
+        "path": "backend/frontend/app-icon.png",
+        "bytes": 7089,
+        "sha256": "3827ecad367713e35443d07daf468d40c58a317bcf5254e1fdd44d628137ae21"
+      },
+      {
+        "path": "backend/frontend/batch-tools.css",
+        "bytes": 3755,
+        "sha256": "5abb2d7a5cce644c8887928c8d64e9bf56bde063e57a79339bd8b5f287b39fa1"
+      },
+      {
+        "path": "backend/frontend/batch-tools.js",
+        "bytes": 23430,
+        "sha256": "9f8b8c469a71cd35eddbb87c81582b0ef7aa73f8329cb66b2915c1c21e6a5ebf"
+      },
+      {
+        "path": "backend/frontend/editor.css",
+        "bytes": 33346,
+        "sha256": "5c4b2ff8aba447428da48ae1bf81eb63c9b51599cc138b04e0838bb633c174e9"
+      },
+      {
+        "path": "backend/frontend/editor.js",
+        "bytes": 247593,
+        "sha256": "0aa79b6a2c8c10f5dc4ece124b1a433009a581a95c04b5cb9e2dbea1a9b8a949"
+      },
+      {
+        "path": "backend/frontend/generation-composer.css",
+        "bytes": 10881,
+        "sha256": "d5d855f5d51f888f67a07cd9f9c44b609a90191b8da78aa7406f0886559116f6"
+      },
+      {
+        "path": "backend/frontend/generation-composer.js",
+        "bytes": 14403,
+        "sha256": "8147d716536ed9a0e8a8f98dea714999c5cba165705e4ca5d2a3ea2d7c6b1924"
+      },
+      {
+        "path": "backend/frontend/generation-guidance.js",
+        "bytes": 2323,
+        "sha256": "fabb8d2452741e8502472bcc8ef9f5295e8edaacd110d617e8ab623ec18329ec"
+      },
+      {
+        "path": "backend/frontend/generation-size.js",
+        "bytes": 19236,
+        "sha256": "c4f404844e37252626ab319a50173bf8f91b2bfce2fc2f24d5b034f60779369d"
+      },
+      {
+        "path": "backend/frontend/generation-studio.css",
+        "bytes": 20413,
+        "sha256": "16324c074aa3d7e9d24a2e7a8b54796d088e094a1ef0b10b216c42fadb46537c"
+      },
+      {
+        "path": "backend/frontend/generation-studio.js",
+        "bytes": 41020,
+        "sha256": "9bc48d217c2b34f8b9f9431597798481aedf152fdb884556a21142507d807a4a"
+      },
+      {
+        "path": "backend/frontend/generation-workflows.css",
+        "bytes": 7007,
+        "sha256": "14f078bb48e1733c73f298eb1e7c972701802d111ec2dd8b4b32e49a0e010b72"
+      },
+      {
+        "path": "backend/frontend/layers-studio.css",
+        "bytes": 6447,
+        "sha256": "0e5e25a7f5a36c5bd0cbc9250d39d181d17346d1121716834197eea7a6017572"
+      },
+      {
+        "path": "backend/frontend/layers-studio.js",
+        "bytes": 40062,
+        "sha256": "b7aac523de33c61f4bc67c43e8b95e8fe8d0f630f531ab6afa4494be98110465"
+      },
+      {
+        "path": "backend/frontend/lora-examples/12f9890a463d09ff9d36a047.png",
+        "bytes": 1108137,
+        "sha256": "b6a886b34d67737512c92f1bc62173d1f2b0c254af25f31fb9071a5bb590df14"
+      },
+      {
+        "path": "backend/frontend/lora-examples/2f677349683ee4ba31ce1d01.png",
+        "bytes": 2125539,
+        "sha256": "a9c6fda90fa62e8922dde9ffd973b0b67a797cc35a90565acac33bad44d2f547"
+      },
+      {
+        "path": "backend/frontend/lora-examples/35870e954d99b3c11b71599f.png",
+        "bytes": 793206,
+        "sha256": "786c9cf5b6c4d2b5d88efb330e65f7ad5e07bd0a38a6507b012b45c9ad1bbf62"
+      },
+      {
+        "path": "backend/frontend/lora-examples/3b7a31c0faac5df2c8f2c718.png",
+        "bytes": 1241707,
+        "sha256": "77d5f81f9710d800bb05dd65a93064da2ca896e76e272024b906f7c1ae4218e4"
+      },
+      {
+        "path": "backend/frontend/lora-examples/3f45f898c11e7b08e4ae909c.png",
+        "bytes": 1049124,
+        "sha256": "ab634490fd80459a50e4404c576de16c84fde3e8b0fec7dac992ddd16ed2159d"
+      },
+      {
+        "path": "backend/frontend/lora-examples/5bcebc69a28046e0ce47d0cd.png",
+        "bytes": 959369,
+        "sha256": "b9e4a046792adbeb061f60316e13c0a55c833573902abc3283b7a5cfbdc11628"
+      },
+      {
+        "path": "backend/frontend/lora-examples/636b3e37e5247d1735643c77.png",
+        "bytes": 547763,
+        "sha256": "fc49d5490e62a4b944b8b65bd0535d701929b19ae7ce61dd4d602b70fe58dead"
+      },
+      {
+        "path": "backend/frontend/lora-examples/8257e3f5ae81e80010a56638.png",
+        "bytes": 1460256,
+        "sha256": "02af74662dd79874a4654e31f720aeb1ffabea2b485e7d9ff29ca82c741b1548"
+      },
+      {
+        "path": "backend/frontend/lora-examples/ad436c78fd03da0e7b4dff88.png",
+        "bytes": 1905452,
+        "sha256": "6d6b1bbc51492de8cb8de740de9770cc1ee8cc856600f0aefac7520651f6e9c4"
+      },
+      {
+        "path": "backend/frontend/lora-examples/f21570fe39569a0be3c9c207.png",
+        "bytes": 1164836,
+        "sha256": "cef9a23794e938cbe09173884197186b09a671cf62fa9605f7d9e04abd75a539"
+      },
+      {
+        "path": "backend/frontend/lora-examples/provenance.json",
+        "bytes": 11324,
+        "sha256": "d046115e109e167849e74e4428d34629f4d4cd843642a37ee879a7b31641940d"
+      },
+      {
+        "path": "backend/frontend/migration-bridge.js",
+        "bytes": 5278,
+        "sha256": "e1c3b9abf05dddf5988d3dfe05c710e6cf802973a2a4972526196d77600759e6"
+      },
+      {
+        "path": "backend/frontend/quiet-controls.css",
+        "bytes": 3171,
+        "sha256": "acad74d4bc108d53ddd62645dcd0fe72c306c07964fee827082ed37551d719d6"
+      },
+      {
+        "path": "backend/frontend/quiet-controls.js",
+        "bytes": 4621,
+        "sha256": "f1dd7c0e7fec6d63a06b75bc35c481962d19d2d3937d7c16299c7958c9d91a72"
+      },
+      {
+        "path": "backend/frontend/stock-connections.css",
+        "bytes": 1532,
+        "sha256": "1284f188b3951443043010bc2ae0fbfbebe024206b0b26b7369b3c897ba75e9b"
+      },
+      {
+        "path": "backend/frontend/stock-connections.js",
+        "bytes": 5361,
+        "sha256": "c58a07771748b08afb3d5bda970be0edf8947f4afb8b026a9f03d59a5cc77b19"
+      },
+      {
+        "path": "backend/frontend/stock-studio.css",
+        "bytes": 22739,
+        "sha256": "efac1cac632d0eff76144bda6b54215471e04470bc8d1a8634079f01a0bc5f4f"
+      },
+      {
+        "path": "backend/frontend/stock-studio.js",
+        "bytes": 18671,
+        "sha256": "a6dd980f19ade41bb7400ae35b2793fa8719549367496693a5a3592aac73c881"
+      },
+      {
+        "path": "backend/frontend/studio-shell.js",
+        "bytes": 6960,
+        "sha256": "90cfe4061afaafec698b2ef1eefb3cf72bc973651db926b2b03d1a0bd2b046d3"
+      },
+      {
+        "path": "backend/frontend/usability.css",
+        "bytes": 3029,
+        "sha256": "6d54934a99bb9357209db51e1f48215594704825c8946379de349a5b8f77af0e"
+      },
+      {
+        "path": "backend/frontend/usability.js",
+        "bytes": 4798,
+        "sha256": "dc8bba4898f7915dd921cd26b139040f599b8aa1df2b45ede647d0fed3782152"
+      },
+      {
+        "path": "backend/frontend/workflow-panels.css",
+        "bytes": 22281,
+        "sha256": "875a8dfa057dee6e46793a54b810ee44bcdb278051684a298b3dfd806d4eef76"
+      },
+      {
+        "path": "backend/frontend_dist/.vite/manifest.json",
+        "bytes": 186,
+        "sha256": "fda99b654197a3c064af50ec3b571ed487533f09b839cfc2fd7bc59228401f39"
+      },
+      {
+        "path": "backend/frontend_dist/assets/main-Dd4PiHv0.js",
+        "bytes": 497310,
+        "sha256": "64c232afbb23c8a3ea718cec575704034e1f0e6fb4b011d1a3441573e78fb413"
+      },
+      {
+        "path": "backend/frontend_dist/assets/main-JB45mklZ.css",
+        "bytes": 3559,
+        "sha256": "20c4392764264831c872ba4a0e3718ea059535f7422c444572388daf27829a12"
+      },
+      {
+        "path": "backend/frontend_dist/THIRD_PARTY_NOTICES.txt",
+        "bytes": 145594,
+        "sha256": "144b03e2243c7cfec806603a2a16aa9581afa1efab21729d4c28c01ac83e3f3e"
+      },
+      {
+        "path": "frontend/src/App.tsx",
+        "bytes": 11368,
+        "sha256": "a6b5a05ed5cbdd8173a1df0fde0be28cae05332a9f709d416000162f4e2a4a7e"
+      },
+      {
+        "path": "frontend/src/contracts.ts",
+        "bytes": 2896,
+        "sha256": "413fc190c84f8903454e1e23f8fd4d6f02bb86842d8529b7ddbcac23ce28218f"
+      },
+      {
+        "path": "frontend/src/editorApi.ts",
+        "bytes": 3136,
+        "sha256": "ce36c2e834619a212476a440b10b55dd27b4348086383d69cb95a5d9bf62cff8"
+      },
+      {
+        "path": "frontend/src/editorController.ts",
+        "bytes": 1917,
+        "sha256": "01ffb2d7983bc8934a1022d2467ffad3ae59f25d9bdf2e9a09a268f8e7a70bd8"
+      },
+      {
+        "path": "frontend/src/main.tsx",
+        "bytes": 2055,
+        "sha256": "edc04e2ff95f9f43bab93e3ac529fa7bdb14ce762215c2d0d72342c31d926833"
+      },
+      {
+        "path": "frontend/src/styles.css",
+        "bytes": 4026,
+        "sha256": "e0b0b1e796caa343d5e70f780d108d4f4f9982022db9f140f7b9d1109c9574fe"
+      },
+      {
+        "path": "frontend/src/vite-env.d.ts",
+        "bytes": 38,
+        "sha256": "65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5"
+      },
+      {
+        "path": "backend/local_remove.py",
+        "bytes": 110891,
+        "sha256": "5cd78bbeba94b9e405709a8e6c8c2b82c0200589f279fd0469467221aa797936"
+      },
+      {
+        "path": "backend/local_remove_frontend.py",
+        "bytes": 8447,
+        "sha256": "4afac3bdbf378d3c8205fd2504358c5d6bf47b58de0ebd1c3db7920e58902caf"
+      },
+      {
+        "path": "backend/frontend_tokens.py",
+        "bytes": 1188,
+        "sha256": "c38ce6cbf3dc65b39fb871b1234b9c501ba646f91dffd8076aa9ad5c29fc2ec8"
+      },
+      {
+        "path": "backend/local_remove.html",
+        "bytes": 64032,
+        "sha256": "a56c3b777f0c443d0c3baa9fad75b1bcb0532c63fd46f119bfe1942b49d62f19"
+      },
+      {
+        "path": "backend/layer_stack.py",
+        "bytes": 10113,
+        "sha256": "fdfb45dcda1242aba2dac2cd3c4941b3c5a97d86a59e93e42007346bc43ea006"
+      },
+      {
+        "path": "backend/local_remove_project.py",
+        "bytes": 16309,
+        "sha256": "a2261795b220e247d4dd1ec10f0dcfe8d43974d8a85595573907504d1f9b7424"
+      },
+      {
+        "path": "frontend/package.json",
+        "bytes": 707,
+        "sha256": "a115ecf3dc127b8f5a2340b21f8395b8c2d3c75938be7a3779f6cac8c82bbc9d"
+      },
+      {
+        "path": "frontend/package-lock.json",
+        "bytes": 114701,
+        "sha256": "b34821520c5867d9ba39b16a100c4418c58cc870062b3dd7e64f906b08047400"
+      },
+      {
+        "path": "tests/test_ui_react_integration.cjs",
+        "bytes": 23309,
+        "sha256": "04c5dd531e7b8c170e606a6652f7dfea1b2495340ce3accf7b83cf623f6a99c0"
+      }
+    ],
+    "sourceUnchangedDuringRun": true,
+    "reportSha256": "a5f490370a696e6ad7da371f21fe361993b502e7cc127f4d903558630104d033",
+    "reportPath": "qa-artifacts/migration/real-backend/results.json"
+  },
+  "package": {
+    "passed": true,
+    "checks": [
+      "Actual browser upload creates an unchanged original and revision-zero stack",
+      "Two actual CPU Quick Heals persist real repair patches in the selected retouch layer",
+      "React rename, zero/55% opacity, visibility and locking reach and persist in the real backend",
+      "Manual alpha creates a real editable cutout; persistent pointer gesture commits one backend transform",
+      "Real stack Undo/Redo and browser-selection priority work; transformed mask refinement persists",
+      "Fluent layer reorder changes the actual persisted order while the canvas remains mounted",
+      "Downloaded v3 .lremove contains exact original bytes; real reopen retains all layers, repair links and masks",
+      "Actual Python PNG export has correct size and both opaque subject pixels and transparent background",
+      "Cancel close preserves the reopened editable document after browser project download"
+    ],
+    "baseRevision": "e42aab6a49f222796dbbc9dc1ebf4211f46e9876",
+    "sourceInventory": [
+      {
+        "path": "backend/frontend/app-icon.png",
+        "bytes": 7089,
+        "sha256": "3827ecad367713e35443d07daf468d40c58a317bcf5254e1fdd44d628137ae21"
+      },
+      {
+        "path": "backend/frontend/batch-tools.css",
+        "bytes": 3755,
+        "sha256": "5abb2d7a5cce644c8887928c8d64e9bf56bde063e57a79339bd8b5f287b39fa1"
+      },
+      {
+        "path": "backend/frontend/batch-tools.js",
+        "bytes": 23430,
+        "sha256": "9f8b8c469a71cd35eddbb87c81582b0ef7aa73f8329cb66b2915c1c21e6a5ebf"
+      },
+      {
+        "path": "backend/frontend/editor.css",
+        "bytes": 33346,
+        "sha256": "5c4b2ff8aba447428da48ae1bf81eb63c9b51599cc138b04e0838bb633c174e9"
+      },
+      {
+        "path": "backend/frontend/editor.js",
+        "bytes": 247593,
+        "sha256": "0aa79b6a2c8c10f5dc4ece124b1a433009a581a95c04b5cb9e2dbea1a9b8a949"
+      },
+      {
+        "path": "backend/frontend/generation-composer.css",
+        "bytes": 10881,
+        "sha256": "d5d855f5d51f888f67a07cd9f9c44b609a90191b8da78aa7406f0886559116f6"
+      },
+      {
+        "path": "backend/frontend/generation-composer.js",
+        "bytes": 14403,
+        "sha256": "8147d716536ed9a0e8a8f98dea714999c5cba165705e4ca5d2a3ea2d7c6b1924"
+      },
+      {
+        "path": "backend/frontend/generation-guidance.js",
+        "bytes": 2323,
+        "sha256": "fabb8d2452741e8502472bcc8ef9f5295e8edaacd110d617e8ab623ec18329ec"
+      },
+      {
+        "path": "backend/frontend/generation-size.js",
+        "bytes": 19236,
+        "sha256": "c4f404844e37252626ab319a50173bf8f91b2bfce2fc2f24d5b034f60779369d"
+      },
+      {
+        "path": "backend/frontend/generation-studio.css",
+        "bytes": 20413,
+        "sha256": "16324c074aa3d7e9d24a2e7a8b54796d088e094a1ef0b10b216c42fadb46537c"
+      },
+      {
+        "path": "backend/frontend/generation-studio.js",
+        "bytes": 41020,
+        "sha256": "9bc48d217c2b34f8b9f9431597798481aedf152fdb884556a21142507d807a4a"
+      },
+      {
+        "path": "backend/frontend/generation-workflows.css",
+        "bytes": 7007,
+        "sha256": "14f078bb48e1733c73f298eb1e7c972701802d111ec2dd8b4b32e49a0e010b72"
+      },
+      {
+        "path": "backend/frontend/layers-studio.css",
+        "bytes": 6447,
+        "sha256": "0e5e25a7f5a36c5bd0cbc9250d39d181d17346d1121716834197eea7a6017572"
+      },
+      {
+        "path": "backend/frontend/layers-studio.js",
+        "bytes": 40062,
+        "sha256": "b7aac523de33c61f4bc67c43e8b95e8fe8d0f630f531ab6afa4494be98110465"
+      },
+      {
+        "path": "backend/frontend/lora-examples/12f9890a463d09ff9d36a047.png",
+        "bytes": 1108137,
+        "sha256": "b6a886b34d67737512c92f1bc62173d1f2b0c254af25f31fb9071a5bb590df14"
+      },
+      {
+        "path": "backend/frontend/lora-examples/2f677349683ee4ba31ce1d01.png",
+        "bytes": 2125539,
+        "sha256": "a9c6fda90fa62e8922dde9ffd973b0b67a797cc35a90565acac33bad44d2f547"
+      },
+      {
+        "path": "backend/frontend/lora-examples/35870e954d99b3c11b71599f.png",
+        "bytes": 793206,
+        "sha256": "786c9cf5b6c4d2b5d88efb330e65f7ad5e07bd0a38a6507b012b45c9ad1bbf62"
+      },
+      {
+        "path": "backend/frontend/lora-examples/3b7a31c0faac5df2c8f2c718.png",
+        "bytes": 1241707,
+        "sha256": "77d5f81f9710d800bb05dd65a93064da2ca896e76e272024b906f7c1ae4218e4"
+      },
+      {
+        "path": "backend/frontend/lora-examples/3f45f898c11e7b08e4ae909c.png",
+        "bytes": 1049124,
+        "sha256": "ab634490fd80459a50e4404c576de16c84fde3e8b0fec7dac992ddd16ed2159d"
+      },
+      {
+        "path": "backend/frontend/lora-examples/5bcebc69a28046e0ce47d0cd.png",
+        "bytes": 959369,
+        "sha256": "b9e4a046792adbeb061f60316e13c0a55c833573902abc3283b7a5cfbdc11628"
+      },
+      {
+        "path": "backend/frontend/lora-examples/636b3e37e5247d1735643c77.png",
+        "bytes": 547763,
+        "sha256": "fc49d5490e62a4b944b8b65bd0535d701929b19ae7ce61dd4d602b70fe58dead"
+      },
+      {
+        "path": "backend/frontend/lora-examples/8257e3f5ae81e80010a56638.png",
+        "bytes": 1460256,
+        "sha256": "02af74662dd79874a4654e31f720aeb1ffabea2b485e7d9ff29ca82c741b1548"
+      },
+      {
+        "path": "backend/frontend/lora-examples/ad436c78fd03da0e7b4dff88.png",
+        "bytes": 1905452,
+        "sha256": "6d6b1bbc51492de8cb8de740de9770cc1ee8cc856600f0aefac7520651f6e9c4"
+      },
+      {
+        "path": "backend/frontend/lora-examples/f21570fe39569a0be3c9c207.png",
+        "bytes": 1164836,
+        "sha256": "cef9a23794e938cbe09173884197186b09a671cf62fa9605f7d9e04abd75a539"
+      },
+      {
+        "path": "backend/frontend/lora-examples/provenance.json",
+        "bytes": 11324,
+        "sha256": "d046115e109e167849e74e4428d34629f4d4cd843642a37ee879a7b31641940d"
+      },
+      {
+        "path": "backend/frontend/migration-bridge.js",
+        "bytes": 5278,
+        "sha256": "e1c3b9abf05dddf5988d3dfe05c710e6cf802973a2a4972526196d77600759e6"
+      },
+      {
+        "path": "backend/frontend/quiet-controls.css",
+        "bytes": 3171,
+        "sha256": "acad74d4bc108d53ddd62645dcd0fe72c306c07964fee827082ed37551d719d6"
+      },
+      {
+        "path": "backend/frontend/quiet-controls.js",
+        "bytes": 4621,
+        "sha256": "f1dd7c0e7fec6d63a06b75bc35c481962d19d2d3937d7c16299c7958c9d91a72"
+      },
+      {
+        "path": "backend/frontend/stock-connections.css",
+        "bytes": 1532,
+        "sha256": "1284f188b3951443043010bc2ae0fbfbebe024206b0b26b7369b3c897ba75e9b"
+      },
+      {
+        "path": "backend/frontend/stock-connections.js",
+        "bytes": 5361,
+        "sha256": "c58a07771748b08afb3d5bda970be0edf8947f4afb8b026a9f03d59a5cc77b19"
+      },
+      {
+        "path": "backend/frontend/stock-studio.css",
+        "bytes": 22739,
+        "sha256": "efac1cac632d0eff76144bda6b54215471e04470bc8d1a8634079f01a0bc5f4f"
+      },
+      {
+        "path": "backend/frontend/stock-studio.js",
+        "bytes": 18671,
+        "sha256": "a6dd980f19ade41bb7400ae35b2793fa8719549367496693a5a3592aac73c881"
+      },
+      {
+        "path": "backend/frontend/studio-shell.js",
+        "bytes": 6960,
+        "sha256": "90cfe4061afaafec698b2ef1eefb3cf72bc973651db926b2b03d1a0bd2b046d3"
+      },
+      {
+        "path": "backend/frontend/usability.css",
+        "bytes": 3029,
+        "sha256": "6d54934a99bb9357209db51e1f48215594704825c8946379de349a5b8f77af0e"
+      },
+      {
+        "path": "backend/frontend/usability.js",
+        "bytes": 4798,
+        "sha256": "dc8bba4898f7915dd921cd26b139040f599b8aa1df2b45ede647d0fed3782152"
+      },
+      {
+        "path": "backend/frontend/workflow-panels.css",
+        "bytes": 22281,
+        "sha256": "875a8dfa057dee6e46793a54b810ee44bcdb278051684a298b3dfd806d4eef76"
+      },
+      {
+        "path": "backend/frontend_dist/.vite/manifest.json",
+        "bytes": 186,
+        "sha256": "fda99b654197a3c064af50ec3b571ed487533f09b839cfc2fd7bc59228401f39"
+      },
+      {
+        "path": "backend/frontend_dist/assets/main-Dd4PiHv0.js",
+        "bytes": 497310,
+        "sha256": "64c232afbb23c8a3ea718cec575704034e1f0e6fb4b011d1a3441573e78fb413"
+      },
+      {
+        "path": "backend/frontend_dist/assets/main-JB45mklZ.css",
+        "bytes": 3559,
+        "sha256": "20c4392764264831c872ba4a0e3718ea059535f7422c444572388daf27829a12"
+      },
+      {
+        "path": "backend/frontend_dist/THIRD_PARTY_NOTICES.txt",
+        "bytes": 145594,
+        "sha256": "144b03e2243c7cfec806603a2a16aa9581afa1efab21729d4c28c01ac83e3f3e"
+      },
+      {
+        "path": "frontend/src/App.tsx",
+        "bytes": 11368,
+        "sha256": "a6b5a05ed5cbdd8173a1df0fde0be28cae05332a9f709d416000162f4e2a4a7e"
+      },
+      {
+        "path": "frontend/src/contracts.ts",
+        "bytes": 2896,
+        "sha256": "413fc190c84f8903454e1e23f8fd4d6f02bb86842d8529b7ddbcac23ce28218f"
+      },
+      {
+        "path": "frontend/src/editorApi.ts",
+        "bytes": 3136,
+        "sha256": "ce36c2e834619a212476a440b10b55dd27b4348086383d69cb95a5d9bf62cff8"
+      },
+      {
+        "path": "frontend/src/editorController.ts",
+        "bytes": 1917,
+        "sha256": "01ffb2d7983bc8934a1022d2467ffad3ae59f25d9bdf2e9a09a268f8e7a70bd8"
+      },
+      {
+        "path": "frontend/src/main.tsx",
+        "bytes": 2055,
+        "sha256": "edc04e2ff95f9f43bab93e3ac529fa7bdb14ce762215c2d0d72342c31d926833"
+      },
+      {
+        "path": "frontend/src/styles.css",
+        "bytes": 4026,
+        "sha256": "e0b0b1e796caa343d5e70f780d108d4f4f9982022db9f140f7b9d1109c9574fe"
+      },
+      {
+        "path": "frontend/src/vite-env.d.ts",
+        "bytes": 38,
+        "sha256": "65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5"
+      },
+      {
+        "path": "backend/local_remove.py",
+        "bytes": 110891,
+        "sha256": "5cd78bbeba94b9e405709a8e6c8c2b82c0200589f279fd0469467221aa797936"
+      },
+      {
+        "path": "backend/local_remove_frontend.py",
+        "bytes": 8447,
+        "sha256": "4afac3bdbf378d3c8205fd2504358c5d6bf47b58de0ebd1c3db7920e58902caf"
+      },
+      {
+        "path": "backend/frontend_tokens.py",
+        "bytes": 1188,
+        "sha256": "c38ce6cbf3dc65b39fb871b1234b9c501ba646f91dffd8076aa9ad5c29fc2ec8"
+      },
+      {
+        "path": "backend/local_remove.html",
+        "bytes": 64032,
+        "sha256": "a56c3b777f0c443d0c3baa9fad75b1bcb0532c63fd46f119bfe1942b49d62f19"
+      },
+      {
+        "path": "backend/layer_stack.py",
+        "bytes": 10113,
+        "sha256": "fdfb45dcda1242aba2dac2cd3c4941b3c5a97d86a59e93e42007346bc43ea006"
+      },
+      {
+        "path": "backend/local_remove_project.py",
+        "bytes": 16309,
+        "sha256": "a2261795b220e247d4dd1ec10f0dcfe8d43974d8a85595573907504d1f9b7424"
+      },
+      {
+        "path": "frontend/package.json",
+        "bytes": 707,
+        "sha256": "a115ecf3dc127b8f5a2340b21f8395b8c2d3c75938be7a3779f6cac8c82bbc9d"
+      },
+      {
+        "path": "frontend/package-lock.json",
+        "bytes": 114701,
+        "sha256": "b34821520c5867d9ba39b16a100c4418c58cc870062b3dd7e64f906b08047400"
+      },
+      {
+        "path": "tests/test_ui_react_integration.cjs",
+        "bytes": 23309,
+        "sha256": "04c5dd531e7b8c170e606a6652f7dfea1b2495340ce3accf7b83cf623f6a99c0"
+      }
+    ],
+    "sourceUnchangedDuringRun": true,
+    "reportSha256": "f1b82d768a1e38359f2291e16815abf1738e61922c249c10b00a806306ca4625",
+    "reportPath": "qa-artifacts/migration/packaged-backend/results.json"
+  },
+  "fixture": {
+    "passed": true,
+    "checks": [
+      "All retained adapters execute in the actual composed document",
+      "Selecting layers retains the mounted photo/canvas subtree",
+      "Migrated Layers controls have one owner; production module/CSS and nonced Fluent runtime styles load",
+      "Keyboard row navigation, focus, Space/input shortcut exclusions, rename cancellation, rename and Enter opacity commit",
+      "Zero opacity, visibility, lock, retouch creation and menu reorder reach token/revision-checked fixture API and accepted snapshots",
+      "A rejected opacity draft resets to the accepted value even when document revision is unchanged",
+      "409/500 mutations preserve accepted layer state and dispatch once, without automatic retries",
+      "Real pointer gesture commits exactly once at pointer release",
+      "React Undo/Redo preserve browser selection priority without mutating backend stack state",
+      "A delayed write from the previous document cannot replace the active document after navigation",
+      "Existing Large \u00b7 200% text preference scales React Layers; DPR2 capture retains the mounted browser editor"
+    ],
+    "baseRevision": "e42aab6a49f222796dbbc9dc1ebf4211f46e9876",
+    "sourceInventory": [
+      {
+        "path": "backend/frontend/app-icon.png",
+        "bytes": 7089,
+        "sha256": "3827ecad367713e35443d07daf468d40c58a317bcf5254e1fdd44d628137ae21"
+      },
+      {
+        "path": "backend/frontend/batch-tools.css",
+        "bytes": 3755,
+        "sha256": "5abb2d7a5cce644c8887928c8d64e9bf56bde063e57a79339bd8b5f287b39fa1"
+      },
+      {
+        "path": "backend/frontend/batch-tools.js",
+        "bytes": 23430,
+        "sha256": "9f8b8c469a71cd35eddbb87c81582b0ef7aa73f8329cb66b2915c1c21e6a5ebf"
+      },
+      {
+        "path": "backend/frontend/editor.css",
+        "bytes": 33346,
+        "sha256": "5c4b2ff8aba447428da48ae1bf81eb63c9b51599cc138b04e0838bb633c174e9"
+      },
+      {
+        "path": "backend/frontend/editor.js",
+        "bytes": 247593,
+        "sha256": "0aa79b6a2c8c10f5dc4ece124b1a433009a581a95c04b5cb9e2dbea1a9b8a949"
+      },
+      {
+        "path": "backend/frontend/generation-composer.css",
+        "bytes": 10881,
+        "sha256": "d5d855f5d51f888f67a07cd9f9c44b609a90191b8da78aa7406f0886559116f6"
+      },
+      {
+        "path": "backend/frontend/generation-composer.js",
+        "bytes": 14403,
+        "sha256": "8147d716536ed9a0e8a8f98dea714999c5cba165705e4ca5d2a3ea2d7c6b1924"
+      },
+      {
+        "path": "backend/frontend/generation-guidance.js",
+        "bytes": 2323,
+        "sha256": "fabb8d2452741e8502472bcc8ef9f5295e8edaacd110d617e8ab623ec18329ec"
+      },
+      {
+        "path": "backend/frontend/generation-size.js",
+        "bytes": 19236,
+        "sha256": "c4f404844e37252626ab319a50173bf8f91b2bfce2fc2f24d5b034f60779369d"
+      },
+      {
+        "path": "backend/frontend/generation-studio.css",
+        "bytes": 20413,
+        "sha256": "16324c074aa3d7e9d24a2e7a8b54796d088e094a1ef0b10b216c42fadb46537c"
+      },
+      {
+        "path": "backend/frontend/generation-studio.js",
+        "bytes": 41020,
+        "sha256": "9bc48d217c2b34f8b9f9431597798481aedf152fdb884556a21142507d807a4a"
+      },
+      {
+        "path": "backend/frontend/generation-workflows.css",
+        "bytes": 7007,
+        "sha256": "14f078bb48e1733c73f298eb1e7c972701802d111ec2dd8b4b32e49a0e010b72"
+      },
+      {
+        "path": "backend/frontend/layers-studio.css",
+        "bytes": 6447,
+        "sha256": "0e5e25a7f5a36c5bd0cbc9250d39d181d17346d1121716834197eea7a6017572"
+      },
+      {
+        "path": "backend/frontend/layers-studio.js",
+        "bytes": 40062,
+        "sha256": "b7aac523de33c61f4bc67c43e8b95e8fe8d0f630f531ab6afa4494be98110465"
+      },
+      {
+        "path": "backend/frontend/lora-examples/12f9890a463d09ff9d36a047.png",
+        "bytes": 1108137,
+        "sha256": "b6a886b34d67737512c92f1bc62173d1f2b0c254af25f31fb9071a5bb590df14"
+      },
+      {
+        "path": "backend/frontend/lora-examples/2f677349683ee4ba31ce1d01.png",
+        "bytes": 2125539,
+        "sha256": "a9c6fda90fa62e8922dde9ffd973b0b67a797cc35a90565acac33bad44d2f547"
+      },
+      {
+        "path": "backend/frontend/lora-examples/35870e954d99b3c11b71599f.png",
+        "bytes": 793206,
+        "sha256": "786c9cf5b6c4d2b5d88efb330e65f7ad5e07bd0a38a6507b012b45c9ad1bbf62"
+      },
+      {
+        "path": "backend/frontend/lora-examples/3b7a31c0faac5df2c8f2c718.png",
+        "bytes": 1241707,
+        "sha256": "77d5f81f9710d800bb05dd65a93064da2ca896e76e272024b906f7c1ae4218e4"
+      },
+      {
+        "path": "backend/frontend/lora-examples/3f45f898c11e7b08e4ae909c.png",
+        "bytes": 1049124,
+        "sha256": "ab634490fd80459a50e4404c576de16c84fde3e8b0fec7dac992ddd16ed2159d"
+      },
+      {
+        "path": "backend/frontend/lora-examples/5bcebc69a28046e0ce47d0cd.png",
+        "bytes": 959369,
+        "sha256": "b9e4a046792adbeb061f60316e13c0a55c833573902abc3283b7a5cfbdc11628"
+      },
+      {
+        "path": "backend/frontend/lora-examples/636b3e37e5247d1735643c77.png",
+        "bytes": 547763,
+        "sha256": "fc49d5490e62a4b944b8b65bd0535d701929b19ae7ce61dd4d602b70fe58dead"
+      },
+      {
+        "path": "backend/frontend/lora-examples/8257e3f5ae81e80010a56638.png",
+        "bytes": 1460256,
+        "sha256": "02af74662dd79874a4654e31f720aeb1ffabea2b485e7d9ff29ca82c741b1548"
+      },
+      {
+        "path": "backend/frontend/lora-examples/ad436c78fd03da0e7b4dff88.png",
+        "bytes": 1905452,
+        "sha256": "6d6b1bbc51492de8cb8de740de9770cc1ee8cc856600f0aefac7520651f6e9c4"
+      },
+      {
+        "path": "backend/frontend/lora-examples/f21570fe39569a0be3c9c207.png",
+        "bytes": 1164836,
+        "sha256": "cef9a23794e938cbe09173884197186b09a671cf62fa9605f7d9e04abd75a539"
+      },
+      {
+        "path": "backend/frontend/lora-examples/provenance.json",
+        "bytes": 11324,
+        "sha256": "d046115e109e167849e74e4428d34629f4d4cd843642a37ee879a7b31641940d"
+      },
+      {
+        "path": "backend/frontend/migration-bridge.js",
+        "bytes": 5278,
+        "sha256": "e1c3b9abf05dddf5988d3dfe05c710e6cf802973a2a4972526196d77600759e6"
+      },
+      {
+        "path": "backend/frontend/quiet-controls.css",
+        "bytes": 3171,
+        "sha256": "acad74d4bc108d53ddd62645dcd0fe72c306c07964fee827082ed37551d719d6"
+      },
+      {
+        "path": "backend/frontend/quiet-controls.js",
+        "bytes": 4621,
+        "sha256": "f1dd7c0e7fec6d63a06b75bc35c481962d19d2d3937d7c16299c7958c9d91a72"
+      },
+      {
+        "path": "backend/frontend/stock-connections.css",
+        "bytes": 1532,
+        "sha256": "1284f188b3951443043010bc2ae0fbfbebe024206b0b26b7369b3c897ba75e9b"
+      },
+      {
+        "path": "backend/frontend/stock-connections.js",
+        "bytes": 5361,
+        "sha256": "c58a07771748b08afb3d5bda970be0edf8947f4afb8b026a9f03d59a5cc77b19"
+      },
+      {
+        "path": "backend/frontend/stock-studio.css",
+        "bytes": 22739,
+        "sha256": "efac1cac632d0eff76144bda6b54215471e04470bc8d1a8634079f01a0bc5f4f"
+      },
+      {
+        "path": "backend/frontend/stock-studio.js",
+        "bytes": 18671,
+        "sha256": "a6dd980f19ade41bb7400ae35b2793fa8719549367496693a5a3592aac73c881"
+      },
+      {
+        "path": "backend/frontend/studio-shell.js",
+        "bytes": 6960,
+        "sha256": "90cfe4061afaafec698b2ef1eefb3cf72bc973651db926b2b03d1a0bd2b046d3"
+      },
+      {
+        "path": "backend/frontend/usability.css",
+        "bytes": 3029,
+        "sha256": "6d54934a99bb9357209db51e1f48215594704825c8946379de349a5b8f77af0e"
+      },
+      {
+        "path": "backend/frontend/usability.js",
+        "bytes": 4798,
+        "sha256": "dc8bba4898f7915dd921cd26b139040f599b8aa1df2b45ede647d0fed3782152"
+      },
+      {
+        "path": "backend/frontend/workflow-panels.css",
+        "bytes": 22281,
+        "sha256": "875a8dfa057dee6e46793a54b810ee44bcdb278051684a298b3dfd806d4eef76"
+      },
+      {
+        "path": "backend/frontend_dist/.vite/manifest.json",
+        "bytes": 186,
+        "sha256": "fda99b654197a3c064af50ec3b571ed487533f09b839cfc2fd7bc59228401f39"
+      },
+      {
+        "path": "backend/frontend_dist/THIRD_PARTY_NOTICES.txt",
+        "bytes": 145594,
+        "sha256": "144b03e2243c7cfec806603a2a16aa9581afa1efab21729d4c28c01ac83e3f3e"
+      },
+      {
+        "path": "backend/frontend_dist/assets/main-Dd4PiHv0.js",
+        "bytes": 497310,
+        "sha256": "64c232afbb23c8a3ea718cec575704034e1f0e6fb4b011d1a3441573e78fb413"
+      },
+      {
+        "path": "backend/frontend_dist/assets/main-JB45mklZ.css",
+        "bytes": 3559,
+        "sha256": "20c4392764264831c872ba4a0e3718ea059535f7422c444572388daf27829a12"
+      },
+      {
+        "path": "backend/frontend_tokens.py",
+        "bytes": 1188,
+        "sha256": "c38ce6cbf3dc65b39fb871b1234b9c501ba646f91dffd8076aa9ad5c29fc2ec8"
+      },
+      {
+        "path": "backend/local_remove.html",
+        "bytes": 64032,
+        "sha256": "a56c3b777f0c443d0c3baa9fad75b1bcb0532c63fd46f119bfe1942b49d62f19"
+      },
+      {
+        "path": "backend/local_remove.py",
+        "bytes": 110891,
+        "sha256": "5cd78bbeba94b9e405709a8e6c8c2b82c0200589f279fd0469467221aa797936"
+      },
+      {
+        "path": "backend/local_remove_frontend.py",
+        "bytes": 8447,
+        "sha256": "4afac3bdbf378d3c8205fd2504358c5d6bf47b58de0ebd1c3db7920e58902caf"
+      },
+      {
+        "path": "frontend/package-lock.json",
+        "bytes": 114701,
+        "sha256": "b34821520c5867d9ba39b16a100c4418c58cc870062b3dd7e64f906b08047400"
+      },
+      {
+        "path": "frontend/package.json",
+        "bytes": 707,
+        "sha256": "a115ecf3dc127b8f5a2340b21f8395b8c2d3c75938be7a3779f6cac8c82bbc9d"
+      },
+      {
+        "path": "frontend/src/App.tsx",
+        "bytes": 11368,
+        "sha256": "a6b5a05ed5cbdd8173a1df0fde0be28cae05332a9f709d416000162f4e2a4a7e"
+      },
+      {
+        "path": "frontend/src/contracts.ts",
+        "bytes": 2896,
+        "sha256": "413fc190c84f8903454e1e23f8fd4d6f02bb86842d8529b7ddbcac23ce28218f"
+      },
+      {
+        "path": "frontend/src/editorApi.ts",
+        "bytes": 3136,
+        "sha256": "ce36c2e834619a212476a440b10b55dd27b4348086383d69cb95a5d9bf62cff8"
+      },
+      {
+        "path": "frontend/src/editorController.ts",
+        "bytes": 1917,
+        "sha256": "01ffb2d7983bc8934a1022d2467ffad3ae59f25d9bdf2e9a09a268f8e7a70bd8"
+      },
+      {
+        "path": "frontend/src/main.tsx",
+        "bytes": 2055,
+        "sha256": "edc04e2ff95f9f43bab93e3ac529fa7bdb14ce762215c2d0d72342c31d926833"
+      },
+      {
+        "path": "frontend/src/styles.css",
+        "bytes": 4026,
+        "sha256": "e0b0b1e796caa343d5e70f780d108d4f4f9982022db9f140f7b9d1109c9574fe"
+      },
+      {
+        "path": "frontend/src/vite-env.d.ts",
+        "bytes": 38,
+        "sha256": "65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5"
+      },
+      {
+        "path": "frontend/tsconfig.json",
+        "bytes": 405,
+        "sha256": "3a66ebbbbbbd6bb91540c0b9e1256f01c98e7877bcd4091ad5810af270263742"
+      },
+      {
+        "path": "frontend/vite.config.ts",
+        "bytes": 354,
+        "sha256": "90bb1ce3e40ba0e304ac796ba18350528cd6c342a5709e64e77c660ab0005c3a"
+      },
+      {
+        "path": "tests/test_ui_migration.cjs",
+        "bytes": 36995,
+        "sha256": "0ea15f189ad835e72770d23267d2691dc5a3fa6a098dbb1d865130a3c56c6bc7"
+      }
+    ],
+    "sourceUnchangedDuringRun": true,
+    "reportSha256": "30876a11ddfeb438a1943ff6f0761a7dcfe53247342d5a8e7fc4ee9a677ffb82",
+    "reportPath": "qa-artifacts/migration/after/results.json"
+  },
+  "rollback": {
+    "passed": true,
+    "checks": [
+      "All retained adapters execute in the actual composed document",
+      "Selecting layers retains the mounted photo/canvas subtree",
+      "Real pointer gesture commits exactly once at pointer release"
+    ],
+    "baseRevision": "e42aab6a49f222796dbbc9dc1ebf4211f46e9876",
+    "sourceInventory": [
+      {
+        "path": "backend/frontend/app-icon.png",
+        "bytes": 7089,
+        "sha256": "3827ecad367713e35443d07daf468d40c58a317bcf5254e1fdd44d628137ae21"
+      },
+      {
+        "path": "backend/frontend/batch-tools.css",
+        "bytes": 3755,
+        "sha256": "5abb2d7a5cce644c8887928c8d64e9bf56bde063e57a79339bd8b5f287b39fa1"
+      },
+      {
+        "path": "backend/frontend/batch-tools.js",
+        "bytes": 23430,
+        "sha256": "9f8b8c469a71cd35eddbb87c81582b0ef7aa73f8329cb66b2915c1c21e6a5ebf"
+      },
+      {
+        "path": "backend/frontend/editor.css",
+        "bytes": 33346,
+        "sha256": "5c4b2ff8aba447428da48ae1bf81eb63c9b51599cc138b04e0838bb633c174e9"
+      },
+      {
+        "path": "backend/frontend/editor.js",
+        "bytes": 247593,
+        "sha256": "0aa79b6a2c8c10f5dc4ece124b1a433009a581a95c04b5cb9e2dbea1a9b8a949"
+      },
+      {
+        "path": "backend/frontend/generation-composer.css",
+        "bytes": 10881,
+        "sha256": "d5d855f5d51f888f67a07cd9f9c44b609a90191b8da78aa7406f0886559116f6"
+      },
+      {
+        "path": "backend/frontend/generation-composer.js",
+        "bytes": 14403,
+        "sha256": "8147d716536ed9a0e8a8f98dea714999c5cba165705e4ca5d2a3ea2d7c6b1924"
+      },
+      {
+        "path": "backend/frontend/generation-guidance.js",
+        "bytes": 2323,
+        "sha256": "fabb8d2452741e8502472bcc8ef9f5295e8edaacd110d617e8ab623ec18329ec"
+      },
+      {
+        "path": "backend/frontend/generation-size.js",
+        "bytes": 19236,
+        "sha256": "c4f404844e37252626ab319a50173bf8f91b2bfce2fc2f24d5b034f60779369d"
+      },
+      {
+        "path": "backend/frontend/generation-studio.css",
+        "bytes": 20413,
+        "sha256": "16324c074aa3d7e9d24a2e7a8b54796d088e094a1ef0b10b216c42fadb46537c"
+      },
+      {
+        "path": "backend/frontend/generation-studio.js",
+        "bytes": 41020,
+        "sha256": "9bc48d217c2b34f8b9f9431597798481aedf152fdb884556a21142507d807a4a"
+      },
+      {
+        "path": "backend/frontend/generation-workflows.css",
+        "bytes": 7007,
+        "sha256": "14f078bb48e1733c73f298eb1e7c972701802d111ec2dd8b4b32e49a0e010b72"
+      },
+      {
+        "path": "backend/frontend/layers-studio.css",
+        "bytes": 6447,
+        "sha256": "0e5e25a7f5a36c5bd0cbc9250d39d181d17346d1121716834197eea7a6017572"
+      },
+      {
+        "path": "backend/frontend/layers-studio.js",
+        "bytes": 40062,
+        "sha256": "b7aac523de33c61f4bc67c43e8b95e8fe8d0f630f531ab6afa4494be98110465"
+      },
+      {
+        "path": "backend/frontend/lora-examples/12f9890a463d09ff9d36a047.png",
+        "bytes": 1108137,
+        "sha256": "b6a886b34d67737512c92f1bc62173d1f2b0c254af25f31fb9071a5bb590df14"
+      },
+      {
+        "path": "backend/frontend/lora-examples/2f677349683ee4ba31ce1d01.png",
+        "bytes": 2125539,
+        "sha256": "a9c6fda90fa62e8922dde9ffd973b0b67a797cc35a90565acac33bad44d2f547"
+      },
+      {
+        "path": "backend/frontend/lora-examples/35870e954d99b3c11b71599f.png",
+        "bytes": 793206,
+        "sha256": "786c9cf5b6c4d2b5d88efb330e65f7ad5e07bd0a38a6507b012b45c9ad1bbf62"
+      },
+      {
+        "path": "backend/frontend/lora-examples/3b7a31c0faac5df2c8f2c718.png",
+        "bytes": 1241707,
+        "sha256": "77d5f81f9710d800bb05dd65a93064da2ca896e76e272024b906f7c1ae4218e4"
+      },
+      {
+        "path": "backend/frontend/lora-examples/3f45f898c11e7b08e4ae909c.png",
+        "bytes": 1049124,
+        "sha256": "ab634490fd80459a50e4404c576de16c84fde3e8b0fec7dac992ddd16ed2159d"
+      },
+      {
+        "path": "backend/frontend/lora-examples/5bcebc69a28046e0ce47d0cd.png",
+        "bytes": 959369,
+        "sha256": "b9e4a046792adbeb061f60316e13c0a55c833573902abc3283b7a5cfbdc11628"
+      },
+      {
+        "path": "backend/frontend/lora-examples/636b3e37e5247d1735643c77.png",
+        "bytes": 547763,
+        "sha256": "fc49d5490e62a4b944b8b65bd0535d701929b19ae7ce61dd4d602b70fe58dead"
+      },
+      {
+        "path": "backend/frontend/lora-examples/8257e3f5ae81e80010a56638.png",
+        "bytes": 1460256,
+        "sha256": "02af74662dd79874a4654e31f720aeb1ffabea2b485e7d9ff29ca82c741b1548"
+      },
+      {
+        "path": "backend/frontend/lora-examples/ad436c78fd03da0e7b4dff88.png",
+        "bytes": 1905452,
+        "sha256": "6d6b1bbc51492de8cb8de740de9770cc1ee8cc856600f0aefac7520651f6e9c4"
+      },
+      {
+        "path": "backend/frontend/lora-examples/f21570fe39569a0be3c9c207.png",
+        "bytes": 1164836,
+        "sha256": "cef9a23794e938cbe09173884197186b09a671cf62fa9605f7d9e04abd75a539"
+      },
+      {
+        "path": "backend/frontend/lora-examples/provenance.json",
+        "bytes": 11324,
+        "sha256": "d046115e109e167849e74e4428d34629f4d4cd843642a37ee879a7b31641940d"
+      },
+      {
+        "path": "backend/frontend/migration-bridge.js",
+        "bytes": 5278,
+        "sha256": "e1c3b9abf05dddf5988d3dfe05c710e6cf802973a2a4972526196d77600759e6"
+      },
+      {
+        "path": "backend/frontend/quiet-controls.css",
+        "bytes": 3171,
+        "sha256": "acad74d4bc108d53ddd62645dcd0fe72c306c07964fee827082ed37551d719d6"
+      },
+      {
+        "path": "backend/frontend/quiet-controls.js",
+        "bytes": 4621,
+        "sha256": "f1dd7c0e7fec6d63a06b75bc35c481962d19d2d3937d7c16299c7958c9d91a72"
+      },
+      {
+        "path": "backend/frontend/stock-connections.css",
+        "bytes": 1532,
+        "sha256": "1284f188b3951443043010bc2ae0fbfbebe024206b0b26b7369b3c897ba75e9b"
+      },
+      {
+        "path": "backend/frontend/stock-connections.js",
+        "bytes": 5361,
+        "sha256": "c58a07771748b08afb3d5bda970be0edf8947f4afb8b026a9f03d59a5cc77b19"
+      },
+      {
+        "path": "backend/frontend/stock-studio.css",
+        "bytes": 22739,
+        "sha256": "efac1cac632d0eff76144bda6b54215471e04470bc8d1a8634079f01a0bc5f4f"
+      },
+      {
+        "path": "backend/frontend/stock-studio.js",
+        "bytes": 18671,
+        "sha256": "a6dd980f19ade41bb7400ae35b2793fa8719549367496693a5a3592aac73c881"
+      },
+      {
+        "path": "backend/frontend/studio-shell.js",
+        "bytes": 6960,
+        "sha256": "90cfe4061afaafec698b2ef1eefb3cf72bc973651db926b2b03d1a0bd2b046d3"
+      },
+      {
+        "path": "backend/frontend/usability.css",
+        "bytes": 3029,
+        "sha256": "6d54934a99bb9357209db51e1f48215594704825c8946379de349a5b8f77af0e"
+      },
+      {
+        "path": "backend/frontend/usability.js",
+        "bytes": 4798,
+        "sha256": "dc8bba4898f7915dd921cd26b139040f599b8aa1df2b45ede647d0fed3782152"
+      },
+      {
+        "path": "backend/frontend/workflow-panels.css",
+        "bytes": 22281,
+        "sha256": "875a8dfa057dee6e46793a54b810ee44bcdb278051684a298b3dfd806d4eef76"
+      },
+      {
+        "path": "backend/frontend_dist/.vite/manifest.json",
+        "bytes": 186,
+        "sha256": "fda99b654197a3c064af50ec3b571ed487533f09b839cfc2fd7bc59228401f39"
+      },
+      {
+        "path": "backend/frontend_dist/THIRD_PARTY_NOTICES.txt",
+        "bytes": 145594,
+        "sha256": "144b03e2243c7cfec806603a2a16aa9581afa1efab21729d4c28c01ac83e3f3e"
+      },
+      {
+        "path": "backend/frontend_dist/assets/main-Dd4PiHv0.js",
+        "bytes": 497310,
+        "sha256": "64c232afbb23c8a3ea718cec575704034e1f0e6fb4b011d1a3441573e78fb413"
+      },
+      {
+        "path": "backend/frontend_dist/assets/main-JB45mklZ.css",
+        "bytes": 3559,
+        "sha256": "20c4392764264831c872ba4a0e3718ea059535f7422c444572388daf27829a12"
+      },
+      {
+        "path": "backend/frontend_tokens.py",
+        "bytes": 1188,
+        "sha256": "c38ce6cbf3dc65b39fb871b1234b9c501ba646f91dffd8076aa9ad5c29fc2ec8"
+      },
+      {
+        "path": "backend/local_remove.html",
+        "bytes": 64032,
+        "sha256": "a56c3b777f0c443d0c3baa9fad75b1bcb0532c63fd46f119bfe1942b49d62f19"
+      },
+      {
+        "path": "backend/local_remove.py",
+        "bytes": 110891,
+        "sha256": "5cd78bbeba94b9e405709a8e6c8c2b82c0200589f279fd0469467221aa797936"
+      },
+      {
+        "path": "backend/local_remove_frontend.py",
+        "bytes": 8447,
+        "sha256": "4afac3bdbf378d3c8205fd2504358c5d6bf47b58de0ebd1c3db7920e58902caf"
+      },
+      {
+        "path": "frontend/package-lock.json",
+        "bytes": 114701,
+        "sha256": "b34821520c5867d9ba39b16a100c4418c58cc870062b3dd7e64f906b08047400"
+      },
+      {
+        "path": "frontend/package.json",
+        "bytes": 707,
+        "sha256": "a115ecf3dc127b8f5a2340b21f8395b8c2d3c75938be7a3779f6cac8c82bbc9d"
+      },
+      {
+        "path": "frontend/src/App.tsx",
+        "bytes": 11368,
+        "sha256": "a6b5a05ed5cbdd8173a1df0fde0be28cae05332a9f709d416000162f4e2a4a7e"
+      },
+      {
+        "path": "frontend/src/contracts.ts",
+        "bytes": 2896,
+        "sha256": "413fc190c84f8903454e1e23f8fd4d6f02bb86842d8529b7ddbcac23ce28218f"
+      },
+      {
+        "path": "frontend/src/editorApi.ts",
+        "bytes": 3136,
+        "sha256": "ce36c2e834619a212476a440b10b55dd27b4348086383d69cb95a5d9bf62cff8"
+      },
+      {
+        "path": "frontend/src/editorController.ts",
+        "bytes": 1917,
+        "sha256": "01ffb2d7983bc8934a1022d2467ffad3ae59f25d9bdf2e9a09a268f8e7a70bd8"
+      },
+      {
+        "path": "frontend/src/main.tsx",
+        "bytes": 2055,
+        "sha256": "edc04e2ff95f9f43bab93e3ac529fa7bdb14ce762215c2d0d72342c31d926833"
+      },
+      {
+        "path": "frontend/src/styles.css",
+        "bytes": 4026,
+        "sha256": "e0b0b1e796caa343d5e70f780d108d4f4f9982022db9f140f7b9d1109c9574fe"
+      },
+      {
+        "path": "frontend/src/vite-env.d.ts",
+        "bytes": 38,
+        "sha256": "65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5"
+      },
+      {
+        "path": "frontend/tsconfig.json",
+        "bytes": 405,
+        "sha256": "3a66ebbbbbbd6bb91540c0b9e1256f01c98e7877bcd4091ad5810af270263742"
+      },
+      {
+        "path": "frontend/vite.config.ts",
+        "bytes": 354,
+        "sha256": "90bb1ce3e40ba0e304ac796ba18350528cd6c342a5709e64e77c660ab0005c3a"
+      },
+      {
+        "path": "tests/test_ui_migration.cjs",
+        "bytes": 36995,
+        "sha256": "0ea15f189ad835e72770d23267d2691dc5a3fa6a098dbb1d865130a3c56c6bc7"
+      }
+    ],
+    "sourceUnchangedDuringRun": true,
+    "reportSha256": "ecb2a2a91541f2b05ba12d5ab17b463c379c96c8b2d53ed4f99a96b7ad3534a4",
+    "reportPath": "qa-artifacts/migration/rollback/results.json"
+  },
+  "screenshots": [
+    {
+      "file": "before-fixture-1366.png",
+      "sha256": "8e8e378ea7f9bc16c36b00adc2191e7e75a92ac836c5c45ce12fce84997a8f1b",
+      "bytes": 126904
+    },
+    {
+      "file": "react-fixture-1366.png",
+      "sha256": "cfcfc598234b9ad96d4787ce1a048a1207d1748f518c7a793b507a899a737348",
+      "bytes": 185337
+    },
+    {
+      "file": "react-large-text-200.png",
+      "sha256": "bd94f8b899582dfb75c0b6dfd9b2c72e4c9390f06e22350ca78561f2ef5810ef",
+      "bytes": 220152
+    },
+    {
+      "file": "real-backend-1366.png",
+      "sha256": "4bf911e7300163ad0a4850334df96999a5b196425bcb62db5ca0a353881fba9b",
+      "bytes": 60782
+    },
+    {
+      "file": "real-backend-1920.png",
+      "sha256": "32393740bb7782dbcc28e128a1ec7b5bb107967cdc2f39d59bce8e67543bc29c",
+      "bytes": 67558
+    },
+    {
+      "file": "real-backend-800.png",
+      "sha256": "d1d3db14ec6dd00738b094009238ea63bacfe238d466747905d20ef4f10a9dcf",
+      "bytes": 62997
+    }
+  ]
+}

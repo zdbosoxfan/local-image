@@ -330,5 +330,8 @@
   window.LocalImageStockStudio={open:openForUser,close(){stockOpener=null;closeDock();},setExpanded(value){
     if(close.disabled)return;openDock();expanded=!!value;present();
   }};
-  openDock();requestAnimationFrame(loadProviders);
+  // The opt-in image-first shell opens Assets only when requested. Provider
+  // discovery stays in the existing deliberate-open path.
+  if(window.__LOCAL_IMAGE_REACT__)closeDock();
+  else{openDock();requestAnimationFrame(loadProviders);}
 })();

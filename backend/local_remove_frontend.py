@@ -4,13 +4,119 @@ Keeping delivery at /remove preserves the desktop host's trusted-page boundary.
 The sources remain separate for development and require no network dependencies.
 """
 import base64
+from html import escape
+import json
+import os
 from pathlib import Path
+import re
 
 
 RESOURCE_DIR = Path(__file__).resolve().parent
+ASSET_PREFIX = '/frontend-assets/'
+ENTRY_POINT = 'src/main.tsx'
+# Vite's deliberately flat, hashed asset output is the only public directory.
+# Source maps, manifests, Python sources and user state are never public assets.
+ASSET_NAME = re.compile(r'assets/[A-Za-z0-9_.-]+-[A-Za-z0-9_-]{8,}\.(?:js|css|woff2?|ttf|otf|png|jpe?g|webp|svg|ico)\Z')
+ASSET_TYPES = {'.js': 'text/javascript', '.css': 'text/css', '.woff': 'font/woff',
+               '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf',
+               '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+               '.webp': 'image/webp', '.svg': 'image/svg+xml', '.ico': 'image/x-icon'}
 
 
-def render_editor(nonce: str, token: str) -> str:
+def frontend_mode() -> str:
+    """The staged shell is opt-in; restarting without the flag rolls back."""
+    return 'react' if os.environ.get('LOCAL_IMAGE_FRONTEND', '').lower() == 'react' else 'legacy'
+
+
+def _asset_path(name: str) -> Path:
+    if not isinstance(name, str) or not ASSET_NAME.fullmatch(name):
+        raise ValueError('Invalid frontend asset name')
+    package_root = RESOURCE_DIR.resolve()
+    root = (package_root / 'frontend_dist').resolve()
+    candidate = (root / name).resolve()
+    if not root.is_relative_to(package_root) or not candidate.is_relative_to(root) or not candidate.is_file():
+        raise ValueError('Frontend asset is missing or outside its package')
+    return candidate
+
+
+def frontend_manifest() -> tuple[dict, list[str], frozenset[str]]:
+    """Validate the reachable Vite manifest graph, including lazy chunks."""
+    try:
+        manifest = json.loads((RESOURCE_DIR / 'frontend_dist' / '.vite' / 'manifest.json').read_text(encoding='utf-8-sig'))
+        if not isinstance(manifest, dict) or not manifest[ENTRY_POINT].get('isEntry'):
+            raise ValueError('Missing frontend entry')
+        visited, eager, assets = set(), [], set()
+
+        def visit(key, is_eager=True):
+            # A shared chunk first seen through a lazy import can still be an
+            # eager dependency of a later branch; promote that branch as needed.
+            state = (key, is_eager)
+            if state in visited:
+                return
+            visited.add(state)
+            chunk = manifest[key]
+            if not isinstance(chunk, dict):
+                raise ValueError('Invalid frontend chunk')
+            names = [chunk['file']]
+            for field in ('css', 'assets'):
+                values = chunk.get(field, [])
+                if not isinstance(values, list):
+                    raise ValueError('Invalid frontend assets')
+                names.extend(values)
+            for name in names:
+                _asset_path(name)
+                assets.add(name)
+            if is_eager:
+                eager.append(key)
+            for field in ('imports', 'dynamicImports'):
+                values = chunk.get(field, [])
+                if not isinstance(values, list):
+                    raise ValueError('Invalid frontend imports')
+                for dependency in values:
+                    visit(dependency, is_eager and field == 'imports')
+
+        visit(ENTRY_POINT)
+        return manifest, eager, frozenset(assets)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        raise RuntimeError('The React frontend build is unavailable. Build frontend/ or restart with LOCAL_IMAGE_FRONTEND=legacy.') from error
+
+
+def frontend_asset(name: str) -> tuple[Path, str]:
+    """Resolve only manifest-listed hashed files; this is not a static mount."""
+    if not isinstance(name, str) or not ASSET_NAME.fullmatch(name):
+        raise FileNotFoundError(name)
+    try:
+        _, _, allowed = frontend_manifest()
+        if name not in allowed:
+            raise FileNotFoundError(name)
+        path = _asset_path(name)
+        return path, ASSET_TYPES[path.suffix]
+    except (RuntimeError, ValueError) as error:
+        raise FileNotFoundError(name) from error
+
+
+def _script_json(value) -> str:
+    return json.dumps(value, separators=(',', ':')).replace('&', '\\u0026').replace('<', '\\u003c').replace('>', '\\u003e').replace('\u2028', '\\u2028').replace('\u2029', '\\u2029')
+
+
+def _module_tags(nonce: str) -> tuple[str, str]:
+    manifest, eager, _ = frontend_manifest()
+    css, preloads = [], []
+    for key in eager:
+        chunk = manifest[key]
+        for name in chunk.get('css', []):
+            if name not in css:
+                css.append(name)
+        if key != ENTRY_POINT:
+            preloads.append(chunk['file'])
+    attributes = f'nonce="{escape(nonce, quote=True)}" crossorigin'
+    head = ''.join(f'<link rel="stylesheet" {attributes} href="{ASSET_PREFIX}{name}">\n' for name in css)
+    head += ''.join(f'<link rel="modulepreload" {attributes} href="{ASSET_PREFIX}{name}">\n' for name in preloads)
+    script = f'<script type="module" {attributes} src="{ASSET_PREFIX}{manifest[ENTRY_POINT]["file"]}"></script>\n'
+    return head, script
+
+
+def render_editor(nonce: str, token: str, mode: str | None = None) -> str:
     # Windows editors may write a BOM. Inside an inline style block it becomes
     # part of the first selector and can silently invalidate the design tokens.
     template = (RESOURCE_DIR / 'local_remove.html').read_text(encoding='utf-8-sig')
@@ -22,11 +128,35 @@ def render_editor(nonce: str, token: str) -> str:
                'stock-studio.js', 'generation-studio.js', 'quiet-controls.js',
                'layers-studio.js', 'generation-size.js', 'generation-composer.js',
                'generation-guidance.js', 'stock-connections.js')
-    html = template.replace('__EDITOR_STYLE__', '\n'.join((frontend / name).read_text(encoding='utf-8-sig')
-        for name in styles if (frontend / name).is_file()))
-    html = html.replace('__EDITOR_SCRIPT__', '\n'.join((frontend / name).read_text(encoding='utf-8-sig')
-        for name in scripts if (frontend / name).is_file()))
+    react = (mode or frontend_mode()) == 'react'
+    if react:
+        # Loaded last, the temporary adapter exposes commands and snapshots after
+        # the composed legacy page is initialized. React owns its new regions.
+        scripts += ('migration-bridge.js',)
+        if not (frontend / 'migration-bridge.js').is_file():
+            raise RuntimeError('The React migration bridge is unavailable. Restart with LOCAL_IMAGE_FRONTEND=legacy.')
+    style = '\n'.join((frontend / name).read_text(encoding='utf-8-sig')
+        for name in styles if (frontend / name).is_file())
+    if react:
+        # Within @scope the scope root must be targeted explicitly. Leaving
+        # :root here loses root tokens in Chromium, invalidating legacy grids.
+        scoped_style = re.sub(r':root\b', ':scope', style)
+        style = '@scope (:root) to ([data-react-owned]) {\n' + scoped_style + '\n}'
+    html = template.replace('__EDITOR_STYLE__', style)
+    script = '\n'.join((frontend / name).read_text(encoding='utf-8-sig')
+        for name in scripts if (frontend / name).is_file())
+    if react:
+        bootstrap = _script_json({'nonce': nonce, 'token': token})
+        script = "'use strict';\nwindow.__LOCAL_IMAGE_REACT__=true;\nwindow.__LOCAL_IMAGE_BOOTSTRAP__=" + bootstrap + ';\n' + script
+    html = html.replace('__EDITOR_SCRIPT__', script)
     if '__APP_ICON__' in html:
         icon = base64.b64encode((frontend / 'app-icon.png').read_bytes()).decode('ascii')
         html = html.replace('__APP_ICON__', 'data:image/png;base64,' + icon)
-    return html.replace('__NONCE__', nonce).replace('__TOKEN__', token)
+    # The legacy token placeholder is inside a single-quoted JS string. Keep its
+    # escaping independent of the JSON bootstrap and HTML attribute context.
+    js_token = _script_json(token)[1:-1].replace("'", "\\'")
+    html = html.replace('__NONCE__', escape(nonce, quote=True)).replace('__TOKEN__', js_token)
+    if react:
+        head, module = _module_tags(nonce)
+        html = html.replace('</head>', head + '</head>').replace('</body>', module + '</body>')
+    return html

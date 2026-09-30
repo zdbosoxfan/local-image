@@ -7,6 +7,11 @@ param(
 $ErrorActionPreference = 'Stop'
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $PSScriptRoot '..\dist' }
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+foreach ($frontendFile in @('backend\frontend_dist\.vite\manifest.json', 'backend\frontend_dist\THIRD_PARTY_NOTICES.txt')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $repository $frontendFile) -PathType Leaf)) {
+        throw 'Build frontend/ and its dependency license notices before Windows packaging. End users do not need Node or Vite.'
+    }
+}
 $output = [IO.Path]::GetFullPath($OutputDirectory)
 $package = Join-Path $output 'package'
 $installer = Join-Path $output 'installer'

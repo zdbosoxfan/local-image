@@ -215,15 +215,26 @@ requires a separate Qwen license. The installer does not bundle model weights.
 
 ## Runtime layout
 
-The editor sources are split between `backend/local_remove.html` (markup),
+The default legacy editor sources are split between `backend/local_remove.html` (markup),
 `backend/frontend/editor.css` (presentation), and `backend/frontend/editor.js`
 (interaction). The additional `usability`, `generation-workflows` and `batch-tools`
 resources extend the same workspace without a frontend build step.
 `local_remove_frontend.py` assembles these local resources for each
 `/remove` response, with the request nonce and current session token. This keeps
 the existing Content Security Policy and desktop trusted-page boundary intact;
-there is no frontend build step or remote asset dependency. The installer bundles
+the legacy mode has no frontend build step or remote asset dependency. The installer bundles
 the `frontend` directory alongside the markup.
+
+An opt-in React/TypeScript/Fluent shell and Layers prototype is documented in
+[Frontend milestone 1](FRONTEND-MILESTONE-1.md). Set `LOCAL_IMAGE_FRONTEND=react`
+before starting the backend to test it, or unset the variable/use `legacy` to
+roll back. Production and native navigation remain at `/remove`. Build its
+checked-in hashed assets and license notices with `npm.cmd ci --ignore-scripts`
+and `npm.cmd run build` inside `frontend/`; the dedicated `backend/frontend_dist`
+directory is packaged by PyInstaller. End users need neither Node nor Vite.
+The root `package.json` pins the documented Playwright test driver; use
+`npm.cmd ci --ignore-scripts` at the repository root for browser tests.
+The two modes retain the same Python image/project engine and native host.
 
 `qwen_image.py` builds native ComfyUI graphs and preserves transparent results.
 `qwen_setup.py` owns model-download routes and progress; `cutout_composite.py`

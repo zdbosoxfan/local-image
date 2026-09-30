@@ -1,0 +1,11 @@
+{
+  "packages": ["embla-carousel", "embla-carousel-autoplay", "embla-carousel-fade"],
+  "version": "8.6.0",
+  "license": "MIT",
+  "gitHead": "0fe65834136f1aa35e4c1a4a477e5ccb4bb5ee54",
+  "repository": "https://github.com/davidjerleke/embla-carousel",
+  "url": "https://raw.githubusercontent.com/davidjerleke/embla-carousel/0fe65834136f1aa35e4c1a4a477e5ccb4bb5ee54/LICENSE",
+  "metadataCommand": "npm.cmd view <package>@8.6.0 gitHead repository license dist.tarball --json --fetch-retries=0 --fetch-timeout=15000",
+  "retrievedOn": "2026-09-30",
+  "reason": "These resolved npm packages omit a LICENSE file. Each exact package version reports the same authoritative repository gitHead; this notice is copied from that commit."
+}

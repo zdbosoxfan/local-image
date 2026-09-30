@@ -6,8 +6,15 @@ from PyInstaller.utils.hooks import collect_all, copy_metadata
 
 root = Path(SPECPATH).parent
 backend = root / 'backend'
+sys.path.insert(0, str(backend))
+from local_remove_frontend import frontend_manifest
+# Validate packaged output before building; the desktop never starts Node/Vite.
+frontend_manifest()
+if not (backend / 'frontend_dist' / 'THIRD_PARTY_NOTICES.txt').is_file():
+    raise RuntimeError('Build frontend/ with its dependency license notices before packaging.')
 datas = [(str(backend / 'local_remove.html'), '.'),
          (str(backend / 'frontend'), 'frontend'),
+         (str(backend / 'frontend_dist'), 'frontend_dist'),
          (str(backend / 'workflow.json'), '.'),
          (str(backend / 'licenses'), 'licenses'),
          (str(backend / 'LICENSE'), '.'),

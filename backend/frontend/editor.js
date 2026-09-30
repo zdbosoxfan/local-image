@@ -38,7 +38,11 @@ const modalOpen=()=>$('settings-dialog').open||$('overwrite-dialog').open||$('cl
 const viewStates=new Map(),nativePending=new Map(),openDocuments=new Map(),displayCache=new Map(),layerQueues=new Map();
 const cloneDocument=data=>JSON.parse(JSON.stringify(data));
 const layerChangesPending=()=>[...layerQueues.values()].some(queue=>queue.pending.length>0);
-function trackDocument(data){if(data?.id)openDocuments.set(data.id,data);}
+function publishEditorState(){window.LocalImageLegacyEditor?.publish();}
+function trackDocument(data){
+  if(data?.id&&(!openDocuments.has(data.id)||openDocuments.get(data.id).revision<=data.revision))openDocuments.set(data.id,data);
+  publishEditorState();
+}
 
 const BRUSH_STEPS=[1,2,3,4,5,6,7,8,9,10,12,15,20,25,30,35,40,45,50,60,70,80,90,100,125,150,175,200,250,300,400,500,600,800,1000,1200,1500,2000];
 const MIN_PHOTO_ZOOM=.01,MAX_PHOTO_ZOOM=8;
@@ -56,7 +60,7 @@ const currentModel=()=>models.find(model=>model.id===modelId);
 const modelLabel=()=>currentModel()?.label||'FLUX.2 Klein';
 const selectedHealMethod=()=>models.find(model=>model.id==='heal')?.methods?.find(method=>method.id===healMethod);
 const operationReady=()=>operation==='heal'?retouchReady&&selectedHealMethod()?.available!==false:aiProvider==='qwen'?qwenReady():ready&&settingsLoaded&&currentModel()?.available!==false;
-function message(text,error=false){$('message').textContent=text;$('message').title=text;$('message').classList.toggle('error',error);if(activeTask==='repair'&&$('progress-label'))$('progress-label').textContent=text;}
+function message(text,error=false){$('message').textContent=text;$('message').title=text;$('message').classList.toggle('error',error);if(activeTask==='repair'&&$('progress-label'))$('progress-label').textContent=text;publishEditorState();}
 function settingsMessage(text,error=false){$('settings-message').textContent=text;$('settings-message').classList.toggle('error',error);}
 function setBusy(value){busy=value;if(value)endGesture();controls();}
 function controls(){
@@ -97,7 +101,7 @@ function controls(){
   $('restore').disabled=busy;
   updateCutoutControls();
   for(const command of document.querySelectorAll('[data-command]')){
-    const source=$(command.dataset.command);command.disabled=source.disabled;
+    const source=$(command.dataset.command);if(!source)continue;command.disabled=source.disabled;
     if(command.dataset.command==='remove')command.hidden=workspace!=='retouch';
     if(command.dataset.command==='cutout-refine')command.hidden=workspace!=='cutout';
     if(command.dataset.command==='before')command.setAttribute('aria-checked',String(showOriginal));
@@ -106,6 +110,7 @@ function controls(){
   updateContextualControls();
   updateDocumentState();updateBrushCursor();updateWorkflowChrome();
   if($('refine-dialog').open)updateRefineControls();
+  publishEditorState();
 }
 function updateContextualControls(){
   const context={photo:!!session,selection:!!session&&(hasSelection||points.length>0),
@@ -932,13 +937,14 @@ async function runSetupAction(action,details={},success=''){
   }catch(error){settingsMessage(error.message,true);}
   finally{setupRequestBusy=false;settingsSaving=false;renderSetup();controls();scheduleSetupRefresh();}
 }
-$('settings').onclick=async()=>{
+async function showSettings(){
   if(busy||modalOpen())return;
   $('ask-before-overwrite').checked=askBeforeOverwrite;
   closeMenus();resetTransientInput();settingsMessage('');$('settings-dialog').showModal();renderSetup();
   const checks=await Promise.allSettled([loadSettings(),loadSetup()]);
   for(const check of checks)if(check.status==='rejected')settingsMessage(check.reason?.message||'Could not read AI setup.',true);
-};
+}
+$('settings').onclick=showSettings;
 $('ai-refresh').onclick=()=>loadSetup(true).catch(error=>settingsMessage(error.message,true));
 $('ai-detect').onclick=async()=>{setupCandidatesOpen=true;settingsMessage('Looking for ComfyUI on this PC…');try{await loadSetup(true);settingsMessage(setupState?.installations?.length?'Choose the installation you want to use.':'No installation found in the usual locations. Choose a folder or install a dedicated copy.');}catch(error){settingsMessage(error.message,true);}};
 $('ai-use-installation').onclick=()=>runSetupAction('setupUseInstallation',{installation_id:$('ai-installation-choice').value},'ComfyUI installation selected.');
@@ -1018,6 +1024,7 @@ function syncLayerDisplay(){
   }
 }
 function updateLayerRows(){
+  if(window.__LOCAL_IMAGE_REACT__){publishEditorState();return;}
   for(const row of $('layers').children){
     const layer=session?.layers.find(item=>item.id===row.dataset.layerId);if(!layer)continue;
     row.classList.toggle('is-hidden',!layer.visible);row.hidden=!!layer.discarded;
@@ -1035,6 +1042,7 @@ function updateCollectionLabels(){
   }
 }
 function layerList(){
+  if(window.__LOCAL_IMAGE_REACT__){publishEditorState();return;}
   if(!session)return;
   const holder=$('layers');holder.replaceChildren();
   for(const layer of [...session.layers].reverse()){
@@ -1155,8 +1163,10 @@ async function recent(){
     $('recent').append(button);
   }
 }
-$('open').onclick=()=>nativeReady?openNative('openFiles'):$('file').click();
-$('open-folder').onclick=()=>{if(!busy)(nativeReady?openNative('openFolder'):$('folder-file').click());};
+function openDocumentFiles(){if(!busy&&!closeInProgress)return nativeReady?openNative('openFiles'):$('file').click();}
+function openDocumentFolder(){if(!busy&&!closeInProgress)return nativeReady?openNative('openFolder'):$('folder-file').click();}
+$('open').onclick=openDocumentFiles;
+$('open-folder').onclick=openDocumentFolder;
 $('folder-file').onchange=async()=>{try{await openBrowserFiles($('folder-file').files);}catch(error){message(error.message,true);}finally{$('folder-file').value='';}};
 $('file').onchange=async()=>{
   try{await openBrowserFiles($('file').files);}catch(error){message(error.message,true);}finally{$('file').value='';}
@@ -1269,7 +1279,8 @@ async function importProjectFile(file){
 }
 $('save-project').onclick=()=>{if(!busy&&!modalOpen())saveEditableProject();};
 $('save-project-as').onclick=()=>{if(!busy&&!modalOpen())saveEditableProject(session,{saveAs:true});};
-$('open-project').onclick=()=>{if(!busy)(nativeProjects?openNative('openProject'):$('project-file').click());};
+function openDocumentProject(){if(!busy&&!closeInProgress)return nativeProjects?openNative('openProject'):$('project-file').click();}
+$('open-project').onclick=openDocumentProject;
 $('project-file').onchange=async()=>{try{await importProjectFile($('project-file').files[0]);}finally{$('project-file').value='';}};
 
 function resolveClose(choice){
@@ -1307,8 +1318,8 @@ function forgetDocuments(ids){
   if(session&&removed.has(session.id)){
     endGesture();requestVersion++;session=null;originalImage=null;previewImage=null;showOriginal=false;points=[];undo=[];selectionRedo=[];hasSelection=false;brushPointer=null;
     $('layer-stack').replaceChildren();$('photo-image').removeAttribute('src');stage.hidden=true;$('empty').hidden=false;
-    $('layers').replaceChildren();const help=document.createElement('p');help.className='muted';help.textContent='Open an image to begin.';$('layers').append(help);
-    $('filename').textContent='No image open';$('filename').title='';$('layer-count').textContent='';$('restore').hidden=true;
+    if(!window.__LOCAL_IMAGE_REACT__){$('layers').replaceChildren();const help=document.createElement('p');help.className='muted';help.textContent='Open an image to begin.';$('layers').append(help);$('layer-count').textContent='';}
+    $('filename').textContent='No image open';$('filename').title='';$('restore').hidden=true;
     $('before').setAttribute('aria-pressed','false');history.replaceState(null,'','/remove');
     $('save-note').textContent='Open a .lremove project to continue with its original and editable layers.';
   }
@@ -1383,7 +1394,7 @@ function updateCutoutControls(){
   const cutout=workspace==='cutout',retouch=workspace==='retouch',generating=workspace==='generate',active=!!session&&!busy&&!layerChangesPending(),editable=active&&!!session.cutout?.enabled&&!showOriginal;
   for(const mode of ['retouch','cutout','generate']){$('workspace-'+mode).setAttribute('aria-pressed',String(workspace===mode));$('workspace-'+mode).disabled=busy;}
   $('persona-description').textContent={retouch:'Photo retouching',cutout:'Subject and background',generate:'Local image generation'}[workspace];
-  $('retouch-modes').hidden=!retouch;$('cutout-modes').hidden=!cutout;$('retouch-panel').hidden=!retouch;$('cutout-panel').hidden=!cutout;$('generation-panel').hidden=!generating;
+  $('retouch-modes').hidden=!retouch;$('cutout-modes').hidden=!cutout;if($('retouch-panel'))$('retouch-panel').hidden=!retouch;$('cutout-panel').hidden=!cutout;$('generation-panel').hidden=!generating;
   $('selection-context').hidden=generating;$('generation-context').hidden=!generating;
   $('heal-brush').hidden=!retouch;$('remove').hidden=!retouch;$('cutout-refine').hidden=!cutout;
   $('empty-open').hidden=generating;$('empty-help').textContent=generating?'Describe an image in the Prompt studio to get started.':'Drop an image or folder here';

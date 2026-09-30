@@ -1,5 +1,6 @@
 """Check the real editor document without starting a server or opening user data."""
 from html.parser import HTMLParser
+import json
 import os
 from pathlib import Path
 import sys
@@ -8,7 +9,8 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
-from local_remove_frontend import render_editor
+from local_remove_frontend import render_editor, frontend_asset, frontend_manifest, frontend_mode
+from frontend_tokens import issue_browser_token, valid_browser_token
 
 
 class EditorDocument(HTMLParser):
@@ -32,6 +34,13 @@ class EditorDocument(HTMLParser):
 
 
 class EditorRenderingTests(unittest.TestCase):
+    def setUp(self):
+        self.mode_patch = patch.dict(os.environ, {'LOCAL_IMAGE_FRONTEND': 'legacy'})
+        self.mode_patch.start()
+
+    def tearDown(self):
+        self.mode_patch.stop()
+
     def test_windows_bom_does_not_break_first_css_selector(self):
         with tempfile.TemporaryDirectory(prefix='local-remove-assets-') as directory:
             root = Path(directory)
@@ -70,6 +79,143 @@ class EditorRenderingTests(unittest.TestCase):
         self.assertNotIn('first-page-nonce', second)
         self.assertIn('second-page-token', second)
         self.assertIn('second-page-nonce', second)
+
+
+class ReactDeliveryTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix='local-image-manifest-')
+        self.root = Path(self.temporary.name)
+        frontend = self.root / 'frontend'
+        frontend.mkdir()
+        (frontend / 'editor.css').write_text(':root{--studio-size:310px}:root[data-ui-density=large] button{font-size:28px}button{color:red}', encoding='utf-8')
+        (frontend / 'editor.js').write_text("const TOKEN='__TOKEN__';/* editor */", encoding='utf-8')
+        (frontend / 'migration-bridge.js').write_text('/* migration bridge */', encoding='utf-8')
+        (self.root / 'local_remove.html').write_text('<html><head><style nonce="__NONCE__">__EDITOR_STYLE__</style></head><body><script nonce="__NONCE__">__EDITOR_SCRIPT__</script></body></html>', encoding='utf-8')
+        self.dist = self.root / 'frontend_dist'
+        (self.dist / '.vite').mkdir(parents=True)
+        (self.dist / 'assets').mkdir()
+        self.manifest = {
+            'src/main.tsx': {'file': 'assets/main-abcdefgh.js', 'isEntry': True,
+                             'css': ['assets/main-abcdefgh.css'], 'imports': ['_shared.js'],
+                             'dynamicImports': ['src/lazy.tsx']},
+            '_shared.js': {'file': 'assets/shared-abcdefgh.js', 'css': ['assets/shared-abcdefgh.css']},
+            'src/lazy.tsx': {'file': 'assets/lazy-abcdefgh.js', 'css': ['assets/lazy-abcdefgh.css'],
+                             'assets': ['assets/font-abcdefgh.woff2']},
+        }
+        for chunk in self.manifest.values():
+            for name in [chunk['file'], *chunk.get('css', []), *chunk.get('assets', [])]:
+                (self.dist / name).write_bytes(b'fixture')
+        self.write_manifest()
+        self.resource_patch = patch('local_remove_frontend.RESOURCE_DIR', self.root)
+        self.resource_patch.start()
+
+    def tearDown(self):
+        self.resource_patch.stop()
+        self.temporary.cleanup()
+
+    def write_manifest(self):
+        (self.dist / '.vite' / 'manifest.json').write_text(json.dumps(self.manifest), encoding='utf-8')
+
+    def test_react_opt_in_and_legacy_rollback(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(frontend_mode(), 'legacy')
+        with patch.dict(os.environ, {'LOCAL_IMAGE_FRONTEND': 'react'}):
+            html = render_editor('nonce', 'token')
+        self.assertIn('window.__LOCAL_IMAGE_REACT__=true', html)
+        legacy = render_editor('nonce', 'token', mode='legacy')
+        self.assertNotIn('migration bridge', legacy)
+        self.assertNotIn('__LOCAL_IMAGE_REACT__', legacy)
+        self.assertNotIn('frontend-assets', legacy)
+
+    def test_nonce_bootstrap_eager_css_chunks_and_persistent_legacy_order(self):
+        html = render_editor('page-nonce', 'page-token', mode='react')
+        parsed = EditorDocument(html)
+        self.assertEqual([script.get('nonce') for script in parsed.scripts], ['page-nonce', 'page-nonce'])
+        self.assertEqual(parsed.scripts[1].get('type'), 'module')
+        self.assertEqual(parsed.scripts[1]['src'], '/frontend-assets/assets/main-abcdefgh.js')
+        self.assertIn('/frontend-assets/assets/main-abcdefgh.css', html)
+        self.assertIn('/frontend-assets/assets/shared-abcdefgh.css', html)
+        self.assertIn('rel="modulepreload"', html)
+        self.assertNotIn('/frontend-assets/assets/lazy-abcdefgh', html)
+        self.assertIn('@scope (:root) to ([data-react-owned])', html)
+        self.assertIn(':scope{--studio-size:310px}', html)
+        self.assertIn(':scope[data-ui-density=large] button', html)
+        self.assertLess(html.index('window.__LOCAL_IMAGE_REACT__'), html.index('/* editor */'))
+        self.assertLess(html.index('/* editor */'), html.index('/* migration bridge */'))
+        self.assertLess(html.index('/* migration bridge */'), html.index('type="module"'))
+        self.assertIn('"nonce":"page-nonce","token":"page-token"', html)
+
+    def test_each_document_receives_fresh_bootstrap_without_rewriting_assets(self):
+        first = render_editor('first-nonce', 'first-token', mode='react')
+        second = render_editor('second-nonce', 'second-token', mode='react')
+        self.assertNotIn('first-token', second)
+        self.assertNotIn('first-nonce', second)
+        self.assertIn('second-token', second)
+        self.assertIn('first-token', first)
+        self.assertEqual((self.dist / 'assets/main-abcdefgh.js').read_bytes(), b'fixture')
+
+    def test_bootstrap_values_cannot_end_script_or_quote_attributes(self):
+        html = render_editor('nonce" data-bad="yes', "quote'\n</script><script>bad()</script>", mode='react')
+        parsed = EditorDocument(html)
+        self.assertEqual(len(parsed.scripts), 2)
+        self.assertNotIn('data-bad', parsed.scripts[0])
+        self.assertNotIn('<script>bad()', html)
+
+    def test_lazy_assets_are_available_and_private_files_are_never_served(self):
+        self.assertEqual(frontend_asset('assets/lazy-abcdefgh.js')[1], 'text/javascript')
+        self.assertEqual(frontend_asset('assets/font-abcdefgh.woff2')[1], 'font/woff2')
+        (self.dist / 'assets/unlisted-abcdefgh.js').write_text('private', encoding='utf-8')
+        for name in ('../local_remove.py', 'assets/../../local_remove.py', '.vite/manifest.json',
+                     'THIRD_PARTY_NOTICES.txt', 'assets/main.js', 'assets/main-abcdefgh.js.map',
+                     'assets/unlisted-abcdefgh.js', 'assets\\main-abcdefgh.js'):
+            with self.subTest(name=name), self.assertRaises(FileNotFoundError):
+                frontend_asset(name)
+
+    def test_broken_manifest_fails_closed_and_legacy_still_renders(self):
+        self.manifest['src/main.tsx']['imports'] = ['missing']
+        self.write_manifest()
+        with self.assertRaisesRegex(RuntimeError, 'LOCAL_IMAGE_FRONTEND=legacy'):
+            render_editor('nonce', 'token', mode='react')
+        with self.assertRaises(FileNotFoundError):
+            frontend_asset('assets/main-abcdefgh.js')
+        self.assertIn('/* editor */', render_editor('nonce', 'token', mode='legacy'))
+
+    def test_manifest_cannot_publish_source_or_paths_outside_package(self):
+        for name in ('../local_remove.py', 'assets/main.js', 'assets/../main-abcdefgh.js',
+                     'assets/main-abcdefgh.js.map', 'https://cdn.example/main-abcdefgh.js'):
+            self.manifest['src/main.tsx']['file'] = name
+            self.write_manifest()
+            with self.subTest(name=name), self.assertRaises(RuntimeError):
+                frontend_manifest()
+
+    def test_missing_lazy_chunk_fails_package_validation(self):
+        (self.dist / 'assets/lazy-abcdefgh.js').unlink()
+        with self.assertRaises(RuntimeError):
+            frontend_manifest()
+
+
+class BrowserTokenTests(unittest.TestCase):
+    def test_page_credentials_are_unique_and_do_not_contain_process_secret(self):
+        secret = 'test-process-secret'
+        first, second = issue_browser_token(secret), issue_browser_token(secret)
+        self.assertNotEqual(first, second)
+        self.assertNotIn(secret, first)
+        self.assertTrue(valid_browser_token(first, secret))
+        self.assertTrue(valid_browser_token(second, secret))
+        # Opening another page does not expire a credential held by a picker.
+        for _ in range(25):
+            issue_browser_token(secret)
+        self.assertTrue(valid_browser_token(first, secret))
+        self.assertTrue(valid_browser_token(secret, secret))
+
+    def test_tampering_foreign_backend_and_invalid_tokens_are_rejected(self):
+        secret = 'test-process-secret'
+        token = issue_browser_token(secret)
+        self.assertFalse(valid_browser_token(token, 'another-process'))
+        for value in ('', 'v1.bad.bad', token + 'x', token[:-1] + ('a' if token[-1] != 'a' else 'b'),
+                      'v2' + token[2:], '\u00e9', 'x' * 1000, None):
+            with self.subTest(value=value):
+                self.assertFalse(valid_browser_token(value, secret))
 
 
 if __name__ == '__main__':

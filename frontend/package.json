@@ -1,0 +1,26 @@
+{
+  "name": "local-image-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "^20.19.0 || >=22.12.0" },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build && node scripts/licenses.mjs",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "watch": "vite build --watch"
+  },
+  "dependencies": {
+    "@fluentui/react-components": "9.74.9",
+    "@griffel/react": "1.7.8",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "typescript": "7.0.2",
+    "vite": "8.3.1"
+  }
+}

@@ -1,0 +1,5 @@
+# Preserve the tested bytes of content-hashed production assets on Windows.
+backend/frontend_dist/** text=auto eol=lf
+frontend/** text=auto eol=lf
+package.json text eol=lf
+package-lock.json text eol=lf

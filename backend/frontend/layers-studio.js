@@ -5,6 +5,8 @@
   'use strict';
   if(window.LocalImageLayers)return;
   const byId=id=>document.getElementById(id),selectedIds=new Map(),assetCache=new Map();
+  const reactOwned=window.__LOCAL_IMAGE_REACT__===true;
+  let stackTransport=null;
   let moving=null,renderKey='',syncing=false,assetTab='stock';
   const nodes=()=>Array.isArray(session?.layer_stack)?session.layer_stack:session?.layer_stack?.layers||[];
   const stacked=()=>!!session?.layer_stack;
@@ -16,29 +18,40 @@
   const endpoint=tail=>'/api/local-remove/session/'+encodeURIComponent(session.id)+tail;
   const iconButton=(id,label,icon,handler)=>{const button=document.createElement('button');button.type='button';button.id=id;button.setAttribute('aria-label',label);button.title=label;button.append(svgIcon(icon));button.onclick=handler;return button;};
   const textButton=(id,label,handler)=>{const button=document.createElement('button');button.type='button';button.id=id;button.textContent=label;button.onclick=handler;return button;};
-  const panel=byId('retouch-panel'),holder=byId('layers');
+  let panel=byId('retouch-panel');
+  const holder=reactOwned?null:byId('layers');
   document.body.dataset.layerStudio='true';
-  holder.setAttribute('role','listbox');holder.setAttribute('aria-label','Document layers');
-  holder.setAttribute('aria-multiselectable','false');
-  const heading=panel.querySelector('.panel-heading');
-  const add=iconButton('layer-add','New retouch layer','plus',()=>createRetouch());
-  add.textContent='+';add.className='panel-menu-trigger';heading.insertBefore(add,byId('layers-options'));
-  const footer=document.createElement('div');footer.className='stack-properties';
-  footer.innerHTML='<label for="layer-opacity">Opacity</label><input id="layer-opacity" type="number" min="0" max="100" step="1" value="100" aria-label="Layer opacity percent"><span>%</span>';
-  const more=iconButton('layer-actions','Selected layer actions','settings',()=>openPopup(layerMenu,more));more.textContent='\u2026';footer.append(more);panel.append(footer);
-  const layerMenu=document.createElement('div');layerMenu.id='stack-layer-menu';layerMenu.className='stack-popup';layerMenu.setAttribute('popover','auto');layerMenu.setAttribute('role','menu');document.body.append(layerMenu);
+  let add=null,more=null,layerMenu=null;
+  if(reactOwned){
+    const mount=document.createElement('section');mount.id='react-layers-root';mount.setAttribute('aria-label','Layers');
+    const triggerIndex=menuTriggers.indexOf(byId('layers-options'));if(triggerIndex>=0)menuTriggers.splice(triggerIndex,1);
+    panel.replaceWith(mount);panel=mount;
+  }else{
+    holder.setAttribute('role','listbox');holder.setAttribute('aria-label','Document layers');holder.setAttribute('aria-multiselectable','false');
+    const heading=panel.querySelector('.panel-heading');
+    add=iconButton('layer-add','New retouch layer','plus',()=>createRetouch());
+    add.textContent='+';add.className='panel-menu-trigger';heading.insertBefore(add,byId('layers-options'));
+    const footer=document.createElement('div');footer.className='stack-properties';
+    footer.innerHTML='<label for="layer-opacity">Opacity</label><input id="layer-opacity" type="number" min="0" max="100" step="1" value="100" aria-label="Layer opacity percent"><span>%</span>';
+    more=iconButton('layer-actions','Selected layer actions','settings',()=>openPopup(layerMenu,more));more.textContent='\u2026';footer.append(more);panel.append(footer);
+    layerMenu=document.createElement('div');layerMenu.id='stack-layer-menu';layerMenu.className='stack-popup';layerMenu.setAttribute('popover','auto');layerMenu.setAttribute('role','menu');document.body.append(layerMenu);
+  }
   const actions={};
-  for(const [id,label,handler]of[
+  const actionDefinitions=[
     ['mask','Add editable mask',()=>addMask()],['rename','Rename layer',()=>renameSelected()],['lock','Lock layer',()=>patchSelected({locked:!selected()?.locked})],
     ['up','Move layer up',()=>reorderSelected(1)],['down','Move layer down',()=>reorderSelected(-1)],
     ['reset','Reset transform',()=>patchSelected({transform:{offset_x:0,offset_y:0,scale:1,rotation:0}})],
     ['delete','Delete layer',()=>patchSelected({discarded:true})]
-  ]){const button=textButton('stack-'+id,label,()=>{closePopup(layerMenu);handler();});button.setAttribute('role','menuitem');layerMenu.append(button);actions[id]=button;}
+  ];
+  for(const [id,label,handler]of actionDefinitions){
+    if(!reactOwned){const button=textButton('stack-'+id,label,()=>{closePopup(layerMenu);handler();});button.setAttribute('role','menuitem');layerMenu.append(button);actions[id]=button;}
+  }
   // The app Layer menu and the dock menu dispatch to the same commands.
-  const menuNew=document.createElement('button');menuNew.setAttribute('role','menuitem');menuNew.dataset.command='layer-add';menuNew.textContent='New retouch layer';menuNew.onclick=()=>{closeMenus();add.click();};
+  const menuNew=document.createElement('button');menuNew.setAttribute('role','menuitem');if(!reactOwned)menuNew.dataset.command='layer-add';menuNew.textContent='New retouch layer';menuNew.onclick=()=>{closeMenus();createRetouch();};
   const mainLayerMenu=byId('layer-menu');mainLayerMenu.prepend(menuNew);
-  for(const [id,label]of [['mask','Add editable mask'],['rename','Rename layer'],['lock','Lock / unlock layer'],['up','Move layer up'],['down','Move layer down'],['delete','Delete layer']]){
-    const item=document.createElement('button');item.setAttribute('role','menuitem');item.dataset.command='stack-'+id;item.textContent=label;item.onclick=()=>{closeMenus();actions[id].click();};mainLayerMenu.append(item);
+  for(const [id,label,handler]of actionDefinitions){
+    if(!reactOwned&&id==='reset')continue;
+    const item=document.createElement('button');item.setAttribute('role','menuitem');if(reactOwned){item.id='stack-'+id;actions[id]=item;}else item.dataset.command='stack-'+id;item.textContent=label;item.onclick=()=>{closeMenus();handler();};mainLayerMenu.append(item);
   }
   const toolbar=document.createElement('div');toolbar.id='stack-cutout-actions';toolbar.className='stack-context-actions';
   const remove=byId('cutout-remove');remove.classList.remove('full-width');toolbar.append(remove);
@@ -79,7 +92,7 @@
     popup.querySelector('button:not(:disabled),select:not(:disabled),input:not(:disabled)')?.focus();
   }
   function closePopup(popup){if(popup.matches(':popover-open'))popup.hidePopover();}
-  for(const popup of [layerMenu,backgroundMenu,cutoutSettings])popup.addEventListener('keydown',event=>{
+  for(const popup of [layerMenu,backgroundMenu,cutoutSettings].filter(Boolean))popup.addEventListener('keydown',event=>{
     event.stopPropagation();if(event.key==='Escape'){event.preventDefault();closePopup(popup);return;}
     const buttons=[...popup.querySelectorAll('button:not(:disabled)')],index=buttons.indexOf(document.activeElement);if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)&&index>=0){event.preventDefault();buttons[event.key==='Home'?0:event.key==='End'?buttons.length-1:(index+(event.key==='ArrowDown'?1:buttons.length-1))%buttons.length]?.focus();}
   });
@@ -94,23 +107,29 @@
   // Capture avoids the former Folders tab automatically opening the chooser.
   byId('studio-assets-folders').addEventListener('click',event=>{event.stopImmediatePropagation();if(!busy)showAssets('folders');},true);
   byId('studio-assets-stock').addEventListener('click',()=>showAssets('stock'),true);
-  byId('studio-stock-open').addEventListener('click',()=>{if(assetTab==='folders')showAssets('folders');});
+  byId('studio-stock-open')?.addEventListener('click',()=>{if(assetTab==='folders')showAssets('folders');});
 
   function choose(id,{clear=true,focus=false}={}){
     const node=nodes().find(item=>item.id===id&&!item.discarded);if(!node||busy||!visibleDocument())return;
     if(clear&&selected()?.id!==id&&(hasSelection||points.length))clearSelection();
     selectedIds.set(session.id,id);renderKey='';layerList();syncCutoutFields();paintPhoto();
-    if(focus)holder.querySelector('[data-stack-id="'+CSS.escape(id)+'"]')?.focus();
+    if(focus)holder?.querySelector('[data-stack-id="'+CSS.escape(id)+'"]')?.focus();
+    publishEditorState();
   }
   async function mutate(tail,body={},method='POST',{selectNew=false,label='Layer updated'}={}){
     if(!session||busy||!visibleDocument())return null;
-    const sid=session.id,oldIds=new Set(nodes().map(node=>node.id));setBusy(true);
+    const sid=session.id,revision=session.revision,navigationEpoch=documentNavigationEpoch,oldIds=new Set(nodes().map(node=>node.id));setBusy(true);
     try{
-      const data=await json(endpoint(tail),{...body,revision:session.revision},method);trackDocument(data);
-      if(session?.id!==sid)return data;session=data;
+      const data=stackTransport
+        ?await stackTransport({documentId:sid,revision,tail,body,method})
+        :await json('/api/local-remove/session/'+encodeURIComponent(sid)+tail,{...body,revision},method);
+      if(data?.id!==sid||data.revision<revision)throw Error('The layer response did not match this document.');
+      const tracked=openDocuments.get(sid);if(tracked&&tracked.revision>data.revision)return null;
+      trackDocument(data);
+      if(session?.id!==sid||documentNavigationEpoch!==navigationEpoch||session.revision>data.revision)return data;session=data;
       if(selectNew){const created=[...(Array.isArray(data.layer_stack)?data.layer_stack:data.layer_stack?.layers||[])].reverse().find(node=>!oldIds.has(node.id));if(created)selectedIds.set(sid,created.id);}
       assetCache.clear();await refreshPreview();renderKey='';layerList();updateCollectionSession();renderCollection();message(label);return data;
-    }catch(error){message(error.message,true);return null;}finally{setBusy(false);}
+    }catch(error){if(session?.id===sid)message(error.message,true);return null;}finally{if(documentNavigationEpoch===navigationEpoch)setBusy(false);}
   }
   async function ensureStack(){
     if(!session||stacked())return !!session;
@@ -134,18 +153,21 @@
     await cutoutEdit('/cutout/refine',{operation:'replace',mask:full.toDataURL('image/png').split(',')[1]},'POST','Adding editable mask\u2026',true);
     if(selected()?.kind==='cutout'){setWorkspace('cutout');selectTool('brush');message('Editable mask added above the source. Erase or restore pixels on this layer.');}
   }
-  const patchSelected=change=>selected()?mutate('/stack/layer/'+encodeURIComponent(selected().id),change,'PATCH'):Promise.resolve(null);
-  function reorderSelected(direction){const layer=selected();if(layer)patchSelected({index:Math.max(0,Math.min(nodes().length-1,nodes().indexOf(layer)+direction))});}
+  const patchLayer=(id,change)=>nodes().some(node=>node.id===id)?mutate('/stack/layer/'+encodeURIComponent(id),change,'PATCH'):Promise.resolve(null);
+  const patchSelected=change=>selected()?patchLayer(selected().id,change):Promise.resolve(null);
+  function reorderSelected(direction){const layer=selected();if(layer)return patchSelected({index:Math.max(0,Math.min(nodes().length-1,nodes().indexOf(layer)+direction))});}
   function renameSelected(){
+    if(reactOwned){if(selected())window.dispatchEvent(new CustomEvent('local-image-rename-layer',{detail:{layerId:selected().id}}));return;}
     const layer=selected(),row=holder.querySelector('[data-stack-id="'+CSS.escape(layer?.id||'')+'"]'),name=row?.querySelector('.layer-name');if(!name)return;
     const input=document.createElement('input');input.className='stack-layer-rename';input.value=layer.name;input.maxLength=120;input.setAttribute('aria-label','Layer name');name.replaceWith(input);input.focus();input.select();
     let committed=false;const finish=async save=>{if(committed)return;committed=true;const next=input.value.trim();if(save&&next&&next!==layer.name)await patchSelected({name:next});renderKey='';layerList();};
     input.addEventListener('click',event=>event.stopPropagation());input.onblur=()=>finish(true);input.onkeydown=event=>{event.stopPropagation();if(event.key==='Enter'){event.preventDefault();finish(true);}if(event.key==='Escape'){event.preventDefault();finish(false);}};
   }
-  byId('layer-opacity').onchange=()=>{const input=byId('layer-opacity');if(input.value!==''&&input.checkValidity())patchSelected({opacity:Number(input.value)/100});else sync();};
+  if(!reactOwned)byId('layer-opacity').onchange=()=>{const input=byId('layer-opacity');if(input.value!==''&&input.checkValidity())patchSelected({opacity:Number(input.value)/100});else sync();};
 
   const previousLayerList=layerList;
   layerList=function(...args){
+    if(reactOwned){const current=selected();if(current)selectedIds.set(session.id,current.id);byId('restore').hidden=!nodes().some(node=>node.discarded);sync();publishEditorState();return;}
     if(!stacked())return previousLayerList.apply(this,args);
     const current=selected();if(current)selectedIds.set(session.id,current.id);
     const signature=session.id+':'+session.revision+':'+current?.id;
@@ -163,9 +185,11 @@
     byId('layer-count').textContent=nodes().filter(node=>!node.discarded).length.toString();byId('restore').hidden=!nodes().some(node=>node.discarded);sync();
   };
   const previousRestore=byId('restore').onclick;
-  byId('restore').onclick=()=>{if(!stacked())return previousRestore();const node=[...nodes()].reverse().find(item=>item.discarded);if(node)mutate('/stack/layer/'+encodeURIComponent(node.id),{discarded:false},'PATCH');};
+  const restoreLayer=()=>{if(!stacked())return previousRestore();const node=[...nodes()].reverse().find(item=>item.discarded);if(node)return patchLayer(node.id,{discarded:false});};
+  byId('restore').onclick=restoreLayer;
   const previousMerge=byId('merge').onclick;
-  byId('merge').onclick=()=>stacked()?mutate('/merge',{},'POST',{selectNew:true,label:'Visible layers merged into a new image layer. Earlier layers remain in the project.'}):previousMerge();
+  const mergeLayers=()=>stacked()?mutate('/merge',{},'POST',{selectNew:true,label:'Visible layers merged into a new image layer. Earlier layers remain in the project.'}):previousMerge();
+  byId('merge').onclick=mergeLayers;
 
     const previousOpen=openSession;
   openSession=async function(data,...args){
@@ -248,7 +272,7 @@
     try{
       const layer=selected(),cutout=workspace==='cutout',generate=workspace==='generate',active=!!session&&!busy&&!showOriginal&&visibleDocument(),maskReady=cutout&&layer?.kind==='cutout'&&!layer.discarded,editable=active&&!layer?.locked&&!!layer?.visible;
       document.body.dataset.maskReady=String(!!maskReady);document.body.dataset.layerMove=String(!generate&&tool==='move'&&!handActive);
-      byId('cutout-panel').hidden=true;panel.hidden=generate;toolbar.hidden=!cutout;moveControls.hidden=generate||tool!=='move'||handActive;
+      byId('cutout-panel').hidden=true;if(!reactOwned)panel.hidden=generate;toolbar.hidden=!cutout;moveControls.hidden=generate||tool!=='move'||handActive;
       byId('move-subject').hidden=generate;byId('move-subject').disabled=!active||!layer;
       if(cutout){
         for(const button of document.querySelectorAll('.toolrail [data-tool]:not([data-tool=move])')){button.hidden=!maskReady;button.disabled=!editable;}
@@ -267,11 +291,12 @@
       background.disabled=!active;byId('background-generate').disabled=!active||!qwenReady()||!byId('background-prompt').value.trim();byId('background-prompt').disabled=!active;byId('background-library').disabled=!active;attach.disabled=!active;
       for(const button of byId('background-grid').querySelectorAll('button'))button.disabled=!active;
       folderEmpty.hidden=!!byId('background-grid').children.length;
-      add.disabled=!active;more.disabled=!active||!layer;byId('layer-opacity').disabled=!editable;
-      if(document.activeElement!==byId('layer-opacity'))byId('layer-opacity').value=String(Math.round((layer?.opacity??1)*100));
+      menuNew.disabled=!active;
+      if(!reactOwned){add.disabled=!active;more.disabled=!active||!layer;byId('layer-opacity').disabled=!editable;
+        if(document.activeElement!==byId('layer-opacity'))byId('layer-opacity').value=String(Math.round((layer?.opacity??1)*100));}
       for(const input of moveControls.querySelectorAll('input'))input.disabled=!editable;
       if(layer){const t=moving?.next||transform(layer);for(const [id,value]of Object.entries({x:t.offset_x,y:t.offset_y,scale:t.scale*100,rotation:t.rotation})){const input=byId('stack-transform-'+id);if(document.activeElement!==input)input.value=String(Math.round(value*100)/100);}}
-      for(const button of holder.querySelectorAll('button'))button.disabled=busy;
+      if(holder)for(const button of holder.querySelectorAll('button'))button.disabled=busy;
       actions.lock.textContent=layer?.locked?'Unlock layer':'Lock layer';actions.lock.disabled=!active;actions.delete.disabled=!active||!!layer?.locked||layer?.kind==='original';actions.rename.disabled=!active;actions.reset.disabled=!editable;actions.mask.disabled=!active||!layer?.visible||layer?.kind==='cutout';
       actions.up.disabled=!editable||nodes().indexOf(layer)===nodes().length-1;actions.down.disabled=!editable||nodes().indexOf(layer)===0;
       if(stacked()){byId('merge').disabled=!active||nodes().filter(node=>node.visible&&!node.discarded).length<2;byId('merge').title='Add the visible composition as a new image layer';}
@@ -280,7 +305,7 @@
       if(stacked()&&workspace==='retouch'&&layer?.kind==='retouch'&&(layer.locked||!layer.visible))byId('remove').disabled=true;
       if(stacked()&&historyTarget()==='stack')byId('edit-undo-label').textContent='Undo layer change';
       if(stacked()&&historyTarget(true)==='stack')byId('edit-redo-label').textContent='Redo layer change';
-    }finally{syncing=false;}
+    }finally{syncing=false;publishEditorState();}
   }
 
   function pointOnLayer(point,node,next=transform(node)){
@@ -346,6 +371,7 @@
   },true);
   const oldBackgroundRender=renderBackgroundGrid;
   renderBackgroundGrid=function(...args){const value=oldBackgroundRender.apply(this,args);sync();return value;};
-  window.LocalImageLayers={nodes,selected,select:choose,prepareRetouch,retouchTargetId:()=>selected()?.kind==='retouch'?selected().id:null,refreshUI:()=>{renderKey='';layerList();sync();},createRetouch,patchSelected,ensureStack,showAssets,addMask};
+  function cancelMove(){if(!moving)return;const drag=moving;moving=null;if(viewport.hasPointerCapture(drag.pointerId))viewport.releasePointerCapture(drag.pointerId);paintPhoto();}
+  window.LocalImageLayers={nodes,selected,select:choose,prepareRetouch,retouchTargetId:()=>selected()?.kind==='retouch'?selected().id:null,refreshUI:()=>{renderKey='';layerList();sync();},createRetouch,patchLayer,patchSelected,reorderSelected,restoreLayer,mergeLayers,ensureStack,showAssets,addMask,cancelMove,setStackTransport:transport=>{stackTransport=transport;}};
   sync();
 })();

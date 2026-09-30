@@ -91,6 +91,41 @@ class LayerProjectTests(previous.FolderSaveTests):
         self.assertFalse(hidden['project_saved']); self.assertTrue(hidden['project_dirty'])
         self.assertTrue(np.array_equal(np.asarray(self.app.render(self.app.read_session(hidden['id']))),np.asarray(Image.open(source))))
 
+    async def test_version1_project_reopens_and_resaves_original_and_repair_assets(self):
+        # Version 1 carries original/repair assets and layer metadata; later
+        # generation, cutout and attribution fields are deliberately absent.
+        source=self.make_image(name='legacy-v1-source.png',size=(64,48))
+        original_bytes=source.read_bytes()
+        session=self.layer(self.bind(source)['id'])
+        data=self.app.read_session(session['id'])
+        data['layers'][0].update(name='Legacy dust repair',visible=False,model='heal',model_label='Dust & scratches',heal_method='telea')
+        self.app.write_session(self.app.folder(session['id']),data)
+        seed=self.images/'legacy-v1-seed.lremove'
+        project.write_project(self.app.folder(session['id']),data,seed)
+        with zipfile.ZipFile(seed) as archive:
+            entries={name:archive.read(name) for name in archive.namelist()}
+        manifest=json.loads(entries['manifest.json']); manifest['version']=1
+        entries['manifest.json']=json.dumps(manifest).encode('utf-8')
+        fixture=self.images/'legacy-v1.lremove'
+        with zipfile.ZipFile(fixture,'w',compression=zipfile.ZIP_STORED) as archive:
+            for name,value in entries.items():archive.writestr(name,value)
+        reopened=await self.app.open_project(self.request(native=True),self.app.OpenLocal(path=str(fixture)))
+        loaded=reopened['session']; restored=self.app.read_session(loaded['id'])
+        self.assertFalse(loaded['can_return'])
+        for key in ('id','name','visible','model','model_label','heal_method','color','mask'):
+            self.assertEqual(restored['layers'][0][key],manifest['layers'][0][key])
+        for asset in manifest['assets']:
+            self.assertEqual((self.app.folder(loaded['id'])/asset).read_bytes(),entries[asset])
+        resaved=self.images/'legacy-v1-resaved.lremove'
+        await self.save_project(loaded,resaved)
+        with zipfile.ZipFile(resaved) as archive:
+            current=json.loads(archive.read('manifest.json'))
+            self.assertEqual(current['version'],2)
+            self.assertEqual(current['layers'],manifest['layers'])
+            self.assertEqual(current['assets'],manifest['assets'])
+            for asset in manifest['assets']:self.assertEqual(archive.read(asset),entries[asset])
+        self.assertEqual(source.read_bytes(),original_bytes)
+
     async def test_16bit_project_merge_roundtrip_retains_exact_native_pixels_and_profile(self):
         source=self.images/'precision.tif'
         raw=(np.arange(64*48*3,dtype=np.uint16).reshape(48,64,3)*7)

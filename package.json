@@ -1,0 +1,14 @@
+{
+  "name": "local-image-development-tests",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build:frontend": "npm --prefix frontend run build",
+    "test:frontend-contracts": "npm --prefix frontend test",
+    "test:react-fixtures": "node tests/test_ui_migration.cjs",
+    "test:react-integration": "node tests/test_ui_react_integration.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}
