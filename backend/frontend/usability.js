@@ -1,7 +1,7 @@
 // Optional interface density and task-based hardware guidance, without model downloads.
 const UI_DENSITY_KEY='local-image.interface-density.v1';
 function applyInterfaceDensity(value){
-  const density=['compact','comfortable','large'].includes(value)?value:'compact';
+  const density=['compact','comfortable','large'].includes(value)?value:'comfortable';
   document.documentElement.dataset.uiDensity=density;
   try{localStorage.setItem(UI_DENSITY_KEY,density);}catch{}
   const select=$('interface-density');if(select)select.value=density;
@@ -14,7 +14,7 @@ function setupInterfaceDensity(){
   const select=document.createElement('select');select.id='interface-density';
   for(const [value,text]of[['compact','Compact'],['comfortable','Comfortable'],['large','Large · 200% text']]){const option=document.createElement('option');option.value=value;option.textContent=text;select.append(option);}
   select.onchange=()=>applyInterfaceDensity(select.value);row.append(label,select);host.append(row);
-  let saved='compact';try{saved=localStorage.getItem(UI_DENSITY_KEY)||saved;}catch{}applyInterfaceDensity(saved);
+  let saved='comfortable';try{saved=localStorage.getItem(UI_DENSITY_KEY)||saved;}catch{}applyInterfaceDensity(saved);
 }
 function starterTask(action){
   firstSetupPending=false;try{localStorage.setItem(FIRST_SETUP_SEEN,'1');localStorage.setItem(HARDWARE_GUIDE_SEEN,'1');}catch{}

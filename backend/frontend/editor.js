@@ -34,7 +34,7 @@ let generatedLibrary={items:[],count:0,bytes:0},generatedLibrarySelection=new Se
 let generatedLibraryFocused=null,generatedLibrarySelectMode=false;
 const OVERWRITE_PREFERENCE='local-remove-ask-before-overwrite';
 let closePrompt=null,closeInProgress=false,nativeProjects=false;
-const modalOpen=()=>$('settings-dialog').open||$('overwrite-dialog').open||$('close-dialog').open||$('hardware-dialog').open||$('shortcuts-dialog').open||$('lora-dialog').open||$('model-browser-dialog').open||$('stock-dialog').open||$('credits-dialog').open||$('refine-dialog').open||$('generated-library-dialog').open||window.LocalImageBatch?.isOpen()||!!overwritePrompt||!!closePrompt;
+const modalOpen=()=>$('settings-dialog').open||$('overwrite-dialog').open||$('close-dialog').open||$('hardware-dialog').open||$('shortcuts-dialog').open||$('lora-dialog').open||$('model-browser-dialog').open||($('stock-dialog').open&&$('stock-dialog').dataset.docked!=='true')||$('credits-dialog').open||($('refine-dialog').open&&$('refine-dialog').dataset.inlineStudio!=='true')||$('generated-library-dialog').open||window.LocalImageBatch?.isOpen()||!!overwritePrompt||!!closePrompt;
 const viewStates=new Map(),nativePending=new Map(),openDocuments=new Map(),displayCache=new Map(),layerQueues=new Map();
 const cloneDocument=data=>JSON.parse(JSON.stringify(data));
 const layerChangesPending=()=>[...layerQueues.values()].some(queue=>queue.pending.length>0);
@@ -1042,7 +1042,8 @@ function layerList(){
     const visibility=document.createElement('button');visibility.className='visibility';visibility.disabled=busy;
     visibility.setAttribute('aria-label',(layer.visible?'Hide ':'Show ')+layer.name);visibility.title=(layer.visible?'Hide ':'Show ')+layer.name;
     visibility.append(svgIcon(layer.visible?'eye':'eye-off'));visibility.onclick=()=>{const current=session.layers.find(item=>item.id===layer.id);changeLayer(layer.id,{visible:!current.visible});};
-    const label=document.createElement('div');label.style.minWidth='0';
+    const label=document.createElement('div');label.className='layer-content';label.style.minWidth='0';
+    const thumbnail=document.createElement('img');thumbnail.className='layer-thumbnail';thumbnail.alt='';thumbnail.loading='lazy';thumbnail.src='/api/local-remove/session/'+encodeURIComponent(session.id)+'/layer/'+encodeURIComponent(layer.id)+'/display';label.append(thumbnail);
     const name=document.createElement('div');name.className='layer-name';name.textContent=layer.name;name.title=layer.name;
     const meta=document.createElement('div');meta.className='meta';meta.textContent=layer.model_label||'Removal';label.append(name,meta);
     const discard=document.createElement('button');discard.className='discard';discard.append(svgIcon('close'));
@@ -1051,6 +1052,7 @@ function layerList(){
   }
   const original=document.createElement('div');original.className='layer base';
   const originalLabel=document.createElement('div'),originalName=document.createElement('div'),originalMeta=document.createElement('div');
+  originalLabel.className='layer-content';const originalThumbnail=document.createElement('img');originalThumbnail.className='layer-thumbnail';originalThumbnail.alt='';originalThumbnail.src='/api/local-remove/session/'+encodeURIComponent(session.id)+'/base-display';originalLabel.append(originalThumbnail);
   originalName.className='layer-name';originalName.textContent='Original';originalMeta.className='meta';originalMeta.textContent='Protected';originalLabel.append(originalName,originalMeta);
   original.append(svgIcon('lock'),originalLabel);holder.append(original);
   const count=session.layers.filter(layer=>!layer.discarded).length;$('layer-count').textContent=count+(count===1?' edit':' edits');
@@ -1707,7 +1709,7 @@ function safeSourceUrl(value){try{const url=new URL(value);return['http:','https
 function setCreditLink(element,address,label){const href=safeSourceUrl(address);element.hidden=!href;if(href)element.href=href;else element.removeAttribute('href');element.textContent=label;}
 const selectedStock=()=>stockResults.find(item=>item.id===stockSelectedId);
 function updateStockControls(){
-  const locked=stockLoading||stockImporting,selected=!!selectedStock(),cap=generationModel()?.capabilities||{},canReference=workspace==='generate'&&(cap.image_reference||cap.image_to_image||cap.references)&&generationReferences.length<(cap.max_references||0);
+  const locked=busy||stockLoading||stockImporting,selected=!!selectedStock(),cap=generationModel()?.capabilities||{},canReference=workspace==='generate'&&(cap.image_reference||cap.image_to_image||cap.references)&&generationReferences.length<(cap.max_references||0);
   $('stock-search').disabled=locked||!$('stock-query').value.trim()||!stockProviders.some(item=>item.id===$('stock-provider').value&&item.available!==false);$('stock-query').disabled=locked;$('stock-provider').disabled=locked;
   $('stock-close').disabled=stockImporting;$('stock-previous').disabled=locked||stockPage===0;$('stock-next').disabled=locked||stockNextPage===null||stockNextPage===undefined;
   $('stock-import-image').disabled=locked||!selected;$('stock-import-background').disabled=locked||!selected||!session;$('stock-import-background').title=session?'Place this image behind the current subject':'Open an image before choosing its background';
@@ -1736,7 +1738,7 @@ async function openStockLibrary(origin='image',opener=$('stock-open')){
   catch(error){stockStatus('Could not load stock providers: '+error.message,true);}finally{stockLoading=false;updateStockControls();$('stock-query').focus();}
 }
 async function importStock(target){
-  const item=selectedStock();if(!item||stockLoading||stockImporting)return;stockImporting=true;setBusy(true);updateStockControls();stockStatus('Importing '+item.title+'…');
+  const item=selectedStock();if(!item||busy||stockLoading||stockImporting)return;stockImporting=true;setBusy(true);updateStockControls();stockStatus('Importing '+item.title+'…');
   try{await flushLayerChanges();const result=await json('/api/local-remove/stock/import',{id:item.id,target:target==='background'?'background':'image',...(target==='background'?{session_id:session.id,revision:session.revision}:{})});$('stock-dialog').close();
     if(target==='reference'){addGenerationReference(result.session);selectGenerationTab('reference');message('Stock image added as a reference. Source credit stays with the image.');}
     else{await openSession(result.session);setWorkspace(target==='background'?'cutout':'retouch');if(target==='background')selectStudioTab('background');message(target==='background'?'Stock background applied. Its credit is available in File → Image credits.':'Stock image opened. Its credit is available in File → Image credits.');}
