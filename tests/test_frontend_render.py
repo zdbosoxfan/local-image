@@ -90,7 +90,11 @@ class ReactDeliveryTests(unittest.TestCase):
         (frontend / 'editor.css').write_text(':root{--studio-size:310px}:root[data-ui-density=large] button{font-size:28px}button{color:red}', encoding='utf-8')
         (frontend / 'editor.js').write_text("const TOKEN='__TOKEN__';/* editor */", encoding='utf-8')
         (frontend / 'migration-bridge.js').write_text('/* migration bridge */', encoding='utf-8')
+        (frontend / 'batch-tools.js').write_text('/* legacy batch controls */', encoding='utf-8')
+        (frontend / 'batch-bridge.js').write_text('/* batch domain ports */', encoding='utf-8')
+        (frontend / 'settings-bridge.js').write_text('/* settings domain ports */', encoding='utf-8')
         (self.root / 'local_remove.html').write_text('<html><head><style nonce="__NONCE__">__EDITOR_STYLE__</style></head><body><script nonce="__NONCE__">__EDITOR_SCRIPT__</script></body></html>', encoding='utf-8')
+        (frontend / 'react.html').write_text('<html><head>__FRONTEND_HEAD__</head><body><div id="react-app-root"></div><div id="viewport"><canvas id="photo"></canvas></div><script nonce="__NONCE__">window.__LOCAL_IMAGE_BOOTSTRAP__=__BOOTSTRAP__;</script>__FRONTEND_MODULE__</body></html>', encoding='utf-8')
         self.dist = self.root / 'frontend_dist'
         (self.dist / '.vite').mkdir(parents=True)
         (self.dist / 'assets').mkdir()
@@ -121,13 +125,49 @@ class ReactDeliveryTests(unittest.TestCase):
             self.assertEqual(frontend_mode(), 'legacy')
         with patch.dict(os.environ, {'LOCAL_IMAGE_FRONTEND': 'react'}):
             html = render_editor('nonce', 'token')
-        self.assertIn('window.__LOCAL_IMAGE_REACT__=true', html)
+        self.assertIn('window.__LOCAL_IMAGE_BOOTSTRAP__=', html)
+        self.assertNotIn('migration bridge', html)
+        self.assertNotIn('/* editor */', html)
         legacy = render_editor('nonce', 'token', mode='legacy')
         self.assertNotIn('migration bridge', legacy)
         self.assertNotIn('__LOCAL_IMAGE_REACT__', legacy)
         self.assertNotIn('frontend-assets', legacy)
 
-    def test_nonce_bootstrap_eager_css_chunks_and_persistent_legacy_order(self):
+    def test_migrated_batch_has_no_legacy_controller_in_react_composition(self):
+        react = render_editor('nonce', 'token', mode='react')
+        legacy = render_editor('nonce', 'token', mode='legacy')
+        self.assertNotIn('batch domain ports', react)
+        self.assertNotIn('settings domain ports', react)
+        self.assertNotIn('legacy batch controls', react)
+        self.assertIn('legacy batch controls', legacy)
+        self.assertNotIn('batch domain ports', legacy)
+
+    def test_migrated_assets_exclude_legacy_presentation_adapters(self):
+        frontend = self.root / 'frontend'
+        for name in ('stock-studio.js', 'stock-connections.js', 'quiet-controls.js'):
+            (frontend / name).write_text('/* retired asset adapter: ' + name + ' */', encoding='utf-8')
+        (frontend / 'assets-bridge.js').write_text('/* explicit asset domain ports */', encoding='utf-8')
+        react = render_editor('nonce', 'token', mode='react')
+        legacy = render_editor('nonce', 'token', mode='legacy')
+        self.assertNotIn('explicit asset domain ports', react)
+        self.assertNotIn('retired asset adapter:', react)
+        self.assertNotIn('explicit asset domain ports', legacy)
+        for name in ('stock-studio.js', 'stock-connections.js', 'quiet-controls.js'):
+            self.assertIn('retired asset adapter: ' + name, legacy)
+
+    def test_migrated_generation_uses_ports_without_legacy_dom_adapters(self):
+        frontend = self.root / 'frontend'
+        for name in ('generation-studio.js', 'generation-size.js', 'generation-composer.js', 'generation-guidance.js'):
+            (frontend / name).write_text('/* retired generation adapter: ' + name + ' */', encoding='utf-8')
+        (frontend / 'generation-bridge.js').write_text('/* explicit generation domain ports */', encoding='utf-8')
+        react = render_editor('nonce', 'token', mode='react')
+        legacy = render_editor('nonce', 'token', mode='legacy')
+        self.assertNotIn('explicit generation domain ports', react)
+        self.assertNotIn('retired generation adapter:', react)
+        self.assertNotIn('explicit generation domain ports', legacy)
+        self.assertIn('retired generation adapter: generation-size.js', legacy)
+
+    def test_nonce_bootstrap_eager_css_chunks_and_no_legacy_execution(self):
         html = render_editor('page-nonce', 'page-token', mode='react')
         parsed = EditorDocument(html)
         self.assertEqual([script.get('nonce') for script in parsed.scripts], ['page-nonce', 'page-nonce'])
@@ -137,12 +177,13 @@ class ReactDeliveryTests(unittest.TestCase):
         self.assertIn('/frontend-assets/assets/shared-abcdefgh.css', html)
         self.assertIn('rel="modulepreload"', html)
         self.assertNotIn('/frontend-assets/assets/lazy-abcdefgh', html)
-        self.assertIn('@scope (:root) to ([data-react-owned])', html)
-        self.assertIn(':scope{--studio-size:310px}', html)
-        self.assertIn(':scope[data-ui-density=large] button', html)
-        self.assertLess(html.index('window.__LOCAL_IMAGE_REACT__'), html.index('/* editor */'))
-        self.assertLess(html.index('/* editor */'), html.index('/* migration bridge */'))
-        self.assertLess(html.index('/* migration bridge */'), html.index('type="module"'))
+        self.assertNotIn('@scope', html)
+        self.assertNotIn('button{color:red}', html)
+        self.assertNotIn('/* editor */', html)
+        self.assertNotIn('/* migration bridge */', html)
+        self.assertEqual(html.count('id="viewport"'), 1)
+        self.assertEqual(html.count('id="photo"'), 1)
+        self.assertLess(html.index('window.__LOCAL_IMAGE_BOOTSTRAP__'), html.index('type="module"'))
         self.assertIn('"nonce":"page-nonce","token":"page-token"', html)
 
     def test_each_document_receives_fresh_bootstrap_without_rewriting_assets(self):

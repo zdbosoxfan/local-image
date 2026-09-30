@@ -1,0 +1,23 @@
+.li-settings-surface.fui-DialogSurface { width:min(680px,calc(100vw - 32px)); max-width:calc(100vw - 32px); max-height:calc(100dvh - 32px); padding:20px; color:var(--colorNeutralForeground1); font-family:var(--fontFamilyBase); font-size:var(--ui-font,14px); }
+.li-settings-body { min-width:0; max-height:calc(100dvh - 72px); }
+.li-settings-content { display:flex; flex-direction:column; gap:12px; min-height:0; overflow:auto; overscroll-behavior:contain; padding-right:4px; }
+.li-settings-section { display:flex; flex-direction:column; gap:12px; min-width:0; }
+.li-settings-section p { margin:0; }
+.li-settings-group { display:flex; flex-direction:column; gap:8px; padding-block:8px; border-bottom:1px solid var(--colorNeutralStroke2); }
+.li-settings-group h3 { font-size:inherit; font-weight:600; margin:0; }
+.li-settings-note { color:var(--colorNeutralForeground2); line-height:1.45; font-size:var(--ui-note,12px); overflow-wrap:anywhere; }
+.li-settings-error { color:var(--colorPaletteRedForeground1); margin:0; line-height:1.4; }
+.li-settings-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.li-settings-toolbar { display:flex; gap:12px; justify-content:space-between; align-items:center; }
+.li-settings-toolbar > p { flex:1; min-width:0; }
+.li-settings-path { display:block; padding:6px 8px; background:var(--colorNeutralBackground2); border:1px solid var(--colorNeutralStroke2); border-radius:var(--borderRadiusMedium); overflow-wrap:anywhere; }
+.li-settings-installation-choice { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:end; }
+.li-settings-disclosure { display:flex; flex-direction:column; gap:8px; }
+.li-settings-file-list { list-style:none; padding:0; margin:0; }
+.li-settings-file-list li { display:flex; justify-content:space-between; gap:16px; padding-block:4px; }
+.li-settings-file-list li > span:first-child { min-width:0; overflow-wrap:anywhere; }
+.li-settings-file-list li > span:last-child { flex-shrink:0; color:var(--colorNeutralForeground2); }
+.li-settings-job { display:flex; flex-direction:column; gap:6px; font-variant-numeric:tabular-nums; }
+:root[data-ui-density=large] .li-settings-surface.fui-DialogSurface { width:min(900px,calc(100vw - 24px)); padding:16px; }
+:root[data-ui-density=large] .li-settings-surface .fui-Button { min-height:44px; }
+@media(max-width:600px) { .li-settings-surface.fui-DialogSurface { width:calc(100vw - 16px); max-width:calc(100vw - 16px); padding:12px; } .li-settings-installation-choice { grid-template-columns:1fr; } .li-settings-file-list li { flex-wrap:wrap; gap:4px; } }

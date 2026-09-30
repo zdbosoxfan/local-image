@@ -40,4 +40,13 @@
 :root[data-ui-density=large] .li-thumbnail { width:48px; height:48px; }
 :root[data-ui-density=large] .li-properties .fui-Input { width:140px; }
 :root[data-ui-density=large] .li-icon { width:24px; height:24px; }
+/* Fluent's native Select slots have fixed 24/32/40px heights. Large text
+   scales typography tokens, so size both slots from that same density source. */
+:root[data-ui-density=large] { --ui-control-height:calc(var(--ui-font) * 1.4 + 12px); }
+:root[data-ui-density=large] .fui-Select,
+:root[data-ui-density=large] .fui-Select__select { height:var(--ui-control-height); min-height:var(--ui-control-height); }
+:root[data-ui-density=large] .fui-Select__select { padding-block:4px; }
+:root[data-ui-density=large] .fui-Input,
+:root[data-ui-density=large] .fui-Button { min-height:var(--ui-control-height); height:auto; }
+:root[data-ui-density=large] .fui-Input__input { min-height:calc(var(--ui-font) * 1.4); }
 @media(max-width:900px) { .li-commandbar { gap:0; } .li-commandbar .li-divider { display:none; } }

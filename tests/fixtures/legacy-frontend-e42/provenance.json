@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "source_commit": "e42aab6a49f222796dbbc9dc1ebf4211f46e9876",
+  "purpose": "Immutable historical arithmetic oracle only; never application runtime or new UI acceptance.",
+  "camera_regions": {
+    "file": "camera-regions.json",
+    "sha256": "5334adf6efb63adba9973747cdc3260cb21052a9be3a90905fadaafd76457fa1",
+    "encoding": "UTF-8, JSON strings contain exact source excerpts without wrappers or algorithm edits",
+    "regions": [
+      {
+        "key": "clampCamera",
+        "source_path": "backend/frontend/editor.js",
+        "source_blob_sha256": "87d6243ee029f4ecb36f7817dcb8c41db0c3f9532b64ef3caf10c2c79f179458",
+        "start_marker": "function clampCamera(){",
+        "end_marker_exclusive": "function zoomLabel(){",
+        "start_line": 337,
+        "end_line_exclusive": 344,
+        "excerpt_sha256": "1a85c562ef62c1abaaaa78cbec0ddf7bebae9dd2f50db8460036599a1816b50f"
+      },
+      {
+        "key": "fitImage",
+        "source_path": "backend/frontend/editor.js",
+        "source_blob_sha256": "87d6243ee029f4ecb36f7817dcb8c41db0c3f9532b64ef3caf10c2c79f179458",
+        "start_marker": "function fitImage(){",
+        "end_marker_exclusive": "function localPoint(",
+        "start_line": 380,
+        "end_line_exclusive": 388,
+        "excerpt_sha256": "6ac5984d8ca27beeabaedf387a0360497367e4a61fca680251e06057a7bba3ba"
+      },
+      {
+        "key": "setPhotoZoom",
+        "source_path": "backend/frontend/editor.js",
+        "source_blob_sha256": "87d6243ee029f4ecb36f7817dcb8c41db0c3f9532b64ef3caf10c2c79f179458",
+        "start_marker": "function setPhotoZoom(",
+        "end_marker_exclusive": "new ResizeObserver(",
+        "start_line": 389,
+        "end_line_exclusive": 398,
+        "excerpt_sha256": "773d2fff708ecb84f2cb0a3f38e2faea6df67ef5a9f484a4f70d142b39ed4dde"
+      },
+      {
+        "key": "coord",
+        "source_path": "backend/frontend/editor.js",
+        "source_blob_sha256": "87d6243ee029f4ecb36f7817dcb8c41db0c3f9532b64ef3caf10c2c79f179458",
+        "start_marker": "function coord(event){",
+        "end_marker_exclusive": "function insidePhoto(",
+        "start_line": 440,
+        "end_line_exclusive": 444,
+        "excerpt_sha256": "5e5ee606ddd3f5e3462bc62ddaa4a40281ceb9cb1b277e71fccbf4a565147085"
+      },
+      {
+        "key": "layerGeometry",
+        "source_path": "backend/frontend/layers-studio.js",
+        "source_blob_sha256": "b358c648022dc437fd86786bcac3a0e0f1ed9292f72aacdc065719cac8282b99",
+        "start_marker": "  function pointOnLayer(",
+        "end_marker_exclusive": "  function drawHandles(){",
+        "start_line": 286,
+        "end_line_exclusive": 295,
+        "excerpt_sha256": "8995e400e20cbdb7315f61c1e2fe57610787dba62fa55c6cf0ef8fcddd45a86d"
+      },
+      {
+        "key": "stackGesture",
+        "source_path": "backend/frontend/layers-studio.js",
+        "source_blob_sha256": "b358c648022dc437fd86786bcac3a0e0f1ed9292f72aacdc065719cac8282b99",
+        "start_marker": "    if(d.kind==='move')d.next=",
+        "end_marker_exclusive": "paintMoving();",
+        "start_line": 325,
+        "end_line_exclusive": 333,
+        "excerpt_sha256": "c3b066badfce1e04fa85772a3eaba7b2daab5f2a409764818e15136b6e37a10c"
+      }
+    ]
+  },
+  "generation_size": {
+    "file": "generation-size.cjs",
+    "source_path": "backend/frontend/generation-size.js",
+    "sha256": "fed11b4a957d46f8db22d489f54a05e906d880f1960bf207eeb8f544f1ba96e8",
+    "source_blob_sha256": "fed11b4a957d46f8db22d489f54a05e906d880f1960bf207eeb8f544f1ba96e8",
+    "encoding": "Exact git blob bytes; .cjs extension selects its existing Node pure-helper branch"
+  }
+}

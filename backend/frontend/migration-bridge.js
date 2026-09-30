@@ -15,13 +15,13 @@
   // enter this snapshot, and unchanged gestures do not clone the document.
   function documentVersion(data){return data?JSON.stringify(Object.entries(data).filter(([,value])=>value===null||typeof value!=='object')):'';}
   function historyAvailable(){
-    const generation=window.LocalImageGenerationStudio;
+    const generation=window.LocalImageGenerationBridge||window.LocalImageGenerationStudio;
     return !!session&&!busy&&!closeInProgress&&!layerChangesPending()&&workspace!=='generate'&&!generation?.isRefining()&&!generation?.isCreatingBlank?.()&&!modalOpen();
   }
   function getSnapshot(){
     const version=documentVersion(session);
     if(sourceDocument!==session||sourceVersion!==version){sourceDocument=session;sourceVersion=version;acceptedDocument=session?freeze(cloneDocument(session)):null;}
-    const generation=window.LocalImageGenerationStudio;
+    const generation=window.LocalImageGenerationBridge||window.LocalImageGenerationStudio;
     const next={document:acceptedDocument,selectedLayerId:window.LocalImageLayers?.selected()?.id||null,
       busy:busy||closeInProgress,workspace,showOriginal,tool,
       canUndo:historyAvailable()&&!!historyTarget(),
@@ -41,7 +41,7 @@
     if(busy)return;
     closeMenus();
     try{
-      const generation=window.LocalImageGenerationStudio;
+      const generation=window.LocalImageGenerationBridge||window.LocalImageGenerationStudio;
       if(generation?.prepareSelectedForExport){if(!await generation.prepareSelectedForExport())return;}
       else if(generation?.isRefining()){if(!await generation.openSelectedInEditor())return;}
       if(workspace==='cutout'&&!hasSelection&&!points.length){outputFormat='png';$('output-format').value='png';updateDocumentState();return save('export',true);}
@@ -61,8 +61,10 @@
     setWorkspace:value=>setWorkspace(value),toggleOriginal:()=>{if(!session||busy)return;endGesture();showOriginal=!showOriginal;paintPhoto();},
     openFiles:openDocumentFiles,openFolder:openDocumentFolder,openProject:openDocumentProject,
     saveProject:()=>saveProject(),saveProjectAs:()=>saveProject(true),exportImage,showSettings,
+    browseModels:async()=>{await setWorkspace('generate');return openModelBrowser();},
+    startTask:value=>{setWorkspace(value);if(value==='retouch')setOperation('heal');if(value!=='generate'&&!session)return openDocumentFiles();},
     showAssets:()=>window.LocalImageLayers.showAssets('stock'),
-    toggleInspector:()=>{if(window.LocalImageGenerationStudio?.isRefining())return;document.body.dataset.inspectorHidden=String(document.body.dataset.inspectorHidden!=='true');window.LocalImageStudio?.sync();publish();}
+    toggleInspector:()=>{if((window.LocalImageGenerationBridge||window.LocalImageGenerationStudio)?.isRefining())return;document.body.dataset.inspectorHidden=String(document.body.dataset.inspectorHidden!=='true');window.LocalImageStudio?.sync();publish();}
   });
   window.LocalImageLegacyEditor=Object.freeze({getSnapshot,subscribe:listener=>{listeners.add(listener);return()=>listeners.delete(listener);},
     commands,canvas,native,publish,setStackTransport:transport=>window.LocalImageLayers.setStackTransport(transport)});

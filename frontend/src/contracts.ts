@@ -73,6 +73,8 @@ export interface EditorCommands {
   saveProjectAs(): unknown;
   exportImage(): unknown;
   showSettings(): void;
+  browseModels(): unknown;
+  startTask(workspace: Workspace): unknown;
   toggleInspector(): void;
   showAssets?(): void;
 }

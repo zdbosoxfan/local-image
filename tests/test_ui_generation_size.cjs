@@ -1,6 +1,8 @@
-// Geometry is pure; UI uses real documents with only GPU/model inventory mocked.
+// Historical geometry oracle is pinned; production TypeScript parity is checked
+// by frontend/src/features/generation/sizeMath.test.mjs. The optional UI branch
+// still exercises the legacy interface with only GPU/model inventory mocked.
 const assert = require('node:assert/strict'), fs = require('node:fs'), path = require('node:path');
-const {fitDimensions, dimensionBounds} = require('../backend/frontend/generation-size.js');
+const {fitDimensions, dimensionBounds} = require('./fixtures/legacy-frontend-e42/generation-size.cjs');
 const large = {min_dimension:256,max_dimension:4096,dimension_step:32,max_pixels:4194304};
 const small = {min_dimension:256,max_dimension:1536,dimension_step:64,max_pixels:1048576};
 // These area-capped fixtures exercise externally supplied limits; they are not

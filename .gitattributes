@@ -3,3 +3,8 @@ backend/frontend_dist/** text=auto eol=lf
 frontend/** text=auto eol=lf
 package.json text eol=lf
 package-lock.json text eol=lf
+
+# Pinned regression oracles must keep their original bytes on every checkout.
+tests/fixtures/legacy-frontend-e42/** text eol=lf
+tests/fixtures/legacy-frontend-e42/camera-regions.json -text
+tests/fixtures/legacy-frontend-e42/generation-size.cjs -text

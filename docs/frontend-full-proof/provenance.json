@@ -1,0 +1,207 @@
+{
+  "schema": 1,
+  "date": "2026-09-30",
+  "purpose": "Reviewable genuine synthetic UI captures; source-browser and native package states are intentionally distinct",
+  "editedOrGeneratedForPresentation": false,
+  "modelInferenceExecuted": false,
+  "nativeActions": "Computer Use only; capture/metadata helpers are read-only",
+  "nativeConsolidation": "qa-artifacts/native-acceptance/full-DCWGvea3/native-size-toggle-consolidation.json",
+  "packageBuildReport": "qa-artifacts/native-acceptance/builds/staged-DCWGvea3/result.json",
+  "items": [
+    {
+      "file": "source-cib-project-reopened-1366x768.png",
+      "sourceReport": "qa-artifacts/migration/final-current-core/results.json",
+      "kind": "Installed headless Edge against actual isolated source backend; not native WebView2",
+      "build": {
+        "javascript": "main-CIBtEhRP.js",
+        "css": "main-1UhSW1Zf.css"
+      },
+      "cssViewport": [
+        1366,
+        768
+      ],
+      "density": "comfortable",
+      "state": {
+        "name": "Full React fixture.png",
+        "id": "74276e44-d9c0-45ee-9f60-eb95e9de3a23",
+        "revision": 25,
+        "projectSaved": false,
+        "projectDirty": true,
+        "layerCount": 3,
+        "description": "Reopened edited browser project, selected transformed cutout with two CPU repair patches in a separate layer; browser download is not native project-save confirmation."
+      },
+      "sourceScreenshot": "qa-artifacts/migration/final-current-core/full-reopened-1366x768.png",
+      "sha256": "2df4750b75b4b185e0920149d3b737f225a305e0bd451e65a2165c79071bcadd",
+      "bytes": 56020,
+      "imagePixels": [
+        1366,
+        768
+      ],
+      "copiedByteForByte": true
+    },
+    {
+      "file": "native-dc-800x560-comfortable.png",
+      "sourceReport": "qa-artifacts/native-acceptance/full-DCWGvea3/native-800x560-comfortable.json",
+      "kind": "Actual packaged WinForms/WebView2 content capture; excludes OS frame and owned native dialogs",
+      "build": {
+        "javascript": "main-DCWGvea3.js",
+        "css": "main-DrOsjePE.css",
+        "hostSha256": "1191f830fff30e0bd9f1332d3d82287c706ecba6df824a2183c4d7aa038cf88a",
+        "backendSha256": "a449ba6a09c97a3f80398879600fe92afe6b2c3c49567e69433ee87e63c1dcf3"
+      },
+      "cssViewport": [
+        800,
+        560
+      ],
+      "density": "comfortable",
+      "devicePixelRatio": 1.75,
+      "windowsDpi": 168,
+      "state": {
+        "workspace": "retouch",
+        "nativeReady": true,
+        "document": {
+          "id": "a4721a1e-b6ea-49a5-a25a-a49cc62f23c0",
+          "name": "Synthetic 1.png",
+          "revision": 0,
+          "canReturn": false,
+          "projectName": "Reviewed v3.lremove",
+          "projectSaved": true,
+          "projectDirty": false,
+          "layerCount": 1
+        },
+        "inspector": "visible"
+      },
+      "sourceScreenshot": "qa-artifacts/native-acceptance/full-DCWGvea3/native-800x560-comfortable.png",
+      "sha256": "84ff835f95cda03872676056eeee65da8568f6a6299edb3e32ffc42b882c94c5",
+      "bytes": 64790,
+      "imagePixels": [
+        1400,
+        980
+      ],
+      "copiedByteForByte": true
+    },
+    {
+      "file": "native-dc-800x560-large-inspector-hidden.png",
+      "sourceReport": "qa-artifacts/native-acceptance/full-DCWGvea3/native-800x560-large-inspector-hidden.json",
+      "kind": "Actual packaged WinForms/WebView2 content capture; excludes OS frame and owned native dialogs",
+      "build": {
+        "javascript": "main-DCWGvea3.js",
+        "css": "main-DrOsjePE.css",
+        "hostSha256": "1191f830fff30e0bd9f1332d3d82287c706ecba6df824a2183c4d7aa038cf88a",
+        "backendSha256": "a449ba6a09c97a3f80398879600fe92afe6b2c3c49567e69433ee87e63c1dcf3"
+      },
+      "cssViewport": [
+        800,
+        560
+      ],
+      "density": "large",
+      "devicePixelRatio": 1.75,
+      "windowsDpi": 168,
+      "state": {
+        "workspace": "retouch",
+        "nativeReady": true,
+        "document": {
+          "id": "a4721a1e-b6ea-49a5-a25a-a49cc62f23c0",
+          "name": "Synthetic 1.png",
+          "revision": 0,
+          "canReturn": false,
+          "projectName": "Reviewed v3.lremove",
+          "projectSaved": true,
+          "projectDirty": false,
+          "layerCount": 1
+        },
+        "inspector": "hidden"
+      },
+      "sourceScreenshot": "qa-artifacts/native-acceptance/full-DCWGvea3/native-800x560-large-inspector-hidden.png",
+      "sha256": "229d24f7e307834361c6e50a2d194bd8766f563820e470570cfc6dee15467914",
+      "bytes": 91675,
+      "imagePixels": [
+        1400,
+        980
+      ],
+      "copiedByteForByte": true
+    },
+    {
+      "file": "native-dc-1366x768-large.png",
+      "sourceReport": "qa-artifacts/native-acceptance/full-DCWGvea3/native-1366x768-large-editor.json",
+      "kind": "Actual packaged WinForms/WebView2 content capture; excludes OS frame and owned native dialogs",
+      "build": {
+        "javascript": "main-DCWGvea3.js",
+        "css": "main-DrOsjePE.css",
+        "hostSha256": "1191f830fff30e0bd9f1332d3d82287c706ecba6df824a2183c4d7aa038cf88a",
+        "backendSha256": "a449ba6a09c97a3f80398879600fe92afe6b2c3c49567e69433ee87e63c1dcf3"
+      },
+      "cssViewport": [
+        1366,
+        768
+      ],
+      "density": "large",
+      "devicePixelRatio": 1.75,
+      "windowsDpi": 168,
+      "state": {
+        "workspace": "retouch",
+        "nativeReady": true,
+        "document": {
+          "id": "a4721a1e-b6ea-49a5-a25a-a49cc62f23c0",
+          "name": "Synthetic 1.png",
+          "revision": 0,
+          "canReturn": false,
+          "projectName": "Reviewed v3.lremove",
+          "projectSaved": true,
+          "projectDirty": false,
+          "layerCount": 1
+        },
+        "inspector": "visible"
+      },
+      "sourceScreenshot": "qa-artifacts/native-acceptance/full-DCWGvea3/native-1366x768-large-editor.png",
+      "sha256": "8b19bc8d625a9eef3050799d02af141e5ac771537488c965d02df7ac3a87f277",
+      "bytes": 151737,
+      "imagePixels": [
+        2391,
+        1344
+      ],
+      "copiedByteForByte": true
+    },
+    {
+      "file": "native-dc-2195x1164-comfortable.png",
+      "sourceReport": "qa-artifacts/native-acceptance/full-DCWGvea3/native-desktop-comfortable-editor.json",
+      "kind": "Actual packaged WinForms/WebView2 content capture; excludes OS frame and owned native dialogs",
+      "build": {
+        "javascript": "main-DCWGvea3.js",
+        "css": "main-DrOsjePE.css",
+        "hostSha256": "1191f830fff30e0bd9f1332d3d82287c706ecba6df824a2183c4d7aa038cf88a",
+        "backendSha256": "a449ba6a09c97a3f80398879600fe92afe6b2c3c49567e69433ee87e63c1dcf3"
+      },
+      "cssViewport": [
+        2195,
+        1164
+      ],
+      "density": "comfortable",
+      "devicePixelRatio": 1.75,
+      "windowsDpi": 168,
+      "state": {
+        "workspace": "retouch",
+        "nativeReady": true,
+        "document": {
+          "id": "a4721a1e-b6ea-49a5-a25a-a49cc62f23c0",
+          "name": "Synthetic 1.png",
+          "revision": 0,
+          "canReturn": false,
+          "projectName": "Reviewed v3.lremove",
+          "projectSaved": true,
+          "projectDirty": false,
+          "layerCount": 1
+        },
+        "inspector": "visible"
+      },
+      "sourceScreenshot": "qa-artifacts/native-acceptance/full-DCWGvea3/native-desktop-comfortable-editor.png",
+      "sha256": "a37792ad66e3a7f26ffbfd843ad112770749d6951eb17b7a93199d3a840672a8",
+      "bytes": 100822,
+      "imagePixels": [
+        3842,
+        2037
+      ],
+      "copiedByteForByte": true
+    }
+  ]
+}

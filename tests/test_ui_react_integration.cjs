@@ -24,6 +24,14 @@ assert.ok(profile.toLowerCase().startsWith(path.join(root, 'qa-artifacts').toLow
 const out = path.resolve(process.env.MIGRATION_REAL_OUTPUT || path.join(qaRoot, 'real-backend'));
 assert.ok(out.toLowerCase().startsWith(qaRoot.toLowerCase() + path.sep), 'Output must be inside migration QA directory');
 fs.mkdirSync(out, {recursive: true});
+// A new stage must not erase an earlier executed report. Screenshots/artifacts
+// for distinct stages should use MIGRATION_REAL_OUTPUT; retain report history
+// as a second guard when the same output directory is deliberately reused.
+const previousReport = path.join(out, 'results.json');
+if (fs.existsSync(previousReport)) {
+  const archive = path.join(out, 'report-history'); fs.mkdirSync(archive, {recursive:true});
+  fs.copyFileSync(previousReport, path.join(archive, `results-${Date.now()}.json`));
+}
 const python = process.env.MIGRATION_PYTHON || path.join(root, '.venv', 'Scripts', 'python.exe');
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 function fileHash(file) {const data = fs.readFileSync(file); return {path: path.relative(root, file).replaceAll('\\', '/'), bytes: data.length, sha256: hash(data)};}

@@ -2,13 +2,18 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Button, Field, Input, Menu, MenuItem, MenuList, MenuPopover, MenuTrigger, Portal, Toolbar, ToolbarButton } from '@fluentui/react-components';
 import type { EditorController } from './editorController.ts';
 import type { Layer } from './contracts.ts';
+import { BatchDialog, type BatchController } from './features/batch/index.ts';
+import { SettingsDialogs, type SettingsController } from './features/settings/index.ts';
+import { ModelDialogs, type ModelsController } from './features/models/index.ts';
+import { AssetsDock, type AssetsController } from './features/assets/index.ts';
+import { GenerationPanel, type GenerationController } from './features/generation/index.ts';
 
 function Icon({ name }: { name: string }) {
   const historyPath = name === 'undo' ? 'M9 5 3 10l6 5M4 10h10a6 6 0 0 1 0 12' : name === 'redo' ? 'm15 5 6 5-6 5M20 10H10a6 6 0 0 0 0 12' : null;
   return <svg className="li-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">{historyPath ? <path d={historyPath} /> : <use href={`#i-${name}`} />}</svg>;
 }
 
-export function App({ controller, layersMount }: { controller: EditorController; layersMount: HTMLElement }) {
+export function App({ controller, layersMount, assetsMount, assets, generationMount, generationEmptyMount, generation, batch, settings, models }: { controller: EditorController; layersMount: HTMLElement; assetsMount: HTMLElement; assets: AssetsController; generationMount: HTMLElement; generationEmptyMount: HTMLElement; generation: GenerationController; batch: BatchController; settings: SettingsController; models: ModelsController }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const commands = controller.commands;
   const editing = !!state.document && state.workspace !== 'generate';
@@ -20,11 +25,18 @@ export function App({ controller, layersMount }: { controller: EditorController;
       <span className="li-divider" />
       <ToolbarButton disabled={!editing} onClick={() => commands.fit()}>Fit</ToolbarButton>
       {commands.showAssets && <ToolbarButton icon={<Icon name="image" />} onClick={() => commands.showAssets?.()}>Assets</ToolbarButton>}
+      <ToolbarButton id="batch-open" disabled={state.busy} onClick={() => batch.open()}>Batch</ToolbarButton>
       <ToolbarButton aria-pressed={!state.inspectorHidden} aria-controls="studio-inspector" disabled={state.refining} onClick={() => commands.toggleInspector()}>Inspector</ToolbarButton>
       <ToolbarButton disabled={state.busy || !state.generationVisible} onClick={() => commands.exportImage()}>Export</ToolbarButton>
       <ToolbarButton aria-label="Settings" title="Settings" icon={<Icon name="settings" />} disabled={state.busy} onClick={() => commands.showSettings()} />
     </Toolbar>
     <Portal mountNode={layersMount}><Layers controller={controller} /></Portal>
+    <Portal mountNode={assetsMount}><AssetsDock controller={assets} /></Portal>
+    <Portal mountNode={generationMount}><GenerationPanel controller={generation} /></Portal>
+    <Portal mountNode={generationEmptyMount}><div className="li-generation-empty">Create a new image</div></Portal>
+    <BatchDialog controller={batch} />
+    <SettingsDialogs controller={settings} />
+    <ModelDialogs controller={models} />
   </>;
 }
 

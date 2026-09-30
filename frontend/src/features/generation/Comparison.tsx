@@ -1,0 +1,27 @@
+import { useEffect, useRef } from 'react';
+import { Button } from '@fluentui/react-components';
+import type { EditorDocument } from '../../contracts.ts';
+
+/** These are comparison previews, separate from the persistent editing canvas.
+ * Pixel-scale camera and pointer movement stay in refs and DOM styles. */
+export function Comparison({ draft, result }: { draft?: EditorDocument; result?: EditorDocument }) {
+  const left = useRef<HTMLDivElement>(null), right = useRef<HTMLDivElement>(null), zoomLabel = useRef<HTMLSpanElement>(null);
+  const camera = useRef({ scale: 'fit' as number | 'fit', x: .5, y: .5 });
+  const drag = useRef<{ pointerId: number; x: number; y: number; centerX: number; centerY: number; width: number; height: number } | null>(null);
+  function render() {
+    for (const area of [left.current, right.current]) { const image = area?.querySelector('img'); if (!area || !image?.naturalWidth) continue; const view = camera.current, scale = view.scale === 'fit' ? Math.min(area.clientWidth / image.naturalWidth, area.clientHeight / image.naturalHeight) : view.scale;
+      Object.assign(image.style, { width: `${image.naturalWidth * scale}px`, height: `${image.naturalHeight * scale}px`, left: `${area.clientWidth / 2 - view.x * image.naturalWidth * scale}px`, top: `${area.clientHeight / 2 - view.y * image.naturalHeight * scale}px` }); }
+    if (zoomLabel.current) zoomLabel.current.textContent = camera.current.scale === 'fit' ? 'Fit' : `${Math.round(camera.current.scale * 100)}%`;
+  }
+  function zoom(factor: number) { if (camera.current.scale === 'fit') { const image = left.current?.querySelector('img'); camera.current.scale = image?.naturalWidth && left.current ? Math.min(left.current.clientWidth / image.naturalWidth, left.current.clientHeight / image.naturalHeight) : 1; } camera.current.scale = Math.max(.02, Math.min(8, camera.current.scale * factor)); render(); }
+  useEffect(() => { const observer = new ResizeObserver(render); if (left.current) observer.observe(left.current); if (right.current) observer.observe(right.current); render(); return () => observer.disconnect(); }, [draft?.id, result?.id]);
+  return <section className="li-generation-comparison" aria-label="Draft and refinement comparison"><div className="li-generation-comparison-tools"><Button size="small" onClick={() => { camera.current = { scale: 'fit', x: .5, y: .5 }; render(); }}>Fit</Button><Button size="small" onClick={() => { camera.current.scale = 1; render(); }}>100%</Button><Button size="small" aria-label="Zoom comparison out" onClick={() => zoom(1 / 1.25)}>−</Button><span ref={zoomLabel}>Fit</span><Button size="small" aria-label="Zoom comparison in" onClick={() => zoom(1.25)}>+</Button></div><div className="li-generation-comparison-pair">
+    {([['Draft', draft, left], ['Refined result', result, right]] as const).map(([label, document, holder]) => <div key={label} className="li-generation-comparison-side"><h3>{label}</h3><div ref={holder} className="li-generation-comparison-image" tabIndex={0} aria-label={`${label}: drag to pan; plus or minus to zoom`}
+      onPointerDown={event => { const image = event.currentTarget.querySelector('img'); if (event.button !== 0 || !image?.naturalWidth) return; const box = image.getBoundingClientRect(); drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, centerX: camera.current.x, centerY: camera.current.y, width: box.width, height: box.height }; event.currentTarget.setPointerCapture(event.pointerId); event.preventDefault(); }}
+      onPointerMove={event => { const held = drag.current; if (!held || held.pointerId !== event.pointerId) return; camera.current.x = Math.max(0, Math.min(1, held.centerX - (event.clientX - held.x) / held.width)); camera.current.y = Math.max(0, Math.min(1, held.centerY - (event.clientY - held.y) / held.height)); render(); }}
+      onPointerUp={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); drag.current = null; }} onPointerCancel={() => { drag.current = null; }} onLostPointerCapture={() => { drag.current = null; }}
+      onKeyDown={event => { if (!['+', '=', '-', '1', 'f', 'F', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return; event.preventDefault(); event.stopPropagation(); if (event.key === '1') camera.current.scale = 1; else if (event.key.toLowerCase() === 'f') camera.current = { scale: 'fit', x: .5, y: .5 }; else if (['+', '=', '-'].includes(event.key)) zoom(event.key === '-' ? 1 / 1.25 : 1.25); else { camera.current.x = Math.max(0, Math.min(1, camera.current.x + (event.key === 'ArrowLeft' ? -.05 : event.key === 'ArrowRight' ? .05 : 0))); camera.current.y = Math.max(0, Math.min(1, camera.current.y + (event.key === 'ArrowUp' ? -.05 : event.key === 'ArrowDown' ? .05 : 0))); } render(); }}>
+      {document ? <img alt={`${label}: ${document.name}`} src={`/api/local-remove/session/${encodeURIComponent(document.id)}/preview?revision=${document.revision}&full=true`} draggable={false} onLoad={render} /> : <p>{label === 'Draft' ? 'Choose or generate a draft.' : 'Refine the selected draft.'}</p>}
+    </div></div>)}
+  </div></section>;
+}

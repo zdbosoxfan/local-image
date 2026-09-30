@@ -116,7 +116,23 @@ def _module_tags(nonce: str) -> tuple[str, str]:
     return head, script
 
 
+def _render_react_editor(nonce: str, token: str) -> str:
+    html = (RESOURCE_DIR / 'frontend' / 'react.html').read_text(encoding='utf-8-sig')
+    head, module = _module_tags(nonce)
+    # This template contains only the persistent Canvas2D subtree and mounts.
+    # The module owns every control; no legacy script/control/style is loaded.
+    html = html.replace('__FRONTEND_HEAD__', head).replace('__FRONTEND_MODULE__', module)
+    html = html.replace('__BOOTSTRAP__', _script_json({'nonce': nonce, 'token': token}))
+    html = html.replace('__NONCE__', escape(nonce, quote=True))
+    if '__APP_ICON__' in html:
+        icon = base64.b64encode((RESOURCE_DIR / 'frontend' / 'app-icon.png').read_bytes()).decode('ascii')
+        html = html.replace('__APP_ICON__', 'data:image/png;base64,' + icon)
+    return html
+
+
 def render_editor(nonce: str, token: str, mode: str | None = None) -> str:
+    if (mode or frontend_mode()) == 'react':
+        return _render_react_editor(nonce, token)
     # Windows editors may write a BOM. Inside an inline style block it becomes
     # part of the first selector and can silently invalidate the design tokens.
     template = (RESOURCE_DIR / 'local_remove.html').read_text(encoding='utf-8-sig')
@@ -128,26 +144,11 @@ def render_editor(nonce: str, token: str, mode: str | None = None) -> str:
                'stock-studio.js', 'generation-studio.js', 'quiet-controls.js',
                'layers-studio.js', 'generation-size.js', 'generation-composer.js',
                'generation-guidance.js', 'stock-connections.js')
-    react = (mode or frontend_mode()) == 'react'
-    if react:
-        # Loaded last, the temporary adapter exposes commands and snapshots after
-        # the composed legacy page is initialized. React owns its new regions.
-        scripts += ('migration-bridge.js',)
-        if not (frontend / 'migration-bridge.js').is_file():
-            raise RuntimeError('The React migration bridge is unavailable. Restart with LOCAL_IMAGE_FRONTEND=legacy.')
     style = '\n'.join((frontend / name).read_text(encoding='utf-8-sig')
         for name in styles if (frontend / name).is_file())
-    if react:
-        # Within @scope the scope root must be targeted explicitly. Leaving
-        # :root here loses root tokens in Chromium, invalidating legacy grids.
-        scoped_style = re.sub(r':root\b', ':scope', style)
-        style = '@scope (:root) to ([data-react-owned]) {\n' + scoped_style + '\n}'
     html = template.replace('__EDITOR_STYLE__', style)
     script = '\n'.join((frontend / name).read_text(encoding='utf-8-sig')
         for name in scripts if (frontend / name).is_file())
-    if react:
-        bootstrap = _script_json({'nonce': nonce, 'token': token})
-        script = "'use strict';\nwindow.__LOCAL_IMAGE_REACT__=true;\nwindow.__LOCAL_IMAGE_BOOTSTRAP__=" + bootstrap + ';\n' + script
     html = html.replace('__EDITOR_SCRIPT__', script)
     if '__APP_ICON__' in html:
         icon = base64.b64encode((frontend / 'app-icon.png').read_bytes()).decode('ascii')
@@ -156,7 +157,4 @@ def render_editor(nonce: str, token: str, mode: str | None = None) -> str:
     # escaping independent of the JSON bootstrap and HTML attribute context.
     js_token = _script_json(token)[1:-1].replace("'", "\\'")
     html = html.replace('__NONCE__', escape(nonce, quote=True)).replace('__TOKEN__', js_token)
-    if react:
-        head, module = _module_tags(nonce)
-        html = html.replace('</head>', head + '</head>').replace('</body>', module + '</body>')
     return html

@@ -53,6 +53,57 @@ Build artifacts are ignored by Git. Publish the installer and checksum as GitHub
 
 ## Tests
 
+### Current full React migration checks
+
+The current mounted frontend and its evidence are described in
+[Full React migration status](FRONTEND-FULL-MIGRATION.md). From `frontend/`, run
+`npm.cmd test` and `npm.cmd run typecheck` using the pinned dependencies. The
+recorded final unit sets passed **155 frontend tests and 122 focused backend
+tests, without skips**; see `qa-artifacts/migration/final-regression/` for the
+executed results. This is a different set from the broader historical commands
+below, whose optional private-photo comparison can skip.
+
+For current browser acceptance, build the frontend, select React mode before
+starting an authorized isolated backend, and set `LOCAL_REMOVE_TEST_URL` and
+`MIGRATION_REAL_PROFILE` to that backend's verified URL/profile. Install the
+root's pinned Playwright dependencies with `npm.cmd ci --ignore-scripts` only
+when local test dependency installation is authorized. Run the relevant drivers
+from the repository root:
+
+```powershell
+node tests\test_ui_full_integration.cjs
+node tests\test_ui_full_failures.cjs
+node tests\test_ui_react_assets.cjs
+node tests\test_ui_react_generation.cjs
+node tests\test_ui_react_models.cjs
+node tests\test_ui_react_settings.cjs
+node tests\test_ui_react_batch.cjs
+```
+
+These suites create owned test data, record served asset identity, and distinguish
+actual document/backend operations from controlled provider/inference responses.
+They do not authorize model/provider execution, and browser runs do not establish
+native dialog or Capture One/Explorer GUI acceptance. Keep each report's build
+and scope when citing it. Default cutover still requires packaged acceptance and
+the user's final approval.
+
+Native acceptance preparation uses `tests/helpers/native_acceptance.py` and the
+test-only `NativeQaWindow.cs` metadata observer. The compiled helper supports
+only `capabilities`, owned `windows` metadata and read-only UIA `inspect`.
+Executable hash, PID/start-time, QA manifest/path and window-owner checks remain
+mandatory. It has no resize, close, invoke, select, expand or text-input command.
+Actual Windows UI inputs use the separately authorized Computer Use session;
+the helper's process-local DPI awareness only makes its geometry reads accurate
+and does not change application windows or global OS scaling.
+
+### Historical legacy and rollback checks
+
+The commands and original-suite descriptions below are retained for historical
+coverage. Scripts using `editor.js` globals or old control IDs require the legacy
+interface or a pinned historical fixture; use the current drivers above for the
+full React interface. Do not delete their meaningful assertions when retiring
+the legacy runtime.
+
 Run from the repository root:
 
 ```powershell
@@ -72,7 +123,7 @@ node tests\test_ui_projects_layers.cjs
 
 The Python tests create isolated temporary data. An optional historical photo comparison is skipped when its private fixture is absent.
 
-For browser acceptance, start the development server above with an isolated data
+For historical legacy browser acceptance, start the development server above with an isolated data
 folder, then install the optional test driver and run the browser suite:
 
 ```powershell
@@ -215,26 +266,62 @@ requires a separate Qwen license. The installer does not bundle model weights.
 
 ## Runtime layout
 
-The default legacy editor sources are split between `backend/local_remove.html` (markup),
-`backend/frontend/editor.css` (presentation), and `backend/frontend/editor.js`
-(interaction). The additional `usability`, `generation-workflows` and `batch-tools`
-resources extend the same workspace without a frontend build step.
-`local_remove_frontend.py` assembles these local resources for each
-`/remove` response, with the request nonce and current session token. This keeps
-the existing Content Security Policy and desktop trusted-page boundary intact;
-the legacy mode has no frontend build step or remote asset dependency. The installer bundles
-the `frontend` directory alongside the markup.
+The complete React/TypeScript/Vite/Fluent v9 interface is implemented under
+`frontend/src/`. `main.tsx` creates the application and one dark FluentProvider;
+`application.ts` wires the explicit document, canvas, native and feature
+controllers into `FullApp.tsx`. `backend/frontend/react.html` contains the
+persistent canvas subtree and React mounts. The React page executes no legacy
+editor/adapter script and loads no legacy stylesheet or hidden legacy controls.
+Python remains the image/project authority and the C# host retains native dialogs
+and filesystem permissions. See [current ownership](FRONTEND-OWNERSHIP.md).
 
-An opt-in React/TypeScript/Fluent shell and Layers prototype is documented in
-[Frontend milestone 1](FRONTEND-MILESTONE-1.md). Set `LOCAL_IMAGE_FRONTEND=react`
-before starting the backend to test it, or unset the variable/use `legacy` to
-roll back. Production and native navigation remain at `/remove`. Build its
-checked-in hashed assets and license notices with `npm.cmd ci --ignore-scripts`
-and `npm.cmd run build` inside `frontend/`; the dedicated `backend/frontend_dist`
-directory is packaged by PyInstaller. End users need neither Node nor Vite.
-The root `package.json` pins the documented Playwright test driver; use
-`npm.cmd ci --ignore-scripts` at the repository root for browser tests.
-The two modes retain the same Python image/project engine and native host.
+For staged testing, set `LOCAL_IMAGE_FRONTEND=react` before starting the backend.
+An unset flag or `legacy` still selects the temporary legacy renderer, which
+assembles `backend/local_remove.html` and the old `backend/frontend` resources.
+The default has deliberately not changed: the original migration request requires
+real packaged Windows acceptance and the user's approval before cutover, and only
+then removal of superseded wrappers/CSS. [Full migration status](FRONTEND-FULL-MIGRATION.md)
+records current evidence and remaining gates; [milestone 1](FRONTEND-MILESTONE-1.md)
+is historical shell/Layers evidence rather than the current interface scope.
+
+Production/native navigation remains `/remove`. Build the pinned assets and
+license notices with `npm.cmd ci --ignore-scripts` and `npm.cmd run build` inside
+`frontend/`; `backend/frontend_dist` is deliberately packaged by PyInstaller.
+Only manifest-listed hashed assets are served. Every page receives a fresh nonce
+and signed browser token; credentials are never baked into bundles. End users
+need neither Node nor Vite. The root `package.json` pins Playwright for development
+browser tests; use `npm.cmd ci --ignore-scripts` at the repository root when
+installing those authorized local test dependencies.
+
+Current frontend controller/API/parity tests run with `npm.cmd test` in
+`frontend/`. The recorded final unit sets passed 155 frontend and 122 focused
+backend tests without skips. Full-interface browser drivers are
+`tests/test_ui_full_integration.cjs`, `tests/test_ui_full_failures.cjs` and the
+`tests/test_ui_react_{assets,generation,models,settings,batch}.cjs` feature suites.
+They require a verified isolated backend/profile and retain per-build reports.
+Older `test_ui_*` scripts that refer to legacy globals/selectors remain historical
+or rollback checks until their assertions are ported or tied to pinned fixtures;
+they are not automatically acceptance tests for the full interface.
+
+The current `CIBtEhRP` packaged backend passed 12 real HTTP precision checks;
+that test explicitly excludes WebView2 dialog/download/GPU certification. Its
+source-browser core/failure rerun passed 12/2 groups with unchanged inventory,
+and separate native UI copy/conflict checks are recorded in the evidence index.
+Earlier native Layers clipping, Batch preview overlap and Inspector-hide failures
+remain recorded along with their repairs. Final candidate `DCWGvea3` /
+`DrOsjePE` passed visual inspection of six exact native editor states: 800 x 560,
+1366 x 768 and 2195 x 1164 **CSS** viewports, each Comfortable and Large, at
+actual 168 DPI/DPR 1.75. Inspector toggle restored canvas height approximately
+143 -> 275 -> 143 px; full opacity/transform properties were reached by wheel,
+with the saved v3 document identity, revision and saved flags unchanged. The
+[review captures](frontend-full-proof/README.md) preserve genuine screenshots
+byte-for-byte and distinguish source-browser from native build/state evidence.
+No UI layout bugs remain known. Explorer permission/actual drop, actual Capture
+One GUI handoff and final user cutover approval remain pending; real argument-path
+handoff and native save tests do not establish Capture One GUI execution. Native
+UI actions use Computer Use only; the metadata helper never supplies inputs.
+No development command here authorizes installers, model jobs/downloads,
+provider traffic or publication.
 
 `qwen_image.py` builds native ComfyUI graphs and preserves transparent results.
 `qwen_setup.py` owns model-download routes and progress; `cutout_composite.py`

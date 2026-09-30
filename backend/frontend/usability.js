@@ -8,6 +8,7 @@ function applyInterfaceDensity(value){
   if(typeof resize==='function')requestAnimationFrame(()=>resize());
 }
 function setupInterfaceDensity(){
+  if(window.__LOCAL_IMAGE_REACT__){let saved='comfortable';try{saved=localStorage.getItem(UI_DENSITY_KEY)||saved;}catch{}applyInterfaceDensity(saved);return;}
   const host=$('settings-dialog');if(!host)return;
   const row=document.createElement('div');row.className='interface-density';
   const label=document.createElement('label');label.htmlFor='interface-density';label.textContent='Interface size';
@@ -25,6 +26,7 @@ function starterTask(action){
   if(action!=='generate'&&!session)$('empty-open').click();
 }
 function setupHardwareStarter(){
+  if(window.__LOCAL_IMAGE_REACT__)return;
   const dialog=$('hardware-dialog'),table=dialog?.querySelector('.hardware-table');if(!dialog||!table)return;
   const note=document.createElement('p');note.id='hardware-start-note';note.className='hardware-start-note';
   note.textContent='Start with a photo repair now. Quick Heal and compositing work without a dedicated GPU. AI tools are optional and use a local engine.';

@@ -16,7 +16,7 @@
   inspector=make('studio-inspector-toggle','Inspector','inspector',()=>{document.body.dataset.inspectorHidden=String(document.body.dataset.inspectorHidden!=='true');syncChrome();});
   inspector.setAttribute('aria-controls','studio-inspector');inspector.setAttribute('aria-expanded','true');
   exportButton=make('studio-export','Export','export',async()=>{
-    try{const generation=window.LocalImageGenerationStudio;
+    try{const generation=window.LocalImageGenerationBridge||window.LocalImageGenerationStudio;
       if(generation?.prepareSelectedForExport){if(!await generation.prepareSelectedForExport())return;}
       else if(generation?.isRefining()){if(!await generation.openSelectedInEditor())return;}
       invoke(workspace==='cutout'&&!hasSelection&&!points.length?'cutout-export':'save');
@@ -41,8 +41,8 @@
   }
   $('cutout-panel').append(composition);
   function syncChrome(){
-    const refining=!!window.LocalImageGenerationStudio?.isRefining();
-    const creatingBlank=!!window.LocalImageGenerationStudio?.isCreatingBlank?.();
+    const refining=!!(window.LocalImageGenerationBridge||window.LocalImageGenerationStudio)?.isRefining();
+    const creatingBlank=!!(window.LocalImageGenerationBridge||window.LocalImageGenerationStudio)?.isCreatingBlank?.();
     if(!reactShell){
     for(const command of ['undo','redo']){const button=$('studio-'+command),source=$(command);button.disabled=source.disabled||refining||creatingBlank;button.title=refining||creatingBlank?'Return to the editor to change edit history':source.textContent.trim();button.setAttribute('aria-label',button.title);}
     exportButton.disabled=busy||(window.LocalImageGenerationStudio?.hasVisibleDocument?!window.LocalImageGenerationStudio.hasVisibleDocument():refining?!window.LocalImageGenerationStudio.hasSelectedImage():!session);

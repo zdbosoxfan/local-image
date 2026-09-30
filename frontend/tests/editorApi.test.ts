@@ -35,6 +35,16 @@ test('different documents do not block each other', async () => {
   assert.equal((await api.mutate(operation('b'))).id, 'b'); release(); await a;
 });
 
+test('asset operations share the layer queue and capture document data only when their turn begins', async () => {
+  const order: string[] = []; let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const api = createEditorApi('token', (async () => {order.push('layer'); await held; return Response.json(doc('a',2));}) as typeof fetch);
+  const layer = api.mutate(operation());
+  const asset = api.runDocumentOperation('a', async () => {order.push('asset'); return 'accepted';});
+  await new Promise(resolve => setTimeout(resolve,0)); assert.deepEqual(order,['layer']);
+  release(); await layer; assert.equal(await asset,'accepted'); assert.deepEqual(order,['layer','asset']);
+});
+
 test('conflict invalidates queued writes and never retries; deliberate next command can recover', async () => {
   let count = 0;
   const api = createEditorApi('token', (async () => { count++; return count === 1 ? Response.json({ detail: 'Revision conflict' }, { status: 409 }) : Response.json(doc('a', 3)); }) as typeof fetch);

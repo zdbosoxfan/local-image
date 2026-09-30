@@ -63,9 +63,9 @@
   const backgroundMenu=document.createElement('div');backgroundMenu.id='stack-background-menu';backgroundMenu.className='stack-popup';backgroundMenu.setAttribute('popover','auto');backgroundMenu.setAttribute('role','menu');document.body.append(backgroundMenu);
   for(const [id,label,handler]of[
     ['import','Import image\u2026',()=>byId('background-file').click()],
-    ['assets','Choose from Assets',()=>{stockOrigin='background';showAssets('stock');byId('stock-query').focus();}],
+    ['assets','Choose from Assets',()=>{stockOrigin='background';showAssets('stock');if(!reactOwned)byId('stock-query').focus();}],
     ['generate','Generate background\u2026',()=>{generationDialog.showModal();byId('background-prompt').focus();}],
-    ['folder','Attach backgrounds folder\u2026',()=>{showAssets('folders');byId('background-folder').onclick();}]
+    ['folder',reactOwned?'Browse background folders\u2026':'Attach backgrounds folder\u2026',()=>{showAssets('folders');if(!reactOwned)byId('background-folder').onclick();}]
   ]){const button=textButton('stack-background-'+id,label,()=>{closePopup(backgroundMenu);handler();});button.setAttribute('role','menuitem');backgroundMenu.append(button);}
   const generationDialog=document.createElement('dialog');generationDialog.id='stack-background-dialog';generationDialog.className='stack-background-dialog';generationDialog.setAttribute('aria-labelledby','stack-background-title');
   generationDialog.innerHTML='<div class="dialog-header"><h2 id="stack-background-title">Generate background</h2><button id="stack-background-close" aria-label="Close background generator">\u00d7</button></div><label for="background-prompt">Describe the empty scene</label>';
@@ -82,9 +82,12 @@
   }
   document.querySelector('.optionsbar').append(moveControls);
   // Local folder images use the same compact Assets area as online stock.
-  const folders=document.createElement('section');folders.id='stack-background-folders';folders.className='stack-background-folders';folders.hidden=true;
-  const attach=textButton('stack-attach-folder','Attach folder\u2026',()=>byId('background-folder').onclick());folders.append(attach,byId('background-library'),byId('background-grid'));
-  const folderEmpty=document.createElement('p');folderEmpty.id='stack-folder-empty';folderEmpty.className='cutout-note';folderEmpty.textContent='Attach a folder to browse your own backgrounds here.';folders.append(folderEmpty);byId('studio-assets').append(folders);
+  let folders=null,attach=null,folderEmpty=null;
+  if(!reactOwned){
+    folders=document.createElement('section');folders.id='stack-background-folders';folders.className='stack-background-folders';folders.hidden=true;
+    attach=textButton('stack-attach-folder','Attach folder\u2026',()=>byId('background-folder').onclick());folders.append(attach,byId('background-library'),byId('background-grid'));
+    folderEmpty=document.createElement('p');folderEmpty.id='stack-folder-empty';folderEmpty.className='cutout-note';folderEmpty.textContent='Attach a folder to browse your own backgrounds here.';folders.append(folderEmpty);byId('studio-assets').append(folders);
+  }
 
   function openPopup(popup,anchor){
     if(anchor.disabled)return;closeMenus();if(popup.matches(':popover-open')){popup.hidePopover();return;}popup.showPopover();
@@ -97,17 +100,20 @@
     const buttons=[...popup.querySelectorAll('button:not(:disabled)')],index=buttons.indexOf(document.activeElement);if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)&&index>=0){event.preventDefault();buttons[event.key==='Home'?0:event.key==='End'?buttons.length-1:(index+(event.key==='ArrowDown'?1:buttons.length-1))%buttons.length]?.focus();}
   });
   function setAssetTab(tab){
+    if(reactOwned)return window.LocalImageReactFeatures?.assets?.open(tab);
     assetTab=tab;byId('studio-assets').dataset.assetTab=tab;folders.hidden=tab!=='folders';
     byId('stock-dialog').hidden=tab!=='stock';byId('stock-expand').hidden=tab!=='stock';
     byId('studio-assets-stock').setAttribute('aria-pressed',String(tab==='stock'));byId('studio-assets-folders').setAttribute('aria-pressed',String(tab==='folders'));
   }
-  function showAssets(tab){window.LocalImageStockStudio?.open();setAssetTab(tab);}
+  function showAssets(tab){if(reactOwned)return window.LocalImageReactFeatures?.assets?.open(tab);window.LocalImageStockStudio?.open();setAssetTab(tab);}
+  if(!reactOwned){
   const previousStockOpen=openStockLibrary;
   openStockLibrary=function(...args){setAssetTab('stock');return previousStockOpen.apply(this,args);};
   // Capture avoids the former Folders tab automatically opening the chooser.
   byId('studio-assets-folders').addEventListener('click',event=>{event.stopImmediatePropagation();if(!busy)showAssets('folders');},true);
   byId('studio-assets-stock').addEventListener('click',()=>showAssets('stock'),true);
   byId('studio-stock-open')?.addEventListener('click',()=>{if(assetTab==='folders')showAssets('folders');});
+  }
 
   function choose(id,{clear=true,focus=false}={}){
     const node=nodes().find(item=>item.id===id&&!item.discarded);if(!node||busy||!visibleDocument())return;
@@ -288,9 +294,10 @@
         for(const id of ['shadow-opacity','shadow-blur','shadow-x','shadow-y','shadow-squeeze']){byId(id).disabled=!editable||!byId('shadow-enabled').checked;byId(id+'-value').disabled=byId(id).disabled;}
       }
       if(tool==='move'&&!generate){byId('selection-context').hidden=true;byId('repair-context').hidden=true;byId('tool-name').textContent='Move layer';}
-      background.disabled=!active;byId('background-generate').disabled=!active||!qwenReady()||!byId('background-prompt').value.trim();byId('background-prompt').disabled=!active;byId('background-library').disabled=!active;attach.disabled=!active;
-      for(const button of byId('background-grid').querySelectorAll('button'))button.disabled=!active;
-      folderEmpty.hidden=!!byId('background-grid').children.length;
+      background.disabled=!active;byId('background-generate').disabled=!active||!qwenReady()||!byId('background-prompt').value.trim();byId('background-prompt').disabled=!active;
+      if(!reactOwned){byId('background-library').disabled=!active;attach.disabled=!active;
+        for(const button of byId('background-grid').querySelectorAll('button'))button.disabled=!active;
+        folderEmpty.hidden=!!byId('background-grid').children.length;}
       menuNew.disabled=!active;
       if(!reactOwned){add.disabled=!active;more.disabled=!active||!layer;byId('layer-opacity').disabled=!editable;
         if(document.activeElement!==byId('layer-opacity'))byId('layer-opacity').value=String(Math.round((layer?.opacity??1)*100));}

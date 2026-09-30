@@ -14,13 +14,24 @@ export function createEditorApi(token: string, request: typeof fetch = fetch) {
   function observe(document: EditorDocument | null) {
     if (document) accepted.set(document.id, Math.max(accepted.get(document.id) ?? -1, document.revision));
   }
+  function runDocumentOperation<T>(id: string, operation: () => Promise<T>): Promise<T> {
+    const epoch = epochs.get(id) ?? 0;
+    const pending = (queues.get(id) ?? Promise.resolve()).catch(() => undefined).then(() => {
+      if ((epochs.get(id) ?? 0) !== epoch) throw new EditorApiError('A previous document change failed. Review the document before trying again.', 409);
+      return operation();
+    }).catch(error => {
+      if ((epochs.get(id) ?? 0) === epoch) epochs.set(id, epoch + 1);
+      throw error;
+    });
+    queues.set(id, pending);
+    void pending.finally(() => { if (queues.get(id) === pending) queues.delete(id); }).catch(() => undefined);
+    return pending;
+  }
   function mutate(input: StackRequest): Promise<EditorDocument> {
     const id = input.documentId;
-    const epoch = epochs.get(id) ?? 0;
     // Copy UI drafts at dispatch, never use a subsequently edited input object.
     const body = structuredClone(input.body);
     const run = async () => {
-      if ((epochs.get(id) ?? 0) !== epoch) throw new EditorApiError('A previous layer change failed. Review the document before trying again.', 409);
       if (!/^\/(?:stack(?:\/layers|\/layer\/[^/]+|\/undo|\/redo)?|merge)$/.test(input.tail) || !['POST', 'PATCH'].includes(input.method)) {
         throw new EditorApiError('Unsupported layer operation.', 400);
       }
@@ -43,14 +54,7 @@ export function createEditorApi(token: string, request: typeof fetch = fetch) {
       observe(document);
       return document;
     };
-    const pending = (queues.get(id) ?? Promise.resolve()).catch(() => undefined).then(run).catch(error => {
-      if ((epochs.get(id) ?? 0) === epoch) epochs.set(id, epoch + 1);
-      throw error;
-    });
-    queues.set(id, pending);
-    // The caller receives the original rejection; cleanup cannot cause another.
-    void pending.finally(() => { if (queues.get(id) === pending) queues.delete(id); }).catch(() => undefined);
-    return pending;
+    return runDocumentOperation(id, run);
   }
-  return { observe, mutate };
+  return { observe, mutate, runDocumentOperation };
 }
