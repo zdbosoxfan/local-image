@@ -5,6 +5,7 @@ No models, providers, installed user state, or backend-internal mocks are used.
 """
 import argparse
 import hashlib
+import io
 import json
 from pathlib import Path
 import re
@@ -55,9 +56,17 @@ class HttpPrecisionTests(unittest.TestCase):
         self.assertEqual(Path(self.runtime['data_root']).resolve(), self.expected_profile)
         self.native_key = (self.expected_profile / 'state' / 'launcher.key').read_text(encoding='ascii').strip()
         page = self.request('/remove').decode('utf-8')
-        match = re.search(r"const TOKEN\s*=\s*['\"]([^'\"]+)['\"]", page)
-        self.assertIsNotNone(match, 'Rendered /remove must provide its request-specific browser token')
-        self.token = match.group(1)
+        # Full React exposes the same request token through its inert JSON
+        # bootstrap. Read that literal without executing any page JavaScript.
+        bootstrap = re.search(r'window\.__LOCAL_IMAGE_BOOTSTRAP__\s*=\s*(\{[^<]*?\})\s*;', page)
+        if bootstrap:
+            self.token = json.loads(bootstrap.group(1)).get('token')
+        else:
+            match = re.search(r"const TOKEN\s*=\s*['\"]([^'\"]+)['\"]", page)
+            self.assertIsNotNone(match, 'Rendered /remove must provide its request-specific browser token')
+            self.token = match.group(1)
+        self.assertIsInstance(self.token, str)
+        self.assertTrue(self.token)
         self.output.mkdir(parents=True, exist_ok=True)
         self.run_directory = self.output / ('run-' + uuid.uuid4().hex)
         self.run_directory.mkdir()
@@ -82,7 +91,7 @@ class HttpPrecisionTests(unittest.TestCase):
         if payload is not None:
             headers['Content-Type'] = 'application/json'
         if native:
-            self.assertTrue(path in {'/api/local-remove/open-local', '/api/local-remove/save-project', '/api/local-remove/open-project'})
+            self.assertTrue(path in {'/api/local-remove/open-local', '/api/local-remove/save-project', '/api/local-remove/open-project', '/api/local-remove/register-folder'})
             headers['x-local-launcher'] = self.native_key
         elif self.token:
             headers['x-local-remove-token'] = self.token
@@ -137,6 +146,20 @@ class HttpPrecisionTests(unittest.TestCase):
         self.assertFalse(session['dirty'])
         self.checked('Native-auth Open Local and revision-preserving stack enable', session_id=session['id'])
 
+        # Register only this test's own synthetic folder. The collection endpoint
+        # must render its saved stack, not substitute the unopened source preview.
+        collection = self.request('/api/local-remove/register-folder', {'path': str(self.run_directory)}, native=True)['collection']
+        entry = next(item for item in collection['entries'] if item['name'] == source.name)
+        thumbnail_path = f"/api/local-remove/collection/{collection['id']}/entry/{entry['id']}/thumbnail"
+        unopened_thumbnail = self.artifact('unopened-thumbnail.jpg', self.request(thumbnail_path))
+        with Image.open(unopened_thumbnail) as image:
+            self.assertEqual((image.format, image.mode, image.size), ('JPEG', 'RGB', (64, 48)))
+            thumbnail_icc = image.info['icc_profile']
+            self.assertIn('sRGB', ImageCms.getProfileDescription(ImageCms.ImageCmsProfile(io.BytesIO(thumbnail_icc))))
+        opened = self.request(f"/api/local-remove/collection/{collection['id']}/entry/{entry['id']}/open", {})['session']
+        self.assertEqual(opened['id'], session['id'])
+        self.checked('Real registered native collection links its opened entry to the accepted stack', collection_id=collection['id'], entry_id=entry['id'])
+
         original_tiff, result = self.download(session, 'original', 'export-original.tif')
         self.assertEqual(result['bit_depth'], 16)
         self.verify_tiff(original_tiff, raw, profile)
@@ -163,6 +186,18 @@ class HttpPrecisionTests(unittest.TestCase):
         layer_id = session['selected_layer_id']
         session = self.request(f"/api/local-remove/session/{session['id']}/stack/layer/{layer_id}",
                                {'revision': session['revision'], 'opacity': .55, 'locked': True, 'transform': {'offset_x': 2, 'rotation': 12}}, method='PATCH')
+        session_before_thumbnail = self.request(f"/api/local-remove/session/{session['id']}")
+        thumbnail = self.artifact('edited-stack-thumbnail.jpg', self.request(thumbnail_path + f"?session={session['id']}&revision={session['revision']}"))
+        with Image.open(thumbnail) as image:
+            image.load()
+            self.assertEqual((image.format, image.mode, image.size), ('JPEG', 'RGB', (64, 48)))
+            # Presentation uses the server's sRGB profile. Its creation timestamp
+            # may differ from this client's synthetic native-source profile.
+            self.assertEqual(image.info['icc_profile'], thumbnail_icc)
+            self.assertGreater(min(image.getpixel((0, 0))), 230, 'Transparent image border uses a white presentation matte')
+        self.assertEqual(source.read_bytes(), source_bytes)
+        self.assertEqual(self.request(f"/api/local-remove/session/{session['id']}"), session_before_thumbnail)
+        self.checked('Modified native collection thumbnail returns valid JPEG without changing session metadata or source bytes', revision=session['revision'], thumbnail_sha256=sha256(thumbnail.read_bytes()))
         saved = self.request('/api/local-remove/save-project', {'session_id': session['id'], 'revision': session['revision']}, native=True)
         self.assertTrue(saved['saved']); self.assertNotEqual(sha256(project_a.read_bytes()), initial_project_hash)
         saved_a_hash = sha256(project_a.read_bytes())

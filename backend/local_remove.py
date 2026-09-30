@@ -870,6 +870,14 @@ async def collection_thumbnail(cid:str,eid:str,request:Request):
                 else:
                     _,_,image=decode_original(Path(entry['path']))
                 image.thumbnail((160,160),Image.Resampling.LANCZOS)
+                # Filmstrip JPEGs are presentation copies. Composite alpha only
+                # after resizing; document pixels and export rules stay intact.
+                if 'A' in image.getbands():
+                    matte=Image.new('RGB',image.size,'white')
+                    matte.paste(image,mask=image.getchannel('A'))
+                    image=matte
+                elif image.mode!='RGB':
+                    image=image.convert('RGB')
                 temporary=cache/('thumbnail-'+uuid.uuid4().hex+'.jpg')
                 try:
                     image.save(temporary,quality=85,icc_profile=SRGB.tobytes())

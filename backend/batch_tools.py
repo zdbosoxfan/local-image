@@ -329,6 +329,13 @@ def apply_preset(data, directory, preset, preset_directory):
     if not preset:
         return
     state = deepcopy(data['cutout'])
+    target_layer = None
+    if data.get('layer_stack'):
+        target_layer = next((node for node in reversed(data['layer_stack'])
+                             if node['kind'] == 'cutout' and not node['discarded']
+                             and node['cutout']['alpha'] == state['alpha']), None)
+        if target_layer is None:
+            raise ValueError('The reviewed cutout no longer matches an image layer. Prepare this cutout in the editor before applying a treatment.')
     width, height = data['width'], data['height']
     with Image.open(directory / state['alpha']) as alpha:
         bounds = alpha.convert('L').getbbox()
@@ -353,6 +360,22 @@ def apply_preset(data, directory, preset, preset_directory):
     if state['background'].get('asset'):
         safe_copy(preset_directory, state['background']['asset'], directory)
     data['cutout'] = validate_cutout(state)
+    if target_layer is not None:
+        # The compatibility mirror does not drive modern stack rendering.
+        # Apply only the declared subject treatment to its matching mask node;
+        # do not guess which other image layers are backgrounds or regroup them.
+        target_layer['transform'] = deepcopy(state['transform'])
+        target_layer['cutout']['feather'] = state['feather']
+        target_layer['cutout']['shadow'] = deepcopy(state['shadow'])
+        background = state['background']
+        if background['mode'] != 'transparent':
+            pixels = (Image.new('RGBA', (width, height), background['color'])
+                      if background['mode'] == 'color' else editor.cutout_background(directory, state))
+            editor.add_stack_image(directory, data, pixels, background.get('name') or 'Treatment background',
+                                   below=target_layer['id'], commit=False,
+                                   attribution=background.get('attribution'),
+                                   reference_attributions=background.get('reference_attributions'))
+        editor.stack_model.validate_stack(data['layer_stack'], data['layers'])
 
 
 async def prepare_item(value, item):
@@ -371,6 +394,11 @@ async def prepare_item(value, item):
         assets = {data['original'], 'base.png'}
         for layer in data['layers']:
             assets.update(layer[key] for key in ('color', 'mask', 'snapshot') if key in layer)
+        if data.get('layer_stack'):
+            # Stack sources and each mask are independent immutable assets. A
+            # detached queue must retain even hidden/restorable nodes, rather
+            # than relying on the editor recovery folder while rendering.
+            assets.update(editor.stack_model.assets(data['layer_stack']))
         if data.get('cutout'):
             state = validate_cutout(data['cutout'])
             assets.add(state['alpha'])
@@ -384,6 +412,8 @@ async def prepare_item(value, item):
         if not value['prepare_cutouts']:
             item.update(status='needs-cutout', error='Prepare a cutout for this image, or enable Qwen preparation for a new queue.')
             return
+        if any(node['kind'] == 'cutout' and not node['discarded'] for node in data.get('layer_stack', [])):
+            raise ValueError('This image already has a disabled cutout layer. Choose and prepare the intended cutout in the editor before applying a treatment.')
         from main import generation_lock
         from qwen_image import run_qwen_image, qwen_canvas_size
         async with generation_lock:
@@ -403,7 +433,24 @@ async def prepare_item(value, item):
                 raise ValueError('Qwen did not produce a usable cutout. Refine this product manually.')
             asset = editor.save_cutout_alpha(destination, alpha)
             data['cutout'] = initial_cutout(asset)
+            if data.get('layer_stack'):
+                # Qwen contributes alpha only. Preserve the applied native
+                # source/repair pixels in an ordinary detached cutout layer.
+                # No editor commit or revision change occurs in this queue.
+                pixels = await asyncio.to_thread(editor.native_pixels, data, destination)
+                source_asset = await asyncio.to_thread(editor.stack_snapshot, destination, data, pixels)
+                node = editor.stack_model.node('cutout', 'Batch cutout', source=source_asset,
+                                               cutout=deepcopy(data['cutout']))
+                credits = collect_attributions(data)
+                if credits:
+                    node['reference_attributions'] = credits
+                for existing in data['layer_stack']:
+                    if existing['visible'] and not existing['discarded']:
+                        existing['visible'] = False
+                data['layer_stack'].append(node)
     apply_preset(data, destination, value.get('treatment'), own_directory('jobs', identifier) / 'treatment')
+    if bytes_used(own_directory('jobs', identifier)) > MAX_STORAGE:
+        raise ValueError('This queue exceeds its 12 GB storage limit. Use a smaller batch.')
     # Paths granting save/overwrite authority and histories do not belong to a
     # detached export snapshot. Provenance and credits remain in its metadata.
     for key in ('source_path', 'project_path', 'last_saved_path', 'cutout_undo', 'cutout_redo'):
@@ -608,7 +655,7 @@ async def delete_job(identifier: str, request: Request):
             elif len(relative.parts) == 1 and relative.parts[0] in known_entries:
                 valid_dirs = set()
                 valid_files = {name for name in files if name in ('snapshot.json', 'preview.png', 'preview-full.png', 'original-full.png', 'batch-source.png', 'export-journal.json')
-                               or re.fullmatch(r'original\.(png|jpg|jpeg|tif|tiff|webp)|cutout-[0-9a-f]{32}-(alpha|background)\.png|[0-9a-f]{32}-(color|mask)\.png|[0-9a-f]{32}-snapshot\.tif|base\.png', name)}
+                               or re.fullmatch(r'original\.(png|jpg|jpeg|tif|tiff|webp)|cutout-[0-9a-f]{32}-(alpha|background)\.png|stack-[0-9a-f]{32}-source\.(png|tif)|[0-9a-f]{32}-(color|mask)\.png|[0-9a-f]{32}-snapshot\.tif|base\.png', name)}
             else:
                 valid_dirs, valid_files = set(), set()
             if any(name not in valid_dirs for name in dirs) or any(name not in valid_files for name in files):
