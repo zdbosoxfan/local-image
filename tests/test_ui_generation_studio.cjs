@@ -45,6 +45,7 @@ async function main(){
    await page.waitForFunction(()=>session&&!busy);
    const existingEditorId=await page.evaluate(()=>session.id);
    await page.locator('#workspace-generate').click();await page.waitForFunction(()=>!generationLoading);
+   await page.locator('#generation-create-tab').click();await page.waitForFunction(()=>!LocalImageGenerationStudio.isModeBusy());
    assert.equal(await page.locator('#gen-width').isVisible(),true,'Create exposes width beside prompt');
    assert.equal(await page.locator('#gen-height').isVisible(),true);
    assert.equal(await page.locator('#gen-steps').isVisible(),true);

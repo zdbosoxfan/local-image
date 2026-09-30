@@ -203,6 +203,9 @@
     byId('studio-stock-open')?.setAttribute('aria-expanded','false');
   });
   document.addEventListener('keydown',event=>{
+    // An import-options menu owns its first Escape; the expanded browser is
+    // dismissed only after that menu has closed.
+    if(event.target instanceof Element&&event.target.closest('[popover]:popover-open'))return;
     if(!dialog.open||event.key!=='Escape'||(!expanded&&!informationOpen))return;
     event.preventDefault();event.stopImmediatePropagation();
     if(close.disabled)return;

@@ -13,8 +13,10 @@
   const inspector=make('studio-inspector-toggle','Inspector','inspector',()=>{document.body.dataset.inspectorHidden=String(document.body.dataset.inspectorHidden!=='true');syncChrome();});
   inspector.setAttribute('aria-controls','studio-inspector');inspector.setAttribute('aria-expanded','true');
   const exportButton=make('studio-export','Export','export',async()=>{
-    try{if(window.LocalImageGenerationStudio?.isRefining()){if(!await window.LocalImageGenerationStudio.openSelectedInEditor())return;}
-      invoke(workspace==='cutout'?'cutout-export':'save');
+    try{const generation=window.LocalImageGenerationStudio;
+      if(generation?.prepareSelectedForExport){if(!await generation.prepareSelectedForExport())return;}
+      else if(generation?.isRefining()){if(!await generation.openSelectedInEditor())return;}
+      invoke(workspace==='cutout'&&!hasSelection&&!points.length?'cutout-export':'save');
     }catch(error){message(error.message,true);}
   });exportButton.className='secondary';
   const settings=document.querySelector('.persona-settings');if(settings)actions.append(settings);
@@ -36,8 +38,9 @@
   $('cutout-panel').append(composition);
   function syncChrome(){
     const refining=!!window.LocalImageGenerationStudio?.isRefining();
-    for(const command of ['undo','redo']){const button=$('studio-'+command),source=$(command);button.disabled=source.disabled||refining;button.title=refining?'Return to the editor to change edit history':source.textContent.trim();button.setAttribute('aria-label',button.title);}
-    exportButton.disabled=busy||(refining?!window.LocalImageGenerationStudio.hasSelectedImage():!session);
+    const creatingBlank=!!window.LocalImageGenerationStudio?.isCreatingBlank?.();
+    for(const command of ['undo','redo']){const button=$('studio-'+command),source=$(command);button.disabled=source.disabled||refining||creatingBlank;button.title=refining||creatingBlank?'Return to the editor to change edit history':source.textContent.trim();button.setAttribute('aria-label',button.title);}
+    exportButton.disabled=busy||(window.LocalImageGenerationStudio?.hasVisibleDocument?!window.LocalImageGenerationStudio.hasVisibleDocument():refining?!window.LocalImageGenerationStudio.hasSelectedImage():!session);
     inspector.setAttribute('aria-expanded',String(document.body.dataset.inspectorHidden!=='true'));
     inspector.setAttribute('aria-pressed',String(document.body.dataset.inspectorHidden!=='true'));
     inspector.disabled=refining;exportButton.title=refining?'Export the selected refinement result':workspace==='cutout'?'Export composition as PNG':'Export a copy';
@@ -51,6 +54,6 @@
     }
   }
   const priorControls=controls;controls=function(...args){const result=priorControls.apply(this,args);syncChrome();return result;};
-  new MutationObserver(syncChrome).observe(document.body,{attributes:true,attributeFilter:['data-persona','data-generation-studio']});
+  new MutationObserver(syncChrome).observe(document.body,{attributes:true,attributeFilter:['data-persona','data-generation-view','data-generation-mode']});
   window.LocalImageStudio={sync:syncChrome};syncChrome();
 })();

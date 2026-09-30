@@ -252,11 +252,12 @@ class StockImport(BaseModel):
     target: Literal['image', 'background'] = 'image'
     session_id: str | None = Field(default=None, max_length=100)
     revision: int | None = Field(default=None, ge=0)
+    layer_id: str | None = Field(default=None, max_length=100)
     @model_validator(mode='after')
     def require_background_session(self):
         if self.target == 'background' and (not self.session_id or self.revision is None):
             raise ValueError('Choose the current image and revision for this background.')
-        if self.target == 'image' and (self.session_id is not None or self.revision is not None):
+        if self.target == 'image' and (self.session_id is not None or self.revision is not None or self.layer_id is not None):
             raise ValueError('Open stock images as a new image without a target session.')
         if self.session_id is not None and not re.fullmatch('[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}', self.session_id):
             raise ValueError('Choose an open image as the background target.')
@@ -296,5 +297,6 @@ async def import_stock(request: Request, payload: StockImport):
         content, attribution = await fetch_stock_image(payload.id)
         import local_remove as editor
         return await editor.import_stock_image(content, attribution, target=payload.target,
-                                              session_id=payload.session_id, revision=payload.revision)
+                                              session_id=payload.session_id, revision=payload.revision,
+                                              **({'layer_id':payload.layer_id} if payload.layer_id is not None else {}))
     except ValueError as error: raise HTTPException(400, str(error)) from error

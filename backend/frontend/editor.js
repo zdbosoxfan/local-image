@@ -34,7 +34,7 @@ let generatedLibrary={items:[],count:0,bytes:0},generatedLibrarySelection=new Se
 let generatedLibraryFocused=null,generatedLibrarySelectMode=false;
 const OVERWRITE_PREFERENCE='local-remove-ask-before-overwrite';
 let closePrompt=null,closeInProgress=false,nativeProjects=false;
-const modalOpen=()=>$('settings-dialog').open||$('overwrite-dialog').open||$('close-dialog').open||$('hardware-dialog').open||$('shortcuts-dialog').open||$('lora-dialog').open||$('model-browser-dialog').open||($('stock-dialog').open&&$('stock-dialog').dataset.docked!=='true')||$('credits-dialog').open||($('refine-dialog').open&&$('refine-dialog').dataset.inlineStudio!=='true')||$('generated-library-dialog').open||window.LocalImageBatch?.isOpen()||!!overwritePrompt||!!closePrompt;
+const modalOpen=()=>$('settings-dialog').open||$('overwrite-dialog').open||$('close-dialog').open||$('hardware-dialog').open||$('shortcuts-dialog').open||$('lora-dialog').open||$('model-browser-dialog').open||($('stock-dialog').open&&$('stock-dialog').dataset.docked!=='true')||$('credits-dialog').open||($('refine-dialog').open&&$('refine-dialog').dataset.inlineStudio!=='true')||$('generated-library-dialog').open||!!document.querySelector?.('dialog:modal')||window.LocalImageBatch?.isOpen()||!!overwritePrompt||!!closePrompt;
 const viewStates=new Map(),nativePending=new Map(),openDocuments=new Map(),displayCache=new Map(),layerQueues=new Map();
 const cloneDocument=data=>JSON.parse(JSON.stringify(data));
 const layerChangesPending=()=>[...layerQueues.values()].some(queue=>queue.pending.length>0);
@@ -1164,6 +1164,9 @@ $('file').onchange=async()=>{
 $('remove').onclick=async()=>{
   if(!session||busy||layerChangesPending()||!hasSelection||!operationReady()||settingsSaving)return;
   if(workspace==='cutout')return;
+  const targetDocumentId=session.id;
+  if(await window.LocalImageLayers?.prepareRetouch?.()===false)return;
+  if(!session||session.id!==targetDocumentId||busy||!hasSelection)return;
   const healing=operation==='heal',requestModel=healing?'heal':aiProvider==='qwen'?'qwen':modelId,label=aiProvider==='qwen'?'Qwen Image 2.1':modelLabel(),requestHealMethod=healMethod;
   const progress=healing?'Healing selected area…':'Removing with '+label+' on your GPU…';
   activeTask='repair';setBusy(true);layerList();const started=Date.now();message(progress);
@@ -1171,7 +1174,7 @@ $('remove').onclick=async()=>{
   try{
     const monochrome=document.createElement('canvas');monochrome.width=mask.width;monochrome.height=mask.height;
     const context=monochrome.getContext('2d');context.fillStyle='black';context.fillRect(0,0,mask.width,mask.height);context.drawImage(mask,0,0);
-    session=await json(url('/remove'),{mask:monochrome.toDataURL('image/png').split(',')[1],revision:session.revision,model:requestModel,...(healing?{heal_method:requestHealMethod}:requestModel==='qwen'?{variant:qwenVariant}:{})});
+    session=await json(url('/remove'),{mask:monochrome.toDataURL('image/png').split(',')[1],revision:session.revision,model:requestModel,target_layer_id:window.LocalImageLayers?.retouchTargetId?.()||null,...(healing?{heal_method:requestHealMethod}:requestModel==='qwen'?{variant:qwenVariant}:{})});
     clearSelection();undo=[];selectionRedo=[];await refreshPreview();layerList();updateCollectionSession();renderCollection();
     message((healing?'Heal layer':'Removal')+' added in '+((Date.now()-started)/1000).toFixed(1)+'s. Hide or discard its layer to compare.');
   }catch(error){message(error.message,true);}finally{clearInterval(timer);activeTask=null;setBusy(false);layerList();try{await recent();}catch{}}
@@ -1210,8 +1213,8 @@ $('overwrite-dialog').addEventListener('close',()=>resolveOverwrite(null));
 async function save(mode,allowPending=false){
   if(!session||busy||layerChangesPending()||modalOpen())return;
   if(workspace==='cutout'&&(hasSelection||points.length)&&!allowPending){
-    message('Selection not applied. Apply it below, or explicitly export the current image.');
-    $('cutout-export-state').focus();return;
+    message(points.length?'Finish or clear the path before exporting.':'Selection not applied. Apply or clear it before exporting.');
+    (window.LocalImageLayers&&session?.layer_stack?(points.length?$('finish'):$('cutout-refine')):$('cutout-export-state')).focus();return;
   }
   if(mode!=='export'&&!session.can_return){message('Use Export to save a flattened copy of this image.',true);return;}
   const requestedSession=session.id;
@@ -1232,7 +1235,7 @@ async function save(mode,allowPending=false){
   }catch(error){message('Save failed: '+error.message+'. Your edit and selection are still available.',true);}finally{saveInProgress=false;setBusy(false);}
 }
 $('save').onclick=()=>save('export');$('return').onclick=()=>save('overwrite');$('save-unique').onclick=()=>save('unique');
-function hasWorkingLayers(data){return !!data?.layers?.length||!!data?.cutout||!!data?.generation||!!data?.upscale||!!data?.source_attribution;}
+function hasWorkingLayers(data){return !!data?.layers?.length||!!data?.cutout||!!data?.generation||!!data?.upscale||!!data?.source_attribution||!!data?.layer_stack?.some(layer=>layer.kind!=='original'||layer.visible===false||layer.discarded||(layer.opacity??1)!==1||(layer.transform?.offset_x||0)!==0||(layer.transform?.offset_y||0)!==0||(layer.transform?.scale??1)!==1||(layer.transform?.rotation||0)!==0);}
 function pendingSelection(id){
   if(session?.id===id)return hasSelection||points.length>0;
   const state=viewStates.get(id);return !!(state?.hasSelection||state?.points?.length);
@@ -1739,12 +1742,24 @@ async function openStockLibrary(origin='image',opener=$('stock-open')){
 }
 async function importStock(target){
   const item=selectedStock();if(!item||busy||stockLoading||stockImporting)return;stockImporting=true;setBusy(true);updateStockControls();stockStatus('Importing '+item.title+'…');
-  try{await flushLayerChanges();const result=await json('/api/local-remove/stock/import',{id:item.id,target:target==='background'?'background':'image',...(target==='background'?{session_id:session.id,revision:session.revision}:{})});$('stock-dialog').close();
+  try{await flushLayerChanges();const result=await json('/api/local-remove/stock/import',{id:item.id,target:target==='background'?'background':'image',...(target==='background'?{session_id:session.id,revision:session.revision,layer_id:window.LocalImageLayers?.selected?.()?.id||null}:{})});$('stock-dialog').close();
     if(target==='reference'){addGenerationReference(result.session);selectGenerationTab('reference');message('Stock image added as a reference. Source credit stays with the image.');}
     else{await openSession(result.session);setWorkspace(target==='background'?'cutout':'retouch');if(target==='background')selectStudioTab('background');message(target==='background'?'Stock background applied. Its credit is available in File → Image credits.':'Stock image opened. Its credit is available in File → Image credits.');}
   }catch(error){stockStatus('Import failed: '+error.message,true);}finally{stockImporting=false;setBusy(false);updateStockControls();}
 }
-function documentCredits(){const credits=[];if(session?.source_attribution)credits.push({label:'Source image',...session.source_attribution});if(session?.cutout?.background?.attribution)credits.push({label:'Background',...session.cutout.background.attribution});for(const [index,entry]of (session?.reference_attributions||[]).entries())credits.push({label:'Reference '+(index+1),...entry});for(const [index,entry]of (session?.cutout?.background?.reference_attributions||[]).entries())credits.push({label:'Background reference '+(index+1),...entry});return credits;}
+function documentCredits(){
+  const credits=[];
+  if(session?.source_attribution)credits.push({label:'Source image',...session.source_attribution});
+  if(session?.cutout?.background?.attribution)credits.push({label:'Background',...session.cutout.background.attribution});
+  for(const [index,entry]of (session?.reference_attributions||[]).entries())credits.push({label:'Reference '+(index+1),...entry});
+  for(const [index,entry]of (session?.cutout?.background?.reference_attributions||[]).entries())credits.push({label:'Background reference '+(index+1),...entry});
+  for(const layer of session?.layer_stack||[]){
+    if(layer.discarded||!layer.visible)continue;
+    if(layer.attribution)credits.push({label:'Layer · '+layer.name,...layer.attribution});
+    for(const [index,entry]of (layer.reference_attributions||[]).entries())credits.push({label:layer.name+' reference '+(index+1),...entry});
+  }
+  const seen=new Set();return credits.filter(credit=>{const key=JSON.stringify([credit.provider,credit.asset_id,credit.source_url]);if(seen.has(key))return false;seen.add(key);return true;});
+}
 function creditHandoffText(){return documentCredits().map(credit=>[credit.label+(credit.title?' · '+credit.title:''),credit.attribution||[credit.title,credit.creator,credit.license].filter(Boolean).join(' · '),safeSourceUrl(credit.source_url),safeSourceUrl(credit.license_url)].filter(Boolean).join('\n')).join('\n\n');}
 $('credits-copy').onclick=async()=>{try{await navigator.clipboard.writeText(creditHandoffText());$('credits-status').textContent='Credits copied. Paste them with the shared image.';}catch{$('credits-status').textContent='Clipboard unavailable. Save a credits text file instead.';}};
 $('credits-download').onclick=()=>{if(!session)return;const link=document.createElement('a');link.href='/api/local-remove/session/'+encodeURIComponent(session.id)+'/download-credits';link.download=(session.name||'image').replace(/\.[^.]+$/,'')+'-credits.txt';document.body.append(link);link.click();link.remove();$('credits-status').textContent='Credits text file prepared for sharing alongside the image.';};

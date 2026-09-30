@@ -208,7 +208,7 @@ async def snapshot_references(ids, destination, attributions=None):
                 attributions.extend(collect_attributions(data))
             def snapshot(data=data, path=path):
                 image = editor.render(data)
-                if not data.get('cutout', {}).get('enabled'):
+                if not data.get('cutout', {}).get('enabled') and not data.get('layer_stack'):
                     image = editor.attach_source_alpha(editor.folder(data['id']), data, image)
                 image.save(path)
             await asyncio.to_thread(snapshot)

@@ -6,6 +6,10 @@
   const shell = document.querySelector('main.shell');
   const context = byId('generation-context');
   if (!dialog || !shell || !context || dialog.dataset.inlineStudio) return;
+  let generationMode = 'create', createIsBlank = true, generationModeBusy = false;
+  let generationModeEpoch = 0, generationInternalNavigation = 0, generationModeRunning = false;
+  let refineCurrentImageAllowed = false;
+  const generationModes = { edit: { settings: null, document: null }, create: { settings: null, document: null } };
 
   const element = (tag, className, text) => {
     const node = document.createElement(tag);
@@ -28,11 +32,13 @@
   const viewTabs = element('div', 'generation-view-tabs');
   viewTabs.setAttribute('role', 'tablist');
   viewTabs.setAttribute('aria-label', 'Generation workflow');
-  const createTab = element('button', '', 'Create');
+  const editTab = element('button', '', 'Edit image');
+  editTab.id = 'generation-edit-tab';
+  const createTab = element('button', '', 'Create new');
   createTab.id = 'generation-create-tab';
   const refineTab = byId('draft-refine-open');
   refineTab.textContent = 'Draft & Refine';
-  for (const [tab, panel] of [[createTab, 'generation-panel'], [refineTab, 'refine-dialog']]) {
+  for (const [tab, panel] of [[editTab, 'generation-panel'], [createTab, 'generation-panel'], [refineTab, 'refine-dialog']]) {
     tab.type = 'button';
     tab.setAttribute('role', 'tab');
     tab.setAttribute('aria-controls', panel);
@@ -96,13 +102,20 @@
   });
   function syncGenerationPresentation() {
     const generating = document.body.dataset.persona === 'generate';
-    resultTrigger.hidden = !generating || dialog.open || !resultButtons.some(button => !button.disabled);
+    resultTrigger.hidden = !generating || dialog.open || isCreatingBlank() || generationModeBusy || !resultButtons.some(button => !button.disabled);
     if (resultTrigger.hidden) closeResultMenu();
-    const empty = String(typeof session === 'undefined' || !session);
+    const empty = String(typeof session === 'undefined' || !session || isCreatingBlank());
     if (document.body.dataset.generationEmpty !== empty) document.body.dataset.generationEmpty = empty;
   }
   const resultObserver = new MutationObserver(syncGenerationPresentation);
   for (const button of resultButtons) resultObserver.observe(button, { attributes: true, attributeFilter: ['disabled'] });
+  const blankCanvas = element('div', 'generation-blank-canvas');
+  blankCanvas.id = 'generation-blank-canvas';
+  blankCanvas.append(element('h2', '', 'Create a new image'), element('p', '', 'Describe your image in the prompt panel.'));
+  byId('viewport').append(blankCanvas);
+  const editSource = element('p', 'generation-edit-source');
+  editSource.id = 'generation-edit-source';
+  byId('gen-prompt').before(editSource);
 
   // Create: keep the frequently used numbers next to the prompt, while the
   // Output tab contains seed, alpha and advanced sampling controls.
@@ -257,13 +270,16 @@
   const savedCommandStates = new Map();
   let selectedCommandPending = false;
   const isInlineRefining = () => dialog.open && document.body.dataset.persona === 'generate';
+  function isCreatingBlank() { return document.body.dataset.persona === 'generate' && !dialog.open && generationMode === 'create' && createIsBlank; }
+  function hasHiddenEditor() { return isInlineRefining() || isCreatingBlank() || (document.body.dataset.persona === 'generate' && generationModeBusy); }
+  function modeCommandsLocked() { return isInlineRefining() ? close.disabled : busy || generationModeBusy; }
   function rememberCommand(node) {
     if (!savedCommandStates.has(node)) savedCommandStates.set(node, { disabled: node.disabled, hidden: node.hidden });
   }
   function syncInlineCommands() {
-    if (!isInlineRefining()) return;
-    const selected = typeof refineSelectedResult === 'function' && (refineSelectedResult() || refineSelectedDraft());
-    const locked = close.disabled || selectedCommandPending;
+    if (!hasHiddenEditor()) return;
+    const selected = isInlineRefining() && typeof refineSelectedResult === 'function' && (refineSelectedResult() || refineSelectedDraft());
+    const locked = modeCommandsLocked() || selectedCommandPending;
     for (const node of document.querySelectorAll('button,input,select,[data-command]')) {
       const command = node.dataset.command || node.id;
       if (editorOnlyCommands.has(command) || node.matches('[data-tool],#layers button,#layers input')) {
@@ -286,6 +302,7 @@
     savedCommandStates.clear();
   }
   async function runSelectedCommand(command) {
+    if (!isInlineRefining()) { message('Generate an image before saving. Your other document is preserved.');return; }
     if (selectedCommandPending || close.disabled) return;
     const selected = typeof refineSelectedResult === 'function' && (refineSelectedResult() || refineSelectedDraft());
     if (!selected) { refineStatus('Generate or select an image before saving.');return; }
@@ -302,7 +319,7 @@
     finally { selectedCommandPending = false;syncInlineCommands();window.LocalImageStudio?.sync(); }
   }
   document.addEventListener('click', event => {
-    if (!isInlineRefining() || document.querySelector('dialog:modal')) return;
+    if (!hasHiddenEditor() || document.querySelector('dialog:modal')) return;
     const target = event.target instanceof Element ? event.target.closest('button,input,select,[data-command]') : null;
     if (!target || dialog.contains(target)) return;
     const command = target.dataset.command || target.id;
@@ -313,22 +330,24 @@
       event.preventDefault();event.stopImmediatePropagation();runSelectedCommand(command);return;
     }
     if (openCommands.has(command) || target.closest('#recent')) {
-      if (close.disabled || selectedCommandPending) { event.preventDefault();event.stopImmediatePropagation();return; }
-      leaveRefinement();
+      if (modeCommandsLocked() || selectedCommandPending) { event.preventDefault();event.stopImmediatePropagation();return; }
+      if (dialog.open) leaveRefinement();
     }
   }, true);
   document.addEventListener('drop', event => {
-    if (!isInlineRefining() || document.querySelector('dialog:modal') || !Array.from(event.dataTransfer?.types || []).includes('Files')) return;
-    if (close.disabled || selectedCommandPending) { event.preventDefault();event.stopImmediatePropagation();return; }
-    leaveRefinement();
+    if (!hasHiddenEditor() || document.querySelector('dialog:modal') || !Array.from(event.dataTransfer?.types || []).includes('Files')) return;
+    if (modeCommandsLocked() || selectedCommandPending) { event.preventDefault();event.stopImmediatePropagation();return; }
+    if (dialog.open) leaveRefinement();
   }, true);
 
   function updateView(refining) {
     const wasRefining = document.body.dataset.generationView === 'refine';
-    document.body.dataset.generationView = refining ? 'refine' : 'create';
-    createTab.setAttribute('aria-selected', String(!refining));
+    document.body.dataset.generationView = refining ? 'refine' : generationMode;
+    editTab.setAttribute('aria-selected', String(!refining && generationMode === 'edit'));
+    createTab.setAttribute('aria-selected', String(!refining && generationMode === 'create'));
     refineTab.setAttribute('aria-selected', String(refining));
-    createTab.tabIndex = refining ? -1 : 0;
+    editTab.tabIndex = !refining && generationMode === 'edit' ? 0 : -1;
+    createTab.tabIndex = !refining && generationMode === 'create' ? 0 : -1;
     refineTab.tabIndex = refining ? 0 : -1;
     if (!refining && wasRefining) {
       restoreEditorCommands();
@@ -344,10 +363,14 @@
     if (dialog.open) nativeClose();
     updateView(false);
   }
-  createTab.addEventListener('click', leaveRefinement);
+  editTab.addEventListener('click', () => activateGenerationMode('edit'));
+  createTab.addEventListener('click', () => activateGenerationMode('create', { fresh: true }));
+  close.onclick = () => activateGenerationMode('create', { fresh: true });
   dialog.showModal = () => {
     if (document.body.dataset.persona !== 'generate' && typeof setWorkspace === 'function') setWorkspace('generate');
     if (window.LocalImageStockStudio?.close) window.LocalImageStockStudio.close();
+    saveGenerationMode();
+    refineCurrentImageAllowed = !isCreatingBlank() && !generationModeBusy && !!session;
     for (const stage of ['draft', 'final']) {
       const model = byId('refine-' + stage + '-model');
       if (!model.options.length) {
@@ -371,7 +394,8 @@
   };
   dialog.addEventListener('close', () => updateView(dialog.open));
   new MutationObserver(() => {
-    createTab.disabled = close.disabled;
+    createTab.disabled = busy || generationModeBusy || (dialog.open && close.disabled);
+    editTab.disabled = createTab.disabled || !generationModes.edit.document;
   }).observe(close, { attributes: true, attributeFilter: ['disabled'] });
   new MutationObserver(() => {
     if (document.body.dataset.persona !== 'generate' && dialog.open) {
@@ -390,12 +414,12 @@
     items[index].focus();
     activate(index);
   });
-  keyboardTabs(viewTabs, [createTab, refineTab], index => index ? refineTab.click() : createTab.click());
+  keyboardTabs(viewTabs, [editTab, createTab, refineTab], index => [editTab, createTab, refineTab][index].click());
   keyboardTabs(stageTabs, [...stageButtons.values()], index => selectStage(index ? 'final' : 'draft', true));
   // Inline comparison shares the app window but must never save or undo the
   // editor document hidden behind it. Native text undo is deliberately retained.
   document.addEventListener('keydown', event => {
-    if (!dialog.open || document.body.dataset.persona !== 'generate') return;
+    if (!hasHiddenEditor()) return;
     if (document.querySelector('dialog:modal')) return;
     const key = event.key.toLowerCase();
     const typing = event.target instanceof Element && !!event.target.closest('textarea,input:not([type=checkbox]):not([type=radio]),[contenteditable=true]');
@@ -422,14 +446,16 @@
       return;
     }
     if (key === 'w') {
-      event.preventDefault();event.stopImmediatePropagation();leaveRefinement();return;
+      event.preventDefault();event.stopImmediatePropagation();
+      if (dialog.open) leaveRefinement();else if (!generationModeBusy && generationModes.edit.document) activateGenerationMode('edit');
+      return;
     }
     if (event.altKey && event.shiftKey && key === 'e') {
       event.preventDefault();event.stopImmediatePropagation();return;
     }
     if (key === 'o') {
-      if (close.disabled) { event.preventDefault();event.stopImmediatePropagation(); }
-      else leaveRefinement();
+      if (modeCommandsLocked()) { event.preventDefault();event.stopImmediatePropagation(); }
+      else if (dialog.open) leaveRefinement();
     }
   }, true);
   // Comparison zoom/pan handlers run on their own elements; their keys do not
@@ -440,6 +466,9 @@
   const previousUpdateRefineControls = updateRefineControls;
   updateRefineControls = function (...args) {
     const result = previousUpdateRefineControls.apply(this, args);
+    if (dialog.open && !refineCurrentImageAllowed) {
+      byId('refine-use-current').disabled = true;byId('refine-current-reference').disabled = true;
+    }
     for (const stage of ['draft', 'final']) {
       const note = byId('refine-' + stage + '-recommended');
       if (note.textContent.includes(' · ')) {
@@ -451,16 +480,208 @@
     window.LocalImageStudio?.sync();
     return result;
   };
+  const generationFieldIds = ['gen-variant','gen-prompt','gen-negative','gen-width','gen-height','gen-steps','gen-guidance','gen-denoise','gen-aspect','gen-seed','gen-transparent'];
+  const copyValue = value => JSON.parse(JSON.stringify(value));
+  const supportsImageEditing = model => !!(model?.capabilities?.image_reference || model?.capabilities?.image_to_image || model?.capabilities?.references) && (model?.capabilities?.max_references || 0) > 0;
+  const currentModeDocument = () => generationModes[generationMode].document;
+  const freshDocument = data => data && (openDocuments.get(data.id)?.revision >= data.revision ? openDocuments.get(data.id) : data);
+  function captureGenerationSettings() {
+    const fields = {};
+    for (const id of generationFieldIds) fields[id] = byId(id).type === 'checkbox' ? byId(id).checked : byId(id).value;
+    return { model: generationModelId, fields, references: copyValue(generationReferences), loras: copyValue(generationLoras), missing: generationMissingReferences, tab: generationStudioTab, target: generationTargetSession };
+  }
+  function initialGenerationSettings(mode, source) {
+    const selected = generationModels.find(model => !model.historical && model.available && (mode !== 'edit' || supportsImageEditing(model)) && model.id === 'qwen') || generationModels.find(model => !model.historical && (mode !== 'edit' || supportsImageEditing(model)));
+    const defaults = selected?.defaults || {}, limits = selected?.limits || {};
+    let width = defaults.width || 1024, height = defaults.height || 1024;
+    if (mode === 'edit' && source?.width && source?.height) {
+      const step = limits.dimension_step || 32, maximum = limits.max_dimension || 4096, minimum = limits.min_dimension || 256;
+      const scale = Math.min(1, maximum / source.width, maximum / source.height, Math.sqrt((limits.max_pixels || 4194304) / (source.width * source.height)));
+      width = Math.max(minimum, Math.floor(source.width * scale / step) * step);
+      height = Math.max(minimum, Math.floor(source.height * scale / step) * step);
+    }
+    return { model: selected?.id || generationModelId, fields: { 'gen-variant': defaults.variant || selected?.variants?.[0]?.id || '', 'gen-prompt': '', 'gen-negative': '', 'gen-width': String(width), 'gen-height': String(height), 'gen-steps': String(defaults.steps || 25), 'gen-guidance': String(defaults.guidance || 1), 'gen-denoise': '65', 'gen-aspect': mode === 'edit' ? 'custom' : '1:1', 'gen-seed': '', 'gen-transparent': false }, references: [], loras: [], missing: 0, tab: 'prompt', target: mode === 'create' ? generationTargetSession : null };
+  }
+  function saveGenerationMode() {
+    if (document.body.dataset.persona !== 'generate' || dialog.open || generationModeBusy) return;
+    const profile = generationModes[generationMode];
+    profile.settings = captureGenerationSettings();
+    if (!isCreatingBlank() && session) profile.document = freshDocument(session);
+  }
+  function primaryReference(data) {
+    return { id: data.id, name: data.name, thumbnail: '/api/local-remove/session/' + encodeURIComponent(data.id) + '/preview?revision=' + data.revision };
+  }
+  function bindEditingSource(data, previousId) {
+    data = freshDocument(data);
+    if (!data) return;
+    const extras = generationReferences.filter(reference => reference.id !== data.id && reference.id !== previousId);
+    generationModes.edit.document = data;
+    generationReferences = [primaryReference(data), ...extras];
+    generationMissingReferences = 0;
+  }
+  function restoreGenerationModeSettings(settings, source) {
+    generationModelId = settings.model;
+    if (!generationModels.some(model => model.id === generationModelId)) generationModelId = generationModels.find(model => !model.historical)?.id || generationModelId;
+    if (generationMode === 'edit' && !supportsImageEditing(generationModel())) generationModelId = generationModels.find(model => model.available && supportsImageEditing(model))?.id || generationModels.find(supportsImageEditing)?.id || generationModelId;
+    generationSamplingModel = generationModelId;
+    generationReferences = copyValue(settings.references || []);
+    generationLoras = copyValue(settings.loras || []);
+    generationMissingReferences = settings.missing || 0;
+    generationTargetSession = settings.target || null;
+    renderGenerationModelOptions();syncGenerationModel();
+    for (const [id, value] of Object.entries(settings.fields)) {
+      if (byId(id).type === 'checkbox') byId(id).checked = !!value;
+      else if (id !== 'gen-variant' || [...byId(id).options].some(option => option.value === value)) byId(id).value = String(value);
+    }
+    if (generationMode === 'edit' && source) {
+      const prior = generationReferences[0]?.id;
+      bindEditingSource(source, prior);
+    }
+    byId('gen-denoise-value').textContent = byId('gen-denoise').value + '%';
+    renderSelectedLoras();renderGenerationReferences();selectGenerationTab(settings.tab || 'prompt');
+  }
+  function syncGenerationModeChrome() {
+    const generating = document.body.dataset.persona === 'generate';
+    const editing = generationMode === 'edit';
+    const source = generationModes.edit.document;
+    const blank = generating && !dialog.open && ((generationMode === 'create' && createIsBlank) || (generationModeBusy && currentModeDocument()?.id !== session?.id));
+    document.body.dataset.generationMode = generationMode;
+    document.body.dataset.generationBlank = String(blank);
+    document.body.dataset.generationModeBusy = String(generationModeBusy);
+    editTab.disabled = busy || generationModeBusy || (dialog.open && close.disabled) || !source;
+    editTab.title = source ? 'Edit image · ' + source.name : 'Open or generate an image to edit';
+    createTab.disabled = busy || generationModeBusy || (dialog.open && close.disabled);
+    if (generationModeBusy) refineTab.disabled = true;
+    const promptLabel = labelsFor('gen-prompt')[0];
+    if (promptLabel) promptLabel.textContent = editing ? 'Changes' : 'Prompt';
+    byId('gen-prompt').placeholder = editing ? 'Describe what to change in this image. Keep anything else that matters.' : 'Describe your image, its lighting, composition and style…';
+    editSource.hidden = !editing;
+    editSource.textContent = source ? 'Editing ' + source.name : 'Open an image to edit.';
+    byId('gen-use-current').hidden = editing || isCreatingBlank();
+    if (isCreatingBlank()) byId('gen-use-current').disabled = true;
+    if (editing && !supportsImageEditing(generationModel())) {
+      byId('gen-run').disabled = true;
+      editSource.textContent = 'Choose an image-editing model, or use Create new for text-only generation.';
+      editSource.classList.add('error');
+    } else editSource.classList.remove('error');
+    if (editing && (!source || source.id !== session?.id)) byId('gen-run').disabled = true;
+    if (generationModeBusy) byId('gen-run').disabled = true;
+    byId('gen-run').textContent = busy && activeTask === 'generate' ? (editing ? 'Editing…' : 'Generating…') : (editing ? 'Apply edit' : 'Generate image');
+    for (const option of byId('gen-model').options) option.disabled = editing && !supportsImageEditing(generationModels.find(model => model.id === option.value));
+    if (generating && !dialog.open) byId('tool-hint').textContent = editing ? 'Describe the changes to the current image' : 'Create a new image from a prompt';
+    syncGenerationPresentation();
+  }
+  const originalModeOpenSession = openSession;
+  async function activateGenerationMode(mode, { source = null, fresh = false, capture = true } = {}) {
+    if (!['edit','create'].includes(mode) || busy || generationModeBusy || (dialog.open && close.disabled)) return false;
+    if (mode === 'edit' && !source && !generationModes.edit.document) return false;
+    if (capture) saveGenerationMode();
+    const epoch = ++generationModeEpoch;
+    if (dialog.open) nativeClose();
+    restoreEditorCommands();
+    generationMode = mode;generationModeBusy = true;
+    const profile = generationModes[mode];
+    if (source) profile.document = freshDocument(source);
+    if (mode === 'create' && fresh) profile.document = null;
+    createIsBlank = mode === 'create' && !profile.document;
+    byId('gen-result-note').textContent = '';
+    updateView(false);syncGenerationModeChrome();
+    try {
+      if (generationLoading) await generationLoadPromise;
+      else if (!generationModels.length) await loadGenerationModels();
+      if (epoch !== generationModeEpoch || workspace !== 'generate') return false;
+      if (!profile.settings) profile.settings = initialGenerationSettings(mode, profile.document);
+      if (profile.document && (session?.id !== profile.document.id || session?.revision !== freshDocument(profile.document)?.revision)) {
+        generationInternalNavigation++;
+        try { await originalModeOpenSession(freshDocument(profile.document)); }
+        finally { generationInternalNavigation--; }
+      }
+      if (epoch !== generationModeEpoch || workspace !== 'generate') return false;
+      restoreGenerationModeSettings(profile.settings, profile.document);
+      profile.settings = captureGenerationSettings();
+      return true;
+    } catch (error) { message(error.message, true);return false; }
+    finally {
+      if (epoch === generationModeEpoch) {
+        generationModeBusy = false;restoreEditorCommands();controls();updateView(dialog.open);syncGenerationModeChrome();
+      }
+    }
+  }
+  const originalGenerationControls = updateGenerationControls;
+  updateGenerationControls = function (...args) {
+    const result = originalGenerationControls.apply(this, args);
+    syncGenerationModeChrome();syncInlineCommands();window.LocalImageStudio?.sync();
+    return result;
+  };
+  const originalGenerationReferences = renderGenerationReferences;
+  renderGenerationReferences = function (...args) {
+    const result = originalGenerationReferences.apply(this, args);
+    if (generationMode === 'edit' && generationReferences[0]?.id === generationModes.edit.document?.id) {
+      const row = byId('gen-references').firstElementChild;
+      if (row) {
+        row.dataset.primarySource = 'true';
+        const remove = row.querySelector('button');if (remove) { remove.hidden = true;remove.disabled = true; }
+        const label = row.querySelector('span');if (label) label.textContent = 'Current image · ' + generationReferences[0].name;
+      }
+    }
+    return result;
+  };
+  const originalGenerationImage = generateImage;
+  generateImage = async function (...args) {
+    if (busy || generationModeBusy || byId('gen-run').disabled) return;
+    const mode = generationMode, priorResult = generationResultId;
+    if (mode === 'edit') {
+      if (!supportsImageEditing(generationModel()) || session?.id !== generationModes.edit.document?.id) return;
+      bindEditingSource(session, generationReferences[0]?.id);
+      renderGenerationReferences();
+    }
+    generationModeRunning = true;
+    try {
+      await originalGenerationImage.apply(this, args);
+      if (generationResultId !== priorResult && session?.id === generationResultId) {
+        generationModes[mode].document = freshDocument(session);
+        if (mode === 'create') {
+          createIsBlank = false;
+          if (!generationModes.edit.document) generationModes.edit.document = freshDocument(session);
+        }
+        else bindEditingSource(session, generationReferences[0]?.id);
+        generationModes[mode].settings = captureGenerationSettings();
+        renderGenerationReferences();
+      }
+    } finally {
+      generationModeRunning = false;restoreEditorCommands();controls();updateView(dialog.open);syncGenerationModeChrome();
+    }
+  };
+  byId('gen-run').onclick = generateImage;
+  const originalGenerationWorkspace = setWorkspace;
+  setWorkspace = function (value) {
+    const previous = workspace, visible = session;
+    if (previous === 'generate' && value !== 'generate' && !busy) {
+      saveGenerationMode();generationModeEpoch++;generationModeBusy = false;restoreEditorCommands();
+    }
+    const result = originalGenerationWorkspace.apply(this, arguments);
+    if (workspace === 'generate' && previous !== 'generate') activateGenerationMode(visible ? 'edit' : 'create', { source: visible, fresh: !visible, capture: false });
+    return result;
+  };
+  openSession = async function (...args) {
+    const result = await originalModeOpenSession.apply(this, args);
+    if (!generationInternalNavigation && !generationModeRunning && workspace === 'generate' && !dialog.open && session?.id === args[0]?.id) {
+      await activateGenerationMode('edit', { source: session, capture: false });
+    }
+    return result;
+  };
   const previousControls = controls;
   controls = function (...args) {
     const result = previousControls.apply(this, args);
     syncInlineCommands();
     syncGenerationPresentation();
+    syncGenerationModeChrome();
     return result;
   };
   updateView(false);
   window.LocalImageGenerationStudio = Object.freeze({
-    showCreate: leaveRefinement,
+    showCreate: () => activateGenerationMode('create'),
+    showEdit: () => activateGenerationMode('edit'),
     showRefine: () => { if (!dialog.open) refineTab.click(); },
     selectStage,
     hasSelectedImage: () => typeof refineSelectedResult === 'function' && !!(refineSelectedResult() || refineSelectedDraft()),
@@ -470,6 +691,20 @@
       await openRefineDocument(selected);
       return !dialog.open && typeof session !== 'undefined' && session?.id === selected.session.id;
     },
+    isCreatingBlank,
+    hasVisibleDocument: () => !generationModeBusy && (isInlineRefining() ? !!(refineSelectedResult() || refineSelectedDraft()) : !isCreatingBlank() && !!session),
+    prepareSelectedForExport: async () => {
+      if (busy || generationModeBusy || isCreatingBlank()) return false;
+      if (isInlineRefining()) {
+        const selected = refineSelectedResult() || refineSelectedDraft();
+        if (!selected || close.disabled) return false;
+        await openRefineDocument(selected);
+        return !dialog.open && session?.id === selected.session.id;
+      }
+      return !!session;
+    },
+    mode: () => generationMode,
+    isModeBusy: () => generationModeBusy,
     isRefining: () => dialog.open && document.body.dataset.generationView === 'refine'
   });
 })();

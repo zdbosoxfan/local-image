@@ -17,6 +17,7 @@ import threading
 import time
 from typing import Literal
 import uuid
+import copy
 
 import aiohttp
 import numpy as np
@@ -37,6 +38,7 @@ from cutout_composite import (initial_cutout, validate_cutout, refine_alpha,
                               compose_image, compose_native, DEFAULT_TRANSFORM,
                               DEFAULT_SHADOW, inverse_selection, underlay)
 from stock_attribution import validate_attribution, validate_attributions, collect_attributions
+import layer_stack as stack_model
 
 router = APIRouter()
 _session_clock_lock = threading.Lock()
@@ -293,7 +295,28 @@ def public(data):
         raise ValueError('Malformed session')
     if data.get('cutout'):
         validate_cutout(data['cutout'])
-    result = {k: v for k, v in data.items() if k not in {'source_path', 'source_hash', 'last_saved_hash', 'last_saved_path', 'project_path', 'project_hash', 'cutout_undo', 'cutout_redo'}}
+    result = {k: v for k, v in data.items() if k not in {'source_path', 'source_hash', 'last_saved_hash', 'last_saved_path', 'project_path', 'project_hash', 'cutout_undo', 'cutout_redo', 'stack_undo', 'stack_redo'}}
+    if data.get('layer_stack'):
+        stack_model.validate_stack(data['layer_stack'], data['layers'])
+        result['layer_stack'] = []
+        root = SESSIONS / data['id']
+        for node in data['layer_stack']:
+            item = copy.deepcopy(node)
+            bounds = (0, 0, data['width'], data['height'])
+            if node['kind'] == 'cutout':
+                with Image.open(root / node['cutout']['alpha']) as alpha: bounds = alpha.getbbox()
+            elif node['kind'] == 'retouch':
+                patches = [p for p in data['layers'] if p['id'] in node['patch_ids'] and p['visible'] and not p['discarded']]
+                boxes = []
+                for patch in patches:
+                    with Image.open(root / patch['mask']) as mask:
+                        box = mask.getbbox()
+                    if box: boxes.append((box[0]+patch['x'], box[1]+patch['y'], box[2]+patch['x'], box[3]+patch['y']))
+                bounds = (min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)) if boxes else None
+            item.update(bounds=bounds, width=data['width'], height=data['height'])
+            result['layer_stack'].append(item)
+        result['stack_can_undo'] = bool(data.get('stack_undo'))
+        result['stack_can_redo'] = bool(data.get('stack_redo'))
     result['cutout_can_undo'] = bool(data.get('cutout_undo'))
     result['cutout_can_redo'] = bool(data.get('cutout_redo'))
     if data.get('cutout'):
@@ -378,6 +401,9 @@ def reuse_or_create_session(path):
 
 def render(data, original=False, include_cutout=True, *, root_override=None):
     root = Path(root_override) if root_override is not None else folder(data['id'])
+    if not original and data.get('layer_stack'):
+        raw, icc, _ = decode_original(root / data['original'])
+        return stack_model.display(stack_model.render_native(data, root, raw, icc, decode_original), icc)
     with Image.open(root / 'base.png') as img:
         image = img.convert('RGB')
     if original:
@@ -413,6 +439,132 @@ def cutout_background(root, state):
     return None
 
 
+def stack_snapshot(root, data, pixels=None):
+    raw, icc = native_pixels(data, root) if pixels is None else pixels
+    name = 'stack-' + uuid.uuid4().hex + '-source.tif'
+    tags = [(34675, 'B', len(icc), icc, False)] if icc else []
+    tifffile.imwrite(root / name, raw, photometric='rgb', metadata=None, compression='deflate', extratags=tags)
+    return name
+
+
+def ensure_stack(root, data):
+    if data.get('layer_stack'): return
+    old_cutout = copy.deepcopy(data.get('cutout'))
+    pixels = None
+    if old_cutout:
+        raw, icc, _ = decode_original(root / data['original'])
+        pixels = legacy_native_pixels(data, root, raw, icc, False)
+    data['layer_stack'] = [stack_model.node('original', 'Original')]
+    for patch in data['layers']:
+        layer = stack_model.node('retouch', patch['name'], patch_ids=[patch['id']])
+        layer.update(visible=patch['visible'], discarded=patch['discarded'])
+        data['layer_stack'].append(layer)
+        patch.update(visible=True, discarded=False)
+    if old_cutout:
+        # Opting into layers must preserve a previously saved v2 appearance.
+        if old_cutout['enabled']:
+            for item in data['layer_stack']: item['visible'] = False
+        state = copy.deepcopy(old_cutout)
+        transform = state.pop('transform', dict(DEFAULT_TRANSFORM))
+        state['transform'] = dict(DEFAULT_TRANSFORM)
+        background = copy.deepcopy(state['background'])
+        state['background'] = {'mode': 'transparent', 'color': '#ffffff'}
+        if background['mode'] != 'transparent':
+            image = cutout_background(root, old_cutout)
+            if isinstance(image, str): image = Image.new('RGBA', (data['width'], data['height']), image)
+            layer = add_stack_image(root, data, image, background.get('name', 'Background'), commit=False,
+                                    attribution=background.get('attribution'), reference_attributions=background.get('reference_attributions'))
+            layer['visible'] = old_cutout['enabled']
+        if state['shadow']['enabled']:
+            # v2 cast its shadow after transforming the subject, in canvas
+            # coordinates. Preserve that exact appearance as a separate layer;
+            # new cutout layers keep their editable shadow attached to the item.
+            raw, icc = pixels
+            with Image.open(root / state['alpha']) as mask:
+                transformed = compose_native(raw, mask, None, DEFAULT_SHADOW, state['feather'], transform)
+            maximum = np.iinfo(raw.dtype).max
+            alpha = Image.fromarray(np.rint(transformed[..., 3].astype(np.float64)*255/maximum).astype(np.uint8))
+            shadow = copy.deepcopy(state['shadow'])
+            if icc:
+                swatch = ImageCms.profileToProfile(Image.new('RGB',(1,1),shadow['color']), SRGB, ImageCms.ImageCmsProfile(io.BytesIO(icc)), outputMode='RGB')
+                shadow['color'] = '#%02x%02x%02x' % swatch.getpixel((0,0))
+            shadow_pixels = np.asarray(underlay((data['width'],data['height']), alpha, None, shadow)).astype(raw.dtype)
+            if raw.dtype == np.uint16: shadow_pixels *= 257
+            shade = stack_model.node('image','Cutout shadow',source=stack_snapshot(root,data,(shadow_pixels,icc)))
+            shade['visible'] = old_cutout['enabled']
+            data['layer_stack'].append(shade)
+            state['shadow']['enabled'] = False
+        layer = stack_model.node('cutout', 'Cutout', source=stack_snapshot(root, data, pixels), cutout=state)
+        layer.update(visible=old_cutout['enabled'], transform=transform)
+        data['layer_stack'].append(layer)
+    sync_stack_cutout(data)
+
+
+def sync_stack_cutout(data, lid=None):
+    nodes = [n for n in data.get('layer_stack', []) if n['kind'] == 'cutout' and not n['discarded']]
+    selected = next((n for n in nodes if n['id'] == lid), None) if lid else None
+    selected = selected or (nodes[-1] if nodes else None)
+    if selected:
+        data['cutout'] = copy.deepcopy(selected['cutout'])
+        data['cutout'].update(enabled=selected['visible'], transform=copy.deepcopy(selected['transform']))
+    else: data.pop('cutout', None)
+
+
+def stack_layer(data, lid, *, writable=False, kind=None):
+    layer = next((n for n in data.get('layer_stack', []) if n['id'] == lid), None)
+    if layer is None or layer['discarded']: raise HTTPException(404, 'Layer not found.')
+    if kind and layer['kind'] != kind: raise HTTPException(400, 'Select a ' + kind + ' layer first.')
+    if writable and (layer['locked'] or not layer['visible']):
+        raise HTTPException(409, 'Select a visible, unlocked layer before editing.')
+    return layer
+
+
+def selected_cutout(data, lid=None, writable=True):
+    nodes = [n for n in data.get('layer_stack', []) if n['kind'] == 'cutout' and not n['discarded']]
+    return stack_layer(data, lid or (nodes[-1]['id'] if nodes else ''), writable=writable, kind='cutout')
+
+
+def commit_stack(root, data, selected=None):
+    stack_model.validate_stack(data['layer_stack'], data['layers'])
+    previous = read_session(data['id'])
+    if previous.get('layer_stack') == data['layer_stack'] and previous.get('layers') == data['layers']:
+        return public(data)
+    data['stack_undo'] = (data.get('stack_undo', []) + [copy.deepcopy(previous.get('layer_stack', data['layer_stack']))])[-20:]
+    data['stack_redo'] = []
+    sync_stack_cutout(data, selected)
+    data['revision'] += 1; write_session(root, data)
+    result = public(data)
+    if selected: result['selected_layer_id'] = selected
+    return result
+
+
+def add_stack_image(root, data, image, name, *, below=None, commit=True, attribution=None, reference_attributions=None):
+    ensure_stack(root, data)
+    asset = 'stack-' + uuid.uuid4().hex + '-source.png'
+    image.convert('RGBA').save(root / asset, icc_profile=SRGB.tobytes())
+    layer = stack_model.node('image', Path(name).name[:255] or 'Background', source=asset)
+    if attribution is not None: layer['attribution'] = validate_attribution(attribution)
+    if reference_attributions: layer['reference_attributions'] = validate_attributions(reference_attributions)
+    target = next((i for i, node in enumerate(data['layer_stack']) if node['id'] == below and node['kind'] == 'cutout'), None)
+    if target is None:
+        target = next((i for i in range(len(data['layer_stack'])-1, -1, -1) if data['layer_stack'][i]['kind'] == 'cutout' and not data['layer_stack'][i]['discarded']), len(data['layer_stack']))
+    data['layer_stack'].insert(target, layer)
+    return commit_stack(root, data, layer['id']) if commit else layer
+
+
+def add_stack_cutout(root, data, alpha, *, source_layer_id=None):
+    ensure_stack(root, data)
+    if source_layer_id:
+        source_layer = stack_layer(data, source_layer_id)
+        raw, icc, _ = decode_original(root / data['original'])
+        pixels = stack_model.native_layer(data, root, source_layer, raw, icc, decode_original), icc
+    else: pixels = native_pixels(data, root)
+    layer = stack_model.node('cutout', 'Cutout', source=stack_snapshot(root, data, pixels),
+                             cutout=initial_cutout(save_cutout_alpha(root, alpha)))
+    data['layer_stack'].append(layer)
+    return commit_stack(root, data, layer['id'])
+
+
 def export_exif(original, size):
     # TIFF pointer/strip tags cannot be copied into a newly encoded TIFF.
     if original.suffix.lower() in {'.tif', '.tiff'}:
@@ -431,9 +583,14 @@ def export_exif(original, size):
         return exif.tobytes()
 
 
-def flatten(data, target, allow_8bit=False, *, root_override=None):
-    root = Path(root_override) if root_override is not None else folder(data['id'])
+def native_pixels(data, root, include_cutout=True):
     raw, icc, _ = decode_original(root / data['original'])
+    if data.get('layer_stack'):
+        return stack_model.render_native(data, root, raw, icc, decode_original), icc
+    return legacy_native_pixels(data, root, raw, icc, include_cutout)
+
+
+def legacy_native_pixels(data, root, raw, icc, include_cutout=True):
     for layer in data['layers']:
         if not layer['visible'] or layer.get('discarded'):
             continue
@@ -455,7 +612,7 @@ def flatten(data, target, allow_8bit=False, *, root_override=None):
         x,y=layer['x'],layer['y']; h,w=color.shape[:2]
         area = raw[y:y+h, x:x+w, :3]
         area[:] = np.rint(area.astype(np.float32)*(1-mask)+color*mask).astype(raw.dtype)
-    if data.get('cutout', {}).get('enabled'):
+    if include_cutout and data.get('cutout', {}).get('enabled'):
         state = validate_cutout(data['cutout'])
         background = cutout_background(root, state)
         shadow = dict(state['shadow'])
@@ -474,8 +631,14 @@ def flatten(data, target, allow_8bit=False, *, root_override=None):
             shadow['color'] = '#%02x%02x%02x' % to_native_color(shadow['color']).getpixel((0, 0))
         with Image.open(root / state['alpha']) as alpha:
             raw = compose_native(raw, alpha, background, shadow, state['feather'], state['transform'])
-        if target.suffix.lower() in {'.jpg', '.jpeg'} and np.any(raw[..., 3] < np.iinfo(raw.dtype).max):
-            raise ValueError('JPEG cannot store transparency. Choose PNG, TIFF, or WebP, or add a solid background.')
+    return raw, icc
+
+
+def flatten(data, target, allow_8bit=False, *, root_override=None):
+    root = Path(root_override) if root_override is not None else folder(data['id'])
+    raw, icc = native_pixels(data, root)
+    if target.suffix.lower() in {'.jpg', '.jpeg'} and raw.shape[2] == 4 and np.any(raw[..., 3] < np.iinfo(raw.dtype).max):
+        raise ValueError('JPEG cannot store transparency. Choose PNG, TIFF, or WebP, or add a solid background.')
     if target.suffix.lower() in {'.tif','.tiff'}:
         tags = [(34675, 'B', len(icc), icc, False)] if icc else []
         tifffile.imwrite(target, raw, photometric='rgb', metadata=None, compression='deflate', extratags=tags)
@@ -800,6 +963,7 @@ class RemoveRequest(BaseModel):
     heal_method:Literal['texture', 'telea']='texture'
     variant:Literal['int8', 'bf16']='int8'
     prompt:str=Field(default='',max_length=4000)
+    target_layer_id:str|None=None
 
 
 @router.post('/api/local-remove/session/{sid}/remove')
@@ -817,6 +981,10 @@ async def remove(sid:str,request:Request,payload:RemoveRequest):
         if data['revision']!=payload.revision: raise HTTPException(409,'The edit changed. Reload the session.')
         root=folder(sid)
         try:
+            target_layer = None
+            if payload.target_layer_id:
+                ensure_stack(root, data)
+                target_layer = stack_layer(data, payload.target_layer_id, writable=True, kind='retouch')
             with Image.open(io.BytesIO(base64.b64decode(payload.mask,validate=True))) as received:
                 if received.width>8192 or received.height>8192: raise ValueError('Selection is too large')
                 mask=received.convert('L').resize((data['width'],data['height']),Image.Resampling.LANCZOS)
@@ -841,6 +1009,12 @@ async def remove(sid:str,request:Request,payload:RemoveRequest):
                 else:
                     result=await run_local_removal(source,buf.getvalue(),secrets.randbits(48),model)
             lid=uuid.uuid4().hex
+            if target_layer and target_layer['transform'] != DEFAULT_TRANSFORM:
+                with Image.open(io.BytesIO(base64.b64decode(result['color']))) as color_image, Image.open(io.BytesIO(base64.b64decode(result['mask']))) as mask_image:
+                    color_image, mask_image, position = stack_model.inverse_patch(color_image, mask_image.convert('L'), (result['x'], result['y']), (data['width'], data['height']), target_layer['transform'])
+                result.update(x=position[0], y=position[1])
+                for role, image in (('color', color_image), ('mask', mask_image)):
+                    buffer = io.BytesIO(); image.save(buffer, format='PNG'); result[role] = base64.b64encode(buffer.getvalue())
             for kind in ('color','mask'):
                 (root/f'{lid}-{kind}.png').write_bytes(base64.b64decode(result[kind]))
             action='Heal' if model == 'heal' else 'Remove'
@@ -849,8 +1023,15 @@ async def remove(sid:str,request:Request,payload:RemoveRequest):
                                   'visible':True,'discarded':False,
                                   'model':model,'model_label':('Texture repair' if payload.heal_method=='texture' else 'Dust & scratches') if model=='heal' else selected['label'],
                                   **({'heal_method':payload.heal_method} if model=='heal' else {})})
+            if data.get('layer_stack'):
+                if target_layer is None:
+                    target_layer = stack_model.node('retouch', f'{action} {len(data["layer_stack"])}', patch_ids=[])
+                    data['layer_stack'].append(target_layer)
+                target_layer['patch_ids'].append(lid)
+                return commit_stack(root, data, target_layer['id'])
             data['revision']+=1; write_session(root,data)
             return public(data)
+        except HTTPException: raise
         except Exception as error: raise HTTPException(400,str(error)) from error
 
 
@@ -878,6 +1059,113 @@ async def update_layer(sid:str,lid:str,request:Request,payload:LayerUpdate):
 
 class MergeRequest(BaseModel):
     revision:int=Field(ge=0)
+    layer_id:str|None=None
+
+
+class StackCreate(MergeRequest):
+    kind:Literal['retouch']='retouch'
+    name:str=Field(default='Retouch', min_length=1, max_length=255)
+
+
+class StackUpdate(MergeRequest):
+    name:str|None=Field(default=None,min_length=1,max_length=255)
+    visible:bool|None=None
+    locked:bool|None=None
+    discarded:bool|None=None
+    opacity:float|None=Field(default=None,ge=0,le=1,allow_inf_nan=False)
+    transform:dict|None=None
+    index:int|None=Field(default=None,ge=0,le=999)
+
+
+def checked_stack(sid, revision):
+    data = read_session(sid); root = folder(sid)
+    if data['revision'] != revision: raise HTTPException(409, 'The edit changed. Reload the document before changing layers.')
+    ensure_stack(root, data)
+    return data, root
+
+
+@router.post('/api/local-remove/session/{sid}/stack')
+async def enable_stack(sid:str, request:Request, payload:MergeRequest):
+    guard(request, True)
+    async with locks.setdefault(sid, asyncio.Lock()):
+        data, root = checked_stack(sid, payload.revision)
+        # This is a representation migration, not an image edit. Preserve the
+        # document revision and save state until a real layer mutation occurs.
+        stack_model.validate_stack(data['layer_stack'], data['layers'])
+        write_session(root, data)
+        return public(data)
+
+
+@router.post('/api/local-remove/session/{sid}/stack/layers')
+async def create_stack_layer(sid:str, request:Request, payload:StackCreate):
+    guard(request, True)
+    async with locks.setdefault(sid, asyncio.Lock()):
+        data, root = checked_stack(sid, payload.revision)
+        layer = stack_model.node('retouch', payload.name.strip(), patch_ids=[])
+        data['layer_stack'].append(layer)
+        try: return commit_stack(root, data, layer['id'])
+        except ValueError as error: raise HTTPException(400, str(error)) from error
+
+
+@router.patch('/api/local-remove/session/{sid}/stack/layer/{lid}')
+async def update_stack_layer(sid:str, lid:str, request:Request, payload:StackUpdate):
+    guard(request, True)
+    async with locks.setdefault(sid, asyncio.Lock()):
+        data, root = checked_stack(sid, payload.revision)
+        layer = next((n for n in data['layer_stack'] if n['id'] == lid), None)
+        if layer is None: raise HTTPException(404, 'Layer not found.')
+        changes = payload.model_dump(exclude_none=True, exclude={'revision', 'index'})
+        if layer['locked'] and any(k in changes for k in ('transform', 'opacity', 'discarded')) and payload.locked is not False:
+            raise HTTPException(409, 'Unlock the layer before changing its contents.')
+        if lid == 'original' and payload.discarded:
+            raise HTTPException(400, 'Hide the original with its visibility control; it remains available for recovery.')
+        if payload.transform is not None:
+            changes['transform'] = {**layer['transform'], **payload.transform}
+        layer.update(changes)
+        if payload.index is not None:
+            if layer['locked']: raise HTTPException(409, 'Unlock the layer before moving it in the stack.')
+            data['layer_stack'].remove(layer)
+            data['layer_stack'].insert(min(payload.index, len(data['layer_stack'])), layer)
+        try: return commit_stack(root, data, lid)
+        except ValueError as error: raise HTTPException(400, str(error)) from error
+
+
+@router.get('/api/local-remove/session/{sid}/stack/layer/{lid}/display')
+async def stack_layer_display(sid:str, lid:str, request:Request):
+    guard(request)
+    async with locks.setdefault(sid, asyncio.Lock()):
+        data = read_session(sid); root = folder(sid); layer = stack_layer(data, lid)
+        target = root / ('stack-display-' + lid + '-' + str(data['revision']) + '.png')
+        if not target.is_file():
+            def make():
+                raw, icc, _ = decode_original(root / data['original'])
+                pixels = stack_model.native_layer(data, root, layer, raw, icc, decode_original, transformed=False)
+                stack_model.display(pixels, icc).save(target, icc_profile=SRGB.tobytes())
+            await asyncio.to_thread(make)
+    return FileResponse(target, media_type='image/png', headers=HEADERS)
+
+
+async def change_stack_history(sid, request, revision, direction):
+    guard(request, True)
+    async with locks.setdefault(sid, asyncio.Lock()):
+        data, root = checked_stack(sid, revision)
+        source = 'stack_' + direction; destination = 'stack_redo' if direction == 'undo' else 'stack_undo'
+        if not data.get(source): raise HTTPException(400, 'There is no layer change to ' + direction + '.')
+        previous = data[source].pop()
+        data[destination] = (data.get(destination, []) + [copy.deepcopy(data['layer_stack'])])[-20:]
+        data['layer_stack'] = previous; sync_stack_cutout(data)
+        data['revision'] += 1; write_session(root, data)
+        return public(data)
+
+
+@router.post('/api/local-remove/session/{sid}/stack/undo')
+async def undo_stack(sid:str, request:Request, payload:MergeRequest):
+    return await change_stack_history(sid, request, payload.revision, 'undo')
+
+
+@router.post('/api/local-remove/session/{sid}/stack/redo')
+async def redo_stack(sid:str, request:Request, payload:MergeRequest):
+    return await change_stack_history(sid, request, payload.revision, 'redo')
 
 
 @router.post('/api/local-remove/session/{sid}/merge')
@@ -887,6 +1175,13 @@ async def merge_visible(sid:str,request:Request,payload:MergeRequest):
         data=read_session(sid)
         if data['revision']!=payload.revision:
             raise HTTPException(409,'The edit changed. Reload the session before merging.')
+        if data.get('layer_stack'):
+            root = folder(sid)
+            source = await asyncio.to_thread(stack_snapshot, root, data)
+            for layer in data['layer_stack']: layer['visible'] = False
+            merged = stack_model.node('image', 'Merged visible', source=source)
+            data['layer_stack'].append(merged)
+            return commit_stack(root, data, merged['id'])
         if data.get('cutout', {}).get('enabled'):
             raise HTTPException(400, 'Disable the cutout before merging repair layers. Cutout settings remain separately editable in the project.')
         root=folder(sid); lid=uuid.uuid4().hex
@@ -1132,7 +1427,7 @@ def import_project(source,project_path=None):
             data['cutout'] = manifest['cutout']
         if 'generation' in manifest:
             data['generation'] = manifest['generation']
-        for key in ('source_attribution', 'reference_attributions', 'upscale'):
+        for key in ('source_attribution', 'reference_attributions', 'upscale', 'layer_stack'):
             if key in manifest:
                 data[key] = manifest[key]
         data.update(id=sid,source_path=None,source_hash=None,can_return=False,saved_revision=None,created=time.time())
@@ -1344,6 +1639,7 @@ class CutoutRequest(BaseModel):
     variant: Literal['int8', 'bf16'] = 'int8'
     prompt: str = Field(default='', max_length=4000)
     seed: int = Field(default_factory=lambda: secrets.randbits(48), ge=0, le=2**53-1)
+    layer_id: str | None = None
 
 
 class CutoutUpdate(BaseModel):
@@ -1353,30 +1649,34 @@ class CutoutUpdate(BaseModel):
     background: dict | None = None
     shadow: dict | None = None
     transform: dict | None = None
+    layer_id: str | None = None
 
 
 class CutoutRefine(BaseModel):
     revision: int = Field(ge=0)
     mask: str = Field(max_length=90 * 1024 * 1024)
     operation: Literal['restore', 'erase', 'replace']
+    layer_id: str | None = None
 
 
 class LibraryBackground(BaseModel):
     revision: int = Field(ge=0)
     library_id: str
     entry_id: str
+    layer_id: str | None = None
 
 
 class GeneratedBackground(BaseModel):
     revision: int = Field(ge=0)
     generated_session_id: str
+    layer_id: str | None = None
 
 
 def cutout_session(sid, revision, require=True):
     data = read_session(sid)
     if data['revision'] != revision:
         raise HTTPException(409, 'The edit changed. Reload the session before editing the cutout.')
-    if require and not data.get('cutout'):
+    if require and not data.get('cutout') and not data.get('layer_stack'):
         raise HTTPException(400, 'Remove the background or apply a cutout selection first.')
     if data.get('cutout'):
         validate_cutout(data['cutout'])
@@ -1408,11 +1708,15 @@ def selection_image(encoded, size):
         return image.convert('L').resize(size, Image.Resampling.LANCZOS)
 
 
-def set_background_image(root, data, image, name, attribution=None, reference_attributions=None):
+def set_background_image(root, data, image, name, attribution=None, reference_attributions=None, layer_id=None):
     if image.width * image.height > 150_000_000:
         raise ValueError('The background image is too large.')
     attribution = validate_attribution(attribution) if attribution is not None else None
     reference_attributions = validate_attributions(reference_attributions or [])
+    if data.get('layer_stack'):
+        if layer_id: stack_layer(data, layer_id)
+        return add_stack_image(root, data, image, name, below=layer_id, attribution=attribution,
+                               reference_attributions=reference_attributions)
     asset = 'cutout-' + uuid.uuid4().hex + '-background.png'
     image.convert('RGBA').save(root / asset, icc_profile=SRGB.tobytes())
     previous = data['cutout']['background']
@@ -1448,7 +1752,7 @@ def decode_stock_image(contents):
     return decode_background(io.BytesIO(contents))
 
 
-async def import_stock_image(contents, attribution, *, target='image', session_id=None, revision=None):
+async def import_stock_image(contents, attribution, *, target='image', session_id=None, revision=None, layer_id=None):
     """Import only provider-fetched bytes; callers enforce the web write guard.
 
     Downloading happens before this helper. Background edits compare revisions
@@ -1480,12 +1784,12 @@ async def import_stock_image(contents, attribution, *, target='image', session_i
     else:
         async with locks.setdefault(session_id, asyncio.Lock()):
             data, root = cutout_session(session_id, revision, require=False)
-            if not data.get('cutout'):
+            if not data.get('cutout') and not data.get('layer_stack'):
                 # Preserve transparency already present in the source image.
                 original_alpha = await asyncio.to_thread(lambda: attach_source_alpha(root, data, render(data, include_cutout=False)).convert('RGBA').getchannel('A'))
                 data['cutout'] = initial_cutout(await asyncio.to_thread(save_cutout_alpha, root, original_alpha))
-            data['cutout']['enabled'] = True
-            result = await asyncio.to_thread(set_background_image, root, data, image, name, attribution)
+            if not data.get('layer_stack'): data['cutout']['enabled'] = True
+            result = await asyncio.to_thread(set_background_image, root, data, image, name, attribution, layer_id=layer_id)
     return {'session': result, 'target': target, 'attribution': attribution}
 
 
@@ -1510,10 +1814,10 @@ async def use_generated_background(sid: str, request: Request, payload: Generate
         data, root = cutout_session(sid, payload.revision)
         generated = read_session(payload.generated_session_id)
         image = await asyncio.to_thread(render, generated)
-        if not generated.get('cutout', {}).get('enabled'):
+        if not generated.get('cutout', {}).get('enabled') and not generated.get('layer_stack'):
             image = await asyncio.to_thread(attach_source_alpha, folder(generated['id']), generated, image)
         return await asyncio.to_thread(set_background_image, root, data, image, generated['name'],
-                                      generated.get('source_attribution'), collect_attributions(generated))
+                                      generated.get('source_attribution'), collect_attributions(generated), payload.layer_id)
 
 
 @router.post('/api/local-remove/session/{sid}/cutout')
@@ -1525,7 +1829,13 @@ async def remove_background(sid: str, request: Request, payload: CutoutRequest):
         data, root = cutout_session(sid, payload.revision, require=False)
         source = root / 'cutout-source.png'
         try:
-            await asyncio.to_thread(lambda: render(data, include_cutout=False).save(source))
+            if data.get('layer_stack') and payload.layer_id:
+                selected = stack_layer(data, payload.layer_id)
+                raw, icc, _ = await asyncio.to_thread(decode_original, root / data['original'])
+                pixels = await asyncio.to_thread(stack_model.native_layer, data, root, selected, raw, icc, decode_original)
+                await asyncio.to_thread(lambda: stack_model.display(pixels, icc).save(source))
+            else:
+                await asyncio.to_thread(lambda: render(data, include_cutout=False).save(source))
             result = await run_qwen_image(source, payload.prompt, variant=payload.variant,
                                           size=qwen_canvas_size((data['width'], data['height'])), seed=payload.seed, task='cutout')
             if 'A' not in result.getbands():
@@ -1534,6 +1844,8 @@ async def remove_background(sid: str, request: Request, payload: CutoutRequest):
             low, high = alpha.getextrema()
             if low >= 250 or high <= 5:
                 raise ValueError('Qwen did not produce a usable transparent cutout. Check that its RGBA decoder is installed, or refine a manual selection.')
+            if data.get('layer_stack'):
+                return await asyncio.to_thread(add_stack_cutout, root, data, alpha, source_layer_id=payload.layer_id)
             asset = await asyncio.to_thread(save_cutout_alpha, root, alpha)
             state = data.get('cutout') or initial_cutout(asset)
             state.update(alpha=asset, enabled=True)
@@ -1550,6 +1862,18 @@ async def update_cutout(sid: str, request: Request, payload: CutoutUpdate):
     guard(request, True)
     async with locks.setdefault(sid, asyncio.Lock()):
         data, root = cutout_session(sid, payload.revision)
+        if data.get('layer_stack'):
+            layer = selected_cutout(data, payload.layer_id)
+            state = layer['cutout']
+            try:
+                if payload.enabled is not None: layer['visible'] = payload.enabled
+                if payload.feather is not None: state['feather'] = payload.feather
+                if payload.shadow is not None: state['shadow'].update(payload.shadow)
+                if payload.transform is not None: layer['transform'].update(payload.transform)
+                if payload.background is not None:
+                    raise ValueError('Add a background image as a layer from Assets.')
+                return commit_stack(root, data, layer['id'])
+            except (ValueError, TypeError) as error: raise HTTPException(400, str(error)) from error
         state = data['cutout']
         try:
             for field in ('enabled', 'feather'):
@@ -1578,6 +1902,22 @@ async def refine_cutout(sid: str, request: Request, payload: CutoutRefine):
             selection = await asyncio.to_thread(selection_image, payload.mask, (data['width'], data['height']))
             if not selection.getbbox():
                 raise ValueError('Paint or draw a selection first.')
+            if data.get('layer_stack'):
+                if payload.layer_id:
+                    candidate = stack_layer(data, payload.layer_id)
+                    if candidate['kind'] != 'cutout':
+                        if payload.operation != 'replace': raise HTTPException(400, 'Add a mask to this layer before refining it.')
+                        return add_stack_cutout(root, data, selection, source_layer_id=payload.layer_id)
+                    layer = selected_cutout(data, payload.layer_id)
+                    with Image.open(root / layer['cutout']['alpha']) as existing_alpha: alpha = existing_alpha.convert('L')
+                    selection = inverse_selection(selection, layer['transform'])
+                    if not selection.getbbox(): raise ValueError('The selection lies outside this layer.')
+                    alpha = refine_alpha(alpha, selection, payload.operation)
+                    layer['cutout']['alpha'] = save_cutout_alpha(root, alpha)
+                    return commit_stack(root, data, layer['id'])
+                # Manual selection can create the first cutout without a model.
+                alpha = refine_alpha(Image.new('L', selection.size, 255), selection, payload.operation)
+                return add_stack_cutout(root, data, alpha)
             existing = data.get('cutout', {}).get('enabled')
             if existing:
                 with Image.open(root / data['cutout']['alpha']) as image:
@@ -1602,7 +1942,7 @@ async def refine_cutout(sid: str, request: Request, payload: CutoutRefine):
 
 
 @router.post('/api/local-remove/session/{sid}/cutout/background')
-async def upload_background(sid: str, request: Request, revision: int = Form(...), file: UploadFile = File(...)):
+async def upload_background(sid: str, request: Request, revision: int = Form(...), file: UploadFile = File(...), layer_id: str | None = Form(default=None)):
     guard(request, True)
     async with locks.setdefault(sid, asyncio.Lock()):
         data, root = cutout_session(sid, revision)
@@ -1611,7 +1951,7 @@ async def upload_background(sid: str, request: Request, revision: int = Form(...
             if len(contents) > 64 * 1024 * 1024:
                 raise ValueError('Choose a background image smaller than 64 MB.')
             image = await asyncio.to_thread(decode_background, io.BytesIO(contents))
-            return await asyncio.to_thread(set_background_image, root, data, image, file.filename or 'Background.png')
+            return await asyncio.to_thread(set_background_image, root, data, image, file.filename or 'Background.png', layer_id=layer_id)
         except Exception as error:
             raise HTTPException(400, 'The background could not be imported: ' + str(error)) from error
 
@@ -1628,7 +1968,7 @@ async def generate_background(sid: str, request: Request, payload: CutoutRequest
         try:
             image = await run_qwen_image(None, payload.prompt, variant=payload.variant,
                                          size=qwen_canvas_size((data['width'], data['height'])), seed=payload.seed, task='background')
-            return await asyncio.to_thread(set_background_image, root, data, image, 'Generated background.png')
+            return await asyncio.to_thread(set_background_image, root, data, image, 'Generated background.png', layer_id=payload.layer_id)
         except Exception as error:
             raise HTTPException(400, 'Background generation failed: ' + str(error)) from error
 
@@ -1725,7 +2065,7 @@ async def apply_library_background(sid: str, request: Request, payload: LibraryB
         source = background_library_entry(payload.library_id, payload.entry_id)
         try:
             image = await asyncio.to_thread(decode_background, source)
-            return await asyncio.to_thread(set_background_image, root, data, image, source.name)
+            return await asyncio.to_thread(set_background_image, root, data, image, source.name, layer_id=payload.layer_id)
         except Exception as error:
             raise HTTPException(400, 'This background could not be opened: ' + str(error)) from error
 
@@ -1754,19 +2094,28 @@ async def change_cutout_history(sid, request, revision, direction):
 
 @router.post('/api/local-remove/session/{sid}/cutout/undo')
 async def undo_cutout(sid: str, request: Request, payload: MergeRequest):
+    guard(request, True)
+    if read_session(sid).get('layer_stack'):
+        return await change_stack_history(sid, request, payload.revision, 'undo')
     return await change_cutout_history(sid, request, payload.revision, 'undo')
 
 
 @router.post('/api/local-remove/session/{sid}/cutout/redo')
 async def redo_cutout(sid: str, request: Request, payload: MergeRequest):
+    guard(request, True)
+    if read_session(sid).get('layer_stack'):
+        return await change_stack_history(sid, request, payload.revision, 'redo')
     return await change_cutout_history(sid, request, payload.revision, 'redo')
 
 
 @router.get('/api/local-remove/session/{sid}/cutout/foreground')
-async def cutout_foreground(sid: str, request: Request, full: bool = True):
+async def cutout_foreground(sid: str, request: Request, full: bool = True, layer_id: str | None = None):
     """Original-position foreground for responsive client-side drag previews."""
     guard(request)
     data = read_session(sid)
+    if data.get('layer_stack'):
+        layer = selected_cutout(data, layer_id, writable=False)
+        return await stack_layer_display(sid, layer['id'], request)
     if not data.get('cutout'):
         raise HTTPException(404, 'No cutout is available.')
     root = folder(sid); state = validate_cutout(data['cutout'])
@@ -1784,9 +2133,21 @@ async def cutout_foreground(sid: str, request: Request, full: bool = True):
 
 
 @router.get('/api/local-remove/session/{sid}/cutout/background-preview')
-async def cutout_background_preview(sid: str, request: Request, full: bool = True):
+async def cutout_background_preview(sid: str, request: Request, full: bool = True, layer_id: str | None = None):
     guard(request)
     data = read_session(sid)
+    if data.get('layer_stack'):
+        layer = selected_cutout(data, layer_id, writable=False)
+        root = folder(sid)
+        target = root / ('stack-underlay-' + layer['id'] + '-' + str(data['revision']) + '.png')
+        if not target.is_file():
+            def make_underlay():
+                below = copy.deepcopy(data)
+                index = next(i for i, item in enumerate(below['layer_stack']) if item['id'] == layer['id'])
+                for item in below['layer_stack'][index:]: item['visible'] = False
+                render(below).save(target, icc_profile=SRGB.tobytes())
+            await asyncio.to_thread(make_underlay)
+        return FileResponse(target, media_type='image/png', headers=HEADERS)
     if not data.get('cutout'):
         raise HTTPException(404, 'No cutout is available.')
     root = folder(sid); state = validate_cutout(data['cutout'])
