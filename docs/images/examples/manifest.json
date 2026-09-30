@@ -1,0 +1,157 @@
+{
+  "description": "Unmodified PNG exports from the Local Image 0.7 real local-model test matrix. Settings describe these examples, not guaranteed results for every prompt or seed.",
+  "image_processing": "None: original PNG bytes copied with SHA-256 verification.",
+  "examples": [
+    {
+      "file": "qwen-transparent-card.png",
+      "source_case": "010-qwen-int8-text-to-image-alpha-faceted-card-illustration",
+      "caption": "Qwen INT8 + Faceted card illustration: a generated game asset with true PNG transparency.",
+      "model": "qwen",
+      "variant": "int8",
+      "mode": "text-to-image",
+      "loras": [
+        {
+          "title": "Faceted card illustration",
+          "strength": 0.9
+        }
+      ],
+      "width": 512,
+      "height": 512,
+      "prompt": "sts2 card art. sts2 card art, warrior card. A chipped steel shield with brass rivets, red rim light tracing the edges, flying stone chips, dark angular shapes behind it. Isolate the subject on a fully transparent background, no floor, no scene, no cast shadow.",
+      "steps": 25,
+      "guidance": 3,
+      "seed": 290909,
+      "transparent": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "transparent_fraction": 0.522167,
+      "sha256": "9611d018c094c5e81c63f97eb6f2c24c0723783055a0d9ec15f479819dc141d3",
+      "bytes": 359256
+    },
+    {
+      "file": "z-image-realism.png",
+      "source_case": "043-z-image-turbo-bf16-text-to-image-opaque-photographic-realism",
+      "caption": "Z-Image Turbo + Photographic realism: natural light and ceramic detail at eight steps.",
+      "model": "z-image-turbo",
+      "variant": "bf16",
+      "mode": "text-to-image",
+      "loras": [
+        {
+          "title": "Photographic realism",
+          "strength": 1.0
+        }
+      ],
+      "width": 512,
+      "height": 512,
+      "prompt": "Realism. Realism, a ceramic red teapot on a pale oak table beside a window, natural morning light, detailed glaze and wood grain, editorial photograph Balanced clear composition on a pale clean background.",
+      "steps": 8,
+      "guidance": 1.0,
+      "seed": 290942,
+      "transparent": false,
+      "alpha_min": 255,
+      "alpha_max": 255,
+      "transparent_fraction": 0.0,
+      "sha256": "114253bbd997d77a8ac6f14aeba3abaca8066e081a73dbcd239b2d515e71f3c3",
+      "bytes": 307788
+    },
+    {
+      "file": "klein-watercolor.png",
+      "source_case": "051-flux2-klein-4b-bf16-text-to-image-opaque-watercolor-wash",
+      "caption": "FLUX.2 Klein 4B + Watercolor wash: a fox and woodland cottage.",
+      "model": "flux2-klein-4b",
+      "variant": "bf16",
+      "mode": "text-to-image",
+      "loras": [
+        {
+          "title": "Watercolor wash",
+          "strength": 1.0
+        }
+      ],
+      "width": 512,
+      "height": 512,
+      "prompt": "wtrclr style. wtrclr style, a red fox beside a small woodland cottage surrounded by wildflowers, morning light Balanced clear composition on a pale clean background.",
+      "steps": 4,
+      "guidance": 1.0,
+      "seed": 290950,
+      "transparent": false,
+      "alpha_min": 255,
+      "alpha_max": 255,
+      "transparent_fraction": 0.0,
+      "sha256": "410bb30a4f5ab2d394776918ce1d3a28f729160e1231162057222d4638c125d8",
+      "bytes": 438167
+    },
+    {
+      "file": "klein-clay.png",
+      "source_case": "053-flux2-klein-4b-bf16-text-to-image-opaque-claymation-miniature",
+      "caption": "FLUX.2 Klein 4B + Claymation miniature: a tiny robot tending a garden.",
+      "model": "flux2-klein-4b",
+      "variant": "bf16",
+      "mode": "text-to-image",
+      "loras": [
+        {
+          "title": "Claymation miniature",
+          "strength": 1.0
+        }
+      ],
+      "width": 512,
+      "height": 512,
+      "prompt": "claymtn style. claymtn style, a smiling tiny robot tending a rooftop garden with sunflowers and a watering can Balanced clear composition on a pale clean background.",
+      "steps": 4,
+      "guidance": 1.0,
+      "seed": 290952,
+      "transparent": false,
+      "alpha_min": 255,
+      "alpha_max": 255,
+      "transparent_fraction": 0.0,
+      "sha256": "ff44832c4dc1ec195f0e36ea98f1dee48e3e7b3842d01c5d9df9b2e740a40fd2",
+      "bytes": 304432
+    },
+    {
+      "file": "klein-orange-illustration.png",
+      "source_case": "059-flux2-klein-9b-fp8-text-to-image-opaque-orange-splatter-illustration",
+      "caption": "FLUX.2 Klein 9B + Orange splatter illustration: a bold autumn fox.",
+      "model": "flux2-klein-9b",
+      "variant": "fp8",
+      "mode": "text-to-image",
+      "loras": [
+        {
+          "title": "Orange splatter illustration",
+          "strength": 1.0
+        }
+      ],
+      "width": 512,
+      "height": 512,
+      "prompt": "dvr_osi_style. dvr_osi_style, a red fox leaping through autumn leaves, bold expressive illustration Balanced clear composition on a pale clean background.",
+      "steps": 4,
+      "guidance": 1.0,
+      "seed": 290958,
+      "transparent": false,
+      "alpha_min": 255,
+      "alpha_max": 255,
+      "transparent_fraction": 0.0,
+      "sha256": "3ef692237685e0057073f7d7924c12d99e9431a7148e29f1d82adca4f2009f01",
+      "bytes": 245551
+    },
+    {
+      "file": "ernie-poster.png",
+      "source_case": "073-ernie-image-bf16-text-to-image-opaque-base",
+      "caption": "ERNIE-Image: a travel poster with the requested headline and subheading.",
+      "model": "ernie-image",
+      "variant": "bf16",
+      "mode": "text-to-image",
+      "loras": [],
+      "width": 1024,
+      "height": 1024,
+      "prompt": "Professional clean modern travel poster. Exact large headline: \"WEEKEND AWAY\". Exact smaller subheading: \"TAKE THE SCENIC ROUTE\". Stylized ocean cliffs, terracotta sun, blue sea, cream paper, precise readable typography, balanced graphic design.",
+      "steps": 50,
+      "guidance": 4.0,
+      "seed": 290972,
+      "transparent": false,
+      "alpha_min": 255,
+      "alpha_max": 255,
+      "transparent_fraction": 0.0,
+      "sha256": "b97d2fedca3a47d727788b9e463b8af948571510c208e7de5d0dafcb0aa4f0bf",
+      "bytes": 1087993
+    }
+  ]
+}

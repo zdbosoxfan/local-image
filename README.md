@@ -1,11 +1,62 @@
 # Local Image
 
-A local Windows image workspace with **Retouch**, **Cutout** and **Image Gen** personas. Version **0.7.0** improves editing history, image browsing and repeated work, including an image-led LoRA library, saved refinement recipes and reviewed batch export. The flat, canvas-first interface uses conventional menus, contextual tools, tabbed Studio panels and a compact bottom filmstrip. One image keeps the filmstrip hidden; multiple images or an imported folder show it.
+**Retouch, cut out, composite and generate images on your own PC.**
+
+Local Image is a Windows image workspace with **Retouch**, **Cutout** and **Image Gen** personas. Image editing and AI inference run locally through your own hardware and ComfyUI, without a cloud-model account or per-image API bill. Optional model downloads, stock search and live LoRA browsing use the internet.
+
+[Download the Windows preview](https://github.com/zdbosoxfan/local-image/releases/tag/v0.7.0) · [Installation guide](docs/INSTALLATION.md) · [Model guide](docs/GEN-MODELS.md) · [Example images](#made-locally)
+
+**Personal project:** This is a **vibe-coded personal project**, shared as-is. There is **no guaranteed support and no guarantee of updates or improvements**.
+
+[![Local Image Cutout workspace with a tan backpack composited onto a studio background and editable transform controls](docs/images/ui/cutout-workspace.png)](docs/images/ui/cutout-workspace.png)
+
+*A real Qwen cutout and generated background, with subject position, scale, rotation and shadows still editable. Click any screenshot or example to view the original image.*
+
+The interface uses conventional menus, contextual tools, tabbed Studio panels and a bottom filmstrip. One image keeps the filmstrip hidden; multiple images or an imported folder show it.
 
 - **Retouch:** CPU Quick Heal and local AI object removal. Brush, pen and geometric selections; editable repair layers.
 - **Cutout:** Qwen background removal, brush/pen refinement, subject movement, scaling and rotation, editable shadows and imported or generated backgrounds.
 - **Image Gen:** text-to-image and model-specific image inputs, reference imports, repeatable seeds, dimensions and optional LoRAs. Generated results can continue into Retouch or Cutout, or become another document's background. Draft & Refine compares stages side by side, with a persistent image library and optional SeedVR2 enlargement.
 - **Repeated work:** save a product treatment, prepare selected images one at a time, inspect the results and export unique copies. Each product retains its own cutout; originals and editor documents remain available.
+
+## Inside the app
+
+### Image generation
+
+Create an image from a prompt, import references, choose the model and sampling settings, then continue editing the result. **Draft & Refine** lets you use a fast model to explore ideas and a different model for the final pass.
+
+[![Local Image Image Gen workspace displaying a real ERNIE-generated exhibition poster beside its prompt and model controls](docs/images/ui/image-generation.png)](docs/images/ui/image-generation.png)
+
+### A visual style library
+
+Browse LoRAs by their image examples. The small **i** button opens usage, trigger phrases, recommended settings and compatibility details. Installed styles work offline; Browse retrieves current community results when requested.
+
+[![The Local Image LoRA library showing natural exposure, anime consistency and faceted illustration examples with Use and information buttons](docs/images/ui/lora-library.png)](docs/images/ui/lora-library.png)
+
+These are screenshots of the working 0.7 interface using real local model outputs, not interface mockups.
+
+## Made locally
+
+A few actual exports from the release test matrix. Each image links to its original PNG; exact prompts, seeds, steps, adapter strengths and checksums are recorded in the [example manifest](docs/images/examples/manifest.json).
+
+| Transparent illustration | Photographic detail |
+| --- | --- |
+| [![A steel shield with brass rivets and red rim light on a transparent background, generated with Qwen and the card illustration LoRA](docs/images/examples/qwen-transparent-card.png)](docs/images/examples/qwen-transparent-card.png) | [![A red ceramic teapot on a sunlit wooden table, generated with Z-Image Turbo and its realism LoRA](docs/images/examples/z-image-realism.png)](docs/images/examples/z-image-realism.png) |
+| **Qwen Image 2.1 · INT8** — Faceted card illustration, native transparent PNG | **Z-Image Turbo** — Photographic realism, 8 steps |
+
+| Watercolor | Clay miniature |
+| --- | --- |
+| [![A watercolor fox beside a woodland cottage, generated with FLUX.2 Klein 4B](docs/images/examples/klein-watercolor.png)](docs/images/examples/klein-watercolor.png) | [![A miniature clay robot watering sunflowers, generated with FLUX.2 Klein 4B](docs/images/examples/klein-clay.png)](docs/images/examples/klein-clay.png) |
+| **FLUX.2 Klein 4B** — Watercolor wash | **FLUX.2 Klein 4B** — Claymation miniature |
+
+| Expressive illustration | Poster typography |
+| --- | --- |
+| [![A red fox leaping through autumn leaves, generated with FLUX.2 Klein 9B and its orange splatter style](docs/images/examples/klein-orange-illustration.png)](docs/images/examples/klein-orange-illustration.png) | [![ERNIE-generated travel poster with the text Weekend Away and Take the Scenic Route](docs/images/examples/ernie-poster.png)](docs/images/examples/ernie-poster.png) |
+| **FLUX.2 Klein 9B · FP8** — Orange splatter illustration | **ERNIE-Image Base** — Local poster generation |
+
+The release run exercised **88 real cases and 440 exports**, including compatible curated LoRA combinations, transparency, reference edits, removal, compositing and UHD 4K enlargement. Artistic quality varies with the prompt and style mix; exact identity, geometry and lettering are not guaranteed. See the [validation report](docs/LOCAL-IMAGE-07-VALIDATION.md) for coverage and observed limitations.
+
+## Models
 
 | Model | Best suited to | Image inputs | Transparent generation |
 | --- | --- | --- | --- |
@@ -21,7 +72,7 @@ ERNIE reproduced all five requested strings in the local poster test, but still 
 
 ## Install and start
 
-Use the Windows installer built under `dist/local-image-v07/installer/Local-Image-Setup-0.7.0.exe`. Choose installation for all users in **Program Files**, or for the current user in **AppData**, and change the application folder if needed. Optional folder choices reserve a location for model downloads and the dedicated portable ComfyUI runtime. Settings, browser data, recovery and caches belong to each Windows user's AppData. See [the installation guide](docs/INSTALLATION.md) for storage, upgrades and setup on a new PC.
+[Download Local Image 0.7 for Windows x64](https://github.com/zdbosoxfan/local-image/releases/download/v0.7.0/Local-Image-Setup-0.7.0.exe), or see the [release page and checksum](https://github.com/zdbosoxfan/local-image/releases/tag/v0.7.0). Choose installation for all users in **Program Files**, or for the current user in **AppData**, and change the application folder if needed. Optional folder choices reserve a location for model downloads and the dedicated portable ComfyUI runtime. Settings, browser data, recovery and caches belong to each Windows user's AppData. See [the installation guide](docs/INSTALLATION.md) for storage, upgrades and setup on a new PC, or [build from source](docs/DEVELOPMENT.md).
 
 The installer includes the app, Python backend and Windows WebView2 host; ComfyUI and model weights are separate optional downloads. In **Edit > Settings**, detect or browse for an existing ComfyUI installation, or install a dedicated runtime. In **Image Gen > Browse models…**, compare strengths, precision, download sizes and GPU memory recommendations, then choose or download a model. **Models folder…** selects storage that can also be shared with an existing ComfyUI. Downloads verify publisher revisions, byte sizes and SHA-256 checksums.
 
