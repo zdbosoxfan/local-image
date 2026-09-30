@@ -84,8 +84,8 @@ These suites create owned test data, record served asset identity, and distingui
 actual document/backend operations from controlled provider/inference responses.
 They do not authorize model/provider execution, and browser runs do not establish
 native dialog or Capture One/Explorer GUI acceptance. Keep each report's build
-and scope when citing it. Default cutover still requires packaged acceptance and
-the user's final approval.
+and scope when citing it. The user subsequently approved installing React as the
+default; ordinary packaged startup is verified separately from these UI reports.
 
 Native acceptance preparation uses `tests/helpers/native_acceptance.py` and the
 test-only `NativeQaWindow.cs` metadata observer. The compiled helper supports
@@ -275,13 +275,14 @@ editor/adapter script and loads no legacy stylesheet or hidden legacy controls.
 Python remains the image/project authority and the C# host retains native dialogs
 and filesystem permissions. See [current ownership](FRONTEND-OWNERSHIP.md).
 
-For staged testing, set `LOCAL_IMAGE_FRONTEND=react` before starting the backend.
-An unset flag or `legacy` still selects the temporary legacy renderer, which
-assembles `backend/local_remove.html` and the old `backend/frontend` resources.
-The default has deliberately not changed: the original migration request requires
-real packaged Windows acceptance and the user's approval before cutover, and only
-then removal of superseded wrappers/CSS. [Full migration status](FRONTEND-FULL-MIGRATION.md)
-records current evidence and remaining gates; [milestone 1](FRONTEND-MILESTONE-1.md)
+React is now the default after the user's explicit approval to install the new
+interface. No `LOCAL_IMAGE_FRONTEND` flag is required. `LOCAL_IMAGE_FRONTEND=legacy`
+is a source-only recovery option when the unfrozen checkout still contains
+`backend/local_remove.html`; frozen packages always use React, including when an
+old legacy flag or obsolete template remains. Packages omit legacy HTML/JS/CSS
+and transitional bridges. The recoverable pre-cutover revision is
+`390f2f4` (`codex/pre-clean-install-20260930`). [Full migration status](FRONTEND-FULL-MIGRATION.md)
+retains the evidence and its limits; [milestone 1](FRONTEND-MILESTONE-1.md)
 is historical shell/Layers evidence rather than the current interface scope.
 
 Production/native navigation remains `/remove`. Build the pinned assets and
@@ -316,9 +317,11 @@ actual 168 DPI/DPR 1.75. Inspector toggle restored canvas height approximately
 with the saved v3 document identity, revision and saved flags unchanged. The
 [review captures](frontend-full-proof/README.md) preserve genuine screenshots
 byte-for-byte and distinguish source-browser from native build/state evidence.
-No UI layout bugs remain known. Explorer permission/actual drop, actual Capture
-One GUI handoff and final user cutover approval remain pending; real argument-path
-handoff and native save tests do not establish Capture One GUI execution. Native
+No UI layout bugs remain known. The user approved React-default installation
+after the migration review. The later Explorer gesture has separate user-performed
+and persisted-result evidence; Capture One GUI testing was stopped without a
+completed round-trip claim. Real argument-path handoff and native save tests do
+not establish Capture One GUI execution. Native
 UI actions use Computer Use only; the metadata helper never supplies inputs.
 No development command here authorizes installers, model jobs/downloads,
 provider traffic or publication.

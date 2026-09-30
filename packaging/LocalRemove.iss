@@ -13,6 +13,17 @@
 #ifndef ProjectIdentity
   #define ProjectIdentity "LocalRemove.Project"
 #endif
+#ifndef ImageIdentity
+  #define ImageIdentity AppIdentity + ".Image"
+#endif
+#ifndef ApplicationIdentity
+  // Isolated installer QA overrides AppIdentity; keep its registrations isolated too.
+  #if AppIdentity == "LocalRemove.Windows"
+    #define ApplicationIdentity "Local Image.exe"
+  #else
+    #define ApplicationIdentity AppIdentity + ".exe"
+  #endif
+#endif
 #ifndef AppPathLimit
   #define AppPathLimit 155
 #endif
@@ -68,6 +79,34 @@ Name: "{group}\AI connection settings"; Filename: "{app}\Local Image.exe"; Param
 Name: "{autodesktop}\Local Image"; Filename: "{app}\Local Image.exe"; Tasks: desktopicon
 
 [Registry]
+; Microsoft Applications/SupportedTypes and per-extension OpenWithProgids.
+; HKA selects HKLM for all-users and HKCU for current-user installation.
+; No extension default or Explorer UserChoice is changed.
+; https://learn.microsoft.com/windows/win32/shell/app-registration
+; https://learn.microsoft.com/windows/win32/shell/how-to-include-an-application-on-the-open-with-dialog-box
+Root: HKA; Subkey: "Software\Classes\Applications\{#ApplicationIdentity}"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "Local Image"; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\Applications\{#ApplicationIdentity}\DefaultIcon"; ValueType: expandsz; ValueData: """{app}\Local Image.exe"",0"; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\Applications\{#ApplicationIdentity}\shell"; Flags: uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\Applications\{#ApplicationIdentity}\shell\open"; Flags: uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\Applications\{#ApplicationIdentity}\shell\open\command"; ValueType: string; ValueData: """{app}\Local Image.exe"" ""%1"""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\Applications\{#ApplicationIdentity}\SupportedTypes"; ValueType: string; ValueName: ".jpg"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\Applications\{#ApplicationIdentity}\SupportedTypes"; ValueType: string; ValueName: ".jpeg"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\Applications\{#ApplicationIdentity}\SupportedTypes"; ValueType: string; ValueName: ".png"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\Applications\{#ApplicationIdentity}\SupportedTypes"; ValueType: string; ValueName: ".tif"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\Applications\{#ApplicationIdentity}\SupportedTypes"; ValueType: string; ValueName: ".tiff"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\Applications\{#ApplicationIdentity}\SupportedTypes"; ValueType: string; ValueName: ".webp"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\Applications\{#ApplicationIdentity}\SupportedTypes"; ValueType: string; ValueName: ".lremove"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\{#ImageIdentity}"; ValueType: string; ValueData: "Local Image image"; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\{#ImageIdentity}\DefaultIcon"; ValueType: expandsz; ValueData: """{app}\Local Image.exe"",0"; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\{#ImageIdentity}\shell"; Flags: uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\{#ImageIdentity}\shell\open"; Flags: uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\{#ImageIdentity}\shell\open\command"; ValueType: string; ValueData: """{app}\Local Image.exe"" ""%1"""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\.jpg\OpenWithProgids"; ValueType: string; ValueName: "{#ImageIdentity}"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.jpeg\OpenWithProgids"; ValueType: string; ValueName: "{#ImageIdentity}"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.png\OpenWithProgids"; ValueType: string; ValueName: "{#ImageIdentity}"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.tif\OpenWithProgids"; ValueType: string; ValueName: "{#ImageIdentity}"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.tiff\OpenWithProgids"; ValueType: string; ValueName: "{#ImageIdentity}"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.webp\OpenWithProgids"; ValueType: string; ValueName: "{#ImageIdentity}"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\.lremove\OpenWithProgids"; ValueType: string; ValueName: "{#ProjectIdentity}"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\{#ProjectIdentity}"; ValueType: string; ValueData: "Local Image editable project"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\{#ProjectIdentity}\DefaultIcon"; ValueType: string; ValueData: "{app}\Local Image.exe,0"

@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 
 
 RESOURCE_DIR = Path(__file__).resolve().parent
@@ -23,9 +24,14 @@ ASSET_TYPES = {'.js': 'text/javascript', '.css': 'text/css', '.woff': 'font/woff
                '.webp': 'image/webp', '.svg': 'image/svg+xml', '.ico': 'image/x-icon'}
 
 
+def _legacy_source_available() -> bool:
+    return not getattr(sys, 'frozen', False) and (RESOURCE_DIR / 'local_remove.html').is_file()
+
+
 def frontend_mode() -> str:
-    """The staged shell is opt-in; restarting without the flag rolls back."""
-    return 'react' if os.environ.get('LOCAL_IMAGE_FRONTEND', '').lower() == 'react' else 'legacy'
+    """React is the normal UI; legacy is a source-checkout recovery option."""
+    legacy = os.environ.get('LOCAL_IMAGE_FRONTEND', '').lower() == 'legacy'
+    return 'legacy' if legacy and _legacy_source_available() else 'react'
 
 
 def _asset_path(name: str) -> Path:
@@ -78,7 +84,7 @@ def frontend_manifest() -> tuple[dict, list[str], frozenset[str]]:
         visit(ENTRY_POINT)
         return manifest, eager, frozenset(assets)
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
-        raise RuntimeError('The React frontend build is unavailable. Build frontend/ or restart with LOCAL_IMAGE_FRONTEND=legacy.') from error
+        raise RuntimeError('The React frontend build is unavailable. Build frontend/ before packaging or reinstall a complete Local Image package.') from error
 
 
 def frontend_asset(name: str) -> tuple[Path, str]:
@@ -131,7 +137,10 @@ def _render_react_editor(nonce: str, token: str) -> str:
 
 
 def render_editor(nonce: str, token: str, mode: str | None = None) -> str:
-    if (mode or frontend_mode()) == 'react':
+    # Installed packages intentionally omit the retired template and its assets.
+    # Even a stale explicit legacy request must use their current React entry.
+    use_legacy = (mode or frontend_mode()) == 'legacy' and _legacy_source_available()
+    if not use_legacy:
         return _render_react_editor(nonce, token)
     # Windows editors may write a BOM. Inside an inline style block it becomes
     # part of the first selector and can silently invalidate the design tokens.

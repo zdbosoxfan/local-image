@@ -4,6 +4,8 @@ The Windows Forms host embeds Local Image using Microsoft Edge WebView2. Native 
 
 Launch `Local Image.exe` normally, with one folder argument, with image-file arguments, or with one `.lremove` project argument. Capture One external-editor image arguments continue to work. The backend starts in the background if needed.
 
+The installed application uses the complete React interface by default; no frontend environment flag is required. Packaged builds contain only the current React template/assets and ignore an old `LOCAL_IMAGE_FRONTEND=legacy` setting. The explicit legacy renderer remains available only in an unfrozen source checkout that still has its legacy template.
+
 Editable projects can be opened through the native Open Project picker or dropped from Explorer. A project cannot be opened in the same drop/argument batch as images or another project. Save Project creates or updates a portable `.lremove` archive containing the original, removal layers, merged snapshots, layer visibility, and the current cutout mask, background, transform and shadow. Unapplied brush selections, pen outlines and undo history are not included; the editor reviews pending edits before closing.
 
 The initial project save uses a native Save As picker. Later saves use the session's existing project location, resolved privately by the backend. Saving to another existing project through the picker requires its normal overwrite confirmation; the host then supplies a SHA-256 conflict check. Page-provided filesystem paths and hashes are never accepted. Flattened image Save/Save Unique remains separate from editable project saving.

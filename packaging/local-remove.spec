@@ -1,4 +1,4 @@
-# Build on Windows using Python 3.13 and requirements-build.txt.
+# Build on Windows using Python 3.12 or 3.13 and requirements-build.txt.
 from pathlib import Path
 import importlib.metadata
 import sys
@@ -12,8 +12,9 @@ from local_remove_frontend import frontend_manifest
 frontend_manifest()
 if not (backend / 'frontend_dist' / 'THIRD_PARTY_NOTICES.txt').is_file():
     raise RuntimeError('Build frontend/ with its dependency license notices before packaging.')
-datas = [(str(backend / 'local_remove.html'), '.'),
-         (str(backend / 'frontend'), 'frontend'),
+datas = [(str(backend / 'frontend' / 'react.html'), 'frontend'),
+         (str(backend / 'frontend' / 'app-icon.png'), 'frontend'),
+         (str(backend / 'frontend' / 'lora-examples'), 'frontend/lora-examples'),
          (str(backend / 'frontend_dist'), 'frontend_dist'),
          (str(backend / 'workflow.json'), '.'),
          (str(backend / 'licenses'), 'licenses'),

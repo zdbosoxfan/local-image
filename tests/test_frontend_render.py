@@ -80,6 +80,17 @@ class EditorRenderingTests(unittest.TestCase):
         self.assertIn('second-page-token', second)
         self.assertIn('second-page-nonce', second)
 
+    def test_normal_startup_uses_complete_react_document_without_flag(self):
+        with patch.dict(os.environ, {}, clear=True):
+            html = render_editor('default-page-nonce', 'default-page-token')
+        document = EditorDocument(html)
+        self.assertEqual([item.get('nonce') for item in document.scripts], ['default-page-nonce', 'default-page-nonce'])
+        self.assertEqual(document.scripts[-1].get('type'), 'module')
+        self.assertTrue(document.scripts[-1]['src'].startswith('/frontend-assets/assets/'))
+        self.assertIn('window.__LOCAL_IMAGE_BOOTSTRAP__=', html)
+        self.assertNotIn('function openSession(', html)
+        self.assertNotIn('id="retouch-panel"', html)
+
 
 class ReactDeliveryTests(unittest.TestCase):
     def setUp(self):
@@ -120,11 +131,14 @@ class ReactDeliveryTests(unittest.TestCase):
     def write_manifest(self):
         (self.dist / '.vite' / 'manifest.json').write_text(json.dumps(self.manifest), encoding='utf-8')
 
-    def test_react_opt_in_and_legacy_rollback(self):
+    def test_react_default_and_explicit_source_checkout_rollback(self):
         with patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(frontend_mode(), 'legacy')
-        with patch.dict(os.environ, {'LOCAL_IMAGE_FRONTEND': 'react'}):
+            self.assertEqual(frontend_mode(), 'react')
             html = render_editor('nonce', 'token')
+        with patch.dict(os.environ, {'LOCAL_IMAGE_FRONTEND': 'unknown'}):
+            self.assertEqual(frontend_mode(), 'react')
+        with patch.dict(os.environ, {'LOCAL_IMAGE_FRONTEND': 'react'}):
+            self.assertEqual(frontend_mode(), 'react')
         self.assertIn('window.__LOCAL_IMAGE_BOOTSTRAP__=', html)
         self.assertNotIn('migration bridge', html)
         self.assertNotIn('/* editor */', html)
@@ -132,6 +146,40 @@ class ReactDeliveryTests(unittest.TestCase):
         self.assertNotIn('migration bridge', legacy)
         self.assertNotIn('__LOCAL_IMAGE_REACT__', legacy)
         self.assertNotIn('frontend-assets', legacy)
+        with patch.dict(os.environ, {'LOCAL_IMAGE_FRONTEND': 'legacy'}):
+            self.assertEqual(frontend_mode(), 'legacy')
+            self.assertIn('/* editor */', render_editor('nonce', 'token'))
+
+    def test_installed_assets_ignore_stale_legacy_environment_or_mode(self):
+        (self.root / 'local_remove.html').unlink()
+        for value in ('', 'react', 'legacy', 'LEGACY', 'unknown'):
+            with self.subTest(value=value), patch.dict(os.environ, {'LOCAL_IMAGE_FRONTEND': value}):
+                self.assertEqual(frontend_mode(), 'react')
+                for mode in (None, 'legacy'):
+                    html = render_editor('nonce', 'token', mode=mode)
+                    self.assertIn('window.__LOCAL_IMAGE_BOOTSTRAP__=', html)
+                    self.assertIn('/frontend-assets/assets/main-abcdefgh.js', html)
+                    self.assertNotIn('/* editor */', html)
+                    self.assertNotIn('legacy batch controls', html)
+
+    def test_installed_broken_build_fails_closed_without_legacy_fallback(self):
+        (self.root / 'local_remove.html').unlink()
+        (self.dist / '.vite' / 'manifest.json').unlink()
+        with patch.dict(os.environ, {'LOCAL_IMAGE_FRONTEND': 'legacy'}):
+            with self.assertRaises(RuntimeError) as failed:
+                render_editor('nonce', 'token')
+        self.assertIn('React frontend build is unavailable', str(failed.exception))
+        self.assertNotIn('LOCAL_IMAGE_FRONTEND=legacy', str(failed.exception))
+        self.assertIn('reinstall', str(failed.exception))
+
+    def test_frozen_app_ignores_legacy_even_if_obsolete_template_remains(self):
+        with patch('local_remove_frontend.sys.frozen', True, create=True), patch.dict(os.environ, {'LOCAL_IMAGE_FRONTEND': 'legacy'}):
+            self.assertTrue((self.root / 'local_remove.html').is_file())
+            self.assertEqual(frontend_mode(), 'react')
+            for mode in (None, 'legacy'):
+                html = render_editor('nonce', 'token', mode=mode)
+                self.assertIn('/frontend-assets/assets/main-abcdefgh.js', html)
+                self.assertNotIn('/* editor */', html)
 
     def test_migrated_batch_has_no_legacy_controller_in_react_composition(self):
         react = render_editor('nonce', 'token', mode='react')
@@ -215,7 +263,7 @@ class ReactDeliveryTests(unittest.TestCase):
     def test_broken_manifest_fails_closed_and_legacy_still_renders(self):
         self.manifest['src/main.tsx']['imports'] = ['missing']
         self.write_manifest()
-        with self.assertRaisesRegex(RuntimeError, 'LOCAL_IMAGE_FRONTEND=legacy'):
+        with self.assertRaisesRegex(RuntimeError, 'React frontend build is unavailable'):
             render_editor('nonce', 'token', mode='react')
         with self.assertRaises(FileNotFoundError):
             frontend_asset('assets/main-abcdefgh.js')
