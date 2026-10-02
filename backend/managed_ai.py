@@ -29,7 +29,8 @@ from app_paths import data_root, log_dir, managed_ai_dir, model_directory, read_
 
 GIB = 1024 ** 3
 MAX_EXTRACT_BYTES = 40 * GIB
-MANAGED_FOLDER = 'LocalRemove-ComfyUI'
+MANAGED_FOLDER = 'LocalImage-ComfyUI'
+LEGACY_MANAGED_FOLDER = 'LocalRemove-ComfyUI'
 SEVENZIP_EXE = Path(__file__).resolve().parent / 'tools' / '7zip' / '7za.exe'
 FLUX_NODES = ('UNETLoader', 'LoraLoaderModelOnly', 'CLIPLoader', 'VAELoader', 'CLIPTextEncode',
               'LoadImage', 'VAEEncode', 'ReferenceLatent', 'CFGGuider', 'RandomNoise',
@@ -64,7 +65,7 @@ def writable_directory(value, label='folder'):
     """Preflight download destinations as the unelevated application user."""
     path = local_directory(value)
     if getattr(sys, 'frozen', False):
-        # The frozen backend lives at {app}/backend/LocalRemoveBackend.exe.
+        # The frozen backend lives at {app}/backend/LocalImageBackend.exe.
         # Custom install destinations must stay immutable just like Program Files.
         application = Path(sys.executable).resolve().parent.parent
         if path.is_relative_to(application):
@@ -259,6 +260,7 @@ def desktop_installations():
 def detect_installations():
     config = read_config()
     candidates = [managed_ai_dir() / MANAGED_FOLDER,
+                  managed_ai_dir() / LEGACY_MANAGED_FOLDER,
                   Path.home() / 'ComfyUI', Path.home() / 'ComfyUI_windows_portable',
                   Path.home() / 'Documents' / 'ComfyUI', Path.home() / 'Documents' / 'ComfyUI_windows_portable',
                   Path.home() / 'Downloads' / 'ComfyUI_windows_portable',
@@ -382,7 +384,7 @@ async def download_verified(artifact, target, progress=lambda done, total: None)
     temporary = target.with_name('.' + target.name + '.local-remove-' + uuid.uuid4().hex + '.part')
     timeout = aiohttp.ClientTimeout(total=None, connect=30, sock_read=180)
     try:
-        async with aiohttp.ClientSession(timeout=timeout, headers={'User-Agent': 'LocalRemove/0.2'}) as client:
+        async with aiohttp.ClientSession(timeout=timeout, headers={'User-Agent': 'LocalImage/0.7'}) as client:
             address = checked_download_url(artifact['url'])
             for _ in range(8):
                 async with client.get(address, allow_redirects=False) as response:
@@ -537,7 +539,7 @@ async def comfy_request(path, body=None, *, port=None):
 def workflow_readiness(info):
     """Check what the running ComfyUI can actually execute and load."""
     if not isinstance(info, dict) or any(node not in info for node in FLUX_NODES):
-        return {'ready': False, 'reason': 'The running ComfyUI is missing FLUX Klein support. Update it, or use the dedicated Local Remove installation.'}
+        return {'ready': False, 'reason': 'The running ComfyUI is missing FLUX Klein support. Update it, or use the dedicated Local Image installation.'}
     def choices(node, name):
         try:
             values = info[node]['input']['required'][name][0]
@@ -551,7 +553,7 @@ def workflow_readiness(info):
     missing = [artifact['name'] for node, key, artifact in loaders if artifact['name'] not in choices(node, key)]
     if missing:
         return {'ready': False, 'reason': 'The running ComfyUI cannot see these FLUX files: ' + ', '.join(missing)
-                + '. Download them if needed, then restart ComfyUI with the selected model folder. Local Remove leaves other running instances unchanged.'}
+                + '. Download them if needed, then restart ComfyUI with the selected model folder. Local Image leaves other running instances unchanged.'}
     return {'ready': True, 'reason': ''}
 
 

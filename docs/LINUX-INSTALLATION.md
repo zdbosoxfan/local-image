@@ -1,6 +1,6 @@
 # Install Local Image on Linux
 
-The [0.7.1 Linux preview](https://github.com/zdbosoxfan/local-image/releases/tag/v0.7.1-linux-preview) includes the editor, its Python runtime and the Qt desktop window. You do not need to install Python, Node.js, Git or a web browser to run Local Image. ComfyUI and AI model weights are separate, optional installations.
+The [0.7.1 Linux preview](https://github.com/zdbosoxfan/local-image/releases/tag/v0.7.2-linux-preview) includes the editor, its Python runtime and the Qt desktop window. You do not need to install Python, Node.js, Git or a web browser to run Local Image. ComfyUI and AI model weights are separate, optional installations.
 
 ## Download and install
 
@@ -8,21 +8,21 @@ This preview is for **x86-64 Linux desktops**, built for **Ubuntu 24.04 with gli
 
 ### Ubuntu: install the native package
 
-1. Open the [Linux release page](https://github.com/zdbosoxfan/local-image/releases/tag/v0.7.1-linux-preview) and download `Local-Image-0.7.1-linux-preview-linux-x86_64.deb` from **Assets**.
+1. Open the [Linux release page](https://github.com/zdbosoxfan/local-image/releases/tag/v0.7.2-linux-preview) and download `Local-Image-0.7.2-linux-preview-linux-x86_64.deb` from **Assets**.
 2. Open the downloaded file with your system's package installer and choose **Install**. Ubuntu may ask for your administrator password.
 3. Open **Local Image** from the application menu.
 
 If your file manager opens the package as an archive or has no package installer, open a terminal in Downloads and run:
 
 ```sh
-sudo apt install ./Local-Image-0.7.1-linux-preview-linux-x86_64.deb
+sudo apt install ./Local-Image-0.7.2-linux-preview-linux-x86_64.deb
 ```
 
 The package installs the app in `/opt/local-image`, its launcher at `/usr/bin/local-image`, and its menu entry in `/usr/share/applications/local-image.desktop`. `apt` installs declared system-library dependencies when necessary. Normal editing runs as your account without administrator rights.
 
 ### Fedora or other compatible desktops: per-user archive
 
-1. Open the [Linux release page](https://github.com/zdbosoxfan/local-image/releases/tag/v0.7.1-linux-preview) and download `Local-Image-0.7.1-linux-preview-linux-x86_64.tar.gz` from **Assets**. The GitHub **Source code** archives are for developers.
+1. Open the [Linux release page](https://github.com/zdbosoxfan/local-image/releases/tag/v0.7.2-linux-preview) and download `Local-Image-0.7.2-linux-preview-linux-x86_64.tar.gz` from **Assets**. The GitHub **Source code** archives are for developers.
 2. Use the file manager's **Extract** action. Keep the entire extracted folder together, including `_internal` and `backend`.
 3. Open that folder, choose **Open in Terminal**, and enter:
 

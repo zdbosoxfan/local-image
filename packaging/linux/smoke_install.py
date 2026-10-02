@@ -27,7 +27,7 @@ def port_is_occupied():
 
 
 def validate_package(package):
-    for name in ('local-image', 'backend/LocalRemoveBackend'):
+    for name in ('local-image', 'backend/LocalImageBackend'):
         path = package / name
         if not path.is_file() or not os.access(path, os.X_OK):
             raise RuntimeError(f'The package executable is missing: {name}')

@@ -10,7 +10,7 @@ const blankDraft = (): GenerationDraft => ({ modelId: '', variant: '', prompt: '
 function freeze<T>(value: T): T { if (value && typeof value === 'object' && !Object.isFrozen(value)) { for (const child of Object.values(value)) freeze(child); Object.freeze(value); } return value; }
 function reference(document: EditorDocument): GenerationReference { return { id: document.id, name: document.name, revision: document.revision, thumbnail: `/api/local-remove/session/${encodeURIComponent(document.id)}/preview?revision=${document.revision}`, attribution: document.source_attribution ?? document.reference_attributions }; }
 function errorText(error: unknown) { return error instanceof Error ? error.message : String(error); }
-export function createGenerationController(host: GenerationHost, token: string, options: { api?: GenerationApi; storage?: Pick<Storage, 'getItem' | 'setItem'>; pollMilliseconds?: number } = {}) {
+export function createGenerationController(host: GenerationHost, token: string, options: { api?: GenerationApi; storage?: Pick<Storage, 'getItem' | 'setItem'>; pollMilliseconds?: number; hardwarePollMilliseconds?: number; createOperationId?: () => string } = {}) {
   const api = options.api ?? createGenerationApi(token), listeners = new Set<() => void>();
   const storage = options.storage ?? (typeof localStorage !== 'undefined' ? localStorage : undefined);
   function recipes(): RefinementRecipe[] { try { const values = JSON.parse(storage?.getItem(RECIPE_KEY) ?? '[]'); return Array.isArray(values) ? values.filter(value => value?.schema === 1 && typeof value.name === 'string' && value.stages?.draft && value.stages?.final).slice(0, 40) : []; } catch { return []; } }
@@ -18,9 +18,46 @@ export function createGenerationController(host: GenerationHost, token: string, 
     drafts: { create: blankDraft(), edit: blankDraft(), draft: blankDraft(), final: blankDraft() }, modeDocuments: { create: null, edit: null },
     draftImages: [], resultImages: [], selectedDraftId: null, selectedResultId: null, includeReferences: true,
     upscale: { enabled: false, preset: '3840', width: 3840, height: 3840 }, upscaleInventory: null,
-    progress: null, watching: true, uncertain: false, progressError: null, runningKey: null, recipes: recipes(), recipeWarnings: [] });
+    progress: null, watching: true, uncertain: false, progressError: null, runningKey: null, stopping: false, cancelError: null, ejecting: false,
+    hardware: null, hardwareLoading: false, hardwareError: null, recipes: recipes(), recipeWarnings: [] });
   let disposed = false, activatingMode = false, modelEpoch = 0, modelAbort: AbortController | null = null, pollTimer: ReturnType<typeof setTimeout> | null = null, jobSequence = 0;
+  let stopRequestedSequence: number | null = null, activeOperationId: string | null = null, hardwareVisible = false, hardwareEpoch = 0;
+  const createOperationId = options.createOperationId ?? (() => crypto.randomUUID());
+  let hardwareTimer: ReturnType<typeof setTimeout> | null = null, hardwareAbort: AbortController | null = null;
   function update(change: Partial<GenerationState>) { if (disposed) return; state = freeze({ ...state, ...change }); listeners.forEach(listener => listener()); }
+  function stopHardwarePolling() { ++hardwareEpoch; if (hardwareTimer !== null) clearTimeout(hardwareTimer); hardwareTimer = null; hardwareAbort?.abort(); hardwareAbort = null; }
+  async function refreshHardwareUsage() {
+    if (disposed || !hardwareVisible) return;
+    stopHardwarePolling(); const epoch = hardwareEpoch, abort = hardwareAbort = new AbortController();
+    update({ hardwareLoading: !state.hardware });
+    let delay = 5000;
+    try {
+      const sample = await api.hardwareUsage(abort.signal);
+      if (disposed || epoch !== hardwareEpoch || !hardwareVisible) return;
+      if (!sample || !Array.isArray(sample.devices)) throw Error('GPU usage is unavailable.');
+      update({ hardware: sample, hardwareError: null });
+      delay = Math.max(1000, Math.min(30000, Number(sample.refresh_after_ms) || 2000));
+    } catch (error) { if (!abort.signal.aborted && epoch === hardwareEpoch) update({ hardwareError: errorText(error) }); }
+    finally {
+      if (!disposed && epoch === hardwareEpoch && hardwareVisible) {
+        hardwareAbort = null; update({ hardwareLoading: false });
+        hardwareTimer = setTimeout(() => void refreshHardwareUsage(), options.hardwarePollMilliseconds ?? delay);
+      }
+    }
+  }
+  function setHardwareVisible(visible: boolean) {
+    if (disposed || visible === hardwareVisible) return;
+    hardwareVisible = visible;
+    if (visible) void refreshHardwareUsage(); else { stopHardwarePolling(); update({ hardwareLoading: false }); }
+  }
+  function canEjectModels() { return !state.working && !state.context.busy && !state.ejecting && !!state.hardware?.comfy_connected && !!host.ejectModels && !!host.canEjectModels?.(); }
+  async function ejectModels() {
+    if (!canEjectModels()) return false;
+    update({ ejecting: true, error: null });
+    try { await host.ejectModels!(); update({ status: 'GPU unload requested. Model files remain on disk.' }); await refreshHardwareUsage(); return true; }
+    catch (error) { update({ error: errorText(error) }); return false; }
+    finally { update({ ejecting: false, context: structuredClone(host.getContext()) }); }
+  }
   function draftChange(key: DraftKey, change: Partial<GenerationDraft>) { update({ drafts: { ...state.drafts, [key]: { ...state.drafts[key], ...change } } }); }
   const modelFor = (key: DraftKey) => state.models.find(model => model.id === state.drafts[key].modelId);
   const selectedDraft = () => state.draftImages.find(item => item.session.id === state.selectedDraftId);
@@ -116,14 +153,32 @@ export function createGenerationController(host: GenerationHost, token: string, 
     return errors;
   }
   function stopPolling() { if (pollTimer !== null) clearTimeout(pollTimer); pollTimer = null; }
-  async function poll(sequence: number, baseline: string | null, model: string) {
-    if (disposed || sequence !== jobSequence || !state.working || !state.watching) return;
+  function canStop() { return !!(state.working && state.runningKey && !state.stopping && activeOperationId && state.progress?.active && state.progress.job_id === activeOperationId && state.progress.can_cancel); }
+  async function stopGeneration() {
+    if (!canStop()) return false;
+    const sequence = jobSequence, jobId = state.progress!.job_id!;
+    stopRequestedSequence = sequence;
+    update({ stopping: true, cancelError: null, status: 'Stopping generation…' });
+    try {
+      const progress = await api.cancel(jobId);
+      if (disposed || sequence !== jobSequence || !state.working || activeOperationId !== jobId) return false;
+      if (progress.job_id !== jobId) throw Error('The backend operation changed. No other job was stopped.');
+      update({ progress, cancelError: progress.cancel_error ?? null, stopping: !!(progress.cancelling || progress.cancellation_requested || progress.stage === 'cancelled'), status: progress.stage === 'cancelled' ? 'Generation stopped. Your existing images are kept.' : progress.cancelling || progress.cancellation_requested ? 'Stopping generation…' : 'The image is finishing. A completed result will be kept.' });
+      return true;
+    } catch (error) {
+      if (sequence === jobSequence && state.working && activeOperationId === jobId) update({ stopping: false, cancelError: `Could not stop generation: ${errorText(error)}` });
+      return false;
+    }
+  }
+  function cancelled(error: unknown) { return error instanceof GenerationApiError && error.status === 409 && error.message === 'Image operation cancelled.'; }
+  async function poll(sequence: number, operationId: string, model: string) {
+    if (disposed || sequence !== jobSequence || activeOperationId !== operationId || !state.working || !state.watching) return;
     try {
       const progress = await api.progress();
-      if (sequence !== jobSequence || !state.watching || !state.working) return;
-      if (progress.job_id && progress.job_id !== baseline && (!progress.model || progress.model === model)) update({ progress, progressError: null });
-    } catch (error) { if (sequence === jobSequence && state.working) update({ progressError: 'Progress updates are unavailable. The request has not been cancelled.' }); }
-    if (!disposed && sequence === jobSequence && state.working && state.watching) pollTimer = setTimeout(() => void poll(sequence, baseline, model), options.pollMilliseconds ?? 1000);
+      if (sequence !== jobSequence || activeOperationId !== operationId || !state.watching || !state.working) return;
+      if (progress.job_id === operationId && (!progress.model || progress.model === model)) update({ progress, progressError: null, cancelError: progress.cancel_error ?? state.cancelError, stopping: progress.cancel_error ? false : state.stopping || !!progress.cancelling || !!progress.cancellation_requested });
+    } catch (error) { if (sequence === jobSequence && activeOperationId === operationId && state.working) update({ progressError: 'Progress updates are unavailable. The request has not been cancelled.' }); }
+    if (!disposed && sequence === jobSequence && activeOperationId === operationId && state.working && state.watching) pollTimer = setTimeout(() => void poll(sequence, operationId, model), options.pollMilliseconds ?? 1000);
   }
   function current(context: GenerationContext) { const now = host.getContext(); return context.navigationEpoch === now.navigationEpoch && context.document?.id === now.document?.id; }
   function upscaleTarget(document: EditorDocument) {
@@ -141,7 +196,7 @@ export function createGenerationController(host: GenerationHost, token: string, 
   }
   function recordResult(document: EditorDocument, draftId: string | null) { update({ resultImages: [...state.resultImages, { session: structuredClone(document), references: [], ...(draftId ? { draftId } : {}) }], selectedResultId: state.selectedDraftId === draftId ? document.id : state.selectedResultId }); }
   async function requestRun(key: DraftKey | 'upscale') {
-    if (state.working || state.context.busy || state.loading) return;
+    if (state.working || state.context.busy || state.loading || state.ejecting) return;
     const errors = key === 'upscale' ? [] : errorsFor(key); if (errors.length) { update({ error: errors.join(' ') }); return; }
     const upscaleSource = selectedResult() ?? selectedDraft();
     if (key === 'upscale' && (!upscaleSource || !validUpscale(upscaleSource.session) || state.uncertain)) { update({ error: state.upscaleInventory?.model.reason || 'Choose a supported larger output that preserves the image aspect ratio.' }); return; }
@@ -149,14 +204,14 @@ export function createGenerationController(host: GenerationHost, token: string, 
     const chosenDraftId = state.selectedDraftId, mode = state.mode, payload = key === 'upscale' ? null : generationPayload(structuredClone(state.drafts[key]), modelFor(key)!, structuredClone(referencesFor(key)));
     const references = key === 'upscale' ? [] : structuredClone(referencesFor(key));
     if (key === 'final' && state.upscale.enabled && !validUpscale({ ...docForSize(), width: payload!.width, height: payload!.height })) { update({ error: 'The configured upscale must enlarge the refinement canvas and preserve its aspect ratio.' }); return; }
-    const sequence = ++jobSequence; let baseline: string | null = null;
-    update({ working: true, runningKey: key, watching: true, progress: null, progressError: null, error: null, status: '' });
+    const sequence = ++jobSequence; stopRequestedSequence = null;
+    update({ working: true, runningKey: key, watching: true, progress: null, progressError: null, error: null, status: '', stopping: false, cancelError: null });
     try {
       await host.runGeneration(async context => {
         if (!current(invocationContext)) throw new GenerationApiError('The active document changed before the request started. No image operation was submitted.', 409);
-        try { baseline = (await api.progress()).job_id; } catch { /* POST remains authoritative; no synthetic progress. */ }
-        void poll(sequence, baseline, key === 'upscale' ? 'seedvr2' : payload!.model);
-        const result = key === 'upscale' ? await api.upscale(upscaleSource!.session, upscaleTarget(upscaleSource!.session)) : await api.generate(payload!);
+        const operationId = activeOperationId = createOperationId();
+        void poll(sequence, operationId, key === 'upscale' ? 'seedvr2' : payload!.model);
+        const result = key === 'upscale' ? await api.upscale(upscaleSource!.session, upscaleTarget(upscaleSource!.session), operationId) : await api.generate({ ...payload!, operation_id: operationId });
         if (disposed || sequence !== jobSequence) return;
         if (key === 'draft') addDraft(result.session, references);
         else if (key === 'final' || key === 'upscale') recordResult(result.session, chosenDraftId);
@@ -165,18 +220,20 @@ export function createGenerationController(host: GenerationHost, token: string, 
           if (current(context) && mode === state.mode) await host.acceptResult(result.session, context, mode);
           if (key === 'edit') bindEdit(result.session);
         }
-        update({ status: `Image created${result.seed === undefined ? '' : ` · Seed ${result.seed}`}${result.library_warning ? ` · ${result.library_warning}` : ' · Library copy saved.'}` });
-        if (key === 'final' && state.upscale.enabled) {
+        update({ status: `${stopRequestedSequence === sequence ? 'Image finished before it could be stopped' : 'Image created'}${result.seed === undefined ? '' : ` · Seed ${result.seed}`}${result.library_warning ? ` · ${result.library_warning}` : ' · Library copy saved.'}` });
+        if (key === 'final' && state.upscale.enabled && stopRequestedSequence !== sequence) {
           // This second operation is explicitly selected by the user. A failure
           // retains the completed refinement and never resubmits either stage.
-          try { update({ runningKey: 'upscale', progress: null }); stopPolling(); baseline = (await api.progress()).job_id; void poll(sequence, baseline, 'seedvr2'); const upscaled = await api.upscale(result.session, upscaleTarget(result.session)); recordResult(upscaled.session, chosenDraftId); update({ status: 'Refinement and upscale saved as separate library copies.' }); }
-          catch (error) { update({ error: 'Refinement saved. Upscale failed: ' + errorText(error), uncertain: !(error instanceof GenerationApiError) || error.status >= 500 }); }
+          try { stopPolling(); const operationId = activeOperationId = createOperationId(); update({ runningKey: 'upscale', progress: null }); void poll(sequence, operationId, 'seedvr2'); const upscaled = await api.upscale(result.session, upscaleTarget(result.session), operationId); recordResult(upscaled.session, chosenDraftId); update({ status: 'Refinement and upscale saved as separate library copies.' }); }
+          catch (error) { if (cancelled(error)) update({ error: null, uncertain: false, status: 'Upscale stopped. The completed refinement is kept.' }); else update({ error: 'Refinement saved. Upscale failed: ' + errorText(error), uncertain: !(error instanceof GenerationApiError) || error.status >= 500 }); }
+        } else if (key === 'final' && state.upscale.enabled && stopRequestedSequence === sequence) {
+          update({ status: 'Refinement finished before it could be stopped. The image is saved; the following upscale was skipped.' });
         }
       });
     } catch (error) {
-      const uncertain = !(error instanceof GenerationApiError) || error.status >= 500;
-      update({ error: errorText(error), uncertain, status: uncertain ? 'The backend may still be running. Check operation status; the request was not retried.' : '' });
-    } finally { stopPolling(); if (sequence === jobSequence) update({ working: false, runningKey: null, progress: null, progressError: state.uncertain ? state.progressError : null, context: structuredClone(host.getContext()) }); }
+      if (cancelled(error)) update({ error: null, uncertain: false, status: 'Generation stopped. Your existing images are kept.' });
+      else { const uncertain = !(error instanceof GenerationApiError) || error.status >= 500; update({ error: errorText(error), uncertain, status: uncertain ? 'The backend may still be running. Check operation status; the request was not retried.' : '' }); }
+    } finally { stopPolling(); if (sequence === jobSequence) { activeOperationId = null; update({ working: false, runningKey: null, progress: null, stopping: false, progressError: state.uncertain ? state.progressError : null, context: structuredClone(host.getContext()) }); } }
   }
   function docForSize(): EditorDocument { return { id: 'size-validation', revision: 0, name: '', width: state.drafts.final.width, height: state.drafts.final.height }; }
   function loraPort(key: DraftKey): LoraDraftPort {
@@ -216,6 +273,7 @@ export function createGenerationController(host: GenerationHost, token: string, 
   }
   return {
     getSnapshot: () => state, subscribe(listener: () => void) { listeners.add(listener); return () => listeners.delete(listener); }, refreshModels, acceptCatalog, setMode, chooseModel, modelFor, referencesFor, errorsFor, addReference, addDraft, selectedDraft, selectedResult, backgroundResult, applyGeneratedBackground, validUpscale, upscaleTarget, upscaleSizeControls, getLoraPort: loraPort, restoreDocument,
+    canStop, stopGeneration, canEjectModels, ejectModels, setHardwareVisible, refreshHardwareUsage,
     activeDraftKey: (): DraftKey => state.mode === 'refine' ? 'draft' : state.mode,
     resetWorkspace() { if (!state.working) update({mode: 'create', modeDocuments: {create: null, edit: null}, error: null, context: structuredClone(host.getContext())}); },
     boundsFor: (key: DraftKey) => host.sizeMath.dimensionBounds(state.drafts[key], workflowLimits(modelFor(key), referencesFor(key).length > 0)),
@@ -264,7 +322,7 @@ export function createGenerationController(host: GenerationHost, token: string, 
     openLoras: (key: DraftKey) => host.openLoras(loraPort(key)),
     saveRecipe(name: string) { if (state.working) return; name = name.trim(); if (!name || name.length > 80) { update({ error: 'Enter a recipe name of 1–80 characters.' }); return; } const capture = (key: 'draft' | 'final') => { const draft = state.drafts[key]; return { model: draft.modelId, variant: draft.variant, prompt: draft.prompt, width: String(draft.width), height: String(draft.height), steps: String(draft.steps), guidance: String(draft.guidance), seed: draft.seed, transparent: draft.transparent, loras: draft.loras.map(({ id, title, strength }) => ({ id, title, strength })) }; }; const recipe: RefinementRecipe = { schema: 1, name, stages: { draft: capture('draft'), final: capture('final') }, aspect: state.drafts.final.aspect, negative: state.drafts.final.negativePrompt, denoise: String(state.drafts.draft.denoise), includeReferences: state.includeReferences, upscale: { ...state.upscale, width: String(state.upscale.width), height: String(state.upscale.height) } }; const values = [...state.recipes.filter(item => item.name !== name), recipe]; if (values.length > 40) { update({ error: 'Delete a recipe before saving more than 40.' }); return; } try { writeRecipes(values); update({ status: `Saved ${name}. Both stages and output settings are included.` }); } catch (error) { update({ error: errorText(error) }); } },
     loadRecipe, deleteRecipe(name: string) { if (!state.working) try { writeRecipes(state.recipes.filter(item => item.name !== name)); } catch (error) { update({ error: errorText(error) }); } },
-    dispose() { disposed = true; stopPolling(); modelAbort?.abort(); unsubscribe(); listeners.clear(); /* Do not abort an in-flight inference request. */ },
+    dispose() { disposed = true; stopPolling(); stopHardwarePolling(); modelAbort?.abort(); unsubscribe(); listeners.clear(); /* Do not abort an in-flight inference request. */ },
   };
 }
 export type GenerationController = ReturnType<typeof createGenerationController>;

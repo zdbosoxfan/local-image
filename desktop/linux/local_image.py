@@ -35,7 +35,7 @@ def backend_launch():
     """Start the separately bundled server, keeping its runtime independent of Qt."""
     environment = os.environ.copy()
     if not FROZEN:
-        return [sys.executable, str(ROOT / 'backend' / 'run_local_remove.py')], environment
+        return [sys.executable, str(ROOT / 'backend' / 'run_local_image.py')], environment
     environment['PYINSTALLER_RESET_ENVIRONMENT'] = '1'
     original = environment.pop('LD_LIBRARY_PATH_ORIG', None)
     if original:
@@ -44,7 +44,7 @@ def backend_launch():
         environment.pop('LD_LIBRARY_PATH', None)
     for name in ('QT_PLUGIN_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH', 'QML2_IMPORT_PATH'):
         environment.pop(name, None)
-    return [str(ROOT / 'backend' / 'LocalRemoveBackend')], environment
+    return [str(ROOT / 'backend' / 'LocalImageBackend')], environment
 
 
 @contextmanager

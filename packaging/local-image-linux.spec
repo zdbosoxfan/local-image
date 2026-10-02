@@ -46,12 +46,12 @@ for notice in ('LICENSE.txt', 'LICENSE-3RD-PARTY.txt'):
     if path.is_file():
         datas.append((str(path), 'licenses/opencv'))
 
-server = Analysis([str(backend / 'run_local_remove.py')], pathex=[str(backend)],
+server = Analysis([str(backend / 'run_local_image.py')], pathex=[str(backend)],
     binaries=binaries, datas=datas + metadata, hiddenimports=hiddenimports,
     excludes=['tkinter', 'matplotlib', 'torch', 'pytest', 'IPython', 'PySide6', 'PyQt6', 'PyQt5'])
 server_pyz = PYZ(server.pure)
 server_exe = EXE(server_pyz, server.scripts, [], exclude_binaries=True,
-    name='LocalRemoveBackend', debug=False, strip=False, upx=False, console=True)
+    name='LocalImageBackend', debug=False, strip=False, upx=False, console=True)
 server_bundle = COLLECT(server_exe, server.binaries, server.datas,
     strip=False, upx=False, name='backend')
 

@@ -1,6 +1,6 @@
 # Build and test Local Image
 
-End users should install a bundled [Windows release](INSTALLATION.md) or [Linux preview](LINUX-INSTALLATION.md). These instructions cover source development, including Retouch, Cutout, Image Gen and deployment. The Windows packaging instructions below describe 0.7.0; the Linux preview is 0.7.1-linux-preview. Qwen graphs, models, and licensing are covered in [Qwen Image 2.1](QWEN-IMAGE-21.md).
+End users should install a bundled [Windows release](INSTALLATION.md) or [Linux preview](LINUX-INSTALLATION.md). These instructions cover source development, including Retouch, Cutout, Image Gen and deployment. The Windows packaging instructions below describe 0.7.0; the Linux preview is 0.7.2-linux-preview. Qwen graphs, models, and licensing are covered in [Qwen Image 2.1](QWEN-IMAGE-21.md).
 
 ## Development environment
 
@@ -16,14 +16,14 @@ The application requirements include `tifffile` and `imagecodecs` for TIFF suppo
 For browser development, start the server directly:
 
 ```powershell
-$env:LOCAL_REMOVE_DATA_DIR = Join-Path $env:TEMP 'Local Remove Development'
+$env:LOCAL_IMAGE_DATA_DIR = Join-Path $env:TEMP 'Local Image Development'
 Set-Location .\backend
 ..\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 51247
 ```
 
-Open `http://127.0.0.1:51247/remove`. This development mode stays running until Ctrl+C. Native file access and native save dialogs require the desktop host. Set `LOCAL_REMOVE_DATA_DIR` on both the host and backend when testing an isolated profile. Do not run two profiles on the same port simultaneously.
+Open `http://127.0.0.1:51247/remove`. This development mode stays running until Ctrl+C. Native file access and native save dialogs require the desktop host. Set `LOCAL_IMAGE_DATA_DIR` on both the host and backend when testing an isolated profile. Do not run two profiles on the same port simultaneously.
 
-The installed host starts `backend/LocalRemoveBackend.exe` beside its own executable. That packaged backend automatically exits after 75 seconds without a desktop heartbeat, once any active AI generation or setup job has finished. The service is bound to loopback and its native management endpoints require the per-user launcher credential.
+The installed host starts `backend/LocalImageBackend.exe` beside its own executable. That packaged backend automatically exits after 75 seconds without a desktop heartbeat, once any active AI generation or setup job has finished. The service is bound to loopback and its native management endpoints require the per-user launcher credential.
 
 ## Build the installer
 
@@ -71,10 +71,10 @@ Install `packaging/requirements-linux-build.txt` into the build environment, the
 
 ```sh
 .venv/bin/python -m pip install -r packaging/requirements-linux-build.txt
-bash packaging/Build-Linux.sh --python .venv/bin/python --version 0.7.1-linux-preview --output dist/linux
+bash packaging/Build-Linux.sh --python .venv/bin/python --version 0.7.2-linux-preview --output dist/linux
 ```
 
-It produces `Local-Image-0.7.1-linux-preview-linux-x86_64.tar.gz`, the matching `.deb` and `SHA256SUMS` under the output directory. The Linux release uses separate PyInstaller one-folder bundles for the host and backend. Ship the whole directory, including Qt plugins, WebEngine resources and library symlinks. The static Texture helper is included in the Linux package. Normal launch must find the packaged backend relative to the host without a developer virtual environment or current-working-directory assumption. Retain `licenses/Local-Image-LICENSE.txt`, `THIRD_PARTY_NOTICES.md`, `React-THIRD_PARTY_NOTICES.txt` and dependency license resources in the package. See [the Linux host](../desktop/linux/README.md) for its persistent profile and native bridge.
+It produces `Local-Image-0.7.2-linux-preview-linux-x86_64.tar.gz`, the matching `.deb` and `SHA256SUMS` under the output directory. The Linux release uses separate PyInstaller one-folder bundles for the host and backend. Ship the whole directory, including Qt plugins, WebEngine resources and library symlinks. The static Texture helper is included in the Linux package. Normal launch must find the packaged backend relative to the host without a developer virtual environment or current-working-directory assumption. Retain `licenses/Local-Image-LICENSE.txt`, `THIRD_PARTY_NOTICES.md`, `React-THIRD_PARTY_NOTICES.txt` and dependency license resources in the package. See [the Linux host](../desktop/linux/README.md) for its persistent profile and native bridge.
 
 Build release binaries on the oldest supported system, currently **Ubuntu 24.04 x86-64/glibc 2.39**. PyInstaller bundles Python and application dependencies but [does not bundle glibc](https://pyinstaller.org/en/stable/usage.html#making-gnu-linux-apps-forward-compatible); building on a newer distribution can raise the runtime requirement. Qt's [Linux dependency reference](https://doc.qt.io/qt-6/linux-requirements.html) distinguishes runtime libraries from development headers. Validate the frozen binaries on the target desktop rather than inferring compatibility from a successful source run.
 

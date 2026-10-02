@@ -1,4 +1,4 @@
-"""Portable Local Remove projects; archives contain assets, never disk paths."""
+"""Portable Local Image projects; archives contain assets, never disk paths."""
 import hashlib
 import json
 from pathlib import Path
@@ -131,7 +131,7 @@ def read_manifest(archive):
     if (not isinstance(manifest, dict) or not required <= set(manifest) or not set(manifest) <= required | optional
             or manifest['format'] != FORMAT or type(manifest['version']) is not int or manifest['version'] not in (1, 2, VERSION)
             or (manifest['version'] == 1 and bool(optional.intersection(manifest)))):
-        raise ValueError('This is not a supported Local Remove project.')
+        raise ValueError('This is not a supported Local Image project.')
     if not safe_name(manifest['name']) or not all(integer(manifest[key], 1, 100000) for key in ('width', 'height')):
         raise ValueError('Project image metadata is invalid.')
     if manifest['width'] * manifest['height'] > MAX_PIXELS or manifest['bit_depth'] not in (8, 16) or not integer(manifest['revision'], 0, 2**53 - 1):

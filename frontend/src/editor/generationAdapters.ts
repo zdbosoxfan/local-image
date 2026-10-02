@@ -9,14 +9,17 @@ import type { GenerationController } from '../features/generation/controller.ts'
 import { GenerationApiError } from '../features/generation/api.ts';
 import type { DraftKey, GenerationBackgroundTarget, GenerationContext, GenerationHost, GenerationMode } from '../features/generation/types.ts';
 import { sizeMath } from '../features/generation/sizeMath.ts';
+import type { SetupState } from '../features/settings/types.ts';
+import { waitForSetupAction } from '../features/settings/setupAction.ts';
 
 export type GenerationDocumentPort = Pick<DocumentController,
   'getContext' | 'getSnapshot' | 'subscribe' | 'runDocumentChange' | 'acceptDocument' | 'retainDocument' | 'applyGeneratedBackground' | 'openSession' | 'activateMode' | 'setGenerationView' | 'report' | 'rememberCurrentView' | 'isModalOpen'>;
 export interface GenerationAdaptersOptions {
   document: GenerationDocumentPort;
-  native: Pick<NativeBridge, 'capabilities' | 'subscribe' | 'chooseBackgroundFolder'>;
+  native: Pick<NativeBridge, 'capabilities' | 'subscribe' | 'chooseBackgroundFolder'> & Partial<Pick<NativeBridge, 'setupEject'>>;
   openModels: GenerationHost['openModels'];
   openLoras: GenerationHost['openLoras'];
+  setupStatus?: () => Promise<SetupState>;
 }
 export interface GenerationAdapterSnapshot {
   mode: GenerationMode; active: boolean; refining: boolean; creatingBlank: boolean;
@@ -193,6 +196,14 @@ export function createGenerationAdapters(options: GenerationAdaptersOptions) {
       catch (error) { if (!started) throw new GenerationApiError(`${error instanceof Error ? error.message : String(error)} No image operation was submitted.`, 409); throw error; }
     },
     acceptResult, activateMode, openAssets: destination => { void showAssets(destination); }, openModels: options.openModels, openLoras: options.openLoras, sizeMath,
+    canEjectModels: () => !!native.capabilities().ready && !!native.capabilities().setup && !!native.setupEject,
+    ejectModels: () => runOwned(async () => {
+      if (!native.capabilities().ready || !native.capabilities().setup || !native.setupEject) throw Error('Open the Local Image desktop app to unload GPU models.');
+      const initial = await native.setupEject();
+      if (!initial) throw Error('The GPU unload request was not accepted.');
+      if (!options.setupStatus && (initial as SetupState).job?.status === 'running') throw Error('GPU unload is pending. Check Settings for its outcome.');
+      return waitForSetupAction(initial as SetupState, options.setupStatus ?? (async () => initial as SetupState), { active: () => !disposed });
+    }),
     async applyGeneratedBackground(document, captured) {
       const target = backgroundTargets[mode];
       if (!target || target.id !== captured.backgroundTarget?.id || target.id === document.id || !generationMatches(captured) || !(document.generation || document.upscale)) return false;

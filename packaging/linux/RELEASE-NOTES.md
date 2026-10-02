@@ -8,6 +8,13 @@ Local Image now has a Linux desktop installer with Python, Qt, the editor backen
 
 This preview is built on Ubuntu 24.04 and requires glibc 2.39 or newer, a graphical Linux desktop and working graphics drivers. It does not support ARM or 32-bit Linux.
 
+### GPU controls
+
+- GPU usage and used/total GPU memory are visible beside the generation controls. NVIDIA devices report utilization; other devices show available memory readings.
+- Stop cancels the selected generation or refinement upscale through the AI backend. Running-job cancellation requires a current ComfyUI with its job cancellation API.
+- A small eject icon unloads GPU models while retaining their files. It is disabled while work is active.
+- Desktop and editor backend processes now use Local Image names, including LocalImageBackend. Existing settings and projects remain compatible.
+
 ### Editing improvements
 
 - Draft and Refine share one image viewer; the selected step controls the image and its options. Options sit beside the viewer, with scroll-to-zoom, drag-to-pan and compact view controls.

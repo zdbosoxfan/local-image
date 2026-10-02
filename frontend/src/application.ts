@@ -10,6 +10,7 @@ import {createShellController,type ShellController} from './features/shell/shell
 import {createEditorDialogs} from './features/shell/editorDialogs.ts';
 import {createCommandExecutor} from './features/shell/executeCommand.ts';
 import {createSettingsController,type SettingsController} from './features/settings/index.ts';
+import {createSettingsApi} from './features/settings/settingsApi.ts';
 import {createModelsController,type ModelsController} from './features/models/index.ts';
 import {createBatchController,type BatchController} from './features/batch/index.ts';
 import {createAssetsController} from './features/assets/index.ts';
@@ -39,12 +40,13 @@ export function createApplication(token:string) {
  const applyDensity=(value:InterfaceDensity)=>{document.documentElement.dataset.uiDensity=value;requestAnimationFrame(()=>canvas.resize());};
  const featureAdapters=createFeatureAdapters({documents,native,storage:localStorage,applyDensity});
  applyDensity(featureAdapters.settingsBridge.preferences().density);
- const generationAdapters=createGenerationAdapters({document:documents,native,openModels:options=>{void models!.openModels(options);},openLoras:port=>{void models!.openLoras(port);}});
+ const settingsApi=createSettingsApi(token);
+ const generationAdapters=createGenerationAdapters({document:documents,native,setupStatus:()=>settingsApi.setup(),openModels:options=>{void models!.openModels(options);},openLoras:port=>{void models!.openLoras(port);}});
  const assets=createAssetsController(generationAdapters.assetsHost,token);
  const generation=createGenerationController(generationAdapters.generationHost,token);
  models=createModelsController({token,bridge:featureAdapters.modelBridge,onCatalog:value=>generation.acceptCatalog(value as unknown as GenerationModel[]),onSetup:value=>documents.acceptConfiguration({setup:value})});
  const modelController=models;
- settings=createSettingsController({token,bridge:featureAdapters.settingsBridge,browseModels:()=>generationAdapters.featureCommands.browseModels?.(),startTask:async workspace=>{documents.commands.setWorkspace(workspace);if(workspace!=='generate'&&!documents.getSnapshot().document){await documents.commands.openFiles();documents.commands.setWorkspace(workspace);}}});
+ settings=createSettingsController({token,api:settingsApi,bridge:featureAdapters.settingsBridge,browseModels:()=>generationAdapters.featureCommands.browseModels?.(),startTask:async workspace=>{documents.commands.setWorkspace(workspace);if(workspace!=='generate'&&!documents.getSnapshot().document){await documents.commands.openFiles();documents.commands.setWorkspace(workspace);}}});
  const settingsController=settings;
  batch=createBatchController({token,editor:featureAdapters.batchEditor});
  const batchController=batch;

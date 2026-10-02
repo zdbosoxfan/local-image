@@ -279,6 +279,14 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(str(source), [item['path'] for item in found])
         self.assertIn(str(portable), [item['path'] for item in found])
 
+    def test_detects_legacy_managed_folder_after_process_rename(self):
+        parent = self.root / 'managed-ai'
+        code, _ = create_runtime(parent / ai.LEGACY_MANAGED_FOLDER)
+        write_config({'managed_ai_directory': str(parent)})
+        found = ai.detect_installations()
+        self.assertIn(str(code), [item['path'] for item in found])
+        self.assertEqual(ai.MANAGED_FOLDER, 'LocalImage-ComfyUI')
+
     def test_configure_uses_detected_id_preserves_fields_and_rejects_arbitrary_target(self):
         code, python = create_runtime(self.root / 'home' / 'ComfyUI_windows_portable')
         write_config({'comfy_port': 8189, 'desktop_preference': 'preserved'})
@@ -414,7 +422,7 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
 
     def test_custom_installed_application_folder_cannot_hold_mutable_ai_files(self):
         application = self.root / 'Applications' / 'Local Image'
-        executable = application / 'backend' / 'LocalRemoveBackend.exe'
+        executable = application / 'backend' / 'LocalImageBackend.exe'
         with patch.object(ai.sys, 'frozen', True, create=True), patch.object(ai.sys, 'executable', str(executable)):
             for key in ('model_directory', 'managed_ai_directory'):
                 with self.assertRaisesRegex(ai.SetupError, 'outside the Local Image installation'):

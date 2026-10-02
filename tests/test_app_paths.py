@@ -27,7 +27,7 @@ class UserStorageTests(unittest.TestCase):
         (bundle / 'backend').mkdir(parents=True)
         (bundle / 'VERSION').write_text('0.7.1-linux-preview\n', encoding='utf-8')
         with patch.object(app_paths.sys, 'platform', 'linux'), patch.object(app_paths.sys, 'frozen', True, create=True):
-            for program in ('local-image', 'backend/LocalRemoveBackend'):
+            for program in ('local-image', 'backend/LocalImageBackend'):
                 with patch.object(app_paths.sys, 'executable', str(bundle / program)):
                     self.assertEqual(app_paths._application_version(), '0.7.1-linux-preview')
         with patch.object(app_paths.sys, 'platform', 'win32'), patch.object(app_paths.sys, 'frozen', True, create=True):

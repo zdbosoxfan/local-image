@@ -4,6 +4,7 @@ import { Comparison } from './Comparison.tsx';
 import { refinementPreview } from './previewCamera.ts';
 import { DimensionControls } from './DimensionControls.tsx';
 import { Icon } from '../shell/Icon.tsx';
+import { hardwareUsageSummary } from './hardwareUsage.ts';
 import type { GenerationController } from './controller.ts';
 import type { DraftKey, GenerationMode } from './types.ts';
 import './generation.css';
@@ -21,7 +22,7 @@ function GenerationChoiceMenu({ id, label, value, choices, disabled, onSelect }:
 
 function Stage({ controller, stage }: { controller: GenerationController; stage: DraftKey }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), draft = state.drafts[stage], model = controller.modelFor(stage), cap = model?.capabilities;
-  const refs = controller.referencesFor(stage), errors = controller.errorsFor(stage), disabled = state.working || state.context.busy || state.loading, fileInput = useRef<HTMLInputElement>(null);
+  const refs = controller.referencesFor(stage), errors = controller.errorsFor(stage), disabled = state.working || state.context.busy || state.loading || state.ejecting, fileInput = useRef<HTMLInputElement>(null);
   const title = { create: 'Create new', edit: 'Edit image', draft: 'Draft', final: 'Refinement' }[stage];
   const textToImage = stage === 'create' || stage === 'draft';
   const bounds = controller.boundsFor(stage);
@@ -59,20 +60,31 @@ function Stage({ controller, stage }: { controller: GenerationController; stage:
 }
 
 export function GenerationPanel({ controller }: { controller: GenerationController }) {
-  const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), disabled = state.working || state.context.busy;
+  const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), disabled = state.working || state.context.busy || state.ejecting;
   const [recipeName, setRecipeName] = useState(''), [recipe, setRecipe] = useState('');
   const [refinementStep, setRefinementStep] = useState<'draft' | 'final'>('draft');
   const panel = useRef<HTMLElement>(null);
   useEffect(() => { if (panel.current) panel.current.scrollTop = 0; }, [state.mode]);
+  useEffect(() => {
+    const element = panel.current; if (!element) return;
+    const owner = element.ownerDocument; let intersecting = false;
+    const visible = () => controller.setHardwareVisible(intersecting && owner.visibilityState !== 'hidden');
+    const observer = new IntersectionObserver(entries => { intersecting = entries.some(entry => entry.target === element && entry.isIntersecting); visible(); });
+    observer.observe(element); owner.addEventListener('visibilitychange', visible);
+    return () => { observer.disconnect(); owner.removeEventListener('visibilitychange', visible); controller.setHardwareVisible(false); };
+  }, [controller]);
   const progress = state.progress, sampler = state.working && state.watching && progress?.active && progress.stage === 'sampling' ? progress.progress : null;
   const selectedDraft = controller.selectedDraft(), selectedResult = controller.selectedResult();
   const preview = refinementPreview(refinementStep, selectedDraft?.session, selectedResult?.session);
   const stageImages = refinementStep === 'draft' ? state.draftImages : state.resultImages.filter(item => item.draftId === state.selectedDraftId);
   const upscaleSource = (selectedResult ?? selectedDraft)?.session;
   const upscaleSize = useMemo(() => controller.upscaleSizeControls(), [controller, state.upscale, state.upscaleInventory, upscaleSource?.width, upscaleSource?.height, state.drafts.final.width, state.drafts.final.height]);
+  const hardware = hardwareUsageSummary(state.hardware, state.hardwareError, state.hardwareLoading);
+  const stopHint = state.stopping ? 'Waiting for the AI backend to stop this job' : controller.canStop() ? 'Stop the current image generation' : progress?.job_id ? 'This operation is finishing or cannot be stopped safely' : 'Waiting for the AI backend to identify this job';
+  const ejectHint = state.working || state.context.busy ? 'Finish or stop the current operation before unloading GPU models' : state.ejecting ? 'Unloading GPU models…' : controller.canEjectModels() ? 'Unload GPU models; keep files on disk' : state.hardware?.comfy_connected ? 'Open the desktop app to unload GPU models' : 'Start the AI backend to unload its GPU models';
   return <section ref={panel} className="li-generation" data-mode={state.mode} data-react-owned="true" aria-label="Image generation">
     <header className="li-generation-header"><TabList size="small" aria-label="Generation mode" selectedValue={state.mode} onTabSelect={(_, data) => void controller.setMode(data.value as GenerationMode)}><Tab value="create" disabled={disabled}>Create</Tab><Tab value="edit" disabled={disabled || (!state.context.document && !state.modeDocuments.edit)}>Edit</Tab><Tab value="refine" disabled={disabled}>Refine</Tab></TabList><Tooltip content="Refresh models" relationship="description"><Button size="small" appearance="subtle" className="li-generation-icon-button" aria-label="Refresh models" disabled={disabled || state.loading} icon={<Icon name="refresh"/>} onClick={() => void controller.refreshModels(true)}/></Tooltip></header>
-    {state.mode !== 'refine' ? <Stage controller={controller} stage={state.mode} /> : <div className="li-refinement">
+    {state.mode !== 'refine' ? <div className="li-generation-main"><Stage controller={controller} stage={state.mode} /></div> : <div className="li-refinement">
       <div className="li-refinement-step"><TabList size="small" aria-label="Refinement step" selectedValue={refinementStep} onTabSelect={(_, data) => setRefinementStep(data.value as 'draft' | 'final')}><Tab value="draft" disabled={disabled}>Draft</Tab><Tab value="final" disabled={disabled}>Refine</Tab></TabList><p className="li-generation-note">{refinementStep === 'draft' ? 'Create or choose a starting image.' : 'Improve the selected draft.'}</p></div>
       <div className="li-refinement-workspace">
         <div className="li-refinement-viewer">
@@ -93,6 +105,9 @@ export function GenerationPanel({ controller }: { controller: GenerationControll
       </div>
     </div>}
     {state.context.backgroundTarget && controller.backgroundResult() && state.context.backgroundTarget.id !== controller.backgroundResult()!.id && <div className="li-generation-result-actions"><Button size="small" disabled={disabled} onClick={() => void controller.applyGeneratedBackground()}>Use as background</Button><span className="li-generation-note" title={state.context.backgroundTarget.name}>For {state.context.backgroundTarget.name}</span></div>}
-    <footer className="li-generation-status">{state.error && <p role="alert">{state.error}</p>}<p role="status">{state.working && state.runningKey && state.watching ? progress?.stage_label || 'Waiting for backend progress…' : state.status}</p>{sampler && <><ProgressBar max={sampler.max} value={sampler.value} /><p>Sampler {sampler.value} / {sampler.max}</p></>}{state.working && progress?.connection_lost && <p>Backend progress connection lost. The job may still be running.</p>}{state.progressError && <p>{state.progressError}</p>}{state.working && state.runningKey && <Button size="small" disabled={!state.watching} onClick={controller.stopWatching}>Pause progress updates</Button>}{state.uncertain && <Button size="small" onClick={() => void controller.checkOperation()}>Check backend operation</Button>}</footer>
+    <footer className="li-generation-status">
+      <div className="li-generation-runtime" aria-label="GPU and generation controls"><Tooltip content={hardware.description} relationship="description"><span className="li-generation-gpu" aria-label={hardware.description}>{hardware.label}</span></Tooltip><div className="li-generation-runtime-actions"><span className="li-generation-stop-slot">{state.working && state.runningKey && <Tooltip content={stopHint} relationship="description"><Button size="small" aria-label="Stop generation" disabled={!controller.canStop()} icon={<Icon name="stop"/>} onClick={() => void controller.stopGeneration()}>Stop</Button></Tooltip>}</span><Tooltip content={ejectHint} relationship="description"><Button size="small" appearance="subtle" className="li-generation-icon-button" aria-label="Unload GPU models" disabled={!controller.canEjectModels()} icon={<Icon name="eject"/>} onClick={() => void controller.ejectModels()}/></Tooltip></div></div>
+      <div className="li-generation-feedback">{state.error && <p role="alert">{state.error}</p>}{state.cancelError && <p role="alert">{state.cancelError}</p>}<p role="status">{state.stopping ? progress?.stage === 'cancelled' ? 'Generation stopped. Finishing cleanup…' : 'Stopping generation…' : state.working && state.runningKey && state.watching ? progress?.stage_label || 'Waiting for backend progress…' : state.status}{sampler ? ` · ${sampler.value} / ${sampler.max}` : ''}</p>{sampler && <ProgressBar max={sampler.max} value={sampler.value} aria-label="Generation sampling progress"/>}{state.working && progress?.connection_lost && <p>Backend progress connection lost. The job may still be running.</p>}{state.progressError && <p>{state.progressError}</p>}{state.uncertain && <Button size="small" onClick={() => void controller.checkOperation()}>Check backend operation</Button>}</div>
+    </footer>
   </section>;
 }

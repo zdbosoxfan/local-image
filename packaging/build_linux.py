@@ -134,7 +134,7 @@ def make_debian(package, output, name, version):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--python', default='python3', help='Python environment with requirements-linux-build.txt')
-    parser.add_argument('--version', required=True, help='Release version, for example 0.7.1-linux-preview')
+    parser.add_argument('--version', required=True, help='Release version, for example 0.7.2-linux-preview')
     parser.add_argument('--output', default=str(ROOT / 'dist' / 'linux'))
     parser.add_argument('--skip-deb', action='store_true', help='Build the portable installer only')
     options = parser.parse_args()

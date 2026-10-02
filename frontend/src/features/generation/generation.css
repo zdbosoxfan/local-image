@@ -1,6 +1,7 @@
 #react-generation-root>div { min-height:0; display:flex; flex-direction:column; flex:1; }
 .li-generation-empty { color:var(--colorNeutralForeground3); font:var(--ui-font)/1.4 var(--fontFamilyBase); }
-.li-generation { display:flex; flex-direction:column; min-height:0; height:100%; overflow:auto; background:var(--colorNeutralBackground2); color:var(--colorNeutralForeground1); font:var(--ui-font)/1.4 var(--fontFamilyBase); }
+.li-generation { display:flex; flex-direction:column; min-height:0; height:100%; overflow:hidden; background:var(--colorNeutralBackground2); color:var(--colorNeutralForeground1); font:var(--ui-font)/1.4 var(--fontFamilyBase); }
+.li-generation-main { flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; }
 .li-generation-header,.li-generation-stage>header { display:flex; align-items:center; gap:4px; justify-content:space-between; padding:4px 8px; }
 .li-generation-header { position:sticky; top:0; z-index:2; background:var(--colorNeutralBackground2); }
 .li-generation-stage>header { padding:0; }
@@ -37,7 +38,13 @@
 .li-generation-reference { display:flex; align-items:center; gap:4px; min-width:0; }
 .li-generation-reference img { width:36px; height:36px; object-fit:contain; background:var(--colorNeutralBackground3); }
 .li-generation-reference span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:var(--ui-note); }
-.li-generation-status { display:flex; flex-direction:column; gap:4px; padding:8px; border-top:1px solid var(--colorNeutralStroke2); font-size:var(--ui-note); }
+.li-generation-status { display:flex; flex:none; flex-direction:column; gap:4px; padding:4px 8px; border-top:1px solid var(--colorNeutralStroke2); font-size:var(--ui-note); }
+.li-generation-feedback { display:flex; flex:none; flex-direction:column; gap:4px; height:calc(var(--ui-note) * 3 + 8px); overflow:auto; overscroll-behavior:contain; }
+.li-generation-feedback>p:empty { display:none; }
+.li-generation-runtime { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; min-height:calc(var(--ui-note) * 3); }
+.li-generation-gpu { min-width:0; color:var(--colorNeutralForeground3); overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+.li-generation-runtime-actions { display:flex; flex:none; align-items:center; gap:4px; }
+.li-generation-stop-slot { display:flex; justify-content:flex-end; width:calc(var(--ui-font) * 5 + 8px); }
 .li-generation-result-actions { display:flex; align-items:center; gap:8px; padding:8px; border-top:1px solid var(--colorNeutralStroke2); }
 .li-generation-result-actions>span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .li-generation-recipes,.li-generation-upscale { padding:8px; }

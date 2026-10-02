@@ -56,7 +56,7 @@ def _context_box(source, bounds, margin, minimum=0):
 
 def _texture_repair(color, support):
     if not TEXTURE_EXE.is_file():
-        raise ValueError('The Texture repair helper is missing. Reinstall Local Remove or choose Dust & scratches.')
+        raise ValueError('The Texture repair helper is missing. Reinstall Local Image or choose Dust & scratches.')
     height, width = support.shape
     if (width > TEXTURE_MAX_EDGE or height > TEXTURE_MAX_EDGE
             or width * height > TEXTURE_MAX_PIXELS
@@ -84,7 +84,7 @@ def _texture_repair(color, support):
         except subprocess.TimeoutExpired as error:
             raise ValueError('Texture repair took too long. Try a smaller selection or use AI Remove.') from error
         except OSError as error:
-            raise ValueError('The Texture repair helper could not start. Reinstall Local Remove.') from error
+            raise ValueError('The Texture repair helper could not start. Reinstall Local Image.') from error
         if result.returncode != 0:
             # Keep internal temporary paths and native diagnostics out of the UI.
             raise ValueError('Texture repair failed. Try a smaller selection with more surrounding detail.')

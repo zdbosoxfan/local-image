@@ -40,3 +40,5 @@
 :root[data-ui-density=large] .li-settings-interface-size { width:min(420px,100%); }
 :root[data-ui-density=large] .li-settings-model-download { grid-template-columns:minmax(0,1fr) minmax(160px,240px); }
 @media(max-width:600px) { .li-settings-surface.fui-DialogSurface { width:calc(100vw - 16px); max-width:calc(100vw - 16px); padding:12px; } .li-settings-installation-choice { grid-template-columns:1fr; } .li-settings-model-download,:root[data-ui-density=large] .li-settings-model-download { grid-template-columns:minmax(0,1fr); } .li-settings-folder-row { flex-wrap:wrap; } .li-settings-folder-row > div { flex-basis:100%; } .li-settings-file-list li { flex-wrap:wrap; gap:4px; } }
+.li-settings-icon-button.fui-Button { width:28px; min-width:28px; height:28px; padding:4px; flex:none; }
+:root[data-ui-density=large] .li-settings-icon-button.fui-Button { width:44px; min-width:44px; height:44px; }

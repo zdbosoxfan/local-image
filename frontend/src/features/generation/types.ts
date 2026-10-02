@@ -20,9 +20,11 @@ export interface GenerationDraft {
   transparent: boolean; denoise: number; references: GenerationReference[]; loras: LoraSelection[];
   locked: boolean; ratio: number; aspect: string; missingReferenceCount: number;
 }
-export interface GenerationPayload { model: string; variant: string; prompt: string; width: number; height: number; steps: number; guidance: number; transparent: boolean; reference_session_ids: string[]; loras: { id: string; strength: number }[]; seed?: number; negative_prompt?: string; denoise?: number }
+export interface GenerationPayload { model: string; variant: string; prompt: string; width: number; height: number; steps: number; guidance: number; transparent: boolean; reference_session_ids: string[]; loras: { id: string; strength: number }[]; seed?: number; negative_prompt?: string; denoise?: number; operation_id?: string }
 export interface GenerationResult { session: EditorDocument; seed?: number; width?: number; height?: number; library_warning?: string }
-export interface OperationProgress { active: boolean; job_id: string | null; model?: string; stage: string; stage_label: string; elapsed_seconds: number; progress: { value: number; max: number; percent?: number } | null; connection_lost?: boolean; error?: string; updated_seconds_ago?: number }
+export interface OperationProgress { active: boolean; job_id: string | null; model?: string; stage: string; stage_label: string; elapsed_seconds: number; progress: { value: number; max: number; percent?: number } | null; connection_lost?: boolean; error?: string; updated_seconds_ago?: number; can_cancel?: boolean; cancelling?: boolean; cancellation_requested?: boolean; cancel_error?: string }
+export interface HardwareDevice { id: string; name: string; source: 'NVIDIA driver' | 'ComfyUI'; utilization_percent: number | null; vram_used_bytes: number | null; vram_total_bytes: number | null; is_backend_device: boolean; memory_scope?: 'device' | 'backend' | 'shared' }
+export interface HardwareUsage { devices: HardwareDevice[]; comfy_connected: boolean; sampled_at: number; refresh_after_ms: number }
 export interface UpscaleInventory { enabled: boolean; model: { id: string; label: string; available: boolean; reason?: string }; limits: SizeLimits; reason?: string }
 export interface RefinementImage { session: EditorDocument; references: GenerationReference[]; draftId?: string }
 export interface GenerationBackgroundTarget { id: string; name: string }
@@ -46,6 +48,7 @@ export interface GenerationHost {
   openAssets(destination: 'reference' | 'draft'): void;
   openModels(options: { selectedModelId: string; selectedVariant?: string; onUse(model: string, variant?: string): void }): void;
   openLoras(port: LoraDraftPort): void;
+  canEjectModels?(): boolean; ejectModels?(): Promise<unknown>;
   sizeMath: SizeMath;
 }
 export interface RefinementRecipe { schema: 1; name: string; stages: { draft: Record<string, unknown>; final: Record<string, unknown> }; aspect?: string; negative?: string; denoise?: string; includeReferences?: boolean; upscale?: { enabled?: boolean; preset?: string; width?: string; height?: string } }
@@ -55,5 +58,7 @@ export interface GenerationState {
   draftImages: RefinementImage[]; resultImages: RefinementImage[]; selectedDraftId: string | null; selectedResultId: string | null;
   includeReferences: boolean; upscale: { enabled: boolean; preset: string; width: number; height: number }; upscaleInventory: UpscaleInventory | null;
   progress: OperationProgress | null; watching: boolean; uncertain: boolean; progressError: string | null; runningKey: DraftKey | 'upscale' | null;
+  stopping: boolean; cancelError: string | null; ejecting: boolean;
+  hardware: HardwareUsage | null; hardwareLoading: boolean; hardwareError: string | null;
   recipes: RefinementRecipe[]; recipeWarnings: string[];
 }

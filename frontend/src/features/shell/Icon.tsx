@@ -5,7 +5,8 @@ export function Icon({ name }: { name: string }) {
     search:'M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13Zm4.5-2 5 5',
     refresh:'M20 8a8 8 0 1 0 0 8M20 3v5h-5',
     info:'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-11v6m0-9h.01',
-    'arrow-up':'M12 19V5m-6 6 6-6 6 6', subtract:'M5 12h14' };
+    'arrow-up':'M12 19V5m-6 6 6-6 6 6', subtract:'M5 12h14',
+    eject:'m6 14 6-8 6 8H6Zm0 4h12', stop:'M6 6h12v12H6Z' };
   const path = paths[name];
   return <svg className="li-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">{path ? <path d={path} /> : <use href={`#i-${name}`} />}</svg>;
 }

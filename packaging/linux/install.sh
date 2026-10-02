@@ -31,7 +31,7 @@ for path in "$app_root" "$launcher"; do
   [[ "$path" != *$'\n'* && "$path" != *$'\r'* && "$path" != *$'\t'* ]] || fail 'Installation paths cannot contain control characters.'
 done
 [[ "$launcher" != *=* ]] || fail 'The home directory cannot contain = in a desktop executable path.'
-[[ -x "$package_dir/local-image" && -x "$package_dir/backend/LocalRemoveBackend" ]] || fail 'Run install.sh from the extracted Linux download, alongside local-image and backend/LocalRemoveBackend.'
+[[ -x "$package_dir/local-image" && -x "$package_dir/backend/LocalImageBackend" ]] || fail 'Run install.sh from the extracted Linux download, alongside local-image and backend/LocalImageBackend.'
 [[ -f "$package_dir/icon.png" && -f "$package_dir/VERSION" && -f "$package_dir/local-image.desktop" && -f "$package_dir/uninstall.sh" ]] || fail 'The download is incomplete; extract it again.'
 version="$(cat -- "$package_dir/VERSION")"
 [[ "$version" =~ ^[[:alnum:]][[:alnum:].+_~-]*$ ]] || fail 'The download has an invalid version identifier.'

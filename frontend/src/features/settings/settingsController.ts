@@ -1,5 +1,6 @@
 import { createSettingsApi, type SettingsApi } from './settingsApi.ts';
-import type { AcceptedConfiguration, InterfaceDensity, SettingsBridge, SettingsSnapshot, SettingsView, SetupAction } from './types.ts';
+import { waitForSetupAction } from './setupAction.ts';
+import type { AcceptedConfiguration, InterfaceDensity, SettingsBridge, SettingsSnapshot, SettingsView, SetupAction, SetupState } from './types.ts';
 import { modelDownloadSelection } from './modelDownload.ts';
 
 function immutable<T>(value: T): T {
@@ -124,6 +125,7 @@ export function createSettingsController(options: {
       const result = action === 'useInstallation' ? await bridge.useInstallation(selected) : action === 'downloadModel' ? await bridge.downloadModel(model, variant) : await bridge[action]();
       if (result === null || result === undefined) return;
       if (disposed) return;
+      if (action === 'ejectModels') await waitForSetupAction(result as SetupState, () => api.setup(), { active: () => !disposed });
       await refresh();
       if (!snapshot.error) update({ message: action === 'ejectModels' ? 'GPU unload requested. Model files remain on disk.' : action === 'downloadModel' ? snapshot.modelDownloads?.message || 'Model download started.' : 'Setup updated.' });
     } catch (error) { update({ error: error instanceof Error ? error.message : 'The desktop setup command failed.' }); }

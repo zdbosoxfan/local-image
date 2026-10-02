@@ -14,6 +14,7 @@ from generation_metadata import validate_generation_metadata
 from stock_attribution import collect_attributions, validate_attribution
 from upscale_metadata import validate_upscale_metadata, validate_upscale_size
 from generation_resolution import upscale_resolution_limits
+from operation_progress import operation, OperationCancelled
 
 router = APIRouter(prefix='/api/local-remove/generation/upscale')
 # Accepted on RTX 5090: native 3840x2160 photo restoration and RGBA preservation.
@@ -23,6 +24,7 @@ ENABLE_UPSCALE = True
 
 class UpscaleRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
+    operation_id: str | None = Field(default=None, min_length=36, max_length=36, pattern=r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
     session_id: str
     revision: int = Field(ge=0)
     width: int = Field(ge=2, multiple_of=2)
@@ -108,24 +110,28 @@ async def upscale_image(request: Request, payload: UpscaleRequest):
                 raise HTTPException(409, 'Another image operation started. Try again when it finishes.')
             provenance = {'model': 'seedvr2', 'variant': 'fp16', 'source_width': source['width'], 'source_height': source['height'],
                           'width': payload.width, 'height': payload.height, 'seed': payload.seed if payload.seed is not None else secrets.randbits(48)}
-            async with generation_lock:
-                result = await run_seedvr2_image(directory / 'source.png', size=(payload.width, payload.height), seed=provenance['seed'])
-                if result.size != (payload.width, payload.height):
-                    raise ValueError('The upscaler returned unexpected dimensions.')
-                # Preserve source transparency independently of model inference.
-                if 'A' in source_image.getbands():
-                    result = result.convert('RGBA')
-                    result.putalpha(source_image.getchannel('A').resize(result.size, Image.Resampling.LANCZOS))
-                elif 'A' in result.getbands():
-                    result = result.convert('RGB')
-                session = await asyncio.to_thread(create_upscaled_session, result, source, provenance, directory)
-            from generation_library import add_generated
-            warning = ''
-            try:
-                await asyncio.to_thread(add_generated, result, session)
-            except (ValueError, OSError) as error:
-                warning = 'The image opened successfully, but its library copy could not be saved: ' + str(error)
+            with operation('seedvr2', 'upscale', job_id=payload.operation_id) as progress:
+                async with generation_lock:
+                    result = await run_seedvr2_image(directory / 'source.png', size=(payload.width, payload.height), seed=provenance['seed'])
+                    progress.prevent_cancel(); progress.update('saving')
+                    if result.size != (payload.width, payload.height):
+                        raise ValueError('The upscaler returned unexpected dimensions.')
+                    # Preserve source transparency independently of model inference.
+                    if 'A' in source_image.getbands():
+                        result = result.convert('RGBA')
+                        result.putalpha(source_image.getchannel('A').resize(result.size, Image.Resampling.LANCZOS))
+                    elif 'A' in result.getbands():
+                        result = result.convert('RGB')
+                    session = await asyncio.to_thread(create_upscaled_session, result, source, provenance, directory)
+                from generation_library import add_generated
+                warning = ''
+                try:
+                    await asyncio.to_thread(add_generated, result, session)
+                except (ValueError, OSError) as error:
+                    warning = 'The image opened successfully, but its library copy could not be saved: ' + str(error)
             return {'session': session, 'upscale': provenance, 'library_warning': warning}
+    except OperationCancelled as error:
+        raise HTTPException(409, 'Image operation cancelled.') from error
     except HTTPException:
         raise
     except (ValueError, RuntimeError, OSError) as error:

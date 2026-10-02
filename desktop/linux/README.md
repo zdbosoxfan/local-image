@@ -1,6 +1,6 @@
 # Linux desktop host
 
-For normal use, download the bundled [Linux preview](https://github.com/zdbosoxfan/local-image/releases/tag/v0.7.1-linux-preview) and follow the [Linux installation guide](../../docs/LINUX-INSTALLATION.md). The release includes Python, PySide6/Qt and the backend; end users do not need a development environment.
+For normal use, download the bundled [Linux preview](https://github.com/zdbosoxfan/local-image/releases/tag/v0.7.2-linux-preview) and follow the [Linux installation guide](../../docs/LINUX-INSTALLATION.md). The release includes Python, PySide6/Qt and the backend; end users do not need a development environment.
 
 Local Image embeds its React interface in a native PySide6 QtWebEngine window. File and folder pickers, project saves, export destinations, and close requests use the desktop host. Remote links open in the system browser.
 

@@ -4,7 +4,7 @@ export type SettingsView = 'settings' | 'hardware' | 'shortcuts' | null;
 export type InterfaceDensity = 'compact' | 'comfortable' | 'large';
 export interface SetupInstallation { id?: string; name?: string; path: string; startable?: boolean }
 export interface SetupFile { name: string; label?: string; folder?: string; exists: boolean; bytes?: number; expected_bytes?: number }
-export interface SetupJob { status: 'running' | 'complete' | 'error' | string; action?: string; message?: string; error?: string; phase?: string; progress?: number | null; downloaded_bytes?: number; total_bytes?: number }
+export interface SetupJob { id?: string; status: 'running' | 'complete' | 'error' | string; action?: string; message?: string; error?: string; phase?: string; progress?: number | null; downloaded_bytes?: number; total_bytes?: number }
 export interface SetupState {
   installation?: SetupInstallation | null;
   installations?: SetupInstallation[];

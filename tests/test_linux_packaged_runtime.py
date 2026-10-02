@@ -25,7 +25,7 @@ class LinuxPackagedRuntimeTests(unittest.TestCase):
                     'QT_PLUGIN_PATH': '/opt/local-image/_internal/plugins', 'OTHER': 'retained'}
         with patch.dict(os.environ, original, clear=True):
             command, environment = self.namespace['backend_launch']()
-            self.assertEqual(command, ['/opt/local-image/backend/LocalRemoveBackend'])
+            self.assertEqual(command, ['/opt/local-image/backend/LocalImageBackend'])
             self.assertEqual(environment['LD_LIBRARY_PATH'], '/custom/lib')
             self.assertEqual(environment['PYINSTALLER_RESET_ENVIRONMENT'], '1')
             self.assertNotIn('LD_LIBRARY_PATH_ORIG', environment)
@@ -42,7 +42,7 @@ class LinuxPackagedRuntimeTests(unittest.TestCase):
         self.namespace['FROZEN'] = False
         with patch.dict(os.environ, {'LD_LIBRARY_PATH': '/user/library'}, clear=True):
             command, environment = self.namespace['backend_launch']()
-            self.assertEqual(command, ['/usr/bin/python3', '/opt/local-image/backend/run_local_remove.py'])
+            self.assertEqual(command, ['/usr/bin/python3', '/opt/local-image/backend/run_local_image.py'])
             self.assertEqual(environment, dict(os.environ))
 
     def test_system_browser_environment_restores_after_failure(self):

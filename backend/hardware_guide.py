@@ -2,9 +2,11 @@
 import asyncio
 import csv
 import io
+import math
 import os
 import re
 import subprocess
+import time
 
 import aiohttp
 from fastapi import APIRouter, Request
@@ -68,7 +70,7 @@ NOTE = ('Planning recommendations at each model’s default resolution, not hard
 
 def parse_nvidia_devices(output):
     devices = []
-    for row in csv.reader(io.StringIO(output)):
+    for row in csv.reader(io.StringIO(output), skipinitialspace=True):
         if len(row) != 2:
             continue
         try:
@@ -83,12 +85,152 @@ def parse_nvidia_devices(output):
 
 def nvidia_devices():
     try:
-        result = subprocess.run(['nvidia-smi', '--query-gpu=name,memory.total', '--format=csv,noheader,nounits'],
-                                capture_output=True, text=True, timeout=4,
-                                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+        from managed_ai import external_process_environment
+        with external_process_environment() as environment:
+            result = subprocess.run(['nvidia-smi', '--query-gpu=name,memory.total', '--format=csv,noheader,nounits'],
+                                    capture_output=True, text=True, timeout=4, env=environment,
+                                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
         return parse_nvidia_devices(result.stdout) if result.returncode == 0 else []
     except (OSError, subprocess.TimeoutExpired):
         return []
+
+
+USAGE_REFRESH_SECONDS = 2
+_usage_cache = None
+_usage_task = None
+
+
+def _finite_number(value, minimum=0, maximum=2**50):
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (ValueError, TypeError, OverflowError):
+        return None
+    return number if math.isfinite(number) and minimum <= number <= maximum else None
+
+
+def _device_name(value):
+    name = re.sub(r'^cuda:\d+\s+', '', str(value or 'GPU'))
+    return re.sub(r'\s*:\s*cudaMalloc(?:Async)?$', '', name).strip()
+
+
+def parse_nvidia_usage(output):
+    """NVIDIA's selective CSV query reports MiB, not bytes; N/A stays unknown."""
+    devices = []
+    for row in csv.reader(io.StringIO(output), skipinitialspace=True):
+        if len(row) != 5 or not row[0].strip() or not row[1].strip():
+            continue
+        total = _finite_number(row[3].strip(), minimum=1, maximum=2**24)
+        used = _finite_number(row[2].strip(), maximum=2**24)
+        if total is not None and used is not None and used > total:
+            used = None
+        devices.append({
+            'id': row[0].strip(), 'name': row[1].strip(), 'source': 'NVIDIA driver',
+            'utilization_percent': _finite_number(row[4].strip(), maximum=100),
+            'vram_used_bytes': int(used * 1024**2) if used is not None else None,
+            'vram_total_bytes': int(total * 1024**2) if total is not None else None,
+            'memory_scope': 'device', 'is_backend_device': False,
+        })
+    return devices
+
+
+def nvidia_usage():
+    try:
+        # Never invoke a shell or launch a continuous monitoring process. Driver
+        # queries run off the event loop and are killed after a short timeout.
+        # Frozen applications must restore host library search paths before
+        # launching nvidia-smi, just like the external ComfyUI process.
+        from managed_ai import external_process_environment
+        with external_process_environment() as environment:
+            result = subprocess.run(
+                ['nvidia-smi', '--query-gpu=uuid,name,memory.used,memory.total,utilization.gpu',
+                 '--format=csv,noheader,nounits'], capture_output=True, text=True,
+                timeout=1, env=environment,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+        return parse_nvidia_usage(result.stdout) if result.returncode == 0 else []
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return []
+
+
+async def _usage_system_stats(port):
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=1)) as client:
+            async with client.get(f'http://127.0.0.1:{port}/system_stats') as response:
+                response.raise_for_status()
+                stats = await response.json()
+        return stats if isinstance(stats, dict) and isinstance(stats.get('devices'), list) else None
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, TypeError):
+        return None
+
+
+def merge_gpu_usage(driver_devices, stats):
+    devices = [dict(device) for device in driver_devices]
+    if stats is None:
+        return devices
+    # ComfyUI lists its primary device first. Matching by a unique device name
+    # avoids treating a CUDA logical index as a physical NVIDIA index when
+    # CUDA_VISIBLE_DEVICES remaps devices (including duplicate GPU models).
+    for position, device in enumerate(stats['devices']):
+        if not isinstance(device, dict) or device.get('type') in {'cpu', None}:
+            continue
+        name = _device_name(device.get('name'))
+        matches = [item for item in devices if item['source'] == 'NVIDIA driver'
+                   and item['name'].casefold() == name.casefold()]
+        if len(matches) == 1:
+            if position == 0:
+                matches[0]['is_backend_device'] = True
+            continue
+        shared = device.get('type') == 'mps'
+        total = None if shared else _finite_number(device.get('vram_total'), minimum=1)
+        free = None if shared else _finite_number(device.get('vram_free'))
+        torch_free = _finite_number(device.get('torch_vram_free'))
+        scope = 'shared' if shared else 'backend'
+        if free is not None and torch_free is not None and torch_free <= free:
+            # Comfy includes reusable PyTorch cache in free memory. Removing
+            # that cache component gives actual free device memory.
+            free -= torch_free
+            scope = 'device'
+        used = int(total - free) if total is not None and free is not None and free <= total else None
+        devices.append({
+            'id': f"comfy:{device.get('type')}:{device.get('index', position)}",
+            'name': name, 'source': 'ComfyUI', 'utilization_percent': None,
+            'vram_used_bytes': used, 'vram_total_bytes': int(total) if total is not None else None,
+            'memory_scope': scope, 'is_backend_device': position == 0,
+        })
+    return sorted(devices, key=lambda device: not device['is_backend_device'])
+
+
+async def _collect_gpu_usage(port):
+    driver_devices, stats = await asyncio.gather(asyncio.to_thread(nvidia_usage), _usage_system_stats(port))
+    return {'devices': merge_gpu_usage(driver_devices, stats), 'comfy_connected': stats is not None,
+            'sampled_at': int(time.time() * 1000), 'refresh_after_ms': USAGE_REFRESH_SECONDS * 1000}
+
+
+async def hardware_usage():
+    """A shared short-lived snapshot prevents each visible control spawning a query."""
+    global _usage_cache, _usage_task
+    port = read_config()['comfy_port']
+    if _usage_cache is not None:
+        cached_port, expires, snapshot = _usage_cache
+        if cached_port == port and time.monotonic() < expires:
+            return snapshot
+    loop = asyncio.get_running_loop()
+    if (_usage_task is None or _usage_task[0] != port or _usage_task[1].get_loop() is not loop
+            or _usage_task[1].done()):
+        _usage_task = (port, loop.create_task(_collect_gpu_usage(port)))
+    # Cancelling a disconnected HTTP request must not cancel another request's
+    # shared driver sample. Both probes have independent one-second deadlines.
+    snapshot = await asyncio.shield(_usage_task[1])
+    _usage_cache = (port, time.monotonic() + USAGE_REFRESH_SECONDS, snapshot)
+    return snapshot
+
+
+@router.get('/api/local-remove/hardware/usage')
+async def get_hardware_usage(request: Request):
+    from local_remove import guard
+    guard(request)
+    return await hardware_usage()
 
 
 async def hardware_status():
@@ -106,8 +248,7 @@ async def hardware_status():
                     continue
                 total = device.get('vram_total')
                 if isinstance(total, (int, float)) and 0 < total < 2**50:
-                    name = re.sub(r'^cuda:\d+\s+', '', str(device.get('name', 'GPU')))
-                    name = re.sub(r'\s*:\s*cudaMalloc(?:Async)?$', '', name)
+                    name = _device_name(device.get('name'))
                     devices.append({'name': name, 'vram_gb': round(total / 1024**3, 1), 'source': 'ComfyUI'})
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, TypeError):
         pass

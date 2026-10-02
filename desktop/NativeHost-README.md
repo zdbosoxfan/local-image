@@ -1,6 +1,6 @@
 # Local Image desktop host
 
-The Windows Forms host embeds Local Image using Microsoft Edge WebView2. Native Open Files, Open Folder, and Explorer drag-and-drop provide real source locations so approved edits can be saved beside the source image. The launcher credential stays in the native process. The installed host starts the bundled `backend/LocalRemoveBackend.exe` relative to its own executable; no Documents or development workspace folder is used.
+The Windows Forms host embeds Local Image using Microsoft Edge WebView2. Native Open Files, Open Folder, and Explorer drag-and-drop provide real source locations so approved edits can be saved beside the source image. The launcher credential stays in the native process. The installed host starts the bundled `backend/LocalImageBackend.exe` relative to its own executable; no Documents or development workspace folder is used.
 
 Launch `Local Image.exe` normally, with one folder argument, with image-file arguments, or with one `.lremove` project argument. Capture One external-editor image arguments continue to work. The backend starts in the background if needed.
 

@@ -28,7 +28,7 @@ class LinuxInstallerTests(unittest.TestCase):
         self.version.write_text('0.7.0-linux-test\n', encoding='utf-8')
         (self.package / 'icon.png').write_bytes(b'fixture-icon')
         self.write_program('local-image', 'original')
-        self.write_program('backend/LocalRemoveBackend', 'backend')
+        self.write_program('backend/LocalImageBackend', 'backend')
         self.env = dict(os.environ, HOME=str(self.home), XDG_DATA_HOME=str(self.data),
                         XDG_CONFIG_HOME=str(self.home / 'config'),
                         XDG_CACHE_HOME=str(self.home / 'cache'),
@@ -81,7 +81,7 @@ class LinuxInstallerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, 'original: a photo with spaces.png\n')
         self.assertTrue((self.application / 'current').is_symlink())
-        self.assertTrue((self.application / 'current' / 'backend' / 'LocalRemoveBackend').is_file())
+        self.assertTrue((self.application / 'current' / 'backend' / 'LocalImageBackend').is_file())
         entry = self.desktop.read_text(encoding='utf-8')
         self.assertIn('Name=Local Image\n', entry)
         self.assertIn('Terminal=false\n', entry)
@@ -234,7 +234,7 @@ class LinuxInstallerTests(unittest.TestCase):
         self.run_script(success=False)
         self.assertFalse(self.application.exists())
         self.version.write_text('0.7.0\n', encoding='utf-8')
-        (self.package / 'backend/LocalRemoveBackend').unlink()
+        (self.package / 'backend/LocalImageBackend').unlink()
         self.run_script(success=False)
         self.assertFalse(self.application.exists())
 
