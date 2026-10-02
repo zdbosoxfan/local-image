@@ -1,8 +1,17 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {commandCatalog, type ShellView} from '../src/features/shell/commandCatalog.ts';
+import {createCommandExecutor} from '../src/features/shell/executeCommand.ts';
 
 const base: ShellView = {document:null,selectedLayerId:null,busy:false,workspace:'retouch',showOriginal:false,canUndo:false,canRedo:false,status:'',generationVisible:false};
+test('New workspace uses one gated command route without requiring or closing a document',()=>{
+  let state=base,created=0,closed=0,menus=0;
+  const execute=createCommandExecutor({getSnapshot:()=>state,commands:{newWorkspace:()=>++created,closeImage:()=>++closed}} as any,()=>++menus);
+  assert.equal(commandCatalog(state).newWorkspace.enabled,true);
+  execute('newWorkspace');assert.equal(created,1);assert.equal(closed,0);assert.equal(menus,1);
+  state={...base,busy:true};execute('newWorkspace');assert.equal(created,1);assert.equal(menus,1);
+  state={...base,workspace:'generate',creatingBlank:true};execute('newWorkspace');assert.equal(created,2);assert.equal(closed,0);
+});
 test('shell availability respects hidden generation documents and source-save ownership',()=>{
   const current={...base,document:{id:'a',name:'Photo',revision:0,width:10,height:10,can_return:true},generationVisible:true};
   assert.equal(commandCatalog(current).overwrite.visible,true);
@@ -24,4 +33,12 @@ test('original and locked layers keep backend operation restrictions',()=>{
   assert.equal(commandCatalog(current).toggleLayerLock.label,'Unlock layer');
   assert.equal(commandCatalog(current).renameLayer.enabled,true);
   assert.equal(commandCatalog({...current,busy:true}).renameLayer.enabled,false);
+});
+
+test('batch background removal is only offered in Cutout', () => {
+  for (const workspace of ['retouch', 'generate', 'cutout'] as const) {
+    const commands = commandCatalog({workspace, busy:false} as any);
+    assert.equal(commands.showBatch.visible, workspace === 'cutout');
+    assert.equal(commands.showBatch.enabled, workspace === 'cutout');
+  }
 });

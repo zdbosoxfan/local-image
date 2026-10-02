@@ -175,7 +175,7 @@ def main():
         assert package_version == args.expected_version + '.0', 'Frozen package native version differs.'
         report['package'] = str(package)
         report['package_manifest'] = payload_manifest(package)
-        report['installer_source_sha256'] = hashlib.sha256((workspace / 'packaging' / 'LocalRemove.iss').read_bytes()).hexdigest()
+        report['installer_source_sha256'] = hashlib.sha256((workspace / 'packaging' / 'LocalImage.iss').read_bytes()).hexdigest()
         if args.release_installer:
             release_installer = args.release_installer.resolve(strict=True)
             report['production_installer'] = str(release_installer)
@@ -184,7 +184,7 @@ def main():
             compiler, '/Qp', '/DAppIdentity=' + app_identity,
             '/DProjectIdentity=' + project_identity, '/DPackageDir=' + str(package),
             '/DPrerequisiteDir=' + str(prerequisites), '/DInstallerDir=' + str(output),
-            workspace / 'packaging' / 'LocalRemove.iss'], timeout=300)
+            workspace / 'packaging' / 'LocalImage.iss'], timeout=300)
         assert report['compile']['exit_code'] == 0, 'QA installer compilation failed.'
         installer = output / ('Local-Image-Setup-' + args.expected_version + '.exe')
         report['installer'] = str(installer)
@@ -199,7 +199,7 @@ def main():
             environment=environment)
         assert report['install']['exit_code'] == 0, 'Actual installation failed; inspect install.log.'
         native = app / 'Local Image.exe'
-        backend = app / 'backend' / 'LocalRemoveBackend.exe'
+        backend = app / 'backend' / 'LocalImageBackend.exe'
         defaults = app / 'installation-defaults.json'
         assert native.is_file() and backend.is_file(), 'Native host or backend is missing.'
         report['native_version'] = file_version(native)

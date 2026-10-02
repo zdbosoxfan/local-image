@@ -41,11 +41,11 @@ for notice in ('LICENSE.txt', 'LICENSE-3RD-PARTY.txt'):
     if path.is_file():
         datas.append((str(path), 'licenses/opencv'))
 
-a = Analysis([str(backend / 'run_local_remove.py')], pathex=[str(backend)],
+a = Analysis([str(backend / 'run_local_image.py')], pathex=[str(backend)],
              binaries=binaries, datas=datas, hiddenimports=hiddenimports,
              excludes=['tkinter', 'matplotlib', 'torch', 'pytest', 'IPython'])
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name='LocalRemoveBackend',
+exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name='LocalImageBackend',
           debug=False, strip=False, upx=False, console=False,
           icon=str(root / 'desktop' / 'icon' / 'local-image.ico'))
 coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name='backend')

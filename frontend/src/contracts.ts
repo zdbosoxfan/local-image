@@ -10,6 +10,7 @@ export interface Layer {
   opacity: number;
   transform: Transform;
   patch_ids?: string[];
+  display_key?: string;
   // Mask, shadow, provenance and repair relationships pass through untouched.
   [key: string]: unknown;
 }
@@ -69,6 +70,9 @@ export interface EditorCommands {
   openFiles(): unknown;
   openFolder(): unknown;
   openProject(): unknown;
+  newWorkspace?(): unknown;
+  activateOpenDocument?(id: string): unknown;
+  closeOpenDocument?(id: string): unknown;
   saveProject(): unknown;
   saveProjectAs(): unknown;
   exportImage(): unknown;

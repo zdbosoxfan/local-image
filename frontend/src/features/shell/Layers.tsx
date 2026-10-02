@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { Button, Field, Input, Menu, MenuItem, MenuList, MenuPopover, MenuTrigger } from '@fluentui/react-components';
+import { Button, Field, Input, Menu, MenuItem, MenuList, MenuPopover, MenuTrigger, Tooltip } from '@fluentui/react-components';
 import type { EditorSnapshot, EditorCommands, Layer } from '../../contracts.ts';
 import { Icon } from './Icon.tsx';
 export interface LayerController { getSnapshot(): EditorSnapshot; subscribe(listener:()=>void):()=>void; commands: Pick<EditorCommands,'selectLayer'|'patchLayer'|'createRetouch'|'reorderLayer'|'addMask'|'mergeLayers'|'restoreLayer'> }
@@ -57,8 +57,8 @@ export function Layers({ controller, renameRequest, menuOpen, setMenuOpen }: { m
   }
   return <section className="li-layers" data-react-owned="true" aria-label="Layers" hidden={state.workspace === 'generate'}>
     <header className="li-panel-heading"><h2>Layers</h2><span className="li-count">{layers.length || ''}</span>
-      <Button size="small" appearance="subtle" aria-label="New retouch layer" title="New retouch layer" disabled={!active} onClick={() => commands.createRetouch()}>+</Button>
-      <Menu open={menuOpen} onOpenChange={(_,data)=>setMenuOpen(data.open)}><MenuTrigger disableButtonEnhancement><Button size="small" appearance="subtle" aria-label="Layer commands" disabled={!doc}>…</Button></MenuTrigger>
+      <Tooltip content="New retouch layer" relationship="description"><Button size="small" appearance="subtle" aria-label="New retouch layer" disabled={!active} icon={<Icon name="add"/>} onClick={() => commands.createRetouch()}/></Tooltip>
+      <Menu open={menuOpen} onOpenChange={(_,data)=>setMenuOpen(data.open)}><MenuTrigger disableButtonEnhancement><Button size="small" appearance="subtle" aria-label="Layer commands" title="Layer commands" disabled={!doc} icon={<Icon name="more"/>}/></MenuTrigger>
         <MenuPopover data-react-owned="true"><MenuList>
           <MenuItem disabled={!active} onClick={() => commands.createRetouch()}>New retouch layer</MenuItem>
           <MenuItem disabled={!active || !selected} onClick={() => selected && beginRename(selected)}>Rename layer</MenuItem>
@@ -87,7 +87,7 @@ export function Layers({ controller, renameRequest, menuOpen, setMenuOpen }: { m
           else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); commands.selectLayer(layer.id); }
         }}>
         <Button size="small" appearance="subtle" className="li-row-button" aria-label={`${layer.visible ? 'Hide' : 'Show'} ${layer.name}`} disabled={!active} icon={<Icon name={layer.visible ? 'eye' : 'eye-off'} />} onClick={event => { event.stopPropagation(); commands.patchLayer(layer.id, { visible: !layer.visible }); }} />
-        <img className="li-thumbnail" loading="lazy" alt="" src={`/api/local-remove/session/${encodeURIComponent(doc!.id)}/stack/layer/${encodeURIComponent(layer.id)}/display?r=${doc!.revision}`} />
+        <img className="li-thumbnail" loading="lazy" alt="" src={`/api/local-remove/session/${encodeURIComponent(doc!.id)}/stack/layer/${encodeURIComponent(layer.id)}/display?r=${encodeURIComponent(layer.display_key || String(doc!.revision))}`} />
         <div className="li-layer-label" onDoubleClick={() => { if (active) beginRename(layer); }}>
           {renaming === layer.id ? <Input size="small" ref={nameRef} aria-label="Layer name" maxLength={120} value={name} onChange={(_, data) => setName(data.value)} onBlur={() => finishRename(true)} onClick={event => event.stopPropagation()} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter' || event.key === 'Escape') { event.preventDefault(); finishRename(event.key === 'Enter'); } }} /> : <span className="li-layer-name" title={layer.name}>{layer.name}</span>}
           <span className="li-layer-kind">{layer.kind === 'retouch' ? `${layer.patch_ids?.length ?? 0} repairs` : layer.kind === 'cutout' ? 'Editable mask' : layer.kind === 'original' ? 'Original image' : 'Image'}</span>

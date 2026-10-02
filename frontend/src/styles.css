@@ -17,9 +17,9 @@
 .li-count { margin-left:auto; padding:0 4px; color:var(--colorNeutralForeground3); font-variant-numeric:tabular-nums; }
 .li-layer-list { flex:1; min-height:0; overflow:auto; padding:4px 0; }
 .li-empty { padding:12px; margin:0; font-size:var(--ui-note); color:var(--colorNeutralForeground3); }
-.li-layer-row { display:grid; grid-template-columns:28px 36px minmax(0,1fr) 28px; gap:6px; align-items:center; padding:4px 8px; min-height:52px; border-block:1px solid transparent; cursor:default; }
+.li-layer-row { display:grid; grid-template-columns:28px 36px minmax(0,1fr) 28px; gap:6px; align-items:center; padding:4px 8px 4px 6px; min-height:52px; border-left:2px solid transparent; cursor:default; }
 .li-layer-row:hover { background:var(--colorNeutralBackground1Hover); }
-.li-layer-row[aria-selected=true] { background:var(--colorNeutralBackground1Selected); border-block-color:var(--colorNeutralStroke2); }
+.li-layer-row[aria-selected=true] { background:var(--colorNeutralBackground1Selected); border-left-color:var(--colorBrandStroke1); }
 .li-layer-row:focus-visible { outline:2px solid var(--colorStrokeFocus2); outline-offset:-2px; }
 .li-layer-row[data-visible=false] .li-thumbnail, .li-layer-row[data-visible=false] .li-layer-label { opacity:.55; }
 .li-row-button { min-width:28px; padding:4px; }

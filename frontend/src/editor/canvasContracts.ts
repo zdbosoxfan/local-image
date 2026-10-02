@@ -1,6 +1,6 @@
 import type { Camera, LayerTransform, Point } from './canvasMath.ts';
 export type CanvasTool = 'brush' | 'pen' | 'rectangle' | 'ellipse' | 'move';
-export interface CanvasLayer { id: string; kind: string; visible: boolean; discarded?: boolean; locked?: boolean; opacity?: number; transform?: Partial<LayerTransform>; bounds?: readonly number[] }
+export interface CanvasLayer { id: string; kind: string; visible: boolean; discarded?: boolean; locked?: boolean; opacity?: number; transform?: Partial<LayerTransform>; bounds?: readonly number[]; display_key?: string }
 export interface LegacyPatch { id: string; visible: boolean; discarded?: boolean; x?: number; y?: number; width?: number; height?: number }
 export interface CanvasDocument { id: string; revision: number; width: number; height: number; layer_stack?: readonly CanvasLayer[]; layers?: readonly LegacyPatch[]; cutout?: { enabled?: boolean; transform?: Partial<LayerTransform> }; cutout_bounds?: readonly number[] }
 export interface CanvasInteraction { tool: CanvasTool; workspace: 'retouch' | 'cutout' | 'generate'; operation: string; cutoutOperation: 'erase' | 'restore'; subtract: boolean; brushSize: number; handActive: boolean; showOriginal: boolean; busy: boolean; selectedLayerId: string | null }

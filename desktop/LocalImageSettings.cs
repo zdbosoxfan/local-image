@@ -5,13 +5,13 @@ using System.IO;
 using System.Text;
 using System.Windows.Forms;
 
-internal sealed class LocalRemoveSettings : Form
+internal sealed class LocalImageSettings : Form
 {
     private readonly NumericUpDown port;
     private readonly TextBox models;
     private readonly TextBox portable;
 
-    internal LocalRemoveSettings()
+    internal LocalImageSettings()
     {
         Text = "Local Image - AI connection";
         StartPosition = FormStartPosition.CenterScreen;
@@ -49,16 +49,16 @@ internal sealed class LocalRemoveSettings : Form
         var save = new Button { Text = "Save", Location = new Point(450, 326), Size = new Size(100, 34) };
         save.Click += Save;
         Controls.Add(cancel); Controls.Add(save); CancelButton = cancel; AcceptButton = save;
-        string file = Path.Combine(LocalRemoveLauncher.DataDirectory, "config.json");
+        string file = Path.Combine(LocalImageLauncher.DataDirectory, "config.json");
         if (File.Exists(file))
         {
             try {
-                var settings = LocalRemoveLauncher.Json.Deserialize<Dictionary<string, object>>(File.ReadAllText(file));
+                var settings = LocalImageLauncher.Json.Deserialize<Dictionary<string, object>>(File.ReadAllText(file));
                 object value;
                 if (settings.TryGetValue("comfy_port", out value)) port.Value = Math.Max(1, Math.Min(65535, Convert.ToInt32(value)));
-                models.Text = LocalRemoveLauncher.StringValue(settings, "model_directory", "");
-                portable.Text = LocalRemoveLauncher.StringValue(settings, "managed_ai_directory", "");
-            } catch (Exception error) { LocalRemoveLauncher.WriteError(error); }
+                models.Text = LocalImageLauncher.StringValue(settings, "model_directory", "");
+                portable.Text = LocalImageLauncher.StringValue(settings, "managed_ai_directory", "");
+            } catch (Exception error) { LocalImageLauncher.WriteError(error); }
         }
     }
 
@@ -67,15 +67,15 @@ internal sealed class LocalRemoveSettings : Form
         try
         {
             if ((int)port.Value == 51247) throw new InvalidOperationException("This port is used by Local Image. Enter the port shown by ComfyUI.");
-            string folder = LocalImageStorage.StoragePath(models.Text.Trim(), LocalRemoveLauncher.InstallDirectory);
-            string portableFolder = LocalImageStorage.StoragePath(portable.Text.Trim(), LocalRemoveLauncher.InstallDirectory);
+            string folder = LocalImageStorage.StoragePath(models.Text.Trim(), LocalImageLauncher.InstallDirectory);
+            string portableFolder = LocalImageStorage.StoragePath(portable.Text.Trim(), LocalImageLauncher.InstallDirectory);
             LocalImageStorage.CheckWritable(folder);
             LocalImageStorage.CheckWritable(portableFolder);
-            Directory.CreateDirectory(LocalRemoveLauncher.DataDirectory);
-            string target = Path.Combine(LocalRemoveLauncher.DataDirectory, "config.json");
+            Directory.CreateDirectory(LocalImageLauncher.DataDirectory);
+            string target = Path.Combine(LocalImageLauncher.DataDirectory, "config.json");
             // Preserve installation and setup fields maintained by the guided setup service.
             var settings = File.Exists(target)
-                ? LocalRemoveLauncher.Json.Deserialize<Dictionary<string, object>>(File.ReadAllText(target))
+                ? LocalImageLauncher.Json.Deserialize<Dictionary<string, object>>(File.ReadAllText(target))
                 : new Dictionary<string, object>();
             if (settings == null) settings = new Dictionary<string, object>();
             settings["comfy_port"] = (int)port.Value;
@@ -84,7 +84,7 @@ internal sealed class LocalRemoveSettings : Form
             string temporary = target + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try
             {
-                File.WriteAllText(temporary, LocalRemoveLauncher.Json.Serialize(settings), new UTF8Encoding(false));
+                File.WriteAllText(temporary, LocalImageLauncher.Json.Serialize(settings), new UTF8Encoding(false));
                 if (File.Exists(target)) File.Replace(temporary, target, null); else File.Move(temporary, target);
             }
             finally { if (File.Exists(temporary)) File.Delete(temporary); }

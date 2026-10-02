@@ -1,3 +1,4 @@
+export type BatchBackground = 'transparent' | 'white' | 'image';
 export type BatchFormat = 'original' | 'png' | 'jpg' | 'tif' | 'webp';
 export type BatchItemStatus = 'pending' | 'preparing' | 'ready' | 'exporting' | 'exported' | 'failed' | 'conflict' | 'needs-cutout';
 export interface BatchItem {
@@ -10,10 +11,11 @@ export interface BatchQueue {
   phase: 'preparing' | 'review' | 'exporting' | 'paused' | 'complete';
   running: boolean; message: string; format: BatchFormat; mode: 'prepare' | 'folder' | 'zip';
   prepare_cutouts: boolean; qwen_variant: 'int8' | 'bf16'; treatment_id: string | null;
+  background_mode?: BatchBackground; background_name?: string | null;
   treatment_name: string | null; items: readonly BatchItem[]; bytes: number; download: string | null;
 }
 export interface BatchTreatment { id: string; name: string; created: number; format: BatchFormat }
-export interface BatchEntry { id: string; name: string; sessionId: string | null }
+export interface BatchEntry { id: string; name: string; sessionId: string | null; cutoutReady?: boolean }
 export interface BatchPendingSelection { sessionId: string; name: string; fingerprint: string }
 export interface BatchEditorSnapshot {
   busy: boolean;
@@ -33,9 +35,10 @@ export interface BatchEditorAdapter {
   returnToPendingSelection(sessionId: string): Promise<void>;
   exportBatchFolder?(request: { job_id: string; item_ids: string[] }): Promise<BatchQueue | null>;
 }
-export interface BatchDraft { treatmentId: string; format: BatchFormat; prepareCutouts: boolean; qwenVariant: 'int8' | 'bf16' }
+export interface BatchDraft { treatmentId: string; format: BatchFormat; prepareCutouts: boolean; qwenVariant: 'int8' | 'bf16'; backgroundMode: BatchBackground; backgroundImage: string | null; backgroundName: string }
 export interface CreateBatchRequest {
   treatment_id: string | null; format: BatchFormat; prepare_cutouts: boolean; qwen_variant: 'int8' | 'bf16';
+  background_mode?: BatchBackground; background_image?: string; background_name?: string;
   collection_id?: string; entry_ids?: string[]; sessions?: { session_id: string; revision: number }[];
 }
 export interface QwenBatchStatus { connected: boolean; variants: readonly { id: string; available: boolean }[] }

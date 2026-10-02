@@ -1,6 +1,6 @@
 import type { EditorSnapshot } from '../../contracts.ts';
 
-export type ShellCommand = 'openFiles' | 'openFolder' | 'openProject' | 'saveProject' | 'saveProjectAs' | 'closeImage'
+export type ShellCommand = 'newWorkspace' | 'openFiles' | 'openFolder' | 'openProject' | 'saveProject' | 'saveProjectAs' | 'closeImage'
   | 'overwrite' | 'saveUnique' | 'exportImage' | 'credits' | 'showAssets' | 'showGenerated' | 'showBatch'
   | 'undo' | 'redo' | 'applySelection' | 'clearSelection' | 'finishPath' | 'showSettings'
   | 'createRetouch' | 'addMask' | 'renameLayer' | 'toggleLayerLock' | 'layerUp' | 'layerDown' | 'deleteLayer'
@@ -22,6 +22,7 @@ export function commandCatalog(state: ShellView): Record<ShellCommand, CommandIt
   const editable = active && !!selected?.visible && !selected.locked;
   const item = (id: ShellCommand, label: string, enabled: boolean, shortcut?: string): CommandItem => ({ id, label, enabled, shortcut });
   return {
+    newWorkspace: item('newWorkspace', 'New workspace', idle, 'Ctrl+N'),
     openFiles: item('openFiles', 'Open images…', idle, 'Ctrl+O'), openFolder: item('openFolder', 'Open folder…', idle, 'Ctrl+Shift+O'),
     openProject: item('openProject', 'Open project…', idle, 'Ctrl+Alt+O'),
     saveProject: item('saveProject', 'Save project', idle && visible, 'Ctrl+Alt+S'), saveProjectAs: item('saveProjectAs', 'Save project as…', idle && visible),
@@ -29,7 +30,7 @@ export function commandCatalog(state: ShellView): Record<ShellCommand, CommandIt
     overwrite: { ...item('overwrite', 'Overwrite original…', idle && visible, 'Ctrl+S'), visible: !!state.document?.can_return && !state.refining && !state.creatingBlank },
     saveUnique: { ...item('saveUnique', 'Save a copy', idle && visible, 'Ctrl+Shift+S'), visible: !!state.document?.can_return && !state.refining && !state.creatingBlank },
     exportImage: item('exportImage', 'Export a copy…', idle && visible), credits: { ...item('credits', 'Image credits…', idle), visible: !!state.creditsAvailable },
-    showAssets: item('showAssets', 'Assets…', idle), showGenerated: item('showGenerated', 'Generated library…', idle), showBatch: item('showBatch', 'Batch treatment & export…', idle),
+    showAssets: item('showAssets', 'Assets…', idle), showGenerated: item('showGenerated', 'Generated library…', idle), showBatch: {...item('showBatch', 'Remove backgrounds…', idle && state.workspace === 'cutout'), visible: state.workspace === 'cutout'},
     undo: item('undo', state.undoLabel || 'Undo', idle && !!state.canUndo, 'Ctrl+Z'), redo: item('redo', state.redoLabel || 'Redo', idle && !!state.canRedo, 'Ctrl+Shift+Z'),
     applySelection: item('applySelection', state.selectionActionLabel || 'Apply selection', !!state.canApplySelection),
     clearSelection: item('clearSelection', 'Clear selection', active && !!state.selectionActive), finishPath: { ...item('finishPath', 'Close path', active && (state.penPointCount ?? 0) >= 3, 'Enter'), visible: state.tool === 'pen' },

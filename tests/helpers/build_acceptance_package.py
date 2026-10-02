@@ -46,7 +46,7 @@ def main():
     log_path = evidence / 'build.log'
     commands = [
         [sys.executable, '-m', 'PyInstaller', '--noconfirm', '--distpath', str(package),
-         '--workpath', str(build_root / 'build'), str(ROOT / 'packaging/local-remove.spec')],
+         '--workpath', str(build_root / 'build'), str(ROOT / 'packaging/local-image.spec')],
         ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
          str(ROOT / 'desktop/Build-NativeHost.ps1'), '-PackageRoot', str(sdk), '-OutputDirectory', str(package)],
     ]
@@ -75,7 +75,7 @@ def main():
             raise RuntimeError('Source changed while packaging: ' + source['file'])
     host = package / 'Local Image.exe'
     report = {'package': str(package), 'host': str(host), 'hostSha256': digest(host),
-              'backendSha256': digest(package / 'backend/LocalRemoveBackend.exe'), 'sources': sources,
+              'backendSha256': digest(package / 'backend/LocalImageBackend.exe'), 'sources': sources,
               'frontendFiles': records, 'templateSha256': digest(template),
               'applicationLaunched': False, 'installerRun': False, 'log': str(log_path)}
     (evidence / 'result.json').write_text(json.dumps(report, indent=2), encoding='utf-8')

@@ -10,6 +10,7 @@ import {createShellController,type ShellController} from './features/shell/shell
 import {createEditorDialogs} from './features/shell/editorDialogs.ts';
 import {createCommandExecutor} from './features/shell/executeCommand.ts';
 import {createSettingsController,type SettingsController} from './features/settings/index.ts';
+import {createSettingsApi} from './features/settings/settingsApi.ts';
 import {createModelsController,type ModelsController} from './features/models/index.ts';
 import {createBatchController,type BatchController} from './features/batch/index.ts';
 import {createAssetsController} from './features/assets/index.ts';
@@ -19,7 +20,7 @@ import type {InterfaceDensity} from './features/settings/types.ts';
 import type {FullAppProps} from './FullApp.tsx';
 
 const required=<T extends HTMLElement>(id:string):T=>{const element=document.getElementById(id);if(!element)throw Error('The editor is missing its '+id+' mount.');return element as T;};
-const loadImage=(url:string)=>new Promise<HTMLImageElement>((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=()=>reject(Error('Could not load the photo preview.'));image.src=url;});
+const loadImage=(url:string)=>new Promise<HTMLImageElement>((resolve,reject)=>{const image=new Image();image.onload=()=>{void image.decode().then(()=>resolve(image),()=>reject(Error('Could not decode the photo preview.')));};image.onerror=()=>reject(Error('Could not load the photo preview.'));image.src=url;});
 
 export function createApplication(token:string) {
  let controller:DocumentController|undefined,shell:ShellController|undefined,settings:SettingsController|undefined,models:ModelsController|undefined,batch:BatchController|undefined;
@@ -39,12 +40,13 @@ export function createApplication(token:string) {
  const applyDensity=(value:InterfaceDensity)=>{document.documentElement.dataset.uiDensity=value;requestAnimationFrame(()=>canvas.resize());};
  const featureAdapters=createFeatureAdapters({documents,native,storage:localStorage,applyDensity});
  applyDensity(featureAdapters.settingsBridge.preferences().density);
- const generationAdapters=createGenerationAdapters({document:documents,native,openModels:options=>{void models!.openModels(options);},openLoras:port=>{void models!.openLoras(port);}});
+ const settingsApi=createSettingsApi(token);
+ const generationAdapters=createGenerationAdapters({document:documents,native,setupStatus:()=>settingsApi.setup(),openModels:options=>{void models!.openModels(options);},openLoras:port=>{void models!.openLoras(port);}});
  const assets=createAssetsController(generationAdapters.assetsHost,token);
  const generation=createGenerationController(generationAdapters.generationHost,token);
  models=createModelsController({token,bridge:featureAdapters.modelBridge,onCatalog:value=>generation.acceptCatalog(value as unknown as GenerationModel[]),onSetup:value=>documents.acceptConfiguration({setup:value})});
  const modelController=models;
- settings=createSettingsController({token,bridge:featureAdapters.settingsBridge,browseModels:()=>generationAdapters.featureCommands.browseModels?.(),startTask:async workspace=>{documents.commands.setWorkspace(workspace);if(workspace!=='generate'&&!documents.getSnapshot().document){await documents.commands.openFiles();documents.commands.setWorkspace(workspace);}}});
+ settings=createSettingsController({token,api:settingsApi,bridge:featureAdapters.settingsBridge,browseModels:()=>generationAdapters.featureCommands.browseModels?.(),startTask:async workspace=>{documents.commands.setWorkspace(workspace);if(workspace!=='generate'&&!documents.getSnapshot().document){await documents.commands.openFiles();documents.commands.setWorkspace(workspace);}}});
  const settingsController=settings;
  batch=createBatchController({token,editor:featureAdapters.batchEditor});
  const batchController=batch;

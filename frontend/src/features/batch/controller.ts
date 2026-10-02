@@ -8,7 +8,7 @@ function immutable<T>(value: T): T {
   return value;
 }
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
-const initialDraft = (): BatchDraft => ({treatmentId: '', format: 'original', prepareCutouts: false, qwenVariant: 'int8'});
+const initialDraft = (): BatchDraft => ({treatmentId: '', format: 'png', prepareCutouts: true, qwenVariant: 'int8', backgroundMode: 'transparent', backgroundImage: null, backgroundName: ''});
 
 /** Owns queue view/drafts only. The backend owns the durable queue, immutable
  * reviewed settings, cancellation boundaries and publication journal. Closing
@@ -36,7 +36,7 @@ export function createBatchController(options: { token: string; editor: BatchEdi
     const allowed = !values.length || appliedOnly, locked = state.working || !!state.active?.running || state.editor.busy;
     const selected = new Set(state.selectedIds);
     state = {...state, pending: values, appliedOnly, qwenAvailable: state.qwen.connected && state.qwen.variants.some(item => item.available),
-      canPrepare: !locked && !state.active && state.selectedIds.length > 0 && state.selectedIds.length <= 100 && allowed,
+      canPrepare: !locked && !state.active && state.selectedIds.length > 0 && allowed,
       canExport: !locked && !!state.active?.items.some(item => item.status === 'ready' && selected.has(item.id)) && allowed,
       canSaveTreatment: !locked && !state.active && !!state.editor.document?.canSaveTreatment && allowed};
     snapshot = immutable(structuredClone(state)); listeners.forEach(listener => listener());
@@ -52,8 +52,9 @@ export function createBatchController(options: { token: string; editor: BatchEdi
   async function refreshLists(scope = epoch) {
     const [treatments, queues] = await Promise.all([api.treatments(), api.queues()]);
     if (scope !== epoch || disposed) return;
-    state = {...state, treatments: treatments.items, queues: queues.items, cacheBytes: queues.bytes, treatmentBytes: treatments.bytes,
-      historyId: queues.items.some(item => item.id === state.historyId) ? state.historyId : queues.items[0]?.id || ''};
+    const visibleQueues = queues.items.filter(queue => queue.prepare_cutouts && !queue.treatment_id && queue.format === 'png');
+    state = {...state, treatments: treatments.items, queues: visibleQueues, cacheBytes: queues.bytes, treatmentBytes: treatments.bytes,
+      historyId: visibleQueues.some(item => item.id === state.historyId) ? state.historyId : visibleQueues[0]?.id || ''};
     publish();
   }
   function schedule() {
@@ -80,7 +81,7 @@ export function createBatchController(options: { token: string; editor: BatchEdi
     if (state.editor.busy || state.working || disposed) return;
     const scope = ++epoch; clearPoll(); acknowledgedFingerprint = '';
     state = {...state, open: true, active: null, working: true, editor: structuredClone(editor.getSnapshot()), inspection: null, savingTreatment: false, confirmation: null,
-      selectedIds: editor.getSnapshot().entries.slice(0, 100).map(entry => entry.id), status: 'Prepare selected images, review their previews, then export.', error: false}; publish();
+      selectedIds: editor.getSnapshot().entries.map(entry => entry.id), draft: initialDraft(), status: 'Select images, remove their backgrounds, review, then export PNGs.', error: false}; publish();
     try {
       await editor.prepareForBatch(); if (scope !== epoch) return;
       state = {...state, editor: structuredClone(editor.getSnapshot())}; publish();
@@ -103,16 +104,29 @@ export function createBatchController(options: { token: string; editor: BatchEdi
     setSelected(id: string, selected: boolean) {
       if (state.working || state.active?.running) return;
       const values = new Set(state.selectedIds); selected ? values.add(id) : values.delete(id);
-      if (values.size > 100) return status('Select up to 100 images per queue.', true);
       state = {...state, selectedIds: [...values]}; publish();
     },
-    selectAll(selected: boolean) {if (state.working || state.active?.running) return; state = {...state, selectedIds: selected ? (state.active?.items || state.editor.entries).slice(0, 100).map(item => item.id) : []}; publish();},
+    selectAll(selected: boolean) {if (state.working || state.active?.running) return; state = {...state, selectedIds: selected ? (state.active?.items || state.editor.entries).map(item => item.id) : []}; publish();},
     setDraft(change: Partial<BatchDraft>) {
       if (state.working || state.active) return;
       const draft = {...state.draft, ...change};
-      if ('treatmentId' in change) {const saved = state.treatments.find(item => item.id === change.treatmentId); if (saved) draft.format = saved.format; else draft.prepareCutouts = false;}
+      draft.treatmentId = ''; draft.format = 'png'; draft.prepareCutouts = true;
       state = {...state, draft}; publish();
     },
+    chooseBackground: (file: File) => run(async () => {
+      if (state.active) return;
+      if (file.size > 16 * 1024**2) throw new Error('Choose a background smaller than 16 MB.');
+      const scope = epoch;
+      const encoded = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(',')[1]);
+        reader.onerror = () => reject(new Error('The background file could not be read.'));
+        reader.readAsDataURL(file);
+      });
+      if (scope !== epoch) return;
+      state = {...state, draft: {...state.draft, backgroundMode: 'image', backgroundImage: encoded, backgroundName: file.name}};
+      publish();
+    }),
     acknowledgeAppliedOnly(value: boolean) {acknowledgedFingerprint = value ? pendingKey(pending()) : ''; publish();},
     setTreatmentName(treatmentName: string) {state = {...state, treatmentName}; publish();},
     beginTreatment() {if (state.canSaveTreatment) {state = {...state, savingTreatment: true}; publish();}},
@@ -129,11 +143,17 @@ export function createBatchController(options: { token: string; editor: BatchEdi
       if (!state.canPrepare) return Promise.resolve();
       const scope = epoch, context = structuredClone(state.editor), draft = {...state.draft}, selected = new Set(state.selectedIds);
       return run(async () => {
-        if (draft.prepareCutouts && (!draft.treatmentId || !state.qwen.connected || !state.qwen.variants.some(item => item.id === draft.qwenVariant && item.available))) throw new Error('The selected Qwen variant is unavailable. Existing edits can still be exported without AI preparation.');
         const entries = context.entries.filter(entry => selected.has(entry.id)); if (!entries.length) throw new Error('Open and select the source photos for a new queue.');
-        const body: CreateBatchRequest = {treatment_id: draft.treatmentId || null, format: draft.format, prepare_cutouts: draft.prepareCutouts, qwen_variant: draft.qwenVariant};
+        if (entries.some(entry => !entry.cutoutReady) && (!state.qwen.connected || !state.qwen.variants.some(item => item.id === draft.qwenVariant && item.available))) throw new Error('Qwen is unavailable. Set it up in Settings, or select only images with existing cutouts.');
+        if (draft.backgroundMode === 'image' && !draft.backgroundImage) throw new Error('Choose a background image first.');
+        const body: CreateBatchRequest = {treatment_id: null, format: 'png', prepare_cutouts: true, qwen_variant: draft.qwenVariant, background_mode: draft.backgroundMode, ...(draft.backgroundMode === 'image' ? {background_image: draft.backgroundImage!, background_name: draft.backgroundName} : {})};
         if (context.nativeCollection && context.collectionId) {body.collection_id = context.collectionId; body.entry_ids = entries.map(entry => entry.id);}
-        else {body.sessions = []; for (const entry of entries) {if (scope !== epoch) return; body.sessions.push(await editor.resolveSession(entry.id)); state = {...state, editor: structuredClone(editor.getSnapshot())}; publish();}}
+        else {
+          body.sessions = [];
+          for (const entry of entries) {if (scope !== epoch) return; body.sessions.push(await editor.resolveSession(entry.id));}
+          if (scope !== epoch) return;
+          state = {...state, editor: structuredClone(editor.getSnapshot())}; publish();
+        }
         if (scope !== epoch) return;
         if (pending().length && pendingKey(pending()) !== acknowledgedFingerprint) throw new Error('The pending selection changed. Review the applied-pixels choice again.');
         const queue = await api.create(body); if (scope !== epoch) return;
@@ -161,10 +181,13 @@ export function createBatchController(options: { token: string; editor: BatchEdi
     newQueue() {
       if (state.working || state.active?.running) return;
       ++epoch; clearPoll(); acknowledgedFingerprint = '';
-      const sessions = new Set(state.active?.items.filter(item => state.selectedIds.includes(item.id)).map(item => item.session_id));
-      let selectedIds = state.editor.entries.filter(item => sessions.has(item.sessionId)).map(item => item.id); if (!selectedIds.length) selectedIds = state.editor.entries.slice(0, 100).map(item => item.id);
-      const draft = state.active ? {treatmentId: state.active.treatment_id || '', format: state.active.format, prepareCutouts: state.active.prepare_cutouts, qwenVariant: state.active.qwen_variant} : state.draft;
-      state = {...state, active: null, selectedIds, draft, inspection: null, savingTreatment: false}; status('Choose settings and prepare a new queue before exporting.');
+      const selected = new Set(state.selectedIds), items = state.active?.items.filter(item => selected.has(item.id)) || [];
+      // Collection item IDs survive lazy import. A null session is not an
+      // identity and must never match every unopened image in the folder.
+      const entryIds = new Set(items.map(item => item.id)), sessions = new Set(items.flatMap(item => item.session_id ? [item.session_id] : []));
+      let selectedIds = state.editor.entries.filter(item => entryIds.has(item.id) || !!item.sessionId && sessions.has(item.sessionId)).map(item => item.id); if (!selectedIds.length) selectedIds = state.editor.entries.map(item => item.id);
+      const draft = {...initialDraft(), qwenVariant: state.draft.qwenVariant};
+      state = {...state, active: null, selectedIds, draft, inspection: null, savingTreatment: false}; status('Choose images and a background, then remove backgrounds and review.');
       void refreshLists().catch(error => status(message(error), true));
     },
     inspect(itemId: string) {if (!state.active?.items.some(item => item.id === itemId && item.preview)) return; state = {...state, inspection: {itemId, original: false, zoom: 'fit'}}; publish();},
@@ -178,7 +201,7 @@ export function createBatchController(options: { token: string; editor: BatchEdi
       const target = state.confirmation, scope = epoch; if (!target) return; state = {...state, confirmation: null}; publish();
       if (target.kind === 'treatment') await api.deleteTreatment(target.id); else await api.clearQueue(target.id);
       if (scope !== epoch) return;
-      if (target.kind === 'queue' && state.active?.id === target.id) state = {...state, active: null, inspection: null, selectedIds: state.editor.entries.slice(0, 100).map(item => item.id)};
+      if (target.kind === 'queue' && state.active?.id === target.id) state = {...state, active: null, inspection: null, selectedIds: state.editor.entries.map(item => item.id)};
       if (target.kind === 'treatment' && state.draft.treatmentId === target.id) state = {...state, draft: {...state.draft, treatmentId: '', prepareCutouts: false}};
       await refreshLists(scope); status(target.kind === 'queue' ? 'Queue cache cleared. Original images and folder exports are kept.' : 'Treatment removed. Existing queue copies are kept.');
     }),

@@ -22,7 +22,7 @@ export function createDocumentController(options: DocumentControllerPorts & {tok
   const listeners = new Set<() => void>(), accepted = new Map<string, DocumentMetadata>(), acceptedOrder = new Map<string, number>(), opened = new Set<string>(), selected = new Map<string, string>();
   const operations = new Map<number, string>(), files = new Map<string, File>(), objectUrls = new Set<string>();
   const bases = new Map<string, Promise<HTMLImageElement>>(), displays = new Map<string, Promise<CanvasDisplay>>();
-  let sequence = 0, navigationEpoch = 0, activeId: string | null = null, collection: ImageCollection | null = null, collectionIndex = -1;
+  let sequence = 0, navigationEpoch = 0, tabRequest = 0, activeId: string | null = null, collection: ImageCollection | null = null, collectionIndex = -1;
   let navigationBusy: number | null = null, pendingDisplay: {epoch: number; document: DocumentMetadata} | null = null;
   let closeInProgress = false, disposed = false, publishing = false, suppressCanvas = false, health = emptyHealth(), healthVersion = 0;
   let status = '', statusError = false, recent: DocumentMetadata[] = [], inspectorHidden = false, filmstripCollapsed = false, thumbnailSize = 72;
@@ -101,6 +101,10 @@ export function createDocumentController(options: DocumentControllerPorts & {tok
   }
   function getAcceptedDocument() {return pendingDisplay?.epoch === navigationEpoch ? pendingDisplay.document : current();}
   function trimDisplayCache() {
+    for (const key of displays.keys()) {
+      const doc = accepted.get(key.slice(0, key.lastIndexOf(':')));
+      if (!doc || key !== doc.id + ':' + doc.revision) displays.delete(key);
+    }
     while (displays.size > 8) displays.delete(displays.keys().next().value!);
     for (const key of bases.keys()) {if (bases.size <= 4) break; if (key !== activeId) bases.delete(key);}
   }
@@ -262,6 +266,7 @@ export function createDocumentController(options: DocumentControllerPorts & {tok
   function setWorkspace(value: Workspace, settings: {internal?: boolean} = {}) {
     if (!['retouch', 'cutout', 'generate'].includes(value) || busy() && !settings.internal) return;
     if (value === 'generate' && !settings.internal && features.enterGenerate) {void features.enterGenerate(); return;}
+    if (value !== 'generate' && interaction.workspace === 'generate' && !settings.internal && features.leaveGenerate) {void features.leaveGenerate(value); return;}
     setInteraction({workspace: value, ...(value === 'retouch' && interaction.tool === 'move' ? {tool: 'brush' as const} : {})}, !!settings.internal);
   }
   function selectTool(value: Tool) {
@@ -365,7 +370,40 @@ export function createDocumentController(options: DocumentControllerPorts & {tok
     } catch (error) {report('Could not close the images. Working layers were kept. ' + failureText(error), true); return false;}
     finally {closeInProgress = false; publish();}
   }
-  async function closeCurrent() {const target = await beforeDocumentCommand('close'); return target.allowed ? current() ? closeDocuments([current()!.id]) : true : false;}
+  async function activateOpenDocument(id: string) {
+    if (busy() || modal() || !opened.has(id)) return false;
+    const epoch = navigationEpoch, request = ++tabRequest;
+    try {
+      const latest = await api.session(id);
+      if (disposed || request !== tabRequest || epoch !== navigationEpoch || !opened.has(id)) return false;
+      return openSession(latest, {expectedNavigationEpoch: epoch});
+    } catch (error) {if (request === tabRequest && epoch === navigationEpoch) report('Could not switch image: ' + failureText(error), true); return false;}
+  }
+  async function newWorkspace() {
+    if (disposed || busy() || modal()) return false;
+    canvas.rememberCurrentView(); canvas.resetTransientInput();
+    const epoch = ++navigationEpoch; navigationBusy = epoch; activeId = null; collection = null; collectionIndex = -1;
+    interaction = {...interaction, workspace: 'retouch', showOriginal: false, handActive: false};
+    generationView = {refining: false, creatingBlank: false, visible: false}; suppressCanvas = true;
+    try {
+      await canvas.presentDocument(null);
+      if (disposed || epoch !== navigationEpoch) return false;
+      features.resetWorkspace?.(); browser.replaceUrl?.('/remove'); report('New workspace. Open an image or choose Generate.'); return true;
+    } finally {if (navigationBusy === epoch) navigationBusy = null; suppressCanvas = false; publish();}
+  }
+  async function closeOpenDocument(id: string) {
+    if (!opened.has(id)) return false;
+    const order = [...opened], index = order.indexOf(id), rawId = activeId, epoch = navigationEpoch;
+    const visibleId = features.visibleDocumentId ? features.visibleDocumentId() : activeId, wasActive = visibleId === id;
+    if (!await closeDocuments([id])) return false;
+    if (wasActive && navigationEpoch === epoch + (rawId === id ? 1 : 0) && activeId === (rawId === id ? null : rawId)) {
+      const adjacent = [...order.slice(index + 1), ...order.slice(0, index).reverse()].find(value => opened.has(value));
+      if (adjacent) await activateOpenDocument(adjacent);
+      else features.resetWorkspace?.();
+    }
+    return true;
+  }
+  async function closeCurrent() {const target = await beforeDocumentCommand('close'); return target.allowed ? current() ? closeOpenDocument(current()!.id) : true : false;}
   function setOutputFormat(value: string) {if (!formats.has(value as OutputFormat) || busy()) return; outputFormat = value as OutputFormat; store('local-remove-copy-format', outputFormat); publish();}
   function setOverwritePreference(value: boolean) {askBeforeOverwrite = value; store('local-remove-ask-before-overwrite', String(value)); publish();}
   function normalizeQwen(value: Record<string, unknown> | null | undefined) {
@@ -382,6 +420,10 @@ export function createDocumentController(options: DocumentControllerPorts & {tok
       const healer = models.find(item => item.id === 'heal');
       const methods = healer?.methods;
       if (Array.isArray(methods)) health.healMethods = methods.filter(item => item && typeof item === 'object' && typeof item.id === 'string').map(item => ({id: item.id, label: item.label || item.id, available: item.available !== false}));
+      if (!health.healMethods.some(method => method.id === healMethod && method.available !== false)) {
+        const fallback = health.healMethods.find(method => method.available !== false);
+        if (fallback) {healMethod = fallback.id; store('local-remove-heal-method', healMethod);}
+      }
     }
     if (value.status) health = {...health, ready: value.status.ready === true, retouchReady: value.status.retouch_ready === true, device: typeof value.status.device === 'string' ? value.status.device : ''};
     if ('qwen' in value) health = {...health, qwen: normalizeQwen(value.qwen)};
@@ -433,6 +475,7 @@ export function createDocumentController(options: DocumentControllerPorts & {tok
   async function showCredits() {const result = await beforeDocumentCommand('credits'); if (!result.allowed || busy() || modal()) return; const credits = documentCredits(current()); dialogs.showCredits(credits, creditText(credits));}
   function downloadCredits() {const doc = current(); if (doc) return browser.download('/api/local-remove/session/' + encodeURIComponent(doc.id) + '/download-credits', doc.name.replace(/\.[^.]+$/, '') + '-credits.txt');}
   const commands = {
+    newWorkspace, activateOpenDocument, closeOpenDocument,
     openFiles: () => chooseFiles('images'), openFolder: () => chooseFiles('folder'), openProject: () => chooseFiles('project'),
     openRecent: async (id: string) => {if (!busy() && !modal()) {try {await openSession(await api.session(id));} catch (error) {report(failureText(error), true);}}},
     saveProject: () => saveProject(), saveProjectAs: () => saveProject(true), overwrite: () => save('overwrite'), saveUnique: () => save('unique'), exportImage: (allowPending = false) => save('export', allowPending), closeImage: closeCurrent,
@@ -454,7 +497,7 @@ export function createDocumentController(options: DocumentControllerPorts & {tok
   const toolActions: ToolActions = {
     workspace: setWorkspace, tool: selectTool, brushSize: value => {if (editable()) {interaction.brushSize = Math.max(1, Math.min(2000, Math.round(value))); canvas.setBrushSize(interaction.brushSize); publish();}},
     selectionMode: subtract => setInteraction({subtract}), finishPath: commands.finishPath, clearSelection: commands.clearSelection, applySelection,
-    healMethod: value => {if (!busy() && health.healMethods.some(method => method.id === value)) {healMethod = value; store('local-remove-heal-method', value); publish();}},
+    healMethod: value => {if (!busy() && health.healMethods.some(method => method.id === value && method.available !== false)) {healMethod = value; store('local-remove-heal-method', value); publish();}},
     aiProvider: value => {if (!busy()) {aiProvider = value; publish();}}, qwenVariant: value => {if (!busy() && ['int8', 'bf16'].includes(value)) {qwenVariant = value; store('local-remove-qwen-variant', value); publish();}},
     cutoutOperation: value => setInteraction({cutoutOperation: value}),
     removeBackground: () => snapshot.tools.canRemoveBackground ? edit('/cutout', {variant: qwenVariant, layer_id: selectedLayer()?.id}, 'POST', {selectNew: true, clearSelection: true, label: 'Background removal completed.'}) : Promise.resolve(null),
@@ -482,12 +525,13 @@ export function createDocumentController(options: DocumentControllerPorts & {tok
   publish();
   return {
     getSnapshot: () => snapshot, subscribe(listener: () => void) {listeners.add(listener); return () => {listeners.delete(listener);};}, commands, toolActions, chromeActions, api, canvas,
-    getAcceptedDocument, getContext, runDocumentChange, acceptDocument, activateMode, applyGeneratedBackground, openSession, openCollection, openCollectionEntry, openBrowserFiles, importProject, applyNativeResult,
+    getAcceptedDocument, hasCutout: (id: string) => !!accepted.get(id)?.cutout?.enabled, getContext, runDocumentChange, acceptDocument, activateMode, applyGeneratedBackground, openSession, openCollection, openCollectionEntry, openBrowserFiles, importProject, applyNativeResult,
+    retainDocument(value: DocumentMetadata) {const document = accept(value); opened.add(document.id); publish();},
     drop: (dropped: readonly File[]) => native?.capabilities().ready ? openNative('drop', dropped) : openBrowserFiles(dropped),
     openInitial,
     async initialize(search = '') {await native?.connect(); await refreshHealth(); await refreshRecent(); await openInitial(search);},
     refreshHealth, refreshRecent, acceptConfiguration, report, downloadCredits,
-    async refreshPreview() {if (busy() || !current()) return false; const doc = current()!, epoch = navigationEpoch, finish = startOperation('Refreshing view'); try {const shown = await present(doc, epoch); if (shown) report('View refreshed.'); return shown;} catch (error) {report('Could not refresh the view. ' + failureText(error), true); return false;} finally {finish();}},
+    async refreshPreview() {if (busy() || !current()) return false; const doc = current()!, epoch = navigationEpoch, finish = startOperation('Refreshing view'); try {const fresh = accept(await api.session(doc.id)); displays.delete(fresh.id + ':' + fresh.revision); const shown = await present(fresh, epoch); if (shown) report('View refreshed.'); return shown;} catch (error) {report('Could not refresh the view. ' + failureText(error), true); return false;} finally {finish();}},
     setFeatures(value: DocumentFeatureCommands) {features = value;},
     setGenerationView(value: Partial<typeof generationView>) {generationView = {...generationView, ...value}; publish();},
     restoreInteraction(value: CanvasInteraction) {interaction = {...value}; if (!suppressCanvas) publish();},

@@ -25,7 +25,7 @@ $signature = Get-AuthenticodeSignature -LiteralPath $webViewSetup
 if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
     throw 'The WebView2 bootstrapper does not have a valid Microsoft signature.'
 }
-& $Python -m PyInstaller --noconfirm --distpath $package --workpath (Join-Path $output 'build') (Join-Path $PSScriptRoot 'local-remove.spec')
+& $Python -m PyInstaller --noconfirm --distpath $package --workpath (Join-Path $output 'build') (Join-Path $PSScriptRoot 'local-image.spec')
 if ($LASTEXITCODE -ne 0) { throw 'Backend packaging failed.' }
 & (Join-Path $repository 'desktop\Build-NativeHost.ps1') -PackageRoot $WebView2Package -OutputDirectory $package
 if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed.' }
@@ -37,7 +37,7 @@ $longestDirectory = ($packageEntries | Where-Object { $_.PSIsContainer } | ForEa
 # Keep two characters of margin below Win32's file and directory path limits.
 $appPathLimit = [Math]::Min(256 - $longestFile, 244 - $longestDirectory)
 if ($appPathLimit -lt 64) { throw 'The package contains paths too deep for a normal Windows installation.' }
-& $InnoCompiler ('/DPackageDir=' + $package) ('/DInstallerDir=' + $installer) ('/DPrerequisiteDir=' + $prerequisites) ('/DAppPathLimit=' + $appPathLimit) (Join-Path $PSScriptRoot 'LocalRemove.iss')
+& $InnoCompiler ('/DPackageDir=' + $package) ('/DInstallerDir=' + $installer) ('/DPrerequisiteDir=' + $prerequisites) ('/DAppPathLimit=' + $appPathLimit) (Join-Path $PSScriptRoot 'LocalImage.iss')
 if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
 Get-ChildItem -LiteralPath $installer -Filter '*.exe' | ForEach-Object {
     $checksum = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()

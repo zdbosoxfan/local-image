@@ -8,7 +8,7 @@ function fixture() {
   let fingerprint='a:1',pending=true,epoch=0;
   const snapshot={busy:false,askBeforeOverwrite:true,document:{id:'a',name:'Photo A',revision:3,cutout:{enabled:true}},collection:{id:'collection',local:false,entries:[{id:'entry-a',name:'Photo A',session_id:'a'},{id:'entry-b',name:'Photo B',session_id:null}]}};
   const capabilities={ready:true,projects:true,setup:true,batch:true,closeRequests:true,version:2};
-  const docs={getSnapshot:()=>snapshot,getContext:()=>({documentId:snapshot.document.id,navigationEpoch:epoch,busy:snapshot.busy}),subscribe:()=>()=>{},
+  const docs={hasCutout:(id:string)=>id==='a',getSnapshot:()=>snapshot,getContext:()=>({documentId:snapshot.document.id,navigationEpoch:epoch,busy:snapshot.busy}),subscribe:()=>()=>{},
     canvas:{resetTransientInput:()=>calls.push('reset'),focus:()=>calls.push('focus'),cancelGesture:()=>calls.push('cancelGesture')},
     commands:{setOverwritePreference:(value:boolean)=>{snapshot.askBeforeOverwrite=value;values.set('local-remove-ask-before-overwrite',String(value));}},
     acceptConfiguration:(value:unknown)=>calls.push(['config',value]),setSettingsPending:(value:boolean)=>calls.push(['settingsPending',value]),setMenuOpen:(value:boolean)=>calls.push(['menu',value]),
@@ -35,6 +35,11 @@ test('model adapter uses only fixed native actions and preserves null cancellati
   await f.adapters.modelBridge.downloadModel('qwen','int8');await f.adapters.modelBridge.downloadLora({model:'qwen',repo_id:'publisher/style',filename:'style.safetensors',revision:'a'.repeat(40),allow_unverified:false});
   assert.deepEqual(f.calls,[['model','qwen','int8'],['lora',{model:'qwen',repo_id:'publisher/style',filename:'style.safetensors',revision:'a'.repeat(40),allow_unverified:false}]]);
   assert.equal('getLegacyLoraPort'in f.adapters.modelBridge,false);
+});
+test('settings model download reuses the existing native generator action',async()=>{
+  const f=fixture();assert.equal(await f.adapters.settingsBridge.downloadModel('qwen','bf16'),null);
+  await f.adapters.settingsBridge.downloadModel('z-image-turbo','bf16');
+  assert.deepEqual(f.calls,[['model','qwen','bf16'],['model','z-image-turbo','bf16']]);
 });
 test('batch pending fingerprint invalidates acknowledgement even when selection remains nonempty',()=>{
   const f=fixture(),first=f.adapters.batchEditor.getSnapshot();assert.equal(first,f.adapters.batchEditor.getSnapshot());assert.ok(Object.isFrozen(first.pendingSelections));

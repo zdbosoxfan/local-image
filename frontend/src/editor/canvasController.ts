@@ -16,21 +16,25 @@ const defaults: CanvasInteraction = { tool: 'brush', workspace: 'retouch', opera
  * Central application shortcuts call the exposed methods instead of installing
  * another keyboard handler. See canvasExtraction.ts for source provenance. */
 export function createCanvasController(elements: CanvasElements, ports: CanvasPorts) {
-  const { viewport, stage, photo: baseCanvas, photoImage, overlay, draft, layerStack, brushCursor } = elements;
+  const { viewport, stage, photo: baseCanvas, overlay, draft, layerStack, brushCursor } = elements;
+  let photoImage = elements.photoImage;
   if (owners.has(viewport)) throw Error('This viewport already has a canvas controller.');
   const owner = Symbol('canvas-controller'); owners.set(viewport, owner);
   const ownerDocument = viewport.ownerDocument, ownerWindow = ownerDocument.defaultView!;
   const mask = ownerDocument.createElement('canvas');
   const mc = mask.getContext('2d', { willReadFrequently: true })!, bc = baseCanvas.getContext('2d')!, oc = overlay.getContext('2d')!, dc = draft.getContext('2d')!;
   if (!mc || !bc || !oc || !dc) throw Error('Canvas 2D is unavailable.');
-  const views = new Map<string, CanvasViewState>(), assetCache = new Map<string, MoveAsset[]>(), listeners = new Set<() => void>();
+  const views = new Map<string, CanvasViewState>(), assetCache = new Map<string, {key: string; image: Promise<HTMLImageElement>}>(), listeners = new Set<() => void>();
   let document: CanvasDocument | null = null, display: CanvasDisplay | null = null, interaction = { ...defaults };
   let camera: Camera = { zoom: 1, panX: 0, panY: 0, fitMode: true }, viewportWidth = 0, viewportHeight = 0;
   let points: Point[] = [], undo: string[] = [], redo: SelectionRedo[] = [], hasSelection = false, historyBusy = false, spaceHeld = false, selectionVersion = 0;
   let gesture: DrawGesture | PanGesture | CutoutGesture | null = null, moving: LayerGesture | null = null, brushPointer: ClientPoint | null = null;
+  // Pointer capture ends on release, but its last painted transform stays on
+  // screen until the accepted, decoded composite replaces it.
+  let settling: LayerGesture | CutoutGesture | null = null;
   let legacyTransformAssets: { sid: string; revision: number; foreground: HTMLImageElement; background: HTMLImageElement } | null = null;
   let navigationEpoch = 0, disposed = false, currentSnapshot: CanvasSnapshot | null = null;
-  const image = ports.loadImage ?? ((url: string) => new Promise<HTMLImageElement>((resolve, reject) => { const value = ownerDocument.createElement('img'); value.onload = () => resolve(value); value.onerror = () => reject(Error('Could not load the photo')); value.src = url; }));
+  const image = ports.loadImage ?? ((url: string) => new Promise<HTMLImageElement>((resolve, reject) => { const value = ownerDocument.createElement('img'); value.onload = () => {void value.decode().then(() => resolve(value), () => reject(Error('Could not decode the photo')));}; value.onerror = () => reject(Error('Could not load the photo')); value.src = url; }));
   const ratio = () => document ? pixelRatio(document.width, baseCanvas.width) : 1;
   const photoZoom = () => camera.zoom / ratio();
   const selected = () => document?.layer_stack?.find(layer => layer.id === interaction.selectedLayerId && !layer.discarded) ?? null;
@@ -85,7 +89,7 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
     camera = zoomAt(camera, value, ratio(), anchor); applyCamera(); publish();
   }
   function resize() {
-    if (!document) return; if (camera.fitMode) { fit(); return; }
+    if (!document || ports.isEditorHidden?.()) return; if (camera.fitMode) { fit(); return; }
     camera.panX += (viewport.clientWidth - viewportWidth) / 2; camera.panY += (viewport.clientHeight - viewportHeight) / 2;
     viewportWidth = viewport.clientWidth; viewportHeight = viewport.clientHeight; applyCamera(); publish();
   }
@@ -111,10 +115,22 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
   function cancelMove() { if (!moving) return; const previous = moving; moving = null; release(previous.pointerId); paintPhoto(); publish(); }
   function clearSelection(options: { recordHistory?: boolean } = {}) { if (options.recordHistory) snapshotSelection(); endGesture(); mc.clearRect(0, 0, mask.width, mask.height); dc.clearRect(0, 0, draft.width, draft.height); points = []; hasSelection = false; refreshMask(); }
   function paintPhoto() {
-    if (!document || !display) return;
+    if (disposed || !document || !display) return;
+    if (settling?.sid === document.id && settling.revision === document.revision && !interaction.showOriginal) {
+      if (settling.kind === 'transform') paintLegacyTransform(settling.next);
+      else paintMoving(settling);
+      updateCursor(); return;
+    }
     bc.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
     const composited = !interaction.showOriginal && (!!document.layer_stack || !!document.cutout?.enabled), shown = composited && display.composite ? display.composite : display.original;
-    photoImage.hidden = false; if (photoImage.src !== shown.src) photoImage.src = shown.src;
+    // Install the image that the loader already decoded. Assigning its URL to
+    // a second <img> would reveal the old frame while that node loads/decodes.
+    if (photoImage !== shown) {
+      shown.id = photoImage.id; shown.className = photoImage.className; shown.alt = photoImage.alt; shown.draggable = false;
+      shown.style.width = `${baseCanvas.width}px`; shown.style.height = `${baseCanvas.height}px`;
+      photoImage.replaceWith(shown); photoImage = shown; elements.photoImage = shown;
+    }
+    photoImage.hidden = false;
     stage.classList.toggle('cutout-preview', composited); layerStack.hidden = !!document.layer_stack || interaction.showOriginal || composited;
     overlay.hidden = interaction.showOriginal || interaction.workspace === 'generate'; draft.hidden = interaction.showOriginal || interaction.workspace === 'generate';
     drawHandles(); updateCursor();
@@ -122,20 +138,30 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
   function drawHandles() {
     const layer = selected(); if (!document?.layer_stack || interaction.tool !== 'move' || interaction.workspace === 'generate' || interaction.showOriginal || interaction.handActive || !layer) return;
     dc.clearRect(0, 0, draft.width, draft.height); if (!layer.visible || layer.discarded) return;
-    const geometry = layerGeometry(document.width, document.height, layer.bounds, moving?.next || transform(layer), ratio(), camera.zoom), r = ratio(), size = 7 / camera.zoom;
+    const held = settling && settling.kind !== 'transform' && settling.id === layer.id ? settling.next : null;
+    const geometry = layerGeometry(document.width, document.height, layer.bounds, moving?.next || held || transform(layer), ratio(), camera.zoom), r = ratio(), size = 7 / camera.zoom;
     draft.hidden = false; dc.save(); dc.lineWidth = 1 / camera.zoom; dc.strokeStyle = layer.locked ? '#a9b4c2' : '#65bdff'; dc.fillStyle = '#172734'; dc.beginPath(); geometry.corners.forEach((point, index) => index ? dc.lineTo(point.x / r, point.y / r) : dc.moveTo(point.x / r, point.y / r)); dc.closePath(); dc.stroke();
     if (!layer.locked) { dc.beginPath(); dc.moveTo(geometry.top.x / r, geometry.top.y / r); dc.lineTo(geometry.rotate.x / r, geometry.rotate.y / r); dc.stroke(); for (const point of [...geometry.corners, geometry.rotate]) { dc.fillRect(point.x / r - size / 2, point.y / r - size / 2, size, size); dc.strokeRect(point.x / r - size / 2, point.y / r - size / 2, size, size); } }
     dc.restore();
   }
   async function loadMoveAssets(requested: CanvasDocument) {
-    const key = `${requested.id}:${requested.revision}`, cached = assetCache.get(key); if (cached) return cached;
-    const value = await Promise.all((requested.layer_stack || []).filter(node => node.visible && !node.discarded).map(async node => ({ node, image: await image(`/api/local-remove/session/${encodeURIComponent(requested.id)}/stack/layer/${encodeURIComponent(node.id)}/display?r=${requested.revision}`) })));
-    if (sameDocument(requested.id, requested.revision)) { assetCache.clear(); assetCache.set(key, value); } return value;
+    const nodes = (requested.layer_stack || []).filter(node => node.visible && !node.discarded);
+    for (const id of assetCache.keys()) if (!nodes.some(node => node.id === id)) assetCache.delete(id);
+    return Promise.all(nodes.map(async node => {
+      const key = node.display_key || String(requested.revision);
+      let cached = assetCache.get(node.id);
+      if (!cached || cached.key !== key) {
+        cached = {key, image: image(`/api/local-remove/session/${encodeURIComponent(requested.id)}/stack/layer/${encodeURIComponent(node.id)}/display?r=${encodeURIComponent(key)}`)};
+        assetCache.set(node.id, cached);
+        const pending = cached; void pending.image.catch(() => {if (assetCache.get(node.id) === pending) assetCache.delete(node.id);});
+      }
+      return {node, image: await cached.image};
+    }));
   }
-  function paintMoving() {
-    if (!document || !moving?.assets) return; photoImage.hidden = true; layerStack.hidden = true; overlay.hidden = true; bc.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
+  function paintMoving(drag = moving) {
+    if (!document || !drag?.assets) return; photoImage.hidden = true; layerStack.hidden = true; overlay.hidden = true; bc.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
     const r = ratio(), cx = (document.width - 1) / 2 / r, cy = (document.height - 1) / 2 / r;
-    for (const asset of moving.assets) { const next = asset.node.id === moving.id ? moving.next : transform(asset.node); bc.save(); bc.globalAlpha = asset.node.opacity ?? 1; bc.translate(cx + next.offset_x / r, cy + next.offset_y / r); bc.rotate(next.rotation * Math.PI / 180); bc.scale(next.scale, next.scale); bc.drawImage(asset.image, -cx, -cy, baseCanvas.width, baseCanvas.height); bc.restore(); }
+    for (const asset of drag.assets) { const next = asset.node.id === drag.id ? drag.next : transform(asset.node); bc.save(); bc.globalAlpha = asset.node.opacity ?? 1; bc.translate(cx + next.offset_x / r, cy + next.offset_y / r); bc.rotate(next.rotation * Math.PI / 180); bc.scale(next.scale, next.scale); bc.drawImage(asset.image, -cx, -cy, baseCanvas.width, baseCanvas.height); bc.restore(); }
     drawHandles();
   }
   async function prepareLegacyTransform() {
@@ -165,8 +191,8 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
         const corner = geometry.corners.findIndex(point => Math.hypot(point.x - start.x, point.y - start.y) < tolerance), kind = corner >= 0 ? 'scale' : Math.hypot(geometry.rotate.x - start.x, geometry.rotate.y - start.y) < tolerance ? 'rotate' : 'move';
         const drag: LayerGesture = { sid: document.id, revision: document.revision, id: node.id, pointerId: event.pointerId, start, original, next: { ...original }, geometry, corner, kind, assets: null }; moving = drag;
         viewport.setPointerCapture(event.pointerId); viewport.focus({ preventScroll: true }); publish();
-        try { const assets = await loadMoveAssets(document); if (moving === drag && sameDocument(drag.sid, drag.revision)) { drag.assets = assets; paintMoving(); } }
-        catch (error) { if (moving === drag) { cancelMove(); ports.report?.(error instanceof Error ? error.message : 'Could not load layer preview', true); } }
+        try { const assets = await loadMoveAssets(document); if ((moving === drag || settling === drag) && document?.id === drag.sid && document.revision === drag.revision) { drag.assets = assets; if (moving === drag) paintMoving(drag); else paintPhoto(); } }
+        catch (error) { if (moving === drag || settling === drag) { if (moving === drag) cancelMove(); ports.report?.(error instanceof Error ? error.message : 'Could not load layer preview', true); } }
         return;
       }
     }
@@ -206,15 +232,28 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
     if (!moving || event.pointerId !== moving.pointerId) return; event.stopImmediatePropagation(); const drag = moving; moving = null; release(event.pointerId);
     if (cancel || !sameDocument(drag.sid, drag.revision)) { paintPhoto(); publish(); return; }
     if (JSON.stringify(drag.next) !== JSON.stringify(drag.original)) {
+      settling = drag;
       try { await ports.commitLayerTransform({ documentId: drag.sid, revision: drag.revision, layerId: drag.id, transform: { ...drag.next } }); }
       catch (error) { ports.report?.(error instanceof Error ? error.message : 'Could not transform layer', true); }
+      finally { finishSettling(drag); }
     }
     paintPhoto(); publish();
+  }
+  function finishSettling(ended: LayerGesture | CutoutGesture) {
+    if (settling !== ended) return;
+    const accepted = ports.getAcceptedDocument();
+    // If the write succeeded but the preview failed, retain the truthful last
+    // transform until Refresh view presents that accepted revision.
+    if (document?.id === ended.sid && document.revision === ended.revision && accepted?.id === ended.sid && accepted.revision > ended.revision) return;
+    settling = null;
   }
   function pointerUp(event: PointerEvent) {
     if (moving) { void finishMove(event); return; }
     if (!gesture || event.pointerId !== gesture.pointerId) return;
-    if (gesture.kind === 'transform') { const previous = gesture, next = { ...previous.next }, changed = next.offset_x !== previous.original.offset_x || next.offset_y !== previous.original.offset_y; endGesture(); if (changed && sameDocument(previous.sid, previous.revision)) void ports.commitLegacyCutoutTransform?.({ documentId: previous.sid, revision: previous.revision, transform: next }).catch(error => ports.report?.(error instanceof Error ? error.message : 'Could not move subject', true)); return; }
+    if (gesture.kind === 'transform') { const previous = gesture, next = { ...previous.next }, changed = next.offset_x !== previous.original.offset_x || next.offset_y !== previous.original.offset_y;
+      const commit = changed && sameDocument(previous.sid, previous.revision) && ports.commitLegacyCutoutTransform;
+      if (commit) settling = previous; endGesture();
+      if (commit) void commit({documentId: previous.sid, revision: previous.revision, transform: next}).catch(error => ports.report?.(error instanceof Error ? error.message : 'Could not move subject', true)).finally(() => {finishSettling(previous); paintPhoto(); publish();}); return; }
     if (gesture.kind === 'draw') { const point = coord(event); if (gesture.tool === 'brush') stroke(gesture.last, point); gesture.last = point; } endGesture();
   }
   function pointerCancel(event: PointerEvent) { brushPointer = null; if (moving?.pointerId === event.pointerId) { void finishMove(event, true); return; } if (gesture?.pointerId === event.pointerId) endGesture(); updateBrushCursor(); }
@@ -224,20 +263,21 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
   function setSpaceHeld(value: boolean) { if (spaceHeld === value) return; spaceHeld = value; if (value && gesture?.kind === 'draw') { const previous = gesture; endGesture(false); startPan({ pointerId: previous.pointerId, clientX: previous.clientX, clientY: previous.clientY }); } if (points.length) penDraft(); updateCursor(); }
   function resetTransientInput() { spaceHeld = false; brushPointer = null; cancelMove(); endGesture(); updateCursor(); }
   function rememberCurrentView() {
-    if (!document) return; cancelMove(); endGesture();
+    if (!document || ports.isEditorHidden?.()) return; cancelMove(); endGesture();
     views.set(document.id, { mask: hasSelection ? mask.toDataURL('image/png') : null, undo: [...undo], redo: structuredClone(redo), points: points.map(point => ({ ...point })), width: mask.width, height: mask.height,
       interaction: { ...interaction }, photoZoom: photoZoom(), camera: { ...camera }, viewportWidth: viewport.clientWidth, viewportHeight: viewport.clientHeight, hasSelection, selectionVersion });
   }
   async function presentDocument(next: CanvasDisplay | null) {
     const epoch = ++navigationEpoch; historyBusy = false;
     if (!next || next.document.id !== document?.id) rememberCurrentView();
-    if (!next) { document = null; display = null; legacyTransformAssets = null; points = []; undo = []; redo = []; hasSelection = false; stage.hidden = true; photoImage.removeAttribute('src'); layerStack.replaceChildren(); publish(); return false; }
+    if (!next) { document = null; display = null; settling = null; assetCache.clear(); legacyTransformAssets = null; points = []; undo = []; redo = []; hasSelection = false; stage.hidden = true; layerStack.replaceChildren(); publish(); return false; }
     const saved = next.document.id !== document?.id ? views.get(next.document.id) : null;
     let selection: HTMLImageElement | null = null;
     if (saved?.mask) selection = await image(saved.mask);
     const accepted = ports.getAcceptedDocument(); if (disposed || epoch !== navigationEpoch || accepted?.id !== next.document.id || accepted.revision !== next.document.revision) return false;
     const changedDocument = document?.id !== next.document.id, changedRevision = changedDocument || document?.revision !== next.document.revision;
-    if (changedRevision) { cancelMove(); legacyTransformAssets = null; assetCache.clear(); }
+    if (changedRevision) { cancelMove(); settling = null; legacyTransformAssets = null; }
+    if (changedDocument) assetCache.clear();
     document = structuredClone(next.document); display = next; interaction = { ...interaction, ...next.interaction }; stage.hidden = false;
     if (changedDocument) {
       endGesture(); const sourceWidth = next.original.naturalWidth || next.original.width, sourceHeight = next.original.naturalHeight || next.original.height, scale = Math.min(1, 3000 / Math.max(sourceWidth, sourceHeight));

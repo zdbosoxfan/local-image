@@ -1,5 +1,7 @@
 # Install Local Image on another Windows PC
 
+For the bundled Linux preview, use the [Linux installation guide](LINUX-INSTALLATION.md). The portable ComfyUI installer described below is a Windows feature.
+
 Local Image 0.7.0 uses a Windows EXE installer. The application, bundled Python backend and native WebView2 host are installed together. Users do not need to install Python, Node.js, Git or development tools. ComfyUI and AI model weights are optional and are downloaded separately.
 
 ## Choose the application and AI folders

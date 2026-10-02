@@ -17,10 +17,11 @@ export interface LoraItem {
   description?: string; style?: string; usage?: string; experimental?: boolean; license?: string; license_note?: string;
   compatibility?: Compatibility; supported?: boolean; warning?: string; trigger_phrase?: string;
   recommended_settings?: { steps?: number; guidance?: number }; recommended_strength?: number;
-  preview_url?: string; preview_available?: boolean; example_source?: string; example_caption?: string;
+  preview_url?: string; preview_available?: boolean; preview_requires_consent?: boolean; example_source?: string; example_caption?: string;
+  content_rating?: 'adult' | 'unknown' | 'general'; content_rating_source?: string | null;
 }
 export interface LoraInventory { installed: LoraItem[]; curated: LoraItem[]; job?: DownloadJob }
-export interface LoraFiles { model?: string; repo_id: string; revision: string; files: LoraItem[]; compatibility?: Compatibility; supported?: boolean; warning?: string }
+export interface LoraFiles extends Pick<LoraItem, 'description' | 'content_rating' | 'content_rating_source'> { model?: string; repo_id: string; revision: string; files: LoraItem[]; compatibility?: Compatibility; supported?: boolean; warning?: string }
 export interface LoraDraftPort {
   contextId: string;
   read(): { modelId: string; modelLabel?: string; selected: LoraSelection[]; referenceCount?: number; supportsLoras?: boolean };
@@ -50,5 +51,6 @@ export interface ModelsSnapshot {
   selectedLoras: LoraSelection[]; loraTab: 'installed' | 'browse'; inventory: LoraInventory | null; query: string; searchResults: LoraItem[];
   searching: boolean; filesLoading: boolean; files: LoraFiles | null; selectedFilename: string; allowUnverified: boolean; info: LoraItem | null; loraJob: DownloadJob | null;
   checkedAt: number | null;
+  showAdultContent: boolean; savingContentPreference: boolean; searchHiddenCount: number;
 }
 declare global { interface Window { LocalImageModelBridge?: ModelBridge } }
