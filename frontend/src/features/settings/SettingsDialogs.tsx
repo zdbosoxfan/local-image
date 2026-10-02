@@ -68,7 +68,7 @@ export function SettingsDialogs({ controller }: { controller: SettingsController
           {state.message && <p role="status" className="li-settings-note">{state.message}</p>}
         </DialogContent>
         <DialogActions>
-          {state.view === 'hardware' ? <Button appearance="primary" onClick={() => controller.continueHardware()}>Continue</Button> : <Button appearance="primary" onClick={() => controller.close()}>Done</Button>}
+          {state.view === 'hardware' ? <Button appearance="primary" disabled={state.savingHardwarePreference} onClick={() => controller.continueHardware()}>Continue</Button> : <Button appearance="primary" onClick={() => controller.close()}>Done</Button>}
         </DialogActions>
       </DialogBody>
     </DialogSurface>
@@ -122,6 +122,8 @@ function Hardware({ controller, state }: { controller: SettingsController; state
     <p>{guide?.devices?.length ? guide.devices.map(device => `${device.name}${device.vram_gb ? ` · ${device.vram_gb} GB VRAM` : ''}`).join(' / ') : state.loading ? 'Checking graphics memory…' : 'GPU memory could not be detected'}</p>
     {!!guide?.system_ram_gb && <p className="li-settings-note">{guide.system_ram_gb} GB system RAM</p>}
     <p className="li-settings-note">Quick Heal and compositing run on the CPU. Local AI models are optional.</p>
+    <Checkbox label="Don’t show again" checked={state.hideHardwareGuide} disabled={state.loading || state.savingHardwarePreference} onChange={(_, data) => void controller.setHideHardwareGuide(data.checked === true)}/>
+    <p className="li-settings-note">You can open this guide again from Help → Hardware guide.</p>
     <div className="li-settings-actions"><Button size="small" onClick={() => controller.startTask('retouch')}>Repair a photo</Button><Button size="small" onClick={() => controller.startTask('cutout')}>Remove a background</Button><Button size="small" onClick={() => controller.startTask('generate')}>Create an image</Button><Button size="small" onClick={() => controller.startTask('setup')}>Set up AI</Button></div>
     <Table size="small" aria-label="Model memory planning"><TableHeader><TableRow><TableHeaderCell>Tool or model</TableHeaderCell><TableHeaderCell>GPU memory</TableHeaderCell></TableRow></TableHeader><TableBody>{guide?.profiles?.map(profile => <TableRow key={profile.label}><TableCell>{profile.label}</TableCell><TableCell>{profile.vram}</TableCell></TableRow>)}</TableBody></Table>
     <p className="li-settings-note">{guide?.note || 'These are planning recommendations, not hard minimums. Editing tools remain available while hardware detection is unavailable.'}</p>

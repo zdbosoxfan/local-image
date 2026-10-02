@@ -8,9 +8,10 @@ import subprocess
 
 import aiohttp
 from fastapi import APIRouter, Request
+from pydantic import BaseModel, ConfigDict
 import psutil
 
-from app_paths import read_config
+from app_paths import read_config, write_config
 
 router = APIRouter()
 PROFILES = [
@@ -121,3 +122,25 @@ async def get_hardware(request: Request):
     from local_remove import guard
     guard(request)
     return await hardware_status()
+
+
+class HardwarePreference(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    dont_show_again: bool
+
+
+@router.get('/api/local-remove/hardware/preference')
+async def get_hardware_preference(request: Request):
+    from local_remove import guard
+    guard(request)
+    # None allows existing browser acknowledgements to keep their behavior until
+    # the user explicitly sets this durable, per-profile preference.
+    return {'dont_show_again': read_config().get('hardware_guide_dismissed')}
+
+
+@router.post('/api/local-remove/hardware/preference')
+async def set_hardware_preference(request: Request, payload: HardwarePreference):
+    from local_remove import guard
+    guard(request, True)
+    settings = await asyncio.to_thread(write_config, {'hardware_guide_dismissed': payload.dont_show_again})
+    return {'dont_show_again': settings['hardware_guide_dismissed']}

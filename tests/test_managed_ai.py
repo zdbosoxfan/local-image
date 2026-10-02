@@ -295,6 +295,34 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ai.SetupError):
                 ai.configure(**payload)
 
+    @unittest.skipIf(os.name == 'nt', 'POSIX virtual environment layout')
+    def test_linux_venv_detection_and_launch_keep_the_symlink_invocation_path(self):
+        code, unused_windows_python = create_runtime(self.root / 'home' / 'ComfyUI', False)
+        unused_windows_python.unlink()
+        python = code / '.venv' / 'bin' / 'python'
+        python.parent.mkdir(parents=True)
+        python.symlink_to(sys.executable)
+        with patch.object(ai.sys, 'platform', 'linux'):
+            item = ai.installation(code)
+            self.assertTrue(item['startable'])
+            self.assertEqual(item['python'], str(python))
+            self.assertIn(str(code), [entry['path'] for entry in ai.detect_installations()])
+            command = ai.launch_command(item, 8189, self.root / 'extra-model-paths.yaml')
+            self.assertEqual(command[:3], [str(python), '-s', str(code / 'main.py')])
+            self.assertNotIn('--windows-standalone-build', command)
+            python.unlink()
+            python.symlink_to(self.root / 'missing-python')
+            with self.assertRaises(ai.SetupError):
+                ai.launch_command(item, 8189, self.root / 'extra-model-paths.yaml')
+
+    def test_runtime_detection_does_not_accept_an_arbitrary_executable_as_python(self):
+        code, python = create_runtime(self.root / 'runtime', False)
+        python.unlink()
+        arbitrary = code / 'run-model'
+        arbitrary.write_bytes(b'fixture, never executed')
+        arbitrary.chmod(0o700)
+        self.assertFalse(ai.installation(code, python=str(arbitrary))['startable'])
+
     def test_desktop_registry_finds_custom_drive_standalone_and_shared_models(self):
         # Desktop 2 installs are independently located and do not use a .venv.
         parent = self.root / 'other-drive' / 'Graphic Studio é'

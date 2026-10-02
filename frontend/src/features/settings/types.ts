@@ -21,6 +21,7 @@ export interface SetupState {
 export interface RemovalSettings { model?: string; models: Array<{ id: string; label?: string; available?: boolean; [key: string]: unknown }> }
 export interface BackendStatus { ready?: boolean; retouch_ready?: boolean; device?: string; [key: string]: unknown }
 export interface HardwareGuide { devices?: Array<{ name: string; vram_gb?: number }>; system_ram_gb?: number; note?: string; profiles?: Array<{ label: string; vram: string; detail?: string; basis?: string; source_url?: string }> }
+export interface HardwarePreference { dont_show_again: boolean | null }
 export interface AcceptedConfiguration { settings?: RemovalSettings; status?: BackendStatus; qwen?: Record<string, unknown> | null; setup?: SetupState }
 export interface SettingsCapabilities { ready: boolean; setup: boolean }
 export interface SettingsPreferences { askBeforeOverwrite: boolean; density: InterfaceDensity }
@@ -51,6 +52,8 @@ export interface SettingsSnapshot {
   pendingAction: SetupAction | null;
   setup: SetupState | null;
   hardware: HardwareGuide | null;
+  hideHardwareGuide: boolean;
+  savingHardwarePreference: boolean;
   capabilities: SettingsCapabilities;
   preferences: SettingsPreferences;
   error: string;

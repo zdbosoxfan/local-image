@@ -11,7 +11,8 @@
 .li-batch-table { table-layout:fixed; width:100%; }.li-batch-table th:first-child { width:60px; }.li-batch-table th:nth-child(3) { width:110px; }
 .li-batch-table td { overflow-wrap:anywhere; }.li-batch-preview.fui-Button { min-width:0; padding:2px; }.li-batch-preview img { display:block; width:92px; height:64px; object-fit:contain; }
 .li-batch-status p { margin:0 0 4px; }.li-batch-error { color:var(--colorPaletteRedForeground1); }
-.li-batch-history summary { cursor:pointer; padding-block:4px; }.li-batch-history-controls { margin-top:8px; }.li-batch-history-controls > .fui-Select { flex:1 1 280px; min-width:0; }
+.li-batch-history summary { cursor:pointer; padding-block:4px; }.li-batch-history-controls { margin-top:8px; }.li-batch-history-controls > .li-batch-choice { flex:1 1 280px; min-width:0; }
+.li-batch-choice.fui-Button { justify-content:space-between; gap:12px; text-align:left; }.li-batch-choice > span:first-child { overflow-wrap:anywhere; }
 .li-batch-actions.fui-DialogActions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:flex-end; }
 .li-batch-actions > .li-batch-note { margin-right:auto; max-width:260px; }
 .li-batch-inspection { flex:none; min-height:220px; }.li-batch-inspect-toolbar strong { flex:1; min-width:120px; overflow-wrap:anywhere; }

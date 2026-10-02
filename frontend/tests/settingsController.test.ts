@@ -11,6 +11,7 @@ function fixture() {
   const storageValues = new Map<string, string>();
   const schedules: Array<{ callback: () => void; milliseconds: number }> = [];
   let data: SetupState = { service: { ready: false, running: false }, models: [], model_directory: '' };
+  let hideHardware: boolean | null = null;
   const bridge: SettingsBridge = {
     capabilities: () => ({ ready: true, setup: true }), editorBusy: () => false,
     preferences: () => ({ askBeforeOverwrite: true, density: 'comfortable' }),
@@ -22,7 +23,8 @@ function fixture() {
     useInstallation: async id => { actions.push(`useInstallation:${id}`); return {}; }, configureConnection: async () => null,
   };
   const api: SettingsApi = { settings: async () => ({ models: [{ id: 'klein', available: false }] }), setup: async () => structuredClone(data),
-    status: async () => ({ ready: false, retouch_ready: true }), qwen: async () => ({ ready: false }), hardware: async () => ({ devices: [], note: 'Planning guidance' }) };
+    status: async () => ({ ready: false, retouch_ready: true }), qwen: async () => ({ ready: false }), hardware: async () => ({ devices: [], note: 'Planning guidance' }),
+    hardwarePreference: async () => ({dont_show_again: hideHardware}), saveHardwarePreference: async value => {hideHardware = value; return {dont_show_again: value};} };
   const controller = createSettingsController({ token: 'per-page-token', bridge, api,
     timers: { set: (callback, milliseconds) => { const entry = { callback, milliseconds }; schedules.push(entry); return entry; }, clear: () => {} },
     storage: { getItem: key => storageValues.get(key) ?? null, setItem: (key, value) => { storageValues.set(key, value); } },
@@ -91,8 +93,8 @@ test('status failure disables stale readiness and a later real read recovers it'
 test('backend inventory requests remain read-only and carry only the page token', async () => {
   const calls: Array<[string, RequestInit | undefined]> = [];
   const api = createSettingsApi('request-specific-token', (async (input, init) => { calls.push([String(input), init]); return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }); }) as typeof fetch);
-  await Promise.all([api.settings(), api.setup(), api.setup(true), api.status(), api.qwen(), api.hardware()]);
-  assert.equal(calls.length, 6);
+  await Promise.all([api.settings(), api.setup(), api.setup(true), api.status(), api.qwen(), api.hardware(), api.hardwarePreference()]);
+  assert.equal(calls.length, 7);
   assert.ok(calls.every(([, init]) => !init?.method || init.method === 'GET'));
   assert.ok(calls.every(([, init]) => (init?.headers as Record<string, string>)['x-local-remove-token'] === 'request-specific-token'));
   assert.ok(calls.every(([path]) => path.startsWith('/api/local-remove/')));
@@ -104,8 +106,45 @@ test('first-run hardware followed by setup uses existing preferences without aut
   assert.equal(f.controller.getSnapshot().view, 'hardware'); assert.deepEqual(f.actions, []);
   f.controller.continueHardware();
   assert.equal(f.controller.getSnapshot().view, 'settings'); assert.equal(f.controller.getSnapshot().requestedSection, 'ai');
-  assert.equal(f.storageValues.get('local-image.hardware-guide.v1'), '1'); assert.equal(f.storageValues.get('local-image.first-ai-setup.v1'), '1');
+  assert.equal(f.storageValues.get('local-image.hardware-guide.v1'), undefined); assert.equal(f.storageValues.get('local-image.first-ai-setup.v1'), '1');
   assert.deepEqual(f.actions, []);
+});
+
+test('hardware dismissal survives fresh browser storage and Help can still reopen the guide', async () => {
+  const f = fixture(); await f.controller.maybeFirstRun();
+  assert.equal(f.controller.getSnapshot().view, 'hardware');
+  await f.controller.setHideHardwareGuide(true); f.controller.continueHardware(); f.controller.dispose();
+  f.storageValues.clear();
+  const restarted = createSettingsController({token:'new-page', bridge:f.bridge, api:f.api, storage:{getItem:()=>null,setItem:()=>{}}});
+  await restarted.maybeFirstRun(); assert.equal(restarted.getSnapshot().view,null);
+  await restarted.open('hardware'); assert.equal(restarted.getSnapshot().hideHardwareGuide,true);
+  await restarted.setHideHardwareGuide(false); restarted.close(); await restarted.maybeFirstRun();
+  assert.equal(restarted.getSnapshot().view,'hardware'); restarted.dispose();
+});
+
+test('closing without opting out does not suppress hardware guidance; failed saves are visible', async () => {
+  const f=fixture(); await f.controller.maybeFirstRun(); f.controller.close();
+  await f.controller.maybeFirstRun(); assert.equal(f.controller.getSnapshot().view,'hardware');
+  let writes=0; f.api.saveHardwarePreference=async()=>{writes++;throw Error('Could not save preference.');};
+  await f.controller.setHideHardwareGuide(true);
+  assert.equal(writes,1); assert.equal(f.controller.getSnapshot().hideHardwareGuide,false);
+  assert.equal(f.controller.getSnapshot().savingHardwarePreference,false); assert.match(f.controller.getSnapshot().error,/Could not save/);
+  assert.equal(f.storageValues.get('local-image.hardware-guide.v1'),undefined); f.controller.dispose();
+});
+
+test('explicit persistent preference overrides a legacy browser acknowledgement', async () => {
+  const f=fixture(); f.storageValues.set('local-image.hardware-guide.v1','1');
+  await f.controller.maybeFirstRun(); assert.equal(f.controller.getSnapshot().view,null);
+  f.api.hardwarePreference=async()=>({dont_show_again:false});
+  await f.controller.maybeFirstRun(); assert.equal(f.controller.getSnapshot().view,'hardware'); f.controller.dispose();
+});
+
+test('hardware preference writes use the token and a boolean-only POST without retries', async () => {
+  const calls:RequestInit[]=[];
+  const api=createSettingsApi('page-token',(async(_url,init)=>{calls.push(init!);return Response.json({dont_show_again:true});}) as typeof fetch);
+  assert.deepEqual(await api.saveHardwarePreference(true),{dont_show_again:true}); assert.equal(calls.length,1);
+  assert.equal(calls[0].method,'POST'); assert.equal((calls[0].headers as Record<string,string>)['x-local-remove-token'],'page-token');
+  assert.deepEqual(JSON.parse(calls[0].body as string),{dont_show_again:true});
 });
 
 test('browser mode cannot dispatch native setup, and UI preferences remain browser-owned', async () => {

@@ -28,6 +28,23 @@ class UserStorageTests(unittest.TestCase):
                 os.environ.pop('LOCAL_REMOVE_DATA_DIR')
                 self.assertEqual(app_paths.data_root(), self.root / 'Local AppData' / 'Local Image')
 
+    @unittest.skipIf(os.name == 'nt', 'POSIX platform layout')
+    def test_linux_profile_uses_absolute_xdg_or_home_without_temporary_browser_storage(self):
+        with patch.dict(os.environ), patch.object(app_paths.sys, 'platform', 'linux'), patch.object(Path, 'home', return_value=self.root):
+            for key in ('LOCAL_REMOVE_DATA_DIR', 'LOCAL_IMAGE_DATA_DIR', 'LOCALAPPDATA'):
+                os.environ.pop(key, None)
+            os.environ['XDG_DATA_HOME'] = str(self.root / 'Native Data')
+            self.assertEqual(app_paths.data_root(), self.root / 'Native Data' / 'local-image')
+            os.environ['XDG_DATA_HOME'] = 'relative-folder'
+            self.assertEqual(app_paths.data_root(), self.root / '.local' / 'share' / 'local-image')
+
+    @unittest.skipIf(os.name == 'nt', 'POSIX platform layout')
+    def test_macos_profile_uses_application_support(self):
+        with patch.dict(os.environ), patch.object(app_paths.sys, 'platform', 'darwin'), patch.object(Path, 'home', return_value=self.root):
+            for key in ('LOCAL_REMOVE_DATA_DIR', 'LOCAL_IMAGE_DATA_DIR', 'LOCALAPPDATA'):
+                os.environ.pop(key, None)
+            self.assertEqual(app_paths.data_root(), self.root / 'Library' / 'Application Support' / 'Local Image')
+
     def test_profile_identity_preserves_native_logical_path(self):
         # A Store/MSIX parent can redirect a physical handle under Packages.
         # Native GetFullPath and runtime identity must use the same logical path.

@@ -9,6 +9,7 @@ import ctypes
 import hashlib
 import json
 import os
+import re
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import shutil
 import socket
@@ -101,6 +102,19 @@ def _regular_file(path):
         return False
 
 
+def _python_file(path):
+    """Recognize Python executables, including normal POSIX venv symlinks."""
+    path = Path(path)
+    if path.name.lower() == 'python.exe':
+        return _regular_file(path)
+    if sys.platform == 'win32' or not re.fullmatch(r'python(?:3(?:\.\d+)?)?', path.name):
+        return False
+    try:
+        return path.is_file() and os.access(path, os.X_OK) and path.resolve().is_file()
+    except OSError:
+        return False
+
+
 def _code_root(path):
     return (_regular_file(path / 'main.py') and _regular_file(path / 'folder_paths.py')
             and (path / 'comfy').is_dir())
@@ -116,9 +130,13 @@ def installation(path, python=None, base=None, kind=None):
         standalone = code.parent / 'standalone-env' / 'python.exe'
         interpreters = [portable, code / '.venv' / 'Scripts' / 'python.exe',
                         code.parent / '.venv' / 'Scripts' / 'python.exe', standalone]
+        if sys.platform != 'win32':
+            interpreters += [parent / name / 'bin' / 'python'
+                             for parent in (code, code.parent) for name in ('.venv', 'venv', 'standalone-env')]
         if python:
             interpreters.insert(0, Path(python))
-        interpreter = next((item.resolve() for item in interpreters if _regular_file(item)), None)
+        # Resolving the executable symlink would discard its virtual environment.
+        interpreter = next((item.absolute() for item in interpreters if _python_file(item)), None)
         category = kind or ('portable' if interpreter == portable.resolve() else
                             'desktop-standalone' if interpreter == standalone.resolve() else 'source')
         user_base = Path(base).resolve() if base else code
@@ -243,7 +261,8 @@ def detect_installations():
     candidates = [managed_ai_dir() / MANAGED_FOLDER,
                   Path.home() / 'ComfyUI', Path.home() / 'ComfyUI_windows_portable',
                   Path.home() / 'Documents' / 'ComfyUI', Path.home() / 'Documents' / 'ComfyUI_windows_portable',
-                  Path.home() / 'Downloads' / 'ComfyUI_windows_portable']
+                  Path.home() / 'Downloads' / 'ComfyUI_windows_portable',
+                  Path.home() / '.local' / 'share' / 'comfyui' / 'ComfyUI']
     for name in ('comfy_directory', 'managed_comfy_directory'):
         if config.get(name):
             candidates.insert(0, Path(config[name]))
@@ -590,7 +609,7 @@ def launch_command(item, port, extra_config):
     # Revalidate both known files just before starting; no .bat, shell, or page flags.
     code = Path(item['path'])
     interpreter = Path(item['python'])
-    if not _code_root(code) or not _regular_file(interpreter) or interpreter.name.lower() != 'python.exe':
+    if not _code_root(code) or not _python_file(interpreter):
         raise SetupError('The selected ComfyUI runtime is incomplete. Choose another installation.')
     command = [str(interpreter), '-s', str(code / 'main.py'), '--listen', '127.0.0.1',
                '--port', str(port), '--disable-auto-launch', '--extra-model-paths-config', str(extra_config)]

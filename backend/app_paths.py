@@ -1,8 +1,9 @@
-"""Installed application resources and per-user Windows data locations."""
+"""Installed application resources and per-user data locations."""
 import json
 import os
 from pathlib import Path
 import shutil
+import sys
 import time
 import uuid
 
@@ -18,6 +19,12 @@ def data_root():
         # Match the native host's lexical GetFullPath, including MSIX folder redirection.
         return Path(os.path.abspath(Path(override).expanduser()))
     local = os.environ.get('LOCALAPPDATA')
+    if os.name != 'nt' and not local:
+        if sys.platform == 'darwin':
+            return Path.home() / 'Library' / 'Application Support' / APP_NAME
+        xdg = os.environ.get('XDG_DATA_HOME', '')
+        base = Path(xdg) if xdg and Path(xdg).is_absolute() else Path.home() / '.local' / 'share'
+        return base / 'local-image'
     base = Path(local) if local else Path.home() / 'AppData' / 'Local'
     current, legacy = base / 'Local Image', base / 'Local Remove'
     # Match the native host, without moving recovery data or copying large files.
@@ -51,6 +58,8 @@ def read_config():
                 settings[key] = raw[key]
         if raw.get('setup_mode') in ('discover', 'portable', 'later'):
             settings['setup_mode'] = raw['setup_mode']
+        if type(raw.get('hardware_guide_dismissed')) is bool:
+            settings['hardware_guide_dismissed'] = raw['hardware_guide_dismissed']
     except (OSError, ValueError, AttributeError):
         pass
     return settings
@@ -59,7 +68,7 @@ def read_config():
 def write_config(changes):
     """Atomically update known settings without dropping desktop-owned fields."""
     destination = data_root() / 'config.json'
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     try:
         current = json.loads(destination.read_text(encoding='utf-8-sig'))
         if not isinstance(current, dict):
@@ -102,8 +111,9 @@ def workflow_file():
 
 
 def prepare_user_folders():
+    data_root().mkdir(mode=0o700, parents=True, exist_ok=True)
     for directory in (state_dir(), cache_dir(), log_dir(), cache_dir() / 'thumbnails'):
-        directory.mkdir(parents=True, exist_ok=True)
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
 
 
 def prune_thumbnails(max_bytes=256 * 1024 * 1024, max_age_days=7):

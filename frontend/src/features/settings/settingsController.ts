@@ -17,6 +17,7 @@ export function createSettingsController(options: {
   const listeners = new Set<() => void>();
   let epoch = 0, timer: unknown = null, disposed = false, firstSetupPending = false;
   let snapshot: SettingsSnapshot = immutable({ view: null, requestedSection: 'general', loading: false, pendingAction: null, setup: null, hardware: null,
+    hideHardwareGuide: false, savingHardwarePreference: false,
     capabilities: bridge.capabilities(), preferences: bridge.preferences(), error: '', message: '', showInstallations: false, selectedInstallation: '' });
   function update(change: Partial<SettingsSnapshot>) {
     if (disposed) return;
@@ -65,8 +66,10 @@ export function createSettingsController(options: {
     else if (view === 'hardware') {
       const requestEpoch = ++epoch;
       update({ loading: true });
-      try { const hardware = await api.hardware(); if (!disposed && requestEpoch === epoch) update({ hardware, loading: false }); }
-      catch (error) { if (!disposed && requestEpoch === epoch) update({ loading: false, error: error instanceof Error ? error.message : 'Hardware detection is unavailable.' }); }
+      const [hardware, preference] = await Promise.allSettled([api.hardware(), api.hardwarePreference()]);
+      if (disposed || requestEpoch !== epoch) return;
+      update({loading: false, hideHardwareGuide: preference.status === 'fulfilled' && typeof preference.value.dont_show_again === 'boolean' ? preference.value.dont_show_again : readPreference('local-image.hardware-guide.v1') === '1',
+        ...(hardware.status === 'fulfilled' ? {hardware: hardware.value} : {error: hardware.reason instanceof Error ? hardware.reason.message : 'Hardware detection is unavailable.'})});
     }
   }
   function readPreference(key: string) { try { return (options.storage ?? localStorage).getItem(key); } catch { return null; } }
@@ -99,23 +102,38 @@ export function createSettingsController(options: {
   }
   function setDensity(density: InterfaceDensity) { bridge.setDensity(density); update({ preferences: { ...snapshot.preferences, density } }); }
   function setAskBeforeOverwrite(value: boolean) { bridge.setOverwritePreference(value); update({ preferences: { ...snapshot.preferences, askBeforeOverwrite: value } }); }
-  function rememberGuide() { writePreference('local-image.hardware-guide.v1', '1'); }
+  async function setHideHardwareGuide(value: boolean) {
+    if (snapshot.savingHardwarePreference || disposed) return;
+    const previous = snapshot.hideHardwareGuide;
+    update({hideHardwareGuide: value, savingHardwarePreference: true, error: ''});
+    try {
+      const saved = await api.saveHardwarePreference(value);
+      if (saved.dont_show_again !== value) throw Error('The hardware guide preference was not saved.');
+      writePreference('local-image.hardware-guide.v1', value ? '1' : '0');
+    } catch (error) { update({hideHardwareGuide: previous, error: error instanceof Error ? error.message : 'Could not save the hardware guide preference.'}); }
+    finally { update({savingHardwarePreference: false}); }
+  }
   async function maybeFirstRun() {
     if (snapshot.view || bridge.editorBusy()) return;
     refreshCapabilities();
     if (!snapshot.setup && snapshot.capabilities.setup) await refresh();
     if (snapshot.view || bridge.editorBusy() || disposed) return;
+    const requestEpoch = epoch;
+    let hidden = readPreference('local-image.hardware-guide.v1') === '1';
+    try { const preference = await api.hardwarePreference(); if (typeof preference.dont_show_again === 'boolean') hidden = preference.dont_show_again; } catch { /* Retain legacy browser behavior while the backend is unavailable. */ }
+    if (snapshot.view || bridge.editorBusy() || disposed || requestEpoch !== epoch) return;
+    update({hideHardwareGuide: hidden});
     firstSetupPending = snapshot.capabilities.setup && ['discover', 'portable'].includes(snapshot.setup?.setup_mode ?? '') && snapshot.setup?.service?.ready !== true && readPreference('local-image.first-ai-setup.v1') !== '1';
-    if (readPreference('local-image.hardware-guide.v1') !== '1') await open('hardware');
+    if (!hidden) await open('hardware');
     else offerFirstSetup();
   }
   return {
     getSnapshot: () => snapshot, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     open, close, refresh, reloadConfiguration: refresh, maybeFirstRun, refreshCapabilities, run, locked, isOpen: () => snapshot.view !== null,
-    setDensity, setAskBeforeOverwrite, selectInstallation: (selectedInstallation: string) => update({ selectedInstallation }),
+    setDensity, setAskBeforeOverwrite, setHideHardwareGuide, selectInstallation: (selectedInstallation: string) => update({ selectedInstallation }),
     browseModels: () => { close(); return options.browseModels?.(); },
-    continueHardware: () => { rememberGuide(); close(); },
-    startTask: (workspace: 'retouch' | 'cutout' | 'generate' | 'setup') => { firstSetupPending = false; rememberGuide(); writePreference('local-image.first-ai-setup.v1', '1'); if (workspace === 'setup') return open('settings', 'ai'); close(); return options.startTask?.(workspace); },
+    continueHardware: close,
+    startTask: (workspace: 'retouch' | 'cutout' | 'generate' | 'setup') => { firstSetupPending = false; writePreference('local-image.first-ai-setup.v1', '1'); if (workspace === 'setup') return open('settings', 'ai'); close(); return options.startTask?.(workspace); },
     dispose: () => { disposed = true; ++epoch; stopPolling(); listeners.clear(); },
   };
 }

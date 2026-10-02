@@ -1,5 +1,5 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
-import { Button, Checkbox, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Field, Link, MessageBar, MessageBarBody, ProgressBar, Select, Table, TableBody, TableCell, TableHeader, TableHeaderCell, TableRow } from '@fluentui/react-components';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { Button, Checkbox, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Field, Link, Menu, MenuItemRadio, MenuList, MenuPopover, MenuTrigger, MessageBar, MessageBarBody, ProgressBar, Table, TableBody, TableCell, TableHeader, TableHeaderCell, TableRow } from '@fluentui/react-components';
 import type { BatchController } from './controller.ts';
 import type { BatchBackground, BatchItemStatus } from './contracts.ts';
 import './batch.css';
@@ -7,8 +7,22 @@ import './batch.css';
 const itemStatus: Record<BatchItemStatus, string> = {pending: 'Waiting', preparing: 'Preparing…', ready: 'Ready for review', exporting: 'Exporting…', exported: 'Exported', failed: 'Needs attention', conflict: 'Edits changed', 'needs-cutout': 'Cutout needed'};
 const bytes = (value: number) => value < 1024 ** 2 ? `${Math.round(value / 1024)} KB` : value < 1024 ** 3 ? `${(value / 1024 ** 2).toFixed(1)} MB` : `${(value / 1024 ** 3).toFixed(2)} GB`;
 
-/** A React-owned dialog. All commands call the typed controller; none dispatch
- * synthetic clicks or retain an invisible copy of the former batch controls. */
+function ChoiceMenu({id, label, value, choices, disabled, onSelect}: {
+  id: string; label: string; value: string; choices: {value: string; label: string; disabled?: boolean}[];
+  disabled?: boolean; onSelect(value: string): void;
+}) {
+  const selectedLabel = choices.find(choice => choice.value === value)?.label || 'No previous batches';
+  return <Menu><MenuTrigger disableButtonEnhancement>
+    <Button id={id} className="li-batch-choice" aria-label={`${label}: ${selectedLabel}`} disabled={disabled || !choices.length || choices.every(choice => choice.disabled)}>
+      <span>{selectedLabel}</span><span aria-hidden="true">▾</span>
+    </Button>
+  </MenuTrigger><MenuPopover data-react-owned="true"><MenuList aria-label={label} checkedValues={{[id]: [value]}}>
+    {choices.map(choice => <MenuItemRadio key={choice.value} name={id} value={choice.value} disabled={choice.disabled} onClick={() => onSelect(choice.value)}>{choice.label}</MenuItemRadio>)}
+  </MenuList></MenuPopover></Menu>;
+}
+
+/** A React-owned dialog. Commands call the typed controller without retaining
+ * an invisible copy of the former editor controls. */
 export function BatchDialog({controller}: {controller: BatchController}) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const active = state.active, locked = state.working || !!active?.running;
@@ -20,6 +34,7 @@ export function BatchDialog({controller}: {controller: BatchController}) {
   const completed = active?.items.filter(item => active.mode === 'prepare' ? !['pending', 'preparing'].includes(item.status) : ['exported', 'failed', 'conflict', 'needs-cutout'].includes(item.status)).length || 0;
   const inspected = active?.items.find(item => item.id === state.inspection?.itemId);
   const [naturalWidth, setNaturalWidth] = useState(0);
+  const backgroundInput = useRef<HTMLInputElement>(null);
   useEffect(() => setNaturalWidth(0), [inspected?.id]);
   const inspectionSource = active && inspected && state.inspection ? controller.api.previewUrl(active.id, inspected.id, true, state.inspection.original) : undefined;
   const pendingNames = state.pending.map(item => item.name).join(', ');
@@ -31,8 +46,12 @@ export function BatchDialog({controller}: {controller: BatchController}) {
           <DialogContent className="li-batch-content">
             <p className="li-batch-note">1. Select images. 2. Remove backgrounds and review. 3. Export PNGs.</p>
             <p className="li-batch-note">Existing cutouts are reused. Images without a cutout use Qwen. Each image keeps its own subject.</p>
-            <Field label="Output background"><Select id="batch-background" value={draft.backgroundMode} disabled={locked || !!active} onChange={(_, data) => controller.setDraft({backgroundMode: data.value as BatchBackground})}><option value="transparent">Transparent PNG</option><option value="white">White background</option><option value="image">Background image…</option></Select></Field>
-            {draft.backgroundMode === 'image' && <Field label="Background file"><input id="batch-background-file" type="file" accept="image/*" disabled={locked || !!active} onChange={event => {const file = event.currentTarget.files?.[0]; if (file) void controller.chooseBackground(file);}}/><span>{draft.backgroundName || 'Choose an image to use behind every subject.'}</span><span className="li-batch-note">The background fills each canvas and may be cropped to fit.</span></Field>}
+            <Field label="Output background"><ChoiceMenu id="batch-background" label="Output background" value={draft.backgroundMode} disabled={locked || !!active} choices={[{value:'transparent',label:'Transparent PNG'},{value:'white',label:'White background'},{value:'image',label:'Background image…'}]} onSelect={value => controller.setDraft({backgroundMode: value as BatchBackground})}/></Field>
+            {draft.backgroundMode === 'image' && <Field label="Background file">
+              <Button id="batch-choose-background" disabled={locked || !!active} onClick={() => backgroundInput.current?.click()}>Choose background image…</Button>
+              <input ref={backgroundInput} id="batch-background-file" type="file" hidden accept="image/*" disabled={locked || !!active} onChange={event => {const file = event.currentTarget.files?.[0]; event.currentTarget.value=''; if (file) void controller.chooseBackground(file);}}/>
+              <span>{draft.backgroundName || 'Choose an image to use behind every subject.'}</span><span className="li-batch-note">The background fills each canvas and may be cropped to fit.</span>
+            </Field>}
             {active && <p className="li-batch-note">Background settings are fixed for these previews and exports. Choose more images to start another batch.</p>}
             {state.pending.length > 0 && <MessageBar intent="warning" id="batch-pending-warning"><MessageBarBody>
               <div id="batch-pending-description" title={pendingNames}>{state.pending.length} selected {state.pending.length === 1 ? 'photo has' : 'photos have'} an unapplied selection or unfinished path: {pendingNames}. Batch uses applied pixels only.</div>
@@ -41,13 +60,13 @@ export function BatchDialog({controller}: {controller: BatchController}) {
             <div className="li-batch-selection">
               <Checkbox id="batch-all" checked={rows.length > 0 && rows.every(item => selection.has(item.id)) ? true : state.selectedIds.length ? 'mixed' : false} disabled={locked || rows.length === 0} label="Select all" onChange={(_, data) => controller.selectAll(data.checked === true)} />
               <span id="batch-selection-count">{state.selectedIds.length} selected · up to 100 images</span>
-              <Select id="batch-qwen-variant" aria-label="Background removal model" value={draft.qwenVariant} disabled={locked || !!active} onChange={(_, data) => controller.setDraft({qwenVariant: data.value as 'int8' | 'bf16'})}>{(['int8', 'bf16'] as const).map(variant => <option key={variant} value={variant} disabled={!state.qwen.variants.some(item => item.id === variant && item.available)}>Qwen {variant.toUpperCase()}</option>)}</Select>
+              <ChoiceMenu id="batch-qwen-variant" label="Background removal model" value={draft.qwenVariant} disabled={locked || !!active} choices={(['int8','bf16'] as const).map(variant => ({value:variant,label:`Qwen ${variant.toUpperCase()}`,disabled:!state.qwen.variants.some(item => item.id === variant && item.available)}))} onSelect={value => controller.setDraft({qwenVariant: value as 'int8' | 'bf16'})}/>
               {!state.qwenAvailable && <span className="li-batch-note">Missing cutouts need Qwen setup in Settings. Existing cutouts can be exported without it.</span>}
             </div>
             {inspected && state.inspection ? <section id="batch-inspector" className="li-batch-inspection" aria-label="Full-size batch review">
               <div className="li-batch-inspect-toolbar"><Button id="batch-inspect-back" onClick={controller.closeInspection}>Back to images</Button><strong id="batch-inspect-name">{inspected.name}</strong>
                 <Button id="batch-inspect-original" aria-pressed={state.inspection.original} onClick={() => controller.setInspection({original: !state.inspection!.original})}>{state.inspection.original ? 'Cutout' : 'Original'}</Button>
-                <Field label="Zoom" orientation="horizontal"><Select id="batch-inspect-zoom" value={state.inspection.zoom} onChange={(_, data) => controller.setInspection({zoom: data.value as 'fit' | '100' | '200'})}><option value="fit">Fit</option><option value="100">100%</option><option value="200">200%</option></Select></Field></div>
+                <Field label="Zoom" orientation="horizontal"><ChoiceMenu id="batch-inspect-zoom" label="Batch review zoom" value={state.inspection.zoom} choices={[{value:'fit',label:'Fit'},{value:'100',label:'100%'},{value:'200',label:'200%'}]} onSelect={value => controller.setInspection({zoom: value as 'fit' | '100' | '200'})}/></Field></div>
               <div id="batch-inspect-scroll" className="li-batch-inspect-scroll"><img id="batch-inspect-image" className={state.inspection.zoom === 'fit' ? 'li-batch-fit' : undefined} style={state.inspection.zoom !== 'fit' && naturalWidth ? {width: naturalWidth * Number(state.inspection.zoom) / 100} : undefined} src={inspectionSource} alt={`Full-size ${state.inspection.original ? 'original' : 'cutout'} preview of ${inspected.name}`} onLoad={event => setNaturalWidth(event.currentTarget.naturalWidth)} /></div>
             </section> : <div className="li-batch-table-scroll" id="batch-table-scroll">
               <Table size="small" aria-label="Batch images" className="li-batch-table"><TableHeader><TableRow><TableHeaderCell>Select</TableHeaderCell><TableHeaderCell>Photo</TableHeaderCell><TableHeaderCell>Preview</TableHeaderCell><TableHeaderCell>Status</TableHeaderCell></TableRow></TableHeader>
@@ -63,7 +82,7 @@ export function BatchDialog({controller}: {controller: BatchController}) {
               {active?.running && <ProgressBar id="batch-progress" value={active.items.length ? completed / active.items.length : 0} aria-label={`${completed} of ${active.items.length} images processed`} />}
             </div>
             <details className="li-batch-history"><summary>Previous batches</summary><div className="li-batch-history-controls">
-              <Select id="batch-history-select" aria-label="Previous batch" value={state.historyId} disabled={locked} onChange={(_, data) => controller.setHistory(data.value)}>{!state.queues.length && <option value="">No previous batches</option>}{state.queues.filter(queue => queue.format === 'png').map(queue => <option key={queue.id} value={queue.id}>{queue.name} · {new Date(queue.created * 1000).toLocaleString()} · {queue.phase}</option>)}</Select>
+              <ChoiceMenu id="batch-history-select" label="Previous batch" value={state.historyId} disabled={locked} choices={state.queues.map(queue => ({value:queue.id,label:`${queue.name} · ${new Date(queue.created * 1000).toLocaleString()} · ${queue.phase}`}))} onSelect={controller.setHistory}/>
               <Button id="batch-load-queue" disabled={locked || !state.historyId} onClick={() => void controller.loadQueue()}>Review batch</Button>
               <Button id="batch-clear-queue" disabled={locked || !state.historyId} onClick={controller.confirmQueueClear}>Clear batch</Button>
               <span id="batch-cache-size" className="li-batch-note">Cache {bytes(state.cacheBytes)}</span>
