@@ -50,6 +50,74 @@ class BatchStackTests(unittest.IsolatedAsyncioTestCase):
         mask = Image.new('L', (40, 32)); mask.paste(255, box)
         return await self.editor.refine_cutout(data['id'], self.request(), self.editor.CutoutRefine(revision=data['revision'], mask=encoded(mask), operation='replace'))
 
+    async def test_background_removal_without_treatment_exports_subject_only(self):
+        data, _, _, _ = await self.stack()
+        data = await self.cutout(data)
+        source = self.editor.read_session(data['id'])
+        source['layer_stack'][0]['visible'] = True
+        self.editor.write_session(self.editor.folder(data['id']), source)
+        queue = await self.case.create([source], format='png', prepare_cutouts=True)
+        value = await self.case.finish(queue['id'])
+        self.assertEqual([item['status'] for item in value['items']], ['ready'], value['items'])
+        item = value['items'][0]
+        root = self.batch.own_directory('jobs', value['id']) / item['id']
+        snapshot = json.loads((root / 'snapshot.json').read_text())
+        image = self.editor.render(snapshot, root_override=root)
+        self.assertEqual(image.getpixel((0, 0))[3], 0)
+        self.assertEqual(image.getpixel((15, 15))[3], 255)
+        self.assertEqual(self.editor.read_session(data['id'])['layer_stack'], source['layer_stack'])
+
+    async def test_white_and_file_backgrounds_match_reviewed_export(self):
+        for mode, color in [('white', (255, 255, 255)), ('image', (15, 35, 80))]:
+            data, _, _, _ = await self.stack()
+            data = await self.cutout(data)
+            background = encoded(Image.new('RGB', (12, 9), color))
+            queue = await self.case.create([self.editor.read_session(data['id'])], format='png', prepare_cutouts=True,
+                                           background_mode=mode, background_image=background if mode == 'image' else None)
+            value = await self.case.finish(queue['id'])
+            self.assertEqual([item['status'] for item in value['items']], ['ready'], value['items'])
+            root = self.batch.own_directory('jobs', value['id']) / value['items'][0]['id']
+            snapshot = json.loads((root / 'snapshot.json').read_text())
+            self.assertEqual(self.editor.render(snapshot, root_override=root).getpixel((0, 0)), (*color, 255))
+            exported = await self.export(value)
+            with zipfile.ZipFile(self.batch.own_directory('jobs', exported['id']) / 'exports.zip') as archive:
+                image_name = next(name for name in archive.namelist() if name.endswith('.png'))
+                with Image.open(io.BytesIO(archive.read(image_name))) as image:
+                    self.assertEqual(image.convert('RGBA').getpixel((0, 0)), (*color, 255))
+            self.assertTrue((await self.batch.delete_job(exported['id'], self.request()))['deleted'])
+
+    async def test_missing_cutout_is_prepared_without_a_saved_treatment(self):
+        data, source, _, _ = await self.stack()
+        before = source.read_bytes()
+        rgba = Image.new('RGBA', (40, 32), (0, 0, 0, 0)); rgba.paste((1, 2, 3, 255), (10, 8, 28, 25))
+        with patch('qwen_image.run_qwen_image', AsyncMock(return_value=rgba)) as model:
+            queue = await self.case.create([self.editor.read_session(data['id'])], format='png', prepare_cutouts=True)
+            value = await self.case.finish(queue['id'])
+        self.assertEqual([item['status'] for item in value['items']], ['ready'], value['items'])
+        self.assertEqual(model.await_count, 1)
+        root = self.batch.own_directory('jobs', value['id']) / value['items'][0]['id']
+        snapshot = json.loads((root / 'snapshot.json').read_text())
+        self.assertEqual(self.editor.render(snapshot, root_override=root).getpixel((0, 0))[3], 0)
+        self.assertEqual(source.read_bytes(), before)
+        self.assertNotIn('cutout', self.editor.read_session(data['id']))
+
+    async def test_background_removal_keeps_repairs_above_the_subject(self):
+        data, _, _, _ = await self.stack(); data = await self.cutout(data)
+        data = await self.editor.create_stack_layer(data['id'], self.request(), self.editor.StackCreate(revision=data['revision'], name='Repair'))
+        self.case.fixture.layer(data['id'], color=(25, 200, 60))
+        source = self.editor.read_session(data['id'])
+        source['layer_stack'][-1]['patch_ids'] = [source['layers'][-1]['id']]
+        self.editor.write_session(self.editor.folder(data['id']), source)
+        queue = await self.case.create([source], format='png', prepare_cutouts=True)
+        value = await self.case.finish(queue['id'])
+        self.assertEqual(value['items'][0]['status'], 'ready', value['items'])
+        root = self.batch.own_directory('jobs', value['id']) / value['items'][0]['id']
+        snapshot = json.loads((root / 'snapshot.json').read_text())
+        result = self.editor.render(snapshot, root_override=root)
+        self.assertEqual(result.getpixel((11, 11)), (25, 200, 60, 255))
+        self.assertEqual(result.getpixel((0, 0))[3], 0)
+        self.assertEqual(self.editor.read_session(data['id'])['layer_stack'], source['layer_stack'])
+
     async def prepare(self, data, format='png'):
         created = await self.case.create([self.editor.read_session(data['id'])], format=format)
         value = await self.case.finish(created['id'])

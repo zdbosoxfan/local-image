@@ -8,7 +8,7 @@ function fixture() {
   let fingerprint='a:1',pending=true,epoch=0;
   const snapshot={busy:false,askBeforeOverwrite:true,document:{id:'a',name:'Photo A',revision:3,cutout:{enabled:true}},collection:{id:'collection',local:false,entries:[{id:'entry-a',name:'Photo A',session_id:'a'},{id:'entry-b',name:'Photo B',session_id:null}]}};
   const capabilities={ready:true,projects:true,setup:true,batch:true,closeRequests:true,version:2};
-  const docs={getSnapshot:()=>snapshot,getContext:()=>({documentId:snapshot.document.id,navigationEpoch:epoch,busy:snapshot.busy}),subscribe:()=>()=>{},
+  const docs={hasCutout:(id:string)=>id==='a',getSnapshot:()=>snapshot,getContext:()=>({documentId:snapshot.document.id,navigationEpoch:epoch,busy:snapshot.busy}),subscribe:()=>()=>{},
     canvas:{resetTransientInput:()=>calls.push('reset'),focus:()=>calls.push('focus'),cancelGesture:()=>calls.push('cancelGesture')},
     commands:{setOverwritePreference:(value:boolean)=>{snapshot.askBeforeOverwrite=value;values.set('local-remove-ask-before-overwrite',String(value));}},
     acceptConfiguration:(value:unknown)=>calls.push(['config',value]),setSettingsPending:(value:boolean)=>calls.push(['settingsPending',value]),setMenuOpen:(value:boolean)=>calls.push(['menu',value]),

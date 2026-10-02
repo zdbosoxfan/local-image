@@ -38,7 +38,7 @@ export function FullApp({controller,shell,dialogs,assets,generation,batch,settin
    <ToolbarButton aria-label="Redo" title={state.redoLabel+' (Ctrl+Shift+Z)'} icon={<Icon name="redo"/>} disabled={!commands.redo.enabled} onClick={()=>execute('redo')}/>
    <span className="li-divider"/><ToolbarButton disabled={!commands.fit.enabled} onClick={()=>execute('fit')}>Fit</ToolbarButton>
    <ToolbarButton icon={<Icon name="image"/>} disabled={!commands.showAssets.enabled} onClick={()=>execute('showAssets')}>Assets</ToolbarButton>
-   <ToolbarButton id="batch-open" disabled={!commands.showBatch.enabled} onClick={()=>execute('showBatch')}>Batch</ToolbarButton>
+   {commands.showBatch.visible && <ToolbarButton id="batch-open" disabled={!commands.showBatch.enabled} onClick={()=>execute('showBatch')}>Remove backgrounds…</ToolbarButton>}
    <ToolbarButton aria-pressed={!state.inspectorHidden} aria-controls="inspector-root" disabled={state.refining||state.workspace==='generate'} onClick={controller.commands.toggleInspector}>Inspector</ToolbarButton>
    <ToolbarButton disabled={!commands.exportImage.enabled} onClick={()=>execute('exportImage')}>Export</ToolbarButton>
    <ToolbarButton aria-label="Settings" title="Settings" icon={<Icon name="settings"/>} disabled={!commands.showSettings.enabled} onClick={()=>execute('showSettings')}/>

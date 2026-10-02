@@ -4,6 +4,8 @@ The queue owns immutable snapshots, not the editor's recovery documents. A saved
 treatment owns its backdrop but never another product's foreground or alpha mask.
 """
 import asyncio
+import base64
+import io
 from copy import deepcopy
 import json
 import math
@@ -17,9 +19,11 @@ from typing import Literal
 import uuid
 import zipfile
 
+import numpy as np
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
-from PIL import Image
+from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 import local_remove as editor
@@ -125,6 +129,8 @@ def public_job(value):
     result = {key: deepcopy(value.get(key)) for key in ('id', 'name', 'created', 'modified', 'phase', 'running', 'message', 'format', 'mode', 'prepare_cutouts', 'treatment_name')}
     result['treatment_id'] = value.get('treatment', {}).get('id') if value.get('treatment') else None
     result['qwen_variant'] = value.get('qwen_variant', 'int8')
+    result['background_mode'] = value.get('background_mode', 'transparent')
+    result['background_name'] = value.get('background_name')
     result['items'] = [{key: item.get(key) for key in ('id', 'name', 'session_id', 'revision', 'status', 'error', 'output_name', 'credits_name', 'export_bit_depth')}
                        | {'preview': f'/api/local-remove/batch/jobs/{value["id"]}/items/{item["id"]}/preview' if item.get('prepared') else None}
                        for item in value['items']]
@@ -244,9 +250,14 @@ class CreateJob(StrictModel):
     prepare_cutouts: bool = False
     qwen_variant: Literal['int8', 'bf16'] = 'int8'
     format: editor.OutputFormat | None = None
+    background_mode: Literal['transparent', 'white', 'image'] = 'transparent'
+    background_image: str | None = Field(default=None, max_length=24 * 1024**2)
+    background_name: str | None = Field(default=None, max_length=255)
 
     @model_validator(mode='after')
     def selection(self):
+        if self.background_mode == 'image' and not self.background_image:
+            raise ValueError('Choose a background image.')
         if bool(self.collection_id and self.entry_ids) == bool(self.sessions):
             raise ValueError('Choose collection entries or opened image sessions.')
         if len(set(self.entry_ids)) != len(self.entry_ids) or len({i.session_id for i in self.sessions}) != len(self.sessions):
@@ -299,10 +310,26 @@ async def create_job(request: Request, payload: CreateJob):
     async with queue_lock:
         require_idle()
         preset = treatment(payload.treatment_id) if payload.treatment_id else None
+        background = None
+        if payload.background_mode == 'image':
+            def decode_background():
+                try:
+                    encoded = base64.b64decode(payload.background_image, validate=True)
+                    if len(encoded) > 16 * 1024**2:
+                        raise ValueError('Choose a background smaller than 16 MB.')
+                    with Image.open(io.BytesIO(encoded)) as image:
+                        if image.width * image.height > 40_000_000:
+                            raise ValueError('Choose a background smaller than 40 megapixels.')
+                        return ImageOps.exif_transpose(image).convert('RGB')
+                except Exception as error:
+                    raise HTTPException(400, 'The background image could not be read: ' + str(error)) from error
+            background = await asyncio.to_thread(decode_background)
         entries, name = await resolve_entries(payload)
         identifier = str(uuid.uuid4())
         target = own_directory('jobs', identifier, False)
         target.mkdir()
+        if background is not None:
+            await asyncio.to_thread(background.save, target / 'background.png', compress_level=1)
         if preset:
             target.joinpath('treatment').mkdir()
             asset = preset['background'].get('asset')
@@ -312,6 +339,7 @@ async def create_job(request: Request, payload: CreateJob):
                  'treatment': deepcopy(preset), 'treatment_name': preset['name'] if preset else None,
                  'format': payload.format or (preset['format'] if preset else 'original'),
                  'prepare_cutouts': payload.prepare_cutouts, 'qwen_variant': payload.qwen_variant,
+                 'background_mode': payload.background_mode, 'background_name': Path(payload.background_name or 'Background').name,
                  'phase': 'preparing', 'mode': 'prepare', 'running': True, 'cancel_requested': False,
                  'message': 'Preparing one image at a time.'}
         save_job(value)
@@ -408,7 +436,7 @@ async def prepare_item(value, item):
         if bytes_used(own_directory('jobs', identifier)) + estimate > MAX_STORAGE:
             raise ValueError('This queue exceeds its 12 GB storage limit. Use a smaller batch.')
         await asyncio.to_thread(lambda: [safe_copy(source, name, destination) for name in assets])
-    if value.get('treatment') and not data.get('cutout', {}).get('enabled'):
+    if (value.get('treatment') or value['prepare_cutouts']) and not data.get('cutout', {}).get('enabled'):
         if not value['prepare_cutouts']:
             item.update(status='needs-cutout', error='Prepare a cutout for this image, or enable Qwen preparation for a new queue.')
             return
@@ -448,6 +476,60 @@ async def prepare_item(value, item):
                     if existing['visible'] and not existing['discarded']:
                         existing['visible'] = False
                 data['layer_stack'].append(node)
+    if value['prepare_cutouts'] and not value.get('treatment'):
+        # Background-removal batches export only the subject. The snapshot is
+        # detached, so this cannot hide or alter layers in the editor document.
+        state = data['cutout']
+        state['background'] = {'mode': 'transparent', 'color': '#ffffff'}
+        state['shadow']['enabled'] = False
+        if data.get('layer_stack'):
+            target = next((node for node in reversed(data['layer_stack'])
+                           if node['kind'] == 'cutout' and not node['discarded']
+                           and node['cutout']['alpha'] == state['alpha']), None)
+            if target is None:
+                raise ValueError('Prepare the intended cutout in the editor first.')
+            above = data['layer_stack'][data['layer_stack'].index(target)+1:]
+            repairs = [node for node in above if node['kind'] == 'retouch' and node['visible'] and not node['discarded'] and node['patch_ids']]
+            if repairs:
+                # Preserve applied repairs above the subject while clipping their
+                # alpha to that subject. Background layers never enter this bake.
+                subset = deepcopy(data)
+                included = {target['id']} | {node['id'] for node in repairs}
+                for node in subset['layer_stack']:
+                    node['visible'] = node['id'] in included
+                    if node['id'] == target['id']: node['cutout']['shadow']['enabled'] = False
+                def bake_repairs():
+                    raw, icc, _ = editor.decode_original(destination / data['original'])
+                    subject = editor.stack_model.native_layer(subset, destination, next(node for node in subset['layer_stack'] if node['id'] == target['id']), raw, icc, editor.decode_original)
+                    pixels = editor.stack_model.render_native(subset, destination, raw, icc, editor.decode_original)
+                    pixels[..., 3] = np.minimum(pixels[..., 3], subject[..., 3])
+                    pixels[pixels[..., 3] == 0] = 0
+                    return editor.stack_snapshot(destination, data, (pixels, icc))
+                target['source'] = await asyncio.to_thread(bake_repairs)
+                target['cutout'] = initial_cutout(editor.save_cutout_alpha(destination, Image.new('L', (data['width'], data['height']), 255)))
+                target['transform'] = dict(editor.stack_model.DEFAULT_TRANSFORM)
+                target['opacity'] = 1.0
+                data['cutout'] = deepcopy(target['cutout'])
+            for node in data['layer_stack']:
+                node['visible'] = node is target
+            target['cutout']['shadow']['enabled'] = False
+            mode = value.get('background_mode', 'transparent')
+            if mode != 'transparent':
+                if mode == 'white':
+                    background = Image.new('RGB', (data['width'], data['height']), 'white')
+                else:
+                    with Image.open(own_directory('jobs', identifier) / 'background.png') as image:
+                        background = ImageOps.fit(image.convert('RGB'), (data['width'], data['height']), method=Image.Resampling.LANCZOS)
+                editor.add_stack_image(destination, data, background, value.get('background_name') or 'White background', below=target['id'], commit=False)
+        else:
+            mode = value.get('background_mode', 'transparent')
+            if mode == 'white':
+                state['background'] = {'mode': 'color', 'color': '#ffffff'}
+            elif mode == 'image':
+                asset = 'cutout-' + uuid.uuid4().hex + '-background.png'
+                shutil.copyfile(own_directory('jobs', identifier) / 'background.png', destination / asset)
+                state['background'] = {'mode': 'image', 'color': '#ffffff', 'asset': asset}
+
     apply_preset(data, destination, value.get('treatment'), own_directory('jobs', identifier) / 'treatment')
     if bytes_used(own_directory('jobs', identifier)) > MAX_STORAGE:
         raise ValueError('This queue exceeds its 12 GB storage limit. Use a smaller batch.')
@@ -647,6 +729,7 @@ async def delete_job(identifier: str, request: Request):
             if not relative.parts:
                 valid_dirs = {'treatment', 'exports'} | known_entries
                 valid_files = {'job.json', 'exports.zip', 'exports.pending.zip'}
+                if value.get('background_mode') == 'image': valid_files.add('background.png')
             elif len(relative.parts) == 1 and relative.parts[0] == 'exports':
                 valid_dirs, valid_files = set(), exported
             elif len(relative.parts) == 1 and relative.parts[0] == 'treatment':

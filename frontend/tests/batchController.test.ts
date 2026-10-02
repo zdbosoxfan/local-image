@@ -8,7 +8,7 @@ const clone = <T>(value: T): T => structuredClone(value);
 function queue(id = 'queue-one', running = false): BatchQueue {
   return {id, name: 'Selected photos', created: 1, modified: 1, phase: running ? 'preparing' : 'review', running,
     message: running ? 'Preparing one image at a time.' : 'Review each preview before exporting.', format: 'png', mode: 'prepare',
-    prepare_cutouts: false, qwen_variant: 'int8', treatment_id: null, treatment_name: null, bytes: 123, download: null,
+    prepare_cutouts: true, qwen_variant: 'int8', treatment_id: null, treatment_name: null, bytes: 123, download: null,
     items: [{id: 'item-a', name: 'A.png', session_id: 'session-a', revision: 4, status: running ? 'pending' : 'ready', error: null, preview: running ? null : '/preview', output_name: null, credits_name: null, export_bit_depth: null}]};
 }
 function editorFixture() {
@@ -28,7 +28,7 @@ function apiFixture(overrides: Partial<BatchApi> = {}): BatchApi {
     create: async () => queue(), exportZip: async id => ({...queue(id), running: true, phase: 'exporting', mode: 'zip'}),
     cancel: async id => ({...queue(id, true), modified: 2}), resume: async id => queue(id, true),
     saveTreatment: async body => ({id: 'treatment-one', name: body.name, created: 1, format: body.format}),
-    deleteTreatment: async () => ({deleted: true}), clearQueue: async () => ({deleted: true}), qwenStatus: async () => ({connected: false, variants: []}),
+    deleteTreatment: async () => ({deleted: true}), clearQueue: async () => ({deleted: true}), qwenStatus: async () => ({connected: true, variants: [{id: 'int8', available: true}]}),
     previewUrl: (job, item, full = false, original = false) => `/api/local-remove/batch/jobs/${job}/items/${item}/preview${full ? '?full=true&original=' + original : ''}`,
     downloadUrl: id => '/api/local-remove/batch/jobs/' + id + '/download', ...overrides,
   };
@@ -38,7 +38,7 @@ function deferred<T>() {let resolve!: (value: T) => void; const promise = new Pr
 test('API attaches the page token and never retries a failed durable mutation', async () => {
   const seen: RequestInit[] = [];
   const api = createBatchApi('browser-token', (async (_url, init) => {seen.push(init!); return Response.json({detail: 'Revision changed'}, {status: 409});}) as typeof fetch);
-  await assert.rejects(api.create({sessions: [{session_id: 'a', revision: 4}], format: 'png', treatment_id: null, prepare_cutouts: false, qwen_variant: 'int8'}), /Revision changed/);
+  await assert.rejects(api.create({sessions: [{session_id: 'a', revision: 4}], format: 'png', treatment_id: null, prepare_cutouts: true, qwen_variant: 'int8'}), /Revision changed/);
   assert.equal(seen.length, 1); assert.equal((seen[0].headers as Record<string, string>)['x-local-remove-token'], 'browser-token');
   assert.equal(JSON.parse(seen[0].body as string).sessions[0].revision, 4);
 });
@@ -115,5 +115,31 @@ test('preparation errors surface once and unavailable AI cannot silently submit 
   const fixture = editorFixture(); let creates = 0;
   const controller = createBatchController({token: 'x', editor: fixture.adapter, api: apiFixture({create: async () => {creates++; throw new Error('Source revision conflict');}})}); t.after(() => controller.dispose());
   await controller.open(); await controller.prepare(); assert.equal(creates, 1); assert.match(controller.getSnapshot().status, /Source revision conflict/); assert.equal(controller.getSnapshot().active, null);
-  controller.setDraft({treatmentId: 'preset'}); controller.setDraft({prepareCutouts: true}); await controller.prepare(); assert.equal(creates, 1); assert.match(controller.getSnapshot().status, /unavailable/);
+  controller.close(); controller.dispose();
+  const unavailable = createBatchController({token: 'x', editor: fixture.adapter, api: apiFixture({qwenStatus: async () => ({connected: false, variants: []}), create: async () => {creates++; return queue();}})}); t.after(() => unavailable.dispose());
+  await unavailable.open(); await unavailable.prepare(); assert.equal(creates, 1); assert.match(unavailable.getSnapshot().status, /unavailable/);
+});
+
+test('background removal defaults to transparent PNGs without a saved treatment', async t => {
+  const fixture = editorFixture(), bodies: CreateBatchRequest[] = [];
+  const controller = createBatchController({token:'x', editor:fixture.adapter, api:apiFixture({create:async body => {bodies.push(body); return queue();}})});
+  t.after(() => controller.dispose());
+  await controller.open(); await controller.prepare();
+  assert.equal(bodies[0].format, 'png'); assert.equal(bodies[0].prepare_cutouts, true); assert.equal(bodies[0].treatment_id, null);
+});
+
+test('background choice is submitted and reviewed queue settings cannot be changed', async t => {
+  const fixture = editorFixture(), bodies: CreateBatchRequest[] = [];
+  const controller = createBatchController({token:'x', editor:fixture.adapter, api:apiFixture({create:async body => {bodies.push(body); return {...queue(), background_mode:body.background_mode};}})});
+  t.after(() => controller.dispose());
+  await controller.open(); controller.setDraft({backgroundMode:'white'}); await controller.prepare();
+  assert.equal(bodies[0].background_mode, 'white'); assert.equal(bodies[0].format, 'png');
+  controller.setDraft({backgroundMode:'transparent'}); assert.equal(controller.getSnapshot().active?.background_mode, 'white');
+});
+
+test('existing cutouts can be batched without Qwen being available', async t => {
+  const fixture = editorFixture(), bodies: CreateBatchRequest[] = [];
+  fixture.update({entries:[{id:'entry-a',name:'A.png',sessionId:'session-a',cutoutReady:true}]});
+  const controller = createBatchController({token:'x',editor:fixture.adapter,api:apiFixture({qwenStatus:async()=>({connected:false,variants:[]}),create:async body=>{bodies.push(body);return queue();}})});
+  t.after(()=>controller.dispose()); await controller.open(); await controller.prepare(); assert.equal(bodies.length,1);
 });

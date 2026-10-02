@@ -392,3 +392,19 @@ test('Original comparison remains available for a visible generated image but ne
   f.controller.setGenerationView({refining: true, visible: true}); f.controller.commands.toggleOriginal(); assert.equal(f.controller.getSnapshot().showOriginal, false);
   f.controller.setGenerationView({refining: false, creatingBlank: true, visible: false}); f.controller.commands.toggleOriginal(); assert.equal(f.controller.getSnapshot().showOriginal, false);
 });
+
+test('Quick Heal switches a stale saved method to an available CPU method', async t => {
+  const f = fixture(); t.after(() => f.controller.dispose());
+  f.controller.acceptConfiguration({settings:{models:[{id:'klein'}, {id:'heal', methods:[{id:'texture',label:'Texture',available:false},{id:'telea',label:'Dust & scratches',available:true}]}]},status:{ready:false,retouch_ready:true}});
+  assert.equal(f.controller.getSnapshot().tools.healMethod,'telea');
+  f.controller.toolActions.healMethod('texture');
+  assert.equal(f.controller.getSnapshot().tools.healMethod,'telea');
+});
+
+test('Refresh view reloads backend metadata after another editor changes the document', async t => {
+  const f = fixture(); t.after(() => f.controller.dispose()); await f.controller.openSession(f.docs.get('a'));
+  const external = f.docs.get('a'); external.revision = 4; external.layer_stack[0].visible = false;
+  assert.equal(await f.controller.refreshPreview(), true);
+  assert.equal(f.controller.getSnapshot().document.revision, 4);
+  assert.equal(f.controller.getSnapshot().document.layer_stack[0].visible, false);
+});

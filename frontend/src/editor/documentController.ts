@@ -382,6 +382,10 @@ export function createDocumentController(options: DocumentControllerPorts & {tok
       const healer = models.find(item => item.id === 'heal');
       const methods = healer?.methods;
       if (Array.isArray(methods)) health.healMethods = methods.filter(item => item && typeof item === 'object' && typeof item.id === 'string').map(item => ({id: item.id, label: item.label || item.id, available: item.available !== false}));
+      if (!health.healMethods.some(method => method.id === healMethod && method.available !== false)) {
+        const fallback = health.healMethods.find(method => method.available !== false);
+        if (fallback) {healMethod = fallback.id; store('local-remove-heal-method', healMethod);}
+      }
     }
     if (value.status) health = {...health, ready: value.status.ready === true, retouchReady: value.status.retouch_ready === true, device: typeof value.status.device === 'string' ? value.status.device : ''};
     if ('qwen' in value) health = {...health, qwen: normalizeQwen(value.qwen)};
@@ -454,7 +458,7 @@ export function createDocumentController(options: DocumentControllerPorts & {tok
   const toolActions: ToolActions = {
     workspace: setWorkspace, tool: selectTool, brushSize: value => {if (editable()) {interaction.brushSize = Math.max(1, Math.min(2000, Math.round(value))); canvas.setBrushSize(interaction.brushSize); publish();}},
     selectionMode: subtract => setInteraction({subtract}), finishPath: commands.finishPath, clearSelection: commands.clearSelection, applySelection,
-    healMethod: value => {if (!busy() && health.healMethods.some(method => method.id === value)) {healMethod = value; store('local-remove-heal-method', value); publish();}},
+    healMethod: value => {if (!busy() && health.healMethods.some(method => method.id === value && method.available !== false)) {healMethod = value; store('local-remove-heal-method', value); publish();}},
     aiProvider: value => {if (!busy()) {aiProvider = value; publish();}}, qwenVariant: value => {if (!busy() && ['int8', 'bf16'].includes(value)) {qwenVariant = value; store('local-remove-qwen-variant', value); publish();}},
     cutoutOperation: value => setInteraction({cutoutOperation: value}),
     removeBackground: () => snapshot.tools.canRemoveBackground ? edit('/cutout', {variant: qwenVariant, layer_id: selectedLayer()?.id}, 'POST', {selectNew: true, clearSelection: true, label: 'Background removal completed.'}) : Promise.resolve(null),
@@ -482,12 +486,12 @@ export function createDocumentController(options: DocumentControllerPorts & {tok
   publish();
   return {
     getSnapshot: () => snapshot, subscribe(listener: () => void) {listeners.add(listener); return () => {listeners.delete(listener);};}, commands, toolActions, chromeActions, api, canvas,
-    getAcceptedDocument, getContext, runDocumentChange, acceptDocument, activateMode, applyGeneratedBackground, openSession, openCollection, openCollectionEntry, openBrowserFiles, importProject, applyNativeResult,
+    getAcceptedDocument, hasCutout: (id: string) => !!accepted.get(id)?.cutout?.enabled, getContext, runDocumentChange, acceptDocument, activateMode, applyGeneratedBackground, openSession, openCollection, openCollectionEntry, openBrowserFiles, importProject, applyNativeResult,
     drop: (dropped: readonly File[]) => native?.capabilities().ready ? openNative('drop', dropped) : openBrowserFiles(dropped),
     openInitial,
     async initialize(search = '') {await native?.connect(); await refreshHealth(); await refreshRecent(); await openInitial(search);},
     refreshHealth, refreshRecent, acceptConfiguration, report, downloadCredits,
-    async refreshPreview() {if (busy() || !current()) return false; const doc = current()!, epoch = navigationEpoch, finish = startOperation('Refreshing view'); try {const shown = await present(doc, epoch); if (shown) report('View refreshed.'); return shown;} catch (error) {report('Could not refresh the view. ' + failureText(error), true); return false;} finally {finish();}},
+    async refreshPreview() {if (busy() || !current()) return false; const doc = current()!, epoch = navigationEpoch, finish = startOperation('Refreshing view'); try {const fresh = accept(await api.session(doc.id)); displays.delete(fresh.id + ':' + fresh.revision); const shown = await present(fresh, epoch); if (shown) report('View refreshed.'); return shown;} catch (error) {report('Could not refresh the view. ' + failureText(error), true); return false;} finally {finish();}},
     setFeatures(value: DocumentFeatureCommands) {features = value;},
     setGenerationView(value: Partial<typeof generationView>) {generationView = {...generationView, ...value}; publish();},
     restoreInteraction(value: CanvasInteraction) {interaction = {...value}; if (!suppressCanvas) publish();},

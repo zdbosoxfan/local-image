@@ -10,11 +10,14 @@ from unittest.mock import patch
 
 _temporary = tempfile.TemporaryDirectory(prefix='local-image-lora-gallery-')
 _environment = patch.dict(os.environ, {'LOCAL_IMAGE_DATA_DIR': str(Path(_temporary.name)/'profile')})
-_environment.start()
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'backend'))
 from PIL import Image
 import lora_previews as previews
 from lora_catalog import CURATED
+
+
+def setUpModule():
+    _environment.start()
 
 
 def tearDownModule():

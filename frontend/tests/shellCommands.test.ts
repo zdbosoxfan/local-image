@@ -25,3 +25,11 @@ test('original and locked layers keep backend operation restrictions',()=>{
   assert.equal(commandCatalog(current).renameLayer.enabled,true);
   assert.equal(commandCatalog({...current,busy:true}).renameLayer.enabled,false);
 });
+
+test('batch background removal is only offered in Cutout', () => {
+  for (const workspace of ['retouch', 'generate', 'cutout'] as const) {
+    const commands = commandCatalog({workspace, busy:false} as any);
+    assert.equal(commands.showBatch.visible, workspace === 'cutout');
+    assert.equal(commands.showBatch.enabled, workspace === 'cutout');
+  }
+});

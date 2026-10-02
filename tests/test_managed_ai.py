@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import os
+import py7zr
 from pathlib import Path
 import sys
 import tempfile
@@ -488,6 +489,7 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ai.SetupError):
             ai.validate_archive_members([huge], self.root)
 
+    @unittest.skipUnless(sys.platform == 'win32', 'Requires bundled Windows native helpers')
     def test_extract_real_archive_validates_layout(self):
         import py7zr
         portable = self.root / 'archive-source' / 'ComfyUI_windows_portable'
@@ -500,6 +502,7 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(extracted, target / 'ComfyUI_windows_portable')
         self.assertTrue(ai.installation(extracted)['startable'])
 
+    @unittest.skipUnless(sys.platform == 'win32', 'Requires bundled Windows native helpers')
     def test_extract_bcj2_archive_with_bundled_decoder(self):
         import py7zr
         archive = HERE / 'tests' / 'fixtures' / 'comfy-portable-bcj2.7z'
@@ -670,6 +673,7 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(popen.call_args.kwargs['shell'])
         process.terminate.assert_not_called(); process.kill.assert_not_called()
 
+    @unittest.skipUnless(sys.platform == 'win32', 'Requires bundled Windows native helpers')
     async def test_frozen_start_restores_dll_directory_after_success_and_launch_failure(self):
         code, python = create_runtime(self.root / 'portable')
         ai.configure(comfy_directory=str(code), comfy_port=8189)

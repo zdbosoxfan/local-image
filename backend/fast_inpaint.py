@@ -19,7 +19,7 @@ from PIL import Image
 from removal_blend import clean_selection_mask
 
 
-TEXTURE_EXE = Path(__file__).resolve().parent / 'tools' / 'texture-synthesis' / 'texture-synthesis.exe'
+TEXTURE_EXE = Path(__file__).resolve().parent / 'tools' / 'texture-synthesis' / ('texture-synthesis.exe' if os.name == 'nt' else 'texture-synthesis')
 TEXTURE_TIMEOUT = 120
 TEXTURE_MAX_EDGE = 2048
 TEXTURE_MAX_PIXELS = 2048 * 2048
@@ -27,10 +27,10 @@ TEXTURE_MAX_REPAIR_PIXELS = 512 * 512
 
 
 def heal_option():
-    texture_available = TEXTURE_EXE.is_file()
+    texture_available = TEXTURE_EXE.is_file() and (os.name == 'nt' or os.access(TEXTURE_EXE, os.X_OK))
     return {
         'id': 'heal', 'label': 'Quick Heal', 'available': True, 'device': 'CPU',
-        'default_method': 'texture',
+        'default_method': 'texture' if texture_available else 'telea',
         'description': 'Replace small objects using nearby texture. No AI model or GPU service needed.',
         'credit': 'Embark Studios texture-synthesis',
         'credit_url': 'https://github.com/EmbarkStudios/texture-synthesis',

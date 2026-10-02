@@ -43,6 +43,35 @@ class LayerStackTests(unittest.IsolatedAsyncioTestCase):
     async def update(self, data, lid, **settings):
         return await self.app.update_stack_layer(data['id'], lid, self.request(), self.app.StackUpdate(revision=data['revision'], **settings))
 
+    async def test_preview_reuses_revision_and_original_cache(self):
+        data = await self.session()
+        with patch.object(self.app, 'render', wraps=self.app.render) as render:
+            first = await self.app.preview(data['id'], self.request(), full=True)
+            second = await self.app.preview(data['id'], self.request(), full=True)
+            self.assertEqual(first.path, second.path)
+            self.assertEqual(render.call_count, 1)
+            changed = await self.update(data, 'original', visible=False)
+            third = await self.app.preview(changed['id'], self.request(), full=True)
+            self.assertNotEqual(first.path, third.path)
+            self.assertEqual(render.call_count, 2)
+
+    async def test_chunked_compositing_preserves_eight_and_sixteen_bit_pixels(self):
+        rng = np.random.default_rng(7)
+        for dtype in (np.uint8, np.uint16):
+            maximum = np.iinfo(dtype).max
+            back = rng.integers(0, maximum+1, (137, 19, 4), dtype=dtype)
+            front = rng.integers(0, maximum+1, back.shape, dtype=dtype)
+            front[:64, :, 3] = 0
+            back[:10, :, 3] = 0
+            front[64:128, :, 3] = maximum
+            fa = front[..., 3:4].astype(np.float64)/maximum
+            ba = back[..., 3:4].astype(np.float64)/maximum
+            alpha = fa+ba*(1-fa)
+            numerator = front[..., :3]*fa+back[..., :3]*ba*(1-fa)
+            rgb = np.divide(numerator, alpha, out=np.zeros_like(numerator), where=alpha>0)
+            expected = np.concatenate((np.rint(rgb), np.rint(alpha*maximum)), axis=2).clip(0,maximum).astype(dtype)
+            np.testing.assert_array_equal(self.app.stack_model.over(back, front), expected)
+
     async def test_stack_scaffold_preserves_revision_and_saved_status_until_actual_edit(self):
         data=await self.session()
         self.assertEqual(data['revision'],0)

@@ -29,7 +29,7 @@ export function commandCatalog(state: ShellView): Record<ShellCommand, CommandIt
     overwrite: { ...item('overwrite', 'Overwrite original…', idle && visible, 'Ctrl+S'), visible: !!state.document?.can_return && !state.refining && !state.creatingBlank },
     saveUnique: { ...item('saveUnique', 'Save a copy', idle && visible, 'Ctrl+Shift+S'), visible: !!state.document?.can_return && !state.refining && !state.creatingBlank },
     exportImage: item('exportImage', 'Export a copy…', idle && visible), credits: { ...item('credits', 'Image credits…', idle), visible: !!state.creditsAvailable },
-    showAssets: item('showAssets', 'Assets…', idle), showGenerated: item('showGenerated', 'Generated library…', idle), showBatch: item('showBatch', 'Batch treatment & export…', idle),
+    showAssets: item('showAssets', 'Assets…', idle), showGenerated: item('showGenerated', 'Generated library…', idle), showBatch: {...item('showBatch', 'Remove backgrounds…', idle && state.workspace === 'cutout'), visible: state.workspace === 'cutout'},
     undo: item('undo', state.undoLabel || 'Undo', idle && !!state.canUndo, 'Ctrl+Z'), redo: item('redo', state.redoLabel || 'Redo', idle && !!state.canRedo, 'Ctrl+Shift+Z'),
     applySelection: item('applySelection', state.selectionActionLabel || 'Apply selection', !!state.canApplySelection),
     clearSelection: item('clearSelection', 'Clear selection', active && !!state.selectionActive), finishPath: { ...item('finishPath', 'Close path', active && (state.penPointCount ?? 0) >= 3, 'Enter'), visible: state.tool === 'pen' },

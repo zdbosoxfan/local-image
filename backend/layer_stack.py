@@ -91,13 +91,26 @@ def rgba(raw):
 
 
 def over(back, front):
+    # Bound temporary float buffers: a 4K layer used to allocate several
+    # full-image float64 arrays and trigger swapping on smaller Linux machines.
+    result = np.empty_like(back)
     maximum = np.iinfo(back.dtype).max
-    fa = front[..., 3:4].astype(np.float64) / maximum
-    ba = back[..., 3:4].astype(np.float64) / maximum
-    alpha = fa + ba*(1-fa)
-    numerator = front[..., :3]*fa + back[..., :3]*ba*(1-fa)
-    rgb = np.divide(numerator, alpha, out=np.zeros_like(numerator), where=alpha > 0)
-    return np.concatenate((np.rint(rgb), np.rint(alpha*maximum)), axis=2).clip(0, maximum).astype(back.dtype)
+    for y in range(0, back.shape[0], 64):
+        b, f = back[y:y+64], front[y:y+64]
+        if not np.any(f[..., 3]):
+            result[y:y+64] = b
+            result[y:y+64][b[..., 3] == 0] = 0
+            continue
+        if np.all(f[..., 3] == maximum):
+            result[y:y+64] = f
+            continue
+        fa = f[..., 3:4].astype(np.float64) / maximum
+        ba = b[..., 3:4].astype(np.float64) / maximum
+        alpha = fa + ba*(1-fa)
+        numerator = f[..., :3]*fa + b[..., :3]*ba*(1-fa)
+        rgb = np.divide(numerator, alpha, out=np.zeros_like(numerator), where=alpha > 0)
+        result[y:y+64] = np.concatenate((np.rint(rgb), np.rint(alpha*maximum)), axis=2).clip(0, maximum).astype(back.dtype)
+    return result
 
 
 def working_image(image, dtype, icc):
@@ -155,7 +168,11 @@ def render_native(data, root, raw, icc, decode, *, exclude=None):
     result = np.zeros((*raw.shape[:2], 4), dtype=raw.dtype)
     for item in data['layer_stack']:
         if not item['visible'] or item['discarded'] or item['id'] == exclude: continue
-        result = over(result, native_layer(data, root, item, raw, icc, decode))
+        if item['kind'] == 'retouch' and not item['patch_ids']:
+            continue
+        front = native_layer(data, root, item, raw, icc, decode)
+        # An opaque layer completely replaces the canvas beneath it.
+        result = front if np.all(front[..., 3] == np.iinfo(raw.dtype).max) else over(result, front)
     return result
 
 

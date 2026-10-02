@@ -59,7 +59,7 @@ export function createFeatureAdapters(options: {
       busy: snapshot.busy,
       document: doc ? { id: doc.id, name: doc.name, revision: doc.revision, canSaveTreatment: !!doc.cutout?.enabled } : null,
       collectionId: collection?.id ?? null, nativeCollection: !!collection && !collection.local,
-      entries: source.map(entry => ({ id: entry.id, name: entry.name, sessionId: entry.session_id })),
+      entries: source.map(entry => ({ id: entry.id, name: entry.name, sessionId: entry.session_id, cutoutReady: !!entry.session_id && documents.hasCutout(entry.session_id) })),
       pendingSelections, nativeExportAvailable: native.capabilities().ready && native.capabilities().batch,
     };
     const signature = JSON.stringify(next);
