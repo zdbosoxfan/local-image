@@ -1,6 +1,6 @@
 # Build and test Local Image
 
-End users should install the Windows release. These instructions are for working on the **0.7.0** source code, including Retouch, Cutout, Image Gen, batch treatment/export and deployment to other PCs. User-facing setup is described in [Installation and storage](INSTALLATION.md); Qwen graphs, models, and licensing are covered in [Qwen Image 2.1](QWEN-IMAGE-21.md).
+End users should install a bundled [Windows release](INSTALLATION.md) or [Linux preview](LINUX-INSTALLATION.md). These instructions cover source development, including Retouch, Cutout, Image Gen and deployment. The Windows packaging instructions below describe 0.7.0; the Linux preview is 0.7.1-linux-preview. Qwen graphs, models, and licensing are covered in [Qwen Image 2.1](QWEN-IMAGE-21.md).
 
 ## Development environment
 
@@ -50,6 +50,35 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\packaging\Build-Window
 With that output argument, the build produces `dist/local-image-v07/package/` and `dist/local-image-v07/installer/Local-Image-Setup-0.7.0.exe`, plus a SHA-256 checksum. The build derives the maximum application-folder length from its bundled file and directory paths, leaving room below Windows' path limits. The build downloads Microsoft's WebView2 bootstrapper and verifies its Microsoft signature. Setup invokes it only if the WebView2 Runtime is missing, following [Microsoft's deployment guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution). This bootstrapper needs internet access on a PC without the runtime; the package does not claim fully offline prerequisite installation.
 
 Build artifacts are ignored by Git. Publish the installer and checksum as GitHub release assets. Production distribution should use a code-signing certificate; the first preview is unsigned.
+
+## Linux source and release builds
+
+For source development on an x86-64 Linux desktop, create a Python environment and build the pinned React assets from the repository root:
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r backend/requirements.txt -r desktop/linux/requirements.txt
+npm --prefix frontend ci --ignore-scripts
+npm --prefix frontend run build
+.venv/bin/python desktop/linux/local_image.py
+```
+
+Python and Node.js are build/development requirements; the [Linux release](LINUX-INSTALLATION.md) bundles its own Python interpreter, Qt libraries, backend and compiled frontend. ComfyUI remains a separate optional environment. The source host uses native Qt file dialogs and the same React/Fluent interface as Windows.
+
+Use `LOCAL_IMAGE_DATA_DIR` or the compatible `LOCAL_REMOVE_DATA_DIR` override for an isolated development profile, setting it on the host and backend consistently. Otherwise Linux stores data in `$XDG_DATA_HOME/local-image`, falling back to `~/.local/share/local-image`. Do not launch two backend profiles on port 51247 simultaneously. `.venv/bin/python desktop/linux/local_image.py --smoke-test` creates its own disposable profile, opens the actual React interface, checks the native bridge and exits; it does not load user documents or run AI.
+
+Install `packaging/requirements-linux-build.txt` into the build environment, then run the release builder from the repository root on Ubuntu 24.04:
+
+```sh
+.venv/bin/python -m pip install -r packaging/requirements-linux-build.txt
+bash packaging/Build-Linux.sh --python .venv/bin/python --version 0.7.1-linux-preview --output dist/linux
+```
+
+It produces `Local-Image-0.7.1-linux-preview-linux-x86_64.tar.gz`, the matching `.deb` and `SHA256SUMS` under the output directory. The Linux release uses separate PyInstaller one-folder bundles for the host and backend. Ship the whole directory, including Qt plugins, WebEngine resources and library symlinks. The static Texture helper is included in the Linux package. Normal launch must find the packaged backend relative to the host without a developer virtual environment or current-working-directory assumption. Retain `licenses/Local-Image-LICENSE.txt`, `THIRD_PARTY_NOTICES.md`, `React-THIRD_PARTY_NOTICES.txt` and dependency license resources in the package. See [the Linux host](../desktop/linux/README.md) for its persistent profile and native bridge.
+
+Build release binaries on the oldest supported system, currently **Ubuntu 24.04 x86-64/glibc 2.39**. PyInstaller bundles Python and application dependencies but [does not bundle glibc](https://pyinstaller.org/en/stable/usage.html#making-gnu-linux-apps-forward-compatible); building on a newer distribution can raise the runtime requirement. Qt's [Linux dependency reference](https://doc.qt.io/qt-6/linux-requirements.html) distinguishes runtime libraries from development headers. Validate the frozen binaries on the target desktop rather than inferring compatibility from a successful source run.
+
+The preview distributes a tar archive with a per-user installer and an Ubuntu `.deb`. The tar format preserves the one-folder bundle's symlinks and executable permissions and needs no AppImage/FUSE runtime. These are packaging choices for this app; [Qt documents multiple supported deployment approaches](https://doc.qt.io/qtforpython-6/deployment/index.html), including its own deployment tool and third-party freezers.
 
 ## Tests
 

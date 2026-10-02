@@ -22,6 +22,17 @@ class UserStorageTests(unittest.TestCase):
         self.environment.stop()
         self.temporary.cleanup()
 
+    def test_linux_bundle_reports_release_version_in_desktop_and_backend(self):
+        bundle = self.root / 'installed release'
+        (bundle / 'backend').mkdir(parents=True)
+        (bundle / 'VERSION').write_text('0.7.1-linux-preview\n', encoding='utf-8')
+        with patch.object(app_paths.sys, 'platform', 'linux'), patch.object(app_paths.sys, 'frozen', True, create=True):
+            for program in ('local-image', 'backend/LocalRemoveBackend'):
+                with patch.object(app_paths.sys, 'executable', str(bundle / program)):
+                    self.assertEqual(app_paths._application_version(), '0.7.1-linux-preview')
+        with patch.object(app_paths.sys, 'platform', 'win32'), patch.object(app_paths.sys, 'frozen', True, create=True):
+            self.assertEqual(app_paths._application_version(), '0.7.0')
+
     def test_windows_profile_default_does_not_use_working_directory(self):
         with patch.dict(os.environ, {'LOCALAPPDATA': str(self.root / 'Local AppData')}):
             with patch.dict(os.environ):

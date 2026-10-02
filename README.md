@@ -2,9 +2,9 @@
 
 **Retouch, cut out, composite and generate images on your own PC.**
 
-Local Image is a Windows image workspace with **Retouch**, **Cutout** and **Image Gen** personas. Image editing and AI inference run locally through your own hardware and ComfyUI, without a cloud-model account or per-image API bill. Optional model downloads, stock search and live LoRA browsing use the internet.
+Local Image is a desktop image workspace for Windows and Linux with **Retouch**, **Cutout** and **Image Gen** personas. Image editing and AI inference run locally through your own hardware and ComfyUI, without a cloud-model account or per-image API bill. Optional model downloads, stock search and live LoRA browsing use the internet.
 
-[Download the Windows preview](https://github.com/zdbosoxfan/local-image/releases/tag/v0.7.0) · [Installation guide](docs/INSTALLATION.md) · [Model guide](docs/GEN-MODELS.md) · [Example images](#made-locally)
+[Windows preview](https://github.com/zdbosoxfan/local-image/releases/tag/v0.7.0) · [Linux preview](https://github.com/zdbosoxfan/local-image/releases/tag/v0.7.1-linux-preview) · [Linux installation](docs/LINUX-INSTALLATION.md) · [Windows installation](docs/INSTALLATION.md) · [Model guide](docs/GEN-MODELS.md)
 
 **Personal project:** This is a **vibe-coded personal project**, shared as-is. There is **no guaranteed support and no guarantee of updates or improvements**.
 
@@ -140,9 +140,12 @@ These are planning figures for the included presets. Actual memory use depends o
 
 ### Download
 
+**Linux x86-64:** download the Ubuntu `.deb` or the per-user `.tar.gz` archive from the [0.7.1 Linux preview release](https://github.com/zdbosoxfan/local-image/releases/tag/v0.7.1-linux-preview). On Ubuntu, open the `.deb` with the system package installer. On Fedora or another compatible desktop, extract the archive and run `./install.sh` from its folder. Both add **Local Image** to the application menu and include Python, Qt and the editor; installing Python or Node.js is unnecessary. This preview targets Ubuntu 24.04/glibc 2.39 and Fedora 44. Follow the [Linux installation guide](docs/LINUX-INSTALLATION.md) for exact requirements, storage, upgrades and optional AI setup.
+
+**Windows x64:**
 [Download Local Image 0.7 for Windows x64](https://github.com/zdbosoxfan/local-image/releases/download/v0.7.0/Local-Image-Setup-0.7.0.exe), or see the [release page and checksum](https://github.com/zdbosoxfan/local-image/releases/tag/v0.7.0). Choose installation for all users in **Program Files**, or for the current user in **AppData**, and change the application folder if needed. Optional folder choices reserve a location for model downloads and the dedicated portable ComfyUI runtime. Settings, browser data, recovery and caches belong to each Windows user's AppData. See [the installation guide](docs/INSTALLATION.md) for storage, upgrades and setup on a new PC, or [build from source](docs/DEVELOPMENT.md).
 
-The installer includes the app, Python backend and Windows WebView2 host; ComfyUI and model weights are separate optional downloads. In **Edit > Settings**, detect or browse for an existing ComfyUI installation, or install a dedicated runtime. In **Image Gen > Browse models…**, compare strengths, precision, download sizes and GPU memory recommendations, then choose or download a model. **Models folder…** selects storage that can also be shared with an existing ComfyUI. Downloads verify publisher revisions, byte sizes and SHA-256 checksums.
+Both packages include the app and Python backend. Windows uses a native WebView2 host; Linux uses a native Qt window with a bundled rendering engine and persistent app storage. ComfyUI and model weights are separate optional downloads. In **Edit > Settings > Local AI**, detect or browse for an existing ComfyUI installation, choose model storage, and download supported model presets. Windows also offers a dedicated portable ComfyUI runtime; on Linux, connect an existing Linux ComfyUI installation. **Image Gen > Browse models…** compares strengths, precision, download sizes and GPU memory recommendations. Downloads verify publisher revisions, byte sizes and SHA-256 checksums.
 
 Image Gen's **Output** tab exposes resolution and steps together, with a suggested step count for the chosen model. Optional guidance is under **Advanced sampling**. See the [Image Gen user guide](docs/IMAGE-GENERATION.md) for references, adapters, the two-pane Draft & Refine workspace, and optional SeedVR2 upscaling.
 
@@ -150,13 +153,14 @@ SeedVR2 is a separate optional photo enhancer. Its real 3840 x 2160 test improve
 
 The first launch offers **Repair a photo**, **Remove a background**, **Create an image** and **Set up AI**, with detected GPU memory and expandable planning guidance. Open **Help > Hardware guide** to see it again. CPU editing and Quick Heal do not require a dedicated GPU. Model file sizes describe disk storage, not VRAM. ComfyUI can offload to system RAM, with a speed cost; large canvases and many references increase memory use. **Edit > Settings > Interface size** offers Compact, Comfortable and Large, with 200% text in the Large option.
 
-Fresh profiles use `%LOCALAPPDATA%\Local Image`. An existing `%LOCALAPPDATA%\Local Remove` profile is retained so upgrades preserve settings, recovery sessions, model paths and editable projects. The `.lremove` project format and internal loopback endpoint `http://127.0.0.1:51247/remove` remain compatible. Normal editing runs without administrator rights.
+Fresh Windows profiles use `%LOCALAPPDATA%\Local Image`. An existing `%LOCALAPPDATA%\Local Remove` profile is retained so upgrades preserve settings, recovery sessions, model paths and editable projects. Linux uses `$XDG_DATA_HOME/local-image`, normally `~/.local/share/local-image`. The `.lremove` project format and internal loopback endpoint `http://127.0.0.1:51247/remove` remain compatible. Normal editing runs without administrator rights.
 
 ## Workspaces and guides
 
 - [Cutout editing and compositing](docs/CUTOUT-WORKSPACE.md)
 - [Product treatments and reviewed batch export](docs/BATCH-WORKSPACE.md)
 - [Installation, AI setup and storage on another PC](docs/INSTALLATION.md)
+- [Linux installation, updates and optional AI](docs/LINUX-INSTALLATION.md)
 - [Image generation models and input behavior](docs/GEN-MODELS.md)
 - [Generated-image library](docs/GENERATION-LIBRARY.md)
 - [Ten reviewed styles and the live LoRA browser](docs/LORA-LIBRARY.md)

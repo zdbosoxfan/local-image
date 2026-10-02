@@ -7,7 +7,22 @@ import sys
 import time
 import uuid
 
-APP_VERSION = '0.7.0'
+def _application_version():
+    # Linux release bundles carry their own preview version; source and Windows
+    # retain the backend version required by the existing Windows launcher.
+    if getattr(sys, 'frozen', False) and sys.platform.startswith('linux'):
+        executable_folder = Path(sys.executable).resolve().parent
+        for folder in (executable_folder, executable_folder.parent):
+            try:
+                version = (folder / 'VERSION').read_text(encoding='utf-8').strip()
+                if version and len(version) <= 80 and all(character.isalnum() or character in '.+~-' for character in version):
+                    return version
+            except OSError:
+                pass
+    return '0.7.0'
+
+
+APP_VERSION = _application_version()
 APP_NAME = 'Local Image'
 APP_PORT = 51247
 RESOURCE_DIR = Path(__file__).resolve().parent

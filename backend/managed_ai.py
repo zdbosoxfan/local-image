@@ -631,15 +631,31 @@ def launch_command(item, port, extra_config):
 
 @contextmanager
 def external_process_environment():
-    """Keep an external ComfyUI runtime independent of PyInstaller's DLLs."""
+    """Keep an external ComfyUI runtime independent of bundled libraries."""
     environment = os.environ.copy()
-    if sys.platform != 'win32' or not getattr(sys, 'frozen', False):
+    if not getattr(sys, 'frozen', False):
         yield environment
         return
     bundle = Path(sys._MEIPASS).resolve()
-    if 'PATH' in environment:
-        environment['PATH'] = os.pathsep.join(entry for entry in environment['PATH'].split(os.pathsep)
-            if not Path(os.path.expandvars(entry.strip('"'))).resolve().is_relative_to(bundle))
+    for key in ('PATH', 'QT_PLUGIN_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH', 'QML2_IMPORT_PATH', 'QML_IMPORT_PATH'):
+        if key in environment:
+            environment[key] = os.pathsep.join(entry for entry in environment[key].split(os.pathsep)
+                if not Path(os.path.expandvars(entry.strip('"'))).resolve().is_relative_to(bundle))
+            if key != 'PATH' and not environment[key]:
+                environment.pop(key)
+    if sys.platform.startswith('linux'):
+        original = environment.pop('LD_LIBRARY_PATH_ORIG', None)
+        if original is None:
+            environment.pop('LD_LIBRARY_PATH', None)
+        else:
+            environment['LD_LIBRARY_PATH'] = original
+        # Only the child's environment changes; the frozen editor keeps its
+        # compatible library paths for later imports and bundled helpers.
+        yield environment
+        return
+    if sys.platform != 'win32':
+        yield environment
+        return
     # PyInstaller documents that SetDllDirectory is inherited by subprocesses.
     # This block is synchronous: restore the exact parent setting before any
     # coroutine can launch another helper or import a lazily loaded extension.

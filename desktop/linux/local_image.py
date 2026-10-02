@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Linux desktop host for the existing Local Image editor and native protocol."""
 import fcntl
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -24,9 +25,56 @@ from shiboken6 import delete
 
 from protocol import BASE, CloseGate, batch_payload, decode_message, identifier, project_payload, trusted_download, trusted_page
 
-ROOT = Path(__file__).resolve().parents[2]
+FROZEN = bool(getattr(sys, 'frozen', False))
+ROOT = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'backend'))
 from app_paths import APP_VERSION, cache_dir, data_root, log_dir, prepare_user_folders, state_dir
+
+
+def backend_launch():
+    """Start the separately bundled server, keeping its runtime independent of Qt."""
+    environment = os.environ.copy()
+    if not FROZEN:
+        return [sys.executable, str(ROOT / 'backend' / 'run_local_remove.py')], environment
+    environment['PYINSTALLER_RESET_ENVIRONMENT'] = '1'
+    original = environment.pop('LD_LIBRARY_PATH_ORIG', None)
+    if original:
+        environment['LD_LIBRARY_PATH'] = original
+    else:
+        environment.pop('LD_LIBRARY_PATH', None)
+    for name in ('QT_PLUGIN_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH', 'QML2_IMPORT_PATH'):
+        environment.pop(name, None)
+    return [str(ROOT / 'backend' / 'LocalRemoveBackend')], environment
+
+
+@contextmanager
+def external_desktop_environment():
+    """System URL handlers use system libraries, rather than the bundled Qt runtime."""
+    if not FROZEN:
+        yield
+        return
+    names = ('LD_LIBRARY_PATH', 'QT_PLUGIN_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH', 'QML2_IMPORT_PATH')
+    previous = {name: os.environ.get(name) for name in names}
+    try:
+        original = os.environ.get('LD_LIBRARY_PATH_ORIG')
+        if original:
+            os.environ['LD_LIBRARY_PATH'] = original
+        else:
+            os.environ.pop('LD_LIBRARY_PATH', None)
+        for name in names[1:]:
+            os.environ.pop(name, None)
+        yield
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+def open_external_url(url):
+    with external_desktop_environment():
+        QDesktopServices.openUrl(url)
 
 
 def create_desktop_profile(parent):
@@ -111,7 +159,7 @@ class Page(QWebEnginePage):
         if is_main_frame and (trusted_page(address) or trusted_download(address)):
             return True
         if is_main_frame and url.scheme() == 'https' and not url.userInfo():
-            QDesktopServices.openUrl(url)
+            open_external_url(url)
         return False
 
     def createWindow(self, window_type):
@@ -119,7 +167,7 @@ class Page(QWebEnginePage):
         page = QWebEnginePage(self.profile(), self)
         def external(url):
             if url.scheme() == 'https' and not url.userInfo():
-                QDesktopServices.openUrl(url)
+                open_external_url(url)
             page.deleteLater()
         page.urlChanged.connect(external)
         return page
@@ -158,7 +206,8 @@ class Window(QMainWindow):
         self.close_gate = CloseGate()
         self.setWindowTitle('Local Image')
         self.resize(1440, 960)
-        self.setWindowIcon(QIcon(str(ROOT / 'backend' / 'frontend' / 'app-icon.png')))
+        icon = Path(sys._MEIPASS) / 'app-icon.png' if FROZEN else ROOT / 'backend' / 'frontend' / 'app-icon.png'
+        self.setWindowIcon(QIcon(str(icon)))
         self.view = QWebEngineView(self)
         self.view.setAcceptDrops(False)  # Page strings must never supply OS paths.
         self.profile = create_desktop_profile(self)
@@ -398,8 +447,9 @@ def main():
         pass
     client = Client()
     output = (log_dir() / 'desktop-backend.log').open('a')
-    process = subprocess.Popen([sys.executable, str(ROOT / 'backend' / 'run_local_remove.py')],
-                               cwd=ROOT / 'backend', stdout=output, stderr=subprocess.STDOUT)
+    command, environment = backend_launch()
+    process = subprocess.Popen(command, env=environment, cwd=ROOT / 'backend',
+                               stdout=output, stderr=subprocess.STDOUT)
     window = None
     try:
         deadline = time.monotonic() + 45
@@ -424,7 +474,14 @@ def main():
         code = app.exec()
         return code if not smoke or window.ready else 2
     except Exception as error:
-        QMessageBox.critical(None, 'Local Image', str(error))
+        if smoke:
+            print('LOCAL_IMAGE_SMOKE_ERROR', error, file=sys.stderr, flush=True)
+            try:
+                print((log_dir() / 'desktop-backend.log').read_text()[-8000:], file=sys.stderr, flush=True)
+            except OSError:
+                pass
+        else:
+            QMessageBox.critical(None, 'Local Image', str(error))
         return 1
     finally:
         if window is not None:

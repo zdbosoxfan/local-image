@@ -517,6 +517,39 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ai.SetupError):
             ai.validate_archive_members([huge], self.root)
 
+    async def test_frozen_linux_external_runtime_uses_original_system_libraries(self):
+        bundle = self.root / 'application' / '_internal'
+        system = str(self.root / 'system-bin')
+        original = str(self.root / 'user-libraries')
+        inherited = {'PATH': os.pathsep.join([str(bundle), str(bundle / 'bin'), system]),
+                     'LD_LIBRARY_PATH': str(bundle), 'LD_LIBRARY_PATH_ORIG': original,
+                     'QT_PLUGIN_PATH': os.pathsep.join([str(bundle / 'qt/plugins'), system]),
+                     'QT_QPA_PLATFORM_PLUGIN_PATH': str(bundle / 'qt/platforms'),
+                     'QML2_IMPORT_PATH': str(bundle / 'qt/qml')}
+        with (patch.object(ai.sys, 'platform', 'linux'),
+              patch.object(ai.sys, 'frozen', True, create=True),
+              patch.object(ai.sys, '_MEIPASS', str(bundle), create=True),
+              patch.dict(os.environ, inherited, clear=True)):
+            with ai.external_process_environment() as child:
+                self.assertEqual(child['LD_LIBRARY_PATH'], original)
+                self.assertNotIn('LD_LIBRARY_PATH_ORIG', child)
+                self.assertEqual(child['PATH'], system)
+                self.assertEqual(child['QT_PLUGIN_PATH'], system)
+                self.assertNotIn('QT_QPA_PLATFORM_PLUGIN_PATH', child)
+                self.assertNotIn('QML2_IMPORT_PATH', child)
+                self.assertEqual(dict(os.environ), inherited)
+            self.assertEqual(dict(os.environ), inherited)
+
+    async def test_frozen_linux_external_runtime_clears_library_override_without_original(self):
+        bundle = self.root / 'application' / '_internal'
+        with (patch.object(ai.sys, 'platform', 'linux'),
+              patch.object(ai.sys, 'frozen', True, create=True),
+              patch.object(ai.sys, '_MEIPASS', str(bundle), create=True),
+              patch.dict(os.environ, {'LD_LIBRARY_PATH': str(bundle)}, clear=True)):
+            with ai.external_process_environment() as child:
+                self.assertNotIn('LD_LIBRARY_PATH', child)
+                self.assertEqual(os.environ['LD_LIBRARY_PATH'], str(bundle))
+
     @unittest.skipUnless(sys.platform == 'win32', 'Requires bundled Windows native helpers')
     def test_extract_real_archive_validates_layout(self):
         import py7zr
