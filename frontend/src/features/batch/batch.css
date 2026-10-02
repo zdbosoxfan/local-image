@@ -7,6 +7,8 @@
 .li-batch-name,.li-batch-warning-actions,.li-batch-selection,.li-batch-history-controls,.li-batch-inspect-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .li-batch-name { align-items:end; }.li-batch-name > .fui-Field { flex:1; min-width:160px; }
 .li-batch-selection { border-block:1px solid var(--colorNeutralStroke2); padding-block:4px; }
+.li-batch-pagination { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.li-batch-pagination > span { margin-right:auto; }
 .li-batch-table-scroll { overflow:auto; min-height:120px; max-height:40dvh; }
 .li-batch-table { table-layout:fixed; width:100%; }.li-batch-table th:first-child { width:60px; }.li-batch-table th:nth-child(3) { width:110px; }
 .li-batch-table td { overflow-wrap:anywhere; }.li-batch-preview.fui-Button { min-width:0; padding:2px; }.li-batch-preview img { display:block; width:92px; height:64px; object-fit:contain; }

@@ -458,7 +458,7 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
             portable = destination / 'ComfyUI_windows_portable'
             create_runtime(portable)
             return portable
-        with (patch.object(ai, 'download_verified', AsyncMock()),
+        with (patch.object(ai.sys, 'platform', 'win32'), patch.object(ai, 'download_verified', AsyncMock()),
               patch.object(ai, 'extract_portable', side_effect=extract)):
             await self.manager.install(str(parent))
         stored = json.loads((self.root / 'profile' / 'config.json').read_text())
@@ -473,7 +473,7 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
             portable = destination / 'ComfyUI_windows_portable'
             create_runtime(portable)
             return portable
-        with (patch.object(ai, 'download_verified', AsyncMock()),
+        with (patch.object(ai.sys, 'platform', 'win32'), patch.object(ai, 'download_verified', AsyncMock()),
               patch.object(ai, 'extract_portable', side_effect=extract)):
             await self.manager.install(str(self.root / 'managed parent'))
         self.assertEqual(ai.model_directory(), self.root / 'profile' / 'models')
@@ -751,10 +751,20 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
     async def test_install_rejects_existing_destination_without_changing_it(self):
         destination = self.root / ai.MANAGED_FOLDER; destination.mkdir()
         keep = destination / 'user-file'; keep.write_bytes(b'preserve')
-        with patch.object(ai, 'download_verified', side_effect=AssertionError('network not expected')):
+        with patch.object(ai.sys, 'platform', 'win32'), patch.object(ai, 'download_verified', side_effect=AssertionError('network not expected')):
             with self.assertRaises(ai.SetupError):
                 await self.manager.install(str(self.root))
         self.assertEqual(keep.read_bytes(), b'preserve')
+
+    async def test_linux_does_not_offer_or_download_the_windows_portable_runtime(self):
+        with (patch.object(ai.sys, 'platform', 'linux'),
+              patch.object(ai, 'service_state', AsyncMock(return_value={'running':False,'busy':False,'port':8188})),
+              patch.object(ai, 'download_verified', side_effect=AssertionError('No Windows runtime download'))):
+            status = await self.manager.status()
+            self.assertFalse(status['portable']['available'])
+            with self.assertRaisesRegex(ai.SetupError, 'for Windows'):
+                await self.manager.install(str(self.root / 'unused-runtime'))
+        self.assertFalse((self.root / 'unused-runtime').exists())
 
 
 if __name__ == '__main__':

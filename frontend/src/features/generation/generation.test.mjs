@@ -36,6 +36,50 @@ test('linked sizes use the existing tested geometry including reference-workflow
   const expected = sizeMath.fitDimensions({ ...draft, axis: 'width' }, { ...catalog.limits, ...catalog.limits.reference_dimensions }); f.controller.commitSize('create'); assert.equal(f.controller.getSnapshot().drafts.create.width, expected.width); assert.equal(f.controller.getSnapshot().drafts.create.height, expected.height); f.controller.dispose();
 });
 
+test('chain control links the current dimensions and supports independent width and height when released', async () => {
+  const f = setup(); await ready(f);
+  f.controller.setDraft('create', { width: 1536, height: 1024, aspect: 'custom' });
+  f.controller.setDimensionsLinked('create', false);
+  f.controller.setDraft('create', { width: 2048 }); f.controller.commitSize('create', 'width');
+  assert.equal(f.controller.getSnapshot().drafts.create.height, 1024);
+  f.controller.setDimensionsLinked('create', true);
+  assert.equal(f.controller.getSnapshot().drafts.create.ratio, 2);
+  f.controller.setDraft('create', { height: 1536 }); f.controller.commitSize('create', 'height');
+  assert.equal(f.controller.getSnapshot().drafts.create.width, 3072);
+  assert.equal(f.controller.getSnapshot().drafts.create.height, 1536);
+  assert.equal(f.controller.getSnapshot().drafts.draft.locked, true);
+  f.controller.dispose();
+});
+
+test('aspect menu choices relink dimensions and retain model and reference constraints', async () => {
+  const f = setup(); await ready(f); f.controller.setDimensionsLinked('create', false);
+  f.controller.setAspect('create', '3:2');
+  let draft = f.controller.getSnapshot().drafts.create;
+  assert.equal(draft.locked, true); assert.equal(draft.aspect, '3:2'); assert.equal(draft.ratio, 1.5);
+  assert.equal(draft.width / draft.height, 1.5);
+  f.controller.setAspect('create', 'custom');
+  draft = f.controller.getSnapshot().drafts.create;
+  assert.equal(draft.aspect, 'custom'); assert.equal(draft.locked, true);
+  assert.equal(f.controller.getSnapshot().drafts.final.aspect, '1:1');
+  f.controller.dispose();
+});
+
+test('custom upscale inputs preserve the selected image proportions and reported dimension steps', async () => {
+  const f = setup(); await ready(f); const image = document('draft-image'); f.controller.addDraft(image);
+  f.controller.setUpscale({ preset: 'custom' });
+  assert.equal(f.controller.getSnapshot().upscale.width / f.controller.getSnapshot().upscale.height, 4 / 3);
+  f.controller.setUpscale({ width: 4096 }); f.controller.commitUpscaleSize('width');
+  assert.equal(f.controller.getSnapshot().upscale.width, 4096); assert.equal(f.controller.getSnapshot().upscale.height, 3072);
+  assert.equal(f.controller.validUpscale(image), true);
+  f.controller.setUpscale({ height: 2304 }); f.controller.commitUpscaleSize('height');
+  assert.equal(f.controller.getSnapshot().upscale.width, 3072); assert.equal(f.controller.getSnapshot().upscale.height, 2304);
+  assert.equal(f.controller.upscaleSizeControls().bounds.widthStep, 8);
+  assert.equal(f.controller.upscaleSizeControls().bounds.heightStep, 6);
+  f.controller.setUpscale({ preset: '2048' });
+  assert.deepEqual(f.controller.upscaleTarget(image), { width: 2048, height: 1536 });
+  f.controller.dispose();
+});
+
 test('missing models, reference limits and missing LoRAs prevent network inference', async () => {
   const f = setup(); await ready(f); f.controller.chooseModel('create', 'missing-model'); await f.controller.run('create'); assert.equal(f.posts.length, 0); assert.match(f.controller.getSnapshot().error, /installed model/);
   f.controller.chooseModel('create', 'qwen'); f.controller.setDraft('create', { loras: [{ id: 'missing', strength: 1, missing: true }] }); await f.controller.run('create'); assert.equal(f.posts.length, 0); assert.match(f.controller.getSnapshot().error, /unavailable/); f.controller.dispose();

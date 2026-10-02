@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createBatchApi, type BatchApi} from '../src/features/batch/api.ts';
 import {createBatchController} from '../src/features/batch/controller.ts';
+import {batchPage, BATCH_PAGE_SIZE} from '../src/features/batch/pagination.ts';
 import type {BatchEditorAdapter, BatchEditorSnapshot, BatchQueue, CreateBatchRequest} from '../src/features/batch/contracts.ts';
 
 const clone = <T>(value: T): T => structuredClone(value);
@@ -34,6 +35,11 @@ function apiFixture(overrides: Partial<BatchApi> = {}): BatchApi {
   };
 }
 function deferred<T>() {let resolve!: (value: T) => void; const promise = new Promise<T>(done => {resolve = done;}); return {promise, resolve};}
+
+function largeQueue(count = 137): BatchQueue {
+  const original = queue();
+  return {...original, items: Array.from({length: count}, (_, index) => ({...original.items[0], id: `item-${index}`, name: `${index}.png`, session_id: `session-${index}`}))};
+}
 
 test('API attaches the page token and never retries a failed durable mutation', async () => {
   const seen: RequestInit[] = [];
@@ -142,4 +148,79 @@ test('existing cutouts can be batched without Qwen being available', async t => 
   fixture.update({entries:[{id:'entry-a',name:'A.png',sessionId:'session-a',cutoutReady:true}]});
   const controller = createBatchController({token:'x',editor:fixture.adapter,api:apiFixture({qwenStatus:async()=>({connected:false,variants:[]}),create:async body=>{bodies.push(body);return queue();}})});
   t.after(()=>controller.dispose()); await controller.open(); await controller.prepare(); assert.equal(bodies.length,1);
+});
+
+test('collections larger than 100 keep every selected image in browser and native preparation', async t => {
+  for (const nativeCollection of [false, true]) {
+    const fixture = editorFixture(), entries = Array.from({length: 137}, (_, index) => ({id: `entry-${index}`, name: `${index}.png`, sessionId: `session-${index}`}));
+    fixture.update({entries, nativeCollection, collectionId: nativeCollection ? 'large-folder' : null});
+    const resolved: string[] = [], bodies: CreateBatchRequest[] = [];
+    fixture.adapter.resolveSession = async id => {resolved.push(id); return {session_id: 'session-' + id.split('-')[1], revision: 4};};
+    const controller = createBatchController({token:'x', editor:fixture.adapter, api:apiFixture({create:async body => {bodies.push(clone(body)); return largeQueue();}})});
+    t.after(() => controller.dispose()); await controller.open();
+    assert.equal(controller.getSnapshot().selectedIds.length, entries.length);
+    assert.equal(controller.getSnapshot().canPrepare, true);
+    controller.selectAll(false); controller.selectAll(true);
+    controller.setSelected('entry-136', false); controller.setSelected('entry-136', true);
+    assert.equal(controller.getSnapshot().selectedIds.length, entries.length);
+    let publications = 0; const unsubscribe = controller.subscribe(() => publications++);
+    await controller.prepare(); unsubscribe();
+    assert.equal(bodies.length, 1);
+    if (nativeCollection) {assert.deepEqual(bodies[0].entry_ids, entries.map(entry => entry.id)); assert.deepEqual(resolved, []);}
+    else {assert.deepEqual(resolved, entries.map(entry => entry.id)); assert.deepEqual(bodies[0].sessions, entries.map(entry => ({session_id:entry.sessionId, revision:4})));}
+    assert.ok(publications < 10, 'session resolution must not publish a full queue snapshot after every image');
+    assert.equal(controller.getSnapshot().selectedIds.length, entries.length);
+    controller.newQueue(); assert.equal(controller.getSnapshot().selectedIds.length, entries.length);
+  }
+});
+
+test('exports cover selected ready images across all pages for ZIP and native folders', async t => {
+  for (const nativeExportAvailable of [false, true]) {
+    const fixture = editorFixture(), original = largeQueue(607), exported: string[][] = [];
+    original.items = original.items.map((item, index) => index === 605 ? {...item, status:'failed', error:'No mask'} : item);
+    fixture.update({nativeExportAvailable});
+    fixture.adapter.exportBatchFolder = async input => {exported.push(input.item_ids); return original;};
+    const controller = createBatchController({token:'x', editor:fixture.adapter, api:apiFixture({queues:async () => ({items:[original], bytes:1}), queue:async () => original, exportZip:async (_id, ids) => {exported.push(ids); return original;}})});
+    t.after(() => controller.dispose()); await controller.open(); await controller.loadQueue();
+    const firstPage = batchPage(original.items.length, 0), lastPage = batchPage(original.items.length, 12);
+    assert.deepEqual([firstPage.from, firstPage.to, lastPage.from, lastPage.to], [1, 50, 601, 607]);
+    controller.setSelected(original.items[firstPage.start].id, false);
+    controller.setSelected(original.items[lastPage.end - 1].id, false);
+    assert.equal(controller.getSnapshot().selectedIds.length, 605);
+    await controller.exportReviewed();
+    assert.deepEqual(exported, [original.items.filter(item => item.status === 'ready' && !['item-0', 'item-606'].includes(item.id)).map(item => item.id)]);
+    assert.equal(exported[0].length, 604);
+    controller.selectAll(false); controller.selectAll(true);
+    assert.equal(controller.getSnapshot().selectedIds.length, 607);
+  }
+});
+
+test('large queues use bounded pages with no skipped or repeated images', () => {
+  const images = Array.from({length: 5001}, (_, index) => index), seen: number[] = [];
+  const first = batchPage(images.length, 0);
+  assert.equal(first.pages, 101); assert.equal(BATCH_PAGE_SIZE, 50);
+  for (let index = 0; index < first.pages; index++) {
+    const page = batchPage(images.length, index), rows = images.slice(page.start, page.end);
+    assert.ok(rows.length <= BATCH_PAGE_SIZE); seen.push(...rows);
+    assert.equal(page.from, page.start + 1); assert.equal(page.to, page.end);
+  }
+  assert.deepEqual(seen, images);
+  assert.deepEqual(batchPage(images.length, 100), {page:100, pages:101, total:5001, start:5000, end:5001, from:5001, to:5001});
+  assert.equal(batchPage(3, 100).page, 0);
+  assert.equal(batchPage(150, -1).page, 0); assert.equal(batchPage(150, NaN).page, 0);
+  assert.deepEqual(batchPage(0, 0), {page:0, pages:1, total:0, start:0, end:0, from:0, to:0});
+});
+
+test('lazy unopened collection items retain identity without selecting unrelated null sessions', async t => {
+  const fixture=editorFixture(), original=largeQueue(137);
+  original.phase='paused'; original.items=original.items.map((item,index)=>({...item,id:`entry-${index}`,session_id:null,revision:null,status:'pending',preview:null}));
+  fixture.update({nativeCollection:true,collectionId:'folder',entries:[...original.items.map(item=>({id:item.id,name:item.name,sessionId:null})),{id:'unrelated-entry',name:'Another photo',sessionId:null}]});
+  const controller=createBatchController({token:'x',editor:fixture.adapter,api:apiFixture({queues:async()=>({items:[original],bytes:1}),queue:async()=>original})});
+  t.after(()=>controller.dispose()); await controller.open(); await controller.loadQueue();
+  assert.equal(controller.getSnapshot().active?.items[136].session_id,null);
+  assert.equal(controller.getSnapshot().canExport,false); controller.inspect('entry-136'); assert.equal(controller.getSnapshot().inspection,null);
+  controller.setSelected('entry-136',false); controller.newQueue();
+  assert.equal(controller.getSnapshot().selectedIds.length,136);
+  assert.ok(!controller.getSnapshot().selectedIds.includes('entry-136'));
+  assert.ok(!controller.getSnapshot().selectedIds.includes('unrelated-entry'));
 });

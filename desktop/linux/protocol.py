@@ -1,8 +1,34 @@
 """Fixed native protocol validation; no page-selected paths or commands."""
+import json
 import uuid
 from urllib.parse import urlsplit
 
 BASE = 'http://127.0.0.1:51247'
+# A transport memory budget, shared with the Windows host. Batch selections are
+# bounded by encoded request size rather than an arbitrary number of images.
+MAX_NATIVE_MESSAGE_BYTES = 16 * 1024 * 1024
+
+
+def message_within_limit(raw):
+    if not isinstance(raw, str) or len(raw) > MAX_NATIVE_MESSAGE_BYTES:
+        return False
+    try:
+        return len(raw.encode('utf-8')) <= MAX_NATIVE_MESSAGE_BYTES
+    except UnicodeEncodeError:
+        return False
+
+
+def decode_message(raw):
+    if not message_within_limit(raw):
+        return None
+    try:
+        message = json.loads(raw)
+    except (ValueError, RecursionError):
+        return None
+    if (not isinstance(message, dict) or not isinstance(message.get('id'), str)
+            or not 1 <= len(message['id']) <= 128 or not isinstance(message.get('action'), str)):
+        return None
+    return message
 
 
 def trusted_page(address):
@@ -30,8 +56,8 @@ def project_payload(message):
 def batch_payload(message):
     job = identifier(message.get('job_id'))
     items = message.get('item_ids')
-    if not isinstance(items, list) or not 1 <= len(items) <= 100:
-        raise ValueError('Select up to 100 reviewed images.')
+    if not isinstance(items, list) or not items:
+        raise ValueError('Select reviewed images to export.')
     items = [identifier(item) for item in items]
     if len(set(items)) != len(items):
         raise ValueError('Choose distinct reviewed images.')

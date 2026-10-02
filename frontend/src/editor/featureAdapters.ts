@@ -34,6 +34,7 @@ export function createFeatureAdapters(options: {
     installRuntime: () => native.setupInstall(),
     chooseModelDirectory: () => native.setupChooseModelDirectory(),
     downloadRemovalModels: () => native.setupDownloadModels(),
+    downloadModel: (model, variant) => native.setupDownloadGenerationModel(model, variant),
     startBackend: () => native.setupStart(),
     ejectModels: () => native.setupEject(),
     useInstallation: id => native.setupUseInstallation(id),

@@ -36,6 +36,11 @@ test('model adapter uses only fixed native actions and preserves null cancellati
   assert.deepEqual(f.calls,[['model','qwen','int8'],['lora',{model:'qwen',repo_id:'publisher/style',filename:'style.safetensors',revision:'a'.repeat(40),allow_unverified:false}]]);
   assert.equal('getLegacyLoraPort'in f.adapters.modelBridge,false);
 });
+test('settings model download reuses the existing native generator action',async()=>{
+  const f=fixture();assert.equal(await f.adapters.settingsBridge.downloadModel('qwen','bf16'),null);
+  await f.adapters.settingsBridge.downloadModel('z-image-turbo','bf16');
+  assert.deepEqual(f.calls,[['model','qwen','bf16'],['model','z-image-turbo','bf16']]);
+});
 test('batch pending fingerprint invalidates acknowledgement even when selection remains nonempty',()=>{
   const f=fixture(),first=f.adapters.batchEditor.getSnapshot();assert.equal(first,f.adapters.batchEditor.getSnapshot());assert.ok(Object.isFrozen(first.pendingSelections));
   assert.equal(first.nativeCollection,true);assert.equal(first.nativeExportAvailable,true);assert.equal(first.document?.canSaveTreatment,true);

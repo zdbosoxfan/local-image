@@ -32,6 +32,8 @@ The setup bridge reports `setup:true`. `chooseBackgroundFolder` opens a native f
 
 `batchExportFolder` accepts a canonical prepared queue ID and distinct reviewed item IDs, opens an owned folder picker and supplies only that native-selected destination to the authenticated backend. Browser-provided destinations and commands are ignored. Exports are unique copies; the prepared queue's settings stay fixed through review and export. Credits and ZIP downloads use the same trusted origin and owned Save As handoff as image/project exports. See [batch treatment and export](../docs/BATCH-WORKSPACE.md).
 
+Reviewed selections have no image-count cap. Both native bridges enforce a 16 MiB UTF-8 JSON transport budget to bound message parsing memory, including selections larger than the old 16 KiB request limit. UUID validation and duplicate checks cover every selected image; the Windows duplicate check uses a set so large selections do not require quadratic work.
+
 Native downloads are limited to the same-origin session `download`, `download-project` and `download-credits` routes, plus the prepared batch job's `download` route. They use owned Save As dialogs. The pure self-test covers origin/download boundaries, project and batch payload allowlisting, mixed-argument rejection, project navigation, and close-request correlation/cancellation/replay rejection without starting the editor or backend.
 
 Only the exact `http://127.0.0.1:51247/remove` page can send native messages. There is no generic filesystem bridge. HTTPS credit links open in the normal browser. Native HTTP redirects are disabled so the launcher credential cannot be forwarded to a remote service. The host verifies the backend identity, version, and user-data root before using it.

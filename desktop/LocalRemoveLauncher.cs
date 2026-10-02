@@ -24,11 +24,13 @@ using Microsoft.Web.WebView2.WinForms;
 internal static class LocalRemoveLauncher
 {
     internal const string ApiBase = "http://127.0.0.1:51247";
+    // Match the Linux transport budget; reviewed selections have no image-count cap.
+    internal const int MaxNativeMessageBytes = 16 * 1024 * 1024;
     internal static readonly string InstallDirectory = AppDomain.CurrentDomain.BaseDirectory;
     internal static readonly string DataDirectory = LocalImageStorage.ResolveProfileRoot(
         FirstEnvironmentValue("LOCALAPPDATA") ?? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         FirstEnvironmentValue("LOCAL_IMAGE_DATA_DIR", "LOCAL_REMOVE_DATA_DIR"));
-    internal static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = 16 * 1024 * 1024 };
+    internal static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = MaxNativeMessageBytes };
     internal static readonly HttpClient Http = new HttpClient(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false }) { Timeout = TimeSpan.FromMinutes(3) };
     internal static string LauncherKey;
     internal static int ExitCode;
@@ -261,18 +263,26 @@ internal static class LocalRemoveLauncher
     {
         Guid parsed;
         string job = StringValue(message, "job_id", "");
-        if (!Guid.TryParseExact(job, "D", out parsed)) throw new InvalidOperationException("Choose a prepared batch.");
+        if (!Guid.TryParseExact(job, "D", out parsed) || parsed.ToString("D") != job)
+            throw new InvalidOperationException("Choose a prepared batch.");
         object rawItems;
         var ids = message.TryGetValue("item_ids", out rawItems) ? rawItems as System.Collections.IList : null;
-        if (ids == null || ids.Count < 1 || ids.Count > 100) throw new InvalidOperationException("Select up to 100 reviewed images.");
-        var selected = new List<string>();
+        if (ids == null || ids.Count < 1) throw new InvalidOperationException("Select reviewed images to export.");
+        var selected = new List<string>(ids.Count);
+        var distinct = new HashSet<string>(StringComparer.Ordinal);
         foreach (object item in ids)
         {
-            if (!(item is string) || !Guid.TryParseExact((string)item, "D", out parsed) || selected.Contains((string)item))
+            if (!(item is string) || !Guid.TryParseExact((string)item, "D", out parsed)
+                || parsed.ToString("D") != (string)item || !distinct.Add((string)item))
                 throw new InvalidOperationException("Choose distinct reviewed images from this batch.");
             selected.Add((string)item);
         }
         return new Dictionary<string, object> { { "job_id", job }, { "item_ids", selected.ToArray() } };
+    }
+    internal static bool NativeMessageWithinLimit(string raw)
+    {
+        return raw != null && raw.Length <= MaxNativeMessageBytes
+            && Encoding.UTF8.GetByteCount(raw) <= MaxNativeMessageBytes;
     }
     private static async Task<Dictionary<string, object>> Request(HttpMethod method, string path, object payload)
     {
@@ -397,6 +407,28 @@ internal static class LocalRemoveLauncher
         catch (InvalidOperationException) { duplicateBatchRejected = true; }
         if (batchPayload.Count != 2 || batchPayload.ContainsKey("path") || !duplicateBatchRejected)
             throw new InvalidOperationException("The batch export payload boundary test failed.");
+        var largeBatchIds = Enumerable.Range(0, 4096).Select(index => Guid.NewGuid().ToString("D")).ToArray();
+        var largeBatchMessage = new Dictionary<string, object> {
+            { "id", "batch-export-test" }, { "action", "batchExportFolder" },
+            { "job_id", "e2419d61-d78b-4f8a-b138-8e65386aa3e9" }, { "item_ids", largeBatchIds } };
+        string largeBatchJson = Json.Serialize(largeBatchMessage);
+        var largeBatchPayload = BatchSelectionPayload(Json.Deserialize<Dictionary<string, object>>(largeBatchJson));
+        if (largeBatchJson.Length <= 16384 || !NativeMessageWithinLimit(largeBatchJson)
+            || !((string[])largeBatchPayload["item_ids"]).SequenceEqual(largeBatchIds))
+            throw new InvalidOperationException("A large reviewed selection was truncated or rejected.");
+        foreach (object invalidIds in new object[] { new string[0], new[] { "../outside-batch" },
+            new object[] { largeBatchIds[0], 7 }, new[] { "F2419D61-D78B-4F8A-B138-8E65386AA3E9" } })
+        {
+            bool rejected = false;
+            try { BatchSelectionPayload(new Dictionary<string, object> {
+                { "job_id", "e2419d61-d78b-4f8a-b138-8e65386aa3e9" }, { "item_ids", invalidIds } }); }
+            catch (InvalidOperationException) { rejected = true; }
+            if (!rejected) throw new InvalidOperationException("An invalid reviewed selection was accepted.");
+        }
+        if (NativeMessageWithinLimit(null) || !NativeMessageWithinLimit(new string('x', MaxNativeMessageBytes))
+            || NativeMessageWithinLimit(new string('x', MaxNativeMessageBytes + 1))
+            || NativeMessageWithinLimit(new string('\u6c34', MaxNativeMessageBytes / 3 + 1)))
+            throw new InvalidOperationException("The UTF-8 desktop message memory budget test failed.");
         var savePayload = ProjectSavePayload(new Dictionary<string, object>
         {
             { "session_id", "e2419d61-d78b-4f8a-b138-8e65386aa3e9" }, { "revision", 7 },
@@ -435,7 +467,7 @@ internal static class LocalRemoveLauncher
         string nextClose = gate.Begin();
         if (nextClose == firstClose || gate.Complete(firstClose, true) || gate.Approved || !gate.Complete(nextClose, true) || !gate.Approved)
             throw new InvalidOperationException("The explicit close approval test failed.");
-        WriteResult(output, new { ok = true, trusted_origin_checks = 15, project_boundary_checks = 7, close_handshake_checks = 7, setup_bridge_checks = 6, batch_boundary_checks = 3,
+        WriteResult(output, new { ok = true, trusted_origin_checks = 15, project_boundary_checks = 7, close_handshake_checks = 7, setup_bridge_checks = 6, batch_boundary_checks = 12,
             bridge_version = 2, projects = true, closeRequests = true, runtime = CoreWebView2Environment.GetAvailableBrowserVersionString(), architecture = Environment.Is64BitProcess ? "x64" : "x86" });
     }
 }
@@ -607,10 +639,10 @@ internal sealed class LocalRemoveWindow : Form
         try
         {
             string raw = e.WebMessageAsJson;
-            if (raw == null || raw.Length > 16384) return;
+            if (!LocalRemoveLauncher.NativeMessageWithinLimit(raw)) return;
             var message = LocalRemoveLauncher.Json.Deserialize<Dictionary<string, object>>(raw);
             object action;
-            if (message == null || !message.TryGetValue("id", out id) || !(id is string) || ((string)id).Length > 128
+            if (message == null || !message.TryGetValue("id", out id) || !(id is string) || ((string)id).Length < 1 || ((string)id).Length > 128
                 || !message.TryGetValue("action", out action) || !(action is string)) return;
             string verb = (string)action;
             if (verb == "ready") { trustedEditorReady = true; Reply(id, new { native = true, version = 2, projects = true, closeRequests = true, setup = true, batch = true }, null); return; }

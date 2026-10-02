@@ -1,5 +1,6 @@
 import { createSettingsApi, type SettingsApi } from './settingsApi.ts';
 import type { AcceptedConfiguration, InterfaceDensity, SettingsBridge, SettingsSnapshot, SettingsView, SetupAction } from './types.ts';
+import { modelDownloadSelection } from './modelDownload.ts';
 
 function immutable<T>(value: T): T {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) { for (const child of Object.values(value)) immutable(child); Object.freeze(value); }
@@ -17,6 +18,7 @@ export function createSettingsController(options: {
   const listeners = new Set<() => void>();
   let epoch = 0, timer: unknown = null, disposed = false, firstSetupPending = false;
   let snapshot: SettingsSnapshot = immutable({ view: null, requestedSection: 'general', loading: false, pendingAction: null, setup: null, hardware: null,
+    models: [], modelCatalogAvailable: false, modelDownloads: null, selectedModelId: '', selectedVariant: '',
     hideHardwareGuide: false, savingHardwarePreference: false,
     capabilities: bridge.capabilities(), preferences: bridge.preferences(), error: '', message: '', showInstallations: false, selectedInstallation: '' });
   function update(change: Partial<SettingsSnapshot>) {
@@ -27,7 +29,7 @@ export function createSettingsController(options: {
   function stopPolling() { if (timer !== null) timers.clear(timer); timer = null; }
   function schedule() {
     stopPolling();
-    if (!disposed && snapshot.view === 'settings' && (snapshot.setup?.job?.status === 'running' || snapshot.setup?.service?.starting)) {
+    if (!disposed && snapshot.view === 'settings' && (snapshot.modelDownloads?.running || snapshot.setup?.job?.status === 'running' || snapshot.setup?.service?.starting)) {
       timer = timers.set(() => { timer = null; void refresh(); }, 1500);
     }
   }
@@ -39,9 +41,17 @@ export function createSettingsController(options: {
     const requestEpoch = ++epoch;
     refreshCapabilities();
     update({ loading: true, error: '', ...(detect ? { showInstallations: true, message: 'Looking for ComfyUI on this PC…' } : {}) });
-    const results = await Promise.allSettled([api.settings(), api.setup(detect), api.status(), api.qwen()]);
+    const results = await Promise.allSettled([api.settings(), api.setup(detect), api.status(), api.qwen(), api.modelCatalog(), api.modelDownloads()]);
     if (disposed || requestEpoch !== epoch) return;
-    const [settings, setup, status, qwen] = results;
+    const [settings, setup, status, qwen, initialCatalog, downloads] = results;
+    let catalog = initialCatalog;
+    // Completion can change the backend's model availability. Refresh that
+    // catalog once, while regular progress polls use the existing cached read.
+    if (downloads.status === 'fulfilled' && !downloads.value.running && downloads.value.phase === 'complete' && snapshot.modelDownloads?.running) {
+      try {catalog = {status:'fulfilled', value:await api.modelCatalog(true)};}
+      catch (reason) {catalog = {status:'rejected', reason};}
+      if (disposed || requestEpoch !== epoch) return;
+    }
     const accepted: AcceptedConfiguration = {};
     const validSettings = settings.status === 'fulfilled' && Array.isArray(settings.value.models) && settings.value.models.some(model => model.id === 'klein');
     if (settings.status === 'fulfilled' && validSettings) accepted.settings = settings.value;
@@ -52,10 +62,17 @@ export function createSettingsController(options: {
     const errors = results.filter(result => result.status === 'rejected').map(result => (result as PromiseRejectedResult).reason?.message || 'The local backend did not respond.');
     if (settings.status === 'fulfilled' && !validSettings) errors.push('Could not read FLUX settings. Refresh the local backend state.');
     const nextSetup = accepted.setup ?? snapshot.setup;
+    const modelCatalogAvailable = catalog.status === 'fulfilled' && Array.isArray(catalog.value.models);
+    const models = catalog.status === 'fulfilled' && modelCatalogAvailable ? catalog.value.models.filter(model => !model.historical && !!model.variants?.length) : snapshot.models;
+    const model = models.find(item => item.id === snapshot.selectedModelId) || models.find(item => item.id === 'qwen') || models[0];
+    const selectedVariant = model?.variants?.find(item => model.id === snapshot.selectedModelId && item.id === snapshot.selectedVariant)?.id || model?.variants?.find(item => item.id === model.defaults?.variant)?.id || model?.variants?.[0]?.id || '';
+    if (catalog !== initialCatalog && catalog.status === 'rejected') errors.push(catalog.reason instanceof Error ? catalog.reason.message : 'Could not refresh model availability.');
+    if (catalog.status === 'fulfilled' && !modelCatalogAvailable) errors.push('Could not read model details. Refresh the local backend state.');
     const candidates = nextSetup?.installations ?? [];
     const selectedInstallation = candidates.some(item => item.id === snapshot.selectedInstallation) ? snapshot.selectedInstallation : nextSetup?.installation?.id ?? candidates[0]?.id ?? '';
-    update({ loading: false, setup: nextSetup, selectedInstallation, error: [...new Set(errors)].join(' '),
-      ...(detect ? { message: candidates.length ? 'Choose an installation.' : 'No installation found. Choose a folder or install a dedicated copy.' } : {}) });
+    update({ loading: false, setup: nextSetup, selectedInstallation, models, modelCatalogAvailable, selectedModelId:model?.id || '', selectedVariant,
+      modelDownloads: downloads.status === 'fulfilled' ? downloads.value : snapshot.modelDownloads, error: [...new Set(errors)].join(' '),
+      ...(detect ? { message: candidates.length ? 'Choose an installation.' : nextSetup?.portable?.available === false ? 'No installation found. Choose your existing ComfyUI folder.' : 'No installation found. Choose a folder or install a dedicated copy.' } : {}) });
     schedule();
   }
   async function open(view: Exclude<SettingsView, null>, requestedSection: 'general' | 'ai' = 'general') {
@@ -81,22 +98,34 @@ export function createSettingsController(options: {
     void open('settings', 'ai');
   }
   function close() { const wasHardware = snapshot.view === 'hardware'; ++epoch; stopPolling(); update({ view: null, loading: false }); bridge.focusCanvas(); if (wasHardware) offerFirstSetup(); }
-  function locked() { return bridge.editorBusy() || !!snapshot.pendingAction || snapshot.setup?.job?.status === 'running' || !!snapshot.setup?.service?.starting || !!snapshot.setup?.service?.busy; }
+  function locked() { return bridge.editorBusy() || !!snapshot.pendingAction || !!snapshot.modelDownloads?.running || snapshot.setup?.job?.status === 'running' || !!snapshot.setup?.service?.starting || !!snapshot.setup?.service?.busy; }
+  function modelDownloadBlock() {
+    const selected = modelDownloadSelection(snapshot);
+    if (!bridge.capabilities().setup) return 'Model downloads require the Local Image desktop app.';
+    if (locked() || snapshot.loading) return 'Wait for the current operation to finish.';
+    if (!snapshot.modelCatalogAvailable) return 'Refresh model details before downloading.';
+    if (!selected.model || !selected.variant) return 'Choose a model and precision.';
+    if (selected.ready) return 'This model is ready in the AI backend.';
+    if (selected.filesPresent) return 'Model files are present. Start the AI backend to use them.';
+    if (!selected.downloadable) return selected.note || 'Publisher access is required for this model.';
+    if (!snapshot.setup?.model_directory && !snapshot.modelDownloads?.model_directory) return 'Choose a model folder first.';
+    return '';
+  }
   async function run(action: SetupAction) {
     refreshCapabilities();
     const supported = action === 'configureConnection' ? snapshot.capabilities.ready : snapshot.capabilities.setup;
-    if (!supported || locked() || (action === 'useInstallation' && !snapshot.selectedInstallation)) return;
-    const selected = snapshot.selectedInstallation;
+    if (!supported || locked() || (action === 'installRuntime' && snapshot.setup?.portable?.available === false) || (action === 'useInstallation' && !snapshot.selectedInstallation) || (action === 'downloadModel' && modelDownloadBlock())) return;
+    const selected = snapshot.selectedInstallation, model = snapshot.selectedModelId, variant = snapshot.selectedVariant;
     update({ pendingAction: action, error: '', message: '' });
     bridge.setOperationPending(true);
     try {
       // The native bridge owns picker cancellation and deadlines. No timeout,
       // fetch abort or automatic retry is introduced around a dialog request.
-      const result = action === 'useInstallation' ? await bridge.useInstallation(selected) : await bridge[action]();
+      const result = action === 'useInstallation' ? await bridge.useInstallation(selected) : action === 'downloadModel' ? await bridge.downloadModel(model, variant) : await bridge[action]();
       if (result === null || result === undefined) return;
       if (disposed) return;
       await refresh();
-      if (!snapshot.error) update({ message: action === 'ejectModels' ? 'GPU unload requested. Model files remain on disk.' : 'Setup updated.' });
+      if (!snapshot.error) update({ message: action === 'ejectModels' ? 'GPU unload requested. Model files remain on disk.' : action === 'downloadModel' ? snapshot.modelDownloads?.message || 'Model download started.' : 'Setup updated.' });
     } catch (error) { update({ error: error instanceof Error ? error.message : 'The desktop setup command failed.' }); }
     finally { bridge.setOperationPending(false); update({ pendingAction: null }); schedule(); }
   }
@@ -129,7 +158,13 @@ export function createSettingsController(options: {
   }
   return {
     getSnapshot: () => snapshot, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    open, close, refresh, reloadConfiguration: refresh, maybeFirstRun, refreshCapabilities, run, locked, isOpen: () => snapshot.view !== null,
+    open, close, refresh, reloadConfiguration: refresh, maybeFirstRun, refreshCapabilities, run, locked, modelDownloadBlock, isOpen: () => snapshot.view !== null,
+    selectModel: (id: string) => {
+      if (locked() || snapshot.loading) return;
+      const model = snapshot.models.find(item => item.id === id); if (!model) return;
+      update({selectedModelId:id, selectedVariant:model.variants?.find(item => item.id === model.defaults?.variant)?.id || model.variants?.[0]?.id || ''});
+    },
+    selectVariant: (id: string) => {if (!locked() && !snapshot.loading && modelDownloadSelection(snapshot).model?.variants?.some(variant => variant.id === id)) update({selectedVariant:id});},
     setDensity, setAskBeforeOverwrite, setHideHardwareGuide, selectInstallation: (selectedInstallation: string) => update({ selectedInstallation }),
     browseModels: () => { close(); return options.browseModels?.(); },
     continueHardware: close,

@@ -132,6 +132,10 @@ export function createGenerationController(host: GenerationHost, token: string, 
     const target = upscaleTarget(document), bounds = host.sizeMath.sizeLimits(state.upscaleInventory?.limits ?? {});
     return state.upscaleInventory?.enabled && state.upscaleInventory.model.available && Number.isSafeInteger(target.width) && Number.isSafeInteger(target.height) && target.width >= Math.max(document.width, bounds.width.min) && target.height >= Math.max(document.height, bounds.height.min) && (target.width > document.width || target.height > document.height) && target.width <= bounds.width.max && target.height <= bounds.height.max && target.width % bounds.width.step === 0 && target.height % bounds.height.step === 0 && target.width * target.height <= bounds.pixels && Math.min(Math.abs(target.height - target.width * document.height / document.width), Math.abs(target.width - target.height * document.width / document.height)) <= 2;
   }
+  function upscaleSizeControls() {
+    const source = (selectedResult() ?? selectedDraft())?.session ?? docForSize(), target = upscaleTarget(source);
+    return { ...target, bounds: host.sizeMath.dimensionBounds({ ...target, ratio: source.width / source.height, locked: true }, state.upscaleInventory?.limits ?? {}) };
+  }
   function recordResult(document: EditorDocument, draftId: string | null) { update({ resultImages: [...state.resultImages, { session: structuredClone(document), references: [], ...(draftId ? { draftId } : {}) }], selectedResultId: state.selectedDraftId === draftId ? document.id : state.selectedResultId }); }
   async function requestRun(key: DraftKey | 'upscale') {
     if (state.working || state.context.busy || state.loading) return;
@@ -208,7 +212,7 @@ export function createGenerationController(host: GenerationHost, token: string, 
     finally { update({ loading: false }); }
   }
   return {
-    getSnapshot: () => state, subscribe(listener: () => void) { listeners.add(listener); return () => listeners.delete(listener); }, refreshModels, acceptCatalog, setMode, chooseModel, modelFor, referencesFor, errorsFor, addReference, addDraft, selectedDraft, selectedResult, backgroundResult, applyGeneratedBackground, validUpscale, upscaleTarget, getLoraPort: loraPort, restoreDocument,
+    getSnapshot: () => state, subscribe(listener: () => void) { listeners.add(listener); return () => listeners.delete(listener); }, refreshModels, acceptCatalog, setMode, chooseModel, modelFor, referencesFor, errorsFor, addReference, addDraft, selectedDraft, selectedResult, backgroundResult, applyGeneratedBackground, validUpscale, upscaleTarget, upscaleSizeControls, getLoraPort: loraPort, restoreDocument,
     activeDraftKey: (): DraftKey => state.mode === 'refine' ? 'draft' : state.mode,
     boundsFor: (key: DraftKey) => host.sizeMath.dimensionBounds(state.drafts[key], workflowLimits(modelFor(key), referencesFor(key).length > 0)),
     forgetDocuments(ids: string[]) {
@@ -218,6 +222,11 @@ export function createGenerationController(host: GenerationHost, token: string, 
     },
     run: requestRun,
     setDraft(key: DraftKey, change: Partial<GenerationDraft>) { if (!state.working) draftChange(key, change); },
+    setDimensionsLinked(key: DraftKey, linked: boolean) {
+      if (state.working) return;
+      const draft = state.drafts[key], ratio = draft.width / draft.height;
+      draftChange(key, { locked: linked, ratio: Number.isFinite(ratio) && ratio > 0 ? ratio : draft.ratio });
+    },
     commitSize(key: DraftKey, axis: 'width' | 'height' = 'width') { const draft = state.drafts[key]; draftChange(key, host.sizeMath.fitDimensions({ ...draft, axis }, workflowLimits(modelFor(key), referencesFor(key).length > 0))); },
     setAspect(key: DraftKey, aspect: string) { if (state.working) return; if (aspect === 'custom') { draftChange(key, { aspect }); return; } const [w, h] = aspect.split(':').map(Number); if (!(w > 0 && h > 0)) return; const draft = state.drafts[key], ratio = w / h; draftChange(key, { aspect, ratio, locked: true, ...host.sizeMath.fitDimensions({ ...draft, ratio, locked: true }, workflowLimits(modelFor(key), referencesFor(key).length > 0)) }); },
     removeReference(key: DraftKey, id: string) { if (!state.working && !(key === 'edit' && state.drafts.edit.references[0]?.id === id)) draftChange(key, { references: state.drafts[key].references.filter(item => item.id !== id) }); },
@@ -229,7 +238,21 @@ export function createGenerationController(host: GenerationHost, token: string, 
     selectResult(id: string) { if (!state.working && state.resultImages.some(item => item.session.id === id && item.draftId === state.selectedDraftId)) update({ selectedResultId: id }); },
     async openSelected(result = true) { if (state.working) return; const item = result ? selectedResult() : selectedDraft(); if (item && await host.acceptResult(item.session, host.getContext(), 'edit')) { bindEdit(item.session); update({ mode: 'edit' }); } },
     setIncludeReferences(includeReferences: boolean) { if (!state.working) update({ includeReferences }); },
-    setUpscale(change: Partial<GenerationState['upscale']>) { if (!state.working) update({ upscale: { ...state.upscale, ...change } }); },
+    setUpscale(change: Partial<GenerationState['upscale']>) {
+      if (state.working) return;
+      let upscale = { ...state.upscale, ...change };
+      if (change.preset === 'custom' && state.upscale.preset !== 'custom' && change.width === undefined && change.height === undefined) {
+        const source = (selectedResult() ?? selectedDraft())?.session ?? docForSize();
+        upscale = { ...upscale, ...host.sizeMath.fitDimensions({ ...upscale, ratio: source.width / source.height, locked: true }, state.upscaleInventory?.limits ?? {}) };
+      }
+      update({ upscale });
+    },
+    commitUpscaleSize(axis: 'width' | 'height') {
+      if (state.working || state.upscale.preset !== 'custom') return;
+      const source = (selectedResult() ?? selectedDraft())?.session ?? docForSize();
+      const size = host.sizeMath.fitDimensions({ ...state.upscale, axis, ratio: source.width / source.height, locked: true }, state.upscaleInventory?.limits ?? {});
+      update({ upscale: { ...state.upscale, ...size } });
+    },
     stopWatching() { stopPolling(); update({ watching: false, status: 'Progress updates paused. The backend operation has not been cancelled.' }); },
     async checkOperation() { try { const progress = await api.progress(); update({ progress, uncertain: progress.active, progressError: null, status: progress.active ? 'The backend still reports an active operation.' : 'The backend is idle. Check the generated library for any completed image before starting another request.' }); } catch (error) { update({ progressError: errorText(error) }); } },
     openAssets: (destination: 'reference' | 'draft') => host.openAssets(destination),

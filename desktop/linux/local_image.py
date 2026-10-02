@@ -22,7 +22,7 @@ from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineScript, QWebEngine
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from shiboken6 import delete
 
-from protocol import BASE, CloseGate, batch_payload, identifier, project_payload, trusted_download, trusted_page
+from protocol import BASE, CloseGate, batch_payload, decode_message, identifier, project_payload, trusted_download, trusted_page
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'backend'))
@@ -138,14 +138,10 @@ class Bridge(QObject):
 
     @Slot(str)
     def receive(self, raw):
-        if len(raw) > 16384 or not trusted_page(self.window.view.url().toString()):
+        if not trusted_page(self.window.view.url().toString()):
             return
-        try:
-            message = json.loads(raw)
-            if (not isinstance(message, dict) or not isinstance(message.get('id'), str)
-                    or not 1 <= len(message['id']) <= 128 or not isinstance(message.get('action'), str)):
-                return
-        except ValueError:
+        message = decode_message(raw)
+        if message is None:
             return
         QTimer.singleShot(0, lambda: self.window.command(message))
 
@@ -322,14 +318,18 @@ class Window(QMainWindow):
         endpoints = {'setupStart': '/setup/start', 'setupEject': '/setup/eject', 'setupDownloadModels': '/setup/download-models'}
         if action in endpoints:
             return lambda: call('/api/local-remove' + endpoints[action], {})
-        if action in ('setupDownloadQwen', 'setupDownloadGenerationModel'):
+        if action == 'setupDownloadQwen':
+            variant = message.get('variant', 'int8')
+            if variant not in ('int8', 'bf16'):
+                raise ValueError('Choose Compact INT8 or Full precision BF16.')
+            return lambda: call('/api/local-remove/qwen/download', {'variant': variant})
+        if action == 'setupDownloadGenerationModel':
             model, variant = message.get('model', 'qwen'), message.get('variant', 'int8')
             allowed = {'qwen': ('int8', 'bf16'), 'z-image-turbo': ('bf16',), 'flux2-klein-4b': ('bf16',),
                        'ernie-image': ('bf16',), 'flux2-dev': ('fp8',), 'flux2-klein-9b': ('fp8',), 'seedvr2': ('fp16',)}
             if model not in allowed or variant not in allowed[model]:
                 raise ValueError('Choose a supported model preset.')
-            suffix = '/qwen/download' if action == 'setupDownloadQwen' else '/generator/download'
-            return lambda: call('/api/local-remove' + suffix, {'model': model, 'variant': variant})
+            return lambda: call('/api/local-remove/generator/download', {'model': model, 'variant': variant})
         if action == 'loraDownload':
             keys = ('model', 'repo_id', 'filename', 'revision')
             if any(not isinstance(message.get(key), str) or not 0 < len(message[key]) <= 512 for key in keys):

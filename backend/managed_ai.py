@@ -752,7 +752,7 @@ class SetupManager:
         result = {'installation': item, 'installations': detect_installations(),
                 'managed_directory': str(managed_ai_dir()), 'model_directory': str(root),
                 'install_directory': str(managed_ai_dir() / MANAGED_FOLDER),
-                'portable': {'version': COMFY_RELEASE['version'], 'download_bytes': COMFY_RELEASE['bytes'],
+                'portable': {'available': sys.platform == 'win32', 'version': COMFY_RELEASE['version'], 'download_bytes': COMFY_RELEASE['bytes'],
                              'minimum_free_bytes': 12 * GIB, 'model_downloads_separate': True,
                              'gpu_requirement': 'NVIDIA GPU with a compatible CUDA driver'},
                 'storage': {'model_folder': folder_storage(root), 'portable_folder': folder_storage(managed_ai_dir())},
@@ -763,6 +763,8 @@ class SetupManager:
         return result
 
     async def install(self, directory=None):
+        if sys.platform != 'win32':
+            raise SetupError('Choose an existing ComfyUI installation. The portable package is for Windows.')
         parent = writable_directory(str(directory or managed_ai_dir()), 'portable installation folder')
         parent.mkdir(parents=True, exist_ok=True)
         destination = parent / MANAGED_FOLDER

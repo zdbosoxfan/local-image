@@ -2,11 +2,12 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import {
   Accordion, AccordionHeader, AccordionItem, AccordionPanel, Button, Checkbox,
   Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle,
-  Field, Link, ProgressBar, Select, Spinner, Tab, TabList,
+  Field, Link, Menu, MenuItemRadio, MenuList, MenuPopover, MenuTrigger, ProgressBar, Spinner, Tab, TabList,
   Table, TableBody, TableCell, TableHeader, TableHeaderCell, TableRow,
 } from '@fluentui/react-components';
 import type { SettingsController } from './settingsController.ts';
 import type { InterfaceDensity, SettingsSnapshot, SetupState } from './types.ts';
+import { modelDownloadSelection } from './modelDownload.ts';
 import './settings.css';
 
 export function setupBytes(value: number | undefined) {
@@ -26,9 +27,20 @@ function setupSummary(setup: SetupState | null) {
   if (setup.service?.starting) return 'Starting the AI backend…';
   if (setup.service?.ready) return 'Local AI is ready.';
   if (setup.service?.running) return setup.service.reason || 'ComfyUI is running, but no supported AI model is ready.';
-  if (!setup.installation) return 'Choose an existing ComfyUI installation or install a dedicated copy.';
+  if (!setup.installation) return setup.portable?.available === false ? 'Choose an existing ComfyUI installation.' : 'Choose an existing ComfyUI installation or install a dedicated copy.';
   if (!setup.model_directory) return 'Choose a folder for model files.';
   return 'Start the local AI backend when you need a model.';
+}
+
+function SettingsChoiceMenu({id, label, value, choices, disabled, onSelect}: {
+  id: string; label: string; value: string; choices: {value:string; label:string}[]; disabled?:boolean; onSelect(value:string):void;
+}) {
+  const selectedLabel = choices.find(choice => choice.value === value)?.label || 'No models available';
+  return <Menu><MenuTrigger disableButtonEnhancement><Button id={id} size="small" className="li-settings-choice" aria-label={`${label}: ${selectedLabel}`} disabled={disabled || !choices.length}>
+    <span title={selectedLabel}>{selectedLabel}</span><span aria-hidden="true">▾</span>
+  </Button></MenuTrigger><MenuPopover data-react-owned="true"><MenuList aria-label={label} checkedValues={{[id]:[value]}}>
+    {choices.map(choice => <MenuItemRadio key={choice.value} name={id} value={choice.value} onClick={() => onSelect(choice.value)}>{choice.label}</MenuItemRadio>)}
+  </MenuList></MenuPopover></Menu>;
 }
 
 export function SettingsDialogs({ controller }: { controller: SettingsController }) {
@@ -50,9 +62,7 @@ export function SettingsDialogs({ controller }: { controller: SettingsController
             </TabList>
             {tab === 'general' ? <section className="li-settings-section" aria-label="General settings">
               <Checkbox label="Ask before overwriting original images" checked={state.preferences.askBeforeOverwrite} onChange={(_, data) => controller.setAskBeforeOverwrite(data.checked === true)} />
-              <Field label="Interface size"><Select aria-label="Interface size" value={state.preferences.density} onChange={event => controller.setDensity(event.target.value as InterfaceDensity)}>
-                <option value="compact">Compact</option><option value="comfortable">Comfortable</option><option value="large">Large · 200% text</option>
-              </Select></Field>
+              <Field label="Interface size"><SettingsChoiceMenu id="settings-interface-size" label="Interface size" value={state.preferences.density} choices={[{value:'compact',label:'Compact'},{value:'comfortable',label:'Comfortable'},{value:'large',label:'Large · 200% text'}]} onSelect={value => controller.setDensity(value as InterfaceDensity)} /></Field>
               <div className="li-settings-actions"><Button size="small" onClick={() => void controller.open('hardware')}>Hardware guide</Button><Button size="small" onClick={() => void controller.open('shortcuts')}>Keyboard shortcuts</Button></div>
               <Accordion collapsible><AccordionItem value="quick-heal"><AccordionHeader>About Quick Heal</AccordionHeader><AccordionPanel>
                 <p>Texture repair copies nearby texture to cover small objects. Dust &amp; scratches smooths tiny defects. Both run locally on the CPU without model downloads.</p>
@@ -77,35 +87,54 @@ export function SettingsDialogs({ controller }: { controller: SettingsController
 
 function LocalAi({ controller, state }: { controller: SettingsController; state: SettingsSnapshot }) {
   const setup = state.setup, service = setup?.service, files = setup?.models ?? [], job = setup?.job;
+  const selected = modelDownloadSelection(state), modelJob = state.modelDownloads;
   const locked = controller.locked() || state.loading;
   const nativeLocked = locked || !state.capabilities.setup;
   const allFiles = files.length > 0 && files.every(file => file.exists);
   const progress = job?.progress != null && Number.isFinite(job.progress) ? Math.min(100, Math.max(0, job.progress)) / 100 : undefined;
   const installPath = setup?.install_directory || setup?.managed_directory || setup?.configured_ai_directory;
+  const portableAvailable = setup?.portable?.available !== false;
+  const modelProgress = modelJob?.progress != null && Number.isFinite(modelJob.progress) ? Math.min(1, Math.max(0, modelJob.progress)) : undefined;
+  const downloadBlock = controller.modelDownloadBlock();
   return <section className="li-settings-section" aria-label="Local AI setup">
     <div className="li-settings-toolbar"><p role="status" className="li-settings-note">{setupSummary(setup)}</p><Button size="small" disabled={state.loading || !!state.pendingAction} onClick={() => void controller.refresh()}>Refresh</Button></div>
-    {!state.capabilities.setup && <p className="li-settings-note">{state.capabilities.ready ? 'Update the desktop host to use guided AI setup.' : 'Use the Local Image desktop app to choose local folders, install ComfyUI or download model files.'}</p>}
+    {!state.capabilities.setup && <p className="li-settings-note">{state.capabilities.ready ? 'Update the desktop host to use guided AI setup.' : portableAvailable ? 'Use the Local Image desktop app to choose local folders, install ComfyUI or download model files.' : 'Use the Local Image desktop app to choose your ComfyUI folder or download model files.'}</p>}
     <section className="li-settings-group" aria-labelledby="react-settings-runtime">
       <h3 id="react-settings-runtime">ComfyUI</h3>
       <output className="li-settings-path">{setup?.installation?.path || 'No installation selected'}</output>
       <div className="li-settings-actions"><Button size="small" disabled={locked} onClick={() => void controller.refresh(true)}>Detect installations</Button><Button size="small" disabled={nativeLocked} onClick={() => void controller.run('chooseRuntime')}>Choose installation…</Button><Button size="small" disabled={nativeLocked || !service?.can_start || !!service?.running} onClick={() => void controller.run('startBackend')}>{service?.starting ? 'Starting…' : service?.running ? 'Backend running' : 'Start AI backend'}</Button></div>
-      {state.showInstallations && !!setup?.installations?.length && <div className="li-settings-installation-choice"><Field label="Detected installation"><Select aria-label="Detected installation" value={state.selectedInstallation} disabled={locked} onChange={event => controller.selectInstallation(event.target.value)}>{setup.installations.map(item => <option key={item.id || item.path} value={item.id}>{item.name || 'ComfyUI'} · {item.path}</option>)}</Select></Field><Button size="small" disabled={nativeLocked || !state.selectedInstallation} onClick={() => void controller.run('useInstallation')}>Use selected</Button></div>}
+      {state.showInstallations && !!setup?.installations?.length && <div className="li-settings-installation-choice"><Field label="Detected installation"><SettingsChoiceMenu id="settings-detected-installation" label="Detected installation" value={state.selectedInstallation} disabled={locked} choices={setup.installations.map(item => ({value:item.id || item.path,label:`${item.name || 'ComfyUI'} · ${item.path}`}))} onSelect={controller.selectInstallation}/></Field><Button size="small" disabled={nativeLocked || !state.selectedInstallation} onClick={() => void controller.run('useInstallation')}>Use selected</Button></div>}
       {service?.running && !service.ready && <p className="li-settings-note">{service.reason || 'No supported model is ready.'} If model folders changed, close ComfyUI, then start the backend again and refresh.</p>}
       {service?.running && service.ready && <p className="li-settings-note">Connected to ComfyUI on this PC{service.port ? `, port ${service.port}` : ''}.</p>}
-      {setup?.installation && !setup.installation.startable && !service?.running && <p className="li-settings-note">Start this installation from ComfyUI, or use a dedicated portable copy.</p>}
-      <Accordion collapsible><AccordionItem value="portable"><AccordionHeader>Portable runtime</AccordionHeader><AccordionPanel className="li-settings-disclosure">
+      {setup?.installation && !setup.installation.startable && !service?.running && <p className="li-settings-note">{portableAvailable ? 'Start this installation from ComfyUI, or use a dedicated portable copy.' : 'Start this installation from ComfyUI, then refresh.'}</p>}
+      {portableAvailable ? <Accordion collapsible><AccordionItem value="portable"><AccordionHeader>Portable runtime</AccordionHeader><AccordionPanel className="li-settings-disclosure">
         <output className="li-settings-path">{installPath || 'Choose a writable folder for a dedicated runtime'}</output>
         <p className="li-settings-note">{setup?.portable?.download_bytes ? `Runtime download: ${setupBytes(setup.portable.download_bytes)}. ` : ''}{setup?.portable?.minimum_free_bytes ? `Allow ${setupBytes(setup.portable.minimum_free_bytes)} for installation. ` : ''}{storageText(setup?.storage?.portable_folder)}</p>
         <div className="li-settings-actions"><Button size="small" disabled={nativeLocked} onClick={() => void controller.run('chooseInstallDirectory')}>Choose install folder…</Button><Button size="small" disabled={nativeLocked} onClick={() => void controller.run('installRuntime')}>Install portable ComfyUI</Button></div>
-      </AccordionPanel></AccordionItem></Accordion>
+      </AccordionPanel></AccordionItem></Accordion> : <p className="li-settings-note">Use an existing ComfyUI installation; choose its folder above.</p>}
     </section>
     <section className="li-settings-group" aria-labelledby="react-settings-models">
-      <h3 id="react-settings-models">Model files</h3><output className="li-settings-path">{setup?.model_directory || 'No model folder selected'}</output>
+      <h3 id="react-settings-models">Models</h3>
+      <div className="li-settings-model-download">
+        <Field label="Model"><SettingsChoiceMenu id="settings-download-model" label="Model to download" value={state.selectedModelId} disabled={locked} choices={state.models.map(model => ({value:model.id,label:model.id === 'qwen' ? `${model.label} · backgrounds & images` : model.label}))} onSelect={controller.selectModel}/></Field>
+        <Field label="Precision">{(selected.model?.variants?.length || 0) > 1 ? <SettingsChoiceMenu id="settings-download-variant" label="Download precision" value={state.selectedVariant} disabled={locked} choices={(selected.model?.variants || []).map(variant => ({value:variant.id,label:variant.label}))} onSelect={controller.selectVariant}/> : <span className="li-settings-single-variant">{selected.variant?.label || '—'}</span>}</Field>
+        <Button id="settings-download-model-button" size="small" appearance="primary" disabled={!!downloadBlock} title={downloadBlock || undefined} onClick={() => void controller.run('downloadModel')}>{selected.ready ? 'Ready' : selected.filesPresent ? 'Files present' : !selected.downloadable ? 'Publisher access required' : 'Download model'}</Button>
+      </div>
+      {selected.model && <p id="settings-model-status" className="li-settings-note">{selected.ready ? 'Ready in the AI backend.' : selected.filesPresent ? 'Model files are present. Start the AI backend to use them.' : selected.missing !== undefined ? `${setupBytes(selected.missing)} to download${selected.total ? ` · ${setupBytes(selected.total)} total` : ''}.` : selected.total ? `${setupBytes(selected.total)} total download.` : 'Download size is unavailable.'}{selected.model.id === 'qwen' ? ' Qwen supports background removal and image generation.' : ''}</p>}
+      {!selected.downloadable && selected.note && <p className="li-settings-note">{selected.note}</p>}
+      {!selected.ready && !selected.filesPresent && downloadBlock === 'Choose a model folder first.' && <p className="li-settings-note">{downloadBlock}</p>}
+      {modelJob && (modelJob.running || modelJob.phase === 'complete' || modelJob.phase === 'error') && <section className="li-settings-job" aria-label="Model download">
+        <strong>{modelJob.running ? 'Downloading model' : modelJob.phase === 'complete' ? 'Model download complete' : 'Model download needs attention'}</strong>
+        {modelJob.running && <ProgressBar value={modelProgress} aria-label="Model download progress"/>}
+        <p role={modelJob.phase === 'error' ? 'alert' : 'status'}>{modelJob.error || modelJob.message || ''}</p>
+        {modelProgress !== undefined && <span>{Math.round(modelProgress * 100)}%</span>}{!!modelJob.downloaded_bytes && <span>{setupBytes(modelJob.downloaded_bytes)}{modelJob.total_bytes ? ` of ${setupBytes(modelJob.total_bytes)}` : ' downloaded'}</span>}
+      </section>}
+      <output className="li-settings-path">{setup?.model_directory || modelJob?.model_directory || 'No model folder selected'}</output>
       {storageText(setup?.storage?.model_folder) && <p className="li-settings-note">{storageText(setup?.storage?.model_folder)}</p>}
       {setup?.model_folder_connection?.status !== 'unchanged' && setup?.model_folder_connection?.message && <p className="li-settings-note">{setup.model_folder_connection.message}</p>}
-      <div className="li-settings-actions"><Button size="small" disabled={nativeLocked} onClick={() => void controller.run('chooseModelDirectory')}>Choose model folder…</Button><Button size="small" disabled={locked} onClick={() => controller.browseModels()}>Browse models…</Button></div>
+      <div className="li-settings-actions"><Button size="small" disabled={nativeLocked} onClick={() => void controller.run('chooseModelDirectory')}>Choose model folder…</Button><Button size="small" disabled={locked} onClick={() => controller.browseModels()}>Model details…</Button></div>
       <Accordion collapsible><AccordionItem value="removal-model"><AccordionHeader>FLUX AI Remove · optional</AccordionHeader><AccordionPanel className="li-settings-disclosure">
-        <p className="li-settings-note">This set supports FLUX object removal. Compare generation and cutout models in Browse models.</p>
+        <p className="li-settings-note">This set supports FLUX object removal. Compare generation and cutout models in Model details.</p>
         <ul className="li-settings-file-list" aria-label="Required FLUX model files">{files.map(file => <li key={`${file.folder}/${file.name}`}><span title={`${file.folder ? `${file.folder}/` : ''}${file.name}`}>{file.label || file.name}</span><span>{file.exists ? 'Ready' : 'Required'}{(file.exists ? file.bytes : file.expected_bytes) ? ` · ${setupBytes(file.exists ? file.bytes : file.expected_bytes)}` : ''}</span></li>)}</ul>
         <Button size="small" disabled={nativeLocked || !setup?.model_directory || allFiles} onClick={() => void controller.run('downloadRemovalModels')}>{allFiles ? 'FLUX models ready' : 'Download FLUX models'}</Button>
       </AccordionPanel></AccordionItem></Accordion>

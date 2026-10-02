@@ -12,6 +12,11 @@
 .li-settings-toolbar > p { flex:1; min-width:0; }
 .li-settings-path { display:block; padding:6px 8px; background:var(--colorNeutralBackground2); border:1px solid var(--colorNeutralStroke2); border-radius:var(--borderRadiusMedium); overflow-wrap:anywhere; }
 .li-settings-installation-choice { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:end; }
+.li-settings-model-download { display:grid; grid-template-columns:minmax(0,1fr) minmax(100px,160px) auto; gap:8px; align-items:end; }
+.li-settings-model-download > .fui-Field { min-width:0; }
+.li-settings-choice.fui-Button { width:100%; justify-content:space-between; gap:8px; text-align:left; }
+.li-settings-choice > span:first-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.li-settings-single-variant { display:block; padding:5px 8px; }
 .li-settings-disclosure { display:flex; flex-direction:column; gap:8px; }
 .li-settings-file-list { list-style:none; padding:0; margin:0; }
 .li-settings-file-list li { display:flex; justify-content:space-between; gap:16px; padding-block:4px; }
@@ -20,4 +25,4 @@
 .li-settings-job { display:flex; flex-direction:column; gap:6px; font-variant-numeric:tabular-nums; }
 :root[data-ui-density=large] .li-settings-surface.fui-DialogSurface { width:min(900px,calc(100vw - 24px)); padding:16px; }
 :root[data-ui-density=large] .li-settings-surface .fui-Button { min-height:44px; }
-@media(max-width:600px) { .li-settings-surface.fui-DialogSurface { width:calc(100vw - 16px); max-width:calc(100vw - 16px); padding:12px; } .li-settings-installation-choice { grid-template-columns:1fr; } .li-settings-file-list li { flex-wrap:wrap; gap:4px; } }
+@media(max-width:600px) { .li-settings-surface.fui-DialogSurface { width:calc(100vw - 16px); max-width:calc(100vw - 16px); padding:12px; } .li-settings-installation-choice { grid-template-columns:1fr; } .li-settings-model-download { grid-template-columns:minmax(0,1fr) minmax(90px,140px); }.li-settings-model-download > .fui-Button { grid-column:1 / -1; justify-self:start; } .li-settings-file-list li { flex-wrap:wrap; gap:4px; } }

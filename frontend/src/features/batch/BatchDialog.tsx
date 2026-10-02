@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Button, Checkbox, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Field, Link, Menu, MenuItemRadio, MenuList, MenuPopover, MenuTrigger, MessageBar, MessageBarBody, ProgressBar, Table, TableBody, TableCell, TableHeader, TableHeaderCell, TableRow } from '@fluentui/react-components';
 import type { BatchController } from './controller.ts';
 import type { BatchBackground, BatchItemStatus } from './contracts.ts';
+import { batchPage } from './pagination.ts';
 import './batch.css';
 
 const itemStatus: Record<BatchItemStatus, string> = {pending: 'Waiting', preparing: 'Preparing…', ready: 'Ready for review', exporting: 'Exporting…', exported: 'Exported', failed: 'Needs attention', conflict: 'Edits changed', 'needs-cutout': 'Cutout needed'};
@@ -28,13 +29,17 @@ export function BatchDialog({controller}: {controller: BatchController}) {
   const active = state.active, locked = state.working || !!active?.running;
   const draft = active ? {treatmentId: active.treatment_id || '', format: active.format, prepareCutouts: active.prepare_cutouts, qwenVariant: active.qwen_variant, backgroundMode: active.background_mode ?? 'transparent', backgroundName: active.background_name ?? ''} : state.draft;
   const selection = new Set(state.selectedIds);
-  const rows = active ? active.items.map(item => ({id: item.id, name: item.name, sessionId: item.session_id, status: itemStatus[item.status], error: item.error, outputName: item.output_name, preview: !!item.preview}))
-    : state.editor.entries.map(entry => ({...entry, status: 'Ready to remove background', error: null, outputName: null, preview: false}));
+  const [requestedPage, setPage] = useState(0);
+  const page = batchPage((active?.items || state.editor.entries).length, requestedPage);
+  const rows = active ? active.items.slice(page.start, page.end).map(item => ({id: item.id, name: item.name, sessionId: item.session_id, status: itemStatus[item.status], error: item.error, outputName: item.output_name, preview: !!item.preview}))
+    : state.editor.entries.slice(page.start, page.end).map(entry => ({...entry, status: 'Ready to remove background', error: null, outputName: null, preview: false}));
+  const allSelected = page.total > 0 && (active?.items || state.editor.entries).every(item => selection.has(item.id));
   const selectedReady = active?.items.filter(item => item.status === 'ready' && selection.has(item.id)).length || 0;
   const completed = active?.items.filter(item => active.mode === 'prepare' ? !['pending', 'preparing'].includes(item.status) : ['exported', 'failed', 'conflict', 'needs-cutout'].includes(item.status)).length || 0;
   const inspected = active?.items.find(item => item.id === state.inspection?.itemId);
   const [naturalWidth, setNaturalWidth] = useState(0);
   const backgroundInput = useRef<HTMLInputElement>(null);
+  useEffect(() => setPage(0), [state.open, active?.id]);
   useEffect(() => setNaturalWidth(0), [inspected?.id]);
   const inspectionSource = active && inspected && state.inspection ? controller.api.previewUrl(active.id, inspected.id, true, state.inspection.original) : undefined;
   const pendingNames = state.pending.map(item => item.name).join(', ');
@@ -58,8 +63,8 @@ export function BatchDialog({controller}: {controller: BatchController}) {
               <div className="li-batch-warning-actions"><Checkbox id="batch-applied-only" checked={state.appliedOnly} label="Use applied pixels only; keep pending selections" onChange={(_, data) => controller.acknowledgeAppliedOnly(data.checked === true)} /><Button id="batch-return-apply" onClick={() => void controller.returnToSelection()}>Return to apply selection</Button></div>
             </MessageBarBody></MessageBar>}
             <div className="li-batch-selection">
-              <Checkbox id="batch-all" checked={rows.length > 0 && rows.every(item => selection.has(item.id)) ? true : state.selectedIds.length ? 'mixed' : false} disabled={locked || rows.length === 0} label="Select all" onChange={(_, data) => controller.selectAll(data.checked === true)} />
-              <span id="batch-selection-count">{state.selectedIds.length} selected · up to 100 images</span>
+              <Checkbox id="batch-all" checked={allSelected ? true : state.selectedIds.length ? 'mixed' : false} disabled={locked || page.total === 0} label="Select all images" onChange={(_, data) => controller.selectAll(data.checked === true)} />
+              <span id="batch-selection-count">{state.selectedIds.length} of {page.total} selected</span>
               <ChoiceMenu id="batch-qwen-variant" label="Background removal model" value={draft.qwenVariant} disabled={locked || !!active} choices={(['int8','bf16'] as const).map(variant => ({value:variant,label:`Qwen ${variant.toUpperCase()}`,disabled:!state.qwen.variants.some(item => item.id === variant && item.available)}))} onSelect={value => controller.setDraft({qwenVariant: value as 'int8' | 'bf16'})}/>
               {!state.qwenAvailable && <span className="li-batch-note">Missing cutouts need Qwen setup in Settings. Existing cutouts can be exported without it.</span>}
             </div>
@@ -68,7 +73,12 @@ export function BatchDialog({controller}: {controller: BatchController}) {
                 <Button id="batch-inspect-original" aria-pressed={state.inspection.original} onClick={() => controller.setInspection({original: !state.inspection!.original})}>{state.inspection.original ? 'Cutout' : 'Original'}</Button>
                 <Field label="Zoom" orientation="horizontal"><ChoiceMenu id="batch-inspect-zoom" label="Batch review zoom" value={state.inspection.zoom} choices={[{value:'fit',label:'Fit'},{value:'100',label:'100%'},{value:'200',label:'200%'}]} onSelect={value => controller.setInspection({zoom: value as 'fit' | '100' | '200'})}/></Field></div>
               <div id="batch-inspect-scroll" className="li-batch-inspect-scroll"><img id="batch-inspect-image" className={state.inspection.zoom === 'fit' ? 'li-batch-fit' : undefined} style={state.inspection.zoom !== 'fit' && naturalWidth ? {width: naturalWidth * Number(state.inspection.zoom) / 100} : undefined} src={inspectionSource} alt={`Full-size ${state.inspection.original ? 'original' : 'cutout'} preview of ${inspected.name}`} onLoad={event => setNaturalWidth(event.currentTarget.naturalWidth)} /></div>
-            </section> : <div className="li-batch-table-scroll" id="batch-table-scroll">
+            </section> : <>
+            {page.total > 0 && <div className="li-batch-pagination" aria-label="Batch image pages">
+              <span id="batch-page-count" aria-live="polite">Page {page.page + 1} of {page.pages} · Images {page.from}–{page.to} of {page.total}</span>
+              {page.pages > 1 && <><Button id="batch-page-previous" disabled={page.page === 0} onClick={() => setPage(page.page - 1)}>Previous page</Button><Button id="batch-page-next" disabled={page.page === page.pages - 1} onClick={() => setPage(page.page + 1)}>Next page</Button></>}
+            </div>}
+            <div className="li-batch-table-scroll" id="batch-table-scroll">
               <Table size="small" aria-label="Batch images" className="li-batch-table"><TableHeader><TableRow><TableHeaderCell>Select</TableHeaderCell><TableHeaderCell>Photo</TableHeaderCell><TableHeaderCell>Preview</TableHeaderCell><TableHeaderCell>Status</TableHeaderCell></TableRow></TableHeader>
                 <TableBody id="batch-rows">{rows.map(entry => <TableRow key={entry.id}>
                   <TableCell><Checkbox checked={selection.has(entry.id)} disabled={locked} aria-label={'Select ' + entry.name} onChange={(_, data) => controller.setSelected(entry.id, data.checked === true)} /></TableCell>
@@ -77,7 +87,7 @@ export function BatchDialog({controller}: {controller: BatchController}) {
                   <TableCell className={entry.error ? 'li-batch-error' : undefined}>{entry.status}{entry.error ? ' · ' + entry.error : ''}{entry.outputName ? ' · ' + entry.outputName : ''}{state.editor.pendingSelections.some(item => item.sessionId === entry.sessionId) ? ' · Selection pending' : ''}</TableCell>
                 </TableRow>)}</TableBody></Table>
               {!rows.length && <p id="batch-empty" className="li-batch-note">Open images or a folder in Cutout to remove their backgrounds.</p>}
-            </div>}
+            </div></>}
             <div className="li-batch-status"><p id="batch-status" role={state.error ? 'alert' : 'status'} className={state.error ? 'li-batch-error' : undefined}>{state.status}</p>
               {active?.running && <ProgressBar id="batch-progress" value={active.items.length ? completed / active.items.length : 0} aria-label={`${completed} of ${active.items.length} images processed`} />}
             </div>
