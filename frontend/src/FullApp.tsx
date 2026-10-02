@@ -8,7 +8,7 @@ import {AssetsDock,type AssetsController} from './features/assets/index.ts';
 import {GenerationPanel,type GenerationController} from './features/generation/index.ts';
 import {MenuBar} from './features/shell/MenuBar.tsx';
 import {ToolOptions,ToolRail,WorkspaceTabs} from './features/shell/ToolControls.tsx';
-import {DocumentBar,Filmstrip,StatusBar} from './features/shell/DocumentChrome.tsx';
+import {DocumentBar,DocumentTabs,Filmstrip,StatusBar} from './features/shell/DocumentChrome.tsx';
 import {Layers} from './features/shell/Layers.tsx';
 import {Icon} from './features/shell/Icon.tsx';
 import {CutoutProperties,BackgroundGenerator} from './features/shell/CutoutProperties.tsx';
@@ -25,6 +25,8 @@ export interface FullAppProps {
 }
 export function FullApp({controller,shell,dialogs,assets,generation,batch,settings,models,mounts,execute}:FullAppProps) {
  const state=useSyncExternalStore(controller.subscribe,controller.getSnapshot),ui=useSyncExternalStore(shell.subscribe,shell.getSnapshot);
+ const generated=useSyncExternalStore(generation.subscribe,generation.getSnapshot);
+ const activeDocumentId=state.workspace==='generate'&&state.refining?generated.selectedResultId??generated.selectedDraftId:state.creatingBlank?null:state.document?.id??null;
  const commands=commandCatalog(state);
  const variant=state.health.qwen.variants.find(value=>value.id===state.tools.qwenVariant),klein=state.health.models.find(value=>value.id==='klein');
  const needsQwen=state.workspace==='cutout'&&!state.tools.maskReady||state.workspace==='retouch'&&state.tools.operation==='ai'&&state.tools.aiProvider==='qwen';
@@ -33,6 +35,7 @@ export function FullApp({controller,shell,dialogs,assets,generation,batch,settin
  const entries=(state.collection?.entries??[]).map((entry,index)=>({id:entry.id,name:entry.name,thumbnail:entry.thumbnail??null,dirty:!!entry.dirty,projectDirty:!!entry.project_dirty,selected:index===state.collectionIndex}));
  return <>
   <header className="li-app-header"><span className="li-brand">Local Image</span><MenuBar state={state} execute={execute} setOutputFormat={value=>controller.commands.setOutputFormat(value)} openRecent={controller.commands.openRecent} opened={ui.menu} focusRequest={ui.menuFocus} setMenu={shell.setMenu}/></header>
+  <DocumentTabs documents={state.openDocuments} activeId={activeDocumentId} busy={state.busy} onSelect={controller.commands.activateOpenDocument} onClose={controller.commands.closeOpenDocument} onNew={()=>execute('newWorkspace')}/>
   <div className="li-workspace-bar"><WorkspaceTabs state={state.tools} actions={controller.toolActions}/><Toolbar className="li-commandbar" aria-label="Editor commands" size="small">
    <ToolbarButton aria-label="Undo" title={state.undoLabel+' (Ctrl+Z)'} icon={<Icon name="undo"/>} disabled={!commands.undo.enabled} onClick={()=>execute('undo')}/>
    <ToolbarButton aria-label="Redo" title={state.redoLabel+' (Ctrl+Shift+Z)'} icon={<Icon name="redo"/>} disabled={!commands.redo.enabled} onClick={()=>execute('redo')}/>

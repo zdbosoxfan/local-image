@@ -1,6 +1,6 @@
 import type { EditorSnapshot } from '../../contracts.ts';
 
-export type ShellCommand = 'openFiles' | 'openFolder' | 'openProject' | 'saveProject' | 'saveProjectAs' | 'closeImage'
+export type ShellCommand = 'newWorkspace' | 'openFiles' | 'openFolder' | 'openProject' | 'saveProject' | 'saveProjectAs' | 'closeImage'
   | 'overwrite' | 'saveUnique' | 'exportImage' | 'credits' | 'showAssets' | 'showGenerated' | 'showBatch'
   | 'undo' | 'redo' | 'applySelection' | 'clearSelection' | 'finishPath' | 'showSettings'
   | 'createRetouch' | 'addMask' | 'renameLayer' | 'toggleLayerLock' | 'layerUp' | 'layerDown' | 'deleteLayer'
@@ -22,6 +22,7 @@ export function commandCatalog(state: ShellView): Record<ShellCommand, CommandIt
   const editable = active && !!selected?.visible && !selected.locked;
   const item = (id: ShellCommand, label: string, enabled: boolean, shortcut?: string): CommandItem => ({ id, label, enabled, shortcut });
   return {
+    newWorkspace: item('newWorkspace', 'New workspace', idle, 'Ctrl+N'),
     openFiles: item('openFiles', 'Open images…', idle, 'Ctrl+O'), openFolder: item('openFolder', 'Open folder…', idle, 'Ctrl+Shift+O'),
     openProject: item('openProject', 'Open project…', idle, 'Ctrl+Alt+O'),
     saveProject: item('saveProject', 'Save project', idle && visible, 'Ctrl+Alt+S'), saveProjectAs: item('saveProjectAs', 'Save project as…', idle && visible),

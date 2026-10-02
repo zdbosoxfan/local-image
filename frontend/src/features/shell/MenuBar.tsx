@@ -16,7 +16,7 @@ export function MenuBar({ state, execute, setOutputFormat, openRecent, opened, f
   };
   const groups: Array<{ name: string; entries: React.ReactNode }> = [
     { name: 'File', entries: <>
-      {(['openFiles', 'openProject', 'openFolder'] as const).map(command)}<MenuDivider />
+      {(['newWorkspace', 'openFiles', 'openProject', 'openFolder'] as const).map(command)}<MenuDivider />
       {(['showAssets', 'showGenerated', 'showBatch'] as const).map(command)}<MenuDivider />
       {(['saveProject', 'saveProjectAs', 'closeImage', 'credits'] as const).map(command)}<MenuDivider />
       {(['overwrite', 'saveUnique', 'exportImage'] as const).map(command)}

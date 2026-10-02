@@ -19,7 +19,7 @@ import type {InterfaceDensity} from './features/settings/types.ts';
 import type {FullAppProps} from './FullApp.tsx';
 
 const required=<T extends HTMLElement>(id:string):T=>{const element=document.getElementById(id);if(!element)throw Error('The editor is missing its '+id+' mount.');return element as T;};
-const loadImage=(url:string)=>new Promise<HTMLImageElement>((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=()=>reject(Error('Could not load the photo preview.'));image.src=url;});
+const loadImage=(url:string)=>new Promise<HTMLImageElement>((resolve,reject)=>{const image=new Image();image.onload=()=>{void image.decode().then(()=>resolve(image),()=>reject(Error('Could not decode the photo preview.')));};image.onerror=()=>reject(Error('Could not load the photo preview.'));image.src=url;});
 
 export function createApplication(token:string) {
  let controller:DocumentController|undefined,shell:ShellController|undefined,settings:SettingsController|undefined,models:ModelsController|undefined,batch:BatchController|undefined;

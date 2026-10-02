@@ -10,7 +10,7 @@ const turn = () => new Promise(resolve => setTimeout(resolve, 0));
 function setup(t, overrides = {}) {
   let document = image(), navigationEpoch = 1, operation = false, navigating = false, workspace = 'retouch', closeInProgress = false;
   let flags = {}, features, folder = null, modal = false;
-  const listeners = new Set(), nativeListeners = new Set(), opened = [], reports = [], tabs = [], reservations = [], inference = [], backgrounds = [];
+  const listeners = new Set(), nativeListeners = new Set(), opened = [], retained = [], reports = [], tabs = [], reservations = [], inference = [], backgrounds = [];
   const publish = () => { for (const listener of [...listeners]) listener(); };
   const context = () => ({ document, documentId: document?.id ?? null, revision: document?.revision ?? 0, layerId: null, navigationEpoch, busy: operation || navigating || closeInProgress });
   const port = {
@@ -24,6 +24,7 @@ function setup(t, overrides = {}) {
       finally { navigating = false; publish(); }
     },
     async acceptDocument(value, captured, destination) { if (captured.navigationEpoch !== navigationEpoch) return false; if (destination === 'background') { document = value; publish(); return true; } return port.openSession(value, { expectedNavigationEpoch: captured.navigationEpoch, workspace: destination === 'generated' ? 'generate' : undefined }); },
+    retainDocument(value) { retained.push(structuredClone(value)); publish(); },
     async applyGeneratedBackground(...args) { backgrounds.push(args); return overrides.applyBackground ? overrides.applyBackground(...args) : true; },
     async activateMode(value, candidate) { if (candidate) return port.openSession(candidate, { workspace: value, notifyFeatures: false }); workspace = value; publish(); return true; },
     setGenerationView(value) { flags = value; publish(); }, report(text) { reports.push(text); }, rememberCurrentView() {}, isModalOpen: () => modal,
@@ -37,7 +38,7 @@ function setup(t, overrides = {}) {
   adapters.bind(generation, assets); features = adapters.featureCommands;
   generation.acceptCatalog([model('qwen'), model('other')]);
   t.after(() => { adapters.dispose(); generation.dispose(); });
-  return { adapters, generation, features, port, opened, reports, tabs, reservations, inference, backgrounds, dialogs,
+  return { adapters, generation, features, port, opened, retained, reports, tabs, reservations, inference, backgrounds, dialogs,
     current: context, setFolder(value) { folder = value; }, setModal(value) { modal = value; },
     replace(value, nextWorkspace = workspace) { document = value; workspace = nextWorkspace; navigationEpoch++; publish(); },
     revise(value) { document = { ...document, revision: value }; publish(); },
@@ -188,4 +189,75 @@ test('generated-background handoff rejects stale views and coalesces repeated pr
   await f.generation.setMode('refine'); const first = f.generation.applyGeneratedBackground(); const second = f.generation.applyGeneratedBackground();
   assert.equal(await second, false); assert.equal(f.backgrounds.length, 1); assert.equal(f.backgrounds[0][0], 'generated-draft'); assert.equal(f.backgrounds[0][2].documentId, 'target');
   held.reject(Error('Controlled conflict')); assert.equal(await first, false); assert.match(f.generation.getSnapshot().error, /Controlled conflict/); assert.equal(f.generation.getSnapshot().working, false); assert.equal(f.backgrounds.length, 1);
+});
+
+test('Retouch and Cutout receive the selected full-size refinement or upscale and Generate resumes Refine', async t => {
+  for (const workspace of ['retouch', 'cutout']) {
+    const final = image('final-4k', 2, { width: 3840, height: 2160, upscale: { model: 'seedvr2' } });
+    const f = setup(t, { api: { generate: async () => ({ session: final }) } });
+    f.generation.addDraft(image('draft-500', 1, { width: 512, height: 288 }));
+    await f.generation.setMode('refine');
+    f.generation.setDraft('final', { prompt: 'Controlled final' }); await f.generation.run('final');
+    const draftId = f.generation.getSnapshot().selectedDraftId, resultId = f.generation.getSnapshot().selectedResultId;
+    assert.equal(await f.features.leaveGenerate(workspace), true);
+    assert.equal(f.port.getSnapshot().workspace, workspace); assert.equal(f.current().document.id, 'final-4k');
+    assert.equal(f.current().document.width, 3840); assert.equal(f.current().document.height, 2160);
+    assert.deepEqual(f.opened, ['final-4k']);
+    f.revise(3);
+    assert.equal(f.generation.selectedResult().session.revision, 3, 'Refine retains the accepted Retouch revision');
+    assert.equal(await f.features.enterGenerate(), true);
+    assert.equal(f.adapters.getSnapshot().refining, true); assert.equal(f.generation.getSnapshot().mode, 'refine');
+    assert.equal(f.generation.getSnapshot().selectedDraftId, draftId); assert.equal(f.generation.getSnapshot().selectedResultId, resultId);
+    assert.equal(f.adapters.getSnapshot().visibleDocumentId, 'final-4k');
+    assert.equal(f.inference.length, 0, 'Mode switches submit no inference');
+  }
+});
+
+test('leaving Refine uses the selected draft when no result exists and keeps that selection on return', async t => {
+  const f = setup(t); f.generation.addDraft(image('draft-selected')); await f.generation.setMode('refine');
+  assert.equal(await f.features.leaveGenerate('retouch'), true);
+  assert.equal(f.current().document.id, 'draft-selected');
+  assert.equal(await f.features.enterGenerate(), true);
+  assert.equal(f.adapters.getSnapshot().refining, true); assert.equal(f.generation.getSnapshot().selectedDraftId, 'draft-selected');
+  assert.equal(f.generation.getSnapshot().selectedResultId, null);
+});
+
+test('failed or blocked Refine handoff keeps the current document and selected refinement visible', async t => {
+  const f = setup(t, { preview: async () => { throw Error('Controlled preview failure'); } });
+  f.generation.addDraft(image('selected-draft')); await f.generation.setMode('refine');
+  f.setModal(true); assert.equal(await f.features.leaveGenerate('retouch'), false); f.setModal(false);
+  assert.equal(await f.features.leaveGenerate('retouch'), false);
+  assert.equal(f.current().document.id, 'source'); assert.equal(f.adapters.getSnapshot().refining, true);
+  assert.equal(f.generation.getSnapshot().selectedDraftId, 'selected-draft'); assert.deepEqual(f.opened, []);
+  assert.match(f.reports.at(-1), /Controlled preview failure/); assert.equal(f.adapters.getSnapshot().busy, false);
+});
+
+test('opening another image after leaving Refine uses Edit rather than resuming an unrelated refinement', async t => {
+  const f = setup(t); f.generation.addDraft(image('selected-draft')); await f.generation.setMode('refine');
+  await f.features.leaveGenerate('retouch');
+  await f.port.openSession(image('new-source'), { workspace: 'retouch' });
+  assert.equal(await f.features.enterGenerate(), true);
+  assert.equal(f.generation.getSnapshot().mode, 'edit'); assert.equal(f.generation.getSnapshot().modeDocuments.edit.id, 'new-source');
+  assert.equal(f.generation.getSnapshot().selectedDraftId, 'selected-draft', 'Prior refinement remains available by its Refine tab');
+});
+
+test('only displayed Refine selections become retained image buffers without canvas navigation', async t => {
+  const f = setup(t); f.generation.addDraft(image('draft-one')); f.generation.addDraft(image('draft-two'));
+  assert.deepEqual(f.retained, [], 'Hidden or unselected generation images are not tabs');
+  await f.generation.setMode('refine');
+  assert.deepEqual(f.retained.map(item => item.id), ['draft-two']); assert.deepEqual(f.opened, []);
+  f.generation.selectDraft('draft-one');
+  assert.deepEqual(f.retained.map(item => item.id), ['draft-two', 'draft-one']); assert.deepEqual(f.opened, []);
+  f.features.resetWorkspace();
+  assert.equal(f.generation.getSnapshot().mode, 'create'); assert.equal(f.generation.getSnapshot().selectedDraftId, 'draft-one');
+  assert.equal(f.generation.getSnapshot().draftImages.length, 2, 'New keeps refinement history available');
+});
+
+test('explicit Retouch opening preserves persona while making saved generation settings available for later Edit', async t => {
+  const f = setup(t), generated = image('generated-retouch', 1, {generation: {model: 'qwen', prompt: 'Saved prompt', width: 3840, height: 2160}});
+  await f.port.openSession(generated, {workspace: 'retouch'});
+  assert.equal(f.port.getSnapshot().workspace, 'retouch'); assert.equal(f.generation.getSnapshot().mode, 'create');
+  assert.equal(f.generation.getSnapshot().drafts.edit.prompt, 'Saved prompt');
+  assert.equal(await f.features.enterGenerate(), true); assert.equal(f.generation.getSnapshot().mode, 'edit');
+  assert.equal(f.generation.getSnapshot().modeDocuments.edit.id, generated.id);
 });

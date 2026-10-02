@@ -321,7 +321,8 @@ def public(data):
                     box = geometry_cache[key]
                     if box: boxes.append((box[0]+patch['x'], box[1]+patch['y'], box[2]+patch['x'], box[3]+patch['y']))
                 bounds = (min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)) if boxes else None
-            item.update(bounds=bounds, width=data['width'], height=data['height'])
+            item.update(bounds=bounds, width=data['width'], height=data['height'],
+                        display_key=stack_model.display_key(data, node))
             result['layer_stack'].append(item)
         result['stack_can_undo'] = bool(data.get('stack_undo'))
         result['stack_can_redo'] = bool(data.get('stack_redo'))
@@ -1180,18 +1181,26 @@ async def update_stack_layer(sid:str, lid:str, request:Request, payload:StackUpd
 
 
 @router.get('/api/local-remove/session/{sid}/stack/layer/{lid}/display')
-async def stack_layer_display(sid:str, lid:str, request:Request):
+async def stack_layer_display(sid:str, lid:str, request:Request, r:str|None=None):
     guard(request)
     async with locks.setdefault(sid, asyncio.Lock()):
         data = read_session(sid); root = folder(sid); layer = stack_layer(data, lid)
-        target = root / ('stack-display-' + lid + '-' + str(data['revision']) + '.png')
+        key = stack_model.display_key(data, layer)
+        target = root / ('stack-display-' + lid + '-' + key + '.png')
         if not target.is_file():
             def make():
-                raw, icc, _ = decode_original(root / data['original'])
-                pixels = stack_model.native_layer(data, root, layer, raw, icc, decode_original, transformed=False)
-                stack_model.display(pixels, icc).save(target, icc_profile=SRGB.tobytes())
+                temporary = root / ('display-' + uuid.uuid4().hex + '.png')
+                try:
+                    raw, icc, _ = decode_original(root / data['original'])
+                    pixels = stack_model.native_layer(data, root, layer, raw, icc, decode_original, transformed=False)
+                    stack_model.display(pixels, icc).save(temporary, compress_level=1, icc_profile=SRGB.tobytes())
+                    os.replace(temporary, target)
+                finally:
+                    temporary.unlink(missing_ok=True)
             await asyncio.to_thread(make)
-    return FileResponse(target, media_type='image/png', headers=HEADERS)
+    # Only a URL carrying the current pixel identity is safe to cache forever.
+    # Legacy revision URLs still work without caching a different edit's pixels.
+    return FileResponse(target, media_type='image/png', headers=ASSET_HEADERS if r == key else HEADERS)
 
 
 async def change_stack_history(sid, request, revision, direction):

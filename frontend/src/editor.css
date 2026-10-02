@@ -18,6 +18,7 @@ body { display:flex; flex-direction:column; background:var(--canvas); color:#f0f
 #inspector-root>div { display:contents; }
 #react-generation-root { display:flex; flex:none; flex-direction:column; width:var(--studio-size); min-height:0; border-left:1px solid var(--colorNeutralStroke2); }
 .li-canvas-region { display:flex; flex-direction:column; flex:1; min-height:0; min-width:160px; overflow:hidden; }
+#progress-root { position:absolute; inset:0 0 auto; z-index:6; pointer-events:none; }
 .li-operation-progress { display:flex; align-items:center; gap:12px; padding:4px 12px; font-size:var(--ui-note); background:var(--colorNeutralBackground2); }.li-operation-progress>.fui-ProgressBar { flex:1; }
 #filmstrip-root { min-width:0; flex:none; }
 #empty-root { position:absolute; inset:0; pointer-events:none; background:transparent; }

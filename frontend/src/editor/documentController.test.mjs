@@ -2,6 +2,8 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createDocumentController} from './documentController.ts';
 import {createDocumentApi} from './documentApi.ts';
+import {createGenerationAdapters} from './generationAdapters.ts';
+import {createGenerationController} from '../features/generation/controller.ts';
 
 const copy = value => structuredClone(value);
 const transform = () => ({offset_x: 0, offset_y: 0, scale: 1, rotation: 0});
@@ -407,4 +409,131 @@ test('Refresh view reloads backend metadata after another editor changes the doc
   assert.equal(await f.controller.refreshPreview(), true);
   assert.equal(f.controller.getSnapshot().document.revision, 4);
   assert.equal(f.controller.getSnapshot().document.layer_stack[0].visible, false);
+});
+
+test('workspace commands hand Refine to the full-size result while retaining unsaved documents and selections', async t => {
+  const source = cutoutDocument(), final = document('final-4k', 1, { width: 3840, height: 2160, upscale: { model: 'seedvr2' } });
+  const f = fixture([source, final]); t.after(() => f.controller.dispose());
+  await f.controller.openSession(source);
+  f.c.set({hasSelection: true, canUndoSelection: true, selectionVersion: 8, photoZoom: 2, fitMode: false, panX: 24, panY: -30});
+  const native = {capabilities: () => ({ready: false}), subscribe: () => () => {}, chooseBackgroundFolder: async () => null};
+  const adapters = createGenerationAdapters({document: f.controller, native, openModels() {}, openLoras() {}});
+  const api = { generate: async () => ({ session: final }), progress: async () => ({ active: false, job_id: null }) };
+  const generation = createGenerationController(adapters.generationHost, 'fixture-token', {api, pollMilliseconds: 10000});
+  t.after(() => {adapters.dispose(); generation.dispose();});
+  adapters.bind(generation, {open: async () => {}}); f.controller.setFeatures(adapters.featureCommands);
+  generation.acceptCatalog([{id: 'qwen', label: 'Qwen', available: true, variants: [{id: 'int8', available: true}], capabilities: {text_to_image: true, image_reference: true, max_references: 4}, defaults: {variant: 'int8', width: 1024, height: 1024, steps: 4, guidance: 1}, limits: {min_dimension: 256, max_dimension: 4096, dimension_step: 16, max_steps: 100, max_guidance: 10}}]);
+  generation.addDraft(document('draft-500', 1, {width: 512, height: 288})); await generation.setMode('refine');
+  generation.setDraft('final', {prompt: 'Controlled 4K result'}); await generation.run('final');
+  f.controller.commands.setWorkspace('retouch'); await turn();
+  let state = f.controller.getSnapshot();
+  assert.equal(state.workspace, 'retouch'); assert.equal(state.document.id, 'final-4k'); assert.equal(state.document.width, 3840);
+  assert.equal(f.controller.pendingSelection(source.id), true, 'Pending selection in the retained editor source is preserved');
+  assert.equal(state.openDocuments.find(item => item.id === source.id).dirty, true, 'Unsaved source remains open');
+  assert.equal(f.records.some(item => item.path?.endsWith('/close-sessions')), false, 'The handoff closes no documents');
+  f.c.set({hasSelection: true, canUndoSelection: true, selectionVersion: 12, photoZoom: 3, fitMode: false, panX: 90, panY: 15});
+  f.controller.commands.setWorkspace('generate'); await turn();
+  assert.equal(adapters.getSnapshot().refining, true); assert.equal(generation.getSnapshot().selectedResultId, 'final-4k');
+  f.controller.commands.setWorkspace('retouch'); await turn();
+  state = f.controller.getSnapshot();
+  assert.equal(state.document.id, 'final-4k'); assert.equal(state.selectionActive, true); assert.equal(state.canvas.selectionVersion, 12);
+  assert.equal(state.chrome.zoom, 3); assert.equal(state.canvas.panX, 90); assert.equal(state.canvas.panY, 15);
+  assert.equal(await f.controller.commands.newWorkspace(), true);
+  assert.equal(f.controller.getSnapshot().document, null); assert.equal(f.controller.pendingSelection('final-4k'), true);
+  assert.equal(f.controller.getSnapshot().openDocuments.some(item => item.id === 'final-4k'), true);
+  f.controller.commands.setWorkspace('generate'); await turn();
+  assert.equal(generation.getSnapshot().mode, 'create'); assert.equal(adapters.getSnapshot().creatingBlank, true, 'New does not resume a retained Refine or Create image');
+  assert.equal(f.controller.getSnapshot().document, null);
+  assert.equal(await f.controller.commands.activateOpenDocument('final-4k'), true);
+  assert.equal(f.controller.getSnapshot().workspace, 'retouch', 'Reopening a generated buffer preserves its saved Retouch workspace');
+  assert.equal(f.controller.getSnapshot().canvas.selectionVersion, 12);
+  await f.controller.openSession(source, {workspace: 'cutout'});
+  state = f.controller.getSnapshot();
+  assert.equal(state.document.id, source.id); assert.equal(state.selectionActive, true); assert.equal(state.canvas.selectionVersion, 8);
+  assert.equal(state.chrome.zoom, 2); assert.equal(state.canvas.panX, 24); assert.equal(state.canvas.panY, -30);
+});
+
+test('New retains dirty buffers and cached view while tab activation reads the latest session revision', async t => {
+  const f = fixture([cutoutDocument()]); t.after(() => f.controller.dispose()); await f.controller.openSession(f.docs.get('a'));
+  f.c.set({hasSelection: true, canUndoSelection: true, selectionVersion: 6, photoZoom: 2, fitMode: false, panX: 40, panY: 20});
+  let reset = 0; f.controller.setFeatures({resetWorkspace: () => reset++});
+  assert.equal(await f.controller.commands.newWorkspace(), true);
+  let state = f.controller.getSnapshot();
+  assert.equal(state.document, null); assert.equal(state.canvas.documentId, null); assert.equal(state.workspace, 'retouch');
+  assert.equal(state.openDocuments.length, 1); assert.equal(state.openDocuments[0].dirty, true); assert.equal(reset, 1);
+  assert.equal(f.controller.pendingSelection('a'), true); assert.equal(f.docs.size, 1); assert.equal(mutations(f).length, 0);
+  assert.equal(f.records.at(-1).url, '/remove');
+  f.docs.get('a').revision = 2;
+  assert.equal(await f.controller.commands.activateOpenDocument('a'), true);
+  state = f.controller.getSnapshot();
+  assert.equal(state.document.revision, 2); assert.equal(state.selectionActive, true); assert.equal(state.canvas.selectionVersion, 6);
+  assert.equal(state.chrome.zoom, 2); assert.equal(state.canvas.panX, 40); assert.equal(state.canvas.panY, 20);
+  assert.equal(await f.controller.commands.activateOpenDocument('unopened'), false);
+});
+
+test('tab closing guards the requested inactive buffer and selects the adjacent remaining buffer after active close', async t => {
+  const f = fixture([cutoutDocument(), document('b'), document('c')]); t.after(() => f.controller.dispose());
+  await f.controller.openSession(f.docs.get('a')); f.c.set({hasSelection: true, selectionVersion: 7});
+  await f.controller.openSession(f.docs.get('b')); await f.controller.openSession(f.docs.get('c')); await f.controller.commands.activateOpenDocument('b');
+  f.controls.closeChoice = null;
+  assert.equal(await f.controller.commands.closeOpenDocument('a'), false);
+  assert.equal(f.controller.getSnapshot().document.id, 'b'); assert.equal(f.controller.pendingSelection('a'), true);
+  assert.deepEqual(f.choices.at(-1).plan.names, ['a.png']); assert.equal(f.choices.at(-1).plan.pendingSelection, true);
+  assert.equal(f.records.some(item => item.path?.endsWith('/close-sessions')), false);
+  f.controls.closeChoice = 'discard';
+  assert.equal(await f.controller.commands.closeOpenDocument('a'), true);
+  assert.equal(f.controller.getSnapshot().document.id, 'b');
+  assert.deepEqual(f.controller.getSnapshot().openDocuments.map(item => item.id), ['b', 'c']);
+  assert.equal(await f.controller.commands.closeOpenDocument('b'), true);
+  assert.equal(f.controller.getSnapshot().document.id, 'c'); assert.deepEqual(f.controller.getSnapshot().openDocuments.map(item => item.id), ['c']);
+  assert.equal(await f.controller.commands.closeOpenDocument('c'), true);
+  assert.equal(f.controller.getSnapshot().document, null); assert.deepEqual(f.controller.getSnapshot().openDocuments, []);
+});
+
+test('a late tab metadata read cannot reopen an image after New changes the navigation identity', async t => {
+  const f = fixture([document('a'), document('b')]), gate = deferred(); t.after(() => f.controller.dispose());
+  await f.controller.openSession(f.docs.get('a')); await f.controller.openSession(f.docs.get('b'));
+  f.controls.request = async request => {if (request.pathname.endsWith('/session/a') && request.method === 'GET') await gate.promise; return null;};
+  const activating = f.controller.commands.activateOpenDocument('a'); await turn();
+  assert.equal(await f.controller.commands.newWorkspace(), true);
+  gate.resolve(); assert.equal(await activating, false);
+  assert.equal(f.controller.getSnapshot().document, null); assert.deepEqual(f.controller.getSnapshot().openDocuments.map(item => item.id), ['a', 'b']);
+});
+
+test('rapid tab metadata reads honour the last clicked tab regardless of response order', async t => {
+  for (const first of ['a', 'b']) {
+    const f = fixture([document('a'), document('b'), document('c')]), a = deferred(), b = deferred();
+    t.after(() => f.controller.dispose());
+    await f.controller.openSession(f.docs.get('a')); await f.controller.openSession(f.docs.get('b')); await f.controller.openSession(f.docs.get('c'));
+    f.controls.request = async request => {
+      if (request.method !== 'GET') return null;
+      if (request.pathname.endsWith('/session/a')) await a.promise;
+      if (request.pathname.endsWith('/session/b')) await b.promise;
+      return null;
+    };
+    const selectingA = f.controller.commands.activateOpenDocument('a'), selectingB = f.controller.commands.activateOpenDocument('b');
+    if (first === 'a') {a.resolve(); assert.equal(await selectingA, false); assert.equal(f.controller.getSnapshot().document.id, 'c'); b.resolve();}
+    else {b.resolve(); assert.equal(await selectingB, true); a.resolve();}
+    assert.equal(await selectingA, false); assert.equal(await selectingB, true);
+    assert.equal(f.controller.getSnapshot().document.id, 'b');
+  }
+});
+
+test('closing the visible Refine result activates an adjacent tab and retains the hidden editor source', async t => {
+  const source = cutoutDocument(), result = document('result-4k', 1, {width: 3840, height: 2160, generation: {model: 'qwen'}});
+  const f = fixture([source, result, document('c')]); t.after(() => f.controller.dispose());
+  await f.controller.openSession(source); f.c.set({hasSelection: true, selectionVersion: 10});
+  await f.controller.openSession(f.docs.get('c')); await f.controller.openSession(source);
+  const native = {capabilities: () => ({ready: false}), subscribe: () => () => {}, chooseBackgroundFolder: async () => null};
+  const adapters = createGenerationAdapters({document: f.controller, native, openModels() {}, openLoras() {}});
+  const generation = createGenerationController(adapters.generationHost, 'fixture-token', {api: {generate: async () => ({session: result}), progress: async () => ({active: false, job_id: null})}, pollMilliseconds: 10000});
+  t.after(() => {adapters.dispose(); generation.dispose();});
+  adapters.bind(generation, {open: async () => {}}); f.controller.setFeatures(adapters.featureCommands);
+  generation.acceptCatalog([{id: 'qwen', label: 'Qwen', available: true, variants: [{id: 'int8', available: true}], capabilities: {text_to_image: true, image_reference: true, max_references: 4}, defaults: {variant: 'int8', width: 1024, height: 1024, steps: 4, guidance: 1}, limits: {min_dimension: 256, max_dimension: 4096, dimension_step: 16, max_steps: 100, max_guidance: 10}}]);
+  generation.addDraft(source); await generation.setMode('refine'); generation.setDraft('final', {prompt: 'Controlled final'}); await generation.run('final');
+  assert.equal(f.controller.getSnapshot().document.id, source.id); assert.equal(adapters.featureCommands.visibleDocumentId(), result.id);
+  assert.equal(await f.controller.commands.closeOpenDocument(result.id), true);
+  assert.equal(f.controller.getSnapshot().document.id, 'c'); assert.equal(adapters.getSnapshot().refining, false);
+  assert.deepEqual(f.controller.getSnapshot().openDocuments.map(item => item.id), [source.id, 'c']);
+  assert.equal(f.controller.pendingSelection(source.id), true); assert.equal(generation.getSnapshot().selectedResultId, null);
 });

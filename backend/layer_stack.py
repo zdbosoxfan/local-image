@@ -1,6 +1,8 @@
 """Portable, ordered image layers sharing the document's native color precision."""
 import copy
+import hashlib
 import io
+import json
 import math
 import re
 import uuid
@@ -82,6 +84,27 @@ def assets(stack):
         if 'source' in item: names.add(item['source'])
         if item['kind'] == 'cutout': names.add(item['cutout']['alpha'])
     return names
+
+
+def display_key(data, item):
+    """Identity of an untransformed, full-opacity layer display asset.
+
+    Pixel assets are immutable. Canvas placement and layer presentation may
+    change frequently without requiring another decode or PNG encoding.
+    """
+    content = {'version': 1, 'kind': item['kind'], 'original': data['original'],
+               'width': data['width'], 'height': data['height'], 'bit_depth': data['bit_depth']}
+    if item['kind'] in ('image', 'cutout'):
+        content['source'] = item['source']
+    if item['kind'] == 'cutout':
+        state = item['cutout']
+        content['cutout'] = {key: state[key] for key in ('alpha', 'feather', 'shadow')}
+    if item['kind'] == 'retouch':
+        content['patches'] = [{key: patch.get(key) for key in ('x', 'y', 'color', 'mask', 'snapshot')}
+                              for patch in data['layers'] if patch['id'] in item['patch_ids']
+                              and patch['visible'] and not patch['discarded']]
+    encoded = json.dumps(content, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    return hashlib.sha256(encoded.encode('utf-8')).hexdigest()[:32]
 
 
 def rgba(raw):

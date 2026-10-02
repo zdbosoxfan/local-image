@@ -83,7 +83,10 @@ export function createGenerationController(host: GenerationHost, token: string, 
     draftChange('edit', { references, missingReferenceCount: 0, ...initialSize, ...(!old ? { ratio: document.width / document.height, aspect: 'custom' } : {}) });
   }
   const unsubscribe = host.subscribeContext(() => {
-    const context = structuredClone(host.getContext()); update({ context });
+    const context = structuredClone(host.getContext());
+    const refresh = (item: RefinementImage) => context.document?.id === item.session.id && context.document.revision > item.session.revision
+      ? { ...item, session: structuredClone(context.document) } : item;
+    update({ context, draftImages: state.draftImages.map(refresh), resultImages: state.resultImages.map(refresh) });
     if (!state.working && !activatingMode && state.mode === 'edit' && context.document && context.document.id !== state.modeDocuments.edit?.id) bindEdit(context.document);
   });
   async function setMode(mode: GenerationMode, source?: EditorDocument) {
@@ -214,6 +217,7 @@ export function createGenerationController(host: GenerationHost, token: string, 
   return {
     getSnapshot: () => state, subscribe(listener: () => void) { listeners.add(listener); return () => listeners.delete(listener); }, refreshModels, acceptCatalog, setMode, chooseModel, modelFor, referencesFor, errorsFor, addReference, addDraft, selectedDraft, selectedResult, backgroundResult, applyGeneratedBackground, validUpscale, upscaleTarget, upscaleSizeControls, getLoraPort: loraPort, restoreDocument,
     activeDraftKey: (): DraftKey => state.mode === 'refine' ? 'draft' : state.mode,
+    resetWorkspace() { if (!state.working) update({mode: 'create', modeDocuments: {create: null, edit: null}, error: null, context: structuredClone(host.getContext())}); },
     boundsFor: (key: DraftKey) => host.sizeMath.dimensionBounds(state.drafts[key], workflowLimits(modelFor(key), referencesFor(key).length > 0)),
     forgetDocuments(ids: string[]) {
       const removed = new Set(ids), drafts = { ...state.drafts };
