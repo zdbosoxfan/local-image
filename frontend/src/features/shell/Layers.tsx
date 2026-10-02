@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { Button, Field, Input, Menu, MenuItem, MenuList, MenuPopover, MenuTrigger } from '@fluentui/react-components';
+import { Button, Field, Input, Menu, MenuItem, MenuList, MenuPopover, MenuTrigger, Tooltip } from '@fluentui/react-components';
 import type { EditorSnapshot, EditorCommands, Layer } from '../../contracts.ts';
 import { Icon } from './Icon.tsx';
 export interface LayerController { getSnapshot(): EditorSnapshot; subscribe(listener:()=>void):()=>void; commands: Pick<EditorCommands,'selectLayer'|'patchLayer'|'createRetouch'|'reorderLayer'|'addMask'|'mergeLayers'|'restoreLayer'> }
@@ -57,8 +57,8 @@ export function Layers({ controller, renameRequest, menuOpen, setMenuOpen }: { m
   }
   return <section className="li-layers" data-react-owned="true" aria-label="Layers" hidden={state.workspace === 'generate'}>
     <header className="li-panel-heading"><h2>Layers</h2><span className="li-count">{layers.length || ''}</span>
-      <Button size="small" appearance="subtle" aria-label="New retouch layer" title="New retouch layer" disabled={!active} onClick={() => commands.createRetouch()}>+</Button>
-      <Menu open={menuOpen} onOpenChange={(_,data)=>setMenuOpen(data.open)}><MenuTrigger disableButtonEnhancement><Button size="small" appearance="subtle" aria-label="Layer commands" disabled={!doc}>…</Button></MenuTrigger>
+      <Tooltip content="New retouch layer" relationship="description"><Button size="small" appearance="subtle" aria-label="New retouch layer" disabled={!active} icon={<Icon name="add"/>} onClick={() => commands.createRetouch()}/></Tooltip>
+      <Menu open={menuOpen} onOpenChange={(_,data)=>setMenuOpen(data.open)}><MenuTrigger disableButtonEnhancement><Button size="small" appearance="subtle" aria-label="Layer commands" title="Layer commands" disabled={!doc} icon={<Icon name="more"/>}/></MenuTrigger>
         <MenuPopover data-react-owned="true"><MenuList>
           <MenuItem disabled={!active} onClick={() => commands.createRetouch()}>New retouch layer</MenuItem>
           <MenuItem disabled={!active || !selected} onClick={() => selected && beginRename(selected)}>Rename layer</MenuItem>

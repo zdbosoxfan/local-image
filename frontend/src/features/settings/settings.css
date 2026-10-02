@@ -1,23 +1,35 @@
 .li-settings-surface.fui-DialogSurface { width:min(680px,calc(100vw - 32px)); max-width:calc(100vw - 32px); max-height:calc(100dvh - 32px); padding:20px; color:var(--colorNeutralForeground1); font-family:var(--fontFamilyBase); font-size:var(--ui-font,14px); }
 .li-settings-body { min-width:0; max-height:calc(100dvh - 72px); }
 .li-settings-content { display:flex; flex-direction:column; gap:12px; min-height:0; overflow:auto; overscroll-behavior:contain; padding-right:4px; }
-.li-settings-section { display:flex; flex-direction:column; gap:12px; min-width:0; }
+.li-settings-section { display:flex; flex-direction:column; gap:16px; min-width:0; }
 .li-settings-section p { margin:0; }
-.li-settings-group { display:flex; flex-direction:column; gap:8px; padding-block:8px; border-bottom:1px solid var(--colorNeutralStroke2); }
+.li-settings-group { display:flex; flex-direction:column; gap:8px; padding-block:4px; min-width:0; }
+.li-settings-group + .li-settings-group { border-top:1px solid var(--colorNeutralStroke2); padding-top:16px; }
 .li-settings-group h3 { font-size:inherit; font-weight:600; margin:0; }
 .li-settings-note { color:var(--colorNeutralForeground2); line-height:1.45; font-size:var(--ui-note,12px); overflow-wrap:anywhere; }
 .li-settings-error { color:var(--colorPaletteRedForeground1); margin:0; line-height:1.4; }
 .li-settings-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.li-settings-help { padding-top:4px; }
+.li-settings-interface-size { width:min(280px,100%); }
 .li-settings-toolbar { display:flex; gap:12px; justify-content:space-between; align-items:center; }
 .li-settings-toolbar > p { flex:1; min-width:0; }
-.li-settings-path { display:block; padding:6px 8px; background:var(--colorNeutralBackground2); border:1px solid var(--colorNeutralStroke2); border-radius:var(--borderRadiusMedium); overflow-wrap:anywhere; }
+.li-settings-path { display:block; color:var(--colorNeutralForeground2); font-size:var(--ui-note,12px); line-height:1.5; overflow-wrap:anywhere; }
+.li-settings-folder-row { display:flex; align-items:center; gap:12px; min-width:0; }
+.li-settings-folder-row > div { flex:1; min-width:0; }
+.li-settings-folder-row > .fui-Button { flex-shrink:0; }
 .li-settings-installation-choice { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:end; }
-.li-settings-model-download { display:grid; grid-template-columns:minmax(0,1fr) minmax(100px,160px) auto; gap:8px; align-items:end; }
+.li-settings-model-download { display:grid; grid-template-columns:minmax(0,1fr) minmax(120px,180px); gap:12px; align-items:end; }
 .li-settings-model-download > .fui-Field { min-width:0; }
+.li-settings-download-action { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.li-settings-download-action > p { flex:1; min-width:160px; }
 .li-settings-choice.fui-Button { width:100%; justify-content:space-between; gap:8px; text-align:left; }
 .li-settings-choice > span:first-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.li-settings-single-variant { display:block; padding:5px 8px; }
+.li-settings-choice-popover.fui-MenuPopover { max-width:min(560px,calc(100vw - 24px)); max-height:min(420px,calc(100dvh - 32px)); overflow:auto; }
+.li-settings-choice-popover .fui-MenuItemRadio { overflow-wrap:anywhere; white-space:normal; }
+.li-settings-single-variant { display:block; padding-block:5px; }
 .li-settings-disclosure { display:flex; flex-direction:column; gap:8px; }
+.li-settings-preference { display:flex; flex-direction:column; gap:4px; }
+.li-settings-preference > p { padding-left:28px; }
 .li-settings-file-list { list-style:none; padding:0; margin:0; }
 .li-settings-file-list li { display:flex; justify-content:space-between; gap:16px; padding-block:4px; }
 .li-settings-file-list li > span:first-child { min-width:0; overflow-wrap:anywhere; }
@@ -25,4 +37,6 @@
 .li-settings-job { display:flex; flex-direction:column; gap:6px; font-variant-numeric:tabular-nums; }
 :root[data-ui-density=large] .li-settings-surface.fui-DialogSurface { width:min(900px,calc(100vw - 24px)); padding:16px; }
 :root[data-ui-density=large] .li-settings-surface .fui-Button { min-height:44px; }
-@media(max-width:600px) { .li-settings-surface.fui-DialogSurface { width:calc(100vw - 16px); max-width:calc(100vw - 16px); padding:12px; } .li-settings-installation-choice { grid-template-columns:1fr; } .li-settings-model-download { grid-template-columns:minmax(0,1fr) minmax(90px,140px); }.li-settings-model-download > .fui-Button { grid-column:1 / -1; justify-self:start; } .li-settings-file-list li { flex-wrap:wrap; gap:4px; } }
+:root[data-ui-density=large] .li-settings-interface-size { width:min(420px,100%); }
+:root[data-ui-density=large] .li-settings-model-download { grid-template-columns:minmax(0,1fr) minmax(160px,240px); }
+@media(max-width:600px) { .li-settings-surface.fui-DialogSurface { width:calc(100vw - 16px); max-width:calc(100vw - 16px); padding:12px; } .li-settings-installation-choice { grid-template-columns:1fr; } .li-settings-model-download,:root[data-ui-density=large] .li-settings-model-download { grid-template-columns:minmax(0,1fr); } .li-settings-folder-row { flex-wrap:wrap; } .li-settings-folder-row > div { flex-basis:100%; } .li-settings-file-list li { flex-wrap:wrap; gap:4px; } }

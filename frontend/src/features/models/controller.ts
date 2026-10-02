@@ -12,10 +12,12 @@ export function createModelsController(options: { token: string; bridge: ModelBr
   let epoch = 0, versions = { catalog: 0, inventory: 0, search: 0, files: 0, poll: 0 }, timer: unknown = null, disposed = false;
   let modelSelection: ModelBrowserSelection = {}, loraPort: LoraDraftPort | null = null;
   let folderConnection: SetupState['model_folder_connection'], waitingForStart = false;
+  let preferenceWrite: Promise<{ show_adult_content: boolean }> | null = null;
   let state: ModelsSnapshot = immutable({ view: null, loading: false, pendingNative: false, error: '', message: '', nativeSetup: bridge.capabilities().setup,
     models: [], selectedModelId: '', selectedVariant: '', downloads: null, setup: null, hardware: null,
     context: null, selectedLoras: [], loraTab: 'installed', inventory: null, query: '', searchResults: [], searching: false, filesLoading: false,
-    files: null, selectedFilename: '', allowUnverified: false, info: null, loraJob: null, checkedAt: null });
+    files: null, selectedFilename: '', allowUnverified: false, info: null, loraJob: null, checkedAt: null,
+    showAdultContent: false, savingContentPreference: false, searchHiddenCount: 0 });
   function update(change: Partial<ModelsSnapshot>) { if (disposed) return; state = immutable({ ...state, ...structuredClone(change) }); for (const listener of listeners) listener(); }
   function refreshCapabilities() { const nativeSetup = bridge.capabilities().setup; if (nativeSetup !== state.nativeSetup) update({ nativeSetup }); }
   function stopPolling() { if (timer !== null) timers.clear(timer); timer = null; }
@@ -85,18 +87,42 @@ export function createModelsController(options: { token: string; bridge: ModelBr
     finally { update({ pendingNative: false }); }
   }
   function filteredCurated(query = state.query) { const needle = query.trim().toLowerCase(); return (state.inventory?.curated ?? []).filter(item => !needle || [item.title, item.style, item.description, item.repo_id].filter(Boolean).join(' ').toLowerCase().includes(needle)); }
+  function mergePublisherInfo(item: LoraItem, live?: LoraItem, label?: Pick<LoraItem, 'content_rating' | 'content_rating_source'>): LoraItem {
+    const result = { ...item };
+    if (live?.description) result.description = live.description;
+    const declared = label?.content_rating === 'adult' ? label : live?.content_rating === 'adult' ? live : label?.content_rating ? label : live;
+    if (declared?.content_rating && (declared.content_rating === 'adult' || result.content_rating !== 'adult')) {
+      result.content_rating = declared.content_rating;
+      result.content_rating_source = declared.content_rating_source;
+    }
+    return result;
+  }
   async function openLoras(port: LoraDraftPort) {
     stopPolling(); ++epoch; loraPort = port;
     const draft = port.read();
     update({ view: 'loras', loading: true, context: { contextId: port.contextId, modelId: draft.modelId, modelLabel: draft.modelLabel || draft.modelId, referenceCount: draft.referenceCount ?? 0, supportsLoras: draft.supportsLoras !== false },
-      selectedLoras: draft.selected, inventory: null, files: null, selectedFilename: '', allowUnverified: false, info: null, loraTab: 'installed', query: '', searchResults: [], searching: false, filesLoading: false, loraJob: null, checkedAt: null, error: '', message: '', nativeSetup: bridge.capabilities().setup });
+      selectedLoras: draft.selected, inventory: null, files: null, selectedFilename: '', allowUnverified: false, info: null, loraTab: 'installed', query: '', searchResults: [], searching: false, filesLoading: false, loraJob: null, checkedAt: null, error: '', message: '', nativeSetup: bridge.capabilities().setup,
+      showAdultContent: false, savingContentPreference: !!preferenceWrite, searchHiddenCount: 0 });
+    const openingEpoch = epoch;
+    let preferenceError = '';
+    try {
+      if (preferenceWrite) await preferenceWrite.catch(() => undefined);
+      const preference = await api.contentPreference();
+      if (disposed || openingEpoch !== epoch || !liveContext()) return;
+      update({ showAdultContent: preference.show_adult_content === true, savingContentPreference: false });
+    } catch (error) {
+      if (disposed || openingEpoch !== epoch || !liveContext()) return;
+      preferenceError = `Could not read the mature-content preference: ${errorText(error)} Mature entries remain hidden.`;
+      update({ showAdultContent: false, savingContentPreference: false });
+    }
     await loadInventory();
+    if (preferenceError && openingEpoch === epoch) update({ error: preferenceError });
   }
   async function loadInventory() {
     if (!liveContext()) return;
     const token = scope('inventory'); update({ loading: true });
     try {
-      const inventory = await api.inventory(state.context!.modelId); if (!valid(token)) return;
+      const inventory = await api.inventory(state.context!.modelId, state.showAdultContent); if (!valid(token)) return;
       const selected = loraPort!.read().selected.map(item => { const installed = inventory.installed.find(entry => entry.id === item.id); return { ...item, missing: !installed || installed.supported === false, ...(installed ? { title: installed.title || installed.filename || item.title, usage: installed.usage, trigger_phrase: installed.trigger_phrase } : {}) }; });
       loraPort!.setSelected(structuredClone(selected));
       update({ inventory, selectedLoras: selected, loraJob: inventory.job ?? null, loading: false, error: '', message: `Adapters for ${state.context!.modelLabel}. Select up to three.` });
@@ -106,23 +132,50 @@ export function createModelsController(options: { token: string; bridge: ModelBr
   async function search() {
     if (!liveContext() || state.loading) return;
     const token = scope('search'), query = state.query.trim(), recommended = filteredCurated(query);
-    update({ searching: true, searchResults: recommended, error: '', message: 'Searching current adapter metadata…' });
-    try { const value = await api.search(state.context!.modelId, query); if (!valid(token)) return;
-      const known = new Set(recommended.map(item => item.repo_id)); update({ searching: false, searchResults: [...recommended, ...value.results.filter(item => !known.has(item.repo_id))], checkedAt: Date.now(), message: 'Review compatibility and license details before choosing a file.' });
+    update({ searching: true, searchResults: recommended, searchHiddenCount: 0, error: '', message: 'Searching current adapter metadata…' });
+    try { const value = await api.search(state.context!.modelId, query, state.showAdultContent); if (!valid(token)) return;
+      const byRepo = new Map(value.results.map(item => [item.repo_id, item]));
+      const merge = (item: LoraItem) => mergePublisherInfo(item, byRepo.get(item.repo_id), item.repo_id ? value.content_labels?.[item.repo_id] : undefined);
+      const known = new Set(recommended.map(item => item.repo_id));
+      update({ inventory: state.inventory ? { ...state.inventory, curated: state.inventory.curated.map(merge) } : null,
+        searching: false, searchResults: [...recommended.map(merge), ...value.results.filter(item => !known.has(item.repo_id))], searchHiddenCount: Math.max(0, Number(value.hidden_count) || 0), checkedAt: Date.now(), message: 'Review compatibility and license details before choosing a file.' });
     } catch (error) { if (valid(token)) update({ searching: false, checkedAt: null, error: `Online search failed: ${errorText(error)} Installed adapters and recommended examples remain available.` }); }
   }
   async function inspectFiles(item: LoraItem) {
-    if (!liveContext() || !item.repo_id || item.supported === false) return;
+    if (!liveContext() || !item.repo_id || item.supported === false || (!state.showAdultContent && item.content_rating === 'adult')) return;
     const token = scope('files'); update({ filesLoading: true, files: null, selectedFilename: '', allowUnverified: false, info: null, error: '' });
-    try { const files = await api.files(state.context!.modelId, item.repo_id, item.revision); if (!valid(token)) return;
+    try { const files = await api.files(state.context!.modelId, item.repo_id, item.revision, state.showAdultContent); if (!valid(token)) return;
       update({ files, selectedFilename: files.files.some(file => file.filename === item.filename) ? item.filename! : files.files[0]?.filename || '', filesLoading: false, message: 'Select the exact adapter file to download. Downloading does not enable it.' });
     } catch (error) { if (valid(token)) update({ filesLoading: false, error: errorText(error) }); }
   }
   function selectedFile() { return state.files?.files.find(file => file.filename === state.selectedFilename); }
+  function loraItems() { return state.loraTab === 'installed' ? state.inventory?.installed ?? [] : state.searchResults; }
+  function visibleLoras() { return loraItems().filter(item => state.showAdultContent || item.content_rating !== 'adult'); }
+  function hiddenLoraCount() { return state.showAdultContent ? 0 : Math.max(loraItems().filter(item => item.content_rating === 'adult').length, state.loraTab === 'browse' ? state.searchHiddenCount : 0); }
+  async function setShowAdultContent(showAdultContent: boolean) {
+    if (!liveContext() || state.loading || state.savingContentPreference || locked() || showAdultContent === state.showAdultContent) return;
+    const previous = state.showAdultContent;
+    ++versions.search; ++versions.files; ++versions.inventory;
+    update({ showAdultContent, savingContentPreference: true, searchHiddenCount: 0, info: null, files: null, selectedFilename: '', allowUnverified: false, searching: false, filesLoading: false, error: '' });
+    const write = Promise.resolve().then(() => api.saveContentPreference(showAdultContent));
+    preferenceWrite = write;
+    try {
+      const preference = await write;
+      if (disposed || preferenceWrite !== write) return;
+      preferenceWrite = null;
+      update({ showAdultContent: preference.show_adult_content === true, savingContentPreference: false });
+      if (liveContext()) { await loadInventory(); if (state.loraTab === 'browse') await search(); }
+    } catch (error) {
+      if (disposed || preferenceWrite !== write) return;
+      preferenceWrite = null;
+      update({ showAdultContent: previous, savingContentPreference: false, error: `Could not save the mature-content preference: ${errorText(error)}` });
+    }
+  }
   function loraDownloadBlock() {
     const file = selectedFile();
     if (!bridge.capabilities().setup) return 'Adapter downloads require the desktop app. Installed adapters remain usable here.';
     if (!liveContext() || !file || !state.files) return 'Select an adapter file for the current model.';
+    if (!state.showAdultContent && file.content_rating === 'adult') return 'Enable mature content to browse this adapter.';
     if (state.context?.supportsLoras === false) return 'The selected workflow does not support adapters.';
     if (locked() || state.loraJob?.running) return 'An operation or adapter download is already running.';
     if (state.files.supported === false || file.supported === false) return file.warning || state.files.warning || 'This adapter is not supported by the selected workflow.';
@@ -132,13 +185,13 @@ export function createModelsController(options: { token: string; bridge: ModelBr
   }
   function setSelected(value: LoraSelection[]) { if (!liveContext()) return; loraPort!.setSelected(structuredClone(value)); update({ selectedLoras: value }); }
   function useLora(item: LoraItem) {
-    if (!liveContext() || locked() || !item.id || item.supported === false || state.context?.supportsLoras === false) return;
+    if (!liveContext() || locked() || !item.id || item.supported === false || state.context?.supportsLoras === false || (!state.showAdultContent && item.content_rating === 'adult')) return;
     const selected = loraPort!.read().selected; if (selected.length >= 3 || selected.some(value => value.id === item.id)) return;
     setSelected([...selected, { id: item.id, title: item.title || item.filename, strength: Number.isFinite(item.recommended_strength) ? Math.max(-2, Math.min(2, item.recommended_strength!)) : 1, usage: item.usage, trigger_phrase: item.trigger_phrase }]);
   }
   return {
     getSnapshot: () => state, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; }, isOpen: () => state.view !== null,
-    openModels, openLoras, close, refreshCapabilities, refreshModels, loadInventory, selectedModel, selectedVariant, modelDownloadBlock, selectedFile, loraDownloadBlock,
+    openModels, openLoras, close, refreshCapabilities, refreshModels, loadInventory, selectedModel, selectedVariant, modelDownloadBlock, selectedFile, loraDownloadBlock, visibleLoras, hiddenLoraCount, setShowAdultContent,
     selectModel: (id: string) => selectModel(id), selectVariant: (id: string) => { if (selectedModel()?.variants?.some(variant => variant.id === id)) update({ selectedVariant: id }); },
     useModel: () => { if (locked() || state.loading || state.downloads?.running || !selectedModel() || !selectedVariant()) return; const result = modelSelection.onUse?.(state.selectedModelId, state.selectedVariant); close(); return result; },
     downloadModel: async () => { if (modelDownloadBlock()) return; const model = state.selectedModelId, variant = state.selectedVariant; await nativeOperation(() => bridge.downloadModel(model, variant), poll); },
@@ -151,7 +204,7 @@ export function createModelsController(options: { token: string; bridge: ModelBr
     downloadLora: async () => { if (loraDownloadBlock()) return; const payload = { model: state.context!.modelId, repo_id: state.files!.repo_id, filename: state.selectedFilename, revision: state.files!.revision, allow_unverified: (selectedFile()?.compatibility || state.files?.compatibility || 'unverified') !== 'curated' && state.allowUnverified }; await nativeOperation(() => bridge.downloadLora(payload), poll); },
     useLora, removeLora: (id: string) => { if (liveContext() && !locked()) setSelected(loraPort!.read().selected.filter(item => item.id !== id)); },
     setStrength: (id: string, strength: number) => { if (liveContext() && !locked() && Number.isFinite(strength)) setSelected(loraPort!.read().selected.map(item => item.id === id ? { ...item, strength: Math.max(-2, Math.min(2, strength)) } : item)); },
-    showInfo: (info: LoraItem | null) => update({ info }),
+    showInfo: (info: LoraItem | null) => { if (!info || state.showAdultContent || info.content_rating !== 'adult') update({ info }); },
     addTrigger: (phrase: string) => { if (liveContext() && !locked() && phrase) { loraPort!.appendPrompt(phrase); update({ message: 'Trigger added to this draft. Review it before generating.' }); } },
     applySampling: (settings: { steps?: number; guidance?: number }) => { if (liveContext() && !locked()) { loraPort!.applySampling(settings); update({ message: 'Recommended sampling applied to this draft. Choose the installed adapter separately.' }); } },
     dispose: () => { disposed = true; ++epoch; stopPolling(); listeners.clear(); loraPort = null; },

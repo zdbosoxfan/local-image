@@ -60,6 +60,8 @@ def read_config():
             settings['setup_mode'] = raw['setup_mode']
         if type(raw.get('hardware_guide_dismissed')) is bool:
             settings['hardware_guide_dismissed'] = raw['hardware_guide_dismissed']
+        if type(raw.get('lora_show_adult_content')) is bool:
+            settings['lora_show_adult_content'] = raw['lora_show_adult_content']
     except (OSError, ValueError, AttributeError):
         pass
     return settings

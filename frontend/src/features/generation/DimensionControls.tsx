@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Button, Field, Input, Menu, MenuItemRadio, MenuList, MenuPopover, MenuTrigger, Popover, PopoverSurface, PopoverTrigger, Tooltip } from '@fluentui/react-components';
+import { Icon } from '../shell/Icon.tsx';
 
 export interface DimensionChoice { value: string; label: string }
 
@@ -18,7 +19,7 @@ export function DimensionPresetMenu({ id, label, value, choices, disabled, onSel
   return <Menu>
     <MenuTrigger disableButtonEnhancement><Tooltip content={`${label}: ${selected}`} relationship="description"><Button size="small" appearance="subtle" className="li-dimension-button" aria-label={`${label}: ${selected}`} disabled={disabled} icon={<DimensionIcon />} /></Tooltip></MenuTrigger>
     <MenuPopover><MenuList aria-label={label} checkedValues={{ [id]: [value] }}>
-      {choices.map(choice => <MenuItemRadio key={choice.value} name={id} value={choice.value} onClick={() => onSelect(choice.value)}>{choice.label}</MenuItemRadio>)}
+      {choices.map(choice => <MenuItemRadio key={choice.value} name={id} value={choice.value} disabled={disabled} onClick={() => onSelect(choice.value)}>{choice.label}</MenuItemRadio>)}
     </MenuList></MenuPopover>
   </Menu>;
 }
@@ -26,9 +27,9 @@ export function DimensionPresetMenu({ id, label, value, choices, disabled, onSel
 function SizeMemoryInfo({ label }: { label: string }) {
   const [open, setOpen] = useState(false), accessibleLabel = `${label} size and memory information`;
   return <Popover open={open} onOpenChange={(_, data) => setOpen(data.open)} positioning={{ position: 'below', align: 'end', autoSize: 'height', overflowBoundaryPadding: 16 }} withArrow trapFocus>
-    <PopoverTrigger disableButtonEnhancement><Tooltip content="Size & memory" relationship="description"><Button size="small" appearance="subtle" className="li-dimension-button" aria-label={accessibleLabel} icon={<svg className="li-dimension-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8" /><path d="M12 11v5m0-8h.01" /></svg>} /></Tooltip></PopoverTrigger>
+    <PopoverTrigger disableButtonEnhancement><Tooltip content="Size & memory" relationship="description"><Button size="small" appearance="subtle" className="li-dimension-button" aria-label={accessibleLabel} icon={<Icon name="info"/>} /></Tooltip></PopoverTrigger>
     <PopoverSurface className="li-dimension-memory" role="dialog" aria-label={accessibleLabel}>
-      <div className="li-dimension-memory-header"><strong>Size &amp; memory</strong><Button size="small" appearance="subtle" aria-label="Close size and memory information" onClick={() => setOpen(false)}>×</Button></div>
+      <div className="li-dimension-memory-header"><strong>Size &amp; memory</strong><Button size="small" appearance="subtle" className="li-generation-icon-button" aria-label="Close size and memory information" icon={<Icon name="close"/>} onClick={() => setOpen(false)}/></div>
       <p>If generation runs out of memory, reduce width or height.</p>
       <p>Sizes adjust for the selected model.</p>
     </PopoverSurface>

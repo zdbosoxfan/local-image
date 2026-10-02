@@ -36,7 +36,7 @@ export function FullApp({controller,shell,dialogs,assets,generation,batch,settin
   <div className="li-workspace-bar"><WorkspaceTabs state={state.tools} actions={controller.toolActions}/><Toolbar className="li-commandbar" aria-label="Editor commands" size="small">
    <ToolbarButton aria-label="Undo" title={state.undoLabel+' (Ctrl+Z)'} icon={<Icon name="undo"/>} disabled={!commands.undo.enabled} onClick={()=>execute('undo')}/>
    <ToolbarButton aria-label="Redo" title={state.redoLabel+' (Ctrl+Shift+Z)'} icon={<Icon name="redo"/>} disabled={!commands.redo.enabled} onClick={()=>execute('redo')}/>
-   <span className="li-divider"/><ToolbarButton disabled={!commands.fit.enabled} onClick={()=>execute('fit')}>Fit</ToolbarButton>
+   <span className="li-divider"/>
    <ToolbarButton icon={<Icon name="image"/>} disabled={!commands.showAssets.enabled} onClick={()=>execute('showAssets')}>Assets</ToolbarButton>
    {commands.showBatch.visible && <ToolbarButton id="batch-open" disabled={!commands.showBatch.enabled} onClick={()=>execute('showBatch')}>Remove backgrounds…</ToolbarButton>}
    <ToolbarButton aria-pressed={!state.inspectorHidden} aria-controls="inspector-root" disabled={state.refining||state.workspace==='generate'} onClick={controller.commands.toggleInspector}>Inspector</ToolbarButton>

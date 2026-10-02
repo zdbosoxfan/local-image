@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Button, Field, Input, Menu, MenuItem, MenuList, MenuPopover, MenuTrigger, Select, Slider, Tab, TabList, Toolbar, ToolbarButton } from '@fluentui/react-components';
+import { Button, Field, Input, Menu, MenuItem, MenuList, MenuPopover, MenuTrigger, Slider, Tab, TabList, Toolbar, ToolbarButton } from '@fluentui/react-components';
+import {ChoiceMenu} from './ChoiceMenu.tsx';
 import type { Transform, Workspace } from '../../contracts.ts';
 import './shell.css';
 
@@ -43,33 +44,33 @@ export function ToolRail({state,actions}:{state:ToolSnapshot;actions:ToolActions
     })}
   </Toolbar>;
 }
-export function NumberDraft({label,value,min,max,step=1,disabled,commit,suffix,hideLabel=false}:{label:string;value:number;min:number;max:number;step?:number;disabled:boolean;commit(value:number):unknown;suffix?:string;hideLabel?:boolean}) {
+export function NumberDraft({label,displayLabel,value,min,max,step=1,disabled,commit,suffix,hideLabel=false}:{label:string;displayLabel?:string;value:number;min:number;max:number;step?:number;disabled:boolean;commit(value:number):unknown;suffix?:string;hideLabel?:boolean}) {
   const [draft,setDraft]=useState(String(value));
   useEffect(()=>{setDraft(String(value));},[value,disabled]);
   const finish=()=>{const next=Number(draft);if(draft.trim()&&Number.isFinite(next)&&next>=min&&next<=max){if(next!==value)commit(next);}else setDraft(String(value));};
   const input=<Input size="small" aria-label={label} type="number" min={min} max={max} step={step} disabled={disabled} value={draft} contentAfter={suffix} onChange={(_,data)=>setDraft(data.value)} onBlur={finish} onKeyDown={event=>{
     event.stopPropagation();if(event.key==='Enter'){event.preventDefault();(event.target as HTMLInputElement).blur();}if(event.key==='Escape'){event.preventDefault();setDraft(String(value));}
   }}/>;
-  return hideLabel?input:<Field label={label} orientation="horizontal">{input}</Field>;
+  return hideLabel?input:<Field label={displayLabel ?? label} orientation="horizontal">{input}</Field>;
 }
 export function ToolOptions({state,actions,menuOpen,setMenuOpen,unavailableReason,openSetup}:{state:ToolSnapshot;actions:ToolActions;menuOpen:boolean;setMenuOpen(value:boolean):void;unavailableReason?:string;openSetup():void}) {
   if(state.workspace==='generate')return null;
   const selecting=!state.handActive&&state.tool!=='move'&&(state.workspace==='retouch'||state.maskReady);
   return <section className="li-tool-options" aria-label="Tool options">
-    {state.workspace==='cutout'&&!state.maskReady&&<><Select size="small" aria-label="Cutout model precision" disabled={state.busy} value={state.qwenVariant} onChange={(_,data)=>actions.qwenVariant(data.value)}>{state.qwenVariants.map(variant=><option key={variant.id} value={variant.id}>{variant.label}{variant.available===false?' · not installed':''}</option>)}</Select><Button size="small" disabled={!state.canRemoveBackground} onClick={()=>actions.removeBackground()}>Remove background</Button></>}
+    {state.workspace==='cutout'&&!state.maskReady&&<><ChoiceMenu label="Cutout model precision" disabled={state.busy} value={state.qwenVariant} choices={state.qwenVariants.map(variant=>({value:variant.id,label:variant.label+(variant.available===false?' · not installed':'')}))} onSelect={actions.qwenVariant}/><Button size="small" disabled={!state.canRemoveBackground} onClick={()=>actions.removeBackground()}>Remove background</Button></>}
     {state.workspace==='cutout'&&<><Menu open={menuOpen} onOpenChange={(_,data)=>setMenuOpen(data.open)}><MenuTrigger disableButtonEnhancement><Button size="small" disabled={state.busy||!state.hasDocument}>Add background</Button></MenuTrigger><MenuPopover data-react-owned="true"><MenuList><MenuItem onClick={()=>actions.importBackground()}>Import image…</MenuItem><MenuItem onClick={()=>actions.browseBackgrounds()}>Choose from Assets</MenuItem><MenuItem onClick={()=>actions.generateBackground()}>Generate background…</MenuItem></MenuList></MenuPopover></Menu>{state.maskReady&&<Button size="small" disabled={!state.canEdit} onClick={actions.edgeOptions}>Edge & shadow</Button>}</>}
     {state.tool==='move'&&!state.handActive&&state.transform&&<div className="li-transform-fields">
-      <NumberDraft label="Layer X" value={state.transform.offset_x} min={-100000} max={100000} disabled={!state.canTransform} commit={offset_x=>actions.transform({offset_x})}/>
-      <NumberDraft label="Layer Y" value={state.transform.offset_y} min={-100000} max={100000} disabled={!state.canTransform} commit={offset_y=>actions.transform({offset_y})}/>
-      <NumberDraft label="Layer scale" value={state.transform.scale*100} min={5} max={400} step={.1} suffix="%" disabled={!state.canTransform} commit={scale=>actions.transform({scale:scale/100})}/>
-      <NumberDraft label="Layer angle" value={state.transform.rotation} min={-180} max={180} step={.1} suffix="°" disabled={!state.canTransform} commit={rotation=>actions.transform({rotation})}/>
+      <NumberDraft label="Layer X" displayLabel="X" value={state.transform.offset_x} min={-100000} max={100000} disabled={!state.canTransform} commit={offset_x=>actions.transform({offset_x})}/>
+      <NumberDraft label="Layer Y" displayLabel="Y" value={state.transform.offset_y} min={-100000} max={100000} disabled={!state.canTransform} commit={offset_y=>actions.transform({offset_y})}/>
+      <NumberDraft label="Layer scale" displayLabel="Scale" value={state.transform.scale*100} min={5} max={400} step={.1} suffix="%" disabled={!state.canTransform} commit={scale=>actions.transform({scale:scale/100})}/>
+      <NumberDraft label="Layer angle" displayLabel="Angle" value={state.transform.rotation} min={-180} max={180} step={.1} suffix="°" disabled={!state.canTransform} commit={rotation=>actions.transform({rotation})}/>
     </div>}
     {selecting&&<>
       {state.tool==='brush'&&<div className="li-brush-size"><Field label="Size" orientation="horizontal"><Slider aria-label="Brush size" min={1} max={2000} value={state.brushSize} disabled={!state.canEdit} onChange={(_,data)=>actions.brushSize(data.value)}/></Field><NumberDraft label="Brush diameter" hideLabel value={state.brushSize} min={1} max={2000} suffix="px" disabled={!state.canEdit} commit={actions.brushSize}/></div>}
-      <div role="group" aria-label="Selection mode"><Button size="small" aria-pressed={!state.subtract} disabled={!state.canEdit} onClick={()=>actions.selectionMode(false)}>Add</Button><Button size="small" aria-pressed={state.subtract} disabled={!state.canEdit} onClick={()=>actions.selectionMode(true)}>Subtract</Button></div>
+      <div className="li-tool-choice-group" role="group" aria-label="Selection mode"><Button size="small" appearance="subtle" aria-pressed={!state.subtract} disabled={!state.canEdit} onClick={()=>actions.selectionMode(false)}>Add</Button><Button size="small" appearance="subtle" aria-pressed={state.subtract} disabled={!state.canEdit} onClick={()=>actions.selectionMode(true)}>Subtract</Button></div>
       {state.tool==='pen'&&<Button size="small" disabled={!state.canFinish} onClick={actions.finishPath}>Close path</Button>}
-      {state.workspace==='retouch'&&(state.operation==='heal'?<Select size="small" aria-label="Quick Heal method" value={state.healMethod} disabled={!state.canEdit} onChange={(_,data)=>actions.healMethod(data.value)}>{state.healMethods.map(method=><option key={method.id} value={method.id} disabled={method.available===false}>{method.label}</option>)}</Select>:<><Select size="small" aria-label="AI removal provider" value={state.aiProvider} disabled={state.busy} onChange={(_,data)=>actions.aiProvider(data.value as 'klein'|'qwen')}><option value="klein">FLUX.2 Klein</option><option value="qwen">Qwen Image 2.1</option></Select>{state.aiProvider==='qwen'&&<Select size="small" aria-label="Removal precision" value={state.qwenVariant} disabled={state.busy} onChange={(_,data)=>actions.qwenVariant(data.value)}>{state.qwenVariants.map(variant=><option key={variant.id} value={variant.id}>{variant.label}</option>)}</Select>}</>)}
-      {state.workspace==='cutout'&&<div role="group" aria-label="Mask operation"><Button size="small" aria-pressed={state.cutoutOperation==='erase'} disabled={!state.canEdit} onClick={()=>actions.cutoutOperation('erase')}>Erase</Button><Button size="small" aria-pressed={state.cutoutOperation==='restore'} disabled={!state.canEdit} onClick={()=>actions.cutoutOperation('restore')}>Restore</Button></div>}
+      {state.workspace==='retouch'&&(state.operation==='heal'?<ChoiceMenu label="Quick Heal method" value={state.healMethod} disabled={!state.canEdit} choices={state.healMethods.map(method=>({value:method.id,label:method.label,disabled:method.available===false}))} onSelect={actions.healMethod}/>:<><ChoiceMenu label="AI removal provider" value={state.aiProvider} disabled={state.busy} choices={[{value:'klein',label:'FLUX.2 Klein'},{value:'qwen',label:'Qwen Image 2.1'}]} onSelect={value=>actions.aiProvider(value as 'klein'|'qwen')}/>{state.aiProvider==='qwen'&&<ChoiceMenu label="Removal precision" value={state.qwenVariant} disabled={state.busy} choices={state.qwenVariants.map(variant=>({value:variant.id,label:variant.label}))} onSelect={actions.qwenVariant}/>}</>)}
+      {state.workspace==='cutout'&&<div className="li-tool-choice-group" role="group" aria-label="Mask operation"><Button size="small" appearance="subtle" aria-pressed={state.cutoutOperation==='erase'} disabled={!state.canEdit} onClick={()=>actions.cutoutOperation('erase')}>Erase</Button><Button size="small" appearance="subtle" aria-pressed={state.cutoutOperation==='restore'} disabled={!state.canEdit} onClick={()=>actions.cutoutOperation('restore')}>Restore</Button></div>}
       <Button size="small" appearance="primary" disabled={!state.canApply} onClick={()=>actions.applySelection()}>{state.applyLabel}</Button>
     </>}
     {unavailableReason&&state.hasDocument&&<div className="li-tool-readiness"><span role="status" title={unavailableReason}>{unavailableReason}</span><Button size="small" disabled={state.busy} onClick={openSetup}>Set up AI</Button></div>}

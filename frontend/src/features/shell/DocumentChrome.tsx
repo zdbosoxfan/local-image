@@ -1,5 +1,7 @@
 import type {CSSProperties} from 'react';
-import {Button,Select,Slider,Toolbar,ToolbarButton} from '@fluentui/react-components';
+import {Button,Slider,Toolbar,ToolbarButton,Tooltip} from '@fluentui/react-components';
+import {Icon} from './Icon.tsx';
+import {ChoiceMenu} from './ChoiceMenu.tsx';
 import './shell.css';
 
 export interface DocumentChromeState {
@@ -12,7 +14,7 @@ export interface DocumentChromeActions {close():unknown;toggleOriginal():void;ov
 export function DocumentBar({state,actions}:{state:DocumentChromeState;actions:DocumentChromeActions}){
  const detail=[state.dirty?'Image modified':'Image unchanged',state.projectDirty?'Editable project needs saving':'Project up to date',state.selectionPending?'Unapplied selection':''].filter(Boolean).join(' · ');
  return <header className="li-document-bar" aria-label="Active document">
-  <div className="li-document-identity"><strong title={state.name}>{state.id?state.name:'No image open'}</strong>{state.id&&<><span className="li-document-size">{state.width} × {state.height} · {state.bitDepth}-bit source</span><Button size="small" appearance="subtle" aria-label="Close image" disabled={state.busy} onClick={()=>actions.close()}>×</Button></>}</div>
+  <div className="li-document-identity"><strong title={state.name}>{state.id?state.name:'No image open'}</strong>{state.id&&<><span className="li-document-size">{state.width} × {state.height} · {state.bitDepth}-bit source</span><Tooltip content="Close image" relationship="description"><Button size="small" appearance="subtle" aria-label="Close image" disabled={state.busy} icon={<Icon name="close"/>} onClick={()=>actions.close()}/></Tooltip></>}</div>
   {state.id&&<div className="li-document-actions"><span className="li-document-state" title={detail} aria-label={detail}>{state.dirty?'Modified':state.selectionPending?'Selection pending':state.projectDirty?'Project unsaved':''}</span><Button size="small" appearance="subtle" aria-pressed={state.showOriginal} disabled={state.busy} onClick={actions.toggleOriginal}>{state.showOriginal?'Back to edits':'Original'}</Button>
    {state.canReturn?<><Button size="small" appearance="subtle" disabled={state.busy} onClick={()=>actions.overwrite()}>Save</Button><Button size="small" appearance="subtle" disabled={state.busy} onClick={()=>actions.saveUnique()}>Save a copy</Button></>:<Button size="small" appearance="subtle" disabled={state.busy} onClick={()=>actions.export()}>Export</Button>}
   </div>}
@@ -22,7 +24,7 @@ export function StatusBar({state,actions}:{state:DocumentChromeState;actions:Doc
  const label=(state.zoom*100<10?(state.zoom*100).toFixed(1):(state.zoom*100).toFixed(0))+'%',presets=[.1,.25,.5,1,2,4];
  const exact=presets.find(value=>Math.abs(value-state.zoom)<.00001),value=exact===undefined?'custom':String(exact);
  return <footer className="li-status-bar"><span className="li-tool-hint" title={state.toolHint}>{state.toolHint}</span><span className={state.error?'li-status-error':'li-status-message'} role="status" title={state.status}>{state.status}</span>
-  <Toolbar size="small" className="li-zoom-controls" aria-label="Canvas view"><ToolbarButton aria-label="Zoom out" disabled={!state.id} onClick={()=>actions.zoomBy(.8)}>−</ToolbarButton><Select size="small" aria-label="Image zoom" title={label+' of full photo size'} disabled={!state.id} value={value} onChange={(_,data)=>{if(data.value!=='custom')actions.zoom(Number(data.value));}}>{exact===undefined&&<option value="custom">{label}</option>}{presets.map(zoom=><option key={zoom} value={zoom}>{zoom*100}%</option>)}</Select><ToolbarButton aria-label="Zoom in" disabled={!state.id} onClick={()=>actions.zoomBy(1.25)}>+</ToolbarButton><ToolbarButton disabled={!state.id} aria-pressed={state.fit} onClick={actions.fit}>Fit</ToolbarButton></Toolbar>
+  <Toolbar size="small" className="li-zoom-controls" aria-label="Canvas view"><ToolbarButton aria-label="Zoom out" disabled={!state.id} onClick={()=>actions.zoomBy(.8)} icon={<Icon name="subtract"/>}/><ChoiceMenu label="Image zoom" disabled={!state.id} value={value} choices={[...(exact===undefined?[{value:'custom',label}]:[]),...presets.map(zoom=>({value:String(zoom),label:`${zoom*100}%`}))]} onSelect={next=>{if(next!=='custom')actions.zoom(Number(next));}}/><ToolbarButton aria-label="Zoom in" disabled={!state.id} onClick={()=>actions.zoomBy(1.25)} icon={<Icon name="add"/>}/><ToolbarButton disabled={!state.id} aria-pressed={state.fit} onClick={actions.fit}>Fit</ToolbarButton></Toolbar>
  </footer>;
 }
 export interface FilmstripEntry {id:string;name:string;thumbnail:string|null;dirty:boolean;projectDirty:boolean;selected:boolean}

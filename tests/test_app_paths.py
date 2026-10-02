@@ -82,6 +82,14 @@ class UserStorageTests(unittest.TestCase):
             self.assertEqual(app_paths.managed_ai_dir(), self.root / 'Portable AI')
         self.assertEqual(app_paths.read_config()['setup_mode'], 'portable')
 
+    def test_gallery_audience_preference_requires_real_boolean_and_survives_other_updates(self):
+        app_paths.write_config({'lora_show_adult_content':True})
+        self.assertTrue(app_paths.read_config()['lora_show_adult_content'])
+        app_paths.write_config({'comfy_port':8189})
+        self.assertTrue(app_paths.read_config()['lora_show_adult_content'])
+        app_paths.write_config({'lora_show_adult_content':'true'})
+        self.assertNotIn('lora_show_adult_content',app_paths.read_config())
+
     def test_workflow_is_copied_once_and_user_changes_survive(self):
         resources = self.root / 'Read Only Install'
         resources.mkdir()

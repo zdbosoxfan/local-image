@@ -6,6 +6,11 @@
 .li-tool-rail .fui-Button[aria-pressed=true],.li-tool-options .fui-Button[aria-pressed=true] { background:var(--colorNeutralBackground1Selected); color:var(--colorBrandForeground1); }
 .li-tool-options { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:4px 12px; min-height:44px; border-bottom:1px solid var(--colorNeutralStroke2); background:var(--colorNeutralBackground2); }
 .li-tool-options .fui-Button { min-width:0; }
+.li-shell-choice.fui-Button { display:flex; justify-content:space-between; gap:8px; min-width:0; max-width:100%; }
+.li-shell-choice>span:first-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.li-shell-choice-menu { max-width:min(480px,calc(100vw - 24px)); }
+.li-shell-choice-menu .fui-MenuItemRadio { white-space:normal; overflow-wrap:anywhere; }
+.li-tool-choice-group { display:flex; gap:2px; align-items:center; padding-inline:8px; border-left:1px solid var(--colorNeutralStroke2); }
 .li-tool-readiness { display:flex; align-items:center; gap:8px; min-width:0; flex:1; }
 .li-tool-readiness>span { color:var(--colorNeutralForeground3); font-size:var(--ui-note); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
 .li-tool-readiness>.fui-Button { flex:none; }
