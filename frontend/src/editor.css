@@ -36,12 +36,6 @@ body {
 [hidden] {
   display: none !important;
 }
-.symbol-library {
-  position: absolute;
-  width: 0;
-  height: 0;
-  overflow: hidden;
-}
 #react-app-root,
 #status-root {
   flex: none;

@@ -93,14 +93,18 @@ export function Layers({
           title="New retouch layer"
           disabled={!active}
           onClick={() => commands.createRetouch()}
-        >
-          +
-        </Button>
+          icon={<Icon name="add" />}
+        />
         <Menu open={menuOpen} onOpenChange={(_, data) => setMenuOpen(data.open)}>
           <MenuTrigger disableButtonEnhancement>
-            <Button size="small" appearance="subtle" aria-label="Layer commands" disabled={!doc}>
-              …
-            </Button>
+            <Button
+              size="small"
+              appearance="subtle"
+              aria-label="Layer commands"
+              title="Layer commands"
+              disabled={!doc}
+              icon={<Icon name="more" />}
+            />
           </MenuTrigger>
           <MenuPopover data-react-owned="true">
             <MenuList>
@@ -280,7 +284,7 @@ export function Layers({
                 event.stopPropagation();
                 commands.patchLayer(layer.id, { locked: !layer.locked });
               }}
-              icon={<Icon name="lock" />}
+              icon={<Icon name={layer.locked ? 'lock' : 'unlock'} />}
             />
           </div>
         ))}

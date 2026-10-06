@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { Button, Select, Slider, Toolbar, ToolbarButton } from '@fluentui/react-components';
+import { Icon } from './Icon.tsx';
 import './shell.css';
 
 export interface DocumentChromeState {
@@ -53,9 +54,8 @@ export function DocumentBar({ state, actions }: { state: DocumentChromeState; ac
               aria-label="Close image"
               disabled={state.busy}
               onClick={() => actions.close()}
-            >
-              ×
-            </Button>
+              icon={<Icon name="close" />}
+            />
           </>
         )}
       </div>
@@ -112,9 +112,12 @@ export function StatusBar({ state, actions }: { state: DocumentChromeState; acti
         {state.status}
       </span>
       <Toolbar size="small" className="li-zoom-controls" aria-label="Canvas view">
-        <ToolbarButton aria-label="Zoom out" disabled={!state.id} onClick={() => actions.zoomBy(0.8)}>
-          −
-        </ToolbarButton>
+        <ToolbarButton
+          aria-label="Zoom out"
+          disabled={!state.id}
+          onClick={() => actions.zoomBy(0.8)}
+          icon={<Icon name="zoom-out" />}
+        />
         <Select
           size="small"
           aria-label="Image zoom"
@@ -132,9 +135,12 @@ export function StatusBar({ state, actions }: { state: DocumentChromeState; acti
             </option>
           ))}
         </Select>
-        <ToolbarButton aria-label="Zoom in" disabled={!state.id} onClick={() => actions.zoomBy(1.25)}>
-          +
-        </ToolbarButton>
+        <ToolbarButton
+          aria-label="Zoom in"
+          disabled={!state.id}
+          onClick={() => actions.zoomBy(1.25)}
+          icon={<Icon name="zoom-in" />}
+        />
         <ToolbarButton disabled={!state.id} aria-pressed={state.fit} onClick={actions.fit}>
           Fit
         </ToolbarButton>
@@ -205,18 +211,16 @@ export function Filmstrip({
           aria-label="Previous image"
           disabled={busy || index <= 0}
           onClick={() => onPrevious()}
-        >
-          ←
-        </Button>
+          icon={<Icon name="previous" />}
+        />
         <Button
           size="small"
           appearance="subtle"
           aria-label="Next image"
           disabled={busy || index >= entries.length - 1}
           onClick={() => onNext()}
-        >
-          →
-        </Button>
+          icon={<Icon name="next" />}
+        />
       </header>
       {!collapsed && (
         <div className="li-filmstrip-items">

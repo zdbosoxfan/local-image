@@ -16,6 +16,7 @@ import {
   ToolbarButton,
 } from '@fluentui/react-components';
 import type { Transform, Workspace } from '../../contracts.ts';
+import { Icon, type IconName } from './Icon.tsx';
 import './shell.css';
 
 export type Tool = 'heal' | 'brush' | 'pen' | 'rectangle' | 'ellipse' | 'move' | 'hand';
@@ -64,7 +65,7 @@ export interface ToolActions {
   edgeOptions(): void;
   transform(value: Partial<Transform>): unknown;
 }
-const tools: Array<{ id: Tool; label: string; symbol: string }> = [
+const tools: Array<{ id: Tool; label: string; symbol: IconName }> = [
   { id: 'move', label: 'Move layer (V)', symbol: 'move' },
   { id: 'heal', label: 'Quick Heal brush (J)', symbol: 'heal' },
   { id: 'brush', label: 'Brush selection (B)', symbol: 'brush' },
@@ -124,11 +125,7 @@ export function ToolRail({ state, actions }: { state: ToolSnapshot; actions: Too
               aria-pressed={selected}
               disabled={tool.id === 'hand' ? !state.hasDocument : !state.canEdit}
               onClick={() => actions.tool(tool.id)}
-              icon={
-                <svg className="li-icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <use href={`#i-${tool.symbol}`} />
-                </svg>
-              }
+              icon={<Icon name={tool.symbol} />}
             />
           );
         })}

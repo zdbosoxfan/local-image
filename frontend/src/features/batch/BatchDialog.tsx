@@ -24,6 +24,7 @@ import {
 } from '@fluentui/react-components';
 import type { BatchController } from './controller.ts';
 import type { BatchFormat, BatchItemStatus } from './contracts.ts';
+import { Icon } from '../shell/Icon.tsx';
 import './batch.css';
 
 const formats: { value: BatchFormat; label: string }[] = [
@@ -114,9 +115,13 @@ export function BatchDialog({ controller }: { controller: BatchController }) {
           <DialogBody className="li-batch-body">
             <DialogTitle
               action={
-                <Button appearance="subtle" aria-label="Close batch window" id="batch-close" onClick={controller.close}>
-                  ×
-                </Button>
+                <Button
+                  appearance="subtle"
+                  aria-label="Close batch window"
+                  id="batch-close"
+                  onClick={controller.close}
+                  icon={<Icon name="close" />}
+                />
               }
             >
               Batch treatment & export

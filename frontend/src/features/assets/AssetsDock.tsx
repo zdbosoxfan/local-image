@@ -4,6 +4,7 @@ import { Button, Checkbox, Field, Input, Select, Tab, TabList } from '@fluentui/
 import { safeCreditUrl } from './api.ts';
 import type { AssetsController } from './controller.ts';
 import type { AssetTab, StockProviderId } from './types.ts';
+import { Icon } from '../shell/Icon.tsx';
 import './assets.css';
 
 function CreditLink({ href, children }: { href?: string; children: ReactNode }) {
@@ -114,9 +115,14 @@ export function AssetsDock({ controller }: { controller: AssetsController }) {
         >
           {state.expanded ? 'Collapse' : 'Expand'}
         </Button>
-        <Button size="small" appearance="subtle" aria-label="Close Assets" disabled={locked} onClick={controller.close}>
-          ×
-        </Button>
+        <Button
+          size="small"
+          appearance="subtle"
+          aria-label="Close Assets"
+          disabled={locked}
+          onClick={controller.close}
+          icon={<Icon name="close" />}
+        />
       </header>
       <TabList
         size="small"

@@ -28,6 +28,7 @@ import {
 } from '@fluentui/react-components';
 import type { SettingsController } from './settingsController.ts';
 import type { InterfaceDensity, SettingsSnapshot, SetupState } from './types.ts';
+import { Icon } from '../shell/Icon.tsx';
 import './settings.css';
 
 export function setupBytes(value: number | undefined) {
@@ -85,9 +86,8 @@ export function SettingsDialogs({ controller }: { controller: SettingsController
                 appearance="subtle"
                 aria-label={`Close ${title.toLowerCase()}`}
                 onClick={() => controller.close()}
-              >
-                ×
-              </Button>
+                icon={<Icon name="close" />}
+              />
             }
           >
             {title}

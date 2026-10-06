@@ -14,6 +14,7 @@ import {
 import type { DocumentController } from '../../editor/documentController.ts';
 import type { ShellController } from './shellController.ts';
 import { NumberDraft } from './ToolControls.tsx';
+import { Icon } from './Icon.tsx';
 
 export function CutoutProperties({ controller, shell }: { controller: DocumentController; shell: ShellController }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot),
@@ -36,8 +37,10 @@ export function CutoutProperties({ controller, shell }: { controller: DocumentCo
         size="small"
         aria-expanded={ui.cutoutProperties}
         onClick={() => shell.showCutoutProperties(!ui.cutoutProperties)}
+        icon={<Icon name={ui.cutoutProperties ? 'collapse' : 'expand'} />}
+        iconPosition="after"
       >
-        Edge & shadow {ui.cutoutProperties ? '−' : '+'}
+        Edge & shadow
       </Button>
       {ui.cutoutProperties && (
         <div className="li-cutout-fields">

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Button } from '@fluentui/react-components';
 import type { EditorDocument } from '../../contracts.ts';
+import { Icon } from '../shell/Icon.tsx';
 
 /** These are comparison previews, separate from the persistent editing canvas.
  * Pixel-scale camera and pointer movement stay in refs and DOM styles. */
@@ -77,13 +78,19 @@ export function Comparison({ draft, result }: { draft?: EditorDocument; result?:
         >
           100%
         </Button>
-        <Button size="small" aria-label="Zoom comparison out" onClick={() => zoom(1 / 1.25)}>
-          −
-        </Button>
+        <Button
+          size="small"
+          aria-label="Zoom comparison out"
+          onClick={() => zoom(1 / 1.25)}
+          icon={<Icon name="zoom-out" />}
+        />
         <span ref={zoomLabel}>Fit</span>
-        <Button size="small" aria-label="Zoom comparison in" onClick={() => zoom(1.25)}>
-          +
-        </Button>
+        <Button
+          size="small"
+          aria-label="Zoom comparison in"
+          onClick={() => zoom(1.25)}
+          icon={<Icon name="zoom-in" />}
+        />
       </div>
       <div className="li-generation-comparison-pair">
         {(

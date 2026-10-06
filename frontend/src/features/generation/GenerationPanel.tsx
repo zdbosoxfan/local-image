@@ -13,6 +13,7 @@ import {
 import { Comparison } from './Comparison.tsx';
 import type { GenerationController } from './controller.ts';
 import type { DraftKey, GenerationMode } from './types.ts';
+import { Icon } from '../shell/Icon.tsx';
 import './generation.css';
 
 function Stage({ controller, stage }: { controller: GenerationController; stage: DraftKey }) {
@@ -256,18 +257,16 @@ function Stage({ controller, stage }: { controller: GenerationController; stage:
                   aria-label={`Move ${item.name} earlier`}
                   disabled={disabled || index <= (stage === 'edit' ? 1 : 0)}
                   onClick={() => controller.moveReference(stage, item.id, -1)}
-                >
-                  ↑
-                </Button>
+                  icon={<Icon name="move-up" />}
+                />
                 <Button
                   size="small"
                   appearance="subtle"
                   aria-label={`Remove ${item.name}`}
                   disabled={disabled || (stage === 'edit' && index === 0)}
                   onClick={() => controller.removeReference(stage, item.id)}
-                >
-                  ×
-                </Button>
+                  icon={<Icon name="close" />}
+                />
               </>
             )}
           </div>

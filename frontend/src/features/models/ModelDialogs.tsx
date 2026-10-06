@@ -19,6 +19,7 @@ import {
 } from '@fluentui/react-components';
 import type { ModelsController } from './controller.ts';
 import type { DownloadJob, LoraItem, LoraSelection, ModelsSnapshot } from './types.ts';
+import { Icon } from '../shell/Icon.tsx';
 import './models.css';
 
 const bytes = (value: number | undefined) => {
@@ -69,9 +70,8 @@ export function ModelDialogs({ controller }: { controller: ModelsController }) {
                 appearance="subtle"
                 aria-label={`Close ${title.toLowerCase()}`}
                 onClick={() => controller.close()}
-              >
-                ×
-              </Button>
+                icon={<Icon name="close" />}
+              />
             }
           >
             {title}
@@ -356,9 +356,8 @@ function LoraBrowser({ controller, state }: { controller: ModelsController; stat
                 aria-label={`Remove ${item.title || item.id}`}
                 disabled={state.pendingNative}
                 onClick={() => controller.removeLora(item.id)}
-              >
-                ×
-              </Button>
+                icon={<Icon name="close" />}
+              />
             </div>
           ))}
         </section>
@@ -457,9 +456,8 @@ function LoraBrowser({ controller, state }: { controller: ModelsController; stat
               appearance="subtle"
               aria-label="Close adapter information"
               onClick={() => controller.showInfo(null)}
-            >
-              ×
-            </Button>
+              icon={<Icon name="close" />}
+            />
           </div>
           <LoraDetails item={state.info} controller={controller} />
           <p className="li-models-note">
