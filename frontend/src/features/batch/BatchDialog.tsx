@@ -1,5 +1,9 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
+  Accordion,
+  AccordionHeader,
+  AccordionItem,
+  AccordionPanel,
   Button,
   Checkbox,
   Dialog,
@@ -399,42 +403,46 @@ export function BatchDialog({ controller }: { controller: BatchController }) {
                   />
                 )}
               </div>
-              <details className="li-batch-history">
-                <summary>Previous queues & cache</summary>
-                <div className="li-batch-history-controls">
-                  <Select
-                    id="batch-history-select"
-                    aria-label="Previous batch queue"
-                    value={state.historyId}
-                    disabled={locked}
-                    onChange={(_, data) => controller.setHistory(data.value)}
-                  >
-                    {!state.queues.length && <option value="">No previous queues</option>}
-                    {state.queues.map(queue => (
-                      <option key={queue.id} value={queue.id}>
-                        {queue.name} · {new Date(queue.created * 1000).toLocaleString()} · {queue.phase}
-                      </option>
-                    ))}
-                  </Select>
-                  <Button
-                    id="batch-load-queue"
-                    disabled={locked || !state.historyId}
-                    onClick={() => void controller.loadQueue()}
-                  >
-                    Review queue
-                  </Button>
-                  <Button
-                    id="batch-clear-queue"
-                    disabled={locked || !state.historyId}
-                    onClick={controller.confirmQueueClear}
-                  >
-                    Clear queue cache
-                  </Button>
-                  <span id="batch-cache-size" className="li-batch-note">
-                    Cache {bytes(state.cacheBytes)} · treatments {bytes(state.treatmentBytes)}
-                  </span>
-                </div>
-              </details>
+              <Accordion collapsible className="li-batch-history">
+                <AccordionItem value="section">
+                  <AccordionHeader size="small">Previous queues & cache</AccordionHeader>
+                  <AccordionPanel>
+                    <div className="li-batch-history-controls">
+                      <Select
+                        id="batch-history-select"
+                        aria-label="Previous batch queue"
+                        value={state.historyId}
+                        disabled={locked}
+                        onChange={(_, data) => controller.setHistory(data.value)}
+                      >
+                        {!state.queues.length && <option value="">No previous queues</option>}
+                        {state.queues.map(queue => (
+                          <option key={queue.id} value={queue.id}>
+                            {queue.name} · {new Date(queue.created * 1000).toLocaleString()} · {queue.phase}
+                          </option>
+                        ))}
+                      </Select>
+                      <Button
+                        id="batch-load-queue"
+                        disabled={locked || !state.historyId}
+                        onClick={() => void controller.loadQueue()}
+                      >
+                        Review queue
+                      </Button>
+                      <Button
+                        id="batch-clear-queue"
+                        disabled={locked || !state.historyId}
+                        onClick={controller.confirmQueueClear}
+                      >
+                        Clear queue cache
+                      </Button>
+                      <span id="batch-cache-size" className="li-batch-note">
+                        Cache {bytes(state.cacheBytes)} · treatments {bytes(state.treatmentBytes)}
+                      </span>
+                    </div>
+                  </AccordionPanel>
+                </AccordionItem>
+              </Accordion>
             </DialogContent>
             <DialogActions className="li-batch-actions">
               <span className="li-batch-note">Exports use new filenames. Originals remain intact.</span>

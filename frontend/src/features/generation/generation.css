@@ -49,13 +49,11 @@
 .li-generation p {
   margin: 0;
 }
-.li-generation details > summary {
-  cursor: pointer;
-  padding: 4px 0;
-  font-size: var(--ui-note);
-}
-.li-generation details[open] > :not(summary) {
-  margin-top: 8px;
+.li-generation .fui-AccordionPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 8px;
 }
 .li-generation-size {
   display: grid;

@@ -13,7 +13,8 @@ import {
   Tab,
   TabList,
   Toolbar,
-  ToolbarButton,
+  ToolbarRadioButton,
+  ToolbarToggleButton,
 } from '@fluentui/react-components';
 import type { Transform, Workspace } from '../../contracts.ts';
 import { Icon, type IconName } from './Icon.tsx';
@@ -97,38 +98,44 @@ export function WorkspaceTabs({ state, actions }: { state: ToolSnapshot; actions
 }
 export function ToolRail({ state, actions }: { state: ToolSnapshot; actions: ToolActions }) {
   if (state.workspace === 'generate') return null;
+  const isActive = (id: Tool) =>
+    id === 'hand'
+      ? state.handActive
+      : !state.handActive &&
+        (id === 'heal'
+          ? state.operation === 'heal' && state.tool === 'brush'
+          : id === 'brush'
+            ? state.tool === 'brush' && (state.workspace === 'cutout' || state.operation === 'ai')
+            : state.tool === id);
+  const visible = tools.filter(
+    tool =>
+      tool.id === 'move' ||
+      tool.id === 'hand' ||
+      state.workspace === 'retouch' ||
+      (state.maskReady && tool.id !== 'heal'),
+  );
+  const activeTool = visible.find(tool => isActive(tool.id))?.id;
   return (
-    <Toolbar className="li-tool-rail" vertical size="small" aria-label="Editing tools">
-      {tools
-        .filter(
-          tool =>
-            tool.id === 'move' ||
-            tool.id === 'hand' ||
-            state.workspace === 'retouch' ||
-            (state.maskReady && tool.id !== 'heal'),
-        )
-        .map(tool => {
-          const selected =
-            tool.id === 'hand'
-              ? state.handActive
-              : !state.handActive &&
-                (tool.id === 'heal'
-                  ? state.operation === 'heal' && state.tool === 'brush'
-                  : tool.id === 'brush'
-                    ? state.tool === 'brush' && (state.workspace === 'cutout' || state.operation === 'ai')
-                    : state.tool === tool.id);
-          return (
-            <ToolbarButton
-              key={tool.id}
-              aria-label={tool.label}
-              title={tool.label}
-              aria-pressed={selected}
-              disabled={tool.id === 'hand' ? !state.hasDocument : !state.canEdit}
-              onClick={() => actions.tool(tool.id)}
-              icon={<Icon name={tool.symbol} />}
-            />
-          );
-        })}
+    <Toolbar
+      className="li-tool-rail"
+      vertical
+      size="small"
+      aria-label="Editing tools"
+      checkedValues={{ tools: activeTool ? [activeTool] : [] }}
+    >
+      {visible.map(tool => (
+        <ToolbarToggleButton
+          key={tool.id}
+          name="tools"
+          value={tool.id}
+          appearance="subtle"
+          aria-label={tool.label}
+          title={tool.label}
+          disabled={tool.id === 'hand' ? !state.hasDocument : !state.canEdit}
+          onClick={() => actions.tool(tool.id)}
+          icon={<Icon name={tool.symbol} />}
+        />
+      ))}
     </Toolbar>
   );
 }
@@ -326,24 +333,31 @@ export function ToolOptions({
               />
             </div>
           )}
-          <div role="group" aria-label="Selection mode">
-            <Button
-              size="small"
-              aria-pressed={!state.subtract}
+          <Toolbar
+            size="small"
+            aria-label="Selection mode"
+            checkedValues={{ selectionMode: [state.subtract ? 'subtract' : 'add'] }}
+            onCheckedValueChange={(_, data) => actions.selectionMode(data.checkedItems[0] === 'subtract')}
+          >
+            <ToolbarRadioButton
+              name="selectionMode"
+              value="add"
+              appearance="subtle"
               disabled={!state.canEdit}
-              onClick={() => actions.selectionMode(false)}
+              icon={<Icon name="select-add" />}
             >
               Add
-            </Button>
-            <Button
-              size="small"
-              aria-pressed={state.subtract}
+            </ToolbarRadioButton>
+            <ToolbarRadioButton
+              name="selectionMode"
+              value="subtract"
+              appearance="subtle"
               disabled={!state.canEdit}
-              onClick={() => actions.selectionMode(true)}
+              icon={<Icon name="select-subtract" />}
             >
               Subtract
-            </Button>
-          </div>
+            </ToolbarRadioButton>
+          </Toolbar>
           {state.tool === 'pen' && (
             <Button size="small" disabled={!state.canFinish} onClick={actions.finishPath}>
               Close path
@@ -394,24 +408,31 @@ export function ToolOptions({
               </>
             ))}
           {state.workspace === 'cutout' && (
-            <div role="group" aria-label="Mask operation">
-              <Button
-                size="small"
-                aria-pressed={state.cutoutOperation === 'erase'}
+            <Toolbar
+              size="small"
+              aria-label="Mask operation"
+              checkedValues={{ maskOperation: [state.cutoutOperation] }}
+              onCheckedValueChange={(_, data) => actions.cutoutOperation(data.checkedItems[0] as 'erase' | 'restore')}
+            >
+              <ToolbarRadioButton
+                name="maskOperation"
+                value="erase"
+                appearance="subtle"
                 disabled={!state.canEdit}
-                onClick={() => actions.cutoutOperation('erase')}
+                icon={<Icon name="erase" />}
               >
                 Erase
-              </Button>
-              <Button
-                size="small"
-                aria-pressed={state.cutoutOperation === 'restore'}
+              </ToolbarRadioButton>
+              <ToolbarRadioButton
+                name="maskOperation"
+                value="restore"
+                appearance="subtle"
                 disabled={!state.canEdit}
-                onClick={() => actions.cutoutOperation('restore')}
+                icon={<Icon name="restore" />}
               >
                 Restore
-              </Button>
-            </div>
+              </ToolbarRadioButton>
+            </Toolbar>
           )}
           <Button size="small" appearance="primary" disabled={!state.canApply} onClick={() => actions.applySelection()}>
             {state.applyLabel}

@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { Button, Select, Slider, Toolbar, ToolbarButton } from '@fluentui/react-components';
+import { Button, Select, Slider, ToggleButton, Toolbar, ToolbarButton } from '@fluentui/react-components';
 import { Icon } from './Icon.tsx';
 import './shell.css';
 
@@ -70,15 +70,16 @@ export function DocumentBar({ state, actions }: { state: DocumentChromeState; ac
                   ? 'Project unsaved'
                   : ''}
           </span>
-          <Button
+          <ToggleButton
             size="small"
             appearance="subtle"
-            aria-pressed={state.showOriginal}
+            checked={state.showOriginal}
             disabled={state.busy}
+            icon={<Icon name="compare" />}
             onClick={actions.toggleOriginal}
           >
             {state.showOriginal ? 'Back to edits' : 'Original'}
-          </Button>
+          </ToggleButton>
           {/* Export lives once, in the editor command bar. Save and Save a copy
               are offered here only when the image can return to its source. */}
           {state.canReturn && (

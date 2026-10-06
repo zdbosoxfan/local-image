@@ -87,12 +87,8 @@
 .li-batch-error {
   color: var(--colorPaletteRedForeground1);
 }
-.li-batch-history summary {
-  cursor: pointer;
-  padding-block: 4px;
-}
-.li-batch-history-controls {
-  margin-top: 8px;
+.li-batch-history .fui-AccordionPanel {
+  margin: 0;
 }
 .li-batch-history-controls > .fui-Select {
   flex: 1 1 280px;

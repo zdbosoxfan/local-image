@@ -26,11 +26,6 @@
   min-height: 36px;
   padding: 6px;
 }
-.li-tool-rail .fui-Button[aria-pressed='true'],
-.li-tool-options .fui-Button[aria-pressed='true'] {
-  background: var(--colorNeutralBackground1Selected);
-  color: var(--colorBrandForeground1);
-}
 .li-tool-options {
   display: flex;
   align-items: center;
