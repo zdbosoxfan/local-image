@@ -1,5 +1,7 @@
 ﻿# Local Image 0.5.0 validation
 
+> **Historical record.** The browser scripts and legacy interface files this report refers to were removed on 2026-10-06 (last present in `926fdd7`). Current checks are listed in [DEVELOPMENT.md](DEVELOPMENT.md).
+
 Validation date: **29 September 2026**. This report separates isolated Python regressions, browser checks with controlled model responses, and actual image generation through local ComfyUI. Timings are individual runs on the validation PC, not cross-model quality scores or general performance guarantees.
 
 Guides: [Image Gen](IMAGE-GENERATION.md), [Cutout](CUTOUT-WORKSPACE.md), [model setup](GEN-MODELS.md), [LoRA library](LORA-LIBRARY.md), and [development/test commands](DEVELOPMENT.md).

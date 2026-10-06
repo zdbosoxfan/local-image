@@ -18,8 +18,11 @@ components, icons and tokens rather than hand-built equivalents.
    To add one, import the matching `…20Regular` icon from
    `@fluentui/react-icons` and add it to that map. Never draw an SVG by hand or
    type a character (`+`, `×`, `…`, arrows) as an icon.
-3. **Icon-only buttons need a name.** Give them `aria-label`, plus `title` so
-   the name appears on hover.
+3. **Icon-only buttons need a name and a tooltip.** Give them `aria-label`
+   and wrap them in `<Hint content="…">` (`features/shell/Hint.tsx`), which is
+   Fluent's `Tooltip`. Use `relationship="description"` when the tooltip adds
+   detail such as a shortcut. Do not use the browser's `title` attribute for
+   this.
 4. **Colors, radii and shadows are Fluent tokens.** In CSS use
    `var(--colorNeutralBackground2)`, `var(--colorBrandStroke1)`,
    `var(--borderRadiusMedium)` and so on. Only two fixed colors are allowed,
@@ -30,12 +33,16 @@ components, icons and tokens rather than hand-built equivalents.
    setting). Do not override colors or radii there.
 6. **Toggles look like toggles.** On/off commands use `ToggleButton` or
    `ToolbarToggleButton`; one-of-several choices use `ToolbarRadioButton` in a
-   `Toolbar` with `checkedValues`. Do not hand-style `aria-pressed`.
+   `Toolbar` with `checkedValues`. Do not hand-style `aria-pressed` on buttons;
+   the shared image-picker style in rule 8 is the only exception.
 7. **One home per command.** A command appears once in its natural place: the
    command bar (Undo/Redo, Assets, Batch, Inspector, Export, Settings), the zoom
    controls in the status bar (Zoom, Fit), or the document bar (Original, Save).
    Menus may repeat commands with their shortcuts.
-8. **Large interface size must keep working.** Check new controls at
+8. **Image pickers share one selected style.** Add the `li-selectable` class
+   to a thumbnail button and set `aria-pressed` (or `aria-current`); do not add
+   a separate selected style.
+9. **Large interface size must keep working.** Check new controls at
    **Settings → Interface size → Large** and at an 800 × 560 window. The
    command bar collapses to icon-only buttons when its labels do not fit.
 

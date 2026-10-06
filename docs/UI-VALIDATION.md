@@ -1,5 +1,7 @@
 # Interface overhaul validation
 
+> **Historical record.** The browser scripts and legacy interface files this report refers to were removed on 2026-10-06 (last present in `926fdd7`). Current checks are listed in [DEVELOPMENT.md](DEVELOPMENT.md).
+
 Historical 0.3.0 validation. Current interface changes and checks are recorded in [DESKTOP-VALIDATION.md](DESKTOP-VALIDATION.md).
 
 The overhaul was reviewed across visual design, editor architecture, interaction
