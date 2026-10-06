@@ -79,7 +79,9 @@ export function DocumentBar({ state, actions }: { state: DocumentChromeState; ac
           >
             {state.showOriginal ? 'Back to edits' : 'Original'}
           </Button>
-          {state.canReturn ? (
+          {/* Export lives once, in the editor command bar. Save and Save a copy
+              are offered here only when the image can return to its source. */}
+          {state.canReturn && (
             <>
               <Button size="small" appearance="subtle" disabled={state.busy} onClick={() => actions.overwrite()}>
                 Save
@@ -88,10 +90,6 @@ export function DocumentBar({ state, actions }: { state: DocumentChromeState; ac
                 Save a copy
               </Button>
             </>
-          ) : (
-            <Button size="small" appearance="subtle" disabled={state.busy} onClick={() => actions.export()}>
-              Export
-            </Button>
           )}
         </div>
       )}
@@ -141,7 +139,7 @@ export function StatusBar({ state, actions }: { state: DocumentChromeState; acti
           onClick={() => actions.zoomBy(1.25)}
           icon={<Icon name="zoom-in" />}
         />
-        <ToolbarButton disabled={!state.id} aria-pressed={state.fit} onClick={actions.fit}>
+        <ToolbarButton disabled={!state.id} aria-pressed={state.fit} icon={<Icon name="fit" />} onClick={actions.fit}>
           Fit
         </ToolbarButton>
       </Toolbar>

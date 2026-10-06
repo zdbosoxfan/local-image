@@ -1,5 +1,13 @@
-import { useSyncExternalStore } from 'react';
-import { Button, Portal, ProgressBar, Toolbar, ToolbarButton } from '@fluentui/react-components';
+import { useRef, useSyncExternalStore } from 'react';
+import {
+  Button,
+  Portal,
+  ProgressBar,
+  Toolbar,
+  ToolbarButton,
+  ToolbarDivider,
+  ToolbarToggleButton,
+} from '@fluentui/react-components';
 import type { DocumentController } from './editor/documentController.ts';
 import { BatchDialog, type BatchController } from './features/batch/index.ts';
 import { SettingsDialogs, type SettingsController } from './features/settings/index.ts';
@@ -13,6 +21,7 @@ import { Layers } from './features/shell/Layers.tsx';
 import { Icon } from './features/shell/Icon.tsx';
 import { CutoutProperties, BackgroundGenerator } from './features/shell/CutoutProperties.tsx';
 import { EditorDialogs } from './features/shell/EditorDialogs.tsx';
+import { useCompactToolbar } from './features/shell/useCompactToolbar.ts';
 import type { EditorDialogsController } from './features/shell/editorDialogs.ts';
 import type { ShellController } from './features/shell/shellController.ts';
 import { commandCatalog, type ShellCommand } from './features/shell/commandCatalog.ts';
@@ -47,6 +56,11 @@ export function FullApp({
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot),
     ui = useSyncExternalStore(shell.subscribe, shell.getSnapshot);
   const commands = commandCatalog(state);
+  const workspaceBar = useRef<HTMLDivElement>(null),
+    commandBar = useRef<HTMLDivElement>(null);
+  const compact = useCompactToolbar(workspaceBar, commandBar);
+  // Labelled commands keep the same accessible name when shown icon-only.
+  const label = (text: string) => ({ 'aria-label': text, title: compact ? text : undefined });
   const variant = state.health.qwen.variants.find(value => value.id === state.tools.qwenVariant),
     klein = state.health.models.find(value => value.id === 'klein');
   const needsQwen =
@@ -82,9 +96,15 @@ export function FullApp({
           setMenu={shell.setMenu}
         />
       </header>
-      <div className="li-workspace-bar">
+      <div className="li-workspace-bar" ref={workspaceBar}>
         <WorkspaceTabs state={state.tools} actions={controller.toolActions} />
-        <Toolbar className="li-commandbar" aria-label="Editor commands" size="small">
+        <Toolbar
+          ref={commandBar}
+          className="li-commandbar"
+          aria-label="Editor commands"
+          size="medium"
+          checkedValues={{ panels: state.inspectorHidden ? [] : ['inspector'] }}
+        >
           <ToolbarButton
             aria-label="Undo"
             title={state.undoLabel + ' (Ctrl+Z)'}
@@ -99,30 +119,43 @@ export function FullApp({
             disabled={!commands.redo.enabled}
             onClick={() => execute('redo')}
           />
-          <span className="li-divider" />
-          <ToolbarButton disabled={!commands.fit.enabled} onClick={() => execute('fit')}>
-            Fit
-          </ToolbarButton>
+          <ToolbarDivider />
           <ToolbarButton
-            icon={<Icon name="image" />}
+            {...label('Assets')}
+            icon={<Icon name="assets" />}
             disabled={!commands.showAssets.enabled}
             onClick={() => execute('showAssets')}
           >
-            Assets
-          </ToolbarButton>
-          <ToolbarButton id="batch-open" disabled={!commands.showBatch.enabled} onClick={() => execute('showBatch')}>
-            Batch
+            {!compact && 'Assets'}
           </ToolbarButton>
           <ToolbarButton
-            aria-pressed={!state.inspectorHidden}
+            id="batch-open"
+            {...label('Batch')}
+            icon={<Icon name="batch" />}
+            disabled={!commands.showBatch.enabled}
+            onClick={() => execute('showBatch')}
+          >
+            {!compact && 'Batch'}
+          </ToolbarButton>
+          <ToolbarToggleButton
+            name="panels"
+            value="inspector"
+            {...label('Inspector')}
+            icon={<Icon name="inspector" />}
             aria-controls="inspector-root"
             disabled={state.refining || state.workspace === 'generate'}
             onClick={controller.commands.toggleInspector}
           >
-            Inspector
-          </ToolbarButton>
-          <ToolbarButton disabled={!commands.exportImage.enabled} onClick={() => execute('exportImage')}>
-            Export
+            {!compact && 'Inspector'}
+          </ToolbarToggleButton>
+          <ToolbarDivider />
+          <ToolbarButton
+            {...label('Export')}
+            icon={<Icon name="export" />}
+            disabled={!commands.exportImage.enabled}
+            onClick={() => execute('exportImage')}
+          >
+            {!compact && 'Export'}
           </ToolbarButton>
           <ToolbarButton
             aria-label="Settings"

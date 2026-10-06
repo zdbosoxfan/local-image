@@ -328,7 +328,7 @@ body[data-persona='generate'][data-generation-blank='true'] .li-zoom-controls {
   body[data-assets-open='true'] #inspector-root {
     display: none;
   }
-  .li-commandbar .li-divider {
+  .li-commandbar .fui-ToolbarDivider {
     display: none;
   }
 }
