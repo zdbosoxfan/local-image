@@ -1,5 +1,7 @@
 # Frontend ownership and retirement gate
 
+**Update 2026-10-06.** The legacy interface sources, transitional bridges, disconnected first-stage React files and the browser suites that drove the legacy page were removed; `LOCAL_IMAGE_FRONTEND` is now ignored. The last revision containing them is `926fdd7`. See [Retired legacy interface](DEVELOPMENT.md#retired-legacy-interface) and [Design system](DESIGN-SYSTEM.md). Statements below about source-only legacy recovery describe the earlier state.
+
 Updated 2026-09-30. This section describes the current full React implementation; the preserved intermediate inspection at the end is historical. The user explicitly approved installing React as the default. Normal startup now selects React without a flag; frozen packages ignore stale legacy requests and exclude the old presentation payload. Explicit source-only legacy recovery requires an unfrozen checkout with its template. Pre-cutover revision `390f2f4` is retained by `codex/pre-clean-install-20260930`.
 
 ## Current single owners

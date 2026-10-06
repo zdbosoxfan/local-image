@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createDocumentApi, DocumentApiError } from '../src/editor/documentApi.ts';
 import type { DocumentMetadata } from '../src/editor/documentContracts.ts';
 
-// Ports the API-specific cases from editorApi.test.ts to the production owner.
+// Ports the API-specific cases from the retired editorApi.test.ts to the production owner.
 // The shared layer/asset execution test lives in documentController.test.mjs.
 const doc = (id = 'a', revision = 1): DocumentMetadata => ({
   id,
@@ -78,7 +78,7 @@ test('document API conflicts invalidate queued writes without retry and allow a 
 });
 
 test('document API rejects stale and wrong-document responses', async () => {
-  // Intentional classification difference from editorApi.test.ts: the current
+  // Intentional classification difference from the retired editorApi.test.ts: the current
   // readDocument treats a wrong identity as a protocol error (502); a valid
   // identity with an old revision remains a stale conflict (409).
   for (const [response, status] of [

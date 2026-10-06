@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
-from local_remove_frontend import render_editor, frontend_asset, frontend_manifest, frontend_mode
+from local_remove_frontend import render_editor, frontend_asset, frontend_manifest
 from frontend_tokens import issue_browser_token, valid_browser_token
 
 
@@ -33,38 +33,7 @@ class EditorDocument(HTMLParser):
             self.external_assets.append(attributes.get('href'))
 
 
-class EditorRenderingTests(unittest.TestCase):
-    def setUp(self):
-        self.mode_patch = patch.dict(os.environ, {'LOCAL_IMAGE_FRONTEND': 'legacy'})
-        self.mode_patch.start()
-
-    def tearDown(self):
-        self.mode_patch.stop()
-
-    def test_windows_bom_does_not_break_first_css_selector(self):
-        with tempfile.TemporaryDirectory(prefix='local-remove-assets-') as directory:
-            root = Path(directory)
-            (root / 'frontend').mkdir()
-            (root / 'local_remove.html').write_text('<style>__EDITOR_STYLE__</style><script>__EDITOR_SCRIPT__</script>', encoding='utf-8-sig')
-            (root / 'frontend' / 'editor.css').write_text(':root{--canvas:#171819}', encoding='utf-8-sig')
-            (root / 'frontend' / 'editor.js').write_text("'use strict';", encoding='utf-8-sig')
-            with patch('local_remove_frontend.RESOURCE_DIR', root):
-                html = render_editor('nonce', 'token')
-            self.assertNotIn('\ufeff', html)
-            self.assertIn('<style>:root{', html)
-
-    def test_document_contains_local_assets_and_one_matching_nonce(self):
-        html = render_editor('test-nonce', 'test-token')
-        document = EditorDocument(html)
-        self.assertEqual([item.get('nonce') for item in document.scripts], ['test-nonce'])
-        self.assertEqual([item.get('nonce') for item in document.styles], ['test-nonce'])
-        self.assertEqual(document.external_assets, [], 'The editor must run without external assets')
-        self.assertIn("const TOKEN='test-token'", html)
-        self.assertIn('function openSession(', html)
-        self.assertIn(':root', html)
-        for marker in ('__EDITOR_STYLE__', '__EDITOR_SCRIPT__', '__TOKEN__', '__NONCE__'):
-            self.assertNotIn(marker, html)
-
+class EditorDocumentTests(unittest.TestCase):
     def test_resources_resolve_from_installation_and_tokens_are_not_cached(self):
         previous = Path.cwd()
         with tempfile.TemporaryDirectory(prefix='local-remove-editor-') as directory:
@@ -131,36 +100,27 @@ class ReactDeliveryTests(unittest.TestCase):
     def write_manifest(self):
         (self.dist / '.vite' / 'manifest.json').write_text(json.dumps(self.manifest), encoding='utf-8')
 
-    def test_react_default_and_explicit_source_checkout_rollback(self):
-        with patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(frontend_mode(), 'react')
-            html = render_editor('nonce', 'token')
-        with patch.dict(os.environ, {'LOCAL_IMAGE_FRONTEND': 'unknown'}):
-            self.assertEqual(frontend_mode(), 'react')
-        with patch.dict(os.environ, {'LOCAL_IMAGE_FRONTEND': 'react'}):
-            self.assertEqual(frontend_mode(), 'react')
-        self.assertIn('window.__LOCAL_IMAGE_BOOTSTRAP__=', html)
-        self.assertNotIn('migration bridge', html)
-        self.assertNotIn('/* editor */', html)
-        legacy = render_editor('nonce', 'token', mode='legacy')
-        self.assertNotIn('migration bridge', legacy)
-        self.assertNotIn('__LOCAL_IMAGE_REACT__', legacy)
-        self.assertNotIn('frontend-assets', legacy)
-        with patch.dict(os.environ, {'LOCAL_IMAGE_FRONTEND': 'legacy'}):
-            self.assertEqual(frontend_mode(), 'legacy')
-            self.assertIn('/* editor */', render_editor('nonce', 'token'))
-
-    def test_installed_assets_ignore_stale_legacy_environment_or_mode(self):
-        (self.root / 'local_remove.html').unlink()
+    def test_stale_legacy_files_and_environment_are_ignored(self):
+        # The retired interface was removed; an old checkout's leftover files
+        # or LOCAL_IMAGE_FRONTEND value must never bring any of it back.
+        frontend = self.root / 'frontend'
+        for name in ('stock-studio.js', 'generation-size.js', 'assets-bridge.js', 'generation-bridge.js'):
+            (frontend / name).write_text('/* retired script: ' + name + ' */', encoding='utf-8')
         for value in ('', 'react', 'legacy', 'LEGACY', 'unknown'):
             with self.subTest(value=value), patch.dict(os.environ, {'LOCAL_IMAGE_FRONTEND': value}):
-                self.assertEqual(frontend_mode(), 'react')
-                for mode in (None, 'legacy'):
-                    html = render_editor('nonce', 'token', mode=mode)
-                    self.assertIn('window.__LOCAL_IMAGE_BOOTSTRAP__=', html)
-                    self.assertIn('/frontend-assets/assets/main-abcdefgh.js', html)
-                    self.assertNotIn('/* editor */', html)
-                    self.assertNotIn('legacy batch controls', html)
+                html = render_editor('nonce', 'token')
+                self.assertIn('window.__LOCAL_IMAGE_BOOTSTRAP__=', html)
+                self.assertIn('/frontend-assets/assets/main-abcdefgh.js', html)
+                for marker in ('/* editor */', 'migration bridge', 'legacy batch controls', 'domain ports',
+                               'retired script:', '__EDITOR_SCRIPT__'):
+                    self.assertNotIn(marker, html)
+
+    def test_windows_bom_in_template_is_not_rendered(self):
+        template = self.root / 'frontend' / 'react.html'
+        template.write_text(template.read_text(encoding='utf-8'), encoding='utf-8-sig')
+        html = render_editor('nonce', 'token')
+        self.assertNotIn('\ufeff', html)
+        self.assertTrue(html.startswith('<html>'))
 
     def test_installed_broken_build_fails_closed_without_legacy_fallback(self):
         (self.root / 'local_remove.html').unlink()
@@ -172,51 +132,8 @@ class ReactDeliveryTests(unittest.TestCase):
         self.assertNotIn('LOCAL_IMAGE_FRONTEND=legacy', str(failed.exception))
         self.assertIn('reinstall', str(failed.exception))
 
-    def test_frozen_app_ignores_legacy_even_if_obsolete_template_remains(self):
-        with patch('local_remove_frontend.sys.frozen', True, create=True), patch.dict(os.environ, {'LOCAL_IMAGE_FRONTEND': 'legacy'}):
-            self.assertTrue((self.root / 'local_remove.html').is_file())
-            self.assertEqual(frontend_mode(), 'react')
-            for mode in (None, 'legacy'):
-                html = render_editor('nonce', 'token', mode=mode)
-                self.assertIn('/frontend-assets/assets/main-abcdefgh.js', html)
-                self.assertNotIn('/* editor */', html)
-
-    def test_migrated_batch_has_no_legacy_controller_in_react_composition(self):
-        react = render_editor('nonce', 'token', mode='react')
-        legacy = render_editor('nonce', 'token', mode='legacy')
-        self.assertNotIn('batch domain ports', react)
-        self.assertNotIn('settings domain ports', react)
-        self.assertNotIn('legacy batch controls', react)
-        self.assertIn('legacy batch controls', legacy)
-        self.assertNotIn('batch domain ports', legacy)
-
-    def test_migrated_assets_exclude_legacy_presentation_adapters(self):
-        frontend = self.root / 'frontend'
-        for name in ('stock-studio.js', 'stock-connections.js', 'quiet-controls.js'):
-            (frontend / name).write_text('/* retired asset adapter: ' + name + ' */', encoding='utf-8')
-        (frontend / 'assets-bridge.js').write_text('/* explicit asset domain ports */', encoding='utf-8')
-        react = render_editor('nonce', 'token', mode='react')
-        legacy = render_editor('nonce', 'token', mode='legacy')
-        self.assertNotIn('explicit asset domain ports', react)
-        self.assertNotIn('retired asset adapter:', react)
-        self.assertNotIn('explicit asset domain ports', legacy)
-        for name in ('stock-studio.js', 'stock-connections.js', 'quiet-controls.js'):
-            self.assertIn('retired asset adapter: ' + name, legacy)
-
-    def test_migrated_generation_uses_ports_without_legacy_dom_adapters(self):
-        frontend = self.root / 'frontend'
-        for name in ('generation-studio.js', 'generation-size.js', 'generation-composer.js', 'generation-guidance.js'):
-            (frontend / name).write_text('/* retired generation adapter: ' + name + ' */', encoding='utf-8')
-        (frontend / 'generation-bridge.js').write_text('/* explicit generation domain ports */', encoding='utf-8')
-        react = render_editor('nonce', 'token', mode='react')
-        legacy = render_editor('nonce', 'token', mode='legacy')
-        self.assertNotIn('explicit generation domain ports', react)
-        self.assertNotIn('retired generation adapter:', react)
-        self.assertNotIn('explicit generation domain ports', legacy)
-        self.assertIn('retired generation adapter: generation-size.js', legacy)
-
     def test_nonce_bootstrap_eager_css_chunks_and_no_legacy_execution(self):
-        html = render_editor('page-nonce', 'page-token', mode='react')
+        html = render_editor('page-nonce', 'page-token')
         parsed = EditorDocument(html)
         self.assertEqual([script.get('nonce') for script in parsed.scripts], ['page-nonce', 'page-nonce'])
         self.assertEqual(parsed.scripts[1].get('type'), 'module')
@@ -235,8 +152,8 @@ class ReactDeliveryTests(unittest.TestCase):
         self.assertIn('"nonce":"page-nonce","token":"page-token"', html)
 
     def test_each_document_receives_fresh_bootstrap_without_rewriting_assets(self):
-        first = render_editor('first-nonce', 'first-token', mode='react')
-        second = render_editor('second-nonce', 'second-token', mode='react')
+        first = render_editor('first-nonce', 'first-token')
+        second = render_editor('second-nonce', 'second-token')
         self.assertNotIn('first-token', second)
         self.assertNotIn('first-nonce', second)
         self.assertIn('second-token', second)
@@ -244,7 +161,7 @@ class ReactDeliveryTests(unittest.TestCase):
         self.assertEqual((self.dist / 'assets/main-abcdefgh.js').read_bytes(), b'fixture')
 
     def test_bootstrap_values_cannot_end_script_or_quote_attributes(self):
-        html = render_editor('nonce" data-bad="yes', "quote'\n</script><script>bad()</script>", mode='react')
+        html = render_editor('nonce" data-bad="yes', "quote'\n</script><script>bad()</script>")
         parsed = EditorDocument(html)
         self.assertEqual(len(parsed.scripts), 2)
         self.assertNotIn('data-bad', parsed.scripts[0])
@@ -260,14 +177,13 @@ class ReactDeliveryTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(FileNotFoundError):
                 frontend_asset(name)
 
-    def test_broken_manifest_fails_closed_and_legacy_still_renders(self):
+    def test_broken_manifest_fails_closed(self):
         self.manifest['src/main.tsx']['imports'] = ['missing']
         self.write_manifest()
         with self.assertRaisesRegex(RuntimeError, 'React frontend build is unavailable'):
-            render_editor('nonce', 'token', mode='react')
+            render_editor('nonce', 'token')
         with self.assertRaises(FileNotFoundError):
             frontend_asset('assets/main-abcdefgh.js')
-        self.assertIn('/* editor */', render_editor('nonce', 'token', mode='legacy'))
 
     def test_manifest_cannot_publish_source_or_paths_outside_package(self):
         for name in ('../local_remove.py', 'assets/main.js', 'assets/../main-abcdefgh.js',

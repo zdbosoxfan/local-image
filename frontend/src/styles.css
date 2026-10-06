@@ -1,5 +1,5 @@
-/* Application layout only. Fluent owns controls; legacy CSS is scoped outside
-   data-react-owned boundaries. All spacing follows the same 4px scale. */
+/* Application layout only. Fluent owns controls, icons and colors (see
+   docs/DESIGN-SYSTEM.md). All spacing follows the same 4px scale. */
 #react-shell-root {
   margin-left: auto;
   min-width: 0;

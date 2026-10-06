@@ -8,11 +8,15 @@ Checked 2026-09-30 against the official npm registry, plus the primary documenta
 | `react-dom` | `19.3.0` | MIT | React ^19.3.0 |
 | `@fluentui/react-components` | `9.74.9` | MIT | React and @types/react >=16.14.0 <20.0.0 |
 | `@griffel/react` | `1.7.8` | MIT | React >=16.14.0 <20.0.0 |
+| `@fluentui/react-icons` | `2.0.343` | MIT | React >=16.8.0 <20.0.0 |
 | `vite` | `8.3.1` | MIT | Node ^20.19.0 or >=22.12.0 |
 | `@vitejs/plugin-react` | `6.1.1` | MIT | Vite ^8.0.0; Node ^20.19.0 or >=22.12.0 |
 | `typescript` | `7.0.2` | Apache-2.0 | Node >=16.20.0 |
 | `@types/react` | `19.3.0` | MIT | No additional peers |
 | `@types/react-dom` | `19.3.0` | MIT | @types/react ^19.3.0 |
+| `prettier` (dev) | `3.9.9` | MIT | Node >=14 |
+
+`@fluentui/react-icons` and `prettier` were added on 2026-10-06. The icon package was already resolved transitively by `@fluentui/react-components` at exactly `2.0.343`; it is now a direct, pinned dependency because the interface imports it, so the existing license fallback below still applies unchanged. Prettier is development-only and is not bundled.
 
 Fluent's declared Griffel dependency is `^1.5.32`, compatible with the explicitly pinned `1.7.8`. The React plugin's `oxc-transform-react`, `@rolldown/plugin-babel`, and `babel-plugin-react-compiler` peers are marked optional. Vite's advertised preprocessing and tooling peers are also optional; the application does not need to add them simply to satisfy metadata.
 
@@ -45,7 +49,7 @@ The first sandboxed registry read failed with `EACCES`; read-only registry comma
 
 ## Current delivery and acceptance constraints
 
-The complete React/TypeScript interface is now the default following explicit user approval to install it. No frontend flag is required. Packaged builds render `backend/frontend/react.html` and manifest assets only, even if an old `LOCAL_IMAGE_FRONTEND=legacy` value remains. Legacy is an explicit unfrozen-source recovery option only when its template exists. Packages omit legacy HTML/JS/CSS and transitional bridges. One dark FluentProvider theme, system fonts and the application CSS own every React region.
+The complete React/TypeScript interface is now the default following explicit user approval to install it. No frontend flag is required. Packaged builds render `backend/frontend/react.html` and manifest assets only, even if an old `LOCAL_IMAGE_FRONTEND=legacy` value remains. The legacy HTML/JS/CSS and transitional bridges were removed from the source tree on 2026-10-06 (last present in `926fdd7`). One dark FluentProvider theme, system fonts and the application CSS own every React region.
 
 Earlier incremental stages wrapped legacy CSS in `@scope (:root) to ([data-react-owned])`, mapped inner `:root` to `:scope`, and verified that behavior in Edge. That historical coexistence mechanism is no longer required by the full React page. It must not be cited as the current style-loading design or as native WebView2 acceptance of the completed interface.
 

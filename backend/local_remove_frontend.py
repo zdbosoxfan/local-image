@@ -6,10 +6,8 @@ The sources remain separate for development and require no network dependencies.
 import base64
 from html import escape
 import json
-import os
 from pathlib import Path
 import re
-import sys
 
 
 RESOURCE_DIR = Path(__file__).resolve().parent
@@ -22,16 +20,6 @@ ASSET_TYPES = {'.js': 'text/javascript', '.css': 'text/css', '.woff': 'font/woff
                '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf',
                '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
                '.webp': 'image/webp', '.svg': 'image/svg+xml', '.ico': 'image/x-icon'}
-
-
-def _legacy_source_available() -> bool:
-    return not getattr(sys, 'frozen', False) and (RESOURCE_DIR / 'local_remove.html').is_file()
-
-
-def frontend_mode() -> str:
-    """React is the normal UI; legacy is a source-checkout recovery option."""
-    legacy = os.environ.get('LOCAL_IMAGE_FRONTEND', '').lower() == 'legacy'
-    return 'legacy' if legacy and _legacy_source_available() else 'react'
 
 
 def _asset_path(name: str) -> Path:
@@ -122,48 +110,15 @@ def _module_tags(nonce: str) -> tuple[str, str]:
     return head, script
 
 
-def _render_react_editor(nonce: str, token: str) -> str:
+def render_editor(nonce: str, token: str) -> str:
     html = (RESOURCE_DIR / 'frontend' / 'react.html').read_text(encoding='utf-8-sig')
     head, module = _module_tags(nonce)
     # This template contains only the persistent Canvas2D subtree and mounts.
-    # The module owns every control; no legacy script/control/style is loaded.
+    # The module owns every control.
     html = html.replace('__FRONTEND_HEAD__', head).replace('__FRONTEND_MODULE__', module)
     html = html.replace('__BOOTSTRAP__', _script_json({'nonce': nonce, 'token': token}))
     html = html.replace('__NONCE__', escape(nonce, quote=True))
     if '__APP_ICON__' in html:
         icon = base64.b64encode((RESOURCE_DIR / 'frontend' / 'app-icon.png').read_bytes()).decode('ascii')
         html = html.replace('__APP_ICON__', 'data:image/png;base64,' + icon)
-    return html
-
-
-def render_editor(nonce: str, token: str, mode: str | None = None) -> str:
-    # Installed packages intentionally omit the retired template and its assets.
-    # Even a stale explicit legacy request must use their current React entry.
-    use_legacy = (mode or frontend_mode()) == 'legacy' and _legacy_source_available()
-    if not use_legacy:
-        return _render_react_editor(nonce, token)
-    # Windows editors may write a BOM. Inside an inline style block it becomes
-    # part of the first selector and can silently invalidate the design tokens.
-    template = (RESOURCE_DIR / 'local_remove.html').read_text(encoding='utf-8-sig')
-    frontend = RESOURCE_DIR / 'frontend'
-    styles = ('workflow-panels.css', 'generation-workflows.css', 'batch-tools.css',
-              'editor.css', 'usability.css', 'stock-studio.css', 'generation-studio.css',
-              'quiet-controls.css', 'layers-studio.css', 'generation-composer.css', 'stock-connections.css')
-    scripts = ('editor.js', 'usability.js', 'batch-tools.js', 'studio-shell.js',
-               'stock-studio.js', 'generation-studio.js', 'quiet-controls.js',
-               'layers-studio.js', 'generation-size.js', 'generation-composer.js',
-               'generation-guidance.js', 'stock-connections.js')
-    style = '\n'.join((frontend / name).read_text(encoding='utf-8-sig')
-        for name in styles if (frontend / name).is_file())
-    html = template.replace('__EDITOR_STYLE__', style)
-    script = '\n'.join((frontend / name).read_text(encoding='utf-8-sig')
-        for name in scripts if (frontend / name).is_file())
-    html = html.replace('__EDITOR_SCRIPT__', script)
-    if '__APP_ICON__' in html:
-        icon = base64.b64encode((frontend / 'app-icon.png').read_bytes()).decode('ascii')
-        html = html.replace('__APP_ICON__', 'data:image/png;base64,' + icon)
-    # The legacy token placeholder is inside a single-quoted JS string. Keep its
-    # escaping independent of the JSON bootstrap and HTML attribute context.
-    js_token = _script_json(token)[1:-1].replace("'", "\\'")
-    html = html.replace('__NONCE__', escape(nonce, quote=True)).replace('__TOKEN__', js_token)
     return html
