@@ -159,12 +159,7 @@
 }
 .li-document-size,
 .li-document-state {
-  font-size: var(--ui-note);
   white-space: nowrap;
-  color: var(--colorNeutralForeground3);
-}
-.li-document-state {
-  color: var(--colorPaletteYellowForeground2);
 }
 .li-document-actions .fui-Button {
   min-width: 0;

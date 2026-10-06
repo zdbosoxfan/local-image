@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { Button, Select, Slider, ToggleButton, Toolbar, ToolbarButton } from '@fluentui/react-components';
+import { Badge, Button, Select, Slider, ToggleButton, Toolbar, ToolbarButton } from '@fluentui/react-components';
 import { Icon } from './Icon.tsx';
 import './shell.css';
 
@@ -39,6 +39,13 @@ export function DocumentBar({ state, actions }: { state: DocumentChromeState; ac
   ]
     .filter(Boolean)
     .join(' · ');
+  const documentState = state.dirty
+    ? 'Modified'
+    : state.selectionPending
+      ? 'Selection pending'
+      : state.projectDirty
+        ? 'Project unsaved'
+        : '';
   return (
     <header className="li-document-bar" aria-label="Active document">
       <div className="li-document-identity">
@@ -61,15 +68,17 @@ export function DocumentBar({ state, actions }: { state: DocumentChromeState; ac
       </div>
       {state.id && (
         <div className="li-document-actions">
-          <span className="li-document-state" title={detail} aria-label={detail}>
-            {state.dirty
-              ? 'Modified'
-              : state.selectionPending
-                ? 'Selection pending'
-                : state.projectDirty
-                  ? 'Project unsaved'
-                  : ''}
-          </span>
+          {documentState && (
+            <Badge
+              className="li-document-state"
+              appearance="outline"
+              color="warning"
+              title={detail}
+              aria-label={detail}
+            >
+              {documentState}
+            </Badge>
+          )}
           <ToggleButton
             size="small"
             appearance="subtle"

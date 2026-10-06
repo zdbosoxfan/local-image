@@ -1,7 +1,9 @@
 import { webDarkTheme, type Theme } from '@fluentui/react-components';
 
-/** One application theme and density source for every migrated surface. The
- * existing browser preference sets --ui-font/--ui-note; headings scale too. */
+/** Fluent's standard dark theme. Only typography is adapted: Windows 11's
+ * Segoe UI Variable, and sizes that follow the Interface size preference
+ * (--ui-font/--ui-note) so Large mode scales every Fluent control. Colors,
+ * radii, spacing and shadows are Fluent's own tokens. */
 export const localImageTheme: Theme = {
   ...webDarkTheme,
   fontFamilyBase: '"Segoe UI Variable", "Segoe UI", system-ui, sans-serif',
@@ -26,8 +28,4 @@ export const localImageTheme: Theme = {
   lineHeightHero800: 'calc(var(--ui-font) * 2.857143)',
   lineHeightHero900: 'calc(var(--ui-font) * 3.714286)',
   lineHeightHero1000: 'calc(var(--ui-font) * 6.571429)',
-  borderRadiusMedium: '3px',
-  colorNeutralBackground1: '#22252b',
-  colorNeutralBackground2: '#1c1f25',
-  colorNeutralBackground3: '#2b2f36',
 };

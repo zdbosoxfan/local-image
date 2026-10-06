@@ -124,7 +124,7 @@
   width: 36px;
   height: 36px;
   object-fit: contain;
-  background: #15171b;
+  background: var(--colorNeutralBackground3);
 }
 .li-layer-label {
   display: flex;
