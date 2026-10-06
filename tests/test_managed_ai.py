@@ -13,6 +13,9 @@ from unittest.mock import AsyncMock, Mock, patch
 HERE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HERE / 'backend'))
 import managed_ai as ai
+# Import py7zr before tests patch subprocess.run: on non-Windows systems its
+# first import probes the platform with a subprocess call.
+import py7zr  # noqa: F401
 from app_paths import read_config, write_config
 
 
@@ -488,6 +491,7 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ai.SetupError):
             ai.validate_archive_members([huge], self.root)
 
+    @unittest.skipUnless(sys.platform == 'win32', 'Runs the bundled Windows 7-Zip executable')
     def test_extract_real_archive_validates_layout(self):
         import py7zr
         portable = self.root / 'archive-source' / 'ComfyUI_windows_portable'
@@ -500,6 +504,7 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(extracted, target / 'ComfyUI_windows_portable')
         self.assertTrue(ai.installation(extracted)['startable'])
 
+    @unittest.skipUnless(sys.platform == 'win32', 'Runs the bundled Windows 7-Zip executable')
     def test_extract_bcj2_archive_with_bundled_decoder(self):
         import py7zr
         archive = HERE / 'tests' / 'fixtures' / 'comfy-portable-bcj2.7z'
@@ -670,6 +675,7 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(popen.call_args.kwargs['shell'])
         process.terminate.assert_not_called(); process.kill.assert_not_called()
 
+    @unittest.skipUnless(sys.platform == 'win32', 'Uses the Windows-only ctypes.WinDLL API')
     async def test_frozen_start_restores_dll_directory_after_success_and_launch_failure(self):
         code, python = create_runtime(self.root / 'portable')
         ai.configure(comfy_directory=str(code), comfy_port=8189)

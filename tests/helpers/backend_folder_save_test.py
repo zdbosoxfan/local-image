@@ -382,6 +382,7 @@ class FolderSaveTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(summary['entries'][0]['dirty'])
         self.assertEqual(await self.app.sessions(self.request()), [])
 
+    @unittest.skipUnless(sys.platform == 'win32', 'Runs the bundled Windows texture-synthesis executable')
     async def test_merged_snapshot_preserves_16bit_and_heal_uses_merged_generated_pixels(self):
         source = self.images / 'merge16.tif'
         raw = np.full((32, 40, 3), (30003, 41007, 50011), np.uint16)
