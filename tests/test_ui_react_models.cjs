@@ -63,7 +63,7 @@ const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
   await lora.getByRole('button',{name:'Choose file…',exact:true}).last().click();await page.waitForFunction(()=>!window.LocalImageReactFeatures.models.getSnapshot().filesLoading);
   assert.equal(await lora.getByRole('combobox',{name:'Adapter file',exact:true}).inputValue(),'community.safetensors');assert.equal(await lora.getByRole('button',{name:'Download adapter',exact:true}).isDisabled(),true);
   assert.ok(await lora.getByRole('checkbox',{name:/Accept publisher-declared compatibility/}).count());assert.match(await lora.innerText(),/downloads require the desktop app/);
-  await shot('lora-controlled.png');await page.keyboard.press('Escape');assert.equal(await lora.isVisible(),false);assert.equal(await page.evaluate(()=>window.LocalImageReactFeatures.models.isOpen()),false);
+  await shot('lora-controlled.png');await page.keyboard.press('Escape');await lora.waitFor({state:'hidden'});assert.equal(await page.evaluate(()=>window.LocalImageReactFeatures.models.isOpen()),false);
   checks.push('Controlled adapter selection, trigger/sampling drafts, compatibility and download gating work without hidden controls');
   assert.deepEqual(requests.filter(request=>request.method!=='GET'),[]);assert.deepEqual(errors,[]);assert.deepEqual(await page.evaluate(()=>window.__modelsCsp),[]);passed=true;
  }catch(error){failure=error.stack;await shot('failure.png').catch(()=>{});throw error;}

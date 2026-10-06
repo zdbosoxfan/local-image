@@ -140,8 +140,9 @@
     max-height: calc(100dvh - 48px);
     gap: 8px;
   }
+  /* Sized from the text so the "Select" heading fits whatever font renders it. */
   .li-batch-table th:first-child {
-    width: 48px;
+    width: 4em;
   }
   .li-batch-table th:nth-child(3) {
     width: 82px;
