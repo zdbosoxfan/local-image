@@ -1,5 +1,10 @@
 export type Workspace = 'retouch' | 'cutout' | 'generate';
-export interface Transform { offset_x: number; offset_y: number; scale: number; rotation: number }
+export interface Transform {
+  offset_x: number;
+  offset_y: number;
+  scale: number;
+  rotation: number;
+}
 export interface Layer {
   id: string;
   name: string;
@@ -25,12 +30,20 @@ export interface EditorDocument {
   [key: string]: unknown;
 }
 export interface LayerPatch {
-  name?: string; visible?: boolean; locked?: boolean; discarded?: boolean;
-  opacity?: number; index?: number; transform?: Partial<Transform>;
+  name?: string;
+  visible?: boolean;
+  locked?: boolean;
+  discarded?: boolean;
+  opacity?: number;
+  index?: number;
+  transform?: Partial<Transform>;
 }
 export interface StackRequest {
-  documentId: string; revision: number; tail: string;
-  body: Record<string, unknown>; method: string;
+  documentId: string;
+  revision: number;
+  tail: string;
+  body: Record<string, unknown>;
+  method: string;
 }
 export interface EditorSnapshot {
   document: EditorDocument | null;
@@ -83,7 +96,13 @@ export interface LegacyEditor {
   subscribe(listener: () => void): () => void;
   commands: EditorCommands;
   canvas: { element: HTMLElement; fit(): void; actualSize(): void; focus(): void; cancelGesture(): void };
-  native: { capabilities(): { ready: boolean; projects: boolean; setup: boolean }; openFiles(): unknown; openFolder(): unknown; openProject(): unknown; saveProject(saveAs?: boolean): unknown };
+  native: {
+    capabilities(): { ready: boolean; projects: boolean; setup: boolean };
+    openFiles(): unknown;
+    openFolder(): unknown;
+    openProject(): unknown;
+    saveProject(saveAs?: boolean): unknown;
+  };
   setStackTransport(transport: (request: StackRequest) => Promise<EditorDocument>): void;
 }
 declare global {

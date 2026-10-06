@@ -41,8 +41,16 @@ export function createEditorController(legacy: LegacyEditor, token: string) {
     commands: legacy.commands,
     runDocumentOperation: api.runDocumentOperation,
     getSnapshot: () => snapshot,
-    subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    dispose() { unsubscribe(); listeners.clear(); },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    dispose() {
+      unsubscribe();
+      listeners.clear();
+    },
   };
 }
 export type EditorController = ReturnType<typeof createEditorController>;

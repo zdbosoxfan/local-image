@@ -2,7 +2,11 @@ import type { EditorDocument, StackRequest } from './contracts.ts';
 
 export class EditorApiError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) { super(message); this.name = 'EditorApiError'; this.status = status; }
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'EditorApiError';
+    this.status = status;
+  }
 }
 
 /** A failed write invalidates already queued writes. A later deliberate command
@@ -16,15 +20,23 @@ export function createEditorApi(token: string, request: typeof fetch = fetch) {
   }
   function runDocumentOperation<T>(id: string, operation: () => Promise<T>): Promise<T> {
     const epoch = epochs.get(id) ?? 0;
-    const pending = (queues.get(id) ?? Promise.resolve()).catch(() => undefined).then(() => {
-      if ((epochs.get(id) ?? 0) !== epoch) throw new EditorApiError('A previous document change failed. Review the document before trying again.', 409);
-      return operation();
-    }).catch(error => {
-      if ((epochs.get(id) ?? 0) === epoch) epochs.set(id, epoch + 1);
-      throw error;
-    });
+    const pending = (queues.get(id) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(() => {
+        if ((epochs.get(id) ?? 0) !== epoch)
+          throw new EditorApiError('A previous document change failed. Review the document before trying again.', 409);
+        return operation();
+      })
+      .catch(error => {
+        if ((epochs.get(id) ?? 0) === epoch) epochs.set(id, epoch + 1);
+        throw error;
+      });
     queues.set(id, pending);
-    void pending.finally(() => { if (queues.get(id) === pending) queues.delete(id); }).catch(() => undefined);
+    void pending
+      .finally(() => {
+        if (queues.get(id) === pending) queues.delete(id);
+      })
+      .catch(() => undefined);
     return pending;
   }
   function mutate(input: StackRequest): Promise<EditorDocument> {
@@ -32,7 +44,10 @@ export function createEditorApi(token: string, request: typeof fetch = fetch) {
     // Copy UI drafts at dispatch, never use a subsequently edited input object.
     const body = structuredClone(input.body);
     const run = async () => {
-      if (!/^\/(?:stack(?:\/layers|\/layer\/[^/]+|\/undo|\/redo)?|merge)$/.test(input.tail) || !['POST', 'PATCH'].includes(input.method)) {
+      if (
+        !/^\/(?:stack(?:\/layers|\/layer\/[^/]+|\/undo|\/redo)?|merge)$/.test(input.tail) ||
+        !['POST', 'PATCH'].includes(input.method)
+      ) {
         throw new EditorApiError('Unsupported layer operation.', 400);
       }
       const revision = Math.max(accepted.get(id) ?? input.revision, input.revision);
@@ -42,14 +57,30 @@ export function createEditorApi(token: string, request: typeof fetch = fetch) {
         body: JSON.stringify({ ...body, revision }),
       });
       let data: unknown;
-      try { data = await response.json(); } catch { throw new EditorApiError(`Invalid response (${response.status}).`, response.status); }
+      try {
+        data = await response.json();
+      } catch {
+        throw new EditorApiError(`Invalid response (${response.status}).`, response.status);
+      }
       if (!response.ok) {
-        const detail = data && typeof data === 'object' && 'detail' in data ? String(data.detail) : `Request failed (${response.status}).`;
+        const detail =
+          data && typeof data === 'object' && 'detail' in data
+            ? String(data.detail)
+            : `Request failed (${response.status}).`;
         throw new EditorApiError(detail, response.status);
       }
       const document = data as EditorDocument;
-      if (!document || document.id !== id || !Number.isInteger(document.revision) || document.revision < revision || document.revision < (accepted.get(id) ?? -1)) {
-        throw new EditorApiError('The document changed before this layer response arrived. The stale result was ignored.', 409);
+      if (
+        !document ||
+        document.id !== id ||
+        !Number.isInteger(document.revision) ||
+        document.revision < revision ||
+        document.revision < (accepted.get(id) ?? -1)
+      ) {
+        throw new EditorApiError(
+          'The document changed before this layer response arrived. The stale result was ignored.',
+          409,
+        );
       }
       observe(document);
       return document;
