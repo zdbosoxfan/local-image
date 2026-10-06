@@ -209,19 +209,22 @@ export function createDocumentController(options: DocumentControllerPorts & { to
       const credits = documentCredits(doc),
         undoTarget = historyTarget(),
         redoTarget = historyTarget(true);
-      const toolHint = !doc
-        ? 'Open an image to begin'
-        : interaction.handActive
-          ? 'Drag to pan the image'
-          : interaction.tool === 'move'
-            ? 'Drag the layer; use its handles to scale or rotate'
-            : interaction.tool === 'pen'
-              ? 'Place points; Enter closes the path'
-              : interaction.workspace === 'cutout'
-                ? 'Select pixels to erase or restore in the selected mask'
-                : interaction.operation === 'heal'
-                  ? 'Select a blemish, then apply Quick Heal'
-                  : 'Select an object, then apply removal';
+      const toolHint =
+        interaction.workspace === 'generate'
+          ? 'Describe the image in the panel, then generate'
+          : !doc
+            ? 'Open an image to begin'
+            : interaction.handActive
+              ? 'Drag to pan the image'
+              : interaction.tool === 'move'
+                ? 'Drag the layer; use its handles to scale or rotate'
+                : interaction.tool === 'pen'
+                  ? 'Place points; Enter closes the path'
+                  : interaction.workspace === 'cutout'
+                    ? 'Select pixels to erase or restore in the selected mask'
+                    : interaction.operation === 'heal'
+                      ? 'Select a blemish, then apply Quick Heal'
+                      : 'Select an object, then apply removal';
       const tools = {
         workspace: interaction.workspace,
         tool: interaction.tool,

@@ -19,6 +19,7 @@ import { ToolOptions, ToolRail, WorkspaceTabs } from './features/shell/ToolContr
 import { DocumentBar, Filmstrip, StatusBar } from './features/shell/DocumentChrome.tsx';
 import { Layers } from './features/shell/Layers.tsx';
 import { Icon } from './features/shell/Icon.tsx';
+import { Hint } from './features/shell/Hint.tsx';
 import { CutoutProperties, BackgroundGenerator } from './features/shell/CutoutProperties.tsx';
 import { EditorDialogs } from './features/shell/EditorDialogs.tsx';
 import { useCompactToolbar } from './features/shell/useCompactToolbar.ts';
@@ -59,8 +60,10 @@ export function FullApp({
   const workspaceBar = useRef<HTMLDivElement>(null),
     commandBar = useRef<HTMLDivElement>(null);
   const compact = useCompactToolbar(workspaceBar, commandBar);
+  // Generate and refinement own the right-hand panel, so the toggle is off there.
+  const inspectorUnavailable = state.refining || state.workspace === 'generate';
   // Labelled commands keep the same accessible name when shown icon-only.
-  const label = (text: string) => ({ 'aria-label': text, title: compact ? text : undefined });
+  const label = (text: string) => ({ 'aria-label': text });
   const variant = state.health.qwen.variants.find(value => value.id === state.tools.qwenVariant),
     klein = state.health.models.find(value => value.id === 'klein');
   const needsQwen =
@@ -103,67 +106,78 @@ export function FullApp({
           className="li-commandbar"
           aria-label="Editor commands"
           size="medium"
-          checkedValues={{ panels: state.inspectorHidden ? [] : ['inspector'] }}
+          checkedValues={{ panels: state.inspectorHidden || inspectorUnavailable ? [] : ['inspector'] }}
         >
-          <ToolbarButton
-            aria-label="Undo"
-            title={state.undoLabel + ' (Ctrl+Z)'}
-            icon={<Icon name="undo" />}
-            disabled={!commands.undo.enabled}
-            onClick={() => execute('undo')}
-          />
-          <ToolbarButton
-            aria-label="Redo"
-            title={state.redoLabel + ' (Ctrl+Shift+Z)'}
-            icon={<Icon name="redo" />}
-            disabled={!commands.redo.enabled}
-            onClick={() => execute('redo')}
-          />
+          <Hint content={state.undoLabel + ' (Ctrl+Z)'} relationship="description">
+            <ToolbarButton
+              aria-label="Undo"
+              icon={<Icon name="undo" />}
+              disabled={!commands.undo.enabled}
+              onClick={() => execute('undo')}
+            />
+          </Hint>
+          <Hint content={state.redoLabel + ' (Ctrl+Shift+Z)'} relationship="description">
+            <ToolbarButton
+              aria-label="Redo"
+              icon={<Icon name="redo" />}
+              disabled={!commands.redo.enabled}
+              onClick={() => execute('redo')}
+            />
+          </Hint>
           <ToolbarDivider />
-          <ToolbarButton
-            {...label('Assets')}
-            icon={<Icon name="assets" />}
-            disabled={!commands.showAssets.enabled}
-            onClick={() => execute('showAssets')}
-          >
-            {!compact && 'Assets'}
-          </ToolbarButton>
-          <ToolbarButton
-            id="batch-open"
-            {...label('Batch')}
-            icon={<Icon name="batch" />}
-            disabled={!commands.showBatch.enabled}
-            onClick={() => execute('showBatch')}
-          >
-            {!compact && 'Batch'}
-          </ToolbarButton>
-          <ToolbarToggleButton
-            name="panels"
-            value="inspector"
-            {...label('Inspector')}
-            icon={<Icon name="inspector" />}
-            aria-controls="inspector-root"
-            disabled={state.refining || state.workspace === 'generate'}
-            onClick={controller.commands.toggleInspector}
-          >
-            {!compact && 'Inspector'}
-          </ToolbarToggleButton>
+          <Hint content="Assets" enabled={compact}>
+            <ToolbarButton
+              {...label('Assets')}
+              icon={<Icon name="assets" />}
+              disabled={!commands.showAssets.enabled}
+              onClick={() => execute('showAssets')}
+            >
+              {!compact && 'Assets'}
+            </ToolbarButton>
+          </Hint>
+          <Hint content="Batch" enabled={compact}>
+            <ToolbarButton
+              id="batch-open"
+              {...label('Batch')}
+              icon={<Icon name="batch" />}
+              disabled={!commands.showBatch.enabled}
+              onClick={() => execute('showBatch')}
+            >
+              {!compact && 'Batch'}
+            </ToolbarButton>
+          </Hint>
+          <Hint content="Inspector" enabled={compact}>
+            <ToolbarToggleButton
+              name="panels"
+              value="inspector"
+              {...label('Inspector')}
+              icon={<Icon name="inspector" />}
+              aria-controls="inspector-root"
+              disabled={inspectorUnavailable}
+              onClick={controller.commands.toggleInspector}
+            >
+              {!compact && 'Inspector'}
+            </ToolbarToggleButton>
+          </Hint>
           <ToolbarDivider />
-          <ToolbarButton
-            {...label('Export')}
-            icon={<Icon name="export" />}
-            disabled={!commands.exportImage.enabled}
-            onClick={() => execute('exportImage')}
-          >
-            {!compact && 'Export'}
-          </ToolbarButton>
-          <ToolbarButton
-            aria-label="Settings"
-            title="Settings"
-            icon={<Icon name="settings" />}
-            disabled={!commands.showSettings.enabled}
-            onClick={() => execute('showSettings')}
-          />
+          <Hint content="Export" enabled={compact}>
+            <ToolbarButton
+              {...label('Export')}
+              icon={<Icon name="export" />}
+              disabled={!commands.exportImage.enabled}
+              onClick={() => execute('exportImage')}
+            >
+              {!compact && 'Export'}
+            </ToolbarButton>
+          </Hint>
+          <Hint content="Settings">
+            <ToolbarButton
+              aria-label="Settings"
+              icon={<Icon name="settings" />}
+              disabled={!commands.showSettings.enabled}
+              onClick={() => execute('showSettings')}
+            />
+          </Hint>
         </Toolbar>
       </div>
       <ToolOptions

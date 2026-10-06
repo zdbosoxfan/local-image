@@ -80,12 +80,6 @@
   max-width: 100%;
   width: 100%;
   padding: 3px;
-  border: 1px solid transparent;
-  border-radius: var(--borderRadiusMedium);
-}
-.li-asset-tile[aria-pressed='true'] {
-  border-color: var(--colorBrandStroke1);
-  background: var(--colorNeutralBackground1Selected);
 }
 .li-asset-tile img,
 .li-asset-thumbnail-failed {

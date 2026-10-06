@@ -17,6 +17,7 @@ import {
   ToolbarToggleButton,
 } from '@fluentui/react-components';
 import type { Transform, Workspace } from '../../contracts.ts';
+import { Hint } from './Hint.tsx';
 import { Icon, type IconName } from './Icon.tsx';
 import './shell.css';
 
@@ -124,17 +125,17 @@ export function ToolRail({ state, actions }: { state: ToolSnapshot; actions: Too
       checkedValues={{ tools: activeTool ? [activeTool] : [] }}
     >
       {visible.map(tool => (
-        <ToolbarToggleButton
-          key={tool.id}
-          name="tools"
-          value={tool.id}
-          appearance="subtle"
-          aria-label={tool.label}
-          title={tool.label}
-          disabled={tool.id === 'hand' ? !state.hasDocument : !state.canEdit}
-          onClick={() => actions.tool(tool.id)}
-          icon={<Icon name={tool.symbol} />}
-        />
+        <Hint key={tool.id} content={tool.label}>
+          <ToolbarToggleButton
+            name="tools"
+            value={tool.id}
+            appearance="subtle"
+            aria-label={tool.label}
+            disabled={tool.id === 'hand' ? !state.hasDocument : !state.canEdit}
+            onClick={() => actions.tool(tool.id)}
+            icon={<Icon name={tool.symbol} />}
+          />
+        </Hint>
       ))}
     </Toolbar>
   );

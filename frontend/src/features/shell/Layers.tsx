@@ -1,7 +1,18 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { Button, Field, Input, Menu, MenuItem, MenuList, MenuPopover, MenuTrigger } from '@fluentui/react-components';
+import {
+  Button,
+  CounterBadge,
+  Field,
+  Input,
+  Menu,
+  MenuItem,
+  MenuList,
+  MenuPopover,
+  MenuTrigger,
+} from '@fluentui/react-components';
 import type { EditorSnapshot, EditorCommands, Layer } from '../../contracts.ts';
 import { Icon } from './Icon.tsx';
+import { Hint } from './Hint.tsx';
 export interface LayerController {
   getSnapshot(): EditorSnapshot;
   subscribe(listener: () => void): () => void;
@@ -85,26 +96,34 @@ export function Layers({
     <section className="li-layers" data-react-owned="true" aria-label="Layers" hidden={state.workspace === 'generate'}>
       <header className="li-panel-heading">
         <h2>Layers</h2>
-        <span className="li-count">{layers.length || ''}</span>
-        <Button
-          size="small"
-          appearance="subtle"
-          aria-label="New retouch layer"
-          title="New retouch layer"
-          disabled={!active}
-          onClick={() => commands.createRetouch()}
-          icon={<Icon name="add" />}
+        <CounterBadge
+          className="li-count"
+          count={layers.length}
+          appearance="ghost"
+          color="informative"
+          aria-label={`${layers.length} layers`}
         />
+        <Hint content="New retouch layer">
+          <Button
+            size="small"
+            appearance="subtle"
+            aria-label="New retouch layer"
+            disabled={!active}
+            onClick={() => commands.createRetouch()}
+            icon={<Icon name="add" />}
+          />
+        </Hint>
         <Menu open={menuOpen} onOpenChange={(_, data) => setMenuOpen(data.open)}>
           <MenuTrigger disableButtonEnhancement>
-            <Button
-              size="small"
-              appearance="subtle"
-              aria-label="Layer commands"
-              title="Layer commands"
-              disabled={!doc}
-              icon={<Icon name="more" />}
-            />
+            <Hint content="Layer commands">
+              <Button
+                size="small"
+                appearance="subtle"
+                aria-label="Layer commands"
+                disabled={!doc}
+                icon={<Icon name="more" />}
+              />
+            </Hint>
           </MenuTrigger>
           <MenuPopover data-react-owned="true">
             <MenuList>
@@ -216,18 +235,20 @@ export function Layers({
               }
             }}
           >
-            <Button
-              size="small"
-              appearance="subtle"
-              className="li-row-button"
-              aria-label={`${layer.visible ? 'Hide' : 'Show'} ${layer.name}`}
-              disabled={!active}
-              icon={<Icon name={layer.visible ? 'eye' : 'eye-off'} />}
-              onClick={event => {
-                event.stopPropagation();
-                commands.patchLayer(layer.id, { visible: !layer.visible });
-              }}
-            />
+            <Hint content={`${layer.visible ? 'Hide' : 'Show'} ${layer.name}`}>
+              <Button
+                size="small"
+                appearance="subtle"
+                className="li-row-button"
+                aria-label={`${layer.visible ? 'Hide' : 'Show'} ${layer.name}`}
+                disabled={!active}
+                icon={<Icon name={layer.visible ? 'eye' : 'eye-off'} />}
+                onClick={event => {
+                  event.stopPropagation();
+                  commands.patchLayer(layer.id, { visible: !layer.visible });
+                }}
+              />
+            </Hint>
             <img
               className="li-thumbnail"
               loading="lazy"
@@ -273,19 +294,21 @@ export function Layers({
                       : 'Image'}
               </span>
             </div>
-            <Button
-              size="small"
-              appearance="subtle"
-              className="li-row-button"
-              aria-label={`${layer.locked ? 'Unlock' : 'Lock'} ${layer.name}`}
-              aria-pressed={layer.locked}
-              disabled={!active}
-              onClick={event => {
-                event.stopPropagation();
-                commands.patchLayer(layer.id, { locked: !layer.locked });
-              }}
-              icon={<Icon name={layer.locked ? 'lock' : 'unlock'} />}
-            />
+            <Hint content={`${layer.locked ? 'Unlock' : 'Lock'} ${layer.name}`}>
+              <Button
+                size="small"
+                appearance="subtle"
+                className="li-row-button"
+                aria-label={`${layer.locked ? 'Unlock' : 'Lock'} ${layer.name}`}
+                aria-pressed={layer.locked}
+                disabled={!active}
+                onClick={event => {
+                  event.stopPropagation();
+                  commands.patchLayer(layer.id, { locked: !layer.locked });
+                }}
+                icon={<Icon name={layer.locked ? 'lock' : 'unlock'} />}
+              />
+            </Hint>
           </div>
         ))}
       </div>

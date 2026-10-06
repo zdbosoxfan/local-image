@@ -161,6 +161,12 @@
 .li-document-state {
   white-space: nowrap;
 }
+/* Fluent badges have a fixed height; let it grow with Large interface text. */
+:root[data-ui-density='large'] .li-document-state {
+  height: auto;
+  min-height: 1lh;
+  padding-block: 2px;
+}
 .li-document-actions .fui-Button {
   min-width: 0;
 }
@@ -236,14 +242,9 @@
   width: calc(var(--li-thumbnail-size, 72px) * 1.35);
   min-width: 0;
   padding: 4px;
-  border: 1px solid transparent;
   color: inherit;
   font: inherit;
   cursor: pointer;
-}
-.li-filmstrip-item[aria-current='true'] {
-  border-color: var(--colorBrandStroke1);
-  background: var(--colorNeutralBackground1Selected);
 }
 .li-filmstrip-item:focus-visible {
   outline: 2px solid var(--colorStrokeFocus2);

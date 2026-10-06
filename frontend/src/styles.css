@@ -40,6 +40,17 @@
 .li-commandbar .fui-Button {
   min-width: 28px;
 }
+/* One selected look for every image picker (assets, filmstrip, drafts):
+   Fluent's selected background with a brand-colored border. */
+.li-selectable {
+  border: 1px solid transparent;
+  border-radius: var(--borderRadiusMedium);
+}
+.li-selectable[aria-pressed='true'],
+.li-selectable[aria-current='true'] {
+  border-color: var(--colorBrandStroke1);
+  background: var(--colorNeutralBackground1Selected);
+}
 .li-icon {
   width: 20px;
   height: 20px;
@@ -77,7 +88,9 @@
   font-variant-numeric: tabular-nums;
 }
 .li-layer-list {
-  flex: 1;
+  /* Only as tall as its layers, so Opacity sits right below the last one;
+     with many layers the list shrinks and scrolls instead. */
+  flex: 0 1 auto;
   min-height: 0;
   overflow: auto;
   padding: 4px 0;

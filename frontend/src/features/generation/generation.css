@@ -194,9 +194,6 @@
   height: 48px;
   object-fit: contain;
 }
-.li-refinement-strips [aria-pressed='true'] {
-  outline: 1px solid var(--colorBrandStroke1);
-}
 :root[data-ui-density='large'] .li-refinement-settings {
   grid-template-columns: 1fr;
 }

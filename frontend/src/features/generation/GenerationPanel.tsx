@@ -18,6 +18,7 @@ import { Comparison } from './Comparison.tsx';
 import type { GenerationController } from './controller.ts';
 import type { DraftKey, GenerationMode } from './types.ts';
 import { Icon } from '../shell/Icon.tsx';
+import { Hint } from '../shell/Hint.tsx';
 import './generation.css';
 
 function Stage({ controller, stage }: { controller: GenerationController; stage: DraftKey }) {
@@ -261,22 +262,26 @@ function Stage({ controller, stage }: { controller: GenerationController; stage:
                 </span>
                 {stage !== 'final' && (
                   <>
-                    <Button
-                      size="small"
-                      appearance="subtle"
-                      aria-label={`Move ${item.name} earlier`}
-                      disabled={disabled || index <= (stage === 'edit' ? 1 : 0)}
-                      onClick={() => controller.moveReference(stage, item.id, -1)}
-                      icon={<Icon name="move-up" />}
-                    />
-                    <Button
-                      size="small"
-                      appearance="subtle"
-                      aria-label={`Remove ${item.name}`}
-                      disabled={disabled || (stage === 'edit' && index === 0)}
-                      onClick={() => controller.removeReference(stage, item.id)}
-                      icon={<Icon name="close" />}
-                    />
+                    <Hint content={`Move ${item.name} earlier`}>
+                      <Button
+                        size="small"
+                        appearance="subtle"
+                        aria-label={`Move ${item.name} earlier`}
+                        disabled={disabled || index <= (stage === 'edit' ? 1 : 0)}
+                        onClick={() => controller.moveReference(stage, item.id, -1)}
+                        icon={<Icon name="move-up" />}
+                      />
+                    </Hint>
+                    <Hint content={`Remove ${item.name}`}>
+                      <Button
+                        size="small"
+                        appearance="subtle"
+                        aria-label={`Remove ${item.name}`}
+                        disabled={disabled || (stage === 'edit' && index === 0)}
+                        onClick={() => controller.removeReference(stage, item.id)}
+                        icon={<Icon name="close" />}
+                      />
+                    </Hint>
                   </>
                 )}
               </div>
@@ -442,6 +447,7 @@ export function GenerationPanel({ controller }: { controller: GenerationControll
                   key={item.session.id}
                   appearance="subtle"
                   size="small"
+                  className="li-selectable"
                   aria-pressed={item.session.id === state.selectedDraftId}
                   disabled={disabled}
                   onClick={() => controller.selectDraft(item.session.id)}
@@ -462,6 +468,7 @@ export function GenerationPanel({ controller }: { controller: GenerationControll
                     key={item.session.id}
                     appearance="subtle"
                     size="small"
+                    className="li-selectable"
                     aria-pressed={item.session.id === state.selectedResultId}
                     disabled={disabled}
                     onClick={() => controller.selectResult(item.session.id)}

@@ -29,6 +29,7 @@ import {
 import type { SettingsController } from './settingsController.ts';
 import type { InterfaceDensity, SettingsSnapshot, SetupState } from './types.ts';
 import { Icon } from '../shell/Icon.tsx';
+import { Hint } from '../shell/Hint.tsx';
 import './settings.css';
 
 export function setupBytes(value: number | undefined) {
@@ -82,12 +83,14 @@ export function SettingsDialogs({ controller }: { controller: SettingsController
         <DialogBody className="li-settings-body">
           <DialogTitle
             action={
-              <Button
-                appearance="subtle"
-                aria-label={`Close ${title.toLowerCase()}`}
-                onClick={() => controller.close()}
-                icon={<Icon name="close" />}
-              />
+              <Hint content={`Close ${title.toLowerCase()}`}>
+                <Button
+                  appearance="subtle"
+                  aria-label={`Close ${title.toLowerCase()}`}
+                  onClick={() => controller.close()}
+                  icon={<Icon name="close" />}
+                />
+              </Hint>
             }
           >
             {title}
@@ -404,14 +407,15 @@ function LocalAi({ controller, state }: { controller: SettingsController; state:
             <h3>GPU memory</h3>
             <p className="li-settings-note">{service?.device || 'Start the backend to check your device.'}</p>
           </div>
-          <Button
-            size="small"
-            disabled={nativeLocked || !service?.can_eject}
-            title="Unload GPU models; keep files on disk"
-            onClick={() => void controller.run('ejectModels')}
-          >
-            Unload models
-          </Button>
+          <Hint content="Unload GPU models; keep files on disk" relationship="description">
+            <Button
+              size="small"
+              disabled={nativeLocked || !service?.can_eject}
+              onClick={() => void controller.run('ejectModels')}
+            >
+              Unload models
+            </Button>
+          </Hint>
         </div>
       </section>
       <Accordion collapsible>

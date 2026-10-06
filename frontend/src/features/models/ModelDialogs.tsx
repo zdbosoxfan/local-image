@@ -20,6 +20,7 @@ import {
 import type { ModelsController } from './controller.ts';
 import type { DownloadJob, LoraItem, LoraSelection, ModelsSnapshot } from './types.ts';
 import { Icon } from '../shell/Icon.tsx';
+import { Hint } from '../shell/Hint.tsx';
 import './models.css';
 
 const bytes = (value: number | undefined) => {
@@ -66,12 +67,14 @@ export function ModelDialogs({ controller }: { controller: ModelsController }) {
         <DialogBody className="li-models-body">
           <DialogTitle
             action={
-              <Button
-                appearance="subtle"
-                aria-label={`Close ${title.toLowerCase()}`}
-                onClick={() => controller.close()}
-                icon={<Icon name="close" />}
-              />
+              <Hint content={`Close ${title.toLowerCase()}`}>
+                <Button
+                  appearance="subtle"
+                  aria-label={`Close ${title.toLowerCase()}`}
+                  onClick={() => controller.close()}
+                  icon={<Icon name="close" />}
+                />
+              </Hint>
             }
           >
             {title}
@@ -350,14 +353,16 @@ function LoraBrowser({ controller, state }: { controller: ModelsController; stat
                 disabled={state.pendingNative}
                 onCommit={value => controller.setStrength(item.id, value)}
               />
-              <Button
-                size="small"
-                appearance="subtle"
-                aria-label={`Remove ${item.title || item.id}`}
-                disabled={state.pendingNative}
-                onClick={() => controller.removeLora(item.id)}
-                icon={<Icon name="close" />}
-              />
+              <Hint content={`Remove ${item.title || item.id}`}>
+                <Button
+                  size="small"
+                  appearance="subtle"
+                  aria-label={`Remove ${item.title || item.id}`}
+                  disabled={state.pendingNative}
+                  onClick={() => controller.removeLora(item.id)}
+                  icon={<Icon name="close" />}
+                />
+              </Hint>
             </div>
           ))}
         </section>
@@ -451,13 +456,15 @@ function LoraBrowser({ controller, state }: { controller: ModelsController; stat
         <section className="li-lora-detail" aria-label="Adapter information">
           <div className="li-models-toolbar">
             <h3>{state.info.title || state.info.filename || state.info.repo_id}</h3>
-            <Button
-              size="small"
-              appearance="subtle"
-              aria-label="Close adapter information"
-              onClick={() => controller.showInfo(null)}
-              icon={<Icon name="close" />}
-            />
+            <Hint content="Close adapter information">
+              <Button
+                size="small"
+                appearance="subtle"
+                aria-label="Close adapter information"
+                onClick={() => controller.showInfo(null)}
+                icon={<Icon name="close" />}
+              />
+            </Hint>
           </div>
           <LoraDetails item={state.info} controller={controller} />
           <p className="li-models-note">

@@ -5,6 +5,7 @@ import { safeCreditUrl } from './api.ts';
 import type { AssetsController } from './controller.ts';
 import type { AssetTab, StockProviderId } from './types.ts';
 import { Icon } from '../shell/Icon.tsx';
+import { Hint } from '../shell/Hint.tsx';
 import './assets.css';
 
 function CreditLink({ href, children }: { href?: string; children: ReactNode }) {
@@ -115,14 +116,16 @@ export function AssetsDock({ controller }: { controller: AssetsController }) {
         >
           {state.expanded ? 'Collapse' : 'Expand'}
         </Button>
-        <Button
-          size="small"
-          appearance="subtle"
-          aria-label="Close Assets"
-          disabled={locked}
-          onClick={controller.close}
-          icon={<Icon name="close" />}
-        />
+        <Hint content="Close Assets">
+          <Button
+            size="small"
+            appearance="subtle"
+            aria-label="Close Assets"
+            disabled={locked}
+            onClick={controller.close}
+            icon={<Icon name="close" />}
+          />
+        </Hint>
       </header>
       <TabList
         size="small"
@@ -246,7 +249,7 @@ export function AssetsDock({ controller }: { controller: AssetsController }) {
               <article className="li-asset-cell" key={item.id}>
                 <Button
                   appearance="subtle"
-                  className="li-asset-tile"
+                  className="li-asset-tile li-selectable"
                   aria-label={item.title}
                   aria-pressed={state.stockSelected === item.id}
                   disabled={locked}
@@ -380,7 +383,7 @@ export function AssetsDock({ controller }: { controller: AssetsController }) {
               <Button
                 key={item.id}
                 appearance="subtle"
-                className="li-asset-tile"
+                className="li-asset-tile li-selectable"
                 aria-label={item.name}
                 aria-pressed={state.folderEntrySelected === item.id}
                 disabled={locked}
@@ -457,7 +460,7 @@ export function AssetsDock({ controller }: { controller: AssetsController }) {
               <Button
                 key={item.id}
                 appearance="subtle"
-                className="li-asset-tile"
+                className="li-asset-tile li-selectable"
                 aria-label={item.name}
                 aria-pressed={
                   state.selectionMode ? state.selectedCopies.includes(item.id) : state.generatedSelected === item.id
