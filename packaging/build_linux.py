@@ -88,6 +88,12 @@ def prune_unused_qt(package):
             else:
                 shutil.rmtree(path)
             removed.append(str(path.relative_to(package)))
+    # PyInstaller links the Qt libraries into _internal/ by name; a link whose
+    # target was just pruned would be a broken symlink in the package.
+    for path in package.rglob('*'):
+        if path.is_symlink() and not path.exists():
+            path.unlink()
+            removed.append(str(path.relative_to(package)))
     print('Pruned unused Qt components: ' + (', '.join(removed) or 'none present'), flush=True)
     return removed
 

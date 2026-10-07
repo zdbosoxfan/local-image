@@ -88,9 +88,15 @@ class PruneUnusedQtTests(unittest.TestCase):
             for path in keep + drop:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b'x')
+            # PyInstaller's top-level links to the Qt libraries, kept and pruned.
+            (package / '_internal/libQt6WaylandClient.so.6').symlink_to('PySide6/Qt/lib/libQt6WaylandClient.so.6')
+            (package / '_internal/libQt6WaylandCompositor.so.6').symlink_to('PySide6/Qt/lib/libQt6WaylandCompositor.so.6')
             removed = build.prune_unused_qt(package)
-            self.assertEqual(len(removed), 4)
+            self.assertEqual(len(removed), 5)
+            self.assertIn('_internal/libQt6WaylandCompositor.so.6', removed)
             self.assertTrue(all(path.exists() for path in keep))
-            self.assertFalse(any(path.exists() for path in drop))
+            self.assertTrue((package / '_internal/libQt6WaylandClient.so.6').exists())
+            self.assertFalse(any(path.exists() or path.is_symlink() for path in drop))
+            self.assertFalse((package / '_internal/libQt6WaylandCompositor.so.6').is_symlink())
             self.assertFalse((package / '_internal/PySide6/Qt/qml/QtWayland/Compositor').exists())
             self.assertEqual(build.prune_unused_qt(package), [])
