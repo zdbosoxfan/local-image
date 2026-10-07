@@ -23,7 +23,8 @@ from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineScript, QWebEngine
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from shiboken6 import delete
 
-from protocol import BASE, CloseGate, batch_payload, decode_message, identifier, project_payload, trusted_download, trusted_page
+from protocol import (BASE, CloseGate, batch_payload, decode_message, identifier, project_payload, trusted_download,
+                      trusted_page, verified_update_package)
 
 FROZEN = bool(getattr(sys, 'frozen', False))
 ROOT = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parents[2]
@@ -204,6 +205,8 @@ class Window(QMainWindow):
         self.client, self.process, self.paths, self.smoke = client, process, paths, smoke
         self.ready = self.busy = False
         self.close_gate = CloseGate()
+        # A verified release package to open once this window has closed.
+        self.pending_installer = None
         self.setWindowTitle('Local Image')
         self.resize(1440, 960)
         icon = Path(sys._MEIPASS) / 'app-icon.png' if FROZEN else ROOT / 'backend' / 'frontend' / 'app-icon.png'
@@ -352,6 +355,16 @@ class Window(QMainWindow):
         if action == 'chooseBackgroundFolder':
             folder = self.folder('Choose background images')
             return (lambda: call('/api/local-remove/backgrounds/register-folder', {'path': folder})) if folder else None
+        if action == 'updateInstall':
+            # The path comes from the launcher-authenticated backend, never from
+            # the page, and is hashed again here. The window then closes through
+            # its usual unsaved-edits review and the package opens afterwards.
+            def install():
+                self.pending_installer = verified_update_package(call('/api/local-remove/update/installer'),
+                                                                  data_root() / 'updates')
+                QTimer.singleShot(0, self.close)
+                return {'ok': True}
+            return install
         folder_keys = {'setupChooseComfyDirectory': 'comfy_directory', 'setupChooseModelDirectory': 'model_directory',
                        'setupChooseInstallDirectory': 'managed_ai_directory', 'configureAi': 'comfy_directory'}
         if action in folder_keys:
@@ -422,6 +435,16 @@ class Window(QMainWindow):
         delete(self.profile)
 
 
+def open_update_package(path):
+    """Hand the verified package to the desktop's package installer (or
+    archive tool) after Local Image has fully closed; nothing runs as root here."""
+    try:
+        subprocess.Popen(['xdg-open', str(path)], start_new_session=True,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        QMessageBox.information(None, 'Local Image', 'The update was downloaded to ' + str(path) + '. Open it to install.')
+
+
 def main():
     smoke = '--smoke-test' in sys.argv[1:]
     test_profile = tempfile.TemporaryDirectory(prefix='local-image-native-smoke-') if smoke else None
@@ -451,6 +474,7 @@ def main():
     process = subprocess.Popen(command, env=environment, cwd=ROOT / 'backend',
                                stdout=output, stderr=subprocess.STDOUT)
     window = None
+    installer = None
     try:
         deadline = time.monotonic() + 45
         while time.monotonic() < deadline:
@@ -472,6 +496,7 @@ def main():
         if smoke:
             QTimer.singleShot(30000, lambda: app.exit(2))
         code = app.exec()
+        installer = window.pending_installer if window.close_gate.approved else None
         return code if not smoke or window.ready else 2
     except Exception as error:
         if smoke:
@@ -497,6 +522,8 @@ def main():
                 process.wait()
         output.close()
         lock.close()
+        if installer is not None:
+            open_update_package(installer)
 
 
 if __name__ == '__main__':

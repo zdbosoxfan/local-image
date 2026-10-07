@@ -97,6 +97,7 @@ function fixture() {
     release: null,
     download: { status: 'idle', received: 0, total: 0, error: '' },
     installer_ready: false,
+    package: 'windows' as const,
     release_page: 'https://github.com/zdbosoxfan/local-image/releases',
   };
   const updateCalls: string[] = [];

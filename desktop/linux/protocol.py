@@ -1,5 +1,8 @@
 """Fixed native protocol validation; no page-selected paths or commands."""
+import hashlib
 import json
+from pathlib import Path
+import re
 import uuid
 from urllib.parse import urlsplit
 
@@ -77,6 +80,32 @@ def trusted_download(address):
     except (ValueError, TypeError, AttributeError):
         pass
     return False
+
+
+UPDATE_PACKAGE_NAME = re.compile(r'^Local-Image-\d+(?:\.\d+)+(?:-[A-Za-z0-9.~+-]*)?-linux-x86_64\.(?:deb|tar\.gz)$')
+
+
+def verified_update_package(info, updates_dir):
+    """The backend's answer to the launcher-only installer query, checked
+    again here: a release package inside the profile's updates folder whose
+    size and SHA-256 match what the backend verified. Returns its path."""
+    if not isinstance(info, dict):
+        raise ValueError('The update is not ready to install.')
+    path, digest, size = info.get('path'), info.get('sha256'), info.get('bytes')
+    if (not isinstance(path, str) or not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest)
+            or type(size) is not int or size <= 0):
+        raise ValueError('The update is not ready to install.')
+    folder = Path(updates_dir).resolve()
+    target = Path(path)
+    if target.is_symlink() or not target.is_file() or target.resolve().parent != folder:
+        raise ValueError('The downloaded update is missing. Download it again.')
+    target = target.resolve()
+    if not UPDATE_PACKAGE_NAME.match(target.name) or target.stat().st_size != size:
+        raise ValueError('The downloaded update does not match the release. Download it again.')
+    with open(target, 'rb') as stream:
+        if hashlib.file_digest(stream, 'sha256').hexdigest() != digest:
+            raise ValueError('The downloaded update does not match its checksum. Download it again.')
+    return target
 
 
 class CloseGate:

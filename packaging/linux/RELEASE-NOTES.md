@@ -1,5 +1,11 @@
 Local Image now has a Linux desktop installer with Python, Qt, the editor backend and the React/Fluent interface included. Python, Node.js and a separate browser are unnecessary to run it.
 
+### New in this preview
+
+- The whole interface now follows one design system: Microsoft's Fluent components and icons, consistent toolbars and toggles, tooltips on every icon button, and a Large interface size that fits an 800 × 560 window.
+- **Settings → General → Updates** checks GitHub for a newer Linux preview, downloads the package into your profile and verifies it, then closes Local Image and opens it in your package installer. A quiet daily check marks the Settings button when a newer version exists; nothing downloads on its own.
+- Background-removal batches open from the Cutout workspace, keep previous batches, and export transparent PNGs or a white or chosen background.
+
 ### Download
 
 - **Ubuntu 24.04 x86-64:** download the `.deb`, open it with your package installer, and choose Install. Then open Local Image from the application menu.
@@ -26,4 +32,4 @@ This preview is built on Ubuntu 24.04 and requires glibc 2.39 or newer, a graphi
 
 Settings, image recovery, generated results and selected model folders remain separate from application files and are preserved during updates. ComfyUI and AI model weights are optional, separate downloads; the Linux preview connects to an existing ComfyUI installation.
 
-See the repository's `docs/LINUX-INSTALLATION.md` for installation, updates, storage and troubleshooting. This is a preview release; native Linux drag and drop is not implemented.
+See the repository's `docs/LINUX-INSTALLATION.md` for installation, updates, storage and troubleshooting. Updating from 0.7.2: install this package over it; settings, projects and model folders are kept. This is a preview release; native Linux drag and drop is not implemented.

@@ -2,7 +2,7 @@ name: Linux installable release
 
 on:
   push:
-    branches: [fix/linux-editor-performance-cutout-batch]
+    branches: [main]
     paths: [.github/linux-release.json]
   workflow_dispatch:
     inputs:

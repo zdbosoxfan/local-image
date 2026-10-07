@@ -711,6 +711,8 @@ function UpdatesSection({ state, controller }: { state: SettingsSnapshot; contro
   const busy = !!step;
   const progress =
     download && download.status === 'downloading' && download.total ? download.received / download.total : undefined;
+  const windows = update?.package === 'windows',
+    packageName = windows ? 'installer' : update?.package === 'linux-tar' ? 'archive' : 'package';
   return (
     <section className="li-settings-group" aria-labelledby="react-settings-updates">
       <div className="li-settings-toolbar">
@@ -768,16 +770,26 @@ function UpdatesSection({ state, controller }: { state: SettingsSnapshot; contro
                   disabled={busy}
                   onClick={() => void controller.installUpdate()}
                 >
-                  {step === 'install' ? 'Closing to install…' : 'Install and restart'}
+                  {step === 'install'
+                    ? 'Closing to install…'
+                    : windows
+                      ? 'Install and restart'
+                      : update.package === 'linux-tar'
+                        ? 'Close and open archive'
+                        : 'Close and open package'}
                 </Button>
                 <span className="li-settings-note">
-                  Downloaded and verified. Unsaved edits are reviewed before closing.
+                  {windows
+                    ? 'Downloaded and verified. Unsaved edits are reviewed before closing.'
+                    : update.package === 'linux-tar'
+                      ? 'Downloaded and verified. After Local Image closes, extract the archive and run its install.sh.'
+                      : 'Downloaded and verified. After Local Image closes, your package installer opens it.'}
                 </span>
               </div>
             ) : (
               <p className="li-settings-note">
-                The installer is downloaded and verified. Install it from the Local Image desktop app, or download it
-                from the release page.
+                The {packageName} is downloaded and verified. Install it from the Local Image desktop app, or download
+                it from the release page.
               </p>
             )
           ) : (

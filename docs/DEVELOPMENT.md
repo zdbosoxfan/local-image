@@ -157,14 +157,19 @@ The Python tests create isolated temporary data. An optional historical photo co
 ### Application updates
 
 `backend/app_update.py` checks `https://api.github.com/repos/zdbosoxfan/local-image/releases` for the newest
-non-draft release that carries `Local-Image-Setup-<version>.exe` and its `.sha256` asset (pre-releases
-count; Linux previews are ignored). `GET /api/local-remove/update` reports status, `?refresh=true` performs a
-quiet check at most every 15 minutes, `POST …/update/check` forces one, and `POST …/update/download` streams the
-installer through `managed_ai.download_verified` into the profile's `updates` folder, publishing it only when
-size and checksum match. Only the desktop host, with its launcher credential, can read the installer path
-(`GET …/update/installer`); the page sees `installer_ready` alone. The host checks the path, name and
-SHA-256 itself and runs the installer after the window has closed. `tests/test_app_update.py` covers release
-selection, checksum parsing, the download/verify flow and tamper detection with simulated GitHub responses.
+non-draft release that carries this platform's package and its checksum (pre-releases count): on Windows
+`Local-Image-Setup-<version>.exe` with its `.sha256` asset, on Linux `Local-Image-<version>-linux-x86_64.deb`
+(or the `.tar.gz` where `dpkg` is absent) listed in `SHA256SUMS`. Versions order by their numeric part, so
+`0.7.3-linux-preview` is newer than `0.7.2-linux-preview`. `GET /api/local-remove/update` reports status
+(including `package`), `?refresh=true` performs a quiet check at most every 15 minutes, `POST …/update/check`
+forces one, and `POST …/update/download` streams the package through `managed_ai.download_verified` into the
+profile's `updates` folder, publishing it only when size and checksum match. Only the desktop host, with its
+launcher credential, can read the package path (`GET …/update/installer`); the page sees `installer_ready`
+alone. The host checks the path, name and SHA-256 itself (`desktop/LocalImageLauncher.cs` on Windows,
+`verified_update_package` in `desktop/linux/protocol.py` on Linux) and runs the installer, or opens the package
+with `xdg-open`, after the window has closed. `tests/test_app_update.py` covers release selection on both
+platforms, checksum parsing, the download/verify flow and tamper detection with simulated GitHub responses;
+`tests/test_native_protocol.py` covers the Linux `updateInstall` verb.
 
 ### Retired legacy interface
 

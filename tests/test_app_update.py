@@ -76,17 +76,34 @@ class FakeSession:
 
 
 def routes(releases, installer=INSTALLER):
-    """GitHub API list, each release's checksum file, and a CDN redirect for its installer."""
+    """GitHub API list, each release's checksum file, and a CDN redirect for its package."""
     table = {app_update.RELEASES_URL: lambda: FakeResponse(200, json.dumps(releases).encode()),
              CDN_URL: lambda: FakeResponse(200, installer)}
     for item in releases:
-        for asset in item.get('assets', []):
+        assets = item.get('assets', [])
+        packages = [asset['name'] for asset in assets if asset.get('name', '').endswith(('.exe', '.deb', '.tar.gz'))]
+        for asset in assets:
             name, url = asset.get('name', ''), asset.get('browser_download_url', '')
             if name.endswith('.exe.sha256'):
                 table[url] = (lambda checksum: lambda: FakeResponse(200, checksum.encode()))(f'{DIGEST}  {name[:-7]}\n')
-            elif name.endswith('.exe'):
+            elif name == 'SHA256SUMS':
+                table[url] = (lambda checksum: lambda: FakeResponse(200, checksum.encode()))(
+                    ''.join(f'{DIGEST}  {package}\n' for package in packages))
+            elif name in packages:
                 table[url] = lambda: FakeResponse(302, headers={'Location': CDN_URL})
     return table
+
+
+def linux_release(version='9.9.5-linux-preview', **changes):
+    base = f'https://github.com/zdbosoxfan/local-image/releases/download/v{version}/'
+    names = [f'Local-Image-{version}-linux-x86_64.tar.gz', f'Local-Image-{version}-linux-x86_64.deb']
+    value = {'draft': False, 'prerelease': True, 'tag_name': f'v{version}', 'name': f'Local Image {version}',
+             'body': 'Linux notes', 'html_url': f'https://github.com/zdbosoxfan/local-image/releases/tag/v{version}',
+             'published_at': '2026-10-12T00:00:00Z',
+             'assets': [{'name': name, 'size': len(INSTALLER), 'browser_download_url': base + name} for name in names]
+             + [{'name': 'SHA256SUMS', 'size': 200, 'browser_download_url': base + 'SHA256SUMS'}]}
+    value.update(changes)
+    return value
 
 
 class ReleaseSelectionTests(unittest.TestCase):
@@ -99,23 +116,45 @@ class ReleaseSelectionTests(unittest.TestCase):
         unchecked['assets'] = unchecked['assets'][:1]
         foreign = release('9.9.7')
         foreign['assets'][0]['browser_download_url'] = 'https://evil.example/Local-Image-Setup-9.9.7.exe'
-        chosen = app_update.newest_windows_release([release('9.9.0'), linux, draft, unchecked, foreign, release('9.9.1')])
+        chosen = app_update.newest_release([release('9.9.0'), linux, draft, unchecked, foreign, release('9.9.1')], 'windows')
         self.assertEqual(chosen['version'], '9.9.1')
         self.assertEqual(chosen['asset_name'], 'Local-Image-Setup-9.9.1.exe')
         self.assertTrue(chosen['prerelease'])
-        self.assertIsNone(app_update.newest_windows_release([linux, draft]))
-        self.assertIsNone(app_update.newest_windows_release({'message': 'rate limited'}))
+        self.assertIsNone(app_update.newest_release([linux, draft], 'windows'))
+        self.assertIsNone(app_update.newest_release({'message': 'rate limited'}, 'windows'))
+
+    def test_linux_picks_its_own_package_and_ignores_windows_installers(self):
+        releases = [release('9.9.9'), linux_release('9.9.5-linux-preview'), linux_release('9.9.4-linux-preview')]
+        deb = app_update.newest_release(releases, 'linux-deb')
+        self.assertEqual(deb['version'], '9.9.5-linux-preview')
+        self.assertEqual(deb['asset_name'], 'Local-Image-9.9.5-linux-preview-linux-x86_64.deb')
+        self.assertTrue(deb['checksum_url'].endswith('/SHA256SUMS'))
+        archive = app_update.newest_release(releases, 'linux-tar')
+        self.assertEqual(archive['asset_name'], 'Local-Image-9.9.5-linux-preview-linux-x86_64.tar.gz')
+        no_sums = linux_release('9.9.6-linux-preview')
+        no_sums['assets'] = no_sums['assets'][:2]
+        self.assertEqual(app_update.newest_release([no_sums, linux_release('9.9.5-linux-preview')], 'linux-deb')['version'],
+                         '9.9.5-linux-preview')
+        self.assertIsNone(app_update.newest_release([release('9.9.9')], 'linux-deb'))
 
     def test_version_order_and_newer_check(self):
         self.assertGreater(app_update.version_tuple('0.7.10'), app_update.version_tuple('0.7.9'))
+        self.assertEqual(app_update.version_tuple('0.7.2-linux-preview'), (0, 7, 2))
+        with self.assertRaises(ValueError):
+            app_update.version_tuple('linux-preview')
         with patch.object(app_update, 'APP_VERSION', '0.7.0'):
             self.assertTrue(app_update.is_newer({'version': '0.8.0'}))
             self.assertFalse(app_update.is_newer({'version': '0.7.0'}))
             self.assertFalse(app_update.is_newer(None))
+        with patch.object(app_update, 'APP_VERSION', '0.7.2-linux-preview'):
+            self.assertTrue(app_update.is_newer({'version': '0.7.3-linux-preview'}))
+            self.assertFalse(app_update.is_newer({'version': '0.7.2-linux-preview'}))
 
     def test_checksum_file_must_name_the_installer(self):
         name = 'Local-Image-Setup-9.9.0.exe'
         self.assertEqual(app_update.parse_checksum(f'{DIGEST.upper()} *{name}\n', name), DIGEST)
+        sums = f'{"0" * 64}  Local-Image-9.9.5-linux-preview-linux-x86_64.tar.gz\n{DIGEST}  Local-Image-9.9.5-linux-preview-linux-x86_64.deb\n'
+        self.assertEqual(app_update.parse_checksum(sums, 'Local-Image-9.9.5-linux-preview-linux-x86_64.deb'), DIGEST)
         with self.assertRaises(app_update.UpdateError):
             app_update.parse_checksum(f'{DIGEST}  Local-Image-Setup-9.9.1.exe\n', name)
         with self.assertRaises(app_update.UpdateError):
@@ -136,10 +175,13 @@ class UpdateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.environment.start()
         self.version = patch.object(app_update, 'APP_VERSION', '0.7.0')
         self.version.start()
+        self.package = patch.object(app_update, 'PACKAGE', 'windows')
+        self.package.start()
         app_update._state.update({'checked_at': 0.0, 'checked_time': None, 'release': None, 'check_error': '', 'installer': None,
                                   'download': {'status': 'idle', 'received': 0, 'total': 0, 'error': ''}})
 
     def tearDown(self):
+        self.package.stop()
         self.version.stop()
         self.environment.stop()
         self.temporary.cleanup()
@@ -153,6 +195,7 @@ class UpdateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status['check_error'], '')
         self.assertGreater(status['checked_at'], 1.7e9)
         self.assertFalse(status['installer_ready'])
+        self.assertEqual(status['package'], 'windows')
         self.assertNotIn('url', status['release'])
         self.assertNotIn('sha256', status['release'])
         self.assertEqual(session.requests, [app_update.RELEASES_URL, ASSET_URL + '.sha256'])
@@ -200,6 +243,22 @@ class UpdateFlowTests(unittest.IsolatedAsyncioTestCase):
             await app_update._download_task
         self.assertEqual(app_update.public_status()['download']['status'], 'ready')
         self.assertEqual(Path(app_update.verified_installer()['path']).read_bytes(), INSTALLER)
+
+    async def test_linux_download_verifies_against_the_shared_checksum_list(self):
+        session = FakeSession(routes([release('9.9.9'), linux_release()]))
+        with patch.object(app_update, 'PACKAGE', 'linux-deb'), patch.object(app_update, 'APP_VERSION', '0.7.2-linux-preview'):
+            status = await app_update.check(force=True, session_factory=lambda: session)
+            self.assertTrue(status['available'])
+            self.assertEqual(status['release']['asset_name'], 'Local-Image-9.9.5-linux-preview-linux-x86_64.deb')
+            self.assertEqual(status['package'], 'linux-deb')
+            with patch.object(managed_ai.aiohttp, 'ClientSession', lambda *args, **kwargs: session):
+                await app_update.start_download()
+                await app_update._download_task
+            self.assertEqual(app_update.public_status()['download']['status'], 'ready')
+            package = app_update.verified_installer()
+            self.assertEqual(package['package'], 'linux-deb')
+            self.assertEqual(Path(package['path']).name, 'Local-Image-9.9.5-linux-preview-linux-x86_64.deb')
+            self.assertEqual(Path(package['path']).read_bytes(), INSTALLER)
 
     async def test_corrupt_download_is_rejected_and_nothing_is_published(self):
         session = FakeSession(routes([release()], installer=INSTALLER[:-1] + b'?'))

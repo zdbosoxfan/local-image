@@ -73,7 +73,9 @@ Save an editable `.lremove` project when you want to retain image pixels, layers
 
 ## Update or uninstall
 
-Save your work and close Local Image before updating. For Ubuntu, install the new `.deb` through the package installer or `apt` as above. For the archive, extract the new release and run its `./install.sh`; it installs a new program version and switches the launcher to it. Both preserve user data, model folders and separate ComfyUI installations. Use the same installation method when upgrading.
+**Settings → General → Updates** checks GitHub for a newer Linux preview. The app also checks quietly once a day and shows a dot on the Settings button when a newer version exists; it never downloads anything on its own. **Download update** fetches the `.deb` (or the `.tar.gz` on systems without `dpkg`) into your profile's `updates` folder and verifies it against the release's `SHA256SUMS`; a file that does not match is discarded. **Close and open package** reviews unsaved edits, closes Local Image and hands the verified file to your desktop's package installer (`xdg-open`), where you choose Install; for the archive it opens the file so you can extract it and run `./install.sh`. Nothing runs as root from inside Local Image.
+
+Save your work and close Local Image before updating by hand. For Ubuntu, install the new `.deb` through the package installer or `apt` as above. For the archive, extract the new release and run its `./install.sh`; it installs a new program version and switches the launcher to it. Both preserve user data, model folders and separate ComfyUI installations. Use the same installation method when upgrading.
 
 To remove the Ubuntu package, use your package manager or run:
 

@@ -134,6 +134,39 @@ class NativeSetupCommandTests(unittest.TestCase):
                 self.command(self.window, 'setupDownloadGenerationModel', {'model': model, 'variant': variant})
         self.client.call.assert_not_called()
 
+    def test_update_install_verifies_the_backend_package_then_closes_the_window(self):
+        import hashlib
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            updates = Path(root) / 'updates'
+            updates.mkdir()
+            package = updates / 'Local-Image-9.9.5-linux-preview-linux-x86_64.deb'
+            package.write_bytes(b'debian package bytes')
+            info = {'path': str(package), 'sha256': hashlib.sha256(b'debian package bytes').hexdigest(),
+                    'bytes': len(b'debian package bytes'), 'version': '9.9.5-linux-preview', 'package': 'linux-deb'}
+            self.client.call.return_value = info
+            self.window.pending_installer = None
+            self.window.close = Mock()
+            namespace = self.command.__globals__
+            with patch.dict(namespace, {'verified_update_package': protocol.verified_update_package,
+                                        'data_root': lambda: Path(root), 'QTimer': SimpleNamespace(singleShot=lambda _, fn: fn())}):
+                function = self.command(self.window, 'updateInstall', {'path': '/untrusted', 'command': 'untrusted'})
+                self.assertEqual(function(), {'ok': True})
+            self.client.call.assert_called_once_with('/api/local-remove/update/installer')
+            self.assertEqual(self.window.pending_installer, package.resolve())
+            self.window.close.assert_called_once_with()
+            # A package outside the updates folder, a renamed file or changed bytes never opens.
+            outside = Path(root) / package.name
+            outside.write_bytes(b'debian package bytes')
+            for bad in ({**info, 'path': str(outside)}, {**info, 'bytes': 3}, {**info, 'sha256': '0' * 64},
+                        {**info, 'path': str(updates / 'evil.sh')}, 'not a dict', {**info, 'sha256': 'short'}):
+                with self.subTest(bad=bad), self.assertRaises(ValueError):
+                    protocol.verified_update_package(bad, updates)
+            link = updates / 'Local-Image-9.9.6-linux-preview-linux-x86_64.deb'
+            link.symlink_to(package)
+            with self.assertRaises(ValueError):
+                protocol.verified_update_package({**info, 'path': str(link)}, updates)
+
 
 if __name__ == '__main__':
     unittest.main()

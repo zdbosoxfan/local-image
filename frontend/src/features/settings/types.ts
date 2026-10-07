@@ -105,6 +105,9 @@ export interface UpdateStatus {
   release: UpdateRelease | null;
   download: { status: 'idle' | 'downloading' | 'ready' | 'failed'; received: number; total: number; error: string };
   installer_ready: boolean;
+  /** Which release asset this installation installs: the Windows installer,
+   * the Debian package, or the Linux archive on systems without dpkg. */
+  package: 'windows' | 'linux-deb' | 'linux-tar';
   release_page: string;
 }
 export type UpdateStep = 'check' | 'download' | 'install' | null;

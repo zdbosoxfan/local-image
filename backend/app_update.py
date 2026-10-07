@@ -1,15 +1,17 @@
-"""Check GitHub releases for a newer Windows installer and download it verified.
+"""Check GitHub releases for a newer release package and download it verified.
 
-The page can ask for a check and a download; only the desktop host, with its
-launcher credential, may read the verified installer path and run it. Nothing
-is installed from here: Inno Setup runs its normal wizard with the previous
-folder and storage choices after the application has closed.
+On Windows the package is the Inno Setup installer; on Linux it is the Debian
+package, or the archive on systems without dpkg. The page can ask for a check
+and a download; only the desktop host, with its launcher credential, may read
+the verified package path and open it. Nothing is installed from here: the
+installer or the system's package tool runs after the application has closed.
 """
 import asyncio
 import json
 import logging
 import re
 import shutil
+import sys
 import time
 from urllib.parse import urljoin, urlsplit
 
@@ -22,7 +24,25 @@ import managed_ai
 REPOSITORY = 'zdbosoxfan/local-image'
 RELEASES_URL = f'https://api.github.com/repos/{REPOSITORY}/releases?per_page=30'
 RELEASE_PAGE = f'https://github.com/{REPOSITORY}/releases'
-INSTALLER_NAME = re.compile(r'^Local-Image-Setup-(\d+(?:\.\d+)+)\.exe$')
+# Release asset names per platform. The Windows installer publishes its own
+# .sha256 file; the Linux build publishes one SHA256SUMS file for both packages.
+PACKAGES = {
+    'windows': {'name': re.compile(r'^Local-Image-Setup-(\d+(?:\.\d+)+)\.exe$'), 'checksum': None},
+    'linux-deb': {'name': re.compile(r'^Local-Image-(\d+(?:\.\d+)+(?:-[A-Za-z0-9.~+-]*)?)-linux-x86_64\.deb$'),
+                  'checksum': 'SHA256SUMS'},
+    'linux-tar': {'name': re.compile(r'^Local-Image-(\d+(?:\.\d+)+(?:-[A-Za-z0-9.~+-]*)?)-linux-x86_64\.tar\.gz$'),
+                  'checksum': 'SHA256SUMS'},
+}
+
+
+def platform_package():
+    """Which release asset this installation can install."""
+    if sys.platform.startswith('linux'):
+        return 'linux-deb' if shutil.which('dpkg') else 'linux-tar'
+    return 'windows'
+
+
+PACKAGE = platform_package()
 MAX_RELEASES_BYTES = 4 * 1024 * 1024
 MAX_INSTALLER_BYTES = 2 * 1024 * 1024 * 1024
 MAX_NOTES = 20000
@@ -57,8 +77,12 @@ def checked_api_url(url):
 
 
 def version_tuple(text):
-    """Numeric release order; '0.7.10' sorts after '0.7.9'."""
-    return tuple(int(part) for part in text.split('.'))
+    """Numeric release order; '0.7.10' sorts after '0.7.9'. A Linux preview
+    such as '0.7.2-linux-preview' orders by its numeric part."""
+    match = re.match(r'(\d+(?:\.\d+)+)(?:$|[-+~])', text)
+    if not match:
+        raise ValueError('Not a release version: ' + text)
+    return tuple(int(part) for part in match.group(1).split('.'))
 
 
 def parse_checksum(text, name):
@@ -70,12 +94,14 @@ def parse_checksum(text, name):
     raise UpdateError('The published checksum for the installer could not be read.')
 
 
-def newest_windows_release(releases):
-    """Newest non-draft release carrying a Windows installer and its checksum.
+def newest_release(releases, package=None):
+    """Newest non-draft release carrying this platform's package and its checksum.
 
-    Pre-releases count: every Windows preview so far is marked that way.
-    Linux previews and releases without a verified installer are ignored.
+    Pre-releases count: every preview so far is marked that way. Releases for
+    the other platform and releases without a verified package are ignored.
     """
+    package = package or PACKAGE
+    pattern, checksum_name = PACKAGES[package]['name'], PACKAGES[package]['checksum']
     best = None
     for release in releases if isinstance(releases, list) else []:
         if not isinstance(release, dict) or release.get('draft'):
@@ -83,10 +109,10 @@ def newest_windows_release(releases):
         assets = [asset for asset in (release.get('assets') or []) if isinstance(asset, dict)]
         for asset in assets:
             name = asset.get('name', '')
-            match = INSTALLER_NAME.match(name) if isinstance(name, str) else None
+            match = pattern.match(name) if isinstance(name, str) else None
             if not match:
                 continue
-            checksum = next((item for item in assets if item.get('name') == name + '.sha256'), None)
+            checksum = next((item for item in assets if item.get('name') == (checksum_name or name + '.sha256')), None)
             url, size = asset.get('browser_download_url'), asset.get('size')
             if (not checksum or not isinstance(url, str) or not isinstance(size, int)
                     or not 0 < size <= MAX_INSTALLER_BYTES or not isinstance(checksum.get('browser_download_url'), str)):
@@ -140,7 +166,7 @@ async def _fetch(client, url, limit, checked):
 
 
 async def fetch_release(session_factory=None):
-    """Return the newest installer release with its verified checksum, or None."""
+    """Return the newest package release with its verified checksum, or None."""
     timeout = aiohttp.ClientTimeout(total=30, connect=15)
     factory = session_factory or (lambda: aiohttp.ClientSession(timeout=timeout, headers=GITHUB_HEADERS))
     async with factory() as client:
@@ -148,10 +174,10 @@ async def fetch_release(session_factory=None):
             releases = json.loads(await _fetch(client, RELEASES_URL, MAX_RELEASES_BYTES, checked_api_url))
         except json.JSONDecodeError as error:
             raise UpdateError('GitHub returned an unreadable release list.') from error
-        release = newest_windows_release(releases)
+        release = newest_release(releases)
         if not release:
             return None
-        checksum = await _fetch(client, release['checksum_url'], 4096, managed_ai.checked_download_url)
+        checksum = await _fetch(client, release['checksum_url'], 16384, managed_ai.checked_download_url)
         release['sha256'] = parse_checksum(checksum.decode('utf-8', 'replace'), release['asset_name'])
         return release
 
@@ -180,8 +206,9 @@ def public_status():
             key: release[key] for key in ('version', 'tag', 'name', 'notes', 'html_url', 'published_at',
                                           'prerelease', 'asset_name', 'bytes')},
         'download': download,
-        # The page learns that a verified installer exists, never where it is.
+        # The page learns that a verified package exists, never where it is.
         'installer_ready': bool(installer) and download['status'] == 'ready',
+        'package': PACKAGE,
         'release_page': RELEASE_PAGE,
     }
 
@@ -276,13 +303,13 @@ async def start_download():
 
 
 def verified_installer():
-    """Desktop host only: the downloaded installer and the checksum it must
-    match. The host hashes the file itself before running it."""
+    """Desktop host only: the downloaded package and the checksum it must
+    match. The host hashes the file itself before opening it."""
     installer = _state['installer']
     if not installer or _state['download']['status'] != 'ready':
         raise HTTPException(409, 'Download the update before installing it.')
     path = updates_dir() / installer['path'].rsplit('\\', 1)[-1].rsplit('/', 1)[-1]
-    if not INSTALLER_NAME.match(path.name) or path.is_symlink() or not path.is_file():
+    if not PACKAGES[PACKAGE]['name'].match(path.name) or path.is_symlink() or not path.is_file():
         raise HTTPException(409, 'The downloaded installer is missing. Download the update again.')
     if path.stat().st_size != installer['bytes']:
         _state['download'] = {'status': 'failed', 'received': 0, 'total': 0,
@@ -291,7 +318,7 @@ def verified_installer():
         path.unlink(missing_ok=True)
         raise HTTPException(409, _state['download']['error'])
     return {'path': str(path), 'sha256': installer['sha256'], 'bytes': installer['bytes'],
-            'version': installer['version']}
+            'version': installer['version'], 'package': PACKAGE}
 
 
 @router.get('/api/local-remove/update')
