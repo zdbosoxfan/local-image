@@ -12,13 +12,13 @@ from starlette.requests import Request
 
 HERE = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(HERE / 'backend'), str(HERE / 'tests' / 'helpers')]
-from backend_settings_test import BackendSettingsTests
+import backend_settings_test as fixtures
 import managed_ai
 
 
 class SetupRouteTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        self.fixture = BackendSettingsTests(methodName='runTest')
+        self.fixture = fixtures.BackendSettingsTests(methodName='runTest')
         self.fixture.setUp()
         self.imports = patch.dict(sys.modules, {'local_remove': self.fixture.app})
         self.imports.start()

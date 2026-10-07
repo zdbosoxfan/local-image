@@ -287,7 +287,7 @@ def run(package, output, comfy_directory=None, coordinated=False, expected_versi
         report['read_only_setup'] = setup
         assert setup['model_directory'] == str(models)
         assert setup['managed_directory'] == str(ai)
-        assert setup['install_directory'] == str(ai / 'LocalRemove-ComfyUI')
+        assert setup['install_directory'] == str(ai / 'LocalImage-ComfyUI')
         assert setup['setup_mode'] == 'discover'
         assert setup['storage']['model_folder']['free_bytes'] > 0
         assert not models.exists() and not ai.exists(), 'Reading setup created storage directories.'

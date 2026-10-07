@@ -80,6 +80,7 @@ export function createDocumentController(options: DocumentControllerPorts & { to
     displays = new Map<string, Promise<CanvasDisplay>>();
   let sequence = 0,
     navigationEpoch = 0,
+    tabRequest = 0,
     activeId: string | null = null,
     collection: ImageCollection | null = null,
     collectionIndex = -1;
@@ -353,6 +354,10 @@ export function createDocumentController(options: DocumentControllerPorts & { to
     return pendingDisplay?.epoch === navigationEpoch ? pendingDisplay.document : current();
   }
   function trimDisplayCache() {
+    for (const key of displays.keys()) {
+      const doc = accepted.get(key.slice(0, key.lastIndexOf(':')));
+      if (!doc || key !== doc.id + ':' + doc.revision) displays.delete(key);
+    }
     while (displays.size > 8) displays.delete(displays.keys().next().value!);
     for (const key of bases.keys()) {
       if (bases.size <= 4) break;
@@ -747,6 +752,10 @@ export function createDocumentController(options: DocumentControllerPorts & { to
       void features.enterGenerate();
       return;
     }
+    if (value !== 'generate' && interaction.workspace === 'generate' && !settings.internal && features.leaveGenerate) {
+      void features.leaveGenerate(value);
+      return;
+    }
     setInteraction(
       { workspace: value, ...(value === 'retouch' && interaction.tool === 'move' ? { tool: 'brush' as const } : {}) },
       !!settings.internal,
@@ -1027,9 +1036,64 @@ export function createDocumentController(options: DocumentControllerPorts & { to
       publish();
     }
   }
+  async function activateOpenDocument(id: string) {
+    if (busy() || modal() || !opened.has(id)) return false;
+    const epoch = navigationEpoch,
+      request = ++tabRequest;
+    try {
+      const latest = await api.session(id);
+      if (disposed || request !== tabRequest || epoch !== navigationEpoch || !opened.has(id)) return false;
+      return openSession(latest, { expectedNavigationEpoch: epoch });
+    } catch (error) {
+      if (request === tabRequest && epoch === navigationEpoch)
+        report('Could not switch image: ' + failureText(error), true);
+      return false;
+    }
+  }
+  async function newWorkspace() {
+    if (disposed || busy() || modal()) return false;
+    canvas.rememberCurrentView();
+    canvas.resetTransientInput();
+    const epoch = ++navigationEpoch;
+    navigationBusy = epoch;
+    activeId = null;
+    collection = null;
+    collectionIndex = -1;
+    interaction = { ...interaction, workspace: 'retouch', showOriginal: false, handActive: false };
+    generationView = { refining: false, creatingBlank: false, visible: false };
+    suppressCanvas = true;
+    try {
+      await canvas.presentDocument(null);
+      if (disposed || epoch !== navigationEpoch) return false;
+      features.resetWorkspace?.();
+      browser.replaceUrl?.('/remove');
+      report('New workspace. Open an image or choose Generate.');
+      return true;
+    } finally {
+      if (navigationBusy === epoch) navigationBusy = null;
+      suppressCanvas = false;
+      publish();
+    }
+  }
+  async function closeOpenDocument(id: string) {
+    if (!opened.has(id)) return false;
+    const order = [...opened],
+      index = order.indexOf(id),
+      rawId = activeId,
+      epoch = navigationEpoch;
+    const visibleId = features.visibleDocumentId ? features.visibleDocumentId() : activeId,
+      wasActive = visibleId === id;
+    if (!(await closeDocuments([id]))) return false;
+    if (wasActive && navigationEpoch === epoch + (rawId === id ? 1 : 0) && activeId === (rawId === id ? null : rawId)) {
+      const adjacent = [...order.slice(index + 1), ...order.slice(0, index).reverse()].find(value => opened.has(value));
+      if (adjacent) await activateOpenDocument(adjacent);
+      else features.resetWorkspace?.();
+    }
+    return true;
+  }
   async function closeCurrent() {
     const target = await beforeDocumentCommand('close');
-    return target.allowed ? (current() ? closeDocuments([current()!.id]) : true) : false;
+    return target.allowed ? (current() ? closeOpenDocument(current()!.id) : true) : false;
   }
   function setOutputFormat(value: string) {
     if (!formats.has(value as OutputFormat) || busy()) return;
@@ -1075,6 +1139,13 @@ export function createDocumentController(options: DocumentControllerPorts & { to
         health.healMethods = methods
           .filter(item => item && typeof item === 'object' && typeof item.id === 'string')
           .map(item => ({ id: item.id, label: item.label || item.id, available: item.available !== false }));
+      if (!health.healMethods.some(method => method.id === healMethod && method.available !== false)) {
+        const fallback = health.healMethods.find(method => method.available !== false);
+        if (fallback) {
+          healMethod = fallback.id;
+          store('local-remove-heal-method', healMethod);
+        }
+      }
     }
     if (value.status)
       health = {
@@ -1209,6 +1280,9 @@ export function createDocumentController(options: DocumentControllerPorts & { to
       );
   }
   const commands = {
+    newWorkspace,
+    activateOpenDocument,
+    closeOpenDocument,
     openFiles: () => chooseFiles('images'),
     openFolder: () => chooseFiles('folder'),
     openProject: () => chooseFiles('project'),
@@ -1348,7 +1422,7 @@ export function createDocumentController(options: DocumentControllerPorts & { to
     clearSelection: commands.clearSelection,
     applySelection,
     healMethod: value => {
-      if (!busy() && health.healMethods.some(method => method.id === value)) {
+      if (!busy() && health.healMethods.some(method => method.id === value && method.available !== false)) {
         healMethod = value;
         store('local-remove-heal-method', value);
         publish();
@@ -1466,6 +1540,7 @@ export function createDocumentController(options: DocumentControllerPorts & { to
     api,
     canvas,
     getAcceptedDocument,
+    hasCutout: (id: string) => !!accepted.get(id)?.cutout?.enabled,
     getContext,
     runDocumentChange,
     acceptDocument,
@@ -1477,6 +1552,11 @@ export function createDocumentController(options: DocumentControllerPorts & { to
     openBrowserFiles,
     importProject,
     applyNativeResult,
+    retainDocument(value: DocumentMetadata) {
+      const document = accept(value);
+      opened.add(document.id);
+      publish();
+    },
     drop: (dropped: readonly File[]) =>
       native?.capabilities().ready ? openNative('drop', dropped) : openBrowserFiles(dropped),
     openInitial,
@@ -1497,7 +1577,9 @@ export function createDocumentController(options: DocumentControllerPorts & { to
         epoch = navigationEpoch,
         finish = startOperation('Refreshing view');
       try {
-        const shown = await present(doc, epoch);
+        const fresh = accept(await api.session(doc.id));
+        displays.delete(fresh.id + ':' + fresh.revision);
+        const shown = await present(fresh, epoch);
         if (shown) report('View refreshed.');
         return shown;
       } catch (error) {

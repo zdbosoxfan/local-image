@@ -3,6 +3,7 @@ import type {
   GenerationModel,
   GenerationPayload,
   GenerationResult,
+  HardwareUsage,
   OperationProgress,
   UpscaleInventory,
 } from './types.ts';
@@ -58,16 +59,19 @@ export function createGenerationApi(token: string, fetcher: typeof fetch = fetch
     upscaleModels: (signal?: AbortSignal) =>
       request<UpscaleInventory>('/generation/upscale/models', 'GET', undefined, signal),
     progress: (signal?: AbortSignal) => request<OperationProgress>('/generation/progress', 'GET', undefined, signal),
+    cancel: (jobId: string) => request<OperationProgress>('/generation/cancel', 'POST', { job_id: jobId }),
+    hardwareUsage: (signal?: AbortSignal) => request<HardwareUsage>('/hardware/usage', 'GET', undefined, signal),
     async generate(payload: GenerationPayload) {
       const result = await request<GenerationResult>('/generation', 'POST', payload);
       validDocument(result.session);
       return result;
     },
-    async upscale(document: EditorDocument, size: { width: number; height: number }) {
+    async upscale(document: EditorDocument, size: { width: number; height: number }, operationId?: string) {
       const result = await request<GenerationResult>('/generation/upscale', 'POST', {
         session_id: document.id,
         revision: document.revision,
         ...size,
+        ...(operationId ? { operation_id: operationId } : {}),
       });
       validDocument(result.session);
       return result;

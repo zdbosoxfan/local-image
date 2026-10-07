@@ -35,6 +35,10 @@ const key = (value: string, change: Partial<KeyInput> = {}): KeyInput => ({
   ...change,
 });
 test('file, history and menu routes preserve modifier distinctions', () => {
+  assert.deepEqual(resolveEditorKey(key('n', { ctrlKey: true }), state, target), {
+    kind: 'command',
+    command: 'newWorkspace',
+  });
   assert.deepEqual(resolveEditorKey(key('s', { ctrlKey: true, altKey: true }), state, target), {
     kind: 'command',
     command: 'saveProject',
@@ -53,6 +57,22 @@ test('file, history and menu routes preserve modifier distinctions', () => {
   });
   assert.deepEqual(resolveEditorKey(key('f', { altKey: true }), state, target), { kind: 'menu', menu: 'File' });
   assert.deepEqual(resolveEditorKey(key('F10'), state, target), { kind: 'menu', menu: null });
+});
+test('New workspace is available from empty views and focused inputs but does not bypass a modal', () => {
+  const input = { ...target, textEntry: true };
+  assert.deepEqual(resolveEditorKey(key('n', { ctrlKey: true }), { ...state, hasDocument: false }, input), {
+    kind: 'command',
+    command: 'newWorkspace',
+  });
+  assert.deepEqual(
+    resolveEditorKey(key('n', { metaKey: true }), { ...state, workspace: 'generate', hiddenEditor: true }, input),
+    { kind: 'command', command: 'newWorkspace' },
+  );
+  assert.deepEqual(resolveEditorKey(key('n', { ctrlKey: true }), { ...state, modalOpen: true }, input), {
+    kind: 'block',
+  });
+  assert.equal(resolveEditorKey(key('n', { ctrlKey: true, shiftKey: true }), state, input), null);
+  assert.equal(resolveEditorKey(key('n', { ctrlKey: true, altKey: true }), state, input), null);
 });
 test('focused inputs and controls retain editing, Space and Enter behavior', () => {
   const input = { ...target, textEntry: true };

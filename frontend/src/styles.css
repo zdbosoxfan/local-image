@@ -124,9 +124,9 @@
   grid-template-columns: 28px 36px minmax(0, 1fr) 28px;
   gap: 6px;
   align-items: center;
-  padding: 4px 8px;
+  padding: 4px 8px 4px 6px;
   min-height: 52px;
-  border-block: 1px solid transparent;
+  border-left: 2px solid transparent;
   cursor: default;
 }
 .li-layer-row:hover {
@@ -134,7 +134,7 @@
 }
 .li-layer-row[aria-selected='true'] {
   background: var(--colorNeutralBackground1Selected);
-  border-block-color: var(--colorNeutralStroke2);
+  border-left-color: var(--colorBrandStroke1);
 }
 .li-layer-row:focus-visible {
   outline: 2px solid var(--colorStrokeFocus2);

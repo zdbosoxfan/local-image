@@ -1,192 +1,227 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { Button } from '@fluentui/react-components';
-import type { EditorDocument } from '../../contracts.ts';
 import { Icon } from '../shell/Icon.tsx';
+import type { EditorDocument } from '../../contracts.ts';
+import {
+  fitPreview,
+  panPreview,
+  previewLayout,
+  wheelZoomFactor,
+  zoomPreview,
+  type PreviewCamera,
+} from './previewCamera.ts';
 import { Hint } from '../shell/Hint.tsx';
 
-/** These are comparison previews, separate from the persistent editing canvas.
- * Pixel-scale camera and pointer movement stay in refs and DOM styles. */
-export function Comparison({ draft, result }: { draft?: EditorDocument; result?: EditorDocument }) {
-  const left = useRef<HTMLDivElement>(null),
-    right = useRef<HTMLDivElement>(null),
+/** A single active-stage preview. Camera changes bypass React reconciliation. */
+export function Comparison({ document, label, notice }: { document?: EditorDocument; label: string; notice?: string }) {
+  const area = useRef<HTMLDivElement>(null),
+    image = useRef<HTMLImageElement>(null),
     zoomLabel = useRef<HTMLSpanElement>(null);
-  const camera = useRef({ scale: 'fit' as number | 'fit', x: 0.5, y: 0.5 });
-  const drag = useRef<{
-    pointerId: number;
-    x: number;
-    y: number;
-    centerX: number;
-    centerY: number;
-    width: number;
-    height: number;
-  } | null>(null);
+  const camera = useRef<PreviewCamera>(fitPreview()),
+    cameras = useRef(new Map<string, PreviewCamera>()),
+    identity = useRef('');
+  const drag = useRef<{ pointerId: number; x: number; y: number; camera: PreviewCamera } | null>(null);
+  const key = `${label}:${document?.id ?? ''}`;
+  function sizes() {
+    if (!area.current || !image.current?.naturalWidth) return null;
+    return {
+      image: { width: image.current.naturalWidth, height: image.current.naturalHeight },
+      viewport: { width: area.current.clientWidth, height: area.current.clientHeight },
+    };
+  }
   function render() {
-    for (const area of [left.current, right.current]) {
-      const image = area?.querySelector('img');
-      if (!area || !image?.naturalWidth) continue;
-      const view = camera.current,
-        scale =
-          view.scale === 'fit'
-            ? Math.min(area.clientWidth / image.naturalWidth, area.clientHeight / image.naturalHeight)
-            : view.scale;
-      Object.assign(image.style, {
-        width: `${image.naturalWidth * scale}px`,
-        height: `${image.naturalHeight * scale}px`,
-        left: `${area.clientWidth / 2 - view.x * image.naturalWidth * scale}px`,
-        top: `${area.clientHeight / 2 - view.y * image.naturalHeight * scale}px`,
+    const size = sizes();
+    if (size && image.current) {
+      const view = previewLayout(camera.current, size.image, size.viewport);
+      Object.assign(image.current.style, {
+        width: `${view.width}px`,
+        height: `${view.height}px`,
+        left: `${view.left}px`,
+        top: `${view.top}px`,
+        visibility: 'visible',
       });
     }
     if (zoomLabel.current)
       zoomLabel.current.textContent =
         camera.current.scale === 'fit' ? 'Fit' : `${Math.round(camera.current.scale * 100)}%`;
   }
-  function zoom(factor: number) {
-    if (camera.current.scale === 'fit') {
-      const image = left.current?.querySelector('img');
-      camera.current.scale =
-        image?.naturalWidth && left.current
-          ? Math.min(left.current.clientWidth / image.naturalWidth, left.current.clientHeight / image.naturalHeight)
-          : 1;
-    }
-    camera.current.scale = Math.max(0.02, Math.min(8, camera.current.scale * factor));
+  function zoom(factor: number, anchor?: { x: number; y: number }) {
+    const size = sizes();
+    if (!size) return;
+    endDrag();
+    camera.current = zoomPreview(camera.current, size.image, size.viewport, factor, anchor);
     render();
   }
-  useEffect(() => {
-    const observer = new ResizeObserver(render);
-    if (left.current) observer.observe(left.current);
-    if (right.current) observer.observe(right.current);
+  function endDrag(pointerId = drag.current?.pointerId) {
+    if (pointerId !== undefined && area.current?.hasPointerCapture(pointerId))
+      area.current.releasePointerCapture(pointerId);
+    drag.current = null;
+    if (area.current) area.current.dataset.panning = 'false';
+  }
+  useLayoutEffect(() => {
+    if (identity.current) cameras.current.set(identity.current, camera.current);
+    if (cameras.current.size > 20) cameras.current.delete(cameras.current.keys().next().value!);
+    identity.current = key;
+    camera.current = cameras.current.get(key) ?? fitPreview();
+    endDrag();
     render();
-    return () => observer.disconnect();
-  }, [draft?.id, result?.id]);
+  }, [key]);
+  useEffect(() => {
+    const viewport = area.current;
+    if (!viewport) return;
+    const observer = new ResizeObserver(render);
+    observer.observe(viewport);
+    const wheel = (event: WheelEvent) => {
+      if (!sizes()) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const box = viewport.getBoundingClientRect();
+      zoom(wheelZoomFactor(event.deltaY, event.deltaMode, viewport.clientHeight), {
+        x: event.clientX - box.left,
+        y: event.clientY - box.top,
+      });
+    };
+    viewport.addEventListener('wheel', wheel, { passive: false });
+    render();
+    return () => {
+      observer.disconnect();
+      viewport.removeEventListener('wheel', wheel);
+    };
+  }, []);
+  const empty = label === 'Draft' ? 'Choose or generate a draft.' : 'Choose a draft, then refine it.';
   return (
-    <section className="li-generation-comparison" aria-label="Draft and refinement comparison">
+    <section className="li-generation-comparison" aria-label={`${label} viewer`}>
       <div className="li-generation-comparison-tools">
-        <Button
-          size="small"
-          onClick={() => {
-            camera.current = { scale: 'fit', x: 0.5, y: 0.5 };
-            render();
-          }}
-        >
-          Fit
-        </Button>
-        <Button
-          size="small"
-          onClick={() => {
-            camera.current.scale = 1;
-            render();
-          }}
-        >
-          100%
-        </Button>
-        <Hint content="Zoom comparison out">
+        <span className="li-generation-preview-title" title={document?.name}>
+          {label}
+          {document ? ` · ${document.width} × ${document.height}` : ''}
+        </span>
+        <Hint content="Fit image (F)" relationship="description">
           <Button
             size="small"
-            aria-label="Zoom comparison out"
+            appearance="subtle"
+            disabled={!document}
+            onClick={() => {
+              camera.current = fitPreview();
+              render();
+            }}
+          >
+            Fit
+          </Button>
+        </Hint>
+        <Hint content="Actual size (1)" relationship="description">
+          <Button
+            size="small"
+            appearance="subtle"
+            disabled={!document}
+            onClick={() => {
+              camera.current.scale = 1;
+              render();
+            }}
+          >
+            100%
+          </Button>
+        </Hint>
+        <Hint content="Zoom out (−)" relationship="description">
+          <Button
+            size="small"
+            appearance="subtle"
+            className="li-generation-icon-button"
+            aria-label="Zoom preview out"
+            disabled={!document}
+            icon={<Icon name="subtract" />}
             onClick={() => zoom(1 / 1.25)}
-            icon={<Icon name="zoom-out" />}
           />
         </Hint>
-        <span ref={zoomLabel}>Fit</span>
-        <Hint content="Zoom comparison in">
+        <span ref={zoomLabel} className="li-generation-preview-zoom">
+          Fit
+        </span>
+        <Hint content="Zoom in (+)" relationship="description">
           <Button
             size="small"
-            aria-label="Zoom comparison in"
+            appearance="subtle"
+            className="li-generation-icon-button"
+            aria-label="Zoom preview in"
+            disabled={!document}
+            icon={<Icon name="add" />}
             onClick={() => zoom(1.25)}
-            icon={<Icon name="zoom-in" />}
           />
         </Hint>
       </div>
-      <div className="li-generation-comparison-pair">
-        {(
-          [
-            ['Draft', draft, left],
-            ['Refined result', result, right],
-          ] as const
-        ).map(([label, document, holder]) => (
-          <div key={label} className="li-generation-comparison-side">
-            <h3>{label}</h3>
-            <div
-              ref={holder}
-              className="li-generation-comparison-image"
-              tabIndex={0}
-              aria-label={`${label}: drag to pan; plus or minus to zoom`}
-              onPointerDown={event => {
-                const image = event.currentTarget.querySelector('img');
-                if (event.button !== 0 || !image?.naturalWidth) return;
-                const box = image.getBoundingClientRect();
-                drag.current = {
-                  pointerId: event.pointerId,
-                  x: event.clientX,
-                  y: event.clientY,
-                  centerX: camera.current.x,
-                  centerY: camera.current.y,
-                  width: box.width,
-                  height: box.height,
-                };
-                event.currentTarget.setPointerCapture(event.pointerId);
-                event.preventDefault();
-              }}
-              onPointerMove={event => {
-                const held = drag.current;
-                if (!held || held.pointerId !== event.pointerId) return;
-                camera.current.x = Math.max(0, Math.min(1, held.centerX - (event.clientX - held.x) / held.width));
-                camera.current.y = Math.max(0, Math.min(1, held.centerY - (event.clientY - held.y) / held.height));
-                render();
-              }}
-              onPointerUp={event => {
-                if (event.currentTarget.hasPointerCapture(event.pointerId))
-                  event.currentTarget.releasePointerCapture(event.pointerId);
-                drag.current = null;
-              }}
-              onPointerCancel={() => {
-                drag.current = null;
-              }}
-              onLostPointerCapture={() => {
-                drag.current = null;
-              }}
-              onKeyDown={event => {
-                if (
-                  !['+', '=', '-', '1', 'f', 'F', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)
-                )
-                  return;
-                event.preventDefault();
-                event.stopPropagation();
-                if (event.key === '1') camera.current.scale = 1;
-                else if (event.key.toLowerCase() === 'f') camera.current = { scale: 'fit', x: 0.5, y: 0.5 };
-                else if (['+', '=', '-'].includes(event.key)) zoom(event.key === '-' ? 1 / 1.25 : 1.25);
-                else {
-                  camera.current.x = Math.max(
-                    0,
-                    Math.min(
-                      1,
-                      camera.current.x + (event.key === 'ArrowLeft' ? -0.05 : event.key === 'ArrowRight' ? 0.05 : 0),
-                    ),
-                  );
-                  camera.current.y = Math.max(
-                    0,
-                    Math.min(
-                      1,
-                      camera.current.y + (event.key === 'ArrowUp' ? -0.05 : event.key === 'ArrowDown' ? 0.05 : 0),
-                    ),
-                  );
-                }
-                render();
-              }}
-            >
-              {document ? (
-                <img
-                  alt={`${label}: ${document.name}`}
-                  src={`/api/local-remove/session/${encodeURIComponent(document.id)}/preview?revision=${document.revision}&full=true`}
-                  draggable={false}
-                  onLoad={render}
-                />
-              ) : (
-                <p>{label === 'Draft' ? 'Choose or generate a draft.' : 'Refine the selected draft.'}</p>
-              )}
-            </div>
-          </div>
-        ))}
+      {notice && (
+        <p className="li-generation-preview-notice" role="status">
+          {notice}
+        </p>
+      )}
+      <div
+        ref={area}
+        className="li-generation-comparison-image"
+        tabIndex={0}
+        aria-label={`${label}: mouse wheel to zoom; drag or arrow keys to pan; F to fit; 1 for actual size`}
+        onPointerDown={event => {
+          if (event.button !== 0 || !sizes()) return;
+          event.currentTarget.focus({ preventScroll: true });
+          drag.current = {
+            pointerId: event.pointerId,
+            x: event.clientX,
+            y: event.clientY,
+            camera: { ...camera.current },
+          };
+          event.currentTarget.setPointerCapture(event.pointerId);
+          event.currentTarget.dataset.panning = 'true';
+          event.preventDefault();
+        }}
+        onPointerMove={event => {
+          const held = drag.current,
+            size = sizes();
+          if (!held || held.pointerId !== event.pointerId || !size) return;
+          camera.current = panPreview(
+            held.camera,
+            size.image,
+            size.viewport,
+            event.clientX - held.x,
+            event.clientY - held.y,
+          );
+          render();
+        }}
+        onPointerUp={event => endDrag(event.pointerId)}
+        onPointerCancel={event => endDrag(event.pointerId)}
+        onLostPointerCapture={() => endDrag()}
+        onKeyDown={event => {
+          if (!['+', '=', '-', '1', 'f', 'F', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key))
+            return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.key === '1') camera.current.scale = 1;
+          else if (event.key.toLowerCase() === 'f') camera.current = fitPreview();
+          else if (['+', '=', '-'].includes(event.key)) zoom(event.key === '-' ? 1 / 1.25 : 1.25);
+          else {
+            const size = sizes();
+            if (size)
+              camera.current = panPreview(
+                camera.current,
+                size.image,
+                size.viewport,
+                event.key === 'ArrowLeft' ? 40 : event.key === 'ArrowRight' ? -40 : 0,
+                event.key === 'ArrowUp' ? 40 : event.key === 'ArrowDown' ? -40 : 0,
+              );
+          }
+          render();
+        }}
+      >
+        {document ? (
+          <img
+            key={`${document.id}:${document.revision}`}
+            ref={image}
+            style={{ visibility: 'hidden' }}
+            alt={`${label}: ${document.name}`}
+            src={`/api/local-remove/session/${encodeURIComponent(document.id)}/preview?revision=${document.revision}&full=true`}
+            draggable={false}
+            onLoad={render}
+          />
+        ) : (
+          <p>{empty}</p>
+        )}
       </div>
     </section>
   );

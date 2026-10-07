@@ -10,6 +10,7 @@ import { createShellController, type ShellController } from './features/shell/sh
 import { createEditorDialogs } from './features/shell/editorDialogs.ts';
 import { createCommandExecutor } from './features/shell/executeCommand.ts';
 import { createSettingsController, type SettingsController } from './features/settings/index.ts';
+import { createSettingsApi } from './features/settings/settingsApi.ts';
 import { createModelsController, type ModelsController } from './features/models/index.ts';
 import { createBatchController, type BatchController } from './features/batch/index.ts';
 import { createAssetsController } from './features/assets/index.ts';
@@ -26,7 +27,12 @@ const required = <T extends HTMLElement>(id: string): T => {
 const loadImage = (url: string) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
-    image.onload = () => resolve(image);
+    image.onload = () => {
+      void image.decode().then(
+        () => resolve(image),
+        () => reject(Error('Could not decode the photo preview.')),
+      );
+    };
     image.onerror = () => reject(Error('Could not load the photo preview.'));
     image.src = url;
   });
@@ -95,9 +101,11 @@ export function createApplication(token: string) {
   };
   const featureAdapters = createFeatureAdapters({ documents, native, storage: localStorage, applyDensity });
   applyDensity(featureAdapters.settingsBridge.preferences().density);
+  const settingsApi = createSettingsApi(token);
   const generationAdapters = createGenerationAdapters({
     document: documents,
     native,
+    setupStatus: () => settingsApi.setup(),
     openModels: options => {
       void models!.openModels(options);
     },
@@ -116,6 +124,7 @@ export function createApplication(token: string) {
   const modelController = models;
   settings = createSettingsController({
     token,
+    api: settingsApi,
     bridge: featureAdapters.settingsBridge,
     browseModels: () => generationAdapters.featureCommands.browseModels?.(),
     startTask: async workspace => {

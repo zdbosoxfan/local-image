@@ -1,3 +1,4 @@
+export type BatchBackground = 'transparent' | 'white' | 'image';
 export type BatchFormat = 'original' | 'png' | 'jpg' | 'tif' | 'webp';
 export type BatchItemStatus =
   'pending' | 'preparing' | 'ready' | 'exporting' | 'exported' | 'failed' | 'conflict' | 'needs-cutout';
@@ -26,6 +27,8 @@ export interface BatchQueue {
   prepare_cutouts: boolean;
   qwen_variant: 'int8' | 'bf16';
   treatment_id: string | null;
+  background_mode?: BatchBackground;
+  background_name?: string | null;
   treatment_name: string | null;
   items: readonly BatchItem[];
   bytes: number;
@@ -41,6 +44,7 @@ export interface BatchEntry {
   id: string;
   name: string;
   sessionId: string | null;
+  cutoutReady?: boolean;
 }
 export interface BatchPendingSelection {
   sessionId: string;
@@ -71,12 +75,18 @@ export interface BatchDraft {
   format: BatchFormat;
   prepareCutouts: boolean;
   qwenVariant: 'int8' | 'bf16';
+  backgroundMode: BatchBackground;
+  backgroundImage: string | null;
+  backgroundName: string;
 }
 export interface CreateBatchRequest {
   treatment_id: string | null;
   format: BatchFormat;
   prepare_cutouts: boolean;
   qwen_variant: 'int8' | 'bf16';
+  background_mode?: BatchBackground;
+  background_image?: string;
+  background_name?: string;
   collection_id?: string;
   entry_ids?: string[];
   sessions?: { session_id: string; revision: number }[];

@@ -226,6 +226,9 @@ export interface DocumentFeatureCommands {
   afterDocumentOpened?(document: DocumentMetadata): void | Promise<void>;
   noteClosed?(ids: readonly string[]): void;
   enterGenerate?(): void | Promise<unknown>;
+  leaveGenerate?(workspace: 'retouch' | 'cutout'): void | Promise<unknown>;
+  resetWorkspace?(): void;
+  visibleDocumentId?(): string | null;
   showAssets?(destination?: 'image' | 'background' | 'reference' | 'draft'): unknown;
   showGenerated?(): unknown;
   showSettings?(): unknown;

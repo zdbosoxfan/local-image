@@ -253,7 +253,7 @@ export function Layers({
               className="li-thumbnail"
               loading="lazy"
               alt=""
-              src={`/api/local-remove/session/${encodeURIComponent(doc!.id)}/stack/layer/${encodeURIComponent(layer.id)}/display?r=${doc!.revision}`}
+              src={`/api/local-remove/session/${encodeURIComponent(doc!.id)}/stack/layer/${encodeURIComponent(layer.id)}/display?r=${encodeURIComponent(layer.display_key || String(doc!.revision))}`}
             />
             <div
               className="li-layer-label"

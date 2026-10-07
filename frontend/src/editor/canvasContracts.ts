@@ -9,6 +9,7 @@ export interface CanvasLayer {
   opacity?: number;
   transform?: Partial<LayerTransform>;
   bounds?: readonly number[];
+  display_key?: string;
 }
 export interface LegacyPatch {
   id: string;

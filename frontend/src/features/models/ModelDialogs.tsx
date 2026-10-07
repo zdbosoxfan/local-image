@@ -1,5 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
+  Accordion,
+  AccordionHeader,
+  AccordionItem,
+  AccordionPanel,
   Button,
   Checkbox,
   Dialog,
@@ -11,17 +15,22 @@ import {
   Field,
   Input,
   Link,
+  Menu,
+  MenuItemRadio,
+  MenuList,
+  MenuPopover,
+  MenuTrigger,
   ProgressBar,
-  Select,
   Spinner,
   Tab,
   TabList,
 } from '@fluentui/react-components';
+import { Icon } from '../shell/Icon.tsx';
 import type { ModelsController } from './controller.ts';
 import type { DownloadJob, LoraItem, LoraSelection, ModelsSnapshot } from './types.ts';
-import { Icon } from '../shell/Icon.tsx';
 import { Hint } from '../shell/Hint.tsx';
 import './models.css';
+import { ChoiceSelect } from '../shell/ChoiceSelect.tsx';
 
 const bytes = (value: number | undefined) => {
   const amount = Number(value) || 0;
@@ -46,6 +55,8 @@ function previewUrl(value: string | undefined) {
   }
 }
 const repositoryUrl = (repo: string) => `https://huggingface.co/${repo.split('/').map(encodeURIComponent).join('/')}`;
+const loraIdentity = (item: LoraItem) =>
+  item.id || `${item.model || ''}/${item.repo_id || ''}/${item.filename || ''}/${item.revision || ''}`;
 
 export function ModelDialogs({ controller }: { controller: ModelsController }) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
@@ -130,10 +141,18 @@ function ModelBrowser({ controller, state }: { controller: ModelsController; sta
   return (
     <>
       <div className="li-models-toolbar">
-        <p className="li-models-note">Supported local models · capabilities and availability come from the backend.</p>
-        <Button size="small" disabled={locked} onClick={() => void controller.refreshModels(true)}>
-          Refresh
-        </Button>
+        <p className="li-models-note">Supported local models</p>
+        <Hint content="Refresh models" relationship="description">
+          <Button
+            size="small"
+            appearance="subtle"
+            className="li-lora-icon-button"
+            aria-label="Refresh models"
+            disabled={locked}
+            icon={<Icon name="refresh" />}
+            onClick={() => void controller.refreshModels(true)}
+          />
+        </Hint>
       </div>
       <div className="li-model-browser-grid">
         <div className="li-model-list" role="listbox" aria-label="Supported models" ref={listRef}>
@@ -191,24 +210,15 @@ function ModelBrowser({ controller, state }: { controller: ModelsController; sta
                 .filter(Boolean)
                 .join(' · ')}
             </p>
-            <ul>
-              {(model.strengths || model.notes || []).map(note => (
-                <li key={note}>{note}</li>
-              ))}
-            </ul>
             <Field label="Precision">
-              <Select
-                aria-label="Model precision"
+              <ChoiceSelect
+                id="model-browser-precision"
+                label="Model precision"
                 value={state.selectedVariant}
                 disabled={locked}
-                onChange={event => controller.selectVariant(event.target.value)}
-              >
-                {model.variants?.map(item => (
-                  <option key={item.id} value={item.id}>
-                    {item.label}
-                  </option>
-                ))}
-              </Select>
+                choices={(model.variants || []).map(item => ({ value: item.id, label: item.label }))}
+                onSelect={controller.selectVariant}
+              />
             </Field>
             <dl className="li-model-facts">
               <div>
@@ -238,12 +248,26 @@ function ModelBrowser({ controller, state }: { controller: ModelsController; sta
                 <dd>{model.recommended?.steps || model.defaults?.steps || '—'}</dd>
               </div>
             </dl>
-            <p className="li-models-note">
-              {hardwareInfo?.basis ||
-                hardware?.detail ||
-                'Memory recommendations are planning estimates. CPU offloading uses system RAM and runs more slowly.'}
-            </p>
-            {!!model.limitations?.length && <p className="li-models-note">{model.limitations.join(' · ')}</p>}
+            <Accordion collapsible className="li-model-notes">
+              <AccordionItem key={model.id} value="notes">
+                <AccordionHeader>Model notes and limitations</AccordionHeader>
+                <AccordionPanel>
+                  {!!(model.strengths || model.notes)?.length && (
+                    <ul>
+                      {(model.strengths || model.notes || []).map(note => (
+                        <li key={note}>{note}</li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="li-models-note">
+                    {hardwareInfo?.basis ||
+                      hardware?.detail ||
+                      'Memory recommendations are planning estimates. CPU offloading uses system RAM and runs more slowly.'}
+                  </p>
+                  {!!model.limitations?.length && <p className="li-models-note">{model.limitations.join(' · ')}</p>}
+                </AccordionPanel>
+              </AccordionItem>
+            </Accordion>
             {sourceUrl(model.license?.url) && (
               <Link href={model.license?.url} target="_blank" rel="noopener noreferrer">
                 {model.license?.label || 'License details'}
@@ -266,7 +290,7 @@ function ModelBrowser({ controller, state }: { controller: ModelsController; sta
                     : 'Download model'}
               </Button>
             </div>
-            {block && <p className="li-models-note">{block}</p>}
+            {block && block !== 'Model files are already installed.' && <p className="li-models-note">{block}</p>}
           </section>
         )}
       </div>
@@ -310,9 +334,15 @@ function LoraBrowser({ controller, state }: { controller: ModelsController; stat
   const selected = state.selectedLoras,
     file = controller.selectedFile(),
     files = state.files;
+  const filePanel = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (files) filePanel.current?.scrollIntoView({ block: 'nearest' });
+  }, [files]);
   const compatibility = file?.compatibility || files?.compatibility || 'unverified';
   const block = controller.loraDownloadBlock();
-  const availableItems = state.loraTab === 'installed' ? state.inventory?.installed || [] : state.searchResults;
+  const availableItems = controller.visibleLoras(),
+    hiddenCount = controller.hiddenLoraCount();
+  const searchLocked = state.loading || state.searching || state.pendingNative;
   return (
     <>
       <div className="li-models-toolbar">
@@ -324,17 +354,21 @@ function LoraBrowser({ controller, state }: { controller: ModelsController; stat
               ? 'Refinement stage'
               : 'Image generation'}
         </p>
-        <Button
-          size="small"
-          disabled={state.loading || state.pendingNative}
-          onClick={() => void controller.loadInventory()}
-        >
-          Refresh installed
-        </Button>
+        <Hint content="Refresh installed" relationship="description">
+          <Button
+            size="small"
+            appearance="subtle"
+            className="li-lora-icon-button"
+            aria-label="Refresh installed"
+            disabled={searchLocked}
+            icon={<Icon name="refresh" />}
+            onClick={() => void controller.loadInventory()}
+          />
+        </Hint>
       </div>
       {state.context?.supportsLoras === false && (
         <p role="alert" className="li-models-error">
-          This workflow does not support adapters. Existing saved adapter settings are preserved.
+          This workflow does not support adapters. Remove saved adapters below or choose a compatible model.
         </p>
       )}
       {!!selected.length && (
@@ -378,12 +412,25 @@ function LoraBrowser({ controller, state }: { controller: ModelsController; stat
           Browse
         </Tab>
       </TabList>
+      <div className="li-lora-content-controls">
+        <Checkbox
+          id="loras-adult-content"
+          label="Show mature content (NSFW)"
+          checked={state.showAdultContent}
+          disabled={state.loading || state.savingContentPreference}
+          onChange={(_, data) => void controller.setShowAdultContent(data.checked === true)}
+        />
+        <p className="li-models-note">
+          Publisher labels may be incomplete.{!state.showAdultContent ? ' Unrated previews require a click.' : ''}
+          {hiddenCount > 0 ? ` ${hiddenCount} mature ${hiddenCount === 1 ? 'adapter hidden' : 'adapters hidden'}.` : ''}
+        </p>
+      </div>
       {state.loraTab === 'browse' && (
         <form
           className="li-lora-search"
           onSubmit={event => {
             event.preventDefault();
-            void controller.search();
+            if (!searchLocked) void controller.search();
           }}
         >
           <Input
@@ -392,13 +439,32 @@ function LoraBrowser({ controller, state }: { controller: ModelsController; stat
             value={state.query}
             onChange={(_, value) => controller.setQuery(value.value)}
             placeholder="Style, subject or repository"
+            contentAfter={
+              <Hint content="Search adapters" relationship="description">
+                <Button
+                  type="submit"
+                  size="small"
+                  appearance="subtle"
+                  className="li-lora-icon-button"
+                  aria-label="Search adapters"
+                  disabled={searchLocked}
+                  icon={<Icon name="search" />}
+                />
+              </Hint>
+            }
           />
-          <Button type="submit" size="small" disabled={state.loading}>
-            Search
-          </Button>
-          <Button size="small" disabled={state.loading} onClick={() => void controller.search()}>
-            Refresh
-          </Button>
+          <Hint content="Refresh adapter search" relationship="description">
+            <Button
+              type="button"
+              size="small"
+              appearance="subtle"
+              className="li-lora-icon-button"
+              aria-label="Refresh adapter search"
+              disabled={searchLocked}
+              icon={<Icon name="refresh" />}
+              onClick={() => void controller.search()}
+            />
+          </Hint>
         </form>
       )}
       {state.searching && <Spinner size="tiny" label="Searching adapter metadata" />}
@@ -414,7 +480,12 @@ function LoraBrowser({ controller, state }: { controller: ModelsController; stat
           <LoraTile
             key={item.id || `${item.repo_id}/${index}`}
             item={item}
-            onInfo={() => controller.showInfo(item)}
+            showAdultContent={state.showAdultContent}
+            controller={controller}
+            expanded={!!state.info && loraIdentity(state.info) === loraIdentity(item)}
+            onInfo={() =>
+              controller.showInfo(state.info && loraIdentity(state.info) === loraIdentity(item) ? null : item)
+            }
             onUse={() =>
               state.loraTab === 'installed' ? controller.useLora(item) : void controller.inspectFiles(item)
             }
@@ -452,31 +523,9 @@ function LoraBrowser({ controller, state }: { controller: ModelsController; stat
           )}
         </div>
       )}
-      {state.info && (
-        <section className="li-lora-detail" aria-label="Adapter information">
-          <div className="li-models-toolbar">
-            <h3>{state.info.title || state.info.filename || state.info.repo_id}</h3>
-            <Hint content="Close adapter information">
-              <Button
-                size="small"
-                appearance="subtle"
-                aria-label="Close adapter information"
-                onClick={() => controller.showInfo(null)}
-                icon={<Icon name="close" />}
-              />
-            </Hint>
-          </div>
-          <LoraDetails item={state.info} controller={controller} />
-          <p className="li-models-note">
-            {state.info.preview_available
-              ? `${state.info.example_source === 'local-test' ? 'Local test example.' : 'Publisher example; not independently tested.'} ${state.info.example_caption || ''}`
-              : 'No image example is available.'}
-          </p>
-        </section>
-      )}
       {state.filesLoading && <Spinner size="tiny" label="Reading adapter files" />}
       {files && (
-        <section className="li-lora-detail" aria-label="Adapter file selection">
+        <section ref={filePanel} className="li-lora-detail" aria-label="Adapter file selection">
           <div className="li-models-toolbar">
             <h3>{files.repo_id}</h3>
             <Link href={repositoryUrl(files.repo_id)} target="_blank" rel="noopener noreferrer">
@@ -484,18 +533,17 @@ function LoraBrowser({ controller, state }: { controller: ModelsController; stat
             </Link>
           </div>
           <Field label="Adapter file">
-            <Select
-              aria-label="Adapter file"
+            <ChoiceSelect
+              id="lora-adapter-file"
+              label="Adapter file"
               value={state.selectedFilename}
               disabled={state.pendingNative}
-              onChange={event => controller.selectFile(event.target.value)}
-            >
-              {files.files.map(item => (
-                <option key={item.filename} value={item.filename}>
-                  {item.filename} · {bytes(item.bytes)}
-                </option>
-              ))}
-            </Select>
+              choices={files.files.map(item => ({
+                value: item.filename || '',
+                label: `${item.filename} · ${bytes(item.bytes)}`,
+              }))}
+              onSelect={controller.selectFile}
+            />
           </Field>
           <p className="li-models-note">
             {file?.warning ||
@@ -514,6 +562,9 @@ function LoraBrowser({ controller, state }: { controller: ModelsController; stat
             />
           )}
           {file && <LoraDetails item={file} controller={controller} />}
+          {!file && (
+            <p className="li-lora-full-description">{files.description || 'Publisher description unavailable.'}</p>
+          )}
           <Button size="small" disabled={!!block} title={block} onClick={() => void controller.downloadLora()}>
             Download adapter
           </Button>
@@ -581,53 +632,128 @@ function LoraTile({
   item,
   action,
   disabled,
+  expanded,
+  showAdultContent,
+  controller,
   onUse,
   onInfo,
 }: {
   item: LoraItem;
   action: string;
   disabled: boolean;
+  expanded: boolean;
+  showAdultContent: boolean;
+  controller: ModelsController;
   onUse: () => void;
   onInfo: () => void;
 }) {
   const [failed, setFailed] = useState(false),
     preview = previewUrl(item.preview_url),
     title = item.title || item.style || item.filename || item.repo_id || 'Adapter';
+  const consentKey = `${loraIdentity(item)}|${preview || ''}|${showAdultContent}|${item.content_rating || 'unknown'}`,
+    [revealedKey, setRevealedKey] = useState<string | null>(null);
+  const revealed = revealedKey === consentKey,
+    unknownPublisher =
+      (!item.content_rating || item.content_rating === 'unknown') && item.example_source === 'publisher';
+  const requiresConsent =
+    (item.preview_requires_consent === true || unknownPublisher) && !showAdultContent && !revealed;
+  const matureHidden = item.content_rating === 'adult' && !showAdultContent;
+  const detailsId = useId(),
+    availablePreview = !!preview && !failed && item.preview_available !== false,
+    hasPreview = availablePreview && !requiresConsent && !matureHidden;
+  let imageSource = preview;
+  if (preview) {
+    const url = new URL(preview);
+    url.searchParams.delete('show_adult');
+    url.searchParams.delete('show_unrated');
+    if (showAdultContent) url.searchParams.set('show_adult', 'true');
+    else if (revealed && (item.preview_requires_consent || unknownPublisher))
+      url.searchParams.set('show_unrated', 'true');
+    imageSource = url.href;
+  }
+  useEffect(() => setFailed(false), [preview]);
+  useEffect(() => setRevealedKey(null), [consentKey]);
   return (
-    <article className="li-lora-tile">
-      <div className="li-lora-preview">
-        {preview && !failed && item.preview_available !== false ? (
-          <img src={preview} alt={`${title} example`} loading="lazy" onError={() => setFailed(true)} />
-        ) : (
-          <span>{failed ? 'Example unavailable' : 'No example yet'}</span>
-        )}
+    <article className="li-lora-tile" aria-label={`${title} adapter`}>
+      <div className="li-lora-preview-group">
+        <div className="li-lora-preview">
+          {hasPreview ? (
+            <img src={imageSource} alt={`${title} example`} loading="lazy" onError={() => setFailed(true)} />
+          ) : requiresConsent && availablePreview && !matureHidden ? (
+            <div className="li-lora-preview-consent">
+              <span>Unrated publisher preview</span>
+              <Button size="small" onClick={() => setRevealedKey(consentKey)}>
+                Show unrated preview
+              </Button>
+            </div>
+          ) : (
+            <span>{matureHidden ? 'Mature preview hidden' : failed ? 'Example unavailable' : 'No example yet'}</span>
+          )}
+        </div>
+        <span className="li-models-note">
+          {availablePreview
+            ? item.example_source === 'local-test'
+              ? 'Local test example'
+              : 'Publisher example'
+            : 'Preview unavailable'}
+        </span>
       </div>
-      <span className="li-models-note">
-        {preview ? (item.example_source === 'local-test' ? 'Local test' : 'Publisher example') : 'Preview unavailable'}
-      </span>
-      <strong>{title}</strong>
-      <span className="li-models-note">
-        {item.compatibility === 'curated'
-          ? 'Recommended for this model'
-          : item.compatibility === 'declared'
-            ? 'Publisher-declared compatibility'
-            : 'Compatibility unverified'}
-      </span>
-      <div className="li-models-actions">
-        <Button size="small" disabled={disabled} onClick={onUse}>
-          {action}
-        </Button>
-        <Button size="small" appearance="subtle" aria-label={`Information about ${title}`} onClick={onInfo}>
-          Info
-        </Button>
+      <div className="li-lora-content">
+        <h3 className="li-lora-title">{title}</h3>
+        <p className="li-lora-metadata">
+          <span>
+            {item.compatibility === 'curated'
+              ? 'Recommended for this model'
+              : item.compatibility === 'declared'
+                ? 'Publisher-declared compatibility'
+                : 'Compatibility unverified'}
+          </span>
+          <span aria-hidden="true"> · </span>
+          <span className={item.content_rating === 'adult' ? 'li-lora-adult' : undefined}>
+            {item.content_rating === 'adult'
+              ? 'Mature / NSFW'
+              : item.content_rating === 'general'
+                ? 'Publisher: general'
+                : 'Not labeled'}
+          </span>
+        </p>
+        <p className="li-lora-description">{item.description || 'Publisher description unavailable.'}</p>
+        <div className="li-models-actions">
+          <Button size="small" disabled={disabled} onClick={onUse}>
+            {action}
+          </Button>
+          <Button
+            size="small"
+            appearance="subtle"
+            aria-label={`Details for ${title}`}
+            aria-expanded={expanded}
+            aria-controls={detailsId}
+            onClick={onInfo}
+          >
+            {expanded ? 'Hide details' : 'Details'}
+          </Button>
+        </div>
       </div>
+      {expanded && (
+        <section id={detailsId} className="li-lora-expanded-details" aria-label={`Details for ${title}`}>
+          <LoraDetails item={item} controller={controller} />
+          <p className="li-models-note">
+            {hasPreview
+              ? `${item.example_source === 'local-test' ? 'Local test example.' : 'Publisher example; not independently tested.'} ${item.example_caption || ''}`
+              : 'No image example is available.'}
+          </p>
+          {item.content_rating_source && (
+            <p className="li-models-note">Content label source: {item.content_rating_source}</p>
+          )}
+        </section>
+      )}
     </article>
   );
 }
 function LoraDetails({ item, controller }: { item: LoraItem; controller: ModelsController }) {
   return (
     <>
-      <p className="li-models-note">{item.description}</p>
+      <p className="li-lora-full-description">{item.description || 'Publisher description unavailable.'}</p>
       <p className="li-models-note">
         {[
           item.experimental ? 'Experimental' : null,

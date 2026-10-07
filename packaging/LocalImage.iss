@@ -7,6 +7,8 @@
 #ifndef PrerequisiteDir
   #define PrerequisiteDir "..\dist\prerequisites"
 #endif
+// Retain the installer ID so existing Local Remove installs upgrade in place.
+// Executables, window classes and new mutexes use Local Image branding.
 #ifndef AppIdentity
   #define AppIdentity "LocalRemove.Windows"
 #endif
@@ -66,6 +68,7 @@ Source: "{#PackageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 
 [InstallDelete]
 Type: files; Name: "{app}\Local Remove.exe"
+Type: files; Name: "{app}\backend\LocalRemoveBackend.exe"
 Type: files; Name: "{autodesktop}\Local Remove.lnk"; Check: LegacyShortcutTargetsApp('{autodesktop}\Local Remove.lnk')
 Type: files; Name: "{autoprograms}\Local Remove\Local Remove.lnk"; Check: LegacyShortcutTargetsApp('{autoprograms}\Local Remove\Local Remove.lnk')
 Type: files; Name: "{autoprograms}\Local Remove\AI connection settings.lnk"; Check: LegacyShortcutTargetsApp('{autoprograms}\Local Remove\AI connection settings.lnk')
@@ -407,13 +410,11 @@ begin
               and (Version <> '') and (Version <> '0.0.0.0');
 end;
 
-function BackendFilesUnlocked(const Directory: String): Boolean;
+function BackendFileUnlocked(const Backend: String): Boolean;
 var
   Stream: TFileStream;
-  Backend: String;
 begin
   Result := True;
-  Backend := Directory + '\backend\LocalRemoveBackend.exe';
   if FileExists(Backend) then begin
     try
       Stream := TFileStream.Create(Backend, fmOpenReadWrite or fmShareExclusive);
@@ -422,6 +423,13 @@ begin
       Result := False;
     end;
   end;
+end;
+
+function BackendFilesUnlocked(const Directory: String): Boolean;
+begin
+  // A partial upgrade can leave both names present; neither may still be running.
+  Result := BackendFileUnlocked(Directory + '\backend\LocalImageBackend.exe')
+    and BackendFileUnlocked(Directory + '\backend\LocalRemoveBackend.exe');
 end;
 
 function StopInstalledBackend(const Directory: String; OriginalUser: Boolean): Boolean;
@@ -454,7 +462,7 @@ begin
   Result := ValidateStorage();
   if Result = '' then Result := ValidateApplicationFolder();
   if Result <> '' then exit;
-  if CheckForMutexes('Local\LocalRemoveDesktop') then
+  if CheckForMutexes('Local\LocalImageDesktop,Local\LocalRemoveDesktop') then
     Result := 'Save your edits and close Local Image before installing this update.'
   else if not StopInstalledBackend(ExpandConstant('{app}'), True) then
     Result := 'Close Local Image for all Windows users and wait for background work to finish, then retry. Idle background services close within 75 seconds.';
@@ -469,7 +477,7 @@ end;
 function InitializeUninstall(): Boolean;
 begin
   Result := False;
-  if CheckForMutexes('Local\LocalRemoveDesktop') then begin
+  if CheckForMutexes('Local\LocalImageDesktop,Local\LocalRemoveDesktop') then begin
     MsgBox('Save your edits and close Local Image before uninstalling.', mbInformation, MB_OK);
     exit;
   end;

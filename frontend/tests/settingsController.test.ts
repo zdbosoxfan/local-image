@@ -9,6 +9,8 @@ import type {
   SetupState,
   UpdateStatus,
 } from '../src/features/settings/types.ts';
+import type { BrowserModel, ModelDownloads } from '../src/features/models/types.ts';
+import { modelDownloadSelection } from '../src/features/settings/modelDownload.ts';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -26,6 +28,20 @@ function fixture() {
   const storageValues = new Map<string, string>();
   const schedules: Array<{ callback: () => void; milliseconds: number }> = [];
   let data: SetupState = { service: { ready: false, running: false }, models: [], model_directory: '' };
+  let hideHardware: boolean | null = null;
+  let models: BrowserModel[] = [
+    {
+      id: 'qwen',
+      label: 'Qwen',
+      defaults: { variant: 'int8' },
+      variants: [
+        { id: 'int8', label: 'Compact INT8' },
+        { id: 'bf16', label: 'Full BF16' },
+      ],
+    },
+    { id: 'z-image-turbo', label: 'Z-Image Turbo', variants: [{ id: 'bf16', label: 'BF16' }] },
+  ];
+  let downloads: ModelDownloads = { running: false, models: [] };
   const bridge: SettingsBridge = {
     capabilities: () => ({ ready: true, setup: true }),
     editorBusy: () => false,
@@ -59,6 +75,10 @@ function fixture() {
     },
     startBackend: async () => ({}),
     ejectModels: async () => ({}),
+    downloadModel: async (model, variant) => {
+      actions.push(`downloadModel:${model}:${variant}`);
+      return {};
+    },
     useInstallation: async id => {
       actions.push(`useInstallation:${id}`);
       return {};
@@ -99,6 +119,13 @@ function fixture() {
     status: async () => ({ ready: false, retouch_ready: true }),
     qwen: async () => ({ ready: false }),
     hardware: async () => ({ devices: [], note: 'Planning guidance' }),
+    modelCatalog: async () => ({ models: structuredClone(models) }),
+    modelDownloads: async () => structuredClone(downloads),
+    hardwarePreference: async () => ({ dont_show_again: hideHardware }),
+    saveHardwarePreference: async value => {
+      hideHardware = value;
+      return { dont_show_again: value };
+    },
   };
   const controller = createSettingsController({
     token: 'per-page-token',
@@ -134,6 +161,12 @@ function fixture() {
     },
     setUpdate: (value: Partial<UpdateStatus>) => {
       updateStatus = { ...updateStatus, ...value };
+    },
+    setModels: (value: BrowserModel[]) => {
+      models = value;
+    },
+    setDownloads: (value: ModelDownloads) => {
+      downloads = value;
     },
   };
 }
@@ -239,8 +272,19 @@ test('backend inventory requests remain read-only and carry only the page token'
     calls.push([String(input), init]);
     return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
   }) as typeof fetch);
-  await Promise.all([api.settings(), api.setup(), api.setup(true), api.status(), api.qwen(), api.hardware()]);
-  assert.equal(calls.length, 6);
+  await Promise.all([
+    api.settings(),
+    api.setup(),
+    api.setup(true),
+    api.status(),
+    api.qwen(),
+    api.hardware(),
+    api.hardwarePreference(),
+    api.modelCatalog(),
+    api.modelCatalog(true),
+    api.modelDownloads(),
+  ]);
+  assert.equal(calls.length, 10);
   assert.ok(calls.every(([, init]) => !init?.method || init.method === 'GET'));
   assert.ok(
     calls.every(
@@ -260,9 +304,78 @@ test('first-run hardware followed by setup uses existing preferences without aut
   f.controller.continueHardware();
   assert.equal(f.controller.getSnapshot().view, 'settings');
   assert.equal(f.controller.getSnapshot().requestedSection, 'ai');
-  assert.equal(f.storageValues.get('local-image.hardware-guide.v1'), '1');
+  assert.equal(f.storageValues.get('local-image.hardware-guide.v1'), undefined);
   assert.equal(f.storageValues.get('local-image.first-ai-setup.v1'), '1');
   assert.deepEqual(f.actions, []);
+});
+
+test('hardware dismissal survives fresh browser storage and Help can still reopen the guide', async () => {
+  const f = fixture();
+  await f.controller.maybeFirstRun();
+  assert.equal(f.controller.getSnapshot().view, 'hardware');
+  await f.controller.setHideHardwareGuide(true);
+  f.controller.continueHardware();
+  f.controller.dispose();
+  f.storageValues.clear();
+  const restarted = createSettingsController({
+    token: 'new-page',
+    bridge: f.bridge,
+    api: f.api,
+    storage: { getItem: () => null, setItem: () => {} },
+  });
+  await restarted.maybeFirstRun();
+  assert.equal(restarted.getSnapshot().view, null);
+  await restarted.open('hardware');
+  assert.equal(restarted.getSnapshot().hideHardwareGuide, true);
+  await restarted.setHideHardwareGuide(false);
+  restarted.close();
+  await restarted.maybeFirstRun();
+  assert.equal(restarted.getSnapshot().view, 'hardware');
+  restarted.dispose();
+});
+
+test('closing without opting out does not suppress hardware guidance; failed saves are visible', async () => {
+  const f = fixture();
+  await f.controller.maybeFirstRun();
+  f.controller.close();
+  await f.controller.maybeFirstRun();
+  assert.equal(f.controller.getSnapshot().view, 'hardware');
+  let writes = 0;
+  f.api.saveHardwarePreference = async () => {
+    writes++;
+    throw Error('Could not save preference.');
+  };
+  await f.controller.setHideHardwareGuide(true);
+  assert.equal(writes, 1);
+  assert.equal(f.controller.getSnapshot().hideHardwareGuide, false);
+  assert.equal(f.controller.getSnapshot().savingHardwarePreference, false);
+  assert.match(f.controller.getSnapshot().error, /Could not save/);
+  assert.equal(f.storageValues.get('local-image.hardware-guide.v1'), undefined);
+  f.controller.dispose();
+});
+
+test('explicit persistent preference overrides a legacy browser acknowledgement', async () => {
+  const f = fixture();
+  f.storageValues.set('local-image.hardware-guide.v1', '1');
+  await f.controller.maybeFirstRun();
+  assert.equal(f.controller.getSnapshot().view, null);
+  f.api.hardwarePreference = async () => ({ dont_show_again: false });
+  await f.controller.maybeFirstRun();
+  assert.equal(f.controller.getSnapshot().view, 'hardware');
+  f.controller.dispose();
+});
+
+test('hardware preference writes use the token and a boolean-only POST without retries', async () => {
+  const calls: RequestInit[] = [];
+  const api = createSettingsApi('page-token', (async (_url, init) => {
+    calls.push(init!);
+    return Response.json({ dont_show_again: true });
+  }) as typeof fetch);
+  assert.deepEqual(await api.saveHardwarePreference(true), { dont_show_again: true });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].method, 'POST');
+  assert.equal((calls[0].headers as Record<string, string>)['x-local-remove-token'], 'page-token');
+  assert.deepEqual(JSON.parse(calls[0].body as string), { dont_show_again: true });
 });
 
 test('browser mode cannot dispatch native setup, and UI preferences remain browser-owned', async () => {
@@ -353,4 +466,214 @@ test('update check failures are shown for manual checks and stay silent at start
   await f.controller.checkForUpdates();
   assert.match(f.controller.getSnapshot().updateError, /rate limiting/);
   assert.equal(f.controller.getSnapshot().updateStep, null);
+});
+
+test('Local AI defaults to Qwen and preserves the chosen model and precision through refreshes', async () => {
+  const f = fixture();
+  f.setSetup({ model_directory: '/models' });
+  await f.controller.open('settings', 'ai');
+  assert.equal(f.controller.getSnapshot().selectedModelId, 'qwen');
+  assert.equal(f.controller.getSnapshot().selectedVariant, 'int8');
+  f.controller.selectVariant('bf16');
+  await f.controller.refresh();
+  assert.equal(f.controller.getSnapshot().selectedVariant, 'bf16');
+  f.controller.selectModel('z-image-turbo');
+  assert.equal(f.controller.getSnapshot().selectedVariant, 'bf16');
+  f.controller.selectVariant('int8');
+  assert.equal(f.controller.getSnapshot().selectedVariant, 'bf16', 'Only supported precisions can be selected');
+  await f.controller.refresh();
+  assert.equal(f.controller.getSnapshot().selectedModelId, 'z-image-turbo');
+  f.setModels([
+    { id: 'old', label: 'Historical', historical: true, variants: [{ id: 'fp8', label: 'FP8' }] },
+    { id: 'qwen', label: 'Qwen', variants: [{ id: 'int8', label: 'INT8' }] },
+  ]);
+  await f.controller.refresh();
+  assert.deepEqual(
+    f.controller.getSnapshot().models.map(model => model.id),
+    ['qwen'],
+  );
+  assert.equal(f.controller.getSnapshot().selectedModelId, 'qwen');
+  assert.deepEqual(f.actions, [], 'Opening and selecting models are read-only');
+  f.controller.dispose();
+});
+
+test('model downloads dispatch once through the native bridge and show the reported job progress', async () => {
+  const f = fixture();
+  f.setSetup({ model_directory: '/models' });
+  await f.controller.open('settings', 'ai');
+  f.controller.selectVariant('bf16');
+  const held = deferred<unknown>(),
+    requests: Array<[string, string]> = [];
+  f.bridge.downloadModel = (model, variant) => {
+    requests.push([model, variant]);
+    return held.promise;
+  };
+  const started = f.controller.run('downloadModel');
+  assert.equal(f.controller.getSnapshot().pendingAction, 'downloadModel');
+  await f.controller.run('downloadModel');
+  f.controller.selectModel('z-image-turbo');
+  assert.deepEqual(requests, [['qwen', 'bf16']]);
+  assert.equal(f.controller.getSnapshot().selectedModelId, 'qwen');
+  f.setDownloads({
+    running: true,
+    phase: 'download',
+    model: 'qwen',
+    variant: 'bf16',
+    progress: 0.37,
+    downloaded_bytes: 37,
+    total_bytes: 100,
+    message: 'Receiving verified model files',
+  });
+  held.resolve({});
+  await started;
+  assert.equal(f.controller.getSnapshot().modelDownloads?.progress, 0.37);
+  assert.equal(f.controller.getSnapshot().modelDownloads?.downloaded_bytes, 37);
+  assert.equal(f.controller.getSnapshot().pendingAction, null);
+  assert.equal(f.controller.locked(), true);
+  assert.equal(f.schedules.at(-1)?.milliseconds, 1500);
+  await f.controller.run('chooseModelDirectory');
+  await f.controller.run('startBackend');
+  assert.deepEqual(f.actions, []);
+  const reads: boolean[] = [];
+  const existing = f.api.modelCatalog;
+  f.api.modelCatalog = async refresh => {
+    reads.push(!!refresh);
+    return existing(refresh);
+  };
+  f.setDownloads({
+    running: false,
+    phase: 'complete',
+    progress: 1,
+    models: [{ id: 'qwen', variants: [{ id: 'bf16', installed: true, missing_bytes: 0 }] }],
+  });
+  const schedules = f.schedules.length;
+  await f.controller.refresh();
+  assert.deepEqual(reads, [false, true]);
+  assert.equal(f.controller.locked(), false);
+  assert.equal(f.schedules.length, schedules, 'Completion stops progress polling');
+  assert.equal(modelDownloadSelection(f.controller.getSnapshot()).filesPresent, true);
+  assert.match(f.controller.modelDownloadBlock(), /files are present/);
+  await f.controller.run('downloadModel');
+  assert.equal(requests.length, 1, 'Installed files are not silently downloaded again');
+  f.controller.close();
+  await f.controller.open('settings', 'ai');
+  assert.equal(f.controller.getSnapshot().modelDownloads?.phase, 'complete');
+  f.controller.dispose();
+});
+
+test('download controls distinguish files on disk, backend readiness and publisher access', async () => {
+  const f = fixture();
+  f.setSetup({ model_directory: '/models' });
+  f.setDownloads({
+    running: false,
+    models: [{ id: 'qwen', variants: [{ id: 'int8', installed: true, missing_bytes: 0, total_bytes: 100 }] }],
+  });
+  await f.controller.open('settings', 'ai');
+  const disk = modelDownloadSelection(f.controller.getSnapshot());
+  assert.equal(disk.filesPresent, true);
+  assert.equal(disk.ready, false);
+  assert.equal(disk.total, 100);
+  await f.controller.run('downloadModel');
+  assert.deepEqual(f.actions, []);
+  f.setModels([
+    { id: 'qwen', label: 'Qwen', variants: [{ id: 'int8', label: 'INT8', available: true }] },
+    {
+      id: 'flux2-klein-9b',
+      label: 'FLUX.2 Klein 9B',
+      variants: [
+        {
+          id: 'fp8',
+          label: 'FP8',
+          downloadable: false,
+          download_note: 'Accept publisher access and download the exact files manually.',
+        },
+      ],
+    },
+  ]);
+  await f.controller.refresh();
+  assert.equal(modelDownloadSelection(f.controller.getSnapshot()).ready, true);
+  f.controller.selectModel('flux2-klein-9b');
+  assert.match(f.controller.modelDownloadBlock(), /publisher access/);
+  await f.controller.run('downloadModel');
+  assert.deepEqual(f.actions, []);
+  f.controller.dispose();
+});
+
+test('browser downloads, missing folder and native failures stay visible without retries', async () => {
+  const f = fixture();
+  await f.controller.open('settings', 'ai');
+  assert.match(f.controller.modelDownloadBlock(), /model folder/);
+  await f.controller.run('downloadModel');
+  assert.deepEqual(f.actions, []);
+  f.setSetup({ model_directory: '/models' });
+  f.bridge.capabilities = () => ({ ready: false, setup: false });
+  await f.controller.refresh();
+  assert.match(f.controller.modelDownloadBlock(), /desktop app/);
+  await f.controller.run('downloadModel');
+  assert.deepEqual(f.actions, []);
+  f.bridge.capabilities = () => ({ ready: true, setup: true });
+  await f.controller.refresh();
+  let calls = 0;
+  f.bridge.downloadModel = async () => {
+    calls++;
+    throw Error('The download folder is not writable.');
+  };
+  await f.controller.run('downloadModel');
+  assert.equal(calls, 1);
+  assert.match(f.controller.getSnapshot().error, /not writable/);
+  assert.equal(f.controller.getSnapshot().pendingAction, null);
+  assert.equal(f.schedules.length, 0);
+  await f.controller.refresh();
+  assert.equal(calls, 1, 'Read-only refresh never retries a model download');
+  f.controller.dispose();
+});
+
+test('platforms without a portable runtime use existing installations and retain model downloads', async () => {
+  const f = fixture();
+  f.setSetup({ portable: { available: false }, model_directory: '/models', installations: [] });
+  await f.controller.open('settings', 'ai');
+  await f.controller.refresh(true);
+  assert.match(f.controller.getSnapshot().message, /existing ComfyUI folder/);
+  assert.doesNotMatch(f.controller.getSnapshot().message, /install a dedicated/);
+  await f.controller.run('installRuntime');
+  assert.deepEqual(f.actions, []);
+  assert.deepEqual(f.pending, [], 'Unsupported installer does not enter a native operation');
+  await f.controller.run('downloadModel');
+  assert.deepEqual(f.actions, ['downloadModel:qwen:int8']);
+  f.controller.dispose();
+  const windows = fixture();
+  await windows.controller.open('settings');
+  await windows.controller.run('installRuntime');
+  assert.deepEqual(windows.actions, ['installRuntime'], 'Omitted availability preserves existing Windows hosts');
+  windows.controller.dispose();
+});
+
+test('failed model metadata cannot retain stale readiness or bypass publisher restrictions', async () => {
+  const f = fixture();
+  f.setSetup({ model_directory: '/models' });
+  f.setModels([{ id: 'qwen', label: 'Qwen', variants: [{ id: 'int8', label: 'INT8', available: true }] }]);
+  await f.controller.open('settings', 'ai');
+  assert.equal(modelDownloadSelection(f.controller.getSnapshot()).ready, true);
+  f.api.modelCatalog = async () => {
+    throw Error('Model metadata disconnected');
+  };
+  await f.controller.refresh();
+  assert.equal(modelDownloadSelection(f.controller.getSnapshot()).ready, false);
+  assert.match(f.controller.modelDownloadBlock(), /Refresh model details/);
+  await f.controller.run('downloadModel');
+  assert.deepEqual(f.actions, []);
+  f.api.modelCatalog = async () => ({
+    models: [
+      {
+        id: 'qwen',
+        label: 'Qwen',
+        variants: [{ id: 'int8', label: 'INT8', downloadable: false, download_note: 'Publisher access required.' }],
+      },
+    ],
+  });
+  await f.controller.refresh();
+  assert.match(f.controller.modelDownloadBlock(), /Publisher access/);
+  await f.controller.run('downloadModel');
+  assert.deepEqual(f.actions, []);
+  f.controller.dispose();
 });

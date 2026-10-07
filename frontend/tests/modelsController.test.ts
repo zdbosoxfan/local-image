@@ -85,6 +85,8 @@ function fixture() {
   const api: ModelApi = {
     catalog: async () => ({ models }),
     downloads: async () => ({ running: false, phase: 'idle' }),
+    contentPreference: async () => ({ show_adult_content: false }),
+    saveContentPreference: async showAdult => ({ show_adult_content: showAdult }),
     setup: async () => ({ model_directory: 'C:/Models', service: { can_start: true } }),
     hardware: async () => ({}),
     inventory: async model => ({
@@ -307,4 +309,170 @@ test('model and adapter read APIs encode queries and send no privileged credenti
   assert.ok(calls.every(([, value]) => !value?.method || value.method === 'GET'));
   assert.ok(calls.some(([url]) => url.includes('water%20%26%20light')));
   assert.ok(calls.every(([, value]) => !('x-local-launcher' in (value?.headers || {}))));
+});
+
+test('mature rows are hidden by default without dropping selected installed adapters', async () => {
+  const f = fixture(),
+    mature = { ...item('qwen', 'adult'), content_rating: 'adult' as const },
+    unknown = { ...item('qwen', 'unrated'), content_rating: 'unknown' as const };
+  f.api.inventory = async () => ({ installed: [mature, unknown], curated: [] });
+  f.draft.selected = [{ id: 'adult', title: 'Saved adapter', strength: 0.6 }];
+  await f.controller.openLoras(f.port);
+  assert.equal(f.controller.getSnapshot().showAdultContent, false);
+  assert.deepEqual(
+    f.controller.visibleLoras().map(value => value.id),
+    ['unrated'],
+  );
+  assert.equal(f.controller.hiddenLoraCount(), 1);
+  assert.equal(f.draft.selected[0].missing, false, 'Visibility does not uninstall or mark selected adapters missing');
+  f.controller.showInfo(mature);
+  assert.equal(f.controller.getSnapshot().info, null);
+  await f.controller.inspectFiles(mature);
+  assert.equal(f.controller.getSnapshot().files, null);
+});
+
+test('publisher labels hide mature recommended repositories even when filtered from live results', async () => {
+  const f = fixture();
+  await f.controller.openLoras(f.port);
+  f.controller.selectLoraTab('browse');
+  f.api.search = async () => ({
+    results: [],
+    hidden_count: 1,
+    content_labels: { 'publisher/qwen': { content_rating: 'adult', content_rating_source: 'Publisher tag: nsfw' } },
+  });
+  await f.controller.search();
+  assert.deepEqual(f.controller.visibleLoras(), []);
+  assert.equal(f.controller.getSnapshot().inventory?.curated[0].content_rating, 'adult');
+  f.api.search = async () => ({ results: [], content_labels: { 'publisher/qwen': { content_rating: 'unknown' } } });
+  await f.controller.search();
+  assert.deepEqual(f.controller.visibleLoras(), [], 'An unrated duplicate cannot remove a known mature declaration');
+  await f.controller.setShowAdultContent(true);
+  assert.equal(f.controller.visibleLoras()[0].repo_id, 'publisher/qwen');
+});
+
+test('live publisher prose updates recommendations without replacing curated artifact verification', async () => {
+  const f = fixture();
+  await f.controller.openLoras(f.port);
+  f.api.search = async () => ({
+    results: [
+      {
+        ...item('qwen', 'community'),
+        filename: 'different.safetensors',
+        revision: 'b'.repeat(40),
+        compatibility: 'declared',
+        description: 'Publisher prose about the intended style.',
+        content_rating: 'general',
+      },
+    ],
+  });
+  await f.controller.search();
+  const found = f.controller.getSnapshot().searchResults[0];
+  assert.equal(found.description, 'Publisher prose about the intended style.');
+  assert.equal(found.content_rating, 'general');
+  assert.equal(found.filename, 'one.safetensors');
+  assert.equal(found.revision, revision);
+  assert.equal(found.compatibility, 'curated');
+  assert.equal(f.controller.getSnapshot().searchResults.length, 1);
+  assert.deepEqual(f.actions, []);
+});
+
+test('content choice persists through the app API and is passed to discovery and file inspection', async () => {
+  const f = fixture(),
+    mature = { ...item('qwen', 'adult'), content_rating: 'adult' as const };
+  let stored = false;
+  const queries: unknown[] = [];
+  f.api.contentPreference = async () => ({ show_adult_content: stored });
+  f.api.saveContentPreference = async value => {
+    stored = value;
+    return { show_adult_content: stored };
+  };
+  f.api.inventory = async (model, showAdult) => {
+    queries.push(['inventory', showAdult]);
+    return { installed: [mature], curated: [] };
+  };
+  f.api.search = async (model, query, showAdult) => {
+    queries.push(['search', showAdult]);
+    return { results: showAdult ? [mature] : [], hidden_count: showAdult ? 0 : 1 };
+  };
+  f.api.files = async (model, repo, revision, showAdult) => {
+    queries.push(['files', showAdult]);
+    return files(model);
+  };
+  await f.controller.openLoras(f.port);
+  await f.controller.setShowAdultContent(true);
+  assert.equal(stored, true);
+  assert.equal(f.controller.visibleLoras().length, 1);
+  await f.controller.search();
+  await f.controller.inspectFiles(mature);
+  assert.ok(queries.some(value => JSON.stringify(value) === '["search",true]'));
+  assert.ok(queries.some(value => JSON.stringify(value) === '["files",true]'));
+  f.controller.close();
+  await f.controller.openLoras(f.port);
+  assert.equal(f.controller.getSnapshot().showAdultContent, true);
+  assert.equal(f.draft.selected.length, 0, 'Browsing never enables an adapter');
+});
+
+test('turning mature content off invalidates pending search and file replies', async () => {
+  const f = fixture();
+  f.api.contentPreference = async () => ({ show_adult_content: true });
+  await f.controller.openLoras(f.port);
+  const mature = { ...item('qwen', 'adult'), content_rating: 'adult' as const };
+  const oldSearch = deferred<{ results: LoraItem[] }>(),
+    oldFiles = deferred<LoraFiles>();
+  f.api.search = () => oldSearch.promise;
+  f.api.files = () => oldFiles.promise;
+  const search = f.controller.search(),
+    inspection = f.controller.inspectFiles(mature);
+  await f.controller.setShowAdultContent(false);
+  oldSearch.resolve({ results: [mature] });
+  oldFiles.resolve(files());
+  await Promise.all([search, inspection]);
+  assert.equal(f.controller.getSnapshot().showAdultContent, false);
+  assert.equal(f.controller.getSnapshot().files, null);
+  assert.ok(f.controller.visibleLoras().every(value => value.content_rating !== 'adult'));
+  assert.equal(f.controller.getSnapshot().searching, false);
+});
+
+test('preference save failure reverts visibility and reports the storage error', async () => {
+  const f = fixture();
+  await f.controller.openLoras(f.port);
+  f.api.saveContentPreference = async () => {
+    throw Error('Disk full');
+  };
+  await f.controller.setShowAdultContent(true);
+  assert.equal(f.controller.getSnapshot().showAdultContent, false);
+  assert.equal(f.controller.getSnapshot().savingContentPreference, false);
+  assert.match(f.controller.getSnapshot().error, /Disk full/);
+});
+
+test('unreadable content preference keeps mature entries hidden and reports the read failure', async () => {
+  const f = fixture();
+  f.api.contentPreference = async () => {
+    throw Error('Settings unavailable');
+  };
+  await f.controller.openLoras(f.port);
+  assert.equal(f.controller.getSnapshot().showAdultContent, false);
+  assert.match(f.controller.getSnapshot().error, /Settings unavailable/);
+  assert.equal(f.controller.getSnapshot().loading, false);
+});
+
+test('content preferences use authenticated app storage while preview opt-in stays explicit', async () => {
+  const calls: Array<[string, RequestInit | undefined]> = [];
+  const api = createModelApi('page-token', (async (url, init) => {
+    calls.push([String(url), init]);
+    return new Response('{}', { headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch);
+  await api.contentPreference();
+  await api.saveContentPreference(true);
+  await api.inventory('qwen', true);
+  await api.search('qwen', 'ink', true);
+  await api.files('qwen', 'publisher/style', revision, true);
+  assert.equal(calls[0][0], '/api/local-remove/loras/preferences');
+  assert.equal(calls[1][1]?.method, 'POST');
+  assert.deepEqual(JSON.parse(String(calls[1][1]?.body)), { show_adult_content: true });
+  assert.ok(calls.slice(2).every(([url]) => url.endsWith('show_adult=true')));
+  assert.ok(
+    calls.every(([, init]) => (init?.headers as Record<string, string>)['x-local-remove-token'] === 'page-token'),
+  );
+  assert.ok(calls.every(([, init]) => !('x-local-launcher' in (init?.headers || {}))));
 });

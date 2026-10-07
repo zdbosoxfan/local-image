@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   Accordion,
   AccordionHeader,
@@ -8,18 +8,26 @@ import {
   Checkbox,
   Field,
   Input,
+  Menu,
+  MenuItemRadio,
+  MenuList,
+  MenuPopover,
+  MenuTrigger,
   ProgressBar,
-  Select,
   Tab,
   TabList,
   Textarea,
 } from '@fluentui/react-components';
 import { Comparison } from './Comparison.tsx';
+import { refinementPreview } from './previewCamera.ts';
+import { DimensionControls } from './DimensionControls.tsx';
+import { Icon } from '../shell/Icon.tsx';
+import { hardwareUsageSummary } from './hardwareUsage.ts';
 import type { GenerationController } from './controller.ts';
 import type { DraftKey, GenerationMode } from './types.ts';
-import { Icon } from '../shell/Icon.tsx';
 import { Hint } from '../shell/Hint.tsx';
 import './generation.css';
+import { ChoiceSelect } from '../shell/ChoiceSelect.tsx';
 
 function Stage({ controller, stage }: { controller: GenerationController; stage: DraftKey }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot),
@@ -28,7 +36,7 @@ function Stage({ controller, stage }: { controller: GenerationController; stage:
     cap = model?.capabilities;
   const refs = controller.referencesFor(stage),
     errors = controller.errorsFor(stage),
-    disabled = state.working || state.context.busy || state.loading,
+    disabled = state.working || state.context.busy || state.loading || state.ejecting,
     fileInput = useRef<HTMLInputElement>(null);
   const title = { create: 'Create new', edit: 'Edit image', draft: 'Draft', final: 'Refinement' }[stage];
   const textToImage = stage === 'create' || stage === 'draft';
@@ -40,49 +48,57 @@ function Stage({ controller, stage }: { controller: GenerationController; stage:
         ? item.capabilities.image_reference
         : (item.capabilities.max_references ?? 0) > 0,
   );
+  const modelChoices = candidates.map(item => ({
+    value: item.id,
+    label: `${item.label}${item.available ? '' : ' · unavailable'}`,
+  }));
+  if (draft.modelId && !candidates.some(item => item.id === draft.modelId))
+    modelChoices.unshift({ value: draft.modelId, label: `Unavailable in this mode · ${draft.modelId}` });
+  const variantChoices =
+    model?.variants.map(item => ({
+      value: item.id,
+      label: `${item.label || item.id}${item.available ? '' : ' · unavailable'}`,
+    })) || [];
+  if (draft.variant && !model?.variants.some(item => item.id === draft.variant))
+    variantChoices.unshift({ value: draft.variant, label: `Unavailable · ${draft.variant}` });
+  const supportsReferences = (cap?.max_references ?? 0) > 0;
+  const showReferences = supportsReferences || refs.length > 0 || draft.missingReferenceCount > 0;
+  const supportsLoras = !!model && cap?.lora !== false && cap?.loras !== false;
   return (
     <section className="li-generation-stage" aria-label={`${title} settings`}>
       <header>
         <h3>{title}</h3>
-        <Button size="small" appearance="subtle" disabled={disabled} onClick={() => controller.openModels(stage)}>
-          Models
-        </Button>
+        <Hint content="Browse models" relationship="description">
+          <Button
+            size="small"
+            appearance="subtle"
+            className="li-generation-icon-button"
+            aria-label={`Browse ${title.toLowerCase()} models`}
+            disabled={disabled}
+            icon={<Icon name="info" />}
+            onClick={() => controller.openModels(stage)}
+          />
+        </Hint>
       </header>
       <Field label="Model">
-        <Select
-          size="small"
+        <ChoiceSelect
+          id={`${stage}-model`}
+          label={`${title} model`}
           value={draft.modelId}
           disabled={disabled}
-          onChange={(_, data) => controller.chooseModel(stage, data.value)}
-        >
-          {!candidates.some(item => item.id === draft.modelId) && draft.modelId && (
-            <option value={draft.modelId}>Unavailable in this mode · {draft.modelId}</option>
-          )}
-          {candidates.map(item => (
-            <option key={item.id} value={item.id}>
-              {item.label}
-              {item.available ? '' : ' · unavailable'}
-            </option>
-          ))}
-        </Select>
+          choices={modelChoices}
+          onSelect={value => controller.chooseModel(stage, value)}
+        />
       </Field>
       <Field label="Precision">
-        <Select
-          size="small"
+        <ChoiceSelect
+          id={`${stage}-precision`}
+          label={`${title} precision`}
           value={draft.variant}
           disabled={disabled}
-          onChange={(_, data) => controller.setDraft(stage, { variant: data.value })}
-        >
-          {!model?.variants.some(item => item.id === draft.variant) && draft.variant && (
-            <option value={draft.variant}>Unavailable · {draft.variant}</option>
-          )}
-          {model?.variants.map(item => (
-            <option key={item.id} value={item.id}>
-              {item.label || item.id}
-              {item.available ? '' : ' · unavailable'}
-            </option>
-          ))}
-        </Select>
+          choices={variantChoices}
+          onSelect={value => controller.setDraft(stage, { variant: value })}
+        />
       </Field>
       <Field label={stage === 'edit' || stage === 'final' ? 'Describe the changes' : 'Prompt'}>
         <Textarea
@@ -93,56 +109,32 @@ function Stage({ controller, stage }: { controller: GenerationController; stage:
           onChange={(_, data) => controller.setDraft(stage, { prompt: data.value })}
         />
       </Field>
-      <div className="li-generation-size">
-        <Field label="Width">
-          <Input
-            size="small"
-            type="number"
-            min={bounds.minWidth}
-            max={Number.isFinite(bounds.maxWidth) ? bounds.maxWidth : undefined}
-            step={bounds.widthStep}
-            value={String(draft.width)}
-            disabled={disabled}
-            onChange={(_, data) => controller.setDraft(stage, { width: Number(data.value), aspect: 'custom' })}
-            onBlur={() => controller.commitSize(stage, 'width')}
-          />
-        </Field>
-        <Field label="Height">
-          <Input
-            size="small"
-            type="number"
-            min={bounds.minHeight}
-            max={Number.isFinite(bounds.maxHeight) ? bounds.maxHeight : undefined}
-            step={bounds.heightStep}
-            value={String(draft.height)}
-            disabled={disabled}
-            onChange={(_, data) => controller.setDraft(stage, { height: Number(data.value), aspect: 'custom' })}
-            onBlur={() => controller.commitSize(stage, 'height')}
-          />
-        </Field>
-      </div>
-      <div className="li-generation-size-controls">
-        <Checkbox
-          label="Link dimensions"
-          checked={draft.locked}
-          disabled={disabled}
-          onChange={(_, data) =>
-            controller.setDraft(stage, { locked: data.checked === true, ratio: draft.width / draft.height })
-          }
-        />
-        <Select
-          size="small"
-          aria-label={`${title} aspect ratio`}
-          value={draft.aspect}
-          disabled={disabled}
-          onChange={(_, data) => controller.setAspect(stage, data.value)}
-        >
-          {['1:1', '3:2', '2:3', '16:9', 'custom'].map(value => (
-            <option key={value}>{value}</option>
-          ))}
-        </Select>
-      </div>
-      {!!model?.limits.resolution_note && <p className="li-generation-note">{model.limits.resolution_note}</p>}
+      <DimensionControls
+        label={title}
+        width={draft.width}
+        height={draft.height}
+        bounds={bounds}
+        linked={draft.locked}
+        disabled={disabled}
+        memoryInfo={!!model?.limits.resolution_note}
+        onLink={linked => controller.setDimensionsLinked(stage, linked)}
+        onChange={(axis, value) => controller.setDraft(stage, { [axis]: value, aspect: 'custom' })}
+        onCommit={axis => controller.commitSize(stage, axis)}
+        preset={{
+          id: `${stage}-aspect`,
+          label: `${title} aspect ratio`,
+          value: draft.aspect,
+          choices: [
+            { value: '1:1', label: '1:1 · Square' },
+            { value: '3:2', label: '3:2 · Landscape' },
+            { value: '2:3', label: '2:3 · Portrait' },
+            { value: '16:9', label: '16:9 · Widescreen' },
+            { value: 'custom', label: 'Custom' },
+          ],
+          disabled,
+          onSelect: value => controller.setAspect(stage, value),
+        }}
+      />
       {!!cap?.transparent && (
         <Checkbox
           label="Transparent PNG"
@@ -151,9 +143,9 @@ function Stage({ controller, stage }: { controller: GenerationController; stage:
           onChange={(_, data) => controller.setDraft(stage, { transparent: data.checked === true })}
         />
       )}
-      <Accordion collapsible>
-        <AccordionItem value="section">
-          <AccordionHeader size="small">Sampling and seed</AccordionHeader>
+      <Accordion multiple collapsible className="li-generation-disclosures">
+        <AccordionItem value="sampling">
+          <AccordionHeader>Sampling and seed</AccordionHeader>
           <AccordionPanel>
             <div className="li-generation-size">
               <Field label="Steps">
@@ -180,7 +172,7 @@ function Stage({ controller, stage }: { controller: GenerationController; stage:
                 />
               </Field>
             </div>
-            <Field label="Seed" hint="Blank chooses a new seed; zero is a valid fixed seed.">
+            <Field label="Seed" hint="Blank uses a new seed; zero keeps a fixed seed.">
               <Input
                 size="small"
                 value={draft.seed}
@@ -214,97 +206,108 @@ function Stage({ controller, stage }: { controller: GenerationController; stage:
             )}
           </AccordionPanel>
         </AccordionItem>
+        {showReferences && (
+          <AccordionItem value="references">
+            <AccordionHeader>
+              Image inputs · {refs.length}
+              {supportsReferences ? `/${cap?.max_references}` : ''}
+            </AccordionHeader>
+            <AccordionPanel>
+              {stage !== 'final' && supportsReferences && (
+                <div className="li-generation-actions">
+                  <Button
+                    size="small"
+                    disabled={disabled || !state.context.document || refs.length >= (cap?.max_references ?? 0)}
+                    onClick={() => controller.useCurrent(stage)}
+                  >
+                    Use current
+                  </Button>
+                  <Button
+                    size="small"
+                    disabled={disabled || refs.length >= (cap?.max_references ?? 0)}
+                    onClick={() => fileInput.current?.click()}
+                  >
+                    Add files
+                  </Button>
+                  <Button
+                    size="small"
+                    appearance="subtle"
+                    disabled={disabled}
+                    onClick={() => controller.openAssets('reference')}
+                  >
+                    Assets
+                  </Button>
+                </div>
+              )}
+              <input
+                ref={fileInput}
+                type="file"
+                hidden
+                multiple
+                accept=".jpg,.jpeg,.png,.tif,.tiff,.webp"
+                onChange={event => {
+                  const files = [...(event.currentTarget.files ?? [])];
+                  event.currentTarget.value = '';
+                  void controller.importReferences(stage, files);
+                }}
+              />
+              {refs.map((item, index) => (
+                <div className="li-generation-reference" key={item.id}>
+                  <img src={item.thumbnail} alt="" loading="lazy" />
+                  <span title={item.name}>
+                    {index + 1}. {item.name}
+                  </span>
+                  {stage !== 'final' && (
+                    <>
+                      <Hint content="Move earlier" relationship="description">
+                        <Button
+                          size="small"
+                          appearance="subtle"
+                          className="li-generation-icon-button"
+                          aria-label={`Move ${item.name} earlier`}
+                          disabled={disabled || index <= (stage === 'edit' ? 1 : 0)}
+                          icon={<Icon name="arrow-up" />}
+                          onClick={() => controller.moveReference(stage, item.id, -1)}
+                        />
+                      </Hint>
+                      <Hint content="Remove image input" relationship="description">
+                        <Button
+                          size="small"
+                          appearance="subtle"
+                          className="li-generation-icon-button"
+                          aria-label={`Remove ${item.name}`}
+                          disabled={disabled || (stage === 'edit' && index === 0)}
+                          icon={<Icon name="close" />}
+                          onClick={() => controller.removeReference(stage, item.id)}
+                        />
+                      </Hint>
+                    </>
+                  )}
+                </div>
+              ))}
+              {draft.missingReferenceCount > refs.length && (
+                <p className="li-generation-warning">
+                  The saved image used {draft.missingReferenceCount} references; reattach the original images to
+                  reproduce it.
+                </p>
+              )}
+            </AccordionPanel>
+          </AccordionItem>
+        )}
       </Accordion>
-      <Accordion collapsible>
-        <AccordionItem value="section">
-          <AccordionHeader size="small">
-            Image inputs · {refs.length}/{cap?.max_references ?? 0}
-          </AccordionHeader>
-          <AccordionPanel>
-            {stage !== 'final' && (
-              <div className="li-generation-actions">
-                <Button
-                  size="small"
-                  disabled={disabled || !state.context.document || refs.length >= (cap?.max_references ?? 0)}
-                  onClick={() => controller.useCurrent(stage)}
-                >
-                  Use current
-                </Button>
-                <Button
-                  size="small"
-                  disabled={disabled || refs.length >= (cap?.max_references ?? 0)}
-                  onClick={() => fileInput.current?.click()}
-                >
-                  Add files
-                </Button>
-                <Button size="small" disabled={disabled} onClick={() => controller.openAssets('reference')}>
-                  Assets
-                </Button>
-              </div>
-            )}
-            <input
-              ref={fileInput}
-              type="file"
-              hidden
-              multiple
-              accept=".jpg,.jpeg,.png,.tif,.tiff,.webp"
-              onChange={event => {
-                const files = [...(event.currentTarget.files ?? [])];
-                event.currentTarget.value = '';
-                void controller.importReferences(stage, files);
-              }}
-            />
-            {refs.map((item, index) => (
-              <div className="li-generation-reference" key={item.id}>
-                <img src={item.thumbnail} alt="" loading="lazy" />
-                <span>
-                  {index + 1}. {item.name}
-                </span>
-                {stage !== 'final' && (
-                  <>
-                    <Hint content={`Move ${item.name} earlier`}>
-                      <Button
-                        size="small"
-                        appearance="subtle"
-                        aria-label={`Move ${item.name} earlier`}
-                        disabled={disabled || index <= (stage === 'edit' ? 1 : 0)}
-                        onClick={() => controller.moveReference(stage, item.id, -1)}
-                        icon={<Icon name="move-up" />}
-                      />
-                    </Hint>
-                    <Hint content={`Remove ${item.name}`}>
-                      <Button
-                        size="small"
-                        appearance="subtle"
-                        aria-label={`Remove ${item.name}`}
-                        disabled={disabled || (stage === 'edit' && index === 0)}
-                        onClick={() => controller.removeReference(stage, item.id)}
-                        icon={<Icon name="close" />}
-                      />
-                    </Hint>
-                  </>
-                )}
-              </div>
-            ))}
-            {draft.missingReferenceCount > refs.length && (
-              <p className="li-generation-warning">
-                The saved image used {draft.missingReferenceCount} references; reattach the original images to reproduce
-                it.
-              </p>
-            )}
-          </AccordionPanel>
-        </AccordionItem>
-      </Accordion>
-      <div className="li-generation-actions">
-        <Button
-          size="small"
-          disabled={disabled || !model || cap?.lora === false || cap?.loras === false}
-          onClick={() => controller.openLoras(stage)}
-        >
-          Styles / LoRAs · {draft.loras.length}
-        </Button>
-        <span className="li-generation-note">{draft.loras.map(item => item.title || item.id).join(', ')}</span>
-      </div>
+      {(supportsLoras || draft.loras.length > 0) && (
+        <div className="li-generation-actions">
+          <Button
+            size="small"
+            appearance="subtle"
+            disabled={disabled || (!supportsLoras && !draft.loras.length)}
+            onClick={() => controller.openLoras(stage)}
+          >
+            Styles / LoRAs · {draft.loras.length}
+          </Button>
+          <span className="li-generation-note">{draft.loras.map(item => item.title || item.id).join(', ')}</span>
+        </div>
+      )}
       {errors.length > 0 && (
         <p className="li-generation-warning" role="status">
           {errors[0]}
@@ -327,20 +330,81 @@ function Stage({ controller, stage }: { controller: GenerationController; stage:
 
 export function GenerationPanel({ controller }: { controller: GenerationController }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot),
-    disabled = state.working || state.context.busy;
+    disabled = state.working || state.context.busy || state.ejecting;
   const [recipeName, setRecipeName] = useState(''),
     [recipe, setRecipe] = useState('');
+  const [refinementStep, setRefinementStep] = useState<'draft' | 'final'>('draft');
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
     if (panel.current) panel.current.scrollTop = 0;
   }, [state.mode]);
+  useEffect(() => {
+    const element = panel.current;
+    if (!element) return;
+    const owner = element.ownerDocument;
+    let intersecting = false;
+    const visible = () => controller.setHardwareVisible(intersecting && owner.visibilityState !== 'hidden');
+    const observer = new IntersectionObserver(entries => {
+      intersecting = entries.some(entry => entry.target === element && entry.isIntersecting);
+      visible();
+    });
+    observer.observe(element);
+    owner.addEventListener('visibilitychange', visible);
+    return () => {
+      observer.disconnect();
+      owner.removeEventListener('visibilitychange', visible);
+      controller.setHardwareVisible(false);
+    };
+  }, [controller]);
   const progress = state.progress,
     sampler =
       state.working && state.watching && progress?.active && progress.stage === 'sampling' ? progress.progress : null;
   const selectedDraft = controller.selectedDraft(),
     selectedResult = controller.selectedResult();
+  const preview = refinementPreview(refinementStep, selectedDraft?.session, selectedResult?.session);
+  const stageImages =
+    refinementStep === 'draft'
+      ? state.draftImages
+      : state.resultImages.filter(item => item.draftId === state.selectedDraftId);
+  const upscaleSource = (selectedResult ?? selectedDraft)?.session;
+  const upscaleSize = useMemo(
+    () => controller.upscaleSizeControls(),
+    [
+      controller,
+      state.upscale,
+      state.upscaleInventory,
+      upscaleSource?.width,
+      upscaleSource?.height,
+      state.drafts.final.width,
+      state.drafts.final.height,
+    ],
+  );
+  const hardware = hardwareUsageSummary(state.hardware, state.hardwareError, state.hardwareLoading);
+  const stopHint = state.stopping
+    ? 'Waiting for the AI backend to stop this job'
+    : controller.canStop()
+      ? 'Stop the current image generation'
+      : progress?.job_id
+        ? 'This operation is finishing or cannot be stopped safely'
+        : 'Waiting for the AI backend to identify this job';
+  const ejectHint =
+    state.working || state.context.busy
+      ? 'Finish or stop the current operation before unloading GPU models'
+      : state.ejecting
+        ? 'Unloading GPU models…'
+        : controller.canEjectModels()
+          ? 'Unload GPU models; keep files on disk'
+          : state.hardware?.comfy_connected
+            ? 'Open the desktop app to unload GPU models'
+            : 'Start the AI backend to unload its GPU models';
   return (
-    <section ref={panel} className="li-generation" data-react-owned="true" aria-label="Image generation">
+    <section
+      ref={panel}
+      className="li-generation"
+      data-mode={state.mode}
+      data-react-owned="true"
+      aria-label="Image generation"
+    >
       <header className="li-generation-header">
         <TabList
           size="small"
@@ -358,213 +422,259 @@ export function GenerationPanel({ controller }: { controller: GenerationControll
             Refine
           </Tab>
         </TabList>
-        <Button
-          size="small"
-          appearance="subtle"
-          disabled={disabled || state.loading}
-          onClick={() => void controller.refreshModels(true)}
-        >
-          Refresh models
-        </Button>
+        <Hint content="Refresh models" relationship="description">
+          <Button
+            size="small"
+            appearance="subtle"
+            className="li-generation-icon-button"
+            aria-label="Refresh models"
+            disabled={disabled || state.loading}
+            icon={<Icon name="refresh" />}
+            onClick={() => void controller.refreshModels(true)}
+          />
+        </Hint>
       </header>
       {state.mode !== 'refine' ? (
-        <Stage controller={controller} stage={state.mode} />
+        <div className="li-generation-main">
+          <Stage controller={controller} stage={state.mode} />
+        </div>
       ) : (
         <div className="li-refinement">
-          <Accordion collapsible className="li-generation-recipes">
-            <AccordionItem value="section">
-              <AccordionHeader size="small">Refinement recipes</AccordionHeader>
-              <AccordionPanel>
-                <div className="li-generation-actions">
-                  <Select
-                    size="small"
-                    aria-label="Saved refinement recipe"
-                    value={recipe}
-                    disabled={disabled}
-                    onChange={(_, data) => setRecipe(data.value)}
-                  >
-                    <option value="">Choose a recipe</option>
-                    {state.recipes.map(item => (
-                      <option key={item.name}>{item.name}</option>
-                    ))}
-                  </Select>
-                  <Button
-                    size="small"
-                    disabled={disabled || !recipe}
-                    onClick={() => void controller.loadRecipe(recipe)}
-                  >
-                    Load
-                  </Button>
-                  <Button
-                    size="small"
-                    disabled={disabled || !recipe}
-                    onClick={() => {
-                      controller.deleteRecipe(recipe);
-                      setRecipe('');
-                    }}
-                  >
-                    Delete recipe
-                  </Button>
-                </div>
-                <div className="li-generation-actions">
-                  <Input
-                    size="small"
-                    aria-label="Recipe name"
-                    maxLength={80}
-                    value={recipeName}
-                    disabled={disabled}
-                    onChange={(_, data) => setRecipeName(data.value)}
-                  />
-                  <Button
-                    size="small"
-                    disabled={disabled || !recipeName.trim()}
-                    onClick={() => controller.saveRecipe(recipeName)}
-                  >
-                    Save recipe
-                  </Button>
-                </div>
-                {state.recipeWarnings.map(warning => (
-                  <p className="li-generation-warning" key={warning}>
-                    {warning}
-                  </p>
-                ))}
-              </AccordionPanel>
-            </AccordionItem>
-          </Accordion>
-          <div className="li-generation-actions">
-            <Button size="small" disabled={disabled || !state.context.document} onClick={controller.useCurrentDraft}>
-              Use current as draft
-            </Button>
-            <Button size="small" disabled={disabled} onClick={() => controller.openAssets('draft')}>
-              Choose library draft
-            </Button>
+          <div className="li-refinement-step">
+            <TabList
+              size="small"
+              aria-label="Refinement step"
+              selectedValue={refinementStep}
+              onTabSelect={(_, data) => setRefinementStep(data.value as 'draft' | 'final')}
+            >
+              <Tab value="draft" disabled={disabled}>
+                Draft
+              </Tab>
+              <Tab value="final" disabled={disabled}>
+                Refine
+              </Tab>
+            </TabList>
+            <p className="li-generation-note">
+              {refinementStep === 'draft' ? 'Create or choose a starting image.' : 'Improve the selected draft.'}
+            </p>
           </div>
-          <Comparison draft={selectedDraft?.session} result={selectedResult?.session} />
-          <div className="li-refinement-strips">
-            <div aria-label="Generated drafts">
-              {state.draftImages.map(item => (
-                <Button
-                  key={item.session.id}
-                  appearance="subtle"
-                  size="small"
-                  className="li-selectable"
-                  aria-pressed={item.session.id === state.selectedDraftId}
-                  disabled={disabled}
-                  onClick={() => controller.selectDraft(item.session.id)}
+          <div className="li-refinement-workspace">
+            <div className="li-refinement-viewer">
+              <Comparison document={preview.document} label={preview.label} notice={preview.notice} />
+              {stageImages.length > 0 && (
+                <div
+                  className="li-refinement-strip"
+                  aria-label={refinementStep === 'draft' ? 'Generated drafts' : 'Refined images'}
                 >
-                  <img
-                    src={`/api/local-remove/session/${encodeURIComponent(item.session.id)}/preview?revision=${item.session.revision}`}
-                    alt={item.session.name}
-                    loading="lazy"
-                  />
-                </Button>
-              ))}
-            </div>
-            <div aria-label="Refined images">
-              {state.resultImages
-                .filter(item => item.draftId === state.selectedDraftId)
-                .map(item => (
+                  {stageImages.map(item => (
+                    <Hint key={item.session.id} content={item.session.name} relationship="description">
+                      <Button
+                        appearance="subtle"
+                        size="small"
+                        className="li-selectable"
+                        aria-label={`Show ${item.session.name}`}
+                        aria-pressed={
+                          item.session.id ===
+                          (refinementStep === 'draft' ? state.selectedDraftId : state.selectedResultId)
+                        }
+                        disabled={disabled}
+                        onClick={() =>
+                          refinementStep === 'draft'
+                            ? controller.selectDraft(item.session.id)
+                            : controller.selectResult(item.session.id)
+                        }
+                      >
+                        <img
+                          src={`/api/local-remove/session/${encodeURIComponent(item.session.id)}/preview?revision=${item.session.revision}`}
+                          alt=""
+                          loading="lazy"
+                        />
+                      </Button>
+                    </Hint>
+                  ))}
+                </div>
+              )}
+              <div className="li-generation-actions li-refinement-viewer-actions">
+                <span className="li-generation-note" title={preview.document?.name}>
+                  {preview.document?.name || 'No image selected'}
+                </span>
+                {refinementStep === 'draft' ? (
                   <Button
-                    key={item.session.id}
+                    size="small"
                     appearance="subtle"
-                    size="small"
-                    className="li-selectable"
-                    aria-pressed={item.session.id === state.selectedResultId}
-                    disabled={disabled}
-                    onClick={() => controller.selectResult(item.session.id)}
+                    disabled={disabled || !selectedDraft}
+                    onClick={() => void controller.openSelected(false)}
                   >
-                    <img
-                      src={`/api/local-remove/session/${encodeURIComponent(item.session.id)}/preview?revision=${item.session.revision}`}
-                      alt={item.session.name}
-                      loading="lazy"
-                    />
+                    Open draft in editor
                   </Button>
-                ))}
+                ) : (
+                  <Button
+                    size="small"
+                    appearance="subtle"
+                    disabled={disabled || !selectedResult}
+                    onClick={() => void controller.openSelected(true)}
+                  >
+                    Open result in editor
+                  </Button>
+                )}
+              </div>
             </div>
-          </div>
-          <div className="li-generation-actions">
-            <Button
-              size="small"
-              disabled={disabled || !selectedDraft}
-              onClick={() => void controller.openSelected(false)}
+            <aside
+              className="li-refinement-settings"
+              aria-label={refinementStep === 'draft' ? 'Draft options' : 'Refine options'}
             >
-              Open draft in editor
-            </Button>
-            <Button
-              size="small"
-              disabled={disabled || !selectedResult}
-              onClick={() => void controller.openSelected(true)}
-            >
-              Open result in editor
-            </Button>
-          </div>
-          <div className="li-refinement-settings">
-            <Stage controller={controller} stage="draft" />
-            <div>
-              <Checkbox
-                label="Include the draft's original references"
-                checked={state.includeReferences}
-                disabled={disabled || !selectedDraft?.references.length}
-                onChange={(_, data) => controller.setIncludeReferences(data.checked === true)}
-              />
-              <Stage controller={controller} stage="final" />
-            </div>
-          </div>
-          <Accordion collapsible className="li-generation-upscale">
-            <AccordionItem value="section">
-              <AccordionHeader size="small">Upscale with SeedVR2</AccordionHeader>
-              <AccordionPanel>
-                <p className="li-generation-note">
-                  {state.upscaleInventory?.model.available
-                    ? 'Enlarges the image and preserves alpha. Fine detail can change; review faces and lettering.'
-                    : state.upscaleInventory?.model.reason || 'Upscale availability has not been checked.'}
-                </p>
-                <Checkbox
-                  label="Upscale after refinement"
-                  disabled={disabled || !state.upscaleInventory?.model.available}
-                  checked={state.upscale.enabled}
-                  onChange={(_, data) => controller.setUpscale({ enabled: data.checked === true })}
-                />
-                <Select
-                  size="small"
-                  aria-label="Upscale long edge"
-                  disabled={disabled}
-                  value={state.upscale.preset}
-                  onChange={(_, data) => controller.setUpscale({ preset: data.value })}
-                >
-                  <option value="3840">4K long edge</option>
-                  <option value="2048">2048 px long edge</option>
-                  <option value="custom">Custom</option>
-                </Select>
-                {state.upscale.preset === 'custom' && (
-                  <div className="li-generation-size">
-                    {(['width', 'height'] as const).map(axis => (
-                      <Field key={axis} label={`Upscale ${axis}`}>
-                        <Input
-                          size="small"
-                          type="number"
-                          value={String(state.upscale[axis])}
+              {refinementStep === 'draft' ? (
+                <div className="li-generation-actions li-refinement-source">
+                  <Button
+                    size="small"
+                    disabled={disabled || !state.context.document}
+                    onClick={controller.useCurrentDraft}
+                  >
+                    Use current as draft
+                  </Button>
+                  <Button
+                    size="small"
+                    appearance="subtle"
+                    disabled={disabled}
+                    onClick={() => controller.openAssets('draft')}
+                  >
+                    Choose library draft
+                  </Button>
+                </div>
+              ) : (
+                <div className="li-refinement-source">
+                  <p className="li-generation-note" title={selectedDraft?.session.name}>
+                    Draft: {selectedDraft?.session.name || 'None selected'}
+                  </p>
+                  <Checkbox
+                    label="Include original references"
+                    checked={state.includeReferences}
+                    disabled={disabled || !selectedDraft?.references.length}
+                    onChange={(_, data) => controller.setIncludeReferences(data.checked === true)}
+                  />
+                </div>
+              )}
+              <Stage controller={controller} stage={refinementStep} />
+              {refinementStep === 'final' && (
+                <Accordion collapsible className="li-generation-upscale li-generation-disclosures">
+                  <AccordionItem value="upscale">
+                    <AccordionHeader>Upscale with SeedVR2</AccordionHeader>
+                    <AccordionPanel>
+                      <p className="li-generation-note">
+                        {state.upscaleInventory?.model.available
+                          ? 'Preserves transparency. Review faces and lettering after upscaling.'
+                          : state.upscaleInventory?.model.reason || 'Upscale availability has not been checked.'}
+                      </p>
+                      <Checkbox
+                        label="Upscale after refinement"
+                        disabled={disabled || !state.upscaleInventory?.model.available}
+                        checked={state.upscale.enabled}
+                        onChange={(_, data) => controller.setUpscale({ enabled: data.checked === true })}
+                      />
+                      <DimensionControls
+                        label="Upscale"
+                        width={upscaleSize.width}
+                        height={upscaleSize.height}
+                        bounds={upscaleSize.bounds}
+                        linked
+                        disabled={disabled || state.upscale.preset !== 'custom'}
+                        fixedLink="SeedVR2 keeps the selected image's original proportions."
+                        memoryInfo={!!state.upscaleInventory?.limits.resolution_note}
+                        onChange={(axis, value) => controller.setUpscale({ [axis]: value })}
+                        onCommit={axis => controller.commitUpscaleSize(axis)}
+                        preset={{
+                          id: 'upscale-size',
+                          label: 'Upscale size preset',
+                          value: state.upscale.preset,
+                          choices: [
+                            { value: '3840', label: '4K long edge' },
+                            { value: '2048', label: '2048 px long edge' },
+                            { value: 'custom', label: 'Custom' },
+                          ],
+                          disabled,
+                          onSelect: value => controller.setUpscale({ preset: value }),
+                        }}
+                      />
+                      <Button
+                        size="small"
+                        disabled={
+                          disabled ||
+                          !(selectedResult || selectedDraft) ||
+                          !controller.validUpscale((selectedResult || selectedDraft)!.session)
+                        }
+                        onClick={() => void controller.run('upscale')}
+                      >
+                        Upscale selected image only
+                      </Button>
+                    </AccordionPanel>
+                  </AccordionItem>
+                </Accordion>
+              )}
+              <Accordion collapsible className="li-generation-recipes li-generation-disclosures">
+                <AccordionItem value="recipes">
+                  <AccordionHeader>Refinement recipes</AccordionHeader>
+                  <AccordionPanel>
+                    <div className="li-generation-recipe-row">
+                      <Field label="Saved recipe">
+                        <ChoiceSelect
+                          id="refinement-recipe"
+                          label="Saved refinement recipe"
+                          value={recipe}
                           disabled={disabled}
-                          onChange={(_, data) => controller.setUpscale({ [axis]: Number(data.value) })}
+                          choices={[
+                            { value: '', label: 'Choose a recipe' },
+                            ...state.recipes.map(item => ({ value: item.name, label: item.name })),
+                          ]}
+                          onSelect={setRecipe}
                         />
                       </Field>
+                      <Button
+                        size="small"
+                        disabled={disabled || !recipe}
+                        onClick={() => void controller.loadRecipe(recipe)}
+                      >
+                        Load
+                      </Button>
+                      <Button
+                        size="small"
+                        appearance="subtle"
+                        disabled={disabled || !recipe}
+                        onClick={() => {
+                          controller.deleteRecipe(recipe);
+                          setRecipe('');
+                        }}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                    <div className="li-generation-recipe-row">
+                      <Field label="Recipe name">
+                        <Input
+                          size="small"
+                          maxLength={80}
+                          value={recipeName}
+                          disabled={disabled}
+                          onChange={(_, data) => setRecipeName(data.value)}
+                        />
+                      </Field>
+                      <Button
+                        size="small"
+                        disabled={disabled || !recipeName.trim()}
+                        onClick={() => controller.saveRecipe(recipeName)}
+                      >
+                        Save
+                      </Button>
+                    </div>
+                    {state.recipeWarnings.map(warning => (
+                      <p className="li-generation-warning" key={warning}>
+                        {warning}
+                      </p>
                     ))}
-                  </div>
-                )}
-                <Button
-                  size="small"
-                  disabled={
-                    disabled ||
-                    !(selectedResult || selectedDraft) ||
-                    !controller.validUpscale((selectedResult || selectedDraft)!.session)
-                  }
-                  onClick={() => void controller.run('upscale')}
-                >
-                  Upscale selected image only
-                </Button>
-              </AccordionPanel>
-            </AccordionItem>
-          </Accordion>
+                  </AccordionPanel>
+                </AccordionItem>
+              </Accordion>
+            </aside>
+          </div>
         </div>
       )}
       {state.context.backgroundTarget &&
@@ -580,34 +690,65 @@ export function GenerationPanel({ controller }: { controller: GenerationControll
           </div>
         )}
       <footer className="li-generation-status">
-        {state.error && <p role="alert">{state.error}</p>}
-        <p role="status">
-          {state.working && state.runningKey && state.watching
-            ? progress?.stage_label || 'Waiting for backend progress…'
-            : state.status}
-        </p>
-        {sampler && (
-          <>
-            <ProgressBar max={sampler.max} value={sampler.value} />
-            <p>
-              Sampler {sampler.value} / {sampler.max}
-            </p>
-          </>
-        )}
-        {state.working && progress?.connection_lost && (
-          <p>Backend progress connection lost. The job may still be running.</p>
-        )}
-        {state.progressError && <p>{state.progressError}</p>}
-        {state.working && state.runningKey && (
-          <Button size="small" disabled={!state.watching} onClick={controller.stopWatching}>
-            Pause progress updates
-          </Button>
-        )}
-        {state.uncertain && (
-          <Button size="small" onClick={() => void controller.checkOperation()}>
-            Check backend operation
-          </Button>
-        )}
+        <div className="li-generation-runtime" aria-label="GPU and generation controls">
+          <Hint content={hardware.description} relationship="description">
+            <span className="li-generation-gpu" aria-label={hardware.description}>
+              {hardware.label}
+            </span>
+          </Hint>
+          <div className="li-generation-runtime-actions">
+            <span className="li-generation-stop-slot">
+              {state.working && state.runningKey && (
+                <Hint content={stopHint} relationship="description">
+                  <Button
+                    size="small"
+                    aria-label="Stop generation"
+                    disabled={!controller.canStop()}
+                    icon={<Icon name="stop" />}
+                    onClick={() => void controller.stopGeneration()}
+                  >
+                    Stop
+                  </Button>
+                </Hint>
+              )}
+            </span>
+            <Hint content={ejectHint} relationship="description">
+              <Button
+                size="small"
+                appearance="subtle"
+                className="li-generation-icon-button"
+                aria-label="Unload GPU models"
+                disabled={!controller.canEjectModels()}
+                icon={<Icon name="eject" />}
+                onClick={() => void controller.ejectModels()}
+              />
+            </Hint>
+          </div>
+        </div>
+        <div className="li-generation-feedback">
+          {state.error && <p role="alert">{state.error}</p>}
+          {state.cancelError && <p role="alert">{state.cancelError}</p>}
+          <p role="status">
+            {state.stopping
+              ? progress?.stage === 'cancelled'
+                ? 'Generation stopped. Finishing cleanup…'
+                : 'Stopping generation…'
+              : state.working && state.runningKey && state.watching
+                ? progress?.stage_label || 'Waiting for backend progress…'
+                : state.status}
+            {sampler ? ` · ${sampler.value} / ${sampler.max}` : ''}
+          </p>
+          {sampler && <ProgressBar max={sampler.max} value={sampler.value} aria-label="Generation sampling progress" />}
+          {state.working && progress?.connection_lost && (
+            <p>Backend progress connection lost. The job may still be running.</p>
+          )}
+          {state.progressError && <p>{state.progressError}</p>}
+          {state.uncertain && (
+            <Button size="small" onClick={() => void controller.checkOperation()}>
+              Check backend operation
+            </Button>
+          )}
+        </div>
       </footer>
     </section>
   );
