@@ -1,0 +1,153 @@
+{
+  "app": "Local Image 0.7",
+  "viewport": "1920 x 1080",
+  "interfaceSize": "Comfortable",
+  "capture": "Actual application screenshots; no mocked network responses, fabricated UI, or screenshot editing.",
+  "removal": {
+    "model": "FLUX.2 Klein base + fal removal LoRA",
+    "input": "../examples/removal-before.png",
+    "output": "../examples/removal-after.png",
+    "input_sha256": "25f88c9251b732828980b15219ec06c6b34b68fdb7980da755c01f99c58f128e",
+    "output_sha256": "0c194850772a96bbba9a20ad6cc707eed0dc17f795195ea80abd08f0520907c5",
+    "method": "Real brush input followed by one local GPU removal and a real application PNG export.",
+    "observedSeconds": 17.6
+  },
+  "screenshots": [
+    {
+      "file": "retouch-brush.png",
+      "caption": "Paint over the unwanted red mug with the AI Remove brush. This is the real brush selection before processing.",
+      "sha256": "9bcb3adc19066381e2bc6651398100bb8f2006381b9b85e5cd220092c97143ae"
+    },
+    {
+      "file": "retouch-result-layers.png",
+      "caption": "The red mug has been removed by local FLUX.2 Klein inference. The repair remains a separate editable layer above the original.",
+      "sha256": "0bcc3fcd2bf4ef07713c5bf5e4be87098c5221e007ff258fa242c92015679ce3"
+    },
+    {
+      "file": "workspace-layers-menu.png",
+      "caption": "Layer commands stay in a familiar desktop menu; the original and the generated repair remain separately editable.",
+      "sha256": "003c4d2ddc5f1a01e48cb78da54a4923e1bc298eda10264255b1f2cee28ce299"
+    },
+    {
+      "file": "workspace-file-menu.png",
+      "caption": "File commands and export formats use compact desktop menus rather than filling the workspace with controls.",
+      "sha256": "4d5bfb89998e47c23652dc87eb1f6e2fb5623d0a0381170cf23c67ec4e552676"
+    },
+    {
+      "file": "stock-library.png",
+      "caption": "Live Openverse stock search, with preview, creator and license attribution shown before import.",
+      "sha256": "410367651a0b9e7e29c925e04ebb36b30c1cf370d53f72fa82e387534d9d0315"
+    }
+  ],
+  "stockSources": [
+    {
+      "title": "Mountain Landscape",
+      "creator": "VincentD'Amico",
+      "license": "CC BY 2.0",
+      "license_url": "https://creativecommons.org/licenses/by/2.0/",
+      "source_url": "https://www.flickr.com/photos/58917221@N08/16189880796",
+      "creator_url": "https://www.flickr.com/photos/58917221@N08",
+      "attribution": "\"Mountain Landscape\" by VincentD'Amico is licensed under CC BY 2.0. To view a copy of this license, visit https://creativecommons.org/licenses/by/2.0/."
+    },
+    {
+      "title": "Mountain landscape",
+      "creator": "randihausken",
+      "license": "CC BY-SA 2.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/2.0/",
+      "source_url": "https://www.flickr.com/photos/46406832@N00/6036144711",
+      "creator_url": "https://www.flickr.com/photos/46406832@N00",
+      "attribution": "\"Mountain landscape\" by randihausken is licensed under CC BY-SA 2.0. To view a copy of this license, visit https://creativecommons.org/licenses/by-sa/2.0/."
+    },
+    {
+      "title": "Mountain Landscape",
+      "creator": "Lenny K Photography",
+      "license": "CC BY 2.0",
+      "license_url": "https://creativecommons.org/licenses/by/2.0/",
+      "source_url": "https://www.flickr.com/photos/57527070@N06/24855790979",
+      "creator_url": "https://www.flickr.com/photos/57527070@N06",
+      "attribution": "\"Mountain Landscape\" by Lenny K Photography is licensed under CC BY 2.0. To view a copy of this license, visit https://creativecommons.org/licenses/by/2.0/."
+    },
+    {
+      "title": "Snow Mountain Landscape of Tibet.",
+      "creator": "reurinkjan",
+      "license": "CC BY 2.0",
+      "license_url": "https://creativecommons.org/licenses/by/2.0/",
+      "source_url": "https://www.flickr.com/photos/15470975@N03/3288767064",
+      "creator_url": "https://www.flickr.com/photos/15470975@N03",
+      "attribution": "\"Snow Mountain Landscape of Tibet.\" by reurinkjan is licensed under CC BY 2.0. To view a copy of this license, visit https://creativecommons.org/licenses/by/2.0/."
+    },
+    {
+      "title": "Cleveland Mountain Landscape",
+      "creator": "Lenny K Photography",
+      "license": "CC BY 2.0",
+      "license_url": "https://creativecommons.org/licenses/by/2.0/",
+      "source_url": "https://www.flickr.com/photos/57527070@N06/24007709514",
+      "creator_url": "https://www.flickr.com/photos/57527070@N06",
+      "attribution": "\"Cleveland Mountain Landscape\" by Lenny K Photography is licensed under CC BY 2.0. To view a copy of this license, visit https://creativecommons.org/licenses/by/2.0/."
+    },
+    {
+      "title": "Mountain landscape",
+      "creator": "StockyPics",
+      "license": "CC0 1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "source_url": "https://www.flickr.com/photos/135371437@N04/21827581301",
+      "creator_url": "https://www.flickr.com/photos/135371437@N04",
+      "attribution": "\"Mountain landscape\" by StockyPics is marked with CC0 1.0. To view the terms, visit https://creativecommons.org/publicdomain/zero/1.0/."
+    },
+    {
+      "title": "Snow Covered Mountain Landscape",
+      "creator": "Image Catalog",
+      "license": "CC0 1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "source_url": "https://www.flickr.com/photos/132795455@N08/16662196134",
+      "creator_url": "https://www.flickr.com/photos/132795455@N08",
+      "attribution": "\"Snow Covered Mountain Landscape\" by Image Catalog is marked with CC0 1.0. To view the terms, visit https://creativecommons.org/publicdomain/zero/1.0/."
+    },
+    {
+      "title": "Rocky Mountain Landscape",
+      "creator": "A.Davey",
+      "license": "CC BY 2.0",
+      "license_url": "https://creativecommons.org/licenses/by/2.0/",
+      "source_url": "https://www.flickr.com/photos/40595948@N00/2248911755",
+      "creator_url": "https://www.flickr.com/photos/40595948@N00",
+      "attribution": "\"Rocky Mountain Landscape\" by A.Davey is licensed under CC BY 2.0. To view a copy of this license, visit https://creativecommons.org/licenses/by/2.0/."
+    },
+    {
+      "title": "Mount Everest Mountain Landscape",
+      "creator": "Image Catalog",
+      "license": "CC0 1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "source_url": "https://www.flickr.com/photos/132795455@N08/18502982581",
+      "creator_url": "https://www.flickr.com/photos/132795455@N08",
+      "attribution": "\"Mount Everest Mountain Landscape\" by Image Catalog is marked with CC0 1.0. To view the terms, visit https://creativecommons.org/publicdomain/zero/1.0/."
+    },
+    {
+      "title": "Garbage and bin in front of beautiful mountain landscape",
+      "creator": "Horia Varlan",
+      "license": "CC BY 2.0",
+      "license_url": "https://creativecommons.org/licenses/by/2.0/",
+      "source_url": "https://www.flickr.com/photos/10361931@N06/4586269154",
+      "creator_url": "https://www.flickr.com/photos/10361931@N06",
+      "attribution": "\"Garbage and bin in front of beautiful mountain landscape\" by Horia Varlan is licensed under CC BY 2.0. To view a copy of this license, visit https://creativecommons.org/licenses/by/2.0/."
+    },
+    {
+      "title": "Wild ponies and mountain landscape at Grayson Highlands State Park, Va",
+      "creator": "vastateparksstaff",
+      "license": "CC BY 2.0",
+      "license_url": "https://creativecommons.org/licenses/by/2.0/",
+      "source_url": "https://www.flickr.com/photos/37922399@N05/36510937773",
+      "creator_url": "https://www.flickr.com/photos/37922399@N05",
+      "attribution": "\"Wild ponies and mountain landscape at Grayson Highlands State Park, Va\" by vastateparksstaff is licensed under CC BY 2.0. To view a copy of this license, visit https://creativecommons.org/licenses/by/2.0/."
+    },
+    {
+      "title": "Mountain landscape with lichen",
+      "creator": "randihausken",
+      "license": "CC BY-SA 2.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/2.0/",
+      "source_url": "https://www.flickr.com/photos/46406832@N00/14492243699",
+      "creator_url": "https://www.flickr.com/photos/46406832@N00",
+      "attribution": "\"Mountain landscape with lichen\" by randihausken is licensed under CC BY-SA 2.0. To view a copy of this license, visit https://creativecommons.org/licenses/by-sa/2.0/."
+    }
+  ],
+  "pageErrors": []
+}

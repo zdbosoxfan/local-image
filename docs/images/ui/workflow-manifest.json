@@ -1,153 +1,67 @@
 {
-  "app": "Local Image 0.7",
-  "viewport": "1920 x 1080",
-  "interfaceSize": "Comfortable",
-  "capture": "Actual application screenshots; no mocked network responses, fabricated UI, or screenshot editing.",
-  "removal": {
-    "model": "FLUX.2 Klein base + fal removal LoRA",
-    "input": "../examples/removal-before.png",
-    "output": "../examples/removal-after.png",
-    "input_sha256": "25f88c9251b732828980b15219ec06c6b34b68fdb7980da755c01f99c58f128e",
-    "output_sha256": "0c194850772a96bbba9a20ad6cc707eed0dc17f795195ea80abd08f0520907c5",
-    "method": "Real brush input followed by one local GPU removal and a real application PNG export.",
-    "observedSeconds": 17.6
+  "app": "Local Image main (0.7.3 Linux preview interface)",
+  "viewport": "1600 x 1000",
+  "interfaceSize": "Comfortable unless stated",
+  "capture": "Actual application screenshots from the source build in a browser window; no mocked network responses, fabricated UI, or screenshot editing. No ComfyUI or model files were available, so no model output appears in these captures.",
+  "inputs": {
+    "removal-before.png": "../examples/removal-before.png",
+    "z-image-realism.png": "../examples/z-image-realism.png",
+    "klein-watercolor.png": "../examples/klein-watercolor.png"
   },
   "screenshots": [
     {
       "file": "retouch-brush.png",
-      "caption": "Paint over the unwanted red mug with the AI Remove brush. This is the real brush selection before processing.",
-      "sha256": "9bcb3adc19066381e2bc6651398100bb8f2006381b9b85e5cd220092c97143ae"
+      "caption": "Quick Heal brush painted over the red mug in the Retouch workspace. The selection is the app's real brush input; the Heal button applies the CPU repair on its own layer.",
+      "sha256": "884f5a95a34bd81d255f2e723a010c5a825f3589efafd29d1b09d50904081c2e",
+      "bytes": 1591469
     },
     {
-      "file": "retouch-result-layers.png",
-      "caption": "The red mug has been removed by local FLUX.2 Klein inference. The repair remains a separate editable layer above the original.",
-      "sha256": "0bcc3fcd2bf4ef07713c5bf5e4be87098c5221e007ff258fa242c92015679ce3"
+      "file": "layer-menu.png",
+      "caption": "The Layer menu with the same image open: new retouch layer, editable mask, rename, lock and move commands next to the Layers panel.",
+      "sha256": "ed56eb507d9aa6bff9c58ec49beb0e52a8d48f7bf8f4f7fdba79de06f253ccd6",
+      "bytes": 1525913
     },
     {
-      "file": "workspace-layers-menu.png",
-      "caption": "Layer commands stay in a familiar desktop menu; the original and the generated repair remain separately editable.",
-      "sha256": "003c4d2ddc5f1a01e48cb78da54a4923e1bc298eda10264255b1f2cee28ce299"
+      "file": "document-tabs.png",
+      "caption": "Two images open as tabs, with the filmstrip for a multi-image upload. Unsaved documents carry a dot on their tab.",
+      "sha256": "3e53fd7b2dd0b3b925ae8aeb446b1029c8a58e002d1ee96cbb0aecc5ad57c7dc",
+      "bytes": 363541
     },
     {
-      "file": "workspace-file-menu.png",
-      "caption": "File commands and export formats use compact desktop menus rather than filling the workspace with controls.",
-      "sha256": "4d5bfb89998e47c23652dc87eb1f6e2fb5623d0a0381170cf23c67ec4e552676"
+      "file": "cutout-mask.png",
+      "caption": "The Cutout workspace after Layer \u2192 Add editable mask: Erase and Restore brush modes, Add background and Edge & shadow controls, and the mask as its own layer.",
+      "sha256": "36f9ed4fc186751d3860f5360f8b80f7aa3325d23ca7dc1595563773b116d4c6",
+      "bytes": 380027
     },
     {
-      "file": "stock-library.png",
-      "caption": "Live Openverse stock search, with preview, creator and license attribution shown before import.",
-      "sha256": "410367651a0b9e7e29c925e04ebb36b30c1cf370d53f72fa82e387534d9d0315"
+      "file": "remove-backgrounds.png",
+      "caption": "The Remove backgrounds dialog from the Cutout workspace: output background choice, removal model, per-image selection and previous batches.",
+      "sha256": "9b7a1fe116d72f982191dde1557d0f4841d97e3bd47ba525e4b58088fc1d0abe",
+      "bytes": 147068
+    },
+    {
+      "file": "generate-create.png",
+      "caption": "The Generate panel in Create mode: model and precision pickers, prompt, linked width and height, transparent PNG option, sampling and image inputs. ComfyUI was not running when this was captured, so the model reads as unavailable.",
+      "sha256": "3c3a524bca6b5ffe6dccc2b11301570374f15a0f3cd670553d57292153f63a90",
+      "bytes": 108822
+    },
+    {
+      "file": "model-details.png",
+      "caption": "Settings \u2192 Local AI \u2192 Model details\u2026: download size, GPU memory recommendation, recommended steps, notes and licence for each supported model.",
+      "sha256": "a0812cbdb5e63d225bf42f505fee0c417f90f1c6e491e21b23c8fb3f3d78fa70",
+      "bytes": 179010
+    },
+    {
+      "file": "settings-local-ai.png",
+      "caption": "Settings \u2192 Local AI: ComfyUI backend, model folder, model download controls, FLUX AI Remove option and GPU memory.",
+      "sha256": "648142b83f9b59908ecd4ee9b9d06dabba2c0889719a274af2110e74222828fa",
+      "bytes": 163327
+    },
+    {
+      "file": "large-interface.png",
+      "caption": "The same workspace at Settings \u2192 Interface size \u2192 Large, with the Assets dock open.",
+      "sha256": "6a72bc7b4f7def4eedf5276d19418eb9bf1388faaeccdc382b1dbeff03bfafdd",
+      "bytes": 429734
     }
-  ],
-  "stockSources": [
-    {
-      "title": "Mountain Landscape",
-      "creator": "VincentD'Amico",
-      "license": "CC BY 2.0",
-      "license_url": "https://creativecommons.org/licenses/by/2.0/",
-      "source_url": "https://www.flickr.com/photos/58917221@N08/16189880796",
-      "creator_url": "https://www.flickr.com/photos/58917221@N08",
-      "attribution": "\"Mountain Landscape\" by VincentD'Amico is licensed under CC BY 2.0. To view a copy of this license, visit https://creativecommons.org/licenses/by/2.0/."
-    },
-    {
-      "title": "Mountain landscape",
-      "creator": "randihausken",
-      "license": "CC BY-SA 2.0",
-      "license_url": "https://creativecommons.org/licenses/by-sa/2.0/",
-      "source_url": "https://www.flickr.com/photos/46406832@N00/6036144711",
-      "creator_url": "https://www.flickr.com/photos/46406832@N00",
-      "attribution": "\"Mountain landscape\" by randihausken is licensed under CC BY-SA 2.0. To view a copy of this license, visit https://creativecommons.org/licenses/by-sa/2.0/."
-    },
-    {
-      "title": "Mountain Landscape",
-      "creator": "Lenny K Photography",
-      "license": "CC BY 2.0",
-      "license_url": "https://creativecommons.org/licenses/by/2.0/",
-      "source_url": "https://www.flickr.com/photos/57527070@N06/24855790979",
-      "creator_url": "https://www.flickr.com/photos/57527070@N06",
-      "attribution": "\"Mountain Landscape\" by Lenny K Photography is licensed under CC BY 2.0. To view a copy of this license, visit https://creativecommons.org/licenses/by/2.0/."
-    },
-    {
-      "title": "Snow Mountain Landscape of Tibet.",
-      "creator": "reurinkjan",
-      "license": "CC BY 2.0",
-      "license_url": "https://creativecommons.org/licenses/by/2.0/",
-      "source_url": "https://www.flickr.com/photos/15470975@N03/3288767064",
-      "creator_url": "https://www.flickr.com/photos/15470975@N03",
-      "attribution": "\"Snow Mountain Landscape of Tibet.\" by reurinkjan is licensed under CC BY 2.0. To view a copy of this license, visit https://creativecommons.org/licenses/by/2.0/."
-    },
-    {
-      "title": "Cleveland Mountain Landscape",
-      "creator": "Lenny K Photography",
-      "license": "CC BY 2.0",
-      "license_url": "https://creativecommons.org/licenses/by/2.0/",
-      "source_url": "https://www.flickr.com/photos/57527070@N06/24007709514",
-      "creator_url": "https://www.flickr.com/photos/57527070@N06",
-      "attribution": "\"Cleveland Mountain Landscape\" by Lenny K Photography is licensed under CC BY 2.0. To view a copy of this license, visit https://creativecommons.org/licenses/by/2.0/."
-    },
-    {
-      "title": "Mountain landscape",
-      "creator": "StockyPics",
-      "license": "CC0 1.0",
-      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
-      "source_url": "https://www.flickr.com/photos/135371437@N04/21827581301",
-      "creator_url": "https://www.flickr.com/photos/135371437@N04",
-      "attribution": "\"Mountain landscape\" by StockyPics is marked with CC0 1.0. To view the terms, visit https://creativecommons.org/publicdomain/zero/1.0/."
-    },
-    {
-      "title": "Snow Covered Mountain Landscape",
-      "creator": "Image Catalog",
-      "license": "CC0 1.0",
-      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
-      "source_url": "https://www.flickr.com/photos/132795455@N08/16662196134",
-      "creator_url": "https://www.flickr.com/photos/132795455@N08",
-      "attribution": "\"Snow Covered Mountain Landscape\" by Image Catalog is marked with CC0 1.0. To view the terms, visit https://creativecommons.org/publicdomain/zero/1.0/."
-    },
-    {
-      "title": "Rocky Mountain Landscape",
-      "creator": "A.Davey",
-      "license": "CC BY 2.0",
-      "license_url": "https://creativecommons.org/licenses/by/2.0/",
-      "source_url": "https://www.flickr.com/photos/40595948@N00/2248911755",
-      "creator_url": "https://www.flickr.com/photos/40595948@N00",
-      "attribution": "\"Rocky Mountain Landscape\" by A.Davey is licensed under CC BY 2.0. To view a copy of this license, visit https://creativecommons.org/licenses/by/2.0/."
-    },
-    {
-      "title": "Mount Everest Mountain Landscape",
-      "creator": "Image Catalog",
-      "license": "CC0 1.0",
-      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
-      "source_url": "https://www.flickr.com/photos/132795455@N08/18502982581",
-      "creator_url": "https://www.flickr.com/photos/132795455@N08",
-      "attribution": "\"Mount Everest Mountain Landscape\" by Image Catalog is marked with CC0 1.0. To view the terms, visit https://creativecommons.org/publicdomain/zero/1.0/."
-    },
-    {
-      "title": "Garbage and bin in front of beautiful mountain landscape",
-      "creator": "Horia Varlan",
-      "license": "CC BY 2.0",
-      "license_url": "https://creativecommons.org/licenses/by/2.0/",
-      "source_url": "https://www.flickr.com/photos/10361931@N06/4586269154",
-      "creator_url": "https://www.flickr.com/photos/10361931@N06",
-      "attribution": "\"Garbage and bin in front of beautiful mountain landscape\" by Horia Varlan is licensed under CC BY 2.0. To view a copy of this license, visit https://creativecommons.org/licenses/by/2.0/."
-    },
-    {
-      "title": "Wild ponies and mountain landscape at Grayson Highlands State Park, Va",
-      "creator": "vastateparksstaff",
-      "license": "CC BY 2.0",
-      "license_url": "https://creativecommons.org/licenses/by/2.0/",
-      "source_url": "https://www.flickr.com/photos/37922399@N05/36510937773",
-      "creator_url": "https://www.flickr.com/photos/37922399@N05",
-      "attribution": "\"Wild ponies and mountain landscape at Grayson Highlands State Park, Va\" by vastateparksstaff is licensed under CC BY 2.0. To view a copy of this license, visit https://creativecommons.org/licenses/by/2.0/."
-    },
-    {
-      "title": "Mountain landscape with lichen",
-      "creator": "randihausken",
-      "license": "CC BY-SA 2.0",
-      "license_url": "https://creativecommons.org/licenses/by-sa/2.0/",
-      "source_url": "https://www.flickr.com/photos/46406832@N00/14492243699",
-      "creator_url": "https://www.flickr.com/photos/46406832@N00",
-      "attribution": "\"Mountain landscape with lichen\" by randihausken is licensed under CC BY-SA 2.0. To view a copy of this license, visit https://creativecommons.org/licenses/by-sa/2.0/."
-    }
-  ],
-  "pageErrors": []
+  ]
 }
