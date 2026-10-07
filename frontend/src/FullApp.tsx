@@ -1,5 +1,6 @@
 import { useRef, useSyncExternalStore } from 'react';
 import {
+  Badge,
   Button,
   Portal,
   ProgressBar,
@@ -55,7 +56,8 @@ export function FullApp({
   execute,
 }: FullAppProps) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot),
-    ui = useSyncExternalStore(shell.subscribe, shell.getSnapshot);
+    ui = useSyncExternalStore(shell.subscribe, shell.getSnapshot),
+    updateAvailable = !!useSyncExternalStore(settings.subscribe, settings.getSnapshot).update?.available;
   const commands = commandCatalog(state);
   const workspaceBar = useRef<HTMLDivElement>(null),
     commandBar = useRef<HTMLDivElement>(null);
@@ -171,10 +173,15 @@ export function FullApp({
               {!compact && 'Export'}
             </ToolbarButton>
           </Hint>
-          <Hint content="Settings">
+          <Hint content={updateAvailable ? 'Settings · an update is available' : 'Settings'}>
             <ToolbarButton
-              aria-label="Settings"
-              icon={<Icon name="settings" />}
+              aria-label={updateAvailable ? 'Settings, update available' : 'Settings'}
+              icon={
+                <span className="li-badge-anchor">
+                  <Icon name="settings" />
+                  {updateAvailable && <Badge size="extra-small" color="brand" className="li-update-badge" />}
+                </span>
+              }
               disabled={!commands.showSettings.enabled}
               onClick={() => execute('showSettings')}
             />

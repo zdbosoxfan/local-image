@@ -252,6 +252,7 @@ export function createApplication(token: string) {
       await generation.refreshModels();
       document.body.dataset.reactReady = 'true';
       await settingsController.maybeFirstRun();
+      void settingsController.checkForUpdates(true);
     },
     dispose() {
       removeKeyboard();

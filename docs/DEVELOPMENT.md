@@ -106,6 +106,7 @@ Run from the repository root:
 
 ```powershell
 .\.venv\Scripts\python.exe tests\test_app_paths.py
+.\.venv\Scripts\python.exe tests\test_app_update.py
 .\.venv\Scripts\python.exe tests\test_managed_ai.py
 .\.venv\Scripts\python.exe tests\test_setup_routes.py
 .\.venv\Scripts\python.exe tests\test_frontend_render.py
@@ -120,6 +121,18 @@ node tests\test_ui_generation_size.cjs
 ```
 
 The Python tests create isolated temporary data. An optional historical photo comparison is skipped when its private fixture is absent.
+
+### Application updates
+
+`backend/app_update.py` checks `https://api.github.com/repos/zdbosoxfan/local-image/releases` for the newest
+non-draft release that carries `Local-Image-Setup-<version>.exe` and its `.sha256` asset (pre-releases
+count; Linux previews are ignored). `GET /api/local-remove/update` reports status, `?refresh=true` performs a
+quiet check at most every 15 minutes, `POST …/update/check` forces one, and `POST …/update/download` streams the
+installer through `managed_ai.download_verified` into the profile's `updates` folder, publishing it only when
+size and checksum match. Only the desktop host, with its launcher credential, can read the installer path
+(`GET …/update/installer`, which hashes the file again); the page sees `installer_ready` alone. The host
+re-verifies and runs the installer after the window has closed. `tests/test_app_update.py` covers release
+selection, checksum parsing, the download/verify flow and tamper detection with simulated GitHub responses.
 
 ### Retired legacy interface
 

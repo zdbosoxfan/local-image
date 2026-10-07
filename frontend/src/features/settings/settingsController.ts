@@ -6,7 +6,11 @@ import type {
   SettingsSnapshot,
   SettingsView,
   SetupAction,
+  UpdateStatus,
 } from './types.ts';
+
+const UPDATE_CHECK_KEY = 'local-image.update-check.v1';
+const UPDATE_CHECK_INTERVAL = 24 * 60 * 60 * 1000;
 
 function immutable<T>(value: T): T {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -48,7 +52,11 @@ export function createSettingsController(options: {
     message: '',
     showInstallations: false,
     selectedInstallation: '',
+    update: null,
+    updateStep: null,
+    updateError: '',
   });
+  let updateTimer: unknown = null;
   function update(change: Partial<SettingsSnapshot>) {
     if (disposed) return;
     snapshot = immutable({ ...snapshot, ...structuredClone(change) });
@@ -215,6 +223,97 @@ export function createSettingsController(options: {
     bridge.setOverwritePreference(value);
     update({ preferences: { ...snapshot.preferences, askBeforeOverwrite: value } });
   }
+  function stopUpdatePolling() {
+    if (updateTimer !== null) timers.clear(updateTimer);
+    updateTimer = null;
+  }
+  function acceptUpdate(update: UpdateStatus) {
+    update.release ??= null;
+    update.download ??= { status: 'idle', received: 0, total: 0, error: '' };
+    update.check_error ??= '';
+    update.installer_ready = !!update.installer_ready;
+    update.available = !!update.available;
+    update.release_page ||= 'https://github.com/zdbosoxfan/local-image/releases';
+    stopUpdatePolling();
+    updateState({ update });
+    // Keep following a download the backend is still writing.
+    if (update.download.status === 'downloading')
+      updateTimer = timers.set(() => {
+        updateTimer = null;
+        void api.update().then(acceptUpdate, () => {});
+      }, 1000);
+  }
+  function updateState(change: Pick<Partial<SettingsSnapshot>, 'update' | 'updateStep' | 'updateError'>) {
+    update(change);
+  }
+  /** Quiet startup check: a read that refreshes at most once a day and never
+   * downloads anything. The button performs an explicit check. */
+  async function checkForUpdates(quiet = false) {
+    if (disposed || snapshot.updateStep) return;
+    if (quiet) {
+      const last = Number(readPreference(UPDATE_CHECK_KEY) ?? 0);
+      const refresh = !Number.isFinite(last) || Date.now() - last >= UPDATE_CHECK_INTERVAL;
+      try {
+        const status = await api.update(refresh);
+        if (disposed) return;
+        if (refresh) writePreference(UPDATE_CHECK_KEY, String(Date.now()));
+        acceptUpdate(status);
+      } catch {
+        /* Startup checks stay silent; the Settings button reports problems. */
+      }
+      return;
+    }
+    updateState({ updateStep: 'check', updateError: '' });
+    try {
+      const status = await api.checkUpdate();
+      if (disposed) return;
+      writePreference(UPDATE_CHECK_KEY, String(Date.now()));
+      acceptUpdate(status);
+    } catch (error) {
+      if (!disposed) updateState({ updateError: error instanceof Error ? error.message : 'The update check failed.' });
+    } finally {
+      if (!disposed) updateState({ updateStep: null });
+    }
+  }
+  async function downloadUpdate() {
+    if (disposed || snapshot.updateStep || !snapshot.update?.available) return;
+    updateState({ updateStep: 'download', updateError: '' });
+    try {
+      acceptUpdate(await api.downloadUpdate());
+    } catch (error) {
+      if (!disposed)
+        updateState({ updateError: error instanceof Error ? error.message : 'The update download failed.' });
+    } finally {
+      if (!disposed) updateState({ updateStep: null });
+    }
+  }
+  async function installUpdate() {
+    refreshCapabilities();
+    if (disposed || snapshot.updateStep || !snapshot.update?.installer_ready || !snapshot.capabilities.setup) return;
+    updateState({ updateStep: 'install', updateError: '' });
+    bridge.setOperationPending(true);
+    try {
+      // The host reviews unsaved edits, closes the window, then runs the
+      // verified installer. A null result means the close was cancelled.
+      const result = await bridge.installUpdate();
+      if (disposed) return;
+      if (result === null || result === undefined) updateState({ updateStep: null });
+      // The host closes the window after the review. If the user keeps the
+      // window open instead, offer the button again rather than waiting forever.
+      else
+        timers.set(() => {
+          if (!disposed && snapshot.updateStep === 'install') updateState({ updateStep: null });
+        }, 20000);
+    } catch (error) {
+      if (!disposed)
+        updateState({
+          updateStep: null,
+          updateError: error instanceof Error ? error.message : 'The update could not be started.',
+        });
+    } finally {
+      bridge.setOperationPending(false);
+    }
+  }
   function rememberGuide() {
     writePreference('local-image.hardware-guide.v1', '1');
   }
@@ -251,6 +350,9 @@ export function createSettingsController(options: {
     setDensity,
     setAskBeforeOverwrite,
     selectInstallation: (selectedInstallation: string) => update({ selectedInstallation }),
+    checkForUpdates,
+    downloadUpdate,
+    installUpdate,
     browseModels: () => {
       close();
       return options.browseModels?.();
@@ -271,6 +373,7 @@ export function createSettingsController(options: {
       disposed = true;
       ++epoch;
       stopPolling();
+      stopUpdatePolling();
       listeners.clear();
     },
   };

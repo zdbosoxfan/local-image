@@ -17,6 +17,7 @@ from setup_routes import router as setup_router
 from qwen_setup import router as qwen_setup_router
 from image_generation import router as image_generation_router
 from hardware_guide import router as hardware_guide_router
+from app_update import router as app_update_router
 from lora_library import router as lora_library_router
 from stock_library import router as stock_library_router
 from generation_library import router as generation_library_router
@@ -106,6 +107,7 @@ app.include_router(batch_tools_router)
 app.include_router(hardware_guide_router)
 app.include_router(lora_library_router)
 app.include_router(stock_library_router)
+app.include_router(app_update_router)
 
 app.add_middleware(
     CORSMiddleware,

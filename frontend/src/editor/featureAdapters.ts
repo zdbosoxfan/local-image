@@ -56,6 +56,7 @@ export function createFeatureAdapters(options: {
     ejectModels: () => native.setupEject(),
     useInstallation: id => native.setupUseInstallation(id),
     configureConnection: () => native.configureAi(),
+    installUpdate: () => native.updateInstall(),
   };
   const modelBridge: ModelBridge = {
     capabilities: () => ({ setup: native.capabilities().setup }),

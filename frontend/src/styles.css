@@ -40,6 +40,16 @@
 .li-commandbar .fui-Button {
   min-width: 28px;
 }
+/* A small brand dot over an icon, e.g. Settings when an update is available. */
+.li-badge-anchor {
+  position: relative;
+  display: inline-flex;
+}
+.li-update-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+}
 /* Icon-only mode (set from measurement in FullApp): tighter gaps and dividers
    so the bar shares its row with the workspace tabs in narrow windows. */
 .li-commandbar[data-compact='true'] {

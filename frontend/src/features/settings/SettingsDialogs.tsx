@@ -133,6 +133,7 @@ export function SettingsDialogs({ controller }: { controller: SettingsController
                         Keyboard shortcuts
                       </Button>
                     </div>
+                    <UpdatesSection state={state} controller={controller} />
                     <Accordion collapsible>
                       <AccordionItem value="quick-heal">
                         <AccordionHeader>About Quick Heal</AccordionHeader>
@@ -537,5 +538,102 @@ function Shortcuts() {
         ))}
       </TableBody>
     </Table>
+  );
+}
+
+function publishedDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString(undefined, { dateStyle: 'medium' });
+}
+/** Check, download and install application updates from GitHub releases. The
+ * backend verifies the installer checksum; only the desktop host runs it. */
+function UpdatesSection({ state, controller }: { state: SettingsSnapshot; controller: SettingsController }) {
+  const update = state.update,
+    release = update?.release,
+    download = update?.download,
+    step = state.updateStep;
+  const busy = !!step;
+  const progress =
+    download && download.status === 'downloading' && download.total ? download.received / download.total : undefined;
+  return (
+    <section className="li-settings-group" aria-labelledby="react-settings-updates">
+      <div className="li-settings-toolbar">
+        <div>
+          <h3 id="react-settings-updates">Updates</h3>
+          <p className="li-settings-note">
+            Local Image {update?.current_version ?? ''}
+            {update?.available && release
+              ? ` · Version ${release.version} is available`
+              : update?.checked_at
+                ? ' · You have the latest version'
+                : ''}
+          </p>
+        </div>
+        <Button size="small" disabled={busy} onClick={() => void controller.checkForUpdates()}>
+          {step === 'check' ? 'Checking…' : 'Check for updates'}
+        </Button>
+      </div>
+      {state.updateError && <p role="alert">{state.updateError}</p>}
+      {!state.updateError && !!update?.check_error && <p role="alert">{update.check_error}</p>}
+      {update?.available && release && download && (
+        <>
+          <p className="li-settings-note">
+            {release.name}
+            {release.published_at ? ` · ${publishedDate(release.published_at)}` : ''}
+            {release.prerelease ? ' · Preview' : ''} ·{' '}
+            <Link href={release.html_url} target="_blank" rel="noopener noreferrer">
+              Release page
+            </Link>
+          </p>
+          {!!release.notes.trim() && (
+            <Accordion collapsible>
+              <AccordionItem value="notes">
+                <AccordionHeader size="small">What's new</AccordionHeader>
+                <AccordionPanel>
+                  <pre className="li-settings-release-notes">{release.notes}</pre>
+                </AccordionPanel>
+              </AccordionItem>
+            </Accordion>
+          )}
+          {download.status === 'downloading' ? (
+            <div className="li-settings-progress">
+              <ProgressBar value={progress} aria-label="Update download progress" />
+              <span>
+                {setupBytes(download.received)}
+                {download.total ? ` of ${setupBytes(download.total)}` : ''}
+              </span>
+            </div>
+          ) : download.status === 'ready' && update.installer_ready ? (
+            state.capabilities.setup ? (
+              <div className="li-settings-actions">
+                <Button
+                  size="small"
+                  appearance="primary"
+                  disabled={busy}
+                  onClick={() => void controller.installUpdate()}
+                >
+                  {step === 'install' ? 'Closing to install…' : 'Install and restart'}
+                </Button>
+                <span className="li-settings-note">
+                  Downloaded and verified. Unsaved edits are reviewed before closing.
+                </span>
+              </div>
+            ) : (
+              <p className="li-settings-note">
+                The installer is downloaded and verified. Install it from the Local Image desktop app, or download it
+                from the release page.
+              </p>
+            )
+          ) : (
+            <div className="li-settings-actions">
+              <Button size="small" disabled={busy} onClick={() => void controller.downloadUpdate()}>
+                {step === 'download' ? 'Starting download…' : `Download update (${setupBytes(release.bytes)})`}
+              </Button>
+              {download.status === 'failed' && !!download.error && <span role="alert">{download.error}</span>}
+            </div>
+          )}
+        </>
+      )}
+    </section>
   );
 }

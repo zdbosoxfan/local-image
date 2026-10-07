@@ -80,6 +80,28 @@ export interface SettingsCapabilities {
   ready: boolean;
   setup: boolean;
 }
+export interface UpdateRelease {
+  version: string;
+  tag: string;
+  name: string;
+  notes: string;
+  html_url: string;
+  published_at: string;
+  prerelease: boolean;
+  asset_name: string;
+  bytes: number;
+}
+export interface UpdateStatus {
+  current_version: string;
+  checked_at: number | null;
+  check_error: string;
+  available: boolean;
+  release: UpdateRelease | null;
+  download: { status: 'idle' | 'downloading' | 'ready' | 'failed'; received: number; total: number; error: string };
+  installer_ready: boolean;
+  release_page: string;
+}
+export type UpdateStep = 'check' | 'download' | 'install' | null;
 export interface SettingsPreferences {
   askBeforeOverwrite: boolean;
   density: InterfaceDensity;
@@ -112,6 +134,8 @@ export interface SettingsBridge {
   ejectModels(): Promise<unknown | null>;
   useInstallation(id: string): Promise<unknown | null>;
   configureConnection(): Promise<unknown | null>;
+  /** Desktop host: close the app and run the verified installer. */
+  installUpdate(): Promise<unknown | null>;
 }
 export interface SettingsSnapshot {
   view: SettingsView;
@@ -126,6 +150,9 @@ export interface SettingsSnapshot {
   message: string;
   showInstallations: boolean;
   selectedInstallation: string;
+  update: UpdateStatus | null;
+  updateStep: UpdateStep;
+  updateError: string;
 }
 declare global {
   interface Window {

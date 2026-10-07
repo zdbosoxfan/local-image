@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import { createSettingsController } from '../src/features/settings/settingsController.ts';
 import { createSettingsApi } from '../src/features/settings/settingsApi.ts';
 import type { SettingsApi } from '../src/features/settings/settingsApi.ts';
-import type { AcceptedConfiguration, SettingsBridge, SetupState } from '../src/features/settings/types.ts';
+import type {
+  AcceptedConfiguration,
+  SettingsBridge,
+  SetupState,
+  UpdateStatus,
+} from '../src/features/settings/types.ts';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -59,9 +64,37 @@ function fixture() {
       return {};
     },
     configureConnection: async () => null,
+    installUpdate: async () => {
+      actions.push('installUpdate');
+      return { ok: true, closing: true };
+    },
   };
+  let updateStatus: UpdateStatus = {
+    current_version: '0.7.0',
+    checked_at: null,
+    check_error: '',
+    available: false,
+    release: null,
+    download: { status: 'idle', received: 0, total: 0, error: '' },
+    installer_ready: false,
+    release_page: 'https://github.com/zdbosoxfan/local-image/releases',
+  };
+  const updateCalls: string[] = [];
   const api: SettingsApi = {
     settings: async () => ({ models: [{ id: 'klein', available: false }] }),
+    update: async (refresh = false) => {
+      updateCalls.push(refresh ? 'refresh' : 'read');
+      return structuredClone(updateStatus);
+    },
+    checkUpdate: async () => {
+      updateCalls.push('check');
+      return structuredClone(updateStatus);
+    },
+    downloadUpdate: async () => {
+      updateCalls.push('download');
+      updateStatus = { ...updateStatus, download: { status: 'downloading', received: 10, total: 100, error: '' } };
+      return structuredClone(updateStatus);
+    },
     setup: async () => structuredClone(data),
     status: async () => ({ ready: false, retouch_ready: true }),
     qwen: async () => ({ ready: false }),
@@ -95,8 +128,12 @@ function fixture() {
     pending,
     schedules,
     storageValues,
+    updateCalls,
     setSetup: (value: SetupState) => {
       data = value;
+    },
+    setUpdate: (value: Partial<UpdateStatus>) => {
+      updateStatus = { ...updateStatus, ...value };
     },
   };
 }
@@ -240,4 +277,63 @@ test('browser mode cannot dispatch native setup, and UI preferences remain brows
   assert.deepEqual(f.actions, ['density:large', 'overwrite:false']);
   assert.equal(f.controller.getSnapshot().preferences.density, 'large');
   assert.equal(f.controller.getSnapshot().preferences.askBeforeOverwrite, false);
+});
+
+test('update check, download polling and desktop install follow the verified backend state', async () => {
+  const f = fixture();
+  const release = {
+    version: '0.8.0',
+    tag: 'v0.8.0',
+    name: 'Local Image 0.8.0',
+    notes: 'Notes',
+    html_url: 'https://github.com/zdbosoxfan/local-image/releases/tag/v0.8.0',
+    published_at: '2026-10-10T00:00:00Z',
+    prerelease: true,
+    asset_name: 'Local-Image-Setup-0.8.0.exe',
+    bytes: 100,
+  };
+  // The quiet startup check is a read: it refreshes at most once a day.
+  await f.controller.checkForUpdates(true);
+  assert.deepEqual(f.updateCalls, ['refresh']);
+  assert.ok(Number(f.storageValues.get('local-image.update-check.v1')) > 0);
+  await f.controller.checkForUpdates(true);
+  assert.deepEqual(f.updateCalls, ['refresh', 'read']);
+  f.setUpdate({ available: true, release, checked_at: 1 });
+  await f.controller.checkForUpdates();
+  assert.deepEqual(f.updateCalls, ['refresh', 'read', 'check']);
+  assert.equal(f.controller.getSnapshot().update?.available, true);
+  assert.equal(f.controller.getSnapshot().updateStep, null);
+  // Nothing can be installed until the backend reports a verified installer.
+  await f.controller.installUpdate();
+  assert.ok(!f.actions.includes('installUpdate'));
+  await f.controller.downloadUpdate();
+  assert.equal(f.controller.getSnapshot().update?.download.status, 'downloading');
+  const poll = f.schedules.at(-1);
+  assert.equal(poll?.milliseconds, 1000);
+  f.setUpdate({ download: { status: 'ready', received: 100, total: 100, error: '' }, installer_ready: true });
+  poll!.callback();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(f.controller.getSnapshot().update?.installer_ready, true);
+  await f.controller.installUpdate();
+  assert.deepEqual(
+    f.actions.filter(action => action === 'installUpdate'),
+    ['installUpdate'],
+  );
+  assert.equal(f.controller.getSnapshot().updateStep, 'install');
+  assert.deepEqual(f.pending.slice(-2), [true, false]);
+});
+
+test('update check failures are shown for manual checks and stay silent at startup', async () => {
+  const f = fixture();
+  f.api.checkUpdate = async () => {
+    throw new Error('GitHub is rate limiting update checks from this PC.');
+  };
+  f.api.update = async () => {
+    throw new Error('offline');
+  };
+  await f.controller.checkForUpdates(true);
+  assert.equal(f.controller.getSnapshot().updateError, '');
+  await f.controller.checkForUpdates();
+  assert.match(f.controller.getSnapshot().updateError, /rate limiting/);
+  assert.equal(f.controller.getSnapshot().updateStep, null);
 });

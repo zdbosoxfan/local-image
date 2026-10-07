@@ -33,6 +33,8 @@ internal static class LocalRemoveLauncher
     internal static string LauncherKey;
     internal static int ExitCode;
     private static System.Threading.Mutex desktopMutex;
+    // A verified installer the window asked to run once it has closed.
+    internal static string PendingInstaller;
 
     [STAThread]
     private static int Main(string[] args)
@@ -63,6 +65,13 @@ internal static class LocalRemoveLauncher
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new LocalRemoveWindow(paths, args.Contains("--probe-webview"), output));
+            if (PendingInstaller != null)
+            {
+                // The desktop mutex must be gone before Inno Setup's PrepareToInstall
+                // checks it; the installer then stops the backend itself.
+                desktopMutex.Dispose(); desktopMutex = null;
+                StartInstaller(PendingInstaller);
+            }
             return ExitCode;
         }
         catch (Exception error)
@@ -243,6 +252,42 @@ internal static class LocalRemoveLauncher
     internal static async Task<Dictionary<string, object>> ReadSetup()
     {
         return await Request(HttpMethod.Get, "/api/local-remove/setup", null);
+    }
+    internal static async Task<Dictionary<string, object>> ReadInstaller()
+    {
+        return await Request(HttpMethod.Get, "/api/local-remove/update/installer", null);
+    }
+    /// <summary>The backend's verified installer, checked again here: inside the
+    /// profile's updates folder, a release installer name, and the same SHA-256.</summary>
+    internal static string VerifyInstaller(Dictionary<string, object> info)
+    {
+        string path = StringValue(info, "path", ""), expected = StringValue(info, "sha256", "").ToLowerInvariant();
+        if (String.IsNullOrWhiteSpace(path) || !Regex.IsMatch(expected, "^[0-9a-f]{64}$"))
+            throw new InvalidOperationException("Download the update before installing it.");
+        string full = Path.GetFullPath(path);
+        string updates = Path.GetFullPath(Path.Combine(DataDirectory, "updates")) + Path.DirectorySeparatorChar;
+        if (!full.StartsWith(updates, StringComparison.OrdinalIgnoreCase)
+            || !Regex.IsMatch(Path.GetFileName(full), @"^Local-Image-Setup-\d+(?:\.\d+)+\.exe$")
+            || !File.Exists(full) || File.GetAttributes(full).HasFlag(FileAttributes.ReparsePoint))
+            throw new InvalidOperationException("The downloaded installer is missing. Download the update again.");
+        if (HashFile(full) != expected)
+            throw new InvalidOperationException("The downloaded installer does not match its checksum. Download the update again.");
+        return full;
+    }
+    private static void StartInstaller(string path)
+    {
+        try
+        {
+            // Normal interactive setup: previous folder and storage choices are
+            // prefilled, Windows asks for administrator approval as on first install.
+            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(path) });
+        }
+        catch (Exception error)
+        {
+            WriteError(error);
+            MessageBox.Show("The update installer could not be started. Open it from the Local Image updates folder:\n" + path,
+                "Local Image", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
     internal static bool IsSetupAction(string action)
     {
@@ -468,6 +513,7 @@ internal sealed class LocalRemoveWindow : Form
     private readonly string output;
     private bool bridgeBusy;
     private bool trustedEditorReady;
+    private string pendingInstaller;
     private readonly CloseRequestGate closeGate = new CloseRequestGate();
     private readonly HashSet<ulong> ignoredNavigations = new HashSet<ulong>();
     internal LocalRemoveWindow(string[] initialPaths, bool hiddenProbe, string resultPath)
@@ -488,7 +534,11 @@ internal sealed class LocalRemoveWindow : Form
             try { await LocalRemoveLauncher.Api("/api/local-remove/heartbeat", new Dictionary<string, object>()); }
             catch (Exception error) { LocalRemoveLauncher.WriteError(error); }
         };
-        FormClosed += delegate { heartbeat.Stop(); heartbeat.Dispose(); };
+        FormClosed += delegate
+        {
+            heartbeat.Stop(); heartbeat.Dispose();
+            if (pendingInstaller != null && closeGate.Approved) LocalRemoveLauncher.PendingInstaller = pendingInstaller;
+        };
     }
     private async Task Initialize()
     {
@@ -619,16 +669,29 @@ internal sealed class LocalRemoveWindow : Form
                 object approved;
                 if (!message.TryGetValue("approved", out approved) || !(approved is bool)) throw new InvalidOperationException("The close decision is missing.");
                 bool decision = (bool)approved && !bridgeBusy;
+                if (!decision) pendingInstaller = null;
                 if (closeGate.Complete((string)id, decision) && decision)
                     BeginInvoke(new Action(delegate { if (!IsDisposed) Close(); }));
                 return;
             }
-            if (verb != "openFiles" && verb != "openFolder" && verb != "chooseBackgroundFolder" && verb != "openProject" && verb != "saveProject" && verb != "drop" && verb != "configureAi" && verb != "batchExportFolder" && !LocalRemoveLauncher.IsSetupAction(verb)) throw new InvalidOperationException("Unknown desktop action.");
+            if (verb != "openFiles" && verb != "openFolder" && verb != "chooseBackgroundFolder" && verb != "openProject" && verb != "saveProject" && verb != "drop" && verb != "configureAi" && verb != "batchExportFolder" && verb != "updateInstall" && !LocalRemoveLauncher.IsSetupAction(verb)) throw new InvalidOperationException("Unknown desktop action.");
             if (bridgeBusy) throw new InvalidOperationException("Finish opening the current selection first.");
             bridgeBusy = true; ownsBusy = true;
             if (LocalRemoveLauncher.IsSetupAction(verb))
             {
                 Reply(id, await RunSetupAction(verb, message), null); return;
+            }
+            if (verb == "updateInstall")
+            {
+                // The path comes from the authenticated backend, never from the page,
+                // and is hashed again here. The window then closes through its usual
+                // unsaved-edits review; Main runs the installer after it has closed.
+                var info = await LocalRemoveLauncher.ReadInstaller();
+                string installer = await Task.Run(() => LocalRemoveLauncher.VerifyInstaller(info));
+                pendingInstaller = installer;
+                Reply(id, new { ok = true, closing = true }, null);
+                BeginInvoke(new Action(delegate { if (!IsDisposed) Close(); }));
+                return;
             }
             if (verb == "configureAi")
             {
