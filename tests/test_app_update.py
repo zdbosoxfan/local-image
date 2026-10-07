@@ -188,11 +188,18 @@ class UpdateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(installer['sha256'], DIGEST)
         self.assertEqual(Path(installer['path']).parent, app_update.updates_dir())
         self.assertEqual(Path(installer['path']).read_bytes(), INSTALLER)
-        # Tampering after the download is caught when the host asks for the file.
+        # A changed file is refused when the host asks for it, removed, and a
+        # fresh download replaces it instead of failing on the leftover.
         Path(installer['path']).write_bytes(INSTALLER + b'!')
         with self.assertRaises(HTTPException):
             app_update.verified_installer()
         self.assertEqual(app_update.public_status()['download']['status'], 'failed')
+        self.assertFalse(Path(installer['path']).exists())
+        with patch.object(managed_ai.aiohttp, 'ClientSession', lambda *args, **kwargs: session):
+            await app_update.start_download()
+            await app_update._download_task
+        self.assertEqual(app_update.public_status()['download']['status'], 'ready')
+        self.assertEqual(Path(app_update.verified_installer()['path']).read_bytes(), INSTALLER)
 
     async def test_corrupt_download_is_rejected_and_nothing_is_published(self):
         session = FakeSession(routes([release()], installer=INSTALLER[:-1] + b'?'))

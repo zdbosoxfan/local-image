@@ -227,24 +227,27 @@ export function createSettingsController(options: {
     if (updateTimer !== null) timers.clear(updateTimer);
     updateTimer = null;
   }
-  function acceptUpdate(update: UpdateStatus) {
-    update.release ??= null;
-    update.download ??= { status: 'idle', received: 0, total: 0, error: '' };
-    update.check_error ??= '';
-    update.installer_ready = !!update.installer_ready;
-    update.available = !!update.available;
-    update.release_page ||= 'https://github.com/zdbosoxfan/local-image/releases';
+  function acceptUpdate(status: UpdateStatus) {
+    status.release ??= null;
+    status.download ??= { status: 'idle', received: 0, total: 0, error: '' };
+    status.check_error ??= '';
+    status.installer_ready = !!status.installer_ready;
+    status.available = !!status.available;
+    status.release_page ||= 'https://github.com/zdbosoxfan/local-image/releases';
+    if (disposed) return;
     stopUpdatePolling();
-    updateState({ update });
-    // Keep following a download the backend is still writing.
-    if (update.download.status === 'downloading')
-      updateTimer = timers.set(() => {
-        updateTimer = null;
-        void api.update().then(acceptUpdate, () => {});
-      }, 1000);
+    update({ update: status });
+    // Keep following a download the backend is still writing; a failed poll
+    // retries rather than leaving the progress frozen.
+    if (status.download.status === 'downloading') pollUpdate(1000);
   }
-  function updateState(change: Pick<Partial<SettingsSnapshot>, 'update' | 'updateStep' | 'updateError'>) {
-    update(change);
+  function pollUpdate(delay: number) {
+    updateTimer = timers.set(() => {
+      updateTimer = null;
+      void api.update().then(acceptUpdate, () => {
+        if (!disposed && snapshot.update?.download.status === 'downloading') pollUpdate(3000);
+      });
+    }, delay);
   }
   /** Quiet startup check: a read that refreshes at most once a day and never
    * downloads anything. The button performs an explicit check. */
@@ -256,62 +259,56 @@ export function createSettingsController(options: {
       try {
         const status = await api.update(refresh);
         if (disposed) return;
-        if (refresh) writePreference(UPDATE_CHECK_KEY, String(Date.now()));
+        // Only a check that reached GitHub counts towards the daily interval.
+        if (refresh && !status.check_error) writePreference(UPDATE_CHECK_KEY, String(Date.now()));
         acceptUpdate(status);
       } catch {
         /* Startup checks stay silent; the Settings button reports problems. */
       }
       return;
     }
-    updateState({ updateStep: 'check', updateError: '' });
+    update({ updateStep: 'check', updateError: '' });
     try {
       const status = await api.checkUpdate();
       if (disposed) return;
-      writePreference(UPDATE_CHECK_KEY, String(Date.now()));
+      if (!status.check_error) writePreference(UPDATE_CHECK_KEY, String(Date.now()));
       acceptUpdate(status);
     } catch (error) {
-      if (!disposed) updateState({ updateError: error instanceof Error ? error.message : 'The update check failed.' });
+      if (!disposed) update({ updateError: error instanceof Error ? error.message : 'The update check failed.' });
     } finally {
-      if (!disposed) updateState({ updateStep: null });
+      if (!disposed) update({ updateStep: null });
     }
   }
   async function downloadUpdate() {
     if (disposed || snapshot.updateStep || !snapshot.update?.available) return;
-    updateState({ updateStep: 'download', updateError: '' });
+    update({ updateStep: 'download', updateError: '' });
     try {
       acceptUpdate(await api.downloadUpdate());
     } catch (error) {
-      if (!disposed)
-        updateState({ updateError: error instanceof Error ? error.message : 'The update download failed.' });
+      if (!disposed) update({ updateError: error instanceof Error ? error.message : 'The update download failed.' });
     } finally {
-      if (!disposed) updateState({ updateStep: null });
+      if (!disposed) update({ updateStep: null });
     }
   }
   async function installUpdate() {
     refreshCapabilities();
     if (disposed || snapshot.updateStep || !snapshot.update?.installer_ready || !snapshot.capabilities.setup) return;
-    updateState({ updateStep: 'install', updateError: '' });
+    update({ updateStep: 'install', updateError: '' });
+    // The host closes the window through the unsaved-edits review, which the
+    // editor refuses while a dialog is open, so Settings must close first.
+    close();
     bridge.setOperationPending(true);
     try {
-      // The host reviews unsaved edits, closes the window, then runs the
-      // verified installer. A null result means the close was cancelled.
-      const result = await bridge.installUpdate();
-      if (disposed) return;
-      if (result === null || result === undefined) updateState({ updateStep: null });
-      // The host closes the window after the review. If the user keeps the
-      // window open instead, offer the button again rather than waiting forever.
-      else
-        timers.set(() => {
-          if (!disposed && snapshot.updateStep === 'install') updateState({ updateStep: null });
-        }, 20000);
+      await bridge.installUpdate();
     } catch (error) {
-      if (!disposed)
-        updateState({
-          updateStep: null,
-          updateError: error instanceof Error ? error.message : 'The update could not be started.',
-        });
+      if (!disposed) {
+        // Reopen Settings so the problem is visible where the button lives.
+        await open('settings');
+        update({ updateError: error instanceof Error ? error.message : 'The update could not be started.' });
+      }
     } finally {
       bridge.setOperationPending(false);
+      if (!disposed) update({ updateStep: null });
     }
   }
   function rememberGuide() {

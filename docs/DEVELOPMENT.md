@@ -130,8 +130,8 @@ count; Linux previews are ignored). `GET /api/local-remove/update` reports statu
 quiet check at most every 15 minutes, `POST …/update/check` forces one, and `POST …/update/download` streams the
 installer through `managed_ai.download_verified` into the profile's `updates` folder, publishing it only when
 size and checksum match. Only the desktop host, with its launcher credential, can read the installer path
-(`GET …/update/installer`, which hashes the file again); the page sees `installer_ready` alone. The host
-re-verifies and runs the installer after the window has closed. `tests/test_app_update.py` covers release
+(`GET …/update/installer`); the page sees `installer_ready` alone. The host checks the path, name and
+SHA-256 itself and runs the installer after the window has closed. `tests/test_app_update.py` covers release
 selection, checksum parsing, the download/verify flow and tamper detection with simulated GitHub responses.
 
 ### Retired legacy interface

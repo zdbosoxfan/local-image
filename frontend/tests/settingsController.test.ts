@@ -292,15 +292,21 @@ test('update check, download polling and desktop install follow the verified bac
     asset_name: 'Local-Image-Setup-0.8.0.exe',
     bytes: 100,
   };
-  // The quiet startup check is a read: it refreshes at most once a day.
+  // The quiet startup check is a read: it refreshes at most once a day, and
+  // an unreachable GitHub does not count as today's check.
+  f.setUpdate({ check_error: 'Could not reach GitHub to check for updates.' });
   await f.controller.checkForUpdates(true);
   assert.deepEqual(f.updateCalls, ['refresh']);
+  assert.equal(f.storageValues.get('local-image.update-check.v1'), undefined);
+  f.setUpdate({ check_error: '' });
+  await f.controller.checkForUpdates(true);
+  assert.deepEqual(f.updateCalls, ['refresh', 'refresh']);
   assert.ok(Number(f.storageValues.get('local-image.update-check.v1')) > 0);
   await f.controller.checkForUpdates(true);
-  assert.deepEqual(f.updateCalls, ['refresh', 'read']);
+  assert.deepEqual(f.updateCalls, ['refresh', 'refresh', 'read']);
   f.setUpdate({ available: true, release, checked_at: 1 });
   await f.controller.checkForUpdates();
-  assert.deepEqual(f.updateCalls, ['refresh', 'read', 'check']);
+  assert.deepEqual(f.updateCalls, ['refresh', 'refresh', 'read', 'check']);
   assert.equal(f.controller.getSnapshot().update?.available, true);
   assert.equal(f.controller.getSnapshot().updateStep, null);
   // Nothing can be installed until the backend reports a verified installer.
@@ -314,13 +320,24 @@ test('update check, download polling and desktop install follow the verified bac
   poll!.callback();
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(f.controller.getSnapshot().update?.installer_ready, true);
+  await f.controller.open('settings');
   await f.controller.installUpdate();
   assert.deepEqual(
     f.actions.filter(action => action === 'installUpdate'),
     ['installUpdate'],
   );
-  assert.equal(f.controller.getSnapshot().updateStep, 'install');
+  // Settings closes before the host's unsaved-edits review, which the editor
+  // would otherwise refuse while a dialog is open.
+  assert.equal(f.controller.getSnapshot().view, null);
+  assert.equal(f.controller.getSnapshot().updateStep, null);
   assert.deepEqual(f.pending.slice(-2), [true, false]);
+  f.bridge.installUpdate = async () => {
+    throw new Error('The downloaded installer is missing. Download the update again.');
+  };
+  await f.controller.open('settings');
+  await f.controller.installUpdate();
+  assert.equal(f.controller.getSnapshot().view, 'settings');
+  assert.match(f.controller.getSnapshot().updateError, /missing/);
 });
 
 test('update check failures are shown for manual checks and stay silent at startup', async () => {

@@ -6,8 +6,8 @@ is installed from here: Inno Setup runs its normal wizard with the previous
 folder and storage choices after the application has closed.
 """
 import asyncio
-import hashlib
 import json
+import logging
 import re
 import shutil
 import time
@@ -31,6 +31,7 @@ USER_AGENT = f'LocalImage/{APP_VERSION}'
 GITHUB_HEADERS = {'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28',
                   'User-Agent': USER_AGENT}
 
+logger = logging.getLogger('local-remove.update')
 router = APIRouter()
 _lock = asyncio.Lock()
 _state = {'checked_at': 0.0, 'checked_time': None, 'release': None, 'check_error': '',
@@ -79,7 +80,7 @@ def newest_windows_release(releases):
     for release in releases if isinstance(releases, list) else []:
         if not isinstance(release, dict) or release.get('draft'):
             continue
-        assets = [asset for asset in release.get('assets', []) if isinstance(asset, dict)]
+        assets = [asset for asset in (release.get('assets') or []) if isinstance(asset, dict)]
         for asset in assets:
             name = asset.get('name', '')
             match = INSTALLER_NAME.match(name) if isinstance(name, str) else None
@@ -214,17 +215,27 @@ def _reset_download():
     _state['installer'] = None
 
 
+def _remove_stale(folder, target, release):
+    """Clear old installers; keep the target only when it already verifies."""
+    for stale in folder.iterdir():
+        if stale.name.startswith('.'):
+            continue
+        if stale == target and not stale.is_symlink() and stale.is_file() and stale.stat().st_size == release['bytes']:
+            if managed_ai.sha256_file(stale) == release['sha256']:
+                continue
+        if stale.is_dir() and not stale.is_symlink():
+            shutil.rmtree(stale, ignore_errors=True)
+        else:
+            stale.unlink(missing_ok=True)
+
+
 async def _download(release):
     folder = updates_dir()
     target = folder / release['asset_name']
+    task = asyncio.current_task()
     try:
         folder.mkdir(parents=True, exist_ok=True)
-        for stale in folder.iterdir():
-            if stale != target and not stale.name.startswith('.'):
-                if stale.is_dir() and not stale.is_symlink():
-                    shutil.rmtree(stale, ignore_errors=True)
-                else:
-                    stale.unlink(missing_ok=True)
+        await asyncio.to_thread(_remove_stale, folder, target, release)
 
         def progress(done, total):
             _state['download'].update({'received': done, 'total': total})
@@ -235,13 +246,19 @@ async def _download(release):
                                'version': release['version']}
         _state['download'].update({'status': 'ready', 'received': release['bytes'], 'total': release['bytes']})
     except asyncio.CancelledError:
-        _state['download'] = {'status': 'idle', 'received': 0, 'total': 0, 'error': ''}
+        # A newer download may already own the shared state after a reset.
+        if _download_task is task:
+            _state['download'] = {'status': 'idle', 'received': 0, 'total': 0, 'error': ''}
         raise
     except managed_ai.SetupError as error:
         _state['download'] = {'status': 'failed', 'received': 0, 'total': 0, 'error': str(error)}
     except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as error:
         _state['download'] = {'status': 'failed', 'received': 0, 'total': 0,
                               'error': f'The update download failed ({error.__class__.__name__}). Try again.'}
+    except Exception:
+        logger.exception('Update download failed unexpectedly')
+        _state['download'] = {'status': 'failed', 'received': 0, 'total': 0,
+                              'error': 'The update download failed unexpectedly. Try again.'}
 
 
 async def start_download():
@@ -259,21 +276,19 @@ async def start_download():
 
 
 def verified_installer():
-    """Desktop host only: the downloaded installer, re-hashed before use."""
+    """Desktop host only: the downloaded installer and the checksum it must
+    match. The host hashes the file itself before running it."""
     installer = _state['installer']
     if not installer or _state['download']['status'] != 'ready':
         raise HTTPException(409, 'Download the update before installing it.')
     path = updates_dir() / installer['path'].rsplit('\\', 1)[-1].rsplit('/', 1)[-1]
     if not INSTALLER_NAME.match(path.name) or path.is_symlink() or not path.is_file():
         raise HTTPException(409, 'The downloaded installer is missing. Download the update again.')
-    digest = hashlib.sha256()
-    with path.open('rb') as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b''):
-            digest.update(block)
-    if path.stat().st_size != installer['bytes'] or digest.hexdigest() != installer['sha256']:
+    if path.stat().st_size != installer['bytes']:
         _state['download'] = {'status': 'failed', 'received': 0, 'total': 0,
                               'error': 'The downloaded installer no longer matches its checksum. Download it again.'}
         _state['installer'] = None
+        path.unlink(missing_ok=True)
         raise HTTPException(409, _state['download']['error'])
     return {'path': str(path), 'sha256': installer['sha256'], 'bytes': installer['bytes'],
             'version': installer['version']}
@@ -305,4 +320,4 @@ async def download_update(request: Request):
 async def read_installer(request: Request):
     from local_remove import launcher_guard
     launcher_guard(request)
-    return await asyncio.to_thread(verified_installer)
+    return verified_installer()
