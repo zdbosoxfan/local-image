@@ -104,6 +104,7 @@ export function FullApp({
         <Toolbar
           ref={commandBar}
           className="li-commandbar"
+          data-compact={compact}
           aria-label="Editor commands"
           size="medium"
           checkedValues={{ panels: state.inspectorHidden || inspectorUnavailable ? [] : ['inspector'] }}

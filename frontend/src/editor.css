@@ -321,18 +321,12 @@ body[data-persona='generate'][data-generation-blank='true'] .li-zoom-controls {
   .li-brand {
     display: none;
   }
-  .li-workspace-bar .li-commandbar {
-    gap: 0;
-  }
   .li-app-header {
     padding-inline: 4px;
   }
 }
 @media (max-width: 850px) {
   body[data-assets-open='true'] #inspector-root {
-    display: none;
-  }
-  .li-commandbar .fui-ToolbarDivider {
     display: none;
   }
 }

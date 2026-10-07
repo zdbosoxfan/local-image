@@ -40,6 +40,14 @@
 .li-commandbar .fui-Button {
   min-width: 28px;
 }
+/* Icon-only mode (set from measurement in FullApp): tighter gaps and dividers
+   so the bar shares its row with the workspace tabs in narrow windows. */
+.li-commandbar[data-compact='true'] {
+  gap: 0;
+}
+.li-commandbar[data-compact='true'] .fui-Divider {
+  padding-inline: 4px;
+}
 /* One selected look for every image picker (assets, filmstrip, drafts):
    Fluent's selected background with a brand-colored border. */
 .li-selectable {
@@ -232,12 +240,4 @@
 }
 :root[data-ui-density='large'] .fui-Input__input {
   min-height: calc(var(--ui-font) * 1.4);
-}
-@media (max-width: 900px) {
-  .li-commandbar {
-    gap: 0;
-  }
-  .li-commandbar .fui-ToolbarDivider {
-    display: none;
-  }
 }
