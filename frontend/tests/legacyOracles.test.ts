@@ -1,7 +1,7 @@
-import {test} from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {createHash} from 'node:crypto';
+import { createHash } from 'node:crypto';
 
 const root = new URL('../../tests/fixtures/legacy-frontend-e42/', import.meta.url);
 const hash = (value: string | Uint8Array) => createHash('sha256').update(value).digest('hex');
@@ -12,7 +12,14 @@ test('historical math oracle bytes and exact excerpts retain their pinned proven
   const camera = fs.readFileSync(new URL(provenance.camera_regions.file, root));
   assert.equal(hash(camera), provenance.camera_regions.sha256);
   const regions = JSON.parse(camera.toString('utf8'));
-  assert.deepEqual(Object.keys(regions), ['clampCamera', 'fitImage', 'setPhotoZoom', 'coord', 'layerGeometry', 'stackGesture']);
+  assert.deepEqual(Object.keys(regions), [
+    'clampCamera',
+    'fitImage',
+    'setPhotoZoom',
+    'coord',
+    'layerGeometry',
+    'stackGesture',
+  ]);
   for (const entry of provenance.camera_regions.regions) {
     assert.match(entry.source_path, /^backend\/frontend\/(editor|layers-studio)\.js$/);
     assert.match(entry.source_blob_sha256, /^[a-f0-9]{64}$/);

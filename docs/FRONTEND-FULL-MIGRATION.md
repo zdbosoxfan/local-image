@@ -1,5 +1,7 @@
 # Full React migration: implementation and acceptance status
 
+**Update 2026-10-06.** The legacy interface sources, transitional bridges, disconnected first-stage React files and the browser suites that drove the legacy page were removed; `LOCAL_IMAGE_FRONTEND` is now ignored. The last revision containing them is `926fdd7`. See [Retired legacy interface](DEVELOPMENT.md#retired-legacy-interface) and [Design system](DESIGN-SYSTEM.md). Statements below about source-only legacy recovery describe the earlier state.
+
 Updated 2026-09-30. The user approved the first shell/Layers slice and requested the entire interface in React, TypeScript, Vite and Fluent UI v9. The full interface is now mounted through explicit document, canvas, native and feature controllers. Python/FastAPI, the image/compositing engine, ComfyUI integrations, `.lremove` projects and the C# WinForms/WebView2 host remain the existing authorities.
 
 **React-default installation is now explicitly approved.** The user instructed, "Install the new React interface as the default." Normal source and packaged startup select React without an enabling flag. Explicit legacy mode remains source-only when the unfrozen checkout contains its template; frozen packages select React even with a stale legacy flag or leftover template. The pre-cutover source is recoverable at `390f2f4`, tagged `codex/pre-clean-install-20260930`.

@@ -1,4 +1,85 @@
-export function Icon({ name }: { name: string }) {
-  const historyPath = name === 'undo' ? 'M9 5 3 10l6 5M4 10h10a6 6 0 0 1 0 12' : name === 'redo' ? 'm15 5 6 5-6 5M20 10H10a6 6 0 0 0 0 12' : null;
-  return <svg className="li-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">{historyPath ? <path d={historyPath} /> : <use href={`#i-${name}`} />}</svg>;
+import {
+  Add20Regular,
+  ArrowExportUp20Regular,
+  ArrowMove20Regular,
+  ArrowRedo20Regular,
+  ArrowUndo20Regular,
+  ArrowUp20Regular,
+  ChevronDown20Regular,
+  ChevronLeft20Regular,
+  ChevronRight20Regular,
+  ChevronUp20Regular,
+  ImageSplit20Regular,
+  CircleHint20Regular,
+  Dismiss20Regular,
+  Eye20Regular,
+  EyeOff20Regular,
+  Eraser20Regular,
+  ImageArrowBack20Regular,
+  ShapeSubtract20Regular,
+  ShapeUnion20Regular,
+  HandLeft20Regular,
+  Image20Regular,
+  ImageMultiple20Regular,
+  LockClosed20Regular,
+  LockOpen20Regular,
+  MoreHorizontal20Regular,
+  PaintBrush20Regular,
+  PanelRight20Regular,
+  Patch20Regular,
+  Pen20Regular,
+  SelectObject20Regular,
+  Settings20Regular,
+  Stack20Regular,
+  ZoomFit20Regular,
+  ZoomIn20Regular,
+  ZoomOut20Regular,
+  type FluentIcon,
+} from '@fluentui/react-icons';
+
+/** The application's single icon vocabulary. Every glyph comes from the
+ * official Fluent System Icons set so weight, grid and style always match. */
+export const icons = {
+  add: Add20Regular,
+  assets: ImageMultiple20Regular,
+  batch: Stack20Regular,
+  brush: PaintBrush20Regular,
+  close: Dismiss20Regular,
+  collapse: ChevronUp20Regular,
+  compare: ImageSplit20Regular,
+  ellipse: CircleHint20Regular,
+  erase: Eraser20Regular,
+  expand: ChevronDown20Regular,
+  export: ArrowExportUp20Regular,
+  eye: Eye20Regular,
+  'eye-off': EyeOff20Regular,
+  fit: ZoomFit20Regular,
+  hand: HandLeft20Regular,
+  heal: Patch20Regular,
+  image: Image20Regular,
+  inspector: PanelRight20Regular,
+  lock: LockClosed20Regular,
+  more: MoreHorizontal20Regular,
+  move: ArrowMove20Regular,
+  'move-up': ArrowUp20Regular,
+  next: ChevronRight20Regular,
+  pen: Pen20Regular,
+  previous: ChevronLeft20Regular,
+  rectangle: SelectObject20Regular,
+  redo: ArrowRedo20Regular,
+  restore: ImageArrowBack20Regular,
+  'select-add': ShapeUnion20Regular,
+  'select-subtract': ShapeSubtract20Regular,
+  settings: Settings20Regular,
+  undo: ArrowUndo20Regular,
+  unlock: LockOpen20Regular,
+  'zoom-in': ZoomIn20Regular,
+  'zoom-out': ZoomOut20Regular,
+} satisfies Record<string, FluentIcon>;
+
+export type IconName = keyof typeof icons;
+
+export function Icon({ name }: { name: IconName }) {
+  const Glyph = icons[name];
+  return <Glyph className="li-icon" aria-hidden="true" />;
 }

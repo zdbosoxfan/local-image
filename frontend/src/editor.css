@@ -1,57 +1,398 @@
-:root { color-scheme:dark; --ui-font:14px; --ui-note:12px; --canvas:#15181d; --asset-size:260px; --studio-size:300px; }
-:root[data-ui-density=compact] { --ui-font:13px; --ui-note:12px; }
-:root[data-ui-density=large] { --ui-font:28px; --ui-note:24px; --asset-size:330px; --studio-size:410px; }
-html,body { height:100%; margin:0; overflow:hidden; }
-body { display:flex; flex-direction:column; background:var(--canvas); color:#f0f2f5; font:var(--ui-font)/1.4 "Segoe UI Variable","Segoe UI",system-ui,sans-serif; }
-[hidden] { display:none!important; }
-.symbol-library { position:absolute; width:0; height:0; overflow:hidden; }
-#react-app-root,#status-root { flex:none; min-width:0; }
-.li-app-header { display:flex; align-items:center; gap:16px; padding:2px 12px; background:var(--colorNeutralBackground2); border-bottom:1px solid var(--colorNeutralStroke2); }
-.li-brand { font-weight:600; white-space:nowrap; font-size:var(--ui-note); }
-.li-workspace-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:2px 8px; background:var(--colorNeutralBackground2); border-bottom:1px solid var(--colorNeutralStroke2); }
-.li-workspace-bar .li-commandbar { margin-left:auto; }
-.li-editor-layout { display:flex; flex:1; min-height:0; min-width:0; overflow:hidden; }
-#tools-root { display:flex; flex:none; min-height:0; }
-#assets-root { display:flex; flex:none; flex-direction:column; width:var(--asset-size); min-height:0; border-right:1px solid var(--colorNeutralStroke2); }
-#assets-root>div { min-height:0; flex:1; display:flex; flex-direction:column; }
-#inspector-root { display:flex; flex:none; flex-direction:column; width:var(--studio-size); min-height:0; border-left:1px solid var(--colorNeutralStroke2); }
-#inspector-root>div { display:contents; }
-#react-generation-root { display:flex; flex:none; flex-direction:column; width:var(--studio-size); min-height:0; border-left:1px solid var(--colorNeutralStroke2); }
-.li-canvas-region { display:flex; flex-direction:column; flex:1; min-height:0; min-width:160px; overflow:hidden; }
-.li-operation-progress { display:flex; align-items:center; gap:12px; padding:4px 12px; font-size:var(--ui-note); background:var(--colorNeutralBackground2); }.li-operation-progress>.fui-ProgressBar { flex:1; }
-#filmstrip-root { min-width:0; flex:none; }
-#empty-root { position:absolute; inset:0; pointer-events:none; background:transparent; }
-.li-empty-canvas { height:100%; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:12px; color:var(--colorNeutralForeground3); }.li-empty-canvas>.li-icon { width:40px; height:40px; }.li-empty-canvas>.fui-Button { pointer-events:auto; }.li-empty-canvas>span { font-size:var(--ui-note); }
-.viewport { position:relative; flex:1; min-height:0; min-width:0; overflow:hidden; isolation:isolate; background:var(--canvas); touch-action:none; overscroll-behavior:none; user-select:none; }
-.stage { position:absolute; left:0; top:0; transform-origin:0 0; line-height:0; will-change:transform; cursor:crosshair; }
-.stage canvas { display:block; max-width:none; max-height:none; }
-.stage.cutout-preview { background-color:#bac0c7; background-image:linear-gradient(45deg,#969da6 25%,transparent 25%),linear-gradient(-45deg,#969da6 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#969da6 75%),linear-gradient(-45deg,transparent 75%,#969da6 75%); background-size:20px 20px; background-position:0 0,0 10px,10px -10px,-10px 0; }
-.stage .photo-image { position:absolute; left:0; top:0; pointer-events:none; max-width:none; max-height:none; user-select:none; }
-.stage .layer-stack { position:absolute; inset:0; pointer-events:none; overflow:hidden; }
-.stage .layer-image { position:absolute; max-width:none; max-height:none; pointer-events:none; user-select:none; }
-.stage .overlay { position:absolute; inset:0; pointer-events:none; opacity:.48; }.stage .draft { position:absolute; inset:0; pointer-events:none; opacity:.8; }
-.viewport.hand,.viewport.hand .stage { cursor:grab; }.viewport.panning,.viewport.panning .stage { cursor:grabbing; }.viewport.moving-subject,.viewport.moving-subject .stage { cursor:move; }.viewport.brush-ready,.viewport.brush-ready .stage { cursor:none; }
-.brush-cursor { position:absolute; z-index:5; pointer-events:none; border:1px solid #fffffff2; box-shadow:0 0 0 1px #000e; border-radius:50%; transform:translate(-50%,-50%); }
-.drop-notice { position:absolute; z-index:20; inset:16px; border:2px dashed #78adf4; border-radius:4px; background:#182c40ed; color:#f0f2f5; display:flex; align-items:center; justify-content:center; font-size:20px; pointer-events:none; }
-.li-cutout-properties { flex:none; max-height:55%; overflow:auto; border-top:1px solid var(--colorNeutralStroke2); background:var(--colorNeutralBackground2); padding:4px 8px; }.li-cutout-properties>.fui-Button { width:100%; justify-content:space-between; }.li-cutout-fields { display:flex; flex-direction:column; gap:8px; padding:8px 4px; }.li-cutout-fields .fui-Field { align-items:center; }.li-cutout-fields .fui-Input { width:100px; min-width:0; }
-body[data-persona=generate][data-generation-view=refine] #react-generation-root { flex:1; width:auto; }
-body[data-persona=generate][data-generation-view=refine] #canvas-region { display:none; }
-body[data-persona=generate][data-generation-blank=true] #stage { visibility:hidden; }
-body[data-persona=generate][data-generation-view=refine] .li-zoom-controls,body[data-persona=generate][data-generation-blank=true] .li-zoom-controls { visibility:hidden; }
-@media(max-width:1000px) { :root { --studio-size:250px; --asset-size:230px; }.li-brand{display:none}.li-workspace-bar .li-commandbar{gap:0}.li-app-header{padding-inline:4px} }
-@media(max-width:850px) { body[data-assets-open=true] #inspector-root{display:none}.li-commandbar .li-divider{display:none} }
-:root[data-ui-density=large] #react-app-root { max-height:45dvh; overflow:auto; }
-:root[data-ui-density=large] .li-menu-bar { overflow:auto; }
-:root[data-ui-density=large] .li-cutout-fields .fui-Input { width:150px; }
-:root[data-ui-density=large] .li-tool-options .fui-Field { flex-wrap:wrap; }
-@media(max-width:1100px) {
- :root[data-ui-density=large] .li-editor-layout { flex-wrap:wrap; position:relative; padding-left:56px; }
- :root[data-ui-density=large] #tools-root { position:absolute; left:0; top:0; bottom:0; width:56px; }
- :root[data-ui-density=large] .li-canvas-region { flex-basis:100%; height:52%; min-height:0; }
- :root[data-ui-density=large] #editor-layout:has(>#inspector-root[hidden]):has(>#react-generation-root[hidden]) .li-canvas-region { height:100%; }
- :root[data-ui-density=large] #inspector-root,:root[data-ui-density=large] #react-generation-root { flex:1; width:100%; height:48%; overflow:auto; }
- :root[data-ui-density=large] #inspector-root .li-layers { flex:0 0 auto; }
- :root[data-ui-density=large] #inspector-root .li-layer-list { flex:0 0 auto; max-height:max(96px,35dvh); }
- :root[data-ui-density=large] #assets-root { position:absolute; z-index:10; inset:0 0 0 56px; width:auto; }
- :root[data-ui-density=large] body[data-persona=generate][data-generation-view=refine] #react-generation-root { height:100%; }
+:root {
+  color-scheme: dark;
+  --ui-font: 14px;
+  --ui-note: 12px;
+  --asset-size: 260px;
+  --studio-size: 300px;
+}
+:root[data-ui-density='compact'] {
+  --ui-font: 13px;
+  --ui-note: 12px;
+}
+:root[data-ui-density='large'] {
+  --ui-font: 28px;
+  --ui-note: 24px;
+  --asset-size: 330px;
+  --studio-size: 410px;
+}
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+body {
+  display: flex;
+  flex-direction: column;
+  /* The body sits outside FluentProvider; these are webDarkTheme's
+     colorNeutralBackground3 and colorNeutralForeground1 values. */
+  background: #141414;
+  color: #ffffff;
+  font:
+    var(--ui-font)/1.4 'Segoe UI Variable',
+    'Segoe UI',
+    system-ui,
+    sans-serif;
+}
+[hidden] {
+  display: none !important;
+}
+#react-app-root,
+#status-root {
+  flex: none;
+  min-width: 0;
+}
+.li-app-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 2px 12px;
+  background: var(--colorNeutralBackground2);
+  border-bottom: 1px solid var(--colorNeutralStroke2);
+}
+.li-brand {
+  font-weight: 600;
+  white-space: nowrap;
+  font-size: var(--ui-note);
+}
+.li-workspace-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 2px 8px;
+  background: var(--colorNeutralBackground2);
+  border-bottom: 1px solid var(--colorNeutralStroke2);
+}
+.li-workspace-bar .li-commandbar {
+  margin-left: auto;
+}
+.li-editor-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+#tools-root {
+  display: flex;
+  flex: none;
+  min-height: 0;
+}
+#assets-root {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: var(--asset-size);
+  min-height: 0;
+  border-right: 1px solid var(--colorNeutralStroke2);
+}
+#assets-root > div {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+#inspector-root {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: var(--studio-size);
+  min-height: 0;
+  border-left: 1px solid var(--colorNeutralStroke2);
+}
+#inspector-root > div {
+  display: contents;
+}
+#react-generation-root {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: var(--studio-size);
+  min-height: 0;
+  border-left: 1px solid var(--colorNeutralStroke2);
+}
+.li-canvas-region {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 160px;
+  overflow: hidden;
+}
+.li-operation-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 12px;
+  font-size: var(--ui-note);
+  background: var(--colorNeutralBackground2);
+}
+.li-operation-progress > .fui-ProgressBar {
+  flex: 1;
+}
+#filmstrip-root {
+  min-width: 0;
+  flex: none;
+}
+#empty-root {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: transparent;
+}
+.li-empty-canvas {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--colorNeutralForeground3);
+}
+.li-empty-canvas > .li-icon {
+  width: 40px;
+  height: 40px;
+}
+.li-empty-canvas > .fui-Button {
+  pointer-events: auto;
+}
+.li-empty-canvas > span {
+  font-size: var(--ui-note);
+}
+.viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--colorNeutralBackground3);
+  touch-action: none;
+  overscroll-behavior: none;
+  user-select: none;
+}
+.stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  line-height: 0;
+  will-change: transform;
+  cursor: crosshair;
+}
+.stage canvas {
+  display: block;
+  max-width: none;
+  max-height: none;
+}
+.stage.cutout-preview {
+  /* Fixed transparency checkerboard, as in other image editors; it must not
+     follow the theme so transparent pixels always read the same way. */
+  background-color: #bac0c7;
+  background-image:
+    linear-gradient(45deg, #969da6 25%, transparent 25%), linear-gradient(-45deg, #969da6 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #969da6 75%), linear-gradient(-45deg, transparent 75%, #969da6 75%);
+  background-size: 20px 20px;
+  background-position:
+    0 0,
+    0 10px,
+    10px -10px,
+    -10px 0;
+}
+.stage .photo-image {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  max-width: none;
+  max-height: none;
+  user-select: none;
+}
+.stage .layer-stack {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.stage .layer-image {
+  position: absolute;
+  max-width: none;
+  max-height: none;
+  pointer-events: none;
+  user-select: none;
+}
+.stage .overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.48;
+}
+.stage .draft {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.8;
+}
+.viewport.hand,
+.viewport.hand .stage {
+  cursor: grab;
+}
+.viewport.panning,
+.viewport.panning .stage {
+  cursor: grabbing;
+}
+.viewport.moving-subject,
+.viewport.moving-subject .stage {
+  cursor: move;
+}
+.viewport.brush-ready,
+.viewport.brush-ready .stage {
+  cursor: none;
+}
+/* Light ring with a dark halo stays visible over any photo. */
+.brush-cursor {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  border: 1px solid #fffffff2;
+  box-shadow: 0 0 0 1px #000e;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+.drop-notice {
+  position: absolute;
+  z-index: 20;
+  inset: 16px;
+  border: 2px dashed var(--colorBrandStroke1);
+  border-radius: var(--borderRadiusMedium);
+  background: var(--colorBrandBackground2);
+  color: var(--colorNeutralForeground1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  pointer-events: none;
+}
+.li-cutout-properties {
+  flex: none;
+  max-height: 55%;
+  overflow: auto;
+  border-top: 1px solid var(--colorNeutralStroke2);
+  background: var(--colorNeutralBackground2);
+  padding: 4px 8px;
+}
+.li-cutout-properties > .fui-Button {
+  width: 100%;
+  justify-content: space-between;
+}
+.li-cutout-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 4px;
+}
+.li-cutout-fields .fui-Field {
+  align-items: center;
+}
+.li-cutout-fields .fui-Input {
+  width: 100px;
+  min-width: 0;
+}
+body[data-persona='generate'][data-generation-view='refine'] #react-generation-root {
+  flex: 1;
+  width: auto;
+}
+body[data-persona='generate'][data-generation-view='refine'] #canvas-region {
+  display: none;
+}
+body[data-persona='generate'][data-generation-blank='true'] #stage {
+  visibility: hidden;
+}
+body[data-persona='generate'][data-generation-view='refine'] .li-zoom-controls,
+body[data-persona='generate'][data-generation-blank='true'] .li-zoom-controls {
+  visibility: hidden;
+}
+@media (max-width: 1000px) {
+  :root {
+    --studio-size: 250px;
+    --asset-size: 230px;
+  }
+  .li-brand {
+    display: none;
+  }
+  .li-workspace-bar .li-commandbar {
+    gap: 0;
+  }
+  .li-app-header {
+    padding-inline: 4px;
+  }
+}
+@media (max-width: 850px) {
+  body[data-assets-open='true'] #inspector-root {
+    display: none;
+  }
+  .li-commandbar .fui-ToolbarDivider {
+    display: none;
+  }
+}
+:root[data-ui-density='large'] #react-app-root {
+  max-height: 45dvh;
+  overflow: auto;
+}
+:root[data-ui-density='large'] .li-menu-bar {
+  overflow: auto;
+}
+:root[data-ui-density='large'] .li-cutout-fields .fui-Input {
+  width: 150px;
+}
+:root[data-ui-density='large'] .li-tool-options .fui-Field {
+  flex-wrap: wrap;
+}
+@media (max-width: 1100px) {
+  :root[data-ui-density='large'] .li-editor-layout {
+    flex-wrap: wrap;
+    position: relative;
+    padding-left: 56px;
+  }
+  :root[data-ui-density='large'] #tools-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 56px;
+  }
+  :root[data-ui-density='large'] .li-canvas-region {
+    flex-basis: 100%;
+    height: 52%;
+    min-height: 0;
+  }
+  :root[data-ui-density='large']
+    #editor-layout:has(> #inspector-root[hidden]):has(> #react-generation-root[hidden])
+    .li-canvas-region {
+    height: 100%;
+  }
+  :root[data-ui-density='large'] #inspector-root,
+  :root[data-ui-density='large'] #react-generation-root {
+    flex: 1;
+    width: 100%;
+    height: 48%;
+    overflow: auto;
+  }
+  :root[data-ui-density='large'] #inspector-root .li-layers {
+    flex: 0 0 auto;
+  }
+  :root[data-ui-density='large'] #inspector-root .li-layer-list {
+    flex: 0 0 auto;
+    max-height: max(96px, 35dvh);
+  }
+  :root[data-ui-density='large'] #assets-root {
+    position: absolute;
+    z-index: 10;
+    inset: 0 0 0 56px;
+    width: auto;
+  }
+  :root[data-ui-density='large'] body[data-persona='generate'][data-generation-view='refine'] #react-generation-root {
+    height: 100%;
+  }
 }

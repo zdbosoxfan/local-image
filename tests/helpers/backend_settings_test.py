@@ -108,8 +108,8 @@ class BackendSettingsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.app.read_settings(), {'model': 'klein'})
         with self.assertRaises(ValidationError):
             self.app.RemovalSettings(model='qwen')
-        with self.assertRaises(ValidationError):
-            self.app.RemoveRequest(mask='unused', revision=0, model='qwen')
+        # Per-request Qwen removal is a supported choice in the Retouch tools.
+        self.assertEqual(self.app.RemoveRequest(mask='unused', revision=0, model='qwen').model, 'qwen')
 
     async def test_unknown_models_are_rejected(self):
         with self.assertRaises(ValidationError):

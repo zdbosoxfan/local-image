@@ -1,5 +1,7 @@
 # Frontend milestone 1 — opt-in shell and Layers
 
+> **Historical record.** The browser scripts and legacy interface files this report refers to were removed on 2026-10-06 (last present in `926fdd7`). Current checks are listed in [DEVELOPMENT.md](DEVELOPMENT.md).
+
 Status: working source prototype tested against the real backend, ready for visual/function review, **not approved for cutover**. Default startup remains the legacy interface. This work stops at the first shell command strip and Layers slice; the remaining feature panels have not been migrated.
 
 ## Baseline and scope

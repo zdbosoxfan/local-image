@@ -16,6 +16,14 @@ from PIL import Image
 import lora_previews as previews
 from lora_catalog import CURATED
 
+# The profile override is needed while the backend modules import, but must not
+# leak into other test modules: unittest discover imports every module first.
+_environment.stop()
+
+
+def setUpModule():
+    _environment.start()
+
 
 def tearDownModule():
     _environment.stop(); _temporary.cleanup()

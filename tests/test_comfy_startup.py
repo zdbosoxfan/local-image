@@ -14,6 +14,14 @@ _environment = patch.dict(os.environ, {'LOCAL_IMAGE_DATA_DIR': str(Path(_tempora
 _environment.start()
 from engine import ComfyClient, config
 
+# The profile override is needed while the backend modules import, but must not
+# leak into other test modules: unittest discover imports every module first.
+_environment.stop()
+
+
+def setUpModule():
+    _environment.start()
+
 
 def tearDownModule():
     _environment.stop()

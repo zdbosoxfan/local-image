@@ -1,25 +1,174 @@
-.li-batch-surface.fui-DialogSurface { width:calc(100vw - 24px); max-width:1180px; max-height:calc(100dvh - 24px); padding:20px; }
-.li-batch-body.fui-DialogBody { max-height:calc(100dvh - 64px); min-height:0; gap:12px; }
-.li-batch-content { display:flex; flex-direction:column; gap:12px; overflow:auto; min-height:0; }
-.li-batch-settings { display:flex; gap:8px; flex-wrap:wrap; align-items:end; }
-.li-batch-settings > .fui-Field { flex:1 1 220px; min-width:0; }
-.li-batch-note { margin:0; color:var(--colorNeutralForeground3); font-size:var(--ui-note); line-height:1.4; }
-.li-batch-name,.li-batch-warning-actions,.li-batch-selection,.li-batch-history-controls,.li-batch-inspect-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-.li-batch-name { align-items:end; }.li-batch-name > .fui-Field { flex:1; min-width:160px; }
-.li-batch-selection { border-block:1px solid var(--colorNeutralStroke2); padding-block:4px; }
-.li-batch-table-scroll { overflow:auto; min-height:120px; max-height:40dvh; }
-.li-batch-table { table-layout:fixed; width:100%; }.li-batch-table th:first-child { width:60px; }.li-batch-table th:nth-child(3) { width:110px; }
-.li-batch-table td { overflow-wrap:anywhere; }.li-batch-preview.fui-Button { min-width:0; padding:2px; }.li-batch-preview img { display:block; width:92px; height:64px; object-fit:contain; }
-.li-batch-status p { margin:0 0 4px; }.li-batch-error { color:var(--colorPaletteRedForeground1); }
-.li-batch-history summary { cursor:pointer; padding-block:4px; }.li-batch-history-controls { margin-top:8px; }.li-batch-history-controls > .fui-Select { flex:1 1 280px; min-width:0; }
-.li-batch-actions.fui-DialogActions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:flex-end; }
-.li-batch-actions > .li-batch-note { margin-right:auto; max-width:260px; }
-.li-batch-inspection { flex:none; min-height:220px; }.li-batch-inspect-toolbar strong { flex:1; min-width:120px; overflow-wrap:anywhere; }
-.li-batch-inspect-scroll { overflow:auto; max-height:44dvh; min-height:160px; margin-top:8px; background:var(--colorNeutralBackground3); }
-.li-batch-inspect-scroll img { display:block; height:auto; max-width:none; }.li-batch-inspect-scroll img.li-batch-fit { max-width:100%; max-height:44dvh; margin:auto; object-fit:contain; }
-@media(max-width:850px) { .li-batch-surface.fui-DialogSurface{padding:12px}.li-batch-body.fui-DialogBody{max-height:calc(100dvh - 48px);gap:8px}.li-batch-table th:first-child{width:48px}.li-batch-table th:nth-child(3){width:82px}.li-batch-preview img{width:64px;height:48px}.li-batch-actions>.li-batch-note{max-width:none;flex-basis:100%} }
-:root[data-ui-density=large] .li-batch-settings > .fui-Field { flex-basis:14em; }
-:root[data-ui-density=large] .li-batch-table { min-width:30em; }
-:root[data-ui-density=large] .li-batch-table th:first-child { width:4.5em; }
-:root[data-ui-density=large] .li-batch-table th:nth-child(3) { width:5.5em; }
-:root[data-ui-density=large] .li-batch-table .fui-TableHeaderCell__button { min-height:calc(var(--ui-font) * 1.4 + 8px); line-height:1.4; }
+.li-batch-surface.fui-DialogSurface {
+  width: calc(100vw - 24px);
+  max-width: 1180px;
+  max-height: calc(100dvh - 24px);
+  padding: 20px;
+}
+.li-batch-body.fui-DialogBody {
+  max-height: calc(100dvh - 64px);
+  min-height: 0;
+  gap: 12px;
+}
+.li-batch-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+  min-height: 0;
+}
+.li-batch-settings {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: end;
+}
+.li-batch-settings > .fui-Field {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.li-batch-note {
+  margin: 0;
+  color: var(--colorNeutralForeground3);
+  font-size: var(--ui-note);
+  line-height: 1.4;
+}
+.li-batch-name,
+.li-batch-warning-actions,
+.li-batch-selection,
+.li-batch-history-controls,
+.li-batch-inspect-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.li-batch-name {
+  align-items: end;
+}
+.li-batch-name > .fui-Field {
+  flex: 1;
+  min-width: 160px;
+}
+.li-batch-selection {
+  border-block: 1px solid var(--colorNeutralStroke2);
+  padding-block: 4px;
+}
+.li-batch-table-scroll {
+  overflow: auto;
+  min-height: 120px;
+  max-height: 40dvh;
+}
+.li-batch-table {
+  table-layout: fixed;
+  width: 100%;
+}
+.li-batch-table th:first-child {
+  width: 60px;
+}
+.li-batch-table th:nth-child(3) {
+  width: 110px;
+}
+.li-batch-table td {
+  overflow-wrap: anywhere;
+}
+.li-batch-preview.fui-Button {
+  min-width: 0;
+  padding: 2px;
+}
+.li-batch-preview img {
+  display: block;
+  width: 92px;
+  height: 64px;
+  object-fit: contain;
+}
+.li-batch-status p {
+  margin: 0 0 4px;
+}
+.li-batch-error {
+  color: var(--colorPaletteRedForeground1);
+}
+.li-batch-history .fui-AccordionPanel {
+  margin: 0;
+}
+.li-batch-history-controls > .fui-Select {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+.li-batch-actions.fui-DialogActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+.li-batch-actions > .li-batch-note {
+  margin-right: auto;
+  max-width: 260px;
+}
+.li-batch-inspection {
+  flex: none;
+  min-height: 220px;
+}
+.li-batch-inspect-toolbar strong {
+  flex: 1;
+  min-width: 120px;
+  overflow-wrap: anywhere;
+}
+.li-batch-inspect-scroll {
+  overflow: auto;
+  max-height: 44dvh;
+  min-height: 160px;
+  margin-top: 8px;
+  background: var(--colorNeutralBackground3);
+}
+.li-batch-inspect-scroll img {
+  display: block;
+  height: auto;
+  max-width: none;
+}
+.li-batch-inspect-scroll img.li-batch-fit {
+  max-width: 100%;
+  max-height: 44dvh;
+  margin: auto;
+  object-fit: contain;
+}
+@media (max-width: 850px) {
+  .li-batch-surface.fui-DialogSurface {
+    padding: 12px;
+  }
+  .li-batch-body.fui-DialogBody {
+    max-height: calc(100dvh - 48px);
+    gap: 8px;
+  }
+  /* Sized from the text so the "Select" heading fits whatever font renders it. */
+  .li-batch-table th:first-child {
+    width: 4em;
+  }
+  .li-batch-table th:nth-child(3) {
+    width: 82px;
+  }
+  .li-batch-preview img {
+    width: 64px;
+    height: 48px;
+  }
+  .li-batch-actions > .li-batch-note {
+    max-width: none;
+    flex-basis: 100%;
+  }
+}
+:root[data-ui-density='large'] .li-batch-settings > .fui-Field {
+  flex-basis: 14em;
+}
+:root[data-ui-density='large'] .li-batch-table {
+  min-width: 30em;
+}
+:root[data-ui-density='large'] .li-batch-table th:first-child {
+  width: 4.5em;
+}
+:root[data-ui-density='large'] .li-batch-table th:nth-child(3) {
+  width: 5.5em;
+}
+:root[data-ui-density='large'] .li-batch-table .fui-TableHeaderCell__button {
+  min-height: calc(var(--ui-font) * 1.4 + 8px);
+  line-height: 1.4;
+}

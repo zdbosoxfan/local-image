@@ -32,7 +32,7 @@ from engine import config
 from local_removal_models import model_options as ai_model_options, run_local_removal
 from fast_inpaint import heal_image, heal_option
 from local_remove_project import write_project, extract_project, MAX_TOTAL
-from local_remove_frontend import render_editor, frontend_mode, frontend_asset
+from local_remove_frontend import render_editor, frontend_asset
 from frontend_tokens import issue_browser_token, valid_browser_token
 from app_paths import APP_VERSION, cache_dir, data_root, read_config, state_dir
 from cutout_composite import (initial_cutout, validate_cutout, refine_alpha,
@@ -665,15 +665,14 @@ def flatten(data, target, allow_8bit=False, *, root_override=None):
 async def page(request:Request):
     guard(request)
     nonce=secrets.token_urlsafe(24)
-    mode = frontend_mode()
     try:
-        html = render_editor(nonce, issue_browser_token(CSRF), mode=mode)
+        html = render_editor(nonce, issue_browser_token(CSRF))
     except RuntimeError as error:
         raise HTTPException(503, str(error)) from error
     # Imported modules and compiled CSS load only from the dedicated manifest
     # route. Runtime Griffel styles still require this document's random nonce.
-    assets = f" {request.url.scheme}://{request.url.netloc}/frontend-assets/" if mode == 'react' else ''
-    fonts = f'; font-src{assets}' if mode == 'react' else ''
+    assets = f" {request.url.scheme}://{request.url.netloc}/frontend-assets/"
+    fonts = f'; font-src{assets}'
     return HTMLResponse(html,headers={**HEADERS,
         'X-Frame-Options':'DENY','Referrer-Policy':'no-referrer',
         'Content-Security-Policy':f"default-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'nonce-{nonce}'{assets}; script-src 'nonce-{nonce}'{assets}; img-src 'self' blob: data: https://images.unsplash.com https://plus.unsplash.com; connect-src 'self'; form-action 'self'{fonts}"})

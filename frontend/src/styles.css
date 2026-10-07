@@ -1,52 +1,243 @@
-/* Application layout only. Fluent owns controls; legacy CSS is scoped outside
-   data-react-owned boundaries. All spacing follows the same 4px scale. */
-#react-shell-root { margin-left:auto; min-width:0; }
-#react-layers-root { display:flex; flex-direction:column; flex:1; min-height:0; min-width:0; }
-#react-layers-root > div { display:flex; flex:1; min-height:0; min-width:0; }
-.li-provider { background:transparent; font-family:"Segoe UI Variable","Segoe UI",system-ui,sans-serif; }
-[data-react-owned] { box-sizing:border-box; }
-[data-react-owned] *, [data-react-owned] *::before, [data-react-owned] *::after { box-sizing:inherit; }
-[data-react-owned] [hidden] { display:none!important; }
-.li-commandbar { gap:4px; padding:0; flex-wrap:wrap; }
-.li-commandbar .fui-Button { min-width:28px; }
-.li-icon { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; flex:none; }
-.li-divider { height:20px; border-left:1px solid #3b4049; margin:0 4px; }
-.li-layers { display:flex; flex-direction:column; flex:1; min-height:0; min-width:0; background:var(--colorNeutralBackground1); color:var(--colorNeutralForeground1); font-family:var(--fontFamilyBase); font-size:var(--ui-font); line-height:1.4; }
-.li-panel-heading { display:flex; align-items:center; gap:4px; min-height:40px; padding:4px 8px 4px 12px; border-bottom:1px solid var(--colorNeutralStroke2); }
-.li-panel-heading h2 { margin:0; font-size:inherit; font-weight:600; }
-.li-count { margin-left:auto; padding:0 4px; color:var(--colorNeutralForeground3); font-variant-numeric:tabular-nums; }
-.li-layer-list { flex:1; min-height:0; overflow:auto; padding:4px 0; }
-.li-empty { padding:12px; margin:0; font-size:var(--ui-note); color:var(--colorNeutralForeground3); }
-.li-layer-row { display:grid; grid-template-columns:28px 36px minmax(0,1fr) 28px; gap:6px; align-items:center; padding:4px 8px; min-height:52px; border-block:1px solid transparent; cursor:default; }
-.li-layer-row:hover { background:var(--colorNeutralBackground1Hover); }
-.li-layer-row[aria-selected=true] { background:var(--colorNeutralBackground1Selected); border-block-color:var(--colorNeutralStroke2); }
-.li-layer-row:focus-visible { outline:2px solid var(--colorStrokeFocus2); outline-offset:-2px; }
-.li-layer-row[data-visible=false] .li-thumbnail, .li-layer-row[data-visible=false] .li-layer-label { opacity:.55; }
-.li-row-button { min-width:28px; padding:4px; }
-.li-row-button[aria-pressed=false] { color:var(--colorNeutralForeground4); }
-.li-thumbnail { width:36px; height:36px; object-fit:contain; background:#15171b; }
-.li-layer-label { display:flex; flex-direction:column; min-width:0; gap:1px; }
-.li-layer-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.li-layer-kind { color:var(--colorNeutralForeground3); font-size:var(--ui-note); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.li-layer-label > .fui-Input { min-width:0; width:100%; }
-.li-properties { padding:12px; border-top:1px solid var(--colorNeutralStroke2); display:flex; flex-direction:column; gap:12px; }
-.li-properties .fui-Field { align-items:center; }
-.li-properties .fui-Input { width:92px; min-width:0; justify-self:end; }
-.li-transform-summary { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; color:var(--colorNeutralForeground3); font-size:var(--ui-note); font-variant-numeric:tabular-nums; }
-:root[data-ui-density=large] .li-commandbar .fui-Button,
-:root[data-ui-density=large] .li-panel-heading .fui-Button,
-:root[data-ui-density=large] .li-row-button { min-height:48px; }
-:root[data-ui-density=large] .li-layer-row { grid-template-columns:48px 48px minmax(0,1fr) 48px; min-height:72px; }
-:root[data-ui-density=large] .li-thumbnail { width:48px; height:48px; }
-:root[data-ui-density=large] .li-properties .fui-Input { width:140px; }
-:root[data-ui-density=large] .li-icon { width:24px; height:24px; }
+/* Application layout only. Fluent owns controls, icons and colors (see
+   docs/DESIGN-SYSTEM.md). All spacing follows the same 4px scale. */
+#react-shell-root {
+  margin-left: auto;
+  min-width: 0;
+}
+#react-layers-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+#react-layers-root > div {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.li-provider {
+  background: transparent;
+  font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+}
+[data-react-owned] {
+  box-sizing: border-box;
+}
+[data-react-owned] *,
+[data-react-owned] *::before,
+[data-react-owned] *::after {
+  box-sizing: inherit;
+}
+[data-react-owned] [hidden] {
+  display: none !important;
+}
+.li-commandbar {
+  gap: 4px;
+  padding: 0;
+  flex-wrap: wrap;
+}
+.li-commandbar .fui-Button {
+  min-width: 28px;
+}
+/* One selected look for every image picker (assets, filmstrip, drafts):
+   Fluent's selected background with a brand-colored border. */
+.li-selectable {
+  border: 1px solid transparent;
+  border-radius: var(--borderRadiusMedium);
+}
+.li-selectable[aria-pressed='true'],
+.li-selectable[aria-current='true'] {
+  border-color: var(--colorBrandStroke1);
+  background: var(--colorNeutralBackground1Selected);
+}
+.li-icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+.li-layers {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  background: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground1);
+  font-family: var(--fontFamilyBase);
+  font-size: var(--ui-font);
+  line-height: 1.4;
+}
+.li-panel-heading {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
+  padding: 4px 8px 4px 12px;
+  border-bottom: 1px solid var(--colorNeutralStroke2);
+}
+.li-panel-heading h2 {
+  margin: 0;
+  font-size: inherit;
+  font-weight: 600;
+}
+.li-count {
+  margin-left: auto;
+  padding: 0 4px;
+  color: var(--colorNeutralForeground3);
+  font-variant-numeric: tabular-nums;
+}
+.li-layer-list {
+  /* Only as tall as its layers, so Opacity sits right below the last one;
+     with many layers the list shrinks and scrolls instead. */
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0;
+}
+.li-empty {
+  padding: 12px;
+  margin: 0;
+  font-size: var(--ui-note);
+  color: var(--colorNeutralForeground3);
+}
+.li-layer-row {
+  display: grid;
+  grid-template-columns: 28px 36px minmax(0, 1fr) 28px;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 8px;
+  min-height: 52px;
+  border-block: 1px solid transparent;
+  cursor: default;
+}
+.li-layer-row:hover {
+  background: var(--colorNeutralBackground1Hover);
+}
+.li-layer-row[aria-selected='true'] {
+  background: var(--colorNeutralBackground1Selected);
+  border-block-color: var(--colorNeutralStroke2);
+}
+.li-layer-row:focus-visible {
+  outline: 2px solid var(--colorStrokeFocus2);
+  outline-offset: -2px;
+}
+.li-layer-row[data-visible='false'] .li-thumbnail,
+.li-layer-row[data-visible='false'] .li-layer-label {
+  opacity: 0.55;
+}
+.li-row-button {
+  min-width: 28px;
+  padding: 4px;
+}
+.li-row-button[aria-pressed='false'] {
+  color: var(--colorNeutralForeground4);
+}
+.li-thumbnail {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  background: var(--colorNeutralBackground3);
+}
+.li-layer-label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+.li-layer-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.li-layer-kind {
+  color: var(--colorNeutralForeground3);
+  font-size: var(--ui-note);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.li-layer-label > .fui-Input {
+  min-width: 0;
+  width: 100%;
+}
+.li-properties {
+  padding: 12px;
+  border-top: 1px solid var(--colorNeutralStroke2);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.li-properties .fui-Field {
+  align-items: center;
+}
+.li-properties .fui-Input {
+  width: 92px;
+  min-width: 0;
+  justify-self: end;
+}
+.li-transform-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--colorNeutralForeground3);
+  font-size: var(--ui-note);
+  font-variant-numeric: tabular-nums;
+}
+:root[data-ui-density='large'] .li-commandbar .fui-Button,
+:root[data-ui-density='large'] .li-panel-heading .fui-Button,
+:root[data-ui-density='large'] .li-row-button {
+  min-height: 48px;
+}
+:root[data-ui-density='large'] .li-layer-row {
+  grid-template-columns: 48px 48px minmax(0, 1fr) 48px;
+  min-height: 72px;
+}
+:root[data-ui-density='large'] .li-thumbnail {
+  width: 48px;
+  height: 48px;
+}
+:root[data-ui-density='large'] .li-properties .fui-Input {
+  width: 140px;
+}
+:root[data-ui-density='large'] .li-icon {
+  width: 24px;
+  height: 24px;
+}
+/* Icon-only buttons match the height of neighbouring text buttons in Large
+   mode and stay square, so their targets grow with the interface text. */
+:root[data-ui-density='large'] .fui-Button:has(> .fui-Button__icon:only-child) {
+  min-height: calc(1lh + 12px);
+  min-width: calc(1lh + 12px);
+  max-width: none;
+}
 /* Fluent's native Select slots have fixed 24/32/40px heights. Large text
    scales typography tokens, so size both slots from that same density source. */
-:root[data-ui-density=large] { --ui-control-height:calc(var(--ui-font) * 1.4 + 12px); }
-:root[data-ui-density=large] .fui-Select,
-:root[data-ui-density=large] .fui-Select__select { height:var(--ui-control-height); min-height:var(--ui-control-height); }
-:root[data-ui-density=large] .fui-Select__select { padding-block:4px; }
-:root[data-ui-density=large] .fui-Input,
-:root[data-ui-density=large] .fui-Button { min-height:var(--ui-control-height); height:auto; }
-:root[data-ui-density=large] .fui-Input__input { min-height:calc(var(--ui-font) * 1.4); }
-@media(max-width:900px) { .li-commandbar { gap:0; } .li-commandbar .li-divider { display:none; } }
+:root[data-ui-density='large'] {
+  --ui-control-height: calc(var(--ui-font) * 1.4 + 12px);
+}
+:root[data-ui-density='large'] .fui-Select,
+:root[data-ui-density='large'] .fui-Select__select {
+  height: var(--ui-control-height);
+  min-height: var(--ui-control-height);
+}
+:root[data-ui-density='large'] .fui-Select__select {
+  padding-block: 4px;
+}
+:root[data-ui-density='large'] .fui-Input,
+:root[data-ui-density='large'] .fui-Button {
+  min-height: var(--ui-control-height);
+  height: auto;
+}
+:root[data-ui-density='large'] .fui-Input__input {
+  min-height: calc(var(--ui-font) * 1.4);
+}
+@media (max-width: 900px) {
+  .li-commandbar {
+    gap: 0;
+  }
+  .li-commandbar .fui-ToolbarDivider {
+    display: none;
+  }
+}

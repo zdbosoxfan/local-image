@@ -57,11 +57,15 @@ Build artifacts are ignored by Git. Publish the installer and checksum as GitHub
 
 The current mounted frontend and its evidence are described in
 [Full React migration status](FRONTEND-FULL-MIGRATION.md). From `frontend/`, run
-`npm.cmd test` and `npm.cmd run typecheck` using the pinned dependencies. The
-recorded final unit sets passed **155 frontend tests and 122 focused backend
-tests, without skips**; see `qa-artifacts/migration/final-regression/` for the
-executed results. This is a different set from the broader historical commands
-below, whose optional private-photo comparison can skip.
+`npm.cmd test` and `npm.cmd run typecheck` using the pinned dependencies, and
+`npm.cmd run format:check` (Prettier) before committing; `npm.cmd run format`
+applies the house style. The recorded migration unit sets passed **155 frontend
+tests and 122 focused backend tests, without skips**; see
+`qa-artifacts/migration/final-regression/`. Retiring the legacy interface removed
+the ten frontend tests that covered only its bridges and the disconnected
+first-stage `App.tsx`/`editorController.ts`/`editorApi.ts`, so the current
+frontend set is 145 tests. Interface conventions are in
+[Design system](DESIGN-SYSTEM.md).
 
 For current browser acceptance, build the frontend, select React mode before
 starting an authorized isolated backend, and set `LOCAL_REMOVE_TEST_URL` and
@@ -96,13 +100,7 @@ Actual Windows UI inputs use the separately authorized Computer Use session;
 the helper's process-local DPI awareness only makes its geometry reads accurate
 and does not change application windows or global OS scaling.
 
-### Historical legacy and rollback checks
-
-The commands and original-suite descriptions below are retained for historical
-coverage. Scripts using `editor.js` globals or old control IDs require the legacy
-interface or a pinned historical fixture; use the current drivers above for the
-full React interface. Do not delete their meaningful assertions when retiring
-the legacy runtime.
+### Backend and fixture checks
 
 Run from the repository root:
 
@@ -117,42 +115,26 @@ Run from the repository root:
 .\.venv\Scripts\python.exe tests\test_qwen_setup.py
 .\.venv\Scripts\python.exe tests\texture\test_backend_texture.py
 .\.venv\Scripts\python.exe tests\texture\test_fast_inpaint.py
-node tests\test_ui_navigation.cjs
-node tests\test_ui_projects_layers.cjs
+node tests\test_canvas_controller.cjs
+node tests\test_ui_generation_size.cjs
 ```
 
 The Python tests create isolated temporary data. An optional historical photo comparison is skipped when its private fixture is absent.
 
-For historical legacy browser acceptance, start the development server above with an isolated data
-folder, then install the optional test driver and run the browser suite:
+### Retired legacy interface
+
+The original single-page interface (`backend/local_remove.html`, the
+`backend/frontend/*.js`/`*.css` scripts and their transitional bridges) and the
+browser suites that drove its globals and control IDs were removed after the
+React interface became the default. The React drivers above own those
+workflows. Pinned historical excerpts remain under
+`tests/fixtures/legacy-frontend-e42/` for the parity oracles. To inspect the
+retired sources, use the last revision that contained them:
 
 ```powershell
-npm install --no-save --package-lock=false playwright@1.62.1
-node tests\test_ui_browser.cjs
-node tests\test_ui_setup.cjs
-node tests\test_ui_cutout.cjs
-node tests\test_ui_edit_confidence.cjs
-node tests\test_ui_usability.cjs
-node tests\test_ui_generation_workflows.cjs
-node tests\test_ui_lora_gallery.cjs
-node tests\test_ui_batch.cjs
+git show 926fdd7f6f8eca009ebea3097d3d3529d35e3bd9:backend/frontend/editor.js
+git checkout 926fdd7f6f8eca009ebea3097d3d3529d35e3bd9 -- backend/local_remove.html backend/frontend
 ```
-
-Set `LOCAL_REMOVE_TEST_URL` to an isolated development server URL when the installed app is already using port 51247. For example, use `http://127.0.0.1:51248` with a separate `LOCAL_REMOVE_DATA_DIR`. The browser test creates synthetic images and checks repair, export, projects, desktop menus, and four desktop window sizes.
-
-The browser suites use installed Microsoft Edge in headless mode. The original suite creates a
-synthetic image, applies real local texture repair, compares layers, exports an
-image and editable project, and checks keyboard operation and narrow layouts.
-Screenshots and downloads go into ignored `qa-artifacts/` (or the directory
-passed as the first argument). It does not contact an AI model or use personal
-photos. These are automated checks, not human usability-study results.
-
-The Cutout browser suite checks toolset switching, the hidden single-image
-filmstrip and bottom multi-image filmstrip, manual alpha refinement, backgrounds,
-shadows, editable projects, export, and selected-model availability. It uses
-controlled Qwen capability responses and does not execute a GPU model. Python
-regressions separately cover native download authorization and integrity, API
-graph wiring, alpha handling, mask compositing, and project round trips.
 
 For a packaged smoke test, set an isolated data folder, start the native host with `--no-open`, then run:
 
@@ -162,18 +144,10 @@ For a packaged smoke test, set an isolated data folder, start the native host wi
 
 The smoke test uses a generated 16-bit TIFF, runs both healing modes, saves an editable project, verifies the original is unchanged, and checks that unauthenticated runtime changes are rejected. It needs a running test backend and writes only beneath the specified test profile. Run it promptly after starting the host or keep a desktop window open to renew the service heartbeat. When scripting startup, use `Start-Process -PassThru` followed by the returned process's `WaitForExit()`; PowerShell's `Start-Process -Wait` waits for the entire descendant tree, including the idle backend.
 
-The AI setup regressions are `tests/test_managed_ai.py`, `tests/test_setup_routes.py`, and `tests/test_ui_setup.cjs` (Playwright). The first two use isolated fixtures; the browser suite simulates the native bridge and never installs software.
+The AI setup regressions are `tests/test_managed_ai.py` and `tests/test_setup_routes.py`, which use isolated fixtures; Settings → Local AI in the interface is covered by `tests/test_ui_react_settings.cjs`.
 
 The 0.7.0 additions have targeted Python regressions in `test_batch_tools.py`,
 `test_lora_previews.py`, `test_comfy_inventory.py` and `test_operation_progress.py`.
-The new browser suites cover undo target consistency, precise cutout values,
-pending export choices, all interface sizes, task-based first launch, stage-specific
-styles/transparency, recipe dependency handling, full-size comparison, library
-focus/selection, image-led LoRA browsing and sequential batch review/export.
-Use an isolated data folder for each suite. Most generation responses are controlled
-fixtures; those checks establish UI and request behavior, not new model quality.
-The batch suite exercises real local compositing and cache/export behavior while
-AI cutout preparation remains a controlled response.
 
 The installer has a plan-only QA mode that emits its real wizard/CLI choices and aborts before installing files or registering associations. To check path validation against a built installer:
 
@@ -275,13 +249,10 @@ editor/adapter script and loads no legacy stylesheet or hidden legacy controls.
 Python remains the image/project authority and the C# host retains native dialogs
 and filesystem permissions. See [current ownership](FRONTEND-OWNERSHIP.md).
 
-React is now the default after the user's explicit approval to install the new
-interface. No `LOCAL_IMAGE_FRONTEND` flag is required. `LOCAL_IMAGE_FRONTEND=legacy`
-is a source-only recovery option when the unfrozen checkout still contains
-`backend/local_remove.html`; frozen packages always use React, including when an
-old legacy flag or obsolete template remains. Packages omit legacy HTML/JS/CSS
-and transitional bridges. The recoverable pre-cutover revision is
-`390f2f4` (`codex/pre-clean-install-20260930`). [Full migration status](FRONTEND-FULL-MIGRATION.md)
+React is the only interface. `LOCAL_IMAGE_FRONTEND` is ignored, and stale
+legacy files left in an old checkout are never loaded. The recoverable
+pre-cutover revision is `390f2f4` (`codex/pre-clean-install-20260930`); the last
+revision containing the legacy sources is `926fdd7`. [Full migration status](FRONTEND-FULL-MIGRATION.md)
 retains the evidence and its limits; [milestone 1](FRONTEND-MILESTONE-1.md)
 is historical shell/Layers evidence rather than the current interface scope.
 
@@ -295,14 +266,14 @@ browser tests; use `npm.cmd ci --ignore-scripts` at the repository root when
 installing those authorized local test dependencies.
 
 Current frontend controller/API/parity tests run with `npm.cmd test` in
-`frontend/`. The recorded final unit sets passed 155 frontend and 122 focused
-backend tests without skips. Full-interface browser drivers are
+`frontend/` (145 tests). Full-interface browser drivers are
 `tests/test_ui_full_integration.cjs`, `tests/test_ui_full_failures.cjs` and the
 `tests/test_ui_react_{assets,generation,models,settings,batch}.cjs` feature suites.
 They require a verified isolated backend/profile and retain per-build reports.
-Older `test_ui_*` scripts that refer to legacy globals/selectors remain historical
-or rollback checks until their assertions are ported or tied to pinned fixtures;
-they are not automatically acceptance tests for the full interface.
+Layout drivers (`test_ui_brush_layout`, `test_ui_large_density`,
+`test_ui_narrow_large_layers`, `test_ui_editor_dialog_layout`,
+`test_ui_batch_inspection_layout`, `test_ui_full_performance`) use the same
+backend/profile variables.
 
 The current `CIBtEhRP` packaged backend passed 12 real HTTP precision checks;
 that test explicitly excludes WebView2 dialog/download/GPU certification. Its
@@ -370,4 +341,4 @@ python tests/smoke_generation_live.py --url http://127.0.0.1:51249 --models qwen
 
 Install each requested preset before running the smoke test. Klein 9B requires publisher-approved download access. The runner generates new documents, exercises each model's image-input route, verifies alpha and dimensions, and exports projects with generation parameters. Qwen also gets a transparent T2I and two-reference test. A pass establishes successful graph execution and file invariants; visual prompt adherence is assessed separately.
 
-`tests/smoke_stock_browser_live.cjs` explicitly exercises the live Openverse provider through the UI, all three import destinations and project-credit persistence. Set `LOCAL_REMOVE_TEST_URL` to target a source or packaged app. `tests/test_ui_stock.cjs` uses controlled stock responses for repeatable interaction checks.
+Stock interaction in the interface is covered by `tests/test_ui_react_assets.cjs` with controlled responses; `tests/test_stock_library.py` and `tests/test_stock_integration.py` cover the provider and import routes.
