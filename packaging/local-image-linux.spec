@@ -58,7 +58,8 @@ server_bundle = COLLECT(server_exe, server.binaries, server.datas,
 desktop = Analysis([str(root / 'desktop' / 'linux' / 'local_image.py')],
     pathex=[str(root / 'desktop' / 'linux'), str(backend)],
     binaries=[], datas=[(str(backend / 'frontend' / 'app-icon.png'), '.')] + metadata,
-    hiddenimports=[], excludes=['tkinter', 'matplotlib', 'torch', 'pytest', 'IPython', 'PyQt6', 'PyQt5'])
+    hiddenimports=[], excludes=['tkinter', 'matplotlib', 'torch', 'pytest', 'IPython', 'PyQt6', 'PyQt5',
+                                'PySide6.QtWaylandCompositor'])
 desktop_pyz = PYZ(desktop.pure)
 desktop_exe = EXE(desktop_pyz, desktop.scripts, [], exclude_binaries=True,
     name='local-image', debug=False, strip=False, upx=False, console=True)

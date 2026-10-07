@@ -67,3 +67,30 @@ class LinuxPackagedRuntimeTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class PruneUnusedQtTests(unittest.TestCase):
+    def test_wayland_compositor_is_removed_and_client_platform_plugin_kept(self):
+        import importlib.util
+        import tempfile
+        spec = importlib.util.spec_from_file_location('build_linux', Path(__file__).resolve().parents[1] / 'packaging' / 'build_linux.py')
+        build = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(build)
+        with tempfile.TemporaryDirectory() as root:
+            package = Path(root)
+            keep = [package / '_internal/PySide6/Qt/lib/libQt6WaylandClient.so.6',
+                    package / '_internal/PySide6/Qt/plugins/platforms/libqwayland-generic.so',
+                    package / '_internal/PySide6/Qt/qml/QtWayland/Client/libqwaylandclientplugin.so']
+            drop = [package / '_internal/PySide6/Qt/lib/libQt6WaylandCompositor.so.6',
+                    package / '_internal/PySide6/Qt/lib/libQt6WaylandCompositor.so.6.11.2',
+                    package / '_internal/PySide6/Qt/qml/QtWayland/Compositor/QtShell/libwaylandcompositorqtshellplugin.so',
+                    package / '_internal/PySide6/QtWaylandCompositor.abi3.so']
+            for path in keep + drop:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b'x')
+            removed = build.prune_unused_qt(package)
+            self.assertEqual(len(removed), 4)
+            self.assertTrue(all(path.exists() for path in keep))
+            self.assertFalse(any(path.exists() for path in drop))
+            self.assertFalse((package / '_internal/PySide6/Qt/qml/QtWayland/Compositor').exists())
+            self.assertEqual(build.prune_unused_qt(package), [])

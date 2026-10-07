@@ -71,6 +71,27 @@ def smoke_test(package):
             raise RuntimeError('The packaged native app failed its X11 desktop smoke test.')
 
 
+# Qt pieces the PySide6 hooks collect alongside QtQuick that a desktop client
+# never uses. The Wayland *compositor* needs libwayland-server, which desktop
+# systems do not ship; the Wayland *client* platform plugin is kept.
+UNUSED_QT = ('_internal/PySide6/Qt/lib/libQt6WaylandCompositor*', '_internal/PySide6/Qt/qml/QtWayland/Compositor',
+             '_internal/PySide6/QtWaylandCompositor*', '_internal/PySide6/Qt/plugins/wayland-graphics-integration-server')
+
+
+def prune_unused_qt(package):
+    """Drop Qt modules the app never loads so the bundle only depends on libraries a desktop has."""
+    removed = []
+    for pattern in UNUSED_QT:
+        for path in package.glob(pattern):
+            if path.is_symlink() or path.is_file():
+                path.unlink()
+            else:
+                shutil.rmtree(path)
+            removed.append(str(path.relative_to(package)))
+    print('Pruned unused Qt components: ' + (', '.join(removed) or 'none present'), flush=True)
+    return removed
+
+
 def audit_libraries(package):
     """Catch missing Qt plugins/codecs that an offscreen startup cannot exercise."""
     unresolved = []
@@ -196,6 +217,7 @@ def main():
         'The supplied uninstall.sh removes desktop integration without deleting documents or models.\n'
         'License notices are in licenses/ and the bundled *_internal/*dist-info/licenses folders.\n'
         'Updates and help: https://github.com/zdbosoxfan/local-image\n')
+    prune_unused_qt(package)
     audit_libraries(package)
     smoke_test(package)
     archive = output / (name + '.tar.gz')
