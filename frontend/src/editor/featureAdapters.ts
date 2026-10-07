@@ -52,6 +52,7 @@ export function createFeatureAdapters(options: {
     installRuntime: () => native.setupInstall(),
     chooseModelDirectory: () => native.setupChooseModelDirectory(),
     downloadRemovalModels: () => native.setupDownloadModels(),
+    downloadModel: (model, variant) => native.setupDownloadGenerationModel(model, variant),
     startBackend: () => native.setupStart(),
     ejectModels: () => native.setupEject(),
     useInstallation: id => native.setupUseInstallation(id),
@@ -97,7 +98,12 @@ export function createFeatureAdapters(options: {
         : null,
       collectionId: collection?.id ?? null,
       nativeCollection: !!collection && !collection.local,
-      entries: source.map(entry => ({ id: entry.id, name: entry.name, sessionId: entry.session_id })),
+      entries: source.map(entry => ({
+        id: entry.id,
+        name: entry.name,
+        sessionId: entry.session_id,
+        cutoutReady: !!entry.session_id && documents.hasCutout(entry.session_id),
+      })),
       pendingSelections,
       nativeExportAvailable: native.capabilities().ready && native.capabilities().batch,
     };

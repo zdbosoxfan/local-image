@@ -1,6 +1,21 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
-import { Button, Checkbox, Field, Input, Select, Tab, TabList } from '@fluentui/react-components';
+import {
+  Button,
+  Checkbox,
+  Field,
+  Input,
+  Menu,
+  MenuItem,
+  MenuItemRadio,
+  MenuList,
+  MenuPopover,
+  MenuTrigger,
+  Tab,
+  TabList,
+  Tooltip,
+} from '@fluentui/react-components';
+import { Icon } from '../shell/Icon.tsx';
 import { safeCreditUrl } from './api.ts';
 import type { AssetsController } from './controller.ts';
 import type { AssetTab, StockProviderId } from './types.ts';
@@ -27,6 +42,51 @@ function Thumbnail({ source, title }: { source: string; title: string }) {
 }
 function bytes(value: number) {
   return value < 1024 * 1024 ? `${Math.round(value / 1024)} KB` : `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+function AssetChoiceMenu({
+  label,
+  value,
+  choices,
+  disabled,
+  onSelect,
+}: {
+  label: string;
+  value: string;
+  choices: { value: string; label: string }[];
+  disabled: boolean;
+  onSelect(value: string): void;
+}) {
+  const selected = choices.find(choice => choice.value === value)?.label || 'Choose a source';
+  return (
+    <Menu>
+      <MenuTrigger disableButtonEnhancement>
+        <Button
+          size="small"
+          className="li-assets-choice"
+          disabled={disabled || !choices.length}
+          aria-label={`${label}: ${selected}`}
+        >
+          <span title={selected}>{selected}</span>
+          <Icon name="chevron-down" />
+        </Button>
+      </MenuTrigger>
+      <MenuPopover className="li-assets-menu" data-react-owned="true">
+        <MenuList aria-label={label} checkedValues={{ source: [value] }}>
+          {choices.map(choice => (
+            <MenuItemRadio
+              key={choice.value}
+              name="source"
+              value={choice.value}
+              disabled={disabled}
+              onClick={() => onSelect(choice.value)}
+            >
+              {choice.label}
+            </MenuItemRadio>
+          ))}
+        </MenuList>
+      </MenuPopover>
+    </Menu>
+  );
 }
 function moveThumbnailFocus(event: KeyboardEvent<HTMLDivElement>) {
   if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
@@ -78,11 +138,11 @@ export function AssetsDock({ controller }: { controller: AssetsController }) {
     if (state.deleteSelection) {
       confirming.current = true;
       confirmButton.current?.focus();
-    } else if (confirming.current) {
+    } else if (confirming.current && !locked) {
       confirming.current = false;
       generatedSelectButton.current?.focus();
     }
-  }, [state.deleteSelection]);
+  }, [state.deleteSelection, locked]);
   async function connect(disconnect = false) {
     const draft = key;
     setKey('');
@@ -114,9 +174,16 @@ export function AssetsDock({ controller }: { controller: AssetsController }) {
         >
           {state.expanded ? 'Collapse' : 'Expand'}
         </Button>
-        <Button size="small" appearance="subtle" aria-label="Close Assets" disabled={locked} onClick={controller.close}>
-          ×
-        </Button>
+        <Tooltip content="Close Assets" relationship="label">
+          <Button
+            size="small"
+            appearance="subtle"
+            icon={<Icon name="close" />}
+            aria-label="Close Assets"
+            disabled={locked}
+            onClick={controller.close}
+          />
+        </Tooltip>
       </header>
       <TabList
         size="small"
@@ -148,34 +215,33 @@ export function AssetsDock({ controller }: { controller: AssetsController }) {
             <Input
               size="small"
               aria-label="Search stock photos"
+              contentAfter={
+                <Tooltip content="Search stock photos" relationship="label">
+                  <Button
+                    size="small"
+                    appearance="subtle"
+                    icon={<Icon name="search" />}
+                    type="submit"
+                    aria-label="Search stock photos"
+                    disabled={locked || state.loading || !state.query.trim() || !provider?.available}
+                  />
+                </Tooltip>
+              }
               maxLength={120}
               value={state.query}
               disabled={locked}
               onChange={(_, data) => controller.setQuery(data.value)}
               placeholder="Search photos"
             />
-            <Button
-              size="small"
-              type="submit"
-              disabled={locked || state.loading || !state.query.trim() || !provider?.available}
-            >
-              Search
-            </Button>
           </form>
           <div className="li-assets-source-select">
-            <Select
-              size="small"
-              aria-label="Stock source"
+            <AssetChoiceMenu
+              label="Stock source"
               value={state.provider}
               disabled={locked}
-              onChange={(_, data) => controller.setProvider(data.value as StockProviderId)}
-            >
-              {state.providers.map(item => (
-                <option key={item.id} value={item.id}>
-                  {item.label}
-                </option>
-              ))}
-            </Select>
+              choices={state.providers.map(item => ({ value: item.id, label: item.label }))}
+              onSelect={value => controller.setProvider(value as StockProviderId)}
+            />
             {provider?.needs_key && (
               <Button
                 size="small"
@@ -208,10 +274,20 @@ export function AssetsDock({ controller }: { controller: AssetsController }) {
               </Field>
               <div className="li-assets-actions">
                 <CreditLink href={provider.connect_url}>Get a key</CreditLink>
-                <Button size="small" disabled={locked || !provider.available} onClick={() => void connect(true)}>
+                <Button
+                  size="small"
+                  appearance="subtle"
+                  disabled={locked || !provider.available}
+                  onClick={() => void connect(true)}
+                >
                   Disconnect
                 </Button>
-                <Button size="small" disabled={locked || !key.trim()} onClick={() => void connect()}>
+                <Button
+                  size="small"
+                  appearance="primary"
+                  disabled={locked || !key.trim()}
+                  onClick={() => void connect()}
+                >
                   Connect
                 </Button>
               </div>
@@ -255,23 +331,27 @@ export function AssetsDock({ controller }: { controller: AssetsController }) {
               </article>
             ))}
           </div>
-          <nav className="li-assets-pagination" aria-label="Stock result pages">
-            <Button
-              size="small"
-              disabled={locked || state.loading || state.stock.page === 0}
-              onClick={() => void controller.search(state.stock.page - 1)}
-            >
-              Previous
-            </Button>
-            <span>{state.stock.results.length ? `Page ${state.stock.page + 1}` : ''}</span>
-            <Button
-              size="small"
-              disabled={locked || state.loading || state.stock.next_page == null}
-              onClick={() => void controller.search(state.stock.next_page!)}
-            >
-              Next
-            </Button>
-          </nav>
+          {!!state.stock.results.length && (
+            <nav className="li-assets-pagination" aria-label="Stock result pages">
+              <Button
+                size="small"
+                appearance="subtle"
+                disabled={locked || state.loading || state.stock.page === 0}
+                onClick={() => void controller.search(state.stock.page - 1)}
+              >
+                Previous
+              </Button>
+              <span>Page {state.stock.page + 1}</span>
+              <Button
+                size="small"
+                appearance="subtle"
+                disabled={locked || state.loading || state.stock.next_page == null}
+                onClick={() => void controller.search(state.stock.next_page!)}
+              >
+                Next
+              </Button>
+            </nav>
+          )}
           {selected && (
             <div className="li-assets-detail">
               <div className="li-assets-detail-title">
@@ -296,21 +376,41 @@ export function AssetsDock({ controller }: { controller: AssetsController }) {
                 </div>
               )}
               <div className="li-assets-actions">
-                <Button size="small" disabled={locked} onClick={() => void controller.importStock('image')}>
-                  Open image
-                </Button>
                 <Button
                   size="small"
-                  disabled={locked || !state.context.documentId}
-                  onClick={() => void controller.importStock('background')}
+                  appearance="primary"
+                  disabled={locked}
+                  onClick={() => void controller.importStock('image')}
                 >
-                  Background
+                  Open image
                 </Button>
-                {state.context.canReference && (
-                  <Button size="small" disabled={locked} onClick={() => void controller.importStock('reference')}>
-                    Reference
-                  </Button>
-                )}
+                <Menu>
+                  <MenuTrigger disableButtonEnhancement>
+                    <Button
+                      size="small"
+                      disabled={locked || (!state.context.documentId && !state.context.canReference)}
+                      aria-label="Use selected stock image as"
+                    >
+                      Use as
+                      <Icon name="chevron-down" />
+                    </Button>
+                  </MenuTrigger>
+                  <MenuPopover data-react-owned="true">
+                    <MenuList>
+                      <MenuItem
+                        disabled={locked || !state.context.documentId}
+                        onClick={() => void controller.importStock('background')}
+                      >
+                        Background layer
+                      </MenuItem>
+                      {state.context.canReference && (
+                        <MenuItem disabled={locked} onClick={() => void controller.importStock('reference')}>
+                          Reference image
+                        </MenuItem>
+                      )}
+                    </MenuList>
+                  </MenuPopover>
+                </Menu>
               </div>
             </div>
           )}
@@ -331,11 +431,18 @@ export function AssetsDock({ controller }: { controller: AssetsController }) {
                 state.context.nativeReady ? void controller.attachFolder() : folderInput.current?.click()
               }
             >
-              Attach folder…
+              Add folder…
             </Button>
-            <Button size="small" disabled={locked || state.loading} onClick={() => void controller.refresh()}>
-              Refresh
-            </Button>
+            <Tooltip content="Refresh folders" relationship="label">
+              <Button
+                size="small"
+                appearance="subtle"
+                icon={<Icon name="refresh" />}
+                aria-label="Refresh folders"
+                disabled={locked || state.loading}
+                onClick={() => void controller.refresh()}
+              />
+            </Tooltip>
           </div>
           <input
             ref={element => {
@@ -354,19 +461,13 @@ export function AssetsDock({ controller }: { controller: AssetsController }) {
             }}
           />
           {!!state.folders.length && (
-            <Select
-              size="small"
-              aria-label="Background folder"
+            <AssetChoiceMenu
+              label="Background folder"
               value={state.folderSelected}
               disabled={locked}
-              onChange={(_, data) => controller.selectFolder(data.value)}
-            >
-              {state.folders.map(item => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </Select>
+              choices={state.folders.map(item => ({ value: item.id, label: item.name }))}
+              onSelect={controller.selectFolder}
+            />
           )}
           <div className="li-assets-grid" aria-label="Folder backgrounds" onKeyDown={moveThumbnailFocus}>
             {!folder?.entries.length && <p className="li-assets-empty">Attach a folder to browse background images.</p>}
@@ -388,6 +489,7 @@ export function AssetsDock({ controller }: { controller: AssetsController }) {
           <div className="li-assets-actions">
             <Button
               size="small"
+              appearance="primary"
               disabled={locked || !state.context.documentId || !state.folderEntrySelected}
               onClick={() => void controller.applyFolder()}
             >
@@ -407,40 +509,83 @@ export function AssetsDock({ controller }: { controller: AssetsController }) {
             <Input
               size="small"
               aria-label="Filter generated images"
+              contentBefore={<Icon name="search" />}
               value={state.generatedQuery}
+              disabled={locked}
               onChange={(_, data) => controller.setGeneratedQuery(data.value)}
               placeholder="Search images"
             />
-            <Button size="small" disabled={locked || state.loading} onClick={() => void controller.refresh()}>
-              Refresh
-            </Button>
+            <Tooltip content="Refresh generated images" relationship="label">
+              <Button
+                size="small"
+                appearance="subtle"
+                icon={<Icon name="refresh" />}
+                aria-label="Refresh generated images"
+                disabled={locked || state.loading}
+                onClick={() => void controller.refresh()}
+              />
+            </Tooltip>
           </div>
-          <div className="li-assets-actions">
+          <div className="li-assets-library-tools">
+            <span className="li-assets-usage">
+              {state.generated.count} images · {bytes(state.generated.bytes)}
+            </span>
             <Button
               ref={generatedSelectButton}
               size="small"
+              appearance="subtle"
               aria-pressed={state.selectionMode}
               disabled={locked}
               onClick={() => controller.setSelectionMode(!state.selectionMode)}
             >
               {state.selectionMode ? 'Done' : 'Select'}
             </Button>
-            {state.selectionMode && (
+            <Menu>
+              <MenuTrigger disableButtonEnhancement>
+                <Tooltip content="Generated library options" relationship="label">
+                  <Button
+                    size="small"
+                    appearance="subtle"
+                    icon={<Icon name="more" />}
+                    disabled={locked || !state.generated.count}
+                    aria-label="Generated library options"
+                  />
+                </Tooltip>
+              </MenuTrigger>
+              <MenuPopover data-react-owned="true">
+                <MenuList>
+                  <MenuItem disabled={locked} onClick={() => controller.confirmDelete(true)}>
+                    Clear cached copies…
+                  </MenuItem>
+                </MenuList>
+              </MenuPopover>
+            </Menu>
+          </div>
+          {state.selectionMode && (
+            <div className="li-assets-selection-tools">
               <Checkbox
-                label="Visible images"
+                label="Select visible"
                 checked={
                   selectedVisible > 0 && selectedVisible < generated.length
                     ? 'mixed'
                     : generated.length > 0 && selectedVisible === generated.length
                 }
-                disabled={locked}
+                disabled={locked || !generated.length}
                 onChange={(_, data) => controller.selectVisibleCopies(data.checked === true)}
               />
-            )}
-            <span className="li-assets-usage">
-              {state.generated.count} images · {bytes(state.generated.bytes)}
-            </span>
-          </div>
+              <span className="li-assets-usage">{state.selectedCopies.length} selected</span>
+              {!state.deleteSelection && (
+                <Button
+                  size="small"
+                  appearance="subtle"
+                  disabled={locked || !state.selectedCopies.length}
+                  onClick={() => controller.confirmDelete()}
+                >
+                  Delete selected…
+                </Button>
+              )}
+            </div>
+          )}
           <div className="li-assets-grid" aria-label="Generated library images" onKeyDown={moveThumbnailFocus}>
             {!generated.length && (
               <p className="li-assets-empty">
@@ -470,68 +615,56 @@ export function AssetsDock({ controller }: { controller: AssetsController }) {
           {state.deleteSelection ? (
             <div className="li-assets-confirm" role="group" aria-label="Confirm cached image deletion">
               <p>
-                Delete {'all' in state.deleteSelection ? 'all' : state.deleteSelection.ids.length} cached library
-                copies? Open documents, saved projects and model files are retained.
+                Delete {'all' in state.deleteSelection ? 'all' : state.deleteSelection.ids.length} cached copies? Your
+                open documents and saved files stay available.
               </p>
               <div className="li-assets-actions">
-                <Button size="small" disabled={locked} onClick={controller.cancelDelete}>
-                  Cancel
-                </Button>
                 <Button
                   ref={confirmButton}
                   size="small"
+                  appearance="primary"
                   disabled={locked}
                   onClick={() => void controller.deleteCopies()}
                 >
                   Delete copies
                 </Button>
+                <Button size="small" appearance="subtle" disabled={locked} onClick={controller.cancelDelete}>
+                  Cancel
+                </Button>
               </div>
             </div>
           ) : (
             <div className="li-assets-actions">
-              {state.selectionMode && (
-                <Button
-                  size="small"
-                  disabled={locked || !state.selectedCopies.length}
-                  onClick={() => controller.confirmDelete()}
-                >
-                  Delete selected
-                </Button>
-              )}
               <Button
                 size="small"
-                disabled={locked || !state.generated.count}
-                onClick={() => controller.confirmDelete(true)}
+                appearance="primary"
+                disabled={locked || !canOpenGenerated}
+                onClick={() => void controller.openGenerated('image')}
               >
-                Clear cache…
+                Open image
               </Button>
+              {state.context.canUseDraft && (
+                <Button
+                  size="small"
+                  disabled={locked || !canOpenGenerated}
+                  onClick={() => void controller.openGenerated('draft')}
+                >
+                  Use as draft
+                </Button>
+              )}
             </div>
           )}
-          <div className="li-assets-actions">
-            <Button
-              size="small"
-              disabled={locked || !canOpenGenerated}
-              onClick={() => void controller.openGenerated('image')}
-            >
-              Open image
-            </Button>
-            <Button
-              size="small"
-              disabled={locked || !canOpenGenerated || !state.context.canUseDraft}
-              onClick={() => void controller.openGenerated('draft')}
-            >
-              Use as draft
-            </Button>
-          </div>
         </div>
       )}
-      <footer className="li-assets-status">
-        {state.error ? (
-          <p role="alert">{state.error}</p>
-        ) : (
-          <p role="status">{state.working ? 'Applying asset…' : state.loading ? 'Loading…' : state.status}</p>
-        )}
-      </footer>
+      {(state.error || state.working || state.loading || state.status) && (
+        <footer className="li-assets-status">
+          {state.error ? (
+            <p role="alert">{state.error}</p>
+          ) : (
+            <p role="status">{state.working ? 'Applying asset…' : state.loading ? 'Loading…' : state.status}</p>
+          )}
+        </footer>
+      )}
     </section>
   );
 }

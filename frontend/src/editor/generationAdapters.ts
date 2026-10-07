@@ -15,6 +15,8 @@ import type {
   GenerationMode,
 } from '../features/generation/types.ts';
 import { sizeMath } from '../features/generation/sizeMath.ts';
+import type { SetupState } from '../features/settings/types.ts';
+import { waitForSetupAction } from '../features/settings/setupAction.ts';
 
 export type GenerationDocumentPort = Pick<
   DocumentController,
@@ -23,6 +25,7 @@ export type GenerationDocumentPort = Pick<
   | 'subscribe'
   | 'runDocumentChange'
   | 'acceptDocument'
+  | 'retainDocument'
   | 'applyGeneratedBackground'
   | 'openSession'
   | 'activateMode'
@@ -33,9 +36,11 @@ export type GenerationDocumentPort = Pick<
 >;
 export interface GenerationAdaptersOptions {
   document: GenerationDocumentPort;
-  native: Pick<NativeBridge, 'capabilities' | 'subscribe' | 'chooseBackgroundFolder'>;
+  native: Pick<NativeBridge, 'capabilities' | 'subscribe' | 'chooseBackgroundFolder'> &
+    Partial<Pick<NativeBridge, 'setupEject'>>;
   openModels: GenerationHost['openModels'];
   openLoras: GenerationHost['openLoras'];
+  setupStatus?: () => Promise<SetupState>;
 }
 export interface GenerationAdapterSnapshot {
   mode: GenerationMode;
@@ -72,6 +77,8 @@ export function createGenerationAdapters(options: GenerationAdaptersOptions) {
     flagsSignature = '';
   let pendingDocument: { document: DocumentMetadata; epoch: number } | null = null;
   let editDocumentId: string | null = null;
+  let returnToRefine: { documentId: string | null } | null = null;
+  const retainedRefinements = new Map<string, number>();
   const backgroundTargets: Record<GenerationMode, GenerationBackgroundTarget | null> = {
     create: null,
     edit: null,
@@ -157,6 +164,11 @@ export function createGenerationAdapters(options: GenerationAdaptersOptions) {
         const context = raw(),
           isActive = active(),
           state = generation?.getSnapshot();
+        const shown = selectedDocument();
+        if (isActive && mode === 'refine' && shown && retainedRefinements.get(shown.id) !== shown.revision) {
+          retainedRefinements.set(shown.id, shown.revision);
+          doc.retainDocument(readDocument(shown));
+        }
         const flags = {
           refining: isActive && mode === 'refine',
           creatingBlank: isActive && mode === 'create' && !state?.modeDocuments.create,
@@ -309,22 +321,61 @@ export function createGenerationAdapters(options: GenerationAdaptersOptions) {
   async function enterGenerate() {
     if (!generation || raw().busy || changing) return false;
     if (active()) return true;
+    if (returnToRefine?.documentId === raw().documentId && generation.getSnapshot().mode === 'refine') {
+      const resumed = await generation.setMode('refine');
+      if (resumed) returnToRefine = null;
+      return resumed;
+    }
+    returnToRefine = null;
     const document = raw().document;
     return generation.setMode(document ? 'edit' : 'create', document ?? undefined);
   }
+  async function leaveGenerate(workspace: 'retouch' | 'cutout') {
+    if (
+      !generation ||
+      !active() ||
+      raw().busy ||
+      changing ||
+      preparing ||
+      generation.getSnapshot().working ||
+      doc.isModalOpen()
+    )
+      return false;
+    const context = raw(),
+      selected = selectedDocument(),
+      previousMode = mode;
+    changing = true;
+    doc.rememberCurrentView();
+    publish();
+    try {
+      const accepted =
+        selected && (context.documentId !== selected.id || context.revision < selected.revision)
+          ? await showDocument(selected, context.navigationEpoch, workspace)
+          : await doc.activateMode(workspace, null);
+      if (accepted && previousMode === 'refine') returnToRefine = { documentId: raw().documentId };
+      return accepted;
+    } catch (error) {
+      doc.report(error instanceof Error ? error.message : String(error), true);
+      return false;
+    } finally {
+      changing = false;
+      publish();
+    }
+  }
   async function afterDocumentOpened(document: DocumentMetadata) {
     if (internalNavigation || !generation) return;
+    returnToRefine = null;
     const context = raw();
     if (generation.getSnapshot().working) {
       pendingDocument = { document, epoch: context.navigationEpoch };
       return;
     }
-    if (active() || document.generation || document.upscale) {
+    if (document.generation && editDocumentId !== document.id) generation.restoreDocument('edit', document);
+    if (active()) {
       internalNavigation++;
       // Context subscriptions can already bind the new image before this hook.
       // Track the explicit accepted Edit identity independently of that binding.
       try {
-        if (document.generation && editDocumentId !== document.id) generation.restoreDocument('edit', document);
         await generation.setMode('edit', document);
       } finally {
         internalNavigation--;
@@ -390,6 +441,19 @@ export function createGenerationAdapters(options: GenerationAdaptersOptions) {
     openModels: options.openModels,
     openLoras: options.openLoras,
     sizeMath,
+    canEjectModels: () => !!native.capabilities().ready && !!native.capabilities().setup && !!native.setupEject,
+    ejectModels: () =>
+      runOwned(async () => {
+        if (!native.capabilities().ready || !native.capabilities().setup || !native.setupEject)
+          throw Error('Open the Local Image desktop app to unload GPU models.');
+        const initial = await native.setupEject();
+        if (!initial) throw Error('The GPU unload request was not accepted.');
+        if (!options.setupStatus && (initial as SetupState).job?.status === 'running')
+          throw Error('GPU unload is pending. Check Settings for its outcome.');
+        return waitForSetupAction(initial as SetupState, options.setupStatus ?? (async () => initial as SetupState), {
+          active: () => !disposed,
+        });
+      }),
     async applyGeneratedBackground(document, captured) {
       const target = backgroundTargets[mode];
       if (
@@ -497,13 +561,29 @@ export function createGenerationAdapters(options: GenerationAdaptersOptions) {
     | 'afterDocumentOpened'
     | 'noteClosed'
     | 'enterGenerate'
+    | 'leaveGenerate'
+    | 'resetWorkspace'
+    | 'visibleDocumentId'
     | 'showAssets'
     | 'showGenerated'
     | 'browseModels'
   > = {
     prepareDocumentCommand,
     afterDocumentOpened,
+    visibleDocumentId: () => selectedDocument()?.id ?? null,
+    resetWorkspace() {
+      returnToRefine = null;
+      pendingDocument = null;
+      editDocumentId = null;
+      for (const key of ['create', 'edit', 'refine'] as const) backgroundTargets[key] = null;
+      mode = 'create';
+      viewEpoch++;
+      generation?.resetWorkspace();
+      publish();
+    },
     noteClosed(ids) {
+      for (const id of ids) retainedRefinements.delete(id);
+      if (returnToRefine?.documentId && ids.includes(returnToRefine.documentId)) returnToRefine = null;
       if (editDocumentId && ids.includes(editDocumentId)) editDocumentId = null;
       for (const key of ['create', 'edit', 'refine'] as const)
         if (backgroundTargets[key] && ids.includes(backgroundTargets[key]!.id)) backgroundTargets[key] = null;
@@ -511,6 +591,7 @@ export function createGenerationAdapters(options: GenerationAdaptersOptions) {
       publish();
     },
     enterGenerate,
+    leaveGenerate,
     showAssets,
     showGenerated: () => assets?.open('generated'),
     async browseModels() {

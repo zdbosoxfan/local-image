@@ -8,13 +8,13 @@ import {
   MenuList,
   MenuPopover,
   MenuTrigger,
-  Select,
   Slider,
   Tab,
   TabList,
   Toolbar,
   ToolbarButton,
 } from '@fluentui/react-components';
+import { ChoiceMenu } from './ChoiceMenu.tsx';
 import type { Transform, Workspace } from '../../contracts.ts';
 import './shell.css';
 
@@ -137,6 +137,7 @@ export function ToolRail({ state, actions }: { state: ToolSnapshot; actions: Too
 }
 export function NumberDraft({
   label,
+  displayLabel,
   value,
   min,
   max,
@@ -147,6 +148,7 @@ export function NumberDraft({
   hideLabel = false,
 }: {
   label: string;
+  displayLabel?: string;
   value: number;
   min: number;
   max: number;
@@ -195,7 +197,7 @@ export function NumberDraft({
   return hideLabel ? (
     input
   ) : (
-    <Field label={label} orientation="horizontal">
+    <Field label={displayLabel ?? label} orientation="horizontal">
       {input}
     </Field>
   );
@@ -221,20 +223,16 @@ export function ToolOptions({
     <section className="li-tool-options" aria-label="Tool options">
       {state.workspace === 'cutout' && !state.maskReady && (
         <>
-          <Select
-            size="small"
-            aria-label="Cutout model precision"
+          <ChoiceMenu
+            label="Cutout model precision"
             disabled={state.busy}
             value={state.qwenVariant}
-            onChange={(_, data) => actions.qwenVariant(data.value)}
-          >
-            {state.qwenVariants.map(variant => (
-              <option key={variant.id} value={variant.id}>
-                {variant.label}
-                {variant.available === false ? ' · not installed' : ''}
-              </option>
-            ))}
-          </Select>
+            choices={state.qwenVariants.map(variant => ({
+              value: variant.id,
+              label: variant.label + (variant.available === false ? ' · not installed' : ''),
+            }))}
+            onSelect={actions.qwenVariant}
+          />
           <Button size="small" disabled={!state.canRemoveBackground} onClick={() => actions.removeBackground()}>
             Remove background
           </Button>
@@ -267,6 +265,7 @@ export function ToolOptions({
         <div className="li-transform-fields">
           <NumberDraft
             label="Layer X"
+            displayLabel="X"
             value={state.transform.offset_x}
             min={-100000}
             max={100000}
@@ -275,6 +274,7 @@ export function ToolOptions({
           />
           <NumberDraft
             label="Layer Y"
+            displayLabel="Y"
             value={state.transform.offset_y}
             min={-100000}
             max={100000}
@@ -283,6 +283,7 @@ export function ToolOptions({
           />
           <NumberDraft
             label="Layer scale"
+            displayLabel="Scale"
             value={state.transform.scale * 100}
             min={5}
             max={400}
@@ -293,6 +294,7 @@ export function ToolOptions({
           />
           <NumberDraft
             label="Layer angle"
+            displayLabel="Angle"
             value={state.transform.rotation}
             min={-180}
             max={180}
@@ -329,9 +331,10 @@ export function ToolOptions({
               />
             </div>
           )}
-          <div role="group" aria-label="Selection mode">
+          <div className="li-tool-choice-group" role="group" aria-label="Selection mode">
             <Button
               size="small"
+              appearance="subtle"
               aria-pressed={!state.subtract}
               disabled={!state.canEdit}
               onClick={() => actions.selectionMode(false)}
@@ -340,6 +343,7 @@ export function ToolOptions({
             </Button>
             <Button
               size="small"
+              appearance="subtle"
               aria-pressed={state.subtract}
               disabled={!state.canEdit}
               onClick={() => actions.selectionMode(true)}
@@ -354,52 +358,45 @@ export function ToolOptions({
           )}
           {state.workspace === 'retouch' &&
             (state.operation === 'heal' ? (
-              <Select
-                size="small"
-                aria-label="Quick Heal method"
+              <ChoiceMenu
+                label="Quick Heal method"
                 value={state.healMethod}
                 disabled={!state.canEdit}
-                onChange={(_, data) => actions.healMethod(data.value)}
-              >
-                {state.healMethods.map(method => (
-                  <option key={method.id} value={method.id} disabled={method.available === false}>
-                    {method.label}
-                  </option>
-                ))}
-              </Select>
+                choices={state.healMethods.map(method => ({
+                  value: method.id,
+                  label: method.label,
+                  disabled: method.available === false,
+                }))}
+                onSelect={actions.healMethod}
+              />
             ) : (
               <>
-                <Select
-                  size="small"
-                  aria-label="AI removal provider"
+                <ChoiceMenu
+                  label="AI removal provider"
                   value={state.aiProvider}
                   disabled={state.busy}
-                  onChange={(_, data) => actions.aiProvider(data.value as 'klein' | 'qwen')}
-                >
-                  <option value="klein">FLUX.2 Klein</option>
-                  <option value="qwen">Qwen Image 2.1</option>
-                </Select>
+                  choices={[
+                    { value: 'klein', label: 'FLUX.2 Klein' },
+                    { value: 'qwen', label: 'Qwen Image 2.1' },
+                  ]}
+                  onSelect={value => actions.aiProvider(value as 'klein' | 'qwen')}
+                />
                 {state.aiProvider === 'qwen' && (
-                  <Select
-                    size="small"
-                    aria-label="Removal precision"
+                  <ChoiceMenu
+                    label="Removal precision"
                     value={state.qwenVariant}
                     disabled={state.busy}
-                    onChange={(_, data) => actions.qwenVariant(data.value)}
-                  >
-                    {state.qwenVariants.map(variant => (
-                      <option key={variant.id} value={variant.id}>
-                        {variant.label}
-                      </option>
-                    ))}
-                  </Select>
+                    choices={state.qwenVariants.map(variant => ({ value: variant.id, label: variant.label }))}
+                    onSelect={actions.qwenVariant}
+                  />
                 )}
               </>
             ))}
           {state.workspace === 'cutout' && (
-            <div role="group" aria-label="Mask operation">
+            <div className="li-tool-choice-group" role="group" aria-label="Mask operation">
               <Button
                 size="small"
+                appearance="subtle"
                 aria-pressed={state.cutoutOperation === 'erase'}
                 disabled={!state.canEdit}
                 onClick={() => actions.cutoutOperation('erase')}
@@ -408,6 +405,7 @@ export function ToolOptions({
               </Button>
               <Button
                 size="small"
+                appearance="subtle"
                 aria-pressed={state.cutoutOperation === 'restore'}
                 disabled={!state.canEdit}
                 onClick={() => actions.cutoutOperation('restore')}

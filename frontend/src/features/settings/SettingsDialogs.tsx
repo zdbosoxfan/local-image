@@ -14,8 +14,13 @@ import {
   DialogTitle,
   Field,
   Link,
+  Menu,
+  MenuItem,
+  MenuItemRadio,
+  MenuList,
+  MenuPopover,
+  MenuTrigger,
   ProgressBar,
-  Select,
   Spinner,
   Tab,
   TabList,
@@ -25,9 +30,12 @@ import {
   TableHeader,
   TableHeaderCell,
   TableRow,
+  Tooltip,
 } from '@fluentui/react-components';
+import { Icon } from '../shell/Icon.tsx';
 import type { SettingsController } from './settingsController.ts';
 import type { InterfaceDensity, SettingsSnapshot, SetupState } from './types.ts';
+import { modelDownloadSelection } from './modelDownload.ts';
 import './settings.css';
 
 export function setupBytes(value: number | undefined) {
@@ -51,9 +59,61 @@ function setupSummary(setup: SetupState | null) {
   if (setup.service?.starting) return 'Starting the AI backend…';
   if (setup.service?.ready) return 'Local AI is ready.';
   if (setup.service?.running) return setup.service.reason || 'ComfyUI is running, but no supported AI model is ready.';
-  if (!setup.installation) return 'Choose an existing ComfyUI installation or install a dedicated copy.';
+  if (!setup.installation)
+    return setup.portable?.available === false
+      ? 'Choose an existing ComfyUI installation.'
+      : 'Choose an existing ComfyUI installation or install a dedicated copy.';
   if (!setup.model_directory) return 'Choose a folder for model files.';
   return 'Start the local AI backend when you need a model.';
+}
+
+function SettingsChoiceMenu({
+  id,
+  label,
+  value,
+  choices,
+  disabled,
+  onSelect,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  choices: { value: string; label: string }[];
+  disabled?: boolean;
+  onSelect(value: string): void;
+}) {
+  const selectedLabel = choices.find(choice => choice.value === value)?.label || 'No models available';
+  return (
+    <Menu>
+      <MenuTrigger disableButtonEnhancement>
+        <Button
+          id={id}
+          size="small"
+          className="li-settings-choice"
+          aria-label={`${label}: ${selectedLabel}`}
+          disabled={disabled || !choices.length}
+        >
+          <span title={selectedLabel}>{selectedLabel}</span>
+          <Icon name="chevron-down" />
+        </Button>
+      </MenuTrigger>
+      <MenuPopover className="li-settings-choice-popover" data-react-owned="true">
+        <MenuList aria-label={label} checkedValues={{ [id]: [value] }}>
+          {choices.map(choice => (
+            <MenuItemRadio
+              key={choice.value}
+              name={id}
+              value={choice.value}
+              disabled={disabled}
+              onClick={() => onSelect(choice.value)}
+            >
+              {choice.label}
+            </MenuItemRadio>
+          ))}
+        </MenuList>
+      </MenuPopover>
+    </Menu>
+  );
 }
 
 export function SettingsDialogs({ controller }: { controller: SettingsController }) {
@@ -81,13 +141,14 @@ export function SettingsDialogs({ controller }: { controller: SettingsController
         <DialogBody className="li-settings-body">
           <DialogTitle
             action={
-              <Button
-                appearance="subtle"
-                aria-label={`Close ${title.toLowerCase()}`}
-                onClick={() => controller.close()}
-              >
-                ×
-              </Button>
+              <Tooltip content={`Close ${title.toLowerCase()}`} relationship="label">
+                <Button
+                  appearance="subtle"
+                  icon={<Icon name="close" />}
+                  aria-label={`Close ${title.toLowerCase()}`}
+                  onClick={() => controller.close()}
+                />
+              </Tooltip>
             }
           >
             {title}
@@ -111,22 +172,24 @@ export function SettingsDialogs({ controller }: { controller: SettingsController
                       checked={state.preferences.askBeforeOverwrite}
                       onChange={(_, data) => controller.setAskBeforeOverwrite(data.checked === true)}
                     />
-                    <Field label="Interface size">
-                      <Select
-                        aria-label="Interface size"
+                    <Field className="li-settings-interface-size" label="Interface size">
+                      <SettingsChoiceMenu
+                        id="settings-interface-size"
+                        label="Interface size"
                         value={state.preferences.density}
-                        onChange={event => controller.setDensity(event.target.value as InterfaceDensity)}
-                      >
-                        <option value="compact">Compact</option>
-                        <option value="comfortable">Comfortable</option>
-                        <option value="large">Large · 200% text</option>
-                      </Select>
+                        choices={[
+                          { value: 'compact', label: 'Compact' },
+                          { value: 'comfortable', label: 'Comfortable' },
+                          { value: 'large', label: 'Large · 200% text' },
+                        ]}
+                        onSelect={value => controller.setDensity(value as InterfaceDensity)}
+                      />
                     </Field>
-                    <div className="li-settings-actions">
-                      <Button size="small" onClick={() => void controller.open('hardware')}>
+                    <div className="li-settings-actions li-settings-help">
+                      <Button size="small" appearance="subtle" onClick={() => void controller.open('hardware')}>
                         Hardware guide
                       </Button>
-                      <Button size="small" onClick={() => void controller.open('shortcuts')}>
+                      <Button size="small" appearance="subtle" onClick={() => void controller.open('shortcuts')}>
                         Keyboard shortcuts
                       </Button>
                     </div>
@@ -194,13 +257,15 @@ export function SettingsDialogs({ controller }: { controller: SettingsController
           </DialogContent>
           <DialogActions>
             {state.view === 'hardware' ? (
-              <Button appearance="primary" onClick={() => controller.continueHardware()}>
+              <Button
+                appearance="primary"
+                disabled={state.savingHardwarePreference}
+                onClick={() => controller.continueHardware()}
+              >
                 Continue
               </Button>
             ) : (
-              <Button appearance="primary" onClick={() => controller.close()}>
-                Done
-              </Button>
+              <Button onClick={() => controller.close()}>Done</Button>
             )}
           </DialogActions>
         </DialogBody>
@@ -214,43 +279,52 @@ function LocalAi({ controller, state }: { controller: SettingsController; state:
     service = setup?.service,
     files = setup?.models ?? [],
     job = setup?.job;
+  const selected = modelDownloadSelection(state),
+    modelJob = state.modelDownloads;
   const locked = controller.locked() || state.loading;
   const nativeLocked = locked || !state.capabilities.setup;
   const allFiles = files.length > 0 && files.every(file => file.exists);
   const progress =
     job?.progress != null && Number.isFinite(job.progress) ? Math.min(100, Math.max(0, job.progress)) / 100 : undefined;
   const installPath = setup?.install_directory || setup?.managed_directory || setup?.configured_ai_directory;
+  const portableAvailable = setup?.portable?.available !== false;
+  const modelProgress =
+    modelJob?.progress != null && Number.isFinite(modelJob.progress)
+      ? Math.min(1, Math.max(0, modelJob.progress))
+      : undefined;
+  const downloadBlock = controller.modelDownloadBlock();
   return (
     <section className="li-settings-section" aria-label="Local AI setup">
       <div className="li-settings-toolbar">
         <p role="status" className="li-settings-note">
           {setupSummary(setup)}
         </p>
-        <Button
-          size="small"
-          disabled={state.loading || !!state.pendingAction}
-          onClick={() => void controller.refresh()}
-        >
-          Refresh
-        </Button>
+        <Tooltip content="Refresh local AI setup" relationship="label">
+          <Button
+            size="small"
+            appearance="subtle"
+            icon={<Icon name="refresh" />}
+            aria-label="Refresh local AI setup"
+            disabled={state.loading || !!state.pendingAction}
+            onClick={() => void controller.refresh()}
+          />
+        </Tooltip>
       </div>
       {!state.capabilities.setup && (
         <p className="li-settings-note">
           {state.capabilities.ready
             ? 'Update the desktop host to use guided AI setup.'
-            : 'Use the Local Image desktop app to choose local folders, install ComfyUI or download model files.'}
+            : portableAvailable
+              ? 'Use the Local Image desktop app to choose local folders, install ComfyUI or download model files.'
+              : 'Use the Local Image desktop app to choose your ComfyUI folder or download model files.'}
         </p>
       )}
       <section className="li-settings-group" aria-labelledby="react-settings-runtime">
-        <h3 id="react-settings-runtime">ComfyUI</h3>
-        <output className="li-settings-path">{setup?.installation?.path || 'No installation selected'}</output>
+        <h3 id="react-settings-runtime">AI backend · ComfyUI</h3>
+        <output className="li-settings-path" aria-label="ComfyUI installation">
+          {setup?.installation?.path || 'No installation selected'}
+        </output>
         <div className="li-settings-actions">
-          <Button size="small" disabled={locked} onClick={() => void controller.refresh(true)}>
-            Detect installations
-          </Button>
-          <Button size="small" disabled={nativeLocked} onClick={() => void controller.run('chooseRuntime')}>
-            Choose installation…
-          </Button>
           <Button
             size="small"
             disabled={nativeLocked || !service?.can_start || !!service?.running}
@@ -258,22 +332,27 @@ function LocalAi({ controller, state }: { controller: SettingsController; state:
           >
             {service?.starting ? 'Starting…' : service?.running ? 'Backend running' : 'Start AI backend'}
           </Button>
+          <Button size="small" disabled={nativeLocked} onClick={() => void controller.run('chooseRuntime')}>
+            Choose installation…
+          </Button>
+          <Button size="small" appearance="subtle" disabled={locked} onClick={() => void controller.refresh(true)}>
+            Detect installations
+          </Button>
         </div>
         {state.showInstallations && !!setup?.installations?.length && (
           <div className="li-settings-installation-choice">
             <Field label="Detected installation">
-              <Select
-                aria-label="Detected installation"
+              <SettingsChoiceMenu
+                id="settings-detected-installation"
+                label="Detected installation"
                 value={state.selectedInstallation}
                 disabled={locked}
-                onChange={event => controller.selectInstallation(event.target.value)}
-              >
-                {setup.installations.map(item => (
-                  <option key={item.id || item.path} value={item.id}>
-                    {item.name || 'ComfyUI'} · {item.path}
-                  </option>
-                ))}
-              </Select>
+                choices={setup.installations.map(item => ({
+                  value: item.id || item.path,
+                  label: `${item.name || 'ComfyUI'} · ${item.path}`,
+                }))}
+                onSelect={controller.selectInstallation}
+              />
             </Field>
             <Button
               size="small"
@@ -291,68 +370,165 @@ function LocalAi({ controller, state }: { controller: SettingsController; state:
           </p>
         )}
         {service?.running && service.ready && (
-          <p className="li-settings-note">
-            Connected to ComfyUI on this PC{service.port ? `, port ${service.port}` : ''}.
-          </p>
+          <p className="li-settings-note">Connected on this computer{service.port ? ` · port ${service.port}` : ''}.</p>
         )}
         {setup?.installation && !setup.installation.startable && !service?.running && (
-          <p className="li-settings-note">Start this installation from ComfyUI, or use a dedicated portable copy.</p>
+          <p className="li-settings-note">
+            {portableAvailable
+              ? 'Start this installation from ComfyUI, or use a dedicated portable copy.'
+              : 'Start this installation from ComfyUI, then refresh.'}
+          </p>
         )}
-        <Accordion collapsible>
-          <AccordionItem value="portable">
-            <AccordionHeader>Portable runtime</AccordionHeader>
-            <AccordionPanel className="li-settings-disclosure">
-              <output className="li-settings-path">
-                {installPath || 'Choose a writable folder for a dedicated runtime'}
-              </output>
-              <p className="li-settings-note">
-                {setup?.portable?.download_bytes
-                  ? `Runtime download: ${setupBytes(setup.portable.download_bytes)}. `
-                  : ''}
-                {setup?.portable?.minimum_free_bytes
-                  ? `Allow ${setupBytes(setup.portable.minimum_free_bytes)} for installation. `
-                  : ''}
-                {storageText(setup?.storage?.portable_folder)}
-              </p>
-              <div className="li-settings-actions">
-                <Button
-                  size="small"
-                  disabled={nativeLocked}
-                  onClick={() => void controller.run('chooseInstallDirectory')}
-                >
-                  Choose install folder…
-                </Button>
-                <Button size="small" disabled={nativeLocked} onClick={() => void controller.run('installRuntime')}>
-                  Install portable ComfyUI
-                </Button>
-              </div>
-            </AccordionPanel>
-          </AccordionItem>
-        </Accordion>
+        {portableAvailable ? (
+          <Accordion collapsible>
+            <AccordionItem value="portable">
+              <AccordionHeader>Portable runtime</AccordionHeader>
+              <AccordionPanel className="li-settings-disclosure">
+                <output className="li-settings-path" aria-label="Portable runtime folder">
+                  {installPath || 'Choose a writable folder for a dedicated runtime'}
+                </output>
+                <p className="li-settings-note">
+                  {setup?.portable?.download_bytes
+                    ? `Runtime download: ${setupBytes(setup.portable.download_bytes)}. `
+                    : ''}
+                  {setup?.portable?.minimum_free_bytes
+                    ? `Allow ${setupBytes(setup.portable.minimum_free_bytes)} for installation. `
+                    : ''}
+                  {storageText(setup?.storage?.portable_folder)}
+                </p>
+                <div className="li-settings-actions">
+                  <Button
+                    size="small"
+                    disabled={nativeLocked}
+                    onClick={() => void controller.run('chooseInstallDirectory')}
+                  >
+                    Choose install folder…
+                  </Button>
+                  <Button size="small" disabled={nativeLocked} onClick={() => void controller.run('installRuntime')}>
+                    Install portable ComfyUI
+                  </Button>
+                </div>
+              </AccordionPanel>
+            </AccordionItem>
+          </Accordion>
+        ) : (
+          <p className="li-settings-note">Use an existing ComfyUI installation; choose its folder above.</p>
+        )}
       </section>
       <section className="li-settings-group" aria-labelledby="react-settings-models">
-        <h3 id="react-settings-models">Model files</h3>
-        <output className="li-settings-path">{setup?.model_directory || 'No model folder selected'}</output>
+        <div className="li-settings-toolbar">
+          <h3 id="react-settings-models">Models</h3>
+          <Button size="small" appearance="subtle" disabled={locked} onClick={() => controller.browseModels()}>
+            Model details…
+          </Button>
+        </div>
+        <div className="li-settings-folder-row">
+          <div>
+            <span className="li-settings-note">Model folder</span>
+            <output className="li-settings-path" aria-label="Model folder">
+              {setup?.model_directory || modelJob?.model_directory || 'No model folder selected'}
+            </output>
+          </div>
+          <Button size="small" disabled={nativeLocked} onClick={() => void controller.run('chooseModelDirectory')}>
+            Choose folder…
+          </Button>
+        </div>
         {storageText(setup?.storage?.model_folder) && (
           <p className="li-settings-note">{storageText(setup?.storage?.model_folder)}</p>
         )}
         {setup?.model_folder_connection?.status !== 'unchanged' && setup?.model_folder_connection?.message && (
           <p className="li-settings-note">{setup.model_folder_connection.message}</p>
         )}
-        <div className="li-settings-actions">
-          <Button size="small" disabled={nativeLocked} onClick={() => void controller.run('chooseModelDirectory')}>
-            Choose model folder…
-          </Button>
-          <Button size="small" disabled={locked} onClick={() => controller.browseModels()}>
-            Browse models…
-          </Button>
+        <div className="li-settings-model-download">
+          <Field label="Model">
+            <SettingsChoiceMenu
+              id="settings-download-model"
+              label="Model to download"
+              value={state.selectedModelId}
+              disabled={locked}
+              choices={state.models.map(model => ({
+                value: model.id,
+                label: model.id === 'qwen' ? `${model.label} · backgrounds & images` : model.label,
+              }))}
+              onSelect={controller.selectModel}
+            />
+          </Field>
+          <Field label="Precision">
+            {(selected.model?.variants?.length || 0) > 1 ? (
+              <SettingsChoiceMenu
+                id="settings-download-variant"
+                label="Download precision"
+                value={state.selectedVariant}
+                disabled={locked}
+                choices={(selected.model?.variants || []).map(variant => ({ value: variant.id, label: variant.label }))}
+                onSelect={controller.selectVariant}
+              />
+            ) : (
+              <span className="li-settings-single-variant">{selected.variant?.label || '—'}</span>
+            )}
+          </Field>
         </div>
+        <div className="li-settings-download-action">
+          <Button
+            id="settings-download-model-button"
+            size="small"
+            appearance="primary"
+            disabled={!!downloadBlock}
+            title={downloadBlock || undefined}
+            onClick={() => void controller.run('downloadModel')}
+          >
+            {selected.ready
+              ? 'Ready'
+              : selected.filesPresent
+                ? 'Files present'
+                : !selected.downloadable
+                  ? 'Publisher access required'
+                  : 'Download model'}
+          </Button>
+          {selected.model && (
+            <p id="settings-model-status" className="li-settings-note">
+              {selected.ready
+                ? 'Ready in the AI backend.'
+                : selected.filesPresent
+                  ? 'Model files are present. Start the AI backend to use them.'
+                  : selected.missing !== undefined
+                    ? `${setupBytes(selected.missing)} to download${selected.total ? ` · ${setupBytes(selected.total)} total` : ''}.`
+                    : selected.total
+                      ? `${setupBytes(selected.total)} total download.`
+                      : 'Download size is unavailable.'}
+            </p>
+          )}
+        </div>
+        {!selected.downloadable && selected.note && <p className="li-settings-note">{selected.note}</p>}
+        {!selected.ready && !selected.filesPresent && downloadBlock === 'Choose a model folder first.' && (
+          <p className="li-settings-note">{downloadBlock}</p>
+        )}
+        {modelJob && (modelJob.running || modelJob.phase === 'complete' || modelJob.phase === 'error') && (
+          <section className="li-settings-job" aria-label="Model download">
+            <strong>
+              {modelJob.running
+                ? 'Downloading model'
+                : modelJob.phase === 'complete'
+                  ? 'Model download complete'
+                  : 'Model download needs attention'}
+            </strong>
+            {modelJob.running && <ProgressBar value={modelProgress} aria-label="Model download progress" />}
+            <p role={modelJob.phase === 'error' ? 'alert' : 'status'}>{modelJob.error || modelJob.message || ''}</p>
+            {modelProgress !== undefined && <span>{Math.round(modelProgress * 100)}%</span>}
+            {!!modelJob.downloaded_bytes && (
+              <span>
+                {setupBytes(modelJob.downloaded_bytes)}
+                {modelJob.total_bytes ? ` of ${setupBytes(modelJob.total_bytes)}` : ' downloaded'}
+              </span>
+            )}
+          </section>
+        )}
         <Accordion collapsible>
           <AccordionItem value="removal-model">
             <AccordionHeader>FLUX AI Remove · optional</AccordionHeader>
             <AccordionPanel className="li-settings-disclosure">
               <p className="li-settings-note">
-                This set supports FLUX object removal. Compare generation and cutout models in Browse models.
+                This set supports FLUX object removal. Compare generation and cutout models in Model details.
               </p>
               <ul className="li-settings-file-list" aria-label="Required FLUX model files">
                 {files.map(file => (
@@ -404,14 +580,26 @@ function LocalAi({ controller, state }: { controller: SettingsController; state:
             <h3>GPU memory</h3>
             <p className="li-settings-note">{service?.device || 'Start the backend to check your device.'}</p>
           </div>
-          <Button
-            size="small"
-            disabled={nativeLocked || !service?.can_eject}
-            title="Unload GPU models; keep files on disk"
-            onClick={() => void controller.run('ejectModels')}
+          <Tooltip
+            content={
+              nativeLocked
+                ? 'Finish the current operation before unloading GPU models'
+                : !service?.can_eject
+                  ? 'Start the AI backend to unload its GPU models'
+                  : 'Unload GPU models; keep files on disk'
+            }
+            relationship="description"
           >
-            Unload models
-          </Button>
+            <Button
+              size="small"
+              appearance="subtle"
+              className="li-settings-icon-button"
+              aria-label="Unload GPU models"
+              disabled={nativeLocked || !service?.can_eject}
+              icon={<Icon name="eject" />}
+              onClick={() => void controller.run('ejectModels')}
+            />
+          </Tooltip>
         </div>
       </section>
       <Accordion collapsible>
@@ -450,44 +638,64 @@ function Hardware({ controller, state }: { controller: SettingsController; state
       </p>
       {!!guide?.system_ram_gb && <p className="li-settings-note">{guide.system_ram_gb} GB system RAM</p>}
       <p className="li-settings-note">Quick Heal and compositing run on the CPU. Local AI models are optional.</p>
+      <div className="li-settings-preference">
+        <Checkbox
+          label="Don’t show again"
+          checked={state.hideHardwareGuide}
+          disabled={state.loading || state.savingHardwarePreference}
+          onChange={(_, data) => void controller.setHideHardwareGuide(data.checked === true)}
+        />
+        <p className="li-settings-note">Reopen from Help → Hardware guide.</p>
+      </div>
       <div className="li-settings-actions">
-        <Button size="small" onClick={() => controller.startTask('retouch')}>
-          Repair a photo
-        </Button>
-        <Button size="small" onClick={() => controller.startTask('cutout')}>
-          Remove a background
-        </Button>
-        <Button size="small" onClick={() => controller.startTask('generate')}>
-          Create an image
-        </Button>
         <Button size="small" onClick={() => controller.startTask('setup')}>
           Set up AI
         </Button>
+        <Menu>
+          <MenuTrigger disableButtonEnhancement>
+            <Button size="small" appearance="subtle">
+              Start editing
+              <Icon name="chevron-down" />
+            </Button>
+          </MenuTrigger>
+          <MenuPopover data-react-owned="true">
+            <MenuList>
+              <MenuItem onClick={() => controller.startTask('retouch')}>Repair a photo</MenuItem>
+              <MenuItem onClick={() => controller.startTask('cutout')}>Remove a background</MenuItem>
+              <MenuItem onClick={() => controller.startTask('generate')}>Create an image</MenuItem>
+            </MenuList>
+          </MenuPopover>
+        </Menu>
       </div>
-      <Table size="small" aria-label="Model memory planning">
-        <TableHeader>
-          <TableRow>
-            <TableHeaderCell>Tool or model</TableHeaderCell>
-            <TableHeaderCell>GPU memory</TableHeaderCell>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {guide?.profiles?.map(profile => (
-            <TableRow key={profile.label}>
-              <TableCell>{profile.label}</TableCell>
-              <TableCell>{profile.vram}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-      <p className="li-settings-note">
-        {guide?.note ||
-          'These are planning recommendations, not hard minimums. Editing tools remain available while hardware detection is unavailable.'}
-      </p>
-      <Accordion collapsible>
+      <Accordion collapsible multiple>
+        <AccordionItem value="memory">
+          <AccordionHeader>Model memory guide</AccordionHeader>
+          <AccordionPanel className="li-settings-disclosure">
+            <Table size="small" aria-label="Model memory planning">
+              <TableHeader>
+                <TableRow>
+                  <TableHeaderCell>Tool or model</TableHeaderCell>
+                  <TableHeaderCell>GPU memory</TableHeaderCell>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {guide?.profiles?.map(profile => (
+                  <TableRow key={profile.label}>
+                    <TableCell>{profile.label}</TableCell>
+                    <TableCell>{profile.vram}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <p className="li-settings-note">
+              {guide?.note ||
+                'These are planning recommendations, not hard minimums. Editing tools remain available while hardware detection is unavailable.'}
+            </p>
+          </AccordionPanel>
+        </AccordionItem>
         <AccordionItem value="sources">
           <AccordionHeader>Model notes and sources</AccordionHeader>
-          <AccordionPanel>
+          <AccordionPanel className="li-settings-disclosure">
             {guide?.profiles?.map(profile => (
               <p key={profile.label} className="li-settings-note">
                 <strong>{profile.label}</strong> — {profile.detail || profile.basis || ''}

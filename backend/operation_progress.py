@@ -1,6 +1,7 @@
 """One authenticated local operation's measured stages, never invented ETA."""
 from contextlib import contextmanager
 from contextvars import ContextVar
+import asyncio
 import math
 import time
 import uuid
@@ -13,21 +14,80 @@ LABELS = {'preparing': 'Preparing image', 'queued': 'Queued in ComfyUI',
           'saving': 'Saving image', 'running': 'Processing image',
           'completed': 'Image ready', 'error': 'Image operation failed',
           'cancelled': 'Image operation cancelled'}
+LABELS['cancelling'] = 'Stopping image operation'
+
+
+class OperationCancelled(asyncio.CancelledError):
+    """Explicit user cancellation, passed through model adapters unchanged."""
+
+
+class CancellationUnavailable(RuntimeError):
+    pass
 
 
 class OperationProgress:
-    def __init__(self, operation='generate', model=''):
-        self.job_id = str(uuid.uuid4())
+    def __init__(self, operation='generate', model='', job_id=None):
+        self.job_id = job_id or str(uuid.uuid4())
         self.operation, self.model = operation, model
         self.started = self.updated = time.monotonic()
         self.finished = None
         self.stage, self.source, self.prompt_id = 'preparing', 'elapsed', None
         self.progress, self.error, self.connection_lost = None, '', False
         self.active = True
+        self.cancel_requested = self.cancel_dispatched = False
+        self.cancel_error = ''
+        self.cancellable = True
+        self._cancel_handler = None
+        self._cancel_lock = asyncio.Lock()
+        self._cancel_stage = 'preparing'
+
+    def check_cancelled(self):
+        if self.cancel_requested and not self.prompt_id:
+            raise OperationCancelled('Image operation cancelled.')
+
+    def prevent_cancel(self):
+        # Once a usable image exists, keep it even if Stop arrives late. Do
+        # not cancel disk publication or leave an untracked generated image.
+        self.cancellable = False
+        self.cancel_requested = self.cancel_dispatched = False
+
+    async def dispatch_cancel(self):
+        async with self._cancel_lock:
+            if not self.active or not self.cancel_requested or self.cancel_dispatched:
+                return
+            if self._cancel_handler is None or not self.prompt_id:
+                return  # Preparation/queue submission checks this flag later.
+            try:
+                accepted = await self._cancel_handler(self.prompt_id)
+            except Exception:
+                if not self.active or not self.cancellable or not self.cancel_requested:
+                    return  # A usable result won the race while HTTP waited.
+                self.cancel_requested = False
+                self.update(self._cancel_stage)
+                raise
+            if not self.active or not self.cancellable or not self.cancel_requested:
+                return
+            self.cancel_dispatched = accepted
+            if not accepted and self.active:
+                self.cancel_requested = False
+                self.update(self._cancel_stage)
+
+    async def request_cancel(self):
+        if not self.active or not self.cancellable:
+            return False
+        if not self.cancel_requested:
+            self._cancel_stage = self.stage
+            self.cancel_error = ''
+            self.cancel_requested = True
+            self.update('cancelling')
+        await self.dispatch_cancel()
+        return self.cancel_requested
 
     def update(self, stage, *, source='elapsed', value=None, maximum=None):
         if not self.active or stage not in LABELS:
             return
+        if self.cancel_requested and stage not in ('cancelled', 'error', 'completed'):
+            stage = 'cancelling'
         self.stage, self.source, self.updated = stage, source, time.monotonic()
         self.progress = None
         # Comfy's max/value describes one node's sampler progress. It cannot
@@ -50,7 +110,10 @@ class OperationProgress:
                 'stage_label': LABELS[self.stage], 'progress': dict(self.progress) if self.progress else None,
                 'elapsed_seconds': round((self.finished or now) - self.started, 1),
                 'updated_seconds_ago': round(now - self.updated, 1), 'source': self.source,
-                'connection_lost': self.connection_lost, 'error': self.error}
+                'connection_lost': self.connection_lost, 'error': self.error,
+                'can_cancel': self.active and self.cancellable and not self.cancel_requested,
+                'cancelling': self.active and self.cancel_requested,
+                'cancel_error': self.cancel_error}
 
 
 def current():
@@ -59,13 +122,22 @@ def current():
 
 def snapshot():
     return _latest.snapshot() if _latest else {'active': False, 'job_id': None, 'stage': 'idle',
-        'stage_label': '', 'progress': None, 'elapsed_seconds': 0, 'source': 'elapsed'}
+        'stage_label': '', 'progress': None, 'elapsed_seconds': 0, 'source': 'elapsed',
+        'can_cancel': False, 'cancelling': False}
+
+
+async def cancel(job_id):
+    run = _latest
+    if run is None or run.job_id != job_id:
+        raise ValueError('The image operation changed. Check its status before stopping it.')
+    requested = await run.request_cancel()
+    return {**run.snapshot(), 'cancellation_requested': requested}
 
 
 @contextmanager
-def operation(model='', name='generate'):
+def operation(model='', name='generate', *, job_id=None):
     global _latest
-    run = OperationProgress(name, model)
+    run = OperationProgress(name, model, job_id)
     _latest = run
     token = _current.set(run)
     try:
@@ -120,6 +192,10 @@ class GraphProgress:
         if data.get('prompt_id') != self.prompt_id:
             return
         if kind in ('execution_error', 'execution_interrupted'):
+            if kind == 'execution_interrupted' and self.run.cancel_requested:
+                self.error = OperationCancelled('Image operation cancelled.')
+                self.run.finish('cancelled')
+                return
             self.error = RuntimeError('Image operation failed: ' + str(data.get('exception_message') or kind)[:300])
             self.run.finish('error', self.error)
             return

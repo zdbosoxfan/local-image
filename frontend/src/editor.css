@@ -125,6 +125,12 @@ body {
   min-width: 160px;
   overflow: hidden;
 }
+#progress-root {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 6;
+  pointer-events: none;
+}
 .li-operation-progress {
   display: flex;
   align-items: center;

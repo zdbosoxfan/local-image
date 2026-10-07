@@ -54,11 +54,12 @@ export function resolveEditorKey(
   const key = event.key.toLowerCase(),
     modifier = event.ctrlKey || event.metaKey;
   if (state.modalOpen)
-    return modifier && ['s', 'o', 'w', 'z', '+', '=', '-', '0'].includes(key) ? { kind: 'block' } : null;
+    return modifier && ['n', 's', 'o', 'w', 'z', '+', '=', '-', '0'].includes(key) ? { kind: 'block' } : null;
   if (event.key === 'F10' && !event.shiftKey) return { kind: 'menu', menu: null };
   if (event.altKey && !modifier && menus[key]) return { kind: 'menu', menu: menus[key] };
   // File commands remain available while text fields are focused, matching the
   // existing app. Undo/redo and editing keys belong to the input when focused.
+  if (modifier && key === 'n' && !event.altKey && !event.shiftKey) return command('newWorkspace');
   if (modifier && key === 'w' && state.hasDocument) return command('closeImage');
   if (modifier && event.altKey && ['s', 'o'].includes(key)) return command(key === 's' ? 'saveProject' : 'openProject');
   if (modifier && key === 's' && state.hasDocument)

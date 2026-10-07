@@ -204,7 +204,7 @@ def main():
         if report['install']['exit_code'] != 0:
             raise RuntimeError('EXE installation failed; see install.log.')
         native = app / 'Local Image.exe'
-        backend = app / 'backend' / 'LocalRemoveBackend.exe'
+        backend = app / 'backend' / 'LocalImageBackend.exe'
         defaults = app / 'installation-defaults.json'
         assert native.is_file() and backend.is_file(), 'Missing installed host or bundled backend.'
         report['native_version'] = file_version(native)
@@ -256,7 +256,7 @@ def main():
             'registry': after_failure['registrations'],
             'legacy_shortcuts_preserved': after_failure['legacy_shortcuts'] == report['preflight']['legacy_shortcuts'],
             'app_files_absent': not (app / 'Local Image.exe').exists() and
-                                not (app / 'backend' / 'LocalRemoveBackend.exe').exists(),
+                                not (app / 'backend' / 'LocalImageBackend.exe').exists(),
             'model_folder_created': models.exists(), 'runtime_folder_created': runtime.exists(),
         }
         # Never delete files or registrations on a failed test. The report keeps

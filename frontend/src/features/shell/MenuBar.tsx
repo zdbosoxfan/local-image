@@ -40,7 +40,7 @@ export function MenuBar({ state, execute, setOutputFormat, openRecent, opened, f
       name: 'File',
       entries: (
         <>
-          {(['openFiles', 'openProject', 'openFolder'] as const).map(command)}
+          {(['newWorkspace', 'openFiles', 'openProject', 'openFolder'] as const).map(command)}
           <MenuDivider />
           {(['showAssets', 'showGenerated', 'showBatch'] as const).map(command)}
           <MenuDivider />

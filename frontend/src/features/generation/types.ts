@@ -102,6 +102,7 @@ export interface GenerationPayload {
   seed?: number;
   negative_prompt?: string;
   denoise?: number;
+  operation_id?: string;
 }
 export interface GenerationResult {
   session: EditorDocument;
@@ -121,6 +122,26 @@ export interface OperationProgress {
   connection_lost?: boolean;
   error?: string;
   updated_seconds_ago?: number;
+  can_cancel?: boolean;
+  cancelling?: boolean;
+  cancellation_requested?: boolean;
+  cancel_error?: string;
+}
+export interface HardwareDevice {
+  id: string;
+  name: string;
+  source: 'NVIDIA driver' | 'ComfyUI';
+  utilization_percent: number | null;
+  vram_used_bytes: number | null;
+  vram_total_bytes: number | null;
+  is_backend_device: boolean;
+  memory_scope?: 'device' | 'backend' | 'shared';
+}
+export interface HardwareUsage {
+  devices: HardwareDevice[];
+  comfy_connected: boolean;
+  sampled_at: number;
+  refresh_after_ms: number;
 }
 export interface UpscaleInventory {
   enabled: boolean;
@@ -201,6 +222,8 @@ export interface GenerationHost {
     onUse(model: string, variant?: string): void;
   }): void;
   openLoras(port: LoraDraftPort): void;
+  canEjectModels?(): boolean;
+  ejectModels?(): Promise<unknown>;
   sizeMath: SizeMath;
 }
 export interface RefinementRecipe {
@@ -235,6 +258,12 @@ export interface GenerationState {
   uncertain: boolean;
   progressError: string | null;
   runningKey: DraftKey | 'upscale' | null;
+  stopping: boolean;
+  cancelError: string | null;
+  ejecting: boolean;
+  hardware: HardwareUsage | null;
+  hardwareLoading: boolean;
+  hardwareError: string | null;
   recipes: RefinementRecipe[];
   recipeWarnings: string[];
 }

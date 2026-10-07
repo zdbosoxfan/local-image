@@ -29,6 +29,7 @@
     installRuntime:()=>request('setupInstall'),
     chooseModelDirectory:()=>request('setupChooseModelDirectory'),
     downloadRemovalModels:()=>request('setupDownloadModels'),
+    downloadModel:(model,variant)=>request('setupDownloadGenerationModel',{model,variant}),
     startBackend:()=>request('setupStart'),
     ejectModels:()=>request('setupEject'),
     useInstallation:id=>request('setupUseInstallation',{installation_id:id}),

@@ -41,6 +41,7 @@ export function createModelsController(options: {
     loraPort: LoraDraftPort | null = null;
   let folderConnection: SetupState['model_folder_connection'],
     waitingForStart = false;
+  let preferenceWrite: Promise<{ show_adult_content: boolean }> | null = null;
   let state: ModelsSnapshot = immutable({
     view: null,
     loading: false,
@@ -68,6 +69,9 @@ export function createModelsController(options: {
     info: null,
     loraJob: null,
     checkedAt: null,
+    showAdultContent: false,
+    savingContentPreference: false,
+    searchHiddenCount: 0,
   });
   function update(change: Partial<ModelsSnapshot>) {
     if (disposed) return;
@@ -262,6 +266,27 @@ export function createModelsController(options: {
           .includes(needle),
     );
   }
+  function mergePublisherInfo(
+    item: LoraItem,
+    live?: LoraItem,
+    label?: Pick<LoraItem, 'content_rating' | 'content_rating_source'>,
+  ): LoraItem {
+    const result = { ...item };
+    if (live?.description) result.description = live.description;
+    const declared =
+      label?.content_rating === 'adult'
+        ? label
+        : live?.content_rating === 'adult'
+          ? live
+          : label?.content_rating
+            ? label
+            : live;
+    if (declared?.content_rating && (declared.content_rating === 'adult' || result.content_rating !== 'adult')) {
+      result.content_rating = declared.content_rating;
+      result.content_rating_source = declared.content_rating_source;
+    }
+    return result;
+  }
   async function openLoras(port: LoraDraftPort) {
     stopPolling();
     ++epoch;
@@ -293,15 +318,31 @@ export function createModelsController(options: {
       error: '',
       message: '',
       nativeSetup: bridge.capabilities().setup,
+      showAdultContent: false,
+      savingContentPreference: !!preferenceWrite,
+      searchHiddenCount: 0,
     });
+    const openingEpoch = epoch;
+    let preferenceError = '';
+    try {
+      if (preferenceWrite) await preferenceWrite.catch(() => undefined);
+      const preference = await api.contentPreference();
+      if (disposed || openingEpoch !== epoch || !liveContext()) return;
+      update({ showAdultContent: preference.show_adult_content === true, savingContentPreference: false });
+    } catch (error) {
+      if (disposed || openingEpoch !== epoch || !liveContext()) return;
+      preferenceError = `Could not read the mature-content preference: ${errorText(error)} Mature entries remain hidden.`;
+      update({ showAdultContent: false, savingContentPreference: false });
+    }
     await loadInventory();
+    if (preferenceError && openingEpoch === epoch) update({ error: preferenceError });
   }
   async function loadInventory() {
     if (!liveContext()) return;
     const token = scope('inventory');
     update({ loading: true });
     try {
-      const inventory = await api.inventory(state.context!.modelId);
+      const inventory = await api.inventory(state.context!.modelId, state.showAdultContent);
       if (!valid(token)) return;
       const selected = loraPort!.read().selected.map(item => {
         const installed = inventory.installed.find(entry => entry.id === item.id);
@@ -336,14 +377,29 @@ export function createModelsController(options: {
     const token = scope('search'),
       query = state.query.trim(),
       recommended = filteredCurated(query);
-    update({ searching: true, searchResults: recommended, error: '', message: 'Searching current adapter metadata…' });
+    update({
+      searching: true,
+      searchResults: recommended,
+      searchHiddenCount: 0,
+      error: '',
+      message: 'Searching current adapter metadata…',
+    });
     try {
-      const value = await api.search(state.context!.modelId, query);
+      const value = await api.search(state.context!.modelId, query, state.showAdultContent);
       if (!valid(token)) return;
+      const byRepo = new Map(value.results.map(item => [item.repo_id, item]));
+      const merge = (item: LoraItem) =>
+        mergePublisherInfo(
+          item,
+          byRepo.get(item.repo_id),
+          item.repo_id ? value.content_labels?.[item.repo_id] : undefined,
+        );
       const known = new Set(recommended.map(item => item.repo_id));
       update({
+        inventory: state.inventory ? { ...state.inventory, curated: state.inventory.curated.map(merge) } : null,
         searching: false,
-        searchResults: [...recommended, ...value.results.filter(item => !known.has(item.repo_id))],
+        searchResults: [...recommended.map(merge), ...value.results.filter(item => !known.has(item.repo_id))],
+        searchHiddenCount: Math.max(0, Number(value.hidden_count) || 0),
         checkedAt: Date.now(),
         message: 'Review compatibility and license details before choosing a file.',
       });
@@ -357,11 +413,17 @@ export function createModelsController(options: {
     }
   }
   async function inspectFiles(item: LoraItem) {
-    if (!liveContext() || !item.repo_id || item.supported === false) return;
+    if (
+      !liveContext() ||
+      !item.repo_id ||
+      item.supported === false ||
+      (!state.showAdultContent && item.content_rating === 'adult')
+    )
+      return;
     const token = scope('files');
     update({ filesLoading: true, files: null, selectedFilename: '', allowUnverified: false, info: null, error: '' });
     try {
-      const files = await api.files(state.context!.modelId, item.repo_id, item.revision);
+      const files = await api.files(state.context!.modelId, item.repo_id, item.revision, state.showAdultContent);
       if (!valid(token)) return;
       update({
         files,
@@ -378,11 +440,73 @@ export function createModelsController(options: {
   function selectedFile() {
     return state.files?.files.find(file => file.filename === state.selectedFilename);
   }
+  function loraItems() {
+    return state.loraTab === 'installed' ? (state.inventory?.installed ?? []) : state.searchResults;
+  }
+  function visibleLoras() {
+    return loraItems().filter(item => state.showAdultContent || item.content_rating !== 'adult');
+  }
+  function hiddenLoraCount() {
+    return state.showAdultContent
+      ? 0
+      : Math.max(
+          loraItems().filter(item => item.content_rating === 'adult').length,
+          state.loraTab === 'browse' ? state.searchHiddenCount : 0,
+        );
+  }
+  async function setShowAdultContent(showAdultContent: boolean) {
+    if (
+      !liveContext() ||
+      state.loading ||
+      state.savingContentPreference ||
+      locked() ||
+      showAdultContent === state.showAdultContent
+    )
+      return;
+    const previous = state.showAdultContent;
+    ++versions.search;
+    ++versions.files;
+    ++versions.inventory;
+    update({
+      showAdultContent,
+      savingContentPreference: true,
+      searchHiddenCount: 0,
+      info: null,
+      files: null,
+      selectedFilename: '',
+      allowUnverified: false,
+      searching: false,
+      filesLoading: false,
+      error: '',
+    });
+    const write = Promise.resolve().then(() => api.saveContentPreference(showAdultContent));
+    preferenceWrite = write;
+    try {
+      const preference = await write;
+      if (disposed || preferenceWrite !== write) return;
+      preferenceWrite = null;
+      update({ showAdultContent: preference.show_adult_content === true, savingContentPreference: false });
+      if (liveContext()) {
+        await loadInventory();
+        if (state.loraTab === 'browse') await search();
+      }
+    } catch (error) {
+      if (disposed || preferenceWrite !== write) return;
+      preferenceWrite = null;
+      update({
+        showAdultContent: previous,
+        savingContentPreference: false,
+        error: `Could not save the mature-content preference: ${errorText(error)}`,
+      });
+    }
+  }
   function loraDownloadBlock() {
     const file = selectedFile();
     if (!bridge.capabilities().setup)
       return 'Adapter downloads require the desktop app. Installed adapters remain usable here.';
     if (!liveContext() || !file || !state.files) return 'Select an adapter file for the current model.';
+    if (!state.showAdultContent && file.content_rating === 'adult')
+      return 'Enable mature content to browse this adapter.';
     if (state.context?.supportsLoras === false) return 'The selected workflow does not support adapters.';
     if (locked() || state.loraJob?.running) return 'An operation or adapter download is already running.';
     if (state.files.supported === false || file.supported === false)
@@ -399,7 +523,14 @@ export function createModelsController(options: {
     update({ selectedLoras: value });
   }
   function useLora(item: LoraItem) {
-    if (!liveContext() || locked() || !item.id || item.supported === false || state.context?.supportsLoras === false)
+    if (
+      !liveContext() ||
+      locked() ||
+      !item.id ||
+      item.supported === false ||
+      state.context?.supportsLoras === false ||
+      (!state.showAdultContent && item.content_rating === 'adult')
+    )
       return;
     const selected = loraPort!.read().selected;
     if (selected.length >= 3 || selected.some(value => value.id === item.id)) return;
@@ -436,6 +567,9 @@ export function createModelsController(options: {
     modelDownloadBlock,
     selectedFile,
     loraDownloadBlock,
+    visibleLoras,
+    hiddenLoraCount,
+    setShowAdultContent,
     selectModel: (id: string) => selectModel(id),
     selectVariant: (id: string) => {
       if (selectedModel()?.variants?.some(variant => variant.id === id)) update({ selectedVariant: id });
@@ -513,7 +647,9 @@ export function createModelsController(options: {
             .selected.map(item => (item.id === id ? { ...item, strength: Math.max(-2, Math.min(2, strength)) } : item)),
         );
     },
-    showInfo: (info: LoraItem | null) => update({ info }),
+    showInfo: (info: LoraItem | null) => {
+      if (!info || state.showAdultContent || info.content_rating !== 'adult') update({ info });
+    },
     addTrigger: (phrase: string) => {
       if (liveContext() && !locked() && phrase) {
         loraPort!.appendPrompt(phrase);

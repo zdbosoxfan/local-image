@@ -4,6 +4,7 @@ Only Hub metadata and safetensors are read. No repository code is installed or
 executed. Installed adapters remain available when the Hub is offline.
 """
 import asyncio
+from collections import OrderedDict
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -19,10 +20,11 @@ import aiohttp
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from app_paths import model_directory, state_dir
+from app_paths import model_directory, state_dir, read_config, write_config
 from local_remove import guard, launcher_guard
 from managed_ai import SetupError, download_verified, writable_directory
-from lora_previews import with_example, preview as example_preview
+from lora_previews import with_example, preview as example_preview, publisher_example, mark_repository_mature
+from lora_metadata import presentation, model_card, merge_presentation
 
 router = APIRouter(prefix='/api/local-remove/loras')
 ModelId = Literal['qwen', 'z-image-turbo', 'flux2-dev', 'flux2-klein-4b', 'flux2-klein-9b', 'hidream-o1']
@@ -38,6 +40,7 @@ BASES = {
 SEARCH_TERMS = {'qwen': 'Qwen-Image-2.1', 'z-image-turbo': 'z_image_turbo',
                 'flux2-dev': 'Flux.2', 'flux2-klein-4b': 'klein', 'flux2-klein-9b': 'klein', 'hidream-o1': 'HiDream-O1'}
 from lora_catalog import CURATED, PRESENTATION_FIELDS
+_publisher_labels = OrderedDict()
 
 SPECIAL_WORKFLOWS = {
     'limbicnation/pixel-art-lora': 'This build cannot load six global modulation tensors from either published pixel-art file. Choose Watercolor wash or Claymation miniature; partial adapter loading is not supported.',
@@ -123,18 +126,45 @@ async def hub_json(path, params=None):
         raise ValueError('Hugging Face is unavailable. Installed LoRAs remain usable; refresh when connected.') from error
 
 
-async def search_hub(model, query='', page=0):
+async def publisher_details(item, metadata):
+    result = dict(item)
+    revision = metadata.get('sha')
+    if isinstance(revision, str) and re.fullmatch('[a-f0-9]{40}', revision):
+        result.update(revision=revision, source_url='https://huggingface.co/' + item['repo_id'] + '/blob/' + revision + '/README.md')
+        if not result.get('description'):
+            result = merge_presentation(result, await model_card(item['repo_id'], revision))
+    return result
+
+
+def remember_content_label(model, repo, item):
+    key = (model, repo.casefold())
+    label = merge_presentation({field: item.get(field) for field in ('content_rating', 'content_rating_source')},
+                               _publisher_labels.get(key, {}))
+    _publisher_labels[key] = label
+    if label['content_rating'] == 'adult':
+        mark_repository_mature(repo)
+    _publisher_labels.move_to_end(key)
+    while len(_publisher_labels) > 512:
+        _publisher_labels.popitem(last=False)
+    return dict(label)
+
+
+def with_discovered_label(item):
+    return merge_presentation(item, _publisher_labels.get((item['model'], item['repo_id'].casefold()), {}))
+
+
+async def search_hub(model, query='', page=0, show_adult=False):
     check_model(model)
     if len(query) > 120 or any(ord(char) < 32 for char in query) or not 0 <= page <= 4:
         raise ValueError('Use a search of up to 120 characters and a valid results page.')
-    common = {'sort': 'lastModified', 'direction': '-1', 'limit': '100', 'full': 'true', 'config': 'true'}
+    common = {'sort': 'lastModified', 'direction': '-1', 'limit': '100', 'full': 'true', 'config': 'true', 'cardData': 'true'}
     searches = []
     for base in BASES[model]:
         searches.append(hub_json('/api/models', {**common, 'filter': 'base_model:adapter:' + base, 'search': query}))
         searches.append(hub_json('/api/models', {**common, 'filter': 'base_model:' + base, 'search': query}))
     searches.append(hub_json('/api/models', {**common, 'filter': 'lora', 'search': query or SEARCH_TERMS[model]}))
     replies = await asyncio.gather(*searches, return_exceptions=True)
-    found, errors = {}, []
+    found, sources, errors = {}, {}, []
     for reply in replies:
         if isinstance(reply, Exception):
             errors.append(str(reply)); continue
@@ -159,15 +189,43 @@ async def search_hub(model, query='', page=0):
             warning = SPECIAL_WORKFLOWS.get(repo.casefold(), '')
             card = metadata.get('cardData')
             card = card if isinstance(card, dict) else {}
-            found[repo] = with_example({'repo_id': repo, 'title': repo.split('/')[-1], 'downloads': metadata.get('downloads', 0),
+            sources[repo] = metadata
+            row = {'repo_id': repo, 'title': repo.split('/')[-1], 'downloads': metadata.get('downloads', 0),
                 'license': card.get('license', next((tag[8:] for tag in tags if str(tag).startswith('license:')), 'Not specified')),
                 'compatibility': match, 'updated_at': metadata.get('lastModified') if isinstance(metadata.get('lastModified'), str) else '', 'warning': warning,
-                'supported': not bool(warning), 'url': 'https://huggingface.co/' + repo}, metadata)
+                'supported': not bool(warning), 'url': 'https://huggingface.co/' + repo, **presentation(metadata)}
+            row = merge_presentation(row, found.get(repo, {}))
+            row.update(remember_content_label(model, repo, row))
+            found[repo] = row
     if errors and len(errors) == len(replies):
         raise ValueError(errors[0])
-    results = sorted(found.values(), key=lambda item: item['updated_at'] or '', reverse=True)
+    hidden = sum(item['content_rating'] == 'adult' for item in found.values()) if not show_adult else 0
+    results = sorted((item for item in found.values() if show_adult or item['content_rating'] != 'adult'),
+                     key=lambda item: item['updated_at'] or '', reverse=True)
     start = page * 20
-    return {'results': results[start:start + 20], 'page': page,
+    displayed = results[start:start + 20]
+    async def enrich(index, item):
+        enriched = await publisher_details(item, sources[item['repo_id']])
+        enriched.update(remember_content_label(model, item['repo_id'], enriched))
+        displayed[index] = enriched
+        found[item['repo_id']] = enriched
+    pending = [asyncio.create_task(enrich(index, item)) for index, item in enumerate(displayed)]
+    if pending:
+        # An unavailable model card must not turn a page into twenty long waits.
+        _, unfinished = await asyncio.wait(pending, timeout=5)
+        for task in unfinished:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+    hidden += sum(item['content_rating'] == 'adult' for item in displayed) if not show_adult else 0
+    labels = {repo: {field: item.get(field) for field in ('content_rating', 'content_rating_source')}
+              for repo, item in found.items()}
+    # Also revoke consent for publisher URLs learned on an earlier search page.
+    for repo, item in found.items():
+        if item['content_rating'] == 'adult':
+            with_example(item, sources[repo], show_adult=False)
+    return {'results': [with_example(item, sources[item['repo_id']], show_adult=show_adult) for item in displayed
+                        if show_adult or item['content_rating'] != 'adult'], 'page': page, 'hidden_count': hidden,
+            'content_labels': labels,
             'next_page': page + 1 if page < 4 and len(results) > start + 20 else None,
             'checked_at': now(), 'warning': errors[0] if errors else ''}
 
@@ -191,6 +249,12 @@ async def repository_files(model, repo, revision=None):
     files_meta = await hub_json(path + '/revision/' + resolved, {'blobs': 'true'})
     if not isinstance(files_meta, dict) or files_meta.get('sha') != resolved or not isinstance(files_meta.get('siblings'), list):
         raise ValueError('Hugging Face returned an invalid file list for the selected revision.')
+    details = await publisher_details({'repo_id': repo, **presentation(metadata)}, metadata)
+    details = merge_presentation(details, presentation(files_meta))
+    details.update(remember_content_label(model, repo, details))
+    example = publisher_example(files_meta, repo) or publisher_example(metadata, repo)
+    if example:
+        details['publisher_example_url'] = example
     files = []
     for item in files_meta.get('siblings', []):
         if not isinstance(item, dict):
@@ -205,7 +269,8 @@ async def repository_files(model, repo, revision=None):
         digest = lfs.get('sha256', lfs.get('oid', ''))
         size = lfs.get('size', item.get('size'))
         if type(size) is int and 0 < size <= 8 * 1024 ** 3 and isinstance(digest, str) and re.fullmatch('[a-f0-9]{64}', digest):
-            entry = {'filename': filename, 'bytes': size, 'sha256': digest, 'compatibility': match}
+            entry = {'filename': filename, 'bytes': size, 'sha256': digest, 'compatibility': match,
+                     **{key: details.get(key) for key in ('description', 'content_rating', 'content_rating_source', 'source_url')}}
             reviewed = curated_entry(model, repo, filename, resolved)
             if reviewed and reviewed['bytes'] == size and reviewed['sha256'] == digest:
                 entry.update(compatibility='curated', **{key: reviewed[key] for key in PRESENTATION_FIELDS if key in reviewed})
@@ -213,6 +278,7 @@ async def repository_files(model, repo, revision=None):
     curated = curated_entry(model, repo)
     files.sort(key=lambda item: (item['filename'] != (curated or {}).get('filename'), item['filename']))
     return {'repo_id': repo, 'revision': resolved, 'compatibility': match,
+            **{key: details.get(key) for key in ('description', 'content_rating', 'content_rating_source', 'source_url', 'publisher_example_url')},
             'files': files, 'checked_at': now(), 'warning': SPECIAL_WORKFLOWS.get(repo.casefold(), ''),
             'supported': repo.casefold() not in SPECIAL_WORKFLOWS,
             'license': metadata['cardData'].get('license', 'Not specified') if isinstance(metadata.get('cardData'), dict) else 'Not specified'}
@@ -254,7 +320,7 @@ def installed_path(entry):
     return path
 
 
-def installed(model=None):
+def installed(model=None, *, show_adult=False):
     entries = []
     for entry in read_registry().values():
         if not isinstance(entry, dict) or model and entry.get('model') != model:
@@ -278,7 +344,7 @@ def installed(model=None):
                     public['compatibility'] = 'curated'
                 if entry['repo_id'].casefold() in SPECIAL_WORKFLOWS:
                     public.update(supported=False, warning=SPECIAL_WORKFLOWS[entry['repo_id'].casefold()])
-                entries.append(with_example(public))
+                entries.append(with_example(with_discovered_label(public), show_adult=show_adult))
         except (OSError, ValueError):
             continue
     return entries
@@ -378,6 +444,9 @@ class LoraDownloadManager:
                 'title': curated['title'] if curated else PurePosixPath(payload.filename).stem,
                 'compatibility': match, 'license': files['license'], 'installed_at': now(),
                 'comfy_filename': 'local-image/' + payload.model + '-' + identity + '.safetensors'}
+            entry.update({key: files.get(key) for key in ('description', 'content_rating', 'content_rating_source', 'source_url', 'publisher_example_url')})
+            if entry.get('content_rating') not in ('adult', 'general', 'unknown'):
+                entry.update(content_rating='unknown', content_rating_source=None)
             if curated:
                 entry.update({key: curated[key] for key in PRESENTATION_FIELDS if key in curated})
             target = installed_path(entry)
@@ -403,37 +472,58 @@ manager = LoraDownloadManager()
 
 
 @router.get('')
-async def library(request: Request, model: ModelId | None = None):
+async def library(request: Request, model: ModelId | None = None, show_adult: bool = False):
     guard(request)
-    return {'installed': installed(model), 'curated': [with_example(dict(item, compatibility='curated', supported=True))
+    return {'installed': installed(model, show_adult=show_adult), 'curated': [with_example(with_discovered_label(dict(item, compatibility='curated', supported=True)), show_adult=show_adult)
             for item in CURATED if model is None or item['model'] == model], 'job': manager.status()}
 
 
+class LoraPreferences(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    show_adult_content: bool
+
+
+@router.get('/preferences')
+async def preferences(request: Request):
+    guard(request)
+    return {'show_adult_content': read_config().get('lora_show_adult_content', False)}
+
+
+@router.post('/preferences')
+async def save_preferences(request: Request, payload: LoraPreferences):
+    guard(request, True)
+    config = write_config({'lora_show_adult_content': payload.show_adult_content})
+    return {'show_adult_content': config.get('lora_show_adult_content', False)}
+
+
 @router.get('/preview/{identity}')
-async def lora_example(identity: str, request: Request):
+async def lora_example(identity: str, request: Request, show_adult: bool = False, show_unrated: bool = False):
     guard(request)
     try:
-        return Response(await example_preview(identity), media_type='image/png',
-                        headers={'Cache-Control': 'private, max-age=600'})
+        return Response(await example_preview(identity, show_adult=show_adult, show_unrated=show_unrated), media_type='image/png',
+                        headers={'Cache-Control': 'private, no-store' if show_adult or show_unrated else 'private, max-age=600'})
     except (ValueError, aiohttp.ClientError, asyncio.TimeoutError) as error:
         raise HTTPException(400, 'Example unavailable. ' + str(error)) from error
 
 
 @router.get('/search')
-async def search(request: Request, model: ModelId, query: str = '', page: int = 0, refresh: bool = False):
+async def search(request: Request, model: ModelId, query: str = '', page: int = 0, refresh: bool = False, show_adult: bool = False):
     guard(request)
     try:
         # Always live: refresh intentionally does not rely on an application cache.
-        return await search_hub(model, query, page)
+        return await search_hub(model, query, page, show_adult=show_adult)
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
 
 
 @router.get('/files')
-async def files(request: Request, model: ModelId, repo_id: str, revision: str | None = None):
+async def files(request: Request, model: ModelId, repo_id: str, revision: str | None = None, show_adult: bool = False):
     guard(request)
     try:
-        return await repository_files(model, repo_id, revision)
+        result = await repository_files(model, repo_id, revision)
+        if result.get('content_rating') == 'adult' and not show_adult:
+            result.update(files=[], warning='This publisher marks the adapter as mature content. Enable Show mature content to browse it.', hidden_count=1)
+        return result
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
 

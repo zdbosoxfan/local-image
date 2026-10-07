@@ -90,15 +90,18 @@ export interface LoraItem {
   recommended_strength?: number;
   preview_url?: string;
   preview_available?: boolean;
+  preview_requires_consent?: boolean;
   example_source?: string;
   example_caption?: string;
+  content_rating?: 'adult' | 'unknown' | 'general';
+  content_rating_source?: string | null;
 }
 export interface LoraInventory {
   installed: LoraItem[];
   curated: LoraItem[];
   job?: DownloadJob;
 }
-export interface LoraFiles {
+export interface LoraFiles extends Pick<LoraItem, 'description' | 'content_rating' | 'content_rating_source'> {
   model?: string;
   repo_id: string;
   revision: string;
@@ -177,6 +180,9 @@ export interface ModelsSnapshot {
   info: LoraItem | null;
   loraJob: DownloadJob | null;
   checkedAt: number | null;
+  showAdultContent: boolean;
+  savingContentPreference: boolean;
+  searchHiddenCount: number;
 }
 declare global {
   interface Window {

@@ -13,7 +13,7 @@ const html=fs.readFileSync(path.join(root,'backend/local_remove.html'),'utf8')
   .replace('__EDITOR_SCRIPT__',fs.readFileSync(path.join(root,'backend/frontend/editor.js'),'utf8'))
   .replaceAll('__APP_ICON__','data:image/png;base64,'+fs.readFileSync(path.join(root,'backend/frontend/app-icon.png')).toString('base64')).replaceAll('__NONCE__','test-nonce').replaceAll('__TOKEN__','test-token');
 const candidate={id:'existing-comfy-1',name:'ComfyUI',path:'C:\\Photo tools\\ComfyUI',kind:'source',startable:true};
-const fixture=()=>({installation:null,installations:[candidate],managed_directory:'C:\\Photo tools',install_directory:'C:\\Photo tools\\LocalRemove-ComfyUI',portable:{version:'test-release',download_bytes:3300000000,minimum_free_bytes:12884901888},storage:{portable_folder:{directory:'C:\\Photo tools',free_bytes:200000000000},model_folder:{directory:'D:\\Photo Models',free_bytes:450000000000}},model_directory:'',models:[
+const fixture=()=>({installation:null,installations:[candidate],managed_directory:'C:\\Photo tools',install_directory:'C:\\Photo tools\\LocalImage-ComfyUI',portable:{version:'test-release',download_bytes:3300000000,minimum_free_bytes:12884901888},storage:{portable_folder:{directory:'C:\\Photo tools',free_bytes:200000000000},model_folder:{directory:'D:\\Photo Models',free_bytes:450000000000}},model_directory:'',models:[
   {name:'flux-2-klein-base-4b.safetensors',folder:'diffusion_models',label:'FLUX.2 Klein',exists:false,bytes:0,expected_bytes:7751105712},
   {name:'qwen_3_4b.safetensors',folder:'text_encoders',label:'Text encoder',exists:false,bytes:0,expected_bytes:8044982048},
   {name:'flux2-vae.safetensors',folder:'vae',label:'Image decoder',exists:false,bytes:0,expected_bytes:336211292},
@@ -64,7 +64,7 @@ async function main(){
     assert.equal(await page.locator('#ai-model-files').isVisible(),false,'Model file details start collapsed');
     assert.equal(await page.locator('#ai-install').isVisible(),false,'Portable install stays inside its own disclosure');
     assert.equal(await page.locator('#ai-download').isVisible(),false,'Optional FLUX download is not presented as required setup');
-    assert.equal(await page.locator('#ai-install-path').textContent(),'C:\\Photo tools\\LocalRemove-ComfyUI','Actual portable target is shown before installing');
+    assert.equal(await page.locator('#ai-install-path').textContent(),'C:\\Photo tools\\LocalImage-ComfyUI','Actual portable target is shown before installing');
     assert.match(await page.locator('#ai-install-space').textContent(),/Runtime download:.*Allow 12.0 GB.*available/,'Runtime download and drive space are separate from model storage');
     assert.match(await page.locator('#ai-model-space').textContent(),/available on this drive/);
     const modelSummary=page.locator('#ai-flux-options > summary');

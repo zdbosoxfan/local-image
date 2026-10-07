@@ -9,6 +9,7 @@ import ctypes
 import hashlib
 import json
 import os
+import re
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import shutil
 import socket
@@ -28,7 +29,8 @@ from app_paths import data_root, log_dir, managed_ai_dir, model_directory, read_
 
 GIB = 1024 ** 3
 MAX_EXTRACT_BYTES = 40 * GIB
-MANAGED_FOLDER = 'LocalRemove-ComfyUI'
+MANAGED_FOLDER = 'LocalImage-ComfyUI'
+LEGACY_MANAGED_FOLDER = 'LocalRemove-ComfyUI'
 SEVENZIP_EXE = Path(__file__).resolve().parent / 'tools' / '7zip' / '7za.exe'
 FLUX_NODES = ('UNETLoader', 'LoraLoaderModelOnly', 'CLIPLoader', 'VAELoader', 'CLIPTextEncode',
               'LoadImage', 'VAEEncode', 'ReferenceLatent', 'CFGGuider', 'RandomNoise',
@@ -63,7 +65,7 @@ def writable_directory(value, label='folder'):
     """Preflight download destinations as the unelevated application user."""
     path = local_directory(value)
     if getattr(sys, 'frozen', False):
-        # The frozen backend lives at {app}/backend/LocalRemoveBackend.exe.
+        # The frozen backend lives at {app}/backend/LocalImageBackend.exe.
         # Custom install destinations must stay immutable just like Program Files.
         application = Path(sys.executable).resolve().parent.parent
         if path.is_relative_to(application):
@@ -101,6 +103,19 @@ def _regular_file(path):
         return False
 
 
+def _python_file(path):
+    """Recognize Python executables, including normal POSIX venv symlinks."""
+    path = Path(path)
+    if path.name.lower() == 'python.exe':
+        return _regular_file(path)
+    if sys.platform == 'win32' or not re.fullmatch(r'python(?:3(?:\.\d+)?)?', path.name):
+        return False
+    try:
+        return path.is_file() and os.access(path, os.X_OK) and path.resolve().is_file()
+    except OSError:
+        return False
+
+
 def _code_root(path):
     return (_regular_file(path / 'main.py') and _regular_file(path / 'folder_paths.py')
             and (path / 'comfy').is_dir())
@@ -116,9 +131,13 @@ def installation(path, python=None, base=None, kind=None):
         standalone = code.parent / 'standalone-env' / 'python.exe'
         interpreters = [portable, code / '.venv' / 'Scripts' / 'python.exe',
                         code.parent / '.venv' / 'Scripts' / 'python.exe', standalone]
+        if sys.platform != 'win32':
+            interpreters += [parent / name / 'bin' / 'python'
+                             for parent in (code, code.parent) for name in ('.venv', 'venv', 'standalone-env')]
         if python:
             interpreters.insert(0, Path(python))
-        interpreter = next((item.resolve() for item in interpreters if _regular_file(item)), None)
+        # Resolving the executable symlink would discard its virtual environment.
+        interpreter = next((item.absolute() for item in interpreters if _python_file(item)), None)
         category = kind or ('portable' if interpreter == portable.resolve() else
                             'desktop-standalone' if interpreter == standalone.resolve() else 'source')
         user_base = Path(base).resolve() if base else code
@@ -241,9 +260,11 @@ def desktop_installations():
 def detect_installations():
     config = read_config()
     candidates = [managed_ai_dir() / MANAGED_FOLDER,
+                  managed_ai_dir() / LEGACY_MANAGED_FOLDER,
                   Path.home() / 'ComfyUI', Path.home() / 'ComfyUI_windows_portable',
                   Path.home() / 'Documents' / 'ComfyUI', Path.home() / 'Documents' / 'ComfyUI_windows_portable',
-                  Path.home() / 'Downloads' / 'ComfyUI_windows_portable']
+                  Path.home() / 'Downloads' / 'ComfyUI_windows_portable',
+                  Path.home() / '.local' / 'share' / 'comfyui' / 'ComfyUI']
     for name in ('comfy_directory', 'managed_comfy_directory'):
         if config.get(name):
             candidates.insert(0, Path(config[name]))
@@ -363,7 +384,7 @@ async def download_verified(artifact, target, progress=lambda done, total: None)
     temporary = target.with_name('.' + target.name + '.local-remove-' + uuid.uuid4().hex + '.part')
     timeout = aiohttp.ClientTimeout(total=None, connect=30, sock_read=180)
     try:
-        async with aiohttp.ClientSession(timeout=timeout, headers={'User-Agent': 'LocalRemove/0.2'}) as client:
+        async with aiohttp.ClientSession(timeout=timeout, headers={'User-Agent': 'LocalImage/0.7'}) as client:
             address = checked_download_url(artifact['url'])
             for _ in range(8):
                 async with client.get(address, allow_redirects=False) as response:
@@ -518,7 +539,7 @@ async def comfy_request(path, body=None, *, port=None):
 def workflow_readiness(info):
     """Check what the running ComfyUI can actually execute and load."""
     if not isinstance(info, dict) or any(node not in info for node in FLUX_NODES):
-        return {'ready': False, 'reason': 'The running ComfyUI is missing FLUX Klein support. Update it, or use the dedicated Local Remove installation.'}
+        return {'ready': False, 'reason': 'The running ComfyUI is missing FLUX Klein support. Update it, or use the dedicated Local Image installation.'}
     def choices(node, name):
         try:
             values = info[node]['input']['required'][name][0]
@@ -532,7 +553,7 @@ def workflow_readiness(info):
     missing = [artifact['name'] for node, key, artifact in loaders if artifact['name'] not in choices(node, key)]
     if missing:
         return {'ready': False, 'reason': 'The running ComfyUI cannot see these FLUX files: ' + ', '.join(missing)
-                + '. Download them if needed, then restart ComfyUI with the selected model folder. Local Remove leaves other running instances unchanged.'}
+                + '. Download them if needed, then restart ComfyUI with the selected model folder. Local Image leaves other running instances unchanged.'}
     return {'ready': True, 'reason': ''}
 
 
@@ -590,7 +611,7 @@ def launch_command(item, port, extra_config):
     # Revalidate both known files just before starting; no .bat, shell, or page flags.
     code = Path(item['path'])
     interpreter = Path(item['python'])
-    if not _code_root(code) or not _regular_file(interpreter) or interpreter.name.lower() != 'python.exe':
+    if not _code_root(code) or not _python_file(interpreter):
         raise SetupError('The selected ComfyUI runtime is incomplete. Choose another installation.')
     command = [str(interpreter), '-s', str(code / 'main.py'), '--listen', '127.0.0.1',
                '--port', str(port), '--disable-auto-launch', '--extra-model-paths-config', str(extra_config)]
@@ -612,15 +633,31 @@ def launch_command(item, port, extra_config):
 
 @contextmanager
 def external_process_environment():
-    """Keep an external ComfyUI runtime independent of PyInstaller's DLLs."""
+    """Keep an external ComfyUI runtime independent of bundled libraries."""
     environment = os.environ.copy()
-    if sys.platform != 'win32' or not getattr(sys, 'frozen', False):
+    if not getattr(sys, 'frozen', False):
         yield environment
         return
     bundle = Path(sys._MEIPASS).resolve()
-    if 'PATH' in environment:
-        environment['PATH'] = os.pathsep.join(entry for entry in environment['PATH'].split(os.pathsep)
-            if not Path(os.path.expandvars(entry.strip('"'))).resolve().is_relative_to(bundle))
+    for key in ('PATH', 'QT_PLUGIN_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH', 'QML2_IMPORT_PATH', 'QML_IMPORT_PATH'):
+        if key in environment:
+            environment[key] = os.pathsep.join(entry for entry in environment[key].split(os.pathsep)
+                if not Path(os.path.expandvars(entry.strip('"'))).resolve().is_relative_to(bundle))
+            if key != 'PATH' and not environment[key]:
+                environment.pop(key)
+    if sys.platform.startswith('linux'):
+        original = environment.pop('LD_LIBRARY_PATH_ORIG', None)
+        if original is None:
+            environment.pop('LD_LIBRARY_PATH', None)
+        else:
+            environment['LD_LIBRARY_PATH'] = original
+        # Only the child's environment changes; the frozen editor keeps its
+        # compatible library paths for later imports and bundled helpers.
+        yield environment
+        return
+    if sys.platform != 'win32':
+        yield environment
+        return
     # PyInstaller documents that SetDllDirectory is inherited by subprocesses.
     # This block is synchronous: restore the exact parent setting before any
     # coroutine can launch another helper or import a lazily loaded extension.
@@ -733,7 +770,7 @@ class SetupManager:
         result = {'installation': item, 'installations': detect_installations(),
                 'managed_directory': str(managed_ai_dir()), 'model_directory': str(root),
                 'install_directory': str(managed_ai_dir() / MANAGED_FOLDER),
-                'portable': {'version': COMFY_RELEASE['version'], 'download_bytes': COMFY_RELEASE['bytes'],
+                'portable': {'available': sys.platform == 'win32', 'version': COMFY_RELEASE['version'], 'download_bytes': COMFY_RELEASE['bytes'],
                              'minimum_free_bytes': 12 * GIB, 'model_downloads_separate': True,
                              'gpu_requirement': 'NVIDIA GPU with a compatible CUDA driver'},
                 'storage': {'model_folder': folder_storage(root), 'portable_folder': folder_storage(managed_ai_dir())},
@@ -744,6 +781,8 @@ class SetupManager:
         return result
 
     async def install(self, directory=None):
+        if sys.platform != 'win32':
+            raise SetupError('Choose an existing ComfyUI installation. The portable package is for Windows.')
         parent = writable_directory(str(directory or managed_ai_dir()), 'portable installation folder')
         parent.mkdir(parents=True, exist_ok=True)
         destination = parent / MANAGED_FOLDER

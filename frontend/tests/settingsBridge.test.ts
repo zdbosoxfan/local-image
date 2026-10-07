@@ -56,6 +56,7 @@ test('settings bridge exposes fixed allowlisted native operations without listen
   ])
     await bridge[method]();
   await bridge.useInstallation('candidate-1');
+  await bridge.downloadModel('qwen', 'int8');
   assert.deepEqual(
     calls.map(call => call.action),
     [
@@ -68,10 +69,12 @@ test('settings bridge exposes fixed allowlisted native operations without listen
       'setupEject',
       'configureAi',
       'setupUseInstallation',
+      'setupDownloadGenerationModel',
     ],
   );
   assert.ok(calls.every(call => call.files === null));
-  assert.equal(JSON.stringify(calls.at(-1)?.details), JSON.stringify({ installation_id: 'candidate-1' }));
+  assert.equal(JSON.stringify(calls.at(-2)?.details), JSON.stringify({ installation_id: 'candidate-1' }));
+  assert.equal(JSON.stringify(calls.at(-1)?.details), JSON.stringify({ model: 'qwen', variant: 'int8' }));
   assert.equal('nativeRequest' in bridge, false);
   assert.equal('request' in bridge, false);
   bridge.setOverwritePreference(false);
@@ -90,5 +93,6 @@ test('settings bridge exposes fixed allowlisted native operations without listen
   assert.equal(context.qwenStatus, null);
   context.nativeSetup = false;
   await assert.rejects(bridge.installRuntime(), /desktop host/);
-  assert.equal(calls.length, 9, 'Unsupported setup capability does not send a native request');
+  await assert.rejects(bridge.downloadModel('qwen', 'int8'), /desktop host/);
+  assert.equal(calls.length, 10, 'Unsupported setup capability does not send a native request');
 });

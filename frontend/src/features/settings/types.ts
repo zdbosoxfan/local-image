@@ -1,3 +1,5 @@
+import type { BrowserModel, ModelDownloads } from '../models/types.ts';
+
 export type SettingsView = 'settings' | 'hardware' | 'shortcuts' | null;
 export type InterfaceDensity = 'compact' | 'comfortable' | 'large';
 export interface SetupInstallation {
@@ -15,6 +17,7 @@ export interface SetupFile {
   expected_bytes?: number;
 }
 export interface SetupJob {
+  id?: string;
   status: 'running' | 'complete' | 'error' | string;
   action?: string;
   message?: string;
@@ -47,7 +50,7 @@ export interface SetupState {
     qwen_ready?: boolean;
     flux_ready?: boolean;
   };
-  portable?: { download_bytes?: number; minimum_free_bytes?: number };
+  portable?: { available?: boolean; download_bytes?: number; minimum_free_bytes?: number };
   storage?: {
     portable_folder?: { free_bytes?: number; error?: string };
     model_folder?: { free_bytes?: number; error?: string };
@@ -70,6 +73,9 @@ export interface HardwareGuide {
   note?: string;
   profiles?: Array<{ label: string; vram: string; detail?: string; basis?: string; source_url?: string }>;
 }
+export interface HardwarePreference {
+  dont_show_again: boolean | null;
+}
 export interface AcceptedConfiguration {
   settings?: RemovalSettings;
   status?: BackendStatus;
@@ -90,6 +96,7 @@ export type SetupAction =
   | 'installRuntime'
   | 'chooseModelDirectory'
   | 'downloadRemovalModels'
+  | 'downloadModel'
   | 'startBackend'
   | 'ejectModels'
   | 'useInstallation'
@@ -108,6 +115,7 @@ export interface SettingsBridge {
   installRuntime(): Promise<unknown | null>;
   chooseModelDirectory(): Promise<unknown | null>;
   downloadRemovalModels(): Promise<unknown | null>;
+  downloadModel(model: string, variant: string): Promise<unknown | null>;
   startBackend(): Promise<unknown | null>;
   ejectModels(): Promise<unknown | null>;
   useInstallation(id: string): Promise<unknown | null>;
@@ -119,7 +127,14 @@ export interface SettingsSnapshot {
   loading: boolean;
   pendingAction: SetupAction | null;
   setup: SetupState | null;
+  models: BrowserModel[];
+  modelCatalogAvailable: boolean;
+  modelDownloads: ModelDownloads | null;
+  selectedModelId: string;
+  selectedVariant: string;
   hardware: HardwareGuide | null;
+  hideHardwareGuide: boolean;
+  savingHardwarePreference: boolean;
   capabilities: SettingsCapabilities;
   preferences: SettingsPreferences;
   error: string;

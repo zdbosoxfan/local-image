@@ -22,7 +22,7 @@ from generation_resolution import resolution_limits
 from app_paths import model_directory
 from stock_attribution import collect_attributions, unique_attributions
 from comfy_inventory import read_inventory
-from operation_progress import operation, snapshot as progress_snapshot
+from operation_progress import operation, snapshot as progress_snapshot, cancel as cancel_operation, OperationCancelled, CancellationUnavailable
 
 router = APIRouter(prefix='/api/local-remove/generation')
 MODEL_DEFAULTS = {
@@ -44,6 +44,7 @@ class LoraSelection(BaseModel):
 
 class GenerationRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
+    operation_id: str | None = Field(default=None, min_length=36, max_length=36, pattern=r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
     model: Literal['qwen', 'z-image-turbo', 'flux2-dev', 'flux2-klein-4b', 'flux2-klein-9b', 'hidream-o1', 'ernie-image'] = 'qwen'
     variant: Literal['int8', 'bf16', 'fp8'] | None = None
     prompt: str = Field(min_length=1, max_length=4000)
@@ -185,6 +186,24 @@ async def generation_progress(request: Request):
     return progress_snapshot()
 
 
+class CancelRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    job_id: str = Field(pattern=r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+
+
+@router.post('/cancel')
+async def cancel_generation(request: Request, payload: CancelRequest):
+    editor.guard(request, True)
+    try:
+        return await cancel_operation(payload.job_id)
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from error
+    except CancellationUnavailable as error:
+        raise HTTPException(503, str(error)) from error
+    except Exception as error:
+        raise HTTPException(503, 'The AI backend could not confirm stopping the image. Check its connection and try again.') from error
+
+
 def generation_parameters(payload):
     defaults = MODEL_DEFAULTS[payload.model]
     return validate_generation_metadata({'model': payload.model, 'variant': payload.variant or defaults['variant'],
@@ -279,9 +298,10 @@ async def generate_image(request: Request, payload: GenerationRequest):
             attributions = unique_attributions(attributions)
             if generation_lock.locked():
                 raise HTTPException(409, 'Another image operation started. Generate again when it has finished.')
-            with operation(parameters['model']) as progress:
+            with operation(parameters['model'], job_id=payload.operation_id) as progress:
                 async with generation_lock:
                     image = await execute_generation(parameters, payload, references, loras)
+                    progress.prevent_cancel()
                     progress.update('saving')
                     session = await asyncio.to_thread(create_generated_session, image, parameters, directory, attributions)
                 from generation_library import add_generated
@@ -291,6 +311,8 @@ async def generate_image(request: Request, payload: GenerationRequest):
                 except (ValueError, OSError) as error:
                     warning = 'The image opened successfully, but its library copy could not be saved: ' + str(error)
             return {'session': session, **parameters, 'library_warning': warning}
+    except OperationCancelled as error:
+        raise HTTPException(409, 'Image operation cancelled.') from error
     except HTTPException:
         raise
     except (qwen_image.QwenImageError, z_image.ZImageError, flux2_image.Flux2ImageError, hidream_image.HiDreamImageError, ernie_image.ErnieImageError, ValueError) as error:

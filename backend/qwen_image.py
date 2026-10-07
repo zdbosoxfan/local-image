@@ -157,7 +157,7 @@ def build_qwen_workflow(models, *, prompt, negative_prompt='', references=(), si
               'cfg': float(cfg), 'sampler_name': 'euler', 'scheduler': 'simple', 'denoise': 1.0,
               'positive': ['4', 0], 'negative': ['4', 1], 'latent_image': ['4', 2] if references else ['5', 0]}},
         '7': {'class_type': 'VAEDecode', 'inputs': {'samples': ['6', 0], 'vae': ['3', 0]}},
-        '8': {'class_type': 'SaveImage', 'inputs': {'images': ['7', 0], 'filename_prefix': 'LocalRemove_Qwen21'}},
+        '8': {'class_type': 'SaveImage', 'inputs': {'images': ['7', 0], 'filename_prefix': 'LocalImage_Qwen21'}},
     }
     from lora_workflow import add_lora_chain
     model_link = add_lora_chain(graph, ['1', 0], loras)

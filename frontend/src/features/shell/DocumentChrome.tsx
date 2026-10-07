@@ -1,5 +1,20 @@
-import type { CSSProperties } from 'react';
-import { Button, Select, Slider, Toolbar, ToolbarButton } from '@fluentui/react-components';
+import { useEffect, useRef, type CSSProperties } from 'react';
+import {
+  Button,
+  Menu,
+  MenuItem,
+  MenuList,
+  MenuPopover,
+  MenuTrigger,
+  Slider,
+  Tab,
+  TabList,
+  Toolbar,
+  ToolbarButton,
+  Tooltip,
+} from '@fluentui/react-components';
+import { Icon } from './Icon.tsx';
+import { ChoiceMenu } from './ChoiceMenu.tsx';
 import './shell.css';
 
 export interface DocumentChromeState {
@@ -30,6 +45,154 @@ export interface DocumentChromeActions {
   zoomBy(factor: number): void;
   fit(): void;
 }
+export interface OpenDocumentTab {
+  id: string;
+  name: string;
+  dirty?: boolean;
+  project_dirty?: boolean;
+}
+export function DocumentTabs({
+  documents,
+  activeId,
+  busy,
+  onSelect,
+  onClose,
+  onNew,
+}: {
+  documents: readonly OpenDocumentTab[];
+  activeId: string | null;
+  busy: boolean;
+  onSelect(id: string): unknown;
+  onClose(id: string): unknown;
+  onNew(): unknown;
+}) {
+  const list = useRef<HTMLDivElement>(null),
+    newButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    list.current
+      ?.querySelector<HTMLElement>('[aria-selected="true"]')
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [activeId]);
+  async function close(id: string) {
+    const hadFocus = !!list.current?.contains(document.activeElement),
+      closed = await onClose(id);
+    if (closed && hadFocus)
+      requestAnimationFrame(() => {
+        const tab =
+          list.current?.querySelector<HTMLElement>('[aria-selected="true"]') ||
+          list.current?.querySelector<HTMLElement>('[role="tab"]');
+        if (tab) tab.focus();
+        else newButton.current?.focus();
+      });
+  }
+  return (
+    <section className="li-open-documents" aria-label="Open image workspaces">
+      {documents.length ? (
+        <div className="li-open-documents-scroll">
+          <TabList
+            ref={list}
+            size="small"
+            aria-label="Open images"
+            selectedValue={activeId}
+            onTabSelect={(_, data) => {
+              if (!busy) void onSelect(String(data.value));
+            }}
+          >
+            {documents.map(item => (
+              <div key={item.id} className="li-open-document" data-selected={item.id === activeId}>
+                <Tooltip
+                  content={`${item.name}${item.dirty || item.project_dirty ? ' · Unsaved changes' : ''}`}
+                  relationship="description"
+                >
+                  <Tab
+                    value={item.id}
+                    disabled={busy}
+                    aria-controls="editor-layout"
+                    aria-label={`${item.name}${item.dirty || item.project_dirty ? ', unsaved changes' : ''}`}
+                    onKeyDown={event => {
+                      if (event.key === 'Delete' && !busy) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        void close(item.id);
+                      }
+                    }}
+                  >
+                    <span className="li-open-document-name">{item.name}</span>
+                    {(item.dirty || item.project_dirty) && (
+                      <span className="li-open-document-dirty" aria-hidden="true">
+                        •
+                      </span>
+                    )}
+                  </Tab>
+                </Tooltip>
+                <Tooltip content="Close image" relationship="description">
+                  <Button
+                    size="small"
+                    appearance="subtle"
+                    className="li-open-document-close"
+                    aria-label={`Close ${item.name}`}
+                    disabled={busy}
+                    tabIndex={-1}
+                    data-tabster='{"focusable":{"excludeFromMover":true}}'
+                    icon={<Icon name="close" />}
+                    onClick={() => void close(item.id)}
+                  />
+                </Tooltip>
+              </div>
+            ))}
+          </TabList>
+        </div>
+      ) : (
+        <span className="li-empty-workspace">Empty workspace</span>
+      )}
+      {documents.length > 1 && (
+        <Menu>
+          <MenuTrigger disableButtonEnhancement>
+            <Tooltip content="Open images" relationship="description">
+              <Button
+                size="small"
+                appearance="subtle"
+                className="li-open-document-close"
+                aria-label="Open images menu"
+                disabled={busy}
+                icon={<Icon name="more" />}
+              />
+            </Tooltip>
+          </MenuTrigger>
+          <MenuPopover className="li-open-documents-menu" data-react-owned="true">
+            <MenuList aria-label="Open images">
+              {documents.map(item => (
+                <MenuItem
+                  key={item.id}
+                  disabled={busy}
+                  aria-current={item.id === activeId ? 'true' : undefined}
+                  onClick={() => void onSelect(item.id)}
+                >
+                  {item.name}
+                  {item.dirty || item.project_dirty ? ' · Unsaved' : ''}
+                </MenuItem>
+              ))}
+            </MenuList>
+          </MenuPopover>
+        </Menu>
+      )}
+      <Tooltip content="New workspace (Ctrl+N)" relationship="description">
+        <Button
+          ref={newButton}
+          size="small"
+          appearance="subtle"
+          className="li-new-workspace"
+          aria-label="New workspace"
+          disabled={busy}
+          icon={<Icon name="add" />}
+          onClick={() => void onNew()}
+        >
+          <span>New workspace</span>
+        </Button>
+      </Tooltip>
+    </section>
+  );
+}
 export function DocumentBar({ state, actions }: { state: DocumentChromeState; actions: DocumentChromeActions }) {
   const detail = [
     state.dirty ? 'Image modified' : 'Image unchanged',
@@ -47,15 +210,16 @@ export function DocumentBar({ state, actions }: { state: DocumentChromeState; ac
             <span className="li-document-size">
               {state.width} × {state.height} · {state.bitDepth}-bit source
             </span>
-            <Button
-              size="small"
-              appearance="subtle"
-              aria-label="Close image"
-              disabled={state.busy}
-              onClick={() => actions.close()}
-            >
-              ×
-            </Button>
+            <Tooltip content="Close image" relationship="description">
+              <Button
+                size="small"
+                appearance="subtle"
+                aria-label="Close image"
+                disabled={state.busy}
+                icon={<Icon name="close" />}
+                onClick={() => actions.close()}
+              />
+            </Tooltip>
           </>
         )}
       </div>
@@ -112,29 +276,30 @@ export function StatusBar({ state, actions }: { state: DocumentChromeState; acti
         {state.status}
       </span>
       <Toolbar size="small" className="li-zoom-controls" aria-label="Canvas view">
-        <ToolbarButton aria-label="Zoom out" disabled={!state.id} onClick={() => actions.zoomBy(0.8)}>
-          −
-        </ToolbarButton>
-        <Select
-          size="small"
-          aria-label="Image zoom"
-          title={label + ' of full photo size'}
+        <ToolbarButton
+          aria-label="Zoom out"
+          disabled={!state.id}
+          onClick={() => actions.zoomBy(0.8)}
+          icon={<Icon name="subtract" />}
+        />
+        <ChoiceMenu
+          label="Image zoom"
           disabled={!state.id}
           value={value}
-          onChange={(_, data) => {
-            if (data.value !== 'custom') actions.zoom(Number(data.value));
+          choices={[
+            ...(exact === undefined ? [{ value: 'custom', label }] : []),
+            ...presets.map(zoom => ({ value: String(zoom), label: `${zoom * 100}%` })),
+          ]}
+          onSelect={next => {
+            if (next !== 'custom') actions.zoom(Number(next));
           }}
-        >
-          {exact === undefined && <option value="custom">{label}</option>}
-          {presets.map(zoom => (
-            <option key={zoom} value={zoom}>
-              {zoom * 100}%
-            </option>
-          ))}
-        </Select>
-        <ToolbarButton aria-label="Zoom in" disabled={!state.id} onClick={() => actions.zoomBy(1.25)}>
-          +
-        </ToolbarButton>
+        />
+        <ToolbarButton
+          aria-label="Zoom in"
+          disabled={!state.id}
+          onClick={() => actions.zoomBy(1.25)}
+          icon={<Icon name="add" />}
+        />
         <ToolbarButton disabled={!state.id} aria-pressed={state.fit} onClick={actions.fit}>
           Fit
         </ToolbarButton>

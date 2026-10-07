@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { Button, Field, Input, Menu, MenuItem, MenuList, MenuPopover, MenuTrigger } from '@fluentui/react-components';
+import {
+  Button,
+  Field,
+  Input,
+  Menu,
+  MenuItem,
+  MenuList,
+  MenuPopover,
+  MenuTrigger,
+  Tooltip,
+} from '@fluentui/react-components';
 import type { EditorSnapshot, EditorCommands, Layer } from '../../contracts.ts';
 import { Icon } from './Icon.tsx';
 export interface LayerController {
@@ -86,21 +96,26 @@ export function Layers({
       <header className="li-panel-heading">
         <h2>Layers</h2>
         <span className="li-count">{layers.length || ''}</span>
-        <Button
-          size="small"
-          appearance="subtle"
-          aria-label="New retouch layer"
-          title="New retouch layer"
-          disabled={!active}
-          onClick={() => commands.createRetouch()}
-        >
-          +
-        </Button>
+        <Tooltip content="New retouch layer" relationship="description">
+          <Button
+            size="small"
+            appearance="subtle"
+            aria-label="New retouch layer"
+            disabled={!active}
+            icon={<Icon name="add" />}
+            onClick={() => commands.createRetouch()}
+          />
+        </Tooltip>
         <Menu open={menuOpen} onOpenChange={(_, data) => setMenuOpen(data.open)}>
           <MenuTrigger disableButtonEnhancement>
-            <Button size="small" appearance="subtle" aria-label="Layer commands" disabled={!doc}>
-              …
-            </Button>
+            <Button
+              size="small"
+              appearance="subtle"
+              aria-label="Layer commands"
+              title="Layer commands"
+              disabled={!doc}
+              icon={<Icon name="more" />}
+            />
           </MenuTrigger>
           <MenuPopover data-react-owned="true">
             <MenuList>
@@ -228,7 +243,7 @@ export function Layers({
               className="li-thumbnail"
               loading="lazy"
               alt=""
-              src={`/api/local-remove/session/${encodeURIComponent(doc!.id)}/stack/layer/${encodeURIComponent(layer.id)}/display?r=${doc!.revision}`}
+              src={`/api/local-remove/session/${encodeURIComponent(doc!.id)}/stack/layer/${encodeURIComponent(layer.id)}/display?r=${encodeURIComponent(layer.display_key || String(doc!.revision))}`}
             />
             <div
               className="li-layer-label"

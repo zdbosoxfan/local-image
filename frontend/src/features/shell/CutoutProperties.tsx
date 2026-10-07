@@ -14,6 +14,7 @@ import {
 import type { DocumentController } from '../../editor/documentController.ts';
 import type { ShellController } from './shellController.ts';
 import { NumberDraft } from './ToolControls.tsx';
+import { Icon } from './Icon.tsx';
 
 export function CutoutProperties({ controller, shell }: { controller: DocumentController; shell: ShellController }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot),
@@ -35,12 +36,15 @@ export function CutoutProperties({ controller, shell }: { controller: DocumentCo
         appearance="subtle"
         size="small"
         aria-expanded={ui.cutoutProperties}
+        aria-controls="cutout-property-fields"
+        icon={<Icon name={ui.cutoutProperties ? 'chevron-up' : 'chevron-down'} />}
+        iconPosition="after"
         onClick={() => shell.showCutoutProperties(!ui.cutoutProperties)}
       >
-        Edge & shadow {ui.cutoutProperties ? '−' : '+'}
+        Edge & shadow
       </Button>
       {ui.cutoutProperties && (
-        <div className="li-cutout-fields">
+        <div id="cutout-property-fields" className="li-cutout-fields">
           <NumberDraft
             label="Feather"
             value={cutout?.feather ?? 0}
@@ -61,6 +65,7 @@ export function CutoutProperties({ controller, shell }: { controller: DocumentCo
             <>
               <NumberDraft
                 label="Shadow opacity"
+                displayLabel="Opacity"
                 value={Math.round((shadow.opacity ?? 0.25) * 100)}
                 min={0}
                 max={100}
@@ -70,6 +75,7 @@ export function CutoutProperties({ controller, shell }: { controller: DocumentCo
               />
               <NumberDraft
                 label="Shadow softness"
+                displayLabel="Softness"
                 value={shadow.blur ?? 18}
                 min={0}
                 max={100}
@@ -80,6 +86,7 @@ export function CutoutProperties({ controller, shell }: { controller: DocumentCo
               />
               <NumberDraft
                 label="Shadow X"
+                displayLabel="X offset"
                 value={shadow.offset_x ?? 12}
                 min={-1000}
                 max={1000}
@@ -89,6 +96,7 @@ export function CutoutProperties({ controller, shell }: { controller: DocumentCo
               />
               <NumberDraft
                 label="Shadow Y"
+                displayLabel="Y offset"
                 value={shadow.offset_y ?? 20}
                 min={-1000}
                 max={1000}
@@ -98,6 +106,7 @@ export function CutoutProperties({ controller, shell }: { controller: DocumentCo
               />
               <NumberDraft
                 label="Shadow height"
+                displayLabel="Height"
                 value={Math.round((shadow.squeeze ?? 1) * 100)}
                 min={10}
                 max={100}
@@ -151,9 +160,7 @@ export function BackgroundGenerator({ controller, shell }: { controller: Documen
                 onChange={(_, data) => setPrompt(data.value)}
               />
             </Field>
-            <p className="li-generation-note">
-              Creates a separate background layer. Empty-scene instructions exclude people, products and text.
-            </p>
+            <p className="li-generation-note">Adds a separate background layer without people, products or text.</p>
             {!ready && (
               <p role="status">
                 {variant?.reason || state.health.qwen.reason || 'Set up Qwen Image 2.1 to generate a background.'}

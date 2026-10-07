@@ -8,7 +8,7 @@ import { AssetsDock, type AssetsController } from './features/assets/index.ts';
 import { GenerationPanel, type GenerationController } from './features/generation/index.ts';
 import { MenuBar } from './features/shell/MenuBar.tsx';
 import { ToolOptions, ToolRail, WorkspaceTabs } from './features/shell/ToolControls.tsx';
-import { DocumentBar, Filmstrip, StatusBar } from './features/shell/DocumentChrome.tsx';
+import { DocumentBar, DocumentTabs, Filmstrip, StatusBar } from './features/shell/DocumentChrome.tsx';
 import { Layers } from './features/shell/Layers.tsx';
 import { Icon } from './features/shell/Icon.tsx';
 import { CutoutProperties, BackgroundGenerator } from './features/shell/CutoutProperties.tsx';
@@ -46,6 +46,13 @@ export function FullApp({
 }: FullAppProps) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot),
     ui = useSyncExternalStore(shell.subscribe, shell.getSnapshot);
+  const generated = useSyncExternalStore(generation.subscribe, generation.getSnapshot);
+  const activeDocumentId =
+    state.workspace === 'generate' && state.refining
+      ? (generated.selectedResultId ?? generated.selectedDraftId)
+      : state.creatingBlank
+        ? null
+        : (state.document?.id ?? null);
   const commands = commandCatalog(state);
   const variant = state.health.qwen.variants.find(value => value.id === state.tools.qwenVariant),
     klein = state.health.models.find(value => value.id === 'klein');
@@ -82,6 +89,14 @@ export function FullApp({
           setMenu={shell.setMenu}
         />
       </header>
+      <DocumentTabs
+        documents={state.openDocuments}
+        activeId={activeDocumentId}
+        busy={state.busy}
+        onSelect={controller.commands.activateOpenDocument}
+        onClose={controller.commands.closeOpenDocument}
+        onNew={() => execute('newWorkspace')}
+      />
       <div className="li-workspace-bar">
         <WorkspaceTabs state={state.tools} actions={controller.toolActions} />
         <Toolbar className="li-commandbar" aria-label="Editor commands" size="small">
@@ -100,9 +115,6 @@ export function FullApp({
             onClick={() => execute('redo')}
           />
           <span className="li-divider" />
-          <ToolbarButton disabled={!commands.fit.enabled} onClick={() => execute('fit')}>
-            Fit
-          </ToolbarButton>
           <ToolbarButton
             icon={<Icon name="image" />}
             disabled={!commands.showAssets.enabled}
@@ -110,9 +122,11 @@ export function FullApp({
           >
             Assets
           </ToolbarButton>
-          <ToolbarButton id="batch-open" disabled={!commands.showBatch.enabled} onClick={() => execute('showBatch')}>
-            Batch
-          </ToolbarButton>
+          {commands.showBatch.visible && (
+            <ToolbarButton id="batch-open" disabled={!commands.showBatch.enabled} onClick={() => execute('showBatch')}>
+              Remove backgrounds…
+            </ToolbarButton>
+          )}
           <ToolbarButton
             aria-pressed={!state.inspectorHidden}
             aria-controls="inspector-root"

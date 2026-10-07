@@ -7,7 +7,7 @@ import struct
 import sys
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -27,6 +27,7 @@ class LoraLibraryTests(unittest.IsolatedAsyncioTestCase):
         self.module = types.ModuleType('lora_library_under_test')
         self.module.__file__ = str(HERE / 'backend' / 'lora_library.py')
         exec(compile(Path(self.module.__file__).read_text(encoding='utf-8'), self.module.__file__, 'exec'), self.module.__dict__)
+        self.module.model_card = AsyncMock(return_value={})
         self.root = self.fixture.directory / 'models'
         self.module.model_directory = lambda: self.root
         self.module.state_dir = lambda: self.fixture.directory / 'state'
@@ -127,6 +128,100 @@ class LoraLibraryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['results'][0]['compatibility'], 'unverified')
         self.assertEqual(result['results'][0]['updated_at'], '')
 
+    async def test_search_requests_cards_filters_mature_before_paging_and_enriches_pinned_descriptions(self):
+        rows=[{'id':f'artist/mature-{index}','sha':'a'*40,'tags':['lora','not-for-all-audiences'],
+               'lastModified':'2026-10-01','cardData':{'base_model':'Qwen/Qwen-Image-2.1'}} for index in range(6)]
+        rows += [{'id':f'artist/style-{index}','sha':'b'*40,'tags':['lora'],'lastModified':'2026-09-30',
+                  'cardData':{'base_model':'Qwen/Qwen-Image-2.1'}} for index in range(25)]
+        calls=[]
+        async def hub(path,params=None):calls.append(params);return rows
+        self.module.hub_json=hub
+        self.module.model_card=AsyncMock(return_value={'description':'A soft illustrative style supplied by its publisher.',
+                                                      'content_rating':'unknown','content_rating_source':None})
+        result=await self.module.search_hub('qwen')
+        self.assertEqual(len(result['results']),20)
+        self.assertEqual(result['hidden_count'],6)
+        self.assertEqual(result['next_page'],1)
+        self.assertTrue(all(item['content_rating']=='unknown' and item['repo_id'].startswith('artist/style-') for item in result['results']))
+        self.assertTrue(all(item['description'].startswith('A soft illustrative') and '/blob/'+'b'*40+'/README.md' in item['source_url'] for item in result['results']))
+        self.assertTrue(all(params['cardData']=='true' for params in calls))
+        self.assertEqual(self.module.model_card.await_count,20)
+        visible=await self.module.search_hub('qwen',show_adult=True)
+        self.assertEqual(visible['hidden_count'],0)
+        self.assertEqual(sum(item['content_rating']=='adult' for item in visible['results']),6)
+
+    async def test_publisher_description_metadata_avoids_unnecessary_readme_fetch(self):
+        async def hub(path,params=None):
+            return [{'id':'artist/style','sha':'a'*40,'tags':['lora'],
+                     'cardData':{'description':'A **watercolor** adapter for vivid landscape illustrations.'}}]
+        self.module.hub_json=hub
+        result=await self.module.search_hub('qwen')
+        self.assertEqual(result['results'][0]['description'],'A watercolor adapter for vivid landscape illustrations.')
+        self.module.model_card.assert_not_awaited()
+
+    async def test_duplicate_search_reply_cannot_remove_mature_publisher_declaration(self):
+        async def hub(path,params=None):
+            tags=['lora','nsfw'] if params['filter'].startswith('base_model:adapter:') else ['lora']
+            return [{'id':'artist/style','tags':tags}]
+        self.module.hub_json=hub
+        result=await self.module.search_hub('qwen')
+        self.assertEqual(result['results'],[])
+        self.assertEqual(result['hidden_count'],1)
+        visible=await self.module.search_hub('qwen',show_adult=True)
+        self.assertEqual(visible['results'][0]['content_rating'],'adult')
+
+    async def test_filtered_mature_labels_upgrade_curated_recommendations_without_changing_artifact(self):
+        reviewed=self.module.CURATED[0]
+        before=await self.module.library(self.request(),reviewed['model'])
+        original=next(item for item in before['curated'] if item['repo_id']==reviewed['repo_id'])
+        self.assertEqual(original['content_rating'],'unknown')
+        async def hub(path,params=None):
+            return [{'id':reviewed['repo_id'],'tags':['lora','not-for-all-audiences']}]
+        self.module.hub_json=hub
+        found=await self.module.search_hub(reviewed['model'])
+        self.assertEqual(found['results'],[])
+        self.assertEqual(found['content_labels'][reviewed['repo_id']]['content_rating'],'adult')
+        after=await self.module.library(self.request(),reviewed['model'])
+        updated=next(item for item in after['curated'] if item['repo_id']==reviewed['repo_id'])
+        self.assertEqual(updated['content_rating'],'adult')
+        self.assertIsNone(updated['preview_url'])
+        for field in ('model','filename','revision','sha256','bytes'):
+            self.assertEqual(updated[field],original[field])
+        async def unknown(path,params=None):return [{'id':reviewed['repo_id'],'tags':['lora']}]
+        self.module.hub_json=unknown
+        repeated=await self.module.search_hub(reviewed['model'])
+        self.assertEqual(repeated['content_labels'][reviewed['repo_id']]['content_rating'],'adult')
+
+    async def test_repository_metadata_and_file_descriptions_are_retained_but_mature_browse_is_opt_in(self):
+        metadata={'sha':'a'*40,'tags':['not-for-all-audiences'],
+                  'cardData':{'base_model':'Tongyi-MAI/Z-Image-Turbo'},
+                  'siblings':[{'rfilename':'model.safetensors','lfs':{'size':len(self.body),'sha256':self.digest}}]}
+        async def hub(path,params=None):return metadata
+        self.module.hub_json=hub
+        self.module.model_card=AsyncMock(return_value={'description':'A publisher supplied synthetic fixture adapter.', 'content_rating':'unknown'})
+        hidden=await self.module.files(self.request(),'z-image-turbo','artist/style')
+        self.assertEqual(hidden['files'],[])
+        self.assertEqual(hidden['content_rating'],'adult')
+        visible=await self.module.files(self.request(),'z-image-turbo','artist/style',show_adult=True)
+        self.assertEqual(visible['files'][0]['description'],'A publisher supplied synthetic fixture adapter.')
+        self.assertEqual(visible['files'][0]['content_rating'],'adult')
+        self.assertIn('Publisher tag',visible['content_rating_source'])
+
+    async def test_gallery_preference_is_strict_persistent_and_requires_local_csrf(self):
+        self.assertEqual(await self.module.preferences(self.fixture.request()),{'show_adult_content':False})
+        for value in ('true',1,None):
+            with self.assertRaises(ValidationError):self.module.LoraPreferences(show_adult_content=value)
+        payload=self.module.LoraPreferences(show_adult_content=True)
+        for request in (self.fixture.request(token=False),self.fixture.request(origin='https://foreign.example')):
+            with self.assertRaises(HTTPException) as denied:await self.module.save_preferences(request,payload)
+            self.assertEqual(denied.exception.status_code,403)
+        self.module.write_config({'hardware_guide_dismissed':True,'model_directory':'existing-models'})
+        saved=await self.module.save_preferences(self.fixture.request(),payload)
+        self.assertEqual(saved,{'show_adult_content':True})
+        self.assertEqual(await self.module.preferences(self.fixture.request()),saved)
+        self.assertTrue(self.module.read_config()['hardware_guide_dismissed'])
+        self.assertEqual(self.module.read_config()['model_directory'],'existing-models')
+
     async def test_hub_reader_handles_json_split_across_network_packets(self):
         class Stream:
             async def iter_chunked(self, amount):
@@ -158,8 +253,10 @@ class LoraLibraryTests(unittest.IsolatedAsyncioTestCase):
         async def hub(path, params=None): calls.append(path); return metadata
         self.module.hub_json = hub
         result = await self.module.repository_files('z-image-turbo', 'a/b')
-        self.assertEqual(result['files'], [{'filename': 'dir/good.safetensors', 'bytes': 123, 'sha256': 'c' * 64,
-                                            'compatibility': 'declared'}])
+        self.assertEqual(len(result['files']), 1)
+        self.assertEqual({key: result['files'][0][key] for key in ('filename', 'bytes', 'sha256', 'compatibility')},
+                         {'filename': 'dir/good.safetensors', 'bytes': 123, 'sha256': 'c' * 64, 'compatibility': 'declared'})
+        self.assertEqual(result['files'][0]['content_rating'], 'unknown')
         self.assertIn('/revision/' + 'b' * 40, calls[-1])
         metadata['cardData']['base_model'] = 'Tongyi-MAI/Z-Image'
         with self.assertRaises(ValueError): await self.module.repository_files('z-image-turbo', 'a/b')
@@ -223,6 +320,32 @@ class LoraLibraryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.module.resolve_loras('z-image-turbo', []), [])
         self.assertEqual(self.module.resolve_loras('z-image-turbo', [{'id': entry['id'], 'strength': 0.8}]), [(entry['comfy_filename'], 0.8)])
         with self.assertRaises(ValueError): self.module.resolve_loras('qwen', [{'id': entry['id'], 'strength': 1}])
+
+    async def test_explicit_install_keeps_description_rating_and_publisher_provenance_offline(self):
+        self.remote()
+        remote=self.module.repository_files
+        async def files(model,repo,revision=None):
+            value=await remote(model,repo,revision)
+            value.update(description='A publisher supplied metadata test fixture.',content_rating='adult',
+                         content_rating_source='Publisher tag: not-for-all-audiences',
+                         source_url='https://huggingface.co/'+repo+'/blob/'+revision+'/README.md',
+                         publisher_example_url='https://huggingface.co/'+repo+'/resolve/'+revision+'/images/example.png')
+            return value
+        self.module.repository_files=files
+        async def download(artifact,target,progress):
+            target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(self.body)
+        self.module.download_verified=download
+        await self.module.download_begin(self.request(True),self.payload())
+        await self.module.manager.task
+        self.assertEqual(self.module.manager.status()['phase'],'complete')
+        entry=self.module.installed()[0]
+        self.assertEqual(entry['content_rating'],'adult')
+        self.assertEqual(entry['description'],'A publisher supplied metadata test fixture.')
+        self.assertIn('Publisher tag',entry['content_rating_source'])
+        self.assertIsNone(entry['preview_url'])
+        visible=await self.module.library(self.request(),show_adult=True)
+        self.assertTrue(visible['installed'][0]['preview_url'].endswith('?show_adult=true'))
+        self.assertEqual(self.module.resolve_loras('z-image-turbo',[{'id':entry['id'],'strength':1}]),[(entry['comfy_filename'],1.0)])
 
     async def test_resolver_rejects_missing_duplicate_unsafe_strength_and_modified_registry_path(self):
         entry = await self.install_fixture()
@@ -304,7 +427,7 @@ class LoraLibraryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(item['title'], style['title'])
             self.assertEqual(item['trigger_phrase'], style['trigger_phrase'])
             self.assertEqual(item['recommended_strength'], style['recommended_strength'])
-        self.assertNotIn('description', returned['other.safetensors'])
+        self.assertEqual(returned['other.safetensors']['description'], '')
         self.assertEqual(returned['other.safetensors']['compatibility'], 'declared')
         self.assertTrue(all(styles[0]['revision'] in path for path in calls))
 

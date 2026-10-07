@@ -1,6 +1,7 @@
 import type { EditorSnapshot } from '../../contracts.ts';
 
 export type ShellCommand =
+  | 'newWorkspace'
   | 'openFiles'
   | 'openFolder'
   | 'openProject'
@@ -74,6 +75,7 @@ export function commandCatalog(state: ShellView): Record<ShellCommand, CommandIt
     shortcut,
   });
   return {
+    newWorkspace: item('newWorkspace', 'New workspace', idle, 'Ctrl+N'),
     openFiles: item('openFiles', 'Open images…', idle, 'Ctrl+O'),
     openFolder: item('openFolder', 'Open folder…', idle, 'Ctrl+Shift+O'),
     openProject: item('openProject', 'Open project…', idle, 'Ctrl+Alt+O'),
@@ -97,7 +99,10 @@ export function commandCatalog(state: ShellView): Record<ShellCommand, CommandIt
     credits: { ...item('credits', 'Image credits…', idle), visible: !!state.creditsAvailable },
     showAssets: item('showAssets', 'Assets…', idle),
     showGenerated: item('showGenerated', 'Generated library…', idle),
-    showBatch: item('showBatch', 'Batch treatment & export…', idle),
+    showBatch: {
+      ...item('showBatch', 'Remove backgrounds…', idle && state.workspace === 'cutout'),
+      visible: state.workspace === 'cutout',
+    },
     undo: item('undo', state.undoLabel || 'Undo', idle && !!state.canUndo, 'Ctrl+Z'),
     redo: item('redo', state.redoLabel || 'Redo', idle && !!state.canRedo, 'Ctrl+Shift+Z'),
     applySelection: item('applySelection', state.selectionActionLabel || 'Apply selection', !!state.canApplySelection),

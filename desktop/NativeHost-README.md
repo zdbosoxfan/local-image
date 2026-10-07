@@ -1,6 +1,6 @@
 # Local Image desktop host
 
-The Windows Forms host embeds Local Image using Microsoft Edge WebView2. Native Open Files, Open Folder, and Explorer drag-and-drop provide real source locations so approved edits can be saved beside the source image. The launcher credential stays in the native process. The installed host starts the bundled `backend/LocalRemoveBackend.exe` relative to its own executable; no Documents or development workspace folder is used.
+The Windows Forms host embeds Local Image using Microsoft Edge WebView2. Native Open Files, Open Folder, and Explorer drag-and-drop provide real source locations so approved edits can be saved beside the source image. The launcher credential stays in the native process. The installed host starts the bundled `backend/LocalImageBackend.exe` relative to its own executable; no Documents or development workspace folder is used.
 
 Launch `Local Image.exe` normally, with one folder argument, with image-file arguments, or with one `.lremove` project argument. Capture One external-editor image arguments continue to work. The backend starts in the background if needed.
 
@@ -31,6 +31,8 @@ Bridge version 2 reports `{native:true,version:2,projects:true,closeRequests:tru
 The setup bridge reports `setup:true`. `chooseBackgroundFolder` opens a native folder picker and registers only the chosen folder through `/api/local-remove/backgrounds/register-folder`. `setupDownloadQwen` accepts only the `int8` or `bf16` variant, then calls the authenticated Qwen download endpoint. It never accepts a page-supplied URL, destination path or command. Existing ComfyUI discovery, model-folder selection, start and eject actions remain available. The host's backend version check must match the release version, currently 0.7.0.
 
 `batchExportFolder` accepts a canonical prepared queue ID and distinct reviewed item IDs, opens an owned folder picker and supplies only that native-selected destination to the authenticated backend. Browser-provided destinations and commands are ignored. Exports are unique copies; the prepared queue's settings stay fixed through review and export. Credits and ZIP downloads use the same trusted origin and owned Save As handoff as image/project exports. See [batch treatment and export](../docs/BATCH-WORKSPACE.md).
+
+Reviewed selections have no image-count cap. Both native bridges enforce a 16 MiB UTF-8 JSON transport budget to bound message parsing memory, including selections larger than the old 16 KiB request limit. UUID validation and duplicate checks cover every selected image; the Windows duplicate check uses a set so large selections do not require quadratic work.
 
 Native downloads are limited to the same-origin session `download`, `download-project` and `download-credits` routes, plus the prepared batch job's `download` route. They use owned Save As dialogs. The pure self-test covers origin/download boundaries, project and batch payload allowlisting, mixed-argument rejection, project navigation, and close-request correlation/cancellation/replay rejection without starting the editor or backend.
 

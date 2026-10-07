@@ -79,7 +79,8 @@ const defaults: CanvasInteraction = {
  * Central application shortcuts call the exposed methods instead of installing
  * another keyboard handler. See canvasExtraction.ts for source provenance. */
 export function createCanvasController(elements: CanvasElements, ports: CanvasPorts) {
-  const { viewport, stage, photo: baseCanvas, photoImage, overlay, draft, layerStack, brushCursor } = elements;
+  const { viewport, stage, photo: baseCanvas, overlay, draft, layerStack, brushCursor } = elements;
+  let photoImage = elements.photoImage;
   if (owners.has(viewport)) throw Error('This viewport already has a canvas controller.');
   const owner = Symbol('canvas-controller');
   owners.set(viewport, owner);
@@ -92,7 +93,7 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
     dc = draft.getContext('2d')!;
   if (!mc || !bc || !oc || !dc) throw Error('Canvas 2D is unavailable.');
   const views = new Map<string, CanvasViewState>(),
-    assetCache = new Map<string, MoveAsset[]>(),
+    assetCache = new Map<string, { key: string; image: Promise<HTMLImageElement> }>(),
     listeners = new Set<() => void>();
   let document: CanvasDocument | null = null,
     display: CanvasDisplay | null = null,
@@ -110,6 +111,9 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
   let gesture: DrawGesture | PanGesture | CutoutGesture | null = null,
     moving: LayerGesture | null = null,
     brushPointer: ClientPoint | null = null;
+  // Pointer capture ends on release, but its last painted transform stays on
+  // screen until the accepted, decoded composite replaces it.
+  let settling: LayerGesture | CutoutGesture | null = null;
   let legacyTransformAssets: {
     sid: string;
     revision: number;
@@ -124,7 +128,12 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
     ((url: string) =>
       new Promise<HTMLImageElement>((resolve, reject) => {
         const value = ownerDocument.createElement('img');
-        value.onload = () => resolve(value);
+        value.onload = () => {
+          void value.decode().then(
+            () => resolve(value),
+            () => reject(Error('Could not decode the photo')),
+          );
+        };
         value.onerror = () => reject(Error('Could not load the photo'));
         value.src = url;
       }));
@@ -290,7 +299,7 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
     publish();
   }
   function resize() {
-    if (!document) return;
+    if (!document || ports.isEditorHidden?.()) return;
     if (camera.fitMode) {
       fit();
       return;
@@ -405,12 +414,30 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
     refreshMask();
   }
   function paintPhoto() {
-    if (!document || !display) return;
+    if (disposed || !document || !display) return;
+    if (settling?.sid === document.id && settling.revision === document.revision && !interaction.showOriginal) {
+      if (settling.kind === 'transform') paintLegacyTransform(settling.next);
+      else paintMoving(settling);
+      updateCursor();
+      return;
+    }
     bc.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
     const composited = !interaction.showOriginal && (!!document.layer_stack || !!document.cutout?.enabled),
       shown = composited && display.composite ? display.composite : display.original;
+    // Install the image that the loader already decoded. Assigning its URL to
+    // a second <img> would reveal the old frame while that node loads/decodes.
+    if (photoImage !== shown) {
+      shown.id = photoImage.id;
+      shown.className = photoImage.className;
+      shown.alt = photoImage.alt;
+      shown.draggable = false;
+      shown.style.width = `${baseCanvas.width}px`;
+      shown.style.height = `${baseCanvas.height}px`;
+      photoImage.replaceWith(shown);
+      photoImage = shown;
+      elements.photoImage = shown;
+    }
     photoImage.hidden = false;
-    if (photoImage.src !== shown.src) photoImage.src = shown.src;
     stage.classList.toggle('cutout-preview', composited);
     layerStack.hidden = !!document.layer_stack || interaction.showOriginal || composited;
     overlay.hidden = interaction.showOriginal || interaction.workspace === 'generate';
@@ -431,11 +458,12 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
       return;
     dc.clearRect(0, 0, draft.width, draft.height);
     if (!layer.visible || layer.discarded) return;
+    const held = settling && settling.kind !== 'transform' && settling.id === layer.id ? settling.next : null;
     const geometry = layerGeometry(
         document.width,
         document.height,
         layer.bounds,
-        moving?.next || transform(layer),
+        moving?.next || held || transform(layer),
         ratio(),
         camera.zoom,
       ),
@@ -465,27 +493,31 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
     dc.restore();
   }
   async function loadMoveAssets(requested: CanvasDocument) {
-    const key = `${requested.id}:${requested.revision}`,
-      cached = assetCache.get(key);
-    if (cached) return cached;
-    const value = await Promise.all(
-      (requested.layer_stack || [])
-        .filter(node => node.visible && !node.discarded)
-        .map(async node => ({
-          node,
-          image: await image(
-            `/api/local-remove/session/${encodeURIComponent(requested.id)}/stack/layer/${encodeURIComponent(node.id)}/display?r=${requested.revision}`,
-          ),
-        })),
+    const nodes = (requested.layer_stack || []).filter(node => node.visible && !node.discarded);
+    for (const id of assetCache.keys()) if (!nodes.some(node => node.id === id)) assetCache.delete(id);
+    return Promise.all(
+      nodes.map(async node => {
+        const key = node.display_key || String(requested.revision);
+        let cached = assetCache.get(node.id);
+        if (!cached || cached.key !== key) {
+          cached = {
+            key,
+            image: image(
+              `/api/local-remove/session/${encodeURIComponent(requested.id)}/stack/layer/${encodeURIComponent(node.id)}/display?r=${encodeURIComponent(key)}`,
+            ),
+          };
+          assetCache.set(node.id, cached);
+          const pending = cached;
+          void pending.image.catch(() => {
+            if (assetCache.get(node.id) === pending) assetCache.delete(node.id);
+          });
+        }
+        return { node, image: await cached.image };
+      }),
     );
-    if (sameDocument(requested.id, requested.revision)) {
-      assetCache.clear();
-      assetCache.set(key, value);
-    }
-    return value;
   }
-  function paintMoving() {
-    if (!document || !moving?.assets) return;
+  function paintMoving(drag = moving) {
+    if (!document || !drag?.assets) return;
     photoImage.hidden = true;
     layerStack.hidden = true;
     overlay.hidden = true;
@@ -493,8 +525,8 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
     const r = ratio(),
       cx = (document.width - 1) / 2 / r,
       cy = (document.height - 1) / 2 / r;
-    for (const asset of moving.assets) {
-      const next = asset.node.id === moving.id ? moving.next : transform(asset.node);
+    for (const asset of drag.assets) {
+      const next = asset.node.id === drag.id ? drag.next : transform(asset.node);
       bc.save();
       bc.globalAlpha = asset.node.opacity ?? 1;
       bc.translate(cx + next.offset_x / r, cy + next.offset_y / r);
@@ -641,13 +673,18 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
         publish();
         try {
           const assets = await loadMoveAssets(document);
-          if (moving === drag && sameDocument(drag.sid, drag.revision)) {
+          if (
+            (moving === drag || settling === drag) &&
+            document?.id === drag.sid &&
+            document.revision === drag.revision
+          ) {
             drag.assets = assets;
-            paintMoving();
+            if (moving === drag) paintMoving(drag);
+            else paintPhoto();
           }
         } catch (error) {
-          if (moving === drag) {
-            cancelMove();
+          if (moving === drag || settling === drag) {
+            if (moving === drag) cancelMove();
             ports.report?.(error instanceof Error ? error.message : 'Could not load layer preview', true);
           }
         }
@@ -797,6 +834,7 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
       return;
     }
     if (JSON.stringify(drag.next) !== JSON.stringify(drag.original)) {
+      settling = drag;
       try {
         await ports.commitLayerTransform({
           documentId: drag.sid,
@@ -806,10 +844,26 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
         });
       } catch (error) {
         ports.report?.(error instanceof Error ? error.message : 'Could not transform layer', true);
+      } finally {
+        finishSettling(drag);
       }
     }
     paintPhoto();
     publish();
+  }
+  function finishSettling(ended: LayerGesture | CutoutGesture) {
+    if (settling !== ended) return;
+    const accepted = ports.getAcceptedDocument();
+    // If the write succeeded but the preview failed, retain the truthful last
+    // transform until Refresh view presents that accepted revision.
+    if (
+      document?.id === ended.sid &&
+      document.revision === ended.revision &&
+      accepted?.id === ended.sid &&
+      accepted.revision > ended.revision
+    )
+      return;
+    settling = null;
   }
   function pointerUp(event: PointerEvent) {
     if (moving) {
@@ -821,11 +875,17 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
       const previous = gesture,
         next = { ...previous.next },
         changed = next.offset_x !== previous.original.offset_x || next.offset_y !== previous.original.offset_y;
+      const commit = changed && sameDocument(previous.sid, previous.revision) && ports.commitLegacyCutoutTransform;
+      if (commit) settling = previous;
       endGesture();
-      if (changed && sameDocument(previous.sid, previous.revision))
-        void ports
-          .commitLegacyCutoutTransform?.({ documentId: previous.sid, revision: previous.revision, transform: next })
-          .catch(error => ports.report?.(error instanceof Error ? error.message : 'Could not move subject', true));
+      if (commit)
+        void commit({ documentId: previous.sid, revision: previous.revision, transform: next })
+          .catch(error => ports.report?.(error instanceof Error ? error.message : 'Could not move subject', true))
+          .finally(() => {
+            finishSettling(previous);
+            paintPhoto();
+            publish();
+          });
       return;
     }
     if (gesture.kind === 'draw') {
@@ -884,7 +944,7 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
     updateCursor();
   }
   function rememberCurrentView() {
-    if (!document) return;
+    if (!document || ports.isEditorHidden?.()) return;
     cancelMove();
     endGesture();
     views.set(document.id, {
@@ -910,13 +970,14 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
     if (!next) {
       document = null;
       display = null;
+      settling = null;
+      assetCache.clear();
       legacyTransformAssets = null;
       points = [];
       undo = [];
       redo = [];
       hasSelection = false;
       stage.hidden = true;
-      photoImage.removeAttribute('src');
       layerStack.replaceChildren();
       publish();
       return false;
@@ -936,9 +997,10 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
       changedRevision = changedDocument || document?.revision !== next.document.revision;
     if (changedRevision) {
       cancelMove();
+      settling = null;
       legacyTransformAssets = null;
-      assetCache.clear();
     }
+    if (changedDocument) assetCache.clear();
     document = structuredClone(next.document);
     display = next;
     interaction = { ...interaction, ...next.interaction };

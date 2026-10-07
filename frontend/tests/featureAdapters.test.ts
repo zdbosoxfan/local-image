@@ -24,6 +24,7 @@ function fixture() {
   };
   const capabilities = { ready: true, projects: true, setup: true, batch: true, closeRequests: true, version: 2 };
   const docs = {
+    hasCutout: (id: string) => id === 'a',
     getSnapshot: () => snapshot,
     getContext: () => ({ documentId: snapshot.document.id, navigationEpoch: epoch, busy: snapshot.busy }),
     subscribe: () => () => {},
@@ -153,6 +154,15 @@ test('model adapter uses only fixed native actions and preserves null cancellati
     ],
   ]);
   assert.equal('getLegacyLoraPort' in f.adapters.modelBridge, false);
+});
+test('settings model download reuses the existing native generator action', async () => {
+  const f = fixture();
+  assert.equal(await f.adapters.settingsBridge.downloadModel('qwen', 'bf16'), null);
+  await f.adapters.settingsBridge.downloadModel('z-image-turbo', 'bf16');
+  assert.deepEqual(f.calls, [
+    ['model', 'qwen', 'bf16'],
+    ['model', 'z-image-turbo', 'bf16'],
+  ]);
 });
 test('batch pending fingerprint invalidates acknowledgement even when selection remains nonempty', () => {
   const f = fixture(),

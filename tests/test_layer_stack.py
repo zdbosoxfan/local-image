@@ -43,6 +43,35 @@ class LayerStackTests(unittest.IsolatedAsyncioTestCase):
     async def update(self, data, lid, **settings):
         return await self.app.update_stack_layer(data['id'], lid, self.request(), self.app.StackUpdate(revision=data['revision'], **settings))
 
+    async def test_preview_reuses_revision_and_original_cache(self):
+        data = await self.session()
+        with patch.object(self.app, 'render', wraps=self.app.render) as render:
+            first = await self.app.preview(data['id'], self.request(), full=True)
+            second = await self.app.preview(data['id'], self.request(), full=True)
+            self.assertEqual(first.path, second.path)
+            self.assertEqual(render.call_count, 1)
+            changed = await self.update(data, 'original', visible=False)
+            third = await self.app.preview(changed['id'], self.request(), full=True)
+            self.assertNotEqual(first.path, third.path)
+            self.assertEqual(render.call_count, 2)
+
+    async def test_chunked_compositing_preserves_eight_and_sixteen_bit_pixels(self):
+        rng = np.random.default_rng(7)
+        for dtype in (np.uint8, np.uint16):
+            maximum = np.iinfo(dtype).max
+            back = rng.integers(0, maximum+1, (137, 19, 4), dtype=dtype)
+            front = rng.integers(0, maximum+1, back.shape, dtype=dtype)
+            front[:64, :, 3] = 0
+            back[:10, :, 3] = 0
+            front[64:128, :, 3] = maximum
+            fa = front[..., 3:4].astype(np.float64)/maximum
+            ba = back[..., 3:4].astype(np.float64)/maximum
+            alpha = fa+ba*(1-fa)
+            numerator = front[..., :3]*fa+back[..., :3]*ba*(1-fa)
+            rgb = np.divide(numerator, alpha, out=np.zeros_like(numerator), where=alpha>0)
+            expected = np.concatenate((np.rint(rgb), np.rint(alpha*maximum)), axis=2).clip(0,maximum).astype(dtype)
+            np.testing.assert_array_equal(self.app.stack_model.over(back, front), expected)
+
     async def test_stack_scaffold_preserves_revision_and_saved_status_until_actual_edit(self):
         data=await self.session()
         self.assertEqual(data['revision'],0)
@@ -216,6 +245,71 @@ class LayerStackTests(unittest.IsolatedAsyncioTestCase):
         original=await self.app.stack_layer_display(data['id'],'original',self.request())
         with Image.open(original.path) as image:
             self.assertEqual(image.getpixel((0,0)),(170,50,20,255))
+
+    async def test_display_asset_reused_for_canvas_only_changes_and_undo(self):
+        data = await self.cutout(await self.session()); lid = data['selected_layer_id']
+        key = next(node['display_key'] for node in data['layer_stack'] if node['id'] == lid)
+        with patch.object(self.app.stack_model, 'native_layer', wraps=self.app.stack_model.native_layer) as render:
+            first = await self.app.stack_layer_display(data['id'], lid, self.request(), r=key)
+            self.assertIn('immutable', first.headers['cache-control'])
+            data = await self.update(data, 'original', visible=False)
+            data = await self.update(data, lid, name='Moved subject', opacity=.4, transform={'offset_x':5, 'rotation':12})
+            self.assertEqual(next(node['display_key'] for node in data['layer_stack'] if node['id'] == lid), key)
+            second = await self.app.stack_layer_display(data['id'], lid, self.request(), r=key)
+            data = await self.app.undo_stack(data['id'], self.request(), self.app.MergeRequest(revision=data['revision']))
+            third = await self.app.stack_layer_display(data['id'], lid, self.request(), r=key)
+            self.assertEqual(first.path, second.path)
+            self.assertEqual(first.path, third.path)
+            self.assertEqual(render.call_count, 1)
+            legacy = await self.app.stack_layer_display(data['id'], lid, self.request(), r=str(data['revision']))
+            self.assertEqual(legacy.headers['cache-control'], 'no-store')
+
+    async def test_display_asset_invalidated_only_by_its_pixel_edits(self):
+        data = await self.cutout(await self.session()); lid = data['selected_layer_id']
+        paths = [str((await self.app.stack_layer_display(data['id'], lid, self.request())).path)]
+        original_key = data['layer_stack'][0]['display_key']
+        for settings in ({'feather':2}, {'shadow':{'enabled':True, 'blur':1, 'offset_x':3}}):
+            data = await self.app.update_cutout(data['id'], self.request(), self.app.CutoutUpdate(revision=data['revision'], layer_id=lid, **settings))
+            paths.append(str((await self.app.stack_layer_display(data['id'], lid, self.request())).path))
+        erase = Image.new('L', (40,32)); erase.paste(255, (10,8,16,16))
+        data = await self.app.refine_cutout(data['id'], self.request(), self.app.CutoutRefine(revision=data['revision'], layer_id=lid, mask=encoded(erase), operation='erase'))
+        key = next(node['display_key'] for node in data['layer_stack'] if node['id'] == lid)
+        changed = await self.app.stack_layer_display(data['id'], lid, self.request(), r=key)
+        paths.append(str(changed.path))
+        self.assertEqual(len(set(paths)), 4)
+        self.assertEqual(data['layer_stack'][0]['display_key'], original_key)
+        stale = await self.app.stack_layer_display(data['id'], lid, self.request(), r='0'*32)
+        self.assertEqual(stale.headers['cache-control'], 'no-store')
+
+    async def test_display_sprite_excludes_opacity_without_changing_native_export(self):
+        for native in (False, True):
+            with self.subTest(native=native):
+                data = await self.cutout(await self.session(native=native)); lid = data['selected_layer_id']
+                data = await self.update(data, 'original', visible=False)
+                data = await self.update(data, lid, opacity=.25, transform={'offset_x':2})
+                response = await self.app.stack_layer_display(data['id'], lid, self.request())
+                with Image.open(response.path) as sprite:
+                    self.assertEqual(sprite.getpixel((14,12))[3], 255)
+                    self.assertEqual(sprite.getpixel((0,0))[3], 0)
+                stored = self.app.read_session(data['id']); root = self.app.folder(data['id'])
+                raw, icc, _ = self.app.decode_original(root / stored['original'])
+                pixels = self.app.stack_model.render_native(stored, root, raw, icc, self.app.decode_original)
+                self.assertEqual(pixels[12,16,3], round(np.iinfo(raw.dtype).max*.25))
+                self.assertEqual(pixels.dtype, raw.dtype)
+
+    async def test_display_identity_tracks_retouch_pixel_dependencies(self):
+        data = await self.session(); data = self.fixture.layer(data['id'])
+        stored = self.app.read_session(data['id']); patch_data = stored['layers'][0]
+        node = layer_stack.node('retouch', 'Repair', patch_ids=[patch_data['id']])
+        key = layer_stack.display_key(stored, node)
+        for field, value in (('name', 'Renamed'), ('visible', False), ('opacity', .2), ('transform', {'offset_x':5, 'offset_y':0, 'scale':1, 'rotation':0})):
+            modified = copy.deepcopy(node); modified[field] = value
+            self.assertEqual(layer_stack.display_key(stored, modified), key)
+        for field, value in (('x', 11), ('color', 'new-color.png'), ('mask', 'new-mask.png'), ('snapshot', 'new-snapshot.tif'), ('visible', False), ('discarded', True)):
+            modified = copy.deepcopy(stored); modified['layers'][0][field] = value
+            self.assertNotEqual(layer_stack.display_key(modified, node), key)
+        unrelated = copy.deepcopy(stored); unrelated['layers'].append({**patch_data, 'id':'0'*32, 'x':20})
+        self.assertEqual(layer_stack.display_key(unrelated, node), key)
 
     async def test_project_rejects_hash_valid_but_truncated_layer_png(self):
         data=await self.session(); root=self.app.folder(data['id'])

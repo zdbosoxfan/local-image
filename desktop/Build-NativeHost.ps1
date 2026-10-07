@@ -13,12 +13,12 @@ if (-not (Test-Path -LiteralPath (Join-Path $packageRoot 'lib\net462\Microsoft.W
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $assembly = Join-Path $OutputDirectory 'Local Image.exe'
 $references = @('System.dll','System.Core.dll','System.Drawing.dll','System.Windows.Forms.dll','System.Net.Http.dll','System.Web.Extensions.dll')
-$arguments = @('/nologo','/target:winexe','/platform:x64','/optimize+','/utf8output',('/out:' + $assembly),('/win32manifest:' + (Join-Path $PSScriptRoot 'LocalRemove.manifest')),('/win32icon:' + (Join-Path $PSScriptRoot 'icon\local-image.ico')))
+$arguments = @('/nologo','/target:winexe','/platform:x64','/optimize+','/utf8output',('/out:' + $assembly),('/win32manifest:' + (Join-Path $PSScriptRoot 'LocalImage.manifest')),('/win32icon:' + (Join-Path $PSScriptRoot 'icon\local-image.ico')))
 $arguments += $references | ForEach-Object { '/reference:' + (Join-Path $framework $_) }
 $arguments += '/reference:' + (Join-Path $packageRoot 'lib\net462\Microsoft.Web.WebView2.Core.dll')
 $arguments += '/reference:' + (Join-Path $packageRoot 'lib\net462\Microsoft.Web.WebView2.WinForms.dll')
-$arguments += Join-Path $PSScriptRoot 'LocalRemoveLauncher.cs'
-$arguments += Join-Path $PSScriptRoot 'LocalRemoveSettings.cs'
+$arguments += Join-Path $PSScriptRoot 'LocalImageLauncher.cs'
+$arguments += Join-Path $PSScriptRoot 'LocalImageSettings.cs'
 $arguments += Join-Path $PSScriptRoot 'LocalImageStorage.cs'
 & $compiler $arguments
 if ($LASTEXITCODE -ne 0) { throw "Native host compilation failed ($LASTEXITCODE)." }

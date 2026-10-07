@@ -17,14 +17,25 @@
   min-height: 0;
 }
 .li-batch-settings {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: end;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
 }
 .li-batch-settings > .fui-Field {
-  flex: 1 1 220px;
   min-width: 0;
+}
+.li-batch-background-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.li-batch-background-file > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .li-batch-note {
   margin: 0;
@@ -50,8 +61,18 @@
   min-width: 160px;
 }
 .li-batch-selection {
-  border-block: 1px solid var(--colorNeutralStroke2);
-  padding-block: 4px;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--colorNeutralStroke2);
+  padding-bottom: 8px;
+}
+.li-batch-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.li-batch-pagination > span {
+  margin-right: auto;
 }
 .li-batch-table-scroll {
   overflow: auto;
@@ -87,16 +108,21 @@
 .li-batch-error {
   color: var(--colorPaletteRedForeground1);
 }
-.li-batch-history summary {
-  cursor: pointer;
-  padding-block: 4px;
-}
 .li-batch-history-controls {
-  margin-top: 8px;
+  margin-top: 4px;
 }
-.li-batch-history-controls > .fui-Select {
+.li-batch-history-controls > .li-batch-choice {
   flex: 1 1 280px;
   min-width: 0;
+}
+.li-batch-choice.fui-Button {
+  width: 100%;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+}
+.li-batch-choice > span:first-child {
+  overflow-wrap: anywhere;
 }
 .li-batch-actions.fui-DialogActions {
   display: flex;
@@ -159,8 +185,17 @@
     flex-basis: 100%;
   }
 }
-:root[data-ui-density='large'] .li-batch-settings > .fui-Field {
-  flex-basis: 14em;
+@media (max-width: 600px) {
+  .li-batch-settings {
+    grid-template-columns: 1fr;
+  }
+  .li-batch-background-file {
+    flex-wrap: wrap;
+  }
+  .li-batch-background-file > span {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 :root[data-ui-density='large'] .li-batch-table {
   min-width: 30em;
