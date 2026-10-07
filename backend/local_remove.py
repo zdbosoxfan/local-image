@@ -305,16 +305,24 @@ def public(data):
             item = copy.deepcopy(node)
             bounds = (0, 0, data['width'], data['height'])
             if node['kind'] == 'cutout':
-                with Image.open(root / node['cutout']['alpha']) as alpha: bounds = alpha.getbbox()
+                key = (data['id'], 'bounds:' + node['cutout']['alpha'])
+                if key not in geometry_cache:
+                    with Image.open(root / node['cutout']['alpha']) as alpha:
+                        geometry_cache[key] = alpha.getbbox()
+                bounds = geometry_cache[key]
             elif node['kind'] == 'retouch':
                 patches = [p for p in data['layers'] if p['id'] in node['patch_ids'] and p['visible'] and not p['discarded']]
                 boxes = []
                 for patch in patches:
-                    with Image.open(root / patch['mask']) as mask:
-                        box = mask.getbbox()
+                    key = (data['id'], 'bounds:' + patch['mask'])
+                    if key not in geometry_cache:
+                        with Image.open(root / patch['mask']) as mask:
+                            geometry_cache[key] = mask.getbbox()
+                    box = geometry_cache[key]
                     if box: boxes.append((box[0]+patch['x'], box[1]+patch['y'], box[2]+patch['x'], box[3]+patch['y']))
                 bounds = (min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)) if boxes else None
-            item.update(bounds=bounds, width=data['width'], height=data['height'])
+            item.update(bounds=bounds, width=data['width'], height=data['height'],
+                        display_key=stack_model.display_key(data, node))
             result['layer_stack'].append(item)
         result['stack_can_undo'] = bool(data.get('stack_undo'))
         result['stack_can_redo'] = bool(data.get('stack_redo'))
@@ -363,7 +371,7 @@ def create_session(source, name, source_path=None):
     original = target / ('original' + suffix)
     shutil.copy2(source, original)
     raw, icc, preview = decode_original(original)
-    preview.save(target / 'base.png', icc_profile=SRGB.tobytes())
+    preview.save(target / 'base.png', compress_level=1, icc_profile=SRGB.tobytes())
     data = {'id':sid, 'name':Path(name).name, 'width':preview.width, 'height':preview.height,
             'bit_depth':16 if raw.dtype == np.uint16 else 8, 'original':original.name,
             'source_path':str(source_path) if source_path else None,
@@ -932,16 +940,30 @@ async def session(sid:str,request:Request):
 @router.get('/api/local-remove/session/{sid}/preview')
 async def preview(sid:str,request:Request,original:bool=False,full:bool=False):
     guard(request)
-    data=read_session(sid)
-    def make_preview():
-        img=render(data,original)
-        if not full:
-            img.thumbnail((3000,3000),Image.Resampling.LANCZOS)
-        prefix='full-' if full else ''
-        suffix = 'png' if full or img.mode == 'RGBA' else 'jpg'
-        path=folder(sid)/(prefix+(f'original-preview.{suffix}' if original else f'preview-{data["revision"]}.{suffix}'))
-        img.save(path,quality=95,icc_profile=SRGB.tobytes()); return path
-    target=await asyncio.to_thread(make_preview)
+    async with locks.setdefault(sid, asyncio.Lock()):
+        data=read_session(sid)
+        def make_preview():
+            root=folder(sid)
+            prefix='full-' if full else ''
+            stem=prefix+('original-preview' if original else f'preview-{data["revision"]}')
+            # Revision assets are immutable. Reopening a document or retrying a
+            # request should reuse the encoded pixels instead of recompositing.
+            for suffix in ('png', 'jpg'):
+                cached=root/(stem+'.'+suffix)
+                if cached.is_file(): return cached
+            img=render(data,original)
+            if not full:
+                img.thumbnail((3000,3000),Image.Resampling.LANCZOS)
+            suffix = 'png' if full or img.mode == 'RGBA' else 'jpg'
+            path=root/(stem+'.'+suffix)
+            temporary=root/('preview-'+uuid.uuid4().hex+'.'+suffix)
+            try:
+                img.save(temporary,quality=95,compress_level=1,icc_profile=SRGB.tobytes())
+                os.replace(temporary,path)
+            finally:
+                temporary.unlink(missing_ok=True)
+            return path
+        target=await asyncio.to_thread(make_preview)
     return FileResponse(target,headers=HEADERS)
 
 
@@ -987,7 +1009,7 @@ class RemoveRequest(BaseModel):
     mask:str
     revision:int
     model:Literal['klein', 'heal', 'qwen']|None=None
-    heal_method:Literal['texture', 'telea']='texture'
+    heal_method:Literal['texture', 'telea']=Field(default_factory=lambda: heal_option()['default_method'])
     variant:Literal['int8', 'bf16']='int8'
     prompt:str=Field(default='',max_length=4000)
     target_layer_id:str|None=None
@@ -1158,18 +1180,26 @@ async def update_stack_layer(sid:str, lid:str, request:Request, payload:StackUpd
 
 
 @router.get('/api/local-remove/session/{sid}/stack/layer/{lid}/display')
-async def stack_layer_display(sid:str, lid:str, request:Request):
+async def stack_layer_display(sid:str, lid:str, request:Request, r:str|None=None):
     guard(request)
     async with locks.setdefault(sid, asyncio.Lock()):
         data = read_session(sid); root = folder(sid); layer = stack_layer(data, lid)
-        target = root / ('stack-display-' + lid + '-' + str(data['revision']) + '.png')
+        key = stack_model.display_key(data, layer)
+        target = root / ('stack-display-' + lid + '-' + key + '.png')
         if not target.is_file():
             def make():
-                raw, icc, _ = decode_original(root / data['original'])
-                pixels = stack_model.native_layer(data, root, layer, raw, icc, decode_original, transformed=False)
-                stack_model.display(pixels, icc).save(target, icc_profile=SRGB.tobytes())
+                temporary = root / ('display-' + uuid.uuid4().hex + '.png')
+                try:
+                    raw, icc, _ = decode_original(root / data['original'])
+                    pixels = stack_model.native_layer(data, root, layer, raw, icc, decode_original, transformed=False)
+                    stack_model.display(pixels, icc).save(temporary, compress_level=1, icc_profile=SRGB.tobytes())
+                    os.replace(temporary, target)
+                finally:
+                    temporary.unlink(missing_ok=True)
             await asyncio.to_thread(make)
-    return FileResponse(target, media_type='image/png', headers=HEADERS)
+    # Only a URL carrying the current pixel identity is safe to cache forever.
+    # Legacy revision URLs still work without caching a different edit's pixels.
+    return FileResponse(target, media_type='image/png', headers=ASSET_HEADERS if r == key else HEADERS)
 
 
 async def change_stack_history(sid, request, revision, direction):

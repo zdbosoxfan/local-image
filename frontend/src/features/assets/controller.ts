@@ -330,7 +330,7 @@ export function createAssetsController(host: AssetsHost, token: string, supplied
             ? result.connected
               ? 'An environment key still supplies this connection.'
               : 'Disconnected.'
-            : 'Key saved by the backend for this Windows account.',
+            : 'Connection saved for your account on this computer.',
         });
       });
     },

@@ -61,7 +61,8 @@ type NativeAction =
   | 'setupDownloadGenerationModel'
   | 'loraDownload'
   | 'setupStart'
-  | 'setupEject';
+  | 'setupEject'
+  | 'updateInstall';
 // These ten owned dialogs deliberately have no machine-operation deadline.
 const DIALOG_ACTIONS = new Set<NativeAction>([
   'batchExportFolder',
@@ -304,6 +305,7 @@ export function createNativeBridge(options: NativeBridgeOptions) {
       ),
     setupStart: () => command('setupStart', {}, 'setup'),
     setupEject: () => command('setupEject', {}, 'setup'),
+    updateInstall: () => command('updateInstall', {}, 'setup'),
   });
 }
 export type NativeBridge = ReturnType<typeof createNativeBridge>;

@@ -22,11 +22,39 @@ class UserStorageTests(unittest.TestCase):
         self.environment.stop()
         self.temporary.cleanup()
 
+    def test_linux_bundle_reports_release_version_in_desktop_and_backend(self):
+        bundle = self.root / 'installed release'
+        (bundle / 'backend').mkdir(parents=True)
+        (bundle / 'VERSION').write_text('0.7.1-linux-preview\n', encoding='utf-8')
+        with patch.object(app_paths.sys, 'platform', 'linux'), patch.object(app_paths.sys, 'frozen', True, create=True):
+            for program in ('local-image', 'backend/LocalImageBackend'):
+                with patch.object(app_paths.sys, 'executable', str(bundle / program)):
+                    self.assertEqual(app_paths._application_version(), '0.7.1-linux-preview')
+        with patch.object(app_paths.sys, 'platform', 'win32'), patch.object(app_paths.sys, 'frozen', True, create=True):
+            self.assertEqual(app_paths._application_version(), '0.7.0')
+
     def test_windows_profile_default_does_not_use_working_directory(self):
         with patch.dict(os.environ, {'LOCALAPPDATA': str(self.root / 'Local AppData')}):
             with patch.dict(os.environ):
                 os.environ.pop('LOCAL_REMOVE_DATA_DIR')
                 self.assertEqual(app_paths.data_root(), self.root / 'Local AppData' / 'Local Image')
+
+    @unittest.skipIf(os.name == 'nt', 'POSIX platform layout')
+    def test_linux_profile_uses_absolute_xdg_or_home_without_temporary_browser_storage(self):
+        with patch.dict(os.environ), patch.object(app_paths.sys, 'platform', 'linux'), patch.object(Path, 'home', return_value=self.root):
+            for key in ('LOCAL_REMOVE_DATA_DIR', 'LOCAL_IMAGE_DATA_DIR', 'LOCALAPPDATA'):
+                os.environ.pop(key, None)
+            os.environ['XDG_DATA_HOME'] = str(self.root / 'Native Data')
+            self.assertEqual(app_paths.data_root(), self.root / 'Native Data' / 'local-image')
+            os.environ['XDG_DATA_HOME'] = 'relative-folder'
+            self.assertEqual(app_paths.data_root(), self.root / '.local' / 'share' / 'local-image')
+
+    @unittest.skipIf(os.name == 'nt', 'POSIX platform layout')
+    def test_macos_profile_uses_application_support(self):
+        with patch.dict(os.environ), patch.object(app_paths.sys, 'platform', 'darwin'), patch.object(Path, 'home', return_value=self.root):
+            for key in ('LOCAL_REMOVE_DATA_DIR', 'LOCAL_IMAGE_DATA_DIR', 'LOCALAPPDATA'):
+                os.environ.pop(key, None)
+            self.assertEqual(app_paths.data_root(), self.root / 'Library' / 'Application Support' / 'Local Image')
 
     def test_profile_identity_preserves_native_logical_path(self):
         # A Store/MSIX parent can redirect a physical handle under Packages.
@@ -64,6 +92,14 @@ class UserStorageTests(unittest.TestCase):
             self.assertEqual(app_paths.model_directory(), self.root / 'Models on another drive')
             self.assertEqual(app_paths.managed_ai_dir(), self.root / 'Portable AI')
         self.assertEqual(app_paths.read_config()['setup_mode'], 'portable')
+
+    def test_gallery_audience_preference_requires_real_boolean_and_survives_other_updates(self):
+        app_paths.write_config({'lora_show_adult_content':True})
+        self.assertTrue(app_paths.read_config()['lora_show_adult_content'])
+        app_paths.write_config({'comfy_port':8189})
+        self.assertTrue(app_paths.read_config()['lora_show_adult_content'])
+        app_paths.write_config({'lora_show_adult_content':'true'})
+        self.assertNotIn('lora_show_adult_content',app_paths.read_config())
 
     def test_workflow_is_copied_once_and_user_changes_survive(self):
         resources = self.root / 'Read Only Install'

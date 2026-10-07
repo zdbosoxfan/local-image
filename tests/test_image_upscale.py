@@ -34,6 +34,7 @@ class UpscaleTests(unittest.IsolatedAsyncioTestCase):
         sys.modules[module.__name__] = module; self.addCleanup(sys.modules.pop, module.__name__, None)
         with patch.dict(sys.modules, {'local_remove': self.editor}):
             exec(compile(Path(module.__file__).read_text(encoding='utf-8'), module.__file__, 'exec'), module.__dict__)
+            self.progress = sys.modules['operation_progress']
         return module
 
     def tearDown(self):
@@ -50,6 +51,20 @@ class UpscaleTests(unittest.IsolatedAsyncioTestCase):
 
     def request(self, data, **kwargs):
         return self.api.UpscaleRequest(session_id=data['id'], revision=data['revision'], width=512, height=512, **kwargs)
+
+    async def test_upscale_submission_id_correlates_progress_and_validates_caller_id(self):
+        submission = 'cccccccc-cccc-4ccc-cccc-cccccccccccc'
+        _, data, _ = self.source()
+        async def upscale(*args, **kwargs):
+            self.assertEqual(self.progress.current().job_id, submission)
+            return Image.new('RGB', (512, 512), 'green')
+        self.adapter.run_seedvr2_image = upscale
+        result = await self.api.upscale_image(self.fixture.request(), self.request(data, operation_id=submission))
+        self.assertEqual(self.progress.snapshot()['job_id'], submission)
+        self.assertNotIn('operation_id', result['upscale'])
+        for invalid in ('other-job', 'A' * 36, 12):
+            with self.assertRaises(ValidationError):
+                self.request(data, operation_id=invalid)
 
     async def test_capability_remains_withheld_until_quality_flag_is_enabled(self):
         self.api.ENABLE_UPSCALE = False

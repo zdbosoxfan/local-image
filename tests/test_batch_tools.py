@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 import types
+import threading
 import unittest
 from unittest.mock import AsyncMock, patch
 import uuid
@@ -183,6 +184,127 @@ class BatchTests(unittest.IsolatedAsyncioTestCase):
         good=self.fixture.make_image('good.png');bad=self.fixture.images/'bad.png';bad.write_bytes(b'invalid');collection=self.editor.register_collection([good,bad],'Products');queue=await self.batch.create_job(self.request(),self.batch.CreateJob(collection_id=collection['id'],entry_ids=[item['id'] for item in collection['entries']]));value=await self.finish(queue['id']);self.assertEqual([item['status'] for item in value['items']],['ready','failed']);self.assertEqual(self.editor.read_collection(collection['id'])['index'],0)
         with self.assertRaises(HTTPException):await self.batch.create_job(self.request(),self.batch.CreateJob(collection_id=collection['id'],entry_ids=[str(uuid.uuid4())]))
 
+    async def test_collection_queue_is_durable_before_import_and_publishes_bindings_once(self):
+        paths = [self.fixture.make_image(f'lazy-{index}.png') for index in range(12)]
+        collection = self.editor.register_collection(paths, 'Unopened photos')
+        with (patch.object(self.editor, 'reuse_or_create_session', wraps=self.editor.reuse_or_create_session) as imports,
+              patch.object(self.editor, 'read_collection', wraps=self.editor.read_collection) as reads,
+              patch.object(self.editor, 'write_collection', wraps=self.editor.write_collection) as writes):
+            queue = await self.batch.create_job(self.request(), self.batch.CreateJob(
+                collection_id=collection['id'], entry_ids=[entry['id'] for entry in collection['entries']]))
+            self.assertEqual(imports.call_count, 0)
+            self.assertTrue(all(item['session_id'] is None and item['revision'] is None for item in queue['items']))
+            self.assertTrue(all('collection_source' not in item and 'path' not in item for item in queue['items']))
+            stored = self.batch.batch_store.load(self.batch.own_directory('jobs', queue['id']), self.batch.linked)
+            self.assertTrue(all(item['status'] == 'pending' and item['session_id'] is None for item in stored['items']))
+            value = await self.finish(queue['id'])
+            self.assertEqual(imports.call_count, len(paths))
+            self.assertTrue(all(item['status'] == 'ready' for item in value['items']), value['items'])
+            self.assertLessEqual(reads.call_count, 3)
+            self.assertEqual(writes.call_count, 1)
+        saved = self.editor.read_collection(collection['id'])
+        self.assertEqual([entry['session_id'] for entry in saved['entries']], [item['session_id'] for item in value['items']])
+        self.assertEqual(saved['index'], 0)
+
+    async def test_cancel_during_import_leaves_later_collection_images_unopened_and_resume_keeps_first(self):
+        paths = [self.fixture.make_image(f'cancel-import-{index}.png') for index in range(4)]
+        collection = self.editor.register_collection(paths, 'Cancel imports')
+        entered, release = asyncio.Event(), threading.Event()
+        loop, original = asyncio.get_running_loop(), self.editor.reuse_or_create_session
+        imported = []
+        def pause_first(path):
+            imported.append(path)
+            if len(imported) == 1:
+                loop.call_soon_threadsafe(entered.set)
+                if not release.wait(3):
+                    raise RuntimeError('Cancellation could not respond while importing.')
+            return original(path)
+        with patch.object(self.editor, 'reuse_or_create_session', pause_first):
+            try:
+                queue = await self.batch.create_job(self.request(), self.batch.CreateJob(
+                    collection_id=collection['id'], entry_ids=[entry['id'] for entry in collection['entries']]))
+                await asyncio.wait_for(entered.wait(), 2)
+                status = await self.batch.get_job(queue['id'], self.request())
+                self.assertTrue(status['running'])
+                self.assertEqual(status['items'][0]['status'], 'preparing')
+                await self.batch.cancel_job(queue['id'], self.request())
+            finally:
+                release.set()
+            value = await self.finish(queue['id'])
+            self.assertEqual(value['phase'], 'paused')
+            self.assertEqual([item['status'] for item in value['items']], ['ready', 'pending', 'pending', 'pending'])
+            self.assertEqual(imported, paths[:1])
+            sid = value['items'][0]['session_id']
+            await self.batch.resume_job(queue['id'], self.request())
+            value = await self.finish(queue['id'])
+            self.assertEqual(imported, paths)
+            self.assertEqual(value['items'][0]['session_id'], sid)
+            self.assertTrue(all(item['status'] == 'ready' for item in value['items']))
+
+    async def test_interrupted_snapshot_resumes_persisted_collection_session_without_import(self):
+        collection = self.editor.register_collection([self.fixture.make_image('interrupted-import.png')], 'Interrupted')
+        async def interrupt_after_binding(value, item):
+            await self.batch.bind_collection_item(value, item)
+            raise asyncio.CancelledError()
+        with patch.object(self.batch, 'prepare_item', interrupt_after_binding):
+            queue = await self.batch.create_job(self.request(), self.batch.CreateJob(
+                collection_id=collection['id'], entry_ids=[collection['entries'][0]['id']]))
+            with self.assertRaises(asyncio.CancelledError):
+                await self.finish(queue['id'])
+            await asyncio.sleep(0)
+        recovered = self.batch.job(queue['id'])
+        self.assertEqual(recovered['phase'], 'paused')
+        self.assertEqual(recovered['items'][0]['status'], 'pending')
+        sid = recovered['items'][0]['session_id']
+        self.assertTrue(sid)
+        with patch.object(self.editor, 'reuse_or_create_session', side_effect=AssertionError('Already imported')):
+            await self.batch.resume_job(queue['id'], self.request())
+            value = await self.finish(queue['id'])
+        self.assertEqual(value['items'][0]['status'], 'ready', value['items'])
+        self.assertEqual(value['items'][0]['session_id'], sid)
+        self.assertEqual(self.editor.read_collection(collection['id'])['entries'][0]['session_id'], sid)
+
+    async def test_lazy_import_rechecks_collection_path_and_uses_later_opened_edits(self):
+        paths = [self.fixture.make_image(f'authority-{index}.png') for index in range(2)]
+        collection = self.editor.register_collection(paths, 'Authority')
+        with patch.object(self.batch, 'launch'):
+            queue = await self.batch.create_job(self.request(), self.batch.CreateJob(
+                collection_id=collection['id'], entry_ids=[entry['id'] for entry in collection['entries']]))
+        first = await self.editor.open_collection_entry(collection['id'], collection['entries'][0]['id'], self.request())
+        data = self.editor.read_session(first['session']['id'])
+        data['revision'] += 1
+        self.editor.write_session(self.editor.folder(data['id']), data)
+        changed = self.editor.read_collection(collection['id'])
+        changed['entries'][1]['path'] = str(self.fixture.make_image('replacement.png'))
+        self.editor.write_collection(changed)
+        self.batch.launch(queue['id'], 'prepare')
+        value = await self.finish(queue['id'])
+        self.assertEqual(value['items'][0]['status'], 'ready', value['items'])
+        self.assertEqual(value['items'][0]['session_id'], data['id'])
+        self.assertEqual(value['items'][0]['revision'], data['revision'])
+        self.assertEqual(value['items'][1]['status'], 'conflict')
+        self.assertIn('changed after', value['items'][1]['error'])
+
+    async def test_collection_selected_open_session_preserves_revision_and_newer_navigation_binding(self):
+        path = self.fixture.make_image('opened-revision.png')
+        collection = self.editor.register_collection([path], 'Existing edits')
+        opened = await self.editor.open_collection_entry(collection['id'], collection['entries'][0]['id'], self.request())
+        data = self.editor.read_session(opened['session']['id'])
+        with patch.object(self.batch, 'launch'):
+            queue = await self.batch.create_job(self.request(), self.batch.CreateJob(
+                collection_id=collection['id'], entry_ids=[collection['entries'][0]['id']]))
+        data['revision'] += 1
+        self.editor.write_session(self.editor.folder(data['id']), data)
+        replacement = self.editor.read_session(self.editor.create_session(path, path.name, path)['id'])
+        changed = self.editor.read_collection(collection['id'])
+        changed['entries'][0]['session_id'] = replacement['id']
+        self.editor.write_collection(changed)
+        self.batch.launch(queue['id'], 'prepare')
+        value = await self.finish(queue['id'])
+        self.assertEqual(value['items'][0]['status'], 'conflict')
+        self.assertEqual(value['items'][0]['session_id'], data['id'])
+        self.assertEqual(self.editor.read_collection(collection['id'])['entries'][0]['session_id'], replacement['id'])
+
     async def test_active_batch_cannot_be_started_or_cleared_twice(self):
         original=self.batch.prepare_item;entered=asyncio.Event();release=asyncio.Event()
         async def delay(value,item):entered.set();await release.wait();await original(value,item)
@@ -196,6 +318,131 @@ class BatchTests(unittest.IsolatedAsyncioTestCase):
     async def test_per_job_storage_limit_reports_failure_without_export(self):
         with patch.object(self.batch,'MAX_STORAGE',1):queue=await self.create([self.image()]);value=await self.finish(queue['id'])
         self.assertEqual(value['items'][0]['status'],'failed');self.assertIn('storage limit',value['items'][0]['error'])
+
+    async def test_more_than_100_real_cutouts_prepare_and_export_without_truncation(self):
+        images = [self.image(f'product-{index}.png', (12, 10), (2, 2, 10, 8)) for index in range(137)]
+        queue = await self.create(images, format='png', prepare_cutouts=True)
+        value = await self.finish(queue['id'])
+        self.assertEqual(len(value['items']), 137)
+        self.assertTrue(all(item['status'] == 'ready' for item in value['items']))
+        identifiers = [item['id'] for item in value['items']]
+        await self.batch.export_zip(queue['id'], self.request(), self.batch.ExportSelection(item_ids=identifiers))
+        value = await self.finish(queue['id'])
+        self.assertTrue(all(item['status'] == 'exported' for item in value['items']), value['message'])
+        directory = self.batch.own_directory('jobs', queue['id'])
+        with zipfile.ZipFile(directory / 'exports.zip') as archive:
+            self.assertEqual(len([name for name in archive.namelist() if name.endswith('.png')]), 137)
+            report = json.loads(archive.read('export-report.json'))
+            self.assertEqual(len(report['items']), 137)
+        self.assertTrue(self.editor.folder(images[-1]['id']).is_dir())
+
+    async def test_native_folder_export_accepts_more_than_100_reviewed_images(self):
+        images = [self.image(f'native-{index}.png', (12, 10), (2, 2, 10, 8)) for index in range(103)]
+        queue = await self.create(images, format='png', prepare_cutouts=True)
+        value = await self.finish(queue['id'])
+        destination = self.fixture.images / 'large-native-export'
+        destination.mkdir()
+        selected = [item['id'] for item in value['items']][:101]
+        await self.batch.export_folder(queue['id'], self.request(native=True, csrf=False),
+                                       self.batch.ExportFolder(path=str(destination), item_ids=selected))
+        value = await self.finish(queue['id'])
+        self.assertEqual(sum(item['status'] == 'exported' for item in value['items']), 101, value['message'])
+        self.assertEqual(sum(item['status'] == 'ready' for item in value['items']), 2)
+        self.assertEqual(len(list(destination.glob('*.png'))), 101)
+
+    async def test_legacy_queue_migrates_and_interrupted_work_resumes(self):
+        data = self.image()
+        queue = await self.create([data], format='png')
+        value = await self.finish(queue['id'])
+        directory = self.batch.own_directory('jobs', queue['id'])
+        (directory / self.batch.batch_store.DATABASE).unlink()
+        (directory / 'job.json').write_text(json.dumps(value))
+        reopened = self.batch.job(queue['id'])
+        reopened.update(running=True, phase='preparing')
+        reopened['items'][0]['status'] = 'preparing'
+        self.batch.save_job(reopened)
+        self.assertEqual(json.loads((directory / 'job.json').read_text())['version'], 2)
+        recovered = self.batch.job(queue['id'])
+        self.assertEqual(recovered['phase'], 'paused')
+        self.assertEqual(recovered['items'][0]['status'], 'pending')
+        await self.batch.resume_job(queue['id'], self.request())
+        value = await self.finish(queue['id'])
+        self.assertEqual(value['items'][0]['status'], 'ready')
+        self.assertTrue((directory / value['items'][0]['id'] / 'snapshot.json').is_file())
+
+    async def test_large_worker_does_not_reload_or_walk_the_whole_queue_per_image(self):
+        entries = [{'id': str(uuid.uuid4()), 'name': f'Product {index}', 'status': 'pending'} for index in range(301)]
+        async def prepare(value, item):
+            item.update(status='ready', prepared=True)
+        with (patch.object(self.batch, 'resolve_entries', AsyncMock(return_value=(entries, 'Large queue'))),
+              patch.object(self.batch, 'prepare_item', prepare),
+              patch.object(self.batch, 'bytes_used', wraps=self.batch.bytes_used) as scans,
+              patch.object(self.batch.batch_store, 'load', wraps=self.batch.batch_store.load) as reads):
+            queue = await self.batch.create_job(self.request(), self.batch.CreateJob(sessions=[{'session_id':str(uuid.uuid4()),'revision':0}]))
+            value = await self.finish(queue['id'])
+            self.assertEqual(len(value['items']), 301)
+            self.assertTrue(all(item['status'] == 'ready' for item in value['items']))
+            self.assertLessEqual(scans.call_count, 2)
+            self.assertLessEqual(reads.call_count, 2)
+
+    async def test_large_queue_cancel_and_resume_keeps_completed_work(self):
+        entries = [{'id': str(uuid.uuid4()), 'name': f'Product {index}', 'status': 'pending'} for index in range(301)]
+        entered, release = asyncio.Event(), asyncio.Event()
+        calls = []
+        async def prepare(value, item):
+            calls.append(item['id'])
+            if len(calls) == 1:
+                entered.set()
+                await release.wait()
+            item.update(status='ready', prepared=True)
+        with (patch.object(self.batch, 'resolve_entries', AsyncMock(return_value=(entries, 'Large queue'))),
+              patch.object(self.batch, 'prepare_item', prepare)):
+            queue = await self.batch.create_job(self.request(), self.batch.CreateJob(sessions=[{'session_id':str(uuid.uuid4()),'revision':0}]))
+            await entered.wait()
+            await self.batch.cancel_job(queue['id'], self.request())
+            release.set()
+            value = await self.finish(queue['id'])
+            self.assertEqual(value['phase'], 'paused')
+            self.assertEqual(sum(item['status'] == 'ready' for item in value['items']), 1)
+            await self.batch.resume_job(queue['id'], self.request())
+            value = await self.finish(queue['id'])
+            self.assertEqual(len(calls), 301)
+            self.assertTrue(all(item['status'] == 'ready' for item in value['items']))
+
+    async def test_cache_clear_can_remove_owned_interrupted_database_staging_files(self):
+        queue = await self.create([self.image()])
+        await self.finish(queue['id'])
+        directory = self.batch.own_directory('jobs', queue['id'])
+        staging = directory / ('.queue-' + uuid.uuid4().hex + '.sqlite3')
+        staging.write_bytes(b'incomplete owned queue metadata')
+        staging.with_name(staging.name + '-journal').write_bytes(b'interrupted journal')
+        await self.batch.delete_job(queue['id'], self.request())
+        self.assertFalse(directory.exists())
+
+    async def test_zip_packaging_allows_status_and_cancel_requests_to_respond(self):
+        queue = await self.create([self.image()], format='png')
+        await self.finish(queue['id'])
+        entered, release = asyncio.Event(), threading.Event()
+        loop = asyncio.get_running_loop()
+        write = zipfile.ZipFile.write
+        def paused_write(archive, *args, **kwargs):
+            loop.call_soon_threadsafe(entered.set)
+            if not release.wait(3):
+                raise RuntimeError('The event loop could not respond during ZIP packaging.')
+            return write(archive, *args, **kwargs)
+        with patch.object(zipfile.ZipFile, 'write', paused_write):
+            try:
+                await self.batch.export_zip(queue['id'], self.request(), self.batch.ExportSelection())
+                await asyncio.wait_for(entered.wait(), 2)
+                status = await self.batch.get_job(queue['id'], self.request())
+                self.assertTrue(status['running'])
+                self.assertEqual(status['message'], 'Creating ZIP from completed exports.')
+                await self.batch.cancel_job(queue['id'], self.request())
+            finally:
+                release.set()
+            value = await self.finish(queue['id'])
+        self.assertEqual(value['phase'], 'paused')
+        self.assertTrue(value['archive_ready'])
 
     async def test_unsafe_asset_copy_and_cache_contents_are_rejected(self):
         target=self.fixture.fixture.directory/'safe';target.mkdir()

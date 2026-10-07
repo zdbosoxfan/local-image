@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Local Image
+GenericName=Image Editor
+Comment=Edit images locally with layers, cutouts, and optional AI tools
+Exec=@EXEC@ %F
+Icon=@ICON@
+Terminal=false
+Categories=Graphics;2DGraphics;RasterGraphics;
+StartupNotify=true
+StartupWMClass=local-image
+X-LocalImage-Managed=true
+X-LocalImage-InstallRoot=@INSTALL_ROOT@

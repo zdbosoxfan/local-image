@@ -1,3 +1,5 @@
+import type { BrowserModel, ModelDownloads } from '../models/types.ts';
+
 export type SettingsView = 'settings' | 'hardware' | 'shortcuts' | null;
 export type InterfaceDensity = 'compact' | 'comfortable' | 'large';
 export interface SetupInstallation {
@@ -15,6 +17,7 @@ export interface SetupFile {
   expected_bytes?: number;
 }
 export interface SetupJob {
+  id?: string;
   status: 'running' | 'complete' | 'error' | string;
   action?: string;
   message?: string;
@@ -47,7 +50,7 @@ export interface SetupState {
     qwen_ready?: boolean;
     flux_ready?: boolean;
   };
-  portable?: { download_bytes?: number; minimum_free_bytes?: number };
+  portable?: { available?: boolean; download_bytes?: number; minimum_free_bytes?: number };
   storage?: {
     portable_folder?: { free_bytes?: number; error?: string };
     model_folder?: { free_bytes?: number; error?: string };
@@ -70,6 +73,9 @@ export interface HardwareGuide {
   note?: string;
   profiles?: Array<{ label: string; vram: string; detail?: string; basis?: string; source_url?: string }>;
 }
+export interface HardwarePreference {
+  dont_show_again: boolean | null;
+}
 export interface AcceptedConfiguration {
   settings?: RemovalSettings;
   status?: BackendStatus;
@@ -80,6 +86,31 @@ export interface SettingsCapabilities {
   ready: boolean;
   setup: boolean;
 }
+export interface UpdateRelease {
+  version: string;
+  tag: string;
+  name: string;
+  notes: string;
+  html_url: string;
+  published_at: string;
+  prerelease: boolean;
+  asset_name: string;
+  bytes: number;
+}
+export interface UpdateStatus {
+  current_version: string;
+  checked_at: number | null;
+  check_error: string;
+  available: boolean;
+  release: UpdateRelease | null;
+  download: { status: 'idle' | 'downloading' | 'ready' | 'failed'; received: number; total: number; error: string };
+  installer_ready: boolean;
+  /** Which release asset this installation installs: the Windows installer,
+   * the Debian package, or the Linux archive on systems without dpkg. */
+  package: 'windows' | 'linux-deb' | 'linux-tar';
+  release_page: string;
+}
+export type UpdateStep = 'check' | 'download' | 'install' | null;
 export interface SettingsPreferences {
   askBeforeOverwrite: boolean;
   density: InterfaceDensity;
@@ -90,6 +121,7 @@ export type SetupAction =
   | 'installRuntime'
   | 'chooseModelDirectory'
   | 'downloadRemovalModels'
+  | 'downloadModel'
   | 'startBackend'
   | 'ejectModels'
   | 'useInstallation'
@@ -108,10 +140,13 @@ export interface SettingsBridge {
   installRuntime(): Promise<unknown | null>;
   chooseModelDirectory(): Promise<unknown | null>;
   downloadRemovalModels(): Promise<unknown | null>;
+  downloadModel(model: string, variant: string): Promise<unknown | null>;
   startBackend(): Promise<unknown | null>;
   ejectModels(): Promise<unknown | null>;
   useInstallation(id: string): Promise<unknown | null>;
   configureConnection(): Promise<unknown | null>;
+  /** Desktop host: close the app and run the verified installer. */
+  installUpdate(): Promise<unknown | null>;
 }
 export interface SettingsSnapshot {
   view: SettingsView;
@@ -119,13 +154,23 @@ export interface SettingsSnapshot {
   loading: boolean;
   pendingAction: SetupAction | null;
   setup: SetupState | null;
+  models: BrowserModel[];
+  modelCatalogAvailable: boolean;
+  modelDownloads: ModelDownloads | null;
+  selectedModelId: string;
+  selectedVariant: string;
   hardware: HardwareGuide | null;
+  hideHardwareGuide: boolean;
+  savingHardwarePreference: boolean;
   capabilities: SettingsCapabilities;
   preferences: SettingsPreferences;
   error: string;
   message: string;
   showInstallations: boolean;
   selectedInstallation: string;
+  update: UpdateStatus | null;
+  updateStep: UpdateStep;
+  updateError: string;
 }
 declare global {
   interface Window {

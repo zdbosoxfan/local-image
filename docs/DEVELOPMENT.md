@@ -1,6 +1,6 @@
 # Build and test Local Image
 
-End users should install the Windows release. These instructions are for working on the **0.7.0** source code, including Retouch, Cutout, Image Gen, batch treatment/export and deployment to other PCs. User-facing setup is described in [Installation and storage](INSTALLATION.md); Qwen graphs, models, and licensing are covered in [Qwen Image 2.1](QWEN-IMAGE-21.md).
+End users should install a bundled [Windows release](INSTALLATION.md) or [Linux preview](LINUX-INSTALLATION.md). These instructions cover source development, including Retouch, Cutout, Image Gen and deployment. The Windows packaging instructions below describe 0.7.0; the Linux preview is 0.7.2-linux-preview. Qwen graphs, models, and licensing are covered in [Qwen Image 2.1](QWEN-IMAGE-21.md).
 
 ## Development environment
 
@@ -16,14 +16,14 @@ The application requirements include `tifffile` and `imagecodecs` for TIFF suppo
 For browser development, start the server directly:
 
 ```powershell
-$env:LOCAL_REMOVE_DATA_DIR = Join-Path $env:TEMP 'Local Remove Development'
+$env:LOCAL_IMAGE_DATA_DIR = Join-Path $env:TEMP 'Local Image Development'
 Set-Location .\backend
 ..\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 51247
 ```
 
-Open `http://127.0.0.1:51247/remove`. This development mode stays running until Ctrl+C. Native file access and native save dialogs require the desktop host. Set `LOCAL_REMOVE_DATA_DIR` on both the host and backend when testing an isolated profile. Do not run two profiles on the same port simultaneously.
+Open `http://127.0.0.1:51247/remove`. This development mode stays running until Ctrl+C. Native file access and native save dialogs require the desktop host. Set `LOCAL_IMAGE_DATA_DIR` on both the host and backend when testing an isolated profile. Do not run two profiles on the same port simultaneously.
 
-The installed host starts `backend/LocalRemoveBackend.exe` beside its own executable. That packaged backend automatically exits after 75 seconds without a desktop heartbeat, once any active AI generation or setup job has finished. The service is bound to loopback and its native management endpoints require the per-user launcher credential.
+The installed host starts `backend/LocalImageBackend.exe` beside its own executable. That packaged backend automatically exits after 75 seconds without a desktop heartbeat, once any active AI generation or setup job has finished. The service is bound to loopback and its native management endpoints require the per-user launcher credential.
 
 ## Build the installer
 
@@ -50,6 +50,35 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\packaging\Build-Window
 With that output argument, the build produces `dist/local-image-v07/package/` and `dist/local-image-v07/installer/Local-Image-Setup-0.7.0.exe`, plus a SHA-256 checksum. The build derives the maximum application-folder length from its bundled file and directory paths, leaving room below Windows' path limits. The build downloads Microsoft's WebView2 bootstrapper and verifies its Microsoft signature. Setup invokes it only if the WebView2 Runtime is missing, following [Microsoft's deployment guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution). This bootstrapper needs internet access on a PC without the runtime; the package does not claim fully offline prerequisite installation.
 
 Build artifacts are ignored by Git. Publish the installer and checksum as GitHub release assets. Production distribution should use a code-signing certificate; the first preview is unsigned.
+
+## Linux source and release builds
+
+For source development on an x86-64 Linux desktop, create a Python environment and build the pinned React assets from the repository root:
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r backend/requirements.txt -r desktop/linux/requirements.txt
+npm --prefix frontend ci --ignore-scripts
+npm --prefix frontend run build
+.venv/bin/python desktop/linux/local_image.py
+```
+
+Python and Node.js are build/development requirements; the [Linux release](LINUX-INSTALLATION.md) bundles its own Python interpreter, Qt libraries, backend and compiled frontend. ComfyUI remains a separate optional environment. The source host uses native Qt file dialogs and the same React/Fluent interface as Windows.
+
+Use `LOCAL_IMAGE_DATA_DIR` or the compatible `LOCAL_REMOVE_DATA_DIR` override for an isolated development profile, setting it on the host and backend consistently. Otherwise Linux stores data in `$XDG_DATA_HOME/local-image`, falling back to `~/.local/share/local-image`. Do not launch two backend profiles on port 51247 simultaneously. `.venv/bin/python desktop/linux/local_image.py --smoke-test` creates its own disposable profile, opens the actual React interface, checks the native bridge and exits; it does not load user documents or run AI.
+
+Install `packaging/requirements-linux-build.txt` into the build environment, then run the release builder from the repository root on Ubuntu 24.04:
+
+```sh
+.venv/bin/python -m pip install -r packaging/requirements-linux-build.txt
+bash packaging/Build-Linux.sh --python .venv/bin/python --version 0.7.2-linux-preview --output dist/linux
+```
+
+It produces `Local-Image-0.7.2-linux-preview-linux-x86_64.tar.gz`, the matching `.deb` and `SHA256SUMS` under the output directory. The Linux release uses separate PyInstaller one-folder bundles for the host and backend. Ship the whole directory, including Qt plugins, WebEngine resources and library symlinks. The static Texture helper is included in the Linux package. Normal launch must find the packaged backend relative to the host without a developer virtual environment or current-working-directory assumption. Retain `licenses/Local-Image-LICENSE.txt`, `THIRD_PARTY_NOTICES.md`, `React-THIRD_PARTY_NOTICES.txt` and dependency license resources in the package. See [the Linux host](../desktop/linux/README.md) for its persistent profile and native bridge.
+
+Build release binaries on the oldest supported system, currently **Ubuntu 24.04 x86-64/glibc 2.39**. PyInstaller bundles Python and application dependencies but [does not bundle glibc](https://pyinstaller.org/en/stable/usage.html#making-gnu-linux-apps-forward-compatible); building on a newer distribution can raise the runtime requirement. Qt's [Linux dependency reference](https://doc.qt.io/qt-6/linux-requirements.html) distinguishes runtime libraries from development headers. Validate the frozen binaries on the target desktop rather than inferring compatibility from a successful source run.
+
+The preview distributes a tar archive with a per-user installer and an Ubuntu `.deb`. The tar format preserves the one-folder bundle's symlinks and executable permissions and needs no AppImage/FUSE runtime. These are packaging choices for this app; [Qt documents multiple supported deployment approaches](https://doc.qt.io/qtforpython-6/deployment/index.html), including its own deployment tool and third-party freezers.
 
 ## Tests
 
@@ -87,7 +116,10 @@ node tests\test_ui_react_batch.cjs
 These suites create owned test data, record served asset identity, and distinguish
 actual document/backend operations from controlled provider/inference responses.
 They do not authorize model/provider execution, and browser runs do not establish
-native dialog or Capture One/Explorer GUI acceptance. Keep each report's build
+native dialog or Capture One/Explorer GUI acceptance. The batch suites prepare
+their cutouts from an editable mask (Layer → Add editable mask, then Erase
+selection) so no background-removal model runs; the Remove backgrounds button
+is only shown in the Cutout workspace. Keep each report's build
 and scope when citing it. The user subsequently approved installing React as the
 default; ordinary packaged startup is verified separately from these UI reports.
 
@@ -106,6 +138,7 @@ Run from the repository root:
 
 ```powershell
 .\.venv\Scripts\python.exe tests\test_app_paths.py
+.\.venv\Scripts\python.exe tests\test_app_update.py
 .\.venv\Scripts\python.exe tests\test_managed_ai.py
 .\.venv\Scripts\python.exe tests\test_setup_routes.py
 .\.venv\Scripts\python.exe tests\test_frontend_render.py
@@ -120,6 +153,23 @@ node tests\test_ui_generation_size.cjs
 ```
 
 The Python tests create isolated temporary data. An optional historical photo comparison is skipped when its private fixture is absent.
+
+### Application updates
+
+`backend/app_update.py` checks `https://api.github.com/repos/zdbosoxfan/local-image/releases` for the newest
+non-draft release that carries this platform's package and its checksum (pre-releases count): on Windows
+`Local-Image-Setup-<version>.exe` with its `.sha256` asset, on Linux `Local-Image-<version>-linux-x86_64.deb`
+(or the `.tar.gz` where `dpkg` is absent) listed in `SHA256SUMS`. Versions order by their numeric part, so
+`0.7.3-linux-preview` is newer than `0.7.2-linux-preview`. `GET /api/local-remove/update` reports status
+(including `package`), `?refresh=true` performs a quiet check at most every 15 minutes, `POST …/update/check`
+forces one, and `POST …/update/download` streams the package through `managed_ai.download_verified` into the
+profile's `updates` folder, publishing it only when size and checksum match. Only the desktop host, with its
+launcher credential, can read the package path (`GET …/update/installer`); the page sees `installer_ready`
+alone. The host checks the path, name and SHA-256 itself (`desktop/LocalImageLauncher.cs` on Windows,
+`verified_update_package` in `desktop/linux/protocol.py` on Linux) and runs the installer, or opens the package
+with `xdg-open`, after the window has closed. `tests/test_app_update.py` covers release selection on both
+platforms, checksum parsing, the download/verify flow and tamper detection with simulated GitHub responses;
+`tests/test_native_protocol.py` covers the Linux `updateInstall` verb.
 
 ### Retired legacy interface
 

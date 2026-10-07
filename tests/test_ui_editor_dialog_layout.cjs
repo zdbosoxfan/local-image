@@ -37,7 +37,7 @@ const sources=()=>sourceFiles.map(name=>({path:name,sha256:hash(fs.readFileSync(
   for(const button of value.buttons){assert.ok(button.box.left>=value.body.left-1&&button.box.right<=value.body.right+1);assert.ok(button.range.top>=button.box.top-1&&button.range.bottom<=button.box.bottom+1,'All button labels remain visible');if(density==='comfortable')assert.ok(button.box.height<=button.line+button.padding+3,'Comfortable footer labels stay on one line');}
   for(let a=0;a<value.buttons.length;a++)for(let b=a+1;b<value.buttons.length;b++){const x=value.buttons[a].box,y=value.buttons[b].box;assert.ok(x.right<=y.left||y.right<=x.left||x.bottom<=y.top||y.bottom<=x.top,'Wrapped action controls do not overlap');}
   await page.screenshot({path:path.join(output,`close-${density}.png`),animations:'disabled'});
-  await exitCheck('Close image?','.li-editor-dialog[role="alertdialog"]','editor','Editable projects retain original assets and layers.',()=>dialog.getByRole('button',{name:'Cancel',exact:true}).click());
+  await exitCheck('Close image?','.li-editor-dialog[role="alertdialog"]','editor','Save an editable project to keep original images and layers.',()=>dialog.getByRole('button',{name:'Cancel',exact:true}).click());
   assert.equal(await page.evaluate(()=>window.LocalImageEditor.getSnapshot().document.id),sessionId);await idle();
  }
  try{
@@ -50,7 +50,7 @@ const sources=()=>sourceFiles.map(name=>({path:name,sha256:hash(fs.readFileSync(
   await closeGeometry('large');
   await page.getByRole('button',{name:'Settings',exact:true}).click();await settings.getByRole('button',{name:'Hardware guide',exact:true}).click();const hardware=page.getByRole('dialog',{name:'Hardware guide',exact:true});await hardware.waitFor();await page.waitForFunction(()=>!window.LocalImageReactFeatures.settings.getSnapshot().loading);
   await exitCheck('Hardware guide','.li-settings-surface[role="dialog"]','settings','Quick Heal and compositing run on the CPU.',()=>hardware.getByRole('button',{name:'Close hardware guide',exact:true}).click());
-  await page.getByRole('button',{name:'Settings',exact:true}).click();await settings.getByRole('tab',{name:'Local AI',exact:true}).click();await page.waitForFunction(()=>!window.LocalImageReactFeatures.settings.getSnapshot().loading);await settings.getByRole('button',{name:'Browse models…',exact:true}).click();const models=page.getByRole('dialog',{name:'Local image models',exact:true});await models.waitFor();await page.waitForFunction(()=>!window.LocalImageReactFeatures.models.getSnapshot().loading);
+  await page.getByRole('button',{name:'Settings',exact:true}).click();await settings.getByRole('tab',{name:'Local AI',exact:true}).click();await page.waitForFunction(()=>!window.LocalImageReactFeatures.settings.getSnapshot().loading);await settings.getByRole('button',{name:'Model details…',exact:true}).click();const models=page.getByRole('dialog',{name:'Local image models',exact:true});await models.waitFor();await page.waitForFunction(()=>!window.LocalImageReactFeatures.models.getSnapshot().loading);
   await exitCheck('Local image models','.li-models-surface[role="dialog"]','models','Supported local models',()=>models.getByRole('button',{name:'Done',exact:true}).click());
   // Controlled draft port exercises the real LoRA view without enabling a
   // backend model or querying a remote provider; local installed inventory only.

@@ -13,6 +13,10 @@ components, icons and tokens rather than hand-built equivalents.
    `ToolbarRadioButton`, `ToolbarDivider`), `Menu`, `TabList`, `Field`, `Input`,
    `Select`, `Slider`, `Checkbox`, `Dialog`, `Accordion`, `Badge`, `ProgressBar`.
    Do not style a plain `<button>`, `<details>` or `<span>` to imitate one.
+   One-of-many pickers (model, precision, output folder, zoom) use
+   `ChoiceSelect` (`features/shell/ChoiceSelect.tsx`), which is Fluent's
+   `Select` fed by a plain list of choices, so every picker looks and behaves
+   the same. Do not build a picker from `Menu` and a button.
 2. **Icons come from Fluent System Icons.** Every glyph is registered once in
    `frontend/src/features/shell/Icon.tsx` and used as `<Icon name="…" />`.
    To add one, import the matching `…20Regular` icon from
@@ -36,9 +40,10 @@ components, icons and tokens rather than hand-built equivalents.
    `Toolbar` with `checkedValues`. Do not hand-style `aria-pressed` on buttons;
    the shared image-picker style in rule 8 is the only exception.
 7. **One home per command.** A command appears once in its natural place: the
-   command bar (Undo/Redo, Assets, Batch, Inspector, Export, Settings), the zoom
-   controls in the status bar (Zoom, Fit), or the document bar (Original, Save).
-   Menus may repeat commands with their shortcuts.
+   command bar (Undo/Redo, Assets, Remove backgrounds in the Cutout workspace,
+   Inspector, Export, Settings), the zoom controls in the status bar (Zoom,
+   Fit), the document tabs row (New workspace) or the document bar (Original,
+   Save). Menus may repeat commands with their shortcuts.
 8. **Image pickers share one selected style.** Add the `li-selectable` class
    to a thumbnail button and set `aria-pressed` (or `aria-current`); do not add
    a separate selected style.

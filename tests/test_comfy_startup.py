@@ -13,6 +13,11 @@ _temporary = tempfile.TemporaryDirectory(prefix='local-image-startup-')
 _environment = patch.dict(os.environ, {'LOCAL_IMAGE_DATA_DIR': str(Path(_temporary.name) / 'profile')})
 _environment.start()
 from engine import ComfyClient, config
+_environment.stop()
+
+
+def setUpModule():
+    _environment.start()
 
 # The profile override is needed while the backend modules import, but must not
 # leak into other test modules: unittest discover imports every module first.

@@ -55,10 +55,7 @@ export function EditorDialogs({ controller }: { controller: EditorDialogsControl
                 <p>
                   This replaces <strong>{state.filename}</strong> with the current result in its original format.
                 </p>
-                <p>
-                  Save a copy keeps the source file unchanged. External changes to the original are checked before
-                  replacement.
-                </p>
+                <p>Choose Save a copy to keep the original.</p>
                 <Checkbox
                   checked={state.dontAsk}
                   label="Don't ask again before overwriting originals"
@@ -74,13 +71,9 @@ export function EditorDialogs({ controller }: { controller: EditorDialogsControl
                     <li key={index}>{name}</li>
                   ))}
                 </ul>
-                <p>
-                  Editable projects retain original assets and layers. Flattened image exports do not replace a project.
-                </p>
+                <p>Save an editable project to keep original images and layers.</p>
                 {state.plan.pendingSelection && (
-                  <p>
-                    Pending brush and pen selections are not included in a project and will be cleared when you close.
-                  </p>
+                  <p>Unapplied brush and pen selections are cleared when you close and are not saved in the project.</p>
                 )}
               </>
             )}

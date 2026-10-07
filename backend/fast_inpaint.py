@@ -19,7 +19,7 @@ from PIL import Image
 from removal_blend import clean_selection_mask
 
 
-TEXTURE_EXE = Path(__file__).resolve().parent / 'tools' / 'texture-synthesis' / 'texture-synthesis.exe'
+TEXTURE_EXE = Path(__file__).resolve().parent / 'tools' / 'texture-synthesis' / ('texture-synthesis.exe' if os.name == 'nt' else 'texture-synthesis')
 TEXTURE_TIMEOUT = 120
 TEXTURE_MAX_EDGE = 2048
 TEXTURE_MAX_PIXELS = 2048 * 2048
@@ -27,10 +27,10 @@ TEXTURE_MAX_REPAIR_PIXELS = 512 * 512
 
 
 def heal_option():
-    texture_available = TEXTURE_EXE.is_file()
+    texture_available = TEXTURE_EXE.is_file() and (os.name == 'nt' or os.access(TEXTURE_EXE, os.X_OK))
     return {
         'id': 'heal', 'label': 'Quick Heal', 'available': True, 'device': 'CPU',
-        'default_method': 'texture',
+        'default_method': 'texture' if texture_available else 'telea',
         'description': 'Replace small objects using nearby texture. No AI model or GPU service needed.',
         'credit': 'Embark Studios texture-synthesis',
         'credit_url': 'https://github.com/EmbarkStudios/texture-synthesis',
@@ -56,7 +56,7 @@ def _context_box(source, bounds, margin, minimum=0):
 
 def _texture_repair(color, support):
     if not TEXTURE_EXE.is_file():
-        raise ValueError('The Texture repair helper is missing. Reinstall Local Remove or choose Dust & scratches.')
+        raise ValueError('The Texture repair helper is missing. Reinstall Local Image or choose Dust & scratches.')
     height, width = support.shape
     if (width > TEXTURE_MAX_EDGE or height > TEXTURE_MAX_EDGE
             or width * height > TEXTURE_MAX_PIXELS
@@ -84,7 +84,7 @@ def _texture_repair(color, support):
         except subprocess.TimeoutExpired as error:
             raise ValueError('Texture repair took too long. Try a smaller selection or use AI Remove.') from error
         except OSError as error:
-            raise ValueError('The Texture repair helper could not start. Reinstall Local Remove.') from error
+            raise ValueError('The Texture repair helper could not start. Reinstall Local Image.') from error
         if result.returncode != 0:
             # Keep internal temporary paths and native diagnostics out of the UI.
             raise ValueError('Texture repair failed. Try a smaller selection with more surrounding detail.')

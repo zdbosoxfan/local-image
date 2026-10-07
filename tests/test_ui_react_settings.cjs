@@ -26,7 +26,7 @@ if(fs.existsSync(path.join(out,'results.json'))){const archive=path.join(out,'re
   await page.getByRole('button',{name:'Settings',exact:true}).click();assert.equal(await page.getByRole('checkbox',{name:'Ask before overwriting original images'}).isChecked(),false);
   assert.equal(await page.getByRole('combobox',{name:'Interface size'}).inputValue(),'large');checks.push('React-owned preferences persist and apply without duplicate legacy controls');
   await page.getByRole('combobox',{name:'Interface size'}).selectOption('comfortable');await page.getByRole('tab',{name:'Local AI',exact:true}).click();
-  await page.waitForFunction(()=>!window.LocalImageReactFeatures.settings.getSnapshot().loading);assert.equal(await page.getByRole('button',{name:'Choose model folder…',exact:true}).isDisabled(),true);
+  await page.waitForFunction(()=>!window.LocalImageReactFeatures.settings.getSnapshot().loading);assert.equal(await page.getByRole('button',{name:'Choose folder…',exact:true}).isDisabled(),true);
   await page.keyboard.press('Control+o');assert.equal(await page.getByRole('dialog',{name:'Settings',exact:true}).isVisible(),true);
   assert.equal(await page.evaluate(()=>window.LocalImageReactFeatures.settings.isOpen()),true);checks.push('Actual setup/status data, browser-native capability gating and modal shortcut exclusion');
   for(const [w,h,density]of [[800,560,'comfortable'],[1366,768,'comfortable'],[1366,768,'large'],[1920,1080,'comfortable']]){
@@ -35,7 +35,7 @@ if(fs.existsSync(path.join(out,'results.json'))){const archive=path.join(out,'re
   }
   await page.getByRole('button',{name:'Close settings',exact:true}).click();await page.getByRole('menuitem',{name:'Help',exact:true}).click();await page.getByRole('menuitem',{name:'Hardware guide…',exact:true}).click();
   await page.getByRole('dialog',{name:'Hardware guide',exact:true}).waitFor();await page.waitForFunction(()=>!window.LocalImageReactFeatures.settings.getSnapshot().loading);
-  assert.ok((await page.getByRole('table',{name:'Model memory planning'}).locator('tbody tr').count())>0);await page.getByRole('button',{name:'Close hardware guide',exact:true}).click();
+  await page.getByRole('button',{name:'Model memory guide',exact:true}).click();assert.ok((await page.getByRole('table',{name:'Model memory planning'}).locator('tbody tr').count())>0);await page.getByRole('button',{name:'Close hardware guide',exact:true}).click();
   await page.getByRole('menuitem',{name:'Help',exact:true}).click();await page.getByRole('menuitem',{name:'Keyboard shortcuts…',exact:true}).click();await page.getByRole('dialog',{name:'Keyboard shortcuts',exact:true}).waitFor();assert.ok(await page.getByRole('table',{name:'Keyboard shortcuts'}).locator('tr').count()>8);await page.keyboard.press('Escape');
   checks.push('Existing Help routes open React hardware and shortcut dialogs with real backend guidance');
   assert.deepEqual(requests.filter(item=>item.method!=='GET'),[],'Opening settings/help never performs setup writes');assert.deepEqual(errors,[]);cspViolations=await page.evaluate(()=>window.__settingsCsp);assert.deepEqual(cspViolations,[]);passed=true;

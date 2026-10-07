@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import os
+import py7zr
 from pathlib import Path
 import sys
 import tempfile
@@ -281,6 +282,14 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(str(source), [item['path'] for item in found])
         self.assertIn(str(portable), [item['path'] for item in found])
 
+    def test_detects_legacy_managed_folder_after_process_rename(self):
+        parent = self.root / 'managed-ai'
+        code, _ = create_runtime(parent / ai.LEGACY_MANAGED_FOLDER)
+        write_config({'managed_ai_directory': str(parent)})
+        found = ai.detect_installations()
+        self.assertIn(str(code), [item['path'] for item in found])
+        self.assertEqual(ai.MANAGED_FOLDER, 'LocalImage-ComfyUI')
+
     def test_configure_uses_detected_id_preserves_fields_and_rejects_arbitrary_target(self):
         code, python = create_runtime(self.root / 'home' / 'ComfyUI_windows_portable')
         write_config({'comfy_port': 8189, 'desktop_preference': 'preserved'})
@@ -296,6 +305,34 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
                         {'model_directory': '\\\\server\\share'}, {'comfy_port': 51247}):
             with self.assertRaises(ai.SetupError):
                 ai.configure(**payload)
+
+    @unittest.skipIf(os.name == 'nt', 'POSIX virtual environment layout')
+    def test_linux_venv_detection_and_launch_keep_the_symlink_invocation_path(self):
+        code, unused_windows_python = create_runtime(self.root / 'home' / 'ComfyUI', False)
+        unused_windows_python.unlink()
+        python = code / '.venv' / 'bin' / 'python'
+        python.parent.mkdir(parents=True)
+        python.symlink_to(sys.executable)
+        with patch.object(ai.sys, 'platform', 'linux'):
+            item = ai.installation(code)
+            self.assertTrue(item['startable'])
+            self.assertEqual(item['python'], str(python))
+            self.assertIn(str(code), [entry['path'] for entry in ai.detect_installations()])
+            command = ai.launch_command(item, 8189, self.root / 'extra-model-paths.yaml')
+            self.assertEqual(command[:3], [str(python), '-s', str(code / 'main.py')])
+            self.assertNotIn('--windows-standalone-build', command)
+            python.unlink()
+            python.symlink_to(self.root / 'missing-python')
+            with self.assertRaises(ai.SetupError):
+                ai.launch_command(item, 8189, self.root / 'extra-model-paths.yaml')
+
+    def test_runtime_detection_does_not_accept_an_arbitrary_executable_as_python(self):
+        code, python = create_runtime(self.root / 'runtime', False)
+        python.unlink()
+        arbitrary = code / 'run-model'
+        arbitrary.write_bytes(b'fixture, never executed')
+        arbitrary.chmod(0o700)
+        self.assertFalse(ai.installation(code, python=str(arbitrary))['startable'])
 
     def test_desktop_registry_finds_custom_drive_standalone_and_shared_models(self):
         # Desktop 2 installs are independently located and do not use a .venv.
@@ -388,7 +425,7 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
 
     def test_custom_installed_application_folder_cannot_hold_mutable_ai_files(self):
         application = self.root / 'Applications' / 'Local Image'
-        executable = application / 'backend' / 'LocalRemoveBackend.exe'
+        executable = application / 'backend' / 'LocalImageBackend.exe'
         with patch.object(ai.sys, 'frozen', True, create=True), patch.object(ai.sys, 'executable', str(executable)):
             for key in ('model_directory', 'managed_ai_directory'):
                 with self.assertRaisesRegex(ai.SetupError, 'outside the Local Image installation'):
@@ -432,7 +469,7 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
             portable = destination / 'ComfyUI_windows_portable'
             create_runtime(portable)
             return portable
-        with (patch.object(ai, 'download_verified', AsyncMock()),
+        with (patch.object(ai.sys, 'platform', 'win32'), patch.object(ai, 'download_verified', AsyncMock()),
               patch.object(ai, 'extract_portable', side_effect=extract)):
             await self.manager.install(str(parent))
         stored = json.loads((self.root / 'profile' / 'config.json').read_text())
@@ -447,7 +484,7 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
             portable = destination / 'ComfyUI_windows_portable'
             create_runtime(portable)
             return portable
-        with (patch.object(ai, 'download_verified', AsyncMock()),
+        with (patch.object(ai.sys, 'platform', 'win32'), patch.object(ai, 'download_verified', AsyncMock()),
               patch.object(ai, 'extract_portable', side_effect=extract)):
             await self.manager.install(str(self.root / 'managed parent'))
         self.assertEqual(ai.model_directory(), self.root / 'profile' / 'models')
@@ -490,6 +527,39 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
         huge = self.member('huge'); huge.uncompressed = ai.MAX_EXTRACT_BYTES + 1
         with self.assertRaises(ai.SetupError):
             ai.validate_archive_members([huge], self.root)
+
+    async def test_frozen_linux_external_runtime_uses_original_system_libraries(self):
+        bundle = self.root / 'application' / '_internal'
+        system = str(self.root / 'system-bin')
+        original = str(self.root / 'user-libraries')
+        inherited = {'PATH': os.pathsep.join([str(bundle), str(bundle / 'bin'), system]),
+                     'LD_LIBRARY_PATH': str(bundle), 'LD_LIBRARY_PATH_ORIG': original,
+                     'QT_PLUGIN_PATH': os.pathsep.join([str(bundle / 'qt/plugins'), system]),
+                     'QT_QPA_PLATFORM_PLUGIN_PATH': str(bundle / 'qt/platforms'),
+                     'QML2_IMPORT_PATH': str(bundle / 'qt/qml')}
+        with (patch.object(ai.sys, 'platform', 'linux'),
+              patch.object(ai.sys, 'frozen', True, create=True),
+              patch.object(ai.sys, '_MEIPASS', str(bundle), create=True),
+              patch.dict(os.environ, inherited, clear=True)):
+            with ai.external_process_environment() as child:
+                self.assertEqual(child['LD_LIBRARY_PATH'], original)
+                self.assertNotIn('LD_LIBRARY_PATH_ORIG', child)
+                self.assertEqual(child['PATH'], system)
+                self.assertEqual(child['QT_PLUGIN_PATH'], system)
+                self.assertNotIn('QT_QPA_PLATFORM_PLUGIN_PATH', child)
+                self.assertNotIn('QML2_IMPORT_PATH', child)
+                self.assertEqual(dict(os.environ), inherited)
+            self.assertEqual(dict(os.environ), inherited)
+
+    async def test_frozen_linux_external_runtime_clears_library_override_without_original(self):
+        bundle = self.root / 'application' / '_internal'
+        with (patch.object(ai.sys, 'platform', 'linux'),
+              patch.object(ai.sys, 'frozen', True, create=True),
+              patch.object(ai.sys, '_MEIPASS', str(bundle), create=True),
+              patch.dict(os.environ, {'LD_LIBRARY_PATH': str(bundle)}, clear=True)):
+            with ai.external_process_environment() as child:
+                self.assertNotIn('LD_LIBRARY_PATH', child)
+                self.assertEqual(os.environ['LD_LIBRARY_PATH'], str(bundle))
 
     @unittest.skipUnless(sys.platform == 'win32', 'Runs the bundled Windows 7-Zip executable')
     def test_extract_real_archive_validates_layout(self):
@@ -725,10 +795,20 @@ class ManagedAITests(unittest.IsolatedAsyncioTestCase):
     async def test_install_rejects_existing_destination_without_changing_it(self):
         destination = self.root / ai.MANAGED_FOLDER; destination.mkdir()
         keep = destination / 'user-file'; keep.write_bytes(b'preserve')
-        with patch.object(ai, 'download_verified', side_effect=AssertionError('network not expected')):
+        with patch.object(ai.sys, 'platform', 'win32'), patch.object(ai, 'download_verified', side_effect=AssertionError('network not expected')):
             with self.assertRaises(ai.SetupError):
                 await self.manager.install(str(self.root))
         self.assertEqual(keep.read_bytes(), b'preserve')
+
+    async def test_linux_does_not_offer_or_download_the_windows_portable_runtime(self):
+        with (patch.object(ai.sys, 'platform', 'linux'),
+              patch.object(ai, 'service_state', AsyncMock(return_value={'running':False,'busy':False,'port':8188})),
+              patch.object(ai, 'download_verified', side_effect=AssertionError('No Windows runtime download'))):
+            status = await self.manager.status()
+            self.assertFalse(status['portable']['available'])
+            with self.assertRaisesRegex(ai.SetupError, 'for Windows'):
+                await self.manager.install(str(self.root / 'unused-runtime'))
+        self.assertFalse((self.root / 'unused-runtime').exists())
 
 
 if __name__ == '__main__':

@@ -40,6 +40,24 @@
 .li-commandbar .fui-Button {
   min-width: 28px;
 }
+/* A small brand dot over an icon, e.g. Settings when an update is available. */
+.li-badge-anchor {
+  position: relative;
+  display: inline-flex;
+}
+.li-update-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+}
+/* Icon-only mode (set from measurement in FullApp): tighter gaps and dividers
+   so the bar shares its row with the workspace tabs in narrow windows. */
+.li-commandbar[data-compact='true'] {
+  gap: 0;
+}
+.li-commandbar[data-compact='true'] .fui-Divider {
+  padding-inline: 4px;
+}
 /* One selected look for every image picker (assets, filmstrip, drafts):
    Fluent's selected background with a brand-colored border. */
 .li-selectable {
@@ -106,9 +124,9 @@
   grid-template-columns: 28px 36px minmax(0, 1fr) 28px;
   gap: 6px;
   align-items: center;
-  padding: 4px 8px;
+  padding: 4px 8px 4px 6px;
   min-height: 52px;
-  border-block: 1px solid transparent;
+  border-left: 2px solid transparent;
   cursor: default;
 }
 .li-layer-row:hover {
@@ -116,7 +134,7 @@
 }
 .li-layer-row[aria-selected='true'] {
   background: var(--colorNeutralBackground1Selected);
-  border-block-color: var(--colorNeutralStroke2);
+  border-left-color: var(--colorBrandStroke1);
 }
 .li-layer-row:focus-visible {
   outline: 2px solid var(--colorStrokeFocus2);
@@ -232,12 +250,4 @@
 }
 :root[data-ui-density='large'] .fui-Input__input {
   min-height: calc(var(--ui-font) * 1.4);
-}
-@media (max-width: 900px) {
-  .li-commandbar {
-    gap: 0;
-  }
-  .li-commandbar .fui-ToolbarDivider {
-    display: none;
-  }
 }

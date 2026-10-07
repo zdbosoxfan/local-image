@@ -61,6 +61,7 @@ class GenerationTests(unittest.IsolatedAsyncioTestCase):
             sys.modules[library.__name__] = library
             exec(compile(Path(library.__file__).read_text(encoding='utf-8'), library.__file__, 'exec'), library.__dict__)
             exec(compile(Path(self.api.__file__).read_text(encoding='utf-8'), self.api.__file__, 'exec'), self.api.__dict__)
+            self.progress = sys.modules['operation_progress']
         self.library_patch = patch.dict(sys.modules, {'generation_library': library})
         self.library_patch.start()
 
@@ -207,6 +208,19 @@ class GenerationTests(unittest.IsolatedAsyncioTestCase):
             self.api.GenerationRequest(**values, width=None)
         default = self.api.GenerationRequest(prompt='A room')
         self.assertEqual((default.width, default.height), (1024, 1024))
+
+    async def test_submission_id_is_used_for_progress_and_is_not_saved_as_image_metadata(self):
+        submission = str(uuid.uuid4())
+        async def generate(*args):
+            self.assertEqual(self.progress.current().job_id, submission)
+            return Image.new('RGB', (256, 256), 'green')
+        with patch.object(self.api, 'execute_generation', generate):
+            result = await self.api.generate_image(self.fixture.request(), self.payload(operation_id=submission))
+        self.assertEqual(self.progress.snapshot()['job_id'], submission)
+        self.assertNotIn('operation_id', result['session']['generation'])
+        for invalid in ('other-job', 'A' * 36, 12):
+            with self.assertRaises(ValidationError):
+                self.payload(operation_id=invalid)
 
     async def test_transparent_generation_preserves_seed_zero_alpha_and_unsaved_provenance(self):
         output = Image.new('RGBA', (256, 256), (160, 40, 30, 0)); output.paste((160, 40, 30, 255), (80, 50, 180, 210))

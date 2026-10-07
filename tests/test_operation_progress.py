@@ -71,7 +71,7 @@ class TransportProgressTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         source = Path(__file__).resolve().parents[1] / 'backend' / 'local_comfy_client.py'
         self.module = types.ModuleType('transport_progress_under_test')
-        self.engine = types.SimpleNamespace(ComfyClient=type('ComfyClient', (), {}), config=types.SimpleNamespace(ws_url='ws://127.0.0.1:8188/ws'))
+        self.engine = types.SimpleNamespace(ComfyClient=type('ComfyClient', (), {}), config=types.SimpleNamespace(ws_url='ws://127.0.0.1:8188/ws', http_url='http://127.0.0.1:8188'))
         with patch.dict(sys.modules, {'engine': self.engine}):
             exec(compile(source.read_text(encoding='utf-8'), str(source), 'exec'), self.module.__dict__)
         self.client = self.module.LocalComfyClient(); self.client.client_id = 'ours-client'

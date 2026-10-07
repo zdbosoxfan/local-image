@@ -32,7 +32,7 @@ class LocalComfyClientTests(unittest.IsolatedAsyncioTestCase):
         async def sleep(delay):
             self.sleeps.append(delay)
             self.elapsed += delay
-        self.module.asyncio = types.SimpleNamespace(sleep=sleep, TimeoutError=asyncio.TimeoutError)
+        self.module.asyncio = types.SimpleNamespace(sleep=sleep, TimeoutError=asyncio.TimeoutError, wait_for=asyncio.wait_for)
         self.module.time = types.SimpleNamespace(monotonic=lambda: self.elapsed)
         self.client = self.module.LocalComfyClient()
         self.client._upload_image = AsyncMock(return_value='uploaded.png')

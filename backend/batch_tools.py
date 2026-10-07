@@ -4,6 +4,8 @@ The queue owns immutable snapshots, not the editor's recovery documents. A saved
 treatment owns its backdrop but never another product's foreground or alpha mask.
 """
 import asyncio
+import base64
+import io
 from copy import deepcopy
 import json
 import math
@@ -16,20 +18,26 @@ import time
 from typing import Literal
 import uuid
 import zipfile
+import sqlite3
+
+import numpy as np
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
-from PIL import Image
+from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 import local_remove as editor
 from cutout_composite import initial_cutout, validate_cutout, transform_matrix
 from stock_attribution import collect_attributions
+import batch_store
 
 router = APIRouter(prefix='/api/local-remove/batch')
-MAX_ITEMS = 100
 MAX_STORAGE = 12 * 1024**3
 tasks = {}
+live_jobs = {}
+storage_ledgers = {}
+collection_lookups = {}
 queue_lock = asyncio.Lock()
 
 
@@ -100,8 +108,15 @@ def treatment(identifier):
 
 
 def job(identifier):
-    value = load_json(own_directory('jobs', identifier) / 'job.json')
-    if value.get('id') != identifier or not isinstance(value.get('items'), list) or len(value['items']) > MAX_ITEMS:
+    directory = own_directory('jobs', identifier)
+    if identifier in live_jobs:
+        return live_jobs[identifier]
+    try:
+        value = (batch_store.load(directory, linked) if (directory / batch_store.DATABASE).exists()
+                 else load_json(directory / 'job.json'))
+    except (sqlite3.Error, ValueError, OSError):
+        raise HTTPException(404, 'Batch metadata is missing or invalid.') from None
+    if value.get('id') != identifier or not isinstance(value.get('items'), list):
         raise HTTPException(400, 'The batch queue is invalid.')
     # A persisted running flag alone is not a live process. On restart the same
     # queue remains available for explicit resume; completed files are retained.
@@ -116,19 +131,38 @@ def job(identifier):
     return value
 
 
-def save_job(value):
+def save_job(value, *, changed_items=None, progress=False):
     value['modified'] = time.time()
-    atomic_json(own_directory('jobs', value['id']) / 'job.json', value)
+    directory = own_directory('jobs', value['id'])
+    created = batch_store.save(directory, value, linked, changed_items, progress)
+    if created:
+        # Legacy queues migrate on their next save; their snapshots stay intact.
+        atomic_json(directory / 'job.json', {'version': 2, 'id': value['id'], 'storage': batch_store.DATABASE})
+    if value['id'] in storage_ledgers:
+        storage_ledgers[value['id']].refresh_metadata()
+
+
+def queue_bytes(identifier, item=None):
+    ledger = storage_ledgers.get(identifier)
+    if ledger is None:
+        return bytes_used(own_directory('jobs', identifier))
+    if item is not None:
+        ledger.refresh_item(item['id'])
+        ledger.refresh_export(item)
+    ledger.refresh_metadata()
+    return ledger.total
 
 
 def public_job(value):
     result = {key: deepcopy(value.get(key)) for key in ('id', 'name', 'created', 'modified', 'phase', 'running', 'message', 'format', 'mode', 'prepare_cutouts', 'treatment_name')}
     result['treatment_id'] = value.get('treatment', {}).get('id') if value.get('treatment') else None
     result['qwen_variant'] = value.get('qwen_variant', 'int8')
+    result['background_mode'] = value.get('background_mode', 'transparent')
+    result['background_name'] = value.get('background_name')
     result['items'] = [{key: item.get(key) for key in ('id', 'name', 'session_id', 'revision', 'status', 'error', 'output_name', 'credits_name', 'export_bit_depth')}
                        | {'preview': f'/api/local-remove/batch/jobs/{value["id"]}/items/{item["id"]}/preview' if item.get('prepared') else None}
                        for item in value['items']]
-    result['bytes'] = bytes_used(own_directory('jobs', value['id']))
+    result['bytes'] = queue_bytes(value['id'])
     result['download'] = f'/api/local-remove/batch/jobs/{value["id"]}/download' if value.get('archive_ready') else None
     return result
 
@@ -238,15 +272,20 @@ class SessionSelection(StrictModel):
 
 class CreateJob(StrictModel):
     collection_id: str | None = None
-    entry_ids: list[str] = Field(default_factory=list, max_length=MAX_ITEMS)
-    sessions: list[SessionSelection] = Field(default_factory=list, max_length=MAX_ITEMS)
+    entry_ids: list[str] = Field(default_factory=list)
+    sessions: list[SessionSelection] = Field(default_factory=list)
     treatment_id: str | None = None
     prepare_cutouts: bool = False
     qwen_variant: Literal['int8', 'bf16'] = 'int8'
     format: editor.OutputFormat | None = None
+    background_mode: Literal['transparent', 'white', 'image'] = 'transparent'
+    background_image: str | None = Field(default=None, max_length=24 * 1024**2)
+    background_name: str | None = Field(default=None, max_length=255)
 
     @model_validator(mode='after')
     def selection(self):
+        if self.background_mode == 'image' and not self.background_image:
+            raise ValueError('Choose a background image.')
         if bool(self.collection_id and self.entry_ids) == bool(self.sessions):
             raise ValueError('Choose collection entries or opened image sessions.')
         if len(set(self.entry_ids)) != len(self.entry_ids) or len({i.session_id for i in self.sessions}) != len(self.sessions):
@@ -277,19 +316,19 @@ async def resolve_entries(payload):
         if any(identifier not in known for identifier in payload.entry_ids):
             raise HTTPException(400, 'Select images from this collection.')
         entries = []
-        for identifier in payload.entry_ids:
+        for position, identifier in enumerate(payload.entry_ids):
             entry = known[identifier]
             try:
+                source = {'collection_id': collection['id'], 'key': editor.path_key(entry['path']), 'position': position}
                 if entry.get('session_id'):
                     data = editor.read_session(entry['session_id'])
+                    entries.append({'id': identifier, 'name': entry['name'], 'session_id': data['id'], 'revision': data['revision'], 'status': 'pending', 'collection_source': source})
                 else:
-                    async with editor.source_gate(Path(entry['path'])):
-                        data = await asyncio.to_thread(editor.reuse_or_create_session, Path(entry['path']))
-                    entry['session_id'] = data['id']
-                entries.append({'id': identifier, 'name': entry['name'], 'session_id': data['id'], 'revision': data['revision'], 'status': 'pending'})
+                    # Only the authoritative collection may supply a local path.
+                    # Import later, once this durable queue is visible/cancellable.
+                    entries.append({'id': identifier, 'name': entry['name'], 'session_id': None, 'revision': None, 'status': 'pending', 'collection_source': source})
             except (HTTPException, OSError, ValueError) as error:
                 entries.append({'id': identifier, 'name': entry['name'], 'status': 'failed', 'error': str(getattr(error, 'detail', error))})
-        editor.write_collection(collection)
         return entries, collection['name']
 
 
@@ -299,10 +338,26 @@ async def create_job(request: Request, payload: CreateJob):
     async with queue_lock:
         require_idle()
         preset = treatment(payload.treatment_id) if payload.treatment_id else None
+        background = None
+        if payload.background_mode == 'image':
+            def decode_background():
+                try:
+                    encoded = base64.b64decode(payload.background_image, validate=True)
+                    if len(encoded) > 16 * 1024**2:
+                        raise ValueError('Choose a background smaller than 16 MB.')
+                    with Image.open(io.BytesIO(encoded)) as image:
+                        if image.width * image.height > 40_000_000:
+                            raise ValueError('Choose a background smaller than 40 megapixels.')
+                        return ImageOps.exif_transpose(image).convert('RGB')
+                except Exception as error:
+                    raise HTTPException(400, 'The background image could not be read: ' + str(error)) from error
+            background = await asyncio.to_thread(decode_background)
         entries, name = await resolve_entries(payload)
         identifier = str(uuid.uuid4())
         target = own_directory('jobs', identifier, False)
         target.mkdir()
+        if background is not None:
+            await asyncio.to_thread(background.save, target / 'background.png', compress_level=1)
         if preset:
             target.joinpath('treatment').mkdir()
             asset = preset['background'].get('asset')
@@ -312,6 +367,7 @@ async def create_job(request: Request, payload: CreateJob):
                  'treatment': deepcopy(preset), 'treatment_name': preset['name'] if preset else None,
                  'format': payload.format or (preset['format'] if preset else 'original'),
                  'prepare_cutouts': payload.prepare_cutouts, 'qwen_variant': payload.qwen_variant,
+                 'background_mode': payload.background_mode, 'background_name': Path(payload.background_name or 'Background').name,
                  'phase': 'preparing', 'mode': 'prepare', 'running': True, 'cancel_requested': False,
                  'message': 'Preparing one image at a time.'}
         save_job(value)
@@ -378,7 +434,92 @@ def apply_preset(data, directory, preset, preset_directory):
         editor.stack_model.validate_stack(data['layer_stack'], data['layers'])
 
 
+def current_collection_entries(identifier, cid):
+    """Refresh authority only when the collection changes, under its locks."""
+    editor.validate_id(cid, 'Collection')
+    try:
+        metadata = (editor.COLLECTIONS / (cid + '.json')).stat()
+    except OSError:
+        raise HTTPException(404, 'Collection not found') from None
+    signature = (metadata.st_ino, metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns)
+    cache = collection_lookups.setdefault(identifier, {})
+    cached = cache.get(cid)
+    if cached is None or cached[0] != signature:
+        collection = editor.read_collection(cid)
+        cached = (signature, {entry['id']: entry for entry in collection['entries']})
+        cache[cid] = cached
+    return cached[1]
+
+
+async def bind_collection_item(value, item):
+    """Bind an unopened image once, before any detached snapshot work."""
+    selected = item['collection_source']
+    cid = selected['collection_id']
+    async with editor.registration_lock, editor.collection_locks.setdefault(cid, asyncio.Lock()):
+        if value.get('cancel_requested'):
+            item['status'] = 'pending'
+            return False
+        entry = current_collection_entries(value['id'], cid).get(item['id'])
+        if entry is None or editor.path_key(entry['path']) != selected['key']:
+            raise HTTPException(409, 'This collection image changed after the batch was selected. Create a new queue.')
+        path = Path(entry['path'])
+        if entry.get('session_id'):
+            sid = entry['session_id']
+        else:
+            async with editor.source_gate(path):
+                if value.get('cancel_requested'):
+                    item['status'] = 'pending'
+                    return False
+                if editor.path_key(path) != selected['key']:
+                    raise HTTPException(409, 'This image now points to another source. Create a new queue.')
+                data = await asyncio.to_thread(editor.reuse_or_create_session, path)
+                sid = data['id']
+        # Release the source lock before the session lock; saving takes them in
+        # the opposite order. Capture the latest edits for an unopened selection.
+        async with editor.locks.setdefault(sid, asyncio.Lock()):
+            data = editor.read_session(sid)
+            if data.get('source_path') and editor.path_key(data['source_path']) != selected['key']:
+                raise HTTPException(409, 'This collection image now refers to another source. Create a new queue.')
+            item.update(session_id=sid, revision=data['revision'])
+            # A crash during copying/rendering must not import this image again.
+            save_job(value, changed_items=[(selected['position'], item)], progress=True)
+    return True
+
+
+async def merge_collection_bindings(value):
+    """Publish imports to collection navigation once, without per-image rewrites."""
+    collections = {}
+    for item in value['items']:
+        source = item.get('collection_source')
+        if source and item.get('session_id'):
+            collections.setdefault(source['collection_id'], {})[item['id']] = item
+    for cid, selected in collections.items():
+        async with editor.registration_lock, editor.collection_locks.setdefault(cid, asyncio.Lock()):
+            try:
+                collection = editor.read_collection(cid)
+            except HTTPException as error:
+                if error.status_code == 404:
+                    continue  # A removed collection does not invalidate snapshots.
+                raise
+            changed = False
+            for entry in collection['entries']:
+                item = selected.get(entry['id'])
+                if not item or entry.get('session_id') or editor.path_key(entry['path']) != item['collection_source']['key']:
+                    continue  # Preserve later openings, replacement paths and edits.
+                try:
+                    editor.folder(item['session_id'])
+                except HTTPException:
+                    continue  # A document closed during preparation stays closed.
+                entry['session_id'] = item['session_id']
+                entry.pop('error', None)
+                changed = True
+            if changed:
+                await asyncio.to_thread(editor.write_collection, collection)
+
+
 async def prepare_item(value, item):
+    if not item.get('session_id') and not await bind_collection_item(value, item):
+        return
     identifier, sid = value['id'], item['session_id']
     destination = own_directory('jobs', identifier) / item['id']
     editor.validate_id(item['id'], 'Batch image')
@@ -405,10 +546,10 @@ async def prepare_item(value, item):
             if state['background'].get('asset'):
                 assets.add(state['background']['asset'])
         estimate = sum((source / name).stat().st_size for name in assets)
-        if bytes_used(own_directory('jobs', identifier)) + estimate > MAX_STORAGE:
+        if queue_bytes(identifier, item) + estimate > MAX_STORAGE:
             raise ValueError('This queue exceeds its 12 GB storage limit. Use a smaller batch.')
         await asyncio.to_thread(lambda: [safe_copy(source, name, destination) for name in assets])
-    if value.get('treatment') and not data.get('cutout', {}).get('enabled'):
+    if (value.get('treatment') or value['prepare_cutouts']) and not data.get('cutout', {}).get('enabled'):
         if not value['prepare_cutouts']:
             item.update(status='needs-cutout', error='Prepare a cutout for this image, or enable Qwen preparation for a new queue.')
             return
@@ -448,8 +589,62 @@ async def prepare_item(value, item):
                     if existing['visible'] and not existing['discarded']:
                         existing['visible'] = False
                 data['layer_stack'].append(node)
+    if value['prepare_cutouts'] and not value.get('treatment'):
+        # Background-removal batches export only the subject. The snapshot is
+        # detached, so this cannot hide or alter layers in the editor document.
+        state = data['cutout']
+        state['background'] = {'mode': 'transparent', 'color': '#ffffff'}
+        state['shadow']['enabled'] = False
+        if data.get('layer_stack'):
+            target = next((node for node in reversed(data['layer_stack'])
+                           if node['kind'] == 'cutout' and not node['discarded']
+                           and node['cutout']['alpha'] == state['alpha']), None)
+            if target is None:
+                raise ValueError('Prepare the intended cutout in the editor first.')
+            above = data['layer_stack'][data['layer_stack'].index(target)+1:]
+            repairs = [node for node in above if node['kind'] == 'retouch' and node['visible'] and not node['discarded'] and node['patch_ids']]
+            if repairs:
+                # Preserve applied repairs above the subject while clipping their
+                # alpha to that subject. Background layers never enter this bake.
+                subset = deepcopy(data)
+                included = {target['id']} | {node['id'] for node in repairs}
+                for node in subset['layer_stack']:
+                    node['visible'] = node['id'] in included
+                    if node['id'] == target['id']: node['cutout']['shadow']['enabled'] = False
+                def bake_repairs():
+                    raw, icc, _ = editor.decode_original(destination / data['original'])
+                    subject = editor.stack_model.native_layer(subset, destination, next(node for node in subset['layer_stack'] if node['id'] == target['id']), raw, icc, editor.decode_original)
+                    pixels = editor.stack_model.render_native(subset, destination, raw, icc, editor.decode_original)
+                    pixels[..., 3] = np.minimum(pixels[..., 3], subject[..., 3])
+                    pixels[pixels[..., 3] == 0] = 0
+                    return editor.stack_snapshot(destination, data, (pixels, icc))
+                target['source'] = await asyncio.to_thread(bake_repairs)
+                target['cutout'] = initial_cutout(editor.save_cutout_alpha(destination, Image.new('L', (data['width'], data['height']), 255)))
+                target['transform'] = dict(editor.stack_model.DEFAULT_TRANSFORM)
+                target['opacity'] = 1.0
+                data['cutout'] = deepcopy(target['cutout'])
+            for node in data['layer_stack']:
+                node['visible'] = node is target
+            target['cutout']['shadow']['enabled'] = False
+            mode = value.get('background_mode', 'transparent')
+            if mode != 'transparent':
+                if mode == 'white':
+                    background = Image.new('RGB', (data['width'], data['height']), 'white')
+                else:
+                    with Image.open(own_directory('jobs', identifier) / 'background.png') as image:
+                        background = ImageOps.fit(image.convert('RGB'), (data['width'], data['height']), method=Image.Resampling.LANCZOS)
+                editor.add_stack_image(destination, data, background, value.get('background_name') or 'White background', below=target['id'], commit=False)
+        else:
+            mode = value.get('background_mode', 'transparent')
+            if mode == 'white':
+                state['background'] = {'mode': 'color', 'color': '#ffffff'}
+            elif mode == 'image':
+                asset = 'cutout-' + uuid.uuid4().hex + '-background.png'
+                shutil.copyfile(own_directory('jobs', identifier) / 'background.png', destination / asset)
+                state['background'] = {'mode': 'image', 'color': '#ffffff', 'asset': asset}
+
     apply_preset(data, destination, value.get('treatment'), own_directory('jobs', identifier) / 'treatment')
-    if bytes_used(own_directory('jobs', identifier)) > MAX_STORAGE:
+    if queue_bytes(identifier, item) > MAX_STORAGE:
         raise ValueError('This queue exceeds its 12 GB storage limit. Use a smaller batch.')
     # Paths granting save/overwrite authority and histories do not belong to a
     # detached export snapshot. Provenance and credits remain in its metadata.
@@ -514,7 +709,7 @@ async def export_item(value, item):
             raise ValueError('Choose a regular export folder.')
         temporary = destination / ('.local-image-batch-' + uuid.uuid4().hex + suffix)
         try:
-            if bytes_used(own_directory('jobs', value['id'])) + sum(file.stat().st_size for file in source.iterdir() if file.is_file()) > MAX_STORAGE:
+            if queue_bytes(value['id'], item) + sum(file.stat().st_size for file in source.iterdir() if file.is_file()) > MAX_STORAGE:
                 raise ValueError('This queue exceeds its 12 GB export storage limit. Use a smaller batch.')
             await asyncio.to_thread(editor.flatten, data, temporary, value['format'] != 'original', root_override=source)
             if job(value['id']).get('cancel_requested'):
@@ -558,17 +753,20 @@ async def export_item(value, item):
 async def run_queue(identifier, mode):
     try:
         value = job(identifier)
+        live_jobs[identifier] = value
+        storage_ledgers[identifier] = batch_store.StorageLedger(own_directory('jobs', identifier), linked)
+        export_ids = set(value.get('export_item_ids', []))
         for index in range(len(value['items'])):
             current = job(identifier)
             if current.get('cancel_requested'):
                 break
             item = current['items'][index]
-            eligible = item['status'] == 'pending' if mode == 'prepare' else item['status'] == 'ready' and item['id'] in current.get('export_item_ids', [])
+            eligible = item['status'] == 'pending' if mode == 'prepare' else item['status'] == 'ready' and item['id'] in export_ids
             if not eligible:
                 continue
             item['status'] = 'preparing' if mode == 'prepare' else 'exporting'
             current['message'] = ('Preparing' if mode == 'prepare' else 'Exporting') + f' {index + 1} of {len(current["items"])}: {item["name"]}'
-            save_job(current)
+            save_job(current, changed_items=[(index, item)], progress=True)
             try:
                 if mode == 'prepare':
                     await prepare_item(current, item)
@@ -579,34 +777,50 @@ async def run_queue(identifier, mode):
             # A cancel request may have been persisted during an awaited image.
             latest = job(identifier)
             latest['items'][index] = item
-            save_job(latest)
+            queue_bytes(identifier, item)
+            save_job(latest, changed_items=[(index, item)], progress=True)
             await asyncio.sleep(0)
         value = job(identifier)
+        if mode == 'prepare':
+            await merge_collection_bindings(value)
         cancelled = value.get('cancel_requested')
         if mode == 'export' and value['mode'] == 'zip' and any(item['status'] == 'exported' for item in value['items']):
             directory = own_directory('jobs', identifier)
             exported_size = sum((directory / 'exports' / item['output_name']).stat().st_size for item in value['items'] if item['status'] == 'exported')
-            if bytes_used(directory) + exported_size > MAX_STORAGE:
+            if queue_bytes(identifier) + exported_size > MAX_STORAGE:
                 raise ValueError('The ZIP would exceed this queue’s 12 GB limit. Download smaller batches or export to a folder.')
             temporary = directory / 'exports.pending.zip'
-            with zipfile.ZipFile(temporary, 'w', zipfile.ZIP_STORED, allowZip64=True) as archive:
-                for item in value['items']:
-                    if item['status'] == 'exported':
-                        archive.write(directory / 'exports' / item['output_name'], item['output_name'])
-                        if item.get('credits_name'):
-                            archive.write(directory / 'exports' / item['credits_name'], item['credits_name'])
-                archive.writestr('export-report.json', json.dumps({'name': value['name'], 'treatment': value.get('treatment_name'), 'items': [{key: item.get(key) for key in ('name', 'status', 'error', 'output_name', 'credits_name', 'credits', 'export_bit_depth')} for item in value['items']]}, ensure_ascii=False, indent=2))
+            value['message'] = 'Creating ZIP from completed exports.'
+            save_job(value, changed_items=(), progress=True)
+            def write_archive():
+                with zipfile.ZipFile(temporary, 'w', zipfile.ZIP_STORED, allowZip64=True) as archive:
+                    for item in value['items']:
+                        if item['status'] == 'exported':
+                            archive.write(directory / 'exports' / item['output_name'], item['output_name'])
+                            if item.get('credits_name'):
+                                archive.write(directory / 'exports' / item['credits_name'], item['credits_name'])
+                    archive.writestr('export-report.json', json.dumps({'name': value['name'], 'treatment': value.get('treatment_name'), 'items': [{key: item.get(key) for key in ('name', 'status', 'error', 'output_name', 'credits_name', 'credits', 'export_bit_depth')} for item in value['items']]}, ensure_ascii=False, indent=2))
+            # Packaging large archives must not block polling or the native host heartbeat.
+            await asyncio.to_thread(write_archive)
+            if queue_bytes(identifier) > MAX_STORAGE:
+                temporary.unlink(missing_ok=True)
+                raise ValueError('The ZIP would exceed this queue’s 12 GB limit. Export to a folder instead.')
             os.replace(temporary, directory / 'exports.zip')
             value['archive_ready'] = True
+            cancelled = value.get('cancel_requested')
         failures = sum(item['status'] in ('failed', 'conflict', 'needs-cutout') for item in value['items'])
         value.update(running=False, phase='paused' if cancelled else 'review' if mode == 'prepare' else 'complete',
                      message='Cancelled after the current image. Completed outputs are kept; resume continues the remaining images.' if cancelled
                      else ('Review each preview before exporting.' if mode == 'prepare' else 'Export complete.') + (f' {failures} image(s) need attention.' if failures else ''))
-        save_job(value)
+        save_job(value, changed_items=(), progress=True)
     except Exception as error:
         value = job(identifier)
         value.update(running=False, phase='paused', message='Batch paused: ' + str(getattr(error, 'detail', error)))
-        save_job(value)
+        save_job(value, changed_items=(), progress=True)
+    finally:
+        live_jobs.pop(identifier, None)
+        storage_ledgers.pop(identifier, None)
+        collection_lookups.pop(identifier, None)
 
 
 @router.get('/jobs')
@@ -646,7 +860,9 @@ async def delete_job(identifier: str, request: Request):
             relative = Path(base).relative_to(directory)
             if not relative.parts:
                 valid_dirs = {'treatment', 'exports'} | known_entries
-                valid_files = {'job.json', 'exports.zip', 'exports.pending.zip'}
+                valid_files = {'job.json', batch_store.DATABASE, batch_store.DATABASE + '-journal', 'exports.zip', 'exports.pending.zip'}
+                valid_files.update(name for name in files if batch_store.staging_file(name))
+                if value.get('background_mode') == 'image': valid_files.add('background.png')
             elif len(relative.parts) == 1 and relative.parts[0] == 'exports':
                 valid_dirs, valid_files = set(), exported
             elif len(relative.parts) == 1 and relative.parts[0] == 'treatment':
@@ -669,7 +885,7 @@ async def cancel_job(identifier: str, request: Request):
     editor.guard(request, True)
     value = job(identifier)
     value['cancel_requested'] = True
-    save_job(value)
+    save_job(value, changed_items=(), progress=True)
     return public_job(value)
 
 
@@ -693,19 +909,20 @@ async def begin_export(identifier, *, directory=None, item_ids=None):
         require_idle()
         value = job(identifier)
         selected = item_ids if item_ids is not None else [item['id'] for item in value['items'] if item['status'] == 'ready']
-        if len(set(selected)) != len(selected) or any(not any(item['id'] == chosen and item['status'] == 'ready' for item in value['items']) for chosen in selected):
+        ready_ids = {item['id'] for item in value['items'] if item['status'] == 'ready'}
+        if len(set(selected)) != len(selected) or any(chosen not in ready_ids for chosen in selected):
             raise HTTPException(400, 'Choose ready images from this reviewed queue.')
         if not selected:
             raise HTTPException(400, 'Prepare and review at least one ready image first.')
         value.update(mode='folder' if directory is not None else 'zip', output_directory=str(directory) if directory else None,
                      export_item_ids=selected, running=True, phase='exporting', cancel_requested=False, message='Exporting reviewed images one at a time.')
-        save_job(value)
+        save_job(value, changed_items=())
         launch(identifier, 'export')
         return public_job(value)
 
 
 class ExportSelection(StrictModel):
-    item_ids: list[str] | None = Field(default=None, min_length=1, max_length=MAX_ITEMS)
+    item_ids: list[str] | None = Field(default=None, min_length=1)
 
 
 @router.post('/jobs/{identifier}/export')
@@ -741,13 +958,14 @@ async def preview_item(identifier: str, item_id: str, request: Request, full: bo
     path = directory / ('original-full.png' if original else 'preview-full.png' if full else 'preview.png')
     if item and item.get('prepared') and (full or original) and not path.exists():
         data = load_json(directory / 'snapshot.json')
-        if bytes_used(own_directory('jobs', identifier)) + data['width'] * data['height'] * 4 > MAX_STORAGE:
+        if queue_bytes(identifier, item) + data['width'] * data['height'] * 4 > MAX_STORAGE:
             raise HTTPException(400, 'Full-size preview exceeds this queue’s 12 GB cache limit. Review a smaller batch.')
         image = await asyncio.to_thread(editor.render, data, original=original, root_override=directory)
         temporary = directory / ('.preview-' + uuid.uuid4().hex + '.png')
         try:
             await asyncio.to_thread(image.save, temporary)
             os.replace(temporary, path)
+            queue_bytes(identifier, item)
         finally:
             temporary.unlink(missing_ok=True)
     if not item or not item.get('prepared') or linked(path.parent) or linked(path) or not path.is_file():

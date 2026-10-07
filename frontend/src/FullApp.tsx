@@ -1,5 +1,6 @@
 import { useRef, useSyncExternalStore } from 'react';
 import {
+  Badge,
   Button,
   Portal,
   ProgressBar,
@@ -16,7 +17,7 @@ import { AssetsDock, type AssetsController } from './features/assets/index.ts';
 import { GenerationPanel, type GenerationController } from './features/generation/index.ts';
 import { MenuBar } from './features/shell/MenuBar.tsx';
 import { ToolOptions, ToolRail, WorkspaceTabs } from './features/shell/ToolControls.tsx';
-import { DocumentBar, Filmstrip, StatusBar } from './features/shell/DocumentChrome.tsx';
+import { DocumentBar, DocumentTabs, Filmstrip, StatusBar } from './features/shell/DocumentChrome.tsx';
 import { Layers } from './features/shell/Layers.tsx';
 import { Icon } from './features/shell/Icon.tsx';
 import { Hint } from './features/shell/Hint.tsx';
@@ -55,8 +56,17 @@ export function FullApp({
   execute,
 }: FullAppProps) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot),
-    ui = useSyncExternalStore(shell.subscribe, shell.getSnapshot);
+    ui = useSyncExternalStore(shell.subscribe, shell.getSnapshot),
+    updateAvailable = !!useSyncExternalStore(settings.subscribe, settings.getSnapshot).update?.available;
+  const generated = useSyncExternalStore(generation.subscribe, generation.getSnapshot);
+  const activeDocumentId =
+    state.workspace === 'generate' && state.refining
+      ? (generated.selectedResultId ?? generated.selectedDraftId)
+      : state.creatingBlank
+        ? null
+        : (state.document?.id ?? null);
   const commands = commandCatalog(state);
+  const batchLabel = commands.showBatch.label.replace(/…$/, '');
   const workspaceBar = useRef<HTMLDivElement>(null),
     commandBar = useRef<HTMLDivElement>(null);
   const compact = useCompactToolbar(workspaceBar, commandBar);
@@ -99,11 +109,20 @@ export function FullApp({
           setMenu={shell.setMenu}
         />
       </header>
+      <DocumentTabs
+        documents={state.openDocuments}
+        activeId={activeDocumentId}
+        busy={state.busy}
+        onSelect={controller.commands.activateOpenDocument}
+        onClose={controller.commands.closeOpenDocument}
+        onNew={() => execute('newWorkspace')}
+      />
       <div className="li-workspace-bar" ref={workspaceBar}>
         <WorkspaceTabs state={state.tools} actions={controller.toolActions} />
         <Toolbar
           ref={commandBar}
           className="li-commandbar"
+          data-compact={compact}
           aria-label="Editor commands"
           size="medium"
           checkedValues={{ panels: state.inspectorHidden || inspectorUnavailable ? [] : ['inspector'] }}
@@ -135,17 +154,19 @@ export function FullApp({
               {!compact && 'Assets'}
             </ToolbarButton>
           </Hint>
-          <Hint content="Batch" enabled={compact}>
-            <ToolbarButton
-              id="batch-open"
-              {...label('Batch')}
-              icon={<Icon name="batch" />}
-              disabled={!commands.showBatch.enabled}
-              onClick={() => execute('showBatch')}
-            >
-              {!compact && 'Batch'}
-            </ToolbarButton>
-          </Hint>
+          {commands.showBatch.visible !== false && (
+            <Hint content={batchLabel} enabled={compact}>
+              <ToolbarButton
+                id="batch-open"
+                {...label(batchLabel)}
+                icon={<Icon name="batch" />}
+                disabled={!commands.showBatch.enabled}
+                onClick={() => execute('showBatch')}
+              >
+                {!compact && batchLabel}
+              </ToolbarButton>
+            </Hint>
+          )}
           <Hint content="Inspector" enabled={compact}>
             <ToolbarToggleButton
               name="panels"
@@ -170,10 +191,15 @@ export function FullApp({
               {!compact && 'Export'}
             </ToolbarButton>
           </Hint>
-          <Hint content="Settings">
+          <Hint content={updateAvailable ? 'Settings · an update is available' : 'Settings'}>
             <ToolbarButton
-              aria-label="Settings"
-              icon={<Icon name="settings" />}
+              aria-label={updateAvailable ? 'Settings, update available' : 'Settings'}
+              icon={
+                <span className="li-badge-anchor">
+                  <Icon name="settings" />
+                  {updateAvailable && <Badge size="extra-small" color="brand" className="li-update-badge" />}
+                </span>
+              }
               disabled={!commands.showSettings.enabled}
               onClick={() => execute('showSettings')}
             />

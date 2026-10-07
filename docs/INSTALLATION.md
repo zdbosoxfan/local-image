@@ -1,5 +1,7 @@
 # Install Local Image on another Windows PC
 
+For the bundled Linux preview, use the [Linux installation guide](LINUX-INSTALLATION.md). The portable ComfyUI installer described below is a Windows feature.
+
 Local Image 0.7.0 uses a Windows EXE installer. The application, bundled Python backend and native WebView2 host are installed together. Users do not need to install Python, Node.js, Git or development tools. ComfyUI and AI model weights are optional and are downloaded separately.
 
 ## Choose the application and AI folders
@@ -50,6 +52,8 @@ FLUX.2 Klein 9B requires publisher approval through a Hugging Face account. Foll
 The LoRA library shows image examples first, with details behind a small **i** button. The browser searches the live Hugging Face catalog when searched or refreshed. Curated styles and community results are labeled separately, as are local test and publisher examples. LoRAs must match the exact base model. Downloading an adapter does not automatically enable it or change generation settings.
 
 ## Update, uninstall and move to a new PC
+
+**Settings → General → Updates** checks GitHub for a newer release for this platform (the Windows installer here; see [LINUX-INSTALLATION.md](LINUX-INSTALLATION.md) for the Linux package). The app also checks quietly once a day and shows a dot on the Settings button when a newer version exists; it never downloads anything on its own. **Download update** fetches the release installer into your profile's `updates` folder and verifies it against the checksum published with the release; a file that does not match is discarded. **Install and restart** reviews unsaved edits, closes Local Image and starts the installer, which keeps your installation folder, storage choices, models and projects. Windows asks for administrator approval and, because the installer is not yet code-signed, shows its usual SmartScreen warning, exactly as for a first install. In a browser window the installer can be downloaded and verified but must be started from the desktop app or the release page.
 
 Save edits and close Local Image before updating or uninstalling. Let active generation and download jobs finish. The editor backend exits after it becomes idle and loses the desktop heartbeat; wait briefly and retry if Windows still reports a file in use. Avoid force-closing a generation or deleting a running ComfyUI folder.
 
