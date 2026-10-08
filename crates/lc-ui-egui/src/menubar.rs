@@ -221,7 +221,6 @@ const LAYOUT: &[(&str, &[&str])] = &[
     (
         "Help",
         &[
-            "app.discord",
             "app.feedback",
             "---",
             "app.website",

@@ -1067,7 +1067,7 @@ mod tests {
         assert_eq!(h.app.ui.right, crate::state::RightPanel::Edit, "no-op outside tools");
     }
 
-    /// ⌘Q (File → Quit LightCraft) closes the window.
+    /// ⌘Q (File → Quit Local Image) closes the window.
     #[test]
     fn cmd_q_quits() {
         let mut h = demo([900.0, 600.0]);

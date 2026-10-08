@@ -134,7 +134,6 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("dialog.pasteSettings", "Paste Selected Settings…", Some("Cmd+Shift+V"), "Edit"),
     ("view.focusSearch", "Find…", Some("Cmd+F"), "Edit"),
     ("dialog.export", "Export…", None, "File"),
-    ("photo.editOriginal", "Edit Original in Local Image", Some("Cmd+Alt+E"), "Photo"),
     ("photo.editInExternal", "Edit in External Editor", Some("Cmd+Shift+E"), "Photo"),
     ("dialog.mergeHdr", "HDR…", Some("Ctrl+H"), "Photo>Photo Merge"),
     ("dialog.mergePanorama", "Panorama…", Some("Ctrl+M"), "Photo>Photo Merge"),
@@ -150,7 +149,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("file.restoreLibrary", "Restore Library from Backup…", None, "File"),
     ("photo.locate", "Locate Missing File…", None, ""),
     ("dialog.saveMetadataPreset", "Save Metadata Preset…", None, ""),
-    ("app.quit", "Quit LightCraft", Some("Cmd+Q"), "File"),
+    ("app.quit", "Quit Local Image", Some("Cmd+Q"), "File"),
     ("file.importPresets", "Import Profiles & Presets…", None, "File"),
     ("file.exportPresets", "Export Presets…", None, "File"),
     // Edit panel ▸ Curve ▸ Point Curve dropdown
@@ -158,15 +157,14 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("file.exportCurvePresets", "Export Point Curve Presets…", None, ""),
     ("app.settings", "Settings…", Some("Cmd+,"), "Edit"),
     ("app.openLibrary", "Open Library…", None, "File"),
-    ("app.about", "About LightCraft", None, "Help"),
+    ("app.about", "About Local Image", None, "Help"),
     ("app.systemInfo", "System Info…", None, "Help"),
     ("app.whatsNew", "What's New", None, "Help"),
     ("dialog.cull", "Assisted Culling…", None, "Photo"),
-    ("app.help", "LightCraft Help", Some("F1"), "Help"),
-    ("app.discord", "Join the ArtCraft Discord…", None, "Help"),
+    ("app.help", "Local Image Help", Some("F1"), "Help"),
     ("app.feedback", "Send Feedback…", None, "Help"),
-    ("app.website", "LightCraft Website", None, "Help"),
-    ("app.github", "LightCraft on GitHub", None, "Help"),
+    ("app.website", "Local Image Website", None, "Help"),
+    ("app.github", "Local Image on GitHub", None, "Help"),
     ("app.artcraft", "ArtCraft Website", None, "Help"),
     ("app.shortcuts", "Keyboard Shortcuts", Some("Cmd+/"), "Help"),
     ("app.export", "Export Now", None, ""),
@@ -872,29 +870,6 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             app.ui.dialog = Some(Dialog::About);
             Ok(Value::Null)
         }
-        "photo.editOriginal" => {
-            // local-image: the photo's own file in the editor (Lightroom's Edit Original), for
-            // retouching a folder of JPEGs or PNGs in place; raw files still need a rendered copy.
-            let Some(ph) = app.session.active().and_then(|id| app.session.catalog.photo(id)).cloned() else {
-                return Some(Err("select a photo first".into()));
-            };
-            let path = match &ph.source {
-                lightcraft_catalog::Source::File { path } => path.clone(),
-                _ => return Some(Err("this photo has no file to edit".into())),
-            };
-            const RAW: &[&str] =
-                &["DNG", "CR2", "CR3", "NEF", "NRW", "ARW", "RAF", "ORF", "RW2", "RWL", "RAW", "PEF", "SRW", "X3F", "3FR", "IIQ", "ERF", "MOS"];
-            if RAW.contains(&ph.format.to_ascii_uppercase().as_str()) {
-                return run_ui_command(app, "photo.editInExternal", p);
-            }
-            if let Some(id) = app.session.active() {
-                app.ui.external_edits.push(id.0);
-            }
-            match app.services.open_with.as_mut() {
-                Some(f) => f(&path, "").map(|()| json!({ "path": path })),
-                None => Err("no editor to open the photo in".into()),
-            }
-        }
         "photo.editInExternal" => {
             // render an edit copy (stacked on the original), then open it in the editor
             let mut params = p.clone();
@@ -1194,7 +1169,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             let path = match p.get("path").and_then(Value::as_str) {
                 Some(x) => Some(x.to_string()),
                 None => {
-                    let name = format!("{}.lcpreset", group.as_deref().unwrap_or("LightCraft Presets"));
+                    let name = format!("{}.lcpreset", group.as_deref().unwrap_or("Local Image Presets"));
                     match app.services.save_preset_file.as_mut() {
                         Some(f) => f(&name),
                         None => return Some(Err("no file dialog on this platform".into())),
@@ -1259,7 +1234,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         }
         "app.export" => crate::control::export_active(app, p),
         "app.showInFinder" => show_in_finder(app),
-        "app.discord" | "app.website" | "app.github" | "app.artcraft" | "app.help" | "app.feedback" => {
+        "app.website" | "app.github" | "app.artcraft" | "app.help" | "app.feedback" => {
             let url = crate::links::url_of(id).unwrap_or(crate::links::WEBSITE);
             crate::links::open(app, url)
         }

@@ -34,7 +34,7 @@ pub fn preview_only_variant(reason: &str) -> &str {
 /// What a preview-only raw means for the user (see `Photo::preview_only`).
 pub fn preview_only_explanation(reason: &str) -> String {
     format!(
-        "LightCraft can't decode this raw variant yet ({}). You're editing the camera's embedded JPEG preview, \
+        "Local Image can't decode this raw variant yet ({}). You're editing the camera's embedded JPEG preview, \
          which already includes the camera's picture style (e.g. Monochrome) and white balance.",
         preview_only_variant(reason)
     )

@@ -94,7 +94,7 @@
   "{name} Off": "{name} desativado",
   "{name} On": "{name} ativado",
   "{name} — double-click to reset it": "{name} — clique duas vezes para redefinir",
-  "{n} change{} saved in memory but not written to disk: {e}\nLightCraft retries automatically; quitting now would lose {}.": "{n} alteração{:.0} salva na memória mas não gravada no disco: {e}\nO LightCraft tenta novamente automaticamente; encerrar agora perderia {}.",
+  "{n} change{} saved in memory but not written to disk: {e}\nLocal Image retries automatically; quitting now would lose {}.": "{n} alteração{:.0} salva na memória mas não gravada no disco: {e}\nO Local Image tenta novamente automaticamente; encerrar agora perderia {}.",
   "{n} found · {sel} selected": "{n} encontradas · {sel} selecionadas",
   "{n} photos": "{n} fotos",
   "{n} photos in {} are hidden by the filters above": "{n} fotos em {} estão ocultas pelos filtros acima",

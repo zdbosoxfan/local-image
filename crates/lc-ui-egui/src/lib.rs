@@ -98,7 +98,7 @@ pub struct Services {
     pub reveal: Option<RevealFn>,
     /// Choose a folder (Settings → General → Open Library…; desktop only).
     pub pick_folder: Option<PickFolder>,
-    /// Open a web link in the browser (Help menu, About, Discord button).
+    /// Open a web link in the browser (Help menu, About dialog).
     pub open_url: Option<OpenUrlFn>,
     /// Open a file in an external editor (Edit in External Editor; desktop only).
     pub open_with: Option<OpenWithFn>,
@@ -373,7 +373,7 @@ impl LightcraftApp {
                 self.ui.unsaved_seen = true;
                 let t = ctx.input(|i| i.time);
                 let what = if n == 1 { "1 change".to_string() } else { format!("{n} changes") };
-                self.ui.toast = Some((format!("{what} saved in memory but not written to disk: {e} — LightCraft will retry"), t + 6.0));
+                self.ui.toast = Some((format!("{what} saved in memory but not written to disk: {e} — Local Image will retry"), t + 6.0));
             }
             (None, true) => {
                 self.ui.unsaved_seen = false;
