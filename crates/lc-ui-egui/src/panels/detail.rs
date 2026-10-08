@@ -793,7 +793,11 @@ fn general_interaction(
             && let Some(q) = resp.interact_pointer_pos()
         {
             let n = map.norm(q);
-            if let Ok(r) = app.run("pointColor.pick", json!({"x": n.x, "y": n.y})) {
+            let mut q = json!({"x": n.x, "y": n.y});
+            if let Some(m) = app.ui.point_color_mask {
+                q["mask"] = json!(m);
+            }
+            if let Ok(r) = app.run("pointColor.pick", q) {
                 app.ui.point_color = r["index"].as_u64().unwrap_or(0) as usize;
             }
             app.ui.tool.clear();

@@ -29,6 +29,7 @@ pub mod color_cmds;
 pub mod commands;
 pub mod comps_cmds;
 pub mod cutout_cmds;
+pub mod develop_filter_cmds;
 pub mod develop_layer_cmds;
 pub mod display_color;
 pub mod distort_cmds;

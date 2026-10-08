@@ -21,7 +21,7 @@ fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
 }
 
 /// Parametric region curve (encoded domain) composed with the master point curve.
-fn curve_luts(c: &ToneCurve) -> Option<[Lut1; 3]> {
+pub(crate) fn curve_luts(c: &ToneCurve) -> Option<[Lut1; 3]> {
     let parametric = c.highlights != 0.0 || c.lights != 0.0 || c.darks != 0.0 || c.shadows != 0.0;
     let master = !ToneCurve::point_curve_is_identity(&c.master);
     let chans = [&c.red, &c.green, &c.blue].map(|p| !ToneCurve::point_curve_is_identity(p));
@@ -68,7 +68,7 @@ pub struct Vig {
     pub style: VignetteStyle,
 }
 
-fn vignette(s: &DevelopSettings) -> Option<Vig> {
+pub(crate) fn vignette(s: &DevelopSettings) -> Option<Vig> {
     let v = &s.vignette;
     (v.amount != 0.0).then(|| {
         let r = (v.roundness / 100.0) as f32;
@@ -82,6 +82,28 @@ fn vignette(s: &DevelopSettings) -> Option<Vig> {
             style: v.style,
         }
     })
+}
+
+/// Grain parameters of `s` (amount, cell size px, roughness, seed) for a `px_per_long` render.
+pub(crate) fn grain(s: &DevelopSettings, px_per_long: f64) -> Option<(f32, f32, f32, u32)> {
+    (s.grain.amount > 0.0).then(|| {
+        let cell = (0.0006 + (s.grain.size / 100.0) as f32 * 0.0024) * px_per_long as f32;
+        ((s.grain.amount / 100.0) as f32 * 0.13, cell.max(0.6), (s.grain.roughness / 100.0) as f32, s.grain.seed)
+    })
+}
+
+/// The tone map for `s` on `info`'s source with these contrast / whites / blacks.
+pub(crate) fn tone_map(s: &DevelopSettings, info: &SourceInfo, contrast: f64, whites: f64, blacks: f64) -> ToneMap {
+    // a converted negative is already a print (display-referred): no camera / scene curve
+    if crate::negative::converts(s) {
+        ToneMap::display(contrast, whites, blacks)
+    } else if let Some(curve) = info.camera_tone.as_ref().filter(|_| info.raw) {
+        ToneMap::camera(curve, contrast, whites, blacks)
+    } else if info.raw {
+        ToneMap::new(contrast, whites, blacks)
+    } else {
+        ToneMap::display(contrast, whites, blacks)
+    }
 }
 
 /// Hash constants of [`grain_noise`] (shared with the GPU kernel).
@@ -190,6 +212,8 @@ pub struct FinishParams {
     pub w: usize,
     pub h: usize,
     pub px_per_long: f64,
+    /// Develop layers that change something (CPU only: the GPU path declines them).
+    pub layers: Vec<crate::layers::LayerK>,
 }
 
 impl FinishParams {
@@ -213,24 +237,13 @@ impl FinishParams {
         };
         let ev = s.light.exposure as f32;
         let gain = 2f32.powf(ev);
-        let grain = (s.grain.amount > 0.0 && effects).then(|| {
-            let cell = (0.0006 + (s.grain.size / 100.0) as f32 * 0.0024) * px_per_long as f32;
-            ((s.grain.amount / 100.0) as f32 * 0.13, cell.max(0.6), (s.grain.roughness / 100.0) as f32, s.grain.seed)
-        });
+        let grain = if effects { grain(s, px_per_long) } else { None };
         let calibration = s.section_enabled("calibration");
         FinishParams {
             calib: if calibration { crate::colorops::calibration_matrix(&s.calibration) } else { None },
             shadow_tint: if calibration { (s.calibration.shadows_tint / 100.0) as f32 } else { 0.0 },
-            // a converted negative is already a print (display-referred): no camera / scene curve
-            tone: if crate::negative::converts(s) {
-                ToneMap::display(s.light.contrast, s.light.whites, s.light.blacks)
-            } else if let Some(curve) = info.camera_tone.as_ref().filter(|_| info.raw) {
-                ToneMap::camera(curve, s.light.contrast, s.light.whites, s.light.blacks)
-            } else if info.raw {
-                ToneMap::new(s.light.contrast, s.light.whites, s.light.blacks)
-            } else {
-                ToneMap::display(s.light.contrast, s.light.whites, s.light.blacks)
-            },
+            tone: tone_map(s, info, s.light.contrast, s.light.whites, s.light.blacks),
+            layers: crate::layers::resolve(s, info, px_per_long),
             lut: crate::lut::get(&s.profile.id).map(|l| (l, (s.profile.amount / 100.0).clamp(0.0, 2.0) as f32)),
             ops: ColorOps::new(s),
             curves: curve_luts(&s.curve),
@@ -354,7 +367,14 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
     for_rows(&mut out, w, |y, row| {
         for (x, px) in row.iter_mut().enumerate() {
             let i = y * w + x;
-            let raw = p.img.data[i];
+            let mut raw = p.img.data[i];
+            // develop layers' noise reduction (see `crate::layers`)
+            for (k, im) in &p.layer_nr {
+                let a = p.masks[*k].alpha.data[i];
+                if a > 0.0 {
+                    raw = mix3(raw, im.data[i], a);
+                }
+            }
             let mut c = if gain == 1.0 { raw } else { raw.map(|v| v * gain) };
             let l_pre = p.log_l.data[i];
             let l0 = l_pre + ev;
@@ -402,13 +422,20 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
             if dz != 0.0
                 && let Some(dark) = &p.dark
             {
-                let d = (dark.data[i] / air_pre).clamp(0.0, 1.0);
-                if dz > 0.0 {
-                    let t = (1.0 - 0.95 * dz.min(1.0) * d).max(0.12);
-                    c = c.map(|v| ((v - air * (1.0 - t)) / t).max(0.0));
-                } else {
-                    let k = (-dz).min(1.0) * 0.7 * (0.35 + 0.65 * d);
-                    c = c.map(|v| v + (air * 0.9 - v) * k);
+                c = dehaze_px(c, dz, dark.data[i], air_pre, air);
+            }
+            // layers: their dehaze, then (below) their white balance and exposure
+            let mut layer_scene = false;
+            for l in fp.layers.iter().filter(|l| l.scene()) {
+                let a = p.masks[l.mask].alpha.data[i];
+                if a <= 0.0 {
+                    continue;
+                }
+                layer_scene = true;
+                if l.dehaze != 0.0
+                    && let Some(dark) = &p.dark
+                {
+                    c = mix3(c, dehaze_px(c, l.dehaze, dark.data[i], air_pre, air), a);
                 }
             }
 
@@ -423,9 +450,25 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
                 let y1 = luminance_2020(c).max(1e-9);
                 c = c.map(|v| v * y0 / y1);
             }
+            if layer_scene {
+                for l in fp.layers.iter().filter(|l| l.wb.is_some() || l.gain.is_some()) {
+                    let a = p.masks[l.mask].alpha.data[i];
+                    if a <= 0.0 {
+                        continue;
+                    }
+                    let mut q = match &l.wb {
+                        Some(m) => mul3(m, c).map(|v| v.max(0.0)),
+                        None => c,
+                    };
+                    if let Some(g) = l.gain {
+                        q = q.map(|v| v * g);
+                    }
+                    c = mix3(c, q, a);
+                }
+            }
 
             // --- local tone in log luminance
-            let l1 = if dz != 0.0 || l_exp != 0.0 { log_lum(c) } else { l0 };
+            let l1 = if dz != 0.0 || l_exp != 0.0 || layer_scene { log_lum(c) } else { l0 };
             let shift = l1 - l0;
             let base = p.base.data[i] + ev + shift;
             let mut delta = 0.0f32;
@@ -476,6 +519,18 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
                 let g = delta.exp2();
                 c = c.map(|v| v * g);
             }
+            for l in &fp.layers {
+                let Some(lt) = &l.local else { continue };
+                let a = p.masks[l.mask].alpha.data[i];
+                if a <= 0.0 {
+                    continue;
+                }
+                let dl = layer_tone_delta(lt, base, l_pre, p.clarity_blur.as_ref().map(|b| b.data[i]), p.texture_blur.as_ref().map(|b| b.data[i]));
+                if dl != 0.0 {
+                    let g = dl.exp2();
+                    c = mix3(c, c.map(|v| v * g), a);
+                }
+            }
 
             // --- calibration (scene linear, before the tone map)
             if fp.calib.is_some() || fp.shadow_tint != 0.0 {
@@ -483,17 +538,14 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
             }
 
             // --- tone map on luminance, highlight desaturation
-            let yl = luminance_2020(c);
-            let o = tone.apply(yl);
-            let mut d = if yl > 1e-9 { c.map(|v| v * o / yl) } else { [0.0; 3] };
-            let k = tone.chroma_scale(o);
-            if k != 1.0 {
-                d = d.map(|v| o + (v - o) * k);
-            }
-            let mx = d[0].max(d[1]).max(d[2]);
-            if mx > 1.0 {
-                let t = ((mx - 1.0) / (mx - o).max(1e-6)).clamp(0.0, 1.0);
-                d = d.map(|v| v + (o - v) * t);
+            let mut d = tone_px(tone, c);
+            for l in &fp.layers {
+                if let Some(t) = &l.tone {
+                    let a = p.masks[l.mask].alpha.data[i];
+                    if a > 0.0 {
+                        d = mix3(d, tone_px(t, c), a);
+                    }
+                }
             }
 
             // --- colour
@@ -502,30 +554,24 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
                 let lab = lightcraft_color::perceptual::oklab_from_2020(d);
                 d = lightcraft_color::perceptual::oklab_to_2020([lab[0], lab[1] + dir[0] * 0.08 * amt, lab[2] + dir[1] * 0.08 * amt]);
             }
+            for l in &fp.layers {
+                if let Some(o) = &l.ops {
+                    let a = p.masks[l.mask].alpha.data[i];
+                    if a > 0.0 {
+                        d = mix3(d, o.apply(d, 0.0, 0.0), a);
+                    }
+                }
+            }
 
             // --- vignette (display linear, post-crop)
             if let Some(v) = vig {
-                let u = (x as f32 + 0.5) / w as f32 * 2.0 - 1.0;
-                let vv = (y as f32 + 0.5) / h as f32 * 2.0 - 1.0;
-                let sx = 1.0 + (aspect - 1.0) * v.aspect_mix;
-                let sy = 1.0 + (1.0 / aspect - 1.0) * v.aspect_mix;
-                let (ax, ay) = ((u * sx.max(1.0) / sx.max(sy)).abs(), (vv * sy.max(1.0) / sx.max(sy)).abs());
-                let dist = (ax.powf(v.power) + ay.powf(v.power)).powf(1.0 / v.power);
-                let t = smooth(v.start, v.start + v.width, dist);
-                if t > 0.0 {
-                    let lum = luminance_2020(d).clamp(0.0, 1.0);
-                    if v.amount < 0.0 {
-                        let mut f = 1.0 + v.amount * t;
-                        if v.style == VignetteStyle::HighlightPriority {
-                            f += (1.0 - f) * v.highlights * smooth(0.4, 1.0, lum);
-                        }
-                        if v.style == VignetteStyle::PaintOverlay {
-                            d = d.map(|c| c * (1.0 - (-v.amount) * t) + 0.0);
-                        } else {
-                            d = d.map(|c| c * f);
-                        }
-                    } else {
-                        d = d.map(|c| c + (1.0 - c) * v.amount * t * 0.85);
+                d = vignette_px(v, d, x, y, w, h, aspect);
+            }
+            for l in &fp.layers {
+                if let Some(v) = &l.vig {
+                    let a = p.masks[l.mask].alpha.data[i];
+                    if a > 0.0 {
+                        d = mix3(d, vignette_px(v, d, x, y, w, h, aspect), a);
                     }
                 }
             }
@@ -559,15 +605,29 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
                     e = refine_saturation(e0, e, fp.refine_sat);
                 }
             }
-            if let Some((amt, cell, rough, seed)) = *grain {
-                let n = out_to_norm.apply(Point::new(x as f64 + 0.5, y as f64 + 0.5));
-                let (gx, gy) = ((n.x * fp.ow) as f32 / long as f32, (n.y * fp.oh) as f32 / long as f32);
-                let sc = fp.px_per_long as f32 / cell;
-                let mut g = grain_noise(gx * sc, gy * sc, seed);
-                g = g * (1.0 - rough * 0.5) + grain_noise(gx * sc * 2.3, gy * sc * 2.3, seed ^ 0x55) * rough * 0.7;
-                let lum = 0.2126 * e[0] + 0.7152 * e[1] + 0.0722 * e[2];
-                let k = amt * g * (0.35 + 2.6 * lum * (1.0 - lum));
-                e = e.map(|v| v + k);
+            for l in &fp.layers {
+                if let Some((lut, refine)) = &l.curves {
+                    let a = p.masks[l.mask].alpha.data[i];
+                    if a > 0.0 {
+                        let mut q = [lut[0].eval(e[0]), lut[1].eval(e[1]), lut[2].eval(e[2])];
+                        if *refine < 1.0 {
+                            q = refine_saturation(e, q, *refine);
+                        }
+                        e = mix3(e, q, a);
+                    }
+                }
+            }
+            let n_at = || out_to_norm.apply(Point::new(x as f64 + 0.5, y as f64 + 0.5));
+            if let Some(g) = *grain {
+                e = grain_px(e, g, n_at(), fp, long);
+            }
+            for l in &fp.layers {
+                if let Some(g) = l.grain {
+                    let a = p.masks[l.mask].alpha.data[i];
+                    if a > 0.0 {
+                        e = mix3(e, grain_px(e, g, n_at(), fp, long), a);
+                    }
+                }
             }
             let e = match &p_lut {
                 Some((l, k)) => {
@@ -580,6 +640,114 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
         }
     });
     out
+}
+
+use crate::layers::mix3;
+
+/// Dehaze of scene-linear `c` by `dz` (−1..1) with dark channel `dark` (before exposure),
+/// airlight before / after exposure.
+#[inline]
+fn dehaze_px(c: [f32; 3], dz: f32, dark: f32, air_pre: f32, air: f32) -> [f32; 3] {
+    let d = (dark / air_pre).clamp(0.0, 1.0);
+    if dz > 0.0 {
+        let t = (1.0 - 0.95 * dz.min(1.0) * d).max(0.12);
+        c.map(|v| ((v - air * (1.0 - t)) / t).max(0.0))
+    } else {
+        let k = (-dz).min(1.0) * 0.7 * (0.35 + 0.65 * d);
+        c.map(|v| v + (air * 0.9 - v) * k)
+    }
+}
+
+/// The tone map on scene-linear `c`'s luminance, then the curve's chroma scale and highlight
+/// desaturation (display linear).
+#[inline]
+fn tone_px(tone: &ToneMap, c: [f32; 3]) -> [f32; 3] {
+    let yl = luminance_2020(c);
+    let o = tone.apply(yl);
+    let mut d = if yl > 1e-9 { c.map(|v| v * o / yl) } else { [0.0; 3] };
+    let k = tone.chroma_scale(o);
+    if k != 1.0 {
+        d = d.map(|v| o + (v - o) * k);
+    }
+    let mx = d[0].max(d[1]).max(d[2]);
+    if mx > 1.0 {
+        let t = ((mx - 1.0) / (mx - o).max(1e-6)).clamp(0.0, 1.0);
+        d = d.map(|v| v + (o - v) * t);
+    }
+    d
+}
+
+/// The post-crop vignette at output pixel (x, y) of a `w × h` render on display-linear `d`.
+#[inline]
+fn vignette_px(v: &Vig, mut d: [f32; 3], x: usize, y: usize, w: usize, h: usize, aspect: f32) -> [f32; 3] {
+    let u = (x as f32 + 0.5) / w as f32 * 2.0 - 1.0;
+    let vv = (y as f32 + 0.5) / h as f32 * 2.0 - 1.0;
+    let sx = 1.0 + (aspect - 1.0) * v.aspect_mix;
+    let sy = 1.0 + (1.0 / aspect - 1.0) * v.aspect_mix;
+    let (ax, ay) = ((u * sx.max(1.0) / sx.max(sy)).abs(), (vv * sy.max(1.0) / sx.max(sy)).abs());
+    let dist = (ax.powf(v.power) + ay.powf(v.power)).powf(1.0 / v.power);
+    let t = smooth(v.start, v.start + v.width, dist);
+    if t > 0.0 {
+        let lum = luminance_2020(d).clamp(0.0, 1.0);
+        if v.amount < 0.0 {
+            let mut f = 1.0 + v.amount * t;
+            if v.style == VignetteStyle::HighlightPriority {
+                f += (1.0 - f) * v.highlights * smooth(0.4, 1.0, lum);
+            }
+            if v.style == VignetteStyle::PaintOverlay {
+                d = d.map(|c| c * (1.0 - (-v.amount) * t) + 0.0);
+            } else {
+                d = d.map(|c| c * f);
+            }
+        } else {
+            d = d.map(|c| c + (1.0 - c) * v.amount * t * 0.85);
+        }
+    }
+    d
+}
+
+/// Grain `(amount, cell px, roughness, seed)` on encoded `e` at normalized image point `n`.
+#[inline]
+fn grain_px(e: [f32; 3], (amt, cell, rough, seed): (f32, f32, f32, u32), n: Point, fp: &FinishParams, long: f64) -> [f32; 3] {
+    let (gx, gy) = ((n.x * fp.ow) as f32 / long as f32, (n.y * fp.oh) as f32 / long as f32);
+    let sc = fp.px_per_long as f32 / cell;
+    let mut g = grain_noise(gx * sc, gy * sc, seed);
+    g = g * (1.0 - rough * 0.5) + grain_noise(gx * sc * 2.3, gy * sc * 2.3, seed ^ 0x55) * rough * 0.7;
+    let lum = 0.2126 * e[0] + 0.7152 * e[1] + 0.0722 * e[2];
+    let k = amt * g * (0.35 + 2.6 * lum * (1.0 - lum));
+    e.map(|v| v + k)
+}
+
+/// A develop layer's local tone change (log2 gain) at a pixel: its highlights/shadows on the
+/// edge-aware `base`, clarity and texture / sharpening on the detail of `l_pre` against the
+/// photo's clarity and texture blurs (the photo's formulas, see `finish_with`).
+#[inline]
+fn layer_tone_delta(t: &crate::layers::LocalTone, base: f32, l_pre: f32, clar_b: Option<f32>, tex_b: Option<f32>) -> f32 {
+    let mut delta = 0.0f32;
+    if t.hl != 0.0 || t.sh != 0.0 {
+        let ws = 1.0 - smooth(-4.8, 0.3, base);
+        let wh = smooth(-1.0, 2.8, base);
+        delta += t.sh * 1.7 * ws * ws.sqrt() + t.hl * 1.7 * wh;
+    }
+    if t.clar != 0.0
+        && let Some(b) = clar_b
+    {
+        let det = (l_pre - b).clamp(-2.5, 2.5);
+        let mid = (-(base / 3.2).powi(2)).exp();
+        delta += t.clar * 0.85 * det * (0.35 + 0.65 * mid);
+    }
+    if (t.tex != 0.0 || t.sharpen != 0.0)
+        && let Some(b) = tex_b
+    {
+        let det = l_pre - b;
+        let tame = 1.0 - 0.6 * smooth(0.4, 1.6, det.abs());
+        delta += t.tex * 1.1 * det.clamp(-1.0, 1.0) * tame;
+        if t.sharpen != 0.0 {
+            let m = if t.sharpen_mask > 0.0 { smooth(t.sharpen_mask * 0.25, t.sharpen_mask * 0.25 + 0.15, det.abs()) } else { 1.0 };
+            delta += t.sharpen * 1.3 * det.clamp(-0.8, 0.8) * m;
+        }
+    }
+    delta
 }
 
 /// A colour needing more desaturation than this (scale < `GAMUT_WARN`) to fit is out of gamut for

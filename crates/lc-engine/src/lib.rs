@@ -722,6 +722,8 @@ mod tests_import_move;
 #[cfg(test)]
 mod tests_libops;
 #[cfg(test)]
+mod tests_layers;
+#[cfg(test)]
 mod tests_library;
 #[cfg(test)]
 mod tests_merge;

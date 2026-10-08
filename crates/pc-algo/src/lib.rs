@@ -22,6 +22,8 @@ mod artistic;
 mod artistic_fx;
 mod blur;
 mod blur2;
+// local-image: cage transform (Green / mean value coordinates).
+pub mod cage;
 pub mod camera_raw;
 // local-image: closed-form matting and foreground estimation.
 pub mod cf_matting;
@@ -62,6 +64,8 @@ pub mod resample;
 pub mod retouch;
 pub mod scancrop;
 pub mod seam;
+// local-image: mean-value-coordinate seamless cloning (Farbman et al. 2009).
+pub mod seamless;
 pub mod segment;
 pub mod selection;
 mod selection_blur;

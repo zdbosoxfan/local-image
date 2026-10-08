@@ -973,7 +973,7 @@ fn masks(cx: &mut Cx<'_>, lin: &Buf, prep: &Prep, plan: &Plan<'_>, host: &mut Ho
             let k = [n as u32, 0, mi as u32, op];
             cx.run("combine", &k, &[None, None, None, Some(cbuf), Some(&alpha)], groups1(n));
         }
-        let amt = (m.adjust.amount / 100.0) as f32;
+        let amt = lightcraft_pipeline::masks::mask_scale(m);
         cx.run(
             "finalize",
             &[n as u32, 0, mi as u32, m.invert as u32, amt.to_bits()],

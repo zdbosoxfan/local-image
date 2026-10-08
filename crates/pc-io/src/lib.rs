@@ -29,6 +29,7 @@ pub mod annotations_map;
 pub mod blocks;
 mod channel_map;
 pub mod comps_map;
+pub mod develop_filter;
 pub mod effects_map;
 mod flat;
 mod gradient_bake;

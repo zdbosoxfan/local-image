@@ -298,6 +298,11 @@ pub fn render(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &R
         if !enabled() || req.depth != lightcraft_pipeline::OutputDepth::U8 || req.proof.is_some() {
             return None;
         }
+        // develop layer tools (curves, colour, … on a mask) have no kernels yet: CPU
+        if lightcraft_pipeline::layers_need_cpu(s) {
+            record_fallback("develop layer tools render on the CPU".into());
+            return None;
+        }
         let gpu = device()?;
         let ext = stages.map(|c| c.extension::<GpuStages>());
         let fault = take_fault();

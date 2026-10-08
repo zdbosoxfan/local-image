@@ -185,7 +185,7 @@ pub fn camera_raw_surface(surf: &Surface, area: Rect, p: &CameraRaw) -> Surface 
 }
 
 /// Mixes `new` over `old` by the selection's coverage.
-fn mix_by_selection(old: &Surface, new: &Surface, sel: &Surface) -> Surface {
+pub(crate) fn mix_by_selection(old: &Surface, new: &Surface, sel: &Surface) -> Surface {
     let area = old.content_bounds().union(&new.content_bounds());
     let fmt = new.format();
     let old = if old.format() == fmt { old.clone() } else { old.convert(fmt) };
@@ -230,7 +230,7 @@ pub fn apply_to_surface(id: &str, params: &Value, surf: &Surface, canvas: Rect) 
 
 // ---------- commands ----------
 
-fn target(s: &Session, p: &Value) -> Result<LayerId> {
+pub(crate) fn target(s: &Session, p: &Value) -> Result<LayerId> {
     match p.get("layer").and_then(Value::as_u64) {
         Some(v) => Ok(LayerId(v)),
         None => s.active().and_then(|d| d.active_layer).ok_or(EngineError::Other("no active layer".into())),
@@ -251,7 +251,7 @@ fn filterable(s: &Session) -> std::result::Result<(), String> {
     }
 }
 
-fn raw_enabled(s: &Session) -> std::result::Result<(), String> {
+pub(crate) fn raw_enabled(s: &Session) -> std::result::Result<(), String> {
     filterable(s)?;
     let d = s.active().ok_or("no document open")?;
     match d.doc.mode {
@@ -409,10 +409,12 @@ pub fn specs() -> Vec<CommandSpec> {
             journal: true,
         },
         CommandSpec {
+            // The original Camera Raw engine: kept for documents that use it (smart filters, the
+            // control channel). Filter › Camera Raw Filter… is `filter.develop` now.
             id: RAW,
-            label: "Camera Raw Filter…",
-            menu: &["Filter"],
-            shortcut: Some("Cmd+Shift+A"),
+            label: "Camera Raw Filter (Legacy)…",
+            menu: &[],
+            shortcut: None,
             params: r##"{"temperature":-100..100=0,"tint":-100..100=0,"exposure":-5..5=0,"contrast":-100..100=0,"highlights":-100..100=0,"shadows":-100..100=0,"whites":-100..100=0,"blacks":-100..100=0,"texture":-100..100=0,"clarity":-100..100=0,"dehaze":-100..100=0,"vibrance":-100..100=0,"saturation":-100..100=0,"curveHighlights":-100..100=0,"curveLights":-100..100=0,"curveDarks":-100..100=0,"curveShadows":-100..100=0,"curveSplits":[25,50,75],"pointCurve":[[in,out]],"pointCurveRed":[[in,out]],"pointCurveGreen":[[in,out]],"pointCurveBlue":[[in,out]],"hslHue":[8],"hslSat":[8],"hslLum":[8],"gradeShadows":{"hue":deg,"sat":0..100,"lum":-100..100},"gradeMidtones":{},"gradeHighlights":{},"gradeGlobal":{},"gradeBlending":0..100=50,"gradeBalance":-100..100=0,"sharpenAmount":0..150=0,"sharpenRadius":0.5..3=1,"sharpenDetail":0..100=25,"sharpenMasking":0..100=0,"noiseLuminance":0..100=0,"noiseLuminanceDetail":0..100=50,"noiseColor":0..100=0,"noiseColorDetail":0..100=50,"grainAmount":0..100=0,"grainSize":0..100=25,"grainRoughness":0..100=50,"vignetteAmount":-100..100=0,"vignetteMidpoint":0..100=50,"vignetteRoundness":-100..100=0,"vignetteFeather":0..100=50,"vignetteHighlights":0..100=0,"vignetteStyle":"highlightPriority|colorPriority|paintOverlay","seed":u32=0}"##,
             enabled: raw_enabled,
             run: camera_raw_cmd,

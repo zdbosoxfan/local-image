@@ -373,6 +373,20 @@ fn cases() -> Vec<(&'static str, Edit)> {
                 ..Default::default()
             }];
         }),
+        ("masks (layer opacity)", |s| {
+            // an opacity on a mask with only the quick local sliders stays on the GPU
+            s.masks = vec![Mask {
+                components: vec![MaskComponent {
+                    name: None,
+                    op: MaskOp::Add,
+                    invert: false,
+                    shape: MaskShape::Radial { center: Point::new(0.45, 0.5), rx: 0.3, ry: 0.25, angle: 0.0, feather: 50.0, invert: false },
+                }],
+                adjust: lightcraft_develop::LocalAdjustments { exposure: 1.0, contrast: 30.0, saturation: -50.0, amount: 120.0, ..Default::default() },
+                opacity: 45.0,
+                ..Default::default()
+            }];
+        }),
         ("calibration", |s| {
             s.calibration.shadows_tint = 40.0;
             s.calibration.red_hue = 50.0;

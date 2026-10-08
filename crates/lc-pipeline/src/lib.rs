@@ -29,6 +29,7 @@ pub mod cull;
 pub mod dust;
 pub mod finish;
 pub mod geometry;
+pub mod layers;
 pub mod local;
 pub mod lut;
 pub mod masks;
@@ -143,6 +144,9 @@ pub(crate) struct Prepared {
     /// Airlight of `dark` (before exposure).
     pub air: f32,
     pub masks: Vec<masks::Evaluated>,
+    /// Develop layers' noise reduction: (evaluated mask index, the image denoised again with the
+    /// layer's settings), see [`layers`].
+    pub layer_nr: Vec<(usize, Arc<Rgb32f>)>,
     /// Output pixels per unit of the source long edge.
     pub px_per_long: f64,
 }
@@ -237,6 +241,9 @@ impl StageCache {
             let planes = pl.log_l.iter().chain(pl.base.iter().map(|x| &x.1)).chain(pl.clarity.iter().map(|x| &x.1));
             for p in planes.chain(pl.texture.iter().map(|x| &x.1)).chain(pl.dark.iter().map(|x| &x.1)) {
                 add(Arc::as_ptr(p) as usize, size(p));
+            }
+            for (_, l) in &pl.layer_nr {
+                add(Arc::as_ptr(l) as usize, size(l));
             }
         }
         total
@@ -343,6 +350,13 @@ pub fn lin_needs_cpu(s: &DevelopSettings) -> bool {
     defringe || !s.spots.is_empty() || negative::converts(s)
 }
 
+/// Whether develop layers need work only the CPU does: any visible mask holding layer tools
+/// (`Mask::tools`; see [`layers`]). Masks with only the quick local sliders and an opacity render
+/// on the GPU.
+pub fn layers_need_cpu(s: &DevelopSettings) -> bool {
+    layers::active(s)
+}
+
 /// The white-balanced, negative-converted, defringed, retouched image (before noise reduction):
 /// the CPU part of the scene-linear stage, in place.
 ///
@@ -418,7 +432,7 @@ fn render_impl(src: Src<'_>, info: &SourceInfo, s: &DevelopSettings, req: &Rende
         Some(p) if p.key == lin_key => p,
         _ => local::Planes { key: lin_key, ..Default::default() },
     };
-    let prep = local::prepare(lin.clone(), s, frame, px_per_long, req.quality, &mut planes);
+    let prep = local::prepare(lin.clone(), s, info, frame, px_per_long, src_long, req.quality, &mut planes);
     lap("prepare", &mut t);
     if let Some((a, c)) = shared {
         c.put(CacheEntry { src: a.clone(), geo, sampled, lin: Some((lin_key, lin)), planes });
@@ -516,5 +530,7 @@ pub(crate) fn for_rows<T: Send>(data: &mut [T], w: usize, f: impl Fn(usize, &mut
 mod tests;
 #[cfg(test)]
 mod tests_geometry;
+#[cfg(test)]
+mod tests_layers;
 #[cfg(test)]
 mod tests_local;

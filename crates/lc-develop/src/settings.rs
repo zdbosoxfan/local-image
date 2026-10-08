@@ -943,6 +943,9 @@ pub struct MaskComponent {
     pub shape: MaskShape,
 }
 
+/// A mask is a develop *layer* (Capture One-style): its components select where, and it holds
+/// the quick local sliders ([`LocalAdjustments`], Lightroom's mask sliders) and any develop tool
+/// that isn't image-level ([`LayerTools`]), faded by `opacity`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Mask {
@@ -955,16 +958,235 @@ pub struct Mask {
     /// Refine Edges 0..100: the mask's edges snap to the photo's (guided filter).
     #[serde(skip_serializing_if = "is_zero")]
     pub refine: f64,
+    /// Layer opacity 0..100: scales everything the layer does (with `adjust.amount`). Left out of
+    /// the JSON at 100, so settings written before layers existed serialize (and hash) as before.
+    #[serde(skip_serializing_if = "is_hundred")]
+    pub opacity: f64,
+    /// The develop tools this layer sets (sparse; empty = none, left out of the JSON).
+    #[serde(skip_serializing_if = "LayerTools::is_empty")]
+    pub tools: LayerTools,
 }
 
 fn is_zero(v: &f64) -> bool {
     *v == 0.0
 }
 
+fn is_hundred(v: &f64) -> bool {
+    *v == 100.0
+}
+
 impl Default for Mask {
     fn default() -> Self {
-        Self { id: 0, name: "Mask 1".into(), visible: true, invert: false, components: Vec::new(), adjust: LocalAdjustments::default(), refine: 0.0 }
+        Self {
+            id: 0,
+            name: "Mask 1".into(),
+            visible: true,
+            invert: false,
+            components: Vec::new(),
+            adjust: LocalAdjustments::default(),
+            refine: 0.0,
+            opacity: 100.0,
+            tools: LayerTools::default(),
+        }
     }
+}
+
+/// The develop tools a layer ([`Mask`]) applies where it is selected: any section of
+/// [`DevelopSettings`] except the image-level ones (profile, calibration, optics, geometry, crop,
+/// orientation, negative, enhance). Each section is `None` until the layer changes it; the JSON
+/// keys are [`DevelopSettings`]'s, so `tools` is a partial settings object.
+///
+/// Values are relative to the photo's own settings, every section neutral at its defaults (a
+/// layer's exposure +1 is one stop more than the photo's; its curve is applied after the photo's),
+/// except white balance: a layer's temperature/tint is the white it renders with (as in Capture
+/// One), changed from the photo's white balance.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LayerTools {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wb: Option<WhiteBalance>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub light: Option<Light>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub curve: Option<ToneCurve>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<ColorAdj>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mixer: Option<Mixer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub point_colors: Option<Vec<PointColor>>,
+    /// `Bw`: the layer turns its area black & white (with `bw_mix`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub treatment: Option<Treatment>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bw_mix: Option<BwMix>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grading: Option<ColorGrading>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effects: Option<Effects>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vignette: Option<Vignette>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grain: Option<Grain>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<Detail>,
+}
+
+/// The [`DevelopSettings`] keys a layer can hold (see [`LayerTools`]).
+pub const LAYER_KEYS: [&str; 13] =
+    ["wb", "light", "curve", "color", "mixer", "point_colors", "treatment", "bw_mix", "grading", "effects", "vignette", "grain", "detail"];
+
+impl LayerTools {
+    pub fn is_empty(&self) -> bool {
+        *self == LayerTools::default()
+    }
+
+    /// Whether the layer holds section `key` (one of [`LAYER_KEYS`]).
+    pub fn is_set(&self, key: &str) -> bool {
+        self.used_keys().contains(&key)
+    }
+
+    /// The sections the layer holds, in [`LAYER_KEYS`] order.
+    pub fn used_keys(&self) -> Vec<&'static str> {
+        let set = [
+            self.wb.is_some(),
+            self.light.is_some(),
+            self.curve.is_some(),
+            self.color.is_some(),
+            self.mixer.is_some(),
+            self.point_colors.is_some(),
+            self.treatment.is_some(),
+            self.bw_mix.is_some(),
+            self.grading.is_some(),
+            self.effects.is_some(),
+            self.vignette.is_some(),
+            self.grain.is_some(),
+            self.detail.is_some(),
+        ];
+        LAYER_KEYS.iter().zip(set).filter(|(_, s)| *s).map(|(k, _)| *k).collect()
+    }
+
+    /// Settings showing this layer's tools: the defaults (every tool neutral) with the layer's
+    /// sections laid over them; white balance, until the layer sets it, is `global_wb` (the
+    /// photo's white balance in effect: temperature, tint). Panels read and write layer controls
+    /// through this view.
+    pub fn view(&self, global_wb: (f64, f64)) -> DevelopSettings {
+        let d = DevelopSettings::default();
+        DevelopSettings {
+            wb: self.wb.unwrap_or(WhiteBalance { mode: WbMode::Custom, temp: global_wb.0, tint: global_wb.1 }),
+            light: self.light.unwrap_or(d.light),
+            curve: self.curve.clone().unwrap_or(d.curve),
+            color: self.color.unwrap_or(d.color),
+            mixer: self.mixer.unwrap_or(d.mixer),
+            point_colors: self.point_colors.clone().unwrap_or_default(),
+            treatment: self.treatment.unwrap_or(d.treatment),
+            bw_mix: self.bw_mix.unwrap_or(d.bw_mix),
+            grading: self.grading.unwrap_or(d.grading),
+            effects: self.effects.unwrap_or(d.effects),
+            vignette: self.vignette.unwrap_or(d.vignette),
+            grain: self.grain.unwrap_or(d.grain),
+            detail: self.detail.unwrap_or(d.detail),
+            ..d
+        }
+    }
+
+    /// Section `key` of `view` taken into the layer (`None` for an unknown key).
+    fn take(&mut self, key: &str, view: &DevelopSettings) -> Option<()> {
+        match key {
+            "wb" => self.wb = Some(WhiteBalance { mode: WbMode::Custom, ..view.wb }),
+            "light" => self.light = Some(view.light),
+            "curve" => self.curve = Some(view.curve.clone()),
+            "color" => self.color = Some(view.color),
+            "mixer" => self.mixer = Some(view.mixer),
+            "point_colors" => self.point_colors = Some(view.point_colors.iter().take(MAX_POINT_COLORS).copied().collect()),
+            "treatment" => self.treatment = Some(view.treatment),
+            "bw_mix" => self.bw_mix = Some(view.bw_mix),
+            "grading" => self.grading = Some(view.grading),
+            "effects" => self.effects = Some(view.effects),
+            "vignette" => self.vignette = Some(view.vignette),
+            "grain" => self.grain = Some(view.grain),
+            "detail" => self.detail = Some(view.detail),
+            _ => return None,
+        }
+        Some(())
+    }
+
+    /// Drop section `key` (the layer no longer changes it). False for an unknown key.
+    pub fn clear(&mut self, key: &str) -> bool {
+        match key {
+            "wb" => self.wb = None,
+            "light" => self.light = None,
+            "curve" => self.curve = None,
+            "color" => self.color = None,
+            "mixer" => self.mixer = None,
+            "point_colors" => self.point_colors = None,
+            "treatment" => self.treatment = None,
+            "bw_mix" => self.bw_mix = None,
+            "grading" => self.grading = None,
+            "effects" => self.effects = None,
+            "vignette" => self.vignette = None,
+            "grain" => self.grain = None,
+            "detail" => self.detail = None,
+            _ => return false,
+        }
+        true
+    }
+
+    /// Merge a partial settings object into the layer, like a preset (objects merge, everything
+    /// else replaces; values are clamped through the control specs). Only [`LAYER_KEYS`] are
+    /// allowed; a key set to `null` drops that section. `global_wb` as in [`Self::view`].
+    pub fn merged(&self, global_wb: (f64, f64), partial: &serde_json::Value) -> Result<LayerTools, String> {
+        let Some(obj) = partial.as_object() else { return Err("layer tools must be an object".into()) };
+        if let Some(k) = obj.keys().find(|k| !LAYER_KEYS.contains(&k.as_str())) {
+            return Err(format!("`{k}` is not a layer tool (layers take {})", LAYER_KEYS.join(", ")));
+        }
+        let mut out = self.clone();
+        let patch: serde_json::Map<String, serde_json::Value> = obj.iter().filter(|(_, v)| !v.is_null()).map(|(k, v)| (k.clone(), v.clone())).collect();
+        let view = crate::presets::apply_partial_strict(&self.view(global_wb), &serde_json::Value::Object(patch.clone()))?;
+        for k in patch.keys() {
+            out.take(k, &view);
+        }
+        for (k, _) in obj.iter().filter(|(_, v)| v.is_null()) {
+            out.clear(k);
+        }
+        Ok(out)
+    }
+
+    /// Set controls by id (`light.exposure`, `pointColor.0.hueShift`, …; clamped) on the layer.
+    /// Errors name a control that is unknown or not a layer tool.
+    pub fn set_controls(&self, global_wb: (f64, f64), values: &[(String, f64)]) -> Result<LayerTools, String> {
+        let mut view = self.view(global_wb);
+        let mut out = self.clone();
+        for (id, v) in values {
+            let key = layer_key_of_control(id).ok_or_else(|| format!("`{id}` is not a layer control"))?;
+            if !crate::controls::set(&mut view, id, *v) {
+                return Err(format!("unknown control `{id}`"));
+            }
+            out.take(key, &view);
+        }
+        Ok(out)
+    }
+}
+
+/// The [`LayerTools`] section a control belongs to (`light.exposure` → `light`), or `None` for
+/// image-level controls (optics, geometry, calibration, profile, negative, crop).
+pub fn layer_key_of_control(id: &str) -> Option<&'static str> {
+    let fam = id.split('.').next()?;
+    Some(match fam {
+        "wb" => "wb",
+        "light" => "light",
+        "curve" => "curve",
+        "color" => "color",
+        "mixer" => "mixer",
+        "pointColor" => "point_colors",
+        "bw" => "bw_mix",
+        "grading" => "grading",
+        "effects" => "effects",
+        "vignette" => "vignette",
+        "grain" => "grain",
+        "detail" => "detail",
+        _ => return None,
+    })
 }
 
 // ---------------------------------------------------------------------------------------------

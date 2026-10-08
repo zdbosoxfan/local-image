@@ -292,6 +292,12 @@ fn mask_mix(base: &Surface, filtered: &Surface, mask: &LayerMask) -> Surface {
 
 /// Runs the smart filter stack on the placed (unfiltered) content.
 pub fn apply_smart_filters(placed: &Surface, sm: &SmartObject, canvas: Rect) -> Surface {
+    apply_smart_filters_in(placed, sm, canvas, None)
+}
+
+/// [`apply_smart_filters`] in a document whose RGB profile is `profile` (the Camera Raw Filter
+/// converts through it; `None` = sRGB).
+pub fn apply_smart_filters_in(placed: &Surface, sm: &SmartObject, canvas: Rect, profile: Option<&photocraft_cms::Profile>) -> Surface {
     if !sm.filters_enabled || !sm.smart_filters.iter().any(|f| f.visible) {
         return placed.clone();
     }
@@ -300,7 +306,7 @@ pub fn apply_smart_filters(placed: &Surface, sm: &SmartObject, canvas: Rect) -> 
     let extent = canvas.union(&placed.content_bounds());
     for f in sm.smart_filters.iter().filter(|f| f.visible) {
         // Unknown ids (e.g. Photoshop filters we don't implement) leave the pixels alone.
-        let Some(out) = crate::filters::apply_filter_to_surface(&f.command, &f.params, &cur, canvas, None, extent) else { continue };
+        let Some(out) = crate::filters::apply_filter_to_surface_in(&f.command, &f.params, &cur, canvas, None, extent, profile) else { continue };
         cur = if f.blend == BlendMode::Normal && f.opacity >= 1.0 { out } else { blend_surfaces(&cur, &out, f.blend, f.opacity.clamp(0.0, 1.0)) };
     }
     match sm.filter_mask.as_ref().filter(|m| m.enabled) {
@@ -323,7 +329,8 @@ pub fn render(doc: &Document, sm: &SmartObject) -> Result<Option<Surface>> {
         Some(p) => photocraft_algo::warp::place_source_projective(&img.surface, img.bounds, &Homography(*p), sm.warp.as_ref()),
         None => photocraft_algo::warp::place_source(&img.surface, img.bounds, &sm.transform, sm.warp.as_ref()),
     };
-    Ok(Some(apply_smart_filters(&placed, sm, doc.bounds())))
+    let profile = sm.smart_filters.iter().any(|f| f.command == crate::develop_filter_cmds::DEVELOP).then(|| crate::color_cmds::composite_profile(doc));
+    Ok(Some(apply_smart_filters_in(&placed, sm, doc.bounds(), profile.as_deref())))
 }
 
 /// The smart object's pixels below smart filter `index` (the input that filter edits): the placed
@@ -390,6 +397,7 @@ fn mask_from_selection(sel: &Surface) -> LayerMask {
 pub(crate) fn add_smart_filter(doc: &mut Document, id: LayerId, sf: photocraft_doc::SmartFilter, selection: Option<&Surface>) -> Result<()> {
     let canvas = doc.bounds();
     let renderable = source_bytes(&doc.metadata, &smart(doc, id)?.source).is_some();
+    let profile = crate::color_cmds::composite_profile(doc);
     let sm = smart_mut(doc, id)?;
     if renderable {
         if let Some(sel) = selection
@@ -402,7 +410,7 @@ pub(crate) fn add_smart_filter(doc: &mut Document, id: LayerId, sf: photocraft_d
     }
     let bounds = selection.map(Surface::content_bounds).filter(|b| !b.is_empty()).unwrap_or(canvas);
     let cache = sm.cache.as_ref().ok_or_else(|| other("smart object has no pixels"))?;
-    let out = crate::filters::apply_filter_to_surface(&sf.command, &sf.params, cache, bounds, selection, canvas)
+    let out = crate::filters::apply_filter_to_surface_in(&sf.command, &sf.params, cache, bounds, selection, canvas, Some(&profile))
         .ok_or_else(|| other(format!("unknown filter {}", sf.command)))?;
     sm.cache = Some(out);
     sm.smart_filters.push(sf);

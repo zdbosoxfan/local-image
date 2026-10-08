@@ -35,10 +35,272 @@ pub fn apply_slider_out(
 }
 
 pub(crate) fn control(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: &str, enabled: bool) {
+    control_t(app, ui, d, id, enabled, Target::Global);
+}
+
+/// What the tool panels edit: the photo's own settings, or the tools of a develop layer (a mask,
+/// by id). Layer panels read a view of the layer's tools ([`lightcraft_develop::LayerTools::view`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Target {
+    Global,
+    Layer(u32),
+}
+
+impl Target {
+    /// Set controls by id (`{controlId: value}`).
+    pub fn set(self, app: &mut LightcraftApp, values: Value) -> Result<Value, String> {
+        match self {
+            Target::Global => app.run("develop.set", json!({"values": values})),
+            Target::Layer(id) => app.run("mask.setTools", json!({"id": id, "values": values})),
+        }
+    }
+
+    /// Merge partial settings JSON (for a layer: its sections; `null` drops one).
+    pub fn merge(self, app: &mut LightcraftApp, partial: Value, label: &str) -> Result<Value, String> {
+        match self {
+            Target::Global => app.run("develop.merge", json!({"settings": partial, "label": label})),
+            Target::Layer(id) => app.run("mask.setTools", json!({"id": id, "tools": partial, "label": label})),
+        }
+    }
+
+    pub fn is_layer(self) -> bool {
+        matches!(self, Target::Layer(_))
+    }
+
+    /// A UI id for this target (layer panels keep their own open/closed state).
+    fn key(self, id: &str) -> String {
+        match self {
+            Target::Global => id.to_string(),
+            Target::Layer(_) => format!("layer-{id}"),
+        }
+    }
+}
+
+/// A slider for control `id` of `d`, writing to `target`.
+pub(crate) fn control_t(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: &str, enabled: bool, target: Target) {
     let Some(spec) = controls::find(id) else { return };
     let v = controls::get(d, id).unwrap_or(spec.default);
     let out = slider(ui, spec, v, enabled, None);
-    apply_slider_out(app, spec, out, |app, v| app.run("develop.set", json!({"control": id, "value": v})));
+    apply_slider_out(app, spec, out, |app, v| target.set(app, json!({id: v})));
+}
+
+/// The tool sections a develop layer can hold too: Light (and the tone curve), Color (white
+/// balance, vibrance / saturation, mixer or B&W mix, Point Color, grading), Effects (and vignette,
+/// grain), Detail. `d` is the photo's settings (`Target::Global`) or the layer's view; for a layer,
+/// `used_only` hides the tools it doesn't set.
+pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &DevelopSettings, raw: bool, target: Target, used_only: bool) {
+    let t = Tokens::get(ui.ctx());
+    let tools = match target {
+        Target::Global => None,
+        Target::Layer(mid) => app.session.develop_of(id).and_then(|dd| dd.masks.iter().find(|m| m.id == mid).map(|m| m.tools.clone())),
+    };
+    // a part of a section is shown unless the layer filter hides what it doesn't set
+    let shows = |key: &str| !used_only || tools.as_ref().is_none_or(|tl| tl.is_set(key));
+    let tl = tools.as_ref();
+    tool_section(app, ui, d, target, tl, used_only, "light", "Light", &["light", "curve"], |app, ui, d| {
+        if shows("light") {
+            for c in ["light.exposure", "light.contrast", "light.highlights", "light.shadows", "light.whites", "light.blacks"] {
+                control_t(app, ui, d, c, true, target);
+            }
+            ui.add_space(6.0);
+        }
+        if shows("curve") {
+            let open = app.ui.flyout_open(&target.key("curve"));
+            if flyout_row(ui, &target.key("curve"), crate::i18n::tr("Curve"), Icon::Curve, open).clicked() {
+                app.ui.toggle_flyout(&target.key("curve"));
+            }
+            if open {
+                curve_editor(app, ui, id, d, target);
+            }
+        }
+        ui.add_space(8.0);
+    });
+    tool_section(app, ui, d, target, tl, used_only, "color", "Color", &["wb", "color", "mixer", "point_colors", "treatment", "bw_mix", "grading"], |app, ui, d| {
+        if target.is_layer() {
+            // a layer can turn its area black & white
+            egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 4 }).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let bw = crate::is_bw(d);
+                    if text_button(ui, "layerBw", crate::i18n::tr("B&W"), bw).on_hover_text(crate::i18n::tr("Black & white in this layer")).clicked() {
+                        let _ = target.merge(app, json!({"treatment": if bw { "color" } else { "bw" }}), "Treatment");
+                    }
+                });
+            });
+        }
+        if shows("wb") {
+            if !target.is_layer() {
+                // White balance row
+                egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 2 }).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(crate::i18n::tr("White Balance")).font(t.font(13.0)).color(t.text_dim));
+                        let r = crate::widgets::dropdown(ui, "wbMode", crate::i18n::tr(d.wb.mode.label()), t.font(14.0), t.text_label);
+                        egui::Popup::menu(&r).show(|ui| {
+                            for m in WbMode::ALL {
+                                if m == WbMode::Custom {
+                                    continue;
+                                }
+                                if ui.selectable_label(d.wb.mode == m, m.label()).clicked() {
+                                    let mode = serde_json::to_value(m).unwrap_or_default();
+                                    let _ = app.run("develop.wb", json!({"mode": mode}));
+                                }
+                            }
+                        });
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let active = app.ui.tool == "wbPicker";
+                            if crate::widgets::icon_button(ui, "wbPicker", Icon::Picker, vec2(28.0, 28.0), active, true, "White Balance Selector (W)")
+                                .clicked()
+                            {
+                                app.ui.tool = if active { String::new() } else { "wbPicker".into() };
+                            }
+                        });
+                    });
+                });
+            } else {
+                sub_title(ui, crate::i18n::tr("White Balance"));
+            }
+            if raw {
+                control_t(app, ui, d, "wb.temp", true, target);
+                control_t(app, ui, d, "wb.tint", true, target);
+            } else {
+                let out = slider(ui, &REL_TEMP, k_to_rel(d.wb.temp), true, None);
+                apply_slider_out(app, &REL_TEMP, out, |app, v| target.set(app, json!({"wb.temp": rel_to_k(v)})));
+                let out = slider(ui, &REL_TINT, d.wb.tint.clamp(-100.0, 100.0), true, None);
+                apply_slider_out(app, &REL_TINT, out, |app, v| target.set(app, json!({"wb.tint": v})));
+            }
+        }
+        if shows("color") {
+            control_t(app, ui, d, "color.vibrance", true, target);
+            control_t(app, ui, d, "color.saturation", true, target);
+        }
+        ui.add_space(6.0);
+        if shows("mixer") || shows("bw_mix") || (crate::is_bw(d) && shows("treatment")) {
+            let open = app.ui.flyout_open(&target.key("mixer"));
+            if flyout_row(ui, &target.key("mixer"), if crate::is_bw(d) { "B&W Mixer" } else { "Color Mixer" }, Icon::Radial, open).clicked() {
+                app.ui.toggle_flyout(&target.key("mixer"));
+            }
+            if open {
+                mixer(app, ui, d, target);
+            }
+        }
+        if !crate::is_bw(d) && shows("point_colors") {
+            let open = app.ui.flyout_open(&target.key("pointColor"));
+            if flyout_row(ui, &target.key("pointColor"), crate::i18n::tr("Point Color"), Icon::Picker, open).clicked() {
+                app.ui.toggle_flyout(&target.key("pointColor"));
+            }
+            if open {
+                point_color(app, ui, d, target);
+            }
+        }
+        if shows("grading") {
+            let open = app.ui.flyout_open(&target.key("grading"));
+            if flyout_row(ui, &target.key("grading"), crate::i18n::tr("Color Grading"), Icon::Presets, open).clicked() {
+                app.ui.toggle_flyout(&target.key("grading"));
+            }
+            if open {
+                grading(app, ui, d, target);
+            }
+        }
+        ui.add_space(8.0);
+    });
+    tool_section(app, ui, d, target, tl, used_only, "effects", "Effects", &["effects", "vignette", "grain"], |app, ui, d| {
+        if shows("effects") {
+            for c in ["effects.texture", "effects.clarity", "effects.dehaze"] {
+                control_t(app, ui, d, c, true, target);
+            }
+        }
+        if shows("vignette") {
+            sub_title(ui, crate::i18n::tr("Vignette"));
+            use lightcraft_develop::VignetteStyle as V;
+            let styles = [
+                (V::HighlightPriority, "Highlight", "highlightPriority"),
+                (V::ColorPriority, "Color", "colorPriority"),
+                (V::PaintOverlay, "Paint", "paintOverlay"),
+            ];
+            let items: Vec<(&str, &str)> = styles.iter().map(|(_, l, k)| (*l, *k)).collect();
+            let active = styles.iter().position(|(v, _, _)| *v == d.vignette.style);
+            let mut chosen = None;
+            egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 4 }).show(ui, |ui| {
+                chosen = crate::widgets::segmented(ui, &target.key("vignetteStyle"), &items, active, 3);
+            });
+            if let Some(i) = chosen {
+                let _ = target.merge(app, json!({"vignette": {"style": serde_json::to_value(styles[i].0).unwrap_or_default()}}), "Vignette Style");
+            }
+            for c in ["vignette.amount", "vignette.midpoint", "vignette.feather", "vignette.roundness", "vignette.highlights"] {
+                let enabled = c == "vignette.amount" || d.vignette.amount != 0.0;
+                control_t(app, ui, d, c, enabled, target);
+            }
+        }
+        if shows("grain") {
+            sub_title(ui, crate::i18n::tr("Grain"));
+            for c in ["grain.amount", "grain.size", "grain.roughness"] {
+                control_t(app, ui, d, c, c == "grain.amount" || d.grain.amount != 0.0, target);
+            }
+        }
+        ui.add_space(8.0);
+    });
+    tool_section(app, ui, d, target, tl, used_only, "detail", "Detail", &["detail"], |app, ui, d| {
+        for c in ["detail.sharpenAmount", "detail.sharpenRadius", "detail.sharpenDetail", "detail.sharpenMasking"] {
+            control_t(app, ui, d, c, c == "detail.sharpenAmount" || d.detail.sharpen_amount > 0.0, target);
+        }
+        sub_title(ui, crate::i18n::tr("Noise Reduction"));
+        for c in ["detail.nrLuminance", "detail.nrDetail", "detail.nrContrast", "detail.nrColor", "detail.nrColorDetail", "detail.nrColorSmoothness"]
+        {
+            control_t(app, ui, d, c, true, target);
+        }
+        ui.add_space(8.0);
+    });
+}
+
+/// A tool section: the photo's ([`section`], with its on/off eye) or a layer's (its own open
+/// state; a dot when the layer sets any of `keys`; right-click resets them; hidden by the "only
+/// tools this layer uses" filter when it sets none).
+#[allow(clippy::too_many_arguments)]
+fn tool_section(
+    app: &mut LightcraftApp,
+    ui: &mut egui::Ui,
+    d: &DevelopSettings,
+    target: Target,
+    tools: Option<&lightcraft_develop::LayerTools>,
+    used_only: bool,
+    id: &str,
+    title: &str,
+    keys: &[&str],
+    body: impl FnOnce(&mut LightcraftApp, &mut egui::Ui, &DevelopSettings),
+) {
+    let Target::Layer(mid) = target else {
+        section(app, ui, d, id, title, body);
+        return;
+    };
+    let set: Vec<&str> = keys.iter().copied().filter(|k| tools.is_some_and(|t| t.is_set(k))).collect();
+    if used_only && set.is_empty() {
+        return;
+    }
+    let key = target.key(id);
+    let open = app.ui.section_open(&key);
+    let (resp, _) = section_header(ui, &key, title, open, None);
+    if !set.is_empty() {
+        // the layer sets tools here
+        let t = Tokens::get(ui.ctx());
+        let galley_w = ui.painter().layout_no_wrap(crate::i18n::tr(title).to_string(), t.semibold(14.0), t.text).size().x;
+        ui.painter().circle_filled(pos2(resp.rect.left() + 52.0 + galley_w, resp.rect.center().y), 3.5, t.accent);
+        register(ui.ctx(), format!("layerSectionSet:{id}"), resp.rect);
+    }
+    resp.context_menu(|ui| {
+        let r = ui.add_enabled(!set.is_empty(), egui::Button::new(crate::i18n::tr("Reset Section")));
+        if r.clicked() {
+            for k in &set {
+                let _ = app.run("mask.resetTools", json!({"id": mid, "section": k}));
+            }
+            ui.close();
+        }
+    });
+    if resp.clicked() {
+        app.ui.toggle_section(&key);
+    }
+    if open {
+        body(app, ui, d);
+    }
+    divider(ui);
 }
 
 /// Relative temperature scale for rendered (non-raw) files: −100..100 ↔ Kelvin via mired shift.
@@ -157,130 +419,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     // film negative conversion: first, since it changes what every section below works on
     negative_section(app, ui, &d);
 
-    section(app, ui, &d, "light", "Light", |app, ui, d| {
-        for c in ["light.exposure", "light.contrast", "light.highlights", "light.shadows", "light.whites", "light.blacks"] {
-            control(app, ui, d, c, true);
-        }
-        ui.add_space(6.0);
-        let open = app.ui.flyout_open("curve");
-        if flyout_row(ui, "curve", crate::i18n::tr("Curve"), Icon::Curve, open).clicked() {
-            app.ui.toggle_flyout("curve");
-        }
-        if open {
-            curve_editor(app, ui, id, d);
-        }
-        ui.add_space(8.0);
-    });
-    section(app, ui, &d, "color", "Color", |app, ui, d| {
-        // White balance row
-        egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 2 }).show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(crate::i18n::tr("White Balance")).font(t.font(13.0)).color(t.text_dim));
-                let r = crate::widgets::dropdown(ui, "wbMode", crate::i18n::tr(d.wb.mode.label()), t.font(14.0), t.text_label);
-                egui::Popup::menu(&r).show(|ui| {
-                    for m in WbMode::ALL {
-                        if m == WbMode::Custom {
-                            continue;
-                        }
-                        if ui.selectable_label(d.wb.mode == m, m.label()).clicked() {
-                            let mode = serde_json::to_value(m).unwrap_or_default();
-                            let _ = app.run("develop.wb", json!({"mode": mode}));
-                        }
-                    }
-                });
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let active = app.ui.tool == "wbPicker";
-                    if crate::widgets::icon_button(ui, "wbPicker", Icon::Picker, vec2(28.0, 28.0), active, true, "White Balance Selector (W)")
-                        .clicked()
-                    {
-                        app.ui.tool = if active { String::new() } else { "wbPicker".into() };
-                    }
-                });
-            });
-        });
-        if raw {
-            control(app, ui, d, "wb.temp", true);
-            control(app, ui, d, "wb.tint", true);
-        } else {
-            let out = slider(ui, &REL_TEMP, k_to_rel(d.wb.temp), true, None);
-            apply_slider_out(app, &REL_TEMP, out, |app, v| app.run("develop.set", json!({"control": "wb.temp", "value": rel_to_k(v)})));
-            let out = slider(ui, &REL_TINT, d.wb.tint.clamp(-100.0, 100.0), true, None);
-            apply_slider_out(app, &REL_TINT, out, |app, v| app.run("develop.set", json!({"control": "wb.tint", "value": v})));
-        }
-        control(app, ui, d, "color.vibrance", true);
-        control(app, ui, d, "color.saturation", true);
-        ui.add_space(6.0);
-        let open = app.ui.flyout_open("mixer");
-        if flyout_row(ui, "mixer", if crate::is_bw(d) { "B&W Mixer" } else { "Color Mixer" }, Icon::Radial, open).clicked() {
-            app.ui.toggle_flyout("mixer");
-        }
-        if open {
-            mixer(app, ui, d);
-        }
-        if !crate::is_bw(d) {
-            let open = app.ui.flyout_open("pointColor");
-            if flyout_row(ui, "pointColor", crate::i18n::tr("Point Color"), Icon::Picker, open).clicked() {
-                app.ui.toggle_flyout("pointColor");
-            }
-            if open {
-                point_color(app, ui, d);
-            }
-        }
-        let open = app.ui.flyout_open("grading");
-        if flyout_row(ui, "grading", crate::i18n::tr("Color Grading"), Icon::Presets, open).clicked() {
-            app.ui.toggle_flyout("grading");
-        }
-        if open {
-            grading(app, ui, d);
-        }
-        ui.add_space(8.0);
-    });
-    section(app, ui, &d, "effects", "Effects", |app, ui, d| {
-        for c in ["effects.texture", "effects.clarity", "effects.dehaze"] {
-            control(app, ui, d, c, true);
-        }
-        sub_title(ui, crate::i18n::tr("Vignette"));
-        {
-            use lightcraft_develop::VignetteStyle as V;
-            let styles = [
-                (V::HighlightPriority, "Highlight", "highlightPriority"),
-                (V::ColorPriority, "Color", "colorPriority"),
-                (V::PaintOverlay, "Paint", "paintOverlay"),
-            ];
-            let items: Vec<(&str, &str)> = styles.iter().map(|(_, l, k)| (*l, *k)).collect();
-            let active = styles.iter().position(|(v, _, _)| *v == d.vignette.style);
-            let mut chosen = None;
-            egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 4 }).show(ui, |ui| {
-                chosen = crate::widgets::segmented(ui, "vignetteStyle", &items, active, 3);
-            });
-            if let Some(i) = chosen {
-                let _ = app.run(
-                    "develop.merge",
-                    serde_json::json!({"settings": {"vignette": {"style": serde_json::to_value(styles[i].0).unwrap_or_default()}}}),
-                );
-            }
-        }
-        for c in ["vignette.amount", "vignette.midpoint", "vignette.feather", "vignette.roundness", "vignette.highlights"] {
-            let enabled = c == "vignette.amount" || d.vignette.amount != 0.0;
-            control(app, ui, d, c, enabled);
-        }
-        sub_title(ui, crate::i18n::tr("Grain"));
-        for c in ["grain.amount", "grain.size", "grain.roughness"] {
-            control(app, ui, d, c, c == "grain.amount" || d.grain.amount != 0.0);
-        }
-        ui.add_space(8.0);
-    });
-    section(app, ui, &d, "detail", "Detail", |app, ui, d| {
-        for c in ["detail.sharpenAmount", "detail.sharpenRadius", "detail.sharpenDetail", "detail.sharpenMasking"] {
-            control(app, ui, d, c, c == "detail.sharpenAmount" || d.detail.sharpen_amount > 0.0);
-        }
-        sub_title(ui, crate::i18n::tr("Noise Reduction"));
-        for c in ["detail.nrLuminance", "detail.nrDetail", "detail.nrContrast", "detail.nrColor", "detail.nrColorDetail", "detail.nrColorSmoothness"]
-        {
-            control(app, ui, d, c, true);
-        }
-        ui.add_space(8.0);
-    });
+    tool_sections(app, ui, id, &d, raw, Target::Global, false);
     section(app, ui, &d, "optics", "Optics", |app, ui, d| {
         let has_lens = app.session.catalog.photo(id).is_some_and(|p| p.embedded_lens.is_some());
         egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 4, bottom: 4 }).show(ui, |ui| {

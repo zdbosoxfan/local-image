@@ -101,3 +101,26 @@ fn failed_gpu_renders_fall_back_with_a_reason() {
     assert!(lightcraft_gpu::last_fallback().unwrap_or_default().contains("black"));
     assert!(lightcraft_gpu::available());
 }
+
+/// Develop layer tools (a curve, colour, … on a mask) have no GPU kernels: such renders come back
+/// as `None` with the reason recorded, and the caller renders them on the CPU.
+#[test]
+fn develop_layer_tools_fall_back_to_the_cpu() {
+    if !lightcraft_gpu::enabled() {
+        eprintln!("skipped: GPU rendering disabled ({:?})", lightcraft_gpu::unavailable_reason());
+        return;
+    }
+    let src = Arc::new(lightcraft_scenes::demo_library()[0].render(320, 240));
+    let info = SourceInfo::default();
+    let mut s = DevelopSettings::default();
+    masked(&mut s, 1);
+    s.masks[0].tools.curve = Some(lightcraft_develop::ToneCurve { darks: 40.0, ..Default::default() });
+    assert!(lightcraft_pipeline::layers_need_cpu(&s));
+    assert!(lightcraft_gpu::render(&src, &info, &s, &RenderRequest::fit(320, 240), None).is_none());
+    let why = lightcraft_gpu::last_fallback().unwrap_or_default();
+    assert!(why.contains("layer"), "{why}");
+    // the same mask with only an opacity is not a layer-tools render
+    s.masks[0].tools = Default::default();
+    s.masks[0].opacity = 50.0;
+    assert!(!lightcraft_pipeline::layers_need_cpu(&s));
+}

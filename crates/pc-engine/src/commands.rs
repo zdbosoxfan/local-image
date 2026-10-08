@@ -1014,6 +1014,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::history_cmds::specs());
     v.extend(crate::freqsep_cmds::specs());
     v.extend(crate::develop_layer_cmds::specs());
+    v.extend(crate::develop_filter_cmds::specs());
     v.extend(crate::perspective_crop_cmds::specs());
     v.extend(crate::edit_cmds::specs());
     v.extend(crate::color_cmds::specs());

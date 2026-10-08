@@ -97,6 +97,205 @@ impl Homography {
     }
 }
 
+/// Is the quad (corners in order) strictly convex? Concave, folded (self-intersecting) and
+/// degenerate quads are not.
+pub fn quad_is_convex(q: &[[f64; 2]; 4]) -> bool {
+    let turns = turn_signs(q);
+    turns.iter().all(|t| *t > 0.0) || turns.iter().all(|t| *t < 0.0)
+}
+
+/// Cross product of the two edges meeting at each corner.
+fn turn_signs(q: &[[f64; 2]; 4]) -> [f64; 4] {
+    std::array::from_fn(|i| {
+        let (a, b, c) = (q[(i + 3) % 4], q[i], q[(i + 1) % 4]);
+        (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0])
+    })
+}
+
+/// Where a Free Transform frame goes: a projective map for convex quads, or — when Distort or
+/// Perspective drags a corner past its neighbours (a concave or folded quad, which a homography
+/// would turn inside out through the horizon) — Compositor's fallback: the frame is split along a
+/// diagonal into two triangles, each mapped affinely onto its triangle of the quad (a piecewise
+/// affine map, which still draws as Photoshop does). For a concave quad the diagonal through the
+/// reflex corner keeps both triangles inside it; for a folded one the second triangle draws over
+/// the first. Idea from Compositor (MIT); our implementation.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum QuadMap {
+    Projective(Homography),
+    Folded {
+        /// Source frame `[x0, y0, x1, y1]`.
+        rect: [f64; 4],
+        quad: [[f64; 2]; 4],
+        /// The diagonal: corners 0–2 (`false`) or 1–3 (`true`).
+        diag13: bool,
+    },
+}
+
+/// 2×3 affine `[a, b, c, d, e, f]`: `(x, y) → (a·x + b·y + c, d·x + e·y + f)`.
+type Aff = [f64; 6];
+
+/// The affine map taking triangle `s` onto triangle `d` (`None` when `s` is degenerate).
+fn tri_affine(s: [[f64; 2]; 3], d: [[f64; 2]; 3]) -> Option<Aff> {
+    let det = (s[1][0] - s[0][0]) * (s[2][1] - s[0][1]) - (s[2][0] - s[0][0]) * (s[1][1] - s[0][1]);
+    if det.abs() < 1e-12 {
+        return None;
+    }
+    // Barycentric (l1, l2) of a point p: l1 = ((p−s0)×(s2−s0))/det, l2 = ((s1−s0)×(p−s0))/det.
+    let (ax, ay) = (s[1][0] - s[0][0], s[1][1] - s[0][1]);
+    let (bx, by) = (s[2][0] - s[0][0], s[2][1] - s[0][1]);
+    // l1 = (px·by − py·bx − (s0x·by − s0y·bx)) / det; l2 = (ax·py − ay·px − (ax·s0y − ay·s0x)) / det.
+    let l1 = [by / det, -bx / det, -(s[0][0] * by - s[0][1] * bx) / det];
+    let l2 = [-ay / det, ax / det, -(ax * s[0][1] - ay * s[0][0]) / det];
+    let row = |k: usize| {
+        let (d0, d1, d2) = (d[0][k], d[1][k], d[2][k]);
+        [(d1 - d0) * l1[0] + (d2 - d0) * l2[0], (d1 - d0) * l1[1] + (d2 - d0) * l2[1], d0 + (d1 - d0) * l1[2] + (d2 - d0) * l2[2]]
+    };
+    let (x, y) = (row(0), row(1));
+    Some([x[0], x[1], x[2], y[0], y[1], y[2]])
+}
+
+fn aff_apply(m: &Aff, p: [f64; 2]) -> [f64; 2] {
+    [m[0] * p[0] + m[1] * p[1] + m[2], m[3] * p[0] + m[4] * p[1] + m[5]]
+}
+
+impl QuadMap {
+    /// The map taking rectangle `rect` onto `quad` (corners clockwise from top-left). `None` when
+    /// the frame or the quad is degenerate (or not finite).
+    pub fn new(rect: [f64; 4], quad: [[f64; 2]; 4]) -> Option<QuadMap> {
+        if rect.iter().chain(quad.iter().flatten()).any(|v| !v.is_finite()) || rect[2] <= rect[0] || rect[3] <= rect[1] {
+            return None;
+        }
+        if quad_is_convex(&quad) {
+            let h = Homography::rect_to_quad(rect, quad)?;
+            h.inverse()?;
+            return Some(QuadMap::Projective(h));
+        }
+        let turns = turn_signs(&quad);
+        let pos = turns.iter().filter(|t| **t > 0.0).count();
+        // Concave: one corner turns against the other three; the diagonal through it splits
+        // the quad into two triangles inside it. Folded: either diagonal (0–2).
+        let reflex = match pos {
+            1 => turns.iter().position(|t| *t > 0.0),
+            3 => turns.iter().position(|t| *t <= 0.0),
+            _ => None,
+        };
+        let diag13 = matches!(reflex, Some(1 | 3));
+        let m = QuadMap::Folded { rect, quad, diag13 };
+        // At least one triangle must have area on both sides.
+        m.pieces().iter().any(|(s, d)| tri_affine(*s, *d).is_some() && tri_affine(*d, *s).is_some()).then_some(m)
+    }
+
+    /// The homography, for convex quads.
+    pub fn homography(&self) -> Option<&Homography> {
+        match self {
+            QuadMap::Projective(h) => Some(h),
+            QuadMap::Folded { .. } => None,
+        }
+    }
+
+    pub fn is_folded(&self) -> bool {
+        matches!(self, QuadMap::Folded { .. })
+    }
+
+    /// Folded maps: the two (source triangle, destination triangle) pieces in drawing order.
+    /// Empty for projective maps.
+    pub fn pieces(&self) -> Vec<([[f64; 2]; 3], [[f64; 2]; 3])> {
+        let QuadMap::Folded { rect, quad, diag13 } = *self else { return Vec::new() };
+        let c = [[rect[0], rect[1]], [rect[2], rect[1]], [rect[2], rect[3]], [rect[0], rect[3]]];
+        let idx: [[usize; 3]; 2] = if diag13 { [[0, 1, 3], [1, 2, 3]] } else { [[0, 1, 2], [0, 2, 3]] };
+        idx.iter().map(|t| (t.map(|i| c[i]), t.map(|i| quad[i]))).collect()
+    }
+
+    /// Folded maps: the diagonal's source endpoints and each piece's affine map, with the side
+    /// (sign of the cross product against the diagonal) its source triangle lies on.
+    fn sides(&self) -> Vec<([f64; 2], [f64; 2], f64, Aff)> {
+        let QuadMap::Folded { rect, diag13, .. } = *self else { return Vec::new() };
+        let c = [[rect[0], rect[1]], [rect[2], rect[1]], [rect[2], rect[3]], [rect[0], rect[3]]];
+        let (a, b) = if diag13 { (c[1], c[3]) } else { (c[0], c[2]) };
+        self.pieces()
+            .into_iter()
+            .filter_map(|(s, d)| {
+                let m = tri_affine(s, d)?;
+                // The apex: the triangle's corner off the diagonal.
+                let apex = s.into_iter().find(|p| *p != a && *p != b)?;
+                Some((a, b, cross(a, b, apex).signum(), m))
+            })
+            .collect()
+    }
+
+    /// Where the source point `(x, y)` goes. Folded maps extend each piece's affine map over its
+    /// side of the diagonal (where both pieces would apply, the later one wins, as drawn).
+    pub fn apply(&self, x: f64, y: f64) -> (f64, f64) {
+        match self {
+            QuadMap::Projective(h) => h.apply(x, y),
+            QuadMap::Folded { .. } => {
+                let p = [x, y];
+                let sides = self.sides();
+                let pick = sides.iter().rev().find(|(a, b, s, _)| cross(*a, *b, p) * s >= 0.0).or(sides.last());
+                pick.map_or((x, y), |(_, _, _, m)| {
+                    let q = aff_apply(m, p);
+                    (q[0], q[1])
+                })
+            }
+        }
+    }
+}
+
+fn cross(o: [f64; 2], a: [f64; 2], b: [f64; 2]) -> f64 {
+    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+}
+
+/// Clips a convex polygon to the half-plane where `cross(a, b, p)·side ≥ 0`.
+fn clip_half_plane(poly: &[[f64; 2]], a: [f64; 2], b: [f64; 2], side: f64) -> Vec<[f64; 2]> {
+    let mut out = Vec::with_capacity(poly.len() + 2);
+    let n = poly.len();
+    for i in 0..n {
+        let (p, q) = (poly[i], poly[(i + 1) % n]);
+        let (dp, dq) = (cross(a, b, p) * side, cross(a, b, q) * side);
+        if dp >= 0.0 {
+            out.push(p);
+        }
+        if (dp >= 0.0) != (dq >= 0.0) {
+            let t = dp / (dp - dq);
+            out.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]);
+        }
+    }
+    out
+}
+
+/// [`warp_surface`] through a [`QuadMap`]: the homography for convex quads (unchanged), and for
+/// folded quads the two affine pieces, each over its side of the diagonal (so content beyond the
+/// frame and the anti-aliased edges are mapped too), the second drawn over the first.
+pub fn warp_surface_map(src: &Surface, src_rect: Rect, m: &QuadMap, interp: Interp) -> Surface {
+    let rect = match m {
+        QuadMap::Projective(h) => return warp_surface(src, src_rect, h, interp),
+        QuadMap::Folded { rect, .. } => *rect,
+    };
+    // The area to map: the content (plus a filter margin) and the frame.
+    let r = src_rect.inflate(2);
+    let area = [
+        f64::from(r.x0).min(rect[0]),
+        f64::from(r.y0).min(rect[1]),
+        f64::from(r.x1).max(rect[2]),
+        f64::from(r.y1).max(rect[3]),
+    ];
+    let boxp = vec![[area[0], area[1]], [area[2], area[1]], [area[2], area[3]], [area[0], area[3]]];
+    let mut verts: Vec<([f64; 2], [f64; 2])> = Vec::new();
+    let mut tris: Vec<[usize; 3]> = Vec::new();
+    for (a, b, side, aff) in m.sides() {
+        let poly = clip_half_plane(&boxp, a, b, side);
+        if poly.len() < 3 {
+            continue;
+        }
+        let base = verts.len();
+        verts.extend(poly.iter().map(|p| (aff_apply(&aff, *p), *p)));
+        for k in 1..poly.len() - 1 {
+            tris.push([base, base + k, base + k + 1]);
+        }
+    }
+    crate::warp::warp_triangles(src, src_rect, &verts, &tris, interp)
+}
+
 /// Resampling used by transforms (Photoshop's interpolation menu).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -341,6 +540,87 @@ mod tests {
         let o = warp_surface(&s, s.content_bounds(), &h, Interp::Bicubic);
         let p = o.pixel(4, 4);
         assert!((p[0] - 0.5).abs() < 0.1, "{p:?}");
+    }
+
+    fn poly_contains(q: &[[f64; 2]; 4], p: [f64; 2]) -> bool {
+        photocraft_geom::cage::point_in_polygon(q, p)
+    }
+
+    #[test]
+    fn quad_shapes_pick_the_right_map() {
+        let r = [0.0, 0.0, 40.0, 40.0];
+        assert!(!QuadMap::new(r, [[0.0, 0.0], [40.0, 0.0], [40.0, 40.0], [0.0, 40.0]]).unwrap().is_folded());
+        // Corner 2 dragged inside: concave, the diagonal runs through it (0–2).
+        let dart = [[0.0, 0.0], [40.0, 0.0], [12.0, 12.0], [0.0, 40.0]];
+        let m = QuadMap::new(r, dart).unwrap();
+        assert_eq!(m, QuadMap::Folded { rect: r, quad: dart, diag13: false });
+        // Corner 1 inside: diagonal 1–3.
+        let dart1 = [[0.0, 0.0], [20.0, 26.0], [40.0, 40.0], [0.0, 40.0]];
+        assert!(matches!(QuadMap::new(r, dart1), Some(QuadMap::Folded { diag13: true, .. })));
+        // Folded (bow-tie) still maps.
+        assert!(QuadMap::new(r, [[0.0, 0.0], [40.0, 40.0], [40.0, 0.0], [0.0, 40.0]]).unwrap().is_folded());
+        // Every corner lands where it was dragged.
+        for (c, q) in [[0.0, 0.0], [40.0, 0.0], [40.0, 40.0], [0.0, 40.0]].iter().zip(dart) {
+            let (x, y) = m.apply(c[0], c[1]);
+            assert!((x - q[0]).abs() < 1e-9 && (y - q[1]).abs() < 1e-9, "{c:?} → {x},{y}");
+        }
+        // Degenerate: everything on a line.
+        assert!(QuadMap::new(r, [[0.0, 0.0], [10.0, 0.0], [20.0, 0.0], [30.0, 0.0]]).is_none());
+        assert!(QuadMap::new([0.0, 0.0, 0.0, 10.0], dart).is_none());
+        assert!(QuadMap::new(r, [[f64::NAN, 0.0], [10.0, 0.0], [20.0, 5.0], [30.0, 0.0]]).is_none());
+    }
+
+    #[test]
+    fn concave_distort_draws_inside_the_quad_without_ghosts() {
+        let mut s = rgba();
+        s.fill_rect(Rect::new(0, 0, 40, 40), &[0.2, 0.6, 0.9, 1.0]);
+        let dart = [[0.0, 0.0], [40.0, 0.0], [12.0, 12.0], [0.0, 40.0]];
+        let m = QuadMap::new([0.0, 0.0, 40.0, 40.0], dart).unwrap();
+        let o = warp_surface_map(&s, s.content_bounds(), &m, Interp::Bicubic);
+        let b = o.content_bounds();
+        assert!(b.x1 <= 41 && b.y1 <= 41 && b.x0 >= -1 && b.y0 >= -1, "{b:?}");
+        let (mut inside, mut outside) = (0, 0);
+        for y in -2..44 {
+            for x in -2..44 {
+                let a = o.pixel(x, y)[3];
+                let c = [f64::from(x) + 0.5, f64::from(y) + 0.5];
+                let deep = poly_contains(&dart, c) && [[-1.5, 0.0], [1.5, 0.0], [0.0, -1.5], [0.0, 1.5]].iter().all(|d| poly_contains(&dart, [c[0] + d[0], c[1] + d[1]]));
+                let near = [[-1.5, 0.0], [1.5, 0.0], [0.0, -1.5], [0.0, 1.5], [0.0, 0.0]].iter().any(|d| poly_contains(&dart, [c[0] + d[0], c[1] + d[1]]));
+                if deep {
+                    assert!(a > 0.99, "hole at ({x},{y}): {a}");
+                    inside += 1;
+                }
+                if !near {
+                    assert!(a < 0.01, "ghost at ({x},{y}): {a}");
+                    outside += 1;
+                }
+            }
+        }
+        assert!(inside > 300 && outside > 500, "{inside} {outside}");
+        // The projective map of the same quad wraps through the horizon and paints outside it.
+        let h = Homography::rect_to_quad([0.0, 0.0, 40.0, 40.0], dart).unwrap();
+        let bad = warp_surface(&s, s.content_bounds(), &h, Interp::Bicubic);
+        let ghost = (0..40).flat_map(|y| (0..40).map(move |x| (x, y))).any(|(x, y)| {
+            bad.pixel(x, y)[3] > 0.5 && ![[-1.5, 0.0], [1.5, 0.0], [0.0, -1.5], [0.0, 1.5], [0.0, 0.0]].iter().any(|d| poly_contains(&dart, [f64::from(x) + 0.5 + d[0], f64::from(y) + 0.5 + d[1]]))
+        });
+        let hole = (0..40).flat_map(|y| (0..40).map(move |x| (x, y))).any(|(x, y)| bad.pixel(x, y)[3] < 0.5 && poly_contains(&dart, [f64::from(x) + 0.5, f64::from(y) + 0.5]));
+        assert!(ghost || hole, "the homography should misrender this quad");
+    }
+
+    #[test]
+    fn folded_quad_draws_both_triangles_and_convex_is_unchanged() {
+        let mut s = rgba();
+        s.fill_rect(Rect::new(0, 0, 20, 40), &[1.0, 0.0, 0.0, 1.0]);
+        s.fill_rect(Rect::new(20, 0, 40, 40), &[0.0, 0.0, 1.0, 1.0]);
+        let bow = [[0.0, 0.0], [40.0, 40.0], [40.0, 0.0], [0.0, 40.0]];
+        let m = QuadMap::new([0.0, 0.0, 40.0, 40.0], bow).unwrap();
+        let o = warp_surface_map(&s, s.content_bounds(), &m, Interp::Bilinear);
+        assert!(o.pixel(35, 20)[3] > 0.99 && o.pixel(5, 20)[3] > 0.99, "both lobes drawn");
+        // Convex quads go through the homography exactly as before.
+        let q = [[2.0, 1.0], [44.0, 3.0], [40.0, 38.0], [-3.0, 41.0]];
+        let a = warp_surface_map(&s, s.content_bounds(), &QuadMap::new([0.0, 0.0, 40.0, 40.0], q).unwrap(), Interp::Bicubic);
+        let b = warp_surface(&s, s.content_bounds(), &Homography::rect_to_quad([0.0, 0.0, 40.0, 40.0], q).unwrap(), Interp::Bicubic);
+        assert!(a == b, "bit-identical");
     }
 
     #[test]

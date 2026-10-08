@@ -153,6 +153,23 @@ pub fn apply_filter_to_surface(
     selection: Option<&photocraft_raster::Surface>,
     canvas: photocraft_geom::Rect,
 ) -> Option<photocraft_raster::Surface> {
+    apply_filter_to_surface_in(id, params, surf, bounds, selection, canvas, None)
+}
+
+/// [`apply_filter_to_surface`] knowing the document's RGB profile (`color_cmds::composite_profile`),
+/// which the Camera Raw Filter (`filter.develop`) converts through; `None` = sRGB.
+pub fn apply_filter_to_surface_in(
+    id: &str,
+    params: &Value,
+    surf: &photocraft_raster::Surface,
+    bounds: photocraft_geom::Rect,
+    selection: Option<&photocraft_raster::Surface>,
+    canvas: photocraft_geom::Rect,
+    profile: Option<&photocraft_cms::Profile>,
+) -> Option<photocraft_raster::Surface> {
+    if id == crate::develop_filter_cmds::DEVELOP {
+        return crate::develop_filter_cmds::apply_to_surface(id, params, surf, canvas, profile);
+    }
     // Liquify / Puppet Warp / Perspective Warp smart filters (distort_cmds).
     if let Some(out) = crate::distort_cmds::apply_to_surface(id, params, surf, canvas) {
         return Some(out);

@@ -225,6 +225,81 @@ mod tests {
     }
 
     #[test]
+    fn masks_written_before_layers_load_and_serialize_unchanged() {
+        let old = json!({"masks": [{"id": 3, "name": "Sky", "visible": true, "invert": false, "components": [],
+            "adjust": {"exposure": -0.5, "saturation": 20.0, "amount": 80.0}}]});
+        let s = DevelopSettings::from_json(&old).unwrap();
+        let m = &s.masks[0];
+        assert_eq!((m.opacity, m.tools.is_empty(), m.adjust.exposure, m.adjust.amount), (100.0, true, -0.5, 80.0));
+        // nothing new is written: same JSON (and hash) as a mask struct without the new fields
+        let v = s.to_json();
+        assert!(v["masks"][0].get("opacity").is_none() && v["masks"][0].get("tools").is_none(), "{v}");
+        assert_eq!(DevelopSettings::from_json(&v).unwrap(), s);
+        let mut expected = old["masks"][0].clone();
+        let full = serde_json::to_value(LocalAdjustments { exposure: -0.5, saturation: 20.0, amount: 80.0, ..Default::default() }).unwrap();
+        expected["adjust"] = full;
+        assert_eq!(v["masks"][0], expected);
+    }
+
+    #[test]
+    fn layer_tools_are_sparse_and_round_trip() {
+        let mut m = Mask { id: 1, opacity: 40.0, ..Default::default() };
+        m.tools.curve = Some(ToneCurve { master: vec![lightcraft_geom::Point::new(0.0, 0.1), lightcraft_geom::Point::new(1.0, 0.9)], ..Default::default() });
+        m.tools.grading = Some(ColorGrading { shadows: Wheel { hue: 200.0, sat: 30.0, lum: 0.0 }, ..Default::default() });
+        let v = serde_json::to_value(&m).unwrap();
+        let keys: Vec<&String> = v["tools"].as_object().unwrap().keys().collect();
+        assert_eq!(keys, ["curve", "grading"]);
+        assert_eq!(v["opacity"], json!(40.0));
+        assert_eq!(serde_json::from_value::<Mask>(v).unwrap(), m);
+        assert_eq!(m.tools.used_keys(), ["curve", "grading"]);
+        assert!(m.tools.is_set("curve") && !m.tools.is_set("light"));
+    }
+
+    #[test]
+    fn layer_tools_merge_like_presets() {
+        let t = LayerTools::default();
+        let t = t.merged((5000.0, 4.0), &json!({"light": {"exposure": 9.0}, "mixer": {"blue": {"sat": -40}}})).unwrap();
+        assert_eq!(t.light.unwrap().exposure, 5.0, "clamped by the control spec");
+        assert_eq!(t.mixer.unwrap().blue.sat, -40.0);
+        assert_eq!(t.used_keys(), ["light", "mixer"]);
+        // merging keeps what's there; null drops a section
+        let t = t.merged((5000.0, 4.0), &json!({"light": {"contrast": 20}, "mixer": null})).unwrap();
+        assert_eq!((t.light.unwrap().exposure, t.light.unwrap().contrast), (5.0, 20.0));
+        assert!(t.mixer.is_none());
+        // image-level tools are refused
+        assert!(t.merged((5000.0, 4.0), &json!({"optics": {"distortion": 10}})).is_err());
+        assert!(t.merged((5000.0, 4.0), &json!({"light": {"exposure": "lots"}})).is_err());
+        // white balance starts from the photo's
+        let w = LayerTools::default().set_controls((5000.0, 4.0), &[("wb.tint".into(), 12.0)]).unwrap();
+        assert_eq!(w.wb, Some(WhiteBalance { mode: WbMode::Custom, temp: 5000.0, tint: 12.0 }));
+        assert_eq!(LayerTools::default().view((5000.0, 4.0)).wb.temp, 5000.0);
+        // controls by id; indexed ones too
+        let p = LayerTools { point_colors: Some(vec![PointColor::default()]), ..Default::default() };
+        let p = p.set_controls((6500.0, 0.0), &[("pointColor.0.hueShift".into(), 30.0), ("effects.clarity".into(), 15.0)]).unwrap();
+        assert_eq!(p.point_colors.unwrap()[0].hue_shift, 30.0);
+        assert_eq!(p.effects.unwrap().clarity, 15.0);
+        assert!(LayerTools::default().set_controls((6500.0, 0.0), &[("optics.distortion".into(), 1.0)]).is_err());
+        assert_eq!(layer_key_of_control("bw.red"), Some("bw_mix"));
+        assert_eq!(layer_key_of_control("calibration.redHue"), None);
+    }
+
+    #[test]
+    fn copy_paste_presets_and_sync_carry_layer_tools() {
+        let mut a = DevelopSettings::default();
+        let mut m = Mask { id: 1, name: "L".into(), opacity: 60.0, ..Default::default() };
+        m.tools.light = Some(Light { exposure: 1.0, ..Default::default() });
+        a.masks.push(m.clone());
+        let clip = extract_groups(&a, &[SettingsGroup::Masks]);
+        let pasted = apply_partial(&DevelopSettings::default(), &clip, 1.0);
+        assert_eq!(pasted.masks, a.masks);
+        // a preset adds its masks, the amount scaling the whole layer (through `adjust.amount`)
+        let p = Preset::from_settings("p", "P", "User", &a, &[SettingsGroup::Masks]);
+        let half = p.apply(&DevelopSettings::default(), 0.5);
+        assert_eq!(half.masks[0].tools, m.tools);
+        assert_eq!((half.masks[0].opacity, half.masks[0].adjust.amount), (60.0, 50.0));
+    }
+
+    #[test]
     fn section_toggles() {
         let mut s = DevelopSettings::default();
         assert!(s.section_enabled("effects"));

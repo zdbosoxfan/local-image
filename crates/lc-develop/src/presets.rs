@@ -188,12 +188,24 @@ pub fn apply_partial(s: &DevelopSettings, partial: &Value, amount: f64) -> Devel
     let base = s.to_json_full();
     let patch = if (amount - 1.0).abs() < 1e-9 { partial.clone() } else { scale_patch(&base, partial, amount) };
     let mut out = s.merged(&patch).unwrap_or_else(|_| s.clone());
+    clamp_controls(&mut out);
+    out
+}
+
+/// [`apply_partial`] at 100 %, failing (instead of keeping `s`) when the patch doesn't fit the
+/// settings schema.
+pub fn apply_partial_strict(s: &DevelopSettings, partial: &Value) -> Result<DevelopSettings, String> {
+    let mut out = s.merged(partial).map_err(|e| e.to_string())?;
+    clamp_controls(&mut out);
+    Ok(out)
+}
+
+fn clamp_controls(out: &mut DevelopSettings) {
     for c in crate::controls::CONTROLS {
-        if let Some(v) = crate::controls::get(&out, c.id) {
-            crate::controls::set(&mut out, c.id, v);
+        if let Some(v) = crate::controls::get(out, c.id) {
+            crate::controls::set(out, c.id, v);
         }
     }
-    out
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

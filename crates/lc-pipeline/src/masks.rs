@@ -33,7 +33,7 @@ pub fn evaluate(masks: &[Mask], frame: &Frame, w: usize, h: usize, img: &Rgb32f,
 }
 
 /// The alpha plane of mask `m` (whether visible or not): its components combined, inverted and
-/// scaled by its amount.
+/// scaled by its amount and opacity ([`mask_scale`]).
 pub fn evaluate_one(m: &Mask, frame: &Frame, w: usize, h: usize, img: &Rgb32f, log_l: &Plane, ev: f32) -> Plane {
     let mut alpha = Plane::new(w, h);
     let mut first = true;
@@ -69,11 +69,17 @@ pub fn evaluate_one(m: &Mask, frame: &Frame, w: usize, h: usize, img: &Rgb32f, l
     if m.invert {
         alpha.data.iter_mut().for_each(|v| *v = 1.0 - *v);
     }
-    let amt = (m.adjust.amount / 100.0) as f32;
+    let amt = mask_scale(m);
     if (amt - 1.0).abs() > 1e-6 {
         alpha.data.iter_mut().for_each(|v| *v *= amt);
     }
     alpha
+}
+
+/// What a mask's alpha is scaled by: its amount (0..200 %) times its layer opacity (0..100 %).
+pub fn mask_scale(m: &Mask) -> f32 {
+    // (× exactly 1.0 at full opacity: masks written before layers scale as they always did)
+    ((m.adjust.amount / 100.0) * (m.opacity.clamp(0.0, 100.0) / 100.0)) as f32
 }
 
 /// Per-pixel positions in long-edge units for output pixel centres.

@@ -463,3 +463,68 @@ fn geodesic_barrier_blocks_oblique_crossings() {
         assert!(d[y * 352 + 291] > 0.1, "row {y}: {}", d[y * 352 + 291]);
     }
 }
+
+// ---------- specular highlights ----------
+
+/// A shaded glossy red ball with a clipped white specular highlight on a noisy blue-grey
+/// background: (image, ball mask, highlight core mask).
+pub(crate) fn glossy_ball(w: usize, h: usize, seed: u64) -> (RgbImage, Vec<bool>, Vec<bool>) {
+    let mut rng = Rng::new(seed);
+    let (cx, cy, r) = (w as f32 * 0.5, h as f32 * 0.5, h as f32 * 0.36);
+    let (hx, hy, hs) = (cx - r * 0.3, cy - r * 0.32, r * 0.16);
+    let mut img = RgbImage::new(w, h);
+    let mut ball = vec![false; w * h];
+    let mut core = vec![false; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+            let d = (px - cx).hypot(py - cy);
+            let n = 0.02 * rng.normal();
+            let i = y * w + x;
+            img.px[i] = if d <= r {
+                ball[i] = true;
+                let shade = 0.55 + 0.45 * (1.0 - (d / r).powi(2)).max(0.0).sqrt();
+                let body = [0.8 * shade + n, 0.12 * shade + n, 0.1 * shade + n];
+                let sd = (px - hx).hypot(py - hy) / hs;
+                let spec = (1.6 * (-0.5 * sd * sd).exp()).min(1.0);
+                core[i] = spec > 0.5;
+                body.map(|b| b + (1.0 - b) * spec)
+            } else {
+                [0.35 + n, 0.4 + n, 0.5 + n]
+            }
+            .map(|v| v.clamp(0.0, 1.0));
+        }
+    }
+    (img, ball, core)
+}
+
+#[test]
+fn quick_select_includes_a_specular_highlight() {
+    let (w, h) = (300, 240);
+    let (img, ball, core) = glossy_ball(w, h, 11);
+    let s = ImageSampler { img: &img, origin: (0, 0) };
+    // A stroke across the lower body of the ball, away from the highlight.
+    let reg = quick::quick_select(&s, Rect::new(0, 0, w as i32, h as i32), &[(120.0, 150.0), (180.0, 160.0)], 14.0, quick::WORK_PX).unwrap();
+    let total = core.iter().filter(|c| **c).count();
+    let got = (0..w * h).filter(|i| core[*i] && reg.at((i % w) as i32, (i / w) as i32) >= 0.5).count();
+    assert!(got as f32 >= 0.97 * total as f32, "highlight: {got} of {total} selected");
+    let v = iou(&reg, &ball, w, h);
+    assert!(v > 0.95, "IoU {v}");
+}
+
+#[test]
+fn quick_select_keeps_a_real_hole_open() {
+    // A red ring on a white background: the hole shows the background and stays unselected,
+    // although white looks like a highlight on red.
+    let (w, h) = (240, 200);
+    let mut rng = Rng::new(5);
+    let img = RgbImage::from_fn(w, h, |x, y| {
+        let d = (x as f32 - 120.0).hypot(y as f32 - 100.0);
+        let n = 0.02 * rng.normal();
+        if (25.0..=70.0).contains(&d) { [0.8 + n, 0.12 + n, 0.1 + n] } else { [0.95 + n, 0.95 + n, 0.95 + n] }.map(|v| v.clamp(0.0, 1.0))
+    });
+    let s = ImageSampler { img: &img, origin: (0, 0) };
+    let reg = quick::quick_select(&s, Rect::new(0, 0, w as i32, h as i32), &[(120.0, 45.0), (150.0, 50.0)], 10.0, quick::WORK_PX).unwrap();
+    assert!(reg.at(120, 100) < 0.5 && reg.at(110, 95) < 0.5, "the hole was filled");
+    assert!(reg.at(120, 160) >= 0.5, "the ring is selected");
+}

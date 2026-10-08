@@ -47,6 +47,20 @@ pub fn wb_matrix_for(info: &SourceInfo, s: &DevelopSettings) -> Option<[[f32; 3]
     Some(m.mul(&lightcraft_color::Mat3::diag(1.0 / y, 1.0 / y, 1.0 / y)).to_f32())
 }
 
+/// The white-balance change from white `from` to white `to` (temperature K, tint), as
+/// [`wb_matrix_for`] builds it (linear Rec.2020, neutral luminance kept); `None` when they match.
+pub fn wb_change(from: (f64, f64), to: (f64, f64)) -> Option<[[f32; 3]; 3]> {
+    if (from.0 - to.0).abs() < 1e-6 && (from.1 - to.1).abs() < 1e-6 {
+        return None;
+    }
+    let set = wb_matrix(&REC2020, temp_tint_to_xy(to.0, to.1));
+    let shot = wb_matrix(&REC2020, temp_tint_to_xy(from.0, from.1));
+    let m = set.mul(&shot.inverse().unwrap_or(lightcraft_color::Mat3::IDENTITY));
+    let g = m.apply([1.0, 1.0, 1.0]);
+    let y = g[0] * 0.2627 + g[1] * 0.6780 + g[2] * 0.0593;
+    Some(m.mul(&lightcraft_color::Mat3::diag(1.0 / y, 1.0 / y, 1.0 / y)).to_f32())
+}
+
 fn wb_gain(img: &mut Rgb32f, info: &SourceInfo, s: &DevelopSettings, gain: f32) {
     let m = wb_matrix_for(info, s);
     let w = img.width;
@@ -219,6 +233,9 @@ pub(crate) struct Planes {
     pub dark: Option<(u32, Arc<Plane>, f32)>,
     /// Blurred chromaticity (local Moiré / Noise).
     pub chroma: Option<(u32, Arc<Rgb32f>)>,
+    /// Develop layers' noise reduction: the image denoised again with a layer's settings, by
+    /// their key (see [`crate::layers::nr_images`]).
+    pub layer_nr: Vec<(u64, Arc<Rgb32f>)>,
 }
 
 /// Reuse `slot` if it was computed at `sigma`, else compute and store it.
@@ -267,20 +284,23 @@ pub fn plane_sigmas(s: &DevelopSettings, px_per_long: f64, q: Quality) -> PlaneS
     let tone_active =
         s.light.highlights != 0.0 || s.light.shadows != 0.0 || s.masks.iter().any(|m| m.adjust.highlights != 0.0 || m.adjust.shadows != 0.0);
     // Edge-aware base at ~1.5% of the long edge (EV² epsilon: edges of > ~0.6 EV are preserved).
+    let (l_base, l_clarity, l_texture, l_dark) = crate::layers::planes_needed(s);
+    let tone_active = tone_active || l_base;
     let base = tone_active.then(|| {
         let sigma = (0.015 * ppl).max(1.0);
         if q == Quality::Draft { sigma.min(24.0) } else { sigma }
     });
-    let clarity = (s.effects.clarity != 0.0 || local_any(|a| a.clarity)).then(|| (0.012 * ppl).max(1.0));
+    let clarity = (s.effects.clarity != 0.0 || local_any(|a| a.clarity) || l_clarity).then(|| (0.012 * ppl).max(1.0));
     // local Noise and Defringe read the fine detail band too
     let texture = (s.effects.texture != 0.0
         || s.detail.sharpen_amount != 0.0
         || local_any(|a| a.texture)
         || local_any(|a| a.sharpness)
         || local_any(|a| a.noise)
-        || s.masks.iter().any(|m| m.adjust.defringe > 0.0))
+        || s.masks.iter().any(|m| m.adjust.defringe > 0.0)
+        || l_texture)
     .then(|| (0.0018 * ppl).max(0.6));
-    let dark = (s.effects.dehaze != 0.0 || local_any(|a| a.dehaze)).then(|| (0.02 * ppl).max(1.0));
+    let dark = (s.effects.dehaze != 0.0 || local_any(|a| a.dehaze) || l_dark).then(|| (0.02 * ppl).max(1.0));
     let chroma = (local_any(|a| a.moire) || s.masks.iter().any(|m| m.adjust.noise > 0.0)).then(|| (CHROMA_SIGMA * ppl).max(1.0));
     PlaneSigmas { base, clarity, texture, dark, chroma }
 }
@@ -288,7 +308,17 @@ pub fn plane_sigmas(s: &DevelopSettings, px_per_long: f64, q: Quality) -> PlaneS
 /// The spatial planes the per-pixel stage needs for `img` (white-balanced, before exposure),
 /// reusing whatever `planes` already holds for it. Missing planes are computed side by side (each
 /// one alone scales poorly: the guided filters work on small subsampled grids).
-pub(crate) fn prepare(img: Arc<Rgb32f>, s: &DevelopSettings, frame: &Frame, px_per_long: f64, q: Quality, planes: &mut Planes) -> Prepared {
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare(
+    img: Arc<Rgb32f>,
+    s: &DevelopSettings,
+    info: &SourceInfo,
+    frame: &Frame,
+    px_per_long: f64,
+    src_long: usize,
+    q: Quality,
+    planes: &mut Planes,
+) -> Prepared {
     let log_l = planes.log_l.get_or_insert_with(|| Arc::new(timed("log_l", || img.map(log_lum)))).clone();
     let PlaneSigmas { base: base_sigma, clarity: clarity_sigma, texture: texture_sigma, dark: dark_sigma, chroma: chroma_sigma } =
         plane_sigmas(s, px_per_long, q);
@@ -334,7 +364,8 @@ pub(crate) fn prepare(img: Arc<Rgb32f>, s: &DevelopSettings, frame: &Frame, px_p
     };
     let ev = s.light.exposure as f32;
     let masks = timed("masks", || masks::evaluate(&s.masks, frame, img.width, img.height, &img, &log_l, ev));
-    Prepared { img, log_l, base, clarity_blur, texture_blur, dark, chroma_blur, air, masks, px_per_long }
+    let layer_nr = timed("layer nr", || crate::layers::nr_images(&img, s, info, src_long, &mut planes.layer_nr));
+    Prepared { img, log_l, base, clarity_blur, texture_blur, dark, chroma_blur, air, masks, layer_nr, px_per_long }
 }
 
 /// The airlight is estimated from every `AIRLIGHT_STEP`-th value of the dark channel.

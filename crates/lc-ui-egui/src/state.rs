@@ -332,6 +332,10 @@ pub struct UiState {
     pub point_color: usize,
     /// Point Color "Visualize range": the selected sample's range in colour, the rest grey.
     pub point_color_visualize: bool,
+    /// The develop layer (mask id) the Point Color eyedropper samples for; `None`: the photo.
+    pub point_color_mask: Option<u32>,
+    /// Masking panel: show only the tool sections the selected layer uses.
+    pub layer_used_only: bool,
     /// Red Eye panel: selected correction, and whether new ones are pet eyes.
     pub eye: usize,
     pub eye_pet: bool,
@@ -606,6 +610,8 @@ impl Default for UiState {
             remove_opacity: 100.0,
             point_color: 0,
             point_color_visualize: false,
+            point_color_mask: None,
+            layer_used_only: false,
             eye: 0,
             eye_pet: false,
             visualize_spots: false,

@@ -143,6 +143,13 @@ fn masks_edit(s: &mut Session, c: &str, label: &str, f: impl FnOnce(&mut Vec<Mas
     Ok(json!({"activeMask": active}))
 }
 
+/// The white balance in effect on photo `id` (temperature, tint): what a layer's white balance
+/// starts from.
+pub(crate) fn global_wb(s: &Session, id: crate::PhotoId) -> (f64, f64) {
+    let d = s.develop_of(id).unwrap_or_default();
+    lightcraft_pipeline::local::effective_wb(&s.source_info(id), &d)
+}
+
 fn mask_id(p: &Value, active: Option<u32>, c: &str) -> Result<u32> {
     p.get("id").and_then(Value::as_u64).map(|v| v as u32).or(active).ok_or_else(|| bad(c, "no mask selected (give `id`)"))
 }
@@ -514,6 +521,94 @@ pub fn specs() -> Vec<CommandSpec> {
                     lightcraft_develop::presets::deep_merge(&mut v, &vals);
                     let a: LocalAdjustments = serde_json::from_value(v).map_err(|e| bad("mask.adjust", e.to_string()))?;
                     masks[i].adjust = clamp_local(a);
+                    Ok(())
+                })
+            }
+        ),
+        cmd!(
+            "mask.setTools",
+            "Set Layer Tools",
+            [],
+            None,
+            "{id?, tools?: partial settings JSON of the layer's tools (keys wb, light, curve, color, mixer, point_colors, treatment, bw_mix, grading, effects, vignette, grain, detail; merged like a preset; a key set to null drops that section), values?: {controlId: number} (as develop.set: light.exposure, mixer.blue.sat, pointColor.0.hueShift…), label?} — any develop tool on a mask (a Capture One-style layer); values are relative to the photo's (white balance: the layer's own white) → {tools}",
+            has_active,
+            |s, p| {
+                let c = "mask.setTools";
+                let mut vals: Vec<(String, f64)> = Vec::new();
+                if let Some(o) = p.get("values").and_then(Value::as_object) {
+                    for (k, v) in o {
+                        vals.push((k.clone(), v.as_f64().ok_or_else(|| bad(c, format!("`{k}` must be a number")))?));
+                    }
+                }
+                let partial = p.get("tools").cloned();
+                if vals.is_empty() && partial.is_none() {
+                    return Err(bad(c, "give `tools` (partial settings) or `values` ({controlId: number})"));
+                }
+                let label = match (str_param(p, "label"), vals.as_slice()) {
+                    (Some(l), _) => l.to_string(),
+                    (None, [(k, _)]) => lightcraft_develop::controls::find(k).map(|x| x.label).unwrap_or("Layer Adjustment").to_string(),
+                    _ => "Layer Adjustment".into(),
+                };
+                let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
+                let wb = global_wb(s, id);
+                let mid = mask_id(p, s.active_mask, c)?;
+                let mut tools = Value::Null;
+                masks_edit(s, c, &label, |masks, _| {
+                    let i = find(masks, mid, c)?;
+                    let mut t = masks[i].tools.clone();
+                    if let Some(partial) = &partial {
+                        t = t.merged(wb, partial).map_err(|e| bad(c, e))?;
+                    }
+                    if !vals.is_empty() {
+                        t = t.set_controls(wb, &vals).map_err(|e| bad(c, e))?;
+                    }
+                    tools = serde_json::to_value(&t).unwrap_or_default();
+                    masks[i].tools = t;
+                    Ok(())
+                })?;
+                Ok(json!({"tools": tools}))
+            }
+        ),
+        cmd!("mask.setOpacity", "Set Layer Opacity", [], None, "{id?, value: 0..100} — fades everything the mask does", has_active, |s, p| {
+            let c = "mask.setOpacity";
+            let v = super::f64_req(p, "value", c)?;
+            if !v.is_finite() {
+                return Err(bad(c, "value must be a number"));
+            }
+            let mid = mask_id(p, s.active_mask, c)?;
+            masks_edit(s, c, "Layer Opacity", |masks, _| {
+                let i = find(masks, mid, c)?;
+                masks[i].opacity = v.clamp(0.0, 100.0);
+                Ok(())
+            })
+        }),
+        cmd!(
+            "mask.resetTools",
+            "Reset Layer",
+            [],
+            None,
+            "{id?, section?: a layer tools key (light, curve, …)} — without `section`: drops every layer tool, resets the local sliders (keeping the amount) and the opacity",
+            has_active,
+            |s, p| {
+                let c = "mask.resetTools";
+                let mid = mask_id(p, s.active_mask, c)?;
+                let section = str_param(p, "section").map(str::to_string);
+                let label = if section.is_some() { "Reset Layer Section" } else { "Reset Layer" };
+                masks_edit(s, c, label, |masks, _| {
+                    let i = find(masks, mid, c)?;
+                    let m = &mut masks[i];
+                    match &section {
+                        Some(k) => {
+                            if !m.tools.clear(k) {
+                                return Err(bad(c, format!("`{k}` is not a layer tool")));
+                            }
+                        }
+                        None => {
+                            m.tools = Default::default();
+                            m.adjust = LocalAdjustments { amount: m.adjust.amount, ..Default::default() };
+                            m.opacity = 100.0;
+                        }
+                    }
                     Ok(())
                 })
             }
