@@ -5,7 +5,6 @@ import {
   MenuDivider,
   MenuItem,
   MenuItemCheckbox,
-  MenuItemRadio,
   MenuList,
   MenuPopover,
   MenuTrigger,
@@ -15,13 +14,12 @@ import { commandCatalog, type ShellCommand, type ShellView } from './commandCata
 export interface MenuBarProps {
   state: ShellView;
   execute(command: ShellCommand): unknown;
-  setOutputFormat(format: string): void;
   openRecent(id: string): unknown;
   opened: string | null;
   focusRequest: { name: string; sequence: number } | null;
   setMenu(name: string | null): void;
 }
-export function MenuBar({ state, execute, setOutputFormat, openRecent, opened, focusRequest, setMenu }: MenuBarProps) {
+export function MenuBar({ state, execute, openRecent, opened, focusRequest, setMenu }: MenuBarProps) {
   const commands = commandCatalog(state);
   useEffect(() => {
     if (focusRequest) document.getElementById(`${focusRequest.name.toLowerCase()}-menu-trigger`)?.focus();
@@ -42,42 +40,12 @@ export function MenuBar({ state, execute, setOutputFormat, openRecent, opened, f
         <>
           {(['newWorkspace', 'openFiles', 'openProject', 'openFolder'] as const).map(command)}
           <MenuDivider />
-          {(['showAssets', 'showGenerated', 'showBatch'] as const).map(command)}
-          <MenuDivider />
-          {(['saveProject', 'saveProjectAs', 'closeImage', 'credits'] as const).map(command)}
+          {(['saveProject', 'saveProjectAs'] as const).map(command)}
           <MenuDivider />
           {(['overwrite', 'saveUnique', 'exportImage'] as const).map(command)}
-          <Menu>
-            <MenuTrigger disableButtonEnhancement>
-              <MenuItem>Copy format</MenuItem>
-            </MenuTrigger>
-            <MenuPopover data-react-owned="true">
-              <MenuList checkedValues={{ format: [state.outputFormat || 'original'] }}>
-                {Object.entries({
-                  original: 'Original format',
-                  png: 'PNG',
-                  jpg: 'JPEG',
-                  tif: 'TIFF',
-                  webp: 'WebP',
-                }).map(([value, label]) => (
-                  <MenuItemRadio
-                    key={value}
-                    name="format"
-                    value={value}
-                    disabled={state.busy}
-                    onClick={() => setOutputFormat(value)}
-                  >
-                    {label}
-                    {state.document?.bit_depth === 16 && value !== 'original'
-                      ? value === 'tif'
-                        ? ' · 16-bit'
-                        : ' · 8-bit'
-                      : ''}
-                  </MenuItemRadio>
-                ))}
-              </MenuList>
-            </MenuPopover>
-          </Menu>
+          <MenuDivider />
+          {(['credits', 'closeImage'] as const).map(command)}
+          <MenuDivider />
           <Menu>
             <MenuTrigger disableButtonEnhancement>
               <MenuItem>Recent sessions</MenuItem>
@@ -105,8 +73,6 @@ export function MenuBar({ state, execute, setOutputFormat, openRecent, opened, f
         <>
           {(['undo', 'redo'] as const).map(command)}
           <MenuDivider />
-          {command('applySelection')}
-          <MenuDivider />
           {command('showSettings')}
         </>
       ),
@@ -131,7 +97,7 @@ export function MenuBar({ state, execute, setOutputFormat, openRecent, opened, f
         </>
       ),
     },
-    { name: 'Select', entries: <>{(['clearSelection', 'finishPath'] as const).map(command)}</> },
+    { name: 'Select', entries: <>{(['applySelection', 'clearSelection', 'finishPath'] as const).map(command)}</> },
     {
       name: 'View',
       entries: (
@@ -147,9 +113,12 @@ export function MenuBar({ state, execute, setOutputFormat, openRecent, opened, f
             Show original
           </MenuItemCheckbox>
           {command('refreshView')}
+          <MenuDivider />
+          {(['toggleInspector', 'showAssets', 'showGenerated'] as const).map(command)}
         </>
       ),
     },
+    ...(commands.showBatch.visible === false ? [] : [{ name: 'Tools', entries: <>{command('showBatch')}</> }]),
     { name: 'Help', entries: <>{(['showHardware', 'showShortcuts'] as const).map(command)}</> },
   ];
   return (

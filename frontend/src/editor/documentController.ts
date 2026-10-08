@@ -117,7 +117,7 @@ export function createDocumentController(options: DocumentControllerPorts & { to
       /* Storage preference does not decide document success. */
     }
   };
-  let outputFormat = readPreference('local-remove-copy-format', 'original') as OutputFormat;
+  let outputFormat = readPreference('local-image-export-format', 'original') as OutputFormat;
   if (!formats.has(outputFormat)) outputFormat = 'original';
   let askBeforeOverwrite = readPreference('local-remove-ask-before-overwrite', 'true') !== 'false';
   let healMethod = readPreference('local-remove-heal-method', 'texture');
@@ -155,8 +155,7 @@ export function createDocumentController(options: DocumentControllerPorts & { to
       null
     );
   }
-  const editing = () =>
-    !!current() && interaction.workspace !== 'generate' && !generationView.refining && !generationView.creatingBlank;
+  const editing = () => !!current() && !generationView.creatingBlank;
   const editable = () => editing() && !busy() && !interaction.showOriginal;
   const writableLayer = () => {
     const layer = selectedLayer();
@@ -374,12 +373,17 @@ export function createDocumentController(options: DocumentControllerPorts & { to
         bases.set(data.id, base);
         void base.catch(() => bases.delete(data.id));
       }
-      pending = Promise.all([
-        base,
-        options.loadImage(
-          '/api/local-remove/session/' + encodeURIComponent(data.id) + '/preview?full=true&revision=' + data.revision,
-        ),
-      ]).then(([original, composite]) => ({ document: data, original, composite }));
+      pending = data.layer_stack
+        ? base.then(original => ({ document: data, original }))
+        : Promise.all([
+            base,
+            options.loadImage(
+              '/api/local-remove/session/' +
+                encodeURIComponent(data.id) +
+                '/preview?full=true&revision=' +
+                data.revision,
+            ),
+          ]).then(([original, composite]) => ({ document: data, original, composite }));
       displays.set(key, pending);
       void pending.catch(() => displays.delete(key));
     }
@@ -680,7 +684,7 @@ export function createDocumentController(options: DocumentControllerPorts & { to
   function mutationAllowed(allowModal = false) {
     return (
       !!current() &&
-      interaction.workspace !== 'generate' &&
+      !generationView.creatingBlank &&
       !closeInProgress &&
       navigationBusy !== navigationEpoch &&
       !externalOperation &&
@@ -911,12 +915,51 @@ export function createDocumentController(options: DocumentControllerPorts & { to
       if (!choice || epoch !== navigationEpoch || activeId !== doc.id || busy()) return null;
       mode = choice;
     }
-    const chosenFormat = mode === 'overwrite' ? 'original' : outputFormat,
+    const exportOptions =
+      mode === 'export' && dialogs.chooseExport
+        ? await dialogs.chooseExport({
+            name: doc.name,
+            width: doc.width,
+            height: doc.height,
+            bitDepth: doc.bit_depth ?? 8,
+            format: outputFormat === 'original' ? (doc.bit_depth === 16 ? 'tif' : 'png') : outputFormat,
+            nativeFolder: native?.capabilities().imageExport === true && !!native.imageExportFolder,
+          })
+        : undefined;
+    if (exportOptions === null || epoch !== navigationEpoch || activeId !== doc.id || busy() || modal()) return null;
+    if (exportOptions) {
+      outputFormat = exportOptions.format;
+      store('local-image-export-format', outputFormat);
+    }
+    const chosenFormat = mode === 'export' ? outputFormat : 'original',
       finish = startOperation(mode === 'export' ? 'Preparing export' : 'Saving image');
     try {
       const body =
-        mode === 'export' ? { return_to_source: false, format: chosenFormat } : { mode, format: chosenFormat };
-      const result = await api.mutate<SaveResult>(accepted.get(doc.id) ?? doc, '/save', body);
+        mode === 'export'
+          ? {
+              return_to_source: false,
+              format: chosenFormat,
+              ...(exportOptions
+                ? {
+                    filename: exportOptions.filename,
+                    width: exportOptions.width,
+                    height: exportOptions.height,
+                  }
+                : {}),
+            }
+          : { mode, format: chosenFormat };
+      const folderExport = exportOptions?.destination === 'folder';
+      const result = folderExport
+        ? ((await native!.imageExportFolder!({
+            session_id: doc.id,
+            revision: doc.revision,
+            format: exportOptions.format,
+            filename: exportOptions.filename,
+            width: exportOptions.width,
+            height: exportOptions.height,
+          })) as SaveResult)
+        : await api.mutate<SaveResult>(accepted.get(doc.id) ?? doc, '/save', body);
+      if (!result?.saved) throw Error('The export was not completed.');
       if (result.session) accept(result.session);
       if (activeId === doc.id && epoch === navigationEpoch && result.collection) {
         collection = withCollectionDocument(readCollection(result.collection), current()!);
@@ -933,8 +976,8 @@ export function createDocumentController(options: DocumentControllerPorts & { to
         mode,
         documentId: doc.id,
         name: result.name || doc.name,
-        confirmed: mode !== 'export' && result.saved === true,
-        kind: mode === 'export' ? 'download-started' : 'written',
+        confirmed: (mode !== 'export' || folderExport) && result.saved === true,
+        kind: mode === 'export' && !folderExport ? 'download-started' : 'written',
       };
     } catch (error) {
       report('Save failed. Your edit and selection remain available. ' + failureText(error), true);
@@ -1276,6 +1319,39 @@ export function createDocumentController(options: DocumentControllerPorts & { to
       return false;
     }
   }
+  async function applyGeneratedLayer(
+    generatedId: string,
+    captured: Pick<DocumentContext, 'documentId' | 'navigationEpoch' | 'revision'>,
+  ) {
+    const target = current();
+    if (
+      !target ||
+      activeId !== captured.documentId ||
+      navigationEpoch !== captured.navigationEpoch ||
+      target.revision !== captured.revision
+    ) {
+      report('The composition changed before the generated layer could be added.', true);
+      return false;
+    }
+    const finish = startOperation('Adding generated layer');
+    try {
+      await mutateDocument(target, '/stack/generated-layer', { generated_session_id: generatedId }, 'POST', {
+        selectNew: true,
+        label: 'Generated image added as a layer.',
+        epoch: captured.navigationEpoch,
+      });
+      return true;
+    } catch (error) {
+      report(
+        'The generated image is saved in the library, but could not be added to this composition. ' +
+          failureText(error),
+        true,
+      );
+      return false;
+    } finally {
+      finish();
+    }
+  }
   async function showCredits() {
     const result = await beforeDocumentCommand('credits');
     if (!result.allowed || busy() || modal()) return;
@@ -1397,17 +1473,12 @@ export function createDocumentController(options: DocumentControllerPorts & { to
     zoomIn: () => canvas.zoomIn(),
     zoomOut: () => canvas.zoomOut(),
     toggleOriginal: () => {
-      const visible =
-        !!current() &&
-        (interaction.workspace !== 'generate' ||
-          (generationView.visible && !generationView.refining && !generationView.creatingBlank));
+      const visible = !!current() && !generationView.creatingBlank;
       if (visible && !busy() && !modal()) setInteraction({ showOriginal: !interaction.showOriginal });
     },
     toggleInspector: () => {
-      if (!generationView.refining) {
-        inspectorHidden = !inspectorHidden;
-        publish();
-      }
+      inspectorHidden = !inspectorHidden;
+      publish();
     },
     showAssets: () => features.showAssets?.('image'),
     showGenerated: () => features.showGenerated?.(),
@@ -1459,6 +1530,13 @@ export function createDocumentController(options: DocumentControllerPorts & { to
             selectNew: true,
             clearSelection: true,
             label: 'Background removal completed.',
+          })
+        : Promise.resolve(null),
+    whiteBackground: () =>
+      editable()
+        ? edit('/cutout/white-background', { layer_id: selectedLayer()?.id }, 'POST', {
+            selectNew: true,
+            label: 'White background added.',
           })
         : Promise.resolve(null),
     importBackground: async () => {
@@ -1557,6 +1635,11 @@ export function createDocumentController(options: DocumentControllerPorts & { to
     acceptDocument,
     activateMode,
     applyGeneratedBackground,
+    applyGeneratedLayer,
+    selectGeneratedLayer(id: string) {
+      const layer = current()?.layer_stack?.find(layer => layer.generated_session_id === id && !layer.discarded);
+      if (layer) chooseLayer(layer.id);
+    },
     openSession,
     openCollection,
     openCollectionEntry,

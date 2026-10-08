@@ -23,7 +23,7 @@ from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineScript, QWebEngine
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from shiboken6 import delete
 
-from protocol import (BASE, CloseGate, batch_payload, decode_message, identifier, local_drop_paths, project_payload, trusted_download,
+from protocol import (BASE, CloseGate, batch_payload, decode_message, identifier, image_export_payload, local_drop_paths, project_payload, trusted_download,
                       trusted_page, verified_update_package)
 
 FROZEN = bool(getattr(sys, 'frozen', False))
@@ -216,11 +216,12 @@ class Window(QMainWindow):
         self.view.setAcceptDrops(True)
         # Chromium's render widget is a child of the view. Intercept its native
         # drop events before they become page File objects or file navigation.
-        QApplication.instance().installEventFilter(self)
+        self.drop_targets = []
+        self.install_drop_filters()
         self.profile = create_desktop_profile(self)
         self.page = Page(self.profile, self.view)
         self.view.setPage(self.page)
-        self.page.loadFinished.connect(lambda ok: print('LOCAL_IMAGE_PAGE_LOADED', ok, self.view.url().toString(), flush=True))
+        self.page.loadFinished.connect(self.page_loaded)
         self.setCentralWidget(self.view)
         self.bridge = Bridge(self)
         self.channel = QWebChannel(self.page)
@@ -266,6 +267,19 @@ class Window(QMainWindow):
     def work(self, function, callback):
         QThreadPool.globalInstance().start(Task(function, callback, self))
 
+    def install_drop_filters(self):
+        # Scope Python filters to the view's public widgets. Filtering every
+        # application event also wraps private WebEngine GPU events in PySide.
+        for target in [self.view, *self.view.findChildren(QWidget)]:
+            if target not in self.drop_targets:
+                target.setAcceptDrops(True)
+                target.installEventFilter(self)
+                self.drop_targets.append(target)
+
+    def page_loaded(self, ok):
+        self.install_drop_filters()
+        print('LOCAL_IMAGE_PAGE_LOADED', ok, self.view.url().toString(), flush=True)
+
     def eventFilter(self, watched, event):
         if (event.type() in (QEvent.Type.DragEnter, QEvent.Type.DragMove, QEvent.Type.Drop)
                 and isinstance(watched, QWidget) and (watched is self.view or self.view.isAncestorOf(watched))):
@@ -309,7 +323,7 @@ class Window(QMainWindow):
         if action == 'ready':
             self.ready = True
             self.reply(identity, {'native': True, 'version': 2, 'projects': True,
-                                  'closeRequests': True, 'setup': True, 'batch': True})
+                                  'closeRequests': True, 'setup': True, 'batch': True, 'imageExport': True})
             print('LOCAL_IMAGE_NATIVE_READY ' + APP_VERSION, flush=True)
             if self.smoke:
                 QTimer.singleShot(4000, lambda: QApplication.instance().exit(0))
@@ -381,6 +395,18 @@ class Window(QMainWindow):
                     return call('/api/local-remove/save-project', payload)
                 return save
             return lambda: call('/api/local-remove/save-project', payload)
+        if action == 'imageChooseExportFolder':
+            folder = self.folder('Choose image output folder')
+            if not folder: return None
+            self.image_export_directory = str(Path(folder).absolute())
+            return lambda: {'directory': self.image_export_directory}
+        if action == 'imageExportFolder':
+            payload = image_export_payload(message)
+            folder = getattr(self, 'image_export_directory', None)
+            if not folder: raise ValueError('Choose an image output folder first.')
+            sid = payload.pop('session_id')
+            payload['path'] = folder
+            return lambda: call('/api/local-remove/session/' + sid + '/export-folder', payload)
         if action == 'batchChooseExportFolder':
             folder = self.folder('Choose batch output folder')
             if not folder:
@@ -475,7 +501,10 @@ class Window(QMainWindow):
         # Qt requires disk profiles to be destroyed before QApplication exits.
         # Delete their pages first so profile storage can finish flushing safely.
         self.heartbeat.stop()
-        QApplication.instance().removeEventFilter(self)
+        for target in self.drop_targets:
+            try: target.removeEventFilter(self)
+            except RuntimeError: pass  # WebEngine may have already replaced its render widget.
+        self.drop_targets.clear()
         delete(self.view)
         delete(self.profile)
 

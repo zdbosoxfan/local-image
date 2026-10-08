@@ -41,7 +41,7 @@ export function Layers({
     .slice()
     .reverse();
   const selected = layers.find(layer => layer.id === selectedLayerId);
-  const active = !!doc && !state.busy && !state.showOriginal && state.workspace !== 'generate';
+  const active = !!doc && !state.busy && !state.showOriginal && !state.creatingBlank;
   const editable = active && !!selected && !selected.locked && selected.visible;
   const [renaming, setRenaming] = useState<string | null>(null);
   const [name, setName] = useState('');
@@ -93,7 +93,7 @@ export function Layers({
     } else setOpacity(String(Math.round((selected?.opacity ?? 1) * 100)));
   }
   return (
-    <section className="li-layers" data-react-owned="true" aria-label="Layers" hidden={state.workspace === 'generate'}>
+    <section className="li-layers" data-react-owned="true" aria-label="Layers">
       <header className="li-panel-heading">
         <h2>Layers</h2>
         <CounterBadge

@@ -86,7 +86,7 @@ export function createDocumentApi(token: string, request: typeof fetch = fetch) 
       epoch = failureEpochs.get(sid) ?? 0,
       captured = cloneBody(body);
     if (
-      !/^\/(?:stack(?:\/layers|\/layer\/[^/]+|\/undo|\/redo)?|merge|layer\/[^/]+|remove|save|export-project|cutout(?:\/refine|\/background|\/generated-background|\/library-background|\/generate-background|\/undo|\/redo)?)$/.test(
+      !/^\/(?:stack(?:\/layers|\/layer\/[^/]+|\/generated-layer|\/undo|\/redo)?|merge|layer\/[^/]+|remove|save|export-project|cutout(?:\/refine|\/background|\/white-background|\/generated-background|\/library-background|\/generate-background|\/undo|\/redo)?)$/.test(
         tail,
       )
     )

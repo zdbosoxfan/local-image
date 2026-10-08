@@ -94,6 +94,7 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
   if (!mc || !bc || !oc || !dc) throw Error('Canvas 2D is unavailable.');
   const views = new Map<string, CanvasViewState>(),
     assetCache = new Map<string, { key: string; image: Promise<HTMLImageElement> }>(),
+    stackElements = new Map<string, HTMLImageElement>(),
     listeners = new Set<() => void>();
   let document: CanvasDocument | null = null,
     display: CanvasDisplay | null = null,
@@ -120,6 +121,7 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
     foreground: HTMLImageElement;
     background: HTMLImageElement;
   } | null = null;
+  let stackAssets: Array<{ node: CanvasLayer; image: HTMLImageElement }> | null = null;
   let navigationEpoch = 0,
     disposed = false,
     currentSnapshot: CanvasSnapshot | null = null;
@@ -422,6 +424,17 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
       return;
     }
     bc.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
+    if (document.layer_stack && stackAssets && !interaction.showOriginal) {
+      photoImage.hidden = true;
+      layerStack.hidden = false;
+      stage.classList.toggle('cutout-preview', true);
+      paintCachedStack();
+      overlay.hidden = interaction.workspace === 'generate';
+      draft.hidden = interaction.workspace === 'generate';
+      drawHandles();
+      updateCursor();
+      return;
+    }
     const composited = !interaction.showOriginal && (!!document.layer_stack || !!document.cutout?.enabled),
       shown = composited && display.composite ? display.composite : display.original;
     // Install the image that the loader already decoded. Assigning its URL to
@@ -494,11 +507,15 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
   }
   async function loadMoveAssets(requested: CanvasDocument) {
     const nodes = (requested.layer_stack || []).filter(node => node.visible && !node.discarded);
-    for (const id of assetCache.keys()) if (!nodes.some(node => node.id === id)) assetCache.delete(id);
+    const prefix = requested.id + ':';
+    for (const id of assetCache.keys())
+      if (!id.startsWith(prefix) || !requested.layer_stack?.some(node => prefix + node.id === id))
+        assetCache.delete(id);
     return Promise.all(
       nodes.map(async node => {
         const key = node.display_key || String(requested.revision);
-        let cached = assetCache.get(node.id);
+        const cacheId = prefix + node.id;
+        let cached = assetCache.get(cacheId);
         if (!cached || cached.key !== key) {
           cached = {
             key,
@@ -506,15 +523,51 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
               `/api/local-remove/session/${encodeURIComponent(requested.id)}/stack/layer/${encodeURIComponent(node.id)}/display?r=${encodeURIComponent(key)}`,
             ),
           };
-          assetCache.set(node.id, cached);
+          assetCache.set(cacheId, cached);
           const pending = cached;
           void pending.image.catch(() => {
-            if (assetCache.get(node.id) === pending) assetCache.delete(node.id);
+            if (assetCache.get(cacheId) === pending) assetCache.delete(cacheId);
           });
         }
         return { node, image: await cached.image };
       }),
     );
+  }
+  function paintCachedStack() {
+    if (!document || !stackAssets) return;
+    const nodes = document.layer_stack || [],
+      prefix = document.id + ':',
+      r = ratio(),
+      cx = (document.width - 1) / 2 / r,
+      cy = (document.height - 1) / 2 / r;
+    for (const [id, element] of stackElements) {
+      if (!id.startsWith(prefix) || !nodes.some(node => prefix + node.id === id)) {
+        element.remove();
+        stackElements.delete(id);
+      } else element.hidden = true;
+    }
+    for (const { node, image: element } of stackAssets) {
+      const id = prefix + node.id,
+        previous = stackElements.get(id),
+        next = transform(node);
+      if (previous !== element) {
+        previous?.remove();
+        element.className = 'layer-image';
+        element.alt = '';
+        element.draggable = false;
+        layerStack.append(element);
+        stackElements.set(id, element);
+      }
+      element.hidden = false;
+      element.style.left = '0px';
+      element.style.top = '0px';
+      element.style.width = `${baseCanvas.width}px`;
+      element.style.height = `${baseCanvas.height}px`;
+      element.style.opacity = String(node.opacity ?? 1);
+      element.style.zIndex = String(nodes.findIndex(item => item.id === node.id));
+      element.style.transformOrigin = `${cx}px ${cy}px`;
+      element.style.transform = `translate(${next.offset_x / r}px, ${next.offset_y / r}px) rotate(${next.rotation}deg) scale(${next.scale})`;
+    }
   }
   function paintMoving(drag = moving) {
     if (!document || !drag?.assets) return;
@@ -522,11 +575,16 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
     layerStack.hidden = true;
     overlay.hidden = true;
     bc.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
+    paintStack(drag.assets, drag);
+    drawHandles();
+  }
+  function paintStack(assets: Array<{ node: CanvasLayer; image: HTMLImageElement }>, drag?: LayerGesture) {
+    if (!document) return;
     const r = ratio(),
       cx = (document.width - 1) / 2 / r,
       cy = (document.height - 1) / 2 / r;
-    for (const asset of drag.assets) {
-      const next = asset.node.id === drag.id ? drag.next : transform(asset.node);
+    for (const asset of assets) {
+      const next = drag && asset.node.id === drag.id ? drag.next : transform(asset.node);
       bc.save();
       bc.globalAlpha = asset.node.opacity ?? 1;
       bc.translate(cx + next.offset_x / r, cy + next.offset_y / r);
@@ -535,7 +593,6 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
       bc.drawImage(asset.image, -cx, -cy, baseCanvas.width, baseCanvas.height);
       bc.restore();
     }
-    drawHandles();
   }
   async function prepareLegacyTransform() {
     if (!document?.cutout?.enabled) return;
@@ -970,8 +1027,10 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
     if (!next) {
       document = null;
       display = null;
+      stackAssets = null;
       settling = null;
       assetCache.clear();
+      stackElements.clear();
       legacyTransformAssets = null;
       points = [];
       undo = [];
@@ -985,6 +1044,7 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
     const saved = next.document.id !== document?.id ? views.get(next.document.id) : null;
     let selection: HTMLImageElement | null = null;
     if (saved?.mask) selection = await image(saved.mask);
+    const nextAssets = next.document.layer_stack && !next.composite ? await loadMoveAssets(next.document) : null;
     const accepted = ports.getAcceptedDocument();
     if (
       disposed ||
@@ -1000,9 +1060,9 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
       settling = null;
       legacyTransformAssets = null;
     }
-    if (changedDocument) assetCache.clear();
     document = structuredClone(next.document);
     display = next;
+    stackAssets = nextAssets;
     interaction = { ...interaction, ...next.interaction };
     stage.hidden = false;
     if (changedDocument) {
@@ -1053,18 +1113,21 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
         ports.restoreInteraction?.({ ...interaction });
       }
     }
-    const patchImages = next.legacyLayers || [],
-      expected = new Set(patchImages.map(value => value.image));
-    for (const child of Array.from(layerStack.children)) if (!expected.has(child as HTMLImageElement)) child.remove();
-    patchImages.forEach(({ layer, image: patch }, index) => {
-      if (layerStack.children[index] !== patch) layerStack.append(patch);
-      patch.hidden = !layer.visible || !!layer.discarded;
-      patch.style.left = `${(layer.x || 0) / ratio()}px`;
-      patch.style.top = `${(layer.y || 0) / (document!.height / baseCanvas.height)}px`;
-      patch.style.width = `${(layer.width || patch.naturalWidth || patch.width) / ratio()}px`;
-      patch.style.height = `${(layer.height || patch.naturalHeight || patch.height) / (document!.height / baseCanvas.height)}px`;
-    });
-    paintMask();
+    if (!stackAssets) {
+      stackElements.clear();
+      const patchImages = next.legacyLayers || [],
+        expected = new Set(patchImages.map(value => value.image));
+      for (const child of Array.from(layerStack.children)) if (!expected.has(child as HTMLImageElement)) child.remove();
+      patchImages.forEach(({ layer, image: patch }, index) => {
+        if (layerStack.children[index] !== patch) layerStack.append(patch);
+        patch.hidden = !layer.visible || !!layer.discarded;
+        patch.style.left = `${(layer.x || 0) / ratio()}px`;
+        patch.style.top = `${(layer.y || 0) / (document!.height / baseCanvas.height)}px`;
+        patch.style.width = `${(layer.width || patch.naturalWidth || patch.width) / ratio()}px`;
+        patch.style.height = `${(layer.height || patch.naturalHeight || patch.height) / (document!.height / baseCanvas.height)}px`;
+      });
+    }
+    if (changedDocument) paintMask();
     if (points.length) penDraft();
     paintPhoto();
     publish();
@@ -1127,6 +1190,9 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
     const next = { ...interaction, ...change };
     next.brushSize = Math.max(1, Math.min(2000, Math.round(next.brushSize)));
     if ((Object.keys(next) as Array<keyof CanvasInteraction>).every(key => next[key] === interaction[key])) return;
+    const recolorMask =
+        next.workspace !== interaction.workspace || next.cutoutOperation !== interaction.cutoutOperation,
+      repaintPhoto = next.workspace !== interaction.workspace || next.showOriginal !== interaction.showOriginal;
     if (next.tool !== interaction.tool) {
       endGesture();
       cancelMove();
@@ -1136,8 +1202,9 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
     }
     if (next.busy && !interaction.busy) endGesture();
     interaction = next;
-    paintMask();
-    paintPhoto();
+    if (recolorMask) paintMask();
+    if (repaintPhoto) paintPhoto();
+    else drawHandles();
     updateCursor();
     publish();
   }
@@ -1276,6 +1343,7 @@ export function createCanvasController(elements: CanvasElements, ports: CanvasPo
       ownerDocument.removeEventListener('visibilitychange', visibility);
       listeners.clear();
       assetCache.clear();
+      stackElements.clear();
       views.clear();
       if (owners.get(viewport) === owner) owners.delete(viewport);
     },

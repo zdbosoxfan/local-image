@@ -99,6 +99,7 @@ export function createGenerationController(
     draftImages: [],
     resultImages: [],
     selectedDraftId: null,
+    refinementStep: 'draft',
     selectedResultId: null,
     includeReferences: true,
     upscale: { enabled: false, preset: '3840', width: 3840, height: 3840 },
@@ -370,7 +371,7 @@ export function createGenerationController(
     if (state.working || activatingMode) return false;
     const shown =
       mode === 'edit'
-        ? (source ?? state.modeDocuments.edit ?? host.getContext().document)
+        ? (source ?? host.getContext().document ?? state.modeDocuments.edit)
         : mode === 'create'
           ? state.modeDocuments.create
           : null;
@@ -408,6 +409,7 @@ export function createGenerationController(
         ? state.draftImages
         : [...state.draftImages, item],
       selectedDraftId: document.id,
+      refinementStep: 'draft',
       selectedResultId: state.resultImages.filter(image => image.draftId === document.id).at(-1)?.session.id ?? null,
     });
   }
@@ -542,6 +544,7 @@ export function createGenerationController(
         { session: structuredClone(document), references: [], ...(draftId ? { draftId } : {}) },
       ],
       selectedResultId: state.selectedDraftId === draftId ? document.id : state.selectedResultId,
+      refinementStep: state.selectedDraftId === draftId ? 'final' : state.refinementStep,
     });
   }
   async function requestRun(key: DraftKey | 'upscale') {
@@ -603,12 +606,16 @@ export function createGenerationController(
             ? await api.upscale(upscaleSource!.session, upscaleTarget(upscaleSource!.session), operationId)
             : await api.generate({ ...payload!, operation_id: operationId });
         if (disposed || sequence !== jobSequence) return;
-        if (key === 'draft') addDraft(result.session, references);
-        else if (key === 'final' || key === 'upscale') recordResult(result.session, chosenDraftId);
-        else {
+        if (key === 'draft') {
+          addDraft(result.session, references);
+          if (current(context) && mode === state.mode) await host.acceptResult(result.session, context, mode);
+        } else if (key === 'final' || key === 'upscale') {
+          recordResult(result.session, chosenDraftId);
+          if (current(context) && mode === state.mode) await host.acceptResult(result.session, context, mode);
+        } else {
           update({ modeDocuments: { ...state.modeDocuments, [key]: structuredClone(result.session) } });
           if (current(context) && mode === state.mode) await host.acceptResult(result.session, context, mode);
-          if (key === 'edit') bindEdit(result.session);
+          if (key === 'edit') bindEdit(host.getContext().document ?? result.session);
         }
         update({
           status: `${stopRequestedSequence === sequence ? 'Image finished before it could be stopped' : 'Image created'}${result.seed === undefined ? '' : ` · Seed ${result.seed}`}${result.library_warning ? ` · ${result.library_warning}` : ' · Library copy saved.'}`,
@@ -618,11 +625,14 @@ export function createGenerationController(
           // retains the completed refinement and never resubmits either stage.
           try {
             stopPolling();
+            const upscaleContext = host.getContext();
             const operationId = (activeOperationId = createOperationId());
             update({ runningKey: 'upscale', progress: null });
             void poll(sequence, operationId, 'seedvr2');
             const upscaled = await api.upscale(result.session, upscaleTarget(result.session), operationId);
             recordResult(upscaled.session, chosenDraftId);
+            if (current(upscaleContext) && mode === state.mode)
+              await host.acceptResult(upscaled.session, upscaleContext, mode);
             update({ status: 'Refinement and upscale saved as separate library copies.' });
           } catch (error) {
             if (cancelled(error))
@@ -951,6 +961,7 @@ export function createGenerationController(
       if (!state.working && state.draftImages.some(item => item.session.id === id))
         update({
           selectedDraftId: id,
+          refinementStep: 'draft',
           selectedResultId: state.resultImages.filter(item => item.draftId === id).at(-1)?.session.id ?? null,
         });
     },
@@ -959,7 +970,10 @@ export function createGenerationController(
         !state.working &&
         state.resultImages.some(item => item.session.id === id && item.draftId === state.selectedDraftId)
       )
-        update({ selectedResultId: id });
+        update({ selectedResultId: id, refinementStep: 'final' });
+    },
+    setRefinementStep(refinementStep: 'draft' | 'final') {
+      if (!state.working && !state.context.busy) update({ refinementStep });
     },
     async openSelected(result = true) {
       if (state.working) return;

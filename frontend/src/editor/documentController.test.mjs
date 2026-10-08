@@ -445,6 +445,17 @@ function fixture(initial = [document()], overrides = {}) {
       };
       data.layer_stack.push(layer);
       data.selected_layer_id = layer.id;
+    } else if (tail === '/stack/generated-layer') {
+      const layer = {
+        ...original(),
+        id: 'generated-' + (data.revision + 1),
+        kind: 'image',
+        name: 'Generated layer',
+        locked: false,
+        generated_session_id: body.generated_session_id,
+      };
+      data.layer_stack.push(layer);
+      data.selected_layer_id = layer.id;
     } else if (tail === '/cutout/generated-background') {
       const layer = {
         ...original(),
@@ -712,7 +723,7 @@ test('overwrite, unique copy and download export retain different payloads and c
   assert.equal(mutations(f).at(-1).body.mode, 'overwrite');
   assert.equal(result.confirmed, true);
   result = await f.controller.commands.saveUnique();
-  assert.equal(mutations(f).at(-1).body.format, 'png');
+  assert.equal(mutations(f).at(-1).body.format, 'original');
   assert.equal(mutations(f).at(-1).body.mode, 'unique');
   assert.equal(result.confirmed, true);
   result = await f.controller.commands.exportImage();
@@ -941,14 +952,15 @@ test('accepted writes survive preview failure and refreshing the view never repe
   const f = fixture([cutoutDocument()]);
   t.after(() => f.controller.dispose());
   await f.controller.openSession(f.docs.get('a'));
-  f.controls.image = url => {
-    if (url.includes('revision=2')) throw Error('Preview offline');
+  f.c.host.present = display => {
+    if (display.document.revision === 2) throw Error('Layer sprite offline');
+    return true;
   };
   await f.controller.commands.patchLayer('cutout', { opacity: 0.25 });
   assert.equal(f.controller.getSnapshot().document.revision, 2);
   assert.equal(f.controller.getSnapshot().document.layer_stack[1].opacity, 0.25);
   assert.match(f.controller.getSnapshot().status, /change was accepted/);
-  f.controls.image = null;
+  f.c.host.present = null;
   assert.equal(await f.controller.refreshPreview(), true);
   assert.equal(f.controller.getSnapshot().canvas.revision, 2);
   assert.equal(mutations(f).filter(value => value.method === 'PATCH').length, 1);
@@ -1099,7 +1111,7 @@ test('an explicitly selected Refine result can become a background while the edi
   assert.equal(f.controller.getSnapshot().selectedLayerId, 'background-2');
 });
 
-test('Original comparison remains available for a visible generated image but never changes a hidden editor view', async t => {
+test('Original comparison works in Refine and is disabled for an empty generation workspace', async t => {
   const f = fixture([document('generated', 0, { generation: { model: 'fixture' } })]);
   t.after(() => f.controller.dispose());
   await f.controller.openSession(f.docs.get('generated'));
@@ -1110,7 +1122,8 @@ test('Original comparison remains available for a visible generated image but ne
   assert.equal(f.controller.getSnapshot().showOriginal, false);
   f.controller.setGenerationView({ refining: true, visible: true });
   f.controller.commands.toggleOriginal();
-  assert.equal(f.controller.getSnapshot().showOriginal, false);
+  assert.equal(f.controller.getSnapshot().showOriginal, true);
+  f.controller.commands.toggleOriginal();
   f.controller.setGenerationView({ refining: false, creatingBlank: true, visible: false });
   f.controller.commands.toggleOriginal();
   assert.equal(f.controller.getSnapshot().showOriginal, false);
@@ -1151,7 +1164,7 @@ test('Refresh view reloads backend metadata after another editor changes the doc
   assert.equal(f.controller.getSnapshot().document.layer_stack[0].visible, false);
 });
 
-test('workspace commands hand Refine to the full-size result while retaining unsaved documents and selections', async t => {
+test('workspace commands preserve one composition, camera and selection after refinement adds a layer', async t => {
   const source = cutoutDocument(),
     final = document('final-4k', 1, { width: 3840, height: 2160, upscale: { model: 'seedvr2' } });
   const f = fixture([source, final]);
@@ -1198,12 +1211,15 @@ test('workspace commands hand Refine to the full-size result while retaining uns
   await generation.setMode('refine');
   generation.setDraft('final', { prompt: 'Controlled 4K result' });
   await generation.run('final');
+  assert.equal(generation.getSnapshot().error, null);
   f.controller.commands.setWorkspace('retouch');
   await turn();
   let state = f.controller.getSnapshot();
   assert.equal(state.workspace, 'retouch');
-  assert.equal(state.document.id, 'final-4k');
-  assert.equal(state.document.width, 3840);
+  assert.equal(state.document.id, source.id);
+  assert.equal(state.document.width, source.width);
+  assert.equal(state.document.layer_stack.at(-1).generated_session_id, final.id);
+  assert.deepEqual(state.document.layer_stack.slice(0, -1), source.layer_stack);
   assert.equal(
     f.controller.pendingSelection(source.id),
     true,
@@ -1231,7 +1247,7 @@ test('workspace commands hand Refine to the full-size result while retaining uns
   f.controller.commands.setWorkspace('retouch');
   await turn();
   state = f.controller.getSnapshot();
-  assert.equal(state.document.id, 'final-4k');
+  assert.equal(state.document.id, source.id);
   assert.equal(state.selectionActive, true);
   assert.equal(state.canvas.selectionVersion, 12);
   assert.equal(state.chrome.zoom, 3);
@@ -1239,9 +1255,9 @@ test('workspace commands hand Refine to the full-size result while retaining uns
   assert.equal(state.canvas.panY, 15);
   assert.equal(await f.controller.commands.newWorkspace(), true);
   assert.equal(f.controller.getSnapshot().document, null);
-  assert.equal(f.controller.pendingSelection('final-4k'), true);
+  assert.equal(f.controller.pendingSelection(source.id), true);
   assert.equal(
-    f.controller.getSnapshot().openDocuments.some(item => item.id === 'final-4k'),
+    f.controller.getSnapshot().openDocuments.some(item => item.id === source.id),
     true,
   );
   f.controller.commands.setWorkspace('generate');
@@ -1249,7 +1265,7 @@ test('workspace commands hand Refine to the full-size result while retaining uns
   assert.equal(generation.getSnapshot().mode, 'create');
   assert.equal(adapters.getSnapshot().creatingBlank, true, 'New does not resume a retained Refine or Create image');
   assert.equal(f.controller.getSnapshot().document, null);
-  assert.equal(await f.controller.commands.activateOpenDocument('final-4k'), true);
+  assert.equal(await f.controller.commands.activateOpenDocument(source.id), true);
   assert.equal(
     f.controller.getSnapshot().workspace,
     'retouch',
@@ -1260,10 +1276,10 @@ test('workspace commands hand Refine to the full-size result while retaining uns
   state = f.controller.getSnapshot();
   assert.equal(state.document.id, source.id);
   assert.equal(state.selectionActive, true);
-  assert.equal(state.canvas.selectionVersion, 8);
-  assert.equal(state.chrome.zoom, 2);
-  assert.equal(state.canvas.panX, 24);
-  assert.equal(state.canvas.panY, -30);
+  assert.equal(state.canvas.selectionVersion, 12);
+  assert.equal(state.chrome.zoom, 3);
+  assert.equal(state.canvas.panX, 90);
+  assert.equal(state.canvas.panY, 15);
 });
 
 test('New retains dirty buffers and cached view while tab activation reads the latest session revision', async t => {
@@ -1396,7 +1412,7 @@ test('rapid tab metadata reads honour the last clicked tab regardless of respons
   }
 });
 
-test('closing the visible Refine result activates an adjacent tab and retains the hidden editor source', async t => {
+test('closing a refined composition closes its generated layers and activates an adjacent document', async t => {
   const source = cutoutDocument(),
     result = document('result-4k', 1, { width: 3840, height: 2160, generation: { model: 'qwen' } });
   const f = fixture([source, result, document('c')]);
@@ -1437,14 +1453,17 @@ test('closing the visible Refine result activates an adjacent tab and retains th
   generation.setDraft('final', { prompt: 'Controlled final' });
   await generation.run('final');
   assert.equal(f.controller.getSnapshot().document.id, source.id);
-  assert.equal(adapters.featureCommands.visibleDocumentId(), result.id);
-  assert.equal(await f.controller.commands.closeOpenDocument(result.id), true);
+  assert.equal(adapters.featureCommands.visibleDocumentId(), source.id);
+  assert.equal(await f.controller.commands.closeOpenDocument(source.id), true);
   assert.equal(f.controller.getSnapshot().document.id, 'c');
   assert.equal(adapters.getSnapshot().refining, false);
   assert.deepEqual(
     f.controller.getSnapshot().openDocuments.map(item => item.id),
-    [source.id, 'c'],
+    ['c'],
   );
-  assert.equal(f.controller.pendingSelection(source.id), true);
-  assert.equal(generation.getSnapshot().selectedResultId, null);
+  assert.equal(f.controller.pendingSelection(source.id), false);
+  assert.equal(
+    f.controller.getSnapshot().openDocuments.some(item => item.id === result.id),
+    false,
+  );
 });

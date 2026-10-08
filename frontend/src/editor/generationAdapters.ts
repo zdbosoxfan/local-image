@@ -27,6 +27,8 @@ export type GenerationDocumentPort = Pick<
   | 'acceptDocument'
   | 'retainDocument'
   | 'applyGeneratedBackground'
+  | 'applyGeneratedLayer'
+  | 'selectGeneratedLayer'
   | 'openSession'
   | 'activateMode'
   | 'setGenerationView'
@@ -78,7 +80,7 @@ export function createGenerationAdapters(options: GenerationAdaptersOptions) {
   let pendingDocument: { document: DocumentMetadata; epoch: number } | null = null;
   let editDocumentId: string | null = null;
   let returnToRefine: { documentId: string | null } | null = null;
-  const retainedRefinements = new Map<string, number>();
+  let refinementLayerSelection = '';
   const backgroundTargets: Record<GenerationMode, GenerationBackgroundTarget | null> = {
     create: null,
     edit: null,
@@ -108,13 +110,9 @@ export function createGenerationAdapters(options: GenerationAdaptersOptions) {
   }
   const active = () => doc.getSnapshot().workspace === 'generate';
   function selectedDocument(): EditorDocument | null {
-    if (!active()) return raw().document;
-    if (mode === 'refine') return generation?.selectedResult()?.session ?? generation?.selectedDraft()?.session ?? null;
-    if (mode === 'create') return generation?.getSnapshot().modeDocuments.create ?? null;
     return raw().document;
   }
-  const hidden = () =>
-    active() && (mode === 'refine' || (mode === 'create' && !generation?.getSnapshot().modeDocuments.create));
+  const hidden = () => active() && !selectedDocument();
   function generationContext(): GenerationContext {
     const value = raw();
     return {
@@ -165,13 +163,20 @@ export function createGenerationAdapters(options: GenerationAdaptersOptions) {
           isActive = active(),
           state = generation?.getSnapshot();
         const shown = selectedDocument();
-        if (isActive && mode === 'refine' && shown && retainedRefinements.get(shown.id) !== shown.revision) {
-          retainedRefinements.set(shown.id, shown.revision);
-          doc.retainDocument(readDocument(shown));
+        const selectedRefinement = state?.refinementStep === 'draft' ? state.selectedDraftId : state?.selectedResultId;
+        if (
+          isActive &&
+          mode === 'refine' &&
+          selectedRefinement &&
+          selectedRefinement !== refinementLayerSelection &&
+          !context.busy
+        ) {
+          refinementLayerSelection = selectedRefinement;
+          doc.selectGeneratedLayer(selectedRefinement);
         }
         const flags = {
           refining: isActive && mode === 'refine',
-          creatingBlank: isActive && mode === 'create' && !state?.modeDocuments.create,
+          creatingBlank: isActive && !shown,
           visible: !!selectedDocument(),
         };
         const nextFlags = JSON.stringify(flags);
@@ -287,7 +292,11 @@ export function createGenerationAdapters(options: GenerationAdaptersOptions) {
     doc.rememberCurrentView();
     publish();
     try {
-      if (document && (context.documentId !== document.id || context.revision < document.revision)) {
+      if (
+        document &&
+        !context.document &&
+        (context.documentId !== document.id || context.revision < document.revision)
+      ) {
         if (!(await showDocument(document, context.navigationEpoch, 'generate'))) return false;
       } else if (!(await doc.activateMode('generate', null))) return false;
       if (entering && !source?.generation && !source?.upscale) {
@@ -310,9 +319,19 @@ export function createGenerationAdapters(options: GenerationAdaptersOptions) {
   }
   async function acceptResult(document: EditorDocument, captured: GenerationContext, destination: GenerationMode) {
     if (!generationMatches(captured)) return false;
+    const context = raw();
+    if (context.document) {
+      const accepted = await doc.applyGeneratedLayer(document.id, context);
+      if (accepted) {
+        mode = destination;
+        if (mode === 'edit') editDocumentId = context.documentId;
+        publish();
+      }
+      return accepted;
+    }
     const accepted = await showDocument(document, raw().navigationEpoch, 'generate');
     if (accepted) {
-      mode = destination === 'refine' ? 'edit' : destination;
+      mode = destination;
       if (mode === 'edit') editDocumentId = document.id;
       publish();
     }
@@ -370,7 +389,10 @@ export function createGenerationAdapters(options: GenerationAdaptersOptions) {
       pendingDocument = { document, epoch: context.navigationEpoch };
       return;
     }
-    if (document.generation && editDocumentId !== document.id) generation.restoreDocument('edit', document);
+    const savedGeneration =
+      document.generation ?? document.layer_stack?.find(layer => layer.id === context.layerId)?.generation;
+    if (savedGeneration && editDocumentId !== document.id)
+      generation.restoreDocument('edit', { ...document, generation: savedGeneration });
     if (active()) {
       internalNavigation++;
       // Context subscriptions can already bind the new image before this hook.
@@ -582,7 +604,7 @@ export function createGenerationAdapters(options: GenerationAdaptersOptions) {
       publish();
     },
     noteClosed(ids) {
-      for (const id of ids) retainedRefinements.delete(id);
+      refinementLayerSelection = '';
       if (returnToRefine?.documentId && ids.includes(returnToRefine.documentId)) returnToRefine = null;
       if (editDocumentId && ids.includes(editDocumentId)) editDocumentId = null;
       for (const key of ['create', 'edit', 'refine'] as const)

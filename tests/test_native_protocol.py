@@ -77,6 +77,13 @@ class NativeBatchProtocolTests(unittest.TestCase):
         for url in ('https://example.com/image.png', 'file://remote/tmp/image.png', 'file:///tmp/image.png?path=other', 'file:///tmp/a%00b'):
             self.assertEqual(protocol.local_drop_paths([url]), [])
 
+    def test_image_export_uses_only_revision_checked_image_options(self):
+        values = dict(session_id=self.job, revision=7, format='png', filename='Product.png', width=400, height=300)
+        self.assertEqual(protocol.image_export_payload(dict(values, path='/untrusted/destination', command='untrusted')), values)
+        for change in ({'revision': -1}, {'format': 'original'}, {'filename': ''}, {'width': True}, {'height': 0}, {'width': 32769}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                protocol.image_export_payload(dict(values, **change))
+
     def test_close_approval_remains_correlated_and_cannot_be_replayed(self):
         gate = protocol.CloseGate()
         first = gate.request()
@@ -148,6 +155,19 @@ class NativeSetupCommandTests(unittest.TestCase):
             self.window.batch_export_directory = None
             with self.assertRaisesRegex(ValueError, 'Choose a batch output folder'):
                 self.command(self.window, 'batchExportFolder', {'job_id': job, 'item_ids': [item], 'use_selected_folder': True})
+
+    def test_single_export_uses_the_native_selected_folder_and_cancel_keeps_it(self):
+        self.window.folder = Mock(return_value='/tmp/Export images')
+        values = dict(session_id=str(uuid.uuid4()), revision=4, format='png', filename='Product.png', width=800, height=600)
+        with patch.dict(self.command.__globals__, {'Path': Path, 'image_export_payload': protocol.image_export_payload}):
+            self.assertEqual(self.command(self.window, 'imageChooseExportFolder', {'path': '/untrusted'})(), {'directory': '/tmp/Export images'})
+            self.window.folder.return_value = None
+            self.assertIsNone(self.command(self.window, 'imageChooseExportFolder', {}))
+            self.command(self.window, 'imageExportFolder', dict(values, path='/untrusted'))()
+            self.client.call.assert_called_once_with('/api/local-remove/session/' + values['session_id'] + '/export-folder', dict({key: value for key, value in values.items() if key != 'session_id'}, path='/tmp/Export images'))
+            self.window.image_export_directory = None
+            with self.assertRaisesRegex(ValueError, 'Choose an image output folder'):
+                self.command(self.window, 'imageExportFolder', values)
 
     def test_qwen_download_default_matches_windows_and_invalid_variants_do_not_call_backend(self):
         operation = self.command(self.window, 'setupDownloadQwen', {})

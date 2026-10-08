@@ -1,5 +1,20 @@
 export type OverwriteChoice = 'overwrite' | 'unique' | null;
 export type CloseChoice = 'save' | 'discard' | null;
+export interface ExportOptions {
+  format: 'png' | 'jpg' | 'tif' | 'webp';
+  filename: string;
+  width: number;
+  height: number;
+  destination: 'download' | 'folder';
+}
+export interface ExportPlan {
+  name: string;
+  width: number;
+  height: number;
+  bitDepth: number;
+  format: ExportOptions['format'];
+  nativeFolder: boolean;
+}
 export interface ClosePlan {
   all: boolean;
   dirtyCount: number;
@@ -21,6 +36,7 @@ export type EditorDialog =
   | { kind: 'none' }
   | { kind: 'overwrite'; id: number; filename: string; dontAsk: boolean }
   | { kind: 'close'; id: number; plan: ClosePlan }
+  | { kind: 'export'; id: number; plan: ExportPlan }
   | { kind: 'credits'; credits: readonly Credit[]; text: string; status: string; error: boolean };
 
 function immutable<T>(value: T): T {
@@ -37,12 +53,14 @@ export function createEditorDialogs(ports: {
   focusCanvas(): void;
   copy(text: string): Promise<void>;
   downloadCredits(): unknown;
+  chooseExportFolder?(): Promise<string | null>;
 }) {
   let state: EditorDialog = immutable({ kind: 'none' }),
     sequence = 0;
   let pending: { id: number; kind: 'close' | 'overwrite'; resolve(value: CloseChoice | OverwriteChoice): void } | null =
     null;
   const listeners = new Set<() => void>();
+  let exportPending: { id: number; resolve(value: ExportOptions | null): void } | null = null;
   const publish = (next: EditorDialog) => {
     state = immutable(structuredClone(next));
     for (const listener of listeners) listener();
@@ -70,11 +88,20 @@ export function createEditorDialogs(ports: {
     current.resolve(choice);
   }
   function close() {
-    if (pending) respond(pending.id, null);
+    if (exportPending) respondExport(exportPending.id, null);
+    else if (pending) respond(pending.id, null);
     else {
       publish({ kind: 'none' });
       ports.focusCanvas();
     }
+  }
+  function respondExport(id: number, choice: ExportOptions | null) {
+    if (!exportPending || exportPending.id !== id) return;
+    const current = exportPending;
+    exportPending = null;
+    publish({ kind: 'none' });
+    ports.focusCanvas();
+    current.resolve(choice);
   }
   return {
     getSnapshot: () => state,
@@ -86,6 +113,16 @@ export function createEditorDialogs(ports: {
     confirmOverwrite: (filename: string) =>
       ask<OverwriteChoice>({ kind: 'overwrite', id: ++sequence, filename, dontAsk: false }),
     confirmClose: (plan: ClosePlan) => ask<CloseChoice>({ kind: 'close', id: ++sequence, plan }),
+    chooseExport: (plan: ExportPlan): Promise<ExportOptions | null> => {
+      if (state.kind !== 'none') return Promise.reject(Error('Finish the current dialog first.'));
+      return new Promise(resolve => {
+        const id = ++sequence;
+        exportPending = { id, resolve };
+        publish({ kind: 'export', id, plan });
+      });
+    },
+    chooseExportFolder: () => ports.chooseExportFolder?.() ?? Promise.resolve(null),
+    respondExport,
     respond,
     close,
     setDontAsk(dontAsk: boolean) {

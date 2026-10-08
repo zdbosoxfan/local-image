@@ -84,6 +84,20 @@ def batch_payload(message):
     return job, items
 
 
+def image_export_payload(message):
+    payload = project_payload(message)
+    if message.get('format') not in ('png', 'jpg', 'tif', 'webp'):
+        raise ValueError('Choose a supported export format.')
+    name = message.get('filename')
+    if not isinstance(name, str) or not 1 <= len(name) <= 255:
+        raise ValueError('Enter an export filename.')
+    for key in ('width', 'height'):
+        if type(message.get(key)) is not int or not 1 <= message[key] <= 32768:
+            raise ValueError('Choose valid export dimensions.')
+    payload.update({key: message[key] for key in ('format', 'filename', 'width', 'height')})
+    return payload
+
+
 def trusted_download(address):
     try:
         u = urlsplit(address)

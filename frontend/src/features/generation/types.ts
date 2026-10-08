@@ -249,6 +249,7 @@ export interface GenerationState {
   draftImages: RefinementImage[];
   resultImages: RefinementImage[];
   selectedDraftId: string | null;
+  refinementStep: 'draft' | 'final';
   selectedResultId: string | null;
   includeReferences: boolean;
   upscale: { enabled: boolean; preset: string; width: number; height: number };

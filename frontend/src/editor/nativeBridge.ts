@@ -8,6 +8,7 @@ export interface NativeCapabilities {
   readonly closeRequests: boolean;
   readonly setup: boolean;
   readonly batch: boolean;
+  readonly imageExport?: boolean;
 }
 export interface NativeMessageEvent {
   data: unknown;
@@ -29,6 +30,14 @@ export interface NativeBatchExport {
   item_ids: readonly string[];
   naming_template?: string;
   use_selected_folder?: boolean;
+}
+export interface NativeImageExport {
+  session_id: string;
+  revision: number;
+  format: 'png' | 'jpg' | 'tif' | 'webp';
+  filename: string;
+  width: number;
+  height: number;
 }
 export interface NativeLoraDownload {
   model: string;
@@ -55,6 +64,8 @@ type NativeAction =
   | 'chooseBackgroundFolder'
   | 'batchExportFolder'
   | 'batchChooseExportFolder'
+  | 'imageChooseExportFolder'
+  | 'imageExportFolder'
   | 'configureAi'
   | 'setupUseInstallation'
   | 'setupChooseComfyDirectory'
@@ -72,6 +83,7 @@ type NativeAction =
 const DIALOG_ACTIONS = new Set<NativeAction>([
   'batchExportFolder',
   'batchChooseExportFolder',
+  'imageChooseExportFolder',
   'openFiles',
   'openFolder',
   'openProject',
@@ -162,7 +174,7 @@ export function createNativeBridge(options: NativeBridgeOptions) {
   function command(
     action: NativeAction,
     details: Record<string, unknown> = {},
-    capability: 'ready' | 'projects' | 'setup' | 'batch' = 'ready',
+    capability: 'ready' | 'projects' | 'setup' | 'batch' | 'imageExport' = 'ready',
     files?: readonly File[],
   ) {
     if (disposed) return Promise.reject(Error('The desktop bridge has been disposed.'));
@@ -244,6 +256,7 @@ export function createNativeBridge(options: NativeBridgeOptions) {
           closeRequests: ready && result?.closeRequests === true,
           setup: ready && result?.setup === true,
           batch: ready && result?.batch === true,
+          imageExport: ready && result?.imageExport === true,
         });
         return capabilities;
       })
@@ -294,6 +307,8 @@ export function createNativeBridge(options: NativeBridgeOptions) {
       ),
     chooseBackgroundFolder: () => command('chooseBackgroundFolder'),
     batchChooseExportFolder: () => command('batchChooseExportFolder', {}, 'batch'),
+    imageChooseExportFolder: () => command('imageChooseExportFolder', {}, 'imageExport'),
+    imageExportFolder: (value: NativeImageExport) => command('imageExportFolder', { ...value }, 'imageExport'),
     batchExportFolder: (value: NativeBatchExport) =>
       command(
         'batchExportFolder',

@@ -58,20 +58,12 @@ export function FullApp({
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot),
     ui = useSyncExternalStore(shell.subscribe, shell.getSnapshot),
     updateAvailable = !!useSyncExternalStore(settings.subscribe, settings.getSnapshot).update?.available;
-  const generated = useSyncExternalStore(generation.subscribe, generation.getSnapshot);
-  const activeDocumentId =
-    state.workspace === 'generate' && state.refining
-      ? (generated.selectedResultId ?? generated.selectedDraftId)
-      : state.creatingBlank
-        ? null
-        : (state.document?.id ?? null);
+  const activeDocumentId = state.creatingBlank ? null : (state.document?.id ?? null);
   const commands = commandCatalog(state);
   const batchLabel = commands.showBatch.label.replace(/…$/, '');
   const workspaceBar = useRef<HTMLDivElement>(null),
     commandBar = useRef<HTMLDivElement>(null);
   const compact = useCompactToolbar(workspaceBar, commandBar);
-  // Generate and refinement own the right-hand panel, so the toggle is off there.
-  const inspectorUnavailable = state.refining || state.workspace === 'generate';
   // Labelled commands keep the same accessible name when shown icon-only.
   const label = (text: string) => ({ 'aria-label': text });
   const variant = state.health.qwen.variants.find(value => value.id === state.tools.qwenVariant),
@@ -102,7 +94,6 @@ export function FullApp({
         <MenuBar
           state={state}
           execute={execute}
-          setOutputFormat={value => controller.commands.setOutputFormat(value)}
           openRecent={controller.commands.openRecent}
           opened={ui.menu}
           focusRequest={ui.menuFocus}
@@ -125,7 +116,7 @@ export function FullApp({
           data-compact={compact}
           aria-label="Editor commands"
           size="medium"
-          checkedValues={{ panels: state.inspectorHidden || inspectorUnavailable ? [] : ['inspector'] }}
+          checkedValues={{ panels: state.inspectorHidden ? [] : ['inspector'] }}
         >
           <Hint content={state.undoLabel + ' (Ctrl+Z)'} relationship="description">
             <ToolbarButton
@@ -174,7 +165,7 @@ export function FullApp({
               {...label('Inspector')}
               icon={<Icon name="inspector" />}
               aria-controls="inspector-root"
-              disabled={inspectorUnavailable}
+              disabled={state.busy}
               onClick={controller.commands.toggleInspector}
             >
               {!compact && 'Inspector'}
@@ -270,9 +261,7 @@ export function FullApp({
           setMenuOpen={open => shell.setPopup('layers', open)}
         />
         <CutoutProperties controller={controller} shell={shell} />
-      </Portal>
-      <Portal mountNode={mounts.generation}>
-        <GenerationPanel controller={generation} />
+        {state.workspace === 'generate' && <GenerationPanel controller={generation} />}
       </Portal>
       <Portal mountNode={mounts.status}>
         <StatusBar state={state.chrome} actions={controller.chromeActions} />

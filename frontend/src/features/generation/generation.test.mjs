@@ -445,7 +445,7 @@ test('refinement uses draft first then original references and routes result to 
   await f.controller.run('final');
   assert.deepEqual(f.posts[0].reference_session_ids, ['draft-image', 'reference-image']);
   assert.equal(f.controller.getSnapshot().resultImages[0].draftId, 'draft-image');
-  assert.equal(f.accepted.length, 0);
+  assert.equal(f.accepted.length, 1);
   f.controller.dispose();
 });
 
@@ -465,6 +465,23 @@ test('explicit post-refinement upscale failure retains refinement and never resu
   assert.equal(upscales, 1);
   assert.equal(f.controller.getSnapshot().resultImages.length, 1);
   assert.match(f.controller.getSnapshot().error, /Refinement saved/);
+  f.controller.dispose();
+});
+
+test('a chained upscale finishing after navigation stays in history without changing the new composition', async () => {
+  const pending = deferred();
+  const f = setup({ upscale: () => pending.promise });
+  await ready(f, 'final');
+  f.controller.addDraft(document('draft-image'));
+  f.controller.setUpscale({ enabled: true });
+  const run = f.controller.run('final');
+  await turn();
+  assert.equal(f.accepted.length, 1);
+  f.change({ document: document('another-composition'), navigationEpoch: 2 });
+  pending.resolve({ session: document('upscaled') });
+  await run;
+  assert.equal(f.accepted.length, 1);
+  assert.ok(f.controller.getSnapshot().resultImages.some(item => item.session.id === 'upscaled'));
   f.controller.dispose();
 });
 

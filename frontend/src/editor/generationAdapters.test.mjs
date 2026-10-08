@@ -119,6 +119,23 @@ function setup(t, overrides = {}) {
       retained.push(structuredClone(value));
       publish();
     },
+    selectGeneratedLayer() {},
+    async applyGeneratedLayer(id, captured) {
+      if (
+        captured.navigationEpoch !== navigationEpoch ||
+        captured.documentId !== document.id ||
+        captured.revision !== document.revision
+      )
+        return false;
+      await overrides.preview?.(image(id));
+      document = {
+        ...document,
+        revision: document.revision + 1,
+        layer_stack: [...document.layer_stack, { id: 'layer-' + id, kind: 'image', generated_session_id: id }],
+      };
+      publish();
+      return true;
+    },
     async applyGeneratedBackground(...args) {
       backgrounds.push(args);
       return overrides.applyBackground ? overrides.applyBackground(...args) : true;
@@ -233,40 +250,37 @@ function setup(t, overrides = {}) {
   };
 }
 
-test('blank Create retains explicit reference source but has no implicit command target', async t => {
+test('Create keeps the active composition visible; only an empty workspace has no command target', async t => {
   const f = setup(t);
   await f.generation.setMode('create');
-  assert.equal(f.adapters.generationHost.getContext().document.id, 'source');
-  assert.equal(f.adapters.getSnapshot().visibleDocumentId, null);
-  assert.equal(f.adapters.getSnapshot().creatingBlank, true);
-  assert.equal(f.adapters.assetsHost.getContext().documentId, null);
-  assert.equal(f.adapters.assetsHost.getContext().revision, 0);
+  assert.equal(f.adapters.getSnapshot().visibleDocumentId, 'source');
+  assert.equal(f.adapters.getSnapshot().creatingBlank, false);
+  assert.equal(f.adapters.assetsHost.getContext().documentId, 'source');
   for (const kind of ['save', 'project', 'close', 'credits'])
-    assert.equal((await f.features.prepareDocumentCommand(kind)).allowed, false);
+    assert.equal((await f.features.prepareDocumentCommand(kind)).allowed, true);
   f.generation.useCurrent('create');
   assert.deepEqual(
     f.generation.referencesFor('create').map(value => value.id),
     ['source'],
   );
-  assert.deepEqual(f.opened, []);
-  assert.equal(f.current().document.id, 'source');
+  f.replace(null);
+  assert.equal(f.adapters.getSnapshot().creatingBlank, true);
+  assert.equal((await f.features.prepareDocumentCommand('save')).allowed, false);
 });
 
-test('Refine Save/Project/Close/Credits target selected refinement image, never hidden editor source', async t => {
+test('Refine Save/Project/Close/Credits use the active composition containing the generated layer', async t => {
   for (const kind of ['save', 'project', 'close', 'credits']) {
     const f = setup(t);
     f.generation.addDraft(image('draft'));
     await f.generation.setMode('refine');
     f.generation.setDraft('final', { prompt: 'Controlled result' });
     await f.generation.run('final');
-    assert.equal(f.adapters.generationHost.getContext().document.id, 'source');
-    assert.equal(f.adapters.getSnapshot().visibleDocumentId, 'generated');
-    assert.equal(f.adapters.assetsHost.getContext().documentId, null);
-    assert.deepEqual(await f.features.prepareDocumentCommand(kind), { allowed: true, forceExport: true });
-    assert.equal(f.current().document.id, 'generated');
-    assert.deepEqual(f.opened, ['generated']);
-    assert.equal(f.generation.getSnapshot().mode, 'edit');
-    assert.equal(f.adapters.getSnapshot().refining, false);
+    assert.equal(f.adapters.getSnapshot().visibleDocumentId, 'source');
+    assert.equal(f.adapters.assetsHost.getContext().documentId, 'source');
+    assert.deepEqual(await f.features.prepareDocumentCommand(kind), { allowed: true, forceExport: false });
+    assert.equal(f.current().document.layer_stack.at(-1).generated_session_id, 'generated');
+    assert.equal(f.generation.getSnapshot().mode, 'refine');
+    assert.deepEqual(f.opened, []);
   }
 });
 
@@ -384,7 +398,7 @@ test('asset generated copy and refinement draft handoffs use owned document life
     true,
   );
   assert.equal(f.adapters.getSnapshot().refining, true);
-  assert.equal(f.adapters.getSnapshot().visibleDocumentId, 'draft-copy');
+  assert.equal(f.adapters.getSnapshot().visibleDocumentId, 'copy');
   assert.equal(f.current().document.id, 'copy');
   assert.equal(f.current().busy, false);
 });
@@ -433,6 +447,7 @@ test('closing visible Edit clears its target without reopening a stored Create r
   await f.generation.setMode('create');
   f.generation.setDraft('create', { prompt: 'Controlled result' });
   await f.generation.run('create');
+  await f.port.openSession(image('edit-image'), { workspace: 'generate' });
   await f.generation.setMode('edit', image('edit-image'));
   const before = [...f.opened];
   f.close(['edit-image']);
@@ -532,7 +547,7 @@ test('generated-background handoff rejects stale views and coalesces repeated pr
   assert.equal(f.backgrounds.length, 1);
 });
 
-test('Retouch and Cutout receive the selected full-size refinement or upscale and Generate resumes Refine', async t => {
+test('Retouch, Cutout and Generate preserve the composition while full-size generation sources stay in history', async t => {
   for (const workspace of ['retouch', 'cutout']) {
     const final = image('final-4k', 2, { width: 3840, height: 2160, upscale: { model: 'seedvr2' } });
     const f = setup(t, { api: { generate: async () => ({ session: final }) } });
@@ -544,38 +559,43 @@ test('Retouch and Cutout receive the selected full-size refinement or upscale an
       resultId = f.generation.getSnapshot().selectedResultId;
     assert.equal(await f.features.leaveGenerate(workspace), true);
     assert.equal(f.port.getSnapshot().workspace, workspace);
-    assert.equal(f.current().document.id, 'final-4k');
-    assert.equal(f.current().document.width, 3840);
-    assert.equal(f.current().document.height, 2160);
-    assert.deepEqual(f.opened, ['final-4k']);
+    assert.equal(f.current().document.id, 'source');
+    assert.equal(f.current().document.width, 1024);
+    assert.equal(f.current().document.height, 768);
+    assert.deepEqual(f.opened, []);
     f.revise(3);
-    assert.equal(f.generation.selectedResult().session.revision, 3, 'Refine retains the accepted Retouch revision');
+    assert.equal(f.current().document.revision, 3);
+    assert.equal(
+      f.generation.selectedResult().session.revision,
+      2,
+      'The full-size generated source stays unchanged in history',
+    );
     assert.equal(await f.features.enterGenerate(), true);
     assert.equal(f.adapters.getSnapshot().refining, true);
     assert.equal(f.generation.getSnapshot().mode, 'refine');
     assert.equal(f.generation.getSnapshot().selectedDraftId, draftId);
     assert.equal(f.generation.getSnapshot().selectedResultId, resultId);
-    assert.equal(f.adapters.getSnapshot().visibleDocumentId, 'final-4k');
+    assert.equal(f.adapters.getSnapshot().visibleDocumentId, 'source');
     assert.equal(f.inference.length, 0, 'Mode switches submit no inference');
   }
 });
 
-test('leaving Refine uses the selected draft when no result exists and keeps that selection on return', async t => {
+test('leaving Refine keeps the current composition and its independent draft selection', async t => {
   const f = setup(t);
   f.generation.addDraft(image('draft-selected'));
   await f.generation.setMode('refine');
   assert.equal(await f.features.leaveGenerate('retouch'), true);
-  assert.equal(f.current().document.id, 'draft-selected');
+  assert.equal(f.current().document.id, 'source');
   assert.equal(await f.features.enterGenerate(), true);
   assert.equal(f.adapters.getSnapshot().refining, true);
   assert.equal(f.generation.getSnapshot().selectedDraftId, 'draft-selected');
   assert.equal(f.generation.getSnapshot().selectedResultId, null);
 });
 
-test('failed or blocked Refine handoff keeps the current document and selected refinement visible', async t => {
+test('workspace switching stays on the composition and never loads another preview; modals still block it', async t => {
   const f = setup(t, {
     preview: async () => {
-      throw Error('Controlled preview failure');
+      throw Error('Unexpected viewer instance');
     },
   });
   f.generation.addDraft(image('selected-draft'));
@@ -583,13 +603,11 @@ test('failed or blocked Refine handoff keeps the current document and selected r
   f.setModal(true);
   assert.equal(await f.features.leaveGenerate('retouch'), false);
   f.setModal(false);
-  assert.equal(await f.features.leaveGenerate('retouch'), false);
+  assert.equal(await f.features.leaveGenerate('retouch'), true);
   assert.equal(f.current().document.id, 'source');
-  assert.equal(f.adapters.getSnapshot().refining, true);
   assert.equal(f.generation.getSnapshot().selectedDraftId, 'selected-draft');
   assert.deepEqual(f.opened, []);
-  assert.match(f.reports.at(-1), /Controlled preview failure/);
-  assert.equal(f.adapters.getSnapshot().busy, false);
+  assert.deepEqual(f.reports, []);
 });
 
 test('opening another image after leaving Refine uses Edit rather than resuming an unrelated refinement', async t => {
@@ -608,27 +626,17 @@ test('opening another image after leaving Refine uses Edit rather than resuming 
   );
 });
 
-test('only displayed Refine selections become retained image buffers without canvas navigation', async t => {
+test('Refine history selects composition layers without creating more viewer documents', async t => {
   const f = setup(t);
   f.generation.addDraft(image('draft-one'));
   f.generation.addDraft(image('draft-two'));
-  assert.deepEqual(f.retained, [], 'Hidden or unselected generation images are not tabs');
   await f.generation.setMode('refine');
-  assert.deepEqual(
-    f.retained.map(item => item.id),
-    ['draft-two'],
-  );
-  assert.deepEqual(f.opened, []);
   f.generation.selectDraft('draft-one');
-  assert.deepEqual(
-    f.retained.map(item => item.id),
-    ['draft-two', 'draft-one'],
-  );
+  assert.deepEqual(f.retained, []);
   assert.deepEqual(f.opened, []);
+  assert.equal(f.current().document.id, 'source');
   f.features.resetWorkspace();
-  assert.equal(f.generation.getSnapshot().mode, 'create');
-  assert.equal(f.generation.getSnapshot().selectedDraftId, 'draft-one');
-  assert.equal(f.generation.getSnapshot().draftImages.length, 2, 'New keeps refinement history available');
+  assert.equal(f.generation.getSnapshot().draftImages.length, 2);
 });
 
 test('explicit Retouch opening preserves persona while making saved generation settings available for later Edit', async t => {
