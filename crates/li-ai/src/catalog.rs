@@ -280,7 +280,10 @@ const QWEN_VAE: FileSpec = FileSpec {
     name: "qwen_image_2.1_vae_bf16.safetensors",
     bytes: 675509688,
     sha256: "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9",
-    url: concat!("https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/cb504a4090723e43f17ad01cec0359490e2de613", "/vae/qwen_image_2.1_vae_bf16.safetensors"),
+    url: concat!(
+        "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/cb504a4090723e43f17ad01cec0359490e2de613",
+        "/vae/qwen_image_2.1_vae_bf16.safetensors"
+    ),
     compatible: &[],
 };
 const QWEN_3_4B: FileSpec = FileSpec {
@@ -331,7 +334,10 @@ pub static PRESETS: &[Preset] = &[
                 name: "qwen_image_2.1_int8_convrot.safetensors",
                 bytes: 7256783064,
                 sha256: "cb74113cb03faecd79611b01fd7fd642f0aa60d6f0b95086abee214d75eaa57d",
-                url: concat!("https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/cb504a4090723e43f17ad01cec0359490e2de613", "/diffusion_models/qwen_image_2.1_int8_convrot.safetensors"),
+                url: concat!(
+                    "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/cb504a4090723e43f17ad01cec0359490e2de613",
+                    "/diffusion_models/qwen_image_2.1_int8_convrot.safetensors"
+                ),
                 compatible: &[],
             },
             FileSpec {
@@ -340,13 +346,27 @@ pub static PRESETS: &[Preset] = &[
                 name: "qwen3vl_8b_int8_convrot.safetensors",
                 bytes: 9350798360,
                 sha256: "8bfd0f6e12abf2d2d697ecc888e5e90b0d6741d6708f05799f53afa560452e8f",
-                url: concat!("https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/cb504a4090723e43f17ad01cec0359490e2de613", "/text_encoders/qwen3vl_8b_int8_convrot.safetensors"),
+                url: concat!(
+                    "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/cb504a4090723e43f17ad01cec0359490e2de613",
+                    "/text_encoders/qwen3vl_8b_int8_convrot.safetensors"
+                ),
                 compatible: &[],
             },
             QWEN_VAE,
         ],
         access_url: None,
-        required_nodes: &["UNETLoader", "CLIPLoader", "VAELoader", "TextEncodeQwenImage21", "KSampler", "VAEDecode", "SaveImage", "LoadImage", "JoinImageWithAlpha", "EmptyLatentImage"],
+        required_nodes: &[
+            "UNETLoader",
+            "CLIPLoader",
+            "VAELoader",
+            "TextEncodeQwenImage21",
+            "KSampler",
+            "VAEDecode",
+            "SaveImage",
+            "LoadImage",
+            "JoinImageWithAlpha",
+            "EmptyLatentImage",
+        ],
         required_choices: &[("CLIPLoader", "type", "qwen_image")],
     },
     Preset {
@@ -360,7 +380,10 @@ pub static PRESETS: &[Preset] = &[
                 name: "qwen_image_2.1_bf16.safetensors",
                 bytes: 14230280616,
                 sha256: "89f4158d066cc33906a199fca85634f766892dd78f49b6698dabf187ac86c4bc",
-                url: concat!("https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/cb504a4090723e43f17ad01cec0359490e2de613", "/diffusion_models/qwen_image_2.1_bf16.safetensors"),
+                url: concat!(
+                    "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/cb504a4090723e43f17ad01cec0359490e2de613",
+                    "/diffusion_models/qwen_image_2.1_bf16.safetensors"
+                ),
                 compatible: &[],
             },
             FileSpec {
@@ -369,13 +392,27 @@ pub static PRESETS: &[Preset] = &[
                 name: "qwen3vl_8b_bf16.safetensors",
                 bytes: 17534334616,
                 sha256: "68bdc82bc1b66851162ae656225e7e2068166b603db19bd5d5a3b90eb12669a9",
-                url: concat!("https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/cb504a4090723e43f17ad01cec0359490e2de613", "/text_encoders/qwen3vl_8b_bf16.safetensors"),
+                url: concat!(
+                    "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/cb504a4090723e43f17ad01cec0359490e2de613",
+                    "/text_encoders/qwen3vl_8b_bf16.safetensors"
+                ),
                 compatible: &[],
             },
             QWEN_VAE,
         ],
         access_url: None,
-        required_nodes: &["UNETLoader", "CLIPLoader", "VAELoader", "TextEncodeQwenImage21", "KSampler", "VAEDecode", "SaveImage", "LoadImage", "JoinImageWithAlpha", "EmptyLatentImage"],
+        required_nodes: &[
+            "UNETLoader",
+            "CLIPLoader",
+            "VAELoader",
+            "TextEncodeQwenImage21",
+            "KSampler",
+            "VAEDecode",
+            "SaveImage",
+            "LoadImage",
+            "JoinImageWithAlpha",
+            "EmptyLatentImage",
+        ],
         required_choices: &[("CLIPLoader", "type", "qwen_image")],
     },
     Preset {
@@ -404,7 +441,19 @@ pub static PRESETS: &[Preset] = &[
             },
         ],
         access_url: None,
-        required_nodes: &["UNETLoader", "CLIPLoader", "VAELoader", "CLIPTextEncode", "ConditioningZeroOut", "ModelSamplingAuraFlow", "KSampler", "VAEDecode", "VAEEncode", "EmptySD3LatentImage", "LoadImage"],
+        required_nodes: &[
+            "UNETLoader",
+            "CLIPLoader",
+            "VAELoader",
+            "CLIPTextEncode",
+            "ConditioningZeroOut",
+            "ModelSamplingAuraFlow",
+            "KSampler",
+            "VAEDecode",
+            "VAEEncode",
+            "EmptySD3LatentImage",
+            "LoadImage",
+        ],
         required_choices: &[("CLIPLoader", "type", "lumina2"), ("KSampler", "sampler_name", "res_multistep")],
     },
     Preset {
@@ -519,7 +568,18 @@ pub static PRESETS: &[Preset] = &[
             },
         ],
         access_url: None,
-        required_nodes: &["UNETLoader", "VAELoader", "LoadImage", "SeedVR2Preprocess", "VAEEncodeTiled", "SeedVR2Conditioning", "KSampler", "VAEDecodeTiled", "SeedVR2PostProcessing", "SaveImage"],
+        required_nodes: &[
+            "UNETLoader",
+            "VAELoader",
+            "LoadImage",
+            "SeedVR2Preprocess",
+            "VAEEncodeTiled",
+            "SeedVR2Conditioning",
+            "KSampler",
+            "VAEDecodeTiled",
+            "SeedVR2PostProcessing",
+            "SaveImage",
+        ],
         required_choices: &[],
     },
     Preset {

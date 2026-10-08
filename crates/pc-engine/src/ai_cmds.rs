@@ -566,7 +566,12 @@ fn place_layer(s: &mut Session, p: &Value) -> Result<Value> {
             _ => 1.0,
         };
         let img = if (scale - 1.0).abs() > 1e-6 {
-            image::imageops::resize(&img, ((iw as f64 * scale).round() as u32).max(1), ((ih as f64 * scale).round() as u32).max(1), image::imageops::FilterType::Lanczos3)
+            image::imageops::resize(
+                &img,
+                ((iw as f64 * scale).round() as u32).max(1),
+                ((ih as f64 * scale).round() as u32).max(1),
+                image::imageops::FilterType::Lanczos3,
+            )
         } else {
             img
         };

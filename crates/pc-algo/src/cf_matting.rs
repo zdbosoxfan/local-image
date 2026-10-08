@@ -56,7 +56,8 @@ impl Windows {
         let chans = [0, 1, 2].map(|c| img.px.iter().map(|p| p[c]).collect::<Vec<f32>>());
         let mu = [0, 1, 2].map(|c| box_mean(&chans[c], w, h, r));
         let pairs = [(0, 0), (0, 1), (0, 2), (1, 1), (1, 2), (2, 2)];
-        let ii: Vec<Vec<f32>> = pairs.iter().map(|&(a, b)| box_mean(&chans[a].iter().zip(&chans[b]).map(|(x, y)| x * y).collect::<Vec<_>>(), w, h, r)).collect();
+        let ii: Vec<Vec<f32>> =
+            pairs.iter().map(|&(a, b)| box_mean(&chans[a].iter().zip(&chans[b]).map(|(x, y)| x * y).collect::<Vec<_>>(), w, h, r)).collect();
         let n = w * h;
         let mut inv: [Vec<f32>; 6] = std::array::from_fn(|_| vec![0.0; n]);
         let win = ((2 * r + 1) * (2 * r + 1)) as f64;
@@ -292,7 +293,17 @@ pub fn closed_form_matting_tiled(img: &RgbImage, trimap: &[f32], p: &MattingPara
 pub fn trimap_from_mask(mask: &[f32], w: usize, h: usize, band: usize) -> Vec<f32> {
     let fg = crate::matting::morph(mask, w, h, band, false);
     let bg = crate::matting::morph(mask, w, h, band, true);
-    (0..w * h).map(|i| if fg[i] >= 0.5 { 1.0 } else if bg[i] < 0.5 { 0.0 } else { 0.5 }).collect()
+    (0..w * h)
+        .map(|i| {
+            if fg[i] >= 0.5 {
+                1.0
+            } else if bg[i] < 0.5 {
+                0.0
+            } else {
+                0.5
+            }
+        })
+        .collect()
 }
 
 /// Foreground (and background) colours satisfying `I = αF + (1−α)B` with smooth F and B, coarse

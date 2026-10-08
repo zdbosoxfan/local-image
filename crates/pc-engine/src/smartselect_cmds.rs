@@ -140,7 +140,8 @@ fn object_selection(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(pt) = p.get("point").and_then(Value::as_array) {
         let xy = (pt.first().and_then(Value::as_f64), pt.get(1).and_then(Value::as_f64));
         let (Some(x), Some(y)) = xy else { return Err(bad("select.object", "\"point\" must be [x, y]")) };
-        crate::seg::installed().ok_or_else(|| bad("select.object", "click mode needs a selection model (Help › AI Models & GPU…); drag a rectangle instead"))?;
+        crate::seg::installed()
+            .ok_or_else(|| bad("select.object", "click mode needs a selection model (Help › AI Models & GPU…); drag a rectangle instead"))?;
         let all = b(p, "sampleAllLayers", false);
         let region = learned(s, all, |doc, layer| crate::seg::object_at(doc, layer, all, x.floor() as i32, y.floor() as i32))?;
         return apply(s, "Object Selection", region, mode(p, "replace"));

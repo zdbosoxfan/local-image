@@ -65,7 +65,9 @@ impl Kind {
 /// Does `tool` paint the layer's pixels (so a vector or Smart Object layer must be rasterized)?
 pub fn paints_pixels(app: &PhotocraftApp, tool: Tool) -> bool {
     // local-image: AI Remove adds a layer and AI Cutout paints the mask; neither rasterizes.
-    !matches!(tool, Tool::AiRemove | Tool::AiCutout) && tool.is_brushlike() || matches!(tool, Tool::PaintBucket | Tool::MagicEraser) || (tool == Tool::Gradient && app.ui.tool_options.gradient_classic)
+    !matches!(tool, Tool::AiRemove | Tool::AiCutout) && tool.is_brushlike()
+        || matches!(tool, Tool::PaintBucket | Tool::MagicEraser)
+        || (tool == Tool::Gradient && app.ui.tool_options.gradient_classic)
 }
 
 /// The active layer's kind when painting its pixels needs rasterizing first: the tool targets

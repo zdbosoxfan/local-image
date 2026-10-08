@@ -214,7 +214,9 @@ impl PrefsWriter {
         }
         std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
         let tmp = d.join("library-ui.json.tmp");
-        std::fs::write(&tmp, &bytes).and_then(|()| std::fs::rename(&tmp, d.join("library-ui.json"))).map_err(|e| format!("saving the Library settings failed: {e}"))?;
+        std::fs::write(&tmp, &bytes)
+            .and_then(|()| std::fs::rename(&tmp, d.join("library-ui.json")))
+            .map_err(|e| format!("saving the Library settings failed: {e}"))?;
         self.written = bytes;
         Ok(())
     }
@@ -330,10 +332,20 @@ fn services(opens: Opens) -> Services {
                 .collect()
         })),
         pick_tracklog: Some(Box::new(|| {
-            rfd::FileDialog::new().set_title("Auto-Tag from Tracklog").add_filter("GPS Track Log", &["gpx"]).pick_file().map(|p| vec![p.to_string_lossy().to_string()]).unwrap_or_default()
+            rfd::FileDialog::new()
+                .set_title("Auto-Tag from Tracklog")
+                .add_filter("GPS Track Log", &["gpx"])
+                .pick_file()
+                .map(|p| vec![p.to_string_lossy().to_string()])
+                .unwrap_or_default()
         })),
         save_preset_file: Some(Box::new(|name: &str| {
-            rfd::FileDialog::new().set_title("Export Presets").add_filter("Preset", &["lcpreset"]).set_file_name(name).save_file().map(|p| p.to_string_lossy().to_string())
+            rfd::FileDialog::new()
+                .set_title("Export Presets")
+                .add_filter("Preset", &["lcpreset"])
+                .set_file_name(name)
+                .save_file()
+                .map(|p| p.to_string_lossy().to_string())
         })),
         pick_curve_preset_files: Some(Box::new(|| {
             rfd::FileDialog::new()

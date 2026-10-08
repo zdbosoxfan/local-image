@@ -78,7 +78,13 @@ pub fn pupil_mask(px: &[[f32; 4]], area: Rect, seed: (i32, i32), radius: i32, pu
             let red = m[at(x, y)] > 0.0;
             // Inside the fitted circle: full where red or a hole in the region, soft over one pixel.
             let edge = (r_fit - d + 0.5).clamp(0.0, 1.0);
-            let v = if red { edge.max(if d < r_fit + 1.0 { 0.5 } else { 0.0 }) } else if d < r_eq * 0.8 { edge } else { 0.0 };
+            let v = if red {
+                edge.max(if d < r_fit + 1.0 { 0.5 } else { 0.0 })
+            } else if d < r_eq * 0.8 {
+                edge
+            } else {
+                0.0
+            };
             out[at(x, y)] = v;
         }
     }

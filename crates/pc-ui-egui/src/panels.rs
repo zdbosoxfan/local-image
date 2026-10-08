@@ -326,7 +326,8 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
             }
-            let title = app.session.active().map(|d| format!("{}{}", d.doc.name, if d.is_dirty() { "  •" } else { "" })).unwrap_or_else(|| "Local Image".into());
+            let title =
+                app.session.active().map(|d| format!("{}{}", d.doc.name, if d.is_dirty() { "  •" } else { "" })).unwrap_or_else(|| "Local Image".into());
             // The menus and the right-hand controls are laid out first; the title is centred in
             // whatever room is left between them, shortened or dropped rather than drawn over them.
             let (mut menus_right, mut controls_left) = (full.left(), full.right());
@@ -426,10 +427,9 @@ fn mode_switch(ui: &mut egui::Ui, t: &Tokens, library: bool) -> bool {
     egui::Frame::NONE.fill(t.field).corner_radius(5.0).inner_margin(egui::Margin::same(2)).show(ui, |ui| {
         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
-            for (label, on, tip) in [
-                ("Library", library, tl!("Browse, rate and organise your photos")),
-                ("Editor", !library, tl!("Layers, retouching and AI tools")),
-            ] {
+            for (label, on, tip) in
+                [("Library", library, tl!("Browse, rate and organise your photos")), ("Editor", !library, tl!("Layers, retouching and AI tools"))]
+            {
                 let text = egui::RichText::new(tl!(label)).size(12.0).color(if on { t.text } else { t.text_dim });
                 let fill = if on { t.chrome } else { egui::Color32::TRANSPARENT };
                 let r = ui.add(egui::Button::new(text).fill(fill).corner_radius(4.0).min_size(vec2(58.0, 22.0)));

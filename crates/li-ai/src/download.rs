@@ -93,13 +93,15 @@ pub fn download_preset(model_dir: &Path, preset: &Preset, ctl: &JobControl, on_p
             continue;
         }
         let base = done;
-        download_file(spec.url, &path, spec.bytes, spec.sha256, ctl, &|n| on_progress(DownloadProgress { file: spec.name.into(), done_bytes: base + n, total_bytes: total }))
-            .map_err(|e| match preset.access_url {
-                Some(url) if e.to_string().contains("401") || e.to_string().contains("403") => {
-                    anyhow::anyhow!("The publisher requires you to accept its licence before downloading. Request access at {url}, then try again.")
-                }
-                _ => e,
-            })?;
+        download_file(spec.url, &path, spec.bytes, spec.sha256, ctl, &|n| {
+            on_progress(DownloadProgress { file: spec.name.into(), done_bytes: base + n, total_bytes: total })
+        })
+        .map_err(|e| match preset.access_url {
+            Some(url) if e.to_string().contains("401") || e.to_string().contains("403") => {
+                anyhow::anyhow!("The publisher requires you to accept its licence before downloading. Request access at {url}, then try again.")
+            }
+            _ => e,
+        })?;
         done += spec.bytes;
     }
     Ok(())
@@ -245,7 +247,15 @@ mod tests {
         std::fs::write(&p, b"hello").unwrap();
         let sha = hex::encode(Sha256::digest(b"hello"));
         let leak: &'static str = Box::leak(sha.into_boxed_str());
-        let spec = FileSpec { role: crate::catalog::Role::Vae, folder: "vae", name: "f.bin", bytes: 5, sha256: leak, url: "https://huggingface.co/f", compatible: &[] };
+        let spec = FileSpec {
+            role: crate::catalog::Role::Vae,
+            folder: "vae",
+            name: "f.bin",
+            bytes: 5,
+            sha256: leak,
+            url: "https://huggingface.co/f",
+            compatible: &[],
+        };
         assert!(verify_existing(&p, &spec).unwrap());
         let wrong = FileSpec { bytes: 6, ..spec };
         assert!(verify_existing(&p, &wrong).is_err());

@@ -253,11 +253,7 @@ pub fn poisson_blend(original: &RgbImage, generated: &RgbImage, mask: &GrayImage
             }
             let g = generated.get_pixel(gx, gy);
             let c = if unknown[i] { field[i] } else { [0.0; 3] };
-            out.put_pixel(
-                gx,
-                gy,
-                Rgb([0, 1, 2].map(|k| (g[k] as f32 + if unknown[i] { c[k] } else { boundary[i][k] }).round().clamp(0.0, 255.0) as u8)),
-            );
+            out.put_pixel(gx, gy, Rgb([0, 1, 2].map(|k| (g[k] as f32 + if unknown[i] { c[k] } else { boundary[i][k] }).round().clamp(0.0, 255.0) as u8)));
         }
     }
     out
@@ -464,7 +460,8 @@ mod tests {
         let (w, h) = (64, 64);
         let original = RgbImage::from_pixel(w, h, Rgb([100, 100, 100]));
         // Generated is 40 levels too bright with a feature in the middle.
-        let generated = RgbImage::from_fn(w, h, |x, y| if (30..34).contains(&x) && (30..34).contains(&y) { Rgb([200, 140, 140]) } else { Rgb([140, 140, 140]) });
+        let generated =
+            RgbImage::from_fn(w, h, |x, y| if (30..34).contains(&x) && (30..34).contains(&y) { Rgb([200, 140, 140]) } else { Rgb([140, 140, 140]) });
         let mut mask = GrayImage::new(w, h);
         for y in 16..48 {
             for x in 16..48 {

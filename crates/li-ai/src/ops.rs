@@ -123,7 +123,9 @@ impl Ai {
     }
 
     fn inventory(&self) -> Result<ObjectInfo> {
-        self.client.object_info().map_err(|e| anyhow::anyhow!("Cannot reach ComfyUI at {}. Start the AI engine in Preferences › Local AI. ({e:#})", self.client.host()))
+        self.client
+            .object_info()
+            .map_err(|e| anyhow::anyhow!("Cannot reach ComfyUI at {}. Start the AI engine in Preferences › Local AI. ({e:#})", self.client.host()))
     }
 
     fn validate_lora_names(info: &ObjectInfo, loras: &[LoraUse]) -> Result<Vec<LoraUse>> {
@@ -141,7 +143,9 @@ impl Ai {
                     bail!("Style strength must be between −2 and 2.");
                 }
                 let found = choices.iter().find(|c| c.replace('\\', "/") == l.name.replace('\\', "/"));
-                found.map(|n| LoraUse { name: n.clone(), strength: l.strength }).with_context(|| format!("The style {} is not installed in ComfyUI. Refresh, or finish its download.", l.name))
+                found
+                    .map(|n| LoraUse { name: n.clone(), strength: l.strength })
+                    .with_context(|| format!("The style {} is not installed in ComfyUI. Refresh, or finish its download.", l.name))
             })
             .collect()
     }
@@ -323,7 +327,8 @@ impl Ai {
         match req.model {
             ModelId::Qwen => {
                 if req.mode == GenerateMode::Edit {
-                    let out = self.qwen_edit(&req.references, &req.prompt, &req.negative, &req.variant, req.seed, req.steps, req.guidance, &loras, &info, ctl)?;
+                    let out =
+                        self.qwen_edit(&req.references, &req.prompt, &req.negative, &req.variant, req.seed, req.steps, req.guidance, &loras, &info, ctl)?;
                     return Ok(imaging::over_white(&out));
                 }
                 let mut prompt = req.prompt.trim().to_owned();
@@ -377,7 +382,16 @@ impl Ai {
                 let init = req.references.first().map(|r| imaging::encode_png(&imaging::over_white(&imaging::fit_cover(r, w, h)))).transpose()?;
                 let built = workflows::z_image(
                     &a.files,
-                    &workflows::ZImageParams { prompt: &req.prompt, width: w, height: h, seed: req.seed, steps: req.steps, denoise: req.denoise.clamp(0.05, 1.0), init_image: init.is_some(), loras: &loras },
+                    &workflows::ZImageParams {
+                        prompt: &req.prompt,
+                        width: w,
+                        height: h,
+                        seed: req.seed,
+                        steps: req.steps,
+                        denoise: req.denoise.clamp(0.05, 1.0),
+                        init_image: init.is_some(),
+                        loras: &loras,
+                    },
                 );
                 let images: Vec<_> = built.image_nodes.iter().cloned().zip(init).collect();
                 Ok(imaging::over_white(&imaging::decode_rgba(&self.client.run(built.graph, &images, ctl)?)?))
@@ -396,7 +410,15 @@ impl Ai {
                     .collect::<Result<Vec<_>>>()?;
                 let built = workflows::flux2_klein(
                     &a.files,
-                    &workflows::Flux2Params { prompt: &req.prompt, width: w, height: h, seed: req.seed, steps: req.steps, references: pngs.len(), loras: &loras },
+                    &workflows::Flux2Params {
+                        prompt: &req.prompt,
+                        width: w,
+                        height: h,
+                        seed: req.seed,
+                        steps: req.steps,
+                        references: pngs.len(),
+                        loras: &loras,
+                    },
                 );
                 let images: Vec<_> = built.image_nodes.iter().cloned().zip(pngs).collect();
                 Ok(imaging::over_white(&imaging::decode_rgba(&self.client.run(built.graph, &images, ctl)?)?))
@@ -404,7 +426,15 @@ impl Ai {
             ModelId::Ernie => {
                 let built = workflows::ernie(
                     &a.files,
-                    &workflows::ErnieParams { prompt: &req.prompt, negative: &req.negative, width: w, height: h, seed: req.seed, steps: req.steps, cfg: req.guidance },
+                    &workflows::ErnieParams {
+                        prompt: &req.prompt,
+                        negative: &req.negative,
+                        width: w,
+                        height: h,
+                        seed: req.seed,
+                        steps: req.steps,
+                        cfg: req.guidance,
+                    },
                 );
                 Ok(imaging::over_white(&imaging::decode_rgba(&self.client.run(built.graph, &[], ctl)?)?))
             }

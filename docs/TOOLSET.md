@@ -33,7 +33,7 @@ notices kept in `licenses/`. Photopea is proprietary: behaviour only.
 | Tool | Implementation in Local Image | Status |
 | --- | --- | --- |
 | Marquee, Lasso, Polygonal, Magnetic Lasso | PhotoCraft (audit: work well) | ✅ |
-| Magic Wand | PhotoCraft + Compositor's *Sample Size* (3×3/5×5) and PaintFE's 8-way connectivity | 📋 |
+| Magic Wand | PhotoCraft + Photoshop/Compositor **Sample Size** (point to 101×101 average) | 🔧 |
 | Quick Selection | PhotoCraft graph cut (stops at specular highlights; GEGL `paint-select` reference) | 📋 |
 | Object Selection | PhotoCraft rectangle mode (excellent) + **click mode** from the local segmentation model (OmaPhoto's flood of the 320² probability map) | 🔧 |
 | **Select › Subject (AI)** | Qwen Image 2.1 matte via ComfyUI → **closed-form matting** of the edge band | ✅ |
@@ -51,7 +51,7 @@ notices kept in `licenses/`. Photopea is proprietary: behaviour only.
 | Healing Brush, Patch | PhotoCraft (audit: seamless) | ✅ |
 | Content-Aware Move | PhotoCraft (grey halo noted by the audit) | 📋 |
 | Clone Stamp | PhotoCraft + GIMP's Registered/Fixed alignment modes | 📋 |
-| Red Eye tool | GEGL `red-eye-removal` / Pinta rule | 📋 |
+| **Red Eye tool** (J group) | Red-pupil region grown from the click (GEGL / Pinta redness rule), holes filled, fitted and feathered; Pupil Size and Darken Amount | ✅ |
 | Seamless paste/clone | GIMP Seamless Clone (mean-value coordinates; port from the paper, GEGL's weights have a bug) | 📋 |
 
 ### Painting
@@ -73,18 +73,19 @@ notices kept in `licenses/`. Photopea is proprietary: behaviour only.
 | Liquify | PhotoCraft, **rim seam bug fixed** (strength now eases to 0 at the brush edge; was 0.5 at default density) | 🔧 |
 | Distort with folded/concave corners | Compositor two-triangle fallback | 📋 |
 | Cage transform | GIMP/Krita (Green coordinates) | 📋 |
-| Crop rotate/straighten, Perspective Crop | PhotoCraft homography + PaintFE's UI | 📋 |
+| Crop straighten | Options-bar angle, tilted frame preview with thirds; rotate + crop in one undo step | 🔧 |
+| Perspective Crop | PhotoCraft homography + PaintFE's UI | 📋 |
 
 ### Filters and adjustments
 
 | Item | Implementation | Status |
 | --- | --- | --- |
 | Blurs, distortions, Filter Gallery, 16 adjustment layers, layer styles | PhotoCraft (audit: work well) | ✅ |
-| Unsharp Mask / High Pass / Smart Sharpen | Use the fast Gaussian path (audit: 129 s vs 4 s on 24 MP) | 📋 |
-| Reduce Noise | GEGL `denoise-dct`, then NL-means | 📋 |
+| Unsharp Mask / High Pass / Smart Sharpen | **Fast Gaussian path** (running-sum boxes; was a direct O(r) kernel, 129 s vs 4 s on 24 MP) | 🔧 |
+| Reduce Noise | Luminance by **sliding 8×8 DCT shrinkage** (Yu & Sapiro 2011, GEGL `denoise-dct`) with sparsity-weighted aggregation; guided-filter chroma kept. NL-means next | 🔧 |
 | Frequency separation | GIMP Wavelet Decompose (detail bands as Linear Light layers) | 📋 |
 | Median / Dust & Scratches | Pinta sliding-histogram (O(r)) | 📋 |
-| Image Size Bicubic Smoother/Sharper | Real kernels (currently silently plain bicubic) | 📋 |
+| Image Size Bicubic Smoother/Sharper/Automatic | Mitchell–Netravali (Smoother), Keys a = −0.75 (Sharper), Automatic picks by direction (they used to fall through to plain bicubic) | 🔧 |
 | Camera raw | **LightCraft pipeline** for raw files (DNG matrices/profiles, colour fitted to the embedded JPEG for ARW/NEF/RW2, highlight reconstruction) → 16-bit ProPhoto document | ✅ |
 
 ### AI generation and AI compositing
@@ -98,6 +99,12 @@ notices kept in `licenses/`. Photopea is proprietary: behaviour only.
 | Batch Remove Backgrounds | ✅ |
 
 ## Cataloguing
+
+**Shipped in this branch:** the Library mode. One window, two modes switched from the title bar
+(**Library | Editor**). The Library is LightCraft's UI and catalog (`~/Pictures/Local Image Library`,
+or `LOCAL_IMAGE_LIBRARY`); it keeps importing, exporting and saving while the editor is shown.
+**Edit in Local Image** renders a 16-bit TIFF stacked with the original and opens it in the editor
+in-process; switching back reloads the edit. The app reopens in the mode it was closed in.
 
 LightCraft already implements nearly all of Lightroom's Library module (import, grid/loupe/compare/
 survey, ratings/flags/labels, hierarchical keywords, metadata, filter bar, albums, smart albums,

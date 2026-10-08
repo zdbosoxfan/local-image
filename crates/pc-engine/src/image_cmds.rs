@@ -429,7 +429,14 @@ pub fn specs() -> Vec<CommandSpec> {
             has_doc,
             canvas_size
         ),
-        spec!("image.crop", "Crop", ["Image"], r##"{"x":px,"y":px,"width":px,"height":px,"angle":-45..45=0 (straighten: the frame's clockwise tilt on the image),"deleteCroppedPixels":bool=true}"##, has_doc, crop),
+        spec!(
+            "image.crop",
+            "Crop",
+            ["Image"],
+            r##"{"x":px,"y":px,"width":px,"height":px,"angle":-45..45=0 (straighten: the frame's clockwise tilt on the image),"deleteCroppedPixels":bool=true}"##,
+            has_doc,
+            crop
+        ),
         spec!(
             "image.trim",
             "Trim…",

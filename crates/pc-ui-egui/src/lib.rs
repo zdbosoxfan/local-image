@@ -16,13 +16,11 @@ macro_rules! tl {
 
 pub mod actions;
 // local-image: Local Image's AI tools, Generate panel and filmstrip.
-pub mod ai_ui;
-pub mod filmstrip_ui;
-pub mod generate_ui;
 pub mod adjust_dialog;
 pub mod adjust_editors;
 pub mod adjust_preview;
 pub mod adjust_ui;
+pub mod ai_ui;
 pub mod analysis_ui;
 pub mod artboard_ui;
 mod brand;
@@ -60,8 +58,10 @@ pub mod export_dialog;
 pub mod file_open;
 pub mod file_ui;
 pub mod fill_ui;
+pub mod filmstrip_ui;
 pub mod filter_dialog;
 pub mod gallery_ui;
+pub mod generate_ui;
 pub mod gpu_canvas;
 pub mod gpu_status;
 pub mod gradient_ui;

@@ -187,7 +187,8 @@ pub fn gpus_from_stats(stats: &Value) -> Vec<Gpu> {
 
 /// NVIDIA GPUs via `nvidia-smi` (fast, works without ComfyUI).
 pub fn gpus_from_nvidia_smi() -> Vec<Gpu> {
-    let Ok(out) = Command::new("nvidia-smi").args(["--query-gpu=name,memory.total,memory.used,utilization.gpu", "--format=csv,noheader,nounits"]).output() else {
+    let Ok(out) = Command::new("nvidia-smi").args(["--query-gpu=name,memory.total,memory.used,utilization.gpu", "--format=csv,noheader,nounits"]).output()
+    else {
         return Vec::new();
     };
     String::from_utf8_lossy(&out.stdout)
@@ -195,7 +196,12 @@ pub fn gpus_from_nvidia_smi() -> Vec<Gpu> {
         .filter_map(|l| {
             let f: Vec<&str> = l.split(',').map(str::trim).collect();
             let mib = |s: &str| s.parse::<u64>().ok().map(|m| m * 1024 * 1024);
-            Some(Gpu { name: f.first()?.to_string(), vram_total: mib(f.get(1)?)?, vram_used: f.get(2).and_then(|s| mib(s)), utilization: f.get(3).and_then(|s| s.parse().ok()) })
+            Some(Gpu {
+                name: f.first()?.to_string(),
+                vram_total: mib(f.get(1)?)?,
+                vram_used: f.get(2).and_then(|s| mib(s)),
+                utilization: f.get(3).and_then(|s| s.parse().ok()),
+            })
         })
         .collect()
 }

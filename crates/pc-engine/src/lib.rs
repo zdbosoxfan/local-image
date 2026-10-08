@@ -13,7 +13,6 @@ pub mod ai_cmds;
 // local-image: learned subject segmentation.
 pub mod seg;
 // local-image: the Red Eye tool.
-pub mod redeye_cmds;
 pub mod adjust_cmds;
 pub mod adjust_params;
 pub mod align_cmds;
@@ -75,6 +74,7 @@ pub mod preset_store;
 pub mod presets;
 pub mod print_cmds;
 pub mod proof_sim;
+pub mod redeye_cmds;
 pub mod render_cmds;
 pub mod retouch_cmds;
 pub mod select_extra_cmds;

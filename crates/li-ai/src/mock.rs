@@ -93,10 +93,36 @@ pub fn object_info() -> Value {
     let combo = |v: Vec<String>| json!([v]);
     let mut info = serde_json::Map::new();
     let nodes = [
-        "UNETLoader", "CLIPLoader", "VAELoader", "TextEncodeQwenImage21", "KSampler", "VAEDecode", "SaveImage", "PreviewImage", "LoadImage",
-        "JoinImageWithAlpha", "EmptyLatentImage", "QwenImage21Cache", "CLIPTextEncode", "ConditioningZeroOut", "ModelSamplingAuraFlow", "VAEEncode",
-        "EmptySD3LatentImage", "EmptyFlux2LatentImage", "Flux2Scheduler", "RandomNoise", "KSamplerSelect", "SamplerCustomAdvanced", "CFGGuider",
-        "ReferenceLatent", "LoraLoaderModelOnly", "SeedVR2Preprocess", "VAEEncodeTiled", "SeedVR2Conditioning", "VAEDecodeTiled", "SeedVR2PostProcessing",
+        "UNETLoader",
+        "CLIPLoader",
+        "VAELoader",
+        "TextEncodeQwenImage21",
+        "KSampler",
+        "VAEDecode",
+        "SaveImage",
+        "PreviewImage",
+        "LoadImage",
+        "JoinImageWithAlpha",
+        "EmptyLatentImage",
+        "QwenImage21Cache",
+        "CLIPTextEncode",
+        "ConditioningZeroOut",
+        "ModelSamplingAuraFlow",
+        "VAEEncode",
+        "EmptySD3LatentImage",
+        "EmptyFlux2LatentImage",
+        "Flux2Scheduler",
+        "RandomNoise",
+        "KSamplerSelect",
+        "SamplerCustomAdvanced",
+        "CFGGuider",
+        "ReferenceLatent",
+        "LoraLoaderModelOnly",
+        "SeedVR2Preprocess",
+        "VAEEncodeTiled",
+        "SeedVR2Conditioning",
+        "VAEDecodeTiled",
+        "SeedVR2PostProcessing",
     ];
     for n in nodes {
         info.insert(n.to_owned(), json!({ "input": { "required": {} } }));
@@ -184,7 +210,8 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
         ("POST", p) if p.starts_with("/api/jobs/") && p.ends_with("/cancel") => {
             let id = p.trim_start_matches("/api/jobs/").trim_end_matches("/cancel").to_owned();
             if let Ok(mut s) = st.lock() {
-                s.history.insert(id, json!({ "status": { "status_str": "error", "completed": false, "messages": [["execution_interrupted", {}]] }, "outputs": {} }));
+                s.history
+                    .insert(id, json!({ "status": { "status_str": "error", "completed": false, "messages": [["execution_interrupted", {}]] }, "outputs": {} }));
             }
             json_resp(req, 200, json!({ "cancelled": true }))
         }
@@ -243,7 +270,8 @@ fn render(graph: &Value, uploads: &HashMap<String, Vec<u8>>) -> Vec<u8> {
         if let (Some(x0), Some(x1), Some(y0), Some(y1)) =
             (reds.iter().map(|p| p.0).min(), reds.iter().map(|p| p.0).max(), reds.iter().map(|p| p.1).min(), reds.iter().map(|p| p.1).max())
         {
-            let ring: Vec<[u8; 4]> = (x0.saturating_sub(4)..=(x1 + 4).min(img.width() - 1)).map(|x| img.get_pixel(x, y1.saturating_add(5).min(img.height() - 1)).0).collect();
+            let ring: Vec<[u8; 4]> =
+                (x0.saturating_sub(4)..=(x1 + 4).min(img.width() - 1)).map(|x| img.get_pixel(x, y1.saturating_add(5).min(img.height() - 1)).0).collect();
             let avg = |k: usize| (ring.iter().map(|p| p[k] as u32).sum::<u32>() / ring.len().max(1) as u32) as u8;
             let fill = Rgba([avg(0), avg(1), avg(2), 255]);
             for y in y0..=y1 {
@@ -347,7 +375,12 @@ mod tests {
         // Qwen removal path too.
         ai.remove_objects(&photo, &mask, &RemoveEngine::Qwen { variant: "int8".into() }, 1, &ctl).unwrap();
         // Cutout returns a matte the size of the input.
-        let subject = RgbaImage::from_fn(200, 160, |x, y| if (60..140).contains(&x) && (40..120).contains(&y) { Rgba([250, 200, 0, 255]) } else { Rgba([20, 20, 20, 255]) });
+        let subject =
+            RgbaImage::from_fn(
+                200,
+                160,
+                |x, y| if (60..140).contains(&x) && (40..120).contains(&y) { Rgba([250, 200, 0, 255]) } else { Rgba([20, 20, 20, 255]) },
+            );
         let matte = ai.cutout(&subject, "int8", "", 3, &ctl).unwrap();
         assert_eq!(matte.dimensions(), (200, 160));
         assert_eq!(matte.get_pixel(100, 80)[0], 255);

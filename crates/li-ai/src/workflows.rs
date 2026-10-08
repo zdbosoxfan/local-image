@@ -173,11 +173,7 @@ pub fn flux2_klein(files: &Files, p: &Flux2Params) -> Built {
     g.node(8, "Flux2Scheduler", json!({ "steps": p.steps, "width": p.width, "height": p.height }));
     g.node(9, "RandomNoise", json!({ "noise_seed": p.seed }));
     g.node(10, "KSamplerSelect", json!({ "sampler_name": "euler" }));
-    g.node(
-        11,
-        "SamplerCustomAdvanced",
-        json!({ "noise": ["9", 0], "guider": ["6", 0], "sampler": ["10", 0], "sigmas": ["8", 0], "latent_image": ["7", 0] }),
-    );
+    g.node(11, "SamplerCustomAdvanced", json!({ "noise": ["9", 0], "guider": ["6", 0], "sampler": ["10", 0], "sigmas": ["8", 0], "latent_image": ["7", 0] }));
     g.node(12, "VAEDecode", json!({ "samples": ["11", 0], "vae": ["3", 0] }));
     g.node(13, "SaveImage", json!({ "images": ["12", 0], "filename_prefix": "LocalImage_Flux2" }));
     g.node(5, "ConditioningZeroOut", json!({ "conditioning": ["4", 0] }));
@@ -313,12 +309,18 @@ mod tests {
     #[test]
     fn qwen_text_to_image_and_edit() {
         let loras = [LoraUse { name: "a.safetensors".into(), strength: 0.8 }];
-        let t2i = qwen(&files(), &QwenParams { prompt: "p", negative: "", width: 1024, height: 768, seed: 7, steps: 40, cfg: 1.0, references: 0, use_cache: true, loras: &loras });
+        let t2i = qwen(
+            &files(),
+            &QwenParams { prompt: "p", negative: "", width: 1024, height: 768, seed: 7, steps: 40, cfg: 1.0, references: 0, use_cache: true, loras: &loras },
+        );
         links_resolve(&t2i.graph);
         assert_eq!(t2i.graph["6"]["inputs"]["latent_image"], json!(["5", 0]));
         assert_eq!(t2i.graph["9"]["inputs"]["model"], json!(["100", 0]));
         assert_eq!(t2i.graph["6"]["inputs"]["model"], json!(["9", 0]));
-        let edit = qwen(&files(), &QwenParams { prompt: "p", negative: "", width: 0, height: 0, seed: 7, steps: 25, cfg: 1.0, references: 2, use_cache: false, loras: &[] });
+        let edit = qwen(
+            &files(),
+            &QwenParams { prompt: "p", negative: "", width: 0, height: 0, seed: 7, steps: 25, cfg: 1.0, references: 2, use_cache: false, loras: &[] },
+        );
         links_resolve(&edit.graph);
         assert_eq!(edit.image_nodes, vec!["22", "24"]);
         assert_eq!(edit.graph["4"]["inputs"]["images.image_2"], json!(["25", 0]));
@@ -337,8 +339,12 @@ mod tests {
 
     #[test]
     fn other_graphs_are_closed() {
-        links_resolve(&z_image(&files(), &ZImageParams { prompt: "p", width: 512, height: 512, seed: 1, steps: 8, denoise: 0.6, init_image: true, loras: &[] }).graph);
-        links_resolve(&z_image(&files(), &ZImageParams { prompt: "p", width: 512, height: 512, seed: 1, steps: 8, denoise: 0.6, init_image: false, loras: &[] }).graph);
+        links_resolve(
+            &z_image(&files(), &ZImageParams { prompt: "p", width: 512, height: 512, seed: 1, steps: 8, denoise: 0.6, init_image: true, loras: &[] }).graph,
+        );
+        links_resolve(
+            &z_image(&files(), &ZImageParams { prompt: "p", width: 512, height: 512, seed: 1, steps: 8, denoise: 0.6, init_image: false, loras: &[] }).graph,
+        );
         links_resolve(&ernie(&files(), &ErnieParams { prompt: "p", negative: "n", width: 512, height: 512, seed: 1, steps: 50, cfg: 4.0 }).graph);
         links_resolve(&seedvr2(&files(), 3).graph);
         let r = klein_remove(&files(), 768, 768, 5);

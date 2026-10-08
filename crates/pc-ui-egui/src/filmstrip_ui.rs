@@ -46,19 +46,21 @@ fn worker() -> &'static Arc<Worker> {
         let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).clamp(1, 3);
         for i in 0..threads {
             let w = w.clone();
-            let _ = std::thread::Builder::new().name(format!("filmstrip-{i}")).spawn(move || loop {
-                let path = {
-                    let mut q = w.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                    while q.is_empty() {
-                        q = w.wake.wait(q).unwrap_or_else(std::sync::PoisonError::into_inner);
+            let _ = std::thread::Builder::new().name(format!("filmstrip-{i}")).spawn(move || {
+                loop {
+                    let path = {
+                        let mut q = w.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                        while q.is_empty() {
+                            q = w.wake.wait(q).unwrap_or_else(std::sync::PoisonError::into_inner);
+                        }
+                        q.pop_front()
+                    };
+                    let Some(path) = path else { continue };
+                    let img = thumbnail(&path);
+                    w.done.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((path, img));
+                    if let Some(ctx) = w.ctx.lock().ok().and_then(|c| c.clone()) {
+                        ctx.request_repaint();
                     }
-                    q.pop_front()
-                };
-                let Some(path) = path else { continue };
-                let img = thumbnail(&path);
-                w.done.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((path, img));
-                if let Some(ctx) = w.ctx.lock().ok().and_then(|c| c.clone()) {
-                    ctx.request_repaint();
                 }
             });
         }
@@ -224,12 +226,14 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             crate::icons::paint(ui, ir, "folder", 12.0, t.text_dim);
             let name = dir.as_ref().and_then(|d| d.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
             ui.label(RichText::new(name).color(t.text_dim).size(11.5));
-            ui.label(RichText::new(match pos {
-                Some(i) => format!("{} / {}", i + 1, files.len()),
-                None => format!("{} images", files.len()),
-            })
-            .color(t.text_faint)
-            .size(11.0));
+            ui.label(
+                RichText::new(match pos {
+                    Some(i) => format!("{} / {}", i + 1, files.len()),
+                    None => format!("{} images", files.len()),
+                })
+                .color(t.text_faint)
+                .size(11.0),
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(6.0);
                 if crate::icons::button(ui, "x", 18.0, false, "Hide the filmstrip (Window › Filmstrip)").clicked() {

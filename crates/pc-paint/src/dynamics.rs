@@ -833,4 +833,3 @@ mod spline_tests {
         assert!(worst < 2.0, "worst radial error {worst}");
     }
 }
-

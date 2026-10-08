@@ -84,7 +84,8 @@ impl Default for GenerateState {
     }
 }
 
-const ASPECTS: [(&str, f32); 7] = [("1:1", 1.0), ("4:3", 4.0 / 3.0), ("3:2", 1.5), ("16:9", 16.0 / 9.0), ("3:4", 0.75), ("2:3", 2.0 / 3.0), ("9:16", 9.0 / 16.0)];
+const ASPECTS: [(&str, f32); 7] =
+    [("1:1", 1.0), ("4:3", 4.0 / 3.0), ("3:2", 1.5), ("16:9", 16.0 / 9.0), ("3:4", 0.75), ("2:3", 2.0 / 3.0), ("9:16", 9.0 / 16.0)];
 
 /// Runtime state (UI thread only): references, results, thumbnails, the library listing.
 #[derive(Default)]
@@ -175,7 +176,13 @@ fn chips(ui: &mut egui::Ui, items: &[&str], selected: usize) -> Option<usize> {
             let on = i == selected;
             let galley = ui.painter().layout_no_wrap((*s).to_owned(), crate::theme::medium(12.0), if on { t.accent_text } else { t.text_dim });
             let (r, resp) = ui.allocate_exact_size(vec2(galley.size().x + 16.0, 22.0), Sense::click());
-            let fill = if on { t.accent } else if resp.hovered() { t.hover } else { t.field };
+            let fill = if on {
+                t.accent
+            } else if resp.hovered() {
+                t.hover
+            } else {
+                t.field
+            };
             ui.painter().rect_filled(r, 11.0, fill);
             ui.painter().galley(r.center() - galley.size() / 2.0, galley, t.text);
             resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, *s));
@@ -427,7 +434,12 @@ fn references_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui, m: ModelId) {
                 widgets::checker(ui.painter(), rect, 6.0);
                 let sz = tex.size_vec2();
                 let k = (52.0 / sz.x).min(52.0 / sz.y);
-                ui.painter().image(tex.id(), egui::Rect::from_center_size(rect.center(), sz * k), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
+                ui.painter().image(
+                    tex.id(),
+                    egui::Rect::from_center_size(rect.center(), sz * k),
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    Color32::WHITE,
+                );
                 ui.painter().rect_stroke(rect, 3.0, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
                 if resp.hovered() {
                     crate::icons::paint(ui, egui::Rect::from_min_size(rect.right_top() - vec2(16.0, 0.0), vec2(16.0, 16.0)), "x", 12.0, Color32::WHITE);
@@ -503,13 +515,17 @@ fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
             move |ctx| {
                 let img = photocraft_engine::ai_cmds::bridged(ctx, |ctl| li_ai::service().generate(&r, ctl))?;
                 ctx.progress(0.98, "Saving to the library");
-                let entry = Library::default().add(&img, &name, Some(meta), None).map_err(|e| photocraft_engine::EngineError::Other(format!("Could not save to the library: {e:#}")))?;
+                let entry = Library::default()
+                    .add(&img, &name, Some(meta), None)
+                    .map_err(|e| photocraft_engine::EngineError::Other(format!("Could not save to the library: {e:#}")))?;
                 Ok(entry)
             },
             |_, entry| Ok(serde_json::to_value(entry).unwrap_or(Value::Null)),
         );
         match started {
-            Ok(photocraft_engine::jobs::Started::Job(id)) => rt(|rt| rt.results.push_front(Tile::Pending { job: id.0, label: label.clone(), edit: target_doc.map(|d| d.0) })),
+            Ok(photocraft_engine::jobs::Started::Job(id)) => {
+                rt(|rt| rt.results.push_front(Tile::Pending { job: id.0, label: label.clone(), edit: target_doc.map(|d| d.0) }))
+            }
             Ok(photocraft_engine::jobs::Started::Done(v)) => {
                 if let Ok(e) = serde_json::from_value::<Entry>(v) {
                     rt(|rt| rt.results.push_front(Tile::Done(e)));
@@ -533,10 +549,12 @@ pub fn on_generated(app: &mut PhotocraftApp, e: &JobEvent) {
                 app.ui.status = format!("Generated {} · seed {}", entry.name, entry.seed().unwrap_or(0));
                 app.ui.status_error = false;
                 // An edit of an open document lands on it as a new layer.
-                let edit_doc = rt(|r| r.results.iter().find_map(|t| match t {
-                    Tile::Pending { job, edit, .. } if *job == e.id.0 => *edit,
-                    _ => None,
-                }));
+                let edit_doc = rt(|r| {
+                    r.results.iter().find_map(|t| match t {
+                        Tile::Pending { job, edit, .. } if *job == e.id.0 => *edit,
+                        _ => None,
+                    })
+                });
                 if let Some(doc) = edit_doc {
                     place_into(app, doc, &entry);
                 }
@@ -583,14 +601,19 @@ fn results_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
     widgets::section_label(ui, "RESULTS");
     let items: Vec<Option<Entry>> = rt(|r| r.results.iter().map(|t| if let Tile::Done(e) = t { Some(e.clone()) } else { None }).collect());
-    let pendings: Vec<String> = rt(|r| r.results.iter().map(|t| match t {
-        Tile::Pending { label, job, .. } => {
-            let p = app.session.job(photocraft_engine::jobs::JobId(*job)).map(|j| format!("{:.0}%", j.progress * 100.0)).unwrap_or_default();
-            format!("{label}\n{p}")
-        }
-        Tile::Failed(e) => e.clone(),
-        Tile::Done(_) => String::new(),
-    }).collect());
+    let pendings: Vec<String> = rt(|r| {
+        r.results
+            .iter()
+            .map(|t| match t {
+                Tile::Pending { label, job, .. } => {
+                    let p = app.session.job(photocraft_engine::jobs::JobId(*job)).map(|j| format!("{:.0}%", j.progress * 100.0)).unwrap_or_default();
+                    format!("{label}\n{p}")
+                }
+                Tile::Failed(e) => e.clone(),
+                Tile::Done(_) => String::new(),
+            })
+            .collect()
+    });
     tile_grid(app, ui, &items, &pendings, "results");
     if pendings.iter().zip(&items).any(|(p, i)| i.is_none() && !p.is_empty()) {
         ui.ctx().request_repaint_after(Duration::from_millis(250));
@@ -619,9 +642,21 @@ fn tile_grid(app: &mut PhotocraftApp, ui: &mut egui::Ui, items: &[Option<Entry>]
                     }
                     let sel = rt(|r| r.selected.as_deref() == Some(e.id.as_str()));
                     if sel || resp.hovered() {
-                        ui.painter().rect_stroke(rect, t.radius, Stroke::new(if sel { 2.0 } else { 1.0 }, if sel { t.accent } else { t.text_dim }), StrokeKind::Inside);
+                        ui.painter().rect_stroke(
+                            rect,
+                            t.radius,
+                            Stroke::new(if sel { 2.0 } else { 1.0 }, if sel { t.accent } else { t.text_dim }),
+                            StrokeKind::Inside,
+                        );
                     }
-                    let tip = format!("{}\n{} · {}×{}{}\nDouble-click to open", e.prompt(), e.model(), e.width, e.height, e.seed().map(|s| format!(" · seed {s}")).unwrap_or_default());
+                    let tip = format!(
+                        "{}\n{} · {}×{}{}\nDouble-click to open",
+                        e.prompt(),
+                        e.model(),
+                        e.width,
+                        e.height,
+                        e.seed().map(|s| format!(" · seed {s}")).unwrap_or_default()
+                    );
                     let resp = resp.on_hover_text(tip);
                     if resp.clicked() {
                         rt(|r| r.selected = Some(e.id.clone()));
@@ -630,7 +665,13 @@ fn tile_grid(app: &mut PhotocraftApp, ui: &mut egui::Ui, items: &[Option<Entry>]
                         action = Some((e.clone(), "open"));
                     }
                     resp.context_menu(|ui| {
-                        for (label, act) in [("Open", "open"), ("Place as Layer", "place"), ("Use as Reference", "reference"), ("Recreate", "recreate"), ("Copy Prompt", "copy")] {
+                        for (label, act) in [
+                            ("Open", "open"),
+                            ("Place as Layer", "place"),
+                            ("Use as Reference", "reference"),
+                            ("Recreate", "recreate"),
+                            ("Copy Prompt", "copy"),
+                        ] {
                             let enabled = act != "place" || app.session.active().is_some();
                             if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
                                 action = Some((e.clone(), act));
@@ -695,7 +736,10 @@ fn entry_action(app: &mut PhotocraftApp, ctx: &egui::Context, e: &Entry, act: &s
             }
         },
         "place" => {
-            let r = app.run("ai.placeLayer", json!({ "path": lib.image_path(&e.id).display().to_string(), "name": e.name.trim_end_matches(".png"), "fit": "contain" }));
+            let r = app.run(
+                "ai.placeLayer",
+                json!({ "path": lib.image_path(&e.id).display().to_string(), "name": e.name.trim_end_matches(".png"), "fit": "contain" }),
+            );
             if let Err(err) = r {
                 app.ui.status = err;
                 app.ui.status_error = true;
@@ -760,7 +804,13 @@ pub fn library_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     });
     let filter = app.ui.ai.generate.library_filter.to_lowercase();
     let items: Vec<Option<Entry>> = rt(|r| {
-        r.library.iter().filter(|e| filter.is_empty() || e.prompt().to_lowercase().contains(&filter) || e.name.to_lowercase().contains(&filter)).take(200).cloned().map(Some).collect()
+        r.library
+            .iter()
+            .filter(|e| filter.is_empty() || e.prompt().to_lowercase().contains(&filter) || e.name.to_lowercase().contains(&filter))
+            .take(200)
+            .cloned()
+            .map(Some)
+            .collect()
     });
     if items.is_empty() {
         ui.add_space(12.0);
@@ -789,8 +839,8 @@ pub fn open_folder(app: &mut PhotocraftApp) -> Result<Value, String> {
 }
 
 pub const IMAGE_EXTS: &[&str] = &[
-    "psd", "psb", "pcraft", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "exr", "hdr", "heic", "heif", "dng", "cr2", "cr3", "nef", "nrw", "arw",
-    "pef", "orf", "rw2", "raf",
+    "psd", "psb", "pcraft", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "exr", "hdr", "heic", "heif", "dng", "cr2", "cr3", "nef", "nrw",
+    "arw", "pef", "orf", "rw2", "raf",
 ];
 
 pub fn folder_images(dir: &std::path::Path) -> Vec<PathBuf> {
@@ -825,7 +875,11 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
                     nb.push(c);
                     bi.next();
                 }
-                let o = na.trim_start_matches('0').len().cmp(&nb.trim_start_matches('0').len()).then_with(|| na.trim_start_matches('0').cmp(nb.trim_start_matches('0')));
+                let o = na
+                    .trim_start_matches('0')
+                    .len()
+                    .cmp(&nb.trim_start_matches('0').len())
+                    .then_with(|| na.trim_start_matches('0').cmp(nb.trim_start_matches('0')));
                 if o != std::cmp::Ordering::Equal {
                     return o;
                 }
@@ -910,7 +964,9 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
         .show(ctx, |ui| {
             batch(|b| {
                 let Some(b) = b.as_mut() else { return };
-                ui.label(RichText::new("Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.").color(t.text_dim));
+                ui.label(
+                    RichText::new("Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.").color(t.text_dim),
+                );
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     #[cfg(not(target_arch = "wasm32"))]
@@ -923,7 +979,11 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         if widgets::secondary_button(ui, "Add Folder…", 0.0).clicked()
                             && let Some(dir) = rfd::FileDialog::new().pick_folder()
                         {
-                            b.files.extend(folder_images(&dir).into_iter().filter(|p| p.extension().and_then(|e| e.to_str()).is_some_and(|e| ["png", "jpg", "jpeg", "webp", "tif", "tiff"].contains(&e.to_ascii_lowercase().as_str()))));
+                            b.files.extend(folder_images(&dir).into_iter().filter(|p| {
+                                p.extension()
+                                    .and_then(|e| e.to_str())
+                                    .is_some_and(|e| ["png", "jpg", "jpeg", "webp", "tif", "tiff"].contains(&e.to_ascii_lowercase().as_str()))
+                            }));
                         }
                     }
                     ui.label(RichText::new(format!("{} images", b.files.len())).color(t.text_dim));
@@ -960,7 +1020,9 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
                     let rows: Vec<(String, String)> = match &run {
                         Some(r) => r.lock().map(|r| r.status.clone()).unwrap_or_default(),
-                        None => b.files.iter().map(|p| (p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), "Waiting".into())).collect(),
+                        None => {
+                            b.files.iter().map(|p| (p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), "Waiting".into())).collect()
+                        }
                     };
                     for (name, s) in rows {
                         ui.horizontal(|ui| {

@@ -79,7 +79,11 @@ impl Library {
     pub fn add(&self, image: &RgbaImage, name: &str, generation: Option<Value>, upscale: Option<Value>) -> Result<Entry> {
         let id = uuid::Uuid::new_v4().hyphenated().to_string();
         let png = crate::imaging::encode_png(image)?;
-        let thumb = image::imageops::thumbnail(image, (480 * image.width() / image.width().max(image.height()).max(1)).max(1), (480 * image.height() / image.width().max(image.height()).max(1)).max(1));
+        let thumb = image::imageops::thumbnail(
+            image,
+            (480 * image.width() / image.width().max(image.height()).max(1)).max(1),
+            (480 * image.height() / image.width().max(image.height()).max(1)).max(1),
+        );
         let entry = Entry {
             id: id.clone(),
             name: if name.ends_with(".png") { name.to_owned() } else { format!("{name}.png") },

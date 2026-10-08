@@ -300,7 +300,9 @@ fn feed_live_stroke(app: &mut PhotocraftApp) {
 pub(crate) fn freehand_tool(tool: Tool) -> bool {
     matches!(
         tool,
-        Tool::AiRemove | Tool::AiCutout | Tool::Brush
+        Tool::AiRemove
+            | Tool::AiCutout
+            | Tool::Brush
             | Tool::Pencil
             | Tool::MixerBrush
             | Tool::Eraser

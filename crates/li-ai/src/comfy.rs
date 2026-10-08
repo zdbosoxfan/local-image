@@ -143,9 +143,7 @@ impl ObjectInfo {
         let Some(Value::Array(v)) = field else { return Vec::new() };
         let list = match v.first() {
             Some(Value::Array(opts)) => opts.clone(),
-            Some(Value::String(s)) if s == "COMBO" => {
-                v.get(1).and_then(|o| o.get("options")).and_then(|o| o.as_array()).cloned().unwrap_or_default()
-            }
+            Some(Value::String(s)) if s == "COMBO" => v.get(1).and_then(|o| o.get("options")).and_then(|o| o.as_array()).cloned().unwrap_or_default(),
             _ => Vec::new(),
         };
         list.into_iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()

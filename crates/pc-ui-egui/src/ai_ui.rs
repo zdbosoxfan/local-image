@@ -158,7 +158,15 @@ fn poll_loop(s: Arc<Shared>) {
         if connected && (forced || !connected_before || last_inventory.is_none_or(|t| t.elapsed() > Duration::from_secs(30))) {
             match ai.client.object_info() {
                 Ok(info) => {
-                    presets = PRESETS.iter().map(|p| (p.id(), { let a = catalog::availability(p, &info); if a.available { Ok(()) } else { Err(a.reason) } })).collect();
+                    presets = PRESETS
+                        .iter()
+                        .map(|p| {
+                            (p.id(), {
+                                let a = catalog::availability(p, &info);
+                                if a.available { Ok(()) } else { Err(a.reason) }
+                            })
+                        })
+                        .collect();
                     last_inventory = Some(Instant::now());
                 }
                 Err(e) => error = format!("{e:#}"),
@@ -279,7 +287,11 @@ fn seg_rows(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>) {
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
                     ui.label(RichText::new(spec.label).strong());
-                    ui.label(RichText::new(format!("{} · runs on the CPU · {}", li_ai::download::human_bytes(spec.bytes), spec.licence)).color(t.text_dim).size(11.5));
+                    ui.label(
+                        RichText::new(format!("{} · runs on the CPU · {}", li_ai::download::human_bytes(spec.bytes), spec.licence))
+                            .color(t.text_dim)
+                            .size(11.5),
+                    );
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| match dl {
                     Some(d) if !d.finished => {
@@ -353,8 +365,11 @@ fn opt(ui: &mut egui::Ui, s: &str) {
     ui.label(RichText::new(s).color(t.text_dim));
 }
 
-const REMOVE_ENGINES: [(&str, &str, ModelId, &str); 3] =
-    [("klein", "FLUX.2 Klein", ModelId::KleinRemove, "bf16"), ("qwen-int8", "Qwen Compact", ModelId::Qwen, "int8"), ("qwen-bf16", "Qwen Full", ModelId::Qwen, "bf16")];
+const REMOVE_ENGINES: [(&str, &str, ModelId, &str); 3] = [
+    ("klein", "FLUX.2 Klein", ModelId::KleinRemove, "bf16"),
+    ("qwen-int8", "Qwen Compact", ModelId::Qwen, "int8"),
+    ("qwen-bf16", "Qwen Full", ModelId::Qwen, "bf16"),
+];
 const CUTOUT_ENGINES: [(&str, &str); 3] = [("qwen-int8", "AI · Qwen Compact"), ("qwen-bf16", "AI · Qwen Full"), ("quick", "Quick (CPU)")];
 
 fn engine_for(key: &str) -> (ModelId, &'static str) {
@@ -437,7 +452,8 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
             egui::Popup::menu(&resp).show(|ui| {
                 ui.set_min_width(200.0);
                 if ui.button("Solid Color").clicked() {
-                    let r = app.run("layer.newFillLayer.solidColor", json!({ "color": "#ffffff" })).and_then(|_| app.run("layer.arrange.sendBackward", json!({})));
+                    let r =
+                        app.run("layer.newFillLayer.solidColor", json!({ "color": "#ffffff" })).and_then(|_| app.run("layer.arrange.sendBackward", json!({})));
                     report(app, r);
                     ui.close();
                 }
@@ -494,7 +510,11 @@ pub fn status_pill(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
     ui.painter().circle_filled(egui::pos2(r.left() + 10.0, r.center().y), 3.5, dot);
     ui.painter().galley(egui::pos2(r.left() + 18.0, r.center().y - galley.size().y / 2.0), galley, t.text_dim);
-    let resp = resp.on_hover_text(if st.connected { format!("ComfyUI at {} — click for Local AI settings", st.host) } else { "Local AI is off — click to set it up".into() });
+    let resp = resp.on_hover_text(if st.connected {
+        format!("ComfyUI at {} — click for Local AI settings", st.host)
+    } else {
+        "Local AI is off — click to set it up".into()
+    });
     if resp.clicked() {
         open_local_ai(app);
     }
@@ -559,34 +579,40 @@ fn window_frame(ctx: &egui::Context) -> egui::Frame {
 fn prompt_dialog(app: &mut PhotocraftApp, ctx: &egui::Context, title: &str, hint: &str, background: bool) {
     let mut open = true;
     let mut close = false;
-    egui::Window::new(title).collapsible(false).resizable(false).frame(window_frame(ctx)).open(&mut open).anchor(egui::Align2::CENTER_CENTER, vec2(0.0, -80.0)).show(ctx, |ui| {
-        ui.set_width(420.0);
-        let text = if background { &mut app.ui.ai.background_prompt } else { &mut app.ui.ai.fill_prompt };
-        let r = ui.add(egui::TextEdit::multiline(text).hint_text(hint).desired_rows(3).desired_width(f32::INFINITY));
-        r.request_focus();
-        ui.add_space(8.0);
-        let (m, v) = (ModelId::Qwen, "int8");
-        if let Err(why) = status().ready(m, v) {
-            ui.label(RichText::new(format!("{why} Qwen Image 2.1 runs these.")).color(Tokens::get(ctx).warning));
-        }
-        ui.add_space(4.0);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let enter = ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift);
-            if widgets::primary_button(ui, "Generate", 96.0).clicked() || enter {
-                let (cmd, p) = if background {
-                    ("ai.generateBackground", json!({ "prompt": app.ui.ai.background_prompt }))
-                } else {
-                    ("ai.generativeFill", json!({ "prompt": app.ui.ai.fill_prompt }))
-                };
-                let r = app.run(cmd, p);
-                report(app, r);
-                close = true;
+    egui::Window::new(title)
+        .collapsible(false)
+        .resizable(false)
+        .frame(window_frame(ctx))
+        .open(&mut open)
+        .anchor(egui::Align2::CENTER_CENTER, vec2(0.0, -80.0))
+        .show(ctx, |ui| {
+            ui.set_width(420.0);
+            let text = if background { &mut app.ui.ai.background_prompt } else { &mut app.ui.ai.fill_prompt };
+            let r = ui.add(egui::TextEdit::multiline(text).hint_text(hint).desired_rows(3).desired_width(f32::INFINITY));
+            r.request_focus();
+            ui.add_space(8.0);
+            let (m, v) = (ModelId::Qwen, "int8");
+            if let Err(why) = status().ready(m, v) {
+                ui.label(RichText::new(format!("{why} Qwen Image 2.1 runs these.")).color(Tokens::get(ctx).warning));
             }
-            if widgets::secondary_button(ui, "Cancel", 80.0).clicked() {
-                close = true;
-            }
+            ui.add_space(4.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let enter = ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift);
+                if widgets::primary_button(ui, "Generate", 96.0).clicked() || enter {
+                    let (cmd, p) = if background {
+                        ("ai.generateBackground", json!({ "prompt": app.ui.ai.background_prompt }))
+                    } else {
+                        ("ai.generativeFill", json!({ "prompt": app.ui.ai.fill_prompt }))
+                    };
+                    let r = app.run(cmd, p);
+                    report(app, r);
+                    close = true;
+                }
+                if widgets::secondary_button(ui, "Cancel", 80.0).clicked() {
+                    close = true;
+                }
+            });
         });
-    });
     if !open || close || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         dialogs_mut(|d| if background { d.background = false } else { d.fill = false });
     }
@@ -596,32 +622,38 @@ fn enhance_dialog(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let mut open = true;
     let mut close = false;
     let size = app.session.active().map(|d| (d.doc.size.width, d.doc.size.height));
-    egui::Window::new("AI Enhance").collapsible(false).resizable(false).frame(window_frame(ctx)).open(&mut open).anchor(egui::Align2::CENTER_CENTER, vec2(0.0, -80.0)).show(ctx, |ui| {
-        ui.set_width(360.0);
-        ui.label("Enhances detail and enlarges the image with SeedVR2. The result opens as a new document.");
-        ui.add_space(8.0);
-        let mut scale = dialogs_mut(|d| d.enhance_scale);
-        widgets::slider_row(ui, "Scale", &mut scale, 1.25..=4.0, "×", None);
-        dialogs_mut(|d| d.enhance_scale = scale);
-        if let Some((w, h)) = size {
-            let (nw, nh) = (((w as f32 * scale) as u32) & !1, ((h as f32 * scale) as u32) & !1);
-            ui.label(RichText::new(format!("{w} × {h}  →  {nw} × {nh} px")).color(Tokens::get(ctx).text_dim));
-        }
-        if let Err(why) = status().ready(ModelId::SeedVr2, "fp16") {
-            ui.label(RichText::new(why).color(Tokens::get(ctx).warning));
-        }
-        ui.add_space(8.0);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if widgets::primary_button(ui, "Enhance", 96.0).clicked() {
-                let r = app.run("ai.enhance", json!({ "scale": scale }));
-                report(app, r);
-                close = true;
+    egui::Window::new("AI Enhance")
+        .collapsible(false)
+        .resizable(false)
+        .frame(window_frame(ctx))
+        .open(&mut open)
+        .anchor(egui::Align2::CENTER_CENTER, vec2(0.0, -80.0))
+        .show(ctx, |ui| {
+            ui.set_width(360.0);
+            ui.label("Enhances detail and enlarges the image with SeedVR2. The result opens as a new document.");
+            ui.add_space(8.0);
+            let mut scale = dialogs_mut(|d| d.enhance_scale);
+            widgets::slider_row(ui, "Scale", &mut scale, 1.25..=4.0, "×", None);
+            dialogs_mut(|d| d.enhance_scale = scale);
+            if let Some((w, h)) = size {
+                let (nw, nh) = (((w as f32 * scale) as u32) & !1, ((h as f32 * scale) as u32) & !1);
+                ui.label(RichText::new(format!("{w} × {h}  →  {nw} × {nh} px")).color(Tokens::get(ctx).text_dim));
             }
-            if widgets::secondary_button(ui, "Cancel", 80.0).clicked() {
-                close = true;
+            if let Err(why) = status().ready(ModelId::SeedVr2, "fp16") {
+                ui.label(RichText::new(why).color(Tokens::get(ctx).warning));
             }
+            ui.add_space(8.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if widgets::primary_button(ui, "Enhance", 96.0).clicked() {
+                    let r = app.run("ai.enhance", json!({ "scale": scale }));
+                    report(app, r);
+                    close = true;
+                }
+                if widgets::secondary_button(ui, "Cancel", 80.0).clicked() {
+                    close = true;
+                }
+            });
         });
-    });
     if !open || close {
         dialogs_mut(|d| d.enhance = false);
     }
@@ -798,22 +830,18 @@ fn dls_running() -> bool {
     downloads().values().any(|d| !d.finished)
 }
 
-fn model_row(
-    ui: &mut egui::Ui,
-    t: &Tokens,
-    info: &catalog::ModelInfo,
-    p: &catalog::Preset,
-    st: &EngineStatus,
-    dl: Option<&Download>,
-    settings: &AiSettings,
-) {
+fn model_row(ui: &mut egui::Ui, t: &Tokens, info: &catalog::ModelInfo, p: &catalog::Preset, st: &EngineStatus, dl: Option<&Download>, settings: &AiSettings) {
     let frame = egui::Frame::NONE.fill(t.field).corner_radius(t.radius).inner_margin(egui::Margin::symmetric(10, 8));
     frame.show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 ui.label(RichText::new(format!("{} · {}", info.label, p.label)).strong());
-                ui.label(RichText::new(format!("{} · {} · {} GB GPU", info.best_for, li_ai::download::human_bytes(p.total_bytes()), info.vram_gb)).color(t.text_dim).size(11.5));
+                ui.label(
+                    RichText::new(format!("{} · {} · {} GB GPU", info.best_for, li_ai::download::human_bytes(p.total_bytes()), info.vram_gb))
+                        .color(t.text_dim)
+                        .size(11.5),
+                );
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let missing = li_ai::download::missing_files(&settings.model_dir(), p);
@@ -884,7 +912,7 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> Option<bool> {
     })
 }
 
-pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, _params: &Value) -> Option<Result<Value, String>> {
+pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Value) -> Option<Result<Value, String>> {
     if !handles(id) {
         return None;
     }
@@ -900,7 +928,13 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, _params: &Va
                 crate::generate_ui::focus_prompt(ctx);
             }
         }
-        "li.openFolder" => return Some(crate::generate_ui::open_folder(app)),
+        // `{"path": dir}` opens that folder without the dialog (automation, the control channel).
+        "li.openFolder" => {
+            return Some(match params.get("path").and_then(Value::as_str) {
+                Some(dir) => crate::generate_ui::open_folder_path(app, std::path::Path::new(dir)),
+                None => crate::generate_ui::open_folder(app),
+            });
+        }
         "li.batchRemoveBackgrounds" => crate::generate_ui::open_batch(),
         "li.generativeFill" => dialogs_mut(|d| d.fill = true),
         "li.generateBackground" => dialogs_mut(|d| d.background = true),
