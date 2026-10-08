@@ -74,7 +74,7 @@ mod tests {
     fn installed_plugins_appear_under_filter_plugins_and_run() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         let ctx = egui::Context::default();
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../plugins/tests/fixtures/invert.wasm");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../pc-plugins/tests/fixtures/invert.wasm");
         app.run("plugin.install", json!({"path": path})).unwrap();
         let items = crate::menus::menu_items(&app);
         let pi: Vec<&MenuItem> = items.iter().filter(|i| i.path == ["Filter", "Plug-ins"]).collect();

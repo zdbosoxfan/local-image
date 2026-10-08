@@ -1,0 +1,118 @@
+{
+  "schema": 1,
+  "version": 1,
+  "id": "flux2",
+  "label": "FLUX.2",
+  "group": "FLUX",
+  "description": "FLUX.2 dev (32B): top-tier quality and multi-reference editing; needs a large GPU or GGUF quantisation.",
+  "pipeline": {
+    "loader": "unet",
+    "clip": {
+      "node": "CLIPLoader",
+      "type": "flux2",
+      "skip": -1
+    },
+    "vae": "file",
+    "encode": "clip_text",
+    "flux_guidance": 4.0,
+    "zero_negative": true,
+    "latent": "EmptyFlux2LatentImage",
+    "sampler": "flux2_custom",
+    "sampler_name": "euler",
+    "scheduler": "simple",
+    "reference": "reference_latent",
+    "inpaint": "instruction",
+    "required_choices": [
+      [
+        "CLIPLoader",
+        "type",
+        "flux2"
+      ]
+    ]
+  },
+  "sizes": {
+    "native": 1024,
+    "multiple": 16,
+    "min": 512,
+    "max": 2048
+  },
+  "sampling": {
+    "steps": {
+      "default": 28,
+      "min": 1,
+      "max": 60
+    },
+    "cfg": {
+      "default": 1,
+      "min": 1,
+      "max": 1
+    },
+    "denoise": 1.0
+  },
+  "capabilities": {
+    "create": true,
+    "edit": true,
+    "references": 6,
+    "inpaint": true,
+    "transparent": false,
+    "negative_prompt": false
+  },
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "compatible": [
+      "flux2"
+    ],
+    "max": 3
+  },
+  "components": [
+    {
+      "role": "clip",
+      "names": [
+        "mistral_3_small_flux2_fp8.safetensors",
+        "mistral_3_small_flux2_bf16.safetensors"
+      ],
+      "patterns": [
+        "mistral_3_small_flux2"
+      ],
+      "source": "hf:Comfy-Org/flux2-dev/split_files/text_encoders/mistral_3_small_flux2_fp8.safetensors"
+    },
+    {
+      "role": "vae",
+      "names": [
+        "flux2-vae.safetensors"
+      ],
+      "patterns": [
+        "flux2-vae",
+        "flux2_vae"
+      ],
+      "download": {
+        "role": "vae",
+        "folder": "vae",
+        "name": "flux2-vae.safetensors",
+        "bytes": 336213556,
+        "sha256": "d64f3a68e1cc4f9f4e29b6e0da38a0204fe9a49f2d4053f0ec1fa1ca02f9c4b5",
+        "url": "https://huggingface.co/Comfy-Org/flux2-dev/resolve/ed33133cd56476eac818c0943b6f9419b3e4a3a1/split_files/vae/flux2-vae.safetensors",
+        "compatible": [
+          [
+            336213556,
+            "d64f3a68e1cc4f9f4e29b6e0da38a0204fe9a49f2d4053f0ec1fa1ca02f9c4b5"
+          ],
+          [
+            336211292,
+            "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"
+          ]
+        ]
+      }
+    }
+  ],
+  "vram_gb": 32,
+  "license": "FLUX [dev] Non-Commercial License",
+  "license_url": "https://huggingface.co/black-forest-labs/FLUX.2-dev/blob/main/LICENSE.md",
+  "civitai_base_models": [
+    "Flux.2 D"
+  ],
+  "hf_tags": [
+    "flux2"
+  ],
+  "models": []
+}

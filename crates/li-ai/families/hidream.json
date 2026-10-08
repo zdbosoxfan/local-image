@@ -1,0 +1,126 @@
+{
+  "schema": 1,
+  "version": 1,
+  "id": "hidream",
+  "label": "HiDream I1",
+  "group": "HiDream",
+  "description": "HiDream I1 (17B MoE) Full, Dev and Fast: high quality and prompt adherence; four text encoders.",
+  "pipeline": {
+    "loader": "unet",
+    "clip": {
+      "node": "QuadrupleCLIPLoader",
+      "skip": -1
+    },
+    "vae": "file",
+    "encode": "clip_text",
+    "model_sampling": {
+      "node": "ModelSamplingSD3",
+      "shift": 3.0
+    },
+    "latent": "EmptySD3LatentImage",
+    "sampler": "ksampler",
+    "sampler_name": "uni_pc",
+    "scheduler": "simple",
+    "reference": "none",
+    "inpaint": "noise_mask",
+    "differential": true
+  },
+  "sizes": {
+    "native": 1024,
+    "multiple": 16,
+    "min": 512,
+    "max": 2048
+  },
+  "sampling": {
+    "steps": {
+      "default": 50,
+      "min": 1,
+      "max": 100
+    },
+    "cfg": {
+      "default": 5,
+      "min": 1,
+      "max": 10
+    },
+    "denoise": 0.6
+  },
+  "capabilities": {
+    "create": true,
+    "edit": false,
+    "references": 0,
+    "inpaint": true,
+    "transparent": false,
+    "negative_prompt": true
+  },
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "compatible": [
+      "hidream"
+    ],
+    "max": 3
+  },
+  "components": [
+    {
+      "role": "clip",
+      "names": [
+        "clip_l_hidream.safetensors"
+      ],
+      "patterns": [
+        "clip_l_hidream",
+        "clip_l"
+      ],
+      "source": "hf:Comfy-Org/HiDream-I1_ComfyUI/split_files/text_encoders/clip_l_hidream.safetensors"
+    },
+    {
+      "role": "clip2",
+      "names": [
+        "clip_g_hidream.safetensors"
+      ],
+      "patterns": [
+        "clip_g_hidream",
+        "clip_g"
+      ],
+      "source": "hf:Comfy-Org/HiDream-I1_ComfyUI/split_files/text_encoders/clip_g_hidream.safetensors"
+    },
+    {
+      "role": "clip3",
+      "names": [
+        "t5xxl_fp8_e4m3fn_scaled.safetensors"
+      ],
+      "patterns": [
+        "t5xxl"
+      ],
+      "source": "hf:Comfy-Org/HiDream-I1_ComfyUI/split_files/text_encoders/t5xxl_fp8_e4m3fn_scaled.safetensors"
+    },
+    {
+      "role": "clip4",
+      "names": [
+        "llama_3.1_8b_instruct_fp8_scaled.safetensors"
+      ],
+      "patterns": [
+        "llama_3.1_8b"
+      ],
+      "source": "hf:Comfy-Org/HiDream-I1_ComfyUI/split_files/text_encoders/llama_3.1_8b_instruct_fp8_scaled.safetensors"
+    },
+    {
+      "role": "vae",
+      "names": [
+        "ae.safetensors"
+      ],
+      "patterns": [
+        "ae.safetensors"
+      ],
+      "source": "hf:Comfy-Org/HiDream-I1_ComfyUI/split_files/vae/ae.safetensors"
+    }
+  ],
+  "vram_gb": 24,
+  "license": "MIT",
+  "license_url": "https://huggingface.co/HiDream-ai/HiDream-I1-Full",
+  "civitai_base_models": [
+    "HiDream"
+  ],
+  "hf_tags": [
+    "hidream"
+  ],
+  "models": []
+}

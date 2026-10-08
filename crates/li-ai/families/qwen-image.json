@@ -1,0 +1,105 @@
+{
+  "schema": 1,
+  "version": 1,
+  "id": "qwen-image",
+  "label": "Qwen Image",
+  "group": "Qwen",
+  "description": "Alibaba's Qwen Image (20B MMDiT): excellent text rendering and prompt following.",
+  "pipeline": {
+    "loader": "unet",
+    "clip": {
+      "node": "CLIPLoader",
+      "type": "qwen_image",
+      "skip": -1
+    },
+    "vae": "file",
+    "encode": "clip_text",
+    "model_sampling": {
+      "node": "ModelSamplingAuraFlow",
+      "shift": 3.1
+    },
+    "latent": "EmptySD3LatentImage",
+    "sampler": "ksampler",
+    "sampler_name": "euler",
+    "scheduler": "simple",
+    "reference": "none",
+    "inpaint": "noise_mask",
+    "differential": true,
+    "required_choices": [
+      [
+        "CLIPLoader",
+        "type",
+        "qwen_image"
+      ]
+    ]
+  },
+  "sizes": {
+    "native": 1328,
+    "multiple": 16,
+    "min": 512,
+    "max": 2048
+  },
+  "sampling": {
+    "steps": {
+      "default": 25,
+      "min": 1,
+      "max": 100
+    },
+    "cfg": {
+      "default": 2.5,
+      "min": 1,
+      "max": 10
+    },
+    "denoise": 0.6
+  },
+  "capabilities": {
+    "create": true,
+    "edit": false,
+    "references": 0,
+    "inpaint": true,
+    "transparent": false,
+    "negative_prompt": true
+  },
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "compatible": [
+      "qwen-image",
+      "qwen-edit"
+    ],
+    "max": 3
+  },
+  "components": [
+    {
+      "role": "clip",
+      "names": [
+        "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "qwen_2.5_vl_7b.safetensors"
+      ],
+      "patterns": [
+        "qwen_2.5_vl_7b"
+      ],
+      "source": "hf:Comfy-Org/Qwen-Image_ComfyUI/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors"
+    },
+    {
+      "role": "vae",
+      "names": [
+        "qwen_image_vae.safetensors"
+      ],
+      "patterns": [
+        "qwen_image_vae"
+      ],
+      "source": "hf:Comfy-Org/Qwen-Image_ComfyUI/split_files/vae/qwen_image_vae.safetensors"
+    }
+  ],
+  "vram_gb": 24,
+  "license": "Apache 2.0",
+  "license_url": "https://huggingface.co/Qwen/Qwen-Image",
+  "civitai_base_models": [
+    "Qwen"
+  ],
+  "hf_tags": [
+    "qwen-image",
+    "base_model:Qwen/Qwen-Image"
+  ],
+  "models": []
+}

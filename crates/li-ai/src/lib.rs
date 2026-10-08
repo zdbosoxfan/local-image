@@ -2,10 +2,15 @@
 //! workflow graphs carried over from Local Image 0.7, verified model downloads, the generated-image
 //! library and ComfyUI setup helpers. Everything here is blocking and meant for worker threads.
 
+pub mod arch;
+pub mod builders;
 pub mod catalog;
 pub mod comfy;
 pub mod download;
+pub mod family;
 pub mod imaging;
+pub mod inpaint;
+pub mod inventory;
 pub mod library;
 pub mod mock;
 pub mod ops;
@@ -15,7 +20,7 @@ pub mod workflows;
 
 pub use catalog::ModelId;
 pub use comfy::{Cancelled, ComfyClient, JobControl, Progress, Stage};
-pub use ops::{Ai, GenerateMode, GenerateRequest, RemoveEngine};
+pub use ops::{Ai, GenerateMode, GenerateRequest, RefineStep, RemoveEngine};
 pub use settings::AiSettings;
 
 /// The AI service as configured: `LOCAL_IMAGE_COMFY` (`host:port`, for tests and demos) or the

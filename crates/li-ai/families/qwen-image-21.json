@@ -1,0 +1,171 @@
+{
+  "schema": 1,
+  "version": 1,
+  "id": "qwen-image-21",
+  "label": "Qwen Image 2.1",
+  "group": "Qwen",
+  "description": "Qwen Image 2.1 (7B): edits with up to ten reference images, real alpha-channel output for cutouts and transparent assets.",
+  "pipeline": {
+    "loader": "unet",
+    "clip": {
+      "node": "CLIPLoader",
+      "type": "qwen_image",
+      "skip": -1
+    },
+    "vae": "file",
+    "encode": "qwen_image21",
+    "latent": "EmptyLatentImage",
+    "sampler": "ksampler",
+    "sampler_name": "euler",
+    "scheduler": "simple",
+    "reference": "text_encoder",
+    "inpaint": "instruction",
+    "required_choices": [
+      [
+        "CLIPLoader",
+        "type",
+        "qwen_image"
+      ]
+    ]
+  },
+  "sizes": {
+    "native": 1024,
+    "multiple": 16,
+    "min": 256,
+    "max": 2048
+  },
+  "sampling": {
+    "steps": {
+      "default": 40,
+      "min": 1,
+      "max": 100
+    },
+    "cfg": {
+      "default": 1,
+      "min": 1,
+      "max": 10
+    },
+    "denoise": 1.0
+  },
+  "capabilities": {
+    "create": true,
+    "edit": true,
+    "references": 10,
+    "inpaint": true,
+    "transparent": true,
+    "negative_prompt": true
+  },
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "compatible": [
+      "qwen-image-21"
+    ],
+    "max": 3
+  },
+  "components": [
+    {
+      "role": "vae",
+      "names": [
+        "qwen_image_2.1_vae_bf16.safetensors"
+      ],
+      "patterns": [
+        "qwen_image_2.1_vae"
+      ]
+    }
+  ],
+  "vram_gb": 24,
+  "license": "Qwen Research License",
+  "license_url": "https://github.com/QwenLM/Qwen-Image-2.1/blob/main/LICENSE",
+  "civitai_base_models": [
+    "Qwen 2.1"
+  ],
+  "hf_tags": [
+    "qwen-image-2.1"
+  ],
+  "models": [
+    {
+      "key": "qwen",
+      "label": "Qwen Image 2.1",
+      "short": "Qwen",
+      "best_for": "Edits, background removal and transparent assets",
+      "description": "A 7B image model that follows instructions closely. Edits with up to ten reference images, removes backgrounds with a real alpha channel and generates transparent PNGs.",
+      "notes": "Compact INT8 needs about 24 GB of GPU memory, Full BF16 about 32 GB. Negative prompts only take effect with guidance above 1.",
+      "vram_gb": 24,
+      "starter": true,
+      "presets": [
+        {
+          "variant": "int8",
+          "label": "Compact · INT8",
+          "files": [
+            {
+              "role": "unet",
+              "folder": "diffusion_models",
+              "name": "qwen_image_2.1_int8_convrot.safetensors",
+              "bytes": 7256783064,
+              "sha256": "cb74113cb03faecd79611b01fd7fd642f0aa60d6f0b95086abee214d75eaa57d",
+              "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/cb504a4090723e43f17ad01cec0359490e2de613/diffusion_models/qwen_image_2.1_int8_convrot.safetensors",
+              "compatible": []
+            },
+            {
+              "role": "clip",
+              "folder": "text_encoders",
+              "name": "qwen3vl_8b_int8_convrot.safetensors",
+              "bytes": 9350798360,
+              "sha256": "8bfd0f6e12abf2d2d697ecc888e5e90b0d6741d6708f05799f53afa560452e8f",
+              "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/cb504a4090723e43f17ad01cec0359490e2de613/text_encoders/qwen3vl_8b_int8_convrot.safetensors",
+              "compatible": []
+            },
+            {
+              "role": "vae",
+              "folder": "vae",
+              "name": "qwen_image_2.1_vae_bf16.safetensors",
+              "bytes": 675509688,
+              "sha256": "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9",
+              "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/cb504a4090723e43f17ad01cec0359490e2de613/vae/qwen_image_2.1_vae_bf16.safetensors",
+              "compatible": []
+            }
+          ],
+          "required_nodes": [
+            "JoinImageWithAlpha"
+          ]
+        },
+        {
+          "variant": "bf16",
+          "label": "Full precision · BF16",
+          "files": [
+            {
+              "role": "unet",
+              "folder": "diffusion_models",
+              "name": "qwen_image_2.1_bf16.safetensors",
+              "bytes": 14230280616,
+              "sha256": "89f4158d066cc33906a199fca85634f766892dd78f49b6698dabf187ac86c4bc",
+              "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/cb504a4090723e43f17ad01cec0359490e2de613/diffusion_models/qwen_image_2.1_bf16.safetensors",
+              "compatible": []
+            },
+            {
+              "role": "clip",
+              "folder": "text_encoders",
+              "name": "qwen3vl_8b_bf16.safetensors",
+              "bytes": 17534334616,
+              "sha256": "68bdc82bc1b66851162ae656225e7e2068166b603db19bd5d5a3b90eb12669a9",
+              "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/cb504a4090723e43f17ad01cec0359490e2de613/text_encoders/qwen3vl_8b_bf16.safetensors",
+              "compatible": []
+            },
+            {
+              "role": "vae",
+              "folder": "vae",
+              "name": "qwen_image_2.1_vae_bf16.safetensors",
+              "bytes": 675509688,
+              "sha256": "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9",
+              "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/cb504a4090723e43f17ad01cec0359490e2de613/vae/qwen_image_2.1_vae_bf16.safetensors",
+              "compatible": []
+            }
+          ],
+          "required_nodes": [
+            "JoinImageWithAlpha"
+          ]
+        }
+      ]
+    }
+  ]
+}

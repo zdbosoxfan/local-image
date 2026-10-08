@@ -15,7 +15,7 @@ use std::time::Duration;
 use image::{Rgba, RgbaImage};
 use serde_json::{Value, json};
 
-use crate::catalog::{PRESETS, Role};
+use crate::family::Role;
 
 #[derive(Default)]
 struct State {
@@ -79,65 +79,135 @@ impl Drop for MockComfy {
     }
 }
 
-/// Everything Local Image asks for: every node class used by the workflows, every model file.
+/// Models the mock reports as installed beyond the catalogue's presets: one or more of every
+/// family, so the generic graphs, detection and the model picker can be exercised.
+pub const FIXTURE_CHECKPOINTS: &[&str] = &[
+    "juggernautXL_v9.safetensors",
+    "dreamshaper_8.safetensors",
+    "ponyDiffusionV6XL.safetensors",
+    "novaAnimeXL_ilV125.safetensors",
+    "sd3.5_large_fp8_scaled.safetensors",
+];
+pub const FIXTURE_UNETS: &[&str] = &[
+    "flux1-dev-fp8.safetensors",
+    "flux1-dev-kontext_fp8_scaled.safetensors",
+    "flux1-fill-dev.safetensors",
+    "qwen_image_fp8_e4m3fn.safetensors",
+    "qwen_image_edit_2511_bf16.safetensors",
+    "hidream_i1_dev_fp8.safetensors",
+    "flux2_dev_Q4_K_M.gguf",
+];
+const FIXTURE_CLIPS: &[&str] = &[
+    "clip_l.safetensors",
+    "clip_g.safetensors",
+    "t5xxl_fp8_e4m3fn_scaled.safetensors",
+    "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+    "clip_l_hidream.safetensors",
+    "clip_g_hidream.safetensors",
+    "llama_3.1_8b_instruct_fp8_scaled.safetensors",
+    "mistral_3_small_flux2_fp8.safetensors",
+];
+const FIXTURE_VAES: &[&str] = &["ae.safetensors", "qwen_image_vae.safetensors"];
+const FIXTURE_LORAS: &[&str] =
+    &["local-image/qwen-watercolor.safetensors", "pony_style_v2.safetensors", "flux_realism_lora.safetensors", "sdxl_detail_tweaker.safetensors"];
+
+/// Everything Local Image asks for: every node class the family graphs use, every model file.
 pub fn object_info() -> Value {
     let mut files: HashMap<Role, Vec<String>> = HashMap::new();
-    for p in PRESETS {
-        for f in p.files {
-            let v = files.entry(f.role).or_default();
-            if !v.iter().any(|n| n == f.name) {
-                v.push(f.name.to_owned());
-            }
+    let mut add = |role: Role, name: &str| {
+        let role = match role {
+            Role::Clip2 | Role::Clip3 | Role::Clip4 => Role::Clip,
+            r => r,
+        };
+        let v = files.entry(role).or_default();
+        if !v.iter().any(|n| n == name) {
+            v.push(name.to_owned());
         }
+    };
+    for p in crate::catalog::presets().iter().filter(|p| !p.installed) {
+        for f in &p.files {
+            add(f.role, &f.name);
+        }
+    }
+    for n in FIXTURE_CHECKPOINTS {
+        add(Role::Checkpoint, n);
+    }
+    for n in FIXTURE_UNETS {
+        add(Role::Unet, n);
+    }
+    for n in FIXTURE_CLIPS {
+        add(Role::Clip, n);
+    }
+    for n in FIXTURE_VAES {
+        add(Role::Vae, n);
+    }
+    for n in FIXTURE_LORAS {
+        add(Role::Lora, n);
     }
     let combo = |v: Vec<String>| json!([v]);
     let mut info = serde_json::Map::new();
-    let nodes = [
-        "UNETLoader",
-        "CLIPLoader",
-        "VAELoader",
-        "TextEncodeQwenImage21",
-        "KSampler",
-        "VAEDecode",
+    let mut nodes: Vec<String> = [
         "SaveImage",
         "PreviewImage",
         "LoadImage",
         "JoinImageWithAlpha",
-        "EmptyLatentImage",
         "QwenImage21Cache",
-        "CLIPTextEncode",
-        "ConditioningZeroOut",
-        "ModelSamplingAuraFlow",
-        "VAEEncode",
-        "EmptySD3LatentImage",
-        "EmptyFlux2LatentImage",
-        "Flux2Scheduler",
-        "RandomNoise",
-        "KSamplerSelect",
-        "SamplerCustomAdvanced",
-        "CFGGuider",
-        "ReferenceLatent",
+        "LoraLoader",
         "LoraLoaderModelOnly",
         "SeedVR2Preprocess",
         "VAEEncodeTiled",
         "SeedVR2Conditioning",
         "VAEDecodeTiled",
         "SeedVR2PostProcessing",
-    ];
-    for n in nodes {
-        info.insert(n.to_owned(), json!({ "input": { "required": {} } }));
+        "UpscaleModelLoader",
+        "ImageUpscaleWithModel",
+    ]
+    .iter()
+    .map(|s| (*s).to_owned())
+    .collect();
+    for f in &crate::family::registry().families {
+        nodes.extend(crate::builders::required_nodes(f));
+        for task in [crate::builders::Task::Refine { denoise: 0.5 }, crate::builders::Task::Inpaint { denoise: 1.0 }, crate::builders::Task::Edit] {
+            nodes.extend(crate::builders::task_nodes(f, task, 1));
+        }
     }
-    let mut loras = files.remove(&Role::Lora).unwrap_or_default();
-    loras.push("local-image/qwen-watercolor.safetensors".into());
+    nodes.sort();
+    nodes.dedup();
+    for n in nodes {
+        info.insert(n, json!({ "input": { "required": {} } }));
+    }
+    let clips = files.remove(&Role::Clip).unwrap_or_default();
     info.insert("UNETLoader".into(), json!({ "input": { "required": { "unet_name": combo(files.remove(&Role::Unet).unwrap_or_default()) } } }));
     info.insert(
+        "CheckpointLoaderSimple".into(),
+        json!({ "input": { "required": { "ckpt_name": combo(files.remove(&Role::Checkpoint).unwrap_or_default()) } } }),
+    );
+    info.insert(
         "CLIPLoader".into(),
-        json!({ "input": { "required": { "clip_name": combo(files.remove(&Role::Clip).unwrap_or_default()), "type": ["COMBO", { "options": ["qwen_image", "flux2", "lumina2"] }] } } }),
+        json!({ "input": { "required": { "clip_name": combo(clips.clone()), "type": ["COMBO", { "options": ["stable_diffusion", "qwen_image", "flux2", "lumina2", "chroma"] }] } } }),
+    );
+    info.insert(
+        "DualCLIPLoader".into(),
+        json!({ "input": { "required": { "clip_name1": combo(clips.clone()), "clip_name2": combo(clips.clone()), "type": [["sdxl", "sd3", "flux", "hidream"]] } } }),
+    );
+    info.insert(
+        "TripleCLIPLoader".into(),
+        json!({ "input": { "required": { "clip_name1": combo(clips.clone()), "clip_name2": combo(clips.clone()), "clip_name3": combo(clips.clone()) } } }),
+    );
+    info.insert(
+        "QuadrupleCLIPLoader".into(),
+        json!({ "input": { "required": { "clip_name1": combo(clips.clone()), "clip_name2": combo(clips.clone()), "clip_name3": combo(clips.clone()), "clip_name4": combo(clips) } } }),
     );
     info.insert("VAELoader".into(), json!({ "input": { "required": { "vae_name": combo(files.remove(&Role::Vae).unwrap_or_default()) } } }));
-    info.insert("LoraLoaderModelOnly".into(), json!({ "input": { "required": { "lora_name": combo(loras) } } }));
-    info.insert("KSampler".into(), json!({ "input": { "required": { "sampler_name": [["euler", "res_multistep"]] } } }));
+    let loras = files.remove(&Role::Lora).unwrap_or_default();
+    info.insert("LoraLoaderModelOnly".into(), json!({ "input": { "required": { "lora_name": combo(loras.clone()) } } }));
+    info.insert("LoraLoader".into(), json!({ "input": { "required": { "lora_name": combo(loras) } } }));
+    info.insert(
+        "KSampler".into(),
+        json!({ "input": { "required": { "sampler_name": [["euler", "euler_ancestral", "res_multistep", "dpmpp_2m", "dpmpp_2m_sde", "uni_pc"]], "scheduler": [["simple", "karras", "normal", "sgm_uniform", "beta"]] } } }),
+    );
     info.insert("KSamplerSelect".into(), json!({ "input": { "required": { "sampler_name": [["euler"]] } } }));
+    info.insert("UnetLoaderGGUF".into(), json!({ "input": { "required": { "unet_name": [["flux2_dev_Q4_K_M.gguf"]] } } }));
     Value::Object(info)
 }
 
@@ -259,6 +329,7 @@ fn hash_color(s: &str) -> [u8; 3] {
 fn render(graph: &Value, uploads: &HashMap<String, Vec<u8>>) -> Vec<u8> {
     let prompt = input_of(graph, "TextEncodeQwenImage21")
         .and_then(|i| i["prompt"].as_str())
+        .or_else(|| input_of(graph, "TextEncodeQwenImageEditPlus").and_then(|i| i["prompt"].as_str()))
         .or_else(|| input_of(graph, "CLIPTextEncode").and_then(|i| i["text"].as_str()))
         .unwrap_or("")
         .to_owned();
@@ -305,6 +376,26 @@ fn render(graph: &Value, uploads: &HashMap<String, Vec<u8>>) -> Vec<u8> {
             }
             return png(&src);
         }
+    }
+    // Refine, inpaint and generic edits (a source image, no empty latent): the source, tinted;
+    // green-filled areas (instruction inpainting) are painted with the prompt colour.
+    let empty_latent = ["EmptyLatentImage", "EmptyFlux2LatentImage", "EmptySD3LatentImage"].iter().any(|c| input_of(graph, c).is_some());
+    let edits = input_of(graph, "SetLatentNoiseMask").is_some()
+        || input_of(graph, "InpaintModelConditioning").is_some()
+        || input_of(graph, "TextEncodeQwenImageEditPlus").is_some()
+        || (!empty_latent && input_of(graph, "VAEEncode").is_some());
+    if edits && let Some(mut src) = uploaded(graph, uploads, 0) {
+        let tint = hash_color(&prompt);
+        for p in src.pixels_mut() {
+            if p.0[..3] == [0, 255, 0] {
+                *p = Rgba([tint[0], tint[1], tint[2], 255]);
+                continue;
+            }
+            for k in 0..3 {
+                p[k] = ((p[k] as u32 * 3 + tint[k] as u32) / 4) as u8;
+            }
+        }
+        return png(&src);
     }
     let size = ["EmptyLatentImage", "EmptyFlux2LatentImage", "EmptySD3LatentImage"]
         .iter()
@@ -412,5 +503,112 @@ mod tests {
         let err = gone.generate(&GenerateRequest::new(ModelId::ZImageTurbo, "x"), &JobControl::new()).unwrap_err();
         assert!(err.to_string().contains("Cannot reach ComfyUI"), "{err}");
         assert!(t.elapsed() < Duration::from_secs(5));
+    }
+
+    fn classes_of(g: &Value) -> Vec<String> {
+        g.as_object().unwrap().values().map(|n| n["class_type"].as_str().unwrap().to_owned()).collect()
+    }
+
+    #[test]
+    fn every_family_runs_against_the_mock() {
+        let server = MockComfy::start().unwrap();
+        server.delay_ms.store(10, Ordering::SeqCst);
+        let ai = Ai::new(server.host());
+        let ctl = JobControl::new();
+        // Installed models are found and join the catalogue.
+        crate::inventory::refresh(&crate::comfy::ObjectInfo(object_info()), None);
+        let key = |k: &str| ModelId::from_key(k).unwrap_or_else(|| panic!("{k} not in the catalogue"));
+        let sdxl = key("ckpt:juggernautXL_v9.safetensors");
+        assert_eq!(sdxl.info().family, "sdxl");
+        // SDXL create with a LoRA through LoraLoader.
+        let mut req = GenerateRequest::new(sdxl, "a lighthouse at dusk");
+        req.variant = "installed".into();
+        req.width = 832;
+        req.height = 1216;
+        req.loras = vec![crate::workflows::LoraUse { name: "sdxl_detail_tweaker.safetensors".into(), strength: 0.5 }];
+        assert_eq!(ai.generate(&req, &ctl).unwrap().dimensions(), (832, 1216));
+        let g = server.prompts().last().unwrap().clone();
+        let c = classes_of(&g);
+        assert!(c.contains(&"CheckpointLoaderSimple".into()) && c.contains(&"LoraLoader".into()));
+        // Pony gets its score tags.
+        let pony = key("ckpt:ponyDiffusionV6XL.safetensors");
+        let mut req = GenerateRequest::new(pony, "a fox");
+        req.variant = "installed".into();
+        ai.generate(&req, &ctl).unwrap();
+        let g = server.prompts().last().unwrap().clone();
+        assert!(g.as_object().unwrap().values().any(|n| n["inputs"]["text"].as_str().is_some_and(|t| t.starts_with("score_9"))));
+        // Every installed family creates an image.
+        for k in [
+            "unet:flux1-dev-fp8.safetensors",
+            "unet:qwen_image_fp8_e4m3fn.safetensors",
+            "unet:hidream_i1_dev_fp8.safetensors",
+            "ckpt:sd3.5_large_fp8_scaled.safetensors",
+        ] {
+            let m = key(k);
+            let mut req = GenerateRequest::new(m, "a teapot");
+            req.variant = "installed".into();
+            req.width = 512;
+            req.height = 512;
+            assert_eq!(ai.generate(&req, &ctl).unwrap_or_else(|e| panic!("{k}: {e:#}")).dimensions(), (512, 512), "{k}");
+        }
+        // Qwen Edit edits natively and keeps the size.
+        let src = RgbaImage::from_pixel(640, 480, Rgba([200, 30, 30, 255]));
+        let mut req = GenerateRequest::new(key("unet:qwen_image_edit_2511_bf16.safetensors"), "make it blue");
+        req.variant = "installed".into();
+        req.mode = GenerateMode::Edit;
+        req.source = Some(src.clone());
+        assert_eq!(ai.generate(&req, &ctl).unwrap().dimensions(), (640, 480));
+        assert!(classes_of(server.prompts().last().unwrap()).contains(&"TextEncodeQwenImageEditPlus".into()));
+        // SDXL "edit" becomes a refine of the image.
+        let mut req = GenerateRequest::new(sdxl, "golden hour");
+        req.variant = "installed".into();
+        req.mode = GenerateMode::Edit;
+        req.source = Some(src.clone());
+        ai.generate(&req, &ctl).unwrap();
+        let k = server.prompts().last().unwrap().as_object().unwrap().values().find(|n| n["class_type"] == "KSampler").unwrap().clone();
+        assert!(k["inputs"]["denoise"].as_f64().unwrap() < 1.0);
+        // Inpaint: only the selection (and its feathered edge) changes.
+        let photo = RgbaImage::from_fn(1200, 800, |x, _| Rgba([(x / 5) as u8, 120, 90, 255]));
+        let mut mask = GrayImage::new(1200, 800);
+        for y in 300..420 {
+            for x in 500..640 {
+                mask.put_pixel(x, y, Luma([255]));
+            }
+        }
+        for k in ["ckpt:juggernautXL_v9.safetensors", "unet:flux1-fill-dev.safetensors", "unet:qwen_image_edit_2511_bf16.safetensors"] {
+            let mut req = GenerateRequest::new(key(k), "a stone");
+            req.variant = "installed".into();
+            req.mode = GenerateMode::Inpaint;
+            req.denoise = 1.0;
+            req.source = Some(photo.clone());
+            req.mask = Some(mask.clone());
+            let out = ai.generate(&req, &ctl).unwrap_or_else(|e| panic!("{k}: {e:#}"));
+            assert_eq!(out.dimensions(), (1200, 800));
+            assert_eq!(out.get_pixel(20, 20), photo.get_pixel(20, 20), "{k}");
+            assert_ne!(out.get_pixel(570, 360), photo.get_pixel(570, 360), "{k}");
+        }
+        let c = classes_of(server.prompts().last().unwrap());
+        assert!(c.contains(&"TextEncodeQwenImageEditPlus".into()), "instruction inpaint");
+        // Draft → Refine: Klein drafts, SDXL refines.
+        let mut req = GenerateRequest::new(ModelId::Klein4B, "a castle");
+        req.width = 512;
+        req.height = 512;
+        req.refine = Some(crate::ops::RefineStep { model: sdxl, variant: "installed".into(), strength: 0.35, steps: None, guidance: None, scale: 1.5 });
+        let before = server.prompts().len();
+        let out = ai.generate(&req, &ctl).unwrap();
+        assert_eq!(out.dimensions(), (768, 768));
+        assert_eq!(server.prompts().len(), before + 2);
+        // Upscale-refine: tiles cover a 2× enlargement.
+        let mut req = GenerateRequest::new(sdxl, "");
+        req.variant = "installed".into();
+        req.mode = GenerateMode::UpscaleRefine;
+        req.source = Some(RgbaImage::from_pixel(700, 500, Rgba([90, 90, 200, 255])));
+        req.scale = 2.0;
+        req.denoise = 0.3;
+        let before = server.prompts().len();
+        let out = ai.generate(&req, &ctl).unwrap();
+        assert_eq!(out.dimensions(), (1400, 1000));
+        assert!(server.prompts().len() - before >= 2);
+        crate::catalog::set_installed(Vec::new());
     }
 }

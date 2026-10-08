@@ -57,7 +57,7 @@ pub fn hash_file(path: &Path) -> Result<(u64, String)> {
 /// True when `path` holds an accepted copy of `spec` (checked by size first, then hash).
 pub fn verify_existing(path: &Path, spec: &FileSpec) -> Result<bool> {
     let Ok(meta) = std::fs::metadata(path) else { return Ok(false) };
-    let accepted: Vec<(u64, &str)> = std::iter::once((spec.bytes, spec.sha256)).chain(spec.compatible.iter().copied()).collect();
+    let accepted: Vec<(u64, &str)> = std::iter::once((spec.bytes, spec.sha256.as_str())).chain(spec.compatible.iter().map(|(b, s)| (*b, s.as_str()))).collect();
     if !accepted.iter().any(|(b, _)| *b == meta.len()) {
         bail!("{} exists but is not the expected file (size differs). Move it aside to download a fresh copy.", path.display());
     }
@@ -70,12 +70,12 @@ pub fn verify_existing(path: &Path, spec: &FileSpec) -> Result<bool> {
 }
 
 pub fn target_path(model_dir: &Path, spec: &FileSpec) -> PathBuf {
-    model_dir.join(spec.folder).join(spec.name)
+    model_dir.join(&spec.folder).join(&spec.name)
 }
 
 /// Which files of a preset are missing from `model_dir` (by name only; hashing is done on
 /// download).
-pub fn missing_files(model_dir: &Path, preset: &Preset) -> Vec<&'static FileSpec> {
+pub fn missing_files<'a>(model_dir: &Path, preset: &'a Preset) -> Vec<&'a FileSpec> {
     preset.files.iter().filter(|f| !target_path(model_dir, f).exists()).collect()
 }
 
@@ -83,20 +83,20 @@ pub fn missing_files(model_dir: &Path, preset: &Preset) -> Vec<&'static FileSpec
 pub fn download_preset(model_dir: &Path, preset: &Preset, ctl: &JobControl, on_progress: &dyn Fn(DownloadProgress)) -> Result<()> {
     let total: u64 = preset.files.iter().map(|f| f.bytes).sum();
     let mut done = 0u64;
-    for spec in preset.files {
+    for spec in &preset.files {
         let path = target_path(model_dir, spec);
         if path.exists() {
             ctl.set_message(format!("Checking {}", spec.name));
             verify_existing(&path, spec)?;
             done += spec.bytes;
-            on_progress(DownloadProgress { file: spec.name.into(), done_bytes: done, total_bytes: total });
+            on_progress(DownloadProgress { file: spec.name.clone(), done_bytes: done, total_bytes: total });
             continue;
         }
         let base = done;
-        download_file(spec.url, &path, spec.bytes, spec.sha256, ctl, &|n| {
-            on_progress(DownloadProgress { file: spec.name.into(), done_bytes: base + n, total_bytes: total })
+        download_file(&spec.url, &path, spec.bytes, &spec.sha256, ctl, &|n| {
+            on_progress(DownloadProgress { file: spec.name.clone(), done_bytes: base + n, total_bytes: total })
         })
-        .map_err(|e| match preset.access_url {
+        .map_err(|e| match &preset.access_url {
             Some(url) if e.to_string().contains("401") || e.to_string().contains("403") => {
                 anyhow::anyhow!("The publisher requires you to accept its licence before downloading. Request access at {url}, then try again.")
             }
@@ -246,18 +246,17 @@ mod tests {
         let p = dir.join("f.bin");
         std::fs::write(&p, b"hello").unwrap();
         let sha = hex::encode(Sha256::digest(b"hello"));
-        let leak: &'static str = Box::leak(sha.into_boxed_str());
         let spec = FileSpec {
             role: crate::catalog::Role::Vae,
-            folder: "vae",
-            name: "f.bin",
+            folder: "vae".into(),
+            name: "f.bin".into(),
             bytes: 5,
-            sha256: leak,
-            url: "https://huggingface.co/f",
-            compatible: &[],
+            sha256: sha,
+            url: "https://huggingface.co/f".into(),
+            compatible: Vec::new(),
         };
         assert!(verify_existing(&p, &spec).unwrap());
-        let wrong = FileSpec { bytes: 6, ..spec };
+        let wrong = FileSpec { bytes: 6, ..spec.clone() };
         assert!(verify_existing(&p, &wrong).is_err());
         std::fs::remove_dir_all(dir).ok();
         assert_eq!(human_bytes(7_256_783_064), "7.3 GB");

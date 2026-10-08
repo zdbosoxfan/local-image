@@ -25,7 +25,7 @@ fn main() {
         Ok(())
     })
     .unwrap();
-    let wasm = include_bytes!("../../plugins/tests/fixtures/invert.wasm");
+    let wasm = include_bytes!("../../pc-plugins/tests/fixtures/invert.wasm");
     let data: String = {
         const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
         wasm.chunks(3)

@@ -1,9 +1,11 @@
-//! ComfyUI API-format graphs for every model, ported node-for-node from Local Image 0.7 so results
-//! match. Each builder takes the loader file names resolved by [`crate::catalog::availability`].
+//! The ComfyUI graphs that keep 0.7's exact node layout: Qwen Image 2.1 (create, edit, references;
+//! [`crate::builders`] calls it for that family), SeedVR2 and the AI Remove graph. Everything else
+//! is built per family by [`crate::builders`]. Each builder takes the loader file names resolved by
+//! [`crate::catalog::availability`].
 //! `LoadImage` nodes are created with an empty `image`; [`crate::comfy::ComfyClient::run`] uploads
 //! the pixels and fills them in.
 
-use crate::catalog::Role;
+use crate::family::Role;
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 
@@ -46,11 +48,12 @@ fn f(files: &Files, role: Role) -> String {
     files.get(&role).cloned().unwrap_or_default()
 }
 
-/// Node ids of the `LoadImage` nodes a graph expects, in order.
+/// Node ids of the `LoadImage` nodes a graph expects, in order, and what each one is.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Built {
     pub graph: Value,
     pub image_nodes: Vec<String>,
+    pub slots: Vec<crate::builders::Slot>,
 }
 
 pub struct QwenParams<'a> {
@@ -107,121 +110,7 @@ pub fn qwen(files: &Files, p: &QwenParams) -> Built {
     } else {
         g.node(5, "EmptyLatentImage", json!({ "width": p.width, "height": p.height, "batch_size": 1 }));
     }
-    Built { graph: g.into_value(), image_nodes }
-}
-
-pub struct ZImageParams<'a> {
-    pub prompt: &'a str,
-    pub width: u32,
-    pub height: u32,
-    pub seed: u64,
-    pub steps: u32,
-    /// Variation strength when a starting image is given.
-    pub denoise: f32,
-    pub init_image: bool,
-    pub loras: &'a [LoraUse],
-}
-
-pub fn z_image(files: &Files, p: &ZImageParams) -> Built {
-    let mut g = Graph::default();
-    g.node(1, "UNETLoader", json!({ "unet_name": f(files, Role::Unet), "weight_dtype": "default" }));
-    g.node(2, "CLIPLoader", json!({ "clip_name": f(files, Role::Clip), "type": "lumina2", "device": "default" }));
-    g.node(3, "VAELoader", json!({ "vae_name": f(files, Role::Vae) }));
-    g.node(4, "CLIPTextEncode", json!({ "clip": ["2", 0], "text": p.prompt }));
-    g.node(5, "ConditioningZeroOut", json!({ "conditioning": ["4", 0] }));
-    g.node(6, "ModelSamplingAuraFlow", json!({ "model": ["1", 0], "shift": 3.0 }));
-    g.node(
-        7,
-        "KSampler",
-        json!({ "model": ["6", 0], "seed": p.seed, "steps": p.steps, "cfg": 1.0, "sampler_name": "res_multistep", "scheduler": "simple",
-                "positive": ["4", 0], "negative": ["5", 0], "latent_image": ["10", 0], "denoise": if p.init_image { p.denoise } else { 1.0 } }),
-    );
-    g.node(8, "VAEDecode", json!({ "samples": ["7", 0], "vae": ["3", 0] }));
-    g.node(9, "SaveImage", json!({ "images": ["8", 0], "filename_prefix": "LocalImage_ZImageTurbo" }));
-    let model = g.lora_chain(json!(["1", 0]), p.loras);
-    g.set("6", "model", model);
-    let mut image_nodes = Vec::new();
-    if p.init_image {
-        g.node(11, "LoadImage", json!({ "image": "" }));
-        g.node(10, "VAEEncode", json!({ "pixels": ["11", 0], "vae": ["3", 0] }));
-        image_nodes.push("11".into());
-    } else {
-        g.node(10, "EmptySD3LatentImage", json!({ "width": p.width, "height": p.height, "batch_size": 1 }));
-    }
-    Built { graph: g.into_value(), image_nodes }
-}
-
-pub struct Flux2Params<'a> {
-    pub prompt: &'a str,
-    pub width: u32,
-    pub height: u32,
-    pub seed: u64,
-    pub steps: u32,
-    pub references: usize,
-    pub loras: &'a [LoraUse],
-}
-
-/// FLUX.2 Klein (4B / 9B, distilled): CFG 1 with zeroed negative conditioning and a
-/// ReferenceLatent per reference image on both chains.
-pub fn flux2_klein(files: &Files, p: &Flux2Params) -> Built {
-    let mut g = Graph::default();
-    g.node(1, "UNETLoader", json!({ "unet_name": f(files, Role::Unet), "weight_dtype": "default" }));
-    g.node(2, "CLIPLoader", json!({ "clip_name": f(files, Role::Clip), "type": "flux2", "device": "default" }));
-    g.node(3, "VAELoader", json!({ "vae_name": f(files, Role::Vae) }));
-    g.node(4, "CLIPTextEncode", json!({ "clip": ["2", 0], "text": p.prompt }));
-    g.node(7, "EmptyFlux2LatentImage", json!({ "width": p.width, "height": p.height, "batch_size": 1 }));
-    g.node(8, "Flux2Scheduler", json!({ "steps": p.steps, "width": p.width, "height": p.height }));
-    g.node(9, "RandomNoise", json!({ "noise_seed": p.seed }));
-    g.node(10, "KSamplerSelect", json!({ "sampler_name": "euler" }));
-    g.node(11, "SamplerCustomAdvanced", json!({ "noise": ["9", 0], "guider": ["6", 0], "sampler": ["10", 0], "sigmas": ["8", 0], "latent_image": ["7", 0] }));
-    g.node(12, "VAEDecode", json!({ "samples": ["11", 0], "vae": ["3", 0] }));
-    g.node(13, "SaveImage", json!({ "images": ["12", 0], "filename_prefix": "LocalImage_Flux2" }));
-    g.node(5, "ConditioningZeroOut", json!({ "conditioning": ["4", 0] }));
-    let (mut pos, mut neg) = (json!(["4", 0]), json!(["5", 0]));
-    let mut image_nodes = Vec::new();
-    for i in 0..p.references {
-        let ids: Vec<String> = (0..4).map(|k| (20 + i * 4 + k).to_string()).collect();
-        g.node(&ids[0], "LoadImage", json!({ "image": "" }));
-        g.node(&ids[1], "VAEEncode", json!({ "pixels": [ids[0], 0], "vae": ["3", 0] }));
-        g.node(&ids[2], "ReferenceLatent", json!({ "conditioning": pos, "latent": [ids[1], 0] }));
-        pos = json!([ids[2], 0]);
-        g.node(&ids[3], "ReferenceLatent", json!({ "conditioning": neg, "latent": [ids[1], 0] }));
-        neg = json!([ids[3], 0]);
-        image_nodes.push(ids[0].clone());
-    }
-    g.node(6, "CFGGuider", json!({ "model": ["1", 0], "positive": pos, "negative": neg, "cfg": 1.0 }));
-    let model = g.lora_chain(json!(["1", 0]), p.loras);
-    g.set("6", "model", model);
-    Built { graph: g.into_value(), image_nodes }
-}
-
-pub struct ErnieParams<'a> {
-    pub prompt: &'a str,
-    pub negative: &'a str,
-    pub width: u32,
-    pub height: u32,
-    pub seed: u64,
-    pub steps: u32,
-    pub cfg: f32,
-}
-
-pub fn ernie(files: &Files, p: &ErnieParams) -> Built {
-    let mut g = Graph::default();
-    g.node(1, "UNETLoader", json!({ "unet_name": f(files, Role::Unet), "weight_dtype": "default" }));
-    g.node(2, "CLIPLoader", json!({ "clip_name": f(files, Role::Clip), "type": "flux2", "device": "default" }));
-    g.node(3, "VAELoader", json!({ "vae_name": f(files, Role::Vae) }));
-    g.node(4, "CLIPTextEncode", json!({ "clip": ["2", 0], "text": p.prompt }));
-    g.node(5, "CLIPTextEncode", json!({ "clip": ["2", 0], "text": p.negative }));
-    g.node(6, "EmptyFlux2LatentImage", json!({ "width": p.width, "height": p.height, "batch_size": 1 }));
-    g.node(
-        7,
-        "KSampler",
-        json!({ "model": ["1", 0], "seed": p.seed, "steps": p.steps, "cfg": p.cfg, "sampler_name": "euler", "scheduler": "simple",
-                "positive": ["4", 0], "negative": ["5", 0], "latent_image": ["6", 0], "denoise": 1.0 }),
-    );
-    g.node(8, "VAEDecode", json!({ "samples": ["7", 0], "vae": ["3", 0] }));
-    g.node(9, "SaveImage", json!({ "images": ["8", 0], "filename_prefix": "LocalImage_ERNIE" }));
-    Built { graph: g.into_value(), image_nodes: Vec::new() }
+    Built { graph: g.into_value(), image_nodes, slots: Vec::new() }
 }
 
 /// SeedVR2 one-step upscale; the input is already resized to the target size.
@@ -249,7 +138,7 @@ pub fn seedvr2(files: &Files, seed: u64) -> Built {
     g.node(8, "VAEDecodeTiled", tile(json!({ "samples": ["7", 0], "vae": ["2", 0] })));
     g.node(9, "SeedVR2PostProcessing", json!({ "images": ["8", 0], "original_resized_images": ["3", 0], "color_correction_method": "lab" }));
     g.node(10, "SaveImage", json!({ "images": ["9", 0], "filename_prefix": "LocalImage_SeedVR2" }));
-    Built { graph: g.into_value(), image_nodes: vec!["3".into()] }
+    Built { graph: g.into_value(), image_nodes: vec!["3".into()], slots: Vec::new() }
 }
 
 /// The prompt fal's object-removal LoRA was trained with.
@@ -280,7 +169,7 @@ pub fn klein_remove(files: &Files, width: u32, height: u32, seed: u64) -> Built 
     );
     g.node(17, "VAEDecode", json!({ "samples": ["16", 0], "vae": ["4", 0] }));
     g.node(41, "PreviewImage", json!({ "images": ["17", 0] }));
-    Built { graph: g.into_value(), image_nodes: vec!["30".into()] }
+    Built { graph: g.into_value(), image_nodes: vec!["30".into()], slots: Vec::new() }
 }
 
 #[cfg(test)]
@@ -329,23 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn klein_references_chain_both_conditionings() {
-        let b = flux2_klein(&files(), &Flux2Params { prompt: "p", width: 1024, height: 1024, seed: 1, steps: 4, references: 2, loras: &[] });
-        links_resolve(&b.graph);
-        assert_eq!(b.graph["6"]["inputs"]["positive"], json!(["26", 0]));
-        assert_eq!(b.graph["6"]["inputs"]["negative"], json!(["27", 0]));
-        assert_eq!(b.image_nodes, vec!["20", "24"]);
-    }
-
-    #[test]
     fn other_graphs_are_closed() {
-        links_resolve(
-            &z_image(&files(), &ZImageParams { prompt: "p", width: 512, height: 512, seed: 1, steps: 8, denoise: 0.6, init_image: true, loras: &[] }).graph,
-        );
-        links_resolve(
-            &z_image(&files(), &ZImageParams { prompt: "p", width: 512, height: 512, seed: 1, steps: 8, denoise: 0.6, init_image: false, loras: &[] }).graph,
-        );
-        links_resolve(&ernie(&files(), &ErnieParams { prompt: "p", negative: "n", width: 512, height: 512, seed: 1, steps: 50, cfg: 4.0 }).graph);
         links_resolve(&seedvr2(&files(), 3).graph);
         let r = klein_remove(&files(), 768, 768, 5);
         links_resolve(&r.graph);

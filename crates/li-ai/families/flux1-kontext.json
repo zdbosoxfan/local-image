@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "version": 1,
+  "id": "flux1-kontext",
+  "base": "flux1",
+  "label": "FLUX.1 Kontext",
+  "group": "FLUX",
+  "description": "FLUX.1 Kontext dev: edits an image from an instruction, keeping what you don't mention.",
+  "pipeline": {
+    "flux_guidance": 2.5,
+    "reference": "reference_latent",
+    "inpaint": "instruction"
+  },
+  "sampling": {
+    "steps": {
+      "default": 20,
+      "min": 1,
+      "max": 60
+    },
+    "cfg": {
+      "default": 1,
+      "min": 1,
+      "max": 1
+    },
+    "denoise": 1.0
+  },
+  "capabilities": {
+    "create": true,
+    "edit": true,
+    "references": 2,
+    "inpaint": true,
+    "transparent": false,
+    "negative_prompt": false
+  },
+  "civitai_base_models": [
+    "Flux.1 Kontext"
+  ],
+  "hf_tags": [
+    "kontext"
+  ],
+  "models": []
+}

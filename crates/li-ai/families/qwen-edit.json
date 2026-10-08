@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "version": 1,
+  "id": "qwen-edit",
+  "base": "qwen-image",
+  "label": "Qwen Image Edit",
+  "group": "Qwen",
+  "description": "Qwen Image Edit (2509 / 2511): instruction edits with up to three images, consistent people and products.",
+  "pipeline": {
+    "encode": "qwen_edit_plus",
+    "reference": "text_encoder",
+    "inpaint": "instruction",
+    "differential": false
+  },
+  "sampling": {
+    "steps": {
+      "default": 20,
+      "min": 1,
+      "max": 60
+    },
+    "cfg": {
+      "default": 2.5,
+      "min": 1,
+      "max": 10
+    },
+    "denoise": 1.0
+  },
+  "capabilities": {
+    "create": true,
+    "edit": true,
+    "references": 3,
+    "inpaint": true,
+    "transparent": false,
+    "negative_prompt": true
+  },
+  "civitai_base_models": [
+    "Qwen"
+  ],
+  "hf_tags": [
+    "qwen-image-edit"
+  ],
+  "models": []
+}

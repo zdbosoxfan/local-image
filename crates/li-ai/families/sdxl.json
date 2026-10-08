@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "version": 1,
+  "id": "sdxl",
+  "label": "SDXL",
+  "group": "Stable Diffusion",
+  "description": "Stable Diffusion XL at 1024 px and its fine-tunes (Juggernaut, RealVis…). Strong photographic and illustrative checkpoints; wide LoRA support.",
+  "pipeline": {
+    "loader": "checkpoint",
+    "clip": {
+      "node": "checkpoint",
+      "skip": -1
+    },
+    "vae": "checkpoint",
+    "encode": "clip_text",
+    "latent": "EmptyLatentImage",
+    "sampler": "ksampler",
+    "sampler_name": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "reference": "ip_adapter",
+    "inpaint": "noise_mask",
+    "differential": true
+  },
+  "sizes": {
+    "native": 1024,
+    "multiple": 8,
+    "min": 512,
+    "max": 2048
+  },
+  "sampling": {
+    "steps": {
+      "default": 30,
+      "min": 1,
+      "max": 100
+    },
+    "cfg": {
+      "default": 6,
+      "min": 1,
+      "max": 20
+    },
+    "denoise": 0.6
+  },
+  "capabilities": {
+    "create": true,
+    "edit": false,
+    "references": 0,
+    "inpaint": true,
+    "transparent": false,
+    "negative_prompt": true
+  },
+  "lora": {
+    "loader": "LoraLoader",
+    "compatible": [
+      "sdxl"
+    ],
+    "max": 5
+  },
+  "prompt": {
+    "prefix": "",
+    "negative": "lowres, blurry, watermark, text"
+  },
+  "vram_gb": 8,
+  "license": "CreativeML OpenRAIL++-M",
+  "license_url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/blob/main/LICENSE.md",
+  "civitai_base_models": [
+    "SDXL 1.0",
+    "SDXL Lightning",
+    "SDXL Hyper",
+    "SDXL Turbo"
+  ],
+  "hf_tags": [
+    "stable-diffusion-xl",
+    "base_model:stabilityai/stable-diffusion-xl-base-1.0"
+  ],
+  "models": []
+}
