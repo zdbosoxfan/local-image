@@ -178,6 +178,10 @@ pub fn authorize_engine_command(id: &str, params: &Value) -> Result<(), Automati
                 | "layer.videoLayers.newVideoLayerFromFile"
                 | "layer.videoLayers.replaceFootage"
                 | "layer.videoLayers.reloadFrame"
+                // local-image: read a file at any path (a generated image; a photo opened as a
+                // Develop layer). The app runs them itself; automation can't.
+                | "ai.placeLayer"
+                | "develop.openPhoto"
         )
         || command_uses_ambient_path(id, params)
         || profile_command_may_read_ambient(id, params)
