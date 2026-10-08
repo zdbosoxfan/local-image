@@ -2629,3 +2629,302 @@ cameraRaw	Whites	Brancos
 	Regenerate the area from a description	Recriar a área a partir de uma descrição
 	Hide Contextual Task Bar	Ocultar barra de tarefas contextual
 	More	Mais
+	Click a red pupil	Clique em uma pupila vermelha
+	Click the first point or press {key} to close · {del} removes a point · Esc cancels	Clique no primeiro ponto ou pressione {key} para fechar · {del} remove um ponto · Esc cancela
+	Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close	Clique e mova ao longo de uma borda · clique para fixar um ponto · {alt}-clique para um segmento reto · clique duplo para fechar
+	Darken Amount	Quantidade de escurecimento
+	Follows only edges this close to the pointer ([ and ] change it)	Segue apenas bordas a esta distância do ponteiro ([ e ] a alteram)
+	Higher values follow only edges that contrast sharply with their surroundings	Valores mais altos seguem apenas bordas com forte contraste em relação ao entorno
+	How often fastening points are placed by themselves	Com que frequência os pontos de fixação são colocados automaticamente
+	Pupil Size	Tamanho da pupila
+	Sample Size	Tamanho da amostra
+	Straighten: tilt the frame to level a horizon	Endireitar: incline o quadro para nivelar um horizonte
+	+ Add	+ Adicionar
+	1 file to download ({size}), verified by SHA-256:	1 arquivo para baixar ({size}), verificado por SHA-256:
+	A copy in the Edited folder (originals untouched)	Uma cópia na pasta Edited (originais intactos)
+	A new image from a description and optional reference images	Uma nova imagem a partir de uma descrição e imagens de referência opcionais
+	ACCOUNTS (OPTIONAL)	CONTAS (OPCIONAL)
+	AI	IA
+	AI ENGINE	MECANISMO DE IA
+	AI Enhance	Aprimorar com IA
+	AI off	IA desligada
+	AI ready{gpu}	IA pronta{gpu}
+	AI starting…	Iniciando IA…
+	AI · no models	IA · sem modelos
+	API key	Chave de API
+	Accept the licence on the publisher's page first	Aceite primeiro a licença na página do publicador
+	Add Background ▾	Adicionar plano de fundo ▾
+	Add Folder…	Adicionar pasta…
+	Add Images…	Adicionar imagens…
+	Add Key…	Adicionar chave…
+	Add a LoRA	Adicionar um LoRA
+	Add an image file	Adicionar um arquivo de imagem
+	Add the current image	Adicionar a imagem atual
+	Add your {provider} API key in Local AI › Cloud to use it.	Adicione sua chave de API {provider} em IA local › Nuvem para usá-lo.
+	Add your {provider} API key in Local AI › Cloud.	Adicione sua chave de API {provider} em IA local › Nuvem.
+	Added “{name}” to the model list (basic controls)	“{name}” adicionado à lista de modelos (controles básicos)
+	Address:	Endereço:
+	Already installed: {names}	Já instalado: {names}
+	Apply Edit	Aplicar edição
+	Ask each time (Save As)	Perguntar sempre (Salvar como)
+	Avoid… (negative prompt)	Evitar… (prompt negativo)
+	BROWSE	EXPLORAR
+	Background:	Plano de fundo:
+	Basic controls	Controles básicos
+	Browse Models…	Explorar modelos…
+	CLOUD (OPTIONAL)	NUVEM (OPCIONAL)
+	CLOUD · YOUR API KEY	NUVEM · SUA CHAVE DE API
+	CUSTOM WORKFLOWS	FLUXOS DE TRABALHO PERSONALIZADOS
+	Cancelled	Cancelado
+	Change the open image from an instruction (edit models), or restyle it	Altera a imagem aberta a partir de uma instrução (modelos de edição) ou muda seu estilo
+	Change…	Alterar…
+	Check again	Verificar novamente
+	Checking for profile updates…	Verificando atualizações de perfis…
+	Checking models…	Verificando modelos…
+	Checking the files’ sizes and checksums…	Verificando tamanhos e somas de verificação dos arquivos…
+	Choose Folder…	Escolher pasta…
+	Choose a model	Escolha um modelo
+	Choose a model to refine with.	Escolha um modelo para refinar.
+	Choose the model folder	Escolha a pasta de modelos
+	Choose your ComfyUI folder	Escolha sua pasta do ComfyUI
+	Civitai API key:	Chave de API do Civitai:
+	Click Remove Background first; then drag to erase or restore parts of the cutout.	Clique primeiro em Remover plano de fundo; depois arraste para apagar ou restaurar partes do recorte.
+	ComfyUI at {host} — click for Local AI settings	ComfyUI em {host} — clique para as configurações de IA local
+	ComfyUI installation found.	Instalação do ComfyUI encontrada.
+	ComfyUI is not running at {host}	O ComfyUI não está em execução em {host}
+	ComfyUI workflow	Fluxo de trabalho do ComfyUI
+	Connected to ComfyUI at {host}	Conectado ao ComfyUI em {host}
+	Copy Prompt	Copiar prompt
+	Could not open {name}: {error}	Não foi possível abrir {name}: {error}
+	Could not save settings: {error}	Não foi possível salvar as configurações: {error}
+	Couldn't save: {error}	Não foi possível salvar: {error}
+	Couldn't update profiles: {error}	Não foi possível atualizar os perfis: {error}
+	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	Recorta o assunto de cada imagem com o Qwen Image 2.1 e salva PNGs. Os originais nunca são alterados.
+	Delete from Library	Excluir da biblioteca
+	Describe details to add (optional)…	Descreva os detalhes a adicionar (opcional)…
+	Describe the change, e.g. “make it golden hour”…	Descreva a alteração, por ex. “deixe na hora dourada”…
+	Describe the empty scene behind your subject	Descreva a cena vazia atrás do seu assunto
+	Describe the image (optional)…	Descreva a imagem (opcional)…
+	Describe the image you want it to become…	Descreva a imagem em que ela deve se transformar…
+	Describe what should appear in the selection	Descreva o que deve aparecer na seleção
+	Describe what you want first.	Descreva primeiro o que você quer.
+	Detect	Detectar
+	Double-click to open	Clique duas vezes para abrir
+	Download	Baixar
+	Download size	Tamanho do download
+	Downloads are checked against the publisher's size and SHA-256, and ComfyUI's model list is refreshed after each install.	Os downloads são verificados pelo tamanho e SHA-256 do publicador, e a lista de modelos do ComfyUI é atualizada após cada instalação.
+	Draft → Refine: generate with this model, then resample the draft with another (e.g. a fast draft refined by a detailed model)	Rascunho → Refinar: gere com este modelo e depois reamostre o rascunho com outro (por ex. um rascunho rápido refinado por um modelo detalhado)
+	Engine:	Mecanismo:
+	Enhance	Aprimorar
+	Enhances detail and enlarges the image with SeedVR2. The result opens as a new document.	Aprimora os detalhes e amplia a imagem com o SeedVR2. O resultado abre como um novo documento.
+	Enlarge	Ampliar
+	Enlarge first	Ampliar primeiro
+	Enlarge the open image and add detail, tile by tile	Amplia a imagem aberta e adiciona detalhes, bloco por bloco
+	Everything it needs is already installed.	Tudo o que é necessário já está instalado.
+	FAMILIES	FAMÍLIAS
+	Fetch the latest family profiles (new models, settings) from Local Image's repository	Buscar os perfis de família mais recentes (novos modelos, configurações) no repositório do Local Image
+	Files present	Arquivos presentes
+	Files present — restart ComfyUI	Arquivos presentes — reinicie o ComfyUI
+	Fill Selection	Preencher seleção
+	Filmstrip options	Opções da tira de filme
+	Find LoRAs…	Encontrar LoRAs…
+	Find, compare and install models and LoRAs for any family	Encontre, compare e instale modelos e LoRAs de qualquer família
+	Fits your GPU memory	Cabe na memória da sua GPU
+	Found {n} installation(s).	{n} instalação(ões) encontrada(s).
+	Free GPU Memory	Liberar memória da GPU
+	GPU MEMORY GUIDE	GUIA DE MEMÓRIA DA GPU
+	Generate (AI)…	Gerar (IA)…
+	Generate Background	Gerar plano de fundo
+	Generate {n}	Gerar {n}
+	Generated images are kept here.	As imagens geradas ficam guardadas aqui.
+	Generated {name} · seed {seed}	{name} gerado · semente {seed}
+	Generation failed: {error}	Falha na geração: {error}
+	Get Template	Obter template
+	Get a key	Obter uma chave
+	Get models…	Obter modelos…
+	Guidance	Orientação
+	Hide the filmstrip (Window › Filmstrip)	Ocultar a tira de filme (Janela › Tira de filme)
+	How much may change: 100 % regenerates, lower keeps more of the image	Quanto pode mudar: 100 % regenera, valores menores mantêm mais da imagem
+	Hugging Face token:	Token do Hugging Face:
+	I have read and accept the licence	Li e aceito a licença
+	Images	Imagens
+	Images per run (1–4)	Imagens por execução (1–4)
+	Image…	Imagem…
+	Import ComfyUI Workflow	Importar fluxo de trabalho do ComfyUI
+	Import Workflow…	Importar fluxo de trabalho…
+	Imported the workflow “{name}”.	Fluxo de trabalho “{name}” importado.
+	In use	Em uso
+	Install	Instalar
+	Install failed	Falha na instalação
+	Install {name}	Instalar {name}
+	Installation:	Instalação:
+	Installed	Instalado
+	Keep	Manter
+	Keep… (optional)	Manter… (opcional)
+	Licence	Licença
+	Licence gate	Requer licença
+	Licence: see its page	Licença: veja a página
+	Loading catalogues…	Carregando catálogos…
+	Local AI	IA local
+	Local AI is off — click to set it up	A IA local está desligada — clique para configurá-la
+	Local Image doesn't know this family yet: it runs through the official template with prompt, seed and size only	O Local Image ainda não conhece esta família: ela roda pelo template oficial apenas com prompt, semente e tamanho
+	Local Image doesn't know this model family yet: it will appear in the model list as a custom workflow with basic controls (prompt, seed, size).	O Local Image ainda não conhece esta família de modelos: ela aparecerá na lista de modelos como um fluxo de trabalho personalizado com controles básicos (prompt, semente, tamanho).
+	MODELS	MODELOS
+	Make a selection first	Faça uma seleção primeiro
+	Make a selection to fill.	Faça uma seleção para preencher.
+	Model Browser	Navegador de modelos
+	Model default	Padrão do modelo
+	Model folder:	Pasta de modelos:
+	Model profiles are up to date	Os perfis de modelos estão atualizados
+	Model:	Modelo:
+	Models unloaded.	Modelos descarregados da memória.
+	My preset {n}	Minha predefinição {n}
+	Newest	Mais recentes
+	Next image ({key})	Próxima imagem ({key})
+	No ComfyUI installation found in the usual places.	Nenhuma instalação do ComfyUI encontrada nos locais habituais.
+	No ComfyUI installation found. Choose its folder in Local AI, or install ComfyUI first.	Nenhuma instalação do ComfyUI encontrada. Escolha a pasta em IA local ou instale o ComfyUI primeiro.
+	No LoRAs for this model family are installed (Find LoRAs…)	Nenhum LoRA desta família de modelos está instalado (Encontrar LoRAs…)
+	No compatible LoRAs installed.	Nenhum LoRA compatível instalado.
+	No matches. Try another family, source or search.	Nenhum resultado. Tente outra família, fonte ou pesquisa.
+	Not chosen — detected automatically	Não escolhida — detectada automaticamente
+	Not enough space in {folder} ({free} free).	Espaço insuficiente em {folder} ({free} livres).
+	Not installed: {reason}	Não instalado: {reason}
+	Not stated: check the model's page before use	Não informada: verifique a página do modelo antes de usar
+	Nothing installed yet. Pick a model from Trending or a family.	Nada instalado ainda. Escolha um modelo em Em alta ou em uma família.
+	Nothing matches.	Nenhum resultado.
+	Only .safetensors and .gguf files with a published size and SHA-256 are installed.	Somente arquivos .safetensors e .gguf com tamanho e SHA-256 publicados são instalados.
+	Open Folder	Abrir pasta
+	Open Its Page	Abrir a página
+	Open an image first	Abra uma imagem primeiro
+	Open an image first.	Abra uma imagem primeiro.
+	Open an image from the filmstrip's folder first.	Abra primeiro uma imagem da pasta da tira de filme.
+	Open its page	Abrir a página
+	Paint over a distraction; it's removed when you release	Pinte sobre um elemento indesejado; ele é removido quando você solta
+	Place as Layer	Inserir como camada
+	Port:	Porta:
+	Precision	Precisão
+	Preset name	Nome da predefinição
+	Previous image ({key})	Imagem anterior ({key})
+	Qwen Compact	Qwen compacto
+	Qwen Full	Qwen completo
+	RESULTS	RESULTADOS
+	Read the licence	Ler a licença
+	Ready	Pronto
+	Recreate	Recriar
+	References · {n}/{max}	Referências · {n}/{max}
+	Refine	Refinar
+	Refine model: {why}	Modelo de refinamento: {why}
+	Refine strength	Intensidade do refinamento
+	Refine with	Refinar com
+	Refine:	Refinar:
+	Refresh	Atualizar
+	Regenerate the selection (Photoshop's Generative Fill)	Regenera a seleção (como o Preenchimento generativo do Photoshop)
+	Remove Backgrounds	Remover planos de fundo
+	Remove Selection	Remover seleção
+	Request Access…	Solicitar acesso…
+	Resample the open image at a chosen strength (img2img)	Reamostra a imagem aberta com a intensidade escolhida (img2img)
+	Results appear here and are saved to the Library.	Os resultados aparecem aqui e são salvos na biblioteca.
+	Retry	Tentar novamente
+	Review in Library: see this folder in the Library's grid to compare and rate	Revisar na biblioteca: veja esta pasta na grade da biblioteca para comparar e avaliar
+	Rough GPU memory to run it	Memória de GPU aproximada para executá-lo
+	Rough GPU memory to run it: more than your GPU has	Memória de GPU aproximada para executá-lo: mais do que sua GPU tem
+	Running {name}	Executando {name}
+	Runs on {provider}'s servers: your prompt and images are sent there.	Roda nos servidores de {provider}: seu prompt e suas imagens são enviados para lá.
+	Runs on {provider}: your prompt and images are sent there, billed to your key.	Roda em {provider}: seu prompt e suas imagens são enviados para lá e cobrados na sua chave.
+	SELECTION MODELS (CPU)	MODELOS DE SELEÇÃO (CPU)
+	Save & Next	Salvar e próxima
+	Save & Next saves to	Salvar e próxima salva em
+	Save Preset	Salvar predefinição
+	Save a copy in the Edited folder and open the next one ({key})	Salvar uma cópia na pasta Edited e abrir a próxima ({key})
+	Save these settings as a preset	Salvar estas configurações como predefinição
+	Save this image (Save As) and open the next one ({key})	Salvar esta imagem (Salvar como) e abrir a próxima ({key})
+	Save this image over the original and open the next one ({key})	Salvar esta imagem sobre o original e abrir a próxima ({key})
+	Save to:	Salvar em:
+	Saved {name}	{name} salvo
+	Search LoRAs	Pesquisar LoRAs
+	Search models	Pesquisar modelos
+	Search prompts	Pesquisar prompts
+	See each model's page	Veja a página de cada modelo
+	Select Subject, Remove Background (Quick) and Object Selection clicks use the best one installed. No GPU or ComfyUI needed.	Selecionar assunto, Remover plano de fundo (rápido) e os cliques de Seleção de objeto usam o melhor modelo instalado. Não é preciso GPU nem ComfyUI.
+	Sent as {size}	Enviado como {size}
+	Set up AI…	Configurar IA…
+	Show the folder when opening a photo	Mostrar a pasta ao abrir uma foto
+	Start AI Engine	Iniciar mecanismo de IA
+	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	Inicie primeiro o mecanismo de IA: o Local Image verifica o que o ComfyUI já tem. ({error})
+	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	Inicie o mecanismo de IA para ver a memória da sua GPU; mostrando o que cabe em 8 GB.
+	Starting ComfyUI… (the first start can take a minute)	Iniciando o ComfyUI… (a primeira inicialização pode levar um minuto)
+	Starting image · {n}/{max}	Imagem inicial · {n}/{max}
+	Starting {name}…	Iniciando {name}…
+	Steps	Etapas
+	Stopped	Parado
+	Styles (LoRA) · {n}/{max}	Estilos (LoRA) · {n}/{max}
+	That file is not a ComfyUI workflow (JSON).	Esse arquivo não é um fluxo de trabalho do ComfyUI (JSON).
+	That folder has no ComfyUI (main.py and a Python environment).	Essa pasta não contém o ComfyUI (main.py e um ambiente Python).
+	That was the first image in the folder.	Essa era a primeira imagem da pasta.
+	That was the last image in the folder.	Essa era a última imagem da pasta.
+	The AI engine (ComfyUI) is not running.	O mecanismo de IA (ComfyUI) não está em execução.
+	The AI engine is starting…	O mecanismo de IA está iniciando…
+	The author doesn't allow commercial use.	O autor não permite uso comercial.
+	The model isn't ready.	O modelo não está pronto.
+	The original file	O arquivo original
+	The publisher asks you to accept its licence on its page first; add a Hugging Face token in Local AI settings.	O publicador pede que você aceite primeiro a licença na página dele; adicione um token do Hugging Face nas configurações de IA local.
+	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	O fluxo de trabalho não tem nós com os títulos li:prompt, li:image, li:mask, li:seed ou li:output, então o Local Image não consegue preenchê-lo. Renomeie os nós no ComfyUI e exporte novamente.
+	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	Os tokens permitem que o Navegador de modelos baixe modelos restritos ou que exigem login. Eles são enviados apenas ao próprio site.
+	Transparent PNG	PNG transparente
+	Transparent background	Plano de fundo transparente
+	Trending	Em alta
+	Trending this week	Em alta nesta semana
+	Unknown family	Família desconhecida
+	Update Model Profiles	Atualizar perfis de modelos
+	Updated 1 model profile: {names}	1 perfil de modelo atualizado: {names}
+	Updated {n} model profiles: {names}	{n} perfis de modelos atualizados: {names}
+	Upscale	Ampliar
+	Upscale {scale}×	Ampliar {scale}×
+	Use	Usar
+	Use as Reference	Usar como referência
+	Variation strength	Intensidade da variação
+	Waiting	Aguardando
+	What should appear in the selection…	O que deve aparecer na seleção…
+	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	Com sua própria chave de API, Gerar também pode usar modelos na nuvem (eles aparecem em Nuvem no seletor de modelos). Seu prompt e suas imagens vão então deste computador para esse provedor e são cobrados na sua conta; nada mais é enviado para lugar nenhum.
+	Works on my GPU	Funciona na minha GPU
+	a “cutouts” folder beside each image	uma pasta “cutouts” ao lado de cada imagem
+	just now	agora mesmo
+	new each time	nova a cada vez
+	seed {seed}	semente {seed}
+	{author} · {n} downloads	{author} · {n} downloads
+	{best_for} · {size} · {gb} GB GPU	{best_for} · {size} · {gb} GB de GPU
+	{done} of {total}	{done} de {total}
+	{licence} · non-commercial	{licence} · não comercial
+	{model} creates, edits and fills; choose a local model to refine or upscale.	{model} cria, edita e preenche; escolha um modelo local para refinar ou ampliar.
+	{mode} with {model}	{mode} com {model}
+	{name} (family unknown)	{name} (família desconhecida)
+	{name} · Custom workflow	{name} · Fluxo de trabalho personalizado
+	{name} · edited copy saved	{name} · cópia editada salva
+	{name} · {gb} GB GPU memory	{name} · {gb} GB de memória da GPU
+	{name} — click to remove	{name} — clique para remover
+	{n} LoRAs	{n} LoRAs
+	{n} days ago	há {n} dias
+	{n} downloads	{n} downloads
+	{n} edited	{n} editadas
+	{n} files to download ({size}), verified by SHA-256:	{n} arquivos para baixar ({size}), verificados por SHA-256:
+	{n} h ago	há {n} h
+	{n} images	{n} imagens
+	{n} images in {folder}	{n} imagens em {folder}
+	{n} min ago	há {n} min
+	{n} models	{n} modelos
+	{n} refs	{n} referências
+	{size} · runs on the CPU · {licence}	{size} · roda na CPU · {licence}
+	{source}: offline, showing results from {when}	{source}: offline, mostrando resultados de {when}
+	{source}: the catalogue couldn't be read	{source}: não foi possível ler o catálogo
+	{why} Qwen Image 2.1 runs these.	{why} Estes recursos usam o Qwen Image 2.1.
+	Seed	Semente
+	Solid Color	Cor sólida
+	Strength	Intensidade
+	Qwen AI · Compact	Qwen IA · compacto
+	Qwen AI · Full	Qwen IA · completo
+	Standard (CPU)	Padrão (CPU)
+	Templates	Templates
+	Community	Comunidade
+ai	Restore	Restaurar
+ai	Sampler	Amostrador
+ai	New	Novos

@@ -63,9 +63,20 @@ browser UI in a WebView and a Python server. V2 is a single editor in which the 
   - *Retouch* — AI Remove brush selected, Layers + History.
   - *Cutout* — AI Cutout tool, Properties (mask), Layers.
   - *Generate* — Generate panel expanded with the Library tab, Layers.
-* **Filmstrip** (from LightCraft): appears under the canvas when a folder or several files are
-  open; 120 pt cells, names, an "edited" badge, arrow keys move, click opens, the active cell
-  follows. Window › Filmstrip toggles it.
+* **Filmstrip** (from LightCraft): appears under the canvas for File › Open Folder…, and whenever a
+  photo is opened from a folder that holds others (Preferences: off in the strip's options).
+  120 pt cells, names, the active cell follows; click, Alt+←/→ or Page Up/Down move. Built for
+  working through a folder:
+  - Stepping on closes the image you leave when it has no unsaved edits (no pile of tabs); one
+    with unsaved edits keeps its tab and an accent dot in the strip.
+  - **Save & Next** (⌘⌥→ / Ctrl+Alt+→) saves and opens the next image. By default the edit goes to
+    a copy in an `Edited` folder beside the originals (raw files as TIFF); the strip then shows the
+    edited copy with a ✓ badge and reopens it when you go back. The options menu switches to
+    overwriting the original or Save As.
+  - **Review in Library** shows the folder in the Library's grid (read in place, not imported) to
+    compare, rate and flag the results; there **Photo › Edit Original in Local Image (⌘⌥E)** opens a
+    JPEG/PNG/TIFF itself in the editor (raw files go through Edit in External Editor's TIFF).
+  Window › Filmstrip toggles it.
 * **Status bar** gains an **AI status pill**: grey "AI off", amber "Starting…", green "AI ready ·
   GPU · used/total"; click it to open Preferences › Local AI. Running AI jobs show their stage
   ("Sampling 12/28") with a cancel button, exactly like PhotoCraft's other background jobs.
@@ -219,7 +230,7 @@ the PhotoCraft Pro theme (one dark window, no extra chrome).
 | Settings overloaded with hardware guide and shortcuts | Preferences › Local AI; Help › AI Models & GPU |
 | Assets dock doing three jobs | Generate · Library tabs; stock search is File › Place from Openverse… |
 | Global busy lock | Background jobs per document; other documents stay editable |
-| Filmstrip only with ≥2 images | Open Folder always shows it; Window › Filmstrip toggles it |
+| Filmstrip only with ≥2 images | Open Folder always shows it; opening a photo shows its folder when it holds ≥2 images; Window › Filmstrip toggles it |
 
 ## 6. User flows (each covered by an automated test, see §8)
 
@@ -238,8 +249,9 @@ the PhotoCraft Pro theme (one dark window, no extra chrome).
    new layer above (or new document).
 6. **Generative fill** → lasso an area → Edit › Generative Fill… → prompt → result layer masked to
    the selection.
-7. **Work through a folder** → File › Open Folder… → filmstrip → arrow keys / click → AI Remove on a
-   few → File › Export… with a preset → Export with Previous on the next one.
+7. **Work through a folder** → open any photo in it (or File › Open Folder…) → filmstrip → AI Remove
+   (or the Contextual Task Bar's Remove after a pen path) → **Save & Next** → … → **Review in
+   Library** to compare the `Edited` copies in the grid.
 8. **Raw photo** → open a .NEF → developed 16-bit document → retouch → export to JPEG sRGB.
 9. **Batch backgrounds** → File › Automate › Remove Backgrounds… → pick files → White background →
    output folder → run, watch progress, open the folder.

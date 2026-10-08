@@ -106,6 +106,12 @@ impl eframe::App for Host {
         }
         if std::mem::take(&mut self.editor.switch_to_library) {
             self.switch(ctx, Mode::Library);
+            // The filmstrip's Review in Library: the folder in the Library's grid, read in place.
+            if let Some(dir) = self.editor.browse_in_library.take()
+                && let Err(e) = self.library().run("library.browse", serde_json::json!({ "path": dir }))
+            {
+                log::warn!("Review in Library: {e}");
+            }
         }
         match self.mode {
             Mode::Library if self.frames > 1 => {

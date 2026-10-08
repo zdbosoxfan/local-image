@@ -2609,3 +2609,302 @@ cameraRaw	Blending	Pembauran
 	Regenerate the area from a description	Buat ulang area dari deskripsi
 	Hide Contextual Task Bar	Sembunyikan Bilah Tugas Kontekstual
 	More	Lainnya
+	Click a red pupil	Klik pupil yang merah
+	Click the first point or press {key} to close · {del} removes a point · Esc cancels	Klik titik pertama atau tekan {key} untuk menutup · {del} menghapus titik · Esc untuk batal
+	Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close	Klik, lalu gerakkan di sepanjang tepi · klik untuk menancapkan titik · {alt}-klik untuk segmen lurus · klik ganda untuk menutup
+	Darken Amount	Jumlah Penggelapan
+	Follows only edges this close to the pointer ([ and ] change it)	Hanya mengikuti tepi sedekat ini dengan penunjuk ([ dan ] mengubahnya)
+	Higher values follow only edges that contrast sharply with their surroundings	Nilai lebih tinggi hanya mengikuti tepi yang kontrasnya tajam dengan sekitarnya
+	How often fastening points are placed by themselves	Seberapa sering titik penanda ditempatkan secara otomatis
+	Pupil Size	Ukuran Pupil
+	Sample Size	Ukuran Sampel
+	Straighten: tilt the frame to level a horizon	Luruskan: miringkan bingkai untuk meratakan horizon
+	+ Add	+ Tambah
+	1 file to download ({size}), verified by SHA-256:	1 berkas untuk diunduh ({size}), diverifikasi dengan SHA-256:
+	A copy in the Edited folder (originals untouched)	Salinan di folder Edited (berkas asli tidak diubah)
+	A new image from a description and optional reference images	Gambar baru dari deskripsi dan gambar referensi opsional
+	ACCOUNTS (OPTIONAL)	AKUN (OPSIONAL)
+	AI	AI
+	AI ENGINE	MESIN AI
+	AI Enhance	Peningkatan AI
+	AI off	AI mati
+	AI ready{gpu}	AI siap{gpu}
+	AI starting…	AI sedang dimulai…
+	AI · no models	AI · tidak ada model
+	API key	Kunci API
+	Accept the licence on the publisher's page first	Terima lisensi di halaman penerbit terlebih dahulu
+	Add Background ▾	Tambah Latar Belakang ▾
+	Add Folder…	Tambah Folder…
+	Add Images…	Tambah Gambar…
+	Add Key…	Tambah Kunci…
+	Add a LoRA	Tambah LoRA
+	Add an image file	Tambah berkas gambar
+	Add the current image	Tambah gambar saat ini
+	Add your {provider} API key in Local AI › Cloud to use it.	Tambahkan kunci API {provider} Anda di AI Lokal › Cloud untuk menggunakannya.
+	Add your {provider} API key in Local AI › Cloud.	Tambahkan kunci API {provider} Anda di AI Lokal › Cloud.
+	Added “{name}” to the model list (basic controls)	“{name}” ditambahkan ke daftar model (kontrol dasar)
+	Address:	Alamat:
+	Already installed: {names}	Sudah terpasang: {names}
+	Apply Edit	Terapkan Edit
+	Ask each time (Save As)	Tanya setiap kali (Simpan Sebagai)
+	Avoid… (negative prompt)	Hindari… (prompt negatif)
+	BROWSE	JELAJAHI
+	Background:	Latar belakang:
+	Basic controls	Kontrol dasar
+	Browse Models…	Jelajahi Model…
+	CLOUD (OPTIONAL)	CLOUD (OPSIONAL)
+	CLOUD · YOUR API KEY	CLOUD · KUNCI API ANDA
+	CUSTOM WORKFLOWS	ALUR KERJA KUSTOM
+	Cancelled	Dibatalkan
+	Change the open image from an instruction (edit models), or restyle it	Ubah gambar yang terbuka dari instruksi (model edit), atau ubah gayanya
+	Change…	Ubah…
+	Check again	Periksa lagi
+	Checking for profile updates…	Memeriksa pembaruan profil…
+	Checking models…	Memeriksa model…
+	Checking the files’ sizes and checksums…	Memeriksa ukuran dan checksum berkas…
+	Choose Folder…	Pilih Folder…
+	Choose a model	Pilih model
+	Choose a model to refine with.	Pilih model untuk memperhalus.
+	Choose the model folder	Pilih folder model
+	Choose your ComfyUI folder	Pilih folder ComfyUI Anda
+	Civitai API key:	Kunci API Civitai:
+	Click Remove Background first; then drag to erase or restore parts of the cutout.	Klik Hapus Latar Belakang terlebih dahulu; lalu seret untuk menghapus atau memulihkan bagian potongan.
+	ComfyUI at {host} — click for Local AI settings	ComfyUI di {host} — klik untuk pengaturan AI Lokal
+	ComfyUI installation found.	Instalasi ComfyUI ditemukan.
+	ComfyUI is not running at {host}	ComfyUI tidak berjalan di {host}
+	ComfyUI workflow	Alur kerja ComfyUI
+	Connected to ComfyUI at {host}	Terhubung ke ComfyUI di {host}
+	Copy Prompt	Salin Prompt
+	Could not open {name}: {error}	Tidak dapat membuka {name}: {error}
+	Could not save settings: {error}	Tidak dapat menyimpan pengaturan: {error}
+	Couldn't save: {error}	Tidak dapat menyimpan: {error}
+	Couldn't update profiles: {error}	Tidak dapat memperbarui profil: {error}
+	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	Memotong subjek setiap gambar dengan Qwen Image 2.1 dan menyimpan PNG. Berkas asli tidak pernah diubah.
+	Delete from Library	Hapus dari Pustaka
+	Describe details to add (optional)…	Jelaskan detail yang ingin ditambahkan (opsional)…
+	Describe the change, e.g. “make it golden hour”…	Jelaskan perubahannya, mis. “jadikan golden hour”…
+	Describe the empty scene behind your subject	Jelaskan pemandangan kosong di belakang subjek Anda
+	Describe the image (optional)…	Jelaskan gambarnya (opsional)…
+	Describe the image you want it to become…	Jelaskan gambar yang Anda inginkan…
+	Describe what should appear in the selection	Jelaskan apa yang harus muncul di seleksi
+	Describe what you want first.	Jelaskan dulu apa yang Anda inginkan.
+	Detect	Deteksi
+	Double-click to open	Klik ganda untuk membuka
+	Download	Unduh
+	Download size	Ukuran unduhan
+	Downloads are checked against the publisher's size and SHA-256, and ComfyUI's model list is refreshed after each install.	Unduhan diperiksa terhadap ukuran dan SHA-256 dari penerbit, dan daftar model ComfyUI diperbarui setelah setiap pemasangan.
+	Draft → Refine: generate with this model, then resample the draft with another (e.g. a fast draft refined by a detailed model)	Draf → Perhalus: buat dengan model ini, lalu sampel ulang draf dengan model lain (mis. draf cepat diperhalus oleh model yang detail)
+	Engine:	Mesin:
+	Enhance	Tingkatkan
+	Enhances detail and enlarges the image with SeedVR2. The result opens as a new document.	Meningkatkan detail dan memperbesar gambar dengan SeedVR2. Hasilnya terbuka sebagai dokumen baru.
+	Enlarge	Perbesar
+	Enlarge first	Perbesar dulu
+	Enlarge the open image and add detail, tile by tile	Perbesar gambar yang terbuka dan tambahkan detail, ubin demi ubin
+	Everything it needs is already installed.	Semua yang dibutuhkan sudah terpasang.
+	FAMILIES	KELUARGA
+	Fetch the latest family profiles (new models, settings) from Local Image's repository	Ambil profil keluarga terbaru (model baru, pengaturan) dari repositori Local Image
+	Files present	Berkas tersedia
+	Files present — restart ComfyUI	Berkas tersedia — mulai ulang ComfyUI
+	Fill Selection	Isi Seleksi
+	Filmstrip options	Opsi Strip Film
+	Find LoRAs…	Cari LoRA…
+	Find, compare and install models and LoRAs for any family	Cari, bandingkan, dan pasang model serta LoRA untuk keluarga apa pun
+	Fits your GPU memory	Muat di memori GPU Anda
+	Found {n} installation(s).	Ditemukan {n} instalasi.
+	Free GPU Memory	Kosongkan Memori GPU
+	GPU MEMORY GUIDE	PANDUAN MEMORI GPU
+	Generate (AI)…	Buat (AI)…
+	Generate Background	Buat Latar Belakang
+	Generate {n}	Buat {n}
+	Generated images are kept here.	Gambar yang dibuat disimpan di sini.
+	Generated {name} · seed {seed}	{name} dibuat · seed {seed}
+	Generation failed: {error}	Pembuatan gagal: {error}
+	Get Template	Dapatkan Templat
+	Get a key	Dapatkan kunci
+	Get models…	Dapatkan model…
+	Guidance	Panduan
+	Hide the filmstrip (Window › Filmstrip)	Sembunyikan strip film (Jendela › Strip Film)
+	How much may change: 100 % regenerates, lower keeps more of the image	Seberapa banyak boleh berubah: 100 % membuat ulang, lebih rendah mempertahankan lebih banyak gambar
+	Hugging Face token:	Token Hugging Face:
+	I have read and accept the licence	Saya telah membaca dan menerima lisensi
+	Images	Gambar
+	Images per run (1–4)	Gambar per proses (1–4)
+	Image…	Gambar…
+	Import ComfyUI Workflow	Impor Alur Kerja ComfyUI
+	Import Workflow…	Impor Alur Kerja…
+	Imported the workflow “{name}”.	Alur kerja “{name}” telah diimpor.
+	In use	Digunakan
+	Install	Pasang
+	Install failed	Pemasangan gagal
+	Install {name}	Pasang {name}
+	Installation:	Instalasi:
+	Installed	Terpasang
+	Keep	Pertahankan
+	Keep… (optional)	Pertahankan… (opsional)
+	Licence	Lisensi
+	Licence gate	Perlu lisensi
+	Licence: see its page	Lisensi: lihat halamannya
+	Loading catalogues…	Memuat katalog…
+	Local AI	AI Lokal
+	Local AI is off — click to set it up	AI Lokal mati — klik untuk menyiapkannya
+	Local Image doesn't know this family yet: it runs through the official template with prompt, seed and size only	Local Image belum mengenal keluarga ini: dijalankan melalui templat resmi hanya dengan prompt, seed, dan ukuran
+	Local Image doesn't know this model family yet: it will appear in the model list as a custom workflow with basic controls (prompt, seed, size).	Local Image belum mengenal keluarga model ini: model akan muncul di daftar model sebagai alur kerja kustom dengan kontrol dasar (prompt, seed, ukuran).
+	MODELS	MODEL
+	Make a selection first	Buat seleksi terlebih dahulu
+	Make a selection to fill.	Buat seleksi untuk diisi.
+	Model Browser	Penjelajah Model
+	Model default	Bawaan model
+	Model folder:	Folder model:
+	Model profiles are up to date	Profil model sudah terbaru
+	Model:	Model:
+	Models unloaded.	Model dibongkar dari memori.
+	My preset {n}	Preset saya {n}
+	Newest	Terbaru
+	Next image ({key})	Gambar berikutnya ({key})
+	No ComfyUI installation found in the usual places.	Tidak ada instalasi ComfyUI yang ditemukan di lokasi biasa.
+	No ComfyUI installation found. Choose its folder in Local AI, or install ComfyUI first.	Tidak ada instalasi ComfyUI yang ditemukan. Pilih foldernya di AI Lokal, atau pasang ComfyUI terlebih dahulu.
+	No LoRAs for this model family are installed (Find LoRAs…)	Tidak ada LoRA untuk keluarga model ini yang terpasang (Cari LoRA…)
+	No compatible LoRAs installed.	Tidak ada LoRA yang kompatibel terpasang.
+	No matches. Try another family, source or search.	Tidak ada yang cocok. Coba keluarga, sumber, atau pencarian lain.
+	Not chosen — detected automatically	Belum dipilih — terdeteksi otomatis
+	Not enough space in {folder} ({free} free).	Ruang di {folder} tidak cukup ({free} kosong).
+	Not installed: {reason}	Tidak terpasang: {reason}
+	Not stated: check the model's page before use	Tidak disebutkan: periksa halaman model sebelum digunakan
+	Nothing installed yet. Pick a model from Trending or a family.	Belum ada yang terpasang. Pilih model dari Tren atau dari sebuah keluarga.
+	Nothing matches.	Tidak ada yang cocok.
+	Only .safetensors and .gguf files with a published size and SHA-256 are installed.	Hanya berkas .safetensors dan .gguf dengan ukuran dan SHA-256 yang dipublikasikan yang dipasang.
+	Open Folder	Buka Folder
+	Open Its Page	Buka Halamannya
+	Open an image first	Buka gambar terlebih dahulu
+	Open an image first.	Buka gambar terlebih dahulu.
+	Open an image from the filmstrip's folder first.	Buka gambar dari folder strip film terlebih dahulu.
+	Open its page	Buka halamannya
+	Paint over a distraction; it's removed when you release	Lukis di atas gangguan; akan dihapus saat Anda melepaskan
+	Place as Layer	Tempatkan sebagai Layer
+	Port:	Port:
+	Precision	Presisi
+	Preset name	Nama preset
+	Previous image ({key})	Gambar sebelumnya ({key})
+	Qwen Compact	Qwen Ringkas
+	Qwen Full	Qwen Penuh
+	RESULTS	HASIL
+	Read the licence	Baca lisensi
+	Ready	Siap
+	Recreate	Buat ulang
+	References · {n}/{max}	Referensi · {n}/{max}
+	Refine	Perhalus
+	Refine model: {why}	Model perhalus: {why}
+	Refine strength	Kekuatan perhalus
+	Refine with	Perhalus dengan
+	Refine:	Perhalus:
+	Refresh	Segarkan
+	Regenerate the selection (Photoshop's Generative Fill)	Buat ulang seleksi (seperti Isian Generatif di Photoshop)
+	Remove Backgrounds	Hapus Latar Belakang
+	Remove Selection	Hapus Seleksi
+	Request Access…	Minta Akses…
+	Resample the open image at a chosen strength (img2img)	Sampel ulang gambar yang terbuka dengan kekuatan pilihan (img2img)
+	Results appear here and are saved to the Library.	Hasil muncul di sini dan disimpan ke Pustaka.
+	Retry	Coba lagi
+	Review in Library: see this folder in the Library's grid to compare and rate	Tinjau di Pustaka: lihat folder ini di kisi Pustaka untuk membandingkan dan memberi nilai
+	Rough GPU memory to run it	Perkiraan memori GPU untuk menjalankannya
+	Rough GPU memory to run it: more than your GPU has	Perkiraan memori GPU untuk menjalankannya: lebih dari yang dimiliki GPU Anda
+	Running {name}	Menjalankan {name}
+	Runs on {provider}'s servers: your prompt and images are sent there.	Berjalan di server {provider}: prompt dan gambar Anda dikirim ke sana.
+	Runs on {provider}: your prompt and images are sent there, billed to your key.	Berjalan di {provider}: prompt dan gambar Anda dikirim ke sana dan ditagihkan ke kunci Anda.
+	SELECTION MODELS (CPU)	MODEL SELEKSI (CPU)
+	Save & Next	Simpan & Berikutnya
+	Save & Next saves to	Simpan & Berikutnya menyimpan ke
+	Save Preset	Simpan Preset
+	Save a copy in the Edited folder and open the next one ({key})	Simpan salinan di folder Edited dan buka berikutnya ({key})
+	Save these settings as a preset	Simpan pengaturan ini sebagai preset
+	Save this image (Save As) and open the next one ({key})	Simpan gambar ini (Simpan Sebagai) dan buka berikutnya ({key})
+	Save this image over the original and open the next one ({key})	Simpan gambar ini menimpa aslinya dan buka berikutnya ({key})
+	Save to:	Simpan ke:
+	Saved {name}	{name} disimpan
+	Search LoRAs	Cari LoRA
+	Search models	Cari model
+	Search prompts	Cari prompt
+	See each model's page	Lihat halaman setiap model
+	Select Subject, Remove Background (Quick) and Object Selection clicks use the best one installed. No GPU or ComfyUI needed.	Pilih Subjek, Hapus Latar Belakang (Cepat), dan klik Seleksi Objek memakai model terbaik yang terpasang. Tidak perlu GPU atau ComfyUI.
+	Sent as {size}	Dikirim sebagai {size}
+	Set up AI…	Siapkan AI…
+	Show the folder when opening a photo	Tampilkan folder saat membuka foto
+	Start AI Engine	Mulai Mesin AI
+	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	Mulai mesin AI terlebih dahulu: Local Image memeriksa apa yang sudah dimiliki ComfyUI. ({error})
+	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	Mulai mesin AI untuk melihat memori GPU Anda; menampilkan yang muat di 8 GB.
+	Starting ComfyUI… (the first start can take a minute)	Memulai ComfyUI… (mulai pertama kali bisa memakan waktu satu menit)
+	Starting image · {n}/{max}	Gambar awal · {n}/{max}
+	Starting {name}…	Memulai {name}…
+	Steps	Langkah
+	Stopped	Dihentikan
+	Styles (LoRA) · {n}/{max}	Gaya (LoRA) · {n}/{max}
+	That file is not a ComfyUI workflow (JSON).	Berkas itu bukan alur kerja ComfyUI (JSON).
+	That folder has no ComfyUI (main.py and a Python environment).	Folder itu tidak berisi ComfyUI (main.py dan lingkungan Python).
+	That was the first image in the folder.	Itu gambar pertama di folder.
+	That was the last image in the folder.	Itu gambar terakhir di folder.
+	The AI engine (ComfyUI) is not running.	Mesin AI (ComfyUI) tidak berjalan.
+	The AI engine is starting…	Mesin AI sedang dimulai…
+	The author doesn't allow commercial use.	Pembuat tidak mengizinkan penggunaan komersial.
+	The model isn't ready.	Model belum siap.
+	The original file	Berkas asli
+	The publisher asks you to accept its licence on its page first; add a Hugging Face token in Local AI settings.	Penerbit meminta Anda menerima lisensinya di halamannya terlebih dahulu; tambahkan token Hugging Face di pengaturan AI Lokal.
+	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	Alur kerja tidak memiliki node berjudul li:prompt, li:image, li:mask, li:seed, atau li:output, sehingga Local Image tidak dapat mengisinya. Ganti nama node di ComfyUI lalu ekspor lagi.
+	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	Token memungkinkan Penjelajah Model mengunduh model yang dibatasi atau yang memerlukan masuk. Token hanya dikirim ke situsnya sendiri.
+	Transparent PNG	PNG transparan
+	Transparent background	Latar belakang transparan
+	Trending	Tren
+	Trending this week	Tren minggu ini
+	Unknown family	Keluarga tidak dikenal
+	Update Model Profiles	Perbarui Profil Model
+	Updated 1 model profile: {names}	1 profil model diperbarui: {names}
+	Updated {n} model profiles: {names}	{n} profil model diperbarui: {names}
+	Upscale	Perbesar
+	Upscale {scale}×	Perbesar {scale}×
+	Use	Gunakan
+	Use as Reference	Gunakan sebagai Referensi
+	Variation strength	Kekuatan variasi
+	Waiting	Menunggu
+	What should appear in the selection…	Apa yang harus muncul di seleksi…
+	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	Dengan kunci API Anda sendiri, Buat juga dapat memakai model cloud (muncul di bagian Cloud pada pemilih model). Prompt dan gambar Anda lalu dikirim dari komputer ini ke penyedia tersebut dan ditagihkan ke akun Anda; tidak ada data lain yang dikirim ke mana pun.
+	Works on my GPU	Berjalan di GPU saya
+	a “cutouts” folder beside each image	folder “cutouts” di samping setiap gambar
+	just now	baru saja
+	new each time	baru setiap kali
+	seed {seed}	seed {seed}
+	{author} · {n} downloads	{author} · {n} unduhan
+	{best_for} · {size} · {gb} GB GPU	{best_for} · {size} · GPU {gb} GB
+	{done} of {total}	{done} dari {total}
+	{licence} · non-commercial	{licence} · non-komersial
+	{model} creates, edits and fills; choose a local model to refine or upscale.	{model} dapat membuat, mengedit, dan mengisi; pilih model lokal untuk memperhalus atau memperbesar.
+	{mode} with {model}	{mode} dengan {model}
+	{name} (family unknown)	{name} (keluarga tidak dikenal)
+	{name} · Custom workflow	{name} · Alur kerja kustom
+	{name} · edited copy saved	{name} · salinan hasil edit disimpan
+	{name} · {gb} GB GPU memory	{name} · memori GPU {gb} GB
+	{name} — click to remove	{name} — klik untuk menghapus
+	{n} LoRAs	{n} LoRA
+	{n} days ago	{n} hari lalu
+	{n} downloads	{n} unduhan
+	{n} edited	{n} diedit
+	{n} files to download ({size}), verified by SHA-256:	{n} berkas untuk diunduh ({size}), diverifikasi dengan SHA-256:
+	{n} h ago	{n} jam lalu
+	{n} images	{n} gambar
+	{n} images in {folder}	{n} gambar di {folder}
+	{n} min ago	{n} menit lalu
+	{n} models	{n} model
+	{n} refs	{n} referensi
+	{size} · runs on the CPU · {licence}	{size} · berjalan di CPU · {licence}
+	{source}: offline, showing results from {when}	{source}: offline, menampilkan hasil dari {when}
+	{source}: the catalogue couldn't be read	{source}: katalog tidak dapat dibaca
+	{why} Qwen Image 2.1 runs these.	{why} Fitur ini dijalankan oleh Qwen Image 2.1.
+	Seed	Seed
+	Solid Color	Warna Solid
+	Strength	Kekuatan
+	Qwen AI · Compact	Qwen AI · Ringkas
+	Qwen AI · Full	Qwen AI · Penuh
+	Standard (CPU)	Standar (CPU)
+	Templates	Templat
+	Community	Komunitas
+ai	Restore	Pulihkan
+ai	Sampler	Sampler
+ai	New	Baru

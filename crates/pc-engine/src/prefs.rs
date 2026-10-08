@@ -222,6 +222,11 @@ pub struct Interface {
     /// local-image: the Contextual Task Bar under a new selection or closed path (Window ›
     /// Contextual Task Bar).
     pub contextual_task_bar: bool,
+    /// local-image: opening a file shows the rest of its folder in the filmstrip.
+    pub filmstrip_follows_open: bool,
+    /// local-image: where the filmstrip's Save & Next writes an edited image: `edited` (a copy in
+    /// an `Edited` folder beside the originals), `overwrite` (the original file) or `ask` (Save As).
+    pub filmstrip_save_to: String,
 }
 
 impl Default for Interface {
@@ -240,6 +245,8 @@ impl Default for Interface {
             show_tooltips: true,
             show_bounding_box_when_dragging_layer: false,
             contextual_task_bar: true,
+            filmstrip_follows_open: true,
+            filmstrip_save_to: "edited".into(),
         }
     }
 }

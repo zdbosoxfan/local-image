@@ -24,7 +24,7 @@ checking for updates).
 | **Generate** | A docked panel, after Krita AI Diffusion: Create, Edit, Fill, Refine and Upscale with any installed model, presets, reference images, LoRAs and Draft → Refine. Results become documents or layers. |
 | **Models** | An open, live model system: SD 1.5, SDXL, Pony, Illustrious, SD 3.5, FLUX.1 (Kontext, Fill), FLUX.2 and Klein, Qwen Image and Qwen Edit, Z-Image, ERNIE and HiDream are supported as data files, and installed models are recognised from their weights. The **Model Browser** finds models and LoRAs on Hugging Face, Civitai, ComfyUI's official templates and the ComfyUI-Manager list. |
 | **Library** | LightCraft's catalogue as a second mode (**Library ∣ Editor** in the title bar): import, ratings, flags, colour labels, keywords, collections and smart collections, filter bar, compare, sync, export presets, XMP sidecars, and an edit round trip into the editor. |
-| **Raw and export** | Camera raw through LightCraft's pipeline (16-bit ProPhoto documents), a filmstrip for folders, and LightCraft's export (JPEG, PNG, TIFF, WebP, AVIF; sizes, sharpening, metadata, presets). |
+| **Raw and export** | Camera raw through LightCraft's pipeline (16-bit ProPhoto documents), a filmstrip for working through folders (Save & Next to an `Edited` folder, Review in Library), and LightCraft's export (JPEG, PNG, TIFF, WebP, AVIF; sizes, sharpening, metadata, presets). |
 
 The full tool-by-tool comparison with GIMP, Krita, Photopea and Compositor, and where each piece
 came from, is in [docs/TOOLSET.md](docs/TOOLSET.md). The interface design and the user flows it was

@@ -71,6 +71,8 @@ impl PhotocraftApp {
             st.path = Some(path.to_string());
         }
         self.push_recent(path);
+        // local-image: the filmstrip shows the folder the file came from.
+        crate::filmstrip_ui::follow_file(self, path);
     }
 
     /// The name a file called `name` opens under: its own, or the first free "Untitled-N" for a

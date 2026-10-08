@@ -49,13 +49,23 @@ impl Mode {
             Mode::Upscale => "Upscale",
         }
     }
+    /// The label in the UI language.
+    fn shown(self) -> &'static str {
+        match self {
+            Mode::Create => tl!("Create"),
+            Mode::Edit => tl!("Edit"),
+            Mode::Fill => tl!("Fill"),
+            Mode::Refine => tl!("Refine"),
+            Mode::Upscale => tl!("Upscale"),
+        }
+    }
     fn tip(self) -> &'static str {
         match self {
-            Mode::Create => "A new image from a description and optional reference images",
-            Mode::Edit => "Change the open image from an instruction (edit models), or restyle it",
-            Mode::Fill => "Regenerate the selection (Photoshop's Generative Fill)",
-            Mode::Refine => "Resample the open image at a chosen strength (img2img)",
-            Mode::Upscale => "Enlarge the open image and add detail, tile by tile",
+            Mode::Create => tl!("A new image from a description and optional reference images"),
+            Mode::Edit => tl!("Change the open image from an instruction (edit models), or restyle it"),
+            Mode::Fill => tl!("Regenerate the selection (Photoshop's Generative Fill)"),
+            Mode::Refine => tl!("Resample the open image at a chosen strength (img2img)"),
+            Mode::Upscale => tl!("Enlarge the open image and add detail, tile by tile"),
         }
     }
     fn default_strength(self) -> f32 {
@@ -252,7 +262,7 @@ fn cloud_keys() -> Vec<li_ai::cloud::Provider> {
 
 /// Whether the cloud model's key is entered.
 fn cloud_ready(m: &li_ai::cloud::CloudModel) -> Result<(), String> {
-    if cloud_keys().contains(&m.provider) { Ok(()) } else { Err(format!("Add your {} API key in Local AI › Cloud.", m.provider.label())) }
+    if cloud_keys().contains(&m.provider) { Ok(()) } else { Err(crate::i18n::fmt(tl!("Add your {provider} API key in Local AI › Cloud."), &[("provider", m.provider.label())])) }
 }
 
 fn model_of(s: &GenerateState) -> ModelId {
@@ -387,11 +397,11 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &cra
     let t = Tokens::get(ui.ctx());
     let custom = current.strip_prefix("custom:");
     let current_label = match custom {
-        Some(name) => format!("{name} · Custom workflow"),
+        Some(name) => crate::i18n::fmt(tl!("{name} · Custom workflow"), &[("name", name)]),
         None => ModelId::from_key(current)
             .and_then(|m| m.try_info())
             .map(|i| format!("{} · {}", i.label, i.family_label))
-            .unwrap_or_else(|| "Choose a model".into()),
+            .unwrap_or_else(|| tl!("Choose a model").into()),
     };
     let mut picked = None;
     let width = ui.available_width();
@@ -433,7 +443,7 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &cra
                 let tip = if ok {
                     format!("{}\n{}", m.best_for, m.tags().join(" · "))
                 } else if m.origin == catalog::Origin::Profile {
-                    format!("{}\nNot installed: {}", m.best_for, reason)
+                    format!("{}\n{}", m.best_for, crate::i18n::fmt(tl!("Not installed: {reason}"), &[("reason", &reason)]))
                 } else {
                     format!("{}\n{}", m.best_for, reason)
                 };
@@ -446,7 +456,7 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &cra
             let clouds: Vec<_> = li_ai::cloud::MODELS.iter().filter(|m| cloud_fits(m, mode)).collect();
             if !clouds.is_empty() {
                 ui.add_space(4.0);
-                ui.label(RichText::new("CLOUD · YOUR API KEY").size(10.5).color(t.text_faint).strong());
+                ui.label(RichText::new(tl!("CLOUD · YOUR API KEY")).size(10.5).color(t.text_faint).strong());
                 let keys = cloud_keys();
                 for m in clouds {
                     let key = format!("cloud:{}", m.key);
@@ -456,7 +466,7 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &cra
                         ui.painter().circle_filled(dot.center(), 3.5, if has_key { Color32::from_rgb(70, 190, 110) } else { t.text_faint });
                         let resp = ui.add(egui::Button::selectable(current == key, RichText::new(m.label).color(if has_key { t.text } else { t.text_dim })));
                         ui.label(RichText::new(m.provider.label()).size(10.5).color(t.text_faint));
-                        for (on, tg) in [(m.create, "Create"), (m.edit, "Edit"), (m.fill, "Fill")] {
+                        for (on, tg) in [(m.create, tl!("Create")), (m.edit, tl!("Edit")), (m.fill, tl!("Fill"))] {
                             if on {
                                 tag(ui, tg, &t);
                             }
@@ -464,9 +474,17 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &cra
                         resp
                     });
                     let tip = if has_key {
-                        format!("{}\nRuns on {}'s servers: your prompt and images are sent there.", m.best_for, m.provider.label())
+                        format!(
+                            "{}\n{}",
+                            m.best_for,
+                            crate::i18n::fmt(tl!("Runs on {provider}'s servers: your prompt and images are sent there."), &[("provider", m.provider.label())])
+                        )
                     } else {
-                        format!("{}\nAdd your {} API key in Local AI › Cloud to use it.", m.best_for, m.provider.label())
+                        format!(
+                            "{}\n{}",
+                            m.best_for,
+                            crate::i18n::fmt(tl!("Add your {provider} API key in Local AI › Cloud to use it."), &[("provider", m.provider.label())])
+                        )
                     };
                     if row.inner.on_hover_text(tip).clicked() {
                         picked = Some(key);
@@ -476,7 +494,7 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &cra
             let cws = customs();
             if !cws.is_empty() {
                 ui.add_space(4.0);
-                ui.label(RichText::new("CUSTOM WORKFLOWS").size(10.5).color(t.text_faint).strong());
+                ui.label(RichText::new(tl!("CUSTOM WORKFLOWS")).size(10.5).color(t.text_faint).strong());
                 for w in cws {
                     let key = format!("custom:{}", w.name);
                     let row = ui.horizontal(|ui| {
@@ -495,10 +513,10 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &cra
         }
         ui.separator();
         ui.horizontal(|ui| {
-            if ui.button("Browse Models…").clicked() {
+            if ui.button(tl!("Browse Models…")).clicked() {
                 picked = Some("browse:".into());
             }
-            if allow_custom && ui.button("Import Workflow…").clicked() {
+            if allow_custom && ui.button(tl!("Import Workflow…")).clicked() {
                 picked = Some("import:".into());
             }
         });
@@ -518,14 +536,14 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let st = crate::ai_ui::status();
         let s = &mut app.ui.ai.generate;
         // ---- Mode.
-        let labels: Vec<&str> = Mode::ALL.iter().map(|m| m.label()).collect();
+        let labels: Vec<&str> = Mode::ALL.iter().map(|m| m.shown()).collect();
         let tips: Vec<&str> = Mode::ALL.iter().map(|m| m.tip()).collect();
         let disabled: Vec<Option<&str>> = Mode::ALL
             .iter()
             .map(|m| match m {
                 Mode::Create => None,
-                Mode::Fill if !has_sel => Some("Make a selection first"),
-                _ if !has_doc => Some("Open an image first"),
+                Mode::Fill if !has_sel => Some(tl!("Make a selection first")),
+                _ if !has_doc => Some(tl!("Open an image first")),
                 _ => None,
             })
             .collect();
@@ -552,19 +570,19 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         // ---- Preset.
         let all_presets = presets();
         ui.horizontal(|ui| {
-            label(ui, "Preset");
+            label(ui, tl!("Preset"));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let save = crate::icons::button(ui, "bookmark-plus", 22.0, false, "Save these settings as a preset");
+                let save = crate::icons::button(ui, "bookmark-plus", 22.0, false, tl!("Save these settings as a preset"));
                 if save.clicked() {
-                    rt(|r| r.preset_name = format!("My preset {}", all_presets.iter().filter(|p| !p.built_in).count() + 1));
+                    rt(|r| r.preset_name = crate::i18n::fmt(tl!("My preset {n}"), &[("n", &(all_presets.iter().filter(|p| !p.built_in).count() + 1).to_string())]));
                 }
                 egui::Popup::from_toggle_button_response(&save).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
                     ui.set_min_width(220.0);
-                    ui.label("Preset name");
+                    ui.label(tl!("Preset name"));
                     let mut name = rt(|r| r.preset_name.clone());
                     ui.text_edit_singleline(&mut name);
                     rt(|r| r.preset_name = name.clone());
-                    if widgets::primary_button(ui, "Save Preset", 0.0).clicked() && !name.trim().is_empty() {
+                    if widgets::primary_button(ui, tl!("Save Preset"), 0.0).clicked() && !name.trim().is_empty() {
                         save_preset(s, name.trim());
                         ui.close();
                     }
@@ -601,7 +619,10 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
                 crate::icons::paint(ui, r, "cloud", 12.0, t.text_faint);
                 ui.label(
-                    RichText::new(format!("Runs on {}: your prompt and images are sent there, billed to your key.", c.provider.label()))
+                    RichText::new(crate::i18n::fmt(
+                        tl!("Runs on {provider}: your prompt and images are sent there, billed to your key."),
+                        &[("provider", c.provider.label())],
+                    ))
                         .color(t.text_faint)
                         .size(11.0),
                 );
@@ -610,7 +631,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             let presets_m: Vec<_> = catalog::presets_for(m).collect();
             if presets_m.len() > 1 {
                 ui.horizontal(|ui| {
-                    label(ui, "Precision");
+                    label(ui, tl!("Precision"));
                     let opts: Vec<(String, &str)> = presets_m.iter().map(|p| (p.variant.clone(), p.label.as_str())).collect();
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         widgets::dropdown(ui, "gen-variant", &mut s.variant, &opts, ui.available_width().min(200.0));
@@ -627,12 +648,12 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let mut enter = false;
         if wants_prompt {
             let hint = match s.mode {
-                Mode::Create => "Describe an image to create…",
-                Mode::Edit if info.edit => "Describe the change, e.g. “make it golden hour”…",
-                Mode::Edit => "Describe the image you want it to become…",
-                Mode::Fill => "What should appear in the selection…",
-                Mode::Refine => "Describe the image (optional)…",
-                Mode::Upscale => "Describe details to add (optional)…",
+                Mode::Create => tl!("Describe an image to create…"),
+                Mode::Edit if info.edit => tl!("Describe the change, e.g. “make it golden hour”…"),
+                Mode::Edit => tl!("Describe the image you want it to become…"),
+                Mode::Fill => tl!("What should appear in the selection…"),
+                Mode::Refine => tl!("Describe the image (optional)…"),
+                Mode::Upscale => tl!("Describe details to add (optional)…"),
             };
             let resp = ui.add(egui::TextEdit::multiline(&mut s.prompt).hint_text(hint).desired_rows(3).desired_width(f32::INFINITY));
             if rt(|r| std::mem::take(&mut r.focus_prompt)) {
@@ -649,7 +670,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             (None, None) => info.negative_prompt,
         };
         if wants_negative {
-            ui.add(egui::TextEdit::singleline(&mut s.negative).hint_text("Avoid… (negative prompt)").desired_width(f32::INFINITY));
+            ui.add(egui::TextEdit::singleline(&mut s.negative).hint_text(tl!("Avoid… (negative prompt)")).desired_width(f32::INFINITY));
         }
         // ---- Size (Create): one row, aspect then pixels.
         let custom_size = custom.as_ref().is_some_and(|w| w.has(&li_ai::custom::FieldKind::Width));
@@ -657,7 +678,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 let mut aspect = if ASPECTS.iter().any(|(k, _)| *k == s.aspect) { s.aspect.clone() } else { "custom".to_owned() };
-                let opts: Vec<(String, &str)> = ASPECTS.iter().map(|(k, _)| ((*k).to_owned(), *k)).chain([("custom".to_owned(), "Custom")]).collect();
+                let opts: Vec<(String, &str)> = ASPECTS.iter().map(|(k, _)| ((*k).to_owned(), *k)).chain([("custom".to_owned(), tl!("Custom"))]).collect();
                 if widgets::dropdown(ui, "gen-aspect", &mut aspect, &opts, 76.0) {
                     s.aspect = aspect.clone();
                     if aspect != "custom" {
@@ -669,9 +690,9 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 let (mut w, mut h) = (s.width as f32, s.height as f32);
                 let max = info.resolved.sizes.max.max(1024) as f32 * 2.0;
                 let fw = ((ui.available_width() - 16.0) / 2.0).clamp(56.0, 84.0);
-                let cw = widgets::value_field(ui, &mut w, 256.0..=max, "px", fw).on_hover_text("Width");
+                let cw = widgets::value_field(ui, &mut w, 256.0..=max, "px", fw).on_hover_text(tl!("Width"));
                 ui.label(RichText::new("×").color(t.text_faint));
-                let ch = widgets::value_field(ui, &mut h, 256.0..=max, "px", fw).on_hover_text("Height");
+                let ch = widgets::value_field(ui, &mut h, 256.0..=max, "px", fw).on_hover_text(tl!("Height"));
                 if cw.changed() || ch.changed() {
                     s.aspect = "custom".into();
                 }
@@ -686,12 +707,12 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             });
         }
         if s.mode == Mode::Create && info.transparent && custom.is_none() && cloud.is_none() {
-            widgets::checkbox(ui, &mut s.transparent, "Transparent background");
+            widgets::checkbox(ui, &mut s.transparent, tl!("Transparent background"));
         }
         if let Some(c) = cloud
             && s.mode == Mode::Create
         {
-            ui.label(RichText::new(format!("Sent as {}", li_ai::cloud::describe_size(c, s.width, s.height))).color(t.text_faint).size(11.0));
+            ui.label(RichText::new(crate::i18n::fmt(tl!("Sent as {size}"), &[("size", &li_ai::cloud::describe_size(c, s.width, s.height))])).color(t.text_faint).size(11.0));
         }
         // ---- Strength.
         let strength_shown = match (&custom, cloud) {
@@ -705,8 +726,8 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         };
         if strength_shown {
             let mut pct = s.denoise * 100.0;
-            if widgets::slider_row(ui, "Strength", &mut pct, 5.0..=100.0, "%", None)
-                .on_hover_text("How much may change: 100 % regenerates, lower keeps more of the image")
+            if widgets::slider_row(ui, tl!("Strength"), &mut pct, 5.0..=100.0, "%", None)
+                .on_hover_text(tl!("How much may change: 100 % regenerates, lower keeps more of the image"))
                 .changed()
             {
                 s.denoise = (pct / 100.0).clamp(0.05, 1.0);
@@ -717,7 +738,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             let items: Vec<&str> = scales.iter().map(|(l, _)| *l).collect();
             let sel = scales.iter().position(|(_, v)| (*v - s.upscale).abs() < 0.01).unwrap_or(1);
             ui.horizontal(|ui| {
-                label(ui, "Enlarge");
+                label(ui, tl!("Enlarge"));
                 if let Some(i) = chips(ui, &items, sel) {
                     s.upscale = scales[i].1;
                 }
@@ -749,9 +770,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         // ---- Draft → Refine.
         if s.mode == Mode::Create && custom.is_none() && cloud.is_none() {
             ui.horizontal(|ui| {
-                widgets::checkbox(ui, &mut s.refine, "Refine with").on_hover_text(
-                    "Draft → Refine: generate with this model, then resample the draft with another (e.g. a fast draft refined by a detailed model)",
-                );
+                widgets::checkbox(ui, &mut s.refine, tl!("Refine with")).on_hover_text(tl!("Draft → Refine: generate with this model, then resample the draft with another (e.g. a fast draft refined by a detailed model)"));
             });
             if s.refine {
                 if let Some(k) = model_picker(ui, "gen-refine-model", &s.refine_model.clone(), Mode::Refine, &st, false) {
@@ -763,14 +782,14 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     }
                 }
                 let mut pct = s.refine_strength * 100.0;
-                if widgets::slider_row(ui, "Refine strength", &mut pct, 5.0..=100.0, "%", None).changed() {
+                if widgets::slider_row(ui, tl!("Refine strength"), &mut pct, 5.0..=100.0, "%", None).changed() {
                     s.refine_strength = pct / 100.0;
                 }
                 let scales = [("1×", 1.0f32), ("1.5×", 1.5), ("2×", 2.0)];
                 let items: Vec<&str> = scales.iter().map(|(l, _)| *l).collect();
                 let sel = scales.iter().position(|(_, v)| (*v - s.refine_scale).abs() < 0.01).unwrap_or(0);
                 ui.horizontal(|ui| {
-                    label(ui, "Enlarge first");
+                    label(ui, tl!("Enlarge first"));
                     if let Some(i) = chips(ui, &items, sel) {
                         s.refine_scale = scales[i].1;
                     }
@@ -778,42 +797,42 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             }
         }
         // ---- Advanced.
-        let resp = egui::CollapsingHeader::new(RichText::new("Advanced").color(t.text_dim)).default_open(s.advanced).show(ui, |ui| {
+        let resp = egui::CollapsingHeader::new(RichText::new(tl!("Advanced")).color(t.text_dim)).default_open(s.advanced).show(ui, |ui| {
             let (steps_range, cfg_range) = (info.steps, info.guidance);
             let show_steps = cloud.is_none() && custom.as_ref().map_or(!steps_range.fixed(), |w| w.has(&li_ai::custom::FieldKind::Steps));
             if show_steps {
                 let mut v = s.steps as f32;
                 let r = if custom.is_some() { 1.0..=150.0 } else { steps_range.min..=steps_range.max };
-                if widgets::slider_row(ui, "Steps", &mut v, r, "", None).changed() {
+                if widgets::slider_row(ui, tl!("Steps"), &mut v, r, "", None).changed() {
                     s.steps = v.round() as u32;
                 }
             }
             let show_cfg = cloud.is_none() && custom.as_ref().map_or(!cfg_range.fixed(), |w| w.has(&li_ai::custom::FieldKind::Cfg));
             if show_cfg {
                 let r = if custom.is_some() { 1.0..=30.0 } else { cfg_range.min..=cfg_range.max };
-                widgets::slider_row(ui, "Guidance", &mut s.guidance, r, "", None);
+                widgets::slider_row(ui, tl!("Guidance"), &mut s.guidance, r, "", None);
             }
             if info.init_image && custom.is_none() && cloud.is_none() && s.mode == Mode::Create {
                 let mut pct = s.denoise * 100.0;
-                if widgets::slider_row(ui, "Variation strength", &mut pct, 5.0..=100.0, "%", None).changed() {
+                if widgets::slider_row(ui, tl!("Variation strength"), &mut pct, 5.0..=100.0, "%", None).changed() {
                     s.denoise = pct / 100.0;
                 }
             }
             if custom.is_none() && cloud.is_none() && info.resolved.pipeline.sampler == li_ai::family::SamplerStyle::Ksampler {
                 ui.horizontal(|ui| {
-                    label(ui, "Sampler");
+                    label(ui, crate::i18n::tr_ctx(crate::i18n::current(), "ai", "Sampler"));
                     let samplers = ["", "euler", "euler_ancestral", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_sde", "uni_pc", "res_multistep", "lcm"];
-                    let opts: Vec<(String, &str)> = samplers.iter().map(|x| (x.to_string(), if x.is_empty() { "Model default" } else { *x })).collect();
+                    let opts: Vec<(String, &str)> = samplers.iter().map(|x| (x.to_string(), if x.is_empty() { tl!("Model default") } else { *x })).collect();
                     widgets::dropdown(ui, "gen-sampler", &mut s.sampler, &opts, 130.0);
                     let schedulers = ["", "simple", "normal", "karras", "sgm_uniform", "beta", "exponential"];
-                    let opts: Vec<(String, &str)> = schedulers.iter().map(|x| (x.to_string(), if x.is_empty() { "Default" } else { *x })).collect();
+                    let opts: Vec<(String, &str)> = schedulers.iter().map(|x| (x.to_string(), if x.is_empty() { tl!("Default") } else { *x })).collect();
                     widgets::dropdown(ui, "gen-scheduler", &mut s.scheduler, &opts, 100.0);
                 });
             }
             ui.horizontal(|ui| {
-                label(ui, "Seed");
+                label(ui, tl!("Seed"));
                 let mut locked = s.seed.is_some();
-                if widgets::checkbox(ui, &mut locked, "Keep").changed() {
+                if widgets::checkbox(ui, &mut locked, tl!("Keep")).changed() {
                     s.seed = if locked { Some(li_ai::ops::new_seed()) } else { None };
                 }
                 if let Some(seed) = s.seed.as_mut() {
@@ -824,7 +843,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         *seed = v;
                     }
                 } else {
-                    ui.label(RichText::new("new each time").color(t.text_faint));
+                    ui.label(RichText::new(tl!("new each time")).color(t.text_faint));
                 }
             });
         });
@@ -834,22 +853,22 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let ready = match (&custom, cloud) {
             (_, Some(c)) => cloud_ready(c),
             (Some(_), _) if st.connected => Ok(()),
-            (Some(_), _) => Err("The AI engine (ComfyUI) is not running.".to_owned()),
+            (Some(_), _) => Err(tl!("The AI engine (ComfyUI) is not running.").to_owned()),
             (None, None) => st.ready(m, &variant),
         };
         let refine_ready = if s.refine && s.mode == Mode::Create && custom.is_none() && cloud.is_none() {
             match ModelId::from_key(&s.refine_model) {
-                Some(rm) => st.ready(rm, &s.refine_variant).map_err(|e| format!("Refine model: {e}")),
-                None => Err("Choose a model to refine with.".into()),
+                Some(rm) => st.ready(rm, &s.refine_variant).map_err(|e| crate::i18n::fmt(tl!("Refine model: {why}"), &[("why", &e)])),
+                None => Err(tl!("Choose a model to refine with.").into()),
             }
         } else {
             Ok(())
         };
         let needs_prompt = wants_prompt && matches!(s.mode, Mode::Create | Mode::Edit | Mode::Fill);
         let blocker = match s.mode {
-            _ if needs_prompt && s.prompt.trim().is_empty() => Some("Describe what you want first."),
-            Mode::Edit | Mode::Refine | Mode::Upscale if !has_doc => Some("Open an image first."),
-            Mode::Fill if !has_sel => Some("Make a selection to fill."),
+            _ if needs_prompt && s.prompt.trim().is_empty() => Some(tl!("Describe what you want first.")),
+            Mode::Edit | Mode::Refine | Mode::Upscale if !has_doc => Some(tl!("Open an image first.")),
+            Mode::Fill if !has_sel => Some(tl!("Make a selection to fill.")),
             _ => None,
         };
         ui.add_space(4.0);
@@ -857,26 +876,26 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new(why).color(t.warning).size(11.5));
                 if cloud.is_some() {
-                    if widgets::secondary_button(ui, "Add Key…", 0.0).clicked() {
+                    if widgets::secondary_button(ui, tl!("Add Key…"), 0.0).clicked() {
                         crate::ai_ui::open_local_ai(app);
                     }
                 } else if !st.connected {
-                    if widgets::secondary_button(ui, "Set up AI…", 0.0).clicked() {
+                    if widgets::secondary_button(ui, tl!("Set up AI…"), 0.0).clicked() {
                         crate::ai_ui::open_local_ai(app);
                     }
-                } else if widgets::secondary_button(ui, "Get models…", 0.0).clicked() {
+                } else if widgets::secondary_button(ui, tl!("Get models…"), 0.0).clicked() {
                     crate::model_browser::open();
                 }
             });
         }
         let s = &app.ui.ai.generate;
         let label_text = match s.mode {
-            Mode::Create if s.count > 1 => format!("Generate {}", s.count),
-            Mode::Create => "Generate".into(),
-            Mode::Edit => "Apply Edit".into(),
-            Mode::Fill => "Fill Selection".into(),
-            Mode::Refine => "Refine".into(),
-            Mode::Upscale => format!("Upscale {}×", widgets::fmt_num(s.upscale as f64)),
+            Mode::Create if s.count > 1 => crate::i18n::fmt(tl!("Generate {n}"), &[("n", &s.count.to_string())]),
+            Mode::Create => tl!("Generate").into(),
+            Mode::Edit => tl!("Apply Edit").into(),
+            Mode::Fill => tl!("Fill Selection").into(),
+            Mode::Refine => tl!("Refine").into(),
+            Mode::Upscale => crate::i18n::fmt(tl!("Upscale {scale}×"), &[("scale", &widgets::fmt_num(s.upscale as f64))]),
         };
         let can = blocker.is_none() && ready.is_ok() && refine_ready.is_ok();
         let create = s.mode == Mode::Create;
@@ -888,9 +907,9 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 let r = ui
                     .add_enabled_ui(can, |ui| widgets::primary_button(ui, &label_text, w))
                     .inner
-                    .on_disabled_hover_text(blocker.unwrap_or("The model isn't ready."));
+                    .on_disabled_hover_text(blocker.unwrap_or(tl!("The model isn't ready.")));
                 if create {
-                    widgets::value_field(ui, &mut count, 1.0..=4.0, "", 40.0).on_hover_text("Images per run (1–4)");
+                    widgets::value_field(ui, &mut count, 1.0..=4.0, "", 40.0).on_hover_text(tl!("Images per run (1–4)"));
                 }
                 r
             })
@@ -909,12 +928,12 @@ fn loras_ui(ui: &mut egui::Ui, s: &mut GenerateState, fam: &li_ai::family::Famil
     let available = li_ai::inventory::loras_for(fam);
     let max = fam.lora.max.max(1) as usize;
     ui.horizontal(|ui| {
-        label(ui, &format!("Styles (LoRA) · {}/{max}", s.loras.len()));
+        label(ui, &crate::i18n::fmt(tl!("Styles (LoRA) · {n}/{max}"), &[("n", &s.loras.len().to_string()), ("max", &max.to_string())]));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let free: Vec<&(li_ai::inventory::InstalledLora, bool)> = available.iter().filter(|(l, _)| !s.loras.iter().any(|p| p.name == l.name)).collect();
             let can = s.loras.len() < max && !free.is_empty();
-            let tip = if available.is_empty() { "No LoRAs for this model family are installed (Find LoRAs…)" } else { "Add a LoRA" };
-            if ui.add_enabled(can, egui::Button::new("+ Add")).on_hover_text(tip).on_disabled_hover_text(tip).clicked()
+            let tip = if available.is_empty() { tl!("No LoRAs for this model family are installed (Find LoRAs…)") } else { tl!("Add a LoRA") };
+            if ui.add_enabled(can, egui::Button::new(tl!("+ Add"))).on_hover_text(tip).on_disabled_hover_text(tip).clicked()
                 && let Some((l, _)) = free.first()
             {
                 s.loras.push(LoraPick { name: l.name.clone(), strength: 0.8 });
@@ -926,12 +945,15 @@ fn loras_ui(ui: &mut egui::Ui, s: &mut GenerateState, fam: &li_ai::family::Famil
         ui.horizontal(|ui| {
             let opts: Vec<(String, String)> = available
                 .iter()
-                .map(|(l, sure)| (l.name.clone(), format!("{}{}", li_ai::inventory::label_for(&l.name), if *sure { "" } else { " (family unknown)" })))
+                .map(|(l, sure)| {
+                    let name = li_ai::inventory::label_for(&l.name);
+                    (l.name.clone(), if *sure { name } else { crate::i18n::fmt(tl!("{name} (family unknown)"), &[("name", &name)]) })
+                })
                 .collect();
             let refs: Vec<(String, &str)> = opts.iter().map(|(k, l)| (k.clone(), l.as_str())).collect();
             widgets::dropdown(ui, &format!("gen-lora-{i}"), &mut pick.name, &refs, (ui.available_width() - 110.0).max(80.0));
-            widgets::value_field(ui, &mut pick.strength, -2.0..=2.0, "", 52.0).on_hover_text("Strength");
-            if crate::icons::button(ui, "x", 20.0, false, "Remove").clicked() {
+            widgets::value_field(ui, &mut pick.strength, -2.0..=2.0, "", 52.0).on_hover_text(tl!("Strength"));
+            if crate::icons::button(ui, "x", 20.0, false, tl!("Remove")).clicked() {
                 remove = Some(i);
             }
         });
@@ -941,8 +963,8 @@ fn loras_ui(ui: &mut egui::Ui, s: &mut GenerateState, fam: &li_ai::family::Famil
     }
     if s.loras.is_empty() && available.is_empty() {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("No compatible LoRAs installed.").color(t.text_faint).size(11.0));
-            if ui.link(RichText::new("Find LoRAs…").size(11.0)).clicked() {
+            ui.label(RichText::new(tl!("No compatible LoRAs installed.")).color(t.text_faint).size(11.0));
+            if ui.link(RichText::new(tl!("Find LoRAs…")).size(11.0)).clicked() {
                 crate::model_browser::open_loras(&fam.id);
             }
         });
@@ -1015,11 +1037,11 @@ fn save_preset(s: &mut GenerateState, name: &str) {
 pub fn import_workflow(app: &mut PhotocraftApp) {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let Some(path) = rfd::FileDialog::new().set_title("Import ComfyUI Workflow").add_filter("ComfyUI workflow", &["json"]).pick_file() else { return };
+        let Some(path) = rfd::FileDialog::new().set_title(tl!("Import ComfyUI Workflow")).add_filter(tl!("ComfyUI workflow"), &["json"]).pick_file() else { return };
         match import_workflow_path(&path) {
             Ok(name) => {
                 app.ui.ai.generate.model = format!("custom:{name}");
-                app.ui.status = format!("Imported the workflow “{name}”.");
+                app.ui.status = crate::i18n::fmt(tl!("Imported the workflow “{name}”."), &[("name", &name)]);
                 app.ui.status_error = false;
             }
             Err(e) => {
@@ -1035,12 +1057,12 @@ pub fn import_workflow(app: &mut PhotocraftApp) {
 /// Imports a workflow file; returns its name.
 pub fn import_workflow_path(path: &std::path::Path) -> Result<String, String> {
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-    let json: Value = serde_json::from_slice(&bytes).map_err(|_| "That file is not a ComfyUI workflow (JSON).".to_owned())?;
+    let json: Value = serde_json::from_slice(&bytes).map_err(|_| tl!("That file is not a ComfyUI workflow (JSON).").to_owned())?;
     let name = path.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Workflow".into());
     let info = li_ai::service().client.object_info().ok();
     let w = li_ai::custom::import(&name, &json, info.as_ref()).map_err(|e| format!("{e:#}"))?;
     if w.fields.is_empty() {
-        return Err("The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.".into());
+        return Err(tl!("The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.").into());
     }
     li_ai::custom::save(&w, &li_ai::custom::dir()).map_err(|e| format!("{e:#}"))?;
     rt(|r| r.customs = None);
@@ -1051,19 +1073,20 @@ fn references_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui, max: usize, init_im
     let t = Tokens::get(ui.ctx());
     let n = rt(|r| r.references.len());
     ui.horizontal(|ui| {
-        label(ui, &format!("{} · {n}/{max}", if init_image { "Starting image" } else { "References" }));
+        let heading = if init_image { tl!("Starting image · {n}/{max}") } else { tl!("References · {n}/{max}") };
+        label(ui, &crate::i18n::fmt(heading, &[("n", &n.to_string()), ("max", &max.to_string())]));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let full = n >= max;
             ui.add_enabled_ui(!full, |ui| {
                 #[cfg(not(target_arch = "wasm32"))]
-                if crate::icons::button(ui, "folder-open", 22.0, false, "Add an image file").clicked()
-                    && let Some(path) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "webp", "tif", "tiff"]).pick_file()
+                if crate::icons::button(ui, "folder-open", 22.0, false, tl!("Add an image file")).clicked()
+                    && let Some(path) = rfd::FileDialog::new().add_filter(tl!("Images"), &["png", "jpg", "jpeg", "webp", "tif", "tiff"]).pick_file()
                     && let Ok(img) = image::open(&path)
                 {
                     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                     add_reference(ui.ctx(), name, img.to_rgba8());
                 }
-                if app.session.active().is_some() && crate::icons::button(ui, "image", 22.0, false, "Add the current image").clicked() {
+                if app.session.active().is_some() && crate::icons::button(ui, "image", 22.0, false, tl!("Add the current image")).clicked() {
                     let d = app.session.active().map(|d| (d.doc.name.clone(), photocraft_engine::ai_cmds::flatten_rgba(&d.doc)));
                     if let Some((name, img)) = d {
                         add_reference(ui.ctx(), name, img);
@@ -1094,7 +1117,7 @@ fn references_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui, max: usize, init_im
                 if resp.hovered() {
                     crate::icons::paint(ui, egui::Rect::from_min_size(rect.right_top() - vec2(16.0, 0.0), vec2(16.0, 16.0)), "x", 12.0, Color32::WHITE);
                 }
-                if resp.on_hover_text(format!("{} — click to remove", rf.name)).clicked() {
+                if resp.on_hover_text(crate::i18n::fmt(tl!("{name} — click to remove"), &[("name", &rf.name)])).clicked() {
                     remove = Some(i);
                 }
             }
@@ -1140,7 +1163,8 @@ fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let name = format!("{}-{seed}", w.name.replace(' ', ""));
         let meta = json!({ "model": format!("custom:{}", w.name), "prompt": prompt, "negative_prompt": s.negative, "seed": seed, "mode": "custom" });
         let label = format!("Running {}", w.name);
-        launch(app, &label, name, meta, None, false, move |ctl| li_ai::service().run_custom(&w, &inputs, &images, mask.as_ref(), ctl));
+        let shown = crate::i18n::fmt(tl!("Running {name}"), &[("name", &w.name)]);
+        launch(app, &label, &shown, name, meta, None, false, move |ctl| li_ai::service().run_custom(&w, &inputs, &images, mask.as_ref(), ctl));
         ctx.request_repaint();
         return;
     }
@@ -1213,6 +1237,7 @@ fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let mut r = req.clone();
         r.seed = s.seed.map(|v| v.wrapping_add(i as u64)).unwrap_or_else(li_ai::ops::new_seed);
         let label = format!("{} with {}", s.mode.label(), info.short);
+        let shown = crate::i18n::fmt(tl!("{mode} with {model}"), &[("mode", s.mode.shown()), ("model", &info.short)]);
         let name = format!("{}-{}", info.short.replace(' ', ""), r.seed);
         let meta = json!({
             "model": m.key(), "family": info.family, "variant": r.variant, "prompt": r.prompt, "negative_prompt": r.negative, "width": r.width, "height": r.height,
@@ -1222,7 +1247,7 @@ fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
             "reference_count": r.references.len(), "mode": format!("{:?}", s.mode).to_lowercase(),
         });
         let mask = r.mask.clone();
-        let ok = launch(app, &label, name, meta, target_doc.map(|d| d.0), open, move |ctl| {
+        let ok = launch(app, &label, &shown, name, meta, target_doc.map(|d| d.0), open, move |ctl| {
             let out = li_ai::service().generate(&r, ctl)?;
             // Fill lands as a layer holding only the regenerated area.
             Ok(match (fill, mask) {
@@ -1269,7 +1294,7 @@ fn start_cloud(
         Mode::Edit => CloudMode::Edit,
         Mode::Fill => CloudMode::Fill,
         Mode::Refine | Mode::Upscale => {
-            app.ui.status = format!("{} creates, edits and fills; choose a local model to refine or upscale.", c.label);
+            app.ui.status = crate::i18n::fmt(tl!("{model} creates, edits and fills; choose a local model to refine or upscale."), &[("model", c.label)]);
             app.ui.status_error = true;
             return;
         }
@@ -1302,13 +1327,14 @@ fn start_cloud(
         let mut r = base.clone();
         r.seed = s.seed.map(|v| v.wrapping_add(i as u64)).unwrap_or_else(li_ai::ops::new_seed);
         let label = format!("{} with {}", s.mode.label(), c.label);
+        let shown = crate::i18n::fmt(tl!("{mode} with {model}"), &[("mode", s.mode.shown()), ("model", c.label)]);
         let name = format!("{}-{}", c.model.replace(['.', ' '], ""), r.seed);
         let meta = json!({
             "model": format!("cloud:{}", c.key), "provider": c.provider.label(), "prompt": r.prompt, "negative_prompt": r.negative,
             "width": r.width, "height": r.height, "seed": r.seed, "mode": format!("{:?}", s.mode).to_lowercase(), "reference_count": r.refs.len(),
         });
         let fill_mask = r.mask.clone();
-        let ok = launch(app, &label, name, meta, target, false, move |ctl| {
+        let ok = launch(app, &label, &shown, name, meta, target, false, move |ctl| {
             let settings = li_ai::settings::AiSettings::load();
             let out = li_ai::cloud::generate(&r, &settings, ctl)?.into_iter().next().ok_or_else(|| anyhow::anyhow!("no image came back"))?;
             Ok(match fill_mask {
@@ -1329,10 +1355,13 @@ fn start_cloud(
     }
 }
 
-/// Starts one job that produces an image, saves it to the library and shows its tile.
+/// Starts one job that produces an image, saves it to the library and shows its tile (`shown`:
+/// the tile's label in the UI language; the job keeps the English `label`).
+#[allow(clippy::too_many_arguments)]
 fn launch(
     app: &mut PhotocraftApp,
     label: &str,
+    shown: &str,
     name: String,
     meta: Value,
     edit: Option<u64>,
@@ -1357,7 +1386,7 @@ fn launch(
     );
     match started {
         Ok(photocraft_engine::jobs::Started::Job(id)) => {
-            rt(|rt| rt.results.push_front(Tile::Pending { job: id.0, label: label.to_owned(), edit, open }));
+            rt(|rt| rt.results.push_front(Tile::Pending { job: id.0, label: shown.to_owned(), edit, open }));
             true
         }
         Ok(photocraft_engine::jobs::Started::Done(v)) => {
@@ -1379,7 +1408,7 @@ pub fn on_generated(app: &mut PhotocraftApp, e: &JobEvent) {
     let tile = match &e.outcome {
         JobOutcome::Done(v) => match serde_json::from_value::<Entry>(v.clone()) {
             Ok(entry) => {
-                app.ui.status = format!("Generated {} · seed {}", entry.name, entry.seed().unwrap_or(0));
+                app.ui.status = crate::i18n::fmt(tl!("Generated {name} · seed {seed}"), &[("name", &entry.name), ("seed", &entry.seed().unwrap_or(0).to_string())]);
                 app.ui.status_error = false;
                 // An edit of an open document lands on it as a new layer.
                 let (edit_doc, open) = rt(|r| {
@@ -1407,11 +1436,11 @@ pub fn on_generated(app: &mut PhotocraftApp, e: &JobEvent) {
             Err(err) => Tile::Failed(err.to_string()),
         },
         JobOutcome::Failed(err) => {
-            app.ui.status = format!("Generation failed: {err}");
+            app.ui.status = crate::i18n::fmt(tl!("Generation failed: {error}"), &[("error", err)]);
             app.ui.status_error = true;
             Tile::Failed(err.clone())
         }
-        JobOutcome::Cancelled => Tile::Failed("Cancelled".into()),
+        JobOutcome::Cancelled => Tile::Failed(tl!("Cancelled").into()),
     };
     rt(|r| {
         if let Some(i) = r.results.iter().position(|t| matches!(t, Tile::Pending { job, .. } if *job == e.id.0)) {
@@ -1440,10 +1469,10 @@ fn results_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let n = rt(|r| r.results.len());
     if n == 0 {
-        ui.label(RichText::new("Results appear here and are saved to the Library.").color(t.text_faint).size(11.5));
+        ui.label(RichText::new(tl!("Results appear here and are saved to the Library.")).color(t.text_faint).size(11.5));
         return;
     }
-    widgets::section_label(ui, "RESULTS");
+    widgets::section_label(ui, tl!("RESULTS"));
     let items: Vec<Option<Entry>> = rt(|r| r.results.iter().map(|t| if let Tile::Done(e) = t { Some(e.clone()) } else { None }).collect());
     let pendings: Vec<String> = rt(|r| {
         r.results
@@ -1494,12 +1523,13 @@ fn tile_grid(app: &mut PhotocraftApp, ui: &mut egui::Ui, items: &[Option<Entry>]
                         );
                     }
                     let tip = format!(
-                        "{}\n{} · {}×{}{}\nDouble-click to open",
+                        "{}\n{} · {}×{}{}\n{}",
                         e.prompt(),
                         e.model(),
                         e.width,
                         e.height,
-                        e.seed().map(|s| format!(" · seed {s}")).unwrap_or_default()
+                        e.seed().map(|s| format!(" · {}", crate::i18n::fmt(tl!("seed {seed}"), &[("seed", &s.to_string())]))).unwrap_or_default(),
+                        tl!("Double-click to open")
                     );
                     let resp = resp.on_hover_text(tip);
                     if resp.clicked() {
@@ -1510,11 +1540,11 @@ fn tile_grid(app: &mut PhotocraftApp, ui: &mut egui::Ui, items: &[Option<Entry>]
                     }
                     resp.context_menu(|ui| {
                         for (label, act) in [
-                            ("Open", "open"),
-                            ("Place as Layer", "place"),
-                            ("Use as Reference", "reference"),
-                            ("Recreate", "recreate"),
-                            ("Copy Prompt", "copy"),
+                            (tl!("Open"), "open"),
+                            (tl!("Place as Layer"), "place"),
+                            (tl!("Use as Reference"), "reference"),
+                            (tl!("Recreate"), "recreate"),
+                            (tl!("Copy Prompt"), "copy"),
                         ] {
                             let enabled = act != "place" || app.session.active().is_some();
                             if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
@@ -1523,7 +1553,7 @@ fn tile_grid(app: &mut PhotocraftApp, ui: &mut egui::Ui, items: &[Option<Entry>]
                             }
                         }
                         ui.separator();
-                        if ui.button("Delete from Library").clicked() {
+                        if ui.button(tl!("Delete from Library")).clicked() {
                             action = Some((e.clone(), "delete"));
                             ui.close();
                         }
@@ -1531,7 +1561,7 @@ fn tile_grid(app: &mut PhotocraftApp, ui: &mut egui::Ui, items: &[Option<Entry>]
                 }
                 None => {
                     let text = pending.get(i).cloned().unwrap_or_default();
-                    let busy = !text.starts_with("Cancelled") && text.contains('\n');
+                    let busy = !text.starts_with(tl!("Cancelled")) && text.contains('\n');
                     if busy {
                         let phase = (ui.input(|i| i.time) * 2.0).sin() as f32 * 0.5 + 0.5;
                         ui.painter().rect_filled(rect, t.radius, t.hover.gamma_multiply(0.6 + 0.4 * phase));
@@ -1548,13 +1578,13 @@ fn tile_grid(app: &mut PhotocraftApp, ui: &mut egui::Ui, items: &[Option<Entry>]
     if let Some(e) = rt(|r| r.selected.clone()).and_then(|id| items.iter().flatten().find(|e| e.id == id).cloned()) {
         ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {
-            if widgets::secondary_button(ui, "Open", 0.0).clicked() {
+            if widgets::secondary_button(ui, tl!("Open"), 0.0).clicked() {
                 action = Some((e.clone(), "open"));
             }
-            if app.session.active().is_some() && widgets::secondary_button(ui, "Place as Layer", 0.0).clicked() {
+            if app.session.active().is_some() && widgets::secondary_button(ui, tl!("Place as Layer"), 0.0).clicked() {
                 action = Some((e.clone(), "place"));
             }
-            if widgets::secondary_button(ui, "Use as Reference", 0.0).clicked() {
+            if widgets::secondary_button(ui, tl!("Use as Reference"), 0.0).clicked() {
                 action = Some((e.clone(), "reference"));
             }
         });
@@ -1575,7 +1605,7 @@ fn entry_action(app: &mut PhotocraftApp, ctx: &egui::Context, e: &Entry, act: &s
                 }
             }
             Err(err) => {
-                app.ui.status = format!("Could not open {}: {err}", e.name);
+                app.ui.status = crate::i18n::fmt(tl!("Could not open {name}: {error}"), &[("name", &e.name), ("error", &err.to_string())]);
                 app.ui.status_error = true;
             }
         },
@@ -1650,8 +1680,8 @@ pub fn library_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         });
     }
     ui.horizontal(|ui| {
-        ui.add(egui::TextEdit::singleline(&mut app.ui.ai.generate.library_filter).hint_text("Search prompts").desired_width(ui.available_width() - 30.0));
-        if crate::icons::button(ui, "rotate-cw", 22.0, false, "Refresh").clicked() {
+        ui.add(egui::TextEdit::singleline(&mut app.ui.ai.generate.library_filter).hint_text(tl!("Search prompts")).desired_width(ui.available_width() - 30.0));
+        if crate::icons::button(ui, "rotate-cw", 22.0, false, tl!("Refresh")).clicked() {
             rt(|r| r.library_loaded = None);
         }
     });
@@ -1667,7 +1697,7 @@ pub fn library_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     });
     if items.is_empty() {
         ui.add_space(12.0);
-        ui.label(RichText::new(if filter.is_empty() { "Generated images are kept here." } else { "Nothing matches." }).color(t.text_faint));
+        ui.label(RichText::new(if filter.is_empty() { tl!("Generated images are kept here.") } else { tl!("Nothing matches.") }).color(t.text_faint));
         return;
     }
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
@@ -1681,7 +1711,7 @@ pub fn library_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 pub fn open_folder(app: &mut PhotocraftApp) -> Result<Value, String> {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let Some(dir) = rfd::FileDialog::new().set_title("Open Folder").pick_folder() else { return Ok(Value::Null) };
+        let Some(dir) = rfd::FileDialog::new().set_title(tl!("Open Folder")).pick_folder() else { return Ok(Value::Null) };
         open_folder_path(app, &dir)
     }
     #[cfg(target_arch = "wasm32")]
@@ -1759,7 +1789,7 @@ pub fn open_folder_path(app: &mut PhotocraftApp, dir: &std::path::Path) -> Resul
     let first = files[0].clone();
     let bytes = std::fs::read(&first).map_err(|e| e.to_string())?;
     let _ = app.open_file(&first.display().to_string(), &bytes)?;
-    app.ui.status = format!("{} images in {}", files.len(), dir.display());
+    app.ui.status = crate::i18n::fmt(tl!("{n} images in {folder}"), &[("n", &files.len().to_string()), ("folder", &dir.display().to_string())]);
     app.ui.status_error = false;
     Ok(json!({ "count": files.len() }))
 }
@@ -1807,7 +1837,7 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let t = Tokens::get(ctx);
     let mut open = true;
     let st = crate::ai_ui::status();
-    egui::Window::new("Remove Backgrounds")
+    egui::Window::new(tl!("Remove Backgrounds"))
         .collapsible(false)
         .resizable(true)
         .default_size(vec2(560.0, 480.0))
@@ -1818,18 +1848,18 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
             batch(|b| {
                 let Some(b) = b.as_mut() else { return };
                 ui.label(
-                    RichText::new("Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.").color(t.text_dim),
+                    RichText::new(tl!("Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.")).color(t.text_dim),
                 );
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
-                        if widgets::secondary_button(ui, "Add Images…", 0.0).clicked()
-                            && let Some(paths) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "webp", "tif", "tiff"]).pick_files()
+                        if widgets::secondary_button(ui, tl!("Add Images…"), 0.0).clicked()
+                            && let Some(paths) = rfd::FileDialog::new().add_filter(tl!("Images"), &["png", "jpg", "jpeg", "webp", "tif", "tiff"]).pick_files()
                         {
                             b.files.extend(paths);
                         }
-                        if widgets::secondary_button(ui, "Add Folder…", 0.0).clicked()
+                        if widgets::secondary_button(ui, tl!("Add Folder…"), 0.0).clicked()
                             && let Some(dir) = rfd::FileDialog::new().pick_folder()
                         {
                             b.files.extend(folder_images(&dir).into_iter().filter(|p| {
@@ -1839,28 +1869,28 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                             }));
                         }
                     }
-                    ui.label(RichText::new(format!("{} images", b.files.len())).color(t.text_dim));
-                    if !b.files.is_empty() && widgets::secondary_button(ui, "Clear", 0.0).clicked() {
+                    ui.label(RichText::new(crate::i18n::fmt(tl!("{n} images"), &[("n", &b.files.len().to_string())])).color(t.text_dim));
+                    if !b.files.is_empty() && widgets::secondary_button(ui, tl!("Clear"), 0.0).clicked() {
                         b.files.clear();
                     }
                 });
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Background:").color(t.text_dim));
-                    let opts = [("transparent".to_string(), "Transparent PNG"), ("white".to_string(), "White"), ("color".to_string(), "Color")];
+                    ui.label(RichText::new(tl!("Background:")).color(t.text_dim));
+                    let opts = [("transparent".to_string(), tl!("Transparent PNG")), ("white".to_string(), tl!("White")), ("color".to_string(), tl!("Color"))];
                     widgets::dropdown(ui, "batch-bg", &mut b.background, &opts, 150.0);
                     if b.background == "color" {
                         ui.color_edit_button_srgb(&mut b.color);
                     }
-                    ui.label(RichText::new("Model:").color(t.text_dim));
-                    let opts = [("int8".to_string(), "Qwen Compact"), ("bf16".to_string(), "Qwen Full")];
+                    ui.label(RichText::new(tl!("Model:")).color(t.text_dim));
+                    let opts = [("int8".to_string(), tl!("Qwen Compact")), ("bf16".to_string(), tl!("Qwen Full"))];
                     widgets::dropdown(ui, "batch-model", &mut b.variant, &opts, 130.0);
                 });
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Save to:").color(t.text_dim));
-                    let out = b.output.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "a “cutouts” folder beside each image".into());
+                    ui.label(RichText::new(tl!("Save to:")).color(t.text_dim));
+                    let out = b.output.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| tl!("a “cutouts” folder beside each image").into());
                     ui.label(out);
                     #[cfg(not(target_arch = "wasm32"))]
-                    if widgets::secondary_button(ui, "Choose…", 0.0).clicked() {
+                    if widgets::secondary_button(ui, tl!("Choose…"), 0.0).clicked() {
                         b.output = rfd::FileDialog::new().pick_folder();
                     }
                 });
@@ -1874,7 +1904,7 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     let rows: Vec<(String, String)> = match &run {
                         Some(r) => r.lock().map(|r| r.status.clone()).unwrap_or_default(),
                         None => {
-                            b.files.iter().map(|p| (p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), "Waiting".into())).collect()
+                            b.files.iter().map(|p| (p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), tl!("Waiting").into())).collect()
                         }
                     };
                     for (name, s) in rows {
@@ -1889,8 +1919,8 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     if running {
                         if let Some(r) = &run {
                             let (d, n) = r.lock().map(|r| (r.done, r.status.len())).unwrap_or((0, 1));
-                            ui.add(egui::ProgressBar::new(d as f32 / n.max(1) as f32).desired_width(240.0).text(format!("{d} of {n}")));
-                            if widgets::secondary_button(ui, "Stop", 0.0).clicked()
+                            ui.add(egui::ProgressBar::new(d as f32 / n.max(1) as f32).desired_width(240.0).text(crate::i18n::fmt(tl!("{done} of {total}"), &[("done", &d.to_string()), ("total", &n.to_string())])));
+                            if widgets::secondary_button(ui, tl!("Stop"), 0.0).clicked()
                                 && let Ok(r) = r.lock()
                             {
                                 r.ctl.cancel();
@@ -1899,7 +1929,7 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         ui.ctx().request_repaint_after(Duration::from_millis(250));
                     } else {
                         let ok = !b.files.is_empty() && st.ready(ModelId::Qwen, &b.variant).is_ok();
-                        if ui.add_enabled_ui(ok, |ui| widgets::primary_button(ui, "Remove Backgrounds", 0.0)).inner.clicked() {
+                        if ui.add_enabled_ui(ok, |ui| widgets::primary_button(ui, tl!("Remove Backgrounds"), 0.0)).inner.clicked() {
                             b.run = Some(start_batch(b));
                         }
                     }
@@ -1922,11 +1952,12 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
 
 fn start_batch(b: &BatchState) -> std::sync::Arc<std::sync::Mutex<BatchRun>> {
     let run = std::sync::Arc::new(std::sync::Mutex::new(BatchRun {
-        status: b.files.iter().map(|p| (p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), "Waiting".into())).collect(),
+        status: b.files.iter().map(|p| (p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), tl!("Waiting").into())).collect(),
         ..Default::default()
     }));
     let (files, output, bg, color, variant) = (b.files.clone(), b.output.clone(), b.background.clone(), b.color, b.variant.clone());
     let r2 = run.clone();
+    let (working, saved, stopped) = (tl!("Working…"), tl!("Saved {name}"), tl!("Stopped"));
     let _ = std::thread::Builder::new().name("batch-cutout".into()).spawn(move || {
         let ai = li_ai::service();
         let ctl = r2.lock().map(|r| r.ctl.clone()).unwrap_or_default();
@@ -1939,7 +1970,7 @@ fn start_batch(b: &BatchState) -> std::sync::Arc<std::sync::Mutex<BatchRun>> {
                     r.status[i].1 = s;
                 }
             };
-            set("Working…".into());
+            set(working.into());
             let res = (|| -> anyhow::Result<PathBuf> {
                 let img = image::open(path)?.to_rgba8();
                 let alpha = ai.cutout(&img, &variant, "", li_ai::ops::new_seed(), &ctl)?;
@@ -1968,8 +1999,8 @@ fn start_batch(b: &BatchState) -> std::sync::Arc<std::sync::Mutex<BatchRun>> {
                 Ok(dest)
             })();
             match res {
-                Ok(dest) => set(format!("Saved {}", dest.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())),
-                Err(e) if e.is::<li_ai::Cancelled>() => set("Stopped".into()),
+                Ok(dest) => set(crate::i18n::fmt(saved, &[("name", &dest.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())])),
+                Err(e) if e.is::<li_ai::Cancelled>() => set(stopped.into()),
                 Err(e) => set(format!("{e:#}")),
             }
             if let Ok(mut r) = r2.lock() {

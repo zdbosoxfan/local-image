@@ -157,10 +157,10 @@ fn query(s: &State) -> Query {
 
 fn age(secs: u64) -> String {
     match secs {
-        0..120 => "just now".into(),
-        120..7200 => format!("{} min ago", secs / 60),
-        7200..172800 => format!("{} h ago", secs / 3600),
-        _ => format!("{} days ago", secs / 86400),
+        0..120 => tl!("just now").into(),
+        120..7200 => crate::i18n::fmt(tl!("{n} min ago"), &[("n", &(secs / 60).to_string())]),
+        7200..172800 => crate::i18n::fmt(tl!("{n} h ago"), &[("n", &(secs / 3600).to_string())]),
+        _ => crate::i18n::fmt(tl!("{n} days ago"), &[("n", &(secs / 86400).to_string())]),
     }
 }
 
@@ -168,7 +168,10 @@ fn age(secs: u64) -> String {
 fn start_fetch(q: Query) -> Slot<Fetched> {
     let slot: Slot<Fetched> = Arc::new(Mutex::new(None));
     let out = slot.clone();
+    // Notes are shown in the window: the worker draws them in the UI's language.
+    let lang = crate::i18n::current();
     let _ = std::thread::Builder::new().name("model-browser".into()).spawn(move || {
+        crate::i18n::set_current(lang);
         let cfg = config();
         let reg = li_ai::family::registry();
         let net = HttpNet::new(cfg.clone());
@@ -180,11 +183,11 @@ fn start_fetch(q: Query) -> Slot<Fetched> {
                 Ok((body, cached)) => {
                     if cached {
                         let when = cache.get(&url).map(|(_, a)| age(a)).unwrap_or_default();
-                        notes.push(format!("{}: offline, showing results from {when}", src.label()));
+                        notes.push(crate::i18n::fmt(tl!("{source}: offline, showing results from {when}"), &[("source", src.label()), ("when", &when)]));
                     }
                     match serde_json::from_slice::<Value>(&body) {
                         Ok(v) => bodies.push((src, v)),
-                        Err(_) => notes.push(format!("{}: the catalogue couldn't be read", src.label())),
+                        Err(_) => notes.push(crate::i18n::fmt(tl!("{source}: the catalogue couldn't be read"), &[("source", src.label())])),
                     }
                 }
                 Err(e) => notes.push(format!("{}: {}", src.label(), first_line(&format!("{e:#}")))),
@@ -282,21 +285,31 @@ fn load_preview(url: String) -> Slot<Option<egui::ColorImage>> {
 fn start_plan(item: Item) -> Slot<Result<(Plan, Option<Value>), String>> {
     let slot = Arc::new(Mutex::new(None));
     let out = slot.clone();
+    let lang = crate::i18n::current();
     let _ = std::thread::Builder::new().name("model-plan".into()).spawn(move || {
+        crate::i18n::set_current(lang);
         let r = (|| -> anyhow::Result<(Plan, Option<Value>)> {
             let cfg = config();
             let net = HttpNet::new(cfg.clone());
             let info = li_ai::service()
                 .client
                 .object_info()
-                .map_err(|e| anyhow::anyhow!("Start the AI engine first: Local Image checks what ComfyUI already has. ({e:#})"))?;
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "{}",
+                        crate::i18n::fmt(
+                            tl!("Start the AI engine first: Local Image checks what ComfyUI already has. ({error})"),
+                            &[("error", &format!("{e:#}"))]
+                        )
+                    )
+                })?;
             let reg = li_ai::family::registry();
             if let Some(name) = &item.template {
                 let (ui, files) = browser::fetch_template(&cfg, &net, name)?;
                 let mut plan = browser::plan(&item, &files, None, &info, &cfg, &net)?;
                 if plan.license.is_empty() {
                     plan.license =
-                        item.family.as_deref().and_then(|f| reg.family(f)).map(|f| f.license.clone()).unwrap_or_else(|| "See each model's page".into());
+                        item.family.as_deref().and_then(|f| reg.family(f)).map(|f| f.license.clone()).unwrap_or_else(|| tl!("See each model's page").into());
                 }
                 return Ok((plan, Some(ui)));
             }
@@ -315,7 +328,9 @@ fn start_plan(item: Item) -> Slot<Result<(Plan, Option<Value>), String>> {
 fn start_install(item: Item, plan: Plan, template: Option<Value>) -> Arc<Mutex<InstallRun>> {
     let run = Arc::new(Mutex::new(InstallRun { total: plan.total(), ..Default::default() }));
     let r = run.clone();
+    let lang = crate::i18n::current();
     let _ = std::thread::Builder::new().name("model-install".into()).spawn(move || {
+        crate::i18n::set_current(lang);
         let cfg = config();
         let dir = AiSettings::load().model_dir();
         let ctl = r.lock().map(|x| x.ctl.clone()).unwrap_or_default();
@@ -334,7 +349,7 @@ fn start_install(item: Item, plan: Plan, template: Option<Value>) -> Arc<Mutex<I
                 let mut w = li_ai::custom::from_template(&item.title, ui, &info)?;
                 w.family = item.family.clone();
                 li_ai::custom::save(&w, &li_ai::custom::dir())?;
-                return Ok(Some(format!("Added “{}” to the model list (basic controls)", item.title)));
+                return Ok(Some(crate::i18n::fmt(tl!("Added “{name}” to the model list (basic controls)"), &[("name", &item.title)])));
             }
             Ok(None)
         });
@@ -448,22 +463,22 @@ fn capability_tags(item: &Item) -> Vec<String> {
         if item.kind != Some(Kind::Lora) {
             let c = f.capabilities;
             if c.create {
-                tags.push("Create".into());
+                tags.push(tl!("Create").into());
             }
             if c.edit {
-                tags.push("Edit".into());
+                tags.push(tl!("Edit").into());
             }
             if c.inpaint {
-                tags.push("Fill".into());
+                tags.push(tl!("Fill").into());
             }
             if c.references > 0 {
-                tags.push(format!("{} refs", c.references));
+                tags.push(crate::i18n::fmt(tl!("{n} refs"), &[("n", &c.references.to_string())]));
             }
         }
     } else if item.basic_controls() {
-        tags.push("Basic controls".into());
+        tags.push(tl!("Basic controls").into());
     } else if item.template.is_none() {
-        tags.push("Unknown family".into());
+        tags.push(tl!("Unknown family").into());
     }
     tags
 }
@@ -482,7 +497,7 @@ pub fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let mut open = true;
     let screen = ctx.content_rect().size();
     let size = vec2((screen.x - 160.0).clamp(640.0, 1120.0), (screen.y - 200.0).clamp(380.0, 680.0));
-    egui::Window::new("Model Browser")
+    egui::Window::new(tl!("Model Browser"))
         .collapsible(false)
         .resizable(false)
         .fixed_size(size)
@@ -531,28 +546,28 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
             egui::Frame::new().inner_margin(egui::Margin::symmetric(10, 12)).show(ui, |ui| {
                 ui.set_width(side - 20.0);
                 ui.horizontal(|ui| {
-                    for (k, label) in [(Kind::Model, "Models"), (Kind::Lora, "LoRAs")] {
+                    for (k, label) in [(Kind::Model, tl!("Models")), (Kind::Lora, "LoRAs")] {
                         if widgets::pill_tab(ui, label, s.kind == k).clicked() {
                             s.kind = k;
                         }
                     }
                 });
                 ui.add_space(10.0);
-                widgets::section_label(ui, "BROWSE");
+                widgets::section_label(ui, tl!("BROWSE"));
                 let gpu = gpu_gb();
                 let gpu_text = gpu.map(|g| format!("{g:.0} GB")).unwrap_or_default();
                 for (nav, icon, label, trailing) in [
-                    (Nav::New, "star", "New", ""),
-                    (Nav::Trending, "trending-up", "Trending", ""),
-                    (Nav::Installed, "hard-drive", "Installed", ""),
-                    (Nav::FitsGpu, "cpu", "Works on my GPU", gpu_text.as_str()),
+                    (Nav::New, "star", crate::i18n::tr_ctx(crate::i18n::current(), "ai", "New"), ""),
+                    (Nav::Trending, "trending-up", tl!("Trending"), ""),
+                    (Nav::Installed, "hard-drive", tl!("Installed"), ""),
+                    (Nav::FitsGpu, "cpu", tl!("Works on my GPU"), gpu_text.as_str()),
                 ] {
                     if nav_row_with(ui, icon, label, trailing, s.nav == nav, t) {
                         s.nav = nav;
                     }
                 }
                 ui.add_space(10.0);
-                widgets::section_label(ui, "FAMILIES");
+                widgets::section_label(ui, tl!("FAMILIES"));
                 egui::ScrollArea::vertical().id_salt("browser-families").auto_shrink([false, false]).show(ui, |ui| {
                     let reg = li_ai::family::registry();
                     let mut group = "";
@@ -578,7 +593,7 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
             ui.spacing_mut().item_spacing.x = 8.0;
             egui::Frame::new().inner_margin(egui::Margin { left: 14, right: 14, top: 12, bottom: 0 }).show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    let hint = if s.kind == Kind::Lora { "Search LoRAs" } else { "Search models" };
+                    let hint = if s.kind == Kind::Lora { tl!("Search LoRAs") } else { tl!("Search models") };
                     let resp = ui.add(egui::TextEdit::singleline(&mut s.search).hint_text(hint).desired_width(240.0));
                     if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         s.loaded = None;
@@ -587,7 +602,7 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
                     for (i, (_, label)) in SOURCES.iter().enumerate() {
                         let disabled = (s.kind == Kind::Lora && i == 2) || s.nav == Nav::Installed;
                         let on = s.sources[i] && !disabled;
-                        let resp = filter_chip(ui, label, on, disabled, t);
+                        let resp = filter_chip(ui, tl!(label), on, disabled, t);
                         if resp.clicked() && !disabled {
                             s.sources[i] = !s.sources[i];
                             if !s.sources.iter().any(|x| *x) {
@@ -596,7 +611,7 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
                         }
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if crate::icons::button(ui, "refresh-cw", 26.0, false, "Refresh").clicked() {
+                        if crate::icons::button(ui, "refresh-cw", 26.0, false, tl!("Refresh")).clicked() {
                             s.loaded = None;
                         }
                         if loading {
@@ -606,15 +621,16 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
                 });
                 ui.add_space(4.0);
                 let title = match &s.nav {
-                    Nav::New => "Newest".to_owned(),
-                    Nav::Trending => "Trending this week".to_owned(),
-                    Nav::Installed => "Installed".to_owned(),
-                    Nav::FitsGpu => "Fits your GPU memory".to_owned(),
+                    Nav::New => tl!("Newest").to_owned(),
+                    Nav::Trending => tl!("Trending this week").to_owned(),
+                    Nav::Installed => tl!("Installed").to_owned(),
+                    Nav::FitsGpu => tl!("Fits your GPU memory").to_owned(),
                     Nav::Family(f) => li_ai::family::registry().family(f).map(|f| f.label.clone()).unwrap_or_default(),
                 };
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(title).size(15.0).strong().color(t.text));
-                    ui.label(RichText::new(format!("{} {}", s.items.len(), if s.kind == Kind::Lora { "LoRAs" } else { "models" })).color(t.text_faint));
+                    let count = if s.kind == Kind::Lora { tl!("{n} LoRAs") } else { tl!("{n} models") };
+                    ui.label(RichText::new(crate::i18n::fmt(count, &[("n", &s.items.len().to_string())])).color(t.text_faint));
                 });
                 if let Nav::Family(f) = &s.nav
                     && let Some(fam) = li_ai::family::registry().family(f)
@@ -622,7 +638,7 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
                     ui.label(RichText::new(&fam.description).color(t.text_dim));
                 }
                 if s.nav == Nav::FitsGpu && gpu_gb().is_none() {
-                    ui.label(RichText::new("Start the AI engine to see your GPU's memory; showing what fits 8 GB.").color(t.warning));
+                    ui.label(RichText::new(tl!("Start the AI engine to see your GPU's memory; showing what fits 8 GB.")).color(t.warning));
                 }
                 for n in &s.notes {
                     ui.label(RichText::new(n).size(11.5).color(t.warning));
@@ -644,11 +660,11 @@ fn grid(ui: &mut egui::Ui, s: &mut State, t: &Tokens, loading: bool) {
         ui.add_space(40.0);
         ui.vertical_centered(|ui| {
             let msg = if loading {
-                "Loading catalogues…"
+                tl!("Loading catalogues…")
             } else if s.nav == Nav::Installed {
-                "Nothing installed yet. Pick a model from Trending or a family."
+                tl!("Nothing installed yet. Pick a model from Trending or a family.")
             } else {
-                "No matches. Try another family, source or search."
+                tl!("No matches. Try another family, source or search.")
             };
             ui.label(RichText::new(msg).color(t.text_dim));
         });
@@ -744,7 +760,7 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
             };
             crate::icons::paint(ui, egui::Rect::from_center_size(pr.center() - vec2(0.0, 8.0), vec2(34.0, 34.0)), icon, 30.0, t.text_faint);
             let fam =
-                item.family.as_deref().and_then(|f| li_ai::family::registry().family(f)).map(|f| f.label.clone()).unwrap_or_else(|| "Unknown family".into());
+                item.family.as_deref().and_then(|f| li_ai::family::registry().family(f)).map(|f| f.label.clone()).unwrap_or_else(|| tl!("Unknown family").into());
             ui.painter().text(pr.center() + vec2(0.0, 22.0), egui::Align2::CENTER_CENTER, fam, egui::FontId::proportional(11.0), t.text_faint);
         }
     }
@@ -755,11 +771,11 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
         pill(&mut badge_ui, src.label(), dark, Color32::WHITE);
     }
     if item.gated {
-        pill(&mut badge_ui, "Licence gate", dark, Color32::from_rgb(255, 200, 90)).on_hover_text("Accept the licence on the publisher's page first");
+        pill(&mut badge_ui, tl!("Licence gate"), dark, Color32::from_rgb(255, 200, 90)).on_hover_text(tl!("Accept the licence on the publisher's page first"));
     }
     if item.basic_controls() {
-        pill(&mut badge_ui, "Basic controls", dark, Color32::WHITE)
-            .on_hover_text("Local Image doesn't know this family yet: it runs through the official template with prompt, seed and size only");
+        pill(&mut badge_ui, tl!("Basic controls"), dark, Color32::WHITE)
+            .on_hover_text(tl!("Local Image doesn't know this family yet: it runs through the official template with prompt, seed and size only"));
     }
     // Text.
     let body = egui::Rect::from_min_max(egui::pos2(outer.left() + 10.0, pr.bottom() + 8.0), outer.max - vec2(10.0, 8.0));
@@ -769,9 +785,9 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
     ui.add(egui::Label::new(RichText::new(&item.title).strong().size(13.0).color(t.text)).truncate()).on_hover_text(&item.title);
     let by = match (item.author.is_empty(), item.downloads) {
         (false, 0) => item.author.clone(),
-        (false, d) => format!("{} · {} downloads", item.author, compact(d)),
+        (false, d) => crate::i18n::fmt(tl!("{author} · {n} downloads"), &[("author", &item.author), ("n", &compact(d))]),
         (true, 0) => item.description.clone(),
-        (true, d) => format!("{} downloads", compact(d)),
+        (true, d) => crate::i18n::fmt(tl!("{n} downloads"), &[("n", &compact(d))]),
     };
     let r = ui.add(egui::Label::new(RichText::new(&by).size(11.0).color(t.text_faint)).truncate());
     if !item.description.is_empty() {
@@ -791,19 +807,19 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
             ui.label(RichText::new(text).size(11.0).color(t.text_dim)).on_hover_text(tip);
         };
         if let Some(b) = item.total_bytes() {
-            meta(ui, "download", human(b), "Download size");
+            meta(ui, "download", human(b), tl!("Download size"));
         }
         // A template's size is all its files together: its family's guide is closer.
         let fam_vram = item.family.as_deref().and_then(|f| li_ai::family::registry().family(f)).map(|f| f.vram_gb as f32).filter(|v| *v > 0.0);
         let vram = if item.template.is_some() { fam_vram } else { item.vram_gb().or(fam_vram) };
         if let Some(v) = vram.filter(|_| item.kind != Some(Kind::Lora)) {
             let fits = gpu_gb().is_none_or(|g| v <= g);
-            meta(ui, "cpu", format!("~{v:.0} GB"), if fits { "Rough GPU memory to run it" } else { "Rough GPU memory to run it: more than your GPU has" });
+            meta(ui, "cpu", format!("~{v:.0} GB"), if fits { tl!("Rough GPU memory to run it") } else { tl!("Rough GPU memory to run it: more than your GPU has") });
         }
     });
     let licence = match (item.license.is_empty(), item.commercial) {
-        (true, _) => "Licence: see its page".to_owned(),
-        (false, Some(false)) => format!("{} · non-commercial", item.license),
+        (true, _) => tl!("Licence: see its page").to_owned(),
+        (false, Some(false)) => crate::i18n::fmt(tl!("{licence} · non-commercial"), &[("licence", &item.license)]),
         (false, _) => item.license.clone(),
     };
     ui.add(egui::Label::new(RichText::new(licence).size(11.0).color(t.text_faint)).truncate());
@@ -815,12 +831,12 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
     let installed = is_installed(item, names);
     match run.as_ref().and_then(|r| r.lock().ok().map(|r| (r.finished, r.error.clone(), r.done, r.total, r.note.clone()))) {
         Some((false, _, done, total, _)) => {
-            ui.add(egui::ProgressBar::new(done as f32 / total.max(1) as f32).desired_width(body.width() - 34.0).text(format!(
-                "{} of {}",
-                human(done),
-                human(total)
-            )));
-            if crate::icons::button(ui, "x", 22.0, false, "Stop").clicked()
+            ui.add(
+                egui::ProgressBar::new(done as f32 / total.max(1) as f32)
+                    .desired_width(body.width() - 34.0)
+                    .text(crate::i18n::fmt(tl!("{done} of {total}"), &[("done", &human(done)), ("total", &human(total))])),
+            );
+            if crate::icons::button(ui, "x", 22.0, false, tl!("Stop")).clicked()
                 && let Some(r) = &run
                 && let Ok(r) = r.lock()
             {
@@ -829,23 +845,23 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
             ui.ctx().request_repaint_after(Duration::from_millis(300));
         }
         Some((true, Some(err), ..)) => {
-            ui.label(RichText::new("Install failed").size(11.0).color(t.danger)).on_hover_text(err);
-            if widgets::secondary_button(ui, "Retry", 0.0).clicked() {
+            ui.label(RichText::new(tl!("Install failed")).size(11.0).color(t.danger)).on_hover_text(err);
+            if widgets::secondary_button(ui, tl!("Retry"), 0.0).clicked() {
                 s.installs.remove(&item.id);
                 clicked = true;
             }
         }
         Some((true, None, _, _, note)) => {
-            let r = ui.label(RichText::new("Installed").size(11.5).color(Color32::from_rgb(70, 190, 110)));
+            let r = ui.label(RichText::new(tl!("Installed")).size(11.5).color(Color32::from_rgb(70, 190, 110)));
             if let Some(n) = note {
                 r.on_hover_text(n);
             }
         }
         None if installed => {
-            ui.label(RichText::new("Installed").size(11.5).color(Color32::from_rgb(70, 190, 110)));
+            ui.label(RichText::new(tl!("Installed")).size(11.5).color(Color32::from_rgb(70, 190, 110)));
         }
         None if item.source != Some(Source::Installed) => {
-            if widgets::primary_button(ui, if item.template.is_some() { "Get Template" } else { "Install" }, 0.0).clicked() {
+            if widgets::primary_button(ui, if item.template.is_some() { tl!("Get Template") } else { tl!("Install") }, 0.0).clicked() {
                 clicked = true;
             }
         }
@@ -853,7 +869,7 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
     }
     if !item.page_url.is_empty() {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if crate::icons::button(ui, "external-link", 22.0, false, "Open its page").clicked() {
+            if crate::icons::button(ui, "external-link", 22.0, false, tl!("Open its page")).clicked() {
                 ui.ctx().open_url(egui::OpenUrl::new_tab(&item.page_url));
             }
         });
@@ -873,25 +889,26 @@ fn footer_ui(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
     if let Some(r) = s.profiles.as_ref().and_then(|p| p.lock().ok().and_then(|mut o| o.take())) {
         s.profiles = None;
         s.profiles_msg = match r {
-            Ok(v) if v.is_empty() => "Model profiles are up to date".into(),
-            Ok(v) => format!("Updated {} model profile{}: {}", v.len(), if v.len() == 1 { "" } else { "s" }, v.join(", ")),
-            Err(e) => format!("Couldn't update profiles: {e}"),
+            Ok(v) if v.is_empty() => tl!("Model profiles are up to date").into(),
+            Ok(v) if v.len() == 1 => crate::i18n::fmt(tl!("Updated 1 model profile: {names}"), &[("names", &v.join(", "))]),
+            Ok(v) => crate::i18n::fmt(tl!("Updated {n} model profiles: {names}"), &[("n", &v.len().to_string()), ("names", &v.join(", "))]),
+            Err(e) => crate::i18n::fmt(tl!("Couldn't update profiles: {error}"), &[("error", &e)]),
         };
     }
     let r = ui.available_rect_before_wrap();
     ui.painter().hline(r.x_range(), r.top(), Stroke::new(1.0, t.separator));
     egui::Frame::new().inner_margin(egui::Margin::symmetric(14, 6)).show(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Only .safetensors and .gguf files with a published size and SHA-256 are installed.").size(11.0).color(t.text_faint));
+            ui.label(RichText::new(tl!("Only .safetensors and .gguf files with a published size and SHA-256 are installed.")).size(11.0).color(t.text_faint));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let busy = s.profiles.is_some();
                 if ui
-                    .add_enabled(!busy, egui::Button::new("Update Model Profiles"))
-                    .on_hover_text("Fetch the latest family profiles (new models, settings) from Local Image's repository")
+                    .add_enabled(!busy, egui::Button::new(tl!("Update Model Profiles")))
+                    .on_hover_text(tl!("Fetch the latest family profiles (new models, settings) from Local Image's repository"))
                     .clicked()
                 {
                     s.profiles = Some(start_profile_update());
-                    s.profiles_msg = "Checking for profile updates…".into();
+                    s.profiles_msg = tl!("Checking for profile updates…").into();
                 }
                 if !s.profiles_msg.is_empty() {
                     ui.label(RichText::new(&s.profiles_msg).size(11.0).color(t.text_dim));
@@ -916,25 +933,25 @@ fn confirm_window(ctx: &egui::Context, t: &Tokens) {
     // Like every dialog: no dimming behind it.
     egui::Modal::new(egui::Id::new("browser-confirm")).backdrop_color(Color32::TRANSPARENT).show(ctx, |ui| {
         ui.set_width(500.0);
-        ui.label(RichText::new(format!("Install {}", item.title)).size(15.0).strong().color(t.text));
+        ui.label(RichText::new(crate::i18n::fmt(tl!("Install {name}"), &[("name", &item.title)])).size(15.0).strong().color(t.text));
         ui.add_space(6.0);
         match &plan {
             None => {
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label(RichText::new("Checking the files’ sizes and checksums…").color(t.text_dim));
+                    ui.label(RichText::new(tl!("Checking the files’ sizes and checksums…")).color(t.text_dim));
                 });
                 ui.ctx().request_repaint_after(Duration::from_millis(200));
-                if buttons(ui, &[DialogButton::new(ButtonRole::Cancel, "Cancel", 80.0)]).is_some() {
+                if buttons(ui, &[DialogButton::new(ButtonRole::Cancel, tl!("Cancel"), 80.0)]).is_some() {
                     close = true;
                 }
             }
             Some(Err(e)) => {
                 ui.label(RichText::new(e).color(t.danger));
                 let page = item.license_url.clone().or(Some(item.page_url.clone())).filter(|u| !u.is_empty());
-                let mut list = vec![DialogButton::new(ButtonRole::Cancel, "Close", 80.0)];
+                let mut list = vec![DialogButton::new(ButtonRole::Cancel, tl!("Close"), 80.0)];
                 if page.is_some() {
-                    list.insert(0, DialogButton::new(ButtonRole::Alternate, "Open Its Page", 0.0));
+                    list.insert(0, DialogButton::new(ButtonRole::Alternate, tl!("Open Its Page"), 0.0));
                 }
                 match buttons(ui, &list) {
                     Some(ButtonRole::Alternate) => {
@@ -950,25 +967,31 @@ fn confirm_window(ctx: &egui::Context, t: &Tokens) {
                 // Licence.
                 egui::Frame::new().fill(t.field).corner_radius(t.radius_sm).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    ui.label(RichText::new("Licence").size(11.0).color(t.text_faint));
-                    ui.label(RichText::new(if p.license.is_empty() { "Not stated: check the model's page before use" } else { &p.license }).color(t.text));
+                    ui.label(RichText::new(tl!("Licence")).size(11.0).color(t.text_faint));
+                    ui.label(RichText::new(if p.license.is_empty() { tl!("Not stated: check the model's page before use") } else { &p.license }).color(t.text));
                     if item.commercial == Some(false) {
-                        ui.label(RichText::new("The author doesn't allow commercial use.").color(t.warning));
+                        ui.label(RichText::new(tl!("The author doesn't allow commercial use.")).color(t.warning));
                     }
                     if p.gated {
-                        ui.label(RichText::new("The publisher asks you to accept its licence on its page first; add a Hugging Face token in Local AI settings.").color(t.warning));
+                        ui.label(RichText::new(tl!("The publisher asks you to accept its licence on its page first; add a Hugging Face token in Local AI settings.")).color(t.warning));
                     }
                     if let Some(url) = &p.license_url
-                        && ui.link("Read the licence").clicked()
+                        && ui.link(tl!("Read the licence")).clicked()
                     {
                         ui.ctx().open_url(egui::OpenUrl::new_tab(url));
                     }
                 });
                 ui.add_space(8.0);
                 if p.files.is_empty() {
-                    ui.label(RichText::new("Everything it needs is already installed.").color(t.text_dim));
+                    ui.label(RichText::new(tl!("Everything it needs is already installed.")).color(t.text_dim));
                 } else {
-                    ui.label(RichText::new(format!("{} to download ({}), verified by SHA-256:", if p.files.len() == 1 { "1 file".into() } else { format!("{} files", p.files.len()) }, human(p.total()))).color(t.text_dim));
+                    let size = human(p.total());
+                    let what = if p.files.len() == 1 {
+                        crate::i18n::fmt(tl!("1 file to download ({size}), verified by SHA-256:"), &[("size", &size)])
+                    } else {
+                        crate::i18n::fmt(tl!("{n} files to download ({size}), verified by SHA-256:"), &[("n", &p.files.len().to_string()), ("size", &size)])
+                    };
+                    ui.label(RichText::new(what).color(t.text_dim));
                     egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
                         for f in &p.files {
                             ui.horizontal(|ui| {
@@ -980,23 +1003,23 @@ fn confirm_window(ctx: &egui::Context, t: &Tokens) {
                     });
                 }
                 if !p.present.is_empty() {
-                    ui.label(RichText::new(format!("Already installed: {}", p.present.join(", "))).size(11.0).color(t.text_faint));
+                    ui.label(RichText::new(crate::i18n::fmt(tl!("Already installed: {names}"), &[("names", &p.present.join(", "))])).size(11.0).color(t.text_faint));
                 }
                 let dir = AiSettings::load().model_dir();
                 if let Some(free) = li_ai::download::free_space(&dir)
                     && free < p.total() + (256 << 20)
                 {
-                    ui.label(RichText::new(format!("Not enough space in {} ({} free).", dir.display(), human(free))).color(t.danger));
+                    ui.label(RichText::new(crate::i18n::fmt(tl!("Not enough space in {folder} ({free} free)."), &[("folder", &dir.display().to_string()), ("free", &human(free))])).color(t.danger));
                 }
                 if template.is_some() && item.family.is_none() {
-                    ui.label(RichText::new("Local Image doesn't know this model family yet: it will appear in the model list as a custom workflow with basic controls (prompt, seed, size).").size(11.5).color(t.text_dim));
+                    ui.label(RichText::new(tl!("Local Image doesn't know this model family yet: it will appear in the model list as a custom workflow with basic controls (prompt, seed, size).")).size(11.5).color(t.text_dim));
                 }
                 ui.add_space(8.0);
                 if !p.files.is_empty() {
-                    widgets::checkbox(ui, &mut accept, "I have read and accept the licence");
+                    widgets::checkbox(ui, &mut accept, tl!("I have read and accept the licence"));
                 }
-                let label = if p.files.is_empty() { "Done" } else { "Install" };
-                match buttons(ui, &[DialogButton::new(ButtonRole::Default, label, 80.0).enabled(accept || p.files.is_empty()), DialogButton::new(ButtonRole::Cancel, "Cancel", 80.0)]) {
+                let label = if p.files.is_empty() { tl!("Done") } else { tl!("Install") };
+                match buttons(ui, &[DialogButton::new(ButtonRole::Default, label, 80.0).enabled(accept || p.files.is_empty()), DialogButton::new(ButtonRole::Cancel, tl!("Cancel"), 80.0)]) {
                     Some(ButtonRole::Default) => go = Some((p.clone(), template.clone())),
                     Some(_) => close = true,
                     None => {}

@@ -134,6 +134,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("dialog.pasteSettings", "Paste Selected Settings…", Some("Cmd+Shift+V"), "Edit"),
     ("view.focusSearch", "Find…", Some("Cmd+F"), "Edit"),
     ("dialog.export", "Export…", None, "File"),
+    ("photo.editOriginal", "Edit Original in Local Image", Some("Cmd+Alt+E"), "Photo"),
     ("photo.editInExternal", "Edit in External Editor", Some("Cmd+Shift+E"), "Photo"),
     ("dialog.mergeHdr", "HDR…", Some("Ctrl+H"), "Photo>Photo Merge"),
     ("dialog.mergePanorama", "Panorama…", Some("Ctrl+M"), "Photo>Photo Merge"),
@@ -870,6 +871,28 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         "app.about" => {
             app.ui.dialog = Some(Dialog::About);
             Ok(Value::Null)
+        }
+        "photo.editOriginal" => {
+            // local-image: the photo's own file in the editor (Lightroom's Edit Original), for
+            // retouching a folder of JPEGs or PNGs in place; raw files still need a rendered copy.
+            let Some(ph) = app.session.active().and_then(|id| app.session.catalog.photo(id)).cloned() else {
+                return Some(Err("select a photo first".into()));
+            };
+            let path = match &ph.source {
+                lightcraft_catalog::Source::File { path } => path.clone(),
+                _ => return Some(Err("this photo has no file to edit".into())),
+            };
+            const RAW: &[&str] = &["DNG", "CR2", "CR3", "NEF", "NRW", "ARW", "RAF", "ORF", "RW2", "RWL", "RAW", "PEF", "SRW", "X3F", "3FR", "IIQ", "ERF", "MOS"];
+            if RAW.contains(&ph.format.to_ascii_uppercase().as_str()) {
+                return run_ui_command(app, "photo.editInExternal", p);
+            }
+            if let Some(id) = app.session.active() {
+                app.ui.external_edits.push(id.0);
+            }
+            match app.services.open_with.as_mut() {
+                Some(f) => f(&path, "").map(|()| json!({ "path": path })),
+                None => Err("no editor to open the photo in".into()),
+            }
         }
         "photo.editInExternal" => {
             // render an edit copy (stacked on the original), then open it in the editor

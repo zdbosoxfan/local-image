@@ -2194,3 +2194,308 @@ cameraRaw	Color	Barvy
 	Regenerate the area from a description	Znovu vytvořit oblast podle popisu
 	Hide Contextual Task Bar	Skrýt kontextový panel úloh
 	More	Další
+	Auto Erase	Automaticky mazat
+	Click a red pupil	Klikněte na červenou zornici
+	Click the first point or press {key} to close · {del} removes a point · Esc cancels	Kliknutím na první bod nebo klávesou {key} uzavřete · {del} odebere bod · Esc zruší
+	Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close	Klikněte a veďte ukazatel podél hrany · kliknutím připevníte bod · {alt}+klik vytvoří rovný úsek · dvojklikem uzavřete
+	Darken Amount	Míra ztmavení
+	Drag a crop box · drag inside to move · edges resize ({ratio} ratio, {centre} centre) · Space moves while drawing · {commit} commits · Esc cancels	Tažením vytvořte rámeček oříznutí · tažením uvnitř jej posunete · okraje mění velikost ({ratio} poměr, {centre} střed) · mezerník při kreslení posouvá · {commit} potvrdí · Esc zruší
+	Follows only edges this close to the pointer ([ and ] change it)	Sleduje jen hrany v této vzdálenosti od ukazatele (mění se klávesami [ a ])
+	Higher values follow only edges that contrast sharply with their surroundings	Vyšší hodnoty sledují jen hrany s ostrým kontrastem vůči okolí
+	How often fastening points are placed by themselves	Jak často se kotevní body umísťují automaticky
+	Pupil Size	Velikost zornice
+	Sample Size	Velikost vzorku
+	Scrubby Zoom	Lupa tažením
+	Straighten: tilt the frame to level a horizon	Narovnat: naklopením rámečku vyrovnáte horizont
+	{mode} Color · {bits} bit	Barvy {mode} · {bits} bitů
+	+ Add	+ Přidat
+	1 file to download ({size}), verified by SHA-256:	Ke stažení 1 soubor ({size}), ověřený pomocí SHA-256:
+	A copy in the Edited folder (originals untouched)	Kopie ve složce Edited (originály zůstanou beze změny)
+	A new image from a description and optional reference images	Nový obrázek z popisu a volitelných referenčních obrázků
+	ACCOUNTS (OPTIONAL)	ÚČTY (VOLITELNÉ)
+	AI	AI
+	AI ENGINE	MODUL AI
+	AI Enhance	Vylepšení AI
+	AI off	AI vypnuta
+	AI ready{gpu}	AI připravena{gpu}
+	AI starting…	AI se spouští…
+	AI · no models	AI · žádné modely
+	API key	Klíč API
+	Accept the licence on the publisher's page first	Nejprve přijměte licenci na stránce vydavatele
+	Add Background ▾	Přidat pozadí ▾
+	Add Folder…	Přidat složku…
+	Add Images…	Přidat obrázky…
+	Add Key…	Přidat klíč…
+	Add a LoRA	Přidat LoRA
+	Add an image file	Přidat soubor obrázku
+	Add the current image	Přidat aktuální obrázek
+	Add your {provider} API key in Local AI › Cloud to use it.	Chcete-li jej použít, přidejte klíč API služby {provider} v části Místní AI › Cloud.
+	Add your {provider} API key in Local AI › Cloud.	Přidejte klíč API služby {provider} v části Místní AI › Cloud.
+	Added “{name}” to the model list (basic controls)	Model „{name}“ byl přidán do seznamu modelů (základní ovládání)
+	Address:	Adresa:
+	Already installed: {names}	Již nainstalováno: {names}
+	Apply Edit	Použít úpravu
+	Ask each time (Save As)	Pokaždé se zeptat (Uložit jako)
+	Avoid… (negative prompt)	Vyhnout se… (negativní zadání)
+	BROWSE	PROCHÁZET
+	Background:	Pozadí:
+	Basic controls	Základní ovládání
+	Browse Models…	Procházet modely…
+	CLOUD (OPTIONAL)	CLOUD (VOLITELNÉ)
+	CLOUD · YOUR API KEY	CLOUD · VÁŠ KLÍČ API
+	CUSTOM WORKFLOWS	VLASTNÍ PRACOVNÍ POSTUPY
+	Cancelled	Zrušeno
+	Change the open image from an instruction (edit models), or restyle it	Změní otevřený obrázek podle pokynu (modely pro úpravy), nebo mu dá nový styl
+	Change…	Změnit…
+	Check again	Zkontrolovat znovu
+	Checking for profile updates…	Hledají se aktualizace profilů…
+	Checking models…	Kontrolují se modely…
+	Checking the files’ sizes and checksums…	Kontrolují se velikosti a kontrolní součty souborů…
+	Choose Folder…	Vybrat složku…
+	Choose a model	Vyberte model
+	Choose a model to refine with.	Vyberte model pro zpřesnění.
+	Choose the model folder	Vyberte složku modelů
+	Choose your ComfyUI folder	Vyberte složku ComfyUI
+	Civitai API key:	Klíč API Civitai:
+	Click Remove Background first; then drag to erase or restore parts of the cutout.	Nejprve klikněte na Odstranit pozadí; potom tažením mažte nebo obnovujte části výřezu.
+	ComfyUI at {host} — click for Local AI settings	ComfyUI na {host} — klikněte pro nastavení Místní AI
+	ComfyUI installation found.	Instalace ComfyUI nalezena.
+	ComfyUI is not running at {host}	ComfyUI na {host} neběží
+	ComfyUI workflow	Pracovní postup ComfyUI
+	Connected to ComfyUI at {host}	Připojeno ke ComfyUI na {host}
+	Copy Prompt	Kopírovat zadání
+	Could not open {name}: {error}	Nelze otevřít {name}: {error}
+	Could not save settings: {error}	Nastavení nelze uložit: {error}
+	Couldn't save: {error}	Uložení se nezdařilo: {error}
+	Couldn't update profiles: {error}	Profily nelze aktualizovat: {error}
+	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	Vyřízne objekt z každého obrázku pomocí Qwen Image 2.1 a uloží soubory PNG. Originály se nikdy nemění.
+	Delete from Library	Odstranit z knihovny
+	Describe details to add (optional)…	Popište detaily, které přidat (volitelné)…
+	Describe the change, e.g. “make it golden hour”…	Popište změnu, např. „ať je zlatá hodinka“…
+	Describe the empty scene behind your subject	Popište prázdnou scénu za objektem
+	Describe the image (optional)…	Popište obrázek (volitelné)…
+	Describe the image you want it to become…	Popište obrázek, kterým se má stát…
+	Describe what should appear in the selection	Popište, co se má objevit ve výběru
+	Describe what you want first.	Nejprve popište, co chcete.
+	Detect	Zjistit
+	Double-click to open	Otevřete dvojklikem
+	Download	Stáhnout
+	Download size	Velikost ke stažení
+	Downloads are checked against the publisher's size and SHA-256, and ComfyUI's model list is refreshed after each install.	Stažené soubory se ověřují podle velikosti a SHA-256 uvedených vydavatelem a seznam modelů ComfyUI se po každé instalaci obnoví.
+	Draft → Refine: generate with this model, then resample the draft with another (e.g. a fast draft refined by a detailed model)	Návrh → zpřesnění: vygenerujte obrázek tímto modelem a návrh pak převzorkujte jiným (např. rychlý návrh zpřesněný detailním modelem)
+	Engine:	Modul:
+	Enhance	Vylepšit
+	Enhances detail and enlarges the image with SeedVR2. The result opens as a new document.	Vylepší detaily a zvětší obrázek pomocí SeedVR2. Výsledek se otevře jako nový dokument.
+	Enlarge	Zvětšení
+	Enlarge first	Nejprve zvětšit
+	Enlarge the open image and add detail, tile by tile	Zvětší otevřený obrázek a po dlaždicích přidá detaily
+	Everything it needs is already installed.	Vše potřebné je již nainstalováno.
+	FAMILIES	RODINY
+	Fetch the latest family profiles (new models, settings) from Local Image's repository	Stáhnout nejnovější profily rodin (nové modely, nastavení) z repozitáře Local Image
+	Files present	Soubory jsou k dispozici
+	Files present — restart ComfyUI	Soubory jsou k dispozici — restartujte ComfyUI
+	Fill Selection	Vyplnit výběr
+	Filmstrip options	Možnosti filmového pásu
+	Find LoRAs…	Najít LoRA…
+	Find, compare and install models and LoRAs for any family	Vyhledávejte, porovnávejte a instalujte modely a LoRA pro libovolnou rodinu
+	Fits your GPU memory	Vejde se do paměti vaší GPU
+	Found {n} installation(s).	Nalezené instalace: {n}.
+	Free GPU Memory	Uvolnit paměť GPU
+	GPU MEMORY GUIDE	PRŮVODCE PAMĚTÍ GPU
+	Generate (AI)…	Generovat (AI)…
+	Generate Background	Vytvořit pozadí
+	Generate {n}	Generovat {n}
+	Generated images are kept here.	Vytvořené obrázky se ukládají sem.
+	Generated {name} · seed {seed}	Vytvořeno {name} · seed {seed}
+	Generation failed: {error}	Generování se nezdařilo: {error}
+	Get Template	Získat šablonu
+	Get a key	Získat klíč
+	Get models…	Získat modely…
+	Guidance	Vedení
+	Hide the filmstrip (Window › Filmstrip)	Skrýt filmový pás (Okno › Filmový pás)
+	How much may change: 100 % regenerates, lower keeps more of the image	Kolik se smí změnit: 100 % vše vytvoří znovu, nižší hodnota zachová více z obrázku
+	Hugging Face token:	Token Hugging Face:
+	I have read and accept the licence	Licenci jsem si přečetl(a) a přijímám ji
+	Images	Obrázky
+	Images per run (1–4)	Obrázků na spuštění (1–4)
+	Image…	Obrázek…
+	Import ComfyUI Workflow	Importovat pracovní postup ComfyUI
+	Import Workflow…	Importovat pracovní postup…
+	Imported the workflow “{name}”.	Pracovní postup „{name}“ byl importován.
+	In use	Používá se
+	Install	Instalovat
+	Install failed	Instalace se nezdařila
+	Install {name}	Instalovat {name}
+	Installation:	Instalace:
+	Installed	Nainstalováno
+	Keep	Zachovat
+	Keep… (optional)	Zachovat… (volitelné)
+	Licence	Licence
+	Licence gate	Vyžaduje licenci
+	Licence: see its page	Licence: viz jeho stránku
+	Loading catalogues…	Načítají se katalogy…
+	Local AI	Místní AI
+	Local AI is off — click to set it up	Místní AI je vypnutá — klikněte pro nastavení
+	Local Image doesn't know this family yet: it runs through the official template with prompt, seed and size only	Local Image tuto rodinu zatím nezná: spouští se přes oficiální šablonu jen se zadáním, seedem a velikostí
+	Local Image doesn't know this model family yet: it will appear in the model list as a custom workflow with basic controls (prompt, seed, size).	Local Image tuto rodinu modelů zatím nezná: v seznamu modelů se objeví jako vlastní pracovní postup se základním ovládáním (zadání, seed, velikost).
+	MODELS	MODELY
+	Make a selection first	Nejprve vytvořte výběr
+	Make a selection to fill.	Vytvořte výběr, který se má vyplnit.
+	Model Browser	Prohlížeč modelů
+	Model default	Výchozí modelu
+	Model folder:	Složka modelů:
+	Model profiles are up to date	Profily modelů jsou aktuální
+	Model:	Model:
+	Models unloaded.	Modely byly uvolněny.
+	My preset {n}	Moje přednastavení {n}
+	Newest	Nejnovější
+	Next image ({key})	Další obrázek ({key})
+	No ComfyUI installation found in the usual places.	Na obvyklých místech nebyla nalezena žádná instalace ComfyUI.
+	No ComfyUI installation found. Choose its folder in Local AI, or install ComfyUI first.	Nebyla nalezena žádná instalace ComfyUI. Vyberte její složku v Místní AI, nebo nejprve ComfyUI nainstalujte.
+	No LoRAs for this model family are installed (Find LoRAs…)	Pro tuto rodinu modelů nejsou nainstalovány žádné LoRA (Najít LoRA…)
+	No compatible LoRAs installed.	Nejsou nainstalovány žádné kompatibilní LoRA.
+	No matches. Try another family, source or search.	Žádné shody. Zkuste jinou rodinu, zdroj nebo hledaný výraz.
+	Not chosen — detected automatically	Nevybráno — zjišťuje se automaticky
+	Not enough space in {folder} ({free} free).	Ve složce {folder} není dost místa (volné: {free}).
+	Not installed: {reason}	Nenainstalováno: {reason}
+	Not stated: check the model's page before use	Neuvedeno: před použitím zkontrolujte stránku modelu
+	Nothing installed yet. Pick a model from Trending or a family.	Zatím nic není nainstalováno. Vyberte model z Populárních nebo z některé rodiny.
+	Nothing matches.	Nic neodpovídá.
+	Only .safetensors and .gguf files with a published size and SHA-256 are installed.	Instalují se jen soubory .safetensors a .gguf se zveřejněnou velikostí a SHA-256.
+	Open Folder	Otevřít složku
+	Open Its Page	Otevřít jeho stránku
+	Open an image first	Nejprve otevřete obrázek
+	Open an image first.	Nejprve otevřete obrázek.
+	Open an image from the filmstrip's folder first.	Nejprve otevřete obrázek ze složky filmového pásu.
+	Open its page	Otevřít jeho stránku
+	Paint over a distraction; it's removed when you release	Přetřete rušivý prvek; po uvolnění se odstraní
+	Place as Layer	Umístit jako vrstvu
+	Port:	Port:
+	Precision	Přesnost
+	Preset name	Název přednastavení
+	Previous image ({key})	Předchozí obrázek ({key})
+	Qwen Compact	Qwen kompaktní
+	Qwen Full	Qwen plná
+	RESULTS	VÝSLEDKY
+	Read the licence	Přečíst licenci
+	Ready	Připraveno
+	Recreate	Vytvořit znovu
+	References · {n}/{max}	Reference · {n}/{max}
+	Refine	Zpřesnit
+	Refine model: {why}	Model pro zpřesnění: {why}
+	Refine strength	Síla zpřesnění
+	Refine with	Zpřesnit pomocí
+	Refine:	Doladit:
+	Refresh	Obnovit
+	Regenerate the selection (Photoshop's Generative Fill)	Znovu vytvoří obsah výběru (jako Generativní výplň ve Photoshopu)
+	Remove Backgrounds	Odstranit pozadí
+	Remove Selection	Odstranit výběr
+	Request Access…	Požádat o přístup…
+	Resample the open image at a chosen strength (img2img)	Převzorkuje otevřený obrázek se zvolenou silou (img2img)
+	Results appear here and are saved to the Library.	Výsledky se zobrazí zde a uloží se do knihovny.
+	Retry	Zkusit znovu
+	Review in Library: see this folder in the Library's grid to compare and rate	Zkontrolovat v knihovně: zobrazit tuto složku v mřížce knihovny k porovnání a hodnocení
+	Rough GPU memory to run it	Přibližná paměť GPU potřebná ke spuštění
+	Rough GPU memory to run it: more than your GPU has	Přibližná paměť GPU potřebná ke spuštění: víc, než má vaše GPU
+	Running {name}	Spouští se {name}
+	Runs on {provider}'s servers: your prompt and images are sent there.	Běží na serverech {provider}: vaše zadání a obrázky se odesílají tam.
+	Runs on {provider}: your prompt and images are sent there, billed to your key.	Běží u {provider}: vaše zadání a obrázky se odesílají tam a účtují se na váš klíč.
+	SELECTION MODELS (CPU)	MODELY PRO VÝBĚR (CPU)
+	Save & Next	Uložit a další
+	Save & Next saves to	Uložit a další ukládá do
+	Save Preset	Uložit přednastavení
+	Save a copy in the Edited folder and open the next one ({key})	Uložit kopii do složky Edited a otevřít další ({key})
+	Save these settings as a preset	Uložit tato nastavení jako přednastavení
+	Save this image (Save As) and open the next one ({key})	Uložit tento obrázek (Uložit jako) a otevřít další ({key})
+	Save this image over the original and open the next one ({key})	Uložit tento obrázek přes originál a otevřít další ({key})
+	Save to:	Uložit do:
+	Saved {name}	Uloženo: {name}
+	Search LoRAs	Hledat LoRA
+	Search models	Hledat modely
+	Search prompts	Hledat v zadáních
+	See each model's page	Viz stránku jednotlivých modelů
+	Select Subject, Remove Background (Quick) and Object Selection clicks use the best one installed. No GPU or ComfyUI needed.	Vybrat objekt, Odstranit pozadí (rychle) a kliknutí výběru objektu použijí nejlepší nainstalovaný model. Není potřeba GPU ani ComfyUI.
+	Sent as {size}	Odesláno jako {size}
+	Set up AI…	Nastavit AI…
+	Show the folder when opening a photo	Při otevření fotografie zobrazit složku
+	Start AI Engine	Spustit modul AI
+	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	Nejprve spusťte modul AI: Local Image zkontroluje, co už ComfyUI má. ({error})
+	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	Spusťte modul AI, abyste viděli paměť své GPU; zobrazuje se, co se vejde do 8 GB.
+	Starting ComfyUI… (the first start can take a minute)	Spouští se ComfyUI… (první spuštění může trvat minutu)
+	Starting image · {n}/{max}	Výchozí obrázek · {n}/{max}
+	Starting {name}…	Spouští se {name}…
+	Steps	Kroky
+	Stopped	Zastaveno
+	Styles (LoRA) · {n}/{max}	Styly (LoRA) · {n}/{max}
+	That file is not a ComfyUI workflow (JSON).	Tento soubor není pracovní postup ComfyUI (JSON).
+	That folder has no ComfyUI (main.py and a Python environment).	V této složce není ComfyUI (main.py a prostředí Pythonu).
+	That was the first image in the folder.	To byl první obrázek ve složce.
+	That was the last image in the folder.	To byl poslední obrázek ve složce.
+	The AI engine (ComfyUI) is not running.	Modul AI (ComfyUI) není spuštěn.
+	The AI engine is starting…	Modul AI se spouští…
+	The author doesn't allow commercial use.	Autor nepovoluje komerční použití.
+	The model isn't ready.	Model není připraven.
+	The original file	Původní soubor
+	The publisher asks you to accept its licence on its page first; add a Hugging Face token in Local AI settings.	Vydavatel vyžaduje, abyste nejprve přijali jeho licenci na jeho stránce; přidejte token Hugging Face v nastavení Místní AI.
+	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	Pracovní postup nemá žádné uzly s názvem li:prompt, li:image, li:mask, li:seed ani li:output, takže jej Local Image nemůže vyplnit. Přejmenujte uzly v ComfyUI a exportujte znovu.
+	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	Tokeny umožňují Prohlížeči modelů stahovat modely s omezeným přístupem nebo vyžadující přihlášení. Odesílají se jen na jejich vlastní web.
+	Transparent PNG	Průhledný PNG
+	Transparent background	Průhledné pozadí
+	Trending	Populární
+	Trending this week	Populární tento týden
+	Unknown family	Neznámá rodina
+	Update Model Profiles	Aktualizovat profily modelů
+	Updated 1 model profile: {names}	Aktualizován 1 profil modelu: {names}
+	Updated {n} model profiles: {names}	Aktualizované profily modelů ({n}): {names}
+	Upscale	Zvětšit
+	Upscale {scale}×	Zvětšit {scale}×
+	Use	Použít
+	Use as Reference	Použít jako referenci
+	Variation strength	Síla variace
+	Waiting	Čeká
+	What should appear in the selection…	Co se má objevit ve výběru…
+	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	S vlastním klíčem API může generování používat i cloudové modely (zobrazí se v sekci Cloud ve výběru modelu). Vaše zadání a obrázky pak putují z tohoto počítače k danému poskytovateli a účtují se na váš účet; nic jiného se nikam neodesílá.
+	Works on my GPU	Funguje na mé GPU
+	a “cutouts” folder beside each image	složka „cutouts“ vedle každého obrázku
+	just now	právě teď
+	new each time	pokaždé nový
+	seed {seed}	seed {seed}
+	{author} · {n} downloads	{author} · stažení: {n}
+	{best_for} · {size} · {gb} GB GPU	{best_for} · {size} · {gb} GB GPU
+	{done} of {total}	{done} z {total}
+	{licence} · non-commercial	{licence} · nekomerční
+	{model} creates, edits and fills; choose a local model to refine or upscale.	{model} umí vytvářet, upravovat a vyplňovat; ke zpřesnění nebo zvětšení zvolte místní model.
+	{mode} with {model}	{mode} · {model}
+	{name} (family unknown)	{name} (neznámá rodina)
+	{name} · Custom workflow	{name} · Vlastní pracovní postup
+	{name} · edited copy saved	{name} · upravená kopie uložena
+	{name} · {gb} GB GPU memory	{name} · {gb} GB paměti GPU
+	{name} — click to remove	{name} — kliknutím odeberete
+	{n} LoRAs	LoRA: {n}
+	{n} days ago	před {n} dny
+	{n} downloads	Stažení: {n}
+	{n} edited	Upraveno: {n}
+	{n} files to download ({size}), verified by SHA-256:	Souborů ke stažení: {n} ({size}), ověřeno pomocí SHA-256:
+	{n} h ago	před {n} h
+	{n} images	Obrázky: {n}
+	{n} images in {folder}	Obrázky ve složce {folder}: {n}
+	{n} min ago	před {n} min
+	{n} models	Modely: {n}
+	{n} refs	Reference: {n}
+	{size} · runs on the CPU · {licence}	{size} · běží na CPU · {licence}
+	{source}: offline, showing results from {when}	{source}: offline, zobrazují se výsledky z doby {when}
+	{source}: the catalogue couldn't be read	{source}: katalog nelze přečíst
+	{why} Qwen Image 2.1 runs these.	{why} Tyto funkce používají Qwen Image 2.1.
+	Choose…	Vybrat…
+	Stop	Zastavit
+	Seed	Seed
+	Solid Color	Plná barva
+	Strength	Síla
+	Qwen AI · Compact	Qwen AI · kompaktní
+	Qwen AI · Full	Qwen AI · plná
+	Standard (CPU)	Standardní (CPU)
+	Templates	Šablony
+	Community	Komunita
+ai	Restore	Obnovit
+ai	Sampler	Sampler
+ai	New	Nové

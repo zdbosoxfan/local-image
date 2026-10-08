@@ -83,9 +83,9 @@ pub struct EngineStatus {
 impl EngineStatus {
     pub fn ready(&self, model: ModelId, variant: &str) -> Result<(), String> {
         if !self.connected {
-            return Err(if self.starting { "The AI engine is starting…".into() } else { "The AI engine (ComfyUI) is not running.".into() });
+            return Err(if self.starting { tl!("The AI engine is starting…").into() } else { tl!("The AI engine (ComfyUI) is not running.").into() });
         }
-        self.presets.get(&format!("{}:{variant}", model.key())).cloned().unwrap_or_else(|| Err("Checking models…".into()))
+        self.presets.get(&format!("{}:{variant}", model.key())).cloned().unwrap_or_else(|| Err(tl!("Checking models…").into()))
     }
     pub fn any_ready(&self) -> bool {
         self.connected && self.presets.values().any(Result::is_ok)
@@ -199,7 +199,7 @@ fn poll_loop(s: Arc<Shared>) {
 pub fn start_engine() -> Result<String, String> {
     let settings = AiSettings::load();
     let found = li_ai::setup::detect(&settings);
-    let inst = found.first().ok_or("No ComfyUI installation found. Choose its folder in Local AI, or install ComfyUI first.")?;
+    let inst = found.first().ok_or(tl!("No ComfyUI installation found. Choose its folder in Local AI, or install ComfyUI first."))?;
     let child = li_ai::setup::start(inst, &settings).map_err(|e| format!("{e:#}"))?;
     if let Ok(mut c) = shared().child.lock() {
         *c = Some(child);
@@ -292,25 +292,28 @@ fn seg_rows(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>) {
                 ui.vertical(|ui| {
                     ui.label(RichText::new(spec.label).strong());
                     ui.label(
-                        RichText::new(format!("{} · runs on the CPU · {}", li_ai::download::human_bytes(spec.bytes), spec.licence))
+                        RichText::new(crate::i18n::fmt(
+                            tl!("{size} · runs on the CPU · {licence}"),
+                            &[("size", &li_ai::download::human_bytes(spec.bytes)), ("licence", spec.licence)],
+                        ))
                             .color(t.text_dim)
                             .size(11.5),
                     );
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| match dl {
                     Some(d) if !d.finished => {
-                        if widgets::secondary_button(ui, "Cancel", 0.0).clicked() {
+                        if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
                             d.ctl.cancel();
                         }
                         let frac = if d.total > 0 { d.done as f32 / d.total as f32 } else { 0.0 };
                         ui.add(egui::ProgressBar::new(frac).desired_width(140.0).text(format!("{:.0}%", frac * 100.0)));
                     }
                     _ if li_seg::model_path(&dir, spec).is_file() => {
-                        let text = if active == Some(spec.id) { "In use" } else { "Installed" };
+                        let text = if active == Some(spec.id) { tl!("In use") } else { tl!("Installed") };
                         ui.label(RichText::new(text).color(Color32::from_rgb(70, 190, 110)));
                     }
                     _ => {
-                        if widgets::secondary_button(ui, "Download", 0.0).clicked() {
+                        if widgets::secondary_button(ui, tl!("Download"), 0.0).clicked() {
                             start_seg_download(spec);
                         }
                     }
@@ -343,7 +346,7 @@ pub fn finish_stroke(app: &mut PhotocraftApp, tool: Tool, points: &[[f64; 3]]) -
         Tool::AiCutout => {
             let has_mask = app.session.active().and_then(|d| d.active_layer.and_then(|id| d.doc.layer(id))).is_some_and(|l| l.mask.is_some());
             if !has_mask {
-                app.ui.status = "Click Remove Background first; then drag to erase or restore parts of the cutout.".into();
+                app.ui.status = tl!("Click Remove Background first; then drag to erase or restore parts of the cutout.").into();
                 app.ui.status_error = true;
                 return true;
             }
@@ -400,7 +403,7 @@ fn readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui, model: ModelId, variant
         let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
         crate::icons::paint(ui, r, "triangle-alert", 14.0, t.warning);
         ui.label(RichText::new(why).color(t.warning));
-        let label = if st.connected { "Get models…" } else { "Set up AI…" };
+        let label = if st.connected { tl!("Get models…") } else { tl!("Set up AI…") };
         if widgets::secondary_button(ui, label, 0.0).clicked() {
             open_local_ai(app);
         }
@@ -411,13 +414,13 @@ fn readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui, model: ModelId, variant
 pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bool {
     match tool {
         Tool::AiRemove => {
-            opt(ui, "Engine:");
+            opt(ui, tl!("Engine:"));
             let opts: Vec<(String, &str)> = REMOVE_ENGINES.iter().map(|(k, l, _, _)| ((*k).to_owned(), *l)).collect();
             widgets::dropdown(ui, "ai-remove-engine", &mut app.ui.ai.remove_engine, &opts, 130.0);
             let has_sel = app.session.active().is_some_and(|d| d.doc.selection.is_some());
             if has_sel {
                 widgets::vline(ui, 22.0);
-                if widgets::secondary_button(ui, "Remove Selection", 0.0).clicked() {
+                if widgets::secondary_button(ui, tl!("Remove Selection"), 0.0).clicked() {
                     let e = app.ui.ai.remove_engine.clone();
                     let r = app.run("ai.remove", json!({ "engine": e }));
                     report(app, r);
@@ -426,7 +429,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
             let (m, v) = engine_for(&app.ui.ai.remove_engine);
             if status().ready(m, v).is_ok() {
                 widgets::vline(ui, 22.0);
-                opt(ui, "Paint over a distraction; it's removed when you release");
+                opt(ui, tl!("Paint over a distraction; it's removed when you release"));
             } else {
                 readiness(app, ui, m, v);
             }
@@ -434,7 +437,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
         }
         Tool::AiCutout => {
             let quick = app.ui.ai.cutout_engine == "quick";
-            if widgets::primary_button(ui, "Remove Background", 0.0).clicked() {
+            if widgets::primary_button(ui, tl!("Remove Background"), 0.0).clicked() {
                 let r = if quick {
                     app.run("layer.removeBackground", json!({}))
                 } else {
@@ -446,33 +449,33 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
             let opts: Vec<(String, &str)> = CUTOUT_ENGINES.iter().map(|(k, l)| ((*k).to_owned(), *l)).collect();
             widgets::dropdown(ui, "ai-cutout-engine", &mut app.ui.ai.cutout_engine, &opts, 140.0);
             if !quick {
-                ui.add(egui::TextEdit::singleline(&mut app.ui.ai.cutout_hint).hint_text("Keep… (optional)").desired_width(120.0));
+                ui.add(egui::TextEdit::singleline(&mut app.ui.ai.cutout_hint).hint_text(tl!("Keep… (optional)")).desired_width(120.0));
             }
             widgets::vline(ui, 22.0);
-            opt(ui, "Refine:");
+            opt(ui, tl!("Refine:"));
             let mut erase = !app.ui.ai.cutout_restore;
-            if widgets::checkbox(ui, &mut erase, "Erase").clicked() {
+            if widgets::checkbox(ui, &mut erase, tl!("Erase")).clicked() {
                 app.ui.ai.cutout_restore = false;
             }
             let mut restore = app.ui.ai.cutout_restore;
-            if widgets::checkbox(ui, &mut restore, "Restore").clicked() {
+            if widgets::checkbox(ui, &mut restore, crate::i18n::tr_ctx(crate::i18n::current(), "ai", "Restore")).clicked() {
                 app.ui.ai.cutout_restore = true;
             }
             widgets::vline(ui, 22.0);
-            let resp = widgets::secondary_button(ui, "Add Background ▾", 0.0);
+            let resp = widgets::secondary_button(ui, tl!("Add Background ▾"), 0.0);
             egui::Popup::menu(&resp).show(|ui| {
                 ui.set_min_width(200.0);
-                if ui.button("Solid Color").clicked() {
+                if ui.button(tl!("Solid Color")).clicked() {
                     let r =
                         app.run("layer.newFillLayer.solidColor", json!({ "color": "#ffffff" })).and_then(|_| app.run("layer.arrange.sendBackward", json!({})));
                     report(app, r);
                     ui.close();
                 }
-                if ui.button("Image…").clicked() {
+                if ui.button(tl!("Image…")).clicked() {
                     let _ = crate::menus::invoke(app, ui.ctx(), "file.placeEmbedded", json!({}));
                     ui.close();
                 }
-                if ui.button("Generate (AI)…").clicked() {
+                if ui.button(tl!("Generate (AI)…")).clicked() {
                     dialogs_mut(|d| d.background = true);
                     ui.close();
                 }
@@ -499,19 +502,19 @@ pub fn status_pill(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let st = status();
     let (dot, text) = if !st.checked {
-        (t.text_faint, "AI".to_owned())
+        (t.text_faint, tl!("AI").to_owned())
     } else if st.starting {
-        (t.warning, "AI starting…".to_owned())
+        (t.warning, tl!("AI starting…").to_owned())
     } else if !st.connected {
-        (t.text_faint, "AI off".to_owned())
+        (t.text_faint, tl!("AI off").to_owned())
     } else if !st.any_ready() {
-        (t.warning, "AI · no models".to_owned())
+        (t.warning, tl!("AI · no models").to_owned())
     } else {
         let gpu = st.gpu.as_ref().map(|g| {
             let used = g.vram_used.map(|u| format!(" · {:.0}/{:.0} GB", u as f64 / 1e9, g.vram_total as f64 / 1e9)).unwrap_or_default();
             format!(" · {}{used}", short_gpu(&g.name))
         });
-        (Color32::from_rgb(70, 190, 110), format!("AI ready{}", gpu.unwrap_or_default()))
+        (Color32::from_rgb(70, 190, 110), crate::i18n::fmt(tl!("AI ready{gpu}"), &[("gpu", &gpu.unwrap_or_default())]))
     };
     let galley = ui.painter().layout_no_wrap(text, egui::FontId::proportional(11.5), t.text_dim);
     let size = vec2(galley.size().x + 26.0, 18.0);
@@ -522,9 +525,9 @@ pub fn status_pill(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     ui.painter().circle_filled(egui::pos2(r.left() + 10.0, r.center().y), 3.5, dot);
     ui.painter().galley(egui::pos2(r.left() + 18.0, r.center().y - galley.size().y / 2.0), galley, t.text_dim);
     let resp = resp.on_hover_text(if st.connected {
-        format!("ComfyUI at {} — click for Local AI settings", st.host)
+        crate::i18n::fmt(tl!("ComfyUI at {host} — click for Local AI settings"), &[("host", &st.host)])
     } else {
-        "Local AI is off — click to set it up".into()
+        tl!("Local AI is off — click to set it up").into()
     });
     if resp.clicked() {
         open_local_ai(app);
@@ -571,10 +574,10 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
         local_ai_window(app, ctx);
     }
     if dialogs_mut(|d| d.background) {
-        prompt_dialog(app, ctx, "Generate Background", "Describe the empty scene behind your subject", true);
+        prompt_dialog(app, ctx, tl!("Generate Background"), tl!("Describe the empty scene behind your subject"), true);
     }
     if dialogs_mut(|d| d.fill) {
-        prompt_dialog(app, ctx, "Generative Fill", "Describe what should appear in the selection", false);
+        prompt_dialog(app, ctx, tl!("Generative Fill"), tl!("Describe what should appear in the selection"), false);
     }
     if dialogs_mut(|d| d.enhance) {
         enhance_dialog(app, ctx);
@@ -605,12 +608,12 @@ fn prompt_dialog(app: &mut PhotocraftApp, ctx: &egui::Context, title: &str, hint
             ui.add_space(8.0);
             let (m, v) = (ModelId::Qwen, "int8");
             if let Err(why) = status().ready(m, v) {
-                ui.label(RichText::new(format!("{why} Qwen Image 2.1 runs these.")).color(Tokens::get(ctx).warning));
+                ui.label(RichText::new(crate::i18n::fmt(tl!("{why} Qwen Image 2.1 runs these."), &[("why", &why)])).color(Tokens::get(ctx).warning));
             }
             ui.add_space(4.0);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let enter = ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift);
-                if widgets::primary_button(ui, "Generate", 96.0).clicked() || enter {
+                if widgets::primary_button(ui, tl!("Generate"), 96.0).clicked() || enter {
                     let (cmd, p) = if background {
                         ("ai.generateBackground", json!({ "prompt": app.ui.ai.background_prompt }))
                     } else {
@@ -620,7 +623,7 @@ fn prompt_dialog(app: &mut PhotocraftApp, ctx: &egui::Context, title: &str, hint
                     report(app, r);
                     close = true;
                 }
-                if widgets::secondary_button(ui, "Cancel", 80.0).clicked() {
+                if widgets::secondary_button(ui, tl!("Cancel"), 80.0).clicked() {
                     close = true;
                 }
             });
@@ -634,7 +637,7 @@ fn enhance_dialog(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let mut open = true;
     let mut close = false;
     let size = app.session.active().map(|d| (d.doc.size.width, d.doc.size.height));
-    egui::Window::new("AI Enhance")
+    egui::Window::new(tl!("AI Enhance"))
         .collapsible(false)
         .resizable(false)
         .frame(window_frame(ctx))
@@ -642,10 +645,10 @@ fn enhance_dialog(app: &mut PhotocraftApp, ctx: &egui::Context) {
         .anchor(egui::Align2::CENTER_CENTER, vec2(0.0, -80.0))
         .show(ctx, |ui| {
             ui.set_width(360.0);
-            ui.label("Enhances detail and enlarges the image with SeedVR2. The result opens as a new document.");
+            ui.label(tl!("Enhances detail and enlarges the image with SeedVR2. The result opens as a new document."));
             ui.add_space(8.0);
             let mut scale = dialogs_mut(|d| d.enhance_scale);
-            widgets::slider_row(ui, "Scale", &mut scale, 1.25..=4.0, "×", None);
+            widgets::slider_row(ui, tl!("Scale"), &mut scale, 1.25..=4.0, "×", None);
             dialogs_mut(|d| d.enhance_scale = scale);
             if let Some((w, h)) = size {
                 let (nw, nh) = (((w as f32 * scale) as u32) & !1, ((h as f32 * scale) as u32) & !1);
@@ -656,12 +659,12 @@ fn enhance_dialog(app: &mut PhotocraftApp, ctx: &egui::Context) {
             }
             ui.add_space(8.0);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if widgets::primary_button(ui, "Enhance", 96.0).clicked() {
+                if widgets::primary_button(ui, tl!("Enhance"), 96.0).clicked() {
                     let r = app.run("ai.enhance", json!({ "scale": scale }));
                     report(app, r);
                     close = true;
                 }
-                if widgets::secondary_button(ui, "Cancel", 80.0).clicked() {
+                if widgets::secondary_button(ui, tl!("Cancel"), 80.0).clicked() {
                     close = true;
                 }
             });
@@ -675,7 +678,7 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let t = Tokens::get(ctx);
     let st = status();
     let mut open = true;
-    egui::Window::new("Local AI")
+    egui::Window::new(tl!("Local AI"))
         .collapsible(false)
         .resizable(true)
         .default_size(vec2(640.0, 560.0))
@@ -688,81 +691,87 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 // Status.
                 ui.horizontal(|ui| {
                     let (dot, text) = if st.connected {
-                        (Color32::from_rgb(70, 190, 110), format!("Connected to ComfyUI at {}", st.host))
+                        (Color32::from_rgb(70, 190, 110), crate::i18n::fmt(tl!("Connected to ComfyUI at {host}"), &[("host", &st.host)]))
                     } else if st.starting {
-                        (t.warning, "Starting ComfyUI… (the first start can take a minute)".to_owned())
+                        (t.warning, tl!("Starting ComfyUI… (the first start can take a minute)").to_owned())
                     } else {
-                        (t.text_faint, format!("ComfyUI is not running at {}", st.host))
+                        (t.text_faint, crate::i18n::fmt(tl!("ComfyUI is not running at {host}"), &[("host", &st.host)]))
                     };
                     let (r, _) = ui.allocate_exact_size(vec2(10.0, 10.0), Sense::hover());
                     ui.painter().circle_filled(r.center(), 4.5, dot);
                     ui.label(RichText::new(text).strong());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if crate::icons::button(ui, "rotate-cw", 24.0, false, "Check again").clicked() {
+                        if crate::icons::button(ui, "rotate-cw", 24.0, false, tl!("Check again")).clicked() {
                             refresh();
                         }
                     });
                 });
                 if let Some(g) = &st.gpu {
-                    ui.label(RichText::new(format!("{} · {:.0} GB GPU memory", g.name, g.vram_total as f64 / 1e9)).color(t.text_dim));
+                    ui.label(
+                        RichText::new(crate::i18n::fmt(
+                            tl!("{name} · {gb} GB GPU memory"),
+                            &[("name", &g.name), ("gb", &format!("{:.0}", g.vram_total as f64 / 1e9))],
+                        ))
+                        .color(t.text_dim),
+                    );
                 }
                 ui.add_space(10.0);
-                widgets::section_label(ui, "AI ENGINE");
+                widgets::section_label(ui, tl!("AI ENGINE"));
                 let mut settings = dialogs_mut(|d| d.settings.clone()).unwrap_or_else(AiSettings::load);
                 let before = settings.clone();
                 ui.horizontal(|ui| {
-                    opt(ui, "Address:");
+                    opt(ui, tl!("Address:"));
                     ui.add(egui::TextEdit::singleline(&mut settings.comfy_host).desired_width(120.0));
-                    opt(ui, "Port:");
+                    opt(ui, tl!("Port:"));
                     let mut port = settings.comfy_port as f32;
                     if widgets::value_field(ui, &mut port, 1.0..=65535.0, "", 70.0).changed() {
                         settings.comfy_port = port as u16;
                     }
                 });
                 ui.horizontal(|ui| {
-                    opt(ui, "Installation:");
+                    opt(ui, tl!("Installation:"));
                     let label =
-                        if settings.comfy_directory.is_empty() { "Not chosen — detected automatically".to_owned() } else { settings.comfy_directory.clone() };
+                        if settings.comfy_directory.is_empty() { tl!("Not chosen — detected automatically").to_owned() } else { settings.comfy_directory.clone() };
                     ui.label(RichText::new(label).color(t.text_dim));
                 });
                 ui.horizontal(|ui| {
-                    if widgets::secondary_button(ui, "Detect", 0.0).clicked() {
+                    if widgets::secondary_button(ui, tl!("Detect"), 0.0).clicked() {
                         let found = li_ai::setup::detect(&settings);
                         dialogs_mut(|d| {
                             d.message = if found.is_empty() {
-                                "No ComfyUI installation found in the usual places.".into()
+                                tl!("No ComfyUI installation found in the usual places.").into()
                             } else {
-                                format!("Found {} installation(s).", found.len())
+                                crate::i18n::fmt(tl!("Found {n} installation(s)."), &[("n", &found.len().to_string())])
                             };
                             d.detected = Some(found);
                         });
                     }
                     #[cfg(not(target_arch = "wasm32"))]
-                    if widgets::secondary_button(ui, "Choose Folder…", 0.0).clicked()
-                        && let Some(dir) = rfd::FileDialog::new().set_title("Choose your ComfyUI folder").pick_folder()
+                    if widgets::secondary_button(ui, tl!("Choose Folder…"), 0.0).clicked()
+                        && let Some(dir) = rfd::FileDialog::new().set_title(tl!("Choose your ComfyUI folder")).pick_folder()
                     {
                         if li_ai::setup::installation(&dir, None).is_some() {
                             settings.comfy_directory = dir.display().to_string();
-                            dialogs_mut(|d| d.message = "ComfyUI installation found.".into());
+                            dialogs_mut(|d| d.message = tl!("ComfyUI installation found.").into());
                         } else {
-                            dialogs_mut(|d| d.message = "That folder has no ComfyUI (main.py and a Python environment).".into());
+                            dialogs_mut(|d| d.message = tl!("That folder has no ComfyUI (main.py and a Python environment).").into());
                         }
                     }
                     let running_ours = shared().child.lock().map(|c| c.is_some()).unwrap_or(false);
-                    if !st.connected && !st.starting && widgets::primary_button(ui, "Start AI Engine", 0.0).clicked() {
+                    if !st.connected && !st.starting && widgets::primary_button(ui, tl!("Start AI Engine"), 0.0).clicked() {
                         let _ = settings.save();
                         let m = match start_engine() {
-                            Ok(l) => format!("Starting {l}…"),
+                            Ok(l) => crate::i18n::fmt(tl!("Starting {name}…"), &[("name", &l)]),
                             Err(e) => e,
                         };
                         dialogs_mut(|d| d.message = m);
                     }
-                    if running_ours && widgets::secondary_button(ui, "Stop", 0.0).clicked() {
+                    if running_ours && widgets::secondary_button(ui, tl!("Stop"), 0.0).clicked() {
                         stop_engine();
                     }
-                    if st.connected && widgets::secondary_button(ui, "Free GPU Memory", 0.0).clicked() {
+                    if st.connected && widgets::secondary_button(ui, tl!("Free GPU Memory"), 0.0).clicked() {
                         let m = match li_ai::service().client.free_memory() {
-                            Ok(()) => "Models unloaded.".to_owned(),
+                            Ok(()) => tl!("Models unloaded.").to_owned(),
                             Err(e) => format!("{e:#}"),
                         };
                         dialogs_mut(|d| d.message = m);
@@ -772,7 +781,7 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     for inst in found {
                         ui.horizontal(|ui| {
                             ui.label(RichText::new(inst.label()).color(t.text_dim));
-                            if widgets::secondary_button(ui, "Use", 0.0).clicked() {
+                            if widgets::secondary_button(ui, tl!("Use"), 0.0).clicked() {
                                 settings.comfy_directory = inst.code.display().to_string();
                                 settings.comfy_python = inst.python.display().to_string();
                             }
@@ -784,19 +793,19 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     ui.label(RichText::new(msg).color(t.text_dim));
                 }
                 ui.add_space(10.0);
-                widgets::section_label(ui, "MODELS");
+                widgets::section_label(ui, tl!("MODELS"));
                 ui.horizontal(|ui| {
-                    opt(ui, "Model folder:");
+                    opt(ui, tl!("Model folder:"));
                     ui.label(RichText::new(settings.model_dir().display().to_string()).color(t.text_dim));
                     #[cfg(not(target_arch = "wasm32"))]
-                    if widgets::secondary_button(ui, "Change…", 0.0).clicked()
-                        && let Some(dir) = rfd::FileDialog::new().set_title("Choose the model folder").pick_folder()
+                    if widgets::secondary_button(ui, tl!("Change…"), 0.0).clicked()
+                        && let Some(dir) = rfd::FileDialog::new().set_title(tl!("Choose the model folder")).pick_folder()
                     {
                         settings.model_directory = dir.display().to_string();
                     }
                 });
                 ui.label(
-                    RichText::new("Downloads are checked against the publisher's size and SHA-256, and ComfyUI's model list is refreshed after each install.")
+                    RichText::new(tl!("Downloads are checked against the publisher's size and SHA-256, and ComfyUI's model list is refreshed after each install."))
                         .color(t.text_faint)
                         .size(11.0),
                 );
@@ -812,13 +821,13 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         model_row(ui, &t, info, p, &st, dls.get(&p.id()), &settings);
                     }
                 }
-                if widgets::secondary_button(ui, "Browse Models…", 0.0).on_hover_text("Find, compare and install models and LoRAs for any family").clicked() {
+                if widgets::secondary_button(ui, tl!("Browse Models…"), 0.0).on_hover_text(tl!("Find, compare and install models and LoRAs for any family")).clicked() {
                     crate::model_browser::open();
                 }
                 ui.add_space(8.0);
-                widgets::section_label(ui, "CLOUD (OPTIONAL)");
+                widgets::section_label(ui, tl!("CLOUD (OPTIONAL)"));
                 ui.label(
-                    RichText::new("With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.")
+                    RichText::new(tl!("With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere."))
                         .color(t.text_faint)
                         .size(11.0),
                 );
@@ -826,22 +835,22 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     ui.horizontal(|ui| {
                         opt(ui, &format!("{}:", p.label()));
                         let mut v = settings.extra_string(p.key_name()).unwrap_or_default();
-                        if ui.add(egui::TextEdit::singleline(&mut v).password(true).hint_text("API key").desired_width(220.0)).changed() {
+                        if ui.add(egui::TextEdit::singleline(&mut v).password(true).hint_text(tl!("API key")).desired_width(220.0)).changed() {
                             settings.set_extra_string(p.key_name(), &v);
                         }
-                        if ui.link(RichText::new("Get a key").size(11.0)).clicked() {
+                        if ui.link(RichText::new(tl!("Get a key")).size(11.0)).clicked() {
                             ui.ctx().open_url(egui::OpenUrl::new_tab(p.keys_url()));
                         }
                     });
                 }
                 ui.add_space(8.0);
-                widgets::section_label(ui, "ACCOUNTS (OPTIONAL)");
+                widgets::section_label(ui, tl!("ACCOUNTS (OPTIONAL)"));
                 ui.label(
-                    RichText::new("Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.")
+                    RichText::new(tl!("Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site."))
                         .color(t.text_faint)
                         .size(11.0),
                 );
-                for (key, label, hint) in [("hf_token", "Hugging Face token:", "hf_…"), ("civitai_token", "Civitai API key:", "")] {
+                for (key, label, hint) in [("hf_token", tl!("Hugging Face token:"), "hf_…"), ("civitai_token", tl!("Civitai API key:"), "")] {
                     ui.horizontal(|ui| {
                         opt(ui, label);
                         let mut v = settings.extra_string(key).unwrap_or_default();
@@ -851,10 +860,10 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     });
                 }
                 ui.add_space(8.0);
-                widgets::section_label(ui, "SELECTION MODELS (CPU)");
+                widgets::section_label(ui, tl!("SELECTION MODELS (CPU)"));
                 ui.label(
                     RichText::new(
-                        "Select Subject, Remove Background (Quick) and Object Selection clicks use the best one installed. No GPU or ComfyUI needed.",
+                        tl!("Select Subject, Remove Background (Quick) and Object Selection clicks use the best one installed. No GPU or ComfyUI needed."),
                     )
                     .color(t.text_faint)
                     .size(11.0),
@@ -863,13 +872,13 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 seg_rows(ui, &t, &dls);
                 if settings != before {
                     if let Err(e) = settings.save() {
-                        dialogs_mut(|d| d.message = format!("Could not save settings: {e:#}"));
+                        dialogs_mut(|d| d.message = crate::i18n::fmt(tl!("Could not save settings: {error}"), &[("error", &format!("{e:#}"))]));
                     }
                     refresh();
                 }
                 dialogs_mut(|d| d.settings = Some(settings));
                 ui.add_space(8.0);
-                widgets::section_label(ui, "GPU MEMORY GUIDE");
+                widgets::section_label(ui, tl!("GPU MEMORY GUIDE"));
                 for (what, gb) in catalog::VRAM_GUIDE {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(format!("{gb} GB")).font(crate::theme::mono(12.0)));
@@ -899,7 +908,10 @@ fn model_row(ui: &mut egui::Ui, t: &Tokens, info: &catalog::ModelInfo, p: &catal
             ui.vertical(|ui| {
                 ui.label(RichText::new(format!("{} · {}", info.label, p.label)).strong());
                 ui.label(
-                    RichText::new(format!("{} · {} · {} GB GPU", info.best_for, li_ai::download::human_bytes(p.total_bytes()), info.vram_gb))
+                    RichText::new(crate::i18n::fmt(
+                        tl!("{best_for} · {size} · {gb} GB GPU"),
+                        &[("best_for", &info.best_for), ("size", &li_ai::download::human_bytes(p.total_bytes())), ("gb", &info.vram_gb.to_string())],
+                    ))
                         .color(t.text_dim)
                         .size(11.5),
                 );
@@ -909,20 +921,20 @@ fn model_row(ui: &mut egui::Ui, t: &Tokens, info: &catalog::ModelInfo, p: &catal
                 let state = st.presets.get(&p.id());
                 match (dl, state) {
                     (Some(d), _) if !d.finished => {
-                        if widgets::secondary_button(ui, "Cancel", 0.0).clicked() {
+                        if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
                             d.ctl.cancel();
                         }
                         let frac = if d.total > 0 { d.done as f32 / d.total as f32 } else { 0.0 };
                         ui.add(egui::ProgressBar::new(frac).desired_width(140.0).text(format!("{:.0}%", frac * 100.0)));
                     }
                     (_, Some(Ok(()))) => {
-                        ui.label(RichText::new("Ready").color(Color32::from_rgb(70, 190, 110)));
+                        ui.label(RichText::new(tl!("Ready")).color(Color32::from_rgb(70, 190, 110)));
                     }
                     _ if missing.is_empty() => {
-                        ui.label(RichText::new(if st.connected { "Files present — restart ComfyUI" } else { "Files present" }).color(t.text_dim));
+                        ui.label(RichText::new(if st.connected { tl!("Files present — restart ComfyUI") } else { tl!("Files present") }).color(t.text_dim));
                     }
                     _ => {
-                        let label = if p.access_url.is_some() { "Request Access…" } else { "Download" };
+                        let label = if p.access_url.is_some() { tl!("Request Access…") } else { tl!("Download") };
                         if widgets::secondary_button(ui, label, 0.0).clicked() {
                             if let Some(url) = p.access_url.clone().filter(|_| dl.and_then(|d| d.error.as_ref()).is_some()) {
                                 ui.ctx().open_url(egui::OpenUrl::new_tab(url));

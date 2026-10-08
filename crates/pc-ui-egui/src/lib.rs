@@ -363,6 +363,8 @@ pub struct PhotocraftApp {
     pub host_modes: bool,
     /// local-image: the Library mode was asked for (the title bar's switch); the host takes it.
     pub switch_to_library: bool,
+    /// local-image: a folder for the Library to show (the filmstrip's Review in Library).
+    pub browse_in_library: Option<String>,
     fonts_ready: bool,
     /// Screen rect of the main canvas last frame (for overlays and the navigator).
     pub last_canvas_rect: egui::Rect,
@@ -502,6 +504,7 @@ impl PhotocraftApp {
             custom_titlebar: false,
             host_modes: false,
             switch_to_library: false,
+            browse_in_library: None,
             fonts_ready: false,
             last_canvas_rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0)),
             drop_canvas_rect: None,

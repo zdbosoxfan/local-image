@@ -2177,3 +2177,308 @@ cameraRaw	Color	カラー
 	Regenerate the area from a description	説明から範囲を再生成
 	Hide Contextual Task Bar	コンテキストタスクバーを隠す
 	More	その他
+	Auto Erase	自動消去
+	Click a red pupil	赤い瞳をクリック
+	Click the first point or press {key} to close · {del} removes a point · Esc cancels	最初の点をクリックするか {key} で閉じる · {del} で点を削除 · Esc でキャンセル
+	Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close	クリックしてから輪郭に沿って移動 · クリックでポイントを固定 · {alt}+クリックで直線 · ダブルクリックで閉じる
+	Darken Amount	暗くする量
+	Drag a crop box · drag inside to move · edges resize ({ratio} ratio, {centre} centre) · Space moves while drawing · {commit} commits · Esc cancels	切り抜きボックスをドラッグ · 内側をドラッグで移動 · 端でサイズ変更（{ratio} で縦横比、{centre} で中央から）· 描画中は Space で移動 · {commit} で確定 · Esc でキャンセル
+	Follows only edges this close to the pointer ([ and ] change it)	ポインターからこの距離内のエッジのみを追跡（[ と ] で変更）
+	Higher values follow only edges that contrast sharply with their surroundings	値を大きくすると、周囲とのコントラストが強いエッジのみを追跡します
+	How often fastening points are placed by themselves	固定ポイントを自動的に配置する頻度
+	Pupil Size	瞳の大きさ
+	Sample Size	サンプル範囲
+	Scrubby Zoom	スクラブズーム
+	Straighten: tilt the frame to level a horizon	角度補正：枠を傾けて水平線を水平にします
+	{mode} Color · {bits} bit	{mode} カラー · {bits} bit
+	+ Add	+ 追加
+	1 file to download ({size}), verified by SHA-256:	ダウンロードするファイル 1 個（{size}）、SHA-256 で検証：
+	A copy in the Edited folder (originals untouched)	Edited フォルダーにコピー（元のファイルはそのまま）
+	A new image from a description and optional reference images	説明文と任意の参照画像から新しい画像を作成
+	ACCOUNTS (OPTIONAL)	アカウント（任意）
+	AI	AI
+	AI ENGINE	AI エンジン
+	AI Enhance	AI 高画質化
+	AI off	AI オフ
+	AI ready{gpu}	AI 準備完了{gpu}
+	AI starting…	AI を起動中…
+	AI · no models	AI · モデルなし
+	API key	API キー
+	Accept the licence on the publisher's page first	先に公開元のページでライセンスに同意してください
+	Add Background ▾	背景を追加 ▾
+	Add Folder…	フォルダーを追加…
+	Add Images…	画像を追加…
+	Add Key…	キーを追加…
+	Add a LoRA	LoRA を追加
+	Add an image file	画像ファイルを追加
+	Add the current image	現在の画像を追加
+	Add your {provider} API key in Local AI › Cloud to use it.	使用するには、ローカル AI › クラウドで {provider} の API キーを追加してください。
+	Add your {provider} API key in Local AI › Cloud.	ローカル AI › クラウドで {provider} の API キーを追加してください。
+	Added “{name}” to the model list (basic controls)	「{name}」をモデル一覧に追加しました（基本コントロール）
+	Address:	アドレス：
+	Already installed: {names}	インストール済み：{names}
+	Apply Edit	編集を適用
+	Ask each time (Save As)	毎回確認（別名で保存）
+	Avoid… (negative prompt)	避けたいもの…（ネガティブプロンプト）
+	BROWSE	参照
+	Background:	背景：
+	Basic controls	基本コントロール
+	Browse Models…	モデルを参照…
+	CLOUD (OPTIONAL)	クラウド（任意）
+	CLOUD · YOUR API KEY	クラウド · 自分の API キー
+	CUSTOM WORKFLOWS	カスタムワークフロー
+	Cancelled	キャンセルしました
+	Change the open image from an instruction (edit models), or restyle it	開いている画像を指示に従って変更（編集モデル）、またはスタイルを変更
+	Change…	変更…
+	Check again	再確認
+	Checking for profile updates…	プロファイルの更新を確認中…
+	Checking models…	モデルを確認中…
+	Checking the files’ sizes and checksums…	ファイルのサイズとチェックサムを確認中…
+	Choose Folder…	フォルダーを選択…
+	Choose a model	モデルを選択
+	Choose a model to refine with.	リファインに使うモデルを選択してください。
+	Choose the model folder	モデルフォルダーを選択
+	Choose your ComfyUI folder	ComfyUI フォルダーを選択
+	Civitai API key:	Civitai API キー：
+	Click Remove Background first; then drag to erase or restore parts of the cutout.	先に［背景を削除］をクリックし、ドラッグして切り抜きの一部を消去または復元します。
+	ComfyUI at {host} — click for Local AI settings	ComfyUI（{host}）— クリックしてローカル AI の設定を開く
+	ComfyUI installation found.	ComfyUI のインストールが見つかりました。
+	ComfyUI is not running at {host}	ComfyUI は {host} で起動していません
+	ComfyUI workflow	ComfyUI ワークフロー
+	Connected to ComfyUI at {host}	{host} の ComfyUI に接続済み
+	Copy Prompt	プロンプトをコピー
+	Could not open {name}: {error}	{name} を開けませんでした：{error}
+	Could not save settings: {error}	設定を保存できませんでした：{error}
+	Couldn't save: {error}	保存できませんでした：{error}
+	Couldn't update profiles: {error}	プロファイルを更新できませんでした：{error}
+	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	Qwen Image 2.1 で各画像の被写体を切り抜き、PNG で保存します。元の画像は変更されません。
+	Delete from Library	ライブラリから削除
+	Describe details to add (optional)…	追加する細部を説明（任意）…
+	Describe the change, e.g. “make it golden hour”…	変更内容を説明（例：「ゴールデンアワーにする」）…
+	Describe the empty scene behind your subject	被写体の背後の空のシーンを説明してください
+	Describe the image (optional)…	画像を説明（任意）…
+	Describe the image you want it to become…	変換後の画像を説明…
+	Describe what should appear in the selection	選択範囲に表示する内容を説明してください
+	Describe what you want first.	先に作りたいものを説明してください。
+	Detect	検出
+	Double-click to open	ダブルクリックで開く
+	Download	ダウンロード
+	Download size	ダウンロードサイズ
+	Downloads are checked against the publisher's size and SHA-256, and ComfyUI's model list is refreshed after each install.	ダウンロードは公開元のサイズと SHA-256 で検証され、インストールのたびに ComfyUI のモデル一覧が更新されます。
+	Draft → Refine: generate with this model, then resample the draft with another (e.g. a fast draft refined by a detailed model)	下書き → リファイン：このモデルで生成し、別のモデルで下書きを再サンプリングします（例：高速な下書きを詳細なモデルで仕上げる）
+	Engine:	エンジン：
+	Enhance	高画質化
+	Enhances detail and enlarges the image with SeedVR2. The result opens as a new document.	SeedVR2 で細部を強調し、画像を拡大します。結果は新規ドキュメントとして開きます。
+	Enlarge	拡大
+	Enlarge first	先に拡大
+	Enlarge the open image and add detail, tile by tile	開いている画像を拡大し、タイルごとに細部を追加
+	Everything it needs is already installed.	必要なものはすべてインストール済みです。
+	FAMILIES	ファミリー
+	Fetch the latest family profiles (new models, settings) from Local Image's repository	Local Image のリポジトリから最新のファミリープロファイル（新しいモデル、設定）を取得
+	Files present	ファイルあり
+	Files present — restart ComfyUI	ファイルあり — ComfyUI を再起動してください
+	Fill Selection	選択範囲を塗りつぶし
+	Filmstrip options	フィルムストリップのオプション
+	Find LoRAs…	LoRA を探す…
+	Find, compare and install models and LoRAs for any family	あらゆるファミリーのモデルと LoRA を検索、比較、インストール
+	Fits your GPU memory	GPU メモリに収まるモデル
+	Found {n} installation(s).	{n} 個のインストールが見つかりました。
+	Free GPU Memory	GPU メモリを解放
+	GPU MEMORY GUIDE	GPU メモリの目安
+	Generate (AI)…	生成 (AI)…
+	Generate Background	背景を生成
+	Generate {n}	{n} 枚生成
+	Generated images are kept here.	生成した画像はここに保存されます。
+	Generated {name} · seed {seed}	{name} を生成しました · シード {seed}
+	Generation failed: {error}	生成に失敗しました：{error}
+	Get Template	テンプレートを入手
+	Get a key	キーを取得
+	Get models…	モデルを入手…
+	Guidance	ガイダンス
+	Hide the filmstrip (Window › Filmstrip)	フィルムストリップを隠す（ウィンドウ › フィルムストリップ）
+	How much may change: 100 % regenerates, lower keeps more of the image	変化させる量：100 % で再生成、低いほど元の画像を多く残します
+	Hugging Face token:	Hugging Face トークン：
+	I have read and accept the licence	ライセンスを読み、同意します
+	Images	画像
+	Images per run (1–4)	1 回あたりの画像数（1–4）
+	Image…	画像…
+	Import ComfyUI Workflow	ComfyUI ワークフローを読み込み
+	Import Workflow…	ワークフローを読み込み…
+	Imported the workflow “{name}”.	ワークフロー「{name}」を読み込みました。
+	In use	使用中
+	Install	インストール
+	Install failed	インストールに失敗しました
+	Install {name}	{name} をインストール
+	Installation:	インストール先：
+	Installed	インストール済み
+	Keep	固定
+	Keep… (optional)	残すもの…（任意）
+	Licence	ライセンス
+	Licence gate	ライセンス同意が必要
+	Licence: see its page	ライセンス：ページを参照
+	Loading catalogues…	カタログを読み込み中…
+	Local AI	ローカル AI
+	Local AI is off — click to set it up	ローカル AI はオフです — クリックしてセットアップ
+	Local Image doesn't know this family yet: it runs through the official template with prompt, seed and size only	Local Image はこのファミリーにまだ対応していません：公式テンプレートを使い、プロンプト、シード、サイズのみで実行します
+	Local Image doesn't know this model family yet: it will appear in the model list as a custom workflow with basic controls (prompt, seed, size).	Local Image はこのモデルファミリーにまだ対応していません：基本コントロール（プロンプト、シード、サイズ）付きのカスタムワークフローとしてモデル一覧に表示されます。
+	MODELS	モデル
+	Make a selection first	先に選択範囲を作成してください
+	Make a selection to fill.	塗りつぶす選択範囲を作成してください。
+	Model Browser	モデルブラウザー
+	Model default	モデルの既定値
+	Model folder:	モデルフォルダー：
+	Model profiles are up to date	モデルプロファイルは最新です
+	Model:	モデル：
+	Models unloaded.	モデルをアンロードしました。
+	My preset {n}	マイプリセット {n}
+	Newest	新着
+	Next image ({key})	次の画像（{key}）
+	No ComfyUI installation found in the usual places.	通常の場所に ComfyUI のインストールが見つかりません。
+	No ComfyUI installation found. Choose its folder in Local AI, or install ComfyUI first.	ComfyUI のインストールが見つかりません。ローカル AI でフォルダーを選択するか、先に ComfyUI をインストールしてください。
+	No LoRAs for this model family are installed (Find LoRAs…)	このモデルファミリーの LoRA はインストールされていません（LoRA を探す…）
+	No compatible LoRAs installed.	互換性のある LoRA がインストールされていません。
+	No matches. Try another family, source or search.	一致するものがありません。別のファミリー、ソース、検索語を試してください。
+	Not chosen — detected automatically	未選択 — 自動検出
+	Not enough space in {folder} ({free} free).	{folder} の空き容量が不足しています（空き {free}）。
+	Not installed: {reason}	未インストール：{reason}
+	Not stated: check the model's page before use	記載なし：使用前にモデルのページを確認してください
+	Nothing installed yet. Pick a model from Trending or a family.	まだ何もインストールされていません。人気またはファミリーからモデルを選んでください。
+	Nothing matches.	一致するものはありません。
+	Only .safetensors and .gguf files with a published size and SHA-256 are installed.	サイズと SHA-256 が公開されている .safetensors と .gguf ファイルのみをインストールします。
+	Open Folder	フォルダーを開く
+	Open Its Page	ページを開く
+	Open an image first	先に画像を開いてください
+	Open an image first.	先に画像を開いてください。
+	Open an image from the filmstrip's folder first.	先にフィルムストリップのフォルダーから画像を開いてください。
+	Open its page	ページを開く
+	Paint over a distraction; it's removed when you release	邪魔なものの上をペイントすると、離したときに削除されます
+	Place as Layer	レイヤーとして配置
+	Port:	ポート：
+	Precision	精度
+	Preset name	プリセット名
+	Previous image ({key})	前の画像（{key}）
+	Qwen Compact	Qwen コンパクト
+	Qwen Full	Qwen フル
+	RESULTS	結果
+	Read the licence	ライセンスを読む
+	Ready	準備完了
+	Recreate	再作成
+	References · {n}/{max}	参照画像 · {n}/{max}
+	Refine	リファイン
+	Refine model: {why}	リファインモデル：{why}
+	Refine strength	リファインの強さ
+	Refine with	リファインに使用
+	Refine:	調整：
+	Refresh	更新
+	Regenerate the selection (Photoshop's Generative Fill)	選択範囲を再生成（Photoshop の生成塗りつぶしと同様）
+	Remove Backgrounds	背景を一括削除
+	Remove Selection	選択範囲を削除
+	Request Access…	アクセスをリクエスト…
+	Resample the open image at a chosen strength (img2img)	開いている画像を指定した強さで再サンプリング（img2img）
+	Results appear here and are saved to the Library.	結果はここに表示され、ライブラリに保存されます。
+	Retry	再試行
+	Review in Library: see this folder in the Library's grid to compare and rate	ライブラリで確認：このフォルダーをライブラリのグリッドで表示して比較・評価
+	Rough GPU memory to run it	実行に必要な GPU メモリの目安
+	Rough GPU memory to run it: more than your GPU has	実行に必要な GPU メモリの目安：お使いの GPU の容量を超えています
+	Running {name}	{name} を実行中
+	Runs on {provider}'s servers: your prompt and images are sent there.	{provider} のサーバーで実行されます：プロンプトと画像はそこに送信されます。
+	Runs on {provider}: your prompt and images are sent there, billed to your key.	{provider} で実行されます：プロンプトと画像はそこに送信され、あなたのキーに課金されます。
+	SELECTION MODELS (CPU)	選択範囲モデル（CPU）
+	Save & Next	保存して次へ
+	Save & Next saves to	「保存して次へ」の保存先
+	Save Preset	プリセットを保存
+	Save a copy in the Edited folder and open the next one ({key})	Edited フォルダーにコピーを保存して次を開く（{key}）
+	Save these settings as a preset	この設定をプリセットとして保存
+	Save this image (Save As) and open the next one ({key})	この画像を保存（名前を付けて保存）して次を開く（{key}）
+	Save this image over the original and open the next one ({key})	この画像を元のファイルに上書き保存して次を開く（{key}）
+	Save to:	保存先：
+	Saved {name}	{name} を保存しました
+	Search LoRAs	LoRA を検索
+	Search models	モデルを検索
+	Search prompts	プロンプトを検索
+	See each model's page	各モデルのページを参照
+	Select Subject, Remove Background (Quick) and Object Selection clicks use the best one installed. No GPU or ComfyUI needed.	被写体を選択、背景を削除（クイック）、オブジェクト選択のクリックには、インストール済みの最適なモデルを使用します。GPU や ComfyUI は不要です。
+	Sent as {size}	{size} として送信
+	Set up AI…	AI をセットアップ…
+	Show the folder when opening a photo	写真を開いたときにフォルダーを表示
+	Start AI Engine	AI エンジンを起動
+	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	先に AI エンジンを起動してください：Local Image は ComfyUI にすでにあるものを確認します。（{error}）
+	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	AI エンジンを起動すると GPU のメモリが表示されます。現在は 8 GB に収まるものを表示しています。
+	Starting ComfyUI… (the first start can take a minute)	ComfyUI を起動中…（初回の起動には 1 分ほどかかることがあります）
+	Starting image · {n}/{max}	開始画像 · {n}/{max}
+	Starting {name}…	{name} を起動中…
+	Steps	ステップ数
+	Stopped	停止しました
+	Styles (LoRA) · {n}/{max}	スタイル（LoRA）· {n}/{max}
+	That file is not a ComfyUI workflow (JSON).	このファイルは ComfyUI ワークフロー（JSON）ではありません。
+	That folder has no ComfyUI (main.py and a Python environment).	このフォルダーには ComfyUI（main.py と Python 環境）がありません。
+	That was the first image in the folder.	フォルダーの最初の画像です。
+	That was the last image in the folder.	フォルダーの最後の画像です。
+	The AI engine (ComfyUI) is not running.	AI エンジン（ComfyUI）が起動していません。
+	The AI engine is starting…	AI エンジンを起動中…
+	The author doesn't allow commercial use.	作者は商用利用を認めていません。
+	The model isn't ready.	モデルの準備ができていません。
+	The original file	元のファイル
+	The publisher asks you to accept its licence on its page first; add a Hugging Face token in Local AI settings.	公開元のページで先にライセンスに同意する必要があります。ローカル AI の設定で Hugging Face トークンを追加してください。
+	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	ワークフローに li:prompt、li:image、li:mask、li:seed、li:output という名前のノードがないため、Local Image は値を入力できません。ComfyUI でノード名を変更して再度書き出してください。
+	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	トークンを使うと、モデルブラウザーでアクセス制限付きやサインインが必要なモデルをダウンロードできます。トークンはそれぞれのサイトにのみ送信されます。
+	Transparent PNG	透明 PNG
+	Transparent background	透明な背景
+	Trending	人気
+	Trending this week	今週の人気
+	Unknown family	不明なファミリー
+	Update Model Profiles	モデルプロファイルを更新
+	Updated 1 model profile: {names}	1 個のモデルプロファイルを更新しました：{names}
+	Updated {n} model profiles: {names}	{n} 個のモデルプロファイルを更新しました：{names}
+	Upscale	アップスケール
+	Upscale {scale}×	{scale}× にアップスケール
+	Use	使用
+	Use as Reference	参照画像として使用
+	Variation strength	バリエーションの強さ
+	Waiting	待機中
+	What should appear in the selection…	選択範囲に表示する内容…
+	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	自分の API キーがあれば、生成でクラウドモデルも使えます（モデル選択の「クラウド」に表示されます）。その場合、プロンプトと画像はこのコンピューターからそのプロバイダーに送信され、あなたのアカウントに課金されます。それ以外は一切送信されません。
+	Works on my GPU	自分の GPU で動作
+	a “cutouts” folder beside each image	各画像の横の「cutouts」フォルダー
+	just now	たった今
+	new each time	毎回新規
+	seed {seed}	シード {seed}
+	{author} · {n} downloads	{author} · {n} ダウンロード
+	{best_for} · {size} · {gb} GB GPU	{best_for} · {size} · GPU {gb} GB
+	{done} of {total}	{done} / {total}
+	{licence} · non-commercial	{licence} · 非商用
+	{model} creates, edits and fills; choose a local model to refine or upscale.	{model} は作成・編集・塗りつぶしに対応しています。リファインやアップスケールにはローカルモデルを選んでください。
+	{mode} with {model}	{mode}（{model}）
+	{name} (family unknown)	{name}（ファミリー不明）
+	{name} · Custom workflow	{name} · カスタムワークフロー
+	{name} · edited copy saved	{name} · 編集したコピーを保存済み
+	{name} · {gb} GB GPU memory	{name} · GPU メモリ {gb} GB
+	{name} — click to remove	{name} — クリックで削除
+	{n} LoRAs	{n} 個の LoRA
+	{n} days ago	{n} 日前
+	{n} downloads	{n} ダウンロード
+	{n} edited	{n} 枚編集済み
+	{n} files to download ({size}), verified by SHA-256:	ダウンロードするファイル {n} 個（{size}）、SHA-256 で検証：
+	{n} h ago	{n} 時間前
+	{n} images	{n} 枚の画像
+	{n} images in {folder}	{folder} 内の画像 {n} 枚
+	{n} min ago	{n} 分前
+	{n} models	{n} 個のモデル
+	{n} refs	参照 {n}
+	{size} · runs on the CPU · {licence}	{size} · CPU で動作 · {licence}
+	{source}: offline, showing results from {when}	{source}：オフライン、{when} の結果を表示
+	{source}: the catalogue couldn't be read	{source}：カタログを読み込めませんでした
+	{why} Qwen Image 2.1 runs these.	{why} これらは Qwen Image 2.1 で実行されます。
+	Choose…	選択…
+	Stop	停止
+	Seed	シード
+	Solid Color	べた塗り
+	Strength	強さ
+	Qwen AI · Compact	Qwen AI · コンパクト
+	Qwen AI · Full	Qwen AI · フル
+	Standard (CPU)	標準（CPU）
+	Templates	テンプレート
+	Community	コミュニティ
+ai	Restore	復元
+ai	Sampler	サンプラー
+ai	New	新着

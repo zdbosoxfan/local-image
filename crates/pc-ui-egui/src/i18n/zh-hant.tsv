@@ -2171,3 +2171,308 @@ cameraRaw	Blending	混合
 	Regenerate the area from a description	依描述重新生成該區域
 	Hide Contextual Task Bar	隱藏內容相關工作列
 	More	更多
+	Auto Erase	自動抹除
+	Click a red pupil	按一下紅色瞳孔
+	Click the first point or press {key} to close · {del} removes a point · Esc cancels	按一下第一個點或按 {key} 以閉合 · {del} 移除一個點 · Esc 取消
+	Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close	按一下，然後沿邊緣移動 · 按一下固定一個點 · {alt}-按一下繪製直線段 · 按兩下以閉合
+	Darken Amount	變暗量
+	Drag a crop box · drag inside to move · edges resize ({ratio} ratio, {centre} centre) · Space moves while drawing · {commit} commits · Esc cancels	拖曳出裁切框 · 在框內拖曳可移動 · 拖曳邊緣調整大小（{ratio} 保持比例，{centre} 從中央）· 繪製時按空白鍵移動 · {commit} 確認 · Esc 取消
+	Follows only edges this close to the pointer ([ and ] change it)	僅追蹤距指標此距離內的邊緣（按 [ 和 ] 變更）
+	Higher values follow only edges that contrast sharply with their surroundings	值越高，僅追蹤與周圍對比強烈的邊緣
+	How often fastening points are placed by themselves	自動放置固定點的頻率
+	Pupil Size	瞳孔大小
+	Sample Size	樣本尺寸
+	Scrubby Zoom	拖曳縮放
+	Straighten: tilt the frame to level a horizon	拉直：傾斜框架以使地平線水平
+	{mode} Color · {bits} bit	{mode} 色彩 · {bits} 位元
+	+ Add	+ 新增
+	1 file to download ({size}), verified by SHA-256:	需下載 1 個檔案（{size}），經 SHA-256 驗證：
+	A copy in the Edited folder (originals untouched)	Edited 資料夾中的副本（原始檔保持不變）
+	A new image from a description and optional reference images	根據描述和選用的參考影像建立新影像
+	ACCOUNTS (OPTIONAL)	帳戶（選用）
+	AI	AI
+	AI ENGINE	AI 引擎
+	AI Enhance	AI 增強
+	AI off	AI 已關閉
+	AI ready{gpu}	AI 就緒{gpu}
+	AI starting…	AI 正在啟動…
+	AI · no models	AI · 無模型
+	API key	API 金鑰
+	Accept the licence on the publisher's page first	請先在發佈者頁面上接受授權條款
+	Add Background ▾	新增背景 ▾
+	Add Folder…	新增資料夾…
+	Add Images…	新增影像…
+	Add Key…	新增金鑰…
+	Add a LoRA	新增 LoRA
+	Add an image file	新增影像檔案
+	Add the current image	新增目前影像
+	Add your {provider} API key in Local AI › Cloud to use it.	請在「本機 AI › 雲端」中新增你的 {provider} API 金鑰以使用它。
+	Add your {provider} API key in Local AI › Cloud.	請在「本機 AI › 雲端」中新增你的 {provider} API 金鑰。
+	Added “{name}” to the model list (basic controls)	已將「{name}」新增到模型清單（基本控制項）
+	Address:	位址：
+	Already installed: {names}	已安裝：{names}
+	Apply Edit	套用編輯
+	Ask each time (Save As)	每次詢問（另存新檔）
+	Avoid… (negative prompt)	避免…（反向提示詞）
+	BROWSE	瀏覽
+	Background:	背景：
+	Basic controls	基本控制項
+	Browse Models…	瀏覽模型…
+	CLOUD (OPTIONAL)	雲端（選用）
+	CLOUD · YOUR API KEY	雲端 · 你的 API 金鑰
+	CUSTOM WORKFLOWS	自訂工作流程
+	Cancelled	已取消
+	Change the open image from an instruction (edit models), or restyle it	依指令修改開啟的影像（編輯模型），或變更其風格
+	Change…	變更…
+	Check again	重新檢查
+	Checking for profile updates…	正在檢查設定檔更新…
+	Checking models…	正在檢查模型…
+	Checking the files’ sizes and checksums…	正在檢查檔案大小和總和檢查碼…
+	Choose Folder…	選擇資料夾…
+	Choose a model	選擇模型
+	Choose a model to refine with.	請選擇用於精修的模型。
+	Choose the model folder	選擇模型資料夾
+	Choose your ComfyUI folder	選擇你的 ComfyUI 資料夾
+	Civitai API key:	Civitai API 金鑰：
+	Click Remove Background first; then drag to erase or restore parts of the cutout.	請先按一下「移除背景」，然後拖曳以擦除或還原去背的部分區域。
+	ComfyUI at {host} — click for Local AI settings	{host} 上的 ComfyUI — 按一下開啟本機 AI 設定
+	ComfyUI installation found.	已找到 ComfyUI 安裝。
+	ComfyUI is not running at {host}	ComfyUI 未在 {host} 上執行
+	ComfyUI workflow	ComfyUI 工作流程
+	Connected to ComfyUI at {host}	已連線到 {host} 上的 ComfyUI
+	Copy Prompt	複製提示詞
+	Could not open {name}: {error}	無法開啟 {name}：{error}
+	Could not save settings: {error}	無法儲存設定：{error}
+	Couldn't save: {error}	無法儲存：{error}
+	Couldn't update profiles: {error}	無法更新設定檔：{error}
+	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	使用 Qwen Image 2.1 為每張影像的主體去背並儲存為 PNG。原始影像永遠不會變更。
+	Delete from Library	從圖庫中刪除
+	Describe details to add (optional)…	描述要新增的細節（選用）…
+	Describe the change, e.g. “make it golden hour”…	描述變更，例如「變成黃金時刻」…
+	Describe the empty scene behind your subject	描述主體背後的空場景
+	Describe the image (optional)…	描述影像（選用）…
+	Describe the image you want it to become…	描述你希望它變成的影像…
+	Describe what should appear in the selection	描述選取範圍中應出現的內容
+	Describe what you want first.	請先描述你想要的內容。
+	Detect	偵測
+	Double-click to open	按兩下以開啟
+	Download	下載
+	Download size	下載大小
+	Downloads are checked against the publisher's size and SHA-256, and ComfyUI's model list is refreshed after each install.	下載內容會依照發佈者提供的大小和 SHA-256 進行驗證，每次安裝後都會重新整理 ComfyUI 的模型清單。
+	Draft → Refine: generate with this model, then resample the draft with another (e.g. a fast draft refined by a detailed model)	草稿 → 精修：先用此模型產生，再用另一個模型對草稿重新取樣（例如用精細模型精修快速草稿）
+	Engine:	引擎：
+	Enhance	增強
+	Enhances detail and enlarges the image with SeedVR2. The result opens as a new document.	使用 SeedVR2 增強細節並放大影像。結果將以新文件開啟。
+	Enlarge	放大
+	Enlarge first	先放大
+	Enlarge the open image and add detail, tile by tile	放大開啟的影像並逐塊新增細節
+	Everything it needs is already installed.	所需的一切均已安裝。
+	FAMILIES	系列
+	Fetch the latest family profiles (new models, settings) from Local Image's repository	從 Local Image 的存放庫取得最新的系列設定檔（新模型、設定）
+	Files present	檔案已存在
+	Files present — restart ComfyUI	檔案已存在 — 請重新啟動 ComfyUI
+	Fill Selection	填滿選取範圍
+	Filmstrip options	底片列選項
+	Find LoRAs…	尋找 LoRA…
+	Find, compare and install models and LoRAs for any family	尋找、比較並安裝任何系列的模型和 LoRA
+	Fits your GPU memory	符合你的 GPU 記憶體
+	Found {n} installation(s).	找到 {n} 個安裝。
+	Free GPU Memory	釋放 GPU 記憶體
+	GPU MEMORY GUIDE	GPU 記憶體指南
+	Generate (AI)…	產生 (AI)…
+	Generate Background	產生背景
+	Generate {n}	產生 {n} 張
+	Generated images are kept here.	產生的影像會保存在這裡。
+	Generated {name} · seed {seed}	已產生 {name} · 種子 {seed}
+	Generation failed: {error}	產生失敗：{error}
+	Get Template	取得範本
+	Get a key	取得金鑰
+	Get models…	取得模型…
+	Guidance	引導強度
+	Hide the filmstrip (Window › Filmstrip)	隱藏底片列（視窗 › 底片列）
+	How much may change: 100 % regenerates, lower keeps more of the image	可變更的程度：100 % 為重新產生，越低保留的原圖越多
+	Hugging Face token:	Hugging Face 權杖：
+	I have read and accept the licence	我已閱讀並接受授權條款
+	Images	影像
+	Images per run (1–4)	每次執行的影像數（1–4）
+	Image…	影像…
+	Import ComfyUI Workflow	匯入 ComfyUI 工作流程
+	Import Workflow…	匯入工作流程…
+	Imported the workflow “{name}”.	已匯入工作流程「{name}」。
+	In use	使用中
+	Install	安裝
+	Install failed	安裝失敗
+	Install {name}	安裝 {name}
+	Installation:	安裝：
+	Installed	已安裝
+	Keep	保持
+	Keep… (optional)	保留…（選用）
+	Licence	授權條款
+	Licence gate	需接受授權條款
+	Licence: see its page	授權條款：請參閱其頁面
+	Loading catalogues…	正在載入目錄…
+	Local AI	本機 AI
+	Local AI is off — click to set it up	本機 AI 已關閉 — 按一下進行設定
+	Local Image doesn't know this family yet: it runs through the official template with prompt, seed and size only	Local Image 尚不支援此系列：它透過官方範本執行，僅支援提示詞、種子和尺寸
+	Local Image doesn't know this model family yet: it will appear in the model list as a custom workflow with basic controls (prompt, seed, size).	Local Image 尚不支援此模型系列：它將以具備基本控制項（提示詞、種子、尺寸）的自訂工作流程出現在模型清單中。
+	MODELS	模型
+	Make a selection first	請先建立選取範圍
+	Make a selection to fill.	請建立要填滿的選取範圍。
+	Model Browser	模型瀏覽器
+	Model default	模型預設
+	Model folder:	模型資料夾：
+	Model profiles are up to date	模型設定檔已是最新
+	Model:	模型：
+	Models unloaded.	模型已卸載。
+	My preset {n}	我的預設集 {n}
+	Newest	最新
+	Next image ({key})	下一張影像（{key}）
+	No ComfyUI installation found in the usual places.	在常用位置找不到 ComfyUI 安裝。
+	No ComfyUI installation found. Choose its folder in Local AI, or install ComfyUI first.	找不到 ComfyUI 安裝。請在「本機 AI」中選擇其資料夾，或先安裝 ComfyUI。
+	No LoRAs for this model family are installed (Find LoRAs…)	未安裝此模型系列的 LoRA（尋找 LoRA…）
+	No compatible LoRAs installed.	未安裝相容的 LoRA。
+	No matches. Try another family, source or search.	沒有符合項目。請嘗試其他系列、來源或搜尋字詞。
+	Not chosen — detected automatically	未選擇 — 自動偵測
+	Not enough space in {folder} ({free} free).	{folder} 空間不足（可用 {free}）。
+	Not installed: {reason}	未安裝：{reason}
+	Not stated: check the model's page before use	未說明：使用前請查看模型頁面
+	Nothing installed yet. Pick a model from Trending or a family.	尚未安裝任何內容。請從「熱門」或某個系列中選擇模型。
+	Nothing matches.	沒有符合項目。
+	Only .safetensors and .gguf files with a published size and SHA-256 are installed.	僅安裝已公布大小和 SHA-256 的 .safetensors 與 .gguf 檔案。
+	Open Folder	開啟資料夾
+	Open Its Page	開啟其頁面
+	Open an image first	請先開啟影像
+	Open an image first.	請先開啟影像。
+	Open an image from the filmstrip's folder first.	請先從底片列的資料夾中開啟影像。
+	Open its page	開啟其頁面
+	Paint over a distraction; it's removed when you release	在干擾物上塗抹，放開後即被移除
+	Place as Layer	置入為圖層
+	Port:	連接埠：
+	Precision	精度
+	Preset name	預設集名稱
+	Previous image ({key})	上一張影像（{key}）
+	Qwen Compact	Qwen 精簡版
+	Qwen Full	Qwen 完整版
+	RESULTS	結果
+	Read the licence	閱讀授權條款
+	Ready	就緒
+	Recreate	重新建立
+	References · {n}/{max}	參考圖 · {n}/{max}
+	Refine	精修
+	Refine model: {why}	精修模型：{why}
+	Refine strength	精修強度
+	Refine with	精修模型
+	Refine:	調整：
+	Refresh	重新整理
+	Regenerate the selection (Photoshop's Generative Fill)	重新產生選取範圍（類似 Photoshop 的生成填色）
+	Remove Backgrounds	批次移除背景
+	Remove Selection	移除選取範圍內容
+	Request Access…	申請存取…
+	Resample the open image at a chosen strength (img2img)	以所選強度對開啟的影像重新取樣（img2img）
+	Results appear here and are saved to the Library.	結果顯示在這裡並儲存到圖庫。
+	Retry	重試
+	Review in Library: see this folder in the Library's grid to compare and rate	在圖庫中檢視：在圖庫格線中顯示此資料夾以進行比較和評分
+	Rough GPU memory to run it	執行所需的大約 GPU 記憶體
+	Rough GPU memory to run it: more than your GPU has	執行所需的大約 GPU 記憶體：超過你的 GPU 容量
+	Running {name}	正在執行 {name}
+	Runs on {provider}'s servers: your prompt and images are sent there.	在 {provider} 的伺服器上執行：你的提示詞和影像會傳送到那裡。
+	Runs on {provider}: your prompt and images are sent there, billed to your key.	在 {provider} 上執行：你的提示詞和影像會傳送到那裡，費用記在你的金鑰上。
+	SELECTION MODELS (CPU)	選取範圍模型（CPU）
+	Save & Next	儲存並下一張
+	Save & Next saves to	「儲存並下一張」儲存到
+	Save Preset	儲存預設集
+	Save a copy in the Edited folder and open the next one ({key})	在 Edited 資料夾中儲存副本並開啟下一張（{key}）
+	Save these settings as a preset	將這些設定儲存為預設集
+	Save this image (Save As) and open the next one ({key})	儲存此影像（另存新檔）並開啟下一張（{key}）
+	Save this image over the original and open the next one ({key})	儲存此影像覆寫原始檔並開啟下一張（{key}）
+	Save to:	儲存到：
+	Saved {name}	已儲存 {name}
+	Search LoRAs	搜尋 LoRA
+	Search models	搜尋模型
+	Search prompts	搜尋提示詞
+	See each model's page	請參閱各模型的頁面
+	Select Subject, Remove Background (Quick) and Object Selection clicks use the best one installed. No GPU or ComfyUI needed.	「選取主體」、「移除背景（快速）」和「物件選取」的點按會使用已安裝的最佳模型。不需要 GPU 或 ComfyUI。
+	Sent as {size}	以 {size} 傳送
+	Set up AI…	設定 AI…
+	Show the folder when opening a photo	開啟相片時顯示資料夾
+	Start AI Engine	啟動 AI 引擎
+	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	請先啟動 AI 引擎：Local Image 會檢查 ComfyUI 中已有的內容。（{error}）
+	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	啟動 AI 引擎即可檢視 GPU 記憶體；目前顯示可在 8 GB 中執行的內容。
+	Starting ComfyUI… (the first start can take a minute)	正在啟動 ComfyUI…（首次啟動可能需要一分鐘）
+	Starting image · {n}/{max}	起始影像 · {n}/{max}
+	Starting {name}…	正在啟動 {name}…
+	Steps	步數
+	Stopped	已停止
+	Styles (LoRA) · {n}/{max}	風格（LoRA）· {n}/{max}
+	That file is not a ComfyUI workflow (JSON).	該檔案不是 ComfyUI 工作流程（JSON）。
+	That folder has no ComfyUI (main.py and a Python environment).	該資料夾中沒有 ComfyUI（main.py 和 Python 環境）。
+	That was the first image in the folder.	這是資料夾中的第一張影像。
+	That was the last image in the folder.	這是資料夾中的最後一張影像。
+	The AI engine (ComfyUI) is not running.	AI 引擎（ComfyUI）未執行。
+	The AI engine is starting…	AI 引擎正在啟動…
+	The author doesn't allow commercial use.	作者不允許商業使用。
+	The model isn't ready.	模型尚未就緒。
+	The original file	原始檔案
+	The publisher asks you to accept its licence on its page first; add a Hugging Face token in Local AI settings.	發佈者要求你先在其頁面上接受授權條款；請在本機 AI 設定中新增 Hugging Face 權杖。
+	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	該工作流程中沒有標題為 li:prompt、li:image、li:mask、li:seed 或 li:output 的節點，因此 Local Image 無法填入。請在 ComfyUI 中重新命名節點後再次匯出。
+	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	權杖可讓模型瀏覽器下載受限或需登入的模型。權杖只會傳送到各自的網站。
+	Transparent PNG	透明 PNG
+	Transparent background	透明背景
+	Trending	熱門
+	Trending this week	本週熱門
+	Unknown family	未知系列
+	Update Model Profiles	更新模型設定檔
+	Updated 1 model profile: {names}	已更新 1 個模型設定檔：{names}
+	Updated {n} model profiles: {names}	已更新 {n} 個模型設定檔：{names}
+	Upscale	放大
+	Upscale {scale}×	放大 {scale}×
+	Use	使用
+	Use as Reference	用作參考圖
+	Variation strength	變化強度
+	Waiting	等待中
+	What should appear in the selection…	選取範圍中應出現的內容…
+	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	使用你自己的 API 金鑰，產生功能也可以使用雲端模型（它們顯示在模型選擇器的「雲端」下）。此時你的提示詞和影像會從這台電腦傳送到該供應商，並記入你的帳戶；不會向任何地方傳送其他內容。
+	Works on my GPU	可在我的 GPU 上執行
+	a “cutouts” folder beside each image	每張影像旁的「cutouts」資料夾
+	just now	剛剛
+	new each time	每次都新建
+	seed {seed}	種子 {seed}
+	{author} · {n} downloads	{author} · {n} 次下載
+	{best_for} · {size} · {gb} GB GPU	{best_for} · {size} · {gb} GB GPU
+	{done} of {total}	{done} / {total}
+	{licence} · non-commercial	{licence} · 非商業
+	{model} creates, edits and fills; choose a local model to refine or upscale.	{model} 可建立、編輯和填滿；如需精修或放大，請選擇本機模型。
+	{mode} with {model}	{mode}（{model}）
+	{name} (family unknown)	{name}（系列未知）
+	{name} · Custom workflow	{name} · 自訂工作流程
+	{name} · edited copy saved	{name} · 已儲存編輯後的副本
+	{name} · {gb} GB GPU memory	{name} · {gb} GB GPU 記憶體
+	{name} — click to remove	{name} — 按一下以移除
+	{n} LoRAs	{n} 個 LoRA
+	{n} days ago	{n} 天前
+	{n} downloads	{n} 次下載
+	{n} edited	已編輯 {n} 張
+	{n} files to download ({size}), verified by SHA-256:	需下載 {n} 個檔案（{size}），經 SHA-256 驗證：
+	{n} h ago	{n} 小時前
+	{n} images	{n} 張影像
+	{n} images in {folder}	{folder} 中有 {n} 張影像
+	{n} min ago	{n} 分鐘前
+	{n} models	{n} 個模型
+	{n} refs	{n} 張參考圖
+	{size} · runs on the CPU · {licence}	{size} · 在 CPU 上執行 · {licence}
+	{source}: offline, showing results from {when}	{source}：離線，顯示 {when} 的結果
+	{source}: the catalogue couldn't be read	{source}：無法讀取目錄
+	{why} Qwen Image 2.1 runs these.	{why} 這些功能由 Qwen Image 2.1 執行。
+	Choose…	選擇…
+	Stop	停止
+	Seed	種子
+	Solid Color	純色
+	Strength	強度
+	Qwen AI · Compact	Qwen AI · 精簡版
+	Qwen AI · Full	Qwen AI · 完整版
+	Standard (CPU)	標準（CPU）
+	Templates	範本
+	Community	社群
+ai	Restore	還原
+ai	Sampler	取樣器
+ai	New	最新

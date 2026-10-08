@@ -2467,3 +2467,367 @@ cameraRaw	Roughness	Неровность
 	Regenerate the area from a description	Пересоздать область по описанию
 	Hide Contextual Task Bar	Скрыть контекстную панель задач
 	More	Ещё
+	Click a red pupil	Щёлкните по красному зрачку
+	Click the first point or press {key} to close · {del} removes a point · Esc cancels	Щёлкните первую точку или нажмите {key}, чтобы замкнуть · {del} удаляет точку · Esc — отмена
+	Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close	Щёлкните и ведите вдоль края · щелчок закрепляет точку · {alt}-щелчок — прямой отрезок · двойной щелчок замыкает
+	Darken Amount	Степень затемнения
+	Follows only edges this close to the pointer ([ and ] change it)	Следует только краям на этом расстоянии от указателя (меняется клавишами [ и ])
+	Higher values follow only edges that contrast sharply with their surroundings	При больших значениях учитываются только края, резко контрастирующие с окружением
+	How often fastening points are placed by themselves	Как часто точки привязки ставятся автоматически
+	Pupil Size	Размер зрачка
+	Sample Size	Размер образца
+	Straighten: tilt the frame to level a horizon	Выпрямить: наклоните рамку, чтобы выровнять горизонт
+	Add a layer style	Добавить стиль слоя
+	Add a mask  (from the selection; {key} inverts)	Добавить маску  (из выделения; {key} инвертирует)
+	Add an adjustment	Добавить коррекцию
+	Add to selection  ({key})	Добавить к выделению  ({key})
+	Adjustment visible	Коррекция видима
+	Align and distribute	Выравнивание и распределение
+	Align horizontal centers	Выровнять центры по горизонтали
+	Align left edges	Выровнять левые края
+	Align right edges	Выровнять правые края
+	Always use pressure for opacity	Всегда использовать нажим для непрозрачности
+	Always use pressure for size	Всегда использовать нажим для размера
+	Angle Gradient	Конусовидный градиент
+	Auto-Select:	Автовыбор:
+	Brush Preset picker	Выбор набора кистей
+	Click sets foreground · right-click sets background	Щелчок задаёт основной цвет · правый щелчок — фоновый
+	Click the first point or press {key} to close · Esc cancels	Щёлкните первую точку или нажмите {key}, чтобы замкнуть · Esc — отмена
+	Click to edit the gradient	Щёлкните, чтобы изменить градиент
+	Click to sample the foreground colour  ·  {key}-click for background	Щёлкните, чтобы взять основной цвет  ·  {key}-щелчок — фоновый
+	Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out	Щелчок — увеличить  ·  {key}-щелчок — уменьшить  ·  перетаскивание вправо/влево — увеличить/уменьшить
+	Clip to layer below	Обтравить по нижнему слою
+	Color & Swatches	Цвет и образцы
+	Create a new group	Создать новую группу
+	Create a new layer	Создать новый слой
+	Create new document from current state	Создать новый документ из текущего состояния
+	Create new fill or adjustment layer	Создать новый слой-заливку или корректирующий слой
+	Create new snapshot	Создать новый снимок
+	Delete Cropped Pixels	Удалить отсечённые пиксели
+	Delete current state	Удалить текущее состояние
+	Delete layer	Удалить слой
+	Diamond Gradient	Ромбовидный градиент
+	Doc: {w} × {h} px	Док.: {w} × {h} пикс.
+	Enable airbrush-style build-up effects	Включить эффекты накопления в стиле аэрографа
+	Filter for adjustment layers	Фильтр корректирующих слоёв
+	Filter for pixel layers	Фильтр пиксельных слоёв
+	Filter for shape layers	Фильтр слоёв-фигур
+	Filter for smart objects	Фильтр смарт-объектов
+	Filter for type layers	Фильтр текстовых слоёв
+	Fixed Ratio	Заданные пропорции
+	Fixed Size	Заданный размер
+	Hide Properties	Скрыть свойства
+	Hue/Saturation	Цветовой тон/Насыщенность
+	Intersect with selection  ({key})	Пересечь с выделением  ({key})
+	Kind	Вид
+	Linear Gradient	Линейный градиент
+	Link layers	Связать слои
+	Lock	Закрепить
+	Lock all	Закрепить всё
+	Lock image pixels	Закрепить пиксели изображения
+	Lock layer	Закрепить слой
+	Lock position	Закрепить положение
+	Lock transparent pixels	Закрепить прозрачные пиксели
+	New selection	Новое выделение
+	No properties	Нет свойств
+	Pressure for Opacity	Нажим для непрозрачности
+	Pressure for Size	Нажим для размера
+	Prevent auto-nesting in and out of Artboards and Frames	Запретить автоматическое вложение в монтажные области и фреймы и извлечение из них
+	Radial Gradient	Радиальный градиент
+	Reflected Gradient	Зеркальный градиент
+	Reset to defaults	Восстановить значения по умолчанию
+	Set additional smoothing options	Задать дополнительные параметры сглаживания
+	Set painting symmetry options	Задать параметры симметрии рисования
+	Show Transform Controls	Показать управляющие элементы
+	Subtract from selection  ({key})	Вычесть из выделения  ({key})
+	Swaps height and width	Меняет местами высоту и ширину
+	Tolerance	Допуск
+	+ Add	+ Добавить
+	1 file to download ({size}), verified by SHA-256:	Будет скачан 1 файл ({size}) с проверкой SHA-256:
+	A copy in the Edited folder (originals untouched)	Копия в папке Edited (оригиналы не изменяются)
+	A new image from a description and optional reference images	Новое изображение по описанию и необязательным референсам
+	ACCOUNTS (OPTIONAL)	УЧЁТНЫЕ ЗАПИСИ (НЕОБЯЗАТЕЛЬНО)
+	AI	ИИ
+	AI ENGINE	ДВИЖОК ИИ
+	AI Enhance	Улучшение ИИ
+	AI off	ИИ выключен
+	AI ready{gpu}	ИИ готов{gpu}
+	AI starting…	ИИ запускается…
+	AI · no models	ИИ · нет моделей
+	API key	Ключ API
+	Accept the licence on the publisher's page first	Сначала примите лицензию на странице издателя
+	Add Background ▾	Добавить фон ▾
+	Add Folder…	Добавить папку…
+	Add Images…	Добавить изображения…
+	Add Key…	Добавить ключ…
+	Add a LoRA	Добавить LoRA
+	Add an image file	Добавить файл изображения
+	Add the current image	Добавить текущее изображение
+	Add your {provider} API key in Local AI › Cloud to use it.	Чтобы использовать её, добавьте ключ API {provider} в разделе Локальный ИИ › Облако.
+	Add your {provider} API key in Local AI › Cloud.	Добавьте ключ API {provider} в разделе Локальный ИИ › Облако.
+	Added “{name}” to the model list (basic controls)	«{name}» добавлена в список моделей (базовые настройки)
+	Address:	Адрес:
+	Already installed: {names}	Уже установлено: {names}
+	Apply Edit	Применить правку
+	Ask each time (Save As)	Спрашивать каждый раз (Сохранить как)
+	Avoid… (negative prompt)	Избегать… (негативный запрос)
+	BROWSE	ОБЗОР
+	Background:	Фон:
+	Basic controls	Базовые настройки
+	Browse Models…	Обзор моделей…
+	CLOUD (OPTIONAL)	ОБЛАКО (НЕОБЯЗАТЕЛЬНО)
+	CLOUD · YOUR API KEY	ОБЛАКО · ВАШ КЛЮЧ API
+	CUSTOM WORKFLOWS	ПОЛЬЗОВАТЕЛЬСКИЕ РАБОЧИЕ ПРОЦЕССЫ
+	Cancelled	Отменено
+	Change the open image from an instruction (edit models), or restyle it	Изменить открытое изображение по инструкции (модели правки) или сменить его стиль
+	Change…	Изменить…
+	Check again	Проверить снова
+	Checking for profile updates…	Проверка обновлений профилей…
+	Checking models…	Проверка моделей…
+	Checking the files’ sizes and checksums…	Проверка размеров и контрольных сумм файлов…
+	Choose Folder…	Выбрать папку…
+	Choose a model	Выберите модель
+	Choose a model to refine with.	Выберите модель для доработки.
+	Choose the model folder	Выберите папку моделей
+	Choose your ComfyUI folder	Выберите папку ComfyUI
+	Civitai API key:	Ключ API Civitai:
+	Click Remove Background first; then drag to erase or restore parts of the cutout.	Сначала нажмите «Удалить фон», затем перетаскиванием стирайте или восстанавливайте части вырезки.
+	ComfyUI at {host} — click for Local AI settings	ComfyUI на {host} — щёлкните, чтобы открыть настройки локального ИИ
+	ComfyUI installation found.	Установка ComfyUI найдена.
+	ComfyUI is not running at {host}	ComfyUI не запущен на {host}
+	ComfyUI workflow	Рабочий процесс ComfyUI
+	Connected to ComfyUI at {host}	Подключено к ComfyUI на {host}
+	Copy Prompt	Копировать запрос
+	Could not open {name}: {error}	Не удалось открыть {name}: {error}
+	Could not save settings: {error}	Не удалось сохранить настройки: {error}
+	Couldn't save: {error}	Не удалось сохранить: {error}
+	Couldn't update profiles: {error}	Не удалось обновить профили: {error}
+	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	Вырезает объект на каждом изображении с помощью Qwen Image 2.1 и сохраняет PNG. Оригиналы не изменяются.
+	Delete from Library	Удалить из библиотеки
+	Describe details to add (optional)…	Опишите детали, которые нужно добавить (необязательно)…
+	Describe the change, e.g. “make it golden hour”…	Опишите изменение, например «сделай золотой час»…
+	Describe the empty scene behind your subject	Опишите пустую сцену за объектом
+	Describe the image (optional)…	Опишите изображение (необязательно)…
+	Describe the image you want it to become…	Опишите изображение, которым оно должно стать…
+	Describe what should appear in the selection	Опишите, что должно появиться в выделении
+	Describe what you want first.	Сначала опишите, что вы хотите.
+	Detect	Найти
+	Double-click to open	Двойной щелчок — открыть
+	Download	Скачать
+	Download size	Размер загрузки
+	Downloads are checked against the publisher's size and SHA-256, and ComfyUI's model list is refreshed after each install.	Загрузки проверяются по размеру и SHA-256 издателя, а список моделей ComfyUI обновляется после каждой установки.
+	Draft → Refine: generate with this model, then resample the draft with another (e.g. a fast draft refined by a detailed model)	Черновик → доработка: сгенерируйте этой моделью, затем пересэмплируйте черновик другой (например, быстрый черновик, доработанный детальной моделью)
+	Engine:	Движок:
+	Enhance	Улучшить
+	Enhances detail and enlarges the image with SeedVR2. The result opens as a new document.	Улучшает детализацию и увеличивает изображение с помощью SeedVR2. Результат откроется как новый документ.
+	Enlarge	Увеличение
+	Enlarge first	Сначала увеличить
+	Enlarge the open image and add detail, tile by tile	Увеличить открытое изображение и добавить детали, фрагмент за фрагментом
+	Everything it needs is already installed.	Всё необходимое уже установлено.
+	FAMILIES	СЕМЕЙСТВА
+	Fetch the latest family profiles (new models, settings) from Local Image's repository	Загрузить последние профили семейств (новые модели, настройки) из репозитория Local Image
+	Files present	Файлы на месте
+	Files present — restart ComfyUI	Файлы на месте — перезапустите ComfyUI
+	Fill Selection	Заполнить выделение
+	Filmstrip options	Параметры ленты кадров
+	Find LoRAs…	Найти LoRA…
+	Find, compare and install models and LoRAs for any family	Поиск, сравнение и установка моделей и LoRA любого семейства
+	Fits your GPU memory	Помещается в память вашего GPU
+	Found {n} installation(s).	Найдено установок: {n}.
+	Free GPU Memory	Освободить память GPU
+	GPU MEMORY GUIDE	ПАМЯТЬ GPU: ОРИЕНТИРЫ
+	Generate (AI)…	Создать (ИИ)…
+	Generate Background	Создать фон
+	Generate {n}	Создать {n}
+	Generated images are kept here.	Созданные изображения хранятся здесь.
+	Generated {name} · seed {seed}	Создано: {name} · сид {seed}
+	Generation failed: {error}	Не удалось создать изображение: {error}
+	Get Template	Получить шаблон
+	Get a key	Получить ключ
+	Get models…	Получить модели…
+	Guidance	Следование запросу
+	Hide the filmstrip (Window › Filmstrip)	Скрыть ленту кадров (Окно › Лента кадров)
+	How much may change: 100 % regenerates, lower keeps more of the image	Насколько можно изменить: 100 % — сгенерировать заново, меньше — сохранить больше исходного изображения
+	Hugging Face token:	Токен Hugging Face:
+	I have read and accept the licence	Я прочитал(а) лицензию и принимаю её
+	Images	Изображения
+	Images per run (1–4)	Изображений за запуск (1–4)
+	Image…	Изображение…
+	Import ComfyUI Workflow	Импорт рабочего процесса ComfyUI
+	Import Workflow…	Импортировать рабочий процесс…
+	Imported the workflow “{name}”.	Рабочий процесс «{name}» импортирован.
+	In use	Используется
+	Install	Установить
+	Install failed	Ошибка установки
+	Install {name}	Установить {name}
+	Installation:	Установка:
+	Installed	Установлено
+	Keep	Сохранить
+	Keep… (optional)	Оставить… (необязательно)
+	Licence	Лицензия
+	Licence gate	Нужно принять лицензию
+	Licence: see its page	Лицензия: см. страницу модели
+	Loading catalogues…	Загрузка каталогов…
+	Local AI	Локальный ИИ
+	Local AI is off — click to set it up	Локальный ИИ выключен — щёлкните, чтобы настроить
+	Local Image doesn't know this family yet: it runs through the official template with prompt, seed and size only	Local Image пока не знает это семейство: оно запускается через официальный шаблон только с запросом, сидом и размером
+	Local Image doesn't know this model family yet: it will appear in the model list as a custom workflow with basic controls (prompt, seed, size).	Local Image пока не знает это семейство моделей: оно появится в списке моделей как пользовательский рабочий процесс с базовыми настройками (запрос, сид, размер).
+	MODELS	МОДЕЛИ
+	Make a selection first	Сначала создайте выделение
+	Make a selection to fill.	Создайте выделение для заполнения.
+	Model Browser	Обозреватель моделей
+	Model default	По умолчанию для модели
+	Model folder:	Папка моделей:
+	Model profiles are up to date	Профили моделей актуальны
+	Model:	Модель:
+	Models unloaded.	Модели выгружены.
+	My preset {n}	Мой набор {n}
+	Newest	Новейшие
+	Next image ({key})	Следующее изображение ({key})
+	No ComfyUI installation found in the usual places.	В обычных местах установка ComfyUI не найдена.
+	No ComfyUI installation found. Choose its folder in Local AI, or install ComfyUI first.	Установка ComfyUI не найдена. Выберите её папку в разделе «Локальный ИИ» или сначала установите ComfyUI.
+	No LoRAs for this model family are installed (Find LoRAs…)	Для этого семейства моделей не установлено ни одной LoRA (Найти LoRA…)
+	No compatible LoRAs installed.	Совместимые LoRA не установлены.
+	No matches. Try another family, source or search.	Ничего не найдено. Попробуйте другое семейство, источник или запрос.
+	Not chosen — detected automatically	Не выбрано — определяется автоматически
+	Not enough space in {folder} ({free} free).	Недостаточно места в {folder} (свободно {free}).
+	Not installed: {reason}	Не установлено: {reason}
+	Not stated: check the model's page before use	Не указана: проверьте страницу модели перед использованием
+	Nothing installed yet. Pick a model from Trending or a family.	Пока ничего не установлено. Выберите модель в разделе «Популярное» или в семействе.
+	Nothing matches.	Ничего не найдено.
+	Only .safetensors and .gguf files with a published size and SHA-256 are installed.	Устанавливаются только файлы .safetensors и .gguf с опубликованным размером и SHA-256.
+	Open Folder	Открыть папку
+	Open Its Page	Открыть страницу
+	Open an image first	Сначала откройте изображение
+	Open an image first.	Сначала откройте изображение.
+	Open an image from the filmstrip's folder first.	Сначала откройте изображение из папки ленты кадров.
+	Open its page	Открыть страницу
+	Paint over a distraction; it's removed when you release	Закрасьте лишний объект — он удалится, когда вы отпустите кнопку
+	Place as Layer	Поместить как слой
+	Port:	Порт:
+	Precision	Точность
+	Preset name	Имя набора
+	Previous image ({key})	Предыдущее изображение ({key})
+	Qwen Compact	Qwen компактная
+	Qwen Full	Qwen полная
+	RESULTS	РЕЗУЛЬТАТЫ
+	Read the licence	Прочитать лицензию
+	Ready	Готово
+	Recreate	Воссоздать
+	References · {n}/{max}	Референсы · {n}/{max}
+	Refine	Доработать
+	Refine model: {why}	Модель доработки: {why}
+	Refine strength	Интенсивность доработки
+	Refine with	Доработать с помощью
+	Refine:	Доработка:
+	Refresh	Обновить
+	Regenerate the selection (Photoshop's Generative Fill)	Сгенерировать выделенную область заново (как «Генеративная заливка» в Photoshop)
+	Remove Backgrounds	Удалить фоны
+	Remove Selection	Удалить выделенное
+	Request Access…	Запросить доступ…
+	Resample the open image at a chosen strength (img2img)	Пересэмплировать открытое изображение с выбранной интенсивностью (img2img)
+	Results appear here and are saved to the Library.	Результаты появятся здесь и сохранятся в библиотеке.
+	Retry	Повторить
+	Review in Library: see this folder in the Library's grid to compare and rate	Просмотр в библиотеке: открыть эту папку в сетке библиотеки, чтобы сравнить и оценить
+	Rough GPU memory to run it	Примерный объём памяти GPU для запуска
+	Rough GPU memory to run it: more than your GPU has	Примерный объём памяти GPU для запуска: больше, чем у вашего GPU
+	Running {name}	Выполняется {name}
+	Runs on {provider}'s servers: your prompt and images are sent there.	Работает на серверах {provider}: ваш запрос и изображения отправляются туда.
+	Runs on {provider}: your prompt and images are sent there, billed to your key.	Работает в {provider}: ваш запрос и изображения отправляются туда, оплата — по вашему ключу.
+	SELECTION MODELS (CPU)	МОДЕЛИ ВЫДЕЛЕНИЯ (CPU)
+	Save & Next	Сохранить и далее
+	Save & Next saves to	«Сохранить и далее» сохраняет в
+	Save Preset	Сохранить набор
+	Save a copy in the Edited folder and open the next one ({key})	Сохранить копию в папку Edited и открыть следующее ({key})
+	Save these settings as a preset	Сохранить эти параметры как набор
+	Save this image (Save As) and open the next one ({key})	Сохранить это изображение (Сохранить как) и открыть следующее ({key})
+	Save this image over the original and open the next one ({key})	Сохранить это изображение поверх оригинала и открыть следующее ({key})
+	Save to:	Сохранить в:
+	Saved {name}	Сохранено: {name}
+	Search LoRAs	Поиск LoRA
+	Search models	Поиск моделей
+	Search prompts	Поиск по запросам
+	See each model's page	См. страницу каждой модели
+	Select Subject, Remove Background (Quick) and Object Selection clicks use the best one installed. No GPU or ComfyUI needed.	«Выделить объект», «Удалить фон (быстро)» и щелчки «Выделения объектов» используют лучшую установленную модель. GPU и ComfyUI не нужны.
+	Sent as {size}	Отправляется как {size}
+	Set up AI…	Настроить ИИ…
+	Show the folder when opening a photo	Показывать папку при открытии фото
+	Start AI Engine	Запустить движок ИИ
+	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	Сначала запустите движок ИИ: Local Image проверяет, что уже есть в ComfyUI. ({error})
+	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	Запустите движок ИИ, чтобы увидеть память GPU; показано то, что помещается в 8 ГБ.
+	Starting ComfyUI… (the first start can take a minute)	Запуск ComfyUI… (первый запуск может занять минуту)
+	Starting image · {n}/{max}	Исходное изображение · {n}/{max}
+	Starting {name}…	Запуск {name}…
+	Steps	Шаги
+	Stopped	Остановлено
+	Styles (LoRA) · {n}/{max}	Стили (LoRA) · {n}/{max}
+	That file is not a ComfyUI workflow (JSON).	Этот файл не является рабочим процессом ComfyUI (JSON).
+	That folder has no ComfyUI (main.py and a Python environment).	В этой папке нет ComfyUI (main.py и окружения Python).
+	That was the first image in the folder.	Это было первое изображение в папке.
+	That was the last image in the folder.	Это было последнее изображение в папке.
+	The AI engine (ComfyUI) is not running.	Движок ИИ (ComfyUI) не запущен.
+	The AI engine is starting…	Движок ИИ запускается…
+	The author doesn't allow commercial use.	Автор не разрешает коммерческое использование.
+	The model isn't ready.	Модель не готова.
+	The original file	Исходный файл
+	The publisher asks you to accept its licence on its page first; add a Hugging Face token in Local AI settings.	Издатель просит сначала принять лицензию на его странице; добавьте токен Hugging Face в настройках локального ИИ.
+	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	В рабочем процессе нет узлов с заголовками li:prompt, li:image, li:mask, li:seed или li:output, поэтому Local Image не может его заполнить. Переименуйте узлы в ComfyUI и экспортируйте снова.
+	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	Токены позволяют Обозревателю моделей скачивать модели с ограниченным доступом или требующие входа. Они отправляются только на свой сайт.
+	Transparent PNG	Прозрачный PNG
+	Transparent background	Прозрачный фон
+	Trending	Популярное
+	Trending this week	Популярное на этой неделе
+	Unknown family	Неизвестное семейство
+	Update Model Profiles	Обновить профили моделей
+	Updated 1 model profile: {names}	Обновлён 1 профиль модели: {names}
+	Updated {n} model profiles: {names}	Обновлено профилей моделей: {n} — {names}
+	Upscale	Увеличить
+	Upscale {scale}×	Увеличить в {scale}×
+	Use	Использовать
+	Use as Reference	Использовать как референс
+	Variation strength	Сила вариации
+	Waiting	Ожидание
+	What should appear in the selection…	Что должно появиться в выделении…
+	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	С собственным ключом API генерация может использовать и облачные модели (они появятся в разделе «Облако» в выборе модели). Тогда ваш запрос и изображения передаются с этого компьютера этому провайдеру и оплачиваются с вашего аккаунта; больше ничего никуда не отправляется.
+	Works on my GPU	Работает на моём GPU
+	a “cutouts” folder beside each image	папка «cutouts» рядом с каждым изображением
+	just now	только что
+	new each time	новый каждый раз
+	seed {seed}	сид {seed}
+	{author} · {n} downloads	{author} · скачиваний: {n}
+	{best_for} · {size} · {gb} GB GPU	{best_for} · {size} · {gb} ГБ GPU
+	{done} of {total}	{done} из {total}
+	{licence} · non-commercial	{licence} · некоммерческая
+	{model} creates, edits and fills; choose a local model to refine or upscale.	{model} умеет создавать, править и заполнять; для доработки или увеличения выберите локальную модель.
+	{mode} with {model}	{mode} · {model}
+	{name} (family unknown)	{name} (семейство неизвестно)
+	{name} · Custom workflow	{name} · Пользовательский рабочий процесс
+	{name} · edited copy saved	{name} · отредактированная копия сохранена
+	{name} · {gb} GB GPU memory	{name} · {gb} ГБ памяти GPU
+	{name} — click to remove	{name} — щёлкните, чтобы убрать
+	{n} LoRAs	LoRA: {n}
+	{n} days ago	{n} дн. назад
+	{n} downloads	Скачиваний: {n}
+	{n} edited	Изменено: {n}
+	{n} files to download ({size}), verified by SHA-256:	Файлов к загрузке: {n} ({size}), с проверкой SHA-256:
+	{n} h ago	{n} ч назад
+	{n} images	Изображений: {n}
+	{n} images in {folder}	Изображений в {folder}: {n}
+	{n} min ago	{n} мин назад
+	{n} models	Моделей: {n}
+	{n} refs	Референсов: {n}
+	{size} · runs on the CPU · {licence}	{size} · работает на CPU · {licence}
+	{source}: offline, showing results from {when}	{source}: нет связи, показаны результаты ({when})
+	{source}: the catalogue couldn't be read	{source}: не удалось прочитать каталог
+	{why} Qwen Image 2.1 runs these.	{why} Эти функции работают на Qwen Image 2.1.
+	Seed	Сид
+	Solid Color	Сплошной цвет
+	Strength	Интенсивность
+	Qwen AI · Compact	Qwen ИИ · компактная
+	Qwen AI · Full	Qwen ИИ · полная
+	Standard (CPU)	Стандартный (CPU)
+	Templates	Шаблоны
+	Community	Сообщество
+ai	Restore	Восстановить
+ai	Sampler	Сэмплер
+ai	New	Новые
