@@ -880,10 +880,20 @@ pub enum MaskShape {
         hi: f64,
         feather: f64,
     },
-    /// AI / automatic selections, evaluated by a segmenter.
-    Subject,
-    Sky,
-    Background,
+    /// AI / automatic selections. `seg` holds the quick segmentation model's result (local-image:
+    /// `li-seg`, computed when the mask is added); without it a classical estimate is used.
+    Subject {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seg: Option<crate::SegMask>,
+    },
+    Sky {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seg: Option<crate::SegMask>,
+    },
+    Background {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seg: Option<crate::SegMask>,
+    },
     /// One object picked by clicks (SAM 3 point prompts): `hint` holds the clicks that include,
     /// `exclude` the ones that exclude; `seg` the segmentation computed from them.
     Object {

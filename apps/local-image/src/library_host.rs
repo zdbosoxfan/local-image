@@ -397,6 +397,8 @@ fn open_library_app(opens: Opens, prefs_writer: &mut PrefsWriter) -> LightcraftA
     // AI masks (SAM 3): optional, offered for download when first needed.
     session.segmenter.dir = std::env::var_os("LOCAL_IMAGE_SAM3_DIR").map(PathBuf::from).or_else(|| config_dir().map(|d| d.join("models").join("sam3")));
     session.segmenter.mirrors_file = config_dir().map(|d| d.join("models").join("sam3-mirrors.txt"));
+    // Quick Subject / Background / Sky masks share the models Compositing's selections use.
+    session.quick_seg_dir = Some(photocraft_engine::seg::models_dir());
     let mut app = LightcraftApp::new(session, services(opens));
     if let Some(ui) = prefs {
         app.ui = ui;

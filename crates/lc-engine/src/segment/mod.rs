@@ -347,7 +347,7 @@ fn clicks_of(include: &[Point], exclude: &[Point]) -> Vec<Click> {
 impl Session {
     /// The key and settings of photo `id` as the model sees it: its look without masks, uncropped.
     #[cfg_attr(not(feature = "sam"), allow(dead_code))]
-    fn segment_key(&self, id: PhotoId) -> Option<(u64, lightcraft_develop::DevelopSettings)> {
+    pub(crate) fn segment_key(&self, id: PhotoId) -> Option<(u64, lightcraft_develop::DevelopSettings)> {
         let p = self.catalog.photo(id)?;
         let mut d = (*p.develop).clone();
         d.masks.clear();

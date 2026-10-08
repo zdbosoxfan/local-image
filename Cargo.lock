@@ -3869,6 +3869,7 @@ name = "lightcraft-engine"
 version = "2.0.0-alpha.1"
 dependencies = [
  "ab_glyph",
+ "li-seg",
  "libc",
  "lightcraft-catalog",
  "lightcraft-codecs",

@@ -22,9 +22,9 @@ fn shape_from(kind: &str, p: &Value, c: &str) -> Result<MaskShape> {
             feather: f64_or(p, "feather", 50.0),
             invert: bool_or(p, "invert", false),
         },
-        "sky" => MaskShape::Sky,
-        "subject" => MaskShape::Subject,
-        "background" => MaskShape::Background,
+        "sky" => MaskShape::Sky { seg: None },
+        "subject" => MaskShape::Subject { seg: None },
+        "background" => MaskShape::Background { seg: None },
         "luminanceRange" => MaskShape::LuminanceRange {
             lo: f64_or(p, "lo", 0.6),
             hi: f64_or(p, "hi", 1.0),
@@ -163,6 +163,10 @@ pub fn specs() -> Vec<CommandSpec> {
             |s, p| {
                 let kind = str_param(p, "kind").unwrap_or("radial").to_string();
                 let mut shape = shape_from(&kind, p, "mask.add")?;
+                // local-image: Subject / Background / Sky from the quick models when installed.
+                if let Some(id) = s.active() {
+                    s.quick_segment(id, &mut shape);
+                }
                 let later = resolve_ai(s, &mut shape, "mask.add")?;
                 let name = str_param(p, "name").map(str::to_string);
                 if let Later::Text(text) = &later {
@@ -202,6 +206,7 @@ pub fn specs() -> Vec<CommandSpec> {
                     return Err(bad("mask.addComponent", format!("no mask {mid}")));
                 }
                 let mut shape = shape_from(&kind, p, "mask.addComponent")?;
+                s.quick_segment(id, &mut shape);
                 let later = resolve_ai(s, &mut shape, "mask.addComponent")?;
                 if let Later::Text(text) = &later {
                     let op = p.get("op").and_then(Value::as_str).unwrap_or("add");

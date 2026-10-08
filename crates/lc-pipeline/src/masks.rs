@@ -138,7 +138,11 @@ pub fn shape_alpha(shape: &MaskShape, frame: &Frame, w: usize, h: usize, img: &R
                 *v = 1.0 - smooth(tol * 0.5, tol, d);
             }
         }
-        MaskShape::Sky => {
+        // local-image: the quick segmentation model's result, when the mask was added with one.
+        MaskShape::Subject { seg: Some(seg) } | MaskShape::Sky { seg: Some(seg) } | MaskShape::Background { seg: Some(seg) } => {
+            sample_seg(Some(seg), &[], 1.0, frame, w, h, &mut out);
+        }
+        MaskShape::Sky { .. } => {
             // Classical sky heuristic until the segmenter lands (M12): bright, smooth, blue-ish or
             // unsaturated, and connected to the top of the frame.
             let m = frame.out_to_norm(w, h);
@@ -166,7 +170,7 @@ pub fn shape_alpha(shape: &MaskShape, frame: &Frame, w: usize, h: usize, img: &R
         // not computed yet (no clicks, or a build without the model): nothing selected
         MaskShape::Object { hint, .. } if hint.is_empty() => {}
         MaskShape::Prompt { .. } => {}
-        MaskShape::Subject | MaskShape::Object { .. } | MaskShape::People { .. } => {
+        MaskShape::Subject { .. } | MaskShape::Object { .. } | MaskShape::People { .. } => {
             // Saliency heuristic: centre-weighted local contrast (replaced by the segmenter in M12).
             let m = frame.out_to_norm(w, h);
             let blur = lightcraft_raster::blur::gaussian(log_l, 0.03 * frame_px(frame, w));
@@ -179,8 +183,8 @@ pub fn shape_alpha(shape: &MaskShape, frame: &Frame, w: usize, h: usize, img: &R
             }
             smooth_plane(&mut out, 0.015 * frame_px(frame, w));
         }
-        MaskShape::Background => {
-            let mut s = shape_alpha(&MaskShape::Subject, frame, w, h, img, log_l, ev);
+        MaskShape::Background { .. } => {
+            let mut s = shape_alpha(&MaskShape::Subject { seg: None }, frame, w, h, img, log_l, ev);
             s.data.iter_mut().for_each(|v| *v = 1.0 - *v);
             out = s;
         }
