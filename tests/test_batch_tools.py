@@ -71,6 +71,11 @@ class BatchTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0)
         return self.batch.job(identifier)
 
+    def test_portable_unicode_filenames_and_windows_device_names(self):
+        self.assertLessEqual(len(self.batch.export_stem('{name}', '水' * 160 + '.png', 1).encode('utf-8')), 240)
+        self.assertEqual(self.batch.export_stem('{name}', 'CON.jpg', 1), '_CON')
+        self.assertEqual(self.batch.export_stem('{name}', 'a' * 130 + '.jpg', 1), 'a' * 130)
+
     async def test_treatment_normalizes_different_masks_and_keeps_each_subject(self):
         first=self.image(); second=self.image('other.png',(160,120),(65,35,105,95))
         preset=await self.treatment(first); hashes={item['id']:self.editor.file_hash(self.editor.folder(item['id'])/item['original']) for item in (first,second)}
@@ -117,6 +122,36 @@ class BatchTests(unittest.IsolatedAsyncioTestCase):
         data=self.image(); queue=await self.create([data],format='png');await self.finish(queue['id']);await self.batch.export_zip(queue['id'],self.request(),self.batch.ExportSelection());value=await self.finish(queue['id']);item=value['items'][0]
         with Image.open(self.batch.own_directory('jobs',queue['id'])/'exports'/item['output_name']) as image:self.assertEqual(image.mode,'RGBA');self.assertEqual(image.getchannel('A').getextrema(),(0,255))
         self.assertEqual(item['export_bit_depth'],8)
+
+    async def test_custom_numbered_names_work_for_folder_and_zip_without_replacing_sources(self):
+        for mode in ('folder', 'zip'):
+            first = self.image(mode + '-product.png'); second = self.image(mode + '-other.png')
+            queue = await self.create([first, second], format='png'); await self.finish(queue['id'])
+            originals = {item['id']: self.editor.file_hash(self.editor.folder(item['id']) / item['original']) for item in (first, second)}
+            destination = self.fixture.images / ('exports-' + mode); destination.mkdir()
+            (destination / ('Catalog-001-' + mode + '-product.png')).write_bytes(b'keep me')
+            template = 'Catalog-{index}-{name}'
+            if mode == 'folder':
+                await self.batch.export_folder(queue['id'], self.request(native=True, csrf=False), self.batch.ExportFolder(path=str(destination), naming_template=template))
+            else:
+                await self.batch.export_zip(queue['id'], self.request(), self.batch.ExportSelection(naming_template=template))
+            value = await self.finish(queue['id'])
+            self.assertTrue(all(item['status'] == 'exported' for item in value['items']))
+            self.assertTrue(value['items'][0]['output_name'].startswith('Catalog-001-'))
+            self.assertEqual(value['items'][1]['output_name'], 'Catalog-002-' + mode + '-other.png')
+            self.assertEqual((destination / ('Catalog-001-' + mode + '-product.png')).read_bytes(), b'keep me')
+            self.batch.live_jobs.clear()
+            self.assertEqual(self.batch.job(queue['id'])['naming_template'], template)
+            for item in (first, second):
+                self.assertEqual(originals[item['id']], self.editor.file_hash(self.editor.folder(item['id']) / item['original']))
+
+    async def test_invalid_filename_patterns_do_not_start_export(self):
+        data = self.image(); queue = await self.create([data], format='png'); await self.finish(queue['id'])
+        for template in ('../{name}', '{unknown}', 'a\\b', '.', '   ', 'x\x00'):
+            with self.subTest(template=template), self.assertRaises(HTTPException):
+                await self.batch.export_zip(queue['id'], self.request(), self.batch.ExportSelection(naming_template=template))
+        self.assertFalse(self.batch.job(queue['id'])['running'])
+        self.assertEqual(self.batch.job(queue['id'])['items'][0]['status'], 'ready')
 
     async def test_full_preview_and_original_comparison_keep_native_dimensions(self):
         data=self.image(size=(960,720),bounds=(200,100,700,600));queue=await self.create([data]);value=await self.finish(queue['id']);item=value['items'][0]

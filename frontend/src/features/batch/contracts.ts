@@ -33,6 +33,7 @@ export interface BatchQueue {
   items: readonly BatchItem[];
   bytes: number;
   download: string | null;
+  naming_template?: string;
 }
 export interface BatchTreatment {
   id: string;
@@ -60,15 +61,20 @@ export interface BatchEditorSnapshot {
   pendingSelections: readonly BatchPendingSelection[];
   nativeExportAvailable: boolean;
 }
-/** Domain operations, never references to hidden controls. Native export is the
- * existing fixed batchExportFolder action; its picker intentionally has no timer. */
+/** Native folder paths come from the host's picker and remain owned by it. */
 export interface BatchEditorAdapter {
   getSnapshot(): BatchEditorSnapshot;
   subscribe(listener: () => void): () => void;
   prepareForBatch(): Promise<void>;
   resolveSession(entryId: string): Promise<{ session_id: string; revision: number }>;
   returnToPendingSelection(sessionId: string): Promise<void>;
-  exportBatchFolder?(request: { job_id: string; item_ids: string[] }): Promise<BatchQueue | null>;
+  chooseBatchExportFolder?(): Promise<{ directory: string } | null>;
+  exportBatchFolder?(request: {
+    job_id: string;
+    item_ids: string[];
+    naming_template?: string;
+    use_selected_folder?: boolean;
+  }): Promise<BatchQueue | null>;
 }
 export interface BatchDraft {
   treatmentId: string;
@@ -104,6 +110,7 @@ export interface BatchSnapshot {
   active: BatchQueue | null;
   selectedIds: readonly string[];
   draft: BatchDraft;
+  output: { mode: 'folder' | 'zip'; directory: string; namingTemplate: string };
   appliedOnly: boolean;
   pending: readonly BatchPendingSelection[];
   canPrepare: boolean;

@@ -1,3 +1,4 @@
+import { BatchViewer } from './BatchViewer.tsx';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   Accordion,
@@ -13,6 +14,7 @@ import {
   DialogSurface,
   DialogTitle,
   Field,
+  Input,
   Menu,
   MenuItemRadio,
   MenuList,
@@ -31,6 +33,7 @@ import {
 import { Icon } from '../shell/Icon.tsx';
 import type { BatchController } from './controller.ts';
 import type { BatchBackground, BatchFormat, BatchItemStatus } from './contracts.ts';
+import { DEFAULT_NAMING_TEMPLATE, filenamePreview, namingError } from './naming.ts';
 import { batchPage } from './pagination.ts';
 import { Hint } from '../shell/Hint.tsx';
 import './batch.css';
@@ -98,187 +101,240 @@ export function BatchDialog({ controller }: { controller: BatchController }) {
         : ['exported', 'failed', 'conflict', 'needs-cutout'].includes(item.status),
     ).length || 0;
   const inspected = active?.items.find(item => item.id === state.inspection?.itemId);
-  const [naturalWidth, setNaturalWidth] = useState(0);
+  const inspectionTrigger = useRef<HTMLButtonElement | HTMLAnchorElement | null>(null);
+  const inspectionTriggerId = useRef<string | null>(null);
   const backgroundInput = useRef<HTMLInputElement>(null);
   useEffect(() => setPage(0), [state.open, active?.id]);
-  useEffect(() => setNaturalWidth(0), [inspected?.id]);
-  const inspectionSource =
-    active && inspected && state.inspection
-      ? controller.api.previewUrl(active.id, inspected.id, true, state.inspection.original)
-      : undefined;
+  useEffect(() => {
+    if (state.inspection) return;
+    // Fluent restores focus while replacing the dialog content. Restore the
+    // thumbnail after that pass so keyboard review continues at the same image.
+    const frame = requestAnimationFrame(() => inspectionTrigger.current?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(frame);
+  }, [!!state.inspection]);
   const pendingNames = state.pending.map(item => item.name).join(', ');
+  const namingScheme =
+    state.output.namingTemplate === DEFAULT_NAMING_TEMPLATE
+      ? 'suffix'
+      : state.output.namingTemplate === '{name}'
+        ? 'original'
+        : state.output.namingTemplate === 'Image-{index}'
+          ? 'numbered'
+          : 'custom';
+  const [customNaming, setCustomNaming] = useState(false);
+  const patternError = namingError(state.output.namingTemplate);
+  const exampleName = (active?.items || state.editor.entries).find(item => selection.has(item.id))?.name || 'Photo.jpg';
   return (
     <>
       <Dialog
         open={state.open}
         onOpenChange={(_, data) => {
-          if (!data.open) controller.close();
+          if (!data.open) {
+            if (state.inspection) controller.closeInspection();
+            else controller.close();
+          }
         }}
       >
         <DialogSurface
           id="batch-dialog"
-          className="li-batch-surface"
+          className={inspected ? 'li-batch-surface li-batch-viewer-surface' : 'li-batch-surface'}
           data-react-owned="true"
-          aria-label="Remove backgrounds and export PNGs"
+          aria-label={inspected ? 'Batch image viewer' : 'Remove backgrounds and export PNGs'}
         >
-          <DialogBody className="li-batch-body">
-            <DialogTitle
-              action={
-                <Hint content="Close batch window">
-                  <Button
-                    appearance="subtle"
-                    aria-label="Close batch window"
-                    id="batch-close"
-                    onClick={controller.close}
-                    icon={<Icon name="close" />}
-                  />
-                </Hint>
-              }
-            >
-              Remove backgrounds
-            </DialogTitle>
-            <DialogContent className="li-batch-content">
-              <p className="li-batch-note">Existing cutouts are reused.</p>
-              <div className="li-batch-settings" aria-label="Batch output settings">
-                <Field label="Output background">
-                  <ChoiceSelect
-                    id="batch-background"
-                    label="Output background"
-                    value={draft.backgroundMode}
-                    disabled={locked || !!active}
-                    choices={[
-                      { value: 'transparent', label: 'Transparent PNG' },
-                      { value: 'white', label: 'White background' },
-                      { value: 'image', label: 'Background image…' },
-                    ]}
-                    onSelect={value => controller.setDraft({ backgroundMode: value as BatchBackground })}
-                  />
-                </Field>
-                <Field label="Removal model">
-                  <ChoiceSelect
-                    id="batch-qwen-variant"
-                    label="Background removal model"
-                    value={draft.qwenVariant}
-                    disabled={locked || !!active}
-                    choices={(['int8', 'bf16'] as const).map(variant => ({
-                      value: variant,
-                      label: variant === 'int8' ? 'Qwen · Standard' : 'Qwen · High precision',
-                      disabled: !state.qwen.variants.some(item => item.id === variant && item.available),
-                    }))}
-                    onSelect={value => controller.setDraft({ qwenVariant: value as 'int8' | 'bf16' })}
-                  />
-                  {!active && !state.qwenAvailable && (
-                    <span className="li-batch-note">Set up Qwen in Settings for photos without a cutout.</span>
-                  )}
-                </Field>
-              </div>
-              {draft.backgroundMode === 'image' && (
-                <Field label="Background file">
-                  <div className="li-batch-background-file">
-                    {!active && (
-                      <Button
-                        id="batch-choose-background"
-                        disabled={locked}
-                        onClick={() => backgroundInput.current?.click()}
-                      >
-                        Choose image…
-                      </Button>
-                    )}
-                    <span title={draft.backgroundName}>{draft.backgroundName || 'No image chosen'}</span>
-                  </div>
-                  <input
-                    ref={backgroundInput}
-                    id="batch-background-file"
-                    type="file"
-                    hidden
-                    accept="image/*"
-                    disabled={locked || !!active}
-                    onChange={event => {
-                      const file = event.currentTarget.files?.[0];
-                      event.currentTarget.value = '';
-                      if (file) void controller.chooseBackground(file);
-                    }}
-                  />
-                  <span className="li-batch-note">Cropped to fill each image.</span>
-                </Field>
-              )}
-              {state.pending.length > 0 && (
-                <MessageBar intent="warning" id="batch-pending-warning">
-                  <MessageBarBody>
-                    <div id="batch-pending-description" title={pendingNames}>
-                      {state.pending.length} selected {state.pending.length === 1 ? 'photo has' : 'photos have'} pending
-                      selections. Apply them first, or use the images as they are.
-                    </div>
-                    <div className="li-batch-warning-actions">
-                      <Checkbox
-                        id="batch-applied-only"
-                        checked={state.appliedOnly}
-                        label="Use images as they are; keep pending selections"
-                        onChange={(_, data) => controller.acknowledgeAppliedOnly(data.checked === true)}
-                      />
-                      <Button id="batch-return-apply" onClick={() => void controller.returnToSelection()}>
-                        Return to editor
-                      </Button>
-                    </div>
-                  </MessageBarBody>
-                </MessageBar>
-              )}
-              <div className="li-batch-selection">
-                <Checkbox
-                  id="batch-all"
-                  checked={allSelected ? true : state.selectedIds.length ? 'mixed' : false}
-                  disabled={locked || page.total === 0}
-                  label="Select all images"
-                  onChange={(_, data) => controller.selectAll(data.checked === true)}
-                />
-                <span id="batch-selection-count">
-                  {state.selectedIds.length} of {page.total} selected
-                </span>
-              </div>
-              {inspected && state.inspection ? (
-                <section id="batch-inspector" className="li-batch-inspection" aria-label="Full-size batch review">
-                  <div className="li-batch-inspect-toolbar">
-                    <Button id="batch-inspect-back" onClick={controller.closeInspection}>
-                      Back to images
-                    </Button>
-                    <strong id="batch-inspect-name">{inspected.name}</strong>
+          {inspected && state.inspection ? (
+            <BatchViewer controller={controller} state={state} item={inspected} />
+          ) : (
+            <DialogBody className="li-batch-body">
+              <DialogTitle
+                action={
+                  <Hint content="Close batch window">
                     <Button
-                      id="batch-inspect-original"
-                      aria-pressed={state.inspection.original}
-                      onClick={() => controller.setInspection({ original: !state.inspection!.original })}
+                      appearance="subtle"
+                      aria-label="Close batch window"
+                      id="batch-close"
+                      onClick={controller.close}
+                      icon={<Icon name="close" />}
+                    />
+                  </Hint>
+                }
+              >
+                Remove backgrounds
+              </DialogTitle>
+              <DialogContent className="li-batch-content">
+                <p className="li-batch-note">Existing cutouts are reused.</p>
+                <div className="li-batch-settings" aria-label="Batch output settings">
+                  <Field label="Output background">
+                    <ChoiceSelect
+                      id="batch-background"
+                      label="Output background"
+                      value={draft.backgroundMode}
+                      disabled={locked || !!active}
+                      choices={[
+                        { value: 'transparent', label: 'Transparent PNG' },
+                        { value: 'white', label: 'White background' },
+                        { value: 'image', label: 'Background image…' },
+                      ]}
+                      onSelect={value => controller.setDraft({ backgroundMode: value as BatchBackground })}
+                    />
+                  </Field>
+                  <Field label="Removal model">
+                    <ChoiceSelect
+                      id="batch-qwen-variant"
+                      label="Background removal model"
+                      value={draft.qwenVariant}
+                      disabled={locked || !!active}
+                      choices={(['int8', 'bf16'] as const).map(variant => ({
+                        value: variant,
+                        label: variant === 'int8' ? 'Qwen · Standard' : 'Qwen · High precision',
+                        disabled: !state.qwen.variants.some(item => item.id === variant && item.available),
+                      }))}
+                      onSelect={value => controller.setDraft({ qwenVariant: value as 'int8' | 'bf16' })}
+                    />
+                    {!active && !state.qwenAvailable && (
+                      <span className="li-batch-note">Set up Qwen in Settings for photos without a cutout.</span>
+                    )}
+                  </Field>
+                </div>
+                <div className="li-batch-settings" aria-label="Batch destination and filenames">
+                  <Field label="Output destination">
+                    <ChoiceSelect
+                      id="batch-output-mode"
+                      label="Output destination"
+                      value={state.output.mode}
+                      disabled={locked}
+                      choices={[
+                        { value: 'folder', label: 'Output folder', disabled: !state.editor.nativeExportAvailable },
+                        { value: 'zip', label: 'ZIP download' },
+                      ]}
+                      onSelect={mode => controller.setOutput({ mode: mode as 'folder' | 'zip' })}
+                    />
+                    {state.output.mode === 'folder' && (
+                      <div className="li-batch-folder">
+                        <Button
+                          id="batch-choose-output-folder"
+                          disabled={locked}
+                          onClick={() => void controller.chooseOutputFolder()}
+                        >
+                          Choose folder…
+                        </Button>
+                        <output id="batch-output-folder" aria-label="Batch output folder">
+                          {state.output.directory || 'Choose now or when exporting'}
+                        </output>
+                      </div>
+                    )}
+                  </Field>
+                  <Field label="File naming scheme">
+                    <ChoiceSelect
+                      id="batch-naming-scheme"
+                      label="File naming scheme"
+                      value={customNaming ? 'custom' : namingScheme}
+                      disabled={locked}
+                      choices={[
+                        { value: 'suffix', label: 'Original name + local-image' },
+                        { value: 'original', label: 'Original name' },
+                        { value: 'numbered', label: 'Sequential numbers' },
+                        { value: 'custom', label: 'Custom pattern' },
+                      ]}
+                      onSelect={scheme => {
+                        setCustomNaming(scheme === 'custom');
+                        if (scheme !== 'custom')
+                          controller.setOutput({
+                            namingTemplate:
+                              scheme === 'original'
+                                ? '{name}'
+                                : scheme === 'numbered'
+                                  ? 'Image-{index}'
+                                  : DEFAULT_NAMING_TEMPLATE,
+                          });
+                      }}
+                    />
+                  </Field>
+                  {(customNaming || namingScheme === 'custom') && (
+                    <Field
+                      label="Filename pattern"
+                      validationState={patternError ? 'error' : 'none'}
+                      validationMessage={
+                        patternError ||
+                        'Use {name} for the source name and {index} for a three-digit number. PNG extension is added.'
+                      }
                     >
-                      {state.inspection.original ? 'Cutout' : 'Original'}
-                    </Button>
-                    <Field label="Zoom" orientation="horizontal">
-                      <ChoiceSelect
-                        id="batch-inspect-zoom"
-                        label="Batch review zoom"
-                        value={state.inspection.zoom}
-                        choices={[
-                          { value: 'fit', label: 'Fit' },
-                          { value: '100', label: '100%' },
-                          { value: '200', label: '200%' },
-                        ]}
-                        onSelect={value => controller.setInspection({ zoom: value as 'fit' | '100' | '200' })}
+                      <Input
+                        id="batch-naming-template"
+                        value={state.output.namingTemplate}
+                        maxLength={160}
+                        disabled={locked}
+                        onChange={(_, data) => controller.setOutput({ namingTemplate: data.value })}
                       />
                     </Field>
-                  </div>
-                  <div id="batch-inspect-scroll" className="li-batch-inspect-scroll">
-                    <img
-                      id="batch-inspect-image"
-                      className={state.inspection.zoom === 'fit' ? 'li-batch-fit' : undefined}
-                      style={
-                        state.inspection.zoom !== 'fit' && naturalWidth
-                          ? { width: (naturalWidth * Number(state.inspection.zoom)) / 100 }
-                          : undefined
-                      }
-                      src={inspectionSource}
-                      alt={`Full-size ${state.inspection.original ? 'original' : 'cutout'} preview of ${inspected.name}`}
-                      onLoad={event => setNaturalWidth(event.currentTarget.naturalWidth)}
+                  )}
+                  <p className="li-batch-note" id="batch-filename-preview" aria-live="polite">
+                    {patternError ||
+                      `Example: ${filenamePreview(state.output.namingTemplate, exampleName)} · Existing files get a unique name.`}
+                  </p>
+                </div>
+                {draft.backgroundMode === 'image' && (
+                  <Field label="Background file">
+                    <div className="li-batch-background-file">
+                      {!active && (
+                        <Button
+                          id="batch-choose-background"
+                          disabled={locked}
+                          onClick={() => backgroundInput.current?.click()}
+                        >
+                          Choose image…
+                        </Button>
+                      )}
+                      <span title={draft.backgroundName}>{draft.backgroundName || 'No image chosen'}</span>
+                    </div>
+                    <input
+                      ref={backgroundInput}
+                      id="batch-background-file"
+                      type="file"
+                      hidden
+                      accept="image/*"
+                      disabled={locked || !!active}
+                      onChange={event => {
+                        const file = event.currentTarget.files?.[0];
+                        event.currentTarget.value = '';
+                        if (file) void controller.chooseBackground(file);
+                      }}
                     />
-                  </div>
-                </section>
-              ) : (
+                    <span className="li-batch-note">Cropped to fill each image.</span>
+                  </Field>
+                )}
+                {state.pending.length > 0 && (
+                  <MessageBar intent="warning" id="batch-pending-warning">
+                    <MessageBarBody>
+                      <div id="batch-pending-description" title={pendingNames}>
+                        {state.pending.length} selected {state.pending.length === 1 ? 'photo has' : 'photos have'}{' '}
+                        pending selections. Apply them first, or use the images as they are.
+                      </div>
+                      <div className="li-batch-warning-actions">
+                        <Checkbox
+                          id="batch-applied-only"
+                          checked={state.appliedOnly}
+                          label="Use images as they are; keep pending selections"
+                          onChange={(_, data) => controller.acknowledgeAppliedOnly(data.checked === true)}
+                        />
+                        <Button id="batch-return-apply" onClick={() => void controller.returnToSelection()}>
+                          Return to editor
+                        </Button>
+                      </div>
+                    </MessageBarBody>
+                  </MessageBar>
+                )}
+                <div className="li-batch-selection">
+                  <Checkbox
+                    id="batch-all"
+                    checked={allSelected ? true : state.selectedIds.length ? 'mixed' : false}
+                    disabled={locked || page.total === 0}
+                    label="Select all images"
+                    onChange={(_, data) => controller.selectAll(data.checked === true)}
+                  />
+                  <span id="batch-selection-count">
+                    {state.selectedIds.length} of {page.total} selected
+                  </span>
+                </div>
                 <>
                   {page.pages > 1 && (
                     <div className="li-batch-pagination" aria-label="Batch image pages">
@@ -332,8 +388,15 @@ export function BatchDialog({ controller }: { controller: BatchController }) {
                                 <Button
                                   appearance="subtle"
                                   className="li-batch-preview"
+                                  ref={button => {
+                                    if (entry.id === inspectionTriggerId.current) inspectionTrigger.current = button;
+                                  }}
                                   aria-label={`Inspect ${entry.name} at full size`}
-                                  onClick={() => controller.inspect(entry.id)}
+                                  onClick={event => {
+                                    inspectionTriggerId.current = entry.id;
+                                    inspectionTrigger.current = event.currentTarget;
+                                    controller.inspect(entry.id);
+                                  }}
                                 >
                                   <img
                                     loading="lazy"
@@ -364,110 +427,115 @@ export function BatchDialog({ controller }: { controller: BatchController }) {
                     )}
                   </div>
                 </>
-              )}
-              <div className="li-batch-status">
-                <p
-                  id="batch-status"
-                  role={state.error ? 'alert' : 'status'}
-                  className={state.error ? 'li-batch-error' : undefined}
-                >
-                  {state.status}
-                </p>
-                {active?.running && (
-                  <ProgressBar
-                    id="batch-progress"
-                    value={active.items.length ? completed / active.items.length : 0}
-                    aria-label={`${completed} of ${active.items.length} images processed`}
-                  />
-                )}
-              </div>
-              <Accordion collapsible className="li-batch-history">
-                <AccordionItem value="history">
-                  <AccordionHeader>Previous batches</AccordionHeader>
-                  <AccordionPanel className="li-batch-history-controls">
-                    <ChoiceSelect
-                      id="batch-history-select"
-                      label="Previous batch"
-                      value={state.historyId}
-                      disabled={locked}
-                      choices={state.queues.map(queue => ({
-                        value: queue.id,
-                        label: `${queue.name} · ${new Date(queue.created * 1000).toLocaleString()} · ${queue.phase}`,
-                      }))}
-                      onSelect={controller.setHistory}
+
+                <div className="li-batch-status">
+                  <p
+                    id="batch-status"
+                    role={state.error ? 'alert' : 'status'}
+                    className={state.error ? 'li-batch-error' : undefined}
+                  >
+                    {state.status}
+                  </p>
+                  {active?.running && (
+                    <ProgressBar
+                      id="batch-progress"
+                      value={active.items.length ? completed / active.items.length : 0}
+                      aria-label={`${completed} of ${active.items.length} images processed`}
                     />
-                    <Button
-                      id="batch-load-queue"
-                      disabled={locked || !state.historyId}
-                      onClick={() => void controller.loadQueue()}
-                    >
-                      Review batch
-                    </Button>
-                    <Button
-                      id="batch-clear-queue"
-                      disabled={locked || !state.historyId}
-                      onClick={controller.confirmQueueClear}
-                    >
-                      Clear batch
-                    </Button>
-                    <span id="batch-cache-size" className="li-batch-note">
-                      Cache {bytes(state.cacheBytes)}
-                    </span>
-                  </AccordionPanel>
-                </AccordionItem>
-              </Accordion>
-            </DialogContent>
-            <DialogActions className="li-batch-actions">
-              <span className="li-batch-note">Original files are kept.</span>
-              {active?.running && (
-                <Button id="batch-cancel" disabled={state.working} onClick={() => void controller.cancel()}>
-                  Cancel batch
-                </Button>
-              )}
-              {active?.phase === 'paused' && !active.running && (
-                <Button id="batch-resume" disabled={state.working} onClick={() => void controller.resume()}>
-                  Resume
-                </Button>
-              )}
-              {active && (
-                <Button id="batch-new-queue" disabled={locked} onClick={controller.newQueue}>
-                  New batch
-                </Button>
-              )}
-              {active && (!active.download || selectedReady > 0) && (
-                <Button
-                  id="batch-export"
-                  appearance="primary"
-                  disabled={!state.canExport}
-                  onClick={() => void controller.exportReviewed()}
-                >
-                  {state.editor.nativeExportAvailable ? 'Export to folder…' : 'Export ZIP'}
-                  {selectedReady ? ` (${selectedReady})` : ''}
-                </Button>
-              )}
-              {active?.download && !active.running && (
-                <Button
-                  as="a"
-                  appearance={selectedReady ? 'secondary' : 'primary'}
-                  id="batch-download"
-                  href={controller.api.downloadUrl(active.id)}
-                  download="Local Image batch.zip"
-                >
-                  Download ZIP
-                </Button>
-              )}
-              {!active && (
-                <Button
-                  id="batch-create"
-                  appearance="primary"
-                  disabled={!state.canPrepare}
-                  onClick={() => void controller.prepare()}
-                >
-                  Remove backgrounds
-                </Button>
-              )}
-            </DialogActions>
-          </DialogBody>
+                  )}
+                </div>
+                <Accordion collapsible className="li-batch-history">
+                  <AccordionItem value="history">
+                    <AccordionHeader>Previous batches</AccordionHeader>
+                    <AccordionPanel className="li-batch-history-controls">
+                      <ChoiceSelect
+                        id="batch-history-select"
+                        label="Previous batch"
+                        value={state.historyId}
+                        disabled={locked}
+                        choices={state.queues.map(queue => ({
+                          value: queue.id,
+                          label: `${queue.name} · ${new Date(queue.created * 1000).toLocaleString()} · ${queue.phase}`,
+                        }))}
+                        onSelect={controller.setHistory}
+                      />
+                      <Button
+                        id="batch-load-queue"
+                        disabled={locked || !state.historyId}
+                        onClick={() => void controller.loadQueue()}
+                      >
+                        Review batch
+                      </Button>
+                      <Button
+                        id="batch-clear-queue"
+                        disabled={locked || !state.historyId}
+                        onClick={controller.confirmQueueClear}
+                      >
+                        Clear batch
+                      </Button>
+                      <span id="batch-cache-size" className="li-batch-note">
+                        Cache {bytes(state.cacheBytes)}
+                      </span>
+                    </AccordionPanel>
+                  </AccordionItem>
+                </Accordion>
+              </DialogContent>
+              <DialogActions className="li-batch-actions">
+                <span className="li-batch-note">Original files are kept.</span>
+                {active?.running && (
+                  <Button id="batch-cancel" disabled={state.working} onClick={() => void controller.cancel()}>
+                    Cancel batch
+                  </Button>
+                )}
+                {active?.phase === 'paused' && !active.running && (
+                  <Button id="batch-resume" disabled={state.working} onClick={() => void controller.resume()}>
+                    Resume
+                  </Button>
+                )}
+                {active && (
+                  <Button id="batch-new-queue" disabled={locked} onClick={controller.newQueue}>
+                    New batch
+                  </Button>
+                )}
+                {active && (!active.download || selectedReady > 0) && (
+                  <Button
+                    id="batch-export"
+                    appearance="primary"
+                    disabled={!state.canExport}
+                    onClick={() => void controller.exportReviewed()}
+                  >
+                    {state.output.mode === 'folder'
+                      ? state.output.directory
+                        ? 'Export to folder'
+                        : 'Export to folder…'
+                      : 'Export ZIP'}
+                    {selectedReady ? ` (${selectedReady})` : ''}
+                  </Button>
+                )}
+                {active?.download && !active.running && (
+                  <Button
+                    as="a"
+                    appearance={selectedReady ? 'secondary' : 'primary'}
+                    id="batch-download"
+                    href={controller.api.downloadUrl(active.id)}
+                    download="Local Image batch.zip"
+                  >
+                    Download ZIP
+                  </Button>
+                )}
+                {!active && (
+                  <Button
+                    id="batch-create"
+                    appearance="primary"
+                    disabled={!state.canPrepare}
+                    onClick={() => void controller.prepare()}
+                  >
+                    Remove backgrounds
+                  </Button>
+                )}
+              </DialogActions>
+            </DialogBody>
+          )}
         </DialogSurface>
       </Dialog>
       <Dialog

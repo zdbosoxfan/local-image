@@ -77,10 +77,17 @@ original canvas dimensions and clips anything outside them.
 
 ## Choose or generate a background
 
-Use the **Background** selector to choose **Transparent**, **Solid color**, or
-**Image**. Click **Choose image…** to import a JPEG, PNG, TIFF, or WebP. The image
-fills the canvas while preserving its aspect ratio, cropping excess edges from
-the center. Selecting another background leaves the foreground cutout editable.
+Open **Add background** in the Cutout tool options. Choose **Plain white** to
+add an opaque white background immediately, without importing an image or
+running a model. It fills the document canvas beneath the cutout and is included
+in the preview and export. The foreground mask remains editable; the **White
+background** layer can be hidden or removed in Layers, or undone with **Ctrl+Z**.
+
+Choose **Import image…** to import a JPEG, PNG, TIFF, or WebP, **Choose from
+Assets** to browse backgrounds, or **Generate background…** to create one.
+Imported images fill the canvas while preserving their aspect ratio, cropping
+excess edges from the center. Adding a background leaves the foreground cutout
+editable.
 
 **Add folder…** creates a thumbnail library. In the desktop app, the library is
 remembered between sessions and reads supported images directly inside the
@@ -174,3 +181,7 @@ enable it again to continue composing.
 To reuse a backdrop, placement and shadow for multiple products, see
 [Batch treatment & export](BATCH-WORKSPACE.md). Each photo uses its own cutout;
 a treatment never copies one product's foreground or mask onto another.
+
+## Export the composition
+
+Choose **Export** in the command bar or File menu. The dialog lets you choose PNG, JPEG, WebP or TIFF, set a filename and scale or pixel dimensions, and choose an output folder in the desktop app. Nothing is rendered until you confirm **Export**. Resizing an export leaves the editable canvas unchanged. JPEG needs an opaque background; choose **Add background → Plain white** to fill transparent areas. TIFF preserves 16-bit source precision. Browser exports use the browser’s download location.

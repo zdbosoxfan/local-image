@@ -1,4 +1,5 @@
 import { createBatchApi, type BatchApi } from './api.ts';
+import { DEFAULT_NAMING_TEMPLATE, namingError } from './naming.ts';
 import type {
   BatchSnapshot,
   BatchEditorAdapter,
@@ -51,6 +52,11 @@ export function createBatchController(options: {
     active: null,
     selectedIds: [],
     draft: initialDraft(),
+    output: {
+      mode: editor.getSnapshot().nativeExportAvailable ? 'folder' : 'zip',
+      directory: '',
+      namingTemplate: DEFAULT_NAMING_TEMPLATE,
+    },
     appliedOnly: false,
     pending: [],
     canPrepare: false,
@@ -101,7 +107,10 @@ export function createBatchController(options: {
       qwenAvailable: state.qwen.connected && state.qwen.variants.some(item => item.available),
       canPrepare: !locked && !state.active && state.selectedIds.length > 0 && allowed,
       canExport:
-        !locked && !!state.active?.items.some(item => item.status === 'ready' && selected.has(item.id)) && allowed,
+        !locked &&
+        !namingError(state.output.namingTemplate) &&
+        !!state.active?.items.some(item => item.status === 'ready' && selected.has(item.id)) &&
+        allowed,
       canSaveTreatment: !locked && !state.active && !!state.editor.document?.canSaveTreatment && allowed,
     };
     snapshot = immutable(structuredClone(state));
@@ -200,6 +209,14 @@ export function createBatchController(options: {
       confirmation: null,
       selectedIds: editor.getSnapshot().entries.map(entry => entry.id),
       draft: initialDraft(),
+      output: {
+        ...state.output,
+        mode: state.output.directory
+          ? state.output.mode
+          : editor.getSnapshot().nativeExportAvailable
+            ? 'folder'
+            : 'zip',
+      },
       status: 'Select images, remove their backgrounds, review, then export PNGs.',
       error: false,
     };
@@ -273,6 +290,20 @@ export function createBatchController(options: {
       state = { ...state, draft };
       publish();
     },
+    setOutput(change: Partial<BatchSnapshot['output']>) {
+      if (state.working || state.active?.running) return;
+      state = { ...state, output: { ...state.output, ...change } };
+      publish();
+    },
+    chooseOutputFolder: () =>
+      run(async () => {
+        if (state.active?.running || !editor.chooseBatchExportFolder) return;
+        const scope = epoch,
+          result = await editor.chooseBatchExportFolder();
+        if (scope !== epoch || !result) return;
+        state = { ...state, output: { ...state.output, mode: 'folder', directory: result.directory } };
+        publish();
+      }),
     chooseBackground: (file: File) =>
       run(async () => {
         if (state.active) return;
@@ -383,14 +414,20 @@ export function createBatchController(options: {
     exportReviewed: () => {
       if (!state.canExport || !state.active) return Promise.resolve();
       const queue = state.active,
+        output = { ...state.output },
         scope = epoch,
         selected = new Set(state.selectedIds),
         item_ids = queue.items.filter(item => item.status === 'ready' && selected.has(item.id)).map(item => item.id);
       return run(async () => {
         const value =
-          state.editor.nativeExportAvailable && editor.exportBatchFolder
-            ? await editor.exportBatchFolder({ job_id: queue.id, item_ids })
-            : await api.exportZip(queue.id, item_ids);
+          output.mode === 'folder' && state.editor.nativeExportAvailable && editor.exportBatchFolder
+            ? await editor.exportBatchFolder({
+                job_id: queue.id,
+                item_ids,
+                naming_template: output.namingTemplate,
+                ...(output.directory ? { use_selected_folder: true } : {}),
+              })
+            : await api.exportZip(queue.id, item_ids, output.namingTemplate);
         if (scope !== epoch) return;
         if (value) {
           if (value.id !== queue.id) throw new Error('The export response belongs to a different queue.');
@@ -436,7 +473,13 @@ export function createBatchController(options: {
       acknowledgedFingerprint = '';
       return run(async () => {
         const queue = await api.queue(id);
-        if (scope === epoch) acceptQueue(queue, true);
+        if (scope === epoch) {
+          state = {
+            ...state,
+            output: { ...state.output, namingTemplate: queue.naming_template || state.output.namingTemplate },
+          };
+          acceptQueue(queue, true);
+        }
       });
     },
     newQueue() {

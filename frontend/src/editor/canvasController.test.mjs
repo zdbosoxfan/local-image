@@ -72,6 +72,9 @@ class Element {
   append(value) {
     this.children.push(value);
   }
+  remove() {
+    this.removed = true;
+  }
 }
 class Canvas extends Element {
   constructor() {
@@ -380,4 +383,36 @@ test('hidden Refine navigation keeps the source persona and manual camera saved 
   assert.equal(f.controller.getSnapshot().photoZoom, before.photoZoom);
   assert.equal(f.controller.getSnapshot().panX, before.panX);
   assert.equal(f.controller.getSnapshot().panY, before.panY);
+});
+
+test('visibility reuses the decoded layer element and changes no composite pixels or camera', async t => {
+  const f = setup(t);
+  await f.controller.presentDocument({ document: f.accepted, original: f.original });
+  const element = f.elements.layerStack.children[0],
+    before = f.controller.getSnapshot();
+  assert.equal(element, f.sprite);
+  assert.equal(f.elements.layerStack.hidden, false);
+  assert.equal(f.loads.length, 1);
+  assert.equal(f.elements.photo.calls.filter(call => call[0] === 'draw').length, 0);
+  f.accepted = {
+    ...f.accepted,
+    revision: 1,
+    layer_stack: f.accepted.layer_stack.map(node => ({ ...node, visible: false })),
+  };
+  await f.controller.presentDocument({ document: f.accepted, original: f.original });
+  assert.equal(element.hidden, true);
+  f.accepted = {
+    ...f.accepted,
+    revision: 2,
+    layer_stack: f.accepted.layer_stack.map(node => ({ ...node, visible: true, opacity: 0.5 })),
+  };
+  await f.controller.presentDocument({ document: f.accepted, original: f.original });
+  assert.equal(element.hidden, false);
+  assert.equal(element.style.opacity, '0.5');
+  assert.equal(f.elements.layerStack.children[0], element);
+  assert.equal(f.loads.length, 1);
+  const after = f.controller.getSnapshot();
+  assert.equal(after.photoZoom, before.photoZoom);
+  assert.equal(after.panX, before.panX);
+  assert.equal(after.panY, before.panY);
 });

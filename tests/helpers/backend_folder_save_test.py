@@ -222,8 +222,8 @@ class FolderSaveTests(unittest.IsolatedAsyncioTestCase):
         source = self.make_image()
         session = self.layer(self.bind(source)['id'])
         render = self.app.flatten
-        def change_during_render(*args):
-            render(*args)
+        def change_during_render(*args, **kwargs):
+            render(*args, **kwargs)
             source.write_bytes(b'changed after initial hash')
         with patch.object(self.app, 'flatten', side_effect=change_during_render):
             with self.assertRaises(HTTPException) as conflict:

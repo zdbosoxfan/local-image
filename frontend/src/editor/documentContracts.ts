@@ -1,7 +1,14 @@
 import type { EditorDocument, EditorSnapshot, Layer, Transform, Workspace } from '../contracts.ts';
 import type { ToolActions, ToolSnapshot } from '../features/shell/ToolControls.tsx';
 import type { DocumentChromeActions, DocumentChromeState } from '../features/shell/DocumentChrome.tsx';
-import type { ClosePlan, CloseChoice, OverwriteChoice, Credit } from '../features/shell/editorDialogs.ts';
+import type {
+  ClosePlan,
+  CloseChoice,
+  OverwriteChoice,
+  Credit,
+  ExportOptions,
+  ExportPlan,
+} from '../features/shell/editorDialogs.ts';
 import type { CanvasController } from './canvasController.ts';
 import type { CanvasInteraction, CanvasSnapshot } from './canvasContracts.ts';
 import type { NativeBridge } from './nativeBridge.ts';
@@ -203,11 +210,13 @@ export type DocumentCanvasPort = Pick<
 export type DocumentNativePort = Pick<
   NativeBridge,
   'capabilities' | 'subscribe' | 'connect' | 'openFiles' | 'openFolder' | 'openProject' | 'drop' | 'saveProject'
->;
+> &
+  Partial<Pick<NativeBridge, 'acceptDrop' | 'imageChooseExportFolder' | 'imageExportFolder'>>;
 export interface DocumentDialogsPort {
   isOpen(): boolean;
   confirmOverwrite(filename: string): Promise<OverwriteChoice>;
   confirmClose(plan: ClosePlan): Promise<CloseChoice>;
+  chooseExport?(plan: ExportPlan): Promise<ExportOptions | null>;
   showCredits(credits: readonly Credit[], text: string): void;
 }
 export interface DocumentBrowserPort {

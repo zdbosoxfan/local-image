@@ -26,6 +26,8 @@ class GenerationCatalogueTests(unittest.TestCase):
                     self.assertEqual(value['storage_bytes'], size)
                     self.assertEqual(value['variants'][0]['missing_bytes'], size)
                     self.assertFalse(value['variants'][0]['available'])
+                    self.assertEqual([item['name'] for item in value['variants'][0]['files']], [item['name'] for item in files])
+                    self.assertTrue(all(not item['exists'] for item in value['variants'][0]['files']))
                     self.assertTrue(value['strengths']); self.assertTrue(value['limitations'])
                     self.assertTrue(value['license']['url'].startswith('https://'))
                     self.assertEqual(value['recommended']['width'], 1024)

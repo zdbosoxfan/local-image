@@ -1,5 +1,7 @@
 import { createModelApi, type ModelApi } from './api.ts';
 import type { SetupState } from '../settings/types.ts';
+import { modelFolderSummary } from '../settings/modelDownload.ts';
+import { removalModel, REMOVAL_MODEL_ID } from '../settings/removalModel.ts';
 import type {
   BrowserModel,
   LoraDraftPort,
@@ -109,7 +111,13 @@ export function createModelsController(options: {
     );
   }
   function locked() {
-    return bridge.editorBusy() || state.pendingNative;
+    return (
+      bridge.editorBusy() ||
+      state.pendingNative ||
+      state.setup?.job?.status === 'running' ||
+      !!state.setup?.service?.starting ||
+      !!state.setup?.service?.busy
+    );
   }
   function selectModel(id: string, requestedVariant?: string) {
     const model = state.models.find(item => item.id === id);
@@ -121,9 +129,10 @@ export function createModelsController(options: {
       '';
     update({ selectedModelId: id, selectedVariant: variant });
   }
-  async function refreshModels(force = false) {
+  async function refreshModels(force = false, scan = false) {
     const token = scope('catalog');
     update({ loading: true, error: '', nativeSetup: bridge.capabilities().setup });
+    if (scan) update({ message: 'Scanning the selected model folder…' });
     const results = await Promise.allSettled([api.catalog(force), api.downloads(), api.setup(), api.hardware()]);
     if (!valid(token) || state.view !== 'models') return;
     const [catalog, downloads, setup, hardware] = results;
@@ -140,7 +149,15 @@ export function createModelsController(options: {
       }
       change.setup = { ...setup.value, ...(folderConnection ? { model_folder_connection: folderConnection } : {}) };
       options.onSetup?.(change.setup);
+      const removal = removalModel(change.setup);
+      if (removal)
+        change.models = [...(change.models || state.models).filter(model => model.id !== REMOVAL_MODEL_ID), removal];
     }
+    if (scan)
+      change.message =
+        downloads.status === 'fulfilled'
+          ? modelFolderSummary(downloads.value, change.models || state.models)
+          : 'The model folder scan failed. Try again.';
     if (hardware.status === 'fulfilled') change.hardware = hardware.value;
     change.error = results
       .filter(result => result.status === 'rejected')
@@ -172,7 +189,12 @@ export function createModelsController(options: {
     if (!model || !variant) return 'Choose a model and precision.';
     if (model.downloadable === false || variant.downloadable === false)
       return variant.download_note || model.download_note || 'Publisher access is required for this model.';
-    if (variant.available || variant.missing_bytes === 0 || disk?.installed || disk?.missing_bytes === 0)
+    if (
+      (variant.available && (disk?.missing_bytes ?? variant.missing_bytes) === undefined) ||
+      variant.missing_bytes === 0 ||
+      disk?.installed ||
+      disk?.missing_bytes === 0
+    )
       return 'Model files are already installed.';
     return '';
   }
@@ -561,6 +583,16 @@ export function createModelsController(options: {
     close,
     refreshCapabilities,
     refreshModels,
+    scanModels: () => {
+      if (
+        locked() ||
+        state.loading ||
+        state.downloads?.running ||
+        !(state.setup?.model_directory || state.downloads?.model_directory)
+      )
+        return Promise.resolve();
+      return refreshModels(true, true);
+    },
     loadInventory,
     selectedModel,
     selectedVariant,
@@ -575,6 +607,7 @@ export function createModelsController(options: {
       if (selectedModel()?.variants?.some(variant => variant.id === id)) update({ selectedVariant: id });
     },
     useModel: () => {
+      if (state.selectedModelId === REMOVAL_MODEL_ID) return;
       if (locked() || state.loading || state.downloads?.running || !selectedModel() || !selectedVariant()) return;
       const result = modelSelection.onUse?.(state.selectedModelId, state.selectedVariant);
       close();
@@ -584,7 +617,13 @@ export function createModelsController(options: {
       if (modelDownloadBlock()) return;
       const model = state.selectedModelId,
         variant = state.selectedVariant;
-      await nativeOperation(() => bridge.downloadModel(model, variant), poll);
+      await nativeOperation(
+        () =>
+          model === REMOVAL_MODEL_ID && bridge.downloadRemovalModels
+            ? bridge.downloadRemovalModels()
+            : bridge.downloadModel(model, variant),
+        model === REMOVAL_MODEL_ID ? () => refreshModels(true) : poll,
+      );
     },
     chooseModelDirectory: () => {
       if (state.downloads?.running) return;

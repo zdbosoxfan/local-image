@@ -37,8 +37,11 @@ export function createBatchApi(token: string, transport: typeof fetch = fetch) {
     queues: () => request<{ items: BatchQueue[]; bytes: number }>('/jobs'),
     queue: (id: string) => request<BatchQueue>('/jobs/' + encode(id)),
     create: (body: CreateBatchRequest) => request<BatchQueue>('/jobs', 'POST', body),
-    exportZip: (id: string, itemIds: string[]) =>
-      request<BatchQueue>('/jobs/' + encode(id) + '/export', 'POST', { item_ids: itemIds }),
+    exportZip: (id: string, itemIds: string[], namingTemplate?: string) =>
+      request<BatchQueue>('/jobs/' + encode(id) + '/export', 'POST', {
+        item_ids: itemIds,
+        ...(namingTemplate ? { naming_template: namingTemplate } : {}),
+      }),
     cancel: (id: string) => request<BatchQueue>('/jobs/' + encode(id) + '/cancel', 'POST', {}),
     resume: (id: string) => request<BatchQueue>('/jobs/' + encode(id) + '/resume', 'POST', {}),
     saveTreatment: (body: { name: string; session_id: string; revision: number; format: BatchFormat }) =>

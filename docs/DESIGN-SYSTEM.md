@@ -60,7 +60,7 @@ components, icons and tokens rather than hand-built equivalents.
 | Tool options | Options for the active tool |
 | Tool rail (left) | Move, Quick Heal, selection tools, Hand |
 | Canvas | Document bar (name, status badge, Original, Save) above the image |
-| Inspector (right) | Layers, opacity and cutout properties, or the Generate panel |
+| Inspector (right) | Shared Layers and opacity; cutout properties or generation controls below |
 | Status bar | Tool hint, status message, zoom controls |
 
 ## Code style

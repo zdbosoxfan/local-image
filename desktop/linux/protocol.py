@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import re
 import uuid
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, unquote
 
 BASE = 'http://127.0.0.1:51247'
 # A transport memory budget, shared with the Windows host. Batch selections are
@@ -49,6 +49,23 @@ def identifier(value):
     return value
 
 
+def local_drop_paths(urls):
+    """Only file-manager URLs from a native Qt drop, never page strings."""
+    paths = []
+    for value in urls:
+        try:
+            url = urlsplit(value)
+            path = unquote(url.path)
+            if (url.scheme != 'file' or url.netloc not in ('', 'localhost') or url.query or url.fragment
+                    or not path.startswith('/') or '\x00' in path):
+                return []
+            if path not in paths:
+                paths.append(path)
+        except (ValueError, TypeError):
+            return []
+    return paths
+
+
 def project_payload(message):
     revision = message.get('revision')
     if type(revision) is not int or not 0 <= revision <= 2147483647:
@@ -65,6 +82,20 @@ def batch_payload(message):
     if len(set(items)) != len(items):
         raise ValueError('Choose distinct reviewed images.')
     return job, items
+
+
+def image_export_payload(message):
+    payload = project_payload(message)
+    if message.get('format') not in ('png', 'jpg', 'tif', 'webp'):
+        raise ValueError('Choose a supported export format.')
+    name = message.get('filename')
+    if not isinstance(name, str) or not 1 <= len(name) <= 255:
+        raise ValueError('Enter an export filename.')
+    for key in ('width', 'height'):
+        if type(message.get(key)) is not int or not 1 <= message[key] <= 32768:
+            raise ValueError('Choose valid export dimensions.')
+    payload.update({key: message[key] for key in ('format', 'filename', 'width', 'height')})
+    return payload
 
 
 def trusted_download(address):

@@ -134,6 +134,19 @@
 .li-editor-dialog .fui-DialogActions > .fui-Button {
   max-width: 100%;
 }
+.li-export-fields {
+  display: grid;
+  gap: var(--spacingVerticalM);
+  min-width: 0;
+}
+.li-export-dimensions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--spacingHorizontalM);
+}
+.li-export-dimensions .fui-Input {
+  min-width: 0;
+}
 .li-editor-dialog p,
 .li-editor-dialog strong,
 .li-close-documents li {

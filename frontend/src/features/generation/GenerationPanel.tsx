@@ -18,7 +18,6 @@ import {
   TabList,
   Textarea,
 } from '@fluentui/react-components';
-import { Comparison } from './Comparison.tsx';
 import { refinementPreview } from './previewCamera.ts';
 import { DimensionControls } from './DimensionControls.tsx';
 import { Icon } from '../shell/Icon.tsx';
@@ -333,7 +332,7 @@ export function GenerationPanel({ controller }: { controller: GenerationControll
     disabled = state.working || state.context.busy || state.ejecting;
   const [recipeName, setRecipeName] = useState(''),
     [recipe, setRecipe] = useState('');
-  const [refinementStep, setRefinementStep] = useState<'draft' | 'final'>('draft');
+  const refinementStep = state.refinementStep;
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
     if (panel.current) panel.current.scrollTop = 0;
@@ -445,7 +444,7 @@ export function GenerationPanel({ controller }: { controller: GenerationControll
               size="small"
               aria-label="Refinement step"
               selectedValue={refinementStep}
-              onTabSelect={(_, data) => setRefinementStep(data.value as 'draft' | 'final')}
+              onTabSelect={(_, data) => controller.setRefinementStep(data.value as 'draft' | 'final')}
             >
               <Tab value="draft" disabled={disabled}>
                 Draft
@@ -460,7 +459,6 @@ export function GenerationPanel({ controller }: { controller: GenerationControll
           </div>
           <div className="li-refinement-workspace">
             <div className="li-refinement-viewer">
-              <Comparison document={preview.document} label={preview.label} notice={preview.notice} />
               {stageImages.length > 0 && (
                 <div
                   className="li-refinement-strip"

@@ -35,6 +35,7 @@ export type ShellCommand =
   | 'zoomIn'
   | 'zoomOut'
   | 'toggleOriginal'
+  | 'toggleInspector'
   | 'refreshView'
   | 'showHardware'
   | 'showShortcuts';
@@ -61,9 +62,8 @@ export interface ShellView extends EditorSnapshot {
 export function commandCatalog(state: ShellView): Record<ShellCommand, CommandItem> {
   const idle = !state.busy,
     visible = !!state.generationVisible,
-    editing = !!state.document && state.workspace !== 'generate';
-  const cameraAvailable =
-    !!state.document && !state.refining && !state.creatingBlank && (state.workspace !== 'generate' || visible);
+    editing = !!state.document && !state.creatingBlank;
+  const cameraAvailable = !!state.document && !state.creatingBlank && (state.workspace !== 'generate' || visible);
   const selected = state.document?.layer_stack?.find(layer => layer.id === state.selectedLayerId && !layer.discarded);
   const layers = state.document?.layer_stack ?? [],
     active = idle && editing && !state.showOriginal;
@@ -89,11 +89,11 @@ export function commandCatalog(state: ShellView): Record<ShellCommand, CommandIt
     ),
     overwrite: {
       ...item('overwrite', 'Overwrite original…', idle && visible, 'Ctrl+S'),
-      visible: !!state.document?.can_return && !state.refining && !state.creatingBlank,
+      visible: !!state.document?.can_return && !state.creatingBlank,
     },
     saveUnique: {
       ...item('saveUnique', 'Save a copy', idle && visible, 'Ctrl+Shift+S'),
-      visible: !!state.document?.can_return && !state.refining && !state.creatingBlank,
+      visible: !!state.document?.can_return && !state.creatingBlank,
     },
     exportImage: item('exportImage', 'Export a copy…', idle && visible),
     credits: { ...item('credits', 'Image credits…', idle), visible: !!state.creditsAvailable },
@@ -140,6 +140,7 @@ export function commandCatalog(state: ShellView): Record<ShellCommand, CommandIt
       checked: state.showOriginal,
     },
     refreshView: item('refreshView', 'Refresh preview', idle && cameraAvailable),
+    toggleInspector: item('toggleInspector', state.inspectorHidden ? 'Show inspector' : 'Hide inspector', idle),
     showHardware: item('showHardware', 'Hardware guide…', true),
     showShortcuts: item('showShortcuts', 'Keyboard shortcuts…', true),
   };

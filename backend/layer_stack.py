@@ -17,7 +17,7 @@ from stock_attribution import validate_attribution, validate_attributions
 
 SRGB = ImageCms.ImageCmsProfile(ImageCms.createProfile('sRGB'))
 COMMON = {'id', 'name', 'kind', 'visible', 'locked', 'discarded', 'opacity', 'transform'}
-OPTIONAL = {'patch_ids', 'source', 'cutout', 'attribution', 'reference_attributions'}
+OPTIONAL = {'patch_ids', 'source', 'cutout', 'attribution', 'reference_attributions', 'generated_session_id', 'generation'}
 
 
 def node(kind, name, **extra):
@@ -35,6 +35,14 @@ def validate_stack(stack, patches=None):
         if not isinstance(item, dict) or not COMMON <= set(item) or not set(item) <= COMMON | OPTIONAL:
             raise ValueError('Layer metadata is invalid.')
         lid = item['id']; kind = item['kind']
+        if 'generated_session_id' in item:
+            try: valid = str(uuid.UUID(item['generated_session_id'])) == item['generated_session_id']
+            except (ValueError, TypeError, AttributeError): valid = False
+            if kind != 'image' or not valid: raise ValueError('Generated layer identity is invalid.')
+        if 'generation' in item:
+            from generation_metadata import validate_generation_metadata
+            if kind != 'image' or 'generated_session_id' not in item: raise ValueError('Generated layer metadata is invalid.')
+            validate_generation_metadata(item['generation'])
         if (not isinstance(lid, str) or (lid != 'original' and not re.fullmatch('[0-9a-f]{32}', lid))
                 or lid in seen or kind not in ('original', 'retouch', 'image', 'cutout')
                 or (kind == 'original') != (lid == 'original')):

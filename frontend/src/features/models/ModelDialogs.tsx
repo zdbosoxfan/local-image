@@ -1,3 +1,5 @@
+import { ModelFiles } from './ModelFiles.tsx';
+import { REMOVAL_MODEL_ID } from '../settings/removalModel.ts';
 import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   Accordion,
@@ -130,10 +132,16 @@ function ModelBrowser({ controller, state }: { controller: ModelsController; sta
   const disk = state.downloads?.models
     ?.find(item => item.id === model?.id)
     ?.variants?.find(item => item.id === variant?.id);
-  const missing = variant?.missing_bytes ?? disk?.missing_bytes,
+  const missing = disk?.missing_bytes ?? variant?.missing_bytes,
     total = variant?.total_bytes ?? disk?.total_bytes ?? model?.storage_bytes;
-  const installed = variant?.available === true || missing === 0 || disk?.installed;
-  const locked = state.loading || state.pendingNative || !!state.downloads?.running;
+  const installed = missing === 0 || disk?.installed || (missing === undefined && variant?.available === true);
+  const locked =
+    state.loading ||
+    state.pendingNative ||
+    !!state.downloads?.running ||
+    state.setup?.job?.status === 'running' ||
+    !!state.setup?.service?.starting ||
+    !!state.setup?.service?.busy;
   const hardwareId = model?.id === 'qwen' ? `qwen-${variant?.id}` : model?.id;
   const hardware = state.hardware?.profiles?.find(item => 'id' in item && item.id === hardwareId);
   const hardwareInfo = variant?.hardware || model?.hardware;
@@ -248,6 +256,7 @@ function ModelBrowser({ controller, state }: { controller: ModelsController; sta
                 <dd>{model.recommended?.steps || model.defaults?.steps || '—'}</dd>
               </div>
             </dl>
+            <ModelFiles files={disk?.files || variant?.files || []} />
             <Accordion collapsible className="li-model-notes">
               <AccordionItem key={model.id} value="notes">
                 <AccordionHeader>Model notes and limitations</AccordionHeader>
@@ -274,14 +283,16 @@ function ModelBrowser({ controller, state }: { controller: ModelsController; sta
               </Link>
             )}
             <div className="li-models-actions">
-              <Button
-                size="small"
-                appearance="primary"
-                disabled={locked || !variant}
-                onClick={() => controller.useModel()}
-              >
-                Use this model
-              </Button>
+              {model.id !== REMOVAL_MODEL_ID && (
+                <Button
+                  size="small"
+                  appearance="primary"
+                  disabled={locked || !variant}
+                  onClick={() => controller.useModel()}
+                >
+                  Use this model
+                </Button>
+              )}
               <Button size="small" disabled={!!block} title={block} onClick={() => void controller.downloadModel()}>
                 {installed
                   ? 'Model files installed'
@@ -302,6 +313,14 @@ function ModelBrowser({ controller, state }: { controller: ModelsController; sta
             onClick={() => void controller.chooseModelDirectory()}
           >
             Models folder…
+          </Button>
+          <Button
+            id="models-scan-folder"
+            size="small"
+            disabled={locked || !(state.setup?.model_directory || state.downloads?.model_directory)}
+            onClick={() => void controller.scanModels()}
+          >
+            Scan folder for models
           </Button>
           {state.setup?.service?.can_start && !state.setup.service.running && (
             <Button
@@ -325,6 +344,17 @@ function ModelBrowser({ controller, state }: { controller: ModelsController; sta
             {state.setup.model_folder_connection.message}
           </p>
         )}
+      {state.setup?.job?.action === 'download-models' && (
+        <JobProgress
+          job={{
+            ...state.setup.job,
+            running: state.setup.job.status === 'running',
+            phase: state.setup.job.status === 'error' ? 'error' : state.setup.job.phase,
+            progress: state.setup.job.progress == null ? undefined : state.setup.job.progress / 100,
+          }}
+          label="AI Remove model download"
+        />
+      )}
       <JobProgress job={state.downloads} label="Model download" />
     </>
   );

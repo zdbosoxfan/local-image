@@ -55,7 +55,7 @@ test('shell availability respects hidden generation documents and source-save ow
   for (const id of ['fit', 'actualSize', 'zoomIn', 'zoomOut', 'toggleOriginal'] as const)
     assert.equal(commandCatalog(visible)[id].enabled, true);
   for (const id of ['fit', 'actualSize', 'zoomIn', 'zoomOut', 'toggleOriginal'] as const)
-    assert.equal(commandCatalog({ ...visible, refining: true })[id].enabled, false);
+    assert.equal(commandCatalog({ ...visible, refining: true })[id].enabled, true);
 });
 test('original and locked layers keep backend operation restrictions', () => {
   const layer = {

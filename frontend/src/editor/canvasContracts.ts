@@ -69,7 +69,7 @@ export interface CanvasPorts {
   getAcceptedDocument(): Pick<CanvasDocument, 'id' | 'revision'> | null;
   isModalOpen(): boolean;
   isMenuOpen?(): boolean;
-  /** Blank generation and refinement keep this document mounted but inactive. */
+  /** An empty generation workspace has no active canvas. */
   isEditorHidden?(): boolean;
   commitLayerTransform(value: TransformCommit & { layerId: string }): Promise<unknown>;
   commitLegacyCutoutTransform?(value: TransformCommit): Promise<unknown>;

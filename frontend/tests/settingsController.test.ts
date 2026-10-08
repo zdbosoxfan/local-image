@@ -678,3 +678,55 @@ test('failed model metadata cannot retain stale readiness or bypass publisher re
   assert.deepEqual(f.actions, []);
   f.controller.dispose();
 });
+
+test('folder scanning refreshes catalog and disk state without downloading, and FLUX removal shares model selection', async t => {
+  const f = fixture(),
+    reads: boolean[] = [];
+  t.after(() => f.controller.dispose());
+  f.setSetup({
+    model_directory: '/models',
+    models: [
+      { name: 'klein-base.safetensors', folder: 'diffusion_models', expected_bytes: 100, exists: true },
+      { name: 'vae.safetensors', folder: 'vae', expected_bytes: 10, exists: false },
+    ],
+  });
+  const catalog = f.api.modelCatalog;
+  f.api.modelCatalog = async force => {
+    reads.push(!!force);
+    return catalog(force);
+  };
+  await f.controller.open('settings', 'ai');
+  f.setDownloads({
+    running: false,
+    models: [{ id: 'qwen', variants: [{ id: 'int8', installed: true, missing_bytes: 0 }] }],
+  });
+  await f.controller.scanModels();
+  assert.equal(reads.at(-1), true);
+  assert.match(f.controller.getSnapshot().message, /Qwen/);
+  assert.deepEqual(f.actions, []);
+  f.controller.selectModel('flux2-klein-remove');
+  const selected = modelDownloadSelection(f.controller.getSnapshot());
+  assert.equal(selected.files.length, 2);
+  assert.equal(selected.missing, 10);
+  await f.controller.run('downloadModel');
+  assert.deepEqual(f.actions, ['downloadRemovalModels']);
+});
+
+test('a model ready in the connected backend can still download missing files into the selected folder', async t => {
+  const f = fixture();
+  t.after(() => f.controller.dispose());
+  f.setSetup({ model_directory: '/new-model-folder' });
+  f.setModels([
+    { id: 'qwen', label: 'Qwen', variants: [{ id: 'int8', label: 'INT8', available: true, missing_bytes: 100 }] },
+  ]);
+  f.setDownloads({
+    running: false,
+    models: [{ id: 'qwen', variants: [{ id: 'int8', missing_bytes: 100, installed: false }] }],
+  });
+  await f.controller.open('settings', 'ai');
+  assert.equal(modelDownloadSelection(f.controller.getSnapshot()).ready, true);
+  assert.equal(modelDownloadSelection(f.controller.getSnapshot()).filesPresent, false);
+  assert.equal(f.controller.modelDownloadBlock(), '');
+  await f.controller.run('downloadModel');
+  assert.deepEqual(f.actions, ['downloadModel:qwen:int8']);
+});

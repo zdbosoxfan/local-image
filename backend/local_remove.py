@@ -284,8 +284,9 @@ def decode_original(path):
     else:
         with Image.open(path) as img:
             icc = img.info.get('icc_profile')
-            preview = ImageOps.exif_transpose(img).convert('RGB')
-            data = np.asarray(ImageOps.exif_transpose(img).convert('RGBA' if 'A' in img.getbands() or 'transparency' in img.info else 'RGB')).copy()
+            oriented = ImageOps.exif_transpose(img)
+            preview = oriented.convert('RGB')
+            data = np.asarray(oriented.convert('RGBA' if 'A' in img.getbands() or 'transparency' in img.info else 'RGB')).copy()
     if icc:
         preview = ImageCms.profileToProfile(preview, ImageCms.ImageCmsProfile(io.BytesIO(icc)), SRGB, outputMode='RGB')
     return data, icc, preview
@@ -643,9 +644,26 @@ def legacy_native_pixels(data, root, raw, icc, include_cutout=True):
     return raw, icc
 
 
-def flatten(data, target, allow_8bit=False, *, root_override=None):
+def resize_native(raw, size):
+    if (raw.shape[1], raw.shape[0]) == size: return raw
+    maximum = np.iinfo(raw.dtype).max
+    alpha = raw[..., 3].astype(np.float32) / maximum if raw.shape[2] == 4 else None
+    resized_alpha = np.asarray(Image.fromarray(alpha).resize(size, Image.Resampling.LANCZOS)).clip(0, 1) if alpha is not None else None
+    channels = []
+    for channel in range(3):
+        source = raw[..., channel].astype(np.float32)
+        if alpha is not None: source *= alpha
+        value = np.asarray(Image.fromarray(source).resize(size, Image.Resampling.LANCZOS)).copy()
+        if alpha is not None: value = np.divide(value, resized_alpha, out=np.zeros_like(value), where=resized_alpha > 0)
+        channels.append(np.rint(value).clip(0, maximum).astype(raw.dtype))
+    if resized_alpha is not None: channels.append(np.rint(resized_alpha * maximum).astype(raw.dtype))
+    return np.stack(channels, axis=2)
+
+
+def flatten(data, target, allow_8bit=False, *, root_override=None, size=None):
     root = Path(root_override) if root_override is not None else folder(data['id'])
     raw, icc = native_pixels(data, root)
+    if size is not None: raw = resize_native(raw, size)
     if target.suffix.lower() in {'.jpg', '.jpeg'} and raw.shape[2] == 4 and np.any(raw[..., 3] < np.iinfo(raw.dtype).max):
         raise ValueError('JPEG cannot store transparency. Choose PNG, TIFF, or WebP, or add a solid background.')
     if target.suffix.lower() in {'.tif','.tiff'}:
@@ -845,6 +863,30 @@ async def collection(cid:str,request:Request):
     return public_collection(read_collection(cid))
 
 
+def source_thumbnail(path, size=(160, 160)):
+    """Presentation-only decoding: JPEG uses the decoder's reduced resolution.
+    No full native pixel array or recovery session is needed for the filmstrip.
+    TIFF retains its existing 16-bit-aware conversion and validation.
+    """
+    if path.suffix.lower() in {'.tif', '.tiff'}:
+        _, _, image = decode_original(path)
+        image.thumbnail(size, Image.Resampling.LANCZOS)
+        return image
+    with Image.open(path) as source:
+        icc = source.info.get('icc_profile')
+        if source.format == 'JPEG':
+            source.draft('RGB', size)
+        image = ImageOps.exif_transpose(source)
+        image.thumbnail(size, Image.Resampling.LANCZOS)
+        alpha = image.convert('RGBA').getchannel('A') if 'A' in image.getbands() or 'transparency' in image.info else None
+        image = image.convert('RGB')
+        if icc:
+            image = ImageCms.profileToProfile(image, ImageCms.ImageCmsProfile(io.BytesIO(icc)), SRGB, outputMode='RGB')
+        if alpha is not None:
+            image.putalpha(alpha)
+        return image
+
+
 @router.get('/api/local-remove/collection/{cid}/entry/{eid}/thumbnail')
 async def collection_thumbnail(cid:str,eid:str,request:Request):
     guard(request)
@@ -875,7 +917,7 @@ async def collection_thumbnail(cid:str,eid:str,request:Request):
                 if saved:
                     image=render(saved)
                 else:
-                    _,_,image=decode_original(Path(entry['path']))
+                    image=source_thumbnail(Path(entry['path']))
                 image.thumbnail((160,160),Image.Resampling.LANCZOS)
                 # Filmstrip JPEGs are presentation copies. Composite alpha only
                 # after resizing; document pixels and export rules stay intact.
@@ -1307,6 +1349,9 @@ class SaveRequest(BaseModel):
     mode:Literal['overwrite', 'unique']|None=None
     revision:int|None=Field(default=None, ge=0)
     format:OutputFormat='original'
+    filename:str|None=Field(default=None, min_length=1, max_length=255)
+    width:int|None=Field(default=None, ge=1, le=32768)
+    height:int|None=Field(default=None, ge=1, le=32768)
 
     @model_validator(mode='after')
     def require_revision(self):
@@ -1314,12 +1359,42 @@ class SaveRequest(BaseModel):
             raise ValueError('Supply the current session revision when saving.')
         if self.mode == 'unique' and self.return_to_source:
             raise ValueError('Choose either overwrite or a unique copy.')
+        if (self.width is None) != (self.height is None):
+            raise ValueError('Supply both export dimensions.')
+        if self.width is not None and self.width * self.height > 150_000_000:
+            raise ValueError('Choose an export of at most 150 megapixels.')
+        if self.filename is not None:
+            if (re.search(r'[<>:"/\\|?*\x00-\x1f]', self.filename) or self.filename.rstrip(' .') != self.filename
+                    or self.filename in {'.', '..'} or re.match(r'^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)', self.filename, re.I)):
+                raise ValueError('Choose a filename without folder paths or reserved characters.')
+            if self.format == 'original' or Path(self.filename).suffix.lower() != FORMAT_SUFFIX[self.format]:
+                raise ValueError('The filename extension must match the export format.')
+        if (self.filename is not None or self.width is not None) and (self.mode is not None or self.return_to_source or self.revision is None):
+            raise ValueError('Filename and size settings apply only to revision-checked exports.')
         return self
 
 
 @router.post('/api/local-remove/session/{sid}/save')
 async def save(sid:str,request:Request,payload:SaveRequest):
     guard(request,True)
+    return await save_image(sid, payload)
+
+
+class FolderImageExport(SaveRequest):
+    path: str
+    filename: str = Field(min_length=1, max_length=255)
+
+
+@router.post('/api/local-remove/session/{sid}/export-folder')
+async def export_image_folder(sid: str, request: Request, payload: FolderImageExport):
+    launcher_guard(request)
+    destination = Path(payload.path).resolve() / payload.filename
+    if not destination.parent.is_dir():
+        raise HTTPException(400, 'Choose an existing output folder.')
+    return await save_image(sid, payload, destination)
+
+
+async def save_image(sid, payload, export_path=None):
     async with locks.setdefault(sid,asyncio.Lock()):
         data=read_session(sid); root=folder(sid)
         if payload.revision is not None and data['revision'] != payload.revision:
@@ -1340,7 +1415,7 @@ async def save(sid:str,request:Request,payload:SaveRequest):
                 suffix=Path(data['original']).suffix if 'format' in payload.model_fields_set else ('.tif' if data['bit_depth']==16 else '.png')
             else:
                 suffix=FORMAT_SUFFIX[payload.format]
-            destination=root/('flattened'+suffix)
+            destination=export_path or root/('flattened'+suffix)
         gate=source_gate(source) if source is not None and mode != 'export' else nullcontext()
         async with gate:
             expected_hash=None
@@ -1353,12 +1428,23 @@ async def save(sid:str,request:Request,payload:SaveRequest):
                     raise HTTPException(409,'The file changed outside this session. Use Save Unique to keep both versions.')
             temporary=destination.parent/('.local-remove-'+uuid.uuid4().hex+suffix)
             try:
-                await asyncio.to_thread(flatten,data,temporary,payload.format != 'original')
+                await asyncio.to_thread(flatten,data,temporary,payload.format != 'original',
+                                        size=(payload.width, payload.height) if payload.width is not None else None)
                 rendered_hash=await asyncio.to_thread(file_hash,temporary) if mode=='overwrite' else None
                 if mode == 'unique':
                     destination=await asyncio.to_thread(publish_unique,temporary,source,suffix)
                 elif mode == 'overwrite':
                     await asyncio.to_thread(replace_verified,temporary,destination,expected_hash)
+                elif export_path is not None:
+                    try:
+                        os.link(temporary, destination)
+                    except FileExistsError:
+                        raise HTTPException(409, 'This filename already exists. Choose another export name.')
+                    except OSError:
+                        if os.name != 'nt': raise
+                        try: os.rename(temporary, destination)
+                        except FileExistsError:
+                            raise HTTPException(409, 'This filename already exists. Choose another export name.')
                 else:
                     os.replace(temporary,destination)
                 if mode == 'overwrite':
@@ -1367,6 +1453,7 @@ async def save(sid:str,request:Request,payload:SaveRequest):
                     data['last_saved_hash']=rendered_hash
                 data.update(saved_revision=data['revision'],saved_name=destination.name,last_save_mode=mode,
                             last_saved_path=str(destination),last_saved_at=time.time())
+                if mode == 'export': data['export_filename'] = payload.filename
                 write_session(root,data)
             except HTTPException:
                 raise
@@ -1374,10 +1461,10 @@ async def save(sid:str,request:Request,payload:SaveRequest):
                 raise HTTPException(400,str(error)) from error
             finally:
                 temporary.unlink(missing_ok=True)
-        result={'saved':True,'name':destination.name,'returned':mode=='overwrite','mode':mode,
+        result={'saved':True,'name':payload.filename or destination.name,'returned':mode=='overwrite','mode':mode,
                 'format':normalized_format(destination.suffix),
                 'bit_depth':16 if data['bit_depth']==16 and destination.suffix.lower() in {'.tif','.tiff'} else 8,
-                'download':f'/api/local-remove/session/{sid}/download?ext={suffix[1:]}' if mode=='export' else None,
+                'download':f'/api/local-remove/session/{sid}/download?ext={suffix[1:]}' if mode=='export' and export_path is None else None,
                 'session':public(data),'collection':None,'index':None}
         if data.get('collection_id'):
             try:
@@ -1395,7 +1482,7 @@ async def download(sid:str,request:Request,ext:str='png'):
     if ext not in {'png','jpg','jpeg','tif','tiff','webp'}: raise HTTPException(400,'Unsupported format')
     data=read_session(sid); path=folder(sid)/('flattened.'+ext)
     if not path.is_file(): raise HTTPException(404,'Flatten the image first.')
-    return FileResponse(path,filename=Path(data['name']).stem+'-removed.'+ext,headers=HEADERS)
+    return FileResponse(path,filename=data.get('export_filename') or Path(data['name']).stem+'-removed.'+ext,headers=HEADERS)
 
 
 class ProjectSaveRequest(BaseModel):
@@ -1742,6 +1829,11 @@ class GeneratedBackground(BaseModel):
     layer_id: str | None = None
 
 
+class WhiteBackground(BaseModel):
+    revision: int = Field(ge=0)
+    layer_id: str | None = None
+
+
 def cutout_session(sid, revision, require=True):
     data = read_session(sid)
     if data['revision'] != revision:
@@ -1890,6 +1982,39 @@ async def use_generated_background(sid: str, request: Request, payload: Generate
                                       generated.get('source_attribution'), collect_attributions(generated), payload.layer_id)
 
 
+@router.post('/api/local-remove/session/{sid}/stack/generated-layer')
+async def use_generated_layer(sid: str, request: Request, payload: GeneratedBackground):
+    guard(request, True)
+    validate_id(sid, 'session'); validate_id(payload.generated_session_id, 'session')
+    if sid == payload.generated_session_id:
+        raise HTTPException(400, 'Choose a separate generated result to add as a layer.')
+    async with AsyncExitStack() as stack:
+        for session_id in sorted({sid, payload.generated_session_id}):
+            await stack.enter_async_context(locks.setdefault(session_id, asyncio.Lock()))
+        data, root = checked_stack(sid, payload.revision)
+        generated = read_session(payload.generated_session_id)
+        def add():
+            existing = next((node for node in data['layer_stack'] if node.get('generated_session_id') == generated['id'] and not node['discarded']), None)
+            if existing: return public(data)
+            temporary = root / ('generated-' + uuid.uuid4().hex + '.png')
+            try:
+                flatten(generated, temporary, True)
+                image = decode_background(temporary)
+                size = (data['width'], data['height'])
+                if image.size != size:
+                    fitted = ImageOps.contain(image, size, Image.Resampling.LANCZOS)
+                    image = Image.new('RGBA', size)
+                    image.paste(fitted, ((size[0] - fitted.width) // 2, (size[1] - fitted.height) // 2))
+                layer = add_stack_image(root, data, image, generated['name'], commit=False,
+                                        attribution=generated.get('source_attribution'), reference_attributions=collect_attributions(generated))
+                data['layer_stack'].remove(layer); data['layer_stack'].append(layer)
+                layer['generated_session_id'] = generated['id']
+                if generated.get('generation'): layer['generation'] = copy.deepcopy(generated['generation'])
+                return commit_stack(root, data, layer['id'])
+            finally: temporary.unlink(missing_ok=True)
+        return await asyncio.to_thread(add)
+
+
 @router.post('/api/local-remove/session/{sid}/cutout')
 async def remove_background(sid: str, request: Request, payload: CutoutRequest):
     guard(request, True)
@@ -2009,6 +2134,20 @@ async def refine_cutout(sid: str, request: Request, payload: CutoutRefine):
             raise
         except Exception as error:
             raise HTTPException(400, 'The cutout could not be refined: ' + str(error)) from error
+
+
+@router.post('/api/local-remove/session/{sid}/cutout/white-background')
+async def add_white_background(sid: str, request: Request, payload: WhiteBackground):
+    guard(request, True)
+    async with locks.setdefault(sid, asyncio.Lock()):
+        data, root = cutout_session(sid, payload.revision)
+        def add():
+            image = Image.new('RGBA', (data['width'], data['height']), (255, 255, 255, 255))
+            return set_background_image(root, data, image, 'White background', layer_id=payload.layer_id)
+        try:
+            return await asyncio.to_thread(add)
+        except (ValueError, TypeError) as error:
+            raise HTTPException(400, 'The white background could not be added: ' + str(error)) from error
 
 
 @router.post('/api/local-remove/session/{sid}/cutout/background')

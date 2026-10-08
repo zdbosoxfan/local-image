@@ -50,6 +50,10 @@ export function createApplication(token: string) {
     focusCanvas: () => canvas.focus(),
     copy: text => navigator.clipboard.writeText(text),
     downloadCredits: () => controller?.downloadCredits(),
+    chooseExportFolder: async () => {
+      const result = await native.imageChooseExportFolder();
+      return typeof result?.directory === 'string' ? result.directory : null;
+    },
   });
   const modalOpen = () =>
     dialogs.isOpen() ||
@@ -57,7 +61,11 @@ export function createApplication(token: string) {
     !!models?.isOpen() ||
     !!batch?.isOpen() ||
     !!shell?.getSnapshot().backgroundGenerator;
-  const native = createNativeBridge({ onCloseRequest: () => controller?.closeAll() ?? false, onError: report });
+  const native = createNativeBridge({
+    onCloseRequest: () => controller?.closeAll() ?? false,
+    onDropRequest: id => controller?.acceptNativeDrop(id),
+    onError: report,
+  });
   const canvas = createCanvasController(
     {
       viewport: required('viewport'),
@@ -73,8 +81,7 @@ export function createApplication(token: string) {
       getAcceptedDocument: () => controller?.getAcceptedDocument() ?? null,
       isModalOpen: modalOpen,
       isMenuOpen: () => shell?.isMenuOpen() ?? false,
-      isEditorHidden: () =>
-        !!controller && (!!controller.getSnapshot().creatingBlank || !!controller.getSnapshot().refining),
+      isEditorHidden: () => !!controller?.getSnapshot().creatingBlank,
       commitLayerTransform: value => controller!.commitLayerTransform(value),
       commitLegacyCutoutTransform: value => controller!.commitLegacyCutoutTransform(value),
       restoreInteraction: value => controller?.restoreInteraction(value),
@@ -169,12 +176,11 @@ export function createApplication(token: string) {
     document.body.dataset.generationBlank = String(view.creatingBlank);
     document.body.dataset.assetsOpen = String(view.assetsOpen);
     mounts.tools.hidden = state.workspace === 'generate';
-    mounts.inspector.hidden = state.workspace === 'generate' || !!state.inspectorHidden;
+    mounts.inspector.hidden = !!state.inspectorHidden;
     mounts.assets.hidden = !view.assetsOpen;
-    mounts.generation.hidden = state.workspace !== 'generate';
+    mounts.generation.hidden = true;
     mounts.empty.hidden = !!state.document && !view.creatingBlank;
-    document.title =
-      state.document && !view.creatingBlank && !view.refining ? state.document.name + ' — Local Image' : 'Local Image';
+    document.title = state.document && !view.creatingBlank ? state.document.name + ' — Local Image' : 'Local Image';
   };
   const unsubscribes = [
     documents.subscribe(updateView),
@@ -193,7 +199,7 @@ export function createApplication(token: string) {
         modalOpen: modalOpen(),
         menuOpen: shellUi.isMenuOpen(),
         hasDocument: state.workspace === 'generate' ? view.generationVisible : !!state.document,
-        hiddenEditor: view.refining || view.creatingBlank,
+        hiddenEditor: view.creatingBlank,
         canReturn: !!state.document?.can_return,
         busy: state.busy,
         showOriginal: state.showOriginal,

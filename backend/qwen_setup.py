@@ -55,7 +55,7 @@ def _license(model):
 def _matching_size(path, artifact):
     try:
         sizes = [item['bytes'] for item in (artifact, *artifact.get('compatible_existing', ()))]
-        return path.is_file() and not path.is_symlink() and path.stat().st_size in sizes
+        return path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(model_directory().resolve()) and path.stat().st_size in sizes
     except OSError:
         return False
 
@@ -78,9 +78,11 @@ class QwenDownloadManager:
                 continue  # Retired presets and the upscaler are not Image Gen recommendations.
             variants = []
             for variant, files in catalog.items():
-                missing = sum(item['bytes'] for item in files
-                              if not _matching_size(root / item['folder'] / item['name'], item))
+                inventory = [{'name': item['name'], 'folder': item['folder'], 'bytes': item['bytes'],
+                              'exists': _matching_size(root / item['folder'] / item['name'], item)} for item in files]
+                missing = sum(item['bytes'] for item in inventory if not item['exists'])
                 variants.append({'id': variant, 'label': {'int8': 'Compact · INT8', 'bf16': 'Full precision · BF16', 'fp8': 'FP8 mixed'}[variant],
+                                 'files': inventory,
                                  'total_bytes': sum(item['bytes'] for item in files), 'missing_bytes': missing,
                                  'installed': missing == 0, 'files_present': missing == 0})
             models.append({'id': model, 'label': _label(model), 'variants': variants,

@@ -61,6 +61,7 @@ export interface ToolActions {
   qwenVariant(value: string): void;
   cutoutOperation(value: 'erase' | 'restore'): void;
   removeBackground(): unknown;
+  whiteBackground(): unknown;
   importBackground(): unknown;
   browseBackgrounds(): unknown;
   generateBackground(): unknown;
@@ -253,6 +254,7 @@ export function ToolOptions({
             </MenuTrigger>
             <MenuPopover data-react-owned="true">
               <MenuList>
+                <MenuItem onClick={() => actions.whiteBackground()}>Plain white</MenuItem>
                 <MenuItem onClick={() => actions.importBackground()}>Import image…</MenuItem>
                 <MenuItem onClick={() => actions.browseBackgrounds()}>Choose from Assets</MenuItem>
                 <MenuItem onClick={() => actions.generateBackground()}>Generate background…</MenuItem>

@@ -5,6 +5,7 @@ import io
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 from PIL import Image
@@ -76,6 +77,17 @@ class CollectionThumbnailTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(Path(repeated.path), Path(response.path))
         self.assertEqual(asset_hashes(root), before)
         self.assertEqual(source.read_bytes(), source_before)
+
+    async def test_unopened_jpeg_thumbnail_uses_reduced_decoder_without_native_pixel_array(self):
+        source = self.fixture.images / 'large.jpg'
+        image = Image.new('RGB', (3200, 2400), (130, 60, 20)); exif = Image.Exif(); exif[274] = 6
+        image.save(source, exif=exif)
+        before = source.read_bytes(); collection = await self.fixture.register(); entry = collection['entries'][0]
+        with patch.object(self.app, 'decode_original', side_effect=AssertionError('Filmstrip must not allocate native pixels')):
+            result = await self.app.collection_thumbnail(collection['id'], entry['id'], self.request())
+        with Image.open(result.path) as thumbnail:
+            self.assertEqual(thumbnail.size, (120, 160)); self.assertEqual(thumbnail.mode, 'RGB')
+        self.assertEqual(source.read_bytes(), before); self.assertFalse(list(self.app.SESSIONS.glob('*/session.json')))
 
     async def test_transparent_native_stack_thumbnail_mattes_only_preview_and_keeps_export_guard(self):
         source = self.fixture.images / 'precision.tif'
