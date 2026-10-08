@@ -4,7 +4,7 @@
 
 Local Image 2 is a desktop image editor for Linux and Windows, written entirely in Rust. It works the
 way Photoshop and Lightroom users expect: tools on the left, panels docked on the right, layers,
-masks, adjustment layers, PSD files, camera raw, and a Library mode for cataloguing. The AI features
+masks, adjustment layers, PSD files, camera raw, and Library and Develop modules for cataloguing and raw development. The AI features
 run on your own GPU through [ComfyUI](https://github.com/comfyanonymous/ComfyUI): no cloud account,
 no upload, no per-image bill. The internet is used only when you ask for it (installing models,
 checking for updates).
@@ -23,11 +23,16 @@ checking for updates).
 | **AI tools** | **AI Remove** brush (paint over a distraction), **AI Cutout** (Remove Background with a real alpha matte, refine, add a background), **Generative Fill**, **Generate Background**, **AI Enhance** (SeedVR2), batch background removal. |
 | **Generate** | A docked panel, after Krita AI Diffusion: Create, Edit, Fill, Refine and Upscale with any installed model, presets, reference images, LoRAs and Draft → Refine. Results become documents or layers. |
 | **Models** | An open, live model system: SD 1.5, SDXL, Pony, Illustrious, SD 3.5, FLUX.1 (Kontext, Fill), FLUX.2 and Klein, Qwen Image and Qwen Edit, Z-Image, ERNIE and HiDream are supported as data files, and installed models are recognised from their weights. The **Model Browser** finds models and LoRAs on Hugging Face, Civitai, ComfyUI's official templates and the ComfyUI-Manager list. |
-| **Library** | LightCraft's catalogue as a second mode (**Library ∣ Editor** in the title bar): import, ratings, flags, colour labels, keywords, collections and smart collections, filter bar, compare, sync, export presets, XMP sidecars, and an edit round trip into the editor. |
+| **Library and Develop** | Three modules in the title bar, as in Lightroom: **Library ∣ Develop ∣ Compositing** (⌘⌥1/2/3). Library: import or browse folders in place, ratings, flags, colour labels, keywords, collections and smart collections, filter bar, compare, sync, export presets, XMP sidecars. Develop: LightCraft's raw development with masks (quick AI Subject, Sky and Background), film negative conversion and presets. A developed photo goes to Compositing as a **Develop layer** (the original file plus its settings, no TIFF copy) that follows later edits in Develop. |
 | **Raw and export** | Camera raw through LightCraft's pipeline (16-bit ProPhoto documents), a filmstrip for working through folders (Save & Next to an `Edited` folder, Review in Library), and LightCraft's export (JPEG, PNG, TIFF, WebP, AVIF; sizes, sharpening, metadata, presets). |
 
+| Library | Develop | Compositing |
+| --- | --- | --- |
+| [![Library: a folder browsed in place in the grid](docs/images/v2/module-library.png)](docs/images/v2/module-library.png) | [![Develop: the photo with the Edit panel (Negative, Light, Color, Effects)](docs/images/v2/module-develop.png)](docs/images/v2/module-develop.png) | [![Compositing: the photo as a Develop layer in the Layers panel](docs/images/v2/module-compositing.png)](docs/images/v2/module-compositing.png) |
+
 The full tool-by-tool comparison with GIMP, Krita, Photopea and Compositor, and where each piece
-came from, is in [docs/TOOLSET.md](docs/TOOLSET.md). The interface design and the user flows it was
+came from, is in [docs/TOOLSET.md](docs/TOOLSET.md); the develop plan (darktable, RawTherapee, Capture
+One, Lightroom) is in [docs/DEVELOP-DESIGN.md](docs/DEVELOP-DESIGN.md). The interface design and the user flows it was
 tested against are in [docs/V2-DESIGN.md](docs/V2-DESIGN.md).
 
 ## Models
