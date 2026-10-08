@@ -2921,3 +2921,14 @@ cameraRaw	Blending	Fusion
 ai	Restore	Restaurer
 ai	Sampler	Échantillonneur
 ai	New	Nouveautés
+	Filmstrip shows folder	Le film fixe affiche le dossier
+	Save and next saves to	Enregistrer et suivant enregistre dans
+	Develop	Développement
+	Compositing	Composition
+	Develop photos: light, colour, detail, masks, AI selections and removal	Développer les photos : lumière, couleur, détail, masques, sélections et suppression par IA
+	Layers, retouching, compositing and every AI tool	Calques, retouche, composition et tous les outils d’IA
+	Develop…	Développer…
+	Open the Library to develop this layer	Ouvrez la bibliothèque pour développer ce calque
+	The active layer isn't a Develop layer	Le calque actif n’est pas un calque de développement
+	Updated from Develop	Mis à jour depuis Développement
+	{name} · Develop layer (double-click it to return to Develop)	{name} · calque de développement (double-cliquez pour revenir à Développement)

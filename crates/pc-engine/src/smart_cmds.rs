@@ -169,6 +169,24 @@ pub fn source_image(file_name: &str, bytes: &[u8], fmt: PixelFormat) -> Result<S
     Ok(img)
 }
 
+/// local-image: a Develop layer's source, developed with `settings` (cached by file, settings and
+/// pixel format, like [`source_image`]).
+pub fn developed_image(file_name: &str, bytes: &[u8], fmt: PixelFormat, settings: &serde_json::Value) -> Result<SourceImage> {
+    let mut h = blake3::Hasher::new();
+    h.update(bytes);
+    h.update(b"\0develop\0");
+    h.update(settings.to_string().as_bytes());
+    let key = (*h.finalize().as_bytes(), fmt);
+    if let Some(img) = cache_get(&key) {
+        return Ok(img);
+    }
+    let doc = crate::develop_layer_cmds::developed_doc(file_name, bytes, settings)?;
+    let buf = photocraft_compose::flatten(&doc);
+    let img = SourceImage { surface: Arc::new(buffer_to_surface(&buf, fmt)), bounds: doc.bounds() };
+    cache_put(key, img.clone());
+    Ok(img)
+}
+
 /// Layer › Smart Objects › Stack Mode: the source's layers (or, when it holds a single group, the
 /// group's layers) combined per pixel with `mode`. Cached like [`source_image`], keyed by mode.
 pub fn stack_image(file_name: &str, bytes: &[u8], fmt: PixelFormat, mode: photocraft_doc::StackMode) -> Result<SourceImage> {
@@ -295,9 +313,10 @@ pub fn apply_smart_filters(placed: &Surface, sm: &SmartObject, canvas: Rect) -> 
 /// linked file, or a PSD placed layer without embedded data): callers keep the existing cache.
 pub fn render(doc: &Document, sm: &SmartObject) -> Result<Option<Surface>> {
     let Some((name, bytes)) = source_bytes(&doc.metadata, &sm.source) else { return Ok(None) };
-    let img = match sm.stack_mode {
-        Some(mode) => stack_image(&name, &bytes, doc.pixel_format(), mode)?,
-        None => source_image(&name, &bytes, doc.pixel_format())?,
+    let img = match (&sm.develop, sm.stack_mode) {
+        (Some(d), _) => developed_image(&name, &bytes, doc.pixel_format(), &d.settings)?,
+        (None, Some(mode)) => stack_image(&name, &bytes, doc.pixel_format(), mode)?,
+        (None, None) => source_image(&name, &bytes, doc.pixel_format())?,
     };
     // Through the warp (source space) and the transform in one pass; whole-pixel moves are exact.
     let placed = match &sm.perspective {

@@ -296,8 +296,8 @@ fn seg_rows(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>) {
                             tl!("{size} · runs on the CPU · {licence}"),
                             &[("size", &li_ai::download::human_bytes(spec.bytes)), ("licence", spec.licence)],
                         ))
-                            .color(t.text_dim)
-                            .size(11.5),
+                        .color(t.text_dim)
+                        .size(11.5),
                     );
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| match dl {
@@ -912,8 +912,8 @@ fn model_row(ui: &mut egui::Ui, t: &Tokens, info: &catalog::ModelInfo, p: &catal
                         tl!("{best_for} · {size} · {gb} GB GPU"),
                         &[("best_for", &info.best_for), ("size", &li_ai::download::human_bytes(p.total_bytes())), ("gb", &info.vram_gb.to_string())],
                     ))
-                        .color(t.text_dim)
-                        .size(11.5),
+                    .color(t.text_dim)
+                    .size(11.5),
                 );
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -970,6 +970,7 @@ const IDS: &[&str] = &[
     "li.browseModels",
     crate::context_bar::TOGGLE_ID,
     "li.filmstrip",
+    crate::develop_layer::DEVELOP_ID,
 ];
 
 pub fn handles(id: &str) -> bool {
@@ -982,6 +983,7 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> Option<bool> {
         "li.generativeFill" => app.session.active().is_some_and(|d| d.doc.selection.is_some()),
         "li.enhance" | "li.generateBackground" => has_doc,
         "li.filmstrip" => crate::filmstrip_ui::has_folder(),
+        crate::develop_layer::DEVELOP_ID => crate::develop_layer::active_photo(app).is_some(),
         _ if handles(id) => true,
         _ => return None,
     })
@@ -1021,6 +1023,7 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Val
         "li.enhance" => dialogs_mut(|d| d.enhance = true),
         "li.localAi" | "li.aiModels" => open_local_ai(app),
         "li.filmstrip" => crate::filmstrip_ui::toggle(),
+        crate::develop_layer::DEVELOP_ID => return Some(crate::develop_layer::develop(app)),
         crate::context_bar::TOGGLE_ID => return crate::context_bar::menu(app, id),
         // `{"kind": "lora", "family": id}` opens it on a family's LoRAs.
         "li.browseModels" => match (params.get("kind").and_then(Value::as_str), params.get("family").and_then(Value::as_str)) {

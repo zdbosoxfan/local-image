@@ -2499,3 +2499,14 @@ cameraRaw	Color	Barvy
 ai	Restore	Obnovit
 ai	Sampler	Sampler
 ai	New	Nové
+	Filmstrip shows folder	Filmový pás ukazuje složku
+	Save and next saves to	Uložit a další ukládá do
+	Develop	Vyvolat
+	Compositing	Kompozice
+	Develop photos: light, colour, detail, masks, AI selections and removal	Vyvolání fotek: světlo, barvy, detaily, masky, výběry a odstranění pomocí AI
+	Layers, retouching, compositing and every AI tool	Vrstvy, retuš, kompozice a všechny nástroje AI
+	Develop…	Vyvolat…
+	Open the Library to develop this layer	Chcete-li tuto vrstvu vyvolat, otevřete knihovnu
+	The active layer isn't a Develop layer	Aktivní vrstva není vrstva vyvolání
+	Updated from Develop	Aktualizováno z modulu Vyvolat
+	{name} · Develop layer (double-click it to return to Develop)	{name} · vrstva vyvolání (dvojklikem se vrátíte do modulu Vyvolat)

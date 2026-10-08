@@ -291,18 +291,12 @@ fn start_plan(item: Item) -> Slot<Result<(Plan, Option<Value>), String>> {
         let r = (|| -> anyhow::Result<(Plan, Option<Value>)> {
             let cfg = config();
             let net = HttpNet::new(cfg.clone());
-            let info = li_ai::service()
-                .client
-                .object_info()
-                .map_err(|e| {
-                    anyhow::anyhow!(
-                        "{}",
-                        crate::i18n::fmt(
-                            tl!("Start the AI engine first: Local Image checks what ComfyUI already has. ({error})"),
-                            &[("error", &format!("{e:#}"))]
-                        )
-                    )
-                })?;
+            let info = li_ai::service().client.object_info().map_err(|e| {
+                anyhow::anyhow!(
+                    "{}",
+                    crate::i18n::fmt(tl!("Start the AI engine first: Local Image checks what ComfyUI already has. ({error})"), &[("error", &format!("{e:#}"))])
+                )
+            })?;
             let reg = li_ai::family::registry();
             if let Some(name) = &item.template {
                 let (ui, files) = browser::fetch_template(&cfg, &net, name)?;
@@ -759,8 +753,12 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
                 "package"
             };
             crate::icons::paint(ui, egui::Rect::from_center_size(pr.center() - vec2(0.0, 8.0), vec2(34.0, 34.0)), icon, 30.0, t.text_faint);
-            let fam =
-                item.family.as_deref().and_then(|f| li_ai::family::registry().family(f)).map(|f| f.label.clone()).unwrap_or_else(|| tl!("Unknown family").into());
+            let fam = item
+                .family
+                .as_deref()
+                .and_then(|f| li_ai::family::registry().family(f))
+                .map(|f| f.label.clone())
+                .unwrap_or_else(|| tl!("Unknown family").into());
             ui.painter().text(pr.center() + vec2(0.0, 22.0), egui::Align2::CENTER_CENTER, fam, egui::FontId::proportional(11.0), t.text_faint);
         }
     }
@@ -814,7 +812,12 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
         let vram = if item.template.is_some() { fam_vram } else { item.vram_gb().or(fam_vram) };
         if let Some(v) = vram.filter(|_| item.kind != Some(Kind::Lora)) {
             let fits = gpu_gb().is_none_or(|g| v <= g);
-            meta(ui, "cpu", format!("~{v:.0} GB"), if fits { tl!("Rough GPU memory to run it") } else { tl!("Rough GPU memory to run it: more than your GPU has") });
+            meta(
+                ui,
+                "cpu",
+                format!("~{v:.0} GB"),
+                if fits { tl!("Rough GPU memory to run it") } else { tl!("Rough GPU memory to run it: more than your GPU has") },
+            );
         }
     });
     let licence = match (item.license.is_empty(), item.commercial) {

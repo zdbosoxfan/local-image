@@ -1,47 +1,49 @@
-//! The Library mode: LightCraft's photo library (import, grid, loupe, compare, survey, ratings,
-//! flags, colour labels, keywords, collections, smart collections, stacks, develop, export) hosted
-//! next to the editor in one window, Lightroom-style.
+//! The modules, Lightroom-style, in one window: **Library** and **Develop** are LightCraft's photo
+//! library (import, grid, loupe, compare, survey, ratings, flags, colour labels, keywords,
+//! collections, smart collections, stacks, develop, masks, export); **Compositing** is the
+//! PhotoCraft editor (layers, retouching, every AI tool).
 //!
-//! [`Host`] owns both apps and shows one at a time. The mode switch sits in each mode's title bar.
-//! While a mode is hidden, its background work goes on (`background_tick`): library imports,
-//! exports and saves, and the editor's background jobs. Edit in Local Image (Photo › Edit in…)
-//! renders a 16-bit TIFF that is stacked with the original, then opens it in the editor in this
-//! process. Back in the Library, the edited copy is reloaded.
+//! [`Host`] owns both apps and shows one at a time. The module switch sits in each title bar
+//! (⌘⌥1 Library, ⌘⌥2 Develop, ⌘⌥3 Compositing). While a module is hidden its background work
+//! goes on (`background_tick`): library imports, exports and saves, and the editor's jobs.
 //!
-//! The library opens lazily, the first time the Library mode is shown.
+//! Moving between Develop and Compositing carries the photo across without copies: Compositing
+//! shows the photo as a **Develop layer** (the original file plus its develop settings, rendered
+//! through the same pipeline; see `photocraft_ui_egui::develop_layer`), and the layer follows the
+//! photo's develop settings whenever you come back from Develop. Double-clicking a Develop layer
+//! goes to Develop on its photo.
+//!
+//! The library opens lazily, the first time Library or Develop is shown.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use lightcraft_ui_egui::{LightcraftApp, Services, UiState};
-use photocraft_ui_egui::PhotocraftApp;
+use photocraft_ui_egui::{Module, PhotocraftApp};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Mode {
-    Editor,
-    Library,
-}
-
-/// Files the Library asked the editor to open (Edit in Local Image).
+/// Files the Library asked the editor to open (Edit in External Editor with no other editor set).
 type Opens = Arc<Mutex<Vec<String>>>;
 
 pub struct Host {
     pub editor: PhotocraftApp,
     library: Option<LightcraftApp>,
     prefs: PrefsWriter,
-    mode: Mode,
-    /// The mode whose visuals are applied to the context.
-    styled: Option<Mode>,
+    mode: Module,
+    /// The module whose visuals are applied to the context (Library and Develop share LightCraft's).
+    styled: Option<bool>,
     opens: Opens,
     frames: u64,
+    /// The Library's active photo when Compositing was last left: coming back with the same photo
+    /// returns to what was open there instead of bringing the photo forward again.
+    left_compositing_with: Option<u64>,
 }
 
 impl Host {
     pub fn new(editor: PhotocraftApp) -> Self {
         let mut editor = editor;
         editor.host_modes = std::env::var_os("LOCAL_IMAGE_NO_LIBRARY").is_none();
-        let mode = if editor.host_modes && last_mode_was_library() { Mode::Library } else { Mode::Editor };
-        Self { editor, library: None, prefs: PrefsWriter::default(), mode, styled: None, opens: Arc::default(), frames: 0 }
+        let mode = if editor.host_modes { last_module() } else { Module::Compositing };
+        Self { editor, library: None, prefs: PrefsWriter::default(), mode, styled: None, opens: Arc::default(), frames: 0, left_compositing_with: None }
     }
 
     fn library(&mut self) -> &mut LightcraftApp {
@@ -49,63 +51,157 @@ impl Host {
         self.library.get_or_insert_with(|| open_library_app(opens, &mut self.prefs))
     }
 
-    fn switch(&mut self, ctx: &egui::Context, to: Mode) {
-        if self.mode == to {
+    /// The Library's active photo: its id, file and develop settings (JSON).
+    fn active_photo(&mut self) -> Option<(u64, String, serde_json::Value, String)> {
+        let lib = self.library.as_ref()?;
+        let id = lib.session.active()?;
+        let ph = lib.session.catalog.photo(id)?;
+        let path = match &ph.source {
+            lightcraft_catalog::Source::File { path } => path.clone(),
+            _ => return None,
+        };
+        let settings = serde_json::to_value(&*ph.develop).ok()?;
+        Some((id.0, path, settings, ph.file_name.clone()))
+    }
+
+    /// Re-renders Develop layers whose photo's develop settings changed in Develop.
+    fn sync_develop_layers(&mut self) {
+        let ids = photocraft_ui_egui::develop_layer::linked_photos(&self.editor);
+        if ids.is_empty() {
             return;
         }
-        self.mode = to;
-        remember_mode(to);
-        if to == Mode::Library {
-            // Back from the editor: pick up edited copies saved there.
-            let lib = self.library();
-            let ids = std::mem::take(&mut lib.ui.external_edits);
-            if !ids.is_empty()
-                && let Ok(r) = lib.session.execute("photo.reload", &serde_json::json!({"ids": ids}))
-                && r["reloaded"].as_array().is_some_and(|a| !a.is_empty())
-            {
-                lib.toast(ctx, "Updated the edits saved in the editor");
+        let Some(lib) = self.library.as_ref() else { return };
+        let updates: Vec<(u64, serde_json::Value)> = ids
+            .into_iter()
+            .filter_map(|id| lib.session.develop_of(lightcraft_catalog::PhotoId(id)).and_then(|d| serde_json::to_value(&*d).ok()).map(|v| (id, v)))
+            .collect();
+        for (id, settings) in updates {
+            photocraft_ui_egui::develop_layer::sync(&mut self.editor, id, &settings);
+        }
+    }
+
+    fn switch(&mut self, ctx: &egui::Context, to: Module) {
+        if self.mode == to || !self.editor.host_modes {
+            return;
+        }
+        let from = self.mode;
+        if from == Module::Compositing {
+            self.left_compositing_with = self.library.as_ref().and_then(|l| l.session.active()).map(|id| id.0);
+            // A Develop layer's photo becomes the Library's active photo, so Develop opens on it.
+            if let Some(id) = photocraft_ui_egui::develop_layer::active_photo(&self.editor) {
+                let lib = self.library();
+                let _ = lib.run("library.select", serde_json::json!({ "ids": [id], "active": id }));
+                self.left_compositing_with = Some(id);
             }
         }
+        self.mode = to;
+        remember_module(to);
+        match to {
+            Module::Library | Module::Develop => {
+                let develop = to == Module::Develop;
+                let lib = self.library();
+                // Back from the editor: pick up edits saved there to files the Library shows.
+                let ids = std::mem::take(&mut lib.ui.external_edits);
+                if !ids.is_empty()
+                    && let Ok(r) = lib.session.execute("photo.reload", &serde_json::json!({"ids": ids}))
+                    && r["reloaded"].as_array().is_some_and(|a| !a.is_empty())
+                {
+                    lib.toast(ctx, "Updated the edits saved in Compositing");
+                }
+                set_library_view(lib, develop);
+            }
+            Module::Compositing => {
+                self.sync_develop_layers();
+                let photo = self.active_photo();
+                let changed = photo.as_ref().map(|p| p.0) != self.left_compositing_with || self.editor.session.documents().is_empty();
+                if let Some((id, path, settings, name)) = photo.filter(|_| changed || from == Module::Develop) {
+                    if let Err(e) = photocraft_ui_egui::develop_layer::open_photo(&mut self.editor, id, &path, &settings, &name) {
+                        self.editor.ui.status = e;
+                        self.editor.ui.status_error = true;
+                    }
+                }
+            }
+        }
+        self.styled = None;
         ctx.request_repaint();
     }
 
     fn restyle(&mut self, ctx: &egui::Context) {
-        if self.styled == Some(self.mode) {
+        let library = self.mode != Module::Compositing;
+        if self.styled == Some(library) {
             return;
         }
-        match self.mode {
-            Mode::Editor => self.editor.restyle(ctx),
-            Mode::Library => {
-                if let Some(l) = &self.library {
-                    l.restyle(ctx);
-                }
+        if library {
+            if let Some(l) = &self.library {
+                l.restyle(ctx);
             }
+        } else {
+            self.editor.restyle(ctx);
         }
-        self.styled = Some(self.mode);
+        self.styled = Some(library);
     }
+
+    /// ⌘⌥1 / ⌘⌥2 / ⌘⌥3 (Ctrl+Alt elsewhere) pick a module from anywhere.
+    fn module_keys(&mut self, ctx: &egui::Context) {
+        if !self.editor.host_modes {
+            return;
+        }
+        let picked = Module::ALL.into_iter().find(|m| ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::ALT, m.key())));
+        if let Some(m) = picked {
+            self.switch(ctx, m);
+        }
+    }
+}
+
+/// Library shows the grid (or wherever browsing was); Develop shows the active photo with the
+/// develop tools (choosing the first photo when none is active).
+fn set_library_view(lib: &mut LightcraftApp, develop: bool) {
+    use lightcraft_ui_egui::state::{RightPanel, ViewMode};
+    if develop {
+        if lib.session.active().is_none() {
+            let _ = lib.run("library.next", serde_json::json!({}));
+        }
+        lib.ui.view = ViewMode::Detail;
+        if !lib.ui.right.is_edit_tool() {
+            lib.ui.right = RightPanel::Edit;
+        }
+    } else {
+        if lib.ui.right.is_edit_tool() {
+            lib.ui.right = RightPanel::None;
+        }
+        if lib.ui.view == ViewMode::Detail {
+            lib.ui.view = ViewMode::PhotoGrid;
+        }
+    }
+}
+
+/// Which module the Library app's own navigation is in (it can enter its develop tools itself).
+fn library_module(lib: &LightcraftApp) -> Module {
+    if lib.ui.view == lightcraft_ui_egui::state::ViewMode::Detail && lib.ui.right.is_edit_tool() { Module::Develop } else { Module::Library }
 }
 
 impl eframe::App for Host {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.frames += 1;
+        self.module_keys(ctx);
         // The editor installs the fonts (a superset of the Library's) on its first frame.
-        if self.frames == 1 || self.mode == Mode::Editor {
+        if self.frames == 1 || self.mode == Module::Compositing {
             self.editor.logic(ctx, frame);
         } else {
             self.editor.background_tick(ctx);
         }
         // Quitting from the Library with unsaved documents: the editor asks about them.
-        if self.mode == Mode::Library && ctx.input(|i| i.viewport().close_requested()) && self.editor.has_unsaved() {
-            self.switch(ctx, Mode::Editor);
+        if self.mode != Module::Compositing && ctx.input(|i| i.viewport().close_requested()) && self.editor.has_unsaved() {
+            self.switch(ctx, Module::Compositing);
             self.editor.logic(ctx, frame);
         }
         let opened: Vec<String> = std::mem::take(&mut *self.opens.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         if !opened.is_empty() {
             self.editor.open_paths(&opened);
-            self.switch(ctx, Mode::Editor);
+            self.switch(ctx, Module::Compositing);
         }
-        if std::mem::take(&mut self.editor.switch_to_library) {
-            self.switch(ctx, Mode::Library);
+        if let Some(m) = self.editor.switch_module.take() {
+            self.switch(ctx, m);
             // The filmstrip's Review in Library: the folder in the Library's grid, read in place.
             if let Some(dir) = self.editor.browse_in_library.take()
                 && let Err(e) = self.library().run("library.browse", serde_json::json!({ "path": dir }))
@@ -113,9 +209,26 @@ impl eframe::App for Host {
                 log::warn!("Review in Library: {e}");
             }
         }
+        // Double-clicking a Develop layer: Develop on its photo.
+        if let Some(id) = self.editor.develop_request.take() {
+            self.left_compositing_with = Some(id);
+            let lib = self.library();
+            let _ = lib.run("library.select", serde_json::json!({ "ids": [id], "active": id }));
+            self.mode = Module::Compositing;
+            self.switch(ctx, Module::Develop);
+        }
         match self.mode {
-            Mode::Library if self.frames > 1 => {
+            Module::Library | Module::Develop if self.frames > 1 => {
                 self.library().logic(ctx);
+                // The Library's own navigation (D, G, Esc, the Edit button) moves between Library
+                // and Develop; the title bar follows.
+                if let Some(lib) = self.library.as_ref() {
+                    let now = library_module(lib);
+                    if now != self.mode {
+                        self.mode = now;
+                        remember_module(now);
+                    }
+                }
                 if let Some(lib) = self.library.as_mut() {
                     self.prefs.tick(lib, ctx);
                 }
@@ -131,20 +244,20 @@ impl eframe::App for Host {
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         match (self.mode, self.library.as_mut()) {
-            (Mode::Library, Some(lib)) => lib.raw_input_hook(raw),
+            (Module::Library | Module::Develop, Some(lib)) => lib.raw_input_hook(raw),
             _ => self.editor.raw_input_hook(ctx, raw),
         }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        if self.mode == Mode::Editor || self.library.is_none() {
+        if self.mode == Module::Compositing || self.library.is_none() {
             self.editor.ui(ui, frame);
             return;
         }
-        let title = self.library.as_ref().map(library_title).unwrap_or_default();
-        if photocraft_ui_egui::panels::library_title_bar(&mut self.editor, ui, &title) {
+        let title = self.library.as_ref().map(|l| library_title(l, self.mode)).unwrap_or_default();
+        if let Some(m) = photocraft_ui_egui::panels::library_title_bar(&mut self.editor, ui, &title, self.mode) {
             let ctx = ui.ctx().clone();
-            self.switch(&ctx, Mode::Editor);
+            self.switch(&ctx, m);
             ctx.request_repaint();
         }
         if let Some(lib) = self.library.as_mut() {
@@ -166,7 +279,12 @@ impl eframe::App for Host {
     }
 }
 
-fn library_title(lib: &LightcraftApp) -> String {
+fn library_title(lib: &LightcraftApp, module: Module) -> String {
+    if module == Module::Develop
+        && let Some(ph) = lib.session.active().and_then(|id| lib.session.catalog.photo(id))
+    {
+        return format!("Develop · {}", ph.file_name);
+    }
     let n = lib.session.catalog.len();
     format!("Library · {n} photo{}", if n == 1 { "" } else { "s" })
 }
@@ -177,18 +295,27 @@ fn config_dir() -> Option<PathBuf> {
     crate::app_dirs::config_dir()
 }
 
-/// Which mode was shown last (`<config>/mode`), so the app reopens where the user was.
-fn last_mode_was_library() -> bool {
-    config_dir().and_then(|d| std::fs::read_to_string(d.join("mode")).ok()).is_some_and(|s| s.trim() == "library")
+/// Which module was shown last (`<config>/mode`), so the app reopens where the user was. Develop
+/// reopens as Library (there may be no photo to develop yet).
+fn last_module() -> Module {
+    match config_dir().and_then(|d| std::fs::read_to_string(d.join("mode")).ok()).as_deref().map(str::trim) {
+        Some("library" | "develop") => Module::Library,
+        _ => Module::Compositing,
+    }
 }
 
-fn remember_mode(m: Mode) {
+fn remember_module(m: Module) {
     if std::env::var_os("LOCAL_IMAGE_NO_PREFS").is_some() {
         return;
     }
     if let Some(d) = config_dir() {
         let _ = std::fs::create_dir_all(&d);
-        let _ = std::fs::write(d.join("mode"), if m == Mode::Library { "library" } else { "editor" });
+        let name = match m {
+            Module::Library => "library",
+            Module::Develop => "develop",
+            Module::Compositing => "editor",
+        };
+        let _ = std::fs::write(d.join("mode"), name);
     }
 }
 

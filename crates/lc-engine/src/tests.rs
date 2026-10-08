@@ -817,3 +817,64 @@ fn face_job_follows_rotate_right() {
     let (pw, ph) = ((r.x1 - r.x0) * h, (r.y1 - r.y0) * w);
     assert!((pw - ph).abs() < 1e-6 * w.max(h), "square in rotated pixels: {pw} × {ph}");
 }
+
+/// The film negative commands: the film base picker samples the (uncropped) rim, the automatic
+/// estimates fill in the rest, each is one undo step and the result survives the settings JSON.
+#[test]
+fn negative_film_base_pick_and_auto() {
+    use lightcraft_catalog::{Photo, PhotoId, Source};
+    use lightcraft_develop::{FilmStock, Negative};
+    let mut s = demo();
+    let id = PhotoId(200);
+    let (w, h) = (120, 80);
+    let p = Photo::new(id, Source::File { path: "scan.tif".into() }, "scan.tif", "TIFF", w as u32, h as u32, "");
+    s.catalog.apply(lightcraft_catalog::Op::AddPhoto { photo: Box::new(p) }).unwrap();
+    // a colour negative scan: the orange film base on the left 10 %, a denser image to the right
+    let base = [0.8f32, 0.38, 0.17];
+    let scan =
+        lightcraft_raster::Rgb32f::from_fn(w, h, |x, y| if x < w / 10 { base } else { [0.3 - 0.002 * x as f32, 0.12 - 0.0005 * y as f32, 0.05] });
+    s.media.insert(id, crate::SourceLevel::Thumb, std::sync::Arc::new(scan));
+    s.execute("library.select", &json!({"ids": [200], "active": 200})).unwrap();
+    assert!(!active_dev(&s).negative.enabled, "off until asked for");
+
+    let r = s.execute("develop.negative.pickDmin", &json!({"x": 0.01, "y": 0.2, "w": 0.07, "h": 0.6})).unwrap();
+    let d = active_dev(&s);
+    assert!(d.negative.enabled, "picking the film base turns the conversion on");
+    for (got, want) in d.negative.dmin.to_array().into_iter().zip(base) {
+        assert!((got - want as f64).abs() < 2e-3, "{:?} vs {base:?}", d.negative.dmin);
+    }
+    assert_eq!(r["dmin"]["r"], json!(d.negative.dmin.r));
+    // reversed corners are the same area; outside the photo is an error
+    s.execute("develop.negative.pickDmin", &json!({"x": 0.08, "y": 0.8, "w": -0.07, "h": -0.6})).unwrap();
+    assert!((active_dev(&s).negative.dmin.g - base[1] as f64).abs() < 2e-3);
+    assert!(s.execute("develop.negative.pickDmin", &json!({"x": 3.0, "y": 3.0, "w": 0.1, "h": 0.1})).is_err());
+    assert!(s.execute("develop.negative.pickDmin", &json!({"y": 0.5})).is_err(), "x is required");
+
+    // automatic film range and print exposure from the image (the rim included: it is the thinnest)
+    let before = active_dev(&s).negative;
+    let r = s.execute("develop.negative.autoDmax", &json!({})).unwrap();
+    let d = active_dev(&s).negative;
+    assert!(d.d_max > 0.1 && d.d_max <= 6.0 && d.d_max != before.d_max, "{r}");
+    assert!((-1.0..=1.0).contains(&d.offset));
+    assert_eq!(d.dmin, before.dmin, "the film base is kept");
+    s.execute("develop.negative.autoExposure", &json!({})).unwrap();
+    let d = active_dev(&s).negative;
+    assert!((-0.5..=0.5).contains(&d.black) && (0.5..=2.0).contains(&d.exposure), "{d:?}");
+    // auto over an area, and all in one
+    s.execute("develop.negative.auto", &json!({"x": 0.2, "y": 0.1, "w": 0.7, "h": 0.8})).unwrap();
+    // each command is one undo step
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(active_dev(&s).negative, d);
+    // the conversion survives the settings JSON (catalog, XMP `lc:settings`)
+    let dev = active_dev(&s);
+    assert_eq!(lightcraft_develop::DevelopSettings::from_json(&dev.to_json()).unwrap(), dev);
+    // B&W film: one grey base
+    s.execute("develop.merge", &json!({"settings": {"negative": {"film": "bw"}}})).unwrap();
+    s.execute("develop.negative.pickDmin", &json!({"x": 0.02, "y": 0.5, "w": 0.05, "h": 0.1})).unwrap();
+    let n = active_dev(&s).negative;
+    assert_eq!(n.film, FilmStock::Bw);
+    assert!(n.dmin.r == n.dmin.g && n.dmin.g == n.dmin.b);
+    // develop.reset turns it off again
+    s.execute("develop.reset", &json!({})).unwrap();
+    assert_eq!(active_dev(&s).negative, Negative::default());
+}

@@ -330,3 +330,78 @@ fn soft_proof_maps_into_the_proof_gamut_and_flags_what_does_not_fit() {
     assert!(blue(&pro) > 0);
     assert!(red(&pro) < n, "ProPhoto holds more than sRGB");
 }
+
+/// The film negative conversion: off (the default) leaves every render bit-identical whatever its
+/// sliders say; on, a simulated orange-masked negative of the demo scene renders close to the
+/// scene's own render; the stage cache follows its settings.
+#[test]
+fn negative_conversion_renders() {
+    use crate::{StageCache, render_cached};
+    use lightcraft_develop::{FilmRgb, FilmStock, Negative};
+    use std::sync::Arc;
+    let info = SourceInfo::default();
+    // native size: no resampling of the scan (averaging transmittances before the non-linear
+    // conversion differs at edges from averaging the print, as with a real scan)
+    let req = RenderRequest::fit(240, 240);
+    // the positive: the demo scene as a print (display-referred, 0.01..0.7)
+    let positive = scene().map(|p| p.map(|v| (v / (1.0 + v)).clamp(0.01, 0.7)));
+    let base = render(&positive, &info, &DevelopSettings::default(), &req).image;
+    // disabled: bit-identical, also with every negative slider moved and the section toggled
+    let mut off = DevelopSettings::default();
+    off.negative = Negative {
+        enabled: false,
+        film: FilmStock::Bw,
+        d_max: 3.0,
+        offset: 0.2,
+        gamma: 6.0,
+        dmin: FilmRgb::new(0.5, 0.5, 0.5),
+        ..Negative::default()
+    };
+    assert_eq!(render(&positive, &info, &off, &req).image, base);
+    off.set_section_enabled("negative", false);
+    assert_eq!(render(&positive, &info, &off, &req).image, base);
+    // slides pass through
+    let mut slide = DevelopSettings::default();
+    slide.negative = Negative { enabled: true, film: FilmStock::Slide, ..Negative::default() };
+    assert_eq!(render(&positive, &info, &slide, &req).image, base);
+
+    // the negative of the positive: the inverse of the print model with an orange base
+    let n = Negative { enabled: true, dmin: FilmRgb::new(0.9, 0.42, 0.21), ..Negative::default() };
+    let k = crate::negative::NegParams::new(&n).unwrap();
+    let scan = positive.map(|p| {
+        std::array::from_fn(|c| {
+            let print_linear = p[c].powf(1.0 / k.gamma);
+            let corrected = ((-print_linear - k.black) / k.exposure).log10();
+            k.dmin[c] * 10f32.powf((corrected - k.offset[c]) / k.wb_high[c])
+        })
+    });
+    let neg = render(&scan, &info, &DevelopSettings::default(), &req).image;
+    let on = DevelopSettings { negative: n, ..Default::default() };
+    let converted = render(&scan, &info, &on, &req).image;
+    let diff = |a: &lightcraft_raster::Rgba8, b: &lightcraft_raster::Rgba8| {
+        a.data.iter().zip(&b.data).map(|(p, q)| (0..3).map(|c| (p[c] as i32 - q[c] as i32).abs()).max().unwrap_or(0)).max().unwrap_or(0)
+    };
+    assert!(diff(&converted, &base) <= 3, "the conversion recovers the positive: {}", diff(&converted, &base));
+    assert!(diff(&neg, &base) > 60, "the scan itself looks nothing like it");
+    // raw scans too: the print is display-referred, so it skips the scene/camera curve
+    let raw = SourceInfo { raw: true, ..SourceInfo::default() };
+    assert!(diff(&render(&scan, &raw, &on, &req).image, &base) <= 3);
+
+    // cached renders follow the conversion's settings, and slider changes while it is off are free
+    let cache = StageCache::default();
+    let src = Arc::new(scan);
+    assert_eq!(render_cached(&src, &info, &on, &req, &cache).image, converted);
+    let mut brighter = on.clone();
+    brighter.negative.exposure = 1.2;
+    let b = render_cached(&src, &info, &brighter, &req, &cache).image;
+    assert_eq!(b, render(&src, &info, &brighter, &req).image);
+    assert_ne!(b, converted);
+    assert_eq!(render_cached(&src, &info, &DevelopSettings::default(), &req, &cache).image, neg);
+    let p_off = crate::plan(&src, &info, &DevelopSettings::default(), &req).lin_key;
+    let mut moved = DevelopSettings::default();
+    moved.negative.d_max = 4.0;
+    assert_eq!(crate::plan(&src, &info, &moved, &req).lin_key, p_off);
+    assert_ne!(crate::plan(&src, &info, &on, &req).lin_key, p_off);
+    // the GPU renderer takes the conversion from the CPU
+    assert!(crate::lin_needs_cpu(&on) && !crate::lin_needs_cpu(&moved));
+}

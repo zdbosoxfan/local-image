@@ -59,10 +59,14 @@ fn camera_raw_opens_as_16_bit_with_notes() {
     assert!(r["warnings"].as_array().is_some_and(|w| w.iter().any(|m| m.as_str().is_some_and(|m| m.contains("DNG")))), "{r}");
     assert_eq!((doc(&s).size.width, doc(&s).size.height), (24, 16));
     assert_eq!(doc(&s).depth, photocraft_color::SampleType::U16);
-    // Damaged raw data is an error, not a crash.
+    // Damaged raw data never crashes: LightCraft's decoder shows what decodes (as the Library
+    // does) or reports an error.
     let mut bad = spec.build();
     bad.truncate(bad.len() / 2);
-    assert!(open_bytes_as(&mut s, "bad.dng", &bad, None, None).is_err());
+    let _ = open_bytes_as(&mut s, "bad.dng", &bad, None, None);
+    let mut worse = spec.build();
+    worse.truncate(64);
+    assert!(open_bytes_as(&mut s, "worse.dng", &worse, None, None).is_err());
 }
 
 #[test]

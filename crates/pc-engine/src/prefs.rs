@@ -223,10 +223,11 @@ pub struct Interface {
     /// Contextual Task Bar).
     pub contextual_task_bar: bool,
     /// local-image: opening a file shows the rest of its folder in the filmstrip.
-    pub filmstrip_follows_open: bool,
-    /// local-image: where the filmstrip's Save & Next writes an edited image: `edited` (a copy in
-    /// an `Edited` folder beside the originals), `overwrite` (the original file) or `ask` (Save As).
-    pub filmstrip_save_to: String,
+    pub filmstrip_shows_folder: bool,
+    /// local-image: where the filmstrip's Save & Next writes an edited image: `editedFolder` (a
+    /// copy in an `Edited` folder beside the originals), `original` (over the original file) or
+    /// `saveAs` (Save As).
+    pub save_and_next_saves_to: String,
 }
 
 impl Default for Interface {
@@ -245,8 +246,8 @@ impl Default for Interface {
             show_tooltips: true,
             show_bounding_box_when_dragging_layer: false,
             contextual_task_bar: true,
-            filmstrip_follows_open: true,
-            filmstrip_save_to: "edited".into(),
+            filmstrip_shows_folder: true,
+            save_and_next_saves_to: "editedFolder".into(),
         }
     }
 }
@@ -881,6 +882,7 @@ pub fn choices(path: &str) -> Option<&'static [&'static str]> {
         "general.colorPicker" => ColorPicker::NAMES,
         "general.imageInterpolation" => Interpolation::NAMES,
         "interface.theme" => Theme::NAMES,
+        "interface.saveAndNextSavesTo" => &["editedFolder", "original", "saveAs"],
         "interface.canvasColor" => CanvasColor::NAMES,
         "interface.canvasBorder" => CanvasBorder::NAMES,
         "interface.uiScale" => UiScale::NAMES,

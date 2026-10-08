@@ -14,6 +14,54 @@ macro_rules! tl {
     };
 }
 
+/// local-image: the app's modules, as in Lightroom's module picker: **Library** (browse, rate,
+/// organise), **Develop** (raw and photo development, masks) and **Compositing** (this editor:
+/// layers, retouching, AI tools). The host shows one at a time; the switch sits in the title bar
+/// (⌘⌥1 / ⌘⌥2 / ⌘⌥3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Module {
+    Library,
+    Develop,
+    Compositing,
+}
+
+impl Module {
+    pub const ALL: [Module; 3] = [Module::Library, Module::Develop, Module::Compositing];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Module::Library => "Library",
+            Module::Develop => "Develop",
+            Module::Compositing => "Compositing",
+        }
+    }
+
+    pub fn tip(self) -> &'static str {
+        match self {
+            Module::Library => "Browse, rate and organise your photos",
+            Module::Develop => "Develop photos: light, colour, detail, masks, AI selections and removal",
+            Module::Compositing => "Layers, retouching, compositing and every AI tool",
+        }
+    }
+
+    /// The module's shortcut digit (⌘⌥1…3, Ctrl+Alt+1…3).
+    pub fn digit(self) -> u8 {
+        match self {
+            Module::Library => 1,
+            Module::Develop => 2,
+            Module::Compositing => 3,
+        }
+    }
+
+    pub fn key(self) -> egui::Key {
+        match self {
+            Module::Library => egui::Key::Num1,
+            Module::Develop => egui::Key::Num2,
+            Module::Compositing => egui::Key::Num3,
+        }
+    }
+}
+
 pub mod actions;
 // local-image: Local Image's AI tools, Generate panel and filmstrip.
 pub mod adjust_dialog;
@@ -47,6 +95,7 @@ pub mod context_bar;
 pub mod control;
 pub mod credits;
 pub mod crop_ui;
+pub mod develop_layer;
 pub mod dialogs;
 pub mod direct_select;
 pub mod discard_ui;
@@ -362,9 +411,13 @@ pub struct PhotocraftApp {
     /// local-image: the host shows its modes (Library | Editor) in the title bar.
     pub host_modes: bool,
     /// local-image: the Library mode was asked for (the title bar's switch); the host takes it.
-    pub switch_to_library: bool,
+    /// local-image: a module the user picked in the title bar (Library, Develop, Compositing); the
+    /// host switches to it.
+    pub switch_module: Option<Module>,
     /// local-image: a folder for the Library to show (the filmstrip's Review in Library).
     pub browse_in_library: Option<String>,
+    /// local-image: a Develop layer was double-clicked: the host shows Develop on this Library photo.
+    pub develop_request: Option<u64>,
     fonts_ready: bool,
     /// Screen rect of the main canvas last frame (for overlays and the navigator).
     pub last_canvas_rect: egui::Rect,
@@ -503,8 +556,9 @@ impl PhotocraftApp {
             integrated_titlebar: false,
             custom_titlebar: false,
             host_modes: false,
-            switch_to_library: false,
+            switch_module: None,
             browse_in_library: None,
+            develop_request: None,
             fonts_ready: false,
             last_canvas_rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0)),
             drop_canvas_rect: None,

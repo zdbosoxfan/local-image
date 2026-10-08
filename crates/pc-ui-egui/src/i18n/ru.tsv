@@ -2831,3 +2831,14 @@ cameraRaw	Roughness	Неровность
 ai	Restore	Восстановить
 ai	Sampler	Сэмплер
 ai	New	Новые
+	Filmstrip shows folder	Лента показывает папку
+	Save and next saves to	«Сохранить и далее» сохраняет в
+	Develop	Обработка
+	Compositing	Монтаж
+	Develop photos: light, colour, detail, masks, AI selections and removal	Обработка фото: свет, цвет, детали, маски, выделение и удаление с помощью ИИ
+	Layers, retouching, compositing and every AI tool	Слои, ретушь, монтаж и все инструменты ИИ
+	Develop…	Обработка…
+	Open the Library to develop this layer	Откройте библиотеку, чтобы обработать этот слой
+	The active layer isn't a Develop layer	Активный слой не является слоем обработки
+	Updated from Develop	Обновлено из «Обработки»
+	{name} · Develop layer (double-click it to return to Develop)	{name} · слой обработки (дважды щёлкните, чтобы вернуться в «Обработку»)

@@ -12,9 +12,18 @@ use lightcraft_raster::{Plane, Rgb32f, par_join};
 use crate::geometry::Frame;
 use crate::{Prepared, Quality, SourceInfo, for_rows, masks, timed};
 
-/// White balance (relative to the source's as-shot white) and exposure, in place.
+/// White balance (relative to the source's as-shot white), the film negative conversion and
+/// exposure, in place.
 pub fn scene_linear_pre(img: &mut Rgb32f, info: &SourceInfo, s: &DevelopSettings) {
-    wb_gain(img, info, s, 2f32.powf(s.light.exposure as f32));
+    let gain = 2f32.powf(s.light.exposure as f32);
+    match crate::negative::params(s) {
+        Some(k) => {
+            wb_gain(img, info, s, 1.0);
+            crate::negative::apply_params(img, &k);
+            img.map_in_place(|p| p.map(|v| v * gain));
+        }
+        None => wb_gain(img, info, s, gain),
+    }
 }
 
 /// White balance only (exposure is applied by the per-pixel stage, see [`crate::Prepared`]).

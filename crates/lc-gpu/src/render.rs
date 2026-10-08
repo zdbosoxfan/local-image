@@ -683,7 +683,7 @@ fn linear(cx: &mut Cx<'_>, sampled: &Buf, info: &SourceInfo, plan: &Plan<'_>, ho
     let n = w * h;
     let s = &*plan.settings;
     let img = if lightcraft_pipeline::lin_needs_cpu(s) {
-        // defringe / spot removal: CPU
+        // film negative conversion / defringe / spot removal: CPU
         let mut img = match host.sampled.take() {
             Some(i) => i,
             None => cx.read_rgb(sampled, w, h),

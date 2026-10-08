@@ -40,6 +40,9 @@ pub fn entries(l: &Layer, multi: bool, has_selection: bool) -> Vec<Entry> {
         LayerContent::Text(_) => v.push(Some(("Rasterize Type", "layer.rasterize.type"))),
         LayerContent::Shape(_) => v.push(Some(("Rasterize Layer", "layer.rasterize.shape"))),
         LayerContent::Smart(_) => {
+            if crate::develop_layer::is_develop_layer(l) {
+                v.push(Some((tl!("Develop…"), crate::develop_layer::DEVELOP_ID)));
+            }
             v.push(Some((tl!("Edit Contents"), "layer.smartObjects.editContents")));
             v.push(Some((tl!("Convert to Layers"), "layer.smartObjects.convertToLayers")));
             v.push(Some(("Rasterize Layer", "layer.rasterize.smartObject")));

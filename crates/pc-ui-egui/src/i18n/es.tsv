@@ -2564,3 +2564,14 @@ cameraRaw	Amount	Cantidad
 ai	Restore	Restaurar
 ai	Sampler	Muestreador
 ai	New	Nuevos
+	Filmstrip shows folder	La tira de imágenes muestra la carpeta
+	Save and next saves to	Guardar y siguiente guarda en
+	Develop	Revelar
+	Compositing	Composición
+	Develop photos: light, colour, detail, masks, AI selections and removal	Revelar fotos: luz, color, detalle, máscaras, selecciones y eliminación con IA
+	Layers, retouching, compositing and every AI tool	Capas, retoque, composición y todas las herramientas de IA
+	Develop…	Revelar…
+	Open the Library to develop this layer	Abra la Biblioteca para revelar esta capa
+	The active layer isn't a Develop layer	La capa activa no es una capa de revelado
+	Updated from Develop	Actualizado desde Revelar
+	{name} · Develop layer (double-click it to return to Develop)	{name} · capa de revelado (doble clic para volver a Revelar)

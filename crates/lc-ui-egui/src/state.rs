@@ -315,7 +315,8 @@ pub struct UiState {
     pub mixer_mode: String,
     /// Selected colour grading wheel: "3way" | "shadows" | "midtones" | "highlights" | "global".
     pub grading_mode: String,
-    /// Active on-canvas tool: "", "brush", "linear", "radial", "wbPicker", "straighten", "remove".
+    /// Active on-canvas tool: "", "brush", "linear", "radial", "wbPicker", "negDmin" (film base
+    /// picker), "straighten", "remove".
     pub tool: String,
     pub brush_size: f32,
     pub brush_feather: f32,

@@ -177,10 +177,10 @@ pub struct DockLayout {
 }
 
 impl Default for DockLayout {
-    /// local-image: Essentials starts with Generate folded to its tab strip, so Layers keeps its
-    /// rows; Window › Generate (or New from Prompt) opens it.
+    /// local-image: Essentials starts without the Generate panel (Layers keeps its rows); Window ›
+    /// Generate, New from Prompt or the Home screen's prompt opens it.
     fn default() -> Self {
-        Self { order: Vec::new(), heights: BTreeMap::new(), collapsed: vec![Group::Generate] }
+        Self { order: Vec::new(), heights: BTreeMap::new(), collapsed: Vec::new() }
     }
 }
 

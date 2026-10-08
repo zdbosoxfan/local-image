@@ -701,14 +701,16 @@ fn tail_preview_shows_the_stroke_as_finishing_it_would() {
     assert!((0..60).all(|y| (0..120).all(|x| live.rgba(x, y) == done.rgba(x, y))));
     // local-image: without smoothing the spline path still lags one sample (its last segment
     // waits for the next point); the tail preview draws exactly that segment.
+    // (The spline is for hand-drawn strokes: `freehand`.)
+    let freehand = BrushSettings { freehand: true, ..brush() };
     let mut live = pre.clone();
-    let mut r = StrokeRenderer::new(&brush(), Some(fmt), 1.0);
+    let mut r = StrokeRenderer::new(&freehand, Some(fmt), 1.0);
     r.push(&pts);
     r.composite(&pre, &mut live, None, false, false);
     let mut tail = r.tail_preview().expect("the spline's last segment");
     tail.composite(&pre, &mut live, None, false, false);
     let mut done = pre.clone();
-    render_stroke(&mut done, &brush(), &pts, None, false, 1.0);
+    render_stroke(&mut done, &freehand, &pts, None, false, 1.0);
     assert!((0..60).all(|y| (0..120).all(|x| live.rgba(x, y) == done.rgba(x, y))));
 }
 

@@ -18,7 +18,8 @@ fn dng_opens_as_16_bit_prophoto() {
     assert_eq!(d.depth, SampleType::U16);
     assert_eq!(d.layers.len(), 1);
     let icc = d.icc_profile.as_ref().expect("profile");
-    assert_eq!(icc.as_slice(), &photocraft_cms::Builtin::ProPhotoCompat.profile().to_bytes()[..]);
+    // local-image: developed by LightCraft's pipeline, tagged with its ProPhoto profile.
+    assert_eq!(icc.as_slice(), &lightcraft_codecs::icc::write_named(lightcraft_codecs::NamedSpace::ProPhoto)[..]);
     assert!(r.warnings.iter().any(|w| w.contains("DNG") && w.contains("ProPhoto")), "{:?}", r.warnings);
 }
 

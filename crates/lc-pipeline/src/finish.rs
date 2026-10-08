@@ -221,7 +221,10 @@ impl FinishParams {
         FinishParams {
             calib: if calibration { crate::colorops::calibration_matrix(&s.calibration) } else { None },
             shadow_tint: if calibration { (s.calibration.shadows_tint / 100.0) as f32 } else { 0.0 },
-            tone: if let Some(curve) = info.camera_tone.as_ref().filter(|_| info.raw) {
+            // a converted negative is already a print (display-referred): no camera / scene curve
+            tone: if crate::negative::converts(s) {
+                ToneMap::display(s.light.contrast, s.light.whites, s.light.blacks)
+            } else if let Some(curve) = info.camera_tone.as_ref().filter(|_| info.raw) {
                 ToneMap::camera(curve, s.light.contrast, s.light.whites, s.light.blacks)
             } else if info.raw {
                 ToneMap::new(s.light.contrast, s.light.whites, s.light.blacks)

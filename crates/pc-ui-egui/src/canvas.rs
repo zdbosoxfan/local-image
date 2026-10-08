@@ -3477,8 +3477,8 @@ mod tests {
         s.execute("tools.setBrush", json!({"brush": {"size": 16, "hardness": 0.5, "smoothing": {"amount": 0.5}}})).unwrap();
         let mut pts = vec![json!([10.0, 40.0, 1.0])];
         pts.extend(xs.iter().map(|&x| json!([x, 40.0 + (x / 7.0).sin() * 8.0, 1.0])));
-        // (Round tips without dynamics draw the same for any seed.)
-        s.execute("paint.stroke", json!({"points": pts, "seed": 0})).unwrap();
+        // (Round tips without dynamics draw the same for any seed; canvas strokes are freehand.)
+        s.execute("paint.stroke", json!({"points": pts, "seed": 0, "freehand": true})).unwrap();
         assert!(same_pixels(&s.active().unwrap().doc, &done));
     }
 

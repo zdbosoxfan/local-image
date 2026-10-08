@@ -36,6 +36,11 @@ pub struct DevelopSettings {
     pub enhance: Enhance,
     /// Camera calibration: shadows tint and primary hue/saturation (applied before tone mapping).
     pub calibration: Calibration,
+    /// Film negative conversion (scanned colour / B&W negatives). Left out of the JSON while it is
+    /// at its defaults, so settings (and their hashes, XMP sidecars) written before it existed are
+    /// unchanged; [`DevelopSettings::to_json_full`] includes it.
+    #[serde(skip_serializing_if = "Negative::is_default")]
+    pub negative: Negative,
     /// Section on/off toggles (the "eye" buttons on panel headers): section id → enabled.
     pub disabled_sections: Vec<String>,
 }
@@ -68,6 +73,7 @@ impl Default for DevelopSettings {
             lens_blur: LensBlur::default(),
             enhance: Enhance::default(),
             calibration: Calibration::default(),
+            negative: Negative::default(),
             disabled_sections: Vec::new(),
         }
     }
@@ -408,6 +414,112 @@ impl Calibration {
     }
     pub fn is_neutral(&self) -> bool {
         *self == Calibration::default()
+    }
+}
+
+/// What kind of film a scan shows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FilmStock {
+    /// Colour negative (orange mask): per-channel film base.
+    #[default]
+    Color,
+    /// Black & white negative: one film base density for all channels.
+    Bw,
+    /// Slide (positive transparency): nothing to invert, the scan passes through unchanged.
+    Slide,
+}
+
+impl FilmStock {
+    pub const ALL: [FilmStock; 3] = [FilmStock::Color, FilmStock::Bw, FilmStock::Slide];
+    pub fn label(self) -> &'static str {
+        match self {
+            FilmStock::Color => "Color",
+            FilmStock::Bw => "B&W",
+            FilmStock::Slide => "Slide",
+        }
+    }
+}
+
+/// An RGB triple of film parameters (linear Rec.2020 working space).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FilmRgb {
+    pub r: f64,
+    pub g: f64,
+    pub b: f64,
+}
+
+impl FilmRgb {
+    pub const ONE: FilmRgb = FilmRgb { r: 1.0, g: 1.0, b: 1.0 };
+    pub const fn new(r: f64, g: f64, b: f64) -> FilmRgb {
+        FilmRgb { r, g, b }
+    }
+    pub fn to_array(self) -> [f64; 3] {
+        [self.r, self.g, self.b]
+    }
+    pub fn from_array(a: [f64; 3]) -> FilmRgb {
+        FilmRgb { r: a[0], g: a[1], b: a[2] }
+    }
+}
+
+impl Default for FilmRgb {
+    fn default() -> Self {
+        FilmRgb::ONE
+    }
+}
+
+/// Film negative conversion: inverts a scanned negative and simulates printing it on paper (a port
+/// of darktable's *negadoctor*; units, ranges and defaults are negadoctor's). Applied to the
+/// white-balanced scene-linear scan, before every tone and colour operation.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Negative {
+    /// Off by default: photos are untouched until a negative is switched on.
+    pub enabled: bool,
+    pub film: FilmStock,
+    /// D-min: the colour of the unexposed film base (the scan's transmittance there), 0.00001..1.5
+    /// per channel. B&W film uses the red component for all channels.
+    pub dmin: FilmRgb,
+    /// D-max: the film's dynamic range (maximum density above the base), 0.1..6.
+    pub d_max: f64,
+    /// Scan exposure bias: a density offset correcting the scanner exposure, −1..1.
+    pub offset: f64,
+    /// Paper black: the print's black density correction, −0.5..0.5.
+    pub black: f64,
+    /// Paper grade (gamma), 1..8.
+    pub gamma: f64,
+    /// Paper gloss: highlights above this print value roll off softly, 0.0001..1.
+    pub soft_clip: f64,
+    /// Print exposure: a gain on the print, 0.5..2.
+    pub exposure: f64,
+    /// Highlights white balance (illuminant gain per channel), 0.25..2.
+    pub wb_high: FilmRgb,
+    /// Shadows colour cast (offset per channel), 0.25..2.
+    pub wb_low: FilmRgb,
+}
+
+impl Default for Negative {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            film: FilmStock::Color,
+            dmin: FilmRgb::new(1.0, 0.45, 0.25),
+            d_max: 2.046,
+            offset: -0.05,
+            black: 0.0755,
+            gamma: 4.0,
+            soft_clip: 0.75,
+            exposure: 0.9245,
+            wb_high: FilmRgb::ONE,
+            wb_low: FilmRgb::ONE,
+        }
+    }
+}
+
+impl Negative {
+    pub fn is_default(&self) -> bool {
+        *self == Negative::default()
     }
 }
 

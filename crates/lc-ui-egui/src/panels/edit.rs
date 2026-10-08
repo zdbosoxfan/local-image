@@ -154,6 +154,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         ui.add_space(6.0);
     }
     divider(ui);
+    // film negative conversion: first, since it changes what every section below works on
+    negative_section(app, ui, &d);
 
     section(app, ui, &d, "light", "Light", |app, ui, d| {
         for c in ["light.exposure", "light.contrast", "light.highlights", "light.shadows", "light.whites", "light.blacks"] {
@@ -340,6 +342,155 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         ui.add_space(8.0);
     });
     ui.add_space(40.0);
+}
+
+/// The Negative section (film negative conversion, a port of darktable's negadoctor): film stock,
+/// film base colour with its picker, film range, virtual paper and print, colour cast correction.
+/// The header's eye button (and the Convert Negative checkbox) is the conversion's on/off switch.
+fn negative_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
+    use lightcraft_develop::FilmStock;
+    let t = Tokens::get(ui.ctx());
+    let n = d.negative;
+    let on = n.enabled && d.section_enabled("negative");
+    let set_on = |app: &mut LightcraftApp, on: bool| {
+        let _ = app.run("develop.merge", json!({"settings": {"negative": {"enabled": on}}, "label": "Negative"}));
+        if on && !app.session.active().and_then(|id| app.session.develop_of(id)).is_some_and(|d| d.section_enabled("negative")) {
+            let _ = app.run("develop.sectionEnabled", json!({"section": "negative", "enabled": true}));
+        }
+    };
+    let open = app.ui.section_open("negative");
+    // (the eye shows once a conversion is set up: most photos are not negatives, and a crossed-out
+    // eye on every one of them would read as a hidden section)
+    let (resp, toggled) = section_header(ui, "negative", "Negative", open, n.enabled.then_some(on));
+    if let Some(v) = toggled {
+        set_on(app, v);
+    } else if resp.clicked() {
+        app.ui.toggle_section("negative");
+    }
+    if !open {
+        divider(ui);
+        return;
+    }
+    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 4 }).show(ui, |ui| {
+        let mut v = on;
+        let r = ui.checkbox(&mut v, crate::i18n::tr("Convert Negative"));
+        register(ui.ctx(), "negative:enabled", r.rect);
+        if r.changed() {
+            set_on(app, v);
+        }
+    });
+    // film stock
+    let stocks: Vec<(&str, &str)> = FilmStock::ALL
+        .iter()
+        .map(|f| {
+            (
+                f.label(),
+                match f {
+                    FilmStock::Color => "color",
+                    FilmStock::Bw => "bw",
+                    FilmStock::Slide => "slide",
+                },
+            )
+        })
+        .collect();
+    let mut chosen = None;
+    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 4 }).show(ui, |ui| {
+        ui.label(egui::RichText::new(crate::i18n::tr("Film")).font(t.font(13.0)).color(t.text_dim));
+        chosen = crate::widgets::segmented(ui, "negativeFilm", &stocks, FilmStock::ALL.iter().position(|f| *f == n.film), 3);
+    });
+    if let Some(i) = chosen {
+        let _ = app.run("develop.merge", json!({"settings": {"negative": {"film": stocks[i].1}}, "label": "Film"}));
+    }
+    if n.film == FilmStock::Slide {
+        egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 10 }).show(ui, |ui| {
+            ui.label(egui::RichText::new(crate::i18n::tr("Slides are positives: the scan is used as it is.")).size(11.0).color(t.text_dim));
+        });
+        divider(ui);
+        return;
+    }
+    // film base: swatch, picker, components
+    sub_title(ui, "Film Base");
+    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 0, bottom: 4 }).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            let base = match n.film {
+                FilmStock::Bw => [n.dmin.r; 3],
+                _ => n.dmin.to_array(),
+            };
+            let srgb = lightcraft_color::REC2020.to_space(&lightcraft_color::SRGB).apply(base);
+            let enc = srgb.map(|v| lightcraft_color::transfer::encode_srgb8(v.clamp(0.0, 1.0) as f32));
+            let (r, _) = ui.allocate_exact_size(vec2(40.0, 24.0), Sense::hover());
+            register(ui.ctx(), "negative:filmBase", r);
+            ui.painter().rect_filled(r, 3.0, Color32::from_rgb(enc[0], enc[1], enc[2]));
+            ui.painter().rect_stroke(r, 3.0, Stroke::new(1.0, t.button_border), egui::StrokeKind::Inside);
+            let picking = app.ui.tool == "negDmin";
+            if text_button(ui, "negativePickBase", "Pick from the Film Rim", picking)
+                .on_hover_text(crate::i18n::tr("Drag over the unexposed film rim (or click it) to set the film base colour"))
+                .clicked()
+            {
+                app.ui.tool = if picking { String::new() } else { "negDmin".into() };
+            }
+        });
+    });
+    if n.film == FilmStock::Bw {
+        if let Some(spec) = controls::find("negative.dminR") {
+            let out = slider(ui, spec, n.dmin.r, on, Some("Film Base"));
+            apply_slider_out(app, spec, out, |app, v| {
+                app.run("develop.set", json!({"values": {"negative.dminR": v, "negative.dminG": v, "negative.dminB": v}}))
+            });
+        }
+    } else {
+        for c in ["negative.dminR", "negative.dminG", "negative.dminB"] {
+            control(app, ui, d, c, on);
+        }
+    }
+    // the film's density range and the scanner's exposure
+    let auto_clicked = |ui: &mut egui::Ui, title: &str, key: &str, tip: &str| -> bool {
+        let mut clicked = false;
+        egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 8, bottom: 2 }).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(crate::i18n::tr(title)).font(t.semibold(13.0)).color(t.text_label));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    clicked = text_button(ui, key, "Auto", false).on_hover_text(crate::i18n::tr(tip)).clicked();
+                });
+            });
+        });
+        clicked
+    };
+    let run_auto = |app: &mut LightcraftApp, ui: &egui::Ui, command: &str| {
+        if let Err(e) = app.run(command, json!({})) {
+            app.toast(ui.ctx(), e);
+        }
+    };
+    if auto_clicked(ui, "Film Range", "negativeAutoDmax", "Estimate D-max and the scan exposure from the photo (crop away the film rim first)") {
+        run_auto(app, ui, "develop.negative.autoDmax");
+    }
+    for c in ["negative.dMax", "negative.offset"] {
+        control(app, ui, d, c, on);
+    }
+    if auto_clicked(ui, "Virtual Print", "negativeAutoPrint", "Estimate paper black and print exposure so the print spans black to white") {
+        run_auto(app, ui, "develop.negative.autoExposure");
+    }
+    for c in ["negative.black", "negative.gamma", "negative.softClip", "negative.exposure"] {
+        control(app, ui, d, c, on);
+    }
+    // colour cast correction (white balance of the print's shadows and highlights)
+    ui.add_space(6.0);
+    let fly = app.ui.flyout_open("negativeColor");
+    if flyout_row(ui, "negativeColor", "Color Correction", Icon::Picker, fly).clicked() {
+        app.ui.toggle_flyout("negativeColor");
+    }
+    if fly {
+        sub_title(ui, "Shadows");
+        for c in ["negative.wbLowR", "negative.wbLowG", "negative.wbLowB"] {
+            control(app, ui, d, c, on);
+        }
+        sub_title(ui, "Highlights");
+        for c in ["negative.wbHighR", "negative.wbHighG", "negative.wbHighB"] {
+            control(app, ui, d, c, on);
+        }
+    }
+    ui.add_space(8.0);
+    divider(ui);
 }
 
 /// The profile dropdown: Favorites, Recent, one submenu per group, then favourite toggle and

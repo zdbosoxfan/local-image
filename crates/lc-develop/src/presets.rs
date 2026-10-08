@@ -33,10 +33,11 @@ pub enum SettingsGroup {
     RedEye,
     LensBlur,
     Calibration,
+    Negative,
 }
 
 impl SettingsGroup {
-    pub const ALL: [SettingsGroup; 20] = [
+    pub const ALL: [SettingsGroup; 21] = [
         SettingsGroup::Profile,
         SettingsGroup::Treatment,
         SettingsGroup::WhiteBalance,
@@ -57,6 +58,7 @@ impl SettingsGroup {
         SettingsGroup::RedEye,
         SettingsGroup::LensBlur,
         SettingsGroup::Calibration,
+        SettingsGroup::Negative,
     ];
 
     /// Groups included by default when copying (Lightroom excludes crop, masks and spots by default).
@@ -89,6 +91,7 @@ impl SettingsGroup {
             SettingsGroup::RedEye => "Red Eye",
             SettingsGroup::LensBlur => "Lens Blur",
             SettingsGroup::Calibration => "Calibration",
+            SettingsGroup::Negative => "Negative",
         }
     }
 
@@ -115,13 +118,16 @@ impl SettingsGroup {
             SettingsGroup::RedEye => &["red_eye"],
             SettingsGroup::LensBlur => &["lens_blur"],
             SettingsGroup::Calibration => &["calibration"],
+            SettingsGroup::Negative => &["negative"],
         }
     }
 }
 
 /// The subset of `s` covering `groups`, as a partial JSON object.
 pub fn extract_groups(s: &DevelopSettings, groups: &[SettingsGroup]) -> Value {
-    let full = s.to_json();
+    // (with the sections left out of the JSON at their defaults: copying a photo without a
+    // negative conversion onto one with it turns it off there)
+    let full = s.to_json_full();
     let mut out = Map::new();
     for g in groups {
         for k in g.keys() {
@@ -179,7 +185,7 @@ fn scale_patch(base: &Value, patch: &Value, t: f64) -> Value {
 /// Apply a partial settings object with an amount (1.0 = 100 %). Out-of-range values are clamped
 /// through the control specs.
 pub fn apply_partial(s: &DevelopSettings, partial: &Value, amount: f64) -> DevelopSettings {
-    let base = s.to_json();
+    let base = s.to_json_full();
     let patch = if (amount - 1.0).abs() < 1e-9 { partial.clone() } else { scale_patch(&base, partial, amount) };
     let mut out = s.merged(&patch).unwrap_or_else(|_| s.clone());
     for c in crate::controls::CONTROLS {

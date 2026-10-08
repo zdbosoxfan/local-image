@@ -53,9 +53,25 @@ fn select_sky(s: &mut Session, p: &Value) -> Result<Value> {
     let params = SkyParams { threshold: f(p, "threshold", 50.0) as f32, softness: f(p, "softness", 50.0) as f32 };
     let all = p.get("sampleAllLayers").and_then(Value::as_bool).unwrap_or(true);
     let layer = d.active_layer.and_then(|id| doc.layer(id)).and_then(|l| l.surface());
-    let region = match (all, layer) {
-        (false, Some(surf)) => sky::select_sky(&SurfaceSampler(surf), canvas, params),
-        _ => sky::select_sky(&CompositeSampler(&doc), canvas, params),
+    // local-image: the quick sky model when installed (`"engine": "auto|learned|classic"`), else
+    // PhotoCraft's classical sky detector.
+    let learned = match p.get("engine").and_then(Value::as_str).unwrap_or("auto") {
+        "classic" => false,
+        "learned" if crate::seg::sky_installed().is_none() => {
+            return Err(EngineError::BadParams { cmd: "select.sky".into(), msg: "no sky model is installed (Help › AI Models & GPU…)".into() });
+        }
+        _ => crate::seg::sky_installed().is_some(),
+    };
+    let region = if learned {
+        crate::seg::sky_probability(&doc, d.active_layer, all || layer.is_none()).and_then(|(area, mut prob)| {
+            crate::seg::shape(&mut prob, params.threshold, params.softness);
+            crate::seg::region(area, &prob)
+        })
+    } else {
+        match (all, layer) {
+            (false, Some(surf)) => sky::select_sky(&SurfaceSampler(surf), canvas, params),
+            _ => sky::select_sky(&CompositeSampler(&doc), canvas, params),
+        }
     };
     let m = p.get("mode").and_then(Value::as_str).unwrap_or("replace");
     let m = SelectionMode::parse(if m == "new" { "replace" } else { m });
@@ -216,7 +232,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Sky",
             menu: &["Select"],
             shortcut: None,
-            params: r##"{"mode":"replace|add|subtract|intersect"="replace","sampleAllLayers":bool=true,"threshold":0..100=50 (higher = stricter),"softness":0..100=50 (edge softness)} → {selected, changed, coverage (0–1 of the canvas), bounds [x,y,w,h]}"##,
+            params: r##"{"mode":"replace|add|subtract|intersect"="replace","sampleAllLayers":bool=true,"threshold":0..100=50 (higher = stricter),"softness":0..100=50 (edge softness),"engine":"auto|learned|classic"="auto" (the quick sky model when installed)} → {selected, changed, coverage (0–1 of the canvas), bounds [x,y,w,h]}"##,
             enabled: has_doc,
             run: select_sky,
             journal: true,

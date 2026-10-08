@@ -8,12 +8,12 @@ use serde_json::{Value, json};
 use super::{CommandSpec, always, bad, bool_or, cmd, f64_or, f64_req, has_active, has_clipboard, has_selection, ok, str_param};
 use crate::{Result, Session, media::SourceLevel};
 
-fn active(s: &Session, c: &str) -> Result<PhotoId> {
+pub(super) fn active(s: &Session, c: &str) -> Result<PhotoId> {
     s.active().ok_or_else(|| bad(c, "no active photo"))
 }
 
 /// Modify the active photo's settings with `f` and commit (or preview during an interaction).
-fn edit(s: &mut Session, c: &str, label: &str, f: impl FnOnce(&mut DevelopSettings) -> Result<()>) -> Result<Value> {
+pub(super) fn edit(s: &mut Session, c: &str, label: &str, f: impl FnOnce(&mut DevelopSettings) -> Result<()>) -> Result<Value> {
     let id = active(s, c)?;
     let mut d = (*s.develop_of(id).unwrap_or_default()).clone();
     f(&mut d)?;

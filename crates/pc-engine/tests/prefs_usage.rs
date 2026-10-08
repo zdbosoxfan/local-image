@@ -92,13 +92,22 @@ fn inherent_impls(src: &str, name: &str) -> String {
 #[test]
 fn every_preference_is_read_or_hidden() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let prefs_rs = std::fs::read_to_string(root.join("crates/engine/src/prefs.rs")).unwrap();
+    let prefs_rs = std::fs::read_to_string(root.join("crates/pc-engine/src/prefs.rs")).unwrap();
     let mut files = Vec::new();
     rust_sources(&root.join("crates"), &mut files);
     rust_sources(&root.join("apps"), &mut files);
+    // local-image: only the code that can read these preferences (Compositing's `pc-*` crates, the
+    // AI crates and the apps); the Library's `lc-*` crates have their own settings, and their
+    // field names (`color_picker`, `general`…) would read as false matches.
+    let reads_prefs = |p: &Path| {
+        let rel = p.strip_prefix(&root).unwrap_or(p).to_string_lossy().replace('\\', "/");
+        let test_file = rel.ends_with("/tests.rs") || rel.ends_with("_tests.rs") || rel.contains("/tests/") || rel.contains("/benches/");
+        !test_file && (rel.starts_with("apps/") || rel.starts_with("crates/pc-") || rel.starts_with("crates/li-"))
+    };
     let sources: Vec<String> = files
         .iter()
-        .filter(|p| !p.ends_with("engine/src/prefs.rs"))
+        .filter(|p| reads_prefs(p))
+        .filter(|p| !p.ends_with("pc-engine/src/prefs.rs"))
         .filter_map(|p| std::fs::read_to_string(p).ok())
         .map(|t| production(&t).to_string())
         .collect();

@@ -30,6 +30,7 @@ photocraft-ui-egui = { workspace = true }
 # The Library mode: LightCraft's catalog and its UI (library_host.rs).
 lightcraft-ui-egui = { workspace = true }
 lightcraft-engine = { workspace = true }
+lightcraft-catalog = { workspace = true }
 lightcraft-raster = { workspace = true }
 lightcraft-codecs = { workspace = true }
 # Pen tablet pressure/tilt on macOS and X11 (the workspace's one isolated unsafe helper crate).

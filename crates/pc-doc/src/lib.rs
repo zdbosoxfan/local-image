@@ -378,6 +378,20 @@ pub struct SmartObject {
     /// full projective map from source pixels to document pixels, row-major 3×3. It overrides
     /// `transform`, which then holds its affine approximation at the source origin.
     pub perspective: Option<[f64; 9]>,
+    /// local-image: a **Develop layer**: the source is developed with these settings (LightCraft's
+    /// pipeline: raw files stay raw) instead of decoded as is.
+    pub develop: Option<DevelopLink>,
+}
+
+/// local-image: what makes a smart object a Develop layer: the develop settings (LightCraft's
+/// `DevelopSettings` as JSON, so this crate needn't know them) and, when it came from the
+/// Library, the photo it follows: coming back from Develop re-renders the layer with the photo's
+/// current settings.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DevelopLink {
+    pub settings: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub photo: Option<u64>,
 }
 
 impl SmartObject {
@@ -393,6 +407,7 @@ impl SmartObject {
             filter_mask: None,
             warp: None,
             stack_mode: None,
+            develop: None,
             perspective: None,
         }
     }

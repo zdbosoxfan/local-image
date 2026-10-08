@@ -31,7 +31,7 @@ fn percentile(sorted: &[f32], q: f32) -> f32 {
 /// Compute auto tone values for `src` under the current white balance (ignores current tone values).
 pub fn auto_tone(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> AutoTone {
     let mut img = lightcraft_raster::resample::fit(src, 512, 512, lightcraft_raster::resample::Filter::Box);
-    let mut base = DevelopSettings { wb: s.wb, ..DevelopSettings::default() };
+    let mut base = DevelopSettings { wb: s.wb, negative: s.negative, disabled_sections: s.disabled_sections.clone(), ..DevelopSettings::default() };
     base.light.exposure = 0.0;
     crate::local::scene_linear_pre(&mut img, info, &base);
     let mut ev: Vec<f32> = img.data.iter().map(|c| (luminance_2020(*c).max(1e-6) / 0.18).log2()).collect();
@@ -65,7 +65,13 @@ pub fn auto_tone(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> AutoTo
 pub fn auto_bw_mix(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> [f64; 8] {
     use lightcraft_color::perceptual::{lab_to_lch, oklab_from_2020};
     let mut img = lightcraft_raster::resample::fit(src, 512, 512, lightcraft_raster::resample::Filter::Box);
-    let base = DevelopSettings { wb: s.wb, light: s.light, ..DevelopSettings::default() };
+    let base = DevelopSettings {
+        wb: s.wb,
+        light: s.light,
+        negative: s.negative,
+        disabled_sections: s.disabled_sections.clone(),
+        ..DevelopSettings::default()
+    };
     crate::local::scene_linear_pre(&mut img, info, &base);
     let gain = 2f32.powf(base.light.exposure as f32);
     let (mut mass, mut sum_l) = ([0f64; 8], [0f64; 8]);

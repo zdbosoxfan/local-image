@@ -243,8 +243,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         Err(why) => crate::i18n::fmt(tl!("AI Remove isn't ready: {why}"), &[("why", why)]),
                     };
                     if what == Context::Path {
-                        if bar_button(ui, "square-dashed", tl!("Make Selection"), false, true, &t).on_hover_text(&make_selection_tip).clicked()
-                        {
+                        if bar_button(ui, "square-dashed", tl!("Make Selection"), false, true, &t).on_hover_text(&make_selection_tip).clicked() {
                             action = Some("path.select");
                         }
                         divider(ui, &t);
@@ -256,13 +255,14 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     {
                         action = Some("remove");
                     }
-                    if bar_button(ui, "sparkles", tl!("Generative Fill"), false, true, &t).on_hover_text(tl!("Regenerate the area from a description")).clicked() {
+                    if bar_button(ui, "sparkles", tl!("Generative Fill"), false, true, &t)
+                        .on_hover_text(tl!("Regenerate the area from a description"))
+                        .clicked()
+                    {
                         action = Some("fill.open");
                     }
                     divider(ui, &t);
-                    if what == Context::Selection
-                        && bar_button(ui, "squares-subtract", tl!("Invert"), false, true, &t).on_hover_text(&invert_tip).clicked()
-                    {
+                    if what == Context::Selection && bar_button(ui, "squares-subtract", tl!("Invert"), false, true, &t).on_hover_text(&invert_tip).clicked() {
                         action = Some("invert");
                     }
                     if bar_button(ui, "layers", tl!("Mask"), false, true, &t).on_hover_text(tl!("Add a layer mask that shows only this area")).clicked() {
@@ -275,7 +275,8 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     egui::Popup::menu(&more).show(|ui| {
                         ui.set_min_width(190.0);
                         if what == Context::Selection {
-                            for (label, a) in [(tl!("Feather…"), "feather"), (tl!("Select and Mask…"), "selectAndMask"), (tl!("Content-Aware Fill…"), "caf")] {
+                            for (label, a) in [(tl!("Feather…"), "feather"), (tl!("Select and Mask…"), "selectAndMask"), (tl!("Content-Aware Fill…"), "caf")]
+                            {
                                 if ui.button(label).clicked() {
                                     action = Some(a);
                                     ui.close();

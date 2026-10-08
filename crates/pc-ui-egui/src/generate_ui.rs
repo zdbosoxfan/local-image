@@ -262,7 +262,11 @@ fn cloud_keys() -> Vec<li_ai::cloud::Provider> {
 
 /// Whether the cloud model's key is entered.
 fn cloud_ready(m: &li_ai::cloud::CloudModel) -> Result<(), String> {
-    if cloud_keys().contains(&m.provider) { Ok(()) } else { Err(crate::i18n::fmt(tl!("Add your {provider} API key in Local AI › Cloud."), &[("provider", m.provider.label())])) }
+    if cloud_keys().contains(&m.provider) {
+        Ok(())
+    } else {
+        Err(crate::i18n::fmt(tl!("Add your {provider} API key in Local AI › Cloud."), &[("provider", m.provider.label())]))
+    }
 }
 
 fn model_of(s: &GenerateState) -> ModelId {
@@ -574,7 +578,9 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let save = crate::icons::button(ui, "bookmark-plus", 22.0, false, tl!("Save these settings as a preset"));
                 if save.clicked() {
-                    rt(|r| r.preset_name = crate::i18n::fmt(tl!("My preset {n}"), &[("n", &(all_presets.iter().filter(|p| !p.built_in).count() + 1).to_string())]));
+                    rt(|r| {
+                        r.preset_name = crate::i18n::fmt(tl!("My preset {n}"), &[("n", &(all_presets.iter().filter(|p| !p.built_in).count() + 1).to_string())])
+                    });
                 }
                 egui::Popup::from_toggle_button_response(&save).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
                     ui.set_min_width(220.0);
@@ -623,8 +629,8 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         tl!("Runs on {provider}: your prompt and images are sent there, billed to your key."),
                         &[("provider", c.provider.label())],
                     ))
-                        .color(t.text_faint)
-                        .size(11.0),
+                    .color(t.text_faint)
+                    .size(11.0),
                 );
             });
         } else if custom.is_none() {
@@ -712,7 +718,11 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         if let Some(c) = cloud
             && s.mode == Mode::Create
         {
-            ui.label(RichText::new(crate::i18n::fmt(tl!("Sent as {size}"), &[("size", &li_ai::cloud::describe_size(c, s.width, s.height))])).color(t.text_faint).size(11.0));
+            ui.label(
+                RichText::new(crate::i18n::fmt(tl!("Sent as {size}"), &[("size", &li_ai::cloud::describe_size(c, s.width, s.height))]))
+                    .color(t.text_faint)
+                    .size(11.0),
+            );
         }
         // ---- Strength.
         let strength_shown = match (&custom, cloud) {
@@ -770,7 +780,9 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         // ---- Draft → Refine.
         if s.mode == Mode::Create && custom.is_none() && cloud.is_none() {
             ui.horizontal(|ui| {
-                widgets::checkbox(ui, &mut s.refine, tl!("Refine with")).on_hover_text(tl!("Draft → Refine: generate with this model, then resample the draft with another (e.g. a fast draft refined by a detailed model)"));
+                widgets::checkbox(ui, &mut s.refine, tl!("Refine with")).on_hover_text(tl!(
+                    "Draft → Refine: generate with this model, then resample the draft with another (e.g. a fast draft refined by a detailed model)"
+                ));
             });
             if s.refine {
                 if let Some(k) = model_picker(ui, "gen-refine-model", &s.refine_model.clone(), Mode::Refine, &st, false) {
@@ -1037,7 +1049,9 @@ fn save_preset(s: &mut GenerateState, name: &str) {
 pub fn import_workflow(app: &mut PhotocraftApp) {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let Some(path) = rfd::FileDialog::new().set_title(tl!("Import ComfyUI Workflow")).add_filter(tl!("ComfyUI workflow"), &["json"]).pick_file() else { return };
+        let Some(path) = rfd::FileDialog::new().set_title(tl!("Import ComfyUI Workflow")).add_filter(tl!("ComfyUI workflow"), &["json"]).pick_file() else {
+            return;
+        };
         match import_workflow_path(&path) {
             Ok(name) => {
                 app.ui.ai.generate.model = format!("custom:{name}");
@@ -1408,7 +1422,8 @@ pub fn on_generated(app: &mut PhotocraftApp, e: &JobEvent) {
     let tile = match &e.outcome {
         JobOutcome::Done(v) => match serde_json::from_value::<Entry>(v.clone()) {
             Ok(entry) => {
-                app.ui.status = crate::i18n::fmt(tl!("Generated {name} · seed {seed}"), &[("name", &entry.name), ("seed", &entry.seed().unwrap_or(0).to_string())]);
+                app.ui.status =
+                    crate::i18n::fmt(tl!("Generated {name} · seed {seed}"), &[("name", &entry.name), ("seed", &entry.seed().unwrap_or(0).to_string())]);
                 app.ui.status_error = false;
                 // An edit of an open document lands on it as a new layer.
                 let (edit_doc, open) = rt(|r| {
@@ -1903,9 +1918,11 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
                     let rows: Vec<(String, String)> = match &run {
                         Some(r) => r.lock().map(|r| r.status.clone()).unwrap_or_default(),
-                        None => {
-                            b.files.iter().map(|p| (p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), tl!("Waiting").into())).collect()
-                        }
+                        None => b
+                            .files
+                            .iter()
+                            .map(|p| (p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), tl!("Waiting").into()))
+                            .collect(),
                     };
                     for (name, s) in rows {
                         ui.horizontal(|ui| {
@@ -1919,7 +1936,11 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     if running {
                         if let Some(r) = &run {
                             let (d, n) = r.lock().map(|r| (r.done, r.status.len())).unwrap_or((0, 1));
-                            ui.add(egui::ProgressBar::new(d as f32 / n.max(1) as f32).desired_width(240.0).text(crate::i18n::fmt(tl!("{done} of {total}"), &[("done", &d.to_string()), ("total", &n.to_string())])));
+                            ui.add(
+                                egui::ProgressBar::new(d as f32 / n.max(1) as f32)
+                                    .desired_width(240.0)
+                                    .text(crate::i18n::fmt(tl!("{done} of {total}"), &[("done", &d.to_string()), ("total", &n.to_string())])),
+                            );
                             if widgets::secondary_button(ui, tl!("Stop"), 0.0).clicked()
                                 && let Ok(r) = r.lock()
                             {

@@ -1,8 +1,17 @@
 # Develop everywhere: one engine, develop layers, AI in the Library
 
-Status: **proposal** (October 2026). Answers: how Lightroom-style develop, Capture One-style layers,
+Status: **in progress** (October 2026). Decisions taken with the owner are in §0. Answers: how Lightroom-style develop, Capture One-style layers,
 AI masks and AI Remove work in the Library *and* the Editor, without TIFF round-trips, with settings
 and metadata kept re-editable, and with a Camera Raw Filter that has the same tools.
+
+## 0. Decisions
+
+* **Modules, not "Edit in…":** the title bar switches **Library | Develop | Compositing** (⌘⌥1 / ⌘⌥2 / ⌘⌥3), as Lightroom's module picker does. Develop → Compositing carries the photo across as a Develop layer; Compositing → Develop goes to the active Develop layer's photo; double-clicking a Develop layer goes to Develop. *(Shipped: module switch, Develop layers, live follow on return from Develop.)*
+* **Keymaps per module:** Library and Develop keep Lightroom Classic's keys, Compositing keeps Photoshop's; only the module switch is global.
+* **Develop layers follow the Library** (live link): coming back from Develop re-renders every Develop layer of that photo, one undo step per document. The layer stores the settings too, so a document opened without the Library still renders.
+* **darktable: port, don't track.** We do **not** vendor darktable or pull its updates automatically: it is C/GTK/OpenCL built around its own pipeline API, so its code can't be merged into a pure-Rust app mechanically, and depending on it would break "all Rust, standalone". Instead each algorithm is ported to Rust with its upstream path and commit recorded in `docs/PORTS.md`; `cargo xtask upstream-check` lists upstream commits that touched those files since the recorded commit, so improvements are reviewed and re-ported deliberately.
+* **Film negatives:** darktable's negadoctor, ported (Develop › Negative).
+* **Quick selections:** Subject, Background (U²-Net family) and Sky (PP-MobileSeg, Apache-2.0, 24 MB; TinySkyNet 0.2 MB as a preview) run on the CPU with no AI server, in Compositing (Select › Subject / Sky) and the Library's masks; the Qwen engines stay available for Remove Background and Subject (AI).
 
 ## 1. What we have today (audit)
 

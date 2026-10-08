@@ -2532,3 +2532,14 @@
 ai	Restore	Wiederherstellen
 ai	Sampler	Sampler
 ai	New	Neu
+	Filmstrip shows folder	Filmstreifen zeigt den Ordner
+	Save and next saves to	„Speichern und weiter“ speichert in
+	Develop	Entwickeln
+	Compositing	Compositing
+	Develop photos: light, colour, detail, masks, AI selections and removal	Fotos entwickeln: Licht, Farbe, Details, Masken, KI-Auswahl und -Entfernen
+	Layers, retouching, compositing and every AI tool	Ebenen, Retusche, Compositing und alle KI-Werkzeuge
+	Develop…	Entwickeln…
+	Open the Library to develop this layer	Öffnen Sie die Bibliothek, um diese Ebene zu entwickeln
+	The active layer isn't a Develop layer	Die aktive Ebene ist keine Entwicklungsebene
+	Updated from Develop	Aus „Entwickeln“ aktualisiert
+	{name} · Develop layer (double-click it to return to Develop)	{name} · Entwicklungsebene (Doppelklick führt zurück zu „Entwickeln“)

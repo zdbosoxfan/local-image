@@ -112,3 +112,35 @@ mod tests {
         assert_eq!(wanted(&serde_json::json!({"engine": "classic"})), Ok(false));
     }
 }
+
+/// The installed sky model, if any.
+pub fn sky_installed() -> Option<&'static li_seg::ModelSpec> {
+    li_seg::best_sky(&models_dir()).map(|(s, _)| s)
+}
+
+/// Sky probability over the canvas from the sky model, its edges snapped to the image with a
+/// colour-guided filter (the model sees a 256–512 px copy). `None` without a sky model.
+pub fn sky_probability(doc: &Document, layer: Option<LayerId>, all_layers: bool) -> Option<(Rect, Vec<f32>)> {
+    let seg = li_seg::shared_sky(&models_dir())?;
+    let (area, rgba) = rgba8(doc, layer, all_layers);
+    let (w, h) = (area.width() as usize, area.height() as usize);
+    let prob = seg.predict_sky(&rgba, w, h).ok()?;
+    let guide = photocraft_algo::segment::RgbImage {
+        w,
+        h,
+        px: rgba.chunks_exact(4).map(|p| [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0]).collect(),
+    };
+    let r = (w.max(h) / 160).clamp(2, 24);
+    let refined = photocraft_algo::matting::guided_filter_color(&guide, &prob, r, 1e-3);
+    Some((area, refined.into_iter().map(|v| v.clamp(0.0, 1.0)).collect()))
+}
+
+/// Shapes a probability map with Select › Sky's threshold (0–100, higher = stricter) and softness
+/// (0–100, the width of the soft edge).
+pub fn shape(prob: &mut [f32], threshold: f32, softness: f32) {
+    let t = (threshold / 100.0).clamp(0.02, 0.98);
+    let s = (softness / 100.0 * 0.5).clamp(0.01, 0.5);
+    for v in prob.iter_mut() {
+        *v = ((*v - (t - s / 2.0)) / s).clamp(0.0, 1.0);
+    }
+}

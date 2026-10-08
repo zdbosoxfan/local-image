@@ -116,3 +116,27 @@ pub fn import_raw_with(name: &str, bytes: &[u8], opts: &DevelopOptions) -> Resul
         Err(e) => Err(IoError::Raw(e)),
     }
 }
+
+/// local-image: a Develop layer's source: `bytes` (a camera raw or any photo LightCraft decodes)
+/// developed with `settings` (LightCraft `DevelopSettings` as JSON; missing fields take their
+/// defaults) into 16-bit ProPhoto RGB, keeping the file's EXIF and XMP. Raw files stay raw: white
+/// balance, highlight recovery and lens corrections work from the sensor data.
+pub fn develop_with_settings(name: &str, bytes: &[u8], settings: &serde_json::Value) -> Result<ImportResult, IoError> {
+    use lightcraft_pipeline::{OutputDepth, OutputSpace, RenderRequest};
+    let settings: lightcraft_develop::DevelopSettings =
+        serde_json::from_value(settings.clone()).map_err(|e| IoError::Unsupported(format!("develop settings: {e}")))?;
+    let (src, info) = lightcraft_engine::files::load_bytes(bytes, usize::MAX).map_err(IoError::Unsupported)?;
+    let req = RenderRequest { space: OutputSpace::ProPhoto, depth: OutputDepth::U16, ..RenderRequest::fit(src.width, src.height) };
+    let rendered = lightcraft_pipeline::render(&src, &info, &settings, &req);
+    let Some(lightcraft_pipeline::DeepSamples::U16(samples)) = rendered.deep.as_ref().map(|d| &d.samples) else {
+        return Err(IoError::Unsupported(format!("{name}: the develop pipeline produced no 16-bit output")));
+    };
+    let deep = rendered.deep.as_ref().expect("checked above");
+    let img = Image::from_u16(deep.width as u32, deep.height as u32, ChannelLayout::Rgb, samples)?;
+    let mut r = image_to_document(name, &img)?;
+    r.document.icc_profile = Some(Arc::new(lightcraft_codecs::icc::write_named(lightcraft_codecs::NamedSpace::ProPhoto)));
+    let meta = lightcraft_meta::embedded(bytes);
+    r.document.metadata.exif = meta.exif.map(Arc::new);
+    r.document.metadata.xmp = meta.xmp;
+    Ok(r)
+}

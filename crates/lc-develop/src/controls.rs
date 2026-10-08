@@ -28,6 +28,7 @@ pub enum Section {
     Calibration,
     PointColor,
     RedEye,
+    Negative,
 }
 
 impl Section {
@@ -49,6 +50,7 @@ impl Section {
             Section::Calibration => "Calibration",
             Section::PointColor => "Point Color",
             Section::RedEye => "Red Eye",
+            Section::Negative => "Negative",
         }
     }
 }
@@ -244,6 +246,21 @@ controls! {
     "calibration.greenSat" => calibration.green_sat, "Green Saturation", Calibration, -100, 100, 0, 1, 0, Gradient { from: "#7a7a7a", to: "#40b050" };
     "calibration.blueHue" => calibration.blue_hue, "Blue Hue", Calibration, -100, 100, 0, 1, 0, Gradient { from: "#30a0d0", to: "#8040d0" };
     "calibration.blueSat" => calibration.blue_sat, "Blue Saturation", Calibration, -100, 100, 0, 1, 0, Gradient { from: "#7a7a7a", to: "#3a60e0" };
+    "negative.dminR" => negative.dmin.r, "Film Base Red", Negative, 0.00001, 1.5, 1.0, 0.0001, 4, Gradient { from: "#202020", to: "#e04a3a" };
+    "negative.dminG" => negative.dmin.g, "Film Base Green", Negative, 0.00001, 1.5, 0.45, 0.0001, 4, Gradient { from: "#202020", to: "#40b050" };
+    "negative.dminB" => negative.dmin.b, "Film Base Blue", Negative, 0.00001, 1.5, 0.25, 0.0001, 4, Gradient { from: "#202020", to: "#3a60e0" };
+    "negative.dMax" => negative.d_max, "D-max", Negative, 0.1, 6, 2.046, 0.001, 3, Plain;
+    "negative.offset" => negative.offset, "Scan Exposure", Negative, -1, 1, -0.05, 0.001, 3, Centered;
+    "negative.black" => negative.black, "Paper Black", Negative, -0.5, 0.5, 0.0755, 0.0005, 4, Centered;
+    "negative.gamma" => negative.gamma, "Paper Grade", Negative, 1, 8, 4, 0.01, 2, Plain;
+    "negative.softClip" => negative.soft_clip, "Gloss", Negative, 0.0001, 1, 0.75, 0.001, 3, Plain;
+    "negative.exposure" => negative.exposure, "Print Exposure", Negative, 0.5, 2, 0.9245, 0.0005, 4, Gradient { from: "#303030", to: "#f0f0f0" };
+    "negative.wbLowR" => negative.wb_low.r, "Shadows Red", Negative, 0.25, 2, 1, 0.001, 3, Gradient { from: "#30c0c0", to: "#e04040" };
+    "negative.wbLowG" => negative.wb_low.g, "Shadows Green", Negative, 0.25, 2, 1, 0.001, 3, Gradient { from: "#c040c0", to: "#40c040" };
+    "negative.wbLowB" => negative.wb_low.b, "Shadows Blue", Negative, 0.25, 2, 1, 0.001, 3, Gradient { from: "#d0c030", to: "#4060e0" };
+    "negative.wbHighR" => negative.wb_high.r, "Highlights Red", Negative, 0.25, 2, 1, 0.001, 3, Gradient { from: "#30c0c0", to: "#e04040" };
+    "negative.wbHighG" => negative.wb_high.g, "Highlights Green", Negative, 0.25, 2, 1, 0.001, 3, Gradient { from: "#c040c0", to: "#40c040" };
+    "negative.wbHighB" => negative.wb_high.b, "Highlights Blue", Negative, 0.25, 2, 1, 0.001, 3, Gradient { from: "#d0c030", to: "#4060e0" };
     "crop.angle" => crop.geometry.angle, "Straighten", Geometry, -45, 45, 0, 0.01, 2, Centered;
 }
 

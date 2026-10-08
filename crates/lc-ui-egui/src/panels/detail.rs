@@ -37,6 +37,10 @@ pub enum Gesture {
     StraightenLine {
         a: Pos2,
     },
+    /// Film base picker: a rectangle dragged over the film rim, from `a`.
+    AreaPick {
+        a: Pos2,
+    },
     CropRotate {
         start_angle: f64,
         a0: f32,
@@ -759,6 +763,10 @@ fn general_interaction(
             let _ = app.run("develop.wbPick", json!({"x": n.x, "y": n.y}));
             app.ui.tool.clear();
         }
+        return;
+    }
+    if app.ui.tool == "negDmin" {
+        film_base_pick(app, ui, resp, map);
         return;
     }
     if let Some(target) = app.ui.tool.strip_prefix("tat:").map(str::to_string) {
@@ -1605,6 +1613,42 @@ fn film_badges(p: &egui::Painter, t: &Tokens, fr: Rect, ph: &lightcraft_catalog:
     }
     if edited {
         paint(p, Rect::from_min_size(pos2(bar.right() - 13.0, y - 5.0), vec2(10.0, 10.0)), Icon::Sliders, t.text_label);
+    }
+}
+
+/// Film base picker (Negative panel): drag a rectangle over the unexposed film rim, or click it
+/// (a small square around the point); the area's average becomes the film base colour.
+fn film_base_pick(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Response, map: &CanvasMap) {
+    ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+    let pick = |app: &mut LightcraftApp, a: Point, b: Point| {
+        let r = lightcraft_geom::Rect::from_points(a, b);
+        if let Err(e) = app.run("develop.negative.pickDmin", json!({"x": r.x0, "y": r.y0, "w": r.width(), "h": r.height()})) {
+            app.toast(ui.ctx(), e);
+        }
+        app.ui.tool.clear();
+    };
+    if resp.drag_started()
+        && let Some(q) = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos())
+    {
+        app.gesture = Some(Gesture::AreaPick { a: q });
+    }
+    if let Some(Gesture::AreaPick { a }) = app.gesture.clone() {
+        let Some(b) = resp.interact_pointer_pos().or(resp.hover_pos()) else { return };
+        let r = Rect::from_two_pos(a, b);
+        let p = ui.painter();
+        p.rect_stroke(r, 0.0, Stroke::new(3.0, Color32::from_black_alpha(140)), StrokeKind::Outside);
+        p.rect_stroke(r, 0.0, Stroke::new(1.5, Color32::WHITE), StrokeKind::Inside);
+        if resp.drag_stopped() {
+            app.gesture = None;
+            pick(app, map.norm(a), map.norm(b));
+        }
+        return;
+    }
+    if resp.clicked()
+        && let Some(q) = resp.interact_pointer_pos()
+    {
+        let n = map.norm(q);
+        pick(app, Point::new(n.x - 0.005, n.y - 0.005), Point::new(n.x + 0.005, n.y + 0.005));
     }
 }
 

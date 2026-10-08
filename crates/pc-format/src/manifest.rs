@@ -295,6 +295,9 @@ pub enum ContentM {
         /// Distort / Perspective placement (row-major 3×3); absent for affine placements.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         perspective: Option<[f64; 9]>,
+        /// local-image: a Develop layer's settings and photo.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        develop: Option<photocraft_doc::DevelopLink>,
     },
 }
 

@@ -382,8 +382,10 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         app.set_theme(ui.ctx(), next);
                     }
                     // local-image: the host's modes, left of the workspace switcher.
-                    if app.host_modes && mode_switch(ui, &t, false) {
-                        app.switch_to_library = true;
+                    if app.host_modes
+                        && let Some(m) = mode_switch(ui, &t, crate::Module::Compositing)
+                    {
+                        app.switch_module = Some(m);
                     }
                     ui.min_rect().left()
                 };
@@ -409,19 +411,19 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 
 /// local-image: "Library | Editor" with one of them selected; true when the other was clicked.
 /// Laid out right to left (the title bar's right-hand group).
-fn mode_switch(ui: &mut egui::Ui, t: &Tokens, library: bool) -> bool {
-    let mut go = false;
+fn mode_switch(ui: &mut egui::Ui, t: &Tokens, current: crate::Module) -> Option<crate::Module> {
+    let mut go = None;
     egui::Frame::NONE.fill(t.field).corner_radius(5.0).inner_margin(egui::Margin::same(2)).show(ui, |ui| {
         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
-            for (label, on, tip) in
-                [("Library", library, tl!("Browse, rate and organise your photos")), ("Editor", !library, tl!("Layers, retouching and AI tools"))]
-            {
-                let text = egui::RichText::new(tl!(label)).size(12.0).color(if on { t.text } else { t.text_dim });
+            for m in crate::Module::ALL {
+                let on = m == current;
+                let text = egui::RichText::new(tl!(m.label())).size(12.0).color(if on { t.text } else { t.text_dim });
                 let fill = if on { t.chrome } else { egui::Color32::TRANSPARENT };
                 let r = ui.add(egui::Button::new(text).fill(fill).corner_radius(4.0).min_size(vec2(58.0, 22.0)));
-                if !on && r.on_hover_text(tip).clicked() {
-                    go = true;
+                let key = crate::shortcuts::pretty(&format!("Cmd+Alt+{}", m.digit()));
+                if r.on_hover_text(format!("{}  ({key})", tl!(m.tip()))).clicked() && !on {
+                    go = Some(m);
                 }
             }
         });
@@ -429,14 +431,15 @@ fn mode_switch(ui: &mut egui::Ui, t: &Tokens, library: bool) -> bool {
     go
 }
 
-/// local-image: the title bar over the hosted Library: the brand mark, `title`, the mode switch
-/// (Library selected) and, with a custom title bar, the caption buttons. Close asks the window to
-/// close (the host then checks both modes for unsaved work). True when Editor was clicked.
-pub fn library_title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, title: &str) -> bool {
+/// local-image: the title bar over the hosted Library and Develop modules: the brand mark, `title`,
+/// the module switch (`current` selected) and, with a custom title bar, the caption buttons. Close
+/// asks the window to close (the host then checks every module for unsaved work). Returns the
+/// module the user picked.
+pub fn library_title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, title: &str, current: crate::Module) -> Option<crate::Module> {
     let t = Tokens::get(ui.ctx());
     let custom = app.custom_titlebar;
     let left = if cfg!(target_os = "macos") && app.integrated_titlebar { 78 } else { 10 };
-    let mut go = false;
+    let mut go = None;
     let bar = egui::Panel::top("library_title_bar")
         .exact_size(if t.pro { 32.0 } else { 38.0 })
         .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin { left, right: if custom { 0 } else { 10 }, top: 0, bottom: 0 }))
@@ -450,7 +453,7 @@ pub fn library_title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, title: &str
                 crate::brand::paint_mark(ui, mark);
                 let group = egui::Rect::from_min_max(egui::pos2(ui.cursor().left() + TITLE_GAP, full.top()), egui::pos2(right_edge, full.bottom()));
                 let mut g = ui.new_child(egui::UiBuilder::new().max_rect(group).layout(egui::Layout::right_to_left(egui::Align::Center)));
-                go = mode_switch(&mut g, &t, true);
+                go = mode_switch(&mut g, &t, current);
                 controls_left = g.min_rect().left();
             });
             // The free space drags the window; a double click maximizes.
@@ -515,7 +518,6 @@ fn paint_mode_dropdown(ui: &mut egui::Ui, id: &str, b: &mut photocraft_engine::B
         (b.mode, b.paint_mode) = current;
     }
 }
-
 
 // ----------------------------------------------------------------------------- options bar
 
@@ -2034,6 +2036,8 @@ fn layer_row(
         } else if pos.and_then(|p| masks.hit(p)).is_none() {
             let id = match &l.content {
                 LayerContent::Adjustment(_) | LayerContent::Fill(_) if on(thumb) => "layer.layerContentOptions",
+                // local-image: a Develop layer goes back to Develop.
+                LayerContent::Smart(_) if on(thumb) && crate::develop_layer::is_develop_layer(l) => crate::develop_layer::DEVELOP_ID,
                 LayerContent::Smart(_) if on(thumb) => "layer.smartObjects.editContents",
                 LayerContent::Text(_) if on(thumb) => "type.editText",
                 _ => "layer.layerStyle.blendingOptions",

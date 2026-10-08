@@ -595,6 +595,7 @@ mod tests {
                     warp: None,
                     stack_mode: None,
                     perspective: None,
+                    develop: None,
                 }),
             );
             *active = Some(doc.insert_above(*active, l));

@@ -882,7 +882,8 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                 lightcraft_catalog::Source::File { path } => path.clone(),
                 _ => return Some(Err("this photo has no file to edit".into())),
             };
-            const RAW: &[&str] = &["DNG", "CR2", "CR3", "NEF", "NRW", "ARW", "RAF", "ORF", "RW2", "RWL", "RAW", "PEF", "SRW", "X3F", "3FR", "IIQ", "ERF", "MOS"];
+            const RAW: &[&str] =
+                &["DNG", "CR2", "CR3", "NEF", "NRW", "ARW", "RAF", "ORF", "RW2", "RWL", "RAW", "PEF", "SRW", "X3F", "3FR", "IIQ", "ERF", "MOS"];
             if RAW.contains(&ph.format.to_ascii_uppercase().as_str()) {
                 return run_ui_command(app, "photo.editInExternal", p);
             }

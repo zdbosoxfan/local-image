@@ -2928,3 +2928,14 @@ cameraRaw	Whites	Brancos
 ai	Restore	Restaurar
 ai	Sampler	Amostrador
 ai	New	Novos
+	Filmstrip shows folder	A tira de filme mostra a pasta
+	Save and next saves to	Salvar e próxima salva em
+	Develop	Revelação
+	Compositing	Composição
+	Develop photos: light, colour, detail, masks, AI selections and removal	Revelar fotos: luz, cor, detalhes, máscaras, seleções e remoção com IA
+	Layers, retouching, compositing and every AI tool	Camadas, retoque, composição e todas as ferramentas de IA
+	Develop…	Revelar…
+	Open the Library to develop this layer	Abra a Biblioteca para revelar esta camada
+	The active layer isn't a Develop layer	A camada ativa não é uma camada de revelação
+	Updated from Develop	Atualizado a partir da Revelação
+	{name} · Develop layer (double-click it to return to Develop)	{name} · camada de revelação (clique duas vezes para voltar à Revelação)

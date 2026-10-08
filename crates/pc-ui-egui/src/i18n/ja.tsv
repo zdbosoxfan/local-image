@@ -2482,3 +2482,14 @@ cameraRaw	Color	カラー
 ai	Restore	復元
 ai	Sampler	サンプラー
 ai	New	新着
+	Filmstrip shows folder	フォルダーをフィルムストリップに表示
+	Save and next saves to	保存して次へ の保存先
+	Develop	現像
+	Compositing	合成
+	Develop photos: light, colour, detail, masks, AI selections and removal	写真を現像:明るさ、色、ディテール、マスク、AI 選択と削除
+	Layers, retouching, compositing and every AI tool	レイヤー、レタッチ、合成、すべての AI ツール
+	Develop…	現像…
+	Open the Library to develop this layer	このレイヤーを現像するにはライブラリを開いてください
+	The active layer isn't a Develop layer	アクティブなレイヤーは現像レイヤーではありません
+	Updated from Develop	現像から更新しました
+	{name} · Develop layer (double-click it to return to Develop)	{name}・現像レイヤー(ダブルクリックで現像に戻ります)

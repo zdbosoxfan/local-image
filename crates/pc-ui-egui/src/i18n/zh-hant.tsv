@@ -2476,3 +2476,14 @@ cameraRaw	Blending	混合
 ai	Restore	還原
 ai	Sampler	取樣器
 ai	New	最新
+	Filmstrip shows folder	在底片列中顯示資料夾
+	Save and next saves to	「儲存並下一張」的儲存位置
+	Develop	編輯相片
+	Compositing	合成
+	Develop photos: light, colour, detail, masks, AI selections and removal	編輯相片:光線、色彩、細節、遮色片、AI 選取與移除
+	Layers, retouching, compositing and every AI tool	圖層、修飾、合成以及所有 AI 工具
+	Develop…	編輯相片…
+	Open the Library to develop this layer	請開啟圖庫以編輯此圖層
+	The active layer isn't a Develop layer	作用中的圖層不是編輯相片圖層
+	Updated from Develop	已從編輯相片更新
+	{name} · Develop layer (double-click it to return to Develop)	{name} · 編輯相片圖層(按兩下可返回編輯相片)

@@ -34,6 +34,17 @@ impl DevelopSettings {
         serde_json::to_value(self).unwrap_or(Value::Null)
     }
 
+    /// [`Self::to_json`] including the sections it leaves out while they are at their defaults
+    /// (`negative`), for code that compares or copies settings key by key (copy/paste groups,
+    /// preset amounts, Auto Sync deltas).
+    pub fn to_json_full(&self) -> Value {
+        let mut v = self.to_json();
+        if let Some(o) = v.as_object_mut() {
+            o.entry("negative").or_insert_with(|| serde_json::to_value(self.negative).unwrap_or(Value::Null));
+        }
+        v
+    }
+
     pub fn from_json(v: &Value) -> Result<DevelopSettings, serde_json::Error> {
         serde_json::from_value(v.clone())
     }
@@ -86,6 +97,8 @@ impl DevelopSettings {
                 self.curve = d;
             }
             Section::Color => self.wb.mode = WbMode::AsShot,
+            // the film stock too; whether the conversion is on stays as it was
+            Section::Negative => self.negative = Negative { enabled: self.negative.enabled, ..Negative::default() },
             _ => {}
         }
     }
@@ -154,6 +167,61 @@ mod tests {
         assert!(!s.is_unedited());
         s.reset_section(Section::Light);
         assert!(s.is_unedited());
+    }
+
+    #[test]
+    fn negative_defaults_off_and_old_json_reads_as_disabled() {
+        // settings written before the negative conversion existed
+        let old = json!({"version": 1, "light": {"exposure": 0.3}, "calibration": {"red_hue": 5.0}, "disabled_sections": []});
+        let s = DevelopSettings::from_json(&old).unwrap();
+        assert!(!s.negative.enabled);
+        assert_eq!(s.negative, Negative::default());
+        // a default conversion is left out of the JSON: existing settings hash and serialize as before
+        assert!(s.to_json().get("negative").is_none());
+        assert!(DevelopSettings::default().to_json().get("negative").is_none());
+        assert!(s.to_json_full().get("negative").is_some());
+        // a partial section fills in the rest from the defaults
+        let s = DevelopSettings::from_json(&json!({"negative": {"enabled": true, "film": "bw", "dmin": {"r": 0.8}}})).unwrap();
+        assert!(s.negative.enabled);
+        assert_eq!(s.negative.film, FilmStock::Bw);
+        assert_eq!(s.negative.dmin, FilmRgb::new(0.8, 1.0, 1.0));
+        assert_eq!(s.negative.d_max, 2.046);
+        assert!(!s.is_unedited());
+        // round trip, and the hash sees the section
+        let back = DevelopSettings::from_json(&s.to_json()).unwrap();
+        assert_eq!(back, s);
+        assert_ne!(s.hash64(), DevelopSettings::default().hash64());
+        let mut stock = DevelopSettings::default();
+        stock.negative.film = FilmStock::Slide;
+        assert_eq!(DevelopSettings::from_json(&stock.to_json()).unwrap(), stock);
+    }
+
+    #[test]
+    fn negative_merges_copies_and_resets() {
+        let s = DevelopSettings::default().merged(&json!({"negative": {"enabled": true, "d_max": 1.6}})).unwrap();
+        assert!(s.negative.enabled);
+        assert_eq!(s.negative.d_max, 1.6);
+        assert_eq!(s.negative.gamma, 4.0);
+        // copy/paste: the Negative group carries the conversion, also when it is off (and left out
+        // of the JSON) on the source photo
+        let off = extract_groups(&DevelopSettings::default(), &[SettingsGroup::Negative]);
+        assert_eq!(off["negative"]["enabled"], json!(false));
+        let pasted = apply_partial(&s, &off, 1.0);
+        assert_eq!(pasted.negative, Negative::default());
+        let on = extract_groups(&s, &SettingsGroup::default_copy());
+        assert_eq!(apply_partial(&DevelopSettings::default(), &on, 1.0).negative, s.negative);
+        // a preset at a low amount onto a photo without a conversion still applies
+        let half = apply_partial(&DevelopSettings::default(), &json!({"negative": {"d_max": 3.046}}), 0.25);
+        assert!((half.negative.d_max - 2.296).abs() < 1e-9, "{}", half.negative.d_max);
+        // controls address the section
+        let mut c = s.clone();
+        assert!(controls::set(&mut c, "negative.dminG", 0.5));
+        assert!(controls::set(&mut c, "negative.wbHighB", 9.0));
+        assert_eq!(c.negative.dmin.g, 0.5);
+        assert_eq!(c.negative.wb_high.b, 2.0, "clamped to negadoctor's range");
+        c.negative.film = FilmStock::Bw;
+        c.reset_section(Section::Negative);
+        assert_eq!(c.negative, Negative { enabled: true, ..Negative::default() });
     }
 
     #[test]

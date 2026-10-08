@@ -10,6 +10,10 @@
 //!     secrets are set (see `sign`).
 //! cargo xtask check-icons [path/to/local-image.wxs]
 //!     the MSI's advertised-shortcut icon references (ICE50), without building.
+//! cargo xtask upstream-check [--offline]
+//!     for every algorithm ported from another project (docs/PORTS.md), the upstream commits that
+//!     touched its source file since the commit it was ported from — what to review and re-port.
+//!     Clones go to target/upstream/ (blob-less); --offline skips fetching.
 //! cargo xtask sign <files…>
 //!     Authenticode signing with signtool, from WINDOWS_CERTIFICATE (+ _PASSWORD) or Azure Trusted
 //!     Signing (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_SIGNING_ENDPOINT,
@@ -423,6 +427,7 @@ const USAGE: &str = "usage: cargo xtask <task>
   package linux [--skip-build]
   package windows [--arch x64|x86|arm64] [--skip-build]
   check-icons [file.wxs]
+  upstream-check [--offline]
   sign <files…>";
 
 fn main() -> Result<()> {
@@ -436,12 +441,123 @@ fn main() -> Result<()> {
             _ => bail!("{USAGE}"),
         },
         Some("check-icons") => check_icons(&args.get(1).map(PathBuf::from).unwrap_or_else(|| root().join("packaging").join("windows").join("local-image.wxs"))),
+        Some("upstream-check") => upstream_check(flag("--offline")),
         Some("sign") if args.len() > 1 => sign(&args[1..].iter().map(PathBuf::from).collect::<Vec<_>>()),
         _ => {
             println!("{USAGE}");
             Ok(())
         }
     }
+}
+
+// ------------------------------------------------------------------ upstream-check
+
+/// A row of docs/PORTS.md: one ported algorithm.
+#[derive(Debug, PartialEq)]
+struct Port {
+    ours: String,
+    project: String,
+    path: String,
+    commit: String,
+}
+
+/// Where each upstream project's git history lives.
+fn upstream_repo(project: &str) -> Option<&'static str> {
+    match project.to_ascii_lowercase().as_str() {
+        "darktable" => Some("https://github.com/darktable-org/darktable"),
+        "rawtherapee" => Some("https://github.com/Beep6581/RawTherapee"),
+        "art" => Some("https://github.com/artpixls/ART"),
+        "vkdt" => Some("https://github.com/hanatos/vkdt"),
+        "ansel" => Some("https://github.com/aurelienpierreeng/ansel"),
+        "lightzone" => Some("https://github.com/ktgw0316/LightZone"),
+        _ => None,
+    }
+}
+
+/// The table rows of PORTS.md: columns are found by their header (`Our file`, `Upstream`/
+/// `Project`, `Upstream path`, `Commit`), so the table can gain columns.
+fn parse_ports(md: &str) -> Vec<Port> {
+    let mut out = Vec::new();
+    let mut cols: Option<(usize, usize, usize, usize)> = None;
+    for line in md.lines().map(str::trim).filter(|l| l.starts_with('|')) {
+        let cells: Vec<String> = line.trim_matches('|').split('|').map(|c| c.trim().trim_matches('`').to_string()).collect();
+        if cells.iter().all(|c| c.chars().all(|ch| matches!(ch, '-' | ':' | ' '))) {
+            continue;
+        }
+        let find = |pred: &dyn Fn(&str) -> bool| cells.iter().position(|c| pred(&c.to_ascii_lowercase()));
+        if cols.is_none() {
+            let ours = find(&|c| c.contains("our") || c.contains("local image") || c == "file");
+            let project = find(&|c| c == "upstream" || c.contains("project"));
+            let path = find(&|c| c.contains("path"));
+            let commit = find(&|c| c.contains("commit"));
+            if let (Some(a), Some(b), Some(c), Some(d)) = (ours, project, path, commit) {
+                cols = Some((a, b, c, d));
+            }
+            continue;
+        }
+        let Some((a, b, c, d)) = cols else { continue };
+        let get = |i: usize| cells.get(i).cloned().unwrap_or_default();
+        let commit = get(d);
+        if commit.len() >= 7 && commit.chars().all(|ch| ch.is_ascii_hexdigit()) {
+            out.push(Port { ours: get(a), project: get(b), path: get(c), commit });
+        }
+    }
+    out
+}
+
+fn upstream_check(offline: bool) -> Result<()> {
+    let md = std::fs::read_to_string(root().join("docs").join("PORTS.md")).context("docs/PORTS.md")?;
+    let ports = parse_ports(&md);
+    if ports.is_empty() {
+        println!("docs/PORTS.md lists no ports with an upstream commit.");
+        return Ok(());
+    }
+    let cache = root().join("target").join("upstream");
+    std::fs::create_dir_all(&cache)?;
+    let mut fetched = std::collections::HashSet::new();
+    let mut behind = 0;
+    for p in &ports {
+        let Some(url) = upstream_repo(&p.project) else {
+            println!("? {} — unknown upstream project `{}`", p.ours, p.project);
+            continue;
+        };
+        let dir = cache.join(p.project.to_ascii_lowercase());
+        if fetched.insert(dir.clone()) && !offline {
+            let ok = if dir.join(".git").is_dir() {
+                Command::new("git").args(["-C"]).arg(&dir).args(["fetch", "--quiet", "--filter=blob:none", "origin"]).status()?.success()
+            } else {
+                Command::new("git").args(["clone", "--quiet", "--filter=blob:none", "--no-checkout", url]).arg(&dir).status()?.success()
+            };
+            if !ok {
+                println!("! {}: could not fetch {url}", p.project);
+                continue;
+            }
+        }
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&dir)
+            .args(["log", "--format=%h %ad %s", "--date=short"])
+            .arg(format!("{}..origin/HEAD", p.commit))
+            .args(["--", &p.path])
+            .output()?;
+        if !out.status.success() {
+            println!("! {} — {}:{} at {}: {}", p.ours, p.project, p.path, p.commit, String::from_utf8_lossy(&out.stderr).trim());
+            continue;
+        }
+        let log = String::from_utf8_lossy(&out.stdout);
+        let n = log.lines().count();
+        if n == 0 {
+            println!("✓ {} — {}:{} unchanged since {}", p.ours, p.project, p.path, &p.commit[..7.min(p.commit.len())]);
+        } else {
+            behind += 1;
+            println!("• {} — {}:{} has {n} newer commit(s) since {}:", p.ours, p.project, p.path, &p.commit[..7.min(p.commit.len())]);
+            for l in log.lines() {
+                println!("    {l}");
+            }
+        }
+    }
+    println!("{} port(s), {behind} with upstream changes to review.", ports.len());
+    Ok(())
 }
 
 #[cfg(test)]
@@ -451,6 +567,22 @@ mod tests {
     #[test]
     fn the_installer_icons_pass_ice50() {
         check_icons(&root().join("packaging").join("windows").join("local-image.wxs")).unwrap();
+    }
+
+    #[test]
+    fn ports_table_parses_by_header() {
+        let md = "# Ports\n\n| Our file | Upstream | Upstream path | Upstream commit | Licence |\n|---|---|---|---|---|\n| `crates/lc-pipeline/src/negative.rs` | darktable | `src/iop/negadoctor.c` | 0123456789abcdef | GPL-3.0-or-later |\n| x | darktable | y | (pending) | z |\n";
+        let p = parse_ports(md);
+        assert_eq!(
+            p,
+            vec![Port {
+                ours: "crates/lc-pipeline/src/negative.rs".into(),
+                project: "darktable".into(),
+                path: "src/iop/negadoctor.c".into(),
+                commit: "0123456789abcdef".into()
+            }]
+        );
+        assert!(upstream_repo("darktable").is_some() && upstream_repo("nope").is_none());
     }
 
     #[test]

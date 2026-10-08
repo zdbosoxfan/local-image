@@ -175,7 +175,7 @@ pub fn follow_file(app: &PhotocraftApp, path: &str) {
         strip(|s| s.follow = Some(original));
         return;
     }
-    if !app.session.prefs().interface.filmstrip_follows_open || !path.is_file() {
+    if !app.session.prefs().interface.filmstrip_shows_folder || !path.is_file() {
         return;
     }
     let files = crate::generate_ui::folder_images(dir);
@@ -296,9 +296,9 @@ fn settle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
 }
 
-/// Where Save & Next writes: `edited`, `overwrite` or `ask`.
+/// Where Save & Next writes: `editedFolder`, `original` or `saveAs`.
 fn save_to(app: &PhotocraftApp) -> String {
-    app.session.prefs().interface.filmstrip_save_to.clone()
+    app.session.prefs().interface.save_and_next_saves_to.clone()
 }
 
 /// Save & Next: saves the active image's edits (see [`save_to`]), then steps to the next image.
@@ -311,11 +311,13 @@ pub fn save_and_next(app: &mut PhotocraftApp) -> bool {
     };
     if app.session.active().is_some_and(|d| d.is_dirty()) {
         let saved = match save_to(app).as_str() {
-            "overwrite" => app.write_document(file.display().to_string(), &crate::ExportSettings::default()).map(|_| ()),
-            "ask" => app.save_as(None).map(|_| ()),
+            "original" => app.write_document(file.display().to_string(), &crate::ExportSettings::default()).map(|_| ()),
+            "saveAs" => app.save_as(None).map(|_| ()),
             _ => {
                 let to = edited_path(&file);
-                std::fs::create_dir_all(to.parent().unwrap_or(Path::new(""))).map_err(|e| e.to_string()).and_then(|()| app.write_document(to.display().to_string(), &crate::ExportSettings::default()).map(|_| ()))
+                std::fs::create_dir_all(to.parent().unwrap_or(Path::new("")))
+                    .map_err(|e| e.to_string())
+                    .and_then(|()| app.write_document(to.display().to_string(), &crate::ExportSettings::default()).map(|_| ()))
             }
         };
         if let Err(e) = saved {
@@ -447,13 +449,13 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         .clicked()
                 {
                     app.browse_in_library = Some(d.display().to_string());
-                    app.switch_to_library = true;
+                    app.switch_module = Some(crate::Module::Library);
                 }
                 ui.add_space(4.0);
                 let tip = crate::i18n::fmt(
                     match save_to(app).as_str() {
-                        "overwrite" => tl!("Save this image over the original and open the next one ({key})"),
-                        "ask" => tl!("Save this image (Save As) and open the next one ({key})"),
+                        "original" => tl!("Save this image over the original and open the next one ({key})"),
+                        "saveAs" => tl!("Save this image (Save As) and open the next one ({key})"),
                         _ => tl!("Save a copy in the Edited folder and open the next one ({key})"),
                     },
                     &[("key", &save_next_key)],
@@ -462,10 +464,14 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     save_and_next(app);
                 }
                 ui.add_space(4.0);
-                if crate::icons::button(ui, "chevron-right", 18.0, false, &crate::i18n::fmt(tl!("Next image ({key})"), &[("key", &format!("{alt}+→"))])).clicked() {
+                if crate::icons::button(ui, "chevron-right", 18.0, false, &crate::i18n::fmt(tl!("Next image ({key})"), &[("key", &format!("{alt}+→"))]))
+                    .clicked()
+                {
                     step(app, 1);
                 }
-                if crate::icons::button(ui, "chevron-left", 18.0, false, &crate::i18n::fmt(tl!("Previous image ({key})"), &[("key", &format!("{alt}+←"))])).clicked() {
+                if crate::icons::button(ui, "chevron-left", 18.0, false, &crate::i18n::fmt(tl!("Previous image ({key})"), &[("key", &format!("{alt}+←"))]))
+                    .clicked()
+                {
                     step(app, -1);
                 }
             });
@@ -561,18 +567,18 @@ fn options_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui.label(RichText::new(tl!("Save & Next saves to")).strong());
         let current = save_to(app);
         for (key, label) in [
-            ("edited", tl!("A copy in the Edited folder (originals untouched)")),
-            ("overwrite", tl!("The original file")),
-            ("ask", tl!("Ask each time (Save As)")),
+            ("editedFolder", tl!("A copy in the Edited folder (originals untouched)")),
+            ("original", tl!("The original file")),
+            ("saveAs", tl!("Ask each time (Save As)")),
         ] {
             if ui.radio(current == key, label).clicked() {
-                app.session.prefs.edit(|p| p.interface.filmstrip_save_to = key.into());
+                app.session.prefs.edit(|p| p.interface.save_and_next_saves_to = key.into());
             }
         }
         ui.separator();
-        let mut follows = app.session.prefs().interface.filmstrip_follows_open;
+        let mut follows = app.session.prefs().interface.filmstrip_shows_folder;
         if ui.checkbox(&mut follows, tl!("Show the folder when opening a photo")).changed() {
-            app.session.prefs.edit(|p| p.interface.filmstrip_follows_open = follows);
+            app.session.prefs.edit(|p| p.interface.filmstrip_shows_folder = follows);
         }
     });
 }

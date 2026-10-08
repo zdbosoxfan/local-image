@@ -3079,3 +3079,14 @@ cameraRaw	Color	색상
 ai	Restore	복원
 ai	Sampler	샘플러
 ai	New	새 항목
+	Filmstrip shows folder	필름 스트립에 폴더 표시
+	Save and next saves to	저장 후 다음의 저장 위치
+	Develop	현상
+	Compositing	합성
+	Develop photos: light, colour, detail, masks, AI selections and removal	사진 현상: 빛, 색상, 디테일, 마스크, AI 선택 및 제거
+	Layers, retouching, compositing and every AI tool	레이어, 리터칭, 합성 및 모든 AI 도구
+	Develop…	현상…
+	Open the Library to develop this layer	이 레이어를 현상하려면 라이브러리를 여세요
+	The active layer isn't a Develop layer	활성 레이어가 현상 레이어가 아닙니다
+	Updated from Develop	현상에서 업데이트됨
+	{name} · Develop layer (double-click it to return to Develop)	{name} · 현상 레이어(두 번 클릭하면 현상으로 돌아갑니다)

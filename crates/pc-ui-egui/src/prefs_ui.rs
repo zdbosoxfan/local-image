@@ -773,6 +773,9 @@ fn humanize(key: &str) -> String {
 fn choice_label(v: &str) -> String {
     match v {
         "cm" => "Centimeters".into(),
+        "editedFolder" => "A copy in the Edited folder (originals untouched)".into(),
+        "original" => "The original file".into(),
+        "saveAs" => "Ask each time (Save As)".into(),
         "mm" => "Millimeters".into(),
         "75" | "100" | "125" | "150" | "175" | "200" | "250" | "300" => format!("{v}%"),
         "8" => "8 Bits/Channel".into(),

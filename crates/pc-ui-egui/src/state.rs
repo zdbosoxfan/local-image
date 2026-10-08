@@ -357,7 +357,8 @@ impl Default for Panels {
             status_bar: true,
             brush_settings: false,
             character: false,
-            generate: true,
+            // local-image: shown by Window › Generate, New from Prompt or the Home prompt.
+            generate: false,
         }
     }
 }

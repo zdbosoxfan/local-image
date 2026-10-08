@@ -7,8 +7,8 @@
 //! Stage order (see `docs/pipeline.md`):
 //! 1. geometry — user orientation, lens corrections (distortion, CA, vignetting), perspective, crop +
 //!    straighten, flips; one resample at output resolution; then defringe
-//! 2. scene-linear — white balance, exposure, dehaze, local tone (highlights/shadows), texture,
-//!    clarity, local adjustments (masks)
+//! 2. scene-linear — white balance, film negative conversion ([`negative`]), exposure, dehaze,
+//!    local tone (highlights/shadows), texture, clarity, local adjustments (masks)
 //! 3. tone map — contrast / whites / blacks filmic curve on luminance, highlight desaturation
 //! 4. colour — vibrance, saturation, colour mixer, colour grading, B&W (OkLCh)
 //! 5. display — gamut map to the output space (sRGB unless [`RenderRequest::space`] says otherwise), encode, tone curves (parametric + point), vignette, grain
@@ -32,6 +32,7 @@ pub mod geometry;
 pub mod local;
 pub mod lut;
 pub mod masks;
+pub mod negative;
 pub mod optics;
 pub mod output;
 pub mod profiles;
@@ -325,24 +326,34 @@ pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &R
         format!("{eyes:?}"),
         // defringe runs in this stage
         format!("{:?}", s.optics),
+        // the negative conversion runs in this stage (only while it is on: its sliders change
+        // nothing while it is off)
+        format!("{:?}", negative::params(s)),
         [d.nr_luminance, d.nr_detail, d.nr_color, d.nr_color_detail, d.nr_color_smoothness].map(f64::to_bits),
         src_long,
     ));
     Plan { settings, frame, w, h, px_per_long, src_long, geo, lin_key, eyes }
 }
 
-/// Whether the scene-linear stage needs work only the CPU does (defringe, spot removal).
+/// Whether the scene-linear stage needs work only the CPU does (film negative conversion,
+/// defringe, spot removal).
 pub fn lin_needs_cpu(s: &DevelopSettings) -> bool {
     let o = &s.optics;
     let defringe = s.section_enabled("optics") && (o.defringe_purple_amount > 0.0 || o.defringe_green_amount > 0.0);
-    defringe || !s.spots.is_empty()
+    defringe || !s.spots.is_empty() || negative::converts(s)
 }
 
-/// The white-balanced, defringed, retouched image (before noise reduction): the CPU part of the
-/// scene-linear stage, in place.
+/// The white-balanced, negative-converted, defringed, retouched image (before noise reduction):
+/// the CPU part of the scene-linear stage, in place.
+///
+/// The negative conversion comes right after white balance: like darktable's negadoctor it reads
+/// the scan's scene-linear transmittance (white-balanced, in the working space), and everything
+/// after it (defringe's purple/green hues, retouching, noise reduction, tone and colour) has to see
+/// the positive image.
 pub fn lin_cpu(img: &mut Rgb32f, info: &SourceInfo, p: &Plan<'_>) {
     let s = &*p.settings;
     local::white_balance(img, info, s);
+    negative::apply(img, s);
     optics::defringe(img, s, p.px_per_long / optics::DEFRINGE_REF_LONG);
     spots::apply(img, &s.spots, &p.frame, p.px_per_long);
     redeye::apply(img, &p.eyes);
