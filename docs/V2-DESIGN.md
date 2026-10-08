@@ -96,19 +96,75 @@ browser UI in a WebView and a Python server. V2 is a single editor in which the 
 * Shadow: Layer › Layer Style › Drop Shadow (PhotoCraft's live effect) — no separate shadow model.
 
 ### Generate panel (dock group "Generate | Library")
-* **Mode** chips: *Create* (new image), *Edit* (instruction edit of the open image), *Fill*
-  (generative fill of the selection — Qwen edit composited through the selection).
-* Prompt box (Enter to generate, ⇧Enter for a new line, character count), model picker showing
-  "ready / download needed", precision, aspect-ratio chips (1:1, 4:3, 3:2, 16:9, 9:16, Custom) plus
-  width × height fields snapped to the model's grid, Transparent (Qwen), count (1–4).
-* *Image inputs* (references): **+ Current image**, **+ File…**, **+ Library**; reorder; Z-Image
-  shows *Variation strength* instead.
-* *Advanced* (collapsed): steps, guidance (hidden when the model fixes it), seed (🎲 random / 🔒
-  keep), negative prompt (only for models that use it), styles (LoRAs, ≤3, strength −2…2).
-* Results stream into a thumbnail grid in the panel (pending tiles show stage and progress). Each
-  result: **Open** (new document, default on double-click), **Place as layer**, **Use as
-  reference**, **Recreate** (same settings, new seed), **Copy seed**. Every result is also saved
-  to the library.
+Generation follows Krita AI Diffusion (any local model, the canvas as input, results as layers)
+with Photoshop's names (Generative Fill) and dock conventions. Opening it (Window › Generate,
+File › New from Prompt…) folds Properties away so the prompt has room.
+* **Mode** chips: *Create* (new image), *Edit* (instruction edit of the open image: native edit
+  models, or inpaint at a strength), *Fill* (the selection, Generative Fill), *Refine* (img2img at a
+  strength), *Upscale* (enlarge and add detail tile by tile).
+* **Preset** (Krita's styles): prompt template, negative, steps, guidance, sampler, LoRAs and an
+  optional Draft → Refine model; built-ins plus the user's own (bookmark button saves the current
+  settings).
+* **Model picker**: every model grouped by family, with a readiness dot (ready / installed but
+  incomplete / not installed), the family name and capability tags (Create, Edit, refs, Fill,
+  LoRA…); imported custom workflows below; **Browse Models…** and **Import Workflow…** at the
+  bottom. Fields follow the model's capabilities: negative prompt only where the family uses one,
+  steps and guidance only where they aren't fixed, references only up to what the model takes.
+* Prompt (Enter generates, ⇧Enter for a new line), negative prompt where used, then one **Size**
+  row (aspect menu, width × height snapped to the model's grid), Transparent where supported.
+* *Strength* (Edit-by-inpaint, Fill with non-instruction models, Refine, Upscale), *Enlarge*
+  (Upscale), *References* (current image or a file; native multi-image, else IP-Adapter/Redux).
+* *Styles (LoRA)*: installed LoRAs that fit the family (≤ the family's maximum, strength −2…2);
+  **Find LoRAs…** opens the Model Browser on that family's LoRAs.
+* *Refine with*: Draft → Refine — a fast model drafts, a second model resamples it at a strength,
+  optionally enlarged first.
+* *Advanced* (collapsed): steps, guidance, variation strength, sampler and scheduler, seed (keep or
+  new each time).
+* The **Generate** button sits directly under the inputs with the image count (1–4) beside it, so
+  the primary action never scrolls away; its label follows the mode (Apply Edit, Fill Selection,
+  Upscale 2×). When something is missing the reason shows above it with the button that fixes it.
+* Results stream into the thumbnail grid right below (pending tiles show stage and progress). Each
+  result: **Open**, **Place as layer**, **Use as reference**, **Recreate**, **Copy seed**; every
+  result is also saved to the library.
+
+### Model Browser (Window › Model Browser…)
+Laid out like SwarmUI's and InvokeAI's model managers, with Civitai/Hugging Face-style cards, in
+the PhotoCraft Pro theme (one dark window, no extra chrome).
+* Left column: **Models | LoRAs**, then *New*, *Trending*, *Installed*, *Works on my GPU* (the
+  detected GPU memory), then every family grouped (Stable Diffusion, FLUX, Qwen, Z-Image, ERNIE,
+  HiDream).
+* Top row: search, source filters (Hugging Face, Civitai, Templates, Community), refresh.
+* Cards: preview, source and licence-gate badges, title, author and downloads, family and
+  capability tags, download size, rough GPU memory (amber when above the detected GPU), licence,
+  **Install** (or Get Template), the publisher's page.
+* **Install** first shows the licence (with a link, non-commercial and gated warnings) and the
+  exact files, their folders and sizes, and asks to accept the licence; then downloads each file
+  verified by size and SHA-256 into ComfyUI's folders, with progress and Stop, and refreshes ComfyUI.
+  The model appears in Generate's picker straight away.
+* A template for a family Local Image doesn't know yet installs its files and becomes a custom
+  workflow with a **Basic controls** badge (prompt, negative, seed, size, images).
+* *Update Model Profiles* fetches newer family profiles from this repository.
+* Nothing goes online until the window is open; every catalogue is cached so it works offline.
+
+### The open model system
+* **Families as data** (`crates/li-ai/families/*.json`): SD 1.5, SDXL, Pony, Illustrious/NoobAI,
+  SD 3.5, FLUX.1 (+ Kontext, Fill), FLUX.2, FLUX.2 Klein, Qwen Image, Qwen Image Edit, Qwen Image
+  2.1, Z-Image, ERNIE-Image, HiDream, SeedVR2. A profile states the loaders, text encoders, sampling
+  defaults, capabilities, LoRA rules, prompt conventions, component files and the Civitai/Hugging
+  Face names that mean it; derived families inherit (`base`). 0.7's curated models live in the
+  profiles unchanged (same files and hashes).
+* **Detection** (`arch.rs`): installed files are classified from `/object_info` plus their
+  safetensors/GGUF headers (tensor names and shapes, ModelSpec metadata), then the file name for
+  what weights can't tell apart (Pony vs Illustrious, Kontext vs Krea).
+* **Workflow builders** (`builders.rs`): one generic builder for every family and task (create,
+  refine, inpaint, edit, references, LoRAs), Draft → Refine and tiled upscale-refine (`ops.rs`).
+* **Custom workflows** (`custom.rs`): any ComfyUI workflow, editor or API format (subgraphs
+  flattened), becomes a model when its nodes are titled `li:prompt`, `li:negative`, `li:image`,
+  `li:image2`…, `li:mask`, `li:seed`, `li:steps`, `li:cfg`, `li:denoise`, `li:width`, `li:height`,
+  `li:output`.
+* **Guardrails**: downloads only from allow-listed hosts (Hugging Face and its CDNs, Civitai and its
+  R2/B2 delivery buckets, GitHub), only `.safetensors` and `.gguf`, never without a published size
+  and SHA-256, tokens sent only to their own site, licence shown before downloading.
 
 ### Library tab
 * The generated-image library (same storage as 0.7, so old generations appear): searchable grid
@@ -123,7 +179,8 @@ browser UI in a WebView and a Python server. V2 is a single editor in which the 
 | Image › AI Enhance (SeedVR2)… | 2× / 4K long edge / custom, keeps alpha, new document |
 | File › New from Prompt… | focuses the Generate panel in Create mode |
 | File › Automate › Remove Backgrounds… | batch: files or folder → transparent / white / colour → PNGs |
-| Edit › Preferences › Local AI… | ComfyUI connection, installation, start/stop, model folder, models |
+| Edit › Preferences › Local AI… | ComfyUI connection, installation, start/stop, model folder, models, Hugging Face and Civitai tokens |
+| Window › Model Browser… | find, compare and install models and LoRAs (also from Generate's model picker) |
 | Help › AI Models & GPU… | model guide, downloads with progress, detected GPU memory |
 
 ## 4. Files, colour and export
@@ -185,31 +242,44 @@ browser UI in a WebView and a Python server. V2 is a single editor in which the 
 9. **Batch backgrounds** → File › Automate › Remove Backgrounds… → pick files → White background →
    output folder → run, watch progress, open the folder.
 10. **Round trip PSD** → save with AI layers → reopen → layers and masks intact.
+11. **Get a new model** → Generate › model picker › Browse Models… → Trending or a family → card →
+    Install → licence and files → accept → progress → Installed → it is in the picker, ready.
+12. **Bring your own workflow** → Generate › model picker › Import Workflow… → a ComfyUI workflow
+    with `li:` titles (or an official template) → it is a model with the fields it marks.
 
 ## 7. Architecture
 
 ```
 apps/local-image          the desktop binary (window, services, raw import, branding)
-crates/li-ai              ComfyUI client, model catalog, workflows, downloads, library, setup, mock server
-crates/li-raw             LightCraft pipeline → PhotoCraft document (raw + colour)
-vendor/photocraft/…       PhotoCraft (git subtree) — engine, compositor, PSD, CMS, egui UI
-vendor/lightcraft/…       LightCraft (git subtree) — raw, develop, pipeline, codecs, export encoders
+apps/local-image-cli      command-line automation
+crates/pc-*               PhotoCraft (engine, compositor, PSD, CMS, paint, egui UI), now in-tree
+crates/lc-*               LightCraft (raw, develop, pipeline, catalog, codecs, export), now in-tree
+crates/li-ai              ComfyUI client, family profiles, detection, workflow builders, custom
+                          workflows, presets, model browser data, downloads, library, setup, mock
+crates/li-seg             the local segmentation model (Quick selection and backgrounds on CPU)
 ```
 
-* AI features enter PhotoCraft through **one engine module (`ai_cmds.rs`)** and **a few UI
-  modules (`ai_ui.rs`, `generate_ui.rs`, `filmstrip_ui.rs`, `lc_export_ui.rs`)** added to the vendored
-  crates, plus small, marked hook edits (`// local-image:`) in existing files (tool enum, toolbar
-  groups, dock groups, menu catalog, preferences, branding). New files never conflict on upstream
-  merges; the marked hooks are listed in `docs/UPSTREAM.md`.
+* `li-ai` modules: `family` (profiles and updates), `catalog` (models and presets from the
+  profiles plus what is installed), `arch` (header detection), `inventory` (installed models and
+  LoRAs), `builders` and `workflows` (graphs), `inpaint` (Krita's mask geometry), `custom`
+  (workflow import), `presets`, `browser` (catalogues, cards, install plans), `download`
+  (verified downloads), `ops` (every AI operation), `mock` and `mock_hub` (the test server).
+* AI features enter the editor through one engine module (`ai_cmds.rs`) and UI modules
+  (`ai_ui.rs`, `generate_ui.rs`, `model_browser.rs`, `filmstrip_ui.rs`, `lc_export_ui.rs`), plus
+  small marked hooks (`// local-image:`) in the tool enum, toolbar groups, dock groups, menu catalog,
+  preferences and branding.
 * Jobs: AI commands snapshot the document (`Arc` copy-on-write), run `li-ai` on a worker thread,
-  and apply the result as one history step on the UI thread (PhotoCraft's `jobs::run`).
-* Upstream: `scripts/sync-upstream.sh` runs `git subtree pull --squash` for both projects, then
-  builds and tests; a weekly GitHub Action opens a pull request when either upstream has moved.
+  and apply the result as one history step on the UI thread.
 
 ## 8. Verification
 
-* `cargo test` for `li-ai` (graphs, catalog, imaging, downloads, library, setup, and every AI
-  operation end-to-end against the mock ComfyUI server).
+* `cargo test` for `li-ai` (graphs for every family and task, detection, profiles and updates,
+  catalog, imaging, downloads, library, setup, every AI operation end-to-end against the mock
+  ComfyUI, all ten official template fixtures converting with basic controls, and the Model
+  Browser's whole install flow against the mock hub: Hugging Face tree hashes, Civitai CDN
+  redirect, unverified and gated refusals, the offline cache).
+* `cargo run -p li-ai --example mock_comfy -- 8199 <model folder>` serves ComfyUI and every model
+  source for demos and screenshots (see the example's header for the environment variables).
 * The vendored test suites (PhotoCraft engine/UI, LightCraft raw/pipeline) still pass.
 * Integration tests drive the real app headlessly through PhotoCraft's control channel against the
   mock ComfyUI: each flow in §6 is a test.

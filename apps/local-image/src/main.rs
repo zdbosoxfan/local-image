@@ -165,7 +165,7 @@ fn main() -> eframe::Result {
     }
 
     // A malformed control port must not silently drop the control server (issue #701): name the
-    // bad value and fail the launch, like `photocraft-cli serve --port` does for the same typo.
+    // bad value and fail the launch, like `local-image-cli serve --port` does for the same typo.
     // Exit status 2 is the usual command-line usage error, so a launcher sees the failure.
     if let Some(code) = control_args_exit_code(&control_arg_errors) {
         for error in &control_arg_errors {

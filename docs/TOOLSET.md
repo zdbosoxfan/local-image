@@ -90,13 +90,19 @@ notices kept in `licenses/`. Photopea is proprietary: behaviour only.
 
 ### AI generation and AI compositing
 
-| Feature | Status |
-| --- | --- |
-| Generate panel (Create / Edit image / Fill selection; Qwen, Z-Image, Klein 4B/9B, ERNIE) | ✅ |
-| Library tab (0.7-compatible generated library) | ✅ |
-| AI Cutout tool: Remove Background (AI or Quick CPU), refine Erase/Restore, Add Background (colour, image, generated) | ✅ |
-| Generative Fill, Generate Background, AI Enhance (SeedVR2) | ✅ |
-| Batch Remove Backgrounds | ✅ |
+| Feature | Source | Status |
+| --- | --- | --- |
+| Generate panel: Create, Edit, Fill, Refine, Upscale with any installed model; presets; LoRAs; Draft → Refine | Krita AI Diffusion (ported), Photoshop names | ✅ |
+| Family profiles as data (SD 1.5, SDXL, Pony, Illustrious, SD 3.5, FLUX.1/Kontext/Fill, FLUX.2, Klein, Qwen Image/Edit/2.1, Z-Image, ERNIE, HiDream) with live updates | Krita's per-architecture rules, ComfyUI templates | ✅ |
+| Installed-model detection from `/object_info` and safetensors/GGUF headers | Krita's and ComfyUI's model detection, safetensors spec | ✅ |
+| Inpaint geometry (grow, feather, context crop, blur pre-fill, green-fill instruction) | Krita AI Diffusion (ported) | ✅ |
+| Custom workflows (`li:` markers; editor or API format, subgraphs flattened) and official templates with basic controls | Krita's custom workflows, ComfyUI templates | ✅ |
+| Model Browser (Hugging Face, Civitai, templates, ComfyUI-Manager list; verified installs) | SwarmUI and InvokeAI model managers (ideas) | ✅ |
+| Library tab (0.7-compatible generated library) | Local Image 0.7 | ✅ |
+| AI Cutout tool: Remove Background (AI or Quick CPU), refine Erase/Restore, Add Background (colour, image, generated) | Local Image 0.7, PhotoCraft | ✅ |
+| Generative Fill, Generate Background, AI Enhance (SeedVR2) | Local Image 0.7 | ✅ |
+| Batch Remove Backgrounds | Local Image 0.7 | ✅ |
+| stable-diffusion.cpp engine (no ComfyUI needed) | stable-diffusion.cpp | 📋 |
 
 ## Cataloguing
 
@@ -124,3 +130,19 @@ cataloguing. Key papers: Wexler et al. 2007 (space-time completion), Barnes et a
 (PatchMatch), Pérez et al. 2003 (Poisson editing), Levin et al. 2008 (closed-form matting), He et
 al. 2010 (fast matting), Germer et al. 2020 (foreground estimation), Qin et al. 2020/2022
 (U²-Net, IS-Net).
+
+## Model system provenance
+
+What the open model system takes from each source (notices in `licenses/model-system-NOTICE.md`):
+
+| Source | Licence | How it is used | Where |
+| --- | --- | --- | --- |
+| ComfyUI | GPL-3.0 | The engine, over HTTP: `/object_info` (nodes, file lists, input order), `/prompt`, `/history`, `/view`, `/upload/image`, `/templates` | `comfy.rs`, `ops.rs` |
+| Krita AI Diffusion | GPL-3.0 | Ported: workflow construction per architecture, inpaint geometry and green fill, Pony/Illustrious prompt rules, style presets, editor-to-API conversion through `/object_info` | `builders.rs`, `inpaint.rs`, `custom.rs`, `presets.rs`, `families/*.json` |
+| ComfyUI workflow templates | MIT | Per-model graphs and their required files (`properties.models`); unknown families run through them with basic controls; ten are test fixtures | `browser.rs`, `custom.rs`, `tests/fixtures/templates` |
+| Hugging Face Hub API | service terms | Search (`/api/models`), file trees with LFS SHA-256 and sizes, `resolve` downloads; optional token | `browser.rs`, `download.rs` |
+| Civitai API | service terms | Search (`/api/v1/models`), published SHA-256, size checked against the download's headers, downloads through its R2/B2 delivery; optional key | `browser.rs`, `download.rs` |
+| ComfyUI-Manager `model-list.json` | GPL-3.0 (data read at run time) | A fallback community catalogue; installs only when Hugging Face publishes the hash | `browser.rs` |
+| safetensors / GGUF headers | Apache-2.0 / MIT formats | Tensor names, shapes and ModelSpec metadata identify the family of installed files | `arch.rs` |
+| SwarmUI, InvokeAI | MIT, Apache-2.0 | Ideas only: model manager layout, architectures as data | `model_browser.rs` |
+| This repository | GPL-3.0 | Family profile updates, fetched by *Update Model Profiles* | `family.rs` |

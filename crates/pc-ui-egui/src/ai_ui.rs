@@ -963,7 +963,7 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Val
             // as Photoshop's contextual panels make way for the one in use.
             app.ui.dock.set_collapsed(crate::dock::Group::Properties, true);
             // Room for the prompt, settings and a row of results, unless the user sized it.
-            app.ui.dock.heights.entry(crate::dock::Group::Generate).or_insert(500.0);
+            app.ui.dock.heights.entry(crate::dock::Group::Generate).or_insert(440.0);
             if id == "li.newFromPrompt" {
                 app.ui.ai.generate.mode = crate::generate_ui::Mode::Create;
                 crate::generate_ui::focus_prompt(ctx);

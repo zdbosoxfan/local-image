@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Local Image
+GenericName=Image Editor
+Comment=Edit, catalogue and generate images with local AI
+Exec=local-image %F
+Icon=io.github.zdbosoxfan.LocalImage
+Terminal=false
+Categories=Graphics;2DGraphics;RasterGraphics;Photography;
+MimeType=image/png;image/jpeg;image/tiff;image/webp;image/gif;image/bmp;image/avif;image/x-exr;image/vnd.adobe.photoshop;image/x-tga;image/x-canon-cr2;image/x-canon-cr3;image/x-nikon-nef;image/x-sony-arw;image/x-adobe-dng;image/x-fuji-raf;image/x-panasonic-rw2;image/x-olympus-orf;
+Keywords=photo;picture;raster;layers;psd;raw;AI;generate;
+StartupWMClass=io.github.zdbosoxfan.LocalImage
