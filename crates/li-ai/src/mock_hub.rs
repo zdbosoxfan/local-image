@@ -126,7 +126,7 @@ fn civitai_models(host: &str) -> Vec<Value> {
         json!({"id": 9005, "name": "Qwen Edit Relight", "type": "LORA", "nsfw": false, "allowCommercialUse": ["Image"],
             "creator": {"username": "lightlab"}, "stats": {"downloadCount": 4400, "thumbsUpCount": 520}, "tags": ["lighting"],
             "modelVersions": [{"id": 505, "baseModel": "Qwen", "publishedAt": "2026-10-02T00:00:00Z", "files": [civitai_file(host, 505, "qwen_edit_relight.safetensors", true)],
-                "images": [{"url": img("image_qwen_image_edit_2511"), "nsfwLevel": 1, "type": "image"}]}]})
+                "images": [{"url": img("image_qwen_image_edit_2511"), "nsfwLevel": 1, "type": "image"}]}]}),
     ]
 }
 

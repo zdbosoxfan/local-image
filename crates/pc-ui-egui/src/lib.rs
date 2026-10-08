@@ -63,7 +63,6 @@ pub mod filter_dialog;
 pub mod gallery_ui;
 pub mod generate_ui;
 // local-image: the Model Browser.
-pub mod model_browser;
 pub mod gpu_canvas;
 pub mod gpu_status;
 pub mod gradient_ui;
@@ -88,6 +87,7 @@ pub mod mask_thumbs_ui;
 pub mod menu_catalog;
 pub mod menu_nav;
 pub mod menus;
+pub mod model_browser;
 pub mod monitor_status;
 pub mod move_mods;
 pub mod move_ui;

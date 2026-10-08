@@ -155,12 +155,20 @@ fn files_in(dir: &std::path::Path) -> Vec<String> {
 /// ComfyUI's widget order (`input_order`), so editor-format workflows convert as they would
 /// against a real server. `@x` is a file list, `INT*` an INT with `control_after_generate`.
 const NODE_DEFS: &[(&str, &str, &str)] = &[
-    ("KSampler", "model:MODEL seed:INT* steps:INT cfg:FLOAT sampler_name:@samplers scheduler:@schedulers positive:CONDITIONING negative:CONDITIONING latent_image:LATENT denoise:FLOAT", ""),
+    (
+        "KSampler",
+        "model:MODEL seed:INT* steps:INT cfg:FLOAT sampler_name:@samplers scheduler:@schedulers positive:CONDITIONING negative:CONDITIONING latent_image:LATENT denoise:FLOAT",
+        "",
+    ),
     ("KSamplerSelect", "sampler_name:@samplers", ""),
     ("BasicScheduler", "model:MODEL scheduler:@schedulers steps:INT denoise:FLOAT", ""),
     ("CFGGuider", "model:MODEL positive:CONDITIONING negative:CONDITIONING cfg:FLOAT", ""),
     ("BasicGuider", "model:MODEL conditioning:CONDITIONING", ""),
-    ("DualCFGGuider", "model:MODEL cond1:CONDITIONING cond2:CONDITIONING negative:CONDITIONING cfg_conds:FLOAT cfg_cond2_negative:FLOAT style:(regular|nested)", ""),
+    (
+        "DualCFGGuider",
+        "model:MODEL cond1:CONDITIONING cond2:CONDITIONING negative:CONDITIONING cfg_conds:FLOAT cfg_cond2_negative:FLOAT style:(regular|nested)",
+        "",
+    ),
     ("CFGNorm", "model:MODEL strength:FLOAT", ""),
     ("CLIPLoader", "clip_name:@clip type:(stable_diffusion|qwen_image|flux2|lumina2|chroma|hidream|sd3|ernie)", "device:(default|cpu)"),
     ("DualCLIPLoader", "clip_name1:@clip clip_name2:@clip type:(sdxl|sd3|flux|hidream)", "device:(default|cpu)"),
@@ -182,7 +190,11 @@ const NODE_DEFS: &[(&str, &str, &str)] = &[
     ("FluxGuidance", "conditioning:CONDITIONING guidance:FLOAT", ""),
     ("FluxKontextImageScale", "image:IMAGE", ""),
     ("FluxKontextMultiReferenceLatentMethod", "conditioning:CONDITIONING reference_latents_method:(offset|index|uxo/uno)", ""),
-    ("ImageStitch", "image1:IMAGE direction:(right|down|left|up) match_image_size:BOOLEAN spacing_width:INT spacing_color:(white|black|red|green|blue)", "image2:IMAGE"),
+    (
+        "ImageStitch",
+        "image1:IMAGE direction:(right|down|left|up) match_image_size:BOOLEAN spacing_width:INT spacing_color:(white|black|red|green|blue)",
+        "image2:IMAGE",
+    ),
     ("LoadImage", "image:@image", ""),
     ("LoraLoaderModelOnly", "model:MODEL lora_name:@lora strength_model:FLOAT", ""),
     ("LoraLoader", "model:MODEL clip:CLIP lora_name:@lora strength_model:FLOAT strength_clip:FLOAT", ""),
@@ -203,7 +215,11 @@ const NODE_DEFS: &[(&str, &str, &str)] = &[
     ("StringReplace", "string:STRING find:STRING replace:STRING", ""),
     ("T5TokenizerOptions", "clip:CLIP min_padding:INT min_length:INT", ""),
     ("TextEncodeQwenImageEditPlus", "clip:CLIP prompt:STRING", "vae:VAE image1:IMAGE image2:IMAGE image3:IMAGE"),
-    ("TextGenerate", "clip:CLIP prompt:STRING max_length:INT sampling_mode:(on|off) temperature:FLOAT top_k:INT top_p:FLOAT min_p:FLOAT repetition_penalty:FLOAT seed:INT", "image:IMAGE"),
+    (
+        "TextGenerate",
+        "clip:CLIP prompt:STRING max_length:INT sampling_mode:(on|off) temperature:FLOAT top_k:INT top_p:FLOAT min_p:FLOAT repetition_penalty:FLOAT seed:INT",
+        "image:IMAGE",
+    ),
 ];
 
 fn node_def(required: &str, optional: &str, files: &HashMap<&str, Vec<String>>) -> Value {
@@ -349,7 +365,10 @@ pub fn object_info_with(model_dir: Option<&std::path::Path>) -> Value {
     info.insert("UnetLoaderGGUF".into(), json!({ "input": { "required": { "unet_name": [["flux2_dev_Q4_K_M.gguf"]] } } }));
     // Full definitions (widget order) for the core nodes, with the file lists above.
     let list = |class: &str, input: &str| -> Vec<String> {
-        info.get(class).and_then(|d| d["input"]["required"][input][0].as_array()).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default()
+        info.get(class)
+            .and_then(|d| d["input"]["required"][input][0].as_array())
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+            .unwrap_or_default()
     };
     let mut lists: HashMap<&str, Vec<String>> = HashMap::new();
     lists.insert("ckpt", list("CheckpointLoaderSimple", "ckpt_name"));

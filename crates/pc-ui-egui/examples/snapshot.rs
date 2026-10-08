@@ -14,7 +14,8 @@
 //! where its content starts on it, e.g. a window running under a Windows taskbar.
 //!
 //! `--script` is a JSON array of `[method, params]` control-protocol calls (see
-//! docs/control-protocol.md), applied in order with a few frames between them.
+//! docs/control-protocol.md), applied in order with a few frames between them, plus
+//! `["sleep", {"ms": N}]` (keep rendering) and `["click", {"x": X, "y": Y}]` (screen click).
 //! `--right-click-at X,Y` opens a screen-space context menu after the script, including panel
 //! and document-tab menus that are outside the document-coordinate control pointer.
 //! `--click-at X,Y` opens a screen-space menu (for example the top Select menu) after the script.
@@ -97,6 +98,26 @@ fn main() {
     let timing = std::env::var_os("SNAPSHOT_TIMING").is_some();
     for (method, params) in script {
         let t0 = std::time::Instant::now();
+        // `["sleep", {"ms": N}]`: keep rendering for N ms (background work, e.g. a catalogue
+        // fetch, before the next step).
+        if method == "sleep" {
+            let ms = params.get("ms").and_then(Value::as_u64).unwrap_or(500);
+            while t0.elapsed() < std::time::Duration::from_millis(ms) {
+                harness.step();
+            }
+            continue;
+        }
+        // `["click", {"x": X, "y": Y}]`: a primary click at a screen position.
+        if method == "click" {
+            let pos = egui::pos2(params["x"].as_f64().unwrap_or(0.0) as f32, params["y"].as_f64().unwrap_or(0.0) as f32);
+            harness.event(egui::Event::PointerMoved(pos));
+            harness.step();
+            harness.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+            harness.step();
+            harness.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+            harness.run_steps(4);
+            continue;
+        }
         let label = format!("{method} {}", params.get("command").and_then(Value::as_str).unwrap_or(""));
         let (req, _rx) = ControlRequest::new(&method, params);
         let outcome = handle(harness.state_mut(), &ctx, &req);

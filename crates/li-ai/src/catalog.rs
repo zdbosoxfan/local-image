@@ -135,7 +135,7 @@ pub struct ModelInfo {
 }
 
 impl ModelInfo {
-    /// Short capability tags for menus and cards ("Create", "Edit", "3 refs", "Inpaint", "Alpha").
+    /// Short capability tags for menus and cards ("Create", "Edit", "3 refs", "Fill", "Alpha").
     pub fn tags(&self) -> Vec<String> {
         let mut t = Vec::new();
         if self.text_to_image {
@@ -150,7 +150,7 @@ impl ModelInfo {
             t.push("Refs via adapter".to_owned());
         }
         if self.inpaint {
-            t.push("Inpaint".to_owned());
+            t.push("Fill".to_owned());
         }
         if self.transparent {
             t.push("Alpha".to_owned());
@@ -498,7 +498,7 @@ mod tests {
         let m = cat.models.iter().find(|m| m.id.key() == "ckpt:juggernautXL_v9.safetensors").unwrap();
         assert_eq!(m.family, "sdxl");
         assert_eq!(m.origin, Origin::Installed);
-        assert!(m.tags().contains(&"Inpaint".to_owned()));
+        assert!(m.tags().contains(&"Fill".to_owned()));
         let p = cat.presets.iter().find(|p| p.model == m.id).unwrap();
         assert!(p.installed);
     }

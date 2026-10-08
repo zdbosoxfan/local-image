@@ -573,6 +573,7 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
         enhance_dialog(app, ctx);
     }
     crate::generate_ui::batch_window(app, ctx);
+    crate::model_browser::window(app, ctx);
 }
 
 fn window_frame(ctx: &egui::Context) -> egui::Frame {
@@ -713,14 +714,19 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 });
                 ui.horizontal(|ui| {
                     opt(ui, "Installation:");
-                    let label = if settings.comfy_directory.is_empty() { "Not chosen — detected automatically".to_owned() } else { settings.comfy_directory.clone() };
+                    let label =
+                        if settings.comfy_directory.is_empty() { "Not chosen — detected automatically".to_owned() } else { settings.comfy_directory.clone() };
                     ui.label(RichText::new(label).color(t.text_dim));
                 });
                 ui.horizontal(|ui| {
                     if widgets::secondary_button(ui, "Detect", 0.0).clicked() {
                         let found = li_ai::setup::detect(&settings);
                         dialogs_mut(|d| {
-                            d.message = if found.is_empty() { "No ComfyUI installation found in the usual places.".into() } else { format!("Found {} installation(s).", found.len()) };
+                            d.message = if found.is_empty() {
+                                "No ComfyUI installation found in the usual places.".into()
+                            } else {
+                                format!("Found {} installation(s).", found.len())
+                            };
                             d.detected = Some(found);
                         });
                     }
@@ -783,7 +789,7 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     }
                 });
                 ui.label(
-                    RichText::new("Downloads are checked against the publisher's pinned revision, size and SHA-256. Restart ComfyUI after downloading so it sees new files.")
+                    RichText::new("Downloads are checked against the publisher's size and SHA-256, and ComfyUI's model list is refreshed after each install.")
                         .color(t.text_faint)
                         .size(11.0),
                 );
@@ -803,11 +809,29 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     crate::model_browser::open();
                 }
                 ui.add_space(8.0);
-                widgets::section_label(ui, "SELECTION MODELS (CPU)");
+                widgets::section_label(ui, "ACCOUNTS (OPTIONAL)");
                 ui.label(
-                    RichText::new("Select Subject, Remove Background (Quick) and Object Selection clicks use the best one installed. No GPU or ComfyUI needed.")
+                    RichText::new("Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.")
                         .color(t.text_faint)
                         .size(11.0),
+                );
+                for (key, label, hint) in [("hf_token", "Hugging Face token:", "hf_…"), ("civitai_token", "Civitai API key:", "")] {
+                    ui.horizontal(|ui| {
+                        opt(ui, label);
+                        let mut v = settings.extra_string(key).unwrap_or_default();
+                        if ui.add(egui::TextEdit::singleline(&mut v).password(true).hint_text(hint).desired_width(260.0)).changed() {
+                            settings.set_extra_string(key, &v);
+                        }
+                    });
+                }
+                ui.add_space(8.0);
+                widgets::section_label(ui, "SELECTION MODELS (CPU)");
+                ui.label(
+                    RichText::new(
+                        "Select Subject, Remove Background (Quick) and Object Selection clicks use the best one installed. No GPU or ComfyUI needed.",
+                    )
+                    .color(t.text_faint)
+                    .size(11.0),
                 );
                 ui.add_space(4.0);
                 seg_rows(ui, &t, &dls);
@@ -905,6 +929,7 @@ const IDS: &[&str] = &[
     "li.panel.generate",
     "li.localAi",
     "li.aiModels",
+    "li.browseModels",
     "li.filmstrip",
 ];
 
@@ -934,6 +959,11 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Val
             if app.ui.dock.is_collapsed(crate::dock::Group::Generate) {
                 app.ui.dock.set_collapsed(crate::dock::Group::Generate, false);
             }
+            // Prompting needs room: Properties folds away (its tab stays one click from open),
+            // as Photoshop's contextual panels make way for the one in use.
+            app.ui.dock.set_collapsed(crate::dock::Group::Properties, true);
+            // Room for the prompt, settings and a row of results, unless the user sized it.
+            app.ui.dock.heights.entry(crate::dock::Group::Generate).or_insert(500.0);
             if id == "li.newFromPrompt" {
                 app.ui.ai.generate.mode = crate::generate_ui::Mode::Create;
                 crate::generate_ui::focus_prompt(ctx);
@@ -952,6 +982,11 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Val
         "li.enhance" => dialogs_mut(|d| d.enhance = true),
         "li.localAi" | "li.aiModels" => open_local_ai(app),
         "li.filmstrip" => crate::filmstrip_ui::toggle(),
+        // `{"kind": "lora", "family": id}` opens it on a family's LoRAs.
+        "li.browseModels" => match (params.get("kind").and_then(Value::as_str), params.get("family").and_then(Value::as_str)) {
+            (Some("lora"), Some(f)) => crate::model_browser::open_loras(f),
+            _ => crate::model_browser::open(),
+        },
         _ => {}
     }
     Some(Ok(Value::Null))

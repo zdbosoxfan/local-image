@@ -176,7 +176,12 @@ struct Reference {
 
 enum Tile {
     /// `edit`: the document the result lands on as a layer; `open`: open it as a new document.
-    Pending { job: u64, label: String, edit: Option<u64>, open: bool },
+    Pending {
+        job: u64,
+        label: String,
+        edit: Option<u64>,
+        open: bool,
+    },
     Done(Entry),
     Failed(String),
 }
@@ -191,7 +196,17 @@ pub fn focus_prompt(ctx: &egui::Context) {
     ctx.request_repaint();
 }
 
+/// Re-reads the custom workflows (after an import or a template install).
+pub fn reload_customs() {
+    CUSTOMS_STALE.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+static CUSTOMS_STALE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn customs() -> Vec<li_ai::custom::CustomWorkflow> {
+    if CUSTOMS_STALE.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        rt(|r| r.customs = None);
+    }
     rt(|r| r.customs.get_or_insert_with(|| li_ai::custom::list(&li_ai::custom::dir())).clone())
 }
 
@@ -337,7 +352,10 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &cra
     let custom = current.strip_prefix("custom:");
     let current_label = match custom {
         Some(name) => format!("{name} · Custom workflow"),
-        None => ModelId::from_key(current).and_then(|m| m.try_info()).map(|i| format!("{} · {}", i.label, i.family_label)).unwrap_or_else(|| "Choose a model".into()),
+        None => ModelId::from_key(current)
+            .and_then(|m| m.try_info())
+            .map(|i| format!("{} · {}", i.label, i.family_label))
+            .unwrap_or_else(|| "Choose a model".into()),
     };
     let mut picked = None;
     let width = ui.available_width();
@@ -552,27 +570,27 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         if wants_negative {
             ui.add(egui::TextEdit::singleline(&mut s.negative).hint_text("Avoid… (negative prompt)").desired_width(f32::INFINITY));
         }
-        // ---- Size (Create).
+        // ---- Size (Create): one row, aspect then pixels.
         let custom_size = custom.as_ref().is_some_and(|w| w.has(&li_ai::custom::FieldKind::Width));
         if (s.mode == Mode::Create && custom.is_none()) || custom_size {
-            let items: Vec<&str> = ASPECTS.iter().map(|(k, _)| *k).chain(["Custom"]).collect();
-            let sel = ASPECTS.iter().position(|(k, _)| *k == s.aspect).unwrap_or(ASPECTS.len());
-            if let Some(i) = chips(ui, &items, sel) {
-                if i < ASPECTS.len() {
-                    s.aspect = ASPECTS[i].0.into();
-                    let (w, h) = size_for(&s.aspect, s, info.resolved.sizes.native);
-                    s.width = w;
-                    s.height = h;
-                } else {
-                    s.aspect = "custom".into();
-                }
-            }
             ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                let mut aspect = if ASPECTS.iter().any(|(k, _)| *k == s.aspect) { s.aspect.clone() } else { "custom".to_owned() };
+                let opts: Vec<(String, &str)> = ASPECTS.iter().map(|(k, _)| ((*k).to_owned(), *k)).chain([("custom".to_owned(), "Custom")]).collect();
+                if widgets::dropdown(ui, "gen-aspect", &mut aspect, &opts, 76.0) {
+                    s.aspect = aspect.clone();
+                    if aspect != "custom" {
+                        let (w, h) = size_for(&s.aspect, s, info.resolved.sizes.native);
+                        s.width = w;
+                        s.height = h;
+                    }
+                }
                 let (mut w, mut h) = (s.width as f32, s.height as f32);
                 let max = info.resolved.sizes.max.max(1024) as f32 * 2.0;
-                let cw = widgets::value_field(ui, &mut w, 256.0..=max, "px", 84.0);
+                let fw = ((ui.available_width() - 16.0) / 2.0).clamp(56.0, 84.0);
+                let cw = widgets::value_field(ui, &mut w, 256.0..=max, "px", fw).on_hover_text("Width");
                 ui.label(RichText::new("×").color(t.text_faint));
-                let ch = widgets::value_field(ui, &mut h, 256.0..=max, "px", 84.0);
+                let ch = widgets::value_field(ui, &mut h, 256.0..=max, "px", fw).on_hover_text("Height");
                 if cw.changed() || ch.changed() {
                     s.aspect = "custom".into();
                 }
@@ -586,28 +604,24 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 }
             });
         }
-        if s.mode == Mode::Create {
-            ui.horizontal(|ui| {
-                if info.transparent && custom.is_none() {
-                    widgets::checkbox(ui, &mut s.transparent, "Transparent");
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let mut n = s.count as f32;
-                    if widgets::value_field(ui, &mut n, 1.0..=4.0, "", 40.0).changed() {
-                        s.count = (n.round() as u32).clamp(1, 4);
-                    }
-                    label(ui, "Images");
-                });
-            });
+        if s.mode == Mode::Create && info.transparent && custom.is_none() {
+            widgets::checkbox(ui, &mut s.transparent, "Transparent background");
         }
         // ---- Strength.
         let strength_shown = match &custom {
             Some(w) => w.has(&li_ai::custom::FieldKind::Denoise),
-            None => matches!(s.mode, Mode::Refine | Mode::Upscale) || (s.mode == Mode::Edit && !info.edit) || (s.mode == Mode::Fill && info.resolved.pipeline.inpaint != li_ai::family::InpaintMethod::Instruction),
+            None => {
+                matches!(s.mode, Mode::Refine | Mode::Upscale)
+                    || (s.mode == Mode::Edit && !info.edit)
+                    || (s.mode == Mode::Fill && info.resolved.pipeline.inpaint != li_ai::family::InpaintMethod::Instruction)
+            }
         };
         if strength_shown {
             let mut pct = s.denoise * 100.0;
-            if widgets::slider_row(ui, "Strength", &mut pct, 5.0..=100.0, "%", None).on_hover_text("How much may change: 100 % regenerates, lower keeps more of the image").changed() {
+            if widgets::slider_row(ui, "Strength", &mut pct, 5.0..=100.0, "%", None)
+                .on_hover_text("How much may change: 100 % regenerates, lower keeps more of the image")
+                .changed()
+            {
                 s.denoise = (pct / 100.0).clamp(0.05, 1.0);
             }
         }
@@ -647,8 +661,9 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         // ---- Draft → Refine.
         if s.mode == Mode::Create && custom.is_none() {
             ui.horizontal(|ui| {
-                widgets::checkbox(ui, &mut s.refine, "Refine with")
-                    .on_hover_text("Draft → Refine: generate with this model, then resample the draft with another (e.g. a fast draft refined by a detailed model)");
+                widgets::checkbox(ui, &mut s.refine, "Refine with").on_hover_text(
+                    "Draft → Refine: generate with this model, then resample the draft with another (e.g. a fast draft refined by a detailed model)",
+                );
             });
             if s.refine {
                 if let Some(k) = model_picker(ui, "gen-refine-model", &s.refine_model.clone(), Mode::Refine, &st, false) {
@@ -771,14 +786,24 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             Mode::Upscale => format!("Upscale {}×", widgets::fmt_num(s.upscale as f64)),
         };
         let can = blocker.is_none() && ready.is_ok() && refine_ready.is_ok();
+        let create = s.mode == Mode::Create;
+        let mut count = s.count as f32;
         let clicked = ui
-            .add_enabled_ui(can, |ui| {
-                let w = ui.available_width();
-                widgets::primary_button(ui, &label_text, w)
+            .horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                let w = ui.available_width() - if create { 46.0 } else { 0.0 };
+                let r = ui
+                    .add_enabled_ui(can, |ui| widgets::primary_button(ui, &label_text, w))
+                    .inner
+                    .on_disabled_hover_text(blocker.unwrap_or("The model isn't ready."));
+                if create {
+                    widgets::value_field(ui, &mut count, 1.0..=4.0, "", 40.0).on_hover_text("Images per run (1–4)");
+                }
+                r
             })
             .inner
-            .on_disabled_hover_text(blocker.unwrap_or("The model isn't ready."))
             .clicked();
+        app.ui.ai.generate.count = (count.round() as u32).clamp(1, 4);
         if (clicked || enter) && can {
             start(app, &ctx);
         }
@@ -795,7 +820,7 @@ fn loras_ui(ui: &mut egui::Ui, s: &mut GenerateState, fam: &li_ai::family::Famil
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let free: Vec<&(li_ai::inventory::InstalledLora, bool)> = available.iter().filter(|(l, _)| !s.loras.iter().any(|p| p.name == l.name)).collect();
             let can = s.loras.len() < max && !free.is_empty();
-            let tip = if available.is_empty() { "No LoRAs for this model family are installed (Browse Models… › LoRAs)" } else { "Add a LoRA" };
+            let tip = if available.is_empty() { "No LoRAs for this model family are installed (Find LoRAs…)" } else { "Add a LoRA" };
             if ui.add_enabled(can, egui::Button::new("+ Add")).on_hover_text(tip).on_disabled_hover_text(tip).clicked()
                 && let Some((l, _)) = free.first()
             {
@@ -822,7 +847,12 @@ fn loras_ui(ui: &mut egui::Ui, s: &mut GenerateState, fam: &li_ai::family::Famil
         s.loras.remove(i);
     }
     if s.loras.is_empty() && available.is_empty() {
-        ui.label(RichText::new("No compatible LoRAs installed.").color(t.text_faint).size(11.0));
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("No compatible LoRAs installed.").color(t.text_faint).size(11.0));
+            if ui.link(RichText::new("Find LoRAs…").size(11.0)).clicked() {
+                crate::model_browser::open_loras(&fam.id);
+            }
+        });
     }
 }
 
@@ -832,7 +862,10 @@ fn apply_preset(s: &mut GenerateState, p: &li_ai::presets::GenPreset) {
         let fam = p.family.as_deref()?;
         let st = crate::ai_ui::status();
         let all = ModelId::all();
-        all.iter().copied().find(|m| m.info().family == fam && catalog::presets_for(*m).any(|x| st.ready(*m, &x.variant).is_ok())).or_else(|| all.into_iter().find(|m| m.info().family == fam))
+        all.iter()
+            .copied()
+            .find(|m| m.info().family == fam && catalog::presets_for(*m).any(|x| st.ready(*m, &x.variant).is_ok()))
+            .or_else(|| all.into_iter().find(|m| m.info().family == fam))
     });
     if let Some(m) = model {
         set_model(s, m);
@@ -947,6 +980,9 @@ fn references_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui, max: usize, init_im
         });
     });
     let mut remove = None;
+    if n == 0 {
+        return;
+    }
     ui.horizontal_wrapped(|ui| {
         rt(|r| {
             for (i, rf) in r.references.iter_mut().enumerate() {

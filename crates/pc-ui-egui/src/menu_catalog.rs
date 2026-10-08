@@ -761,6 +761,7 @@ pub static CATALOG: &[(&[&str], &str, Option<&str>, &str)] = &[
     (&["Window"], "Glyphs", None, "window.panel.glyphs"),
     (&["Window"], "Filmstrip", Some("Cmd+Alt+F"), "li.filmstrip"),
     (&["Window"], "Generate", None, "li.panel.generate"),
+    (&["Window"], "Model Browser…", None, "li.browseModels"),
     (&["Window"], "Gradients", None, "window.panel.gradients"),
     (&["Window"], "Histogram", None, "window.panel.histogram"),
     (&["Window"], "History", None, "window.panel.history"),

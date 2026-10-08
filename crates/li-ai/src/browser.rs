@@ -245,7 +245,8 @@ pub fn parse_hf_list(reg: &Registry, hf_base: &str, v: &Value, kind: Kind) -> Ve
     arr.iter()
         .filter_map(|m| {
             let id = m.get("id").or_else(|| m.get("modelId"))?.as_str()?.to_owned();
-            let tags: Vec<String> = m.get("tags").and_then(Value::as_array).map(|a| a.iter().filter_map(|t| t.as_str().map(str::to_owned)).collect()).unwrap_or_default();
+            let tags: Vec<String> =
+                m.get("tags").and_then(Value::as_array).map(|a| a.iter().filter_map(|t| t.as_str().map(str::to_owned)).collect()).unwrap_or_default();
             let is_lora = tags.iter().any(|t| t == "lora" || t.starts_with("base_model:adapter:"));
             if (kind == Kind::Lora) != is_lora {
                 return None;
@@ -380,11 +381,8 @@ pub fn parse_civitai(reg: &Registry, v: &Value) -> Vec<Item> {
                 author: m.get("creator").and_then(|c| c.get("username")).and_then(Value::as_str).unwrap_or("").to_owned(),
                 description: String::new(),
                 family,
-                license: match commercial {
-                    Some(true) => format!("{base} base licence · commercial use allowed"),
-                    Some(false) => format!("{base} base licence · no commercial use"),
-                    None => format!("{base} base licence"),
-                },
+                // The card adds "non-commercial" from `commercial`.
+                license: format!("{base} base licence"),
                 license_url: Some(format!("https://civitai.com/models/{id}")),
                 commercial,
                 preview,
@@ -492,7 +490,8 @@ pub fn parse_template_index(v: &Value) -> Vec<TemplateEntry> {
         .filter(|t| t.get("openSource").and_then(Value::as_bool) != Some(false))
         .filter(|t| t.get("mediaType").and_then(Value::as_str).is_none_or(|m| m == "image"))
         .filter_map(|t| {
-            let strs = |k: &str| t.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default();
+            let strs =
+                |k: &str| t.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default();
             Some(TemplateEntry {
                 name: t.get("name")?.as_str()?.to_owned(),
                 title: t.get("title").and_then(Value::as_str).unwrap_or("").to_owned(),
@@ -514,15 +513,25 @@ pub fn template_files(template: &Value) -> Vec<CatalogFile> {
     fn walk(nodes: &Value, out: &mut Vec<CatalogFile>) {
         for n in nodes.as_array().into_iter().flatten() {
             for m in n.get("properties").and_then(|p| p.get("models")).and_then(Value::as_array).into_iter().flatten() {
-                let (Some(name), Some(url), Some(dir)) = (m.get("name").and_then(Value::as_str), m.get("url").and_then(Value::as_str), m.get("directory").and_then(Value::as_str))
+                let (Some(name), Some(url), Some(dir)) =
+                    (m.get("name").and_then(Value::as_str), m.get("url").and_then(Value::as_str), m.get("directory").and_then(Value::as_str))
                 else {
                     continue;
                 };
                 if out.iter().any(|f| f.name == name && f.folder == dir) {
                     continue;
                 }
-                let sha = m.get("hash").and_then(Value::as_str).filter(|_| m.get("hash_type").and_then(Value::as_str).is_none_or(|t| t.eq_ignore_ascii_case("sha256")));
-                out.push(CatalogFile { name: name.to_owned(), folder: dir.to_owned(), url: url.to_owned(), sha256: sha.map(str::to_ascii_lowercase), ..Default::default() });
+                let sha = m
+                    .get("hash")
+                    .and_then(Value::as_str)
+                    .filter(|_| m.get("hash_type").and_then(Value::as_str).is_none_or(|t| t.eq_ignore_ascii_case("sha256")));
+                out.push(CatalogFile {
+                    name: name.to_owned(),
+                    folder: dir.to_owned(),
+                    url: url.to_owned(),
+                    sha256: sha.map(str::to_ascii_lowercase),
+                    ..Default::default()
+                });
             }
         }
     }
@@ -681,7 +690,9 @@ pub fn items(reg: &Registry, cfg: &Config, q: &Query, bodies: &[(Source, Value)]
     let needle = q.search.trim().to_ascii_lowercase();
     out.retain(|i| needle.is_empty() || i.title.to_ascii_lowercase().contains(&needle) || i.description.to_ascii_lowercase().contains(&needle));
     match &q.view {
-        View::Family(f) => out.retain(|i| i.family.as_deref() == Some(f.as_str()) || reg.family(f).is_some_and(|fam| i.family.as_deref().is_some_and(|x| fam.lora_fits(x)))),
+        View::Family(f) => {
+            out.retain(|i| i.family.as_deref() == Some(f.as_str()) || reg.family(f).is_some_and(|fam| i.family.as_deref().is_some_and(|x| fam.lora_fits(x))))
+        }
         View::FitsGpu(gb) => out.retain(|i| i.vram_gb().is_some_and(|v| v <= *gb)),
         _ => {}
     }
@@ -727,6 +738,8 @@ impl HttpNet {
         let bases = [c.hf.as_str(), c.civitai.as_str(), c.manager_list.as_str(), c.templates.as_str()];
         bases.iter().any(|b| !b.is_empty() && url.starts_with(b.trim_end_matches('/')))
             || url.starts_with("https://image.civitai.com/")
+            || url.starts_with(crate::family::REMOTE_BASE)
+            || std::env::var("LOCAL_IMAGE_FAMILIES_BASE").is_ok_and(|b| !b.is_empty() && url.starts_with(&b))
             || crate::download::host_allowed(url)
     }
 
@@ -877,7 +890,14 @@ pub fn plan(item: &Item, files: &[CatalogFile], fam: Option<&Family>, info: &Obj
                 continue;
             }
             if let Some(d) = &c.download {
-                want.push(CatalogFile { name: d.name.clone(), folder: d.folder.clone(), url: d.url.clone(), bytes: Some(d.bytes), approx_bytes: None, sha256: Some(d.sha256.clone()) });
+                want.push(CatalogFile {
+                    name: d.name.clone(),
+                    folder: d.folder.clone(),
+                    url: d.url.clone(),
+                    bytes: Some(d.bytes),
+                    approx_bytes: None,
+                    sha256: Some(d.sha256.clone()),
+                });
             } else if let Some(src) = c.source.as_deref().and_then(|s| s.strip_prefix("hf:")) {
                 let mut parts = src.splitn(3, '/');
                 let (Some(owner), Some(repo), Some(path)) = (parts.next(), parts.next(), parts.next()) else { continue };
@@ -922,7 +942,12 @@ pub fn plan(item: &Item, files: &[CatalogFile], fam: Option<&Family>, info: &Obj
             if let (Some(e), Some(a)) = (exact, f.approx_bytes)
                 && (e as f64 - a as f64).abs() > a as f64 * 0.02 + 4096.0
             {
-                bail!("{}: the download is {} but the listing says {}; not installing.", f.name, crate::download::human_bytes(e), crate::download::human_bytes(a));
+                bail!(
+                    "{}: the download is {} but the listing says {}; not installing.",
+                    f.name,
+                    crate::download::human_bytes(e),
+                    crate::download::human_bytes(a)
+                );
             }
             bytes = exact;
         }
@@ -1000,7 +1025,10 @@ mod tests {
         assert_eq!(z.family.as_deref(), Some("z-image"));
         assert_eq!(z.files[0].folder, "diffusion_models");
         assert_eq!(z.files[0].url, "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors");
-        assert_eq!(z.files[0].hf_path("https://huggingface.co"), Some(("Comfy-Org/z_image_turbo".into(), "split_files/diffusion_models/z_image_turbo_bf16.safetensors".into())));
+        assert_eq!(
+            z.files[0].hf_path("https://huggingface.co"),
+            Some(("Comfy-Org/z_image_turbo".into(), "split_files/diffusion_models/z_image_turbo_bf16.safetensors".into()))
+        );
         assert_eq!(z.license, "apache-2.0");
         let flux = &models[1];
         assert!(flux.gated);
@@ -1108,7 +1136,10 @@ mod tests {
         let tree = json!([
             {"type": "file", "path": "split_files/diffusion_models/z_image_turbo_bf16.safetensors", "size": 12309866400u64, "lfs": {"oid": sha, "size": 12309866400u64}},
         ]);
-        let net = FakeNet([("https://huggingface.co/api/models/Comfy-Org/z_image_turbo/tree/main?recursive=true".to_owned(), serde_json::to_vec(&tree).unwrap())].into(), None);
+        let net = FakeNet(
+            [("https://huggingface.co/api/models/Comfy-Org/z_image_turbo/tree/main?recursive=true".to_owned(), serde_json::to_vec(&tree).unwrap())].into(),
+            None,
+        );
         let items = parse_hf_list(reg, &cfg.hf, &hf_list(), Kind::Model);
         let z = &items[0];
         let p = plan(z, &z.files, reg.family("z-image"), &info, &cfg, &net);
@@ -1126,7 +1157,12 @@ mod tests {
         let wrong = FakeNet(BTreeMap::new(), Some(10));
         assert!(plan(j, &j.files, reg.family("sdxl"), &info, &cfg, &wrong).is_err());
         // No hash: refused.
-        let bad = CatalogFile { name: "x.safetensors".into(), folder: "checkpoints".into(), url: "https://civitai.com/api/download/models/9".into(), ..Default::default() };
+        let bad = CatalogFile {
+            name: "x.safetensors".into(),
+            folder: "checkpoints".into(),
+            url: "https://civitai.com/api/download/models/9".into(),
+            ..Default::default()
+        };
         let e = plan(j, &[bad], None, &info, &cfg, &ok).unwrap_err().to_string();
         assert!(e.contains("no published size and SHA-256"), "{e}");
         // Already installed: skipped.
@@ -1180,7 +1216,8 @@ mod tests {
         };
         let net = HttpNet::new(cfg.clone());
         let reg = registry();
-        let info = || ObjectInfo(serde_json::from_slice(&ureq::get(&format!("http://{host}/object_info")).call().unwrap().body_mut().read_to_vec().unwrap()).unwrap());
+        let info =
+            || ObjectInfo(serde_json::from_slice(&ureq::get(&format!("http://{host}/object_info")).call().unwrap().body_mut().read_to_vec().unwrap()).unwrap());
         let cache = Cache::new(models.join(".cache"));
         let fetch = |q: &Query| {
             let bodies: Vec<(Source, Value)> =

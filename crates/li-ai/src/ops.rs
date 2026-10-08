@@ -715,8 +715,15 @@ impl Ai {
         use crate::custom::FieldKind;
         ctl.set_stage(Stage::Preparing);
         let info = self.inventory()?;
-        let missing: Vec<String> =
-            w.graph.as_object().into_iter().flat_map(|o| o.values()).filter_map(|n| n["class_type"].as_str()).filter(|c| !info.has_node(c)).map(str::to_owned).collect();
+        let missing: Vec<String> = w
+            .graph
+            .as_object()
+            .into_iter()
+            .flat_map(|o| o.values())
+            .filter_map(|n| n["class_type"].as_str())
+            .filter(|c| !info.has_node(c))
+            .map(str::to_owned)
+            .collect();
         if !missing.is_empty() {
             bail!("This workflow needs nodes ComfyUI doesn't have: {}. Install them with ComfyUI-Manager.", missing.join(", "));
         }
@@ -727,7 +734,9 @@ impl Ai {
         let mut uploads = Vec::new();
         for (kind, node) in slots {
             let png = match kind {
-                FieldKind::Image(i) => imaging::encode_png(&imaging::over_white(images.get(i as usize).with_context(|| format!("This workflow takes image {} — add it first.", i + 1))?))?,
+                FieldKind::Image(i) => imaging::encode_png(&imaging::over_white(
+                    images.get(i as usize).with_context(|| format!("This workflow takes image {} — add it first.", i + 1))?,
+                ))?,
                 FieldKind::Mask => imaging::encode_png(&image::DynamicImage::ImageLuma8(mask.context("This workflow needs a selection.")?.clone()).to_rgb8())?,
                 _ => continue,
             };

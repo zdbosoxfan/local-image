@@ -292,7 +292,9 @@ impl<'a> Flattener<'a> {
                     let name = di.get("name").and_then(Value::as_str);
                     let label = di.get("label").and_then(Value::as_str);
                     let pick = inputs.iter().enumerate().position(|(j, i)| {
-                        !used[j] && i.get("name").and_then(Value::as_str) == name && (label.is_none() || i.get("label").and_then(Value::as_str).is_none_or(|l| Some(l) == label))
+                        !used[j]
+                            && i.get("name").and_then(Value::as_str) == name
+                            && (label.is_none() || i.get("label").and_then(Value::as_str).is_none_or(|l| Some(l) == label))
                     });
                     let src = pick.and_then(|j| {
                         used[j] = true;
@@ -326,10 +328,7 @@ impl<'a> Flattener<'a> {
                 }
                 continue;
             }
-            let linked = inputs
-                .iter()
-                .filter_map(|i| Some((i.get("name")?.as_str()?.to_owned(), src_of(i)?)))
-                .collect();
+            let linked = inputs.iter().filter_map(|i| Some((i.get("name")?.as_str()?.to_owned(), src_of(i)?))).collect();
             self.nodes.push(Flat {
                 id: sid,
                 class: class.to_owned(),
@@ -364,7 +363,10 @@ impl<'a> Flattener<'a> {
 /// bypassed nodes pass their input through.
 pub fn ui_to_api(ui: &Value, info: &ObjectInfo) -> Result<Value> {
     ui.get("nodes").and_then(Value::as_array).context("no nodes")?;
-    let mut f = Flattener { defs: ui.get("definitions").and_then(|d| d.get("subgraphs")).and_then(Value::as_array).map(|a| a.iter().collect()).unwrap_or_default(), ..Default::default() };
+    let mut f = Flattener {
+        defs: ui.get("definitions").and_then(|d| d.get("subgraphs")).and_then(Value::as_array).map(|a| a.iter().collect()).unwrap_or_default(),
+        ..Default::default()
+    };
     f.scope(&ui["nodes"], &ui["links"], "", "", 0)?;
     let mut out = Map::new();
     for n in &f.nodes {
@@ -396,7 +398,8 @@ pub fn ui_to_api(ui: &Value, info: &ObjectInfo) -> Result<Value> {
                 if !inputs.contains_key(name.as_str()) {
                     inputs.insert(name.clone(), v);
                 }
-                let seedlike = s.get(1).and_then(|o| o.get("control_after_generate")).and_then(Value::as_bool) == Some(true) || name == "seed" || name == "noise_seed";
+                let seedlike =
+                    s.get(1).and_then(|o| o.get("control_after_generate")).and_then(Value::as_bool) == Some(true) || name == "seed" || name == "noise_seed";
                 if seedlike {
                     let next = values.clone().next();
                     if next.as_ref().and_then(Value::as_str).is_some_and(|t| matches!(t, "fixed" | "increment" | "decrement" | "randomize")) {
@@ -440,7 +443,13 @@ fn text_source(g: &Map<String, Value>, start: &Value) -> Option<(String, String)
             if let Some(Value::String(_)) = inputs.get(k)
                 && !processing
             {
-                let rank = if class.starts_with("PrimitiveString") { 0 } else if class.contains("TextEncode") { 1 } else { 2 };
+                let rank = if class.starts_with("PrimitiveString") {
+                    0
+                } else if class.contains("TextEncode") {
+                    1
+                } else {
+                    2
+                };
                 if best.as_ref().is_none_or(|(r, _, _)| rank < *r) {
                     best = Some((rank, id.clone(), k.to_owned()));
                 }
@@ -469,7 +478,9 @@ pub fn basic_fields(graph: &Value) -> Vec<Field> {
     for (id, n) in g {
         let inputs = n.get("inputs").and_then(Value::as_object);
         let Some(inputs) = inputs else { continue };
-        for (key, kind) in [("positive", FieldKind::Prompt), ("cond1", FieldKind::Prompt), ("conditioning", FieldKind::Prompt), ("negative", FieldKind::Negative)] {
+        for (key, kind) in
+            [("positive", FieldKind::Prompt), ("cond1", FieldKind::Prompt), ("conditioning", FieldKind::Prompt), ("negative", FieldKind::Negative)]
+        {
             if let Some(start) = inputs.get(key).filter(|v| v.is_array())
                 && let Some((node, input)) = text_source(g, start)
                 && !fields.iter().any(|f: &Field| f.kind == kind)
@@ -619,7 +630,12 @@ mod tests {
     fn markers_become_fields_and_values_are_set() {
         let w = from_api("Img2img", api()).unwrap();
         let kinds: Vec<_> = w.fields.iter().map(|f| f.kind.clone()).collect();
-        assert!(kinds.contains(&FieldKind::Prompt) && kinds.contains(&FieldKind::Seed) && kinds.contains(&FieldKind::Image(0)) && kinds.contains(&FieldKind::Output));
+        assert!(
+            kinds.contains(&FieldKind::Prompt)
+                && kinds.contains(&FieldKind::Seed)
+                && kinds.contains(&FieldKind::Image(0))
+                && kinds.contains(&FieldKind::Output)
+        );
         assert_eq!(w.tags(), vec!["Custom", "Prompt", "1 image"]);
         let (g, images) = prepare(&w, &Inputs { prompt: "a dog".into(), negative: "blur".into(), seed: 42, ..Default::default() });
         assert_eq!(g["6"]["inputs"]["text"], "a dog");

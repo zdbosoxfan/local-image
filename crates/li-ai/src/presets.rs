@@ -69,7 +69,14 @@ pub fn built_in() -> Vec<GenPreset> {
     vec![
         p("None", None, "", "", None, None),
         p("Cinematic Photo", None, "cinematic film still of {prompt}, natural light, shallow depth of field, sharp focus", "", None, None),
-        p("Digital Artwork", None, "concept art of {prompt}, digital artwork, illustrative, matte painting, highly detailed", "photo, photorealistic", None, None),
+        p(
+            "Digital Artwork",
+            None,
+            "concept art of {prompt}, digital artwork, illustrative, matte painting, highly detailed",
+            "photo, photorealistic",
+            None,
+            None,
+        ),
         p("Product Shot", None, "studio product photograph of {prompt}, soft box lighting, clean background, high detail", "", None, None),
         p(
             "Anime (Illustrious)",
@@ -79,7 +86,14 @@ pub fn built_in() -> Vec<GenPreset> {
             Some(24),
             Some(5.0),
         ),
-        p("Photo (SDXL)", Some("sdxl"), "cinematic film still {prompt}", "anime, cartoon, graphic, text, painting, crayon, graphite, abstract", Some(25), Some(6.0)),
+        p(
+            "Photo (SDXL)",
+            Some("sdxl"),
+            "cinematic film still {prompt}",
+            "anime, cartoon, graphic, text, painting, crayon, graphite, abstract",
+            Some(25),
+            Some(6.0),
+        ),
         p("Poster (ERNIE)", Some("ernie"), "{prompt}", "", None, None),
     ]
 }
