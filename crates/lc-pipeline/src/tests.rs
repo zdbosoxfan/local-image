@@ -347,22 +347,23 @@ fn negative_conversion_renders() {
     let positive = scene().map(|p| p.map(|v| (v / (1.0 + v)).clamp(0.01, 0.7)));
     let base = render(&positive, &info, &DevelopSettings::default(), &req).image;
     // disabled: bit-identical, also with every negative slider moved and the section toggled
-    let mut off = DevelopSettings::default();
-    off.negative = Negative {
-        enabled: false,
-        film: FilmStock::Bw,
-        d_max: 3.0,
-        offset: 0.2,
-        gamma: 6.0,
-        dmin: FilmRgb::new(0.5, 0.5, 0.5),
-        ..Negative::default()
+    let mut off = DevelopSettings {
+        negative: Negative {
+            enabled: false,
+            film: FilmStock::Bw,
+            d_max: 3.0,
+            offset: 0.2,
+            gamma: 6.0,
+            dmin: FilmRgb::new(0.5, 0.5, 0.5),
+            ..Negative::default()
+        },
+        ..DevelopSettings::default()
     };
     assert_eq!(render(&positive, &info, &off, &req).image, base);
     off.set_section_enabled("negative", false);
     assert_eq!(render(&positive, &info, &off, &req).image, base);
     // slides pass through
-    let mut slide = DevelopSettings::default();
-    slide.negative = Negative { enabled: true, film: FilmStock::Slide, ..Negative::default() };
+    let slide = DevelopSettings { negative: Negative { enabled: true, film: FilmStock::Slide, ..Negative::default() }, ..DevelopSettings::default() };
     assert_eq!(render(&positive, &info, &slide, &req).image, base);
 
     // the negative of the positive: the inverse of the print model with an orange base
