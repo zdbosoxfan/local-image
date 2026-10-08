@@ -36,12 +36,24 @@ fn host_of(url: &str) -> Option<String> {
     Some(authority.to_ascii_lowercase())
 }
 
+static TEST_HOSTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Allows plain-HTTP downloads from one `host:port` (the in-process mock server).
+#[doc(hidden)]
+pub fn allow_test_host(authority: &str) {
+    if let Ok(mut v) = TEST_HOSTS.lock() {
+        v.push(authority.to_ascii_lowercase());
+    }
+}
+
 /// Whether a download may come from `url`: HTTPS to an allow-listed host, or plain HTTP to the
-/// exact `host:port` in `LOCAL_IMAGE_TEST_DOWNLOAD_HOST` (the mock server in tests and demos).
+/// exact `host:port` of a mock server (in-process, or named in `LOCAL_IMAGE_TEST_DOWNLOAD_HOST`
+/// for demos against `examples/mock_comfy`).
 pub fn host_allowed(url: &str) -> bool {
     let Some(authority) = host_of(url) else { return false };
     if url.starts_with("http://") {
-        return std::env::var("LOCAL_IMAGE_TEST_DOWNLOAD_HOST").is_ok_and(|t| !t.is_empty() && t.eq_ignore_ascii_case(&authority));
+        return TEST_HOSTS.lock().is_ok_and(|v| v.contains(&authority))
+            || std::env::var("LOCAL_IMAGE_TEST_DOWNLOAD_HOST").is_ok_and(|t| !t.is_empty() && t.eq_ignore_ascii_case(&authority));
     }
     let host = authority.split(':').next().unwrap_or("");
     ALLOWED_HOSTS.contains(&host) || ALLOWED_SUFFIXES.iter().any(|s| host.ends_with(s))

@@ -15,6 +15,7 @@ pub mod inpaint;
 pub mod inventory;
 pub mod library;
 pub mod mock;
+pub mod mock_hub;
 pub mod ops;
 pub mod presets;
 pub mod settings;

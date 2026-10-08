@@ -24,6 +24,9 @@ struct State {
     outputs: HashMap<String, Vec<u8>>,
     prompts: Vec<Value>,
     next: u64,
+    host: String,
+    /// A model folder whose files `/object_info` lists too (installs show up after a refresh).
+    model_dir: Option<std::path::PathBuf>,
 }
 
 /// A running mock server; stops when dropped.
@@ -34,6 +37,7 @@ pub struct MockComfy {
     /// Milliseconds each job takes (so progress and cancel can be observed).
     pub delay_ms: Arc<AtomicU64>,
     fail_next: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl MockComfy {
@@ -44,18 +48,19 @@ impl MockComfy {
     pub fn start_on(addr: &str) -> std::io::Result<Self> {
         let server = tiny_http::Server::http(addr).map_err(std::io::Error::other)?;
         let host = server.server_addr().to_ip().map(|a| a.to_string()).unwrap_or_default();
-        let state = Arc::new(Mutex::new(State::default()));
+        crate::download::allow_test_host(&host);
+        let state = Arc::new(Mutex::new(State { host: host.clone(), ..Default::default() }));
         let stop = Arc::new(AtomicBool::new(false));
         let delay_ms = Arc::new(AtomicU64::new(150));
         let fail_next = Arc::new(AtomicBool::new(false));
         let (st, sp, dl, fl) = (state.clone(), stop.clone(), delay_ms.clone(), fail_next.clone());
-        std::thread::Builder::new().name("mock-comfy".into()).spawn(move || {
+        let thread = std::thread::Builder::new().name("mock-comfy".into()).spawn(move || {
             while !sp.load(Ordering::SeqCst) {
                 let Ok(Some(req)) = server.recv_timeout(Duration::from_millis(100)) else { continue };
                 handle(req, &st, &dl, &fl);
             }
         })?;
-        Ok(Self { host, state, stop, delay_ms, fail_next })
+        Ok(Self { host, state, stop, delay_ms, fail_next, thread: Some(thread) })
     }
 
     pub fn host(&self) -> &str {
@@ -67,6 +72,13 @@ impl MockComfy {
         self.state.lock().map(|s| s.prompts.clone()).unwrap_or_default()
     }
 
+    /// Lists the model files under `dir` too (as ComfyUI does for its `models` folder).
+    pub fn set_model_dir(&self, dir: impl Into<std::path::PathBuf>) {
+        if let Ok(mut s) = self.state.lock() {
+            s.model_dir = Some(dir.into());
+        }
+    }
+
     /// Makes the next job end with an execution error (e.g. out of memory).
     pub fn fail_next(&self) {
         self.fail_next.store(true, Ordering::SeqCst);
@@ -76,6 +88,9 @@ impl MockComfy {
 impl Drop for MockComfy {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
     }
 }
 
@@ -113,6 +128,115 @@ const FIXTURE_LORAS: &[&str] =
 
 /// Everything Local Image asks for: every node class the family graphs use, every model file.
 pub fn object_info() -> Value {
+    object_info_with(None)
+}
+
+/// Files under a model folder, relative with `/` (ComfyUI's listing).
+fn files_in(dir: &std::path::Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "safetensors" || x == "gguf")
+                && let Ok(rel) = p.strip_prefix(dir)
+            {
+                out.push(rel.to_string_lossy().replace('\\', "/"));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// The definitions of the core nodes the family graphs and the official templates use, in
+/// ComfyUI's widget order (`input_order`), so editor-format workflows convert as they would
+/// against a real server. `@x` is a file list, `INT*` an INT with `control_after_generate`.
+const NODE_DEFS: &[(&str, &str, &str)] = &[
+    ("KSampler", "model:MODEL seed:INT* steps:INT cfg:FLOAT sampler_name:@samplers scheduler:@schedulers positive:CONDITIONING negative:CONDITIONING latent_image:LATENT denoise:FLOAT", ""),
+    ("KSamplerSelect", "sampler_name:@samplers", ""),
+    ("BasicScheduler", "model:MODEL scheduler:@schedulers steps:INT denoise:FLOAT", ""),
+    ("CFGGuider", "model:MODEL positive:CONDITIONING negative:CONDITIONING cfg:FLOAT", ""),
+    ("BasicGuider", "model:MODEL conditioning:CONDITIONING", ""),
+    ("DualCFGGuider", "model:MODEL cond1:CONDITIONING cond2:CONDITIONING negative:CONDITIONING cfg_conds:FLOAT cfg_cond2_negative:FLOAT style:(regular|nested)", ""),
+    ("CFGNorm", "model:MODEL strength:FLOAT", ""),
+    ("CLIPLoader", "clip_name:@clip type:(stable_diffusion|qwen_image|flux2|lumina2|chroma|hidream|sd3|ernie)", "device:(default|cpu)"),
+    ("DualCLIPLoader", "clip_name1:@clip clip_name2:@clip type:(sdxl|sd3|flux|hidream)", "device:(default|cpu)"),
+    ("TripleCLIPLoader", "clip_name1:@clip clip_name2:@clip clip_name3:@clip", ""),
+    ("QuadrupleCLIPLoader", "clip_name1:@clip clip_name2:@clip clip_name3:@clip clip_name4:@clip", ""),
+    ("CLIPTextEncode", "text:STRING clip:CLIP", ""),
+    ("CheckpointLoaderSimple", "ckpt_name:@ckpt", ""),
+    ("UNETLoader", "unet_name:@unet weight_dtype:(default|fp8_e4m3fn|fp8_e4m3fn_fast|fp8_e5m2)", ""),
+    ("UnetLoaderGGUF", "unet_name:@gguf", ""),
+    ("VAELoader", "vae_name:@vae", ""),
+    ("VAEDecode", "samples:LATENT vae:VAE", ""),
+    ("VAEEncode", "pixels:IMAGE vae:VAE", ""),
+    ("ConditioningZeroOut", "conditioning:CONDITIONING", ""),
+    ("ComfySwitchNode", "switch:BOOLEAN on_false:* on_true:*", ""),
+    ("EmptyLatentImage", "width:INT height:INT batch_size:INT", ""),
+    ("EmptySD3LatentImage", "width:INT height:INT batch_size:INT", ""),
+    ("EmptyFlux2LatentImage", "width:INT height:INT batch_size:INT", ""),
+    ("Flux2Scheduler", "steps:INT width:INT height:INT", ""),
+    ("FluxGuidance", "conditioning:CONDITIONING guidance:FLOAT", ""),
+    ("FluxKontextImageScale", "image:IMAGE", ""),
+    ("FluxKontextMultiReferenceLatentMethod", "conditioning:CONDITIONING reference_latents_method:(offset|index|uxo/uno)", ""),
+    ("ImageStitch", "image1:IMAGE direction:(right|down|left|up) match_image_size:BOOLEAN spacing_width:INT spacing_color:(white|black|red|green|blue)", "image2:IMAGE"),
+    ("LoadImage", "image:@image", ""),
+    ("LoraLoaderModelOnly", "model:MODEL lora_name:@lora strength_model:FLOAT", ""),
+    ("LoraLoader", "model:MODEL clip:CLIP lora_name:@lora strength_model:FLOAT strength_clip:FLOAT", ""),
+    ("ModelSamplingAuraFlow", "model:MODEL shift:FLOAT", ""),
+    ("ModelSamplingSD3", "model:MODEL shift:FLOAT", ""),
+    ("PreviewAny", "source:*", ""),
+    ("PreviewImage", "images:IMAGE", ""),
+    ("PrimitiveBoolean", "value:BOOLEAN", ""),
+    ("PrimitiveFloat", "value:FLOAT", ""),
+    ("PrimitiveInt", "value:INT*", ""),
+    ("PrimitiveStringMultiline", "value:STRING", ""),
+    ("RandomNoise", "noise_seed:INT*", ""),
+    ("ReferenceLatent", "conditioning:CONDITIONING", "latent:LATENT"),
+    ("ResolutionSelector", "aspect_ratio:(1:1 (Square)|4:3|3:2|16:9) megapixels:FLOAT multiple_of:INT", ""),
+    ("SamplerCustomAdvanced", "noise:NOISE guider:GUIDER sampler:SAMPLER sigmas:SIGMAS latent_image:LATENT", ""),
+    ("SaveImage", "images:IMAGE filename_prefix:STRING", ""),
+    ("SaveImageAdvanced", "images:IMAGE filename_prefix:STRING format:(png|jpg|webp) bit_depth:(8-bit|16-bit) color_space:(sRGB|linear)", ""),
+    ("StringReplace", "string:STRING find:STRING replace:STRING", ""),
+    ("T5TokenizerOptions", "clip:CLIP min_padding:INT min_length:INT", ""),
+    ("TextEncodeQwenImageEditPlus", "clip:CLIP prompt:STRING", "vae:VAE image1:IMAGE image2:IMAGE image3:IMAGE"),
+    ("TextGenerate", "clip:CLIP prompt:STRING max_length:INT sampling_mode:(on|off) temperature:FLOAT top_k:INT top_p:FLOAT min_p:FLOAT repetition_penalty:FLOAT seed:INT", "image:IMAGE"),
+];
+
+fn node_def(required: &str, optional: &str, files: &HashMap<&str, Vec<String>>) -> Value {
+    let mut def = json!({ "input": { "required": {}, "optional": {} }, "input_order": { "required": [], "optional": [] } });
+    for (section, spec) in [("required", required), ("optional", optional)] {
+        for item in spec.split(' ').filter(|s| !s.is_empty()) {
+            let Some((name, ty)) = item.split_once(':') else { continue };
+            let v = if let Some(list) = ty.strip_prefix('@') {
+                if list == "image" {
+                    json!([files.get("image").cloned().unwrap_or_default(), { "image_upload": true }])
+                } else {
+                    json!([files.get(list).cloned().unwrap_or_default()])
+                }
+            } else if let Some(opts) = ty.strip_prefix('(').and_then(|t| t.strip_suffix(')')) {
+                json!([opts.split('|').collect::<Vec<_>>()])
+            } else if ty == "INT*" {
+                json!(["INT", { "default": 0, "control_after_generate": true }])
+            } else if ty == "STRING" {
+                json!(["STRING", { "multiline": true }])
+            } else if matches!(ty, "INT" | "FLOAT" | "BOOLEAN") {
+                json!([ty, {}])
+            } else {
+                json!([ty])
+            };
+            def["input"][section][name] = v;
+            def["input_order"][section].as_array_mut().expect("array").push(json!(name));
+        }
+    }
+    def
+}
+
+/// [`object_info`] plus the files under `model_dir` (`checkpoints`, `diffusion_models`, `loras`…).
+pub fn object_info_with(model_dir: Option<&std::path::Path>) -> Value {
     let mut files: HashMap<Role, Vec<String>> = HashMap::new();
     let mut add = |role: Role, name: &str| {
         let role = match role {
@@ -143,6 +267,21 @@ pub fn object_info() -> Value {
     }
     for n in FIXTURE_LORAS {
         add(Role::Lora, n);
+    }
+    if let Some(dir) = model_dir {
+        for (folder, role) in [
+            ("checkpoints", Role::Checkpoint),
+            ("diffusion_models", Role::Unet),
+            ("unet", Role::Unet),
+            ("loras", Role::Lora),
+            ("text_encoders", Role::Clip),
+            ("clip", Role::Clip),
+            ("vae", Role::Vae),
+        ] {
+            for f in files_in(&dir.join(folder)) {
+                add(role, &f);
+            }
+        }
     }
     let combo = |v: Vec<String>| json!([v]);
     let mut info = serde_json::Map::new();
@@ -208,6 +347,23 @@ pub fn object_info() -> Value {
     );
     info.insert("KSamplerSelect".into(), json!({ "input": { "required": { "sampler_name": [["euler"]] } } }));
     info.insert("UnetLoaderGGUF".into(), json!({ "input": { "required": { "unet_name": [["flux2_dev_Q4_K_M.gguf"]] } } }));
+    // Full definitions (widget order) for the core nodes, with the file lists above.
+    let list = |class: &str, input: &str| -> Vec<String> {
+        info.get(class).and_then(|d| d["input"]["required"][input][0].as_array()).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default()
+    };
+    let mut lists: HashMap<&str, Vec<String>> = HashMap::new();
+    lists.insert("ckpt", list("CheckpointLoaderSimple", "ckpt_name"));
+    lists.insert("unet", list("UNETLoader", "unet_name").into_iter().filter(|n| !n.ends_with(".gguf")).collect());
+    lists.insert("gguf", list("UnetLoaderGGUF", "unet_name"));
+    lists.insert("clip", list("CLIPLoader", "clip_name"));
+    lists.insert("vae", list("VAELoader", "vae_name"));
+    lists.insert("lora", list("LoraLoader", "lora_name"));
+    lists.insert("samplers", list("KSampler", "sampler_name"));
+    lists.insert("schedulers", list("KSampler", "scheduler"));
+    lists.insert("image", vec!["example.png".into()]);
+    for (class, req, opt) in NODE_DEFS {
+        info.insert((*class).into(), node_def(req, opt, &lists));
+    }
     Value::Object(info)
 }
 
@@ -226,7 +382,10 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
     let mut body = Vec::new();
     let _ = req.as_reader().read_to_end(&mut body);
     match (req.method().as_str(), path.as_str()) {
-        ("GET", "/object_info") => json_resp(req, 200, object_info()),
+        ("GET", "/object_info") => {
+            let dir = st.lock().ok().and_then(|s| s.model_dir.clone());
+            json_resp(req, 200, object_info_with(dir.as_deref()))
+        }
         ("GET", "/system_stats") => json_resp(
             req,
             200,
@@ -285,6 +444,19 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
             }
             json_resp(req, 200, json!({ "cancelled": true }))
         }
+        ("GET" | "HEAD", _) => {
+            let host = st.lock().map(|s| s.host.clone()).unwrap_or_default();
+            match crate::mock_hub::handle(&host, &url) {
+                Some(crate::mock_hub::Reply::Json(v)) => json_resp(req, 200, v),
+                Some(crate::mock_hub::Reply::Bytes(b, t)) => respond(req, 200, b, t),
+                Some(crate::mock_hub::Reply::Redirect(to)) => {
+                    let header = tiny_http::Header::from_bytes(&b"Location"[..], to.as_bytes()).expect("location header");
+                    let _ = req.respond(tiny_http::Response::empty(302).with_header(header));
+                }
+                Some(crate::mock_hub::Reply::Status(code)) => respond(req, code, b"denied".to_vec(), "text/plain"),
+                Some(crate::mock_hub::Reply::NotFound) | None => respond(req, 404, b"not found".to_vec(), "text/plain"),
+            }
+        }
         _ => respond(req, 404, b"not found".to_vec(), "text/plain"),
     }
 }
@@ -305,11 +477,11 @@ fn input_of<'a>(graph: &'a Value, class: &str) -> Option<&'a Value> {
 }
 
 fn uploaded(graph: &Value, uploads: &HashMap<String, Vec<u8>>, index: usize) -> Option<RgbaImage> {
-    let mut loads: Vec<(i64, String)> = graph
+    let mut loads: Vec<(Vec<i64>, String)> = graph
         .as_object()?
         .iter()
         .filter(|(_, n)| n.get("class_type").and_then(Value::as_str) == Some("LoadImage"))
-        .filter_map(|(k, n)| Some((k.parse().ok()?, n["inputs"]["image"].as_str()?.to_owned())))
+        .filter_map(|(k, n)| Some((k.split(':').map(|p| p.parse().unwrap_or(i64::MAX)).collect(), n["inputs"]["image"].as_str()?.to_owned())))
         .collect();
     loads.sort();
     let value = &loads.get(index)?.1;

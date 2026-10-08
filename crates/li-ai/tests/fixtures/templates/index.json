@@ -1,0 +1,378 @@
+[
+ {
+  "moduleName": "default",
+  "category": "Foundation",
+  "title": "Image",
+  "icon": "icon-[lucide--image]",
+  "type": "image",
+  "templates": [
+   {
+    "name": "image_qwen_image_edit_2511",
+    "tutorialUrl": "https://docs.comfy.org/tutorials/image/qwen/qwen-image-edit-2511",
+    "title": "Qwen Image Edit 2511 - Material Replacement",
+    "mediaType": "image",
+    "mediaSubtype": "webp",
+    "thumbnailVariant": "compareSlider",
+    "description": "Replace materials in objects (e.g., furniture) by combining reference images with Qwen-Image-Edit-2511.",
+    "tags": [
+     "Image Edit"
+    ],
+    "models": [
+     "Qwen-Image-Edit"
+    ],
+    "date": "2025-12-23",
+    "size": 51324859187,
+    "usage": 613,
+    "io": {
+     "inputs": [
+      {
+       "nodeId": 41,
+       "nodeType": "LoadImage",
+       "file": "leather_sofa.png",
+       "mediaType": "image"
+      },
+      {
+       "nodeId": 83,
+       "nodeType": "LoadImage",
+       "file": "texture_fur.png",
+       "mediaType": "image"
+      }
+     ],
+     "outputs": [
+      {
+       "nodeId": 9,
+       "nodeType": "SaveImage",
+       "file": "image_qwen_image_edit_2511.png",
+       "mediaType": "image"
+      }
+     ]
+    },
+    "openSource": true,
+    "searchRank": 0,
+    "username": "ComfyUI",
+    "thumbnail": [
+     "input/leather_sofa.png",
+     "output/image_qwen_image_edit_2511.png"
+    ],
+    "minComfyUIVersion": "0.4.0"
+   },
+   {
+    "name": "flux_kontext_dev_basic",
+    "title": "Flux Kontext Dev Image Edit",
+    "mediaType": "image",
+    "mediaSubtype": "webp",
+    "thumbnailVariant": "hoverDissolve",
+    "description": "Smart image editing that keeps characters consistent, edits specific parts without affecting others, and preserves original styles.",
+    "tutorialUrl": "https://docs.comfy.org/tutorials/flux/flux-1-kontext-dev",
+    "tags": [
+     "Image Edit"
+    ],
+    "models": [
+     "Flux.1 Kontext",
+     "Flux"
+    ],
+    "date": "2025-06-26",
+    "size": 17609365914,
+    "usage": 364,
+    "io": {
+     "inputs": [
+      {
+       "nodeId": 190,
+       "nodeType": "LoadImage",
+       "file": "flux_kontext_dev_basic_input_image.jpg",
+       "mediaType": "image"
+      }
+     ],
+     "outputs": [
+      {
+       "nodeId": 136,
+       "nodeType": "SaveImage",
+       "file": "flux_kontext_dev_basic.png",
+       "mediaType": "image"
+      }
+     ]
+    },
+    "username": "ComfyUI",
+    "openSource": true,
+    "searchRank": 0,
+    "minComfyUIVersion": "0.3.42"
+   },
+   {
+    "name": "image_flux2_klein_text_to_image",
+    "title": "Flux.2 [Klein] 4B: Text to Image",
+    "mediaType": "image",
+    "mediaSubtype": "webp",
+    "description": "BFL distilled model. Outstanding quality at sub-second speed. Great for real-time generation while retaining quality. Marketing launch will focus on this model.",
+    "tags": [
+     "Image",
+     "Text to Image"
+    ],
+    "models": [
+     "Flux",
+     "Flux.2 Klein"
+    ],
+    "date": "2026-01-16",
+    "size": 17072495002,
+    "usage": 417,
+    "tutorialUrl": "https://docs.comfy.org/tutorials/flux/flux-2-klein",
+    "searchRank": 0,
+    "openSource": true,
+    "io": {
+     "outputs": [
+      {
+       "nodeId": 78,
+       "nodeType": "SaveImage",
+       "file": "image_flux2_klein_text_to_image.png",
+       "mediaType": "image"
+      }
+     ]
+    },
+    "username": "ComfyUI",
+    "thumbnail": [
+     "output/image_flux2_klein_text_to_image.png"
+    ],
+    "minComfyUIVersion": "0.3.72"
+   },
+   {
+    "name": "image_sdxl_simple",
+    "title": "SDXL1.0: Text to Image (Simple)",
+    "description": "Generate high-quality images from text prompts using the SDXL 1.0 model, offering a straightforward text-to-image generation workflow. Ideal for quick concept visualization, creative brainstorming, and rapid prototyping of visual ideas.",
+    "mediaType": "image",
+    "mediaSubtype": "webp",
+    "tags": [
+     "Image",
+     "Text to Image"
+    ],
+    "models": [
+     "SDXL"
+    ],
+    "date": "2024-02-22",
+    "openSource": true,
+    "size": 6979321856,
+    "usage": 899,
+    "searchRank": 0,
+    "username": "ComfyUI",
+    "io": {
+     "outputs": [
+      {
+       "nodeId": 7,
+       "nodeType": "SaveImage",
+       "file": "image_sdxl_simple.png",
+       "mediaType": "image"
+      }
+     ]
+    },
+    "minComfyUIVersion": "0.0.1"
+   },
+   {
+    "name": "image_z_image",
+    "title": "Z-Image: Text to Image",
+    "mediaType": "image",
+    "mediaSubtype": "webp",
+    "description": "Foundation for creative freedom. Diverse aesthetics with exceptional photorealistic quality; ideal for fine-tuning; responsive to negative prompts; high generation diversity.",
+    "tags": [
+     "Image",
+     "Text to Image"
+    ],
+    "models": [
+     "Z-Image"
+    ],
+    "date": "2026-01-27",
+    "size": 20830591386,
+    "usage": 195,
+    "tutorialUrl": "https://docs.comfy.org/tutorials/image/z-image/z-image",
+    "searchRank": 0,
+    "openSource": true,
+    "io": {
+     "outputs": [
+      {
+       "nodeId": 95,
+       "nodeType": "SaveImageAdvanced",
+       "file": "image_z_image.png",
+       "mediaType": "image"
+      }
+     ]
+    },
+    "username": "ComfyUI",
+    "thumbnail": [
+     "output/image_z_image.png"
+    ],
+    "minComfyUIVersion": "0.23.0"
+   },
+   {
+    "name": "image_qwen_image",
+    "title": "Qwen-Image: Text to Image",
+    "mediaType": "image",
+    "mediaSubtype": "webp",
+    "description": "Generate images with exceptional multilingual text rendering and editing capabilities using Qwen-Image's 20B MMDiT model.",
+    "tutorialUrl": "https://docs.comfy.org/tutorials/image/qwen/qwen-image",
+    "tags": [
+     "Image",
+     "Text to Image"
+    ],
+    "models": [
+     "Qwen-Image"
+    ],
+    "date": "2025-08-05",
+    "size": 31782757990,
+    "usage": 24,
+    "io": {
+     "outputs": [
+      {
+       "nodeId": 60,
+       "nodeType": "SaveImage",
+       "file": "image_qwen_image.png",
+       "mediaType": "image"
+      }
+     ]
+    },
+    "username": "ComfyUI",
+    "openSource": true,
+    "searchRank": 0,
+    "thumbnail": [
+     "output/image_qwen_image.png"
+    ],
+    "minComfyUIVersion": "0.4.0"
+   },
+   {
+    "name": "hidream_i1_dev",
+    "title": "HiDream I1 Dev",
+    "mediaType": "image",
+    "mediaSubtype": "webp",
+    "description": "Generate images with HiDream I1 Dev - Balanced version with 28 inference steps, suitable for medium-range hardware.",
+    "tutorialUrl": "https://docs.comfy.org/tutorials/image/hidream/hidream-i1",
+    "tags": [
+     "Text to Image",
+     "Image"
+    ],
+    "models": [
+     "HiDream"
+    ],
+    "date": "2025-04-17",
+    "size": 33285996544,
+    "usage": 30,
+    "io": {
+     "outputs": [
+      {
+       "nodeId": 9,
+       "nodeType": "SaveImage",
+       "file": "hidream_i1_dev.png",
+       "mediaType": "image"
+      }
+     ]
+    },
+    "username": "ComfyUI",
+    "openSource": true,
+    "searchRank": 0,
+    "thumbnail": [
+     "output/hidream_i1_dev.png"
+    ],
+    "minComfyUIVersion": "0.3.29"
+   },
+   {
+    "name": "image_chroma_text_to_image",
+    "title": "Chroma: Text to Image",
+    "mediaType": "image",
+    "mediaSubtype": "webp",
+    "description": "Chroma - enhanced Flux model with improved image quality and better prompt understanding for stunning text-to-image generation.",
+    "tags": [
+     "Text to Image",
+     "Image"
+    ],
+    "models": [
+     "Chroma",
+     "Flux"
+    ],
+    "date": "2025-06-04",
+    "size": 23300197581,
+    "usage": 41,
+    "io": {
+     "outputs": [
+      {
+       "nodeId": 740,
+       "nodeType": "SaveImage",
+       "file": "image_chroma_text_to_image.png",
+       "mediaType": "image"
+      }
+     ]
+    },
+    "username": "ComfyUI",
+    "openSource": true,
+    "searchRank": 0,
+    "thumbnail": [
+     "output/image_chroma_text_to_image.png"
+    ],
+    "minComfyUIVersion": "0.3.31"
+   },
+   {
+    "name": "image_omnigen2_t2i",
+    "title": "OmniGen2: Text to Image",
+    "mediaType": "image",
+    "mediaSubtype": "webp",
+    "description": "Generate high-quality images from text prompts using OmniGen2's unified 7B multimodal model with dual-path architecture.",
+    "tutorialUrl": "https://docs.comfy.org/tutorials/image/omnigen/omnigen2",
+    "tags": [
+     "Image",
+     "Text to Image"
+    ],
+    "models": [
+     "OmniGen"
+    ],
+    "date": "2025-06-30",
+    "size": 15784004813,
+    "usage": 15,
+    "io": {
+     "outputs": [
+      {
+       "nodeId": 9,
+       "nodeType": "SaveImage",
+       "file": "image_omnigen2_t2i.png",
+       "mediaType": "image"
+      }
+     ]
+    },
+    "username": "ComfyUI",
+    "openSource": true,
+    "searchRank": 0,
+    "thumbnail": [
+     "output/image_omnigen2_t2i.png"
+    ],
+    "minComfyUIVersion": "0.3.42"
+   },
+   {
+    "name": "image_ernie_image",
+    "tutorialUrl": "https://docs.comfy.org/tutorials/image/ernie-image/ernie-image",
+    "title": "Ernie Image: Text to Image",
+    "description": "Generate images from text prompts using the ERNIE-Image model. Input a text description to produce detailed, structured visuals with a broad stylistic range.",
+    "mediaType": "image",
+    "mediaSubtype": "webp",
+    "tags": [
+     "Text to Image"
+    ],
+    "models": [
+     "ERNIE-Image"
+    ],
+    "date": "2026-04-14",
+    "openSource": true,
+    "size": 25984552141,
+    "usage": 9,
+    "searchRank": 0,
+    "username": "ComfyUI",
+    "io": {
+     "outputs": [
+      {
+       "nodeId": 73,
+       "nodeType": "SaveImage",
+       "file": "image_ernie_image.png",
+       "mediaType": "image"
+      }
+     ]
+    },
+    "thumbnail": [
+     "output/image_ernie_image.png"
+    ],
+    "minComfyUIVersion": "0.15.0"
+   }
+  ]
+ }
+]

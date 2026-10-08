@@ -83,6 +83,13 @@ pub struct CustomWorkflow {
     /// API format.
     pub graph: Value,
     pub fields: Vec<Field>,
+    /// Fields found without markers (an official template): the panel shows a "basic controls"
+    /// badge.
+    #[serde(default)]
+    pub basic: bool,
+    /// The family the template is for, when known.
+    #[serde(default)]
+    pub family: Option<String>,
 }
 
 impl CustomWorkflow {
@@ -94,7 +101,7 @@ impl CustomWorkflow {
     }
     /// Capability tags for the model picker.
     pub fn tags(&self) -> Vec<String> {
-        let mut t = vec!["Custom".to_owned()];
+        let mut t = vec![if self.basic { "Basic controls" } else { "Custom" }.to_owned()];
         if self.has(&FieldKind::Prompt) {
             t.push("Prompt".into());
         }
@@ -166,7 +173,7 @@ pub fn from_api(name: &str, graph: Value) -> Result<CustomWorkflow> {
     if !has_output {
         bail!("the workflow saves no image (add a Save Image node)");
     }
-    Ok(CustomWorkflow { name: name.to_owned(), graph, fields })
+    Ok(CustomWorkflow { name: name.to_owned(), graph, fields, basic: false, family: None })
 }
 
 /// Reads a workflow file in either format (`info` is needed for the UI format).
@@ -187,55 +194,189 @@ fn is_widget(spec: &Value) -> bool {
     }
 }
 
-/// Converts the editor's UI format to the API format using `/object_info`.
-pub fn ui_to_api(ui: &Value, info: &ObjectInfo) -> Result<Value> {
-    let nodes = ui.get("nodes").and_then(Value::as_array).context("no nodes")?;
-    let links: Vec<(u64, u64, u64)> = ui
-        .get("links")
-        .and_then(Value::as_array)
+/// A link in either of the editor's encodings: `[id, from, from_slot, to, to_slot, type]` at the
+/// top level, objects inside subgraph definitions.
+#[derive(Clone, Copy, Debug)]
+struct UiLink {
+    id: i64,
+    from: i64,
+    from_slot: u64,
+}
+
+fn ui_links(v: &Value) -> Vec<UiLink> {
+    v.as_array()
         .into_iter()
         .flatten()
         .filter_map(|l| {
-            let a = l.as_array()?;
-            Some((a.first()?.as_u64()?, a.get(1)?.as_u64()?, a.get(2)?.as_u64()?))
+            if let Some(a) = l.as_array() {
+                Some(UiLink { id: a.first()?.as_i64()?, from: a.get(1)?.as_i64()?, from_slot: a.get(2)?.as_u64()? })
+            } else {
+                Some(UiLink { id: l.get("id")?.as_i64()?, from: l.get("origin_id")?.as_i64()?, from_slot: l.get("origin_slot")?.as_u64()? })
+            }
         })
-        .collect();
-    let by_id = |id: u64| nodes.iter().find(|n| n.get("id").and_then(Value::as_u64) == Some(id));
-    // Follows a link back through reroutes; a primitive node yields its value.
-    let resolve = |mut link: u64| -> Option<Value> {
-        for _ in 0..32 {
-            let &(_, from, slot) = links.iter().find(|(id, _, _)| *id == link)?;
-            let n = by_id(from)?;
-            match n.get("type").and_then(Value::as_str)? {
-                "Reroute" => {
-                    link = n.get("inputs")?.get(0)?.get("link")?.as_u64()?;
+        .collect()
+}
+
+/// Where an input's value comes from, before aliases are resolved.
+#[derive(Clone, Debug, PartialEq)]
+enum Src {
+    /// `(scoped node id, output slot)`: a real node, or an alias (reroute, primitive, bypassed
+    /// node, subgraph instance output or a subgraph's input slot).
+    Out(String, u64),
+    Value(Value),
+}
+
+/// A flattened node.
+struct Flat {
+    id: String,
+    class: String,
+    title: Option<String>,
+    linked: Vec<(String, Src)>,
+    widgets: Vec<Value>,
+}
+
+#[derive(Default)]
+struct Flattener<'a> {
+    defs: Vec<&'a Value>,
+    nodes: Vec<Flat>,
+    aliases: std::collections::HashMap<(String, u64), Option<Src>>,
+    /// Promoted widget values from subgraph instances: `(scoped node, input) → value`.
+    overrides: Vec<(String, String, Value)>,
+}
+
+impl<'a> Flattener<'a> {
+    fn link_src(links: &[UiLink], link: i64, prefix: &str, instance: &str) -> Option<Src> {
+        let l = links.iter().find(|l| l.id == link)?;
+        Some(if l.from == -10 { Src::Out(format!("in:{instance}"), l.from_slot) } else { Src::Out(format!("{prefix}{}", l.from), l.from_slot) })
+    }
+
+    /// Flattens one graph level; `prefix` scopes its node ids (`"76:"` inside instance 76).
+    fn scope(&mut self, nodes: &'a Value, links: &'a Value, prefix: &str, instance: &str, depth: usize) -> Result<()> {
+        if depth > 8 {
+            bail!("subgraphs are nested too deeply");
+        }
+        let links = ui_links(links);
+        for n in nodes.as_array().into_iter().flatten() {
+            let class = n.get("type").and_then(Value::as_str).unwrap_or("");
+            let mode = n.get("mode").and_then(Value::as_u64).unwrap_or(0);
+            let Some(id) = n.get("id").and_then(|v| v.as_i64().map(|i| i.to_string()).or_else(|| v.as_str().map(str::to_owned))) else { continue };
+            let sid = format!("{prefix}{id}");
+            let inputs: Vec<&Value> = n.get("inputs").and_then(Value::as_array).map(|a| a.iter().collect()).unwrap_or_default();
+            let src_of = |inp: &Value| inp.get("link").and_then(Value::as_i64).and_then(|l| Self::link_src(&links, l, prefix, instance));
+            if matches!(class, "Note" | "MarkdownNote") || mode == 2 {
+                continue;
+            }
+            if class == "Reroute" {
+                self.aliases.insert((sid, 0), inputs.first().and_then(|i| src_of(i)));
+                continue;
+            }
+            if class == "PrimitiveNode" {
+                self.aliases.insert((sid, 0), n.get("widgets_values").and_then(|w| w.get(0)).cloned().map(Src::Value));
+                continue;
+            }
+            if mode == 4 {
+                // Bypassed: each output passes the first input of the same type through.
+                for (slot, out) in n.get("outputs").and_then(Value::as_array).into_iter().flatten().enumerate() {
+                    let ty = out.get("type").and_then(Value::as_str).unwrap_or("");
+                    let through = inputs.iter().find(|i| i.get("type").and_then(Value::as_str) == Some(ty)).and_then(|i| src_of(i));
+                    self.aliases.insert((sid.clone(), slot as u64), through);
                 }
-                "PrimitiveNode" => return n.get("widgets_values")?.get(0).cloned(),
-                _ => return Some(json!([from.to_string(), slot])),
+                continue;
+            }
+            if let Some(def) = self.defs.iter().copied().find(|d| d.get("id").and_then(Value::as_str) == Some(class)) {
+                // A subgraph instance: its inputs feed the definition's input slots (matched by
+                // name, then label), its outputs alias whatever the definition routes to them.
+                let def_inputs: Vec<&Value> = def.get("inputs").and_then(Value::as_array).map(|a| a.iter().collect()).unwrap_or_default();
+                let mut used = vec![false; inputs.len()];
+                for (k, di) in def_inputs.iter().enumerate() {
+                    let name = di.get("name").and_then(Value::as_str);
+                    let label = di.get("label").and_then(Value::as_str);
+                    let pick = inputs.iter().enumerate().position(|(j, i)| {
+                        !used[j] && i.get("name").and_then(Value::as_str) == name && (label.is_none() || i.get("label").and_then(Value::as_str).is_none_or(|l| Some(l) == label))
+                    });
+                    let src = pick.and_then(|j| {
+                        used[j] = true;
+                        src_of(inputs[j])
+                    });
+                    self.aliases.insert((format!("in:{sid}"), k as u64), src);
+                }
+                let inner = format!("{sid}:");
+                self.scope(&def["nodes"], &def["links"], &inner, &sid, depth + 1)?;
+                let def_links = ui_links(&def["links"]);
+                for (k, out) in def.get("outputs").and_then(Value::as_array).into_iter().flatten().enumerate() {
+                    let src = out
+                        .get("linkIds")
+                        .and_then(Value::as_array)
+                        .and_then(|a| a.first())
+                        .and_then(Value::as_i64)
+                        .and_then(|l| Self::link_src(&def_links, l, &inner, &sid));
+                    self.aliases.insert((sid.clone(), k as u64), src);
+                }
+                // Promoted widgets with values on the instance.
+                let proxies = n.get("properties").and_then(|p| p.get("proxyWidgets")).and_then(Value::as_array);
+                let values = n.get("widgets_values").and_then(Value::as_array);
+                if let (Some(px), Some(vals)) = (proxies, values) {
+                    for (p, v) in px.iter().zip(vals) {
+                        if let (Some(node), Some(w)) = (p.get(0).and_then(Value::as_str), p.get(1).and_then(Value::as_str))
+                            && w != "control_after_generate"
+                        {
+                            self.overrides.push((format!("{inner}{node}"), w.to_owned(), v.clone()));
+                        }
+                    }
+                }
+                continue;
+            }
+            let linked = inputs
+                .iter()
+                .filter_map(|i| Some((i.get("name")?.as_str()?.to_owned(), src_of(i)?)))
+                .collect();
+            self.nodes.push(Flat {
+                id: sid,
+                class: class.to_owned(),
+                title: n.get("title").and_then(Value::as_str).map(str::to_owned),
+                linked,
+                widgets: n.get("widgets_values").and_then(Value::as_array).cloned().unwrap_or_default(),
+            });
+        }
+        Ok(())
+    }
+
+    /// The API value of a source after following aliases (`None`: unconnected).
+    fn resolve(&self, src: &Src) -> Option<Value> {
+        let mut cur = src.clone();
+        for _ in 0..64 {
+            match cur {
+                Src::Value(v) => return Some(v),
+                Src::Out(id, slot) => match self.aliases.get(&(id.clone(), slot)) {
+                    Some(Some(next)) => cur = next.clone(),
+                    Some(None) => return None,
+                    None => return self.nodes.iter().any(|n| n.id == id).then(|| json!([id, slot])),
+                },
             }
         }
         None
-    };
+    }
+}
+
+/// Converts the editor's UI format to the API format using `/object_info`, flattening subgraphs
+/// (the official templates wrap their graphs in them): inner nodes get ids `instance:node`, the
+/// instance's inputs and outputs are wired through, promoted widget values are applied, and
+/// bypassed nodes pass their input through.
+pub fn ui_to_api(ui: &Value, info: &ObjectInfo) -> Result<Value> {
+    ui.get("nodes").and_then(Value::as_array).context("no nodes")?;
+    let mut f = Flattener { defs: ui.get("definitions").and_then(|d| d.get("subgraphs")).and_then(Value::as_array).map(|a| a.iter().collect()).unwrap_or_default(), ..Default::default() };
+    f.scope(&ui["nodes"], &ui["links"], "", "", 0)?;
     let mut out = Map::new();
-    for n in nodes {
-        let class = n.get("type").and_then(Value::as_str).unwrap_or("");
-        let mode = n.get("mode").and_then(Value::as_u64).unwrap_or(0);
-        if matches!(class, "Reroute" | "PrimitiveNode" | "Note" | "MarkdownNote") || mode == 2 || mode == 4 {
-            continue;
-        }
-        let id = n.get("id").and_then(Value::as_u64).context("a node without an id")?;
-        let def = info.0.get(class).with_context(|| format!("ComfyUI has no node “{class}” (install its custom node pack)"))?;
+    for n in &f.nodes {
+        let def = info.0.get(&n.class).with_context(|| format!("ComfyUI has no node “{}” (install its custom node pack)", n.class))?;
         let mut inputs = Map::new();
-        // Linked inputs.
-        for inp in n.get("inputs").and_then(Value::as_array).into_iter().flatten() {
-            if let (Some(name), Some(link)) = (inp.get("name").and_then(Value::as_str), inp.get("link").and_then(Value::as_u64))
-                && let Some(v) = resolve(link)
-            {
-                inputs.insert(name.to_owned(), v);
+        for (name, src) in &n.linked {
+            if let Some(v) = f.resolve(src) {
+                inputs.insert(name.clone(), v);
             }
         }
         // Widget values, in definition order.
-        let mut values = n.get("widgets_values").and_then(Value::as_array).cloned().unwrap_or_default().into_iter();
+        let mut values = n.widgets.clone().into_iter();
         for section in ["required", "optional"] {
             let Some(spec) = def.get("input").and_then(|i| i.get(section)).and_then(Value::as_object) else { continue };
             // ComfyUI lists the definition order in `input_order` (the JSON object's own order is
@@ -264,13 +405,116 @@ pub fn ui_to_api(ui: &Value, info: &ObjectInfo) -> Result<Value> {
                 }
             }
         }
-        let mut node = json!({ "class_type": class, "inputs": Value::Object(inputs) });
-        if let Some(t) = n.get("title").and_then(Value::as_str) {
+        for (node, w, v) in &f.overrides {
+            if node == &n.id && inputs.get(w).is_none_or(|cur| !cur.is_array()) {
+                inputs.insert(w.clone(), v.clone());
+            }
+        }
+        let mut node = json!({ "class_type": n.class, "inputs": Value::Object(inputs) });
+        if let Some(t) = &n.title {
             node["_meta"] = json!({ "title": t });
         }
-        out.insert(id.to_string(), node);
+        out.insert(n.id.clone(), node);
     }
     Ok(Value::Object(out))
+}
+
+const TEXT_KEYS: [&str; 5] = ["text", "prompt", "text_g", "value", "string"];
+
+/// The text node feeding a sampler's `positive`/`negative`, followed back through conditioning
+/// nodes, switches and string primitives. A prompt primitive wins over an encoder's own text;
+/// text-processing nodes (an enhancer's system prompt, a string replace) never count.
+fn text_source(g: &Map<String, Value>, start: &Value) -> Option<(String, String)> {
+    let mut queue: std::collections::VecDeque<String> = start.get(0).and_then(Value::as_str).map(str::to_owned).into_iter().collect();
+    let mut seen = std::collections::HashSet::new();
+    let mut best: Option<(u8, String, String)> = None;
+    while let Some(id) = queue.pop_front() {
+        if !seen.insert(id.clone()) || seen.len() > 64 {
+            continue;
+        }
+        let Some(node) = g.get(&id) else { continue };
+        let class = node["class_type"].as_str().unwrap_or("");
+        let Some(inputs) = node.get("inputs").and_then(Value::as_object) else { continue };
+        let processing = matches!(class, "StringReplace" | "StringConcatenate" | "TextGenerate") || class.contains("System");
+        for k in TEXT_KEYS {
+            if let Some(Value::String(_)) = inputs.get(k)
+                && !processing
+            {
+                let rank = if class.starts_with("PrimitiveString") { 0 } else if class.contains("TextEncode") { 1 } else { 2 };
+                if best.as_ref().is_none_or(|(r, _, _)| rank < *r) {
+                    best = Some((rank, id.clone(), k.to_owned()));
+                }
+                break;
+            }
+        }
+        for v in inputs.values() {
+            if let Some(src) = v.as_array().and_then(|a| a.first()).and_then(Value::as_str) {
+                queue.push_back(src.to_owned());
+            }
+        }
+    }
+    best.map(|(_, id, k)| (id, k))
+}
+
+/// Fields found without markers, for an official template run with basic controls: the prompt
+/// and negative feeding the samplers, every seed, the empty latent's size and the image loaders.
+pub fn basic_fields(graph: &Value) -> Vec<Field> {
+    let Some(g) = graph.as_object() else { return Vec::new() };
+    let mut fields = Vec::new();
+    let push = |kind: FieldKind, node: &str, input: &str, fields: &mut Vec<Field>| {
+        if !fields.iter().any(|f: &Field| f.node == node && f.input == input) {
+            fields.push(Field { kind, node: node.to_owned(), input: input.to_owned(), default: g[node]["inputs"].get(input).cloned().unwrap_or(Value::Null) });
+        }
+    };
+    for (id, n) in g {
+        let inputs = n.get("inputs").and_then(Value::as_object);
+        let Some(inputs) = inputs else { continue };
+        for (key, kind) in [("positive", FieldKind::Prompt), ("cond1", FieldKind::Prompt), ("conditioning", FieldKind::Prompt), ("negative", FieldKind::Negative)] {
+            if let Some(start) = inputs.get(key).filter(|v| v.is_array())
+                && let Some((node, input)) = text_source(g, start)
+                && !fields.iter().any(|f: &Field| f.kind == kind)
+            {
+                push(kind, &node, &input, &mut fields);
+            }
+        }
+        for key in ["seed", "noise_seed"] {
+            if inputs.get(key).is_some_and(Value::is_number) {
+                push(FieldKind::Seed, id, key, &mut fields);
+            }
+        }
+        let class = n["class_type"].as_str().unwrap_or("");
+        if class.contains("Latent") && inputs.get("width").is_some_and(Value::is_number) && inputs.get("height").is_some_and(Value::is_number) {
+            push(FieldKind::Width, id, "width", &mut fields);
+            push(FieldKind::Height, id, "height", &mut fields);
+        }
+    }
+    let mut loaders: Vec<&String> = g.iter().filter(|(_, n)| n["class_type"] == "LoadImage").map(|(id, _)| id).collect();
+    loaders.sort_by_key(|id| id.split(':').map(|p| p.parse::<u64>().unwrap_or(u64::MAX)).collect::<Vec<_>>());
+    for (i, id) in loaders.into_iter().enumerate() {
+        push(FieldKind::Image(i as u32), id, "image", &mut fields);
+    }
+    // The prompt and negative can't be the same node (a sampler fed one encoder twice).
+    if let (Some(p), Some(n)) = (fields.iter().find(|f| f.kind == FieldKind::Prompt), fields.iter().find(|f| f.kind == FieldKind::Negative))
+        && p.node == n.node
+    {
+        fields.retain(|f| f.kind != FieldKind::Negative);
+    }
+    fields
+}
+
+/// An official template as a custom workflow with basic controls (its markers, if it has any,
+/// else [`basic_fields`]).
+pub fn from_template(name: &str, ui: &Value, info: &ObjectInfo) -> Result<CustomWorkflow> {
+    let graph = ui_to_api(ui, info)?;
+    let mut w = from_api(name, graph)?;
+    if w.fields.is_empty() {
+        w.fields = basic_fields(&w.graph);
+        w.basic = true;
+    }
+    if !w.has(&FieldKind::Prompt) {
+        bail!("Local Image couldn't find the prompt in this template");
+    }
+    Ok(w)
 }
 
 /// Sets the run's values and returns the graph plus the `LoadImage` node of each image field
@@ -414,6 +658,56 @@ mod tests {
         let w = import("From editor", &ui, Some(&info)).unwrap();
         assert!(w.has(&FieldKind::Prompt) && w.has(&FieldKind::Seed));
         assert!(import("x", &ui, None).is_err());
+    }
+
+    /// Every official template fixture converts (subgraphs flattened), finds its prompt and seed,
+    /// and leaves no dangling link.
+    #[test]
+    fn official_templates_convert_with_basic_controls() {
+        let info = ObjectInfo(crate::mock::object_info());
+        let dir = crate::mock_hub::fixtures_dir();
+        let mut checked = 0;
+        for e in std::fs::read_dir(&dir).unwrap().flatten() {
+            let p = e.path();
+            let name = p.file_stem().unwrap().to_string_lossy().to_string();
+            if p.extension().is_none_or(|x| x != "json") || name == "index" {
+                continue;
+            }
+            let ui: Value = serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();
+            let w = from_template(&name, &ui, &info).unwrap_or_else(|e| panic!("{name}: {e:#}"));
+            let g = w.graph.as_object().unwrap();
+            for (id, n) in g {
+                for (k, v) in n["inputs"].as_object().unwrap() {
+                    if let Some(src) = v.as_array().and_then(|a| a.first()).and_then(Value::as_str) {
+                        assert!(g.contains_key(src), "{name}: {id}.{k} → missing {src}");
+                    }
+                }
+            }
+            assert!(w.has(&FieldKind::Seed), "{name}: no seed");
+            let prompt = w.fields.iter().find(|f| f.kind == FieldKind::Prompt).unwrap();
+            let (run, _) = prepare(&w, &Inputs { prompt: "a lighthouse at dusk".into(), seed: 7, width: Some(1024), height: Some(768), ..Default::default() });
+            assert_eq!(run[&prompt.node]["inputs"][&prompt.input], "a lighthouse at dusk", "{name}");
+            checked += 1;
+        }
+        assert!(checked >= 10, "{checked}");
+    }
+
+    #[test]
+    fn subgraph_instances_wire_through() {
+        let info = ObjectInfo(crate::mock::object_info());
+        let ui: Value = serde_json::from_slice(&std::fs::read(crate::mock_hub::fixtures_dir().join("image_qwen_image.json")).unwrap()).unwrap();
+        let api = ui_to_api(&ui, &info).unwrap();
+        // Inner nodes are scoped by the instance id; the outer SaveImage reads the inner decode.
+        assert_eq!(api["76:37"]["class_type"], "UNETLoader");
+        assert_eq!(api["76:37"]["inputs"]["unet_name"], "qwen_image_fp8_e4m3fn.safetensors");
+        assert_eq!(api["60"]["inputs"]["images"], json!(["76:8", 0]));
+        assert_eq!(api["76:3"]["inputs"]["seed"].as_u64().is_some(), true);
+        assert_eq!(api["76:3"]["inputs"]["sampler_name"], "euler");
+        let w = from_template("Qwen", &ui, &info).unwrap();
+        assert!(w.basic);
+        assert_eq!(w.fields.iter().find(|f| f.kind == FieldKind::Prompt).map(|f| f.node.as_str()), Some("76:6"));
+        assert_eq!(w.fields.iter().find(|f| f.kind == FieldKind::Negative).map(|f| f.node.as_str()), Some("76:7"));
+        assert!(w.fields.iter().any(|f| f.kind == FieldKind::Width && f.node == "76:58"));
     }
 
     #[test]

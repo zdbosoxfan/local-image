@@ -703,6 +703,72 @@ pub trait Net {
     fn head_size(&self, url: &str) -> Result<Option<u64>>;
 }
 
+/// The browser's HTTP client. Catalogue reads go only to the configured sources (and Civitai's
+/// image host for previews); tokens go only to their own source.
+pub struct HttpNet {
+    cfg: Config,
+    agent: ureq::Agent,
+}
+
+impl HttpNet {
+    pub fn new(cfg: Config) -> Self {
+        let agent = ureq::Agent::config_builder()
+            .timeout_connect(Some(std::time::Duration::from_secs(15)))
+            .timeout_global(Some(std::time::Duration::from_secs(60)))
+            .max_redirects(4)
+            .user_agent(concat!("LocalImage/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .into();
+        Self { cfg, agent }
+    }
+
+    fn allowed(&self, url: &str) -> bool {
+        let c = &self.cfg;
+        let bases = [c.hf.as_str(), c.civitai.as_str(), c.manager_list.as_str(), c.templates.as_str()];
+        bases.iter().any(|b| !b.is_empty() && url.starts_with(b.trim_end_matches('/')))
+            || url.starts_with("https://image.civitai.com/")
+            || crate::download::host_allowed(url)
+    }
+
+    fn token(&self, url: &str) -> Option<&str> {
+        if url.starts_with(&self.cfg.hf) {
+            self.cfg.hf_token.as_deref()
+        } else if url.starts_with(&self.cfg.civitai) {
+            self.cfg.civitai_token.as_deref()
+        } else {
+            None
+        }
+    }
+}
+
+impl Net for HttpNet {
+    fn get(&self, url: &str) -> Result<Vec<u8>> {
+        if !self.allowed(url) {
+            bail!("Local Image doesn't read catalogues from {url}");
+        }
+        let mut req = self.agent.get(url);
+        if let Some(t) = self.token(url).filter(|t| !t.is_empty()) {
+            req = req.header("Authorization", &format!("Bearer {t}"));
+        }
+        let mut r = req.call().with_context(|| format!("Could not reach {}", url.split('?').next().unwrap_or(url)))?;
+        Ok(r.body_mut().with_config().limit(48 << 20).read_to_vec()?)
+    }
+    fn head_size(&self, url: &str) -> Result<Option<u64>> {
+        crate::download::remote_size(url, self.token(url))
+    }
+}
+
+/// An official template: its editor-format workflow and the model files it declares.
+pub fn fetch_template(cfg: &Config, net: &dyn Net, name: &str) -> Result<(Value, Vec<CatalogFile>)> {
+    if name.contains('/') || name.contains("..") {
+        bail!("bad template name");
+    }
+    let body = net.get(&format!("{}/{name}.json", cfg.templates.trim_end_matches('/')))?;
+    let ui: Value = serde_json::from_slice(&body).context("the template isn't valid JSON")?;
+    let files = template_files(&ui).into_iter().filter(|f| is_weights(&f.name)).collect();
+    Ok((ui, files))
+}
+
 /// Catalogue bodies cached by URL: the browser shows the last copy offline.
 pub struct Cache {
     pub dir: PathBuf,
@@ -1093,5 +1159,83 @@ mod tests {
         assert_eq!(cache.fetch(&offline, "https://x/a", true).unwrap(), (b"[1]".to_vec(), true));
         assert!(cache.fetch(&offline, "https://x/b", false).is_err());
         let _ = std::fs::remove_dir_all(&cache.dir);
+    }
+
+    /// The whole flow against the mock server: browse every source, install a Hugging Face
+    /// model, a Civitai checkpoint (through its CDN redirect) and an official template, refuse the
+    /// unverified and gated ones, and see the installs in ComfyUI's refreshed listing.
+    #[test]
+    fn browse_and_install_against_the_mock() {
+        let mock = crate::mock::MockComfy::start().unwrap();
+        let host = mock.host().to_owned();
+        let models = std::env::temp_dir().join(format!("li-browser-{}", uuid::Uuid::new_v4().simple()));
+        mock.set_model_dir(&models);
+        let cfg = Config {
+            hf: format!("http://{host}/hf"),
+            civitai: format!("http://{host}/civitai"),
+            manager_list: format!("http://{host}/manager/model-list.json"),
+            templates: format!("http://{host}/templates"),
+            hf_token: None,
+            civitai_token: None,
+        };
+        let net = HttpNet::new(cfg.clone());
+        let reg = registry();
+        let info = || ObjectInfo(serde_json::from_slice(&ureq::get(&format!("http://{host}/object_info")).call().unwrap().body_mut().read_to_vec().unwrap()).unwrap());
+        let cache = Cache::new(models.join(".cache"));
+        let fetch = |q: &Query| {
+            let bodies: Vec<(Source, Value)> =
+                urls(&cfg, reg, q).into_iter().map(|(s, u)| (s, serde_json::from_slice(&cache.fetch(&net, &u, true).unwrap().0).unwrap())).collect();
+            items(reg, &cfg, q, &bodies)
+        };
+        let trending = fetch(&Query { view: View::Trending, kind: Kind::Model, search: String::new(), sources: vec![] });
+        let titles: Vec<&str> = trending.iter().map(|i| i.title.as_str()).collect();
+        assert!(titles.contains(&"z-image-turbo-mini") && titles.contains(&"Mockernaut XL") && titles.contains(&"Qwen-Image: Text to Image"), "{titles:?}");
+        assert!(!titles.contains(&"Hidden"));
+        let pony_loras = fetch(&Query { view: View::Family("pony".into()), kind: Kind::Lora, search: String::new(), sources: vec![] });
+        assert_eq!(pony_loras.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(), vec!["Ink Wash (Pony)"]);
+
+        let ctl = crate::comfy::JobControl::new();
+        let install_item = |item: &Item, fam: Option<&Family>| -> Result<Plan> {
+            let p = plan(item, &item.files, fam, &info(), &cfg, &net)?;
+            install(&p, &models, &cfg, &ctl, &|_, _, _| {})?;
+            Ok(p)
+        };
+        // Hugging Face: size and hash from the repo tree.
+        let z = trending.iter().find(|i| i.title == "z-image-turbo-mini").unwrap();
+        let p = install_item(z, reg.family("z-image")).unwrap();
+        assert!(p.files.iter().any(|f| f.name == "z_image_turbo_mini.safetensors"));
+        assert!(models.join("diffusion_models/z_image_turbo_mini.safetensors").exists());
+        assert!(info().find_file("UNETLoader", "unet_name", "z_image_turbo_mini.safetensors").is_some());
+        // Civitai: published hash, size from the download's headers, CDN redirect.
+        let civ = trending.iter().find(|i| i.title == "Mockernaut XL").unwrap();
+        install_item(civ, None).unwrap();
+        assert!(models.join("checkpoints/mockernautXL_v1.safetensors").exists());
+        assert!(plan(civ, &civ.files, None, &info(), &cfg, &net).unwrap().files.is_empty(), "installed files are skipped");
+        // No published hash: refused before anything downloads.
+        let fresh = fetch(&Query { view: View::New, kind: Kind::Model, search: "unverified".into(), sources: vec![Source::Civitai] });
+        let e = install_item(&fresh[0], None).unwrap_err().to_string();
+        assert!(e.contains("no published size and SHA-256"), "{e}");
+        assert!(!models.join("checkpoints/unverified_mix.safetensors").exists());
+        // Gated: the licence must be accepted on the publisher's page.
+        let gated = trending.iter().find(|i| i.gated).unwrap();
+        let e = install_item(gated, None).unwrap_err().to_string();
+        assert!(e.contains("accept its licence"), "{e}");
+        // An official template for an unknown family: its files, then basic controls.
+        let (ui, files) = fetch_template(&cfg, &net, "image_omnigen2_t2i").unwrap();
+        assert!(!files.is_empty());
+        let item = Item { id: "template:image_omnigen2_t2i".into(), template: Some("image_omnigen2_t2i".into()), ..Default::default() };
+        let p = plan(&item, &files, None, &info(), &cfg, &net).unwrap();
+        install(&p, &models, &cfg, &ctl, &|_, _, _| {}).unwrap();
+        for f in &p.files {
+            assert!(models.join(&f.folder).join(&f.name).exists(), "{}", f.name);
+        }
+        let w = crate::custom::from_template("OmniGen2", &ui, &info()).unwrap();
+        assert!(w.basic && w.has(&crate::custom::FieldKind::Prompt));
+        // Offline: the cached catalogue still answers.
+        let q = Query { view: View::Trending, kind: Kind::Model, search: String::new(), sources: vec![Source::HuggingFace] };
+        let (_, u0) = urls(&cfg, reg, &q).remove(0);
+        drop(mock);
+        assert!(cache.fetch(&net, &u0, true).unwrap().1, "served from the cache");
+        let _ = std::fs::remove_dir_all(&models);
     }
 }
