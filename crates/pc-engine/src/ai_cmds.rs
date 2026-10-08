@@ -713,6 +713,8 @@ mod tests {
         s.execute("edit.undo", json!({})).expect("undo");
         let after: Vec<String> = s.active().expect("doc").doc.walk().into_iter().map(|(_, _, l)| l.name.clone()).collect();
         assert!(!after.iter().any(|n| n.starts_with("AI Remove")), "{after:?}");
+        // A subject on the plain background (the mock keeps what differs from the border).
+        s.execute("paint.stroke", json!({"points": [[150.0, 120.0], [170.0, 120.0]], "size": 80, "hardness": 100})).expect("subject");
         s.execute("ai.removeBackground", json!({})).expect("cutout");
         let d = s.active().expect("doc");
         let active = d.active_layer.expect("active");

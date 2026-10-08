@@ -23,5 +23,6 @@ rand = { workspace = true }
 log = { workspace = true }
 dirs = { workspace = true }
 tiny_http = { workspace = true }
+base64 = "0.22"
 
 

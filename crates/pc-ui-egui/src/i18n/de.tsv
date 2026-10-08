@@ -972,7 +972,7 @@
 	Draw with the Pen tool (P) or make a work path from a selection.	Zeichne mit dem Stift-Werkzeug (P) oder erzeuge einen Arbeitspfad aus einer Auswahl.
 	Drop an image or PSD anywhere to open it.	Ziehe ein Bild oder PSD an eine beliebige Stelle, um es zu öffnen.
 	Native file drag-and-drop is unavailable	Natives Ziehen und Ablegen von Dateien ist nicht verfügbar
-	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= photocraft`.	Natives Ziehen und Ablegen von Dateien wird unter Wayland noch nicht unterstützt. Nutze Datei › Öffnen oder starte Local Image unter XWayland mit `WAYLAND_DISPLAY= photocraft`.
+	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= local-image`.	Natives Ziehen und Ablegen von Dateien wird unter Wayland noch nicht unterstützt. Nutze Datei › Öffnen oder starte Local Image unter XWayland mit `WAYLAND_DISPLAY= local-image`.
 	Duplicate Layers…	Ebenen duplizieren…
 	Duplicate style	Stil duplizieren
 	Edit Toolbar…	Werkzeugleiste bearbeiten…
@@ -2172,3 +2172,49 @@
 	% of all commits	% aller Commits
 	Lines +/−	Zeilen +/−
 	@{login}: {prs} PRs, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{binAdded} / −{binDeleted} binary assets, {first} – {last}	@{login}: {prs} PRs, {commits} Commits, +{added} / −{deleted} Zeilen (Δ {delta}), +{binAdded} / −{binDeleted} Binärdateien, {first} – {last}
+# local-image: AI, Library and V2 strings
+	AI Enhance (SeedVR2)…	KI-Verbesserung (SeedVR2)…
+	AI Models & GPU…	KI-Modelle und GPU…
+	AI Remove Selection	Auswahl mit KI entfernen
+	Automatic	Automatisch
+	Bicubic Sharper (reduction)	Bikubisch schärfer (Reduzierung)
+	Bicubic Smoother (enlargement)	Bikubisch glatter (Vergrößerung)
+	Browse, rate and organise your photos	Fotos durchsuchen, bewerten und ordnen
+	Layers, retouching and AI tools	Ebenen, Retusche und KI-Werkzeuge
+	Contextual Task Bar	Kontextabhängige Taskleiste
+	Describe an image to create…	Beschreiben Sie das gewünschte Bild…
+	Edit photos, catalogue them, and create with local AI.	Fotos bearbeiten, katalogisieren und mit lokaler KI gestalten.
+	Filmstrip	Filmstreifen
+	Generate Background (AI)…	Hintergrund erzeugen (KI)…
+	Generative Fill (AI)…	Generatives Füllen (KI)…
+	Get Models…	Modelle holen…
+	Local AI…	Lokale KI…
+	Model Browser…	Modell-Browser…
+	New from Prompt…	Neu aus Beschreibung…
+	No AI model is installed yet.	Es ist noch kein KI-Modell installiert.
+	Open Folder…	Ordner öffnen…
+	PhotoCraft and LightCraft (ArtCraft)	PhotoCraft und LightCraft (ArtCraft)
+	Remove Background (AI)	Hintergrund entfernen (KI)
+	Remove Backgrounds (AI)…	Hintergründe entfernen (KI)…
+	Set Up AI…	KI einrichten…
+	Subject (AI)	Motiv (KI)
+	The AI engine isn't running.	Die KI-Engine läuft nicht.
+	Contextual task bar	Kontextabhängige Taskleiste
+	Tool presets	Werkzeugvorgaben
+	Paint only when the string is pulled taut	Nur malen, wenn die Schnur gespannt ist
+	Keep painting toward the pointer while it pauses	Weiter zum Zeiger hin malen, während er ruht
+	Finish the stroke where the pointer was released	Den Strich dort beenden, wo der Zeiger losgelassen wurde
+	Less smoothing when zoomed in, more when zoomed out	Weniger Glättung beim Einzoomen, mehr beim Auszoomen
+	Diagonal	Diagonal
+	Along the Work Path	Entlang des Arbeitspfads
+	Mirror across the current path (draw it with the Pen tool first)	Am aktuellen Pfad spiegeln (zuerst mit dem Zeichenstift zeichnen)
+	Symmetry Off	Symmetrie aus
+	Click to restore this snapshot	Klicken, um diesen Schnappschuss wiederherzustellen
+	Delete Snapshot	Schnappschuss löschen
+	Set the overlay options for the Crop tool	Überlagerungsoptionen für das Freistellungswerkzeug festlegen
+	Rule of Thirds	Drittel-Regel
+	Triangle	Dreieck
+	Golden Ratio	Goldener Schnitt
+	Frequency Separation…	Frequenztrennung…
+	Perspective Crop Tool	Perspektivisches Freistellungswerkzeug
+	Drag a frame, then drag its corners onto the edges of the object to straighten	Rahmen aufziehen, dann seine Ecken an die Kanten des Objekts ziehen, um es zu begradigen

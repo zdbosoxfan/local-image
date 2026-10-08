@@ -161,11 +161,132 @@ fn query(url: &str, key: &str) -> Vec<String> {
         .collect()
 }
 
+// ------------------------------------------------------------------------------ cloud APIs
+
+/// Images a mock BFL job produced, by id.
+static BFL_JOBS: std::sync::Mutex<Vec<(String, Vec<u8>)>> = std::sync::Mutex::new(Vec::new());
+
+/// A stand-in result: the source inverted (so edits are visible), or a gradient coloured by the
+/// prompt.
+fn cloud_image(prompt: &str, source: Option<image::RgbaImage>, w: u32, h: u32) -> Vec<u8> {
+    let img = match source {
+        Some(mut s) => {
+            for p in s.pixels_mut() {
+                p.0 = [255 - p[0], 255 - p[1], 255 - p[2], 255];
+            }
+            s
+        }
+        None => {
+            let hsh = prompt.bytes().fold(2166136261u32, |h, b| (h ^ b as u32).wrapping_mul(16777619));
+            let c = [(hsh & 0xff) as u8, ((hsh >> 8) & 0xff) as u8, ((hsh >> 16) & 0xff) as u8];
+            image::RgbaImage::from_fn(w, h, |x, _| {
+                let t = x as f32 / w.max(1) as f32;
+                image::Rgba([(c[0] as f32 * t) as u8, c[1], (c[2] as f32 * (1.0 - t)) as u8, 255])
+            })
+        }
+    };
+    crate::imaging::encode_png(&img).unwrap_or_default()
+}
+
+/// Every PNG inside a multipart body.
+fn multipart_pngs(body: &[u8]) -> Vec<image::RgbaImage> {
+    const SIG: &[u8] = b"\x89PNG\r\n\x1a\n";
+    let mut out = Vec::new();
+    let mut i = 0;
+    while let Some(p) = body[i..].windows(SIG.len()).position(|w| w == SIG) {
+        let start = i + p;
+        let end = body[start..].windows(4).position(|w| w == b"\r\n--").map(|e| start + e).unwrap_or(body.len());
+        if let Ok(img) = image::load_from_memory(&body[start..end]) {
+            out.push(img.to_rgba8());
+        }
+        i = end.max(start + 1);
+    }
+    out
+}
+
+fn multipart_field(body: &[u8], name: &str) -> Option<String> {
+    let text = String::from_utf8_lossy(body);
+    let marker = format!("name=\"{name}\"\r\n\r\n");
+    let rest = &text[text.find(&marker)? + marker.len()..];
+    Some(rest.split("\r\n").next()?.to_owned())
+}
+
+fn unb64(s: &str) -> Option<image::RgbaImage> {
+    use base64::Engine as _;
+    let b = base64::engine::general_purpose::STANDARD.decode(s).ok()?;
+    image::load_from_memory(&b).ok().map(|i| i.to_rgba8())
+}
+
+fn b64(b: &[u8]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(b)
+}
+
+/// The mock cloud APIs (`/cloud/{openai,google,bfl,stability}/…`). `key` is the request's API
+/// key header; `bad-key` is rejected the way the providers do.
+pub fn handle_cloud(host: &str, method: &str, url: &str, key: Option<&str>, body: &[u8]) -> Option<Reply> {
+    let path = url.split('?').next().unwrap_or("");
+    let rest = path.strip_prefix("/cloud/")?;
+    if let Some(id) = rest.strip_prefix("bfl/sample/") {
+        let id = id.trim_end_matches(".png");
+        let jobs = BFL_JOBS.lock().ok()?;
+        return Some(jobs.iter().find(|(j, _)| j == id).map(|(_, b)| Reply::Bytes(b.clone(), "image/png")).unwrap_or(Reply::NotFound));
+    }
+    match key {
+        None | Some("") => return Some(Reply::JsonStatus(401, json!({"error": {"message": "Missing API key"}}))),
+        Some("bad-key") => return Some(Reply::JsonStatus(401, json!({"error": {"message": "Incorrect API key provided"}}))),
+        _ => {}
+    }
+    let v: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+    match (method, rest) {
+        ("POST", "openai/v1/images/generations") => {
+            let n = v["n"].as_u64().unwrap_or(1);
+            let (w, h) =
+                v["size"].as_str().and_then(|s| s.split_once('x')).map(|(a, b)| (a.parse().unwrap_or(1024), b.parse().unwrap_or(1024))).unwrap_or((1024, 1024));
+            let data: Vec<Value> = (0..n).map(|_| json!({"b64_json": b64(&cloud_image(v["prompt"].as_str().unwrap_or(""), None, w, h))})).collect();
+            Some(Reply::Json(json!({"data": data})))
+        }
+        ("POST", "openai/v1/images/edits") => {
+            let n: u64 = multipart_field(body, "n").and_then(|v| v.parse().ok()).unwrap_or(1);
+            let src = multipart_pngs(body).into_iter().next();
+            let data: Vec<Value> = (0..n).map(|_| json!({"b64_json": b64(&cloud_image("", src.clone(), 1024, 1024))})).collect();
+            Some(Reply::Json(json!({"data": data})))
+        }
+        ("POST", r) if r.starts_with("google/v1beta/models/") && r.ends_with(":generateContent") => {
+            let parts = v["contents"][0]["parts"].as_array().cloned().unwrap_or_default();
+            let src = parts.iter().find_map(|p| p["inline_data"]["data"].as_str().and_then(unb64));
+            let prompt = parts.iter().find_map(|p| p["text"].as_str()).unwrap_or("");
+            let png = cloud_image(prompt, src, 1024, 1024);
+            Some(Reply::Json(
+                json!({"candidates": [{"content": {"parts": [{"text": "Here you go"}, {"inlineData": {"mimeType": "image/png", "data": b64(&png)}}]}, "finishReason": "STOP"}]}),
+            ))
+        }
+        ("POST", r) if r.starts_with("bfl/v1/") => {
+            let src = v["input_image"].as_str().or_else(|| v["image"].as_str()).and_then(unb64);
+            let id = uuid::Uuid::new_v4().simple().to_string();
+            let png = cloud_image(v["prompt"].as_str().unwrap_or(""), src, 1024, 1024);
+            BFL_JOBS.lock().ok()?.push((id.clone(), png));
+            Some(Reply::Json(json!({"id": id, "polling_url": format!("http://{host}/cloud/bfl/v1/get_result?id={id}")})))
+        }
+        ("GET", "bfl/v1/get_result") => {
+            let id = url.split("id=").nth(1).unwrap_or("");
+            Some(Reply::Json(json!({"id": id, "status": "Ready", "result": {"sample": format!("http://{host}/cloud/bfl/sample/{id}.png")}})))
+        }
+        ("POST", r) if r.starts_with("stability/v2beta/") => {
+            let src = multipart_pngs(body).into_iter().next();
+            let prompt = multipart_field(body, "prompt").unwrap_or_default();
+            Some(Reply::Bytes(cloud_image(&prompt, src, 1024, 1024), "image/png"))
+        }
+        _ => Some(Reply::NotFound),
+    }
+}
+
 pub enum Reply {
     Json(Value),
     Bytes(Vec<u8>, &'static str),
     Redirect(String),
     Status(u16),
+    JsonStatus(u16, Value),
     NotFound,
 }
 

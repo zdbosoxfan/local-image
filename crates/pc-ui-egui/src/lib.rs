@@ -43,6 +43,7 @@ pub mod cjk_fonts;
 pub mod color_picker_ui;
 pub mod color_range_ui;
 pub mod comps_ui;
+pub mod context_bar;
 pub mod control;
 pub mod credits;
 pub mod crop_ui;
@@ -62,6 +63,7 @@ pub mod filmstrip_ui;
 pub mod filter_dialog;
 pub mod gallery_ui;
 pub mod generate_ui;
+pub mod perspective_crop_ui;
 // local-image: the Model Browser.
 pub mod gpu_canvas;
 pub mod gpu_status;
@@ -1097,6 +1099,7 @@ impl eframe::App for PhotocraftApp {
         preset_panels::windows(self, &ctx);
         // local-image: Local AI window and the AI prompt dialogs.
         ai_ui::windows(self, &ctx);
+        context_bar::show(self, &ctx);
         type_panels_ui::windows(self, &ctx);
         analysis_ui::windows(self, &ctx);
         timeline_ui::windows(self, &ctx);

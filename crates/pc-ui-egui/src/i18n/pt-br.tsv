@@ -2451,7 +2451,7 @@
 	Floating point	Ponto flutuante
 	Use Global Light	Usar luz global
 	Native file drag-and-drop is unavailable	Arrastar e soltar arquivos nativo indisponível
-	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= photocraft`.	Arrastar e soltar arquivos nativo ainda não é compatível com Wayland. Use Arquivo › Abrir ou execute o Local Image no XWayland com `WAYLAND_DISPLAY= photocraft`.
+	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= local-image`.	Arrastar e soltar arquivos nativo ainda não é compatível com Wayland. Use Arquivo › Abrir ou execute o Local Image no XWayland com `WAYLAND_DISPLAY= local-image`.
 	Use File › Open to open an image.	Use Arquivo › Abrir para abrir uma imagem.
 	Mixer Brush Tool	Ferramenta Pincel misturador
 	Invalid {mode} profile	Perfil {mode} inválido
@@ -2571,3 +2571,48 @@ cameraRaw	Whites	Brancos
 	% of all commits	% de todos os commits
 	Lines +/−	Linhas +/−
 	@{login}: {prs} PRs, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{binAdded} / −{binDeleted} binary assets, {first} – {last}	@{login}: {prs} PRs, {commits} commits, +{added} / −{deleted} linhas (Δ {delta}), +{binAdded} / −{binDeleted} arquivos binários, {first} – {last}
+# local-image: AI, Library and V2 strings
+	AI Enhance (SeedVR2)…	Aprimorar com IA (SeedVR2)…
+	AI Models & GPU…	Modelos de IA e GPU…
+	AI Remove Selection	Remover seleção com IA
+	Automatic	Automático
+	Bicubic Sharper (reduction)	Bicúbica mais nítida (redução)
+	Bicubic Smoother (enlargement)	Bicúbica mais suave (ampliação)
+	Browse, rate and organise your photos	Navegue, classifique e organize suas fotos
+	Layers, retouching and AI tools	Camadas, retoque e ferramentas de IA
+	Contextual Task Bar	Barra de tarefas contextual
+	Describe an image to create…	Descreva uma imagem para criar…
+	Edit photos, catalogue them, and create with local AI.	Edite fotos, catalogue-as e crie com IA local.
+	Filmstrip	Tira de filme
+	Generate Background (AI)…	Gerar plano de fundo (IA)…
+	Generative Fill (AI)…	Preenchimento generativo (IA)…
+	Get Models…	Obter modelos…
+	Local AI…	IA local…
+	Model Browser…	Navegador de modelos…
+	New from Prompt…	Novo a partir de descrição…
+	No AI model is installed yet.	Nenhum modelo de IA instalado ainda.
+	Open Folder…	Abrir pasta…
+	PhotoCraft and LightCraft (ArtCraft)	PhotoCraft e LightCraft (ArtCraft)
+	Remove Background (AI)	Remover plano de fundo (IA)
+	Remove Backgrounds (AI)…	Remover planos de fundo (IA)…
+	Set Up AI…	Configurar IA…
+	Subject (AI)	Assunto (IA)
+	The AI engine isn't running.	O mecanismo de IA não está em execução.
+	Contextual task bar	Barra de tarefas contextual
+	Tool presets	Predefinições de ferramenta
+	Paint only when the string is pulled taut	Pintar apenas quando o fio estiver esticado
+	Keep painting toward the pointer while it pauses	Continuar pintando em direção ao ponteiro enquanto ele para
+	Finish the stroke where the pointer was released	Terminar o traço onde o ponteiro foi solto
+	Less smoothing when zoomed in, more when zoomed out	Menos suavização ao aproximar, mais ao afastar
+	Diagonal	Diagonal
+	Along the Work Path	Ao longo do demarcador de trabalho
+	Mirror across the current path (draw it with the Pen tool first)	Espelhar no demarcador atual (desenhe-o antes com a ferramenta Caneta)
+	Symmetry Off	Desativar simetria
+	Click to restore this snapshot	Clique para restaurar este instantâneo
+	Set the overlay options for the Crop tool	Definir as opções de sobreposição da ferramenta Corte demarcado
+	Rule of Thirds	Regra dos terços
+	Triangle	Triângulo
+	Golden Ratio	Proporção áurea
+	Frequency Separation…	Separação de frequências…
+	Perspective Crop Tool	Ferramenta Corte de Perspectiva
+	Drag a frame, then drag its corners onto the edges of the object to straighten	Arraste um quadro e depois arraste os cantos até as bordas do objeto para endireitá-lo

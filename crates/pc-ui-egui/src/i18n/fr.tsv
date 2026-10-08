@@ -2455,7 +2455,7 @@
 	Floating point	Virgule flottante
 	Use Global Light	Utiliser la lumière globale
 	Native file drag-and-drop is unavailable	Le glisser-déposer natif de fichiers n'est pas disponible
-	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= photocraft`.	Le glisser-déposer natif de fichiers n'est pas encore pris en charge sous Wayland. Utilisez Fichier › Ouvrir, ou lancez Local Image sous XWayland avec `WAYLAND_DISPLAY= photocraft`.
+	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= local-image`.	Le glisser-déposer natif de fichiers n'est pas encore pris en charge sous Wayland. Utilisez Fichier › Ouvrir, ou lancez Local Image sous XWayland avec `WAYLAND_DISPLAY= local-image`.
 	Use File › Open to open an image.	Utilisez Fichier › Ouvrir pour ouvrir une image.
 	Mixer Brush Tool	Outil Pinceau mélangeur
 	Invalid {mode} profile	Profil {mode} non valide
@@ -2564,3 +2564,48 @@ cameraRaw	Blending	Fusion
 	% of all commits	% de tous les commits
 	Lines +/−	Lignes +/−
 	@{login}: {prs} PRs, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{binAdded} / −{binDeleted} binary assets, {first} – {last}	@{login} : {prs} PR, {commits} commits, +{added} / −{deleted} lignes (Δ {delta}), +{binAdded} / −{binDeleted} fichiers binaires, {first} – {last}
+# local-image: AI, Library and V2 strings
+	AI Enhance (SeedVR2)…	Amélioration IA (SeedVR2)…
+	AI Models & GPU…	Modèles d'IA et GPU…
+	AI Remove Selection	Supprimer la sélection avec l'IA
+	Automatic	Automatique
+	Bicubic Sharper (reduction)	Bicubique plus net (réduction)
+	Bicubic Smoother (enlargement)	Bicubique plus lisse (agrandissement)
+	Browse, rate and organise your photos	Parcourez, notez et organisez vos photos
+	Layers, retouching and AI tools	Calques, retouche et outils d'IA
+	Contextual Task Bar	Barre des tâches contextuelle
+	Describe an image to create…	Décrivez une image à créer…
+	Edit photos, catalogue them, and create with local AI.	Retouchez vos photos, cataloguez-les et créez avec l'IA locale.
+	Filmstrip	Pellicule
+	Generate Background (AI)…	Générer un arrière-plan (IA)…
+	Generative Fill (AI)…	Remplissage génératif (IA)…
+	Get Models…	Obtenir des modèles…
+	Local AI…	IA locale…
+	Model Browser…	Navigateur de modèles…
+	New from Prompt…	Nouveau à partir d'une description…
+	No AI model is installed yet.	Aucun modèle d'IA n'est encore installé.
+	Open Folder…	Ouvrir un dossier…
+	PhotoCraft and LightCraft (ArtCraft)	PhotoCraft et LightCraft (ArtCraft)
+	Remove Background (AI)	Supprimer l'arrière-plan (IA)
+	Remove Backgrounds (AI)…	Supprimer les arrière-plans (IA)…
+	Set Up AI…	Configurer l'IA…
+	Subject (AI)	Sujet (IA)
+	The AI engine isn't running.	Le moteur d'IA n'est pas lancé.
+	Contextual task bar	Barre des tâches contextuelle
+	Tool presets	Paramètres prédéfinis d'outils
+	Paint only when the string is pulled taut	Peindre seulement quand la corde est tendue
+	Keep painting toward the pointer while it pauses	Continuer à peindre vers le pointeur pendant qu'il s'arrête
+	Finish the stroke where the pointer was released	Terminer le tracé là où le pointeur a été relâché
+	Less smoothing when zoomed in, more when zoomed out	Moins de lissage en zoom avant, plus en zoom arrière
+	Diagonal	Diagonale
+	Along the Work Path	Le long du tracé de travail
+	Mirror across the current path (draw it with the Pen tool first)	Symétrie par rapport au tracé actuel (dessinez-le d'abord avec la Plume)
+	Symmetry Off	Désactiver la symétrie
+	Click to restore this snapshot	Cliquez pour restaurer cet instantané
+	Set the overlay options for the Crop tool	Définir les options de superposition de l'outil Recadrage
+	Rule of Thirds	Règle des tiers
+	Triangle	Triangle
+	Golden Ratio	Nombre d'or
+	Frequency Separation…	Séparation de fréquences…
+	Perspective Crop Tool	Outil Recadrage perspective
+	Drag a frame, then drag its corners onto the edges of the object to straighten	Tracez un cadre, puis faites glisser ses coins sur les bords de l’objet pour le redresser

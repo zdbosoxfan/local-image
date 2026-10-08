@@ -3,7 +3,7 @@
 # licenses/ for the notices of the MIT/Apache-2.0 projects this work incorporates.
 [workspace]
 resolver = "3"
-members = ["crates/*", "apps/*"]
+members = ["crates/*", "apps/*", "xtask"]
 default-members = ["apps/local-image", "apps/local-image-cli"]
 
 [workspace.package]

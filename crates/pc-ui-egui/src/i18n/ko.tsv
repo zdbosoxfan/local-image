@@ -1985,7 +1985,7 @@
 	Floating point	부동 소수점
 	Use Global Light	전체 조명 사용
 	Native file drag-and-drop is unavailable	파일 드래그 앤 드롭을 사용할 수 없습니다
-	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= photocraft`.	Wayland에서는 아직 파일 드래그 앤 드롭을 지원하지 않습니다. 파일 › 열기를 사용하거나 `WAYLAND_DISPLAY= photocraft`로 XWayland에서 Local Image를 실행하세요.
+	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= local-image`.	Wayland에서는 아직 파일 드래그 앤 드롭을 지원하지 않습니다. 파일 › 열기를 사용하거나 `WAYLAND_DISPLAY= local-image`로 XWayland에서 Local Image를 실행하세요.
 	Use File › Open to open an image.	파일 › 열기에서 이미지를 여세요.
 	Invalid {mode} profile	유효하지 않은 {mode} 프로파일
 	Unnamed {mode} profile	이름 없는 {mode} 프로파일
@@ -2717,3 +2717,48 @@ cameraRaw	Color	색상
 	% of all commits	전체 커밋 대비 %
 	Lines +/−	줄 +/−
 	@{login}: {prs} PRs, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{binAdded} / −{binDeleted} binary assets, {first} – {last}	@{login}: PR {prs}개, 커밋 {commits}개, 줄 +{added} / −{deleted} (Δ {delta}), 바이너리 +{binAdded} / −{binDeleted}, {first} – {last}
+# local-image: AI, Library and V2 strings
+	AI Enhance (SeedVR2)…	AI 향상 (SeedVR2)…
+	AI Models & GPU…	AI 모델 및 GPU…
+	AI Remove Selection	AI로 선택 영역 제거
+	Automatic	자동
+	Bicubic Sharper (reduction)	쌍입방 선명하게(축소)
+	Bicubic Smoother (enlargement)	쌍입방 부드럽게(확대)
+	Browse, rate and organise your photos	사진 탐색, 등급 지정 및 정리
+	Layers, retouching and AI tools	레이어, 리터칭 및 AI 도구
+	Contextual Task Bar	상황별 작업 표시줄
+	Describe an image to create…	만들 이미지를 설명하세요…
+	Edit photos, catalogue them, and create with local AI.	사진을 편집하고 카탈로그로 정리하며 로컬 AI로 만드세요.
+	Filmstrip	필름 스트립
+	Generate Background (AI)…	배경 생성(AI)…
+	Generative Fill (AI)…	생성형 채우기(AI)…
+	Get Models…	모델 가져오기…
+	Local AI…	로컬 AI…
+	Model Browser…	모델 브라우저…
+	New from Prompt…	프롬프트로 새로 만들기…
+	No AI model is installed yet.	아직 설치된 AI 모델이 없습니다.
+	Open Folder…	폴더 열기…
+	PhotoCraft and LightCraft (ArtCraft)	PhotoCraft 및 LightCraft (ArtCraft)
+	Remove Background (AI)	배경 제거(AI)
+	Remove Backgrounds (AI)…	배경 일괄 제거(AI)…
+	Set Up AI…	AI 설정…
+	Subject (AI)	피사체(AI)
+	The AI engine isn't running.	AI 엔진이 실행되고 있지 않습니다.
+	Contextual task bar	상황별 작업 표시줄
+	Tool presets	도구 사전 설정
+	Paint only when the string is pulled taut	줄이 팽팽할 때만 칠합니다
+	Keep painting toward the pointer while it pauses	포인터가 멈춘 동안에도 포인터 쪽으로 계속 칠합니다
+	Finish the stroke where the pointer was released	포인터를 놓은 곳에서 획을 끝냅니다
+	Less smoothing when zoomed in, more when zoomed out	확대하면 보정을 줄이고 축소하면 늘립니다
+	Diagonal	대각선
+	Along the Work Path	작업 패스를 따라
+	Mirror across the current path (draw it with the Pen tool first)	현재 패스를 기준으로 대칭 (먼저 펜 도구로 그리세요)
+	Symmetry Off	대칭 끄기
+	Click to restore this snapshot	클릭하여 이 스냅숏 복원
+	Delete Snapshot	스냅숏 삭제
+	Set the overlay options for the Crop tool	자르기 도구의 오버레이 옵션 설정
+	Rule of Thirds	3분할 법칙
+	Golden Ratio	황금 비율
+	Frequency Separation…	주파수 분리…
+	Perspective Crop Tool	원근 자르기 도구
+	Drag a frame, then drag its corners onto the edges of the object to straighten	프레임을 드래그한 다음 모서리를 개체 가장자리로 드래그하여 원근을 바로잡습니다

@@ -165,6 +165,9 @@ pub fn resolve_brush(s: &Session, p: &Value, cmd: &str) -> Result<BrushSettings>
     if let Some(v) = num(p, "size") {
         b.size = v.max(0.5);
     }
+    // local-image: strokes drawn by hand on the canvas are joined with a spline (see
+    // `BrushSettings::freehand`).
+    b.freehand = flag(p, "freehand", false);
     if let Some(v) = num(p, "hardness") {
         b.hardness = v.clamp(0.0, 1.0);
     }

@@ -20,7 +20,7 @@ const TOOL_SECTIONS: &[&[&[Tool]]] = &[
         &[Tool::RectMarquee, Tool::EllipseMarquee],
         &[Tool::Lasso, Tool::PolygonLasso, Tool::MagneticLasso],
         &[Tool::ObjectSelection, Tool::QuickSelection, Tool::MagicWand],
-        &[Tool::Crop, Tool::Slice, Tool::SliceSelect],
+        &[Tool::Crop, Tool::PerspectiveCrop, Tool::Slice, Tool::SliceSelect],
         &[Tool::Eyedropper, Tool::Ruler, Tool::Note, Tool::Count],
     ],
     &[
@@ -381,19 +381,6 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         let next = app.ui.theme.next();
                         app.set_theme(ui.ctx(), next);
                     }
-                    // The community Discord, one click away while the bar has room for it
-                    // (narrow windows drop it first; it is also Help › Discord).
-                    // local-image: no ArtCraft Discord button in the title bar.
-                    if false && ui.available_width() >= DISCORD_ROOM {
-                        let discord = egui::Button::image_and_text(
-                            icons::image("message-square", 14.0, t.text_dim),
-                            egui::RichText::new(tl!("Discord")).color(t.text_dim).size(12.0),
-                        )
-                        .frame(false);
-                        if ui.add(discord).on_hover_text(format!("Join the ArtCraft Discord ({})", crate::links::DISCORD)).clicked() {
-                            crate::links::open(app, ui.ctx(), crate::links::DISCORD);
-                        }
-                    }
                     // local-image: the host's modes, left of the workspace switcher.
                     if app.host_modes && mode_switch(ui, &t, false) {
                         app.switch_to_library = true;
@@ -497,8 +484,6 @@ pub fn host_resize_zones(app: &PhotocraftApp, ui: &mut egui::Ui) {
 
 /// Minimum space kept between the window title and the menus or controls beside it.
 const TITLE_GAP: f32 = 16.0;
-/// Free room the title bar needs after its other controls to show the Discord button.
-const DISCORD_ROOM: f32 = 120.0;
 /// The workspace switcher's narrowest width, and one 28 pt title-bar icon with its spacing.
 const WORKSPACE_MIN: f32 = 90.0;
 const ICON_SLOT: f32 = 34.0;
@@ -552,7 +537,14 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     crate::chrome_ui::home_button(app, ui);
                     widgets::vline(ui, 22.0);
                 }
-                let _ = icons::button(ui, icons::tool_icon(app.ui.tool), if t.pro { 26.0 } else { 28.0 }, !t.pro, tl!(app.ui.tool.label()));
+                // The tool's icon opens the Tool Presets panel (Photoshop's tool preset picker).
+                if icons::button(ui, icons::tool_icon(app.ui.tool), if t.pro { 26.0 } else { 28.0 }, !t.pro, tl!(app.ui.tool.label()))
+                    .on_hover_text(tl!("Tool presets"))
+                    .clicked()
+                {
+                    let ctx = ui.ctx().clone();
+                    let _ = crate::menus::invoke(app, &ctx, "window.panel.toolPresets", json!({}));
+                }
                 if t.pro {
                     let (r, _) = ui.allocate_exact_size(vec2(10.0, 20.0), Sense::hover());
                     icons::paint(ui, r, "chevron-down", 10.0, t.text_faint);
@@ -605,15 +597,24 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             b.pressure_opacity = !b.pressure_opacity;
                         }
                         percent_field(ui, tl!("Flow"), &mut b.flow, 1.0..=100.0, 62.0);
-                        let _ = icons::button(ui, "sparkles", 24.0, false, tl!("Enable airbrush-style build-up effects"));
+                        if icons::button(ui, "sparkles", 24.0, b.build_up, tl!("Enable airbrush-style build-up effects")).clicked() {
+                            b.build_up = !b.build_up;
+                        }
                         opt_label(ui, tl!("Smoothing"));
                         smoothing_field(ui, b, 58.0);
-                        let _ = icons::button(ui, "settings", 24.0, false, tl!("Set additional smoothing options"));
+                        smoothing_options(ui, b);
                         widgets::vline(ui, 22.0);
                         if icons::button(ui, "circle-dot", 24.0, b.pressure_size, tl!("Always use pressure for size")).clicked() {
                             b.pressure_size = !b.pressure_size;
                         }
-                        let _ = icons::button(ui, "arrow-left-right", 24.0, false, tl!("Set painting symmetry options"));
+                        let current = app.session.active().and_then(|st| st.symmetry_path.as_ref().map(|a| a.source.clone()));
+                        if let Some((cmd, params)) = symmetry_menu(ui, current.as_deref()) {
+                            let r = app.run(cmd, params);
+                            if let Err(e) = r {
+                                app.ui.status = e;
+                                app.ui.status_error = true;
+                            }
+                        }
                     }
                     // Pencil: Photoshop's options (no hardness or flow: the pencil is always hard).
                     Tool::Pencil => {
@@ -869,7 +870,23 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         let (ir, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
                         icons::paint(ui, ir, "rotate-cw", 14.0, t.text_dim);
                         widgets::value_field(ui, &mut o.crop_angle, -45.0..=45.0, "°", 56.0).on_hover_text(tl!("Straighten: tilt the frame to level a horizon"));
-                        let _ = icons::button(ui, "grid-3x3", 24.0, true, tl!("Overlay: Rule of Thirds"));
+                        let overlay = icons::button(ui, "grid-3x3", 24.0, o.crop_overlay != "none", tl!("Set the overlay options for the Crop tool"));
+                        egui::Popup::menu(&overlay).show(|ui| {
+                            ui.set_min_width(170.0);
+                            for (key, label) in [
+                                ("thirds", tl!("Rule of Thirds")),
+                                ("grid", tl!("Grid")),
+                                ("diagonal", tl!("Diagonal")),
+                                ("triangle", tl!("Triangle")),
+                                ("golden", tl!("Golden Ratio")),
+                                ("none", tl!("None")),
+                            ] {
+                                if ui.add(egui::Button::selectable(o.crop_overlay == key, label)).clicked() {
+                                    o.crop_overlay = key.into();
+                                    ui.close();
+                                }
+                            }
+                        });
                         widgets::checkbox(ui, &mut o.crop_delete, tl!("Delete Cropped Pixels"));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if icons::button(
@@ -888,6 +905,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             }
                         });
                     }
+                    Tool::PerspectiveCrop => crate::perspective_crop_ui::options_bar(app, ui),
                     Tool::Type | Tool::VerticalType if t.pro => crate::type_tool::options_bar(app, ui),
                     Tool::Move if t.pro => {
                         let o = &mut app.ui.tool_options;
@@ -2111,6 +2129,8 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let entries = st.history.entries();
     let current = entries.len() - 1;
     let redo: Vec<String> = st.history.redo_labels().map(str::to_string).collect();
+    let snapshots: Vec<String> = st.snapshots.iter().map(|s| s.name.clone()).collect();
+    let mut snap_action: Option<(&'static str, usize)> = None;
     // Snapshot row (Photoshop shows the document's opening state with a thumbnail).
     {
         let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::hover());
@@ -2124,6 +2144,28 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui.painter().rect_stroke(thumb, 0.0, Stroke::new(1.0, t.separator), StrokeKind::Outside);
         ui.painter().text(pos2(thumb.right() + 8.0, rect.center().y), Align2::LEFT_CENTER, &doc.name, egui::FontId::proportional(12.0), t.text);
         ui.painter().line_segment([rect.left_bottom(), rect.right_bottom()], Stroke::new(1.0, t.separator));
+    }
+    // local-image: snapshots made with the camera button; click restores, right-click deletes.
+    for (i, name) in snapshots.iter().enumerate() {
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
+        if resp.hovered() {
+            ui.painter().rect_filled(rect, 0.0, t.hover.gamma_multiply(0.5));
+        }
+        icons::paint(ui, Rect::from_center_size(pos2(rect.left() + 42.0, rect.center().y), vec2(16.0, 16.0)), "scan", 12.0, t.icon);
+        ui.painter().text(pos2(rect.left() + 58.0, rect.center().y), Align2::LEFT_CENTER, name, egui::FontId::proportional(12.0), t.text);
+        let resp = resp.on_hover_text(tl!("Click to restore this snapshot"));
+        if resp.clicked() {
+            snap_action = Some(("history.restoreSnapshot", i));
+        }
+        resp.context_menu(|ui| {
+            if ui.button(tl!("Delete Snapshot")).clicked() {
+                snap_action = Some(("history.deleteSnapshot", i));
+                ui.close();
+            }
+        });
+        if i + 1 == snapshots.len() {
+            ui.painter().line_segment([rect.left_bottom(), rect.right_bottom()], Stroke::new(1.0, t.separator));
+        }
     }
     let mut target: Option<isize> = None;
     let all = entries.iter().map(|e| (e.clone(), false)).chain(redo.iter().map(|e| (e.clone(), true)));
@@ -2165,11 +2207,23 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let _ = icons::button(ui, "trash", 24.0, false, tl!("Delete current state"));
-                let _ = icons::button(ui, "scan", 24.0, false, tl!("Create new snapshot"));
-                let _ = icons::button(ui, "file-plus", 24.0, false, tl!("Create new document from current state"));
+                if icons::button(ui, "trash", 24.0, false, tl!("Delete current state")).clicked() {
+                    snap_action = Some(("history.deleteState", 0));
+                }
+                if icons::button(ui, "scan", 24.0, false, tl!("Create new snapshot")).clicked() {
+                    snap_action = Some(("history.newSnapshot", 0));
+                }
+                if icons::button(ui, "file-plus", 24.0, false, tl!("Create new document from current state")).clicked() {
+                    snap_action = Some(("history.newDocument", 0));
+                }
             });
         });
+    }
+    if let Some((cmd, i)) = snap_action.filter(|_| app.ui.transform.is_none()) {
+        if let Err(e) = app.run(cmd, json!({ "index": i })) {
+            app.ui.status = e;
+            app.ui.status_error = true;
+        }
     }
     // An open Free Transform owns Undo (transform_tool::intercept): stepping the document's history under
     // its box would leave it transforming pixels that changed.
@@ -2558,6 +2612,49 @@ fn brush_tip(p: &egui::Painter, c: egui::Pos2, rad: f32, hardness: f32, color: C
 }
 
 /// Options-bar Smoothing % (the brush's stroke smoothing; the live stroke and the commit use it).
+/// The cog beside Smoothing: Photoshop's smoothing options.
+fn smoothing_options(ui: &mut egui::Ui, b: &mut photocraft_engine::BrushSettings) {
+    let resp = icons::button(ui, "settings", 24.0, false, tl!("Set additional smoothing options"));
+    egui::Popup::from_toggle_button_response(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+        ui.set_min_width(220.0);
+        let sm = &mut b.smoothing;
+        widgets::checkbox(ui, &mut sm.pulled_string, tl!("Pulled String Mode")).on_hover_text(tl!("Paint only when the string is pulled taut"));
+        widgets::checkbox(ui, &mut sm.catch_up, tl!("Stroke Catch-up")).on_hover_text(tl!("Keep painting toward the pointer while it pauses"));
+        widgets::checkbox(ui, &mut sm.catch_up_on_end, tl!("Catch-up on Stroke End")).on_hover_text(tl!("Finish the stroke where the pointer was released"));
+        widgets::checkbox(ui, &mut sm.adjust_for_zoom, tl!("Adjust for Zoom")).on_hover_text(tl!("Less smoothing when zoomed in, more when zoomed out"));
+    });
+}
+
+/// The butterfly menu: symmetry presets and the path option. Returns the command to run.
+fn symmetry_menu(ui: &mut egui::Ui, current: Option<&str>) -> Option<(&'static str, serde_json::Value)> {
+    let resp = icons::button(ui, "arrow-left-right", 24.0, current.is_some(), tl!("Set painting symmetry options"));
+    let mut out = None;
+    egui::Popup::menu(&resp).show(|ui| {
+        ui.set_min_width(200.0);
+        for (label, kind) in [(tl!("Vertical"), "vertical"), (tl!("Horizontal"), "horizontal"), (tl!("Diagonal"), "diagonal")] {
+            if ui.add(egui::Button::selectable(current == Some(kind), label)).clicked() {
+                out = Some(("paint.symmetry", serde_json::json!({ "type": kind })));
+                ui.close();
+            }
+        }
+        let from_path = current.is_some_and(|c| !matches!(c, "vertical" | "horizontal" | "diagonal"));
+        if ui
+            .add(egui::Button::selectable(from_path, tl!("Along the Work Path")))
+            .on_hover_text(tl!("Mirror across the current path (draw it with the Pen tool first)"))
+            .clicked()
+        {
+            out = Some(("paint.symmetryFromPath", serde_json::json!({ "name": "work" })));
+            ui.close();
+        }
+        ui.separator();
+        if ui.add_enabled(current.is_some(), egui::Button::new(tl!("Symmetry Off"))).clicked() {
+            out = Some(("paint.symmetry", serde_json::json!({ "type": "off" })));
+            ui.close();
+        }
+    });
+    out
+}
+
 fn smoothing_field(ui: &mut egui::Ui, b: &mut photocraft_engine::BrushSettings, width: f32) {
     let mut sm = (b.smoothing.amount * 100.0).round();
     if widgets::value_field(ui, &mut sm, 0.0..=100.0, "%", width).changed() {

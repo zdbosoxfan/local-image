@@ -153,7 +153,7 @@ mod tests {
         assert!(guidance.contains("File › Open"));
         assert!(!guidance.contains("Ctrl+V"));
         assert!(guidance.contains("XWayland"));
-        assert!(guidance.contains("WAYLAND_DISPLAY= photocraft"));
+        assert!(guidance.contains("WAYLAND_DISPLAY= local-image"));
         assert_eq!(app.ui.notices[0].dismiss_pref.as_deref(), Some(WAYLAND_FILE_DROP_DISMISSED));
         for i in 0..MAX_NOTICES {
             post(&mut app, format!("Transient {i}"), Vec::new(), false, None);

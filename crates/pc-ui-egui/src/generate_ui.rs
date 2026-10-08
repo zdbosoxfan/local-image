@@ -219,6 +219,42 @@ fn custom_of(s: &GenerateState) -> Option<li_ai::custom::CustomWorkflow> {
     customs().into_iter().find(|w| w.name == name)
 }
 
+/// The cloud model chosen (`cloud:provider:model`).
+fn cloud_of(s: &GenerateState) -> Option<&'static li_ai::cloud::CloudModel> {
+    li_ai::cloud::model(s.model.strip_prefix("cloud:")?)
+}
+
+fn cloud_fits(m: &li_ai::cloud::CloudModel, mode: Mode) -> bool {
+    match mode {
+        Mode::Create => m.create,
+        Mode::Edit => m.edit,
+        Mode::Fill => m.fill,
+        Mode::Refine | Mode::Upscale => false,
+    }
+}
+
+/// Providers with a key entered (re-read from the settings every two seconds, not every frame).
+fn cloud_keys() -> Vec<li_ai::cloud::Provider> {
+    thread_local! { static CACHE: std::cell::RefCell<Option<(Instant, Vec<li_ai::cloud::Provider>)>> = const { std::cell::RefCell::new(None) }; }
+    CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        if let Some((t, v)) = c.as_ref()
+            && t.elapsed() < Duration::from_secs(2)
+        {
+            return v.clone();
+        }
+        let settings = li_ai::settings::AiSettings::load();
+        let v: Vec<_> = li_ai::cloud::Provider::ALL.into_iter().filter(|p| li_ai::cloud::api_key(&settings, *p).is_some()).collect();
+        *c = Some((Instant::now(), v.clone()));
+        v
+    })
+}
+
+/// Whether the cloud model's key is entered.
+fn cloud_ready(m: &li_ai::cloud::CloudModel) -> Result<(), String> {
+    if cloud_keys().contains(&m.provider) { Ok(()) } else { Err(format!("Add your {} API key in Local AI › Cloud.", m.provider.label())) }
+}
+
 fn model_of(s: &GenerateState) -> ModelId {
     ModelId::from_key(&s.model).filter(|m| m.try_info().is_some()).unwrap_or(ModelId::Klein4B)
 }
@@ -407,6 +443,36 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &cra
             }
         }
         if allow_custom {
+            let clouds: Vec<_> = li_ai::cloud::MODELS.iter().filter(|m| cloud_fits(m, mode)).collect();
+            if !clouds.is_empty() {
+                ui.add_space(4.0);
+                ui.label(RichText::new("CLOUD · YOUR API KEY").size(10.5).color(t.text_faint).strong());
+                let keys = cloud_keys();
+                for m in clouds {
+                    let key = format!("cloud:{}", m.key);
+                    let has_key = keys.contains(&m.provider);
+                    let row = ui.horizontal(|ui| {
+                        let (dot, _) = ui.allocate_exact_size(vec2(10.0, 16.0), Sense::hover());
+                        ui.painter().circle_filled(dot.center(), 3.5, if has_key { Color32::from_rgb(70, 190, 110) } else { t.text_faint });
+                        let resp = ui.add(egui::Button::selectable(current == key, RichText::new(m.label).color(if has_key { t.text } else { t.text_dim })));
+                        ui.label(RichText::new(m.provider.label()).size(10.5).color(t.text_faint));
+                        for (on, tg) in [(m.create, "Create"), (m.edit, "Edit"), (m.fill, "Fill")] {
+                            if on {
+                                tag(ui, tg, &t);
+                            }
+                        }
+                        resp
+                    });
+                    let tip = if has_key {
+                        format!("{}\nRuns on {}'s servers: your prompt and images are sent there.", m.best_for, m.provider.label())
+                    } else {
+                        format!("{}\nAdd your {} API key in Local AI › Cloud to use it.", m.best_for, m.provider.label())
+                    };
+                    if row.inner.on_hover_text(tip).clicked() {
+                        picked = Some(key);
+                    }
+                }
+            }
             let cws = customs();
             if !cws.is_empty() {
                 ui.add_space(4.0);
@@ -469,7 +535,10 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             s.denoise = s.mode.default_strength();
             // A model that can't run the new mode gives way to one that can.
             let m = model_of(s);
-            if !s.model.starts_with("custom:") && !fits_mode(m.info(), s.mode) {
+            let cloud_ok = cloud_of(s).map(|c| cloud_fits(c, s.mode));
+            if cloud_ok == Some(true) {
+                // The cloud model handles this mode.
+            } else if !s.model.starts_with("custom:") && (cloud_ok == Some(false) || !fits_mode(m.info(), s.mode)) {
                 let next = ModelId::generators()
                     .into_iter()
                     .chain(ModelId::all())
@@ -514,7 +583,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             match k.as_str() {
                 "browse:" => crate::model_browser::open(),
                 "import:" => import_workflow(app),
-                k if k.starts_with("custom:") => app.ui.ai.generate.model = k.to_owned(),
+                k if k.starts_with("custom:") || k.starts_with("cloud:") => app.ui.ai.generate.model = k.to_owned(),
                 k => {
                     if let Some(m) = ModelId::from_key(k) {
                         set_model(&mut app.ui.ai.generate, m);
@@ -524,9 +593,20 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         }
         let s = &mut app.ui.ai.generate;
         let custom = custom_of(s);
+        let cloud = cloud_of(s);
         let m = model_of(s);
         let info = m.info();
-        if custom.is_none() {
+        if let Some(c) = cloud {
+            ui.horizontal_wrapped(|ui| {
+                let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
+                crate::icons::paint(ui, r, "cloud", 12.0, t.text_faint);
+                ui.label(
+                    RichText::new(format!("Runs on {}: your prompt and images are sent there, billed to your key.", c.provider.label()))
+                        .color(t.text_faint)
+                        .size(11.0),
+                );
+            });
+        } else if custom.is_none() {
             let presets_m: Vec<_> = catalog::presets_for(m).collect();
             if presets_m.len() > 1 {
                 ui.horizontal(|ui| {
@@ -563,9 +643,10 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 s.prompt.pop();
             }
         }
-        let wants_negative = match &custom {
-            Some(w) => w.has(&li_ai::custom::FieldKind::Negative),
-            None => info.negative_prompt,
+        let wants_negative = match (&custom, cloud) {
+            (Some(w), _) => w.has(&li_ai::custom::FieldKind::Negative),
+            (None, Some(c)) => c.negative,
+            (None, None) => info.negative_prompt,
         };
         if wants_negative {
             ui.add(egui::TextEdit::singleline(&mut s.negative).hint_text("Avoid… (negative prompt)").desired_width(f32::INFINITY));
@@ -604,13 +685,19 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 }
             });
         }
-        if s.mode == Mode::Create && info.transparent && custom.is_none() {
+        if s.mode == Mode::Create && info.transparent && custom.is_none() && cloud.is_none() {
             widgets::checkbox(ui, &mut s.transparent, "Transparent background");
         }
+        if let Some(c) = cloud
+            && s.mode == Mode::Create
+        {
+            ui.label(RichText::new(format!("Sent as {}", li_ai::cloud::describe_size(c, s.width, s.height))).color(t.text_faint).size(11.0));
+        }
         // ---- Strength.
-        let strength_shown = match &custom {
-            Some(w) => w.has(&li_ai::custom::FieldKind::Denoise),
-            None => {
+        let strength_shown = match (&custom, cloud) {
+            (Some(w), _) => w.has(&li_ai::custom::FieldKind::Denoise),
+            (None, Some(c)) => c.key == "stability:sd3.5-large" && s.mode == Mode::Edit,
+            (None, None) => {
                 matches!(s.mode, Mode::Refine | Mode::Upscale)
                     || (s.mode == Mode::Edit && !info.edit)
                     || (s.mode == Mode::Fill && info.resolved.pipeline.inpaint != li_ai::family::InpaintMethod::Instruction)
@@ -637,9 +724,10 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             });
         }
         // ---- References.
-        let ref_slots = match &custom {
-            Some(w) => w.images(),
-            None => {
+        let ref_slots = match (&custom, cloud) {
+            (Some(w), _) => w.images(),
+            (None, Some(c)) => c.max_refs as usize,
+            (None, None) => {
                 let adapter = matches!(info.resolved.pipeline.reference, li_ai::family::RefMethod::IpAdapter | li_ai::family::RefMethod::Redux);
                 match s.mode {
                     Mode::Create if adapter => 4,
@@ -651,15 +739,15 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             }
         };
         if ref_slots > 0 {
-            references_ui(app, ui, ref_slots, info.init_image && custom.is_none());
+            references_ui(app, ui, ref_slots, info.init_image && custom.is_none() && cloud.is_none());
         }
         let s = &mut app.ui.ai.generate;
         // ---- LoRAs.
-        if custom.is_none() && info.lora {
+        if custom.is_none() && cloud.is_none() && info.lora {
             loras_ui(ui, s, &info.resolved, &t);
         }
         // ---- Draft → Refine.
-        if s.mode == Mode::Create && custom.is_none() {
+        if s.mode == Mode::Create && custom.is_none() && cloud.is_none() {
             ui.horizontal(|ui| {
                 widgets::checkbox(ui, &mut s.refine, "Refine with").on_hover_text(
                     "Draft → Refine: generate with this model, then resample the draft with another (e.g. a fast draft refined by a detailed model)",
@@ -692,7 +780,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         // ---- Advanced.
         let resp = egui::CollapsingHeader::new(RichText::new("Advanced").color(t.text_dim)).default_open(s.advanced).show(ui, |ui| {
             let (steps_range, cfg_range) = (info.steps, info.guidance);
-            let show_steps = custom.as_ref().map_or(!steps_range.fixed(), |w| w.has(&li_ai::custom::FieldKind::Steps));
+            let show_steps = cloud.is_none() && custom.as_ref().map_or(!steps_range.fixed(), |w| w.has(&li_ai::custom::FieldKind::Steps));
             if show_steps {
                 let mut v = s.steps as f32;
                 let r = if custom.is_some() { 1.0..=150.0 } else { steps_range.min..=steps_range.max };
@@ -700,18 +788,18 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     s.steps = v.round() as u32;
                 }
             }
-            let show_cfg = custom.as_ref().map_or(!cfg_range.fixed(), |w| w.has(&li_ai::custom::FieldKind::Cfg));
+            let show_cfg = cloud.is_none() && custom.as_ref().map_or(!cfg_range.fixed(), |w| w.has(&li_ai::custom::FieldKind::Cfg));
             if show_cfg {
                 let r = if custom.is_some() { 1.0..=30.0 } else { cfg_range.min..=cfg_range.max };
                 widgets::slider_row(ui, "Guidance", &mut s.guidance, r, "", None);
             }
-            if info.init_image && custom.is_none() && s.mode == Mode::Create {
+            if info.init_image && custom.is_none() && cloud.is_none() && s.mode == Mode::Create {
                 let mut pct = s.denoise * 100.0;
                 if widgets::slider_row(ui, "Variation strength", &mut pct, 5.0..=100.0, "%", None).changed() {
                     s.denoise = pct / 100.0;
                 }
             }
-            if custom.is_none() && info.resolved.pipeline.sampler == li_ai::family::SamplerStyle::Ksampler {
+            if custom.is_none() && cloud.is_none() && info.resolved.pipeline.sampler == li_ai::family::SamplerStyle::Ksampler {
                 ui.horizontal(|ui| {
                     label(ui, "Sampler");
                     let samplers = ["", "euler", "euler_ancestral", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_sde", "uni_pc", "res_multistep", "lcm"];
@@ -743,12 +831,13 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         s.advanced = resp.fully_open();
         // ---- Readiness and the button.
         let variant = s.variant.clone();
-        let ready = match &custom {
-            Some(_) if st.connected => Ok(()),
-            Some(_) => Err("The AI engine (ComfyUI) is not running.".to_owned()),
-            None => st.ready(m, &variant),
+        let ready = match (&custom, cloud) {
+            (_, Some(c)) => cloud_ready(c),
+            (Some(_), _) if st.connected => Ok(()),
+            (Some(_), _) => Err("The AI engine (ComfyUI) is not running.".to_owned()),
+            (None, None) => st.ready(m, &variant),
         };
-        let refine_ready = if s.refine && s.mode == Mode::Create && custom.is_none() {
+        let refine_ready = if s.refine && s.mode == Mode::Create && custom.is_none() && cloud.is_none() {
             match ModelId::from_key(&s.refine_model) {
                 Some(rm) => st.ready(rm, &s.refine_variant).map_err(|e| format!("Refine model: {e}")),
                 None => Err("Choose a model to refine with.".into()),
@@ -767,7 +856,11 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         for why in [ready.as_ref().err(), refine_ready.as_ref().err()].into_iter().flatten() {
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new(why).color(t.warning).size(11.5));
-                if !st.connected {
+                if cloud.is_some() {
+                    if widgets::secondary_button(ui, "Add Key…", 0.0).clicked() {
+                        crate::ai_ui::open_local_ai(app);
+                    }
+                } else if !st.connected {
                     if widgets::secondary_button(ui, "Set up AI…", 0.0).clicked() {
                         crate::ai_ui::open_local_ai(app);
                     }
@@ -1051,6 +1144,11 @@ fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
         ctx.request_repaint();
         return;
     }
+    if let Some(c) = cloud_of(&s) {
+        start_cloud(app, &s, c, prompt, doc, refs);
+        ctx.request_repaint();
+        return;
+    }
     let m = model_of(&s);
     let info = m.info();
     let mut req = GenerateRequest::new(m, prompt);
@@ -1145,6 +1243,90 @@ fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
         }
     }
     ctx.request_repaint();
+}
+
+/// Home screen › Generate: the prompt typed there, in Create mode, with the Generate panel open
+/// so the results show.
+pub fn generate_from_home(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    let _ = crate::menus::invoke(app, ctx, "li.panel.generate", json!({}));
+    app.ui.ai.generate.mode = Mode::Create;
+    start(app, ctx);
+}
+
+/// A cloud generation: one job per image, each with its own seed. Edits and fills land on the
+/// open document as a layer (a fill holds only the regenerated area).
+fn start_cloud(
+    app: &mut PhotocraftApp,
+    s: &GenerateState,
+    c: &'static li_ai::cloud::CloudModel,
+    prompt: String,
+    doc: Option<(photocraft_doc::DocId, RgbaImage, Option<image::GrayImage>)>,
+    refs: Vec<RgbaImage>,
+) {
+    use li_ai::cloud::{CloudMode, CloudRequest};
+    let mode = match s.mode {
+        Mode::Create => CloudMode::Create,
+        Mode::Edit => CloudMode::Edit,
+        Mode::Fill => CloudMode::Fill,
+        Mode::Refine | Mode::Upscale => {
+            app.ui.status = format!("{} creates, edits and fills; choose a local model to refine or upscale.", c.label);
+            app.ui.status_error = true;
+            return;
+        }
+    };
+    let (target, source, mask) = match (&doc, mode) {
+        (Some((id, img, sel)), CloudMode::Edit | CloudMode::Fill) => (Some(id.0), Some(img.clone()), if mode == CloudMode::Fill { sel.clone() } else { None }),
+        _ => (None, None, None),
+    };
+    let base = CloudRequest {
+        model: c,
+        mode,
+        prompt: prompt.clone(),
+        negative: s.negative.clone(),
+        width: s.width,
+        height: s.height,
+        seed: 0,
+        count: 1,
+        source,
+        mask,
+        refs,
+        strength: s.denoise,
+    };
+    if let Err(e) = base.validate() {
+        app.ui.status = e.to_string();
+        app.ui.status_error = true;
+        return;
+    }
+    let count = if mode == CloudMode::Create { s.count.clamp(1, 4) } else { 1 };
+    for i in 0..count {
+        let mut r = base.clone();
+        r.seed = s.seed.map(|v| v.wrapping_add(i as u64)).unwrap_or_else(li_ai::ops::new_seed);
+        let label = format!("{} with {}", s.mode.label(), c.label);
+        let name = format!("{}-{}", c.model.replace(['.', ' '], ""), r.seed);
+        let meta = json!({
+            "model": format!("cloud:{}", c.key), "provider": c.provider.label(), "prompt": r.prompt, "negative_prompt": r.negative,
+            "width": r.width, "height": r.height, "seed": r.seed, "mode": format!("{:?}", s.mode).to_lowercase(), "reference_count": r.refs.len(),
+        });
+        let fill_mask = r.mask.clone();
+        let ok = launch(app, &label, name, meta, target, false, move |ctl| {
+            let settings = li_ai::settings::AiSettings::load();
+            let out = li_ai::cloud::generate(&r, &settings, ctl)?.into_iter().next().ok_or_else(|| anyhow::anyhow!("no image came back"))?;
+            Ok(match fill_mask {
+                Some(m) => {
+                    let soft = image::imageops::blur(&li_ai::imaging::dilate(&m, 6), 3.0);
+                    RgbaImage::from_fn(out.width(), out.height(), |x, y| {
+                        let mut p = *out.get_pixel(x, y);
+                        p[3] = soft.get_pixel(x, y)[0];
+                        p
+                    })
+                }
+                None => out,
+            })
+        });
+        if !ok {
+            break;
+        }
+    }
 }
 
 /// Starts one job that produces an image, saves it to the library and shows its tile.
@@ -1816,7 +1998,7 @@ mod tests {
     fn aspect_sizes_are_about_a_megapixel_on_the_grid() {
         let s = GenerateState::default();
         for (k, r) in ASPECTS {
-            let (w, h) = size_for(k, &s);
+            let (w, h) = size_for(k, &s, 1024);
             assert!(w % 16 == 0 && h % 16 == 0);
             assert!(((w as f32 / h as f32) - r).abs() < 0.05, "{k}: {w}x{h}");
             assert!((800_000..1_300_000).contains(&(w * h)), "{k}: {w}x{h}");

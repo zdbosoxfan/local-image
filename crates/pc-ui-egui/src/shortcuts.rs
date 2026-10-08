@@ -291,6 +291,10 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
             return;
         }
     }
+    // Perspective Crop: ↩ commits, Esc cancels.
+    if crate::perspective_crop_ui::keys(app, ctx) {
+        return;
+    }
     // Magnetic Lasso: ↩ closes, Esc cancels, ⌫ removes a fastening point (not Edit › Clear),
     // [ ] change the detection width (not the brush size).
     if crate::magnetic_lasso_ui::keys(app, ctx) {

@@ -6,6 +6,7 @@ pub mod arch;
 pub mod browser;
 pub mod builders;
 pub mod catalog;
+pub mod cloud;
 pub mod comfy;
 pub mod custom;
 pub mod download;

@@ -989,7 +989,7 @@
 	Draw with the Pen tool (P) or make a work path from a selection.	Kreslete nástrojem pero (P) nebo vytvořte pracovní cestu z výběru.
 	Drop an image or PSD anywhere to open it.	Přetáhněte sem obrázek nebo PSD a otevře se.
 	Native file drag-and-drop is unavailable	Nativní přetahování souborů ve Waylandu není dostupné
-	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= photocraft`.	Nativní přetahování souborů ve Waylandu zatím není podporováno. Použijte Soubor › Otevřít nebo spusťte Local Image v XWayland s `WAYLAND_DISPLAY= photocraft`.
+	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= local-image`.	Nativní přetahování souborů ve Waylandu zatím není podporováno. Použijte Soubor › Otevřít nebo spusťte Local Image v XWayland s `WAYLAND_DISPLAY= local-image`.
 	Duplicate Layers…	Duplikovat vrstvy…
 	Duplicate style	Duplikovat styl
 	Edit Toolbar…	Upravit panel nástrojů…
@@ -2133,3 +2133,49 @@ cameraRaw	Color	Barvy
 	% of all commits	% všech commitů
 	Lines +/−	Řádky +/−
 	@{login}: {prs} PRs, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{binAdded} / −{binDeleted} binary assets, {first} – {last}	@{login}: PR: {prs}, commity: {commits}, řádky +{added} / −{deleted} (Δ {delta}), binární soubory +{binAdded} / −{binDeleted}, {first} – {last}
+# local-image: AI, Library and V2 strings
+	AI Enhance (SeedVR2)…	Vylepšení AI (SeedVR2)…
+	AI Models & GPU…	Modely AI a GPU…
+	AI Remove Selection	Odstranit výběr pomocí AI
+	Automatic	Automaticky
+	Bicubic Sharper (reduction)	Bikubická ostřejší (zmenšení)
+	Bicubic Smoother (enlargement)	Bikubická hladší (zvětšení)
+	Browse, rate and organise your photos	Procházejte, hodnoťte a třiďte fotografie
+	Layers, retouching and AI tools	Vrstvy, retuš a nástroje AI
+	Contextual Task Bar	Kontextový panel úloh
+	Describe an image to create…	Popište obraz, který chcete vytvořit…
+	Edit photos, catalogue them, and create with local AI.	Upravujte fotografie, katalogizujte je a tvořte s místní AI.
+	Filmstrip	Filmový pás
+	Generate Background (AI)…	Vytvořit pozadí (AI)…
+	Generative Fill (AI)…	Generativní výplň (AI)…
+	Get Models…	Získat modely…
+	Local AI…	Místní AI…
+	Model Browser…	Prohlížeč modelů…
+	New from Prompt…	Nový z popisu…
+	No AI model is installed yet.	Zatím není nainstalován žádný model AI.
+	Open Folder…	Otevřít složku…
+	PhotoCraft and LightCraft (ArtCraft)	PhotoCraft a LightCraft (ArtCraft)
+	Remove Background (AI)	Odstranit pozadí (AI)
+	Remove Backgrounds (AI)…	Odstranit pozadí (AI) hromadně…
+	Set Up AI…	Nastavit AI…
+	Subject (AI)	Objekt (AI)
+	The AI engine isn't running.	Modul AI není spuštěn.
+	Contextual task bar	Kontextový panel úloh
+	Tool presets	Přednastavení nástroje
+	Paint only when the string is pulled taut	Malovat jen při napnutém provázku
+	Keep painting toward the pointer while it pauses	Malovat k ukazateli i během jeho zastavení
+	Finish the stroke where the pointer was released	Dokončit tah tam, kde byl ukazatel uvolněn
+	Less smoothing when zoomed in, more when zoomed out	Méně vyhlazování při přiblížení, více při oddálení
+	Diagonal	Diagonála
+	Along the Work Path	Podél pracovní cesty
+	Mirror across the current path (draw it with the Pen tool first)	Zrcadlit podél aktuální cesty (nejprve ji nakreslete perem)
+	Symmetry Off	Vypnout symetrii
+	Click to restore this snapshot	Klepnutím obnovíte tento snímek
+	Delete Snapshot	Odstranit snímek
+	Set the overlay options for the Crop tool	Nastavit volby překrytí pro nástroj Oříznutí
+	Rule of Thirds	Pravidlo třetin
+	Triangle	Trojúhelník
+	Golden Ratio	Zlatý řez
+	Frequency Separation…	Frekvenční separace…
+	Perspective Crop Tool	Nástroj Oříznutí perspektivy
+	Drag a frame, then drag its corners onto the edges of the object to straighten	Táhněte rámeček a pak jeho rohy na okraje objektu, aby se narovnal

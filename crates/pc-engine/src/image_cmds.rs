@@ -184,6 +184,11 @@ fn translate_doc(doc: &mut Document, dx: i32, dy: i32) {
 }
 
 /// Crops the document to `r` (in current document coordinates).
+/// Crops `doc` to `r`, deleting the pixels outside (Perspective Crop's last step).
+pub(crate) fn crop_to(doc: &mut Document, r: Rect) {
+    crop_doc(doc, r, true);
+}
+
 fn crop_doc(doc: &mut Document, r: Rect, delete_pixels: bool) {
     if delete_pixels {
         for_each_surface(&mut doc.layers, false, &mut |surf, _| *surf = crop_surface(surf, r));

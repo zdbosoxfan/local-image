@@ -409,6 +409,11 @@ pub struct BrushSettings {
     /// Build-up rate in dabs per second.
     pub build_up_rate: f32,
     pub smoothing: Smoothing,
+    /// local-image: the stroke is hand-drawn (pointer samples): join them with a spline so fast
+    /// curves stay round. Off for paths and programmatic strokes, which are exact already. Not
+    /// saved with presets.
+    #[serde(skip)]
+    pub freehand: bool,
     /// Keep the current texture (pattern + scale) when switching to another textured preset.
     pub protect_texture: bool,
     /// Sections whose settings stay when another preset is picked (tool state, like Photoshop's locks).
@@ -451,6 +456,7 @@ impl Default for BrushSettings {
             wet_edges: false,
             build_up: false,
             build_up_rate: 20.0,
+            freehand: false,
             smoothing: Smoothing::default(),
             protect_texture: false,
             locks: SectionLocks::default(),

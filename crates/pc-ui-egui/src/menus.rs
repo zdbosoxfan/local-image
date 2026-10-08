@@ -554,7 +554,7 @@ fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
     if let Some(c) = crate::analysis_ui::checked(app, id).or_else(|| crate::workspace_ui::checked(app, id)).or_else(|| crate::file_ui::checked(app, id)) {
         return Some(c);
     }
-    if let Some(c) = crate::preset_panels::checked(app, id) {
+    if let Some(c) = crate::preset_panels::checked(app, id).or_else(|| crate::context_bar::checked(app, id)) {
         return Some(c);
     }
     if let Some(c) = crate::timeline_ui::checked(app, id) {

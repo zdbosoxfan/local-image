@@ -717,7 +717,7 @@ impl DabGenerator {
             spliner: Spliner::default(),
             curved: Vec::new(),
             // Speed spacing places one dab per input sample: keep the samples as they are.
-            splined: brush.spacing_enabled,
+            splined: brush.spacing_enabled && brush.freehand,
         }
     }
 

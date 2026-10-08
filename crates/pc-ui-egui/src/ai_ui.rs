@@ -374,7 +374,14 @@ const REMOVE_ENGINES: [(&str, &str, ModelId, &str); 3] = [
     ("qwen-int8", "Qwen Compact", ModelId::Qwen, "int8"),
     ("qwen-bf16", "Qwen Full", ModelId::Qwen, "bf16"),
 ];
-const CUTOUT_ENGINES: [(&str, &str); 3] = [("qwen-int8", "AI · Qwen Compact"), ("qwen-bf16", "AI · Qwen Full"), ("quick", "Quick (CPU)")];
+/// Qwen-powered removal (a real alpha matte, on the GPU through ComfyUI) or the editor's own
+/// Remove Background (Select Subject plus edge refinement, on the CPU, no AI engine needed).
+const CUTOUT_ENGINES: [(&str, &str); 3] = [("qwen-int8", "Qwen AI · Compact"), ("qwen-bf16", "Qwen AI · Full"), ("quick", "Standard (CPU)")];
+
+/// The model behind an AI Remove engine key (`klein`, `qwen-int8`, `qwen-bf16`).
+pub fn remove_engine(key: &str) -> (ModelId, &'static str) {
+    engine_for(key)
+}
 
 fn engine_for(key: &str) -> (ModelId, &'static str) {
     match key {
@@ -809,6 +816,25 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     crate::model_browser::open();
                 }
                 ui.add_space(8.0);
+                widgets::section_label(ui, "CLOUD (OPTIONAL)");
+                ui.label(
+                    RichText::new("With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.")
+                        .color(t.text_faint)
+                        .size(11.0),
+                );
+                for p in li_ai::cloud::Provider::ALL {
+                    ui.horizontal(|ui| {
+                        opt(ui, &format!("{}:", p.label()));
+                        let mut v = settings.extra_string(p.key_name()).unwrap_or_default();
+                        if ui.add(egui::TextEdit::singleline(&mut v).password(true).hint_text("API key").desired_width(220.0)).changed() {
+                            settings.set_extra_string(p.key_name(), &v);
+                        }
+                        if ui.link(RichText::new("Get a key").size(11.0)).clicked() {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(p.keys_url()));
+                        }
+                    });
+                }
+                ui.add_space(8.0);
                 widgets::section_label(ui, "ACCOUNTS (OPTIONAL)");
                 ui.label(
                     RichText::new("Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.")
@@ -930,6 +956,7 @@ const IDS: &[&str] = &[
     "li.localAi",
     "li.aiModels",
     "li.browseModels",
+    crate::context_bar::TOGGLE_ID,
     "li.filmstrip",
 ];
 
@@ -982,6 +1009,7 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Val
         "li.enhance" => dialogs_mut(|d| d.enhance = true),
         "li.localAi" | "li.aiModels" => open_local_ai(app),
         "li.filmstrip" => crate::filmstrip_ui::toggle(),
+        crate::context_bar::TOGGLE_ID => return crate::context_bar::menu(app, id),
         // `{"kind": "lora", "family": id}` opens it on a family's LoRAs.
         "li.browseModels" => match (params.get("kind").and_then(Value::as_str), params.get("family").and_then(Value::as_str)) {
             (Some("lora"), Some(f)) => crate::model_browser::open_loras(f),

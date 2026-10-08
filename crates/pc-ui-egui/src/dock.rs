@@ -164,7 +164,7 @@ impl Group {
 }
 
 /// Order, heights and collapsed state of the dock groups.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DockLayout {
     /// Top-to-bottom order; a group missing here (say one added after the layout was saved)
@@ -174,6 +174,14 @@ pub struct DockLayout {
     pub heights: BTreeMap<Group, f32>,
     /// Groups collapsed to their tab strip.
     pub collapsed: Vec<Group>,
+}
+
+impl Default for DockLayout {
+    /// local-image: Essentials starts with Generate folded to its tab strip, so Layers keeps its
+    /// rows; Window › Generate (or New from Prompt) opens it.
+    fn default() -> Self {
+        Self { order: Vec::new(), heights: BTreeMap::new(), collapsed: vec![Group::Generate] }
+    }
 }
 
 /// Gap between groups; it is also the splitter's grab area.

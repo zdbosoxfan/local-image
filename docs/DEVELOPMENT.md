@@ -91,11 +91,16 @@ Derived families set `base` and override only what differs. To add or change one
 
 ## Packaging
 
-* **Linux:** `packaging/linux/package.sh` builds and writes
-  `dist/release/local-image-<version>-linux-<arch>.tar.gz` (app, CLI, desktop entry, icons,
-  licences and `install.sh`, which installs into `~/.local` or, with `--system`, `/usr/local`).
-* **Windows:** `pwsh packaging/windows/package.ps1 -Arch x64` builds with a static CRT and writes an
-  MSI (WiX v5) and a portable zip (`portable.txt` keeps settings in `LocalImageData\` beside the
-  exe). `sign.ps1` signs when signing secrets are set.
+Packaging is Rust too (`xtask/`, run through the `cargo xtask` alias):
+
+* **Linux:** `cargo xtask package linux` writes
+  `dist/release/local-image-<version>-linux-<arch>.tar.gz` and its `.sha256` (app, CLI, README,
+  licences). After unpacking, `./local-image --install` adds it to the application menu for the
+  current user (`--install --system` for `/usr/local`, `--uninstall` to remove it).
+* **Windows:** `cargo xtask package windows --arch x64` builds with a static CRT, checks the PE
+  headers, and writes an MSI (WiX v5: `dotnet tool install -g wix`) and a portable zip
+  (`portable.txt` keeps settings in `LocalImageData\` beside the exe). Both are signed when
+  `WINDOWS_CERTIFICATE` or the Azure Trusted Signing variables are set (`cargo xtask sign`).
+* `cargo xtask check-icons` checks the MSI's shortcut icons (ICE50) without building.
 
 The version comes from `[workspace.package] version` in the root `Cargo.toml`.

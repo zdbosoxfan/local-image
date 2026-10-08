@@ -42,10 +42,12 @@ pub mod filters;
 pub mod filters_ext;
 pub mod float_cmds;
 mod frame_cmds;
+pub mod freqsep_cmds;
 pub mod fx_view_cmds;
 pub mod gallery_cmds;
 pub mod gradient_fill_cmds;
 pub mod group_view_cmds;
+pub mod history_cmds;
 pub mod image_cmds;
 pub mod inspect;
 pub mod jobs;
@@ -64,6 +66,7 @@ pub mod notes_cmds;
 pub mod paint_cmds;
 mod path_edit_cmds;
 pub mod pattern_cmds;
+pub mod perspective_crop_cmds;
 pub mod photo_cmds;
 pub mod pick_cmds;
 mod pixels;
@@ -174,6 +177,8 @@ pub struct DocState {
     pub isolated_layers: Vec<LayerId>,
     /// Painting symmetry axis made from the selected path (tool state, not document pixels).
     pub symmetry_path: Option<symmetry_cmds::SymmetryAxis>,
+    /// local-image: History panel snapshots (view state; not saved with the file).
+    pub snapshots: Vec<history_cmds::Snapshot>,
     /// Layers panel: layers whose effects list is collapsed under their row (the fx triangle;
     /// view state, not history). Effects lists start open.
     pub fx_collapsed: Vec<LayerId>,
@@ -204,6 +209,7 @@ impl DocState {
             channel_view: Default::default(),
             isolated_layers: Vec::new(),
             symmetry_path: None,
+            snapshots: Vec::new(),
             fx_collapsed: Vec::new(),
             show_only: None,
             floating: None,

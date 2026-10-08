@@ -463,9 +463,21 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
             }
             json_resp(req, 200, json!({ "cancelled": true }))
         }
-        ("GET" | "HEAD", _) => {
+        (m @ ("GET" | "HEAD" | "POST"), _) => {
             let host = st.lock().map(|s| s.host.clone()).unwrap_or_default();
-            match crate::mock_hub::handle(&host, &url) {
+            let key = req
+                .headers()
+                .iter()
+                .find(|h| ["authorization", "x-goog-api-key", "x-key"].iter().any(|k| h.field.equiv(*k)))
+                .map(|h| h.value.as_str().trim_start_matches("Bearer ").to_owned());
+            let reply = if path.starts_with("/cloud/") {
+                crate::mock_hub::handle_cloud(&host, m, &url, key.as_deref(), &body)
+            } else if m == "POST" {
+                None
+            } else {
+                crate::mock_hub::handle(&host, &url)
+            };
+            match reply {
                 Some(crate::mock_hub::Reply::Json(v)) => json_resp(req, 200, v),
                 Some(crate::mock_hub::Reply::Bytes(b, t)) => respond(req, 200, b, t),
                 Some(crate::mock_hub::Reply::Redirect(to)) => {
@@ -473,6 +485,7 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
                     let _ = req.respond(tiny_http::Response::empty(302).with_header(header));
                 }
                 Some(crate::mock_hub::Reply::Status(code)) => respond(req, code, b"denied".to_vec(), "text/plain"),
+                Some(crate::mock_hub::Reply::JsonStatus(code, v)) => json_resp(req, code, v),
                 Some(crate::mock_hub::Reply::NotFound) | None => respond(req, 404, b"not found".to_vec(), "text/plain"),
             }
         }

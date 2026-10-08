@@ -84,8 +84,10 @@ browser UI in a WebView and a Python server. V2 is a single editor in which the 
 
 ### AI Cutout tool (W, object-selection group)
 * **Remove Background** button on the options bar (also Layer › Remove Background, and the Layers
-  context menu). Engine: **Qwen Compact / Qwen Full** (AI, best edges) or **Quick (CPU)**
-  (PhotoCraft's built-in subject finder; works without a GPU).
+  context menu). Engine: **Qwen AI · Compact / Full** (a real alpha matte, best edges) or
+  **Standard (CPU)** (the editor's own Remove Background: Select Subject plus edge refinement;
+  works without a GPU). Properties › Quick Actions offers both, as *Remove Background* and
+  *Remove Background (AI)*.
 * The result is a **layer mask** on the active layer: the original pixels stay; the mask hides the
   background. Optional hint field ("the red car") is passed to the model.
 * Refine: drag on the canvas with the Cutout tool to paint the mask — **Erase** (hide) or

@@ -3734,6 +3734,7 @@ name = "li-ai"
 version = "2.0.0-alpha.1"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "dirs",
  "hex",
  "image",
@@ -4150,6 +4151,19 @@ dependencies = [
  "winresource",
  "winsafe",
  "x11rb",
+]
+
+[[package]]
+name = "local-image-cli"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "photocraft-automation",
+ "photocraft-codecs",
+ "photocraft-engine",
+ "photocraft-format",
+ "photocraft-io",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -5241,19 +5255,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
- "tokio",
-]
-
-[[package]]
-name = "photocraft-cli"
-version = "2.0.0-alpha.1"
-dependencies = [
- "photocraft-automation",
- "photocraft-codecs",
- "photocraft-engine",
- "photocraft-format",
- "photocraft-io",
- "serde_json",
  "tokio",
 ]
 
@@ -9007,6 +9008,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
+name = "xtask"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "flate2",
+ "hex",
+ "quick-xml 0.38.4",
+ "serde_json",
+ "sha2",
+ "tar",
+ "ureq",
+ "zip",
+]
+
+[[package]]
 name = "y4m"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9268,6 +9285,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c42e33efc22a0650c311c2ef19115ce232583abbe80850bc8b66509ebef02de0"
 dependencies = [
  "crc32fast",
+ "flate2",
  "indexmap",
  "memchr",
  "typed-path",

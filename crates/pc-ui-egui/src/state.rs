@@ -113,13 +113,15 @@ pub enum Tool {
     CustomShape,
     Slice,
     SliceSelect,
+    // local-image: Perspective Crop (C group).
+    PerspectiveCrop,
     // local-image: AI tools (see ai_ui.rs).
     AiRemove,
     AiCutout,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 52] = [
+    pub const ALL: [Tool; 53] = [
         Tool::Move,
         Tool::RectMarquee,
         Tool::EllipseMarquee,
@@ -128,6 +130,7 @@ impl Tool {
         Tool::MagneticLasso,
         Tool::MagicWand,
         Tool::Crop,
+        Tool::PerspectiveCrop,
         Tool::Eyedropper,
         Tool::Ruler,
         Tool::Note,
@@ -196,6 +199,7 @@ impl Tool {
             Tool::Crop => "Crop Tool",
             Tool::Slice => "Slice Tool",
             Tool::SliceSelect => "Slice Select Tool",
+            Tool::PerspectiveCrop => "Perspective Crop Tool",
             Tool::Gradient => "Gradient Tool",
             Tool::PaintBucket => "Paint Bucket Tool",
             Tool::Type => "Horizontal Type Tool",
@@ -267,7 +271,7 @@ impl Tool {
             Tool::Eyedropper | Tool::Ruler | Tool::Note | Tool::Count => 'I',
             Tool::Lasso | Tool::PolygonLasso | Tool::MagneticLasso => 'L',
             Tool::MagicWand => 'W',
-            Tool::Crop | Tool::Slice | Tool::SliceSelect => 'C',
+            Tool::Crop | Tool::PerspectiveCrop | Tool::Slice | Tool::SliceSelect => 'C',
             Tool::Gradient | Tool::PaintBucket => 'G',
             Tool::Type | Tool::VerticalType => 'T',
             Tool::Hand => 'H',
@@ -492,6 +496,9 @@ pub struct ToolOptions {
     pub crop_ratio: String,
     #[serde(default = "yes")]
     pub crop_delete: bool,
+    /// local-image: the crop frame's composition overlay: `thirds`, `grid`, `diagonal`,
+    /// `triangle`, `golden` or `none`.
+    pub crop_overlay: String,
     /// local-image: Crop › Straighten: the frame's clockwise tilt on the image, in degrees.
     pub crop_angle: f32,
     /// local-image: Red Eye tool options (%).
@@ -583,6 +590,7 @@ impl Default for ToolOptions {
             move_show_transform: false,
             crop_ratio: String::new(),
             crop_delete: true,
+            crop_overlay: "thirds".into(),
             crop_angle: 0.0,
             red_eye_pupil: 50.0,
             red_eye_darken: 50.0,

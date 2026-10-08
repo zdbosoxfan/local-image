@@ -979,7 +979,7 @@
 	Draw with the Pen tool (P) or make a work path from a selection.	ペンツール(P)で描くか、選択範囲から作業用パスを作成します。
 	Drop an image or PSD anywhere to open it.	画像や PSD をここにドロップすると開きます。
 	Native file drag-and-drop is unavailable	Wayland ではネイティブのファイルドラッグ＆ドロップを利用できません
-	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= photocraft`.	Wayland ではネイティブのファイルドラッグ＆ドロップはまだ利用できません。[ファイル › 開く] を使うか、`WAYLAND_DISPLAY= photocraft` を指定して Local Image を XWayland 上で起動してください。
+	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= local-image`.	Wayland ではネイティブのファイルドラッグ＆ドロップはまだ利用できません。[ファイル › 開く] を使うか、`WAYLAND_DISPLAY= local-image` を指定して Local Image を XWayland 上で起動してください。
 	Duplicate Layers…	レイヤーを複製…
 	Duplicate style	スタイルを複製
 	Edit Toolbar…	ツールバーを編集…
@@ -2116,3 +2116,49 @@ cameraRaw	Color	カラー
 	% of all commits	全コミットに占める割合 (%)
 	Lines +/−	行数 +/−
 	@{login}: {prs} PRs, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{binAdded} / −{binDeleted} binary assets, {first} – {last}	@{login}: PR {prs} 件、コミット {commits} 件、行 +{added} / −{deleted} (Δ {delta})、バイナリ +{binAdded} / −{binDeleted}、{first} – {last}
+# local-image: AI, Library and V2 strings
+	AI Enhance (SeedVR2)…	AI 高画質化 (SeedVR2)…
+	AI Models & GPU…	AI モデルと GPU…
+	AI Remove Selection	AI で選択範囲を削除
+	Automatic	自動
+	Bicubic Sharper (reduction)	バイキュービック法 - シャープ (縮小)
+	Bicubic Smoother (enlargement)	バイキュービック法 - 滑らか (拡大)
+	Browse, rate and organise your photos	写真を閲覧、評価、整理
+	Layers, retouching and AI tools	レイヤー、レタッチ、AI ツール
+	Contextual Task Bar	コンテキストタスクバー
+	Describe an image to create…	作成する画像を説明…
+	Edit photos, catalogue them, and create with local AI.	写真を編集してカタログ化し、ローカル AI で作成します。
+	Filmstrip	フィルムストリップ
+	Generate Background (AI)…	背景を生成 (AI)…
+	Generative Fill (AI)…	生成塗りつぶし (AI)…
+	Get Models…	モデルを入手…
+	Local AI…	ローカル AI…
+	Model Browser…	モデルブラウザー…
+	New from Prompt…	プロンプトから新規作成…
+	No AI model is installed yet.	AI モデルがまだインストールされていません。
+	Open Folder…	フォルダーを開く…
+	PhotoCraft and LightCraft (ArtCraft)	PhotoCraft と LightCraft (ArtCraft)
+	Remove Background (AI)	背景を削除 (AI)
+	Remove Backgrounds (AI)…	背景を一括削除 (AI)…
+	Set Up AI…	AI をセットアップ…
+	Subject (AI)	被写体 (AI)
+	The AI engine isn't running.	AI エンジンが起動していません。
+	Contextual task bar	コンテキストタスクバー
+	Tool presets	ツールプリセット
+	Paint only when the string is pulled taut	糸がぴんと張ったときだけペイントします
+	Keep painting toward the pointer while it pauses	ポインターが止まっている間もポインターに向かってペイントし続けます
+	Finish the stroke where the pointer was released	ポインターを離した位置でストロークを終えます
+	Less smoothing when zoomed in, more when zoomed out	拡大表示では補正を弱く、縮小表示では強くします
+	Diagonal	斜め
+	Along the Work Path	作業用パスに沿って
+	Mirror across the current path (draw it with the Pen tool first)	現在のパスで反転します (先にペンツールでパスを描いてください)
+	Symmetry Off	対称をオフ
+	Click to restore this snapshot	クリックしてこのスナップショットに戻す
+	Delete Snapshot	スナップショットを削除
+	Set the overlay options for the Crop tool	切り抜きツールのオーバーレイオプションを設定
+	Rule of Thirds	三分割法
+	Triangle	三角形
+	Golden Ratio	黄金比
+	Frequency Separation…	周波数分離…
+	Perspective Crop Tool	遠近法の切り抜きツール
+	Drag a frame, then drag its corners onto the edges of the object to straighten	枠をドラッグし、角を被写体の端に合わせてドラッグすると、遠近を補正します

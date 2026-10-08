@@ -50,7 +50,7 @@ notices kept in `licenses/`. Photopea is proprietary: behaviour only.
 | Spot Healing | Same engine; **sampling context widened** to 3× brush (was brush + 8 px, which pasted unrelated texture) | 🔧 |
 | Healing Brush, Patch | PhotoCraft (audit: seamless) | ✅ |
 | Content-Aware Move | PhotoCraft (grey halo noted by the audit) | 📋 |
-| Clone Stamp | PhotoCraft + GIMP's Registered/Fixed alignment modes | 📋 |
+| Clone Stamp | PhotoCraft: Aligned, Sample (current / current & below / all layers), Clone Source panel with five sources, offset, scale and rotation — Photoshop parity (GIMP's Registered/Fixed modes not needed) | ✅ |
 | **Red Eye tool** (J group) | Red-pupil region grown from the click (GEGL / Pinta redness rule), holes filled, fitted and feathered; Pupil Size and Darken Amount | ✅ |
 | Seamless paste/clone | GIMP Seamless Clone (mean-value coordinates; port from the paper, GEGL's weights have a bug) | 📋 |
 
@@ -61,8 +61,11 @@ notices kept in `licenses/`. Photopea is proprietary: behaviour only.
 | Brush engine | PhotoCraft (Photoshop dynamics) + **centripetal Catmull–Rom stroke path** (Compositor/Krita) so fast curves stay round | 🔧 |
 | Soft round brushes | Compositor's continuous analytic coverage (Gauss–Legendre integral of dab density) | 📋 |
 | Smudge | **Step ≤ max(1 px, 0.5 % of diameter)** (Compositor) to remove ribbing | 🔧 |
+| Airbrush build-up | Was a dead button and the UI never sent point times, so Airbrush presets never built up: strokes now carry timestamps and a held airbrush keeps depositing | ✅ |
+| Smoothing options | Was a dead button: Pulled String, Stroke Catch-up, Catch-up on Stroke End, Adjust for Zoom (the engine had them) | ✅ |
+| Symmetry | Was a dead button: Vertical, Horizontal, Diagonal and along the work path; Dual Axis, Radial and Mandala need multi-copy compositing | 🔧 |
 | Stabilizer, pressure curves | Krita stabilizer modes and sensor curves | 📋 |
-| Blur tool | Own radius independent of brush size (Compositor) | 📋 |
+| Blur tool | Photoshop behaviour (brush size and strength) kept; Compositor's separate radius not adopted | ✅ |
 | Behind / Clear modes | PaintFE | 📋 |
 
 ### Transforms and crop
@@ -74,6 +77,7 @@ notices kept in `licenses/`. Photopea is proprietary: behaviour only.
 | Distort with folded/concave corners | Compositor two-triangle fallback | 📋 |
 | Cage transform | GIMP/Krita (Green coordinates) | 📋 |
 | Crop straighten | Options-bar angle, tilted frame preview with thirds; rotate + crop in one undo step | 🔧 |
+| Crop overlays | Was a dead button: Rule of Thirds, Grid, Diagonal, Triangle, Golden Ratio, None | ✅ |
 | Perspective Crop | PhotoCraft homography + PaintFE's UI | 📋 |
 
 ### Filters and adjustments
@@ -84,7 +88,7 @@ notices kept in `licenses/`. Photopea is proprietary: behaviour only.
 | Unsharp Mask / High Pass / Smart Sharpen | **Fast Gaussian path** (running-sum boxes; was a direct O(r) kernel, 129 s vs 4 s on 24 MP) | 🔧 |
 | Reduce Noise | Luminance by **sliding 8×8 DCT shrinkage** (Yu & Sapiro 2011, GEGL `denoise-dct`) with sparsity-weighted aggregation; guided-filter chroma kept. NL-means next | 🔧 |
 | Frequency separation | GIMP Wavelet Decompose (detail bands as Linear Light layers) | 📋 |
-| Median / Dust & Scratches | Pinta sliding-histogram (O(r)) | 📋 |
+| Median / Dust & Scratches | **Sliding histogram** per row with a running median pointer (Huang, as Pinta), O(r) per pixel instead of an O(r²) gather and sort; exact path kept for r ≤ 2 and HDR values | ✅ |
 | Image Size Bicubic Smoother/Sharper/Automatic | Mitchell–Netravali (Smoother), Keys a = −0.75 (Sharper), Automatic picks by direction (they used to fall through to plain bicubic) | 🔧 |
 | Camera raw | **LightCraft pipeline** for raw files (DNG matrices/profiles, colour fitted to the embedded JPEG for ARW/NEF/RW2, highlight reconstruction) → 16-bit ProPhoto document | ✅ |
 
@@ -102,7 +106,9 @@ notices kept in `licenses/`. Photopea is proprietary: behaviour only.
 | AI Cutout tool: Remove Background (AI or Quick CPU), refine Erase/Restore, Add Background (colour, image, generated) | Local Image 0.7, PhotoCraft | ✅ |
 | Generative Fill, Generate Background, AI Enhance (SeedVR2) | Local Image 0.7 | ✅ |
 | Batch Remove Backgrounds | Local Image 0.7 | ✅ |
-| stable-diffusion.cpp engine (no ComfyUI needed) | stable-diffusion.cpp | 📋 |
+| Cloud generation with your own API key (OpenAI GPT Image, Google Gemini image, Black Forest Labs FLUX pro, Stability AI) | Provider APIs; fills composite through the feathered selection | ✅ |
+| Contextual Task Bar under a new selection or closed pen path: **Remove (AI)**, Generative Fill, Invert, Mask, Deselect | Photoshop | ✅ |
+| Remove Background: the editor's own (CPU) and Qwen AI side by side (Cutout tool, Properties › Quick Actions) | PhotoCraft + Local Image | ✅ |
 
 ## Cataloguing
 
@@ -146,3 +152,12 @@ What the open model system takes from each source (notices in `licenses/model-sy
 | safetensors / GGUF headers | Apache-2.0 / MIT formats | Tensor names, shapes and ModelSpec metadata identify the family of installed files | `arch.rs` |
 | SwarmUI, InvokeAI | MIT, Apache-2.0 | Ideas only: model manager layout, architectures as data | `model_browser.rs` |
 | This repository | GPL-3.0 | Family profile updates, fetched by *Update Model Profiles* | `family.rs` |
+
+## Dead controls found and fixed
+
+PhotoCraft looked complete but several controls drew without doing anything. An audit for buttons
+whose clicks were ignored found eight, all now working: the airbrush, smoothing options and
+symmetry buttons (brush options bar), the crop overlay button, the tool-preset button (opens Tool
+Presets), and the History panel's Delete Current State, New Snapshot and New Document from Current
+State (snapshots are listed above the states; click restores, right-click deletes).
+

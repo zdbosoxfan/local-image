@@ -68,7 +68,8 @@ pub fn import_lightcraft(name: &str, bytes: &[u8]) -> Option<Result<ImportResult
         let img = Image::from_u16(deep.width as u32, deep.height as u32, ChannelLayout::Rgb, &samples)?;
         let mut r = image_to_document(name, &img)?;
         r.document.icc_profile = Some(Arc::new(lightcraft_codecs::icc::write_named(lightcraft_codecs::NamedSpace::ProPhoto)));
-        let format = lightcraft_raw::probe(bytes).map(|f| format!("{f:?}")).unwrap_or_else(|| "Camera raw".into());
+        // The format's name as photographers write it (`Dng` → `DNG`, `Cr3` → `CR3`).
+        let format = lightcraft_raw::probe(bytes).map(|f| format!("{f:?}").to_uppercase()).unwrap_or_else(|| "Camera raw".into());
         r.warnings.push(format!("{format} developed by LightCraft's pipeline (camera defaults, as-shot white balance) into 16-bit ProPhoto RGB"));
         Ok(r)
     })();

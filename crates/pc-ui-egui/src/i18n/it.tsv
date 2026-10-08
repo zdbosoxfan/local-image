@@ -972,7 +972,7 @@
 	Draw with the Pen tool (P) or make a work path from a selection.	Disegna con Penna (P) o crea un tracciato di lavoro da una selezione.
 	Drop an image or PSD anywhere to open it.	Trascina un'immagine o PSD ovunque per aprirlo.
 	Native file drag-and-drop is unavailable	Il drag-and-drop nativo file non è disponibile su Wayland
-	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= photocraft`.	Il drag-and-drop nativo non è ancora supportato su Wayland. Usa File › Apri, o avvia Local Image sotto XWayland con `WAYLAND_DISPLAY= photocraft`.
+	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= local-image`.	Il drag-and-drop nativo non è ancora supportato su Wayland. Usa File › Apri, o avvia Local Image sotto XWayland con `WAYLAND_DISPLAY= local-image`.
 	Duplicate Layers…	Duplica livelli…
 	Duplicate style	Duplica stile
 	Edit Toolbar…	Modifica barra strumenti…
@@ -2206,3 +2206,49 @@ cameraRaw	Amount	Quantità
 	Lines +/−	Righe +/−
 	@{login}: {prs} PRs, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{binAdded} / −{binDeleted} binary assets, {first} – {last}	@{login}: {prs} PR, {commits} commit, +{added} / −{deleted} righe (Δ {delta}), +{binAdded} / −{binDeleted} risorse binarie, {first} – {last}
 	Convert to Layers	Converti in livelli
+# local-image: AI, Library and V2 strings
+	AI Enhance (SeedVR2)…	Miglioramento IA (SeedVR2)…
+	AI Models & GPU…	Modelli IA e GPU…
+	AI Remove Selection	Rimuovi selezione con l'IA
+	Automatic	Automatico
+	Bicubic Sharper (reduction)	Bicubica più nitida (riduzione)
+	Bicubic Smoother (enlargement)	Bicubica più morbida (ingrandimento)
+	Browse, rate and organise your photos	Sfoglia, valuta e organizza le tue foto
+	Layers, retouching and AI tools	Livelli, ritocco e strumenti IA
+	Contextual Task Bar	Barra delle attività contestuale
+	Describe an image to create…	Descrivi un'immagine da creare…
+	Edit photos, catalogue them, and create with local AI.	Modifica le foto, catalogale e crea con l'IA locale.
+	Filmstrip	Pellicola
+	Generate Background (AI)…	Genera sfondo (IA)…
+	Generative Fill (AI)…	Riempimento generativo (IA)…
+	Get Models…	Ottieni modelli…
+	Local AI…	IA locale…
+	Model Browser…	Browser modelli…
+	New from Prompt…	Nuovo da descrizione…
+	No AI model is installed yet.	Nessun modello IA ancora installato.
+	Open Folder…	Apri cartella…
+	PhotoCraft and LightCraft (ArtCraft)	PhotoCraft e LightCraft (ArtCraft)
+	Remove Background (AI)	Rimuovi sfondo (IA)
+	Remove Backgrounds (AI)…	Rimuovi sfondi (IA)…
+	Set Up AI…	Configura IA…
+	Subject (AI)	Soggetto (IA)
+	The AI engine isn't running.	Il motore IA non è in esecuzione.
+	Contextual task bar	Barra delle attività contestuale
+	Tool presets	Predefiniti strumento
+	Paint only when the string is pulled taut	Dipingi solo quando la corda è tesa
+	Keep painting toward the pointer while it pauses	Continua a dipingere verso il puntatore mentre è fermo
+	Finish the stroke where the pointer was released	Termina il tratto dove il puntatore è stato rilasciato
+	Less smoothing when zoomed in, more when zoomed out	Meno smussatura con lo zoom avanti, più con lo zoom indietro
+	Diagonal	Diagonale
+	Along the Work Path	Lungo il tracciato di lavoro
+	Mirror across the current path (draw it with the Pen tool first)	Rifletti rispetto al tracciato corrente (disegnalo prima con lo strumento Penna)
+	Symmetry Off	Disattiva simmetria
+	Click to restore this snapshot	Fai clic per ripristinare questa istantanea
+	Delete Snapshot	Elimina istantanea
+	Set the overlay options for the Crop tool	Imposta le opzioni di sovrapposizione per lo strumento Taglierina
+	Rule of Thirds	Regola dei terzi
+	Triangle	Triangolo
+	Golden Ratio	Sezione aurea
+	Frequency Separation…	Separazione delle frequenze…
+	Perspective Crop Tool	Strumento Taglierina prospettica
+	Drag a frame, then drag its corners onto the edges of the object to straighten	Trascina un riquadro, poi trascinane gli angoli sui bordi dell’oggetto per raddrizzarlo

@@ -628,10 +628,10 @@ fn smudge_cmd(s: &mut Session, p: &Value) -> Result<Value> {
     let strength = num(p, "strength", 50.0).clamp(1.0, 100.0) / 100.0;
     // local-image: smudge in fine steps (at most 1 px, or 1% of the diameter on big brushes), as
     // Compositor does. At the shared 25% spacing every pick-up shows as a rib across the stroke.
-    // Strength is rescaled so a stroke smears just as far as it did at the requested spacing.
+    // `Smudge::fine_steps` rescales pick-up and deposit so a stroke smears just as far.
     let size = stroke.brush.size.max(1.0);
     let fine = (1.0f32.max(size * 0.01) / size).min(stroke.brush.spacing);
-    let strength = strength.powf(fine / stroke.brush.spacing.max(1e-3));
+    let step = fine / stroke.brush.spacing.max(1e-3);
     stroke.brush.spacing = fine;
     stroke.brush.spacing_enabled = true;
     let finger = flag(p, "fingerPainting", false);
@@ -642,7 +642,7 @@ fn smudge_cmd(s: &mut Session, p: &Value) -> Result<Value> {
         let finger_px = finger.then(|| photocraft_raster::from_rgba(&fmt, fg));
         let max_size = stroke.brush.size;
         // Premultiplied mixing: transparent pixels carry no colour, so no dark fringes.
-        let mut sm = Smudge::new(strength, finger_px, max_size).with_alpha(alpha_index(&fmt));
+        let mut sm = Smudge::new(strength, finger_px, max_size).with_alpha(alpha_index(&fmt)).fine_steps(step);
         let mut sampler = all.then(|| AllLayers::new(pre, fmt));
         Ok(apply_dab_stroke(surf, &stroke, sel, lock, 0, |work, fp| match &mut sampler {
             Some(all) => all.dab(work, fp, |w, f| sm.dab(w, f)),

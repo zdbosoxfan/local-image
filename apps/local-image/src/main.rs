@@ -27,6 +27,8 @@ mod apple_events;
 mod control_server;
 mod crash_guard;
 mod cursor;
+#[cfg(target_os = "linux")]
+mod desktop_install;
 mod gpu_startup;
 mod library_host;
 #[cfg(target_os = "macos")]
@@ -155,7 +157,21 @@ fn main() -> eframe::Result {
             "--safe-gpu" => safe_gpu = true,
             "--in-window-menus" => in_window_menus = true,
             "--version" => {
-                println!("photocraft {}", photocraft_engine::build_info::long_version());
+                println!("local-image {}", photocraft_engine::build_info::long_version());
+                return Ok(());
+            }
+            // Linux: add to (or remove from) the application menu; `--system` for /usr/local.
+            #[cfg(target_os = "linux")]
+            "--install" | "--uninstall" => {
+                let system = std::env::args().any(|a| a == "--system");
+                let r = if a == "--install" { desktop_install::install(system) } else { desktop_install::uninstall(system) };
+                match r {
+                    Ok(msg) => println!("{msg}"),
+                    Err(e) => {
+                        eprintln!("local-image: {e}");
+                        std::process::exit(1);
+                    }
+                }
                 return Ok(());
             }
             // Old macOS passes a process serial number when launched from Finder.

@@ -1382,7 +1382,7 @@
 	Drop an image or PSD anywhere to open it.	Перетащите изображение или PSD в любое место окна, чтобы открыть.
 	Use File › Open to open an image.	Чтобы открыть изображение, выберите Файл › Открыть.
 	Native file drag-and-drop is unavailable	Нативное перетаскивание файлов в Wayland недоступно
-	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= photocraft`.	Нативное перетаскивание файлов в Wayland пока не поддерживается. Откройте файл через Файл › Открыть или запустите Local Image в XWayland с `WAYLAND_DISPLAY= photocraft`.
+	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= local-image`.	Нативное перетаскивание файлов в Wayland пока не поддерживается. Откройте файл через Файл › Открыть или запустите Local Image в XWayland с `WAYLAND_DISPLAY= local-image`.
 	Photo	Фото
 	Print	Печать
 	Art & Illustration	Искусство и иллюстрация
@@ -2407,3 +2407,50 @@ cameraRaw	Roughness	Неровность
 	% of all commits	% от всех коммитов
 	Lines +/−	Строки +/−
 	@{login}: {prs} PRs, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{binAdded} / −{binDeleted} binary assets, {first} – {last}	@{login}: PR: {prs}, коммиты: {commits}, строки +{added} / −{deleted} (Δ {delta}), двоичные файлы +{binAdded} / −{binDeleted}, {first} – {last}
+# local-image: AI, Library and V2 strings
+	AI Enhance (SeedVR2)…	Улучшение ИИ (SeedVR2)…
+	AI Models & GPU…	Модели ИИ и GPU…
+	AI Remove Selection	Удалить выделенное с помощью ИИ
+	Automatic	Автоматически
+	Bicubic Sharper (reduction)	Бикубическая, четче (с уменьшением)
+	Bicubic Smoother (enlargement)	Бикубическая, глаже (с увеличением)
+	Browse, rate and organise your photos	Просмотр, оценка и упорядочивание фотографий
+	Layers, retouching and AI tools	Слои, ретушь и инструменты ИИ
+	Contextual Task Bar	Контекстная панель задач
+	Describe an image to create…	Опишите изображение, которое нужно создать…
+	Edit photos, catalogue them, and create with local AI.	Редактируйте фотографии, каталогизируйте их и создавайте с локальным ИИ.
+	Filmstrip	Лента кадров
+	Generate Background (AI)…	Создать фон (ИИ)…
+	Generative Fill (AI)…	Генеративная заливка (ИИ)…
+	Get Models…	Получить модели…
+	Local AI…	Локальный ИИ…
+	Model Browser…	Обозреватель моделей…
+	New from Prompt…	Создать по описанию…
+	No AI model is installed yet.	Модели ИИ ещё не установлены.
+	Open Folder…	Открыть папку…
+	PhotoCraft and LightCraft (ArtCraft)	PhotoCraft и LightCraft (ArtCraft)
+	Remove Background (AI)	Удалить фон (ИИ)
+	Remove Backgrounds (AI)…	Удалить фоны (ИИ)…
+	Set Up AI…	Настроить ИИ…
+	Subject (AI)	Предмет (ИИ)
+	The AI engine isn't running.	Движок ИИ не запущен.
+	Contextual task bar	Контекстная панель задач
+	Tool presets	Наборы параметров инструмента
+	Paint only when the string is pulled taut	Рисовать, только когда нить натянута
+	Keep painting toward the pointer while it pauses	Продолжать рисовать к указателю, пока он стоит
+	Finish the stroke where the pointer was released	Завершать мазок там, где отпущен указатель
+	Less smoothing when zoomed in, more when zoomed out	Меньше сглаживания при увеличении, больше при уменьшении
+	Diagonal	Диагональ
+	Along the Work Path	Вдоль рабочего контура
+	Mirror across the current path (draw it with the Pen tool first)	Отражать относительно текущего контура (сначала нарисуйте его пером)
+	Symmetry Off	Выключить симметрию
+	Click to restore this snapshot	Щелкните, чтобы восстановить этот снимок
+	Set the overlay options for the Crop tool	Задать параметры наложения для инструмента «Рамка»
+	Rule of Thirds	Правило третей
+	Triangle	Треугольник
+	Golden Ratio	Золотое сечение
+	Frequency Separation…	Частотное разложение…
+	Perspective Crop Tool	Инструмент «Кадрирование перспективы»
+	Drag a frame, then drag its corners onto the edges of the object to straighten	Нарисуйте рамку, затем перетащите её углы к краям объекта, чтобы выпрямить его
+	Cancel current crop operation  (Esc)	Отменить текущее кадрирование  (Esc)
+	Commit current crop operation  ({key})	Применить текущее кадрирование  ({key})

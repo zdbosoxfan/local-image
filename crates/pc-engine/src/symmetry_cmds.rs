@@ -113,6 +113,26 @@ fn enable(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"enabled": true, "source": name, "segments": count}))
 }
 
+/// Photoshop's symmetry presets that mirror once: an axis through the canvas centre, long enough
+/// that every stroke reflects across it.
+fn preset(s: &mut Session, p: &Value) -> Result<Value> {
+    let kind = p.get("type").and_then(Value::as_str).unwrap_or("vertical");
+    let st = s.active_mut().ok_or(EngineError::NoDocument)?;
+    let (w, h) = (st.doc.size.width as f64, st.doc.size.height as f64);
+    let (cx, cy, far) = (w / 2.0, h / 2.0, (w + h) * 2.0);
+    let segment = match kind {
+        "vertical" => [[cx, cy - far], [cx, cy + far]],
+        "horizontal" => [[cx - far, cy], [cx + far, cy]],
+        "diagonal" => [[cx - far, cy - far * h / w.max(1.0)], [cx + far, cy + far * h / w.max(1.0)]],
+        "off" => return disable(s),
+        other => {
+            return Err(EngineError::BadParams { cmd: "paint.symmetry".into(), msg: format!("unknown type `{other}` (vertical, horizontal, diagonal, off)") });
+        }
+    };
+    st.symmetry_path = Some(SymmetryAxis { source: kind.to_owned(), segments: vec![segment] });
+    Ok(json!({"enabled": true, "source": kind}))
+}
+
 fn disable(s: &mut Session) -> Result<Value> {
     let st = s.active_mut().ok_or(EngineError::NoDocument)?;
     st.symmetry_path = None;
@@ -129,6 +149,16 @@ pub fn specs() -> Vec<CommandSpec> {
             params: r##"{"name":"work"|"layer"|savedPathName="work"} — mirror Brush, Pencil and Eraser strokes across the path"##,
             enabled: |s| s.active().map(|_| ()).ok_or_else(|| "no document open".into()),
             run: enable,
+            journal: true,
+        },
+        CommandSpec {
+            id: "paint.symmetry",
+            label: "Paint Symmetry",
+            menu: &[],
+            shortcut: None,
+            params: r##"{"type":"vertical|horizontal|diagonal|off"} — mirror Brush, Pencil and Eraser strokes across an axis through the canvas centre"##,
+            enabled: |s| s.active().map(|_| ()).ok_or_else(|| "no document open".into()),
+            run: preset,
             journal: true,
         },
         CommandSpec {
@@ -260,5 +290,21 @@ mod tests {
             let actual = preview_surface.rgba(x, y);
             assert!((0..4).all(|i| (expected[i] - actual[i]).abs() < 0.02), "preview/commit at ({x},{y}): {actual:?} vs {expected:?}");
         }
+    }
+
+    #[test]
+    fn preset_axes_mirror_across_the_canvas_centre() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 200, "height": 100})).unwrap();
+        s.execute("paint.symmetry", json!({"type": "vertical"})).unwrap();
+        let axis = s.active().unwrap().symmetry_path.clone().unwrap();
+        let m = axis.reflect(StrokePoint::new(40.0, 30.0, 1.0));
+        assert!((m.x - 160.0).abs() < 1e-6 && (m.y - 30.0).abs() < 1e-6, "{m:?}");
+        s.execute("paint.symmetry", json!({"type": "horizontal"})).unwrap();
+        let m = s.active().unwrap().symmetry_path.clone().unwrap().reflect(StrokePoint::new(40.0, 30.0, 1.0));
+        assert!((m.x - 40.0).abs() < 1e-6 && (m.y - 70.0).abs() < 1e-6, "{m:?}");
+        s.execute("paint.symmetry", json!({"type": "off"})).unwrap();
+        assert!(s.active().unwrap().symmetry_path.is_none());
+        assert!(s.execute("paint.symmetry", json!({"type": "spiral"})).is_err());
     }
 }

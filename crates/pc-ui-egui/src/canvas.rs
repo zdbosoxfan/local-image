@@ -53,6 +53,9 @@ pub struct Drag {
     /// `Some(false)` moves the outline, `Some(true)` moves the floating piece (`select.float`).
     pub sel_move: Option<bool>,
     pub lasso: Option<crate::lasso_ui::Lasso>,
+    /// When each point arrived (ms since the press): the airbrush deposits by time.
+    pub times: Vec<f64>,
+    pub born: std::time::Instant,
 }
 
 impl Drag {
@@ -69,6 +72,17 @@ impl Drag {
             reposition: false,
             sel_move: None,
             lasso: None,
+            times: Vec::new(),
+            born: std::time::Instant::now(),
+        }
+    }
+
+    /// Time-stamps points added since the last call.
+    pub(crate) fn stamp(&mut self) {
+        let now = self.born.elapsed().as_secs_f64() * 1000.0;
+        self.times.truncate(self.points.len());
+        while self.times.len() < self.points.len() {
+            self.times.push(now);
         }
     }
 
@@ -196,11 +210,50 @@ fn live_stroke(app: &PhotocraftApp, idx: usize) -> Option<&LiveStroke> {
 /// `paint.stroke` params for a Brush/Eraser drag (shared by the live preview and the commit). The
 /// stroke smoothing is the session brush's (the options bar's Smoothing %).
 fn stroke_params(app: &PhotocraftApp, tool: Tool, erase: bool, points: &[Vec<f64>]) -> serde_json::Value {
-    let mut p = json!({ "points": points, "erase": erase, "zoom": app.current_zoom(), "target": paint_target(app) });
+    let mut p = json!({ "points": points, "erase": erase, "zoom": app.current_zoom(), "target": paint_target(app), "freehand": true });
     if tool == Tool::Pencil {
         p["autoErase"] = json!(app.ui.tool_options.pencil_auto_erase);
     }
     p
+}
+
+/// The airbrush (Brush settings › Build-up, or the options bar's airbrush button) on a painting
+/// tool: the brush keeps depositing while the pointer lingers.
+pub(crate) fn airbrush_on(app: &PhotocraftApp, tool: Tool) -> bool {
+    matches!(tool, Tool::Brush | Tool::Eraser) && app.session.tools.brush.build_up
+}
+
+/// The drag's points for `paint.stroke`, with their times when the airbrush is on
+/// (`[x, y, pressure, tiltX, tiltY, rotation, timeMs]`).
+fn timed_points(app: &PhotocraftApp, d: &Drag) -> Vec<Vec<f64>> {
+    let mut pts = app.stylus.stroke_points(&d.points);
+    if airbrush_on(app, d.tool) {
+        for (i, p) in pts.iter_mut().enumerate() {
+            p.resize(6, 0.0);
+            p.push(d.times.get(i).copied().unwrap_or(0.0));
+        }
+    }
+    pts
+}
+
+/// While an airbrush stroke is held still, repeat its last point every frame so paint builds up
+/// (pointer moves alone would only deposit while moving).
+fn airbrush_tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    let on = app.drag.as_ref().is_some_and(|d| airbrush_on(app, d.tool) && !d.points.is_empty());
+    if !on {
+        return;
+    }
+    let Some(d) = app.drag.as_mut() else { return };
+    let now = d.born.elapsed().as_secs_f64() * 1000.0;
+    if now - d.times.last().copied().unwrap_or(0.0) >= 16.0
+        && let Some(p) = d.points.last().copied()
+    {
+        d.points.push(p);
+        d.stamp();
+        app.stylus.record_point();
+        feed_live_stroke(app);
+    }
+    ctx.request_repaint_after(std::time::Duration::from_millis(16));
 }
 
 /// Tools whose strokes the engine renders while they are drawn (`LiveStroke`).
@@ -258,7 +311,7 @@ fn begin_live_stroke(app: &PhotocraftApp) -> Option<LiveStroke> {
     static STROKES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let st = app.session.active()?;
     let d = app.drag.as_ref()?;
-    let p = stroke_params(app, d.tool, d.erase, &app.stylus.stroke_points(&d.points));
+    let p = stroke_params(app, d.tool, d.erase, &timed_points(app, d));
     let stroke = photocraft_engine::brush_cmds::LiveStroke::begin_with(&app.session, stroke_command(d.tool), &p).ok()?;
     let n = STROKES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) & 0xff_ffff;
     let damage = vec![stroke.bounds()];
@@ -273,6 +326,7 @@ fn feed_live_stroke(app: &mut PhotocraftApp) {
     if app.defer_live_stroke {
         return;
     }
+    let airbrush = app.drag.as_ref().is_some_and(|d| airbrush_on(app, d.tool));
     let (Some(l), Some(d)) = (app.live_stroke.as_mut(), app.drag.as_ref()) else { return };
     let pose = &app.stylus.stroke;
     let pts: Vec<_> = (l.fed..d.points.len())
@@ -281,6 +335,9 @@ fn feed_live_stroke(app: &mut PhotocraftApp) {
             let t = pose.get(i).or(pose.last()).copied().unwrap_or_default();
             let mut sp = photocraft_engine::paint::StrokePoint::new(p[0], p[1], p[2] as f32);
             (sp.tilt_x, sp.tilt_y, sp.rotation) = (t[0], t[1], t[2]);
+            if airbrush {
+                sp.time = d.times.get(i).copied().unwrap_or(0.0);
+            }
             Some(sp)
         })
         .collect();
@@ -963,6 +1020,7 @@ pub(crate) fn retain_gpu_documents(app: &mut PhotocraftApp) {
 /// Tabs + canvas for the active document, or the start screen; then drops layers dragged onto
 /// another document (`layer_transfer`).
 pub fn document_area(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    airbrush_tick(app, ui.ctx());
     documents(app, ui);
     crate::layer_transfer::finish(app, ui.ctx());
 }
@@ -1372,7 +1430,7 @@ fn start_screen(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // File › Open Recent, newest first (on the web there are no paths to reopen).
     let recent: Vec<String> = if cfg!(target_arch = "wasm32") { Vec::new() } else { app.ui.recent_files.iter().take(HOME_RECENT).cloned().collect() };
     let recent_h = if recent.is_empty() { 0.0 } else { 34.0 + recent.len() as f32 * HOME_RECENT_ROW };
-    let card = Rect::from_center_size(area.center(), egui::vec2(460.0, 330.0 + recent_h));
+    let card = Rect::from_center_size(area.center(), egui::vec2(520.0, 380.0 + recent_h));
     let new_label = crate::shortcuts::command_label(app, "New document…", "file.new");
     let open_label = crate::shortcuts::command_label(app, "Open…", "file.open");
     ui.scope_builder(egui::UiBuilder::new().max_rect(card), |ui| {
@@ -1388,19 +1446,65 @@ fn start_screen(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 ui.painter().galley(egui::pos2(r2.left() + 10.0, r.bottom() - by.size().y - 8.0), by, t.text_faint);
             });
             ui.add_space(6.0);
-            ui.label(egui::RichText::new(tl!("Create a new document or open an existing file.")).color(t.text_dim).size(14.0));
+            ui.label(egui::RichText::new(tl!("Edit photos, catalogue them, and create with local AI.")).color(t.text_dim).size(14.0));
             ui.add_space(22.0);
+            let bw = 160.0;
             ui.horizontal(|ui| {
-                ui.add_space(((card.width() - 2.0 * 190.0 - 12.0) / 2.0).max(0.0));
-                ui.spacing_mut().item_spacing.x = 12.0;
-                if crate::widgets::primary_button(ui, &new_label, 190.0).clicked() {
+                ui.add_space(((card.width() - 3.0 * bw - 2.0 * 10.0) / 2.0).max(0.0));
+                ui.spacing_mut().item_spacing.x = 10.0;
+                if crate::widgets::primary_button(ui, &new_label, bw).clicked() {
                     app.ui.open_dialog(crate::state::DialogKind::NewDocument, crate::state::UiState::new_document_fields());
                 }
-                if crate::widgets::secondary_button(ui, &open_label, 190.0).clicked() {
+                if crate::widgets::secondary_button(ui, &open_label, bw).clicked() {
                     app.open_dialog_file();
                 }
+                if crate::widgets::secondary_button(ui, tl!("Open Folder…"), bw).clicked() {
+                    let ctx = ui.ctx().clone();
+                    if let Err(e) = crate::menus::invoke(app, &ctx, "li.openFolder", serde_json::json!({})) {
+                        app.ui.status = e;
+                        app.ui.status_error = true;
+                    }
+                }
             });
-            ui.add_space(22.0);
+            ui.add_space(20.0);
+            // Create from a description: fills Generate's prompt and runs it.
+            ui.horizontal(|ui| {
+                let w = 3.0 * bw + 2.0 * 10.0;
+                ui.add_space(((card.width() - w) / 2.0).max(0.0));
+                ui.spacing_mut().item_spacing.x = 8.0;
+                let prompt = &mut app.ui.ai.generate.prompt;
+                let resp = ui.add(
+                    egui::TextEdit::singleline(prompt)
+                        .hint_text(tl!("Describe an image to create…"))
+                        .desired_width(w - 108.0)
+                        .margin(egui::Margin::symmetric(8, 6)),
+                );
+                let enter = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let go = crate::widgets::primary_button(ui, tl!("Generate"), 100.0).clicked() || enter;
+                if go && !app.ui.ai.generate.prompt.trim().is_empty() {
+                    let ctx = ui.ctx().clone();
+                    crate::generate_ui::generate_from_home(app, &ctx);
+                }
+            });
+            let st = crate::ai_ui::status();
+            if st.checked && !st.any_ready() {
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    let msg = if st.connected { tl!("No AI model is installed yet.") } else { tl!("The AI engine isn't running.") };
+                    let g = ui.painter().layout_no_wrap(msg.into(), egui::FontId::proportional(12.5), t.text_faint);
+                    ui.add_space(((card.width() - g.size().x - 90.0) / 2.0).max(0.0));
+                    ui.label(egui::RichText::new(msg).color(t.text_faint));
+                    let label = if st.connected { tl!("Get Models…") } else { tl!("Set Up AI…") };
+                    if ui.link(label).clicked() {
+                        if st.connected {
+                            crate::model_browser::open();
+                        } else {
+                            crate::ai_ui::open_local_ai(app);
+                        }
+                    }
+                });
+            }
+            ui.add_space(20.0);
             ui.horizontal(|ui| {
                 let msg = start_screen_drop_hint(app.services.is_wayland);
                 let g = ui.painter().layout_no_wrap(msg.into(), egui::FontId::proportional(12.5), t.text_faint);
@@ -1414,8 +1518,6 @@ fn start_screen(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 home_recent(app, ui, &recent);
             }
             ui.add_space(26.0);
-            crate::links::discord_button(app, ui, 190.0);
-            ui.add_space(10.0);
             crate::links::link_row(app, ui);
         });
     });
@@ -2179,7 +2281,7 @@ fn marching_ants(painter: &egui::Painter, r: Rect, time: f64) {
 }
 
 /// Photoshop crop overlay: dimmed outside, bright frame, rule-of-thirds grid, corner and edge handles.
-fn crop_overlay(painter: &egui::Painter, r: Rect) {
+fn crop_overlay(painter: &egui::Painter, r: Rect, kind: &str) {
     let clip = painter.clip_rect();
     let dim = Color32::from_black_alpha(130);
     for band in [
@@ -2192,11 +2294,36 @@ fn crop_overlay(painter: &egui::Painter, r: Rect) {
     }
     painter.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::WHITE), egui::StrokeKind::Middle);
     let thin = Stroke::new(1.0, Color32::from_white_alpha(90));
-    for i in 1..3 {
-        let fx = r.left() + r.width() * i as f32 / 3.0;
-        let fy = r.top() + r.height() * i as f32 / 3.0;
-        painter.line_segment([egui::pos2(fx, r.top()), egui::pos2(fx, r.bottom())], thin);
-        painter.line_segment([egui::pos2(r.left(), fy), egui::pos2(r.right(), fy)], thin);
+    let cuts = |fractions: &[f32]| {
+        for f in fractions {
+            let fx = r.left() + r.width() * f;
+            let fy = r.top() + r.height() * f;
+            painter.line_segment([egui::pos2(fx, r.top()), egui::pos2(fx, r.bottom())], thin);
+            painter.line_segment([egui::pos2(r.left(), fy), egui::pos2(r.right(), fy)], thin);
+        }
+    };
+    match kind {
+        "none" => {}
+        "grid" => cuts(&[0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875]),
+        "golden" => cuts(&[0.382, 0.618]),
+        "diagonal" => {
+            // 45° lines from each corner (Photoshop's Diagonal).
+            let s = r.width().min(r.height());
+            for (c, dx, dy) in [(r.left_top(), 1.0, 1.0), (r.right_top(), -1.0, 1.0), (r.left_bottom(), 1.0, -1.0), (r.right_bottom(), -1.0, -1.0)] {
+                painter.line_segment([c, c + vec2(s * dx, s * dy)], thin);
+            }
+        }
+        "triangle" => {
+            // One diagonal and the perpendiculars to it from the other two corners.
+            let (a, b) = (r.left_bottom(), r.right_top());
+            painter.line_segment([a, b], thin);
+            let d = (b - a).normalized();
+            for c in [r.left_top(), r.right_bottom()] {
+                let foot = a + d * (c - a).dot(d);
+                painter.line_segment([c, foot], thin);
+            }
+        }
+        _ => cuts(&[1.0 / 3.0, 2.0 / 3.0]),
     }
     let h = Stroke::new(3.0, Color32::WHITE);
     let l = 14.0f32.min(r.width() / 3.0).min(r.height() / 3.0);
@@ -2214,6 +2341,7 @@ fn crop_overlay(painter: &egui::Painter, r: Rect) {
 
 /// Overlays that persist between gestures: polygonal or magnetic lasso in progress, pending crop box.
 fn draw_tool_state(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform, hover: Option<Pos2>) {
+    crate::perspective_crop_ui::draw(app, painter, xf);
     crate::magnetic_lasso_ui::draw(app, painter, xf, hover);
     if !app.ui.polygon.is_empty() {
         let mut pts: Vec<Pos2> = app.ui.polygon.iter().map(|p| xf.to_screen(p[0] as f32, p[1] as f32)).collect();
@@ -2228,7 +2356,7 @@ fn draw_tool_state(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform,
     }
     if let Some(c) = app.ui.crop_rect {
         let r = Rect::from_two_pos(xf.to_screen(c[0] as f32, c[1] as f32), xf.to_screen(c[2] as f32, c[3] as f32));
-        crop_overlay(painter, r);
+        crop_overlay(painter, r, &app.ui.tool_options.crop_overlay);
         // local-image: Straighten: the part of the image the tilted frame keeps.
         let angle = app.ui.tool_options.crop_angle;
         if angle.abs() > 0.01 {
@@ -2450,6 +2578,7 @@ fn tool_move(app: &mut PhotocraftApp, x: f64, y: f64, pressure: f32, mods: egui:
         let [x, y] = crate::stroke_constraint::constrain(d.tool, &mut d.constrain, d.start, last, [x, y], mods.shift, zoom);
         if d.points.last().is_none_or(|p| (p[0] - x).abs() + (p[1] - y).abs() > 0.25) {
             d.points.push([x, y, pressure as f64]);
+            d.stamp();
             app.stylus.record_point();
         }
     }
@@ -2508,6 +2637,10 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
     }
     // Slice and Slice Select tools.
     if crate::slice_ui::pointer(app, ev, mods) {
+        return;
+    }
+    // local-image: Perspective Crop: draw the frame, drag its corners.
+    if crate::perspective_crop_ui::pointer(app, ev, mods) {
         return;
     }
     // Crop tool: draw, move and resize the frame.
@@ -2775,7 +2908,7 @@ pub(crate) fn finish_gesture(app: &mut PhotocraftApp, d: Drag) {
         Tool::Type | Tool::VerticalType => crate::type_tool::pointer_up(app, d.start, [end[0], end[1]]),
         Tool::Brush | Tool::Pencil | Tool::Eraser => {
             let live = app.live_stroke.take();
-            let mut p = stroke_params(app, d.tool, d.erase, &app.stylus.stroke_points(&d.points));
+            let mut p = stroke_params(app, d.tool, d.erase, &timed_points(app, &d));
             if let Some(l) = &live {
                 p["seed"] = json!(l.stroke.seed);
             }

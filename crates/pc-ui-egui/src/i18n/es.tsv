@@ -974,7 +974,7 @@
 	Draw with the Pen tool (P) or make a work path from a selection.	Dibuja con la herramienta Pluma (P) o crea un trazado de trabajo a partir de una selección.
 	Drop an image or PSD anywhere to open it.	Suelte una imagen o un PSD en cualquier lugar para abrirlo.
 	Native file drag-and-drop is unavailable	El arrastrar y soltar archivos de forma nativa no está disponible en Wayland
-	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= photocraft`.	El arrastrar y soltar archivos de forma nativa aún no está disponible en Wayland. Usa Archivo › Abrir o ejecuta Local Image bajo XWayland con `WAYLAND_DISPLAY= photocraft`.
+	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= local-image`.	El arrastrar y soltar archivos de forma nativa aún no está disponible en Wayland. Usa Archivo › Abrir o ejecuta Local Image bajo XWayland con `WAYLAND_DISPLAY= local-image`.
 	Duplicate Layers…	Duplicar capas…
 	Duplicate style	Duplicar estilo
 	Edit Toolbar…	Editar barra de herramientas…
@@ -2204,3 +2204,49 @@ cameraRaw	Amount	Cantidad
 	% of all commits	% de todos los commits
 	Lines +/−	Líneas +/−
 	@{login}: {prs} PRs, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{binAdded} / −{binDeleted} binary assets, {first} – {last}	@{login}: {prs} PR, {commits} commits, +{added} / −{deleted} líneas (Δ {delta}), +{binAdded} / −{binDeleted} archivos binarios, {first} – {last}
+# local-image: AI, Library and V2 strings
+	AI Enhance (SeedVR2)…	Mejora con IA (SeedVR2)…
+	AI Models & GPU…	Modelos de IA y GPU…
+	AI Remove Selection	Eliminar selección con IA
+	Automatic	Automático
+	Bicubic Sharper (reduction)	Bicúbica más enfocada (reducción)
+	Bicubic Smoother (enlargement)	Bicúbica más suavizada (ampliación)
+	Browse, rate and organise your photos	Explore, valore y organice sus fotos
+	Layers, retouching and AI tools	Capas, retoque y herramientas de IA
+	Contextual Task Bar	Barra de tareas contextual
+	Describe an image to create…	Describa una imagen para crear…
+	Edit photos, catalogue them, and create with local AI.	Edite fotos, catalóguelas y cree con IA local.
+	Filmstrip	Tira de película
+	Generate Background (AI)…	Generar fondo (IA)…
+	Generative Fill (AI)…	Relleno generativo (IA)…
+	Get Models…	Obtener modelos…
+	Local AI…	IA local…
+	Model Browser…	Explorador de modelos…
+	New from Prompt…	Nuevo a partir de una descripción…
+	No AI model is installed yet.	Aún no hay ningún modelo de IA instalado.
+	Open Folder…	Abrir carpeta…
+	PhotoCraft and LightCraft (ArtCraft)	PhotoCraft y LightCraft (ArtCraft)
+	Remove Background (AI)	Quitar fondo (IA)
+	Remove Backgrounds (AI)…	Quitar fondos (IA)…
+	Set Up AI…	Configurar IA…
+	Subject (AI)	Sujeto (IA)
+	The AI engine isn't running.	El motor de IA no se está ejecutando.
+	Contextual task bar	Barra de tareas contextual
+	Tool presets	Ajustes preestablecidos de herramienta
+	Paint only when the string is pulled taut	Pintar solo cuando la cuerda esté tensa
+	Keep painting toward the pointer while it pauses	Seguir pintando hacia el puntero mientras se detiene
+	Finish the stroke where the pointer was released	Terminar el trazo donde se soltó el puntero
+	Less smoothing when zoomed in, more when zoomed out	Menos suavizado al acercar, más al alejar
+	Diagonal	Diagonal
+	Along the Work Path	A lo largo del trazado de trabajo
+	Mirror across the current path (draw it with the Pen tool first)	Reflejar a lo largo del trazado actual (dibújelo antes con la herramienta Pluma)
+	Symmetry Off	Desactivar simetría
+	Click to restore this snapshot	Haga clic para restaurar esta instantánea
+	Delete Snapshot	Eliminar instantánea
+	Set the overlay options for the Crop tool	Definir las opciones de superposición de la herramienta Recortar
+	Rule of Thirds	Regla de los tercios
+	Triangle	Triángulo
+	Golden Ratio	Proporción áurea
+	Frequency Separation…	Separación de frecuencias…
+	Perspective Crop Tool	Herramienta Recortar con perspectiva
+	Drag a frame, then drag its corners onto the edges of the object to straighten	Arrastre un marco y luego sus esquinas hasta los bordes del objeto para enderezarlo

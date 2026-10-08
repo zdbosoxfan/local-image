@@ -2444,7 +2444,7 @@
 	Floating point	Titik mengambang
 	Use Global Light	Gunakan Cahaya Global
 	Native file drag-and-drop is unavailable	Seret dan lepas berkas native tidak tersedia
-	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= photocraft`.	Seret dan lepas berkas native belum didukung di Wayland. Gunakan Berkas › Buka, atau jalankan Local Image di XWayland dengan `WAYLAND_DISPLAY= photocraft`.
+	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= local-image`.	Seret dan lepas berkas native belum didukung di Wayland. Gunakan Berkas › Buka, atau jalankan Local Image di XWayland dengan `WAYLAND_DISPLAY= local-image`.
 	Use File › Open to open an image.	Gunakan Berkas › Buka untuk membuka gambar.
 	Mixer Brush Tool	Alat Kuas Pencampur
 	Invalid {mode} profile	Profil {mode} tidak valid
@@ -2551,3 +2551,48 @@ cameraRaw	Blending	Pembauran
 	% of all commits	% dari semua commit
 	Lines +/−	Baris +/−
 	@{login}: {prs} PRs, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{binAdded} / −{binDeleted} binary assets, {first} – {last}	@{login}: {prs} PR, {commits} commit, +{added} / −{deleted} baris (Δ {delta}), +{binAdded} / −{binDeleted} berkas biner, {first} – {last}
+# local-image: AI, Library and V2 strings
+	AI Enhance (SeedVR2)…	Peningkatan AI (SeedVR2)…
+	AI Models & GPU…	Model AI & GPU…
+	AI Remove Selection	Hapus Seleksi dengan AI
+	Automatic	Otomatis
+	Bicubic Sharper (reduction)	Bikubik Lebih Tajam (pengecilan)
+	Bicubic Smoother (enlargement)	Bikubik Lebih Halus (pembesaran)
+	Browse, rate and organise your photos	Jelajahi, beri peringkat, dan atur foto Anda
+	Layers, retouching and AI tools	Layer, retus, dan alat AI
+	Contextual Task Bar	Bilah Tugas Kontekstual
+	Describe an image to create…	Jelaskan gambar yang ingin dibuat…
+	Edit photos, catalogue them, and create with local AI.	Edit foto, katalogkan, dan berkreasi dengan AI lokal.
+	Filmstrip	Strip Film
+	Generate Background (AI)…	Buat Latar Belakang (AI)…
+	Generative Fill (AI)…	Isian Generatif (AI)…
+	Get Models…	Dapatkan Model…
+	Local AI…	AI Lokal…
+	Model Browser…	Penjelajah Model…
+	New from Prompt…	Baru dari Deskripsi…
+	No AI model is installed yet.	Belum ada model AI yang terpasang.
+	Open Folder…	Buka Folder…
+	PhotoCraft and LightCraft (ArtCraft)	PhotoCraft dan LightCraft (ArtCraft)
+	Remove Background (AI)	Hapus Latar Belakang (AI)
+	Remove Backgrounds (AI)…	Hapus Latar Belakang Massal (AI)…
+	Set Up AI…	Siapkan AI…
+	Subject (AI)	Subjek (AI)
+	The AI engine isn't running.	Mesin AI tidak berjalan.
+	Contextual task bar	Bilah tugas kontekstual
+	Tool presets	Preset alat
+	Paint only when the string is pulled taut	Lukis hanya saat tali tertarik kencang
+	Keep painting toward the pointer while it pauses	Terus melukis ke arah penunjuk saat berhenti
+	Finish the stroke where the pointer was released	Akhiri goresan di tempat penunjuk dilepas
+	Less smoothing when zoomed in, more when zoomed out	Lebih sedikit penghalusan saat diperbesar, lebih banyak saat diperkecil
+	Diagonal	Diagonal
+	Along the Work Path	Sepanjang Jalur Kerja
+	Mirror across the current path (draw it with the Pen tool first)	Cerminkan pada jalur saat ini (gambar dulu dengan alat Pena)
+	Symmetry Off	Matikan Simetri
+	Click to restore this snapshot	Klik untuk memulihkan snapshot ini
+	Set the overlay options for the Crop tool	Atur opsi overlay untuk alat Pangkas
+	Rule of Thirds	Aturan Sepertiga
+	Triangle	Segitiga
+	Golden Ratio	Rasio Emas
+	Frequency Separation…	Pemisahan Frekuensi…
+	Perspective Crop Tool	Alat Pangkas Perspektif
+	Drag a frame, then drag its corners onto the edges of the object to straighten	Seret bingkai, lalu seret sudut-sudutnya ke tepi objek untuk meluruskannya

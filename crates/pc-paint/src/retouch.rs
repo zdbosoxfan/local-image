@@ -300,6 +300,8 @@ pub struct Smudge {
     /// Finger painting: start the stroke with this native-channel colour instead of the pixels under
     /// the first dab.
     pub finger: Option<Vec<f32>>,
+    /// 0..1: how much of the carried colour each dab lays down (`strength` unless stepped finely).
+    deposit: f32,
     radius: i32,
     /// Alpha channel index: when set, the carried colour is premultiplied, so smudging into or out
     /// of transparency never drags in the (meaningless) colour of transparent pixels.
@@ -310,7 +312,19 @@ pub struct Smudge {
 
 impl Smudge {
     pub fn new(strength: f32, finger: Option<Vec<f32>>, max_brush_size: f32) -> Self {
-        Self { strength: strength.clamp(0.0, 1.0), finger, radius: (max_brush_size / 2.0).ceil() as i32 + 2, alpha: None, carry: None }
+        let strength = strength.clamp(0.0, 1.0);
+        Self { strength, deposit: strength, finger, radius: (max_brush_size / 2.0).ceil() as i32 + 2, alpha: None, carry: None }
+    }
+
+    /// local-image: dabs `f` times as dense as the spacing the strength was set for (smudging in
+    /// fine steps, as Compositor does, so pick-ups don't show as ribs). The carried colour then
+    /// decays per *distance* as before (`keep = strengthᶠ`) and each dab lays down less, so the
+    /// ~1/f times as many overlapping dabs add up to the same (`1 − (1 − strength)ᶠ`).
+    pub fn fine_steps(mut self, f: f32) -> Self {
+        let f = f.clamp(1e-3, 1.0);
+        self.deposit = 1.0 - (1.0 - self.strength).powf(f);
+        self.strength = self.strength.powf(f);
+        self
     }
 
     /// Mix in premultiplied space using alpha channel `a` (the format's [`alpha_index`]).
@@ -352,7 +366,7 @@ impl Smudge {
         // Lay down the carried colour.
         for y in fp.rect.y0.max(wr.y0)..fp.rect.y1.min(wr.y1) {
             for x in fp.rect.x0.max(wr.x0)..fp.rect.x1.min(wr.x1) {
-                let k = fp.at(x, y) * self.strength;
+                let k = fp.at(x, y) * self.deposit;
                 let (qx, qy) = (x - cx + r, y - cy + r);
                 if k <= 0.0 || qx < 0 || qy < 0 || qx >= side as i32 || qy >= side as i32 {
                     continue;
