@@ -183,6 +183,7 @@ fn library_module(lib: &LightcraftApp) -> Module {
 impl eframe::App for Host {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.frames += 1;
+        self.editor.current_module = self.mode;
         self.module_keys(ctx);
         // The editor installs the fonts (a superset of the Library's) on its first frame.
         if self.frames == 1 || self.mode == Module::Compositing {

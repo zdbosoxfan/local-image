@@ -418,6 +418,8 @@ pub struct PhotocraftApp {
     pub browse_in_library: Option<String>,
     /// local-image: a Develop layer was double-clicked: the host shows Develop on this Library photo.
     pub develop_request: Option<u64>,
+    /// local-image: the module the host shows (kept up to date by the host).
+    pub current_module: Module,
     fonts_ready: bool,
     /// Screen rect of the main canvas last frame (for overlays and the navigator).
     pub last_canvas_rect: egui::Rect,
@@ -559,6 +561,7 @@ impl PhotocraftApp {
             switch_module: None,
             browse_in_library: None,
             develop_request: None,
+            current_module: Module::Compositing,
             fonts_ready: false,
             last_canvas_rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0)),
             drop_canvas_rect: None,
@@ -1403,6 +1406,14 @@ impl PhotocraftApp {
             return;
         }
         jobs_ui::tick_background(self, ctx);
+        // local-image: the control channel keeps answering while another module is shown
+        // (screenshots capture the whole window; `app.module` switches modules).
+        self.collect_screenshots(ctx);
+        self.drain_control(ctx);
+        self.issue_screenshots(ctx);
+        if !self.queued_screenshots.is_empty() || !self.pending_screenshots.is_empty() {
+            ctx.request_repaint();
+        }
     }
 
     /// local-image: whether any open document has unsaved changes.

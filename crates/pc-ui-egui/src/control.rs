@@ -201,6 +201,27 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                 None => err("`job` must be a job id"),
             }
         }
+        // local-image: `{"module": "library|develop|compositing", "browse": dir?}` switches the
+        // app's module (the host acts on it); without a module, reports the current one.
+        "app.module" => {
+            let current = format!("{:?}", app.current_module).to_ascii_lowercase();
+            match s("module") {
+                None => ok(json!({ "module": current })),
+                Some(m) => match crate::Module::ALL.into_iter().find(|x| format!("{x:?}").eq_ignore_ascii_case(m)) {
+                    Some(target) if app.host_modes => {
+                        // `"browse": dir` shows that folder in the Library (Review in Library).
+                        if let Some(dir) = s("browse") {
+                            app.browse_in_library = Some(dir.to_string());
+                        }
+                        app.switch_module = Some(target);
+                        ctx.request_repaint();
+                        ok(json!({ "module": m.to_ascii_lowercase(), "from": current }))
+                    }
+                    Some(_) => err("this window has no Library (started without it)"),
+                    None => err(format!("unknown module `{m}` (library|develop|compositing)")),
+                },
+            }
+        }
         "ui.menu.list" => ok(serde_json::to_value(crate::menus::menu_items(app)).unwrap_or_default()),
         "ui.inspect" => ok(inspect(app, ctx)),
         "ui.set" => {

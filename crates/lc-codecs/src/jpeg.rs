@@ -110,7 +110,7 @@ pub(crate) fn decode(bytes: &[u8], opts: &DecodeOptions) -> Result<Decoded> {
         return Err(Error::Malformed(F, "no frame header".into()));
     }
     check_size(F, m.width as u64, m.height as u64, opts)?;
-    let scale_to = opts.max_size.filter(|&(mw, mh)| mw > 0 && mh > 0 && (m.width >= 2 * mw || m.height >= 2 * mh));
+    let scale_to = opts.max_size.filter(|&(mw, mh)| mw > 0 && mh > 0 && (m.width >= mw.saturating_mul(2) || m.height >= mh.saturating_mul(2)));
     // zune-jpeg handles the common cases fastest; jpeg-decoder covers DCT scaling, CMYK/YCCK,
     // 12-bit and non-interleaved sequential scans (which zune-jpeg 0.5 mis-decodes with subsampling).
     let non_interleaved = matches!(m.sof, 0xC0 | 0xC1) && m.first_scan_components < m.components;
