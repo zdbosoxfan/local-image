@@ -194,6 +194,14 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
     let x = (sel.center().x - size.x / 2.0).clamp(canvas.left() + 8.0, (canvas.right() - size.x - 8.0).max(canvas.left() + 8.0));
     let ready = remove_ready(app);
+    // Tooltips name the user's own shortcuts (Edit › Keyboard Shortcuts), in the platform's notation.
+    let with_key = |text: &str, command: &str| match crate::shortcuts::shortcut_label(app, command) {
+        Some(k) => format!("{text}  ({k})"),
+        None => text.to_owned(),
+    };
+    let make_selection_tip = with_key(tl!("Turn the path into a selection"), "path.toSelection");
+    let invert_tip = with_key(tl!("Inverse"), "select.inverse");
+    let deselect_tip = with_key(tl!("Deselect"), "select.deselect");
     let mut action: Option<&'static str> = None;
     egui::Area::new(id).order(egui::Order::Foreground).fixed_pos(egui::pos2(x, y)).constrain(false).show(ctx, |ui| {
         egui::Frame::new()
@@ -210,7 +218,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         crate::icons::paint(ui, r, "sparkles", 14.0, t.accent);
                         let resp = ui.add(
                             egui::TextEdit::singleline(&mut prompt)
-                                .hint_text("Describe what to generate (optional)")
+                                .hint_text(tl!("Describe what to generate (optional)"))
                                 .desired_width(280.0)
                                 .margin(egui::Margin::symmetric(6, 4)),
                         );
@@ -218,56 +226,56 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                             resp.request_focus();
                         }
                         let enter = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        if bar_button(ui, "", "Generate", true, true, &t)
-                            .on_hover_text("Generative Fill: regenerate the selection from your description")
+                        if bar_button(ui, "", tl!("Generate"), true, true, &t)
+                            .on_hover_text(tl!("Generative Fill: regenerate the selection from your description"))
                             .clicked()
                             || enter
                         {
                             action = Some("fill.go");
                         }
-                        if crate::icons::button(ui, "x", 26.0, false, "Back").clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        if crate::icons::button(ui, "x", 26.0, false, tl!("Back")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                             action = Some("fill.close");
                         }
                         return;
                     }
                     let remove_tip = match &ready {
-                        Ok(()) => "Remove what's inside with AI (on its own layer)".to_owned(),
-                        Err(why) => format!("AI Remove isn't ready: {why}"),
+                        Ok(()) => tl!("Remove what's inside with AI (on its own layer)").to_owned(),
+                        Err(why) => crate::i18n::fmt(tl!("AI Remove isn't ready: {why}"), &[("why", why)]),
                     };
                     if what == Context::Path {
-                        if bar_button(ui, "square-dashed", "Make Selection", false, true, &t).on_hover_text("Turn the path into a selection (⌘↩)").clicked()
+                        if bar_button(ui, "square-dashed", tl!("Make Selection"), false, true, &t).on_hover_text(&make_selection_tip).clicked()
                         {
                             action = Some("path.select");
                         }
                         divider(ui, &t);
                     }
-                    if bar_button(ui, "eraser-magic", "Remove", true, ready.is_ok(), &t)
+                    if bar_button(ui, "eraser-magic", tl!("Remove"), true, ready.is_ok(), &t)
                         .on_hover_text(&remove_tip)
                         .on_disabled_hover_text(&remove_tip)
                         .clicked()
                     {
                         action = Some("remove");
                     }
-                    if bar_button(ui, "sparkles", "Generative Fill", false, true, &t).on_hover_text("Regenerate the area from a description").clicked() {
+                    if bar_button(ui, "sparkles", tl!("Generative Fill"), false, true, &t).on_hover_text(tl!("Regenerate the area from a description")).clicked() {
                         action = Some("fill.open");
                     }
                     divider(ui, &t);
                     if what == Context::Selection
-                        && bar_button(ui, "squares-subtract", "Invert", false, true, &t).on_hover_text("Inverse Selection (⇧⌘I)").clicked()
+                        && bar_button(ui, "squares-subtract", tl!("Invert"), false, true, &t).on_hover_text(&invert_tip).clicked()
                     {
                         action = Some("invert");
                     }
-                    if bar_button(ui, "layers", "Mask", false, true, &t).on_hover_text("Add a layer mask that shows only this area").clicked() {
+                    if bar_button(ui, "layers", tl!("Mask"), false, true, &t).on_hover_text(tl!("Add a layer mask that shows only this area")).clicked() {
                         action = Some("mask");
                     }
-                    if what == Context::Selection && crate::icons::button(ui, "x", 26.0, false, "Deselect (⌘D)").clicked() {
+                    if what == Context::Selection && crate::icons::button(ui, "x", 26.0, false, &deselect_tip).clicked() {
                         action = Some("deselect");
                     }
-                    let more = crate::icons::button(ui, "ellipsis", 26.0, false, "More");
+                    let more = crate::icons::button(ui, "ellipsis", 26.0, false, tl!("More"));
                     egui::Popup::menu(&more).show(|ui| {
                         ui.set_min_width(190.0);
                         if what == Context::Selection {
-                            for (label, a) in [("Feather…", "feather"), ("Select and Mask…", "selectAndMask"), ("Content-Aware Fill…", "caf")] {
+                            for (label, a) in [(tl!("Feather…"), "feather"), (tl!("Select and Mask…"), "selectAndMask"), (tl!("Content-Aware Fill…"), "caf")] {
                                 if ui.button(label).clicked() {
                                     action = Some(a);
                                     ui.close();
@@ -275,7 +283,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                             }
                             ui.separator();
                         }
-                        if ui.button("Hide Contextual Task Bar").clicked() {
+                        if ui.button(tl!("Hide Contextual Task Bar")).clicked() {
                             action = Some("hide");
                             ui.close();
                         }
@@ -324,11 +332,52 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         "caf" => crate::menus::invoke(app, ctx, "edit.contentAwareFill", json!({})),
         "hide" => {
             app.session.prefs.edit(|p| p.interface.contextual_task_bar = false);
-            app.ui.status = "Contextual Task Bar hidden — Window › Contextual Task Bar shows it again.".into();
+            app.ui.status = tl!("Contextual Task Bar hidden — Window › Contextual Task Bar shows it again.").into();
             app.ui.status_error = false;
             Ok(Value::Null)
         }
         _ => Ok(Value::Null),
     };
     report(app, r);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use photocraft_doc::{Color, ColorMode, Document, SampleType, Size};
+
+    fn app() -> PhotocraftApp {
+        let doc = Document::with_background("bar", Size::new(120, 90), ColorMode::Rgb, SampleType::U8, Color::WHITE);
+        let mut s = photocraft_engine::Session::new();
+        s.add_document(doc, None);
+        PhotocraftApp::new(s, crate::Services::default())
+    }
+
+    /// A closed pen path offers the bar (with the Pen tools), its Make Selection turns into the
+    /// selection bar, and Deselect or the Window toggle hides it.
+    #[test]
+    fn shows_after_a_closed_path_and_after_a_selection() {
+        let mut app = app();
+        assert_eq!(context(&app), None);
+        let square = json!({"subpaths": [{"closed": true, "knots": [[10, 10], [60, 10], [60, 60], [10, 60]]}]});
+        app.run("path.set", json!({ "path": square })).unwrap();
+        app.ui.tool = crate::Tool::Move;
+        assert_eq!(context(&app), None, "a path only offers the bar while a Pen tool is active");
+        app.ui.tool = crate::Tool::Pen;
+        let (what, r) = context(&app).unwrap();
+        assert_eq!(what, Context::Path);
+        assert_eq!((r.x0, r.y0, r.x1, r.y1), (10, 10, 60, 60));
+        // An open path doesn't.
+        app.run("path.set", json!({ "path": {"subpaths": [{"closed": false, "knots": [[10, 10], [60, 10], [60, 60]]}]} })).unwrap();
+        assert_eq!(context(&app), None);
+        app.run("path.set", json!({ "path": square })).unwrap();
+        app.run("path.toSelection", json!({ "name": "work" })).unwrap();
+        assert_eq!(context(&app).map(|c| c.0), Some(Context::Selection));
+        let _ = menu(&mut app, TOGGLE_ID);
+        assert_eq!(context(&app), None, "Window › Contextual Task Bar turns it off");
+        assert_eq!(checked(&app, TOGGLE_ID), Some(false));
+        let _ = menu(&mut app, TOGGLE_ID);
+        app.run("select.deselect", json!({})).unwrap();
+        assert_eq!(context(&app).map(|c| c.0), Some(Context::Path), "deselected, the path offers it again");
+    }
 }

@@ -2179,3 +2179,18 @@ cameraRaw	Color	Barvy
 	Frequency Separation…	Frekvenční separace…
 	Perspective Crop Tool	Nástroj Oříznutí perspektivy
 	Drag a frame, then drag its corners onto the edges of the object to straighten	Táhněte rámeček a pak jeho rohy na okraje objektu, aby se narovnal
+	Behind	Za
+	Mask	Maska
+	Make Selection	Vytvořit výběr
+	Add a layer mask that shows only this area	Přidat masku vrstvy, která ukazuje jen tuto oblast
+	Describe what to generate (optional)	Popište, co vygenerovat (nepovinné)
+	Generative Fill: regenerate the selection from your description	Generativní výplň: znovu vytvoří výběr podle popisu
+	Contextual Task Bar hidden — Window › Contextual Task Bar shows it again.	Kontextový panel úloh je skrytý — znovu jej zobrazíte v nabídce Okna › Kontextový panel úloh.
+	AI Remove isn't ready: {why}	Odstranění pomocí AI není připraveno: {why}
+	Generative Fill	Generativní výplň
+	Remove what's inside with AI (on its own layer)	Odstranit obsah pomocí AI (na vlastní vrstvě)
+	Turn the path into a selection	Převést cestu na výběr
+	Back	Zpět
+	Regenerate the area from a description	Znovu vytvořit oblast podle popisu
+	Hide Contextual Task Bar	Skrýt kontextový panel úloh
+	More	Další

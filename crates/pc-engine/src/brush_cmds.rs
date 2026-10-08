@@ -185,7 +185,8 @@ pub fn resolve_brush(s: &Session, p: &Value, cmd: &str) -> Result<BrushSettings>
     }
     b.color = color(p.get("color"), s.tools.foreground);
     b.background = s.tools.background;
-    b.erase = flag(p, "erase", false);
+    // local-image: the Clear painting mode erases, with the Eraser's rules.
+    b.erase = flag(p, "erase", false) || b.paint_mode == photocraft_paint::brush::PaintMode::Clear;
     b.seed = match p.get("seed").and_then(Value::as_u64) {
         Some(v) => v,
         None => photocraft_paint::rng::seed_from_bytes(p.get("points").map(|v| v.to_string()).unwrap_or_default().as_bytes()),
@@ -289,10 +290,20 @@ fn pencil_brush(s: &Session, p: &Value) -> Result<BrushSettings> {
 /// Applies the options-bar blend `mode` to a brush. `"mode"` accepts any blend-mode name
 /// (normal|multiply|screen|…). The Eraser has no blend mode in Photoshop, so it is forced to Normal.
 fn with_blend_mode(mut b: BrushSettings, p: &Value) -> BrushSettings {
+    use photocraft_paint::brush::PaintMode;
     if b.erase {
         b.mode = photocraft_color::BlendMode::Normal;
-    } else if let Some(m) = p.get("mode").and_then(Value::as_str).and_then(crate::commands::blend_from_str) {
-        b.mode = m;
+    } else if let Some(name) = p.get("mode").and_then(Value::as_str) {
+        // local-image: "behind" and "clear" are painting modes, not blend modes.
+        match name.to_ascii_lowercase().as_str() {
+            "behind" => (b.mode, b.paint_mode) = (photocraft_color::BlendMode::Normal, PaintMode::Behind),
+            "clear" => (b.mode, b.paint_mode, b.erase) = (photocraft_color::BlendMode::Normal, PaintMode::Clear, true),
+            _ => {
+                if let Some(m) = crate::commands::blend_from_str(name) {
+                    (b.mode, b.paint_mode) = (m, PaintMode::Blend);
+                }
+            }
+        }
     }
     b
 }

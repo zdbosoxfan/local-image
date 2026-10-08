@@ -351,6 +351,19 @@ impl Default for Smoothing {
     }
 }
 
+/// local-image: the painting-only modes Photoshop lists between Dissolve and Darken. Behind paints
+/// only where the layer is (partly) transparent, as if under its pixels; Clear erases to
+/// transparency like the Eraser. Both need a layer whose transparency isn't locked.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PaintMode {
+    /// Paint with the blend mode.
+    #[default]
+    Blend,
+    Behind,
+    Clear,
+}
+
 /// A complete brush: tip shape, dynamics, and stroke-level options.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -382,6 +395,8 @@ pub struct BrushSettings {
     pub erase: bool,
     /// Brush blend mode (Normal, Multiply, Dissolve…).
     pub mode: BlendMode,
+    /// local-image: Photoshop's painting-only modes listed with the blend modes: Behind and Clear.
+    pub paint_mode: PaintMode,
     // --- Brush Tip Shape ---
     pub tip: TipShape,
     /// Degrees, counter-clockwise.
@@ -439,6 +454,7 @@ impl Default for BrushSettings {
             background: [1.0, 1.0, 1.0, 1.0],
             erase: false,
             mode: BlendMode::Normal,
+            paint_mode: PaintMode::Blend,
             tip: TipShape::Round,
             angle: 0.0,
             roundness: 1.0,

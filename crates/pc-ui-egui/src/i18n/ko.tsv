@@ -2762,3 +2762,18 @@ cameraRaw	Color	색상
 	Frequency Separation…	주파수 분리…
 	Perspective Crop Tool	원근 자르기 도구
 	Drag a frame, then drag its corners onto the edges of the object to straighten	프레임을 드래그한 다음 모서리를 개체 가장자리로 드래그하여 원근을 바로잡습니다
+	Behind	배경
+	Mask	마스크
+	Make Selection	선택 영역 만들기
+	Add a layer mask that shows only this area	이 영역만 표시하는 레이어 마스크 추가
+	Describe what to generate (optional)	생성할 내용을 설명하세요(선택 사항)
+	Generative Fill: regenerate the selection from your description	생성형 채우기: 설명에 따라 선택 영역을 다시 생성합니다
+	Contextual Task Bar hidden — Window › Contextual Task Bar shows it again.	상황별 작업 표시줄을 숨겼습니다 — 창 › 상황별 작업 표시줄에서 다시 표시할 수 있습니다.
+	AI Remove isn't ready: {why}	AI 제거가 준비되지 않았습니다: {why}
+	Generative Fill	생성형 채우기
+	Remove what's inside with AI (on its own layer)	AI로 안쪽 내용 제거(별도 레이어에)
+	Turn the path into a selection	패스를 선택 영역으로 변환
+	Back	뒤로
+	Regenerate the area from a description	설명에서 영역 다시 생성
+	Hide Contextual Task Bar	상황별 작업 표시줄 숨기기
+	More	더 보기

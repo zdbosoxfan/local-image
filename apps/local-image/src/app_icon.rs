@@ -36,7 +36,7 @@ mod tests {
     use super::*;
 
     const ICO: &[u8] = include_bytes!("../../../assets/app-icon/local-image.ico");
-    const WXS: &str = include_str!("../../../packaging/windows/photocraft.wxs");
+    const WXS: &str = include_str!("../../../packaging/windows/local-image.wxs");
 
     fn u16_at(b: &[u8], i: usize) -> usize {
         u16::from_le_bytes([b[i], b[i + 1]]) as usize
@@ -109,7 +109,7 @@ mod tests {
             let icon = attr(s, "Icon").expect("shortcuts name their icon");
             assert!(icons.contains(&icon), "shortcut icon {icon} isn't an <Icon>");
             if attr(s, "Advertise") == Some("yes") {
-                // Every shortcut in the MSI targets photocraft.exe.
+                // Every shortcut in the MSI targets local-image.exe.
                 assert!(icon.ends_with(".exe"), "advertised shortcut icon {icon} must end in .exe like its target (ICE50)");
             }
         }

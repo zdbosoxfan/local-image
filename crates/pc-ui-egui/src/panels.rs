@@ -502,24 +502,20 @@ fn title_x(center: f32, menus_right: f32, controls_left: f32, width: f32) -> Opt
     Some((center - width / 2.0).clamp(lo, hi))
 }
 
-#[cfg(test)]
-mod title_tests {
-    use super::title_x;
-
-    #[test]
-    fn title_never_overlaps_menus_or_controls() {
-        // Wide window: centred.
-        assert_eq!(title_x(800.0, 420.0, 1300.0, 60.0), Some(770.0));
-        // Centre would hit the menus: slid right into the gap.
-        assert_eq!(title_x(400.0, 420.0, 1300.0, 60.0), Some(436.0));
-        // Centre would hit the controls: slid left.
-        assert_eq!(title_x(1280.0, 420.0, 1300.0, 60.0), Some(1224.0));
-        // No room for the whole title: the caller elides or drops it.
-        assert_eq!(title_x(400.0, 420.0, 480.0, 60.0), None);
-        assert_eq!(title_x(f32::NAN, 420.0, 1300.0, 60.0), Some(436.0));
-        assert_eq!(title_x(400.0, f32::INFINITY, 1300.0, 60.0), None);
+/// local-image: the painting tools' Mode list: the blend modes with Photoshop's Behind and Clear
+/// after Dissolve.
+fn paint_mode_dropdown(ui: &mut egui::Ui, id: &str, b: &mut photocraft_engine::BrushSettings) {
+    use photocraft_engine::paint::brush::PaintMode;
+    let mut opts: Vec<((BlendMode, PaintMode), &str)> = BlendMode::LAYER_MODES.iter().map(|m| ((*m, PaintMode::Blend), m.label())).collect();
+    let at = opts.iter().position(|((m, _), _)| *m == BlendMode::Dissolve).map_or(opts.len(), |i| i + 1);
+    opts.insert(at, ((BlendMode::Normal, PaintMode::Clear), "Clear"));
+    opts.insert(at, ((BlendMode::Normal, PaintMode::Behind), "Behind"));
+    let mut current = (if b.paint_mode == PaintMode::Blend { b.mode } else { BlendMode::Normal }, b.paint_mode);
+    if widgets::dropdown(ui, id, &mut current, &opts, 96.0) {
+        (b.mode, b.paint_mode) = current;
     }
 }
+
 
 // ----------------------------------------------------------------------------- options bar
 
@@ -587,11 +583,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         crate::brush_picker::settings_toggle(app, ui);
                         widgets::vline(ui, 22.0);
                         opt_label(ui, tl!("Mode"));
-                        let mut mode = b.mode;
-                        let opts: Vec<(BlendMode, &str)> = BlendMode::LAYER_MODES.iter().map(|m| (*m, m.label())).collect();
-                        if widgets::dropdown(ui, "brush-mode", &mut mode, &opts, 96.0) {
-                            b.mode = mode;
-                        }
+                        paint_mode_dropdown(ui, "brush-mode", b);
                         percent_field(ui, tl!("Opacity"), &mut b.opacity, 0.0..=100.0, 62.0);
                         if icons::button(ui, "circle-dot", 24.0, b.pressure_opacity, tl!("Always use pressure for opacity")).clicked() {
                             b.pressure_opacity = !b.pressure_opacity;
@@ -627,11 +619,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             widgets::vline(ui, 22.0);
                         }
                         opt_label(ui, tl!("Mode"));
-                        let mut mode = b.mode;
-                        let opts: Vec<(BlendMode, &str)> = BlendMode::LAYER_MODES.iter().map(|m| (*m, m.label())).collect();
-                        if widgets::dropdown(ui, "pencil-mode", &mut mode, &opts, 96.0) {
-                            b.mode = mode;
-                        }
+                        paint_mode_dropdown(ui, "pencil-mode", b);
                         percent_field(ui, tl!("Opacity"), &mut b.opacity, 0.0..=100.0, if t.pro { 62.0 } else { 66.0 });
                         opt_label(ui, tl!("Smoothing"));
                         smoothing_field(ui, b, if t.pro { 58.0 } else { 66.0 });
@@ -3181,5 +3169,24 @@ mod properties_card_tests {
         h.run_steps(3);
         let doc = &h.state().session.active().unwrap().doc;
         assert_eq!(ids.iter().map(|&id| doc.layer(id).unwrap().opacity).collect::<Vec<_>>(), [0.25, 0.25]);
+    }
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::title_x;
+
+    #[test]
+    fn title_never_overlaps_menus_or_controls() {
+        // Wide window: centred.
+        assert_eq!(title_x(800.0, 420.0, 1300.0, 60.0), Some(770.0));
+        // Centre would hit the menus: slid right into the gap.
+        assert_eq!(title_x(400.0, 420.0, 1300.0, 60.0), Some(436.0));
+        // Centre would hit the controls: slid left.
+        assert_eq!(title_x(1280.0, 420.0, 1300.0, 60.0), Some(1224.0));
+        // No room for the whole title: the caller elides or drops it.
+        assert_eq!(title_x(400.0, 420.0, 480.0, 60.0), None);
+        assert_eq!(title_x(f32::NAN, 420.0, 1300.0, 60.0), Some(436.0));
+        assert_eq!(title_x(400.0, f32::INFINITY, 1300.0, 60.0), None);
     }
 }

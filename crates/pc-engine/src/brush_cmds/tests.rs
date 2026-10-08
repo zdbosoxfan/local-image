@@ -541,3 +541,21 @@ fn coalesced_set_brush_calls_journal_once_per_gesture() {
     }
     assert_eq!(t.tools.brush, s.tools.brush);
 }
+
+/// local-image: the Behind and Clear painting modes (Photoshop's, listed after Dissolve).
+#[test]
+fn behind_and_clear_modes() {
+    let mut s = session(80, 40);
+    s.execute("paint.stroke", json!({"points": [[4, 20], [36, 20]], "size": 8, "color": "#ff0000"})).unwrap();
+    // Behind: the red stays on top, the blue only lands where the layer was transparent.
+    s.execute("paint.stroke", json!({"points": [[4, 20], [70, 20]], "size": 8, "color": "#0000ff", "mode": "behind"})).unwrap();
+    assert_eq!(rgba(&s, 20, 20), [1.0, 0.0, 0.0, 1.0]);
+    assert_eq!(rgba(&s, 60, 20), [0.0, 0.0, 1.0, 1.0]);
+    // Clear: erases to transparency like the Eraser.
+    s.execute("paint.stroke", json!({"points": [[10, 20], [30, 20]], "size": 8, "mode": "clear"})).unwrap();
+    assert_eq!(rgba(&s, 20, 20)[3], 0.0);
+    // The brush's own painting mode works the same way.
+    s.tools.brush.paint_mode = photocraft_paint::brush::PaintMode::Behind;
+    s.execute("paint.stroke", json!({"points": [[50, 5], [70, 5]], "size": 4, "color": "#00ff00"})).unwrap();
+    assert_eq!(rgba(&s, 60, 5), [0.0, 1.0, 0.0, 1.0]);
+}

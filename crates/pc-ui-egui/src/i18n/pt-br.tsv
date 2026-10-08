@@ -2616,3 +2616,16 @@ cameraRaw	Whites	Brancos
 	Frequency Separation…	Separação de frequências…
 	Perspective Crop Tool	Ferramenta Corte de Perspectiva
 	Drag a frame, then drag its corners onto the edges of the object to straighten	Arraste um quadro e depois arraste os cantos até as bordas do objeto para endireitá-lo
+	Behind	Atrás
+	Add a layer mask that shows only this area	Adicionar uma máscara de camada que mostra só esta área
+	Describe what to generate (optional)	Descreva o que gerar (opcional)
+	Generative Fill: regenerate the selection from your description	Preenchimento generativo: recria a seleção a partir da sua descrição
+	Contextual Task Bar hidden — Window › Contextual Task Bar shows it again.	Barra de tarefas contextual oculta — Janela › Barra de tarefas contextual a mostra de novo.
+	AI Remove isn't ready: {why}	A remoção por IA não está pronta: {why}
+	Generative Fill	Preenchimento generativo
+	Remove what's inside with AI (on its own layer)	Remover o conteúdo com IA (em uma camada própria)
+	Turn the path into a selection	Transformar o demarcador em seleção
+	Back	Voltar
+	Regenerate the area from a description	Recriar a área a partir de uma descrição
+	Hide Contextual Task Bar	Ocultar barra de tarefas contextual
+	More	Mais

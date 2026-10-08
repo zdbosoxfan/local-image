@@ -10,7 +10,7 @@ const DESKTOP: &str = include_str!("../io.github.zdbosoxfan.LocalImage.desktop")
 
 macro_rules! icon {
     ($size:literal) => {
-        ($size, &include_bytes!(concat!("../../../assets/app-icon/hicolor/", $size, "/apps/io.github.zdbosoxfan.LocalImage.png"))[..])
+        ($size, include_bytes!(concat!("../../../assets/app-icon/hicolor/", $size, "/apps/io.github.zdbosoxfan.LocalImage.png")) as &[u8])
     };
 }
 

@@ -2609,3 +2609,16 @@ cameraRaw	Blending	Fusion
 	Frequency Separation…	Séparation de fréquences…
 	Perspective Crop Tool	Outil Recadrage perspective
 	Drag a frame, then drag its corners onto the edges of the object to straighten	Tracez un cadre, puis faites glisser ses coins sur les bords de l’objet pour le redresser
+	Behind	Derrière
+	Add a layer mask that shows only this area	Ajouter un masque de fusion qui n’affiche que cette zone
+	Describe what to generate (optional)	Décrivez ce qu’il faut générer (facultatif)
+	Generative Fill: regenerate the selection from your description	Remplissage génératif : régénère la sélection d’après votre description
+	Contextual Task Bar hidden — Window › Contextual Task Bar shows it again.	Barre des tâches contextuelle masquée — Fenêtre › Barre des tâches contextuelle la réaffiche.
+	AI Remove isn't ready: {why}	La suppression par IA n’est pas prête : {why}
+	Generative Fill	Remplissage génératif
+	Remove what's inside with AI (on its own layer)	Supprimer le contenu avec l’IA (sur son propre calque)
+	Turn the path into a selection	Convertir le tracé en sélection
+	Back	Retour
+	Regenerate the area from a description	Régénérer la zone d’après une description
+	Hide Contextual Task Bar	Masquer la barre des tâches contextuelle
+	More	Plus

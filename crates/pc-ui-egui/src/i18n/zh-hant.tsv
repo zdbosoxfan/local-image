@@ -2156,3 +2156,18 @@ cameraRaw	Blending	混合
 	Frequency Separation…	頻率分離…
 	Perspective Crop Tool	透視裁切工具
 	Drag a frame, then drag its corners onto the edges of the object to straighten	拖出一個框，然後將其四角拖到物件邊緣以校正透視
+	Behind	背後
+	Mask	遮色片
+	Make Selection	建立選取範圍
+	Add a layer mask that shows only this area	加入只顯示此區域的圖層遮色片
+	Describe what to generate (optional)	描述要生成的內容(選填)
+	Generative Fill: regenerate the selection from your description	生成填色:依描述重新生成選取範圍
+	Contextual Task Bar hidden — Window › Contextual Task Bar shows it again.	已隱藏內容相關工作列 — 可透過 視窗 › 內容相關工作列 重新顯示。
+	AI Remove isn't ready: {why}	AI 移除尚未就緒:{why}
+	Generative Fill	生成填色
+	Remove what's inside with AI (on its own layer)	用 AI 移除其中的內容(在獨立圖層上)
+	Turn the path into a selection	將路徑轉換為選取範圍
+	Back	返回
+	Regenerate the area from a description	依描述重新生成該區域
+	Hide Contextual Task Bar	隱藏內容相關工作列
+	More	更多

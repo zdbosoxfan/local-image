@@ -2454,3 +2454,16 @@ cameraRaw	Roughness	Неровность
 	Drag a frame, then drag its corners onto the edges of the object to straighten	Нарисуйте рамку, затем перетащите её углы к краям объекта, чтобы выпрямить его
 	Cancel current crop operation  (Esc)	Отменить текущее кадрирование  (Esc)
 	Commit current crop operation  ({key})	Применить текущее кадрирование  ({key})
+	Behind	Позади
+	Add a layer mask that shows only this area	Добавить слой-маску, показывающую только эту область
+	Describe what to generate (optional)	Опишите, что создать (необязательно)
+	Generative Fill: regenerate the selection from your description	Генеративная заливка: пересоздаёт выделение по вашему описанию
+	Contextual Task Bar hidden — Window › Contextual Task Bar shows it again.	Контекстная панель задач скрыта — включите её через Окно › Контекстная панель задач.
+	AI Remove isn't ready: {why}	Удаление ИИ не готово: {why}
+	Generative Fill	Генеративная заливка
+	Remove what's inside with AI (on its own layer)	Удалить содержимое с помощью ИИ (на отдельном слое)
+	Turn the path into a selection	Преобразовать контур в выделение
+	Back	Назад
+	Regenerate the area from a description	Пересоздать область по описанию
+	Hide Contextual Task Bar	Скрыть контекстную панель задач
+	More	Ещё

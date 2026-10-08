@@ -2252,3 +2252,16 @@ cameraRaw	Amount	Quantità
 	Frequency Separation…	Separazione delle frequenze…
 	Perspective Crop Tool	Strumento Taglierina prospettica
 	Drag a frame, then drag its corners onto the edges of the object to straighten	Trascina un riquadro, poi trascinane gli angoli sui bordi dell’oggetto per raddrizzarlo
+	Behind	Dietro
+	Add a layer mask that shows only this area	Aggiungi una maschera di livello che mostra solo quest’area
+	Describe what to generate (optional)	Descrivi cosa generare (facoltativo)
+	Generative Fill: regenerate the selection from your description	Riempimento generativo: rigenera la selezione dalla tua descrizione
+	Contextual Task Bar hidden — Window › Contextual Task Bar shows it again.	Barra delle attività contestuale nascosta: Finestra › Barra delle attività contestuale la mostra di nuovo.
+	AI Remove isn't ready: {why}	Rimozione IA non pronta: {why}
+	Generative Fill	Riempimento generativo
+	Remove what's inside with AI (on its own layer)	Rimuovi il contenuto con l’IA (su un livello a parte)
+	Turn the path into a selection	Converti il tracciato in selezione
+	Back	Indietro
+	Regenerate the area from a description	Rigenera l’area da una descrizione
+	Hide Contextual Task Bar	Nascondi barra delle attività contestuale
+	More	Altro

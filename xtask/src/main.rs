@@ -180,7 +180,7 @@ fn package_windows(arch: &str, skip_build: bool) -> Result<()> {
         // proc-macros are unaffected.
         c.env(format!("CARGO_TARGET_{}_RUSTFLAGS", target.to_uppercase().replace('-', "_")), "-C target-feature=+crt-static");
         // Fail the build (rather than warn) if the icon and VERSIONINFO can't be embedded.
-        c.env("PHOTOCRAFT_REQUIRE_WINRES", "1");
+        c.env("LOCAL_IMAGE_REQUIRE_WINRES", "1");
         build_env(&mut c);
         run("cargo build", &mut c)?;
     }

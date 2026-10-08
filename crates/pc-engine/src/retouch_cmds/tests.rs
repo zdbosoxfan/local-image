@@ -874,3 +874,69 @@ fn content_aware_move_fails_gracefully() {
     }
     assert!(s.execute("paint.contentAwareMove", json!({"offset": [10, 0], "structure": 7.0, "color": null})).is_ok());
 }
+
+/// local-image: the audit saw a grey halo around moved content. A blue disc on a warm gradient,
+/// lassoed loosely with a feathered ellipse as people do: around the moved disc and in its old
+/// place, everything that isn't the disc must look like the background (no grey or dark fringe).
+#[test]
+fn content_aware_move_leaves_no_halo() {
+    let bg = |x: i32, y: i32| [0.85 - 0.001 * x as f32, 0.45 + 0.002 * y as f32, 0.1, 1.0];
+    let disc = |cx: i32, cy: i32, x: i32, y: i32| ((x - cx).pow(2) + (y - cy).pow(2)) as f32 <= 100.0;
+    for (depth, feather) in [(8, 0), (8, 3), (16, 3)] {
+        let mut s = session(176, 96, depth, "rgb");
+        paint_layer(&mut s, move |x, y| if disc(40, 48, x, y) { [0.1, 0.2, 0.9, 1.0] } else { bg(x, y) });
+        s.execute("select.rect", json!({"x": 22, "y": 30, "width": 36, "height": 36, "ellipse": true, "feather": feather})).unwrap();
+        s.execute("paint.contentAwareMove", json!({"offset": [96, 0]})).unwrap();
+        let mut worst = (0.0f32, (0, 0), [0.0; 4]);
+        for y in 26..70i32 {
+            for x in 18..62i32 {
+                for (cx, here) in [(40i32, x), (136, x + 96)] {
+                    // Skip the moved disc itself and its anti-aliased rim.
+                    if cx == 136 && ((here - 136).pow(2) + (y - 48).pow(2)) as f32 <= 13.0f32.powi(2) {
+                        continue;
+                    }
+                    // The moved selection brings some of its old background along (as in
+                    // Photoshop): either background is fine there.
+                    let got = rgba(&s, here, y);
+                    let off = |want: [f32; 4]| (0..3).map(|c| (got[c] - want[c]).abs()).fold(0.0, f32::max);
+                    let d = if cx == 136 { off(bg(here, y)).min(off(bg(x, y))) } else { off(bg(here, y)) };
+                    if d > worst.0 {
+                        worst = (d, (here, y), got);
+                    }
+                }
+            }
+        }
+        eprintln!("depth {depth} feather {feather}: worst {:?}", worst);
+        assert!(worst.0 < 0.06, "depth {depth}, feather {feather}: halo at {:?}: {:?} (off by {})", worst.1, worst.2, worst.0);
+        assert!(is_object(rgba(&s, 136, 48)), "the disc moved");
+    }
+}
+
+/// local-image: on a transparent layer the moved object keeps a clean edge: what's around it stays
+/// transparent rather than turning into a dark, semi-opaque fringe.
+#[test]
+fn content_aware_move_on_a_transparent_layer_leaves_no_fringe() {
+    let mut s = session(176, 96, 8, "rgb");
+    s.execute("layer.new.layer", json!({})).unwrap();
+    let disc = |cx: i32, cy: i32, x: i32, y: i32| ((x - cx).pow(2) + (y - cy).pow(2)) <= 100;
+    paint_layer(&mut s, move |x, y| if disc(40, 48, x, y) { [0.1, 0.2, 0.9, 1.0] } else { [0.0, 0.0, 0.0, 0.0] });
+    s.execute("select.rect", json!({"x": 22, "y": 30, "width": 36, "height": 36, "ellipse": true})).unwrap();
+    s.execute("paint.contentAwareMove", json!({"offset": [96, 0]})).unwrap();
+    let mut worst = (0.0f32, (0, 0), [0.0; 4]);
+    for y in 26..70i32 {
+        for x in 18..62i32 {
+            for here in [x, x + 96] {
+                if here > 100 && ((here - 136).pow(2) + (y - 48).pow(2)) <= 12 * 12 {
+                    continue;
+                }
+                let px = rgba(&s, here, y);
+                if px[3] > worst.0 {
+                    worst = (px[3], (here, y), px);
+                }
+            }
+        }
+    }
+    eprintln!("transparent: worst {worst:?}");
+    assert!(worst.0 < 0.05, "fringe at {:?}: {:?}", worst.1, worst.2);
+    assert!(is_object(rgba(&s, 136, 48)), "the disc moved");
+}

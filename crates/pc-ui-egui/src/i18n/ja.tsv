@@ -2162,3 +2162,18 @@ cameraRaw	Color	カラー
 	Frequency Separation…	周波数分離…
 	Perspective Crop Tool	遠近法の切り抜きツール
 	Drag a frame, then drag its corners onto the edges of the object to straighten	枠をドラッグし、角を被写体の端に合わせてドラッグすると、遠近を補正します
+	Behind	背面
+	Mask	マスク
+	Make Selection	選択範囲を作成
+	Add a layer mask that shows only this area	この範囲だけを表示するレイヤーマスクを追加
+	Describe what to generate (optional)	生成する内容を入力(省略可)
+	Generative Fill: regenerate the selection from your description	生成塗りつぶし:説明に従って選択範囲を再生成します
+	Contextual Task Bar hidden — Window › Contextual Task Bar shows it again.	コンテキストタスクバーを非表示にしました — ウィンドウ › コンテキストタスクバーで再表示できます。
+	AI Remove isn't ready: {why}	AI 削除の準備ができていません:{why}
+	Generative Fill	生成塗りつぶし
+	Remove what's inside with AI (on its own layer)	内側を AI で削除(別レイヤーに作成)
+	Turn the path into a selection	パスを選択範囲に変換
+	Back	戻る
+	Regenerate the area from a description	説明から範囲を再生成
+	Hide Contextual Task Bar	コンテキストタスクバーを隠す
+	More	その他

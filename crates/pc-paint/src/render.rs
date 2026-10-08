@@ -670,6 +670,20 @@ impl StrokeRenderer {
                             src[ch] = p[ch] / c;
                         }
                     }
+                    // local-image: Behind: the paint goes under the layer's pixels.
+                    if b.paint_mode == crate::brush::PaintMode::Behind {
+                        if let (Some(a), false) = (a_idx, lock_transparency) {
+                            let (da, sa) = (px[a], src[a] * k);
+                            let oa = da + sa * (1.0 - da);
+                            if oa > 0.0 {
+                                for ch in 0..a {
+                                    px[ch] = (px[ch] * da + src[ch] * sa * (1.0 - da)) / oa;
+                                }
+                            }
+                            px[a] = oa;
+                        }
+                        continue;
+                    }
                     if matches!(b.mode, BlendMode::Normal | BlendMode::Dissolve) {
                         over_native(&fmt, px, &src[..n], k, lock_transparency);
                     } else {
