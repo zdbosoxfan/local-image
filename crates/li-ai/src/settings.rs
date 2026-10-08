@@ -67,6 +67,17 @@ impl Default for AiSettings {
 }
 
 impl AiSettings {
+    /// A string setting kept alongside the typed ones (tokens, browser options).
+    pub fn extra_string(&self, key: &str) -> Option<String> {
+        self.rest.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned)
+    }
+    pub fn set_extra_string(&mut self, key: &str, value: &str) {
+        if value.trim().is_empty() {
+            self.rest.remove(key);
+        } else {
+            self.rest.insert(key.to_owned(), Value::String(value.trim().to_owned()));
+        }
+    }
     pub fn host(&self) -> String {
         format!("{}:{}", self.comfy_host, self.comfy_port)
     }

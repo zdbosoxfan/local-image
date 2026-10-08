@@ -392,11 +392,28 @@ fn classify_weights(h: &Header, file_name: &str) -> Detected {
     if h.any_contains("double_stream_blocks.0.block.") || h.any_contains("caption_projection.0.linear") {
         return Detected::new(kind, Some("hidream"), "double_stream_blocks (HiDream)");
     }
-    // FLUX.2 (modulation shared across blocks).
+    // FLUX.2 (modulation shared across blocks). Its size (SwarmUI's rule): the modulation's
+    // output width is 36864 for dev, 24576 for Klein 9B, 18432 for Klein 4B.
     if h.any_contains("double_stream_modulation_img") || h.any_contains("single_stream_modulation") {
-        let hidden = h.find_suffix("img_in.weight").and_then(|t| t.shape.first().copied()).unwrap_or(0);
-        let fam = if hidden == 0 || hidden >= 6144 { "flux2" } else { "flux2-klein" };
-        return Detected::new(kind, Some(&refine_by_name(fam, file_name)), format!("FLUX.2 modulation, hidden {hidden}"));
+        let width = h.find_suffix("double_stream_modulation_img.lin.weight").map(|t| t.shape.iter().copied().max().unwrap_or(0)).unwrap_or(0);
+        let fam = match width {
+            18432 | 24576 => "flux2-klein",
+            36864 => "flux2",
+            // Unknown width: the text input (3 × the text encoder's width) tells Klein from dev.
+            _ => match h.find_suffix("txt_in.weight").and_then(|t| t.shape.get(1).copied()) {
+                Some(7680) | Some(12288) => "flux2-klein",
+                _ => "flux2",
+            },
+        };
+        return Detected::new(kind, Some(&refine_by_name(fam, file_name)), format!("FLUX.2 modulation {width}"));
+    }
+    // Qwen Image 2.1 (its own text norm and modulation).
+    if h.any_contains("txt_in.text_norm.weight") && h.any_contains("modulation.1.weight") {
+        return Detected::new(kind, Some("qwen-image-21"), "txt_in.text_norm + modulation (Qwen Image 2.1)");
+    }
+    // ERNIE-Image.
+    if h.any_contains("layers.0.mlp.linear_fc2.weight") {
+        return Detected::new(kind, Some("ernie"), "layers.N.mlp.linear_fc2 (ERNIE-Image)");
     }
     // Chroma (FLUX.1 with a distilled guidance layer).
     if h.any_contains("distilled_guidance_layer.") {
@@ -414,13 +431,18 @@ fn classify_weights(h: &Header, file_name: &str) -> Detected {
         let what = if guidance { "dev" } else { "schnell" };
         return Detected::new(kind, Some(&refine_by_name(fam, file_name)), format!("double_blocks, img_in {img_in} (FLUX.1 {what})"));
     }
-    // Qwen Image (MMDiT with img_mod/txt_mod).
+    // Qwen Image (MMDiT with img_mod/txt_mod). Edit 2511 carries a marker key; plain Edit and
+    // 2509 match the text-to-image weights, so the name decides.
     if h.any_contains("transformer_blocks.0.img_mod.") && h.any_contains("txt_norm") {
+        if h.has("__index_timestep_zero__") {
+            return Detected::new(kind, Some("qwen-edit"), "__index_timestep_zero__ (Qwen Image Edit 2511)");
+        }
         return Detected::new(kind, Some(&refine_by_name("qwen-image", file_name)), "img_mod + txt_norm (Qwen Image)");
     }
-    // Z-Image (NextDiT / Lumina 2 layout, Qwen3 4B caption features).
+    // Z-Image and Lumina 2 (NextDiT): the caption embedder's width is 3840 for Z-Image, 2304 for
+    // Lumina 2.
     if h.any_contains("cap_embedder.") && h.any_contains("noise_refiner.") {
-        let cap = h.find_suffix("cap_embedder.1.weight").and_then(|t| t.shape.get(1).copied()).unwrap_or(0);
+        let cap = h.find_suffix("cap_embedder.1.weight").and_then(|t| t.shape.first().copied()).unwrap_or(0);
         let fam = if cap == 2304 { "lumina2" } else { "z-image" };
         return Detected::new(kind, Some(fam), format!("cap_embedder {cap} (NextDiT)"));
     }
@@ -462,12 +484,14 @@ fn classify_lora(h: &Header, file_name: &str) -> Detected {
         return lora("z-image", "NextDiT layers (Z-Image)");
     }
     if names("double_blocks") || names("single_blocks") || names("single_transformer_blocks") {
-        // FLUX.1 has 19 double / 38 single blocks; FLUX.2 Klein far fewer, FLUX.2 dev 8 / 48.
+        // FLUX.1 has 19 double / 38 single blocks; FLUX.2 dev 48 single blocks, Klein 9B 24,
+        // Klein 4B 20 (SwarmUI's rule: the highest single-block index).
         let double = h.block_count("double_blocks.").max(h.block_count("double_blocks_")).max(h.block_count("transformer_blocks."));
         let single = h.block_count("single_blocks.").max(h.block_count("single_blocks_")).max(h.block_count("single_transformer_blocks."));
         let fam = match (double, single) {
             (19, _) | (_, 38) => "flux1",
-            (8, 48) => "flux2",
+            (_, 48) => "flux2",
+            (_, 20) | (_, 24) => "flux2-klein",
             (d, s) if d > 0 && d < 19 && s < 38 => "flux2-klein",
             _ => "flux1",
         };
@@ -583,11 +607,21 @@ mod tests {
         let sd3 = header(&[("joint_blocks.0.context_block.attn.qkv.weight", &[4608, 1536]), ("joint_blocks.23.x_block.mlp.fc1.weight", &[1, 1])], Value::Null);
         assert_eq!(fam(&sd3, "sd3.5_medium.safetensors").1.as_deref(), Some("sd35"));
         let z = header(&[("cap_embedder.1.weight", &[3840, 2560]), ("noise_refiner.0.attention.qkv.weight", &[11520, 3840])], Value::Null);
+        let lumina = header(&[("cap_embedder.1.weight", &[2304, 2304]), ("noise_refiner.0.attention.qkv.weight", &[1, 1])], Value::Null);
+        assert_eq!(fam(&lumina, "lumina_2.safetensors").1.as_deref(), Some("lumina2"));
+        let edit = header(&[("transformer_blocks.0.img_mod.1.weight", &[1, 1]), ("txt_norm.weight", &[3584]), ("__index_timestep_zero__", &[1])], Value::Null);
+        assert_eq!(fam(&edit, "some_qwen.safetensors").1.as_deref(), Some("qwen-edit"));
+        let q21 = header(&[("txt_in.text_norm.weight", &[1]), ("modulation.1.weight", &[1, 1])], Value::Null);
+        assert_eq!(fam(&q21, "x.safetensors").1.as_deref(), Some("qwen-image-21"));
+        let ernie = header(&[("layers.0.mlp.linear_fc2.weight", &[1, 1])], Value::Null);
+        assert_eq!(fam(&ernie, "x.safetensors").1.as_deref(), Some("ernie"));
         assert_eq!(fam(&z, "z_image_turbo_bf16.safetensors").1.as_deref(), Some("z-image"));
         let hd = header(&[("double_stream_blocks.0.block.ff_i.shared_experts.w1.weight", &[1, 1])], Value::Null);
         assert_eq!(fam(&hd, "hidream_i1_full.safetensors").1.as_deref(), Some("hidream"));
-        let f2 = header(&[("double_stream_modulation_img.lin.weight", &[1, 1]), ("img_in.weight", &[3072, 128])], Value::Null);
-        assert_eq!(fam(&f2, "flux-2-klein-4b.safetensors").1.as_deref(), Some("flux2-klein"));
+        let f2 = header(&[("double_stream_modulation_img.lin.weight", &[18432, 3072]), ("img_in.weight", &[3072, 128])], Value::Null);
+        assert_eq!(fam(&f2, "some_name.safetensors").1.as_deref(), Some("flux2-klein"));
+        let dev = header(&[("double_stream_modulation_img.lin.weight", &[36864, 6144])], Value::Null);
+        assert_eq!(fam(&dev, "flux2_dev_fp8mixed.safetensors").1.as_deref(), Some("flux2"));
     }
 
     #[test]

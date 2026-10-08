@@ -62,6 +62,8 @@ pub mod filmstrip_ui;
 pub mod filter_dialog;
 pub mod gallery_ui;
 pub mod generate_ui;
+// local-image: the Model Browser.
+pub mod model_browser;
 pub mod gpu_canvas;
 pub mod gpu_status;
 pub mod gradient_ui;

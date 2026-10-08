@@ -3,9 +3,11 @@
 //! library and ComfyUI setup helpers. Everything here is blocking and meant for worker threads.
 
 pub mod arch;
+pub mod browser;
 pub mod builders;
 pub mod catalog;
 pub mod comfy;
+pub mod custom;
 pub mod download;
 pub mod family;
 pub mod imaging;
@@ -14,6 +16,7 @@ pub mod inventory;
 pub mod library;
 pub mod mock;
 pub mod ops;
+pub mod presets;
 pub mod settings;
 pub mod setup;
 pub mod workflows;

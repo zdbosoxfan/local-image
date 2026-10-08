@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use egui::{Color32, RichText, Sense, Stroke, vec2};
-use li_ai::catalog::{self, ModelId, PRESETS};
+use li_ai::catalog::{self, ModelId};
 use li_ai::{AiSettings, JobControl};
 use photocraft_engine::jobs::{JobEvent, JobOutcome};
 use serde::{Deserialize, Serialize};
@@ -158,7 +158,11 @@ fn poll_loop(s: Arc<Shared>) {
         if connected && (forced || !connected_before || last_inventory.is_none_or(|t| t.elapsed() > Duration::from_secs(30))) {
             match ai.client.object_info() {
                 Ok(info) => {
-                    presets = PRESETS
+                    // Installed models (by header, metadata or name) join the catalogue first.
+                    let settings = AiSettings::load();
+                    let model_dir = settings.model_dir();
+                    li_ai::inventory::refresh(&info, model_dir.is_dir().then_some(model_dir.as_path()));
+                    presets = catalog::presets()
                         .iter()
                         .map(|p| {
                             (p.id(), {
@@ -213,7 +217,7 @@ pub fn stop_engine() -> bool {
 
 /// Downloads a preset's missing files in the background (progress via [`downloads`]).
 pub fn start_download(preset_id: &str) {
-    let Some(preset) = PRESETS.iter().find(|p| p.id() == preset_id) else { return };
+    let Some(preset) = catalog::presets().iter().find(|p| p.id() == preset_id) else { return };
     let ctl = JobControl::new();
     if let Ok(mut d) = shared().downloads.lock() {
         if d.get(preset_id).is_some_and(|x| !x.finished) {
@@ -785,11 +789,18 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 );
                 ui.add_space(4.0);
                 let dls = downloads();
-                for m in ModelId::ALL {
+                // The curated models (the Model Browser has everything else).
+                for m in ModelId::all() {
                     let info = m.info();
+                    if info.origin != catalog::Origin::Profile || !(info.starter || info.tool || ModelId::ORIGINAL.contains(&m)) {
+                        continue;
+                    }
                     for p in catalog::presets_for(m) {
                         model_row(ui, &t, info, p, &st, dls.get(&p.id()), &settings);
                     }
+                }
+                if widgets::secondary_button(ui, "Browse Models…", 0.0).on_hover_text("Find, compare and install models and LoRAs for any family").clicked() {
+                    crate::model_browser::open();
                 }
                 ui.add_space(8.0);
                 widgets::section_label(ui, "SELECTION MODELS (CPU)");
@@ -863,7 +874,7 @@ fn model_row(ui: &mut egui::Ui, t: &Tokens, info: &catalog::ModelInfo, p: &catal
                     _ => {
                         let label = if p.access_url.is_some() { "Request Access…" } else { "Download" };
                         if widgets::secondary_button(ui, label, 0.0).clicked() {
-                            if let Some(url) = p.access_url.filter(|_| dl.and_then(|d| d.error.as_ref()).is_some()) {
+                            if let Some(url) = p.access_url.clone().filter(|_| dl.and_then(|d| d.error.as_ref()).is_some()) {
                                 ui.ctx().open_url(egui::OpenUrl::new_tab(url));
                             } else {
                                 start_download(&p.id());

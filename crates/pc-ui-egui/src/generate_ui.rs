@@ -34,6 +34,45 @@ pub enum Mode {
     Create,
     Edit,
     Fill,
+    Refine,
+    Upscale,
+}
+
+impl Mode {
+    const ALL: [Mode; 5] = [Mode::Create, Mode::Edit, Mode::Fill, Mode::Refine, Mode::Upscale];
+    fn label(self) -> &'static str {
+        match self {
+            Mode::Create => "Create",
+            Mode::Edit => "Edit",
+            Mode::Fill => "Fill",
+            Mode::Refine => "Refine",
+            Mode::Upscale => "Upscale",
+        }
+    }
+    fn tip(self) -> &'static str {
+        match self {
+            Mode::Create => "A new image from a description and optional reference images",
+            Mode::Edit => "Change the open image from an instruction (edit models), or restyle it",
+            Mode::Fill => "Regenerate the selection (Photoshop's Generative Fill)",
+            Mode::Refine => "Resample the open image at a chosen strength (img2img)",
+            Mode::Upscale => "Enlarge the open image and add detail, tile by tile",
+        }
+    }
+    fn default_strength(self) -> f32 {
+        match self {
+            Mode::Fill => 1.0,
+            Mode::Upscale => 0.3,
+            Mode::Edit => 0.5,
+            _ => 0.35,
+        }
+    }
+}
+
+/// A LoRA picked for the next generations.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LoraPick {
+    pub name: String,
+    pub strength: f32,
 }
 
 /// Saved Generate settings.
@@ -42,6 +81,8 @@ pub enum Mode {
 pub struct GenerateState {
     pub mode: Mode,
     pub prompt: String,
+    pub negative: String,
+    /// A model key (`flux2-klein-4b`, `ckpt:…`) or `custom:<workflow name>`.
     pub model: String,
     pub variant: String,
     /// `1:1`, `4:3`, `3:2`, `16:9`, `9:16`, `2:3`, `3:4`, `custom`.
@@ -54,10 +95,23 @@ pub struct GenerateState {
     pub guidance: f32,
     /// Fixed seed (🔒), else a new one each time.
     pub seed: Option<u64>,
-    pub negative: String,
+    /// Strength for Edit (non-edit models), Fill, Refine and Upscale.
     pub denoise: f32,
     pub advanced: bool,
     pub library_filter: String,
+    /// The selected preset's name.
+    pub preset: String,
+    pub loras: Vec<LoraPick>,
+    /// Draft → Refine.
+    pub refine: bool,
+    pub refine_model: String,
+    pub refine_variant: String,
+    pub refine_strength: f32,
+    pub refine_scale: f32,
+    pub upscale: f32,
+    /// Sampler / scheduler instead of the family's (empty = the family's).
+    pub sampler: String,
+    pub scheduler: String,
 }
 
 impl Default for GenerateState {
@@ -66,6 +120,7 @@ impl Default for GenerateState {
         Self {
             mode: Mode::Create,
             prompt: String::new(),
+            negative: String::new(),
             model: m.key().into(),
             variant: catalog::default_variant(m).into(),
             aspect: "1:1".into(),
@@ -76,10 +131,19 @@ impl Default for GenerateState {
             steps: m.info().steps.default as u32,
             guidance: m.info().guidance.default,
             seed: None,
-            negative: String::new(),
-            denoise: 0.6,
+            denoise: 0.35,
             advanced: false,
             library_filter: String::new(),
+            preset: "None".into(),
+            loras: Vec::new(),
+            refine: false,
+            refine_model: String::new(),
+            refine_variant: String::new(),
+            refine_strength: 0.35,
+            refine_scale: 1.0,
+            upscale: 2.0,
+            sampler: String::new(),
+            scheduler: String::new(),
         }
     }
 }
@@ -98,6 +162,10 @@ struct Runtime {
     library_loaded: Option<Instant>,
     selected: Option<String>,
     focus_prompt: bool,
+    /// Imported custom workflows (loaded on first use and after an import).
+    customs: Option<Vec<li_ai::custom::CustomWorkflow>>,
+    presets: Option<Vec<li_ai::presets::GenPreset>>,
+    preset_name: String,
 }
 
 struct Reference {
@@ -107,7 +175,8 @@ struct Reference {
 }
 
 enum Tile {
-    Pending { job: u64, label: String, edit: Option<u64> },
+    /// `edit`: the document the result lands on as a layer; `open`: open it as a new document.
+    Pending { job: u64, label: String, edit: Option<u64>, open: bool },
     Done(Entry),
     Failed(String),
 }
@@ -122,24 +191,59 @@ pub fn focus_prompt(ctx: &egui::Context) {
     ctx.request_repaint();
 }
 
+fn customs() -> Vec<li_ai::custom::CustomWorkflow> {
+    rt(|r| r.customs.get_or_insert_with(|| li_ai::custom::list(&li_ai::custom::dir())).clone())
+}
+
+fn presets() -> Vec<li_ai::presets::GenPreset> {
+    rt(|r| r.presets.get_or_insert_with(|| li_ai::presets::all(&li_ai::presets::path())).clone())
+}
+
+fn custom_of(s: &GenerateState) -> Option<li_ai::custom::CustomWorkflow> {
+    let name = s.model.strip_prefix("custom:")?;
+    customs().into_iter().find(|w| w.name == name)
+}
+
 fn model_of(s: &GenerateState) -> ModelId {
-    ModelId::from_key(&s.model).filter(|m| m.info().text_to_image).unwrap_or(ModelId::Klein4B)
+    ModelId::from_key(&s.model).filter(|m| m.try_info().is_some()).unwrap_or(ModelId::Klein4B)
 }
 
 fn set_model(s: &mut GenerateState, m: ModelId) {
+    let info = m.info();
     s.model = m.key().into();
     s.variant = catalog::default_variant(m).into();
-    s.steps = m.info().steps.default as u32;
-    s.guidance = m.info().guidance.default;
-    if !m.info().transparent {
+    s.steps = info.steps.default as u32;
+    s.guidance = info.guidance.default;
+    s.sampler.clear();
+    s.scheduler.clear();
+    if !info.transparent {
         s.transparent = false;
+    }
+    // LoRAs that don't fit the new family are dropped.
+    let fam = info.resolved.clone();
+    let fits: Vec<String> = li_ai::inventory::loras_for(&fam).into_iter().map(|(l, _)| l.name).collect();
+    s.loras.retain(|l| fits.contains(&l.name));
+    if s.mode == Mode::Create && !info.text_to_image {
+        s.mode = Mode::Refine;
     }
 }
 
-fn size_for(aspect: &str, s: &GenerateState) -> (u32, u32) {
+/// Whether a model can run `mode`.
+fn fits_mode(info: &catalog::ModelInfo, mode: Mode) -> bool {
+    if info.tool || info.resolved.kind != li_ai::family::FamilyKind::Image {
+        return false;
+    }
+    match mode {
+        Mode::Create => info.text_to_image,
+        Mode::Fill => info.inpaint,
+        Mode::Edit | Mode::Refine | Mode::Upscale => true,
+    }
+}
+
+fn size_for(aspect: &str, s: &GenerateState, native: u32) -> (u32, u32) {
     let Some((_, r)) = ASPECTS.iter().find(|(k, _)| *k == aspect) else { return (s.width, s.height) };
-    // About one megapixel, snapped to the 16 px grid every model accepts.
-    let area = 1024.0 * 1024.0;
+    // About the model's native pixel count, snapped to a 16 px grid.
+    let area = native as f32 * native as f32;
     let h = (area / r).sqrt();
     li_ai::imaging::snap_size((h * r) as u32, h as u32, 16)
 }
@@ -168,30 +272,154 @@ fn label(ui: &mut egui::Ui, s: &str) {
 
 /// A row of chip buttons; returns the clicked index.
 fn chips(ui: &mut egui::Ui, items: &[&str], selected: usize) -> Option<usize> {
+    chips_with(ui, items, selected, &[], &[])
+}
+
+/// Chips with tooltips; `disabled[i]` greys a chip out (with its reason as tooltip).
+fn chips_with(ui: &mut egui::Ui, items: &[&str], selected: usize, tips: &[&str], disabled: &[Option<&str>]) -> Option<usize> {
     let t = Tokens::get(ui.ctx());
     let mut hit = None;
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
         for (i, s) in items.iter().enumerate() {
             let on = i == selected;
-            let galley = ui.painter().layout_no_wrap((*s).to_owned(), crate::theme::medium(12.0), if on { t.accent_text } else { t.text_dim });
+            let off = disabled.get(i).copied().flatten();
+            let ink = if on {
+                t.accent_text
+            } else if off.is_some() {
+                t.text_faint
+            } else {
+                t.text_dim
+            };
+            let galley = ui.painter().layout_no_wrap((*s).to_owned(), crate::theme::medium(12.0), ink);
             let (r, resp) = ui.allocate_exact_size(vec2(galley.size().x + 16.0, 22.0), Sense::click());
             let fill = if on {
                 t.accent
-            } else if resp.hovered() {
+            } else if resp.hovered() && off.is_none() {
                 t.hover
             } else {
                 t.field
             };
             ui.painter().rect_filled(r, 11.0, fill);
             ui.painter().galley(r.center() - galley.size() / 2.0, galley, t.text);
-            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, *s));
-            if resp.clicked() {
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, off.is_none(), *s));
+            let resp = match (off, tips.get(i)) {
+                (Some(why), _) => resp.on_hover_text(why),
+                (None, Some(tip)) => resp.on_hover_text(*tip),
+                _ => resp,
+            };
+            if resp.clicked() && off.is_none() {
                 hit = Some(i);
             }
         }
     });
     hit
+}
+
+/// A small capability tag.
+fn tag(ui: &mut egui::Ui, text: &str, t: &Tokens) {
+    let galley = ui.painter().layout_no_wrap(text.to_owned(), egui::FontId::proportional(10.5), t.text_dim);
+    let (r, _) = ui.allocate_exact_size(vec2(galley.size().x + 10.0, 16.0), Sense::hover());
+    ui.painter().rect_filled(r, 8.0, t.field);
+    ui.painter().galley(r.center() - galley.size() / 2.0, galley, t.text_dim);
+}
+
+/// Readiness of a model on the running engine: `Ok` ready, `Err(reason)` otherwise.
+fn readiness(st: &crate::ai_ui::EngineStatus, m: ModelId, variant: &str) -> Result<(), String> {
+    st.ready(m, variant)
+}
+
+/// The model picker: models grouped by family group, each with a readiness dot and its capability
+/// tags; custom workflows last; Browse Models… and Import Workflow… at the bottom. Returns the
+/// chosen key.
+fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &crate::ai_ui::EngineStatus, allow_custom: bool) -> Option<String> {
+    let t = Tokens::get(ui.ctx());
+    let custom = current.strip_prefix("custom:");
+    let current_label = match custom {
+        Some(name) => format!("{name} · Custom workflow"),
+        None => ModelId::from_key(current).and_then(|m| m.try_info()).map(|i| format!("{} · {}", i.label, i.family_label)).unwrap_or_else(|| "Choose a model".into()),
+    };
+    let mut picked = None;
+    let width = ui.available_width();
+    egui::ComboBox::from_id_salt(id).selected_text(current_label).width(width).height(460.0).icon(widgets::chevron_icon).show_ui(ui, |ui| {
+        ui.set_min_width(width.max(300.0));
+        let cat = catalog::catalog();
+        let mut groups: Vec<(&str, Vec<&catalog::ModelInfo>)> = Vec::new();
+        for m in cat.models.iter().filter(|m| fits_mode(m, mode)) {
+            match groups.iter_mut().find(|(g, _)| *g == m.group) {
+                Some((_, v)) => v.push(m),
+                None => groups.push((m.group.as_str(), vec![m])),
+            }
+        }
+        for (g, models) in groups {
+            ui.add_space(4.0);
+            ui.label(RichText::new(g.to_uppercase()).size(10.5).color(t.text_faint).strong());
+            for m in models {
+                let variant = catalog::default_variant(m.id);
+                let ok = catalog::presets_for(m.id).any(|p| readiness(st, m.id, &p.variant).is_ok());
+                let reason = readiness(st, m.id, variant).err().unwrap_or_default();
+                let row = ui.horizontal(|ui| {
+                    let (dot, _) = ui.allocate_exact_size(vec2(10.0, 16.0), Sense::hover());
+                    let colour = if ok {
+                        Color32::from_rgb(70, 190, 110)
+                    } else if m.origin == catalog::Origin::Installed {
+                        t.warning
+                    } else {
+                        t.text_faint
+                    };
+                    ui.painter().circle_filled(dot.center(), 3.5, colour);
+                    let sel = current == m.id.key();
+                    let resp = ui.add(egui::Button::selectable(sel, RichText::new(&m.label).color(if ok || !st.connected { t.text } else { t.text_dim })));
+                    ui.label(RichText::new(&m.family_label).size(10.5).color(t.text_faint));
+                    for tg in m.tags().iter().take(4) {
+                        tag(ui, tg, &t);
+                    }
+                    resp
+                });
+                let tip = if ok {
+                    format!("{}\n{}", m.best_for, m.tags().join(" · "))
+                } else if m.origin == catalog::Origin::Profile {
+                    format!("{}\nNot installed: {}", m.best_for, reason)
+                } else {
+                    format!("{}\n{}", m.best_for, reason)
+                };
+                if row.inner.on_hover_text(tip).clicked() {
+                    picked = Some(m.id.key().to_owned());
+                }
+            }
+        }
+        if allow_custom {
+            let cws = customs();
+            if !cws.is_empty() {
+                ui.add_space(4.0);
+                ui.label(RichText::new("CUSTOM WORKFLOWS").size(10.5).color(t.text_faint).strong());
+                for w in cws {
+                    let key = format!("custom:{}", w.name);
+                    let row = ui.horizontal(|ui| {
+                        ui.add_space(14.0);
+                        let resp = ui.add(egui::Button::selectable(current == key, &w.name));
+                        for tg in w.tags().iter().take(4) {
+                            tag(ui, tg, &t);
+                        }
+                        resp
+                    });
+                    if row.inner.clicked() {
+                        picked = Some(key);
+                    }
+                }
+            }
+        }
+        ui.separator();
+        ui.horizontal(|ui| {
+            if ui.button("Browse Models…").clicked() {
+                picked = Some("browse:".into());
+            }
+            if allow_custom && ui.button("Import Workflow…").clicked() {
+                picked = Some("import:".into());
+            }
+        });
+    });
+    picked
 }
 
 /// The Generate tab.
@@ -203,82 +431,136 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui.spacing_mut().item_spacing.y = 6.0;
         let has_doc = app.session.active().is_some();
         let has_sel = app.session.active().is_some_and(|d| d.doc.selection.is_some());
-        let s = &mut app.ui.ai.generate;
-        // Mode.
-        let modes = ["Create", "Edit image", "Fill selection"];
-        let cur = match s.mode {
-            Mode::Create => 0,
-            Mode::Edit => 1,
-            Mode::Fill => 2,
-        };
-        if let Some(i) = chips(ui, &modes, cur) {
-            s.mode = [Mode::Create, Mode::Edit, Mode::Fill][i];
-            if s.mode != Mode::Create && !matches!(model_of(s), ModelId::Qwen | ModelId::Klein4B | ModelId::Klein9B) {
-                set_model(s, ModelId::Qwen);
-            }
-            if s.mode == Mode::Fill {
-                set_model(s, ModelId::Qwen);
-            }
-        }
-        let hint = match s.mode {
-            Mode::Create => "Describe an image to create…",
-            Mode::Edit => "Describe the change, e.g. “make it golden hour”…",
-            Mode::Fill => "What should appear in the selection…",
-        };
-        let resp = ui.add(egui::TextEdit::multiline(&mut s.prompt).hint_text(hint).desired_rows(3).desired_width(f32::INFINITY));
-        if rt(|r| std::mem::take(&mut r.focus_prompt)) {
-            resp.request_focus();
-        }
-        let enter = resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift);
-        if enter {
-            // The Enter that submitted shouldn't stay in the prompt.
-            if s.prompt.ends_with('\n') {
-                s.prompt.pop();
-            }
-        }
-        // Model.
-        let m = model_of(s);
         let st = crate::ai_ui::status();
+        let s = &mut app.ui.ai.generate;
+        // ---- Mode.
+        let labels: Vec<&str> = Mode::ALL.iter().map(|m| m.label()).collect();
+        let tips: Vec<&str> = Mode::ALL.iter().map(|m| m.tip()).collect();
+        let disabled: Vec<Option<&str>> = Mode::ALL
+            .iter()
+            .map(|m| match m {
+                Mode::Create => None,
+                Mode::Fill if !has_sel => Some("Make a selection first"),
+                _ if !has_doc => Some("Open an image first"),
+                _ => None,
+            })
+            .collect();
+        let cur = Mode::ALL.iter().position(|m| *m == s.mode).unwrap_or(0);
+        if let Some(i) = chips_with(ui, &labels, cur, &tips, &disabled) {
+            s.mode = Mode::ALL[i];
+            s.denoise = s.mode.default_strength();
+            // A model that can't run the new mode gives way to one that can.
+            let m = model_of(s);
+            if !s.model.starts_with("custom:") && !fits_mode(m.info(), s.mode) {
+                let next = ModelId::generators()
+                    .into_iter()
+                    .chain(ModelId::all())
+                    .find(|x| fits_mode(x.info(), s.mode) && catalog::presets_for(*x).any(|p| st.ready(*x, &p.variant).is_ok()))
+                    .or_else(|| ModelId::all().into_iter().find(|x| fits_mode(x.info(), s.mode)));
+                if let Some(n) = next {
+                    set_model(s, n);
+                }
+            }
+        }
+        // ---- Preset.
+        let all_presets = presets();
         ui.horizontal(|ui| {
-            label(ui, "Model");
-            let mut key = s.model.clone();
-            let opts: Vec<(String, String)> = ModelId::GENERATORS
-                .iter()
-                .filter(|mm| s.mode == Mode::Create || matches!(mm, ModelId::Qwen | ModelId::Klein4B | ModelId::Klein9B))
-                .filter(|mm| s.mode != Mode::Fill || **mm == ModelId::Qwen)
-                .map(|mm| {
-                    let ready = catalog::presets_for(*mm).any(|p| st.ready(*mm, p.variant).is_ok());
-                    (mm.key().to_owned(), format!("{}{}", mm.info().label, if ready || !st.connected { "" } else { " · download" }))
-                })
-                .collect();
-            let opt_refs: Vec<(String, &str)> = opts.iter().map(|(k, l)| (k.clone(), l.as_str())).collect();
+            label(ui, "Preset");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if widgets::dropdown(ui, "gen-model", &mut key, &opt_refs, ui.available_width().min(200.0))
-                    && let Some(mm) = ModelId::from_key(&key)
+                let save = crate::icons::button(ui, "bookmark-plus", 22.0, false, "Save these settings as a preset");
+                if save.clicked() {
+                    rt(|r| r.preset_name = format!("My preset {}", all_presets.iter().filter(|p| !p.built_in).count() + 1));
+                }
+                egui::Popup::from_toggle_button_response(&save).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+                    ui.set_min_width(220.0);
+                    ui.label("Preset name");
+                    let mut name = rt(|r| r.preset_name.clone());
+                    ui.text_edit_singleline(&mut name);
+                    rt(|r| r.preset_name = name.clone());
+                    if widgets::primary_button(ui, "Save Preset", 0.0).clicked() && !name.trim().is_empty() {
+                        save_preset(s, name.trim());
+                        ui.close();
+                    }
+                });
+                let opts: Vec<(String, &str)> = all_presets.iter().map(|p| (p.name.clone(), p.name.as_str())).collect();
+                let mut name = s.preset.clone();
+                if widgets::dropdown(ui, "gen-preset", &mut name, &opts, ui.available_width().min(220.0))
+                    && let Some(p) = all_presets.iter().find(|p| p.name == name)
                 {
-                    set_model(s, mm);
+                    apply_preset(s, p);
                 }
             });
         });
-        let presets: Vec<_> = catalog::presets_for(m).collect();
-        if presets.len() > 1 {
-            ui.horizontal(|ui| {
-                label(ui, "Precision");
-                let opts: Vec<(String, &str)> = presets.iter().map(|p| (p.variant.to_owned(), p.label)).collect();
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    widgets::dropdown(ui, "gen-variant", &mut s.variant, &opts, ui.available_width().min(200.0));
+        // ---- Model.
+        if let Some(k) = model_picker(ui, "gen-model", &s.model.clone(), s.mode, &st, true) {
+            match k.as_str() {
+                "browse:" => crate::model_browser::open(),
+                "import:" => import_workflow(app),
+                k if k.starts_with("custom:") => app.ui.ai.generate.model = k.to_owned(),
+                k => {
+                    if let Some(m) = ModelId::from_key(k) {
+                        set_model(&mut app.ui.ai.generate, m);
+                    }
+                }
+            }
+        }
+        let s = &mut app.ui.ai.generate;
+        let custom = custom_of(s);
+        let m = model_of(s);
+        let info = m.info();
+        if custom.is_none() {
+            let presets_m: Vec<_> = catalog::presets_for(m).collect();
+            if presets_m.len() > 1 {
+                ui.horizontal(|ui| {
+                    label(ui, "Precision");
+                    let opts: Vec<(String, &str)> = presets_m.iter().map(|p| (p.variant.clone(), p.label.as_str())).collect();
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        widgets::dropdown(ui, "gen-variant", &mut s.variant, &opts, ui.available_width().min(200.0));
+                    });
                 });
+            }
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                ui.label(RichText::new(&info.best_for).color(t.text_faint).size(11.0));
             });
         }
-        ui.label(RichText::new(m.info().best_for).color(t.text_faint).size(11.0));
-        // Size (Create only: edits keep the image's size).
-        if s.mode == Mode::Create {
+        // ---- Prompt.
+        let wants_prompt = custom.as_ref().is_none_or(|w| w.has(&li_ai::custom::FieldKind::Prompt));
+        let mut enter = false;
+        if wants_prompt {
+            let hint = match s.mode {
+                Mode::Create => "Describe an image to create…",
+                Mode::Edit if info.edit => "Describe the change, e.g. “make it golden hour”…",
+                Mode::Edit => "Describe the image you want it to become…",
+                Mode::Fill => "What should appear in the selection…",
+                Mode::Refine => "Describe the image (optional)…",
+                Mode::Upscale => "Describe details to add (optional)…",
+            };
+            let resp = ui.add(egui::TextEdit::multiline(&mut s.prompt).hint_text(hint).desired_rows(3).desired_width(f32::INFINITY));
+            if rt(|r| std::mem::take(&mut r.focus_prompt)) {
+                resp.request_focus();
+            }
+            enter = resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift);
+            if enter && s.prompt.ends_with('\n') {
+                s.prompt.pop();
+            }
+        }
+        let wants_negative = match &custom {
+            Some(w) => w.has(&li_ai::custom::FieldKind::Negative),
+            None => info.negative_prompt,
+        };
+        if wants_negative {
+            ui.add(egui::TextEdit::singleline(&mut s.negative).hint_text("Avoid… (negative prompt)").desired_width(f32::INFINITY));
+        }
+        // ---- Size (Create).
+        let custom_size = custom.as_ref().is_some_and(|w| w.has(&li_ai::custom::FieldKind::Width));
+        if (s.mode == Mode::Create && custom.is_none()) || custom_size {
             let items: Vec<&str> = ASPECTS.iter().map(|(k, _)| *k).chain(["Custom"]).collect();
             let sel = ASPECTS.iter().position(|(k, _)| *k == s.aspect).unwrap_or(ASPECTS.len());
             if let Some(i) = chips(ui, &items, sel) {
                 if i < ASPECTS.len() {
                     s.aspect = ASPECTS[i].0.into();
-                    let (w, h) = size_for(&s.aspect, s);
+                    let (w, h) = size_for(&s.aspect, s, info.resolved.sizes.native);
                     s.width = w;
                     s.height = h;
                 } else {
@@ -287,14 +569,15 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             }
             ui.horizontal(|ui| {
                 let (mut w, mut h) = (s.width as f32, s.height as f32);
-                let cw = widgets::value_field(ui, &mut w, 256.0..=4096.0, "px", 84.0);
+                let max = info.resolved.sizes.max.max(1024) as f32 * 2.0;
+                let cw = widgets::value_field(ui, &mut w, 256.0..=max, "px", 84.0);
                 ui.label(RichText::new("×").color(t.text_faint));
-                let ch = widgets::value_field(ui, &mut h, 256.0..=4096.0, "px", 84.0);
+                let ch = widgets::value_field(ui, &mut h, 256.0..=max, "px", 84.0);
                 if cw.changed() || ch.changed() {
                     s.aspect = "custom".into();
                 }
                 if cw.lost_focus() || ch.lost_focus() || !(cw.has_focus() || ch.has_focus()) {
-                    let (sw, sh) = li_ai::imaging::snap_size(w as u32, h as u32, 16);
+                    let (sw, sh) = li_ai::imaging::snap_size(w as u32, h as u32, info.resolved.sizes.multiple.max(8));
                     s.width = sw;
                     s.height = sh;
                 } else {
@@ -302,8 +585,10 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     s.height = h as u32;
                 }
             });
+        }
+        if s.mode == Mode::Create {
             ui.horizontal(|ui| {
-                if m.info().transparent {
+                if info.transparent && custom.is_none() {
                     widgets::checkbox(ui, &mut s.transparent, "Transparent");
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -315,25 +600,112 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 });
             });
         }
-        // References.
-        let info = m.info();
-        if s.mode == Mode::Create && info.max_references > 0 {
-            references_ui(app, ui, m);
+        // ---- Strength.
+        let strength_shown = match &custom {
+            Some(w) => w.has(&li_ai::custom::FieldKind::Denoise),
+            None => matches!(s.mode, Mode::Refine | Mode::Upscale) || (s.mode == Mode::Edit && !info.edit) || (s.mode == Mode::Fill && info.resolved.pipeline.inpaint != li_ai::family::InpaintMethod::Instruction),
+        };
+        if strength_shown {
+            let mut pct = s.denoise * 100.0;
+            if widgets::slider_row(ui, "Strength", &mut pct, 5.0..=100.0, "%", None).on_hover_text("How much may change: 100 % regenerates, lower keeps more of the image").changed() {
+                s.denoise = (pct / 100.0).clamp(0.05, 1.0);
+            }
+        }
+        if s.mode == Mode::Upscale {
+            let scales = [("1.5×", 1.5f32), ("2×", 2.0), ("3×", 3.0), ("4×", 4.0)];
+            let items: Vec<&str> = scales.iter().map(|(l, _)| *l).collect();
+            let sel = scales.iter().position(|(_, v)| (*v - s.upscale).abs() < 0.01).unwrap_or(1);
+            ui.horizontal(|ui| {
+                label(ui, "Enlarge");
+                if let Some(i) = chips(ui, &items, sel) {
+                    s.upscale = scales[i].1;
+                }
+            });
+        }
+        // ---- References.
+        let ref_slots = match &custom {
+            Some(w) => w.images(),
+            None => {
+                let adapter = matches!(info.resolved.pipeline.reference, li_ai::family::RefMethod::IpAdapter | li_ai::family::RefMethod::Redux);
+                match s.mode {
+                    Mode::Create if adapter => 4,
+                    Mode::Create => info.max_references,
+                    Mode::Edit if info.edit => info.max_references.saturating_sub(1),
+                    Mode::Fill if info.edit => info.max_references.saturating_sub(1),
+                    _ => 0,
+                }
+            }
+        };
+        if ref_slots > 0 {
+            references_ui(app, ui, ref_slots, info.init_image && custom.is_none());
         }
         let s = &mut app.ui.ai.generate;
-        // Advanced.
+        // ---- LoRAs.
+        if custom.is_none() && info.lora {
+            loras_ui(ui, s, &info.resolved, &t);
+        }
+        // ---- Draft → Refine.
+        if s.mode == Mode::Create && custom.is_none() {
+            ui.horizontal(|ui| {
+                widgets::checkbox(ui, &mut s.refine, "Refine with")
+                    .on_hover_text("Draft → Refine: generate with this model, then resample the draft with another (e.g. a fast draft refined by a detailed model)");
+            });
+            if s.refine {
+                if let Some(k) = model_picker(ui, "gen-refine-model", &s.refine_model.clone(), Mode::Refine, &st, false) {
+                    if k == "browse:" {
+                        crate::model_browser::open();
+                    } else if let Some(m) = ModelId::from_key(&k) {
+                        s.refine_model = k;
+                        s.refine_variant = catalog::default_variant(m).into();
+                    }
+                }
+                let mut pct = s.refine_strength * 100.0;
+                if widgets::slider_row(ui, "Refine strength", &mut pct, 5.0..=100.0, "%", None).changed() {
+                    s.refine_strength = pct / 100.0;
+                }
+                let scales = [("1×", 1.0f32), ("1.5×", 1.5), ("2×", 2.0)];
+                let items: Vec<&str> = scales.iter().map(|(l, _)| *l).collect();
+                let sel = scales.iter().position(|(_, v)| (*v - s.refine_scale).abs() < 0.01).unwrap_or(0);
+                ui.horizontal(|ui| {
+                    label(ui, "Enlarge first");
+                    if let Some(i) = chips(ui, &items, sel) {
+                        s.refine_scale = scales[i].1;
+                    }
+                });
+            }
+        }
+        // ---- Advanced.
         let resp = egui::CollapsingHeader::new(RichText::new("Advanced").color(t.text_dim)).default_open(s.advanced).show(ui, |ui| {
-            if !info.steps.fixed() {
+            let (steps_range, cfg_range) = (info.steps, info.guidance);
+            let show_steps = custom.as_ref().map_or(!steps_range.fixed(), |w| w.has(&li_ai::custom::FieldKind::Steps));
+            if show_steps {
                 let mut v = s.steps as f32;
-                if widgets::slider_row(ui, "Steps", &mut v, info.steps.min..=info.steps.max, "", None).changed() {
+                let r = if custom.is_some() { 1.0..=150.0 } else { steps_range.min..=steps_range.max };
+                if widgets::slider_row(ui, "Steps", &mut v, r, "", None).changed() {
                     s.steps = v.round() as u32;
                 }
             }
-            if !info.guidance.fixed() {
-                widgets::slider_row(ui, "Guidance", &mut s.guidance, info.guidance.min..=info.guidance.max, "", None);
+            let show_cfg = custom.as_ref().map_or(!cfg_range.fixed(), |w| w.has(&li_ai::custom::FieldKind::Cfg));
+            if show_cfg {
+                let r = if custom.is_some() { 1.0..=30.0 } else { cfg_range.min..=cfg_range.max };
+                widgets::slider_row(ui, "Guidance", &mut s.guidance, r, "", None);
             }
-            if info.init_image && m == ModelId::ZImageTurbo {
-                widgets::slider_row(ui, "Variation strength", &mut s.denoise, 0.05..=1.0, "", None);
+            if info.init_image && custom.is_none() && s.mode == Mode::Create {
+                let mut pct = s.denoise * 100.0;
+                if widgets::slider_row(ui, "Variation strength", &mut pct, 5.0..=100.0, "%", None).changed() {
+                    s.denoise = pct / 100.0;
+                }
+            }
+            if custom.is_none() && info.resolved.pipeline.sampler == li_ai::family::SamplerStyle::Ksampler {
+                ui.horizontal(|ui| {
+                    label(ui, "Sampler");
+                    let samplers = ["", "euler", "euler_ancestral", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_sde", "uni_pc", "res_multistep", "lcm"];
+                    let opts: Vec<(String, &str)> = samplers.iter().map(|x| (x.to_string(), if x.is_empty() { "Model default" } else { *x })).collect();
+                    widgets::dropdown(ui, "gen-sampler", &mut s.sampler, &opts, 130.0);
+                    let schedulers = ["", "simple", "normal", "karras", "sgm_uniform", "beta", "exponential"];
+                    let opts: Vec<(String, &str)> = schedulers.iter().map(|x| (x.to_string(), if x.is_empty() { "Default" } else { *x })).collect();
+                    widgets::dropdown(ui, "gen-scheduler", &mut s.scheduler, &opts, 100.0);
+                });
             }
             ui.horizontal(|ui| {
                 label(ui, "Seed");
@@ -352,26 +724,40 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     ui.label(RichText::new("new each time").color(t.text_faint));
                 }
             });
-            if info.negative_prompt {
-                ui.add(egui::TextEdit::singleline(&mut s.negative).hint_text("Avoid… (negative prompt)").desired_width(f32::INFINITY));
-            }
         });
         s.advanced = resp.fully_open();
-        // Readiness and the Generate button.
+        // ---- Readiness and the button.
         let variant = s.variant.clone();
-        let ready = st.ready(m, &variant);
-        let blocker = match (s.mode, has_doc, has_sel) {
-            _ if s.prompt.trim().is_empty() => Some("Describe what you want first."),
-            (Mode::Edit, false, _) => Some("Open an image to edit."),
-            (Mode::Fill, _, false) => Some("Make a selection to fill."),
+        let ready = match &custom {
+            Some(_) if st.connected => Ok(()),
+            Some(_) => Err("The AI engine (ComfyUI) is not running.".to_owned()),
+            None => st.ready(m, &variant),
+        };
+        let refine_ready = if s.refine && s.mode == Mode::Create && custom.is_none() {
+            match ModelId::from_key(&s.refine_model) {
+                Some(rm) => st.ready(rm, &s.refine_variant).map_err(|e| format!("Refine model: {e}")),
+                None => Err("Choose a model to refine with.".into()),
+            }
+        } else {
+            Ok(())
+        };
+        let needs_prompt = wants_prompt && matches!(s.mode, Mode::Create | Mode::Edit | Mode::Fill);
+        let blocker = match s.mode {
+            _ if needs_prompt && s.prompt.trim().is_empty() => Some("Describe what you want first."),
+            Mode::Edit | Mode::Refine | Mode::Upscale if !has_doc => Some("Open an image first."),
+            Mode::Fill if !has_sel => Some("Make a selection to fill."),
             _ => None,
         };
         ui.add_space(4.0);
-        if let Err(why) = &ready {
+        for why in [ready.as_ref().err(), refine_ready.as_ref().err()].into_iter().flatten() {
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new(why).color(t.warning).size(11.5));
-                if widgets::secondary_button(ui, if st.connected { "Get models…" } else { "Set up AI…" }, 0.0).clicked() {
-                    crate::ai_ui::open_local_ai(app);
+                if !st.connected {
+                    if widgets::secondary_button(ui, "Set up AI…", 0.0).clicked() {
+                        crate::ai_ui::open_local_ai(app);
+                    }
+                } else if widgets::secondary_button(ui, "Get models…", 0.0).clicked() {
+                    crate::model_browser::open();
                 }
             });
         }
@@ -381,8 +767,10 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             Mode::Create => "Generate".into(),
             Mode::Edit => "Apply Edit".into(),
             Mode::Fill => "Fill Selection".into(),
+            Mode::Refine => "Refine".into(),
+            Mode::Upscale => format!("Upscale {}×", widgets::fmt_num(s.upscale as f64)),
         };
-        let can = blocker.is_none() && ready.is_ok();
+        let can = blocker.is_none() && ready.is_ok() && refine_ready.is_ok();
         let clicked = ui
             .add_enabled_ui(can, |ui| {
                 let w = ui.available_width();
@@ -399,12 +787,145 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     });
 }
 
-fn references_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui, m: ModelId) {
+fn loras_ui(ui: &mut egui::Ui, s: &mut GenerateState, fam: &li_ai::family::Family, t: &Tokens) {
+    let available = li_ai::inventory::loras_for(fam);
+    let max = fam.lora.max.max(1) as usize;
+    ui.horizontal(|ui| {
+        label(ui, &format!("Styles (LoRA) · {}/{max}", s.loras.len()));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let free: Vec<&(li_ai::inventory::InstalledLora, bool)> = available.iter().filter(|(l, _)| !s.loras.iter().any(|p| p.name == l.name)).collect();
+            let can = s.loras.len() < max && !free.is_empty();
+            let tip = if available.is_empty() { "No LoRAs for this model family are installed (Browse Models… › LoRAs)" } else { "Add a LoRA" };
+            if ui.add_enabled(can, egui::Button::new("+ Add")).on_hover_text(tip).on_disabled_hover_text(tip).clicked()
+                && let Some((l, _)) = free.first()
+            {
+                s.loras.push(LoraPick { name: l.name.clone(), strength: 0.8 });
+            }
+        });
+    });
+    let mut remove = None;
+    for (i, pick) in s.loras.iter_mut().enumerate() {
+        ui.horizontal(|ui| {
+            let opts: Vec<(String, String)> = available
+                .iter()
+                .map(|(l, sure)| (l.name.clone(), format!("{}{}", li_ai::inventory::label_for(&l.name), if *sure { "" } else { " (family unknown)" })))
+                .collect();
+            let refs: Vec<(String, &str)> = opts.iter().map(|(k, l)| (k.clone(), l.as_str())).collect();
+            widgets::dropdown(ui, &format!("gen-lora-{i}"), &mut pick.name, &refs, (ui.available_width() - 110.0).max(80.0));
+            widgets::value_field(ui, &mut pick.strength, -2.0..=2.0, "", 52.0).on_hover_text("Strength");
+            if crate::icons::button(ui, "x", 20.0, false, "Remove").clicked() {
+                remove = Some(i);
+            }
+        });
+    }
+    if let Some(i) = remove {
+        s.loras.remove(i);
+    }
+    if s.loras.is_empty() && available.is_empty() {
+        ui.label(RichText::new("No compatible LoRAs installed.").color(t.text_faint).size(11.0));
+    }
+}
+
+fn apply_preset(s: &mut GenerateState, p: &li_ai::presets::GenPreset) {
+    s.preset = p.name.clone();
+    let model = p.model.as_deref().and_then(ModelId::from_key).or_else(|| {
+        let fam = p.family.as_deref()?;
+        let st = crate::ai_ui::status();
+        let all = ModelId::all();
+        all.iter().copied().find(|m| m.info().family == fam && catalog::presets_for(*m).any(|x| st.ready(*m, &x.variant).is_ok())).or_else(|| all.into_iter().find(|m| m.info().family == fam))
+    });
+    if let Some(m) = model {
+        set_model(s, m);
+    }
+    if !p.negative.is_empty() {
+        s.negative = p.negative.clone();
+    }
+    if let Some(v) = p.steps {
+        s.steps = v;
+    }
+    if let Some(v) = p.cfg {
+        s.guidance = v;
+    }
+    if let Some((a, b)) = &p.sampler {
+        s.sampler = a.clone();
+        s.scheduler = b.clone();
+    }
+    if !p.loras.is_empty() {
+        s.loras = p.loras.iter().map(|l| LoraPick { name: l.name.clone(), strength: l.strength }).collect();
+    }
+    if let Some(rm) = &p.refine_model {
+        s.refine = true;
+        s.refine_model = rm.clone();
+        s.refine_variant = ModelId::from_key(rm).map(|m| catalog::default_variant(m).to_owned()).unwrap_or_default();
+        s.refine_strength = p.refine_strength.unwrap_or(0.35);
+    }
+}
+
+fn save_preset(s: &mut GenerateState, name: &str) {
+    let current = presets().into_iter().find(|p| p.name == s.preset);
+    let preset = li_ai::presets::GenPreset {
+        name: name.to_owned(),
+        model: (!s.model.starts_with("custom:")).then(|| s.model.clone()),
+        family: None,
+        template: current.map(|p| p.template).unwrap_or_default(),
+        negative: s.negative.clone(),
+        steps: Some(s.steps),
+        cfg: Some(s.guidance),
+        sampler: (!s.sampler.is_empty()).then(|| (s.sampler.clone(), if s.scheduler.is_empty() { "simple".into() } else { s.scheduler.clone() })),
+        loras: s.loras.iter().map(|l| li_ai::presets::PresetLora { name: l.name.clone(), strength: l.strength }).collect(),
+        refine_model: s.refine.then(|| s.refine_model.clone()),
+        refine_strength: s.refine.then_some(s.refine_strength),
+        built_in: false,
+    };
+    let mut all = presets();
+    all.retain(|p| p.name != preset.name || p.built_in);
+    all.push(preset);
+    let _ = li_ai::presets::save_user(&li_ai::presets::path(), &all);
+    rt(|r| r.presets = None);
+    s.preset = name.to_owned();
+}
+
+/// Generate › Import Workflow…: a ComfyUI workflow (API or editor format) with `li:` titles.
+pub fn import_workflow(app: &mut PhotocraftApp) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let Some(path) = rfd::FileDialog::new().set_title("Import ComfyUI Workflow").add_filter("ComfyUI workflow", &["json"]).pick_file() else { return };
+        match import_workflow_path(&path) {
+            Ok(name) => {
+                app.ui.ai.generate.model = format!("custom:{name}");
+                app.ui.status = format!("Imported the workflow “{name}”.");
+                app.ui.status_error = false;
+            }
+            Err(e) => {
+                app.ui.status = e;
+                app.ui.status_error = true;
+            }
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    let _ = app;
+}
+
+/// Imports a workflow file; returns its name.
+pub fn import_workflow_path(path: &std::path::Path) -> Result<String, String> {
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let json: Value = serde_json::from_slice(&bytes).map_err(|_| "That file is not a ComfyUI workflow (JSON).".to_owned())?;
+    let name = path.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Workflow".into());
+    let info = li_ai::service().client.object_info().ok();
+    let w = li_ai::custom::import(&name, &json, info.as_ref()).map_err(|e| format!("{e:#}"))?;
+    if w.fields.is_empty() {
+        return Err("The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.".into());
+    }
+    li_ai::custom::save(&w, &li_ai::custom::dir()).map_err(|e| format!("{e:#}"))?;
+    rt(|r| r.customs = None);
+    Ok(w.name)
+}
+
+fn references_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui, max: usize, init_image: bool) {
     let t = Tokens::get(ui.ctx());
-    let max = m.info().max_references;
     let n = rt(|r| r.references.len());
     ui.horizontal(|ui| {
-        label(ui, &format!("{} · {n}/{max}", if m.info().init_image { "Starting image" } else { "References" }));
+        label(ui, &format!("{} · {n}/{max}", if init_image { "Starting image" } else { "References" }));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let full = n >= max;
             ui.add_enabled_ui(!full, |ui| {
@@ -462,83 +983,177 @@ fn add_reference(_ctx: &egui::Context, name: String, img: RgbaImage) {
 /// Starts the generation jobs for the current settings.
 fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let s = app.ui.ai.generate.clone();
-    let m = model_of(&s);
-    if s.mode == Mode::Fill {
-        let r = app.run("ai.generativeFill", json!({ "prompt": s.prompt, "engine": s.variant }));
-        if let Err(e) = r {
-            app.ui.status = e;
-            app.ui.status_error = true;
+    let preset = presets().into_iter().find(|p| p.name == s.preset);
+    let prompt = preset.as_ref().map_or_else(|| s.prompt.trim().to_owned(), |p| p.apply(&s.prompt));
+    let doc = app.session.active().map(|d| (d.doc.id, photocraft_engine::ai_cmds::flatten_rgba(&d.doc), photocraft_engine::ai_cmds::selection_gray(&d.doc)));
+    let refs: Vec<RgbaImage> = rt(|r| r.references.iter().map(|x| (*x.image).clone()).collect());
+    // Custom workflows.
+    if let Some(w) = custom_of(&s) {
+        let mut images = Vec::new();
+        if let Some((_, img, _)) = &doc
+            && s.mode != Mode::Create
+        {
+            images.push(img.clone());
         }
+        images.extend(refs);
+        let mask = doc.as_ref().and_then(|(_, _, m)| m.clone());
+        let seed = s.seed.unwrap_or_else(li_ai::ops::new_seed);
+        let inputs = li_ai::custom::Inputs {
+            prompt: prompt.clone(),
+            negative: s.negative.clone(),
+            seed,
+            steps: Some(s.steps),
+            cfg: Some(s.guidance),
+            denoise: Some(s.denoise),
+            width: Some(s.width),
+            height: Some(s.height),
+        };
+        let name = format!("{}-{seed}", w.name.replace(' ', ""));
+        let meta = json!({ "model": format!("custom:{}", w.name), "prompt": prompt, "negative_prompt": s.negative, "seed": seed, "mode": "custom" });
+        let label = format!("Running {}", w.name);
+        launch(app, &label, name, meta, None, false, move |ctl| li_ai::service().run_custom(&w, &inputs, &images, mask.as_ref(), ctl));
+        ctx.request_repaint();
         return;
     }
-    let mut req = GenerateRequest::new(m, s.prompt.trim());
+    let m = model_of(&s);
+    let info = m.info();
+    let mut req = GenerateRequest::new(m, prompt);
     req.variant = s.variant.clone();
     req.width = s.width;
     req.height = s.height;
-    req.transparent = s.transparent && m.info().transparent;
+    req.transparent = s.transparent && info.transparent;
     req.steps = s.steps;
     req.guidance = s.guidance;
     req.negative = s.negative.clone();
     req.denoise = s.denoise;
-    let mut target_doc = None;
-    if s.mode == Mode::Edit {
-        let Some(d) = app.session.active() else { return };
-        req.mode = GenerateMode::Edit;
-        req.references = vec![photocraft_engine::ai_cmds::flatten_rgba(&d.doc)];
-        target_doc = Some(d.doc.id);
-        (req.width, req.height) = (d.doc.size.width, d.doc.size.height);
-    } else {
-        req.references = rt(|r| r.references.iter().map(|x| (*x.image).clone()).collect());
+    req.scale = s.upscale;
+    req.loras = s.loras.iter().map(|l| li_ai::workflows::LoraUse { name: l.name.clone(), strength: l.strength }).collect();
+    if !s.sampler.is_empty() {
+        req.sampler = Some((s.sampler.clone(), if s.scheduler.is_empty() { info.resolved.pipeline.scheduler.clone() } else { s.scheduler.clone() }));
+    }
+    req.references = refs;
+    let (mut target_doc, mut open) = (None, false);
+    match s.mode {
+        Mode::Create => {
+            if s.refine
+                && let Some(rm) = ModelId::from_key(&s.refine_model)
+            {
+                req.refine = Some(li_ai::RefineStep {
+                    model: rm,
+                    variant: s.refine_variant.clone(),
+                    strength: s.refine_strength,
+                    steps: None,
+                    guidance: None,
+                    scale: s.refine_scale,
+                });
+            }
+        }
+        mode => {
+            let Some((id, img, sel)) = doc else { return };
+            req.mode = match mode {
+                Mode::Edit => GenerateMode::Edit,
+                Mode::Fill => GenerateMode::Inpaint,
+                Mode::Refine => GenerateMode::Refine,
+                _ => GenerateMode::UpscaleRefine,
+            };
+            (req.width, req.height) = (img.width(), img.height());
+            req.source = Some(img);
+            if mode == Mode::Fill {
+                req.mask = sel;
+            }
+            if mode == Mode::Upscale {
+                open = true;
+            } else {
+                target_doc = Some(id);
+            }
+        }
     }
     if let Err(e) = req.validate() {
         app.ui.status = e.to_string();
         app.ui.status_error = true;
         return;
     }
+    let fill = s.mode == Mode::Fill;
     let count = if s.mode == Mode::Create { s.count.clamp(1, 4) } else { 1 };
     for i in 0..count {
         let mut r = req.clone();
         r.seed = s.seed.map(|v| v.wrapping_add(i as u64)).unwrap_or_else(li_ai::ops::new_seed);
-        let label = format!("Generating with {}", m.info().short);
-        let name = format!("{}-{}", m.info().short.replace(' ', ""), r.seed);
+        let label = format!("{} with {}", s.mode.label(), info.short);
+        let name = format!("{}-{}", info.short.replace(' ', ""), r.seed);
         let meta = json!({
-            "model": m.key(), "variant": r.variant, "prompt": r.prompt, "negative_prompt": r.negative, "width": r.width, "height": r.height,
+            "model": m.key(), "family": info.family, "variant": r.variant, "prompt": r.prompt, "negative_prompt": r.negative, "width": r.width, "height": r.height,
             "seed": r.seed, "transparent": r.transparent, "steps": r.steps, "guidance": r.guidance, "denoise": r.denoise,
-            "reference_count": r.references.len(), "mode": if s.mode == Mode::Edit { "edit" } else { "create" },
+            "loras": s.loras.iter().map(|l| json!({"name": l.name, "strength": l.strength})).collect::<Vec<_>>(),
+            "refine": r.refine.as_ref().map(|x| json!({"model": x.model.key(), "strength": x.strength, "scale": x.scale})),
+            "reference_count": r.references.len(), "mode": format!("{:?}", s.mode).to_lowercase(),
         });
-        let params = json!({ "edit": target_doc.map(|d| d.0), "name": name.clone() });
-        let started = app.session.start_job(
-            GENERATE_JOB,
-            params,
-            &label,
-            false,
-            move |ctx| {
-                let img = photocraft_engine::ai_cmds::bridged(ctx, |ctl| li_ai::service().generate(&r, ctl))?;
-                ctx.progress(0.98, "Saving to the library");
-                let entry = Library::default()
-                    .add(&img, &name, Some(meta), None)
-                    .map_err(|e| photocraft_engine::EngineError::Other(format!("Could not save to the library: {e:#}")))?;
-                Ok(entry)
-            },
-            |_, entry| Ok(serde_json::to_value(entry).unwrap_or(Value::Null)),
-        );
-        match started {
-            Ok(photocraft_engine::jobs::Started::Job(id)) => {
-                rt(|rt| rt.results.push_front(Tile::Pending { job: id.0, label: label.clone(), edit: target_doc.map(|d| d.0) }))
-            }
-            Ok(photocraft_engine::jobs::Started::Done(v)) => {
-                if let Ok(e) = serde_json::from_value::<Entry>(v) {
-                    rt(|rt| rt.results.push_front(Tile::Done(e)));
+        let mask = r.mask.clone();
+        let ok = launch(app, &label, name, meta, target_doc.map(|d| d.0), open, move |ctl| {
+            let out = li_ai::service().generate(&r, ctl)?;
+            // Fill lands as a layer holding only the regenerated area.
+            Ok(match (fill, mask) {
+                (true, Some(m)) => {
+                    let grown = li_ai::imaging::dilate(&m, 6);
+                    let soft = image::imageops::blur(&grown, 3.0);
+                    RgbaImage::from_fn(out.width(), out.height(), |x, y| {
+                        let mut p = *out.get_pixel(x, y);
+                        p[3] = soft.get_pixel(x, y)[0];
+                        p
+                    })
                 }
-            }
-            Err(e) => {
-                app.ui.status = e.to_string();
-                app.ui.status_error = true;
-                break;
-            }
+                _ => out,
+            })
+        });
+        if !ok {
+            break;
         }
     }
     ctx.request_repaint();
+}
+
+/// Starts one job that produces an image, saves it to the library and shows its tile.
+fn launch(
+    app: &mut PhotocraftApp,
+    label: &str,
+    name: String,
+    meta: Value,
+    edit: Option<u64>,
+    open: bool,
+    work: impl FnOnce(&li_ai::JobControl) -> anyhow::Result<RgbaImage> + Send + 'static,
+) -> bool {
+    let params = json!({ "edit": edit, "name": name.clone(), "open": open });
+    let started = app.session.start_job(
+        GENERATE_JOB,
+        params,
+        label,
+        false,
+        move |ctx| {
+            let img = photocraft_engine::ai_cmds::bridged(ctx, work)?;
+            ctx.progress(0.98, "Saving to the library");
+            let entry = Library::default()
+                .add(&img, &name, Some(meta), None)
+                .map_err(|e| photocraft_engine::EngineError::Other(format!("Could not save to the library: {e:#}")))?;
+            Ok(entry)
+        },
+        |_, entry| Ok(serde_json::to_value(entry).unwrap_or(Value::Null)),
+    );
+    match started {
+        Ok(photocraft_engine::jobs::Started::Job(id)) => {
+            rt(|rt| rt.results.push_front(Tile::Pending { job: id.0, label: label.to_owned(), edit, open }));
+            true
+        }
+        Ok(photocraft_engine::jobs::Started::Done(v)) => {
+            if let Ok(e) = serde_json::from_value::<Entry>(v) {
+                rt(|rt| rt.results.push_front(Tile::Done(e)));
+            }
+            true
+        }
+        Err(e) => {
+            app.ui.status = e.to_string();
+            app.ui.status_error = true;
+            false
+        }
+    }
 }
 
 /// A generation job ended.
@@ -549,14 +1164,25 @@ pub fn on_generated(app: &mut PhotocraftApp, e: &JobEvent) {
                 app.ui.status = format!("Generated {} · seed {}", entry.name, entry.seed().unwrap_or(0));
                 app.ui.status_error = false;
                 // An edit of an open document lands on it as a new layer.
-                let edit_doc = rt(|r| {
-                    r.results.iter().find_map(|t| match t {
-                        Tile::Pending { job, edit, .. } if *job == e.id.0 => *edit,
-                        _ => None,
-                    })
+                let (edit_doc, open) = rt(|r| {
+                    r.results
+                        .iter()
+                        .find_map(|t| match t {
+                            Tile::Pending { job, edit, open, .. } if *job == e.id.0 => Some((*edit, *open)),
+                            _ => None,
+                        })
+                        .unwrap_or((None, false))
                 });
                 if let Some(doc) = edit_doc {
                     place_into(app, doc, &entry);
+                } else if open {
+                    let path = Library::default().image_path(&entry.id);
+                    if let Ok(bytes) = std::fs::read(&path)
+                        && let Err(err) = app.open_bytes(&format!("{}.png", entry.name), &bytes)
+                    {
+                        app.ui.status = err;
+                        app.ui.status_error = true;
+                    }
                 }
                 Tile::Done(entry)
             }
@@ -758,8 +1384,17 @@ fn entry_action(app: &mut PhotocraftApp, ctx: &egui::Context, e: &Entry, act: &s
         "recreate" => {
             if let Some(g) = &e.generation {
                 let s = &mut app.ui.ai.generate;
-                if let Some(m) = g.get("model").and_then(Value::as_str).and_then(ModelId::from_key) {
-                    set_model(s, m);
+                match g.get("model").and_then(Value::as_str) {
+                    Some(k) if k.starts_with("custom:") => s.model = k.to_owned(),
+                    Some(k) => {
+                        if let Some(m) = ModelId::from_key(k) {
+                            set_model(s, m);
+                        }
+                    }
+                    None => {}
+                }
+                if let Some(n) = g.get("negative_prompt").and_then(Value::as_str) {
+                    s.negative = n.to_owned();
                 }
                 s.prompt = e.prompt().to_owned();
                 if let Some(v) = g.get("variant").and_then(Value::as_str) {

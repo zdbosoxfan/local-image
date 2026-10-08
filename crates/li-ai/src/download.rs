@@ -21,12 +21,94 @@ const ALLOWED_HOSTS: &[&str] = &[
     "cdn-lfs.huggingface.co",
     "cdn-lfs.hf.co",
     "us.aws.cdn.hf.co",
+    "civitai.com",
+    "civitai.red",
 ];
 
+/// Host suffixes of the CDNs the allowed hosts redirect to (Hugging Face's Xet and LFS CDNs,
+/// Civitai's delivery buckets on Cloudflare R2 and Backblaze B2).
+const ALLOWED_SUFFIXES: &[&str] = &[".hf.co", ".huggingface.co", ".r2.cloudflarestorage.com", ".backblazeb2.com"];
+
+fn host_of(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"))?;
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let authority = authority.rsplit('@').next().unwrap_or(authority);
+    Some(authority.to_ascii_lowercase())
+}
+
+/// Whether a download may come from `url`: HTTPS to an allow-listed host, or plain HTTP to the
+/// exact `host:port` in `LOCAL_IMAGE_TEST_DOWNLOAD_HOST` (the mock server in tests and demos).
 pub fn host_allowed(url: &str) -> bool {
-    let Some(rest) = url.strip_prefix("https://") else { return false };
-    let host = rest.split(['/', '?', '#']).next().unwrap_or("").split(':').next().unwrap_or("").to_ascii_lowercase();
-    ALLOWED_HOSTS.contains(&host.as_str()) || host.ends_with(".xethub.hf.co")
+    let Some(authority) = host_of(url) else { return false };
+    if url.starts_with("http://") {
+        return std::env::var("LOCAL_IMAGE_TEST_DOWNLOAD_HOST").is_ok_and(|t| !t.is_empty() && t.eq_ignore_ascii_case(&authority));
+    }
+    let host = authority.split(':').next().unwrap_or("");
+    ALLOWED_HOSTS.contains(&host) || ALLOWED_SUFFIXES.iter().any(|s| host.ends_with(s))
+}
+
+fn download_agent(timeout_body: Duration) -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_connect(Some(Duration::from_secs(20)))
+        .timeout_recv_body(Some(timeout_body))
+        .max_redirects(0)
+        .http_status_as_error(false)
+        .user_agent(concat!("LocalImage/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .into()
+}
+
+fn resolve_redirect(url: &str, loc: &str) -> Result<String> {
+    if loc.starts_with("https://") || loc.starts_with("http://") {
+        Ok(loc.to_owned())
+    } else if loc.starts_with('/') {
+        let origin: String = url.splitn(4, '/').take(3).collect::<Vec<_>>().join("/");
+        Ok(format!("{origin}{loc}"))
+    } else {
+        bail!("Unexpected redirect: {loc}")
+    }
+}
+
+/// GETs `url` following redirects (each checked against the allow-list). The token is sent only
+/// to the first URL's own host, never to the CDN a redirect points at.
+fn open(agent: &ureq::Agent, url: &str, token: Option<&str>, head: bool) -> Result<(String, ureq::http::Response<ureq::Body>)> {
+    let first = host_of(url);
+    let mut url = url.to_owned();
+    for _ in 0..8 {
+        if !host_allowed(&url) {
+            bail!("Refusing to download from an unexpected host: {url}");
+        }
+        let auth = token.filter(|t| !t.is_empty() && host_of(&url) == first).map(|t| format!("Bearer {t}"));
+        let r = if head {
+            let mut req = agent.head(&url);
+            if let Some(a) = &auth {
+                req = req.header("Authorization", a);
+            }
+            req.call()?
+        } else {
+            let mut req = agent.get(&url);
+            if let Some(a) = &auth {
+                req = req.header("Authorization", a);
+            }
+            req.call()?
+        };
+        if r.status().is_redirection() {
+            let loc = r.headers().get("location").and_then(|v| v.to_str().ok()).context("redirect without a location")?;
+            url = resolve_redirect(&url, loc)?;
+            continue;
+        }
+        if !r.status().is_success() {
+            bail!("Download failed: HTTP {} for {url}", r.status().as_u16());
+        }
+        return Ok((url, r));
+    }
+    bail!("too many redirects")
+}
+
+/// The size of a download (`Content-Length` of the final response after redirects).
+pub fn remote_size(url: &str, token: Option<&str>) -> Result<Option<u64>> {
+    let (_, r) = open(&download_agent(Duration::from_secs(30)), url, token, true)?;
+    Ok(r.headers().get("content-length").and_then(|v| v.to_str().ok()).and_then(|v| v.parse().ok()))
 }
 
 /// Progress of a multi-file download.
@@ -109,6 +191,11 @@ pub fn download_preset(model_dir: &Path, preset: &Preset, ctl: &JobControl, on_p
 
 /// Downloads one file with size and SHA-256 enforcement.
 pub fn download_file(url: &str, dest: &Path, bytes: u64, sha256: &str, ctl: &JobControl, on_bytes: &dyn Fn(u64)) -> Result<()> {
+    download_file_with(url, dest, bytes, sha256, None, ctl, on_bytes)
+}
+
+/// [`download_file`] with an access token for the first host (Hugging Face, Civitai).
+pub fn download_file_with(url: &str, dest: &Path, bytes: u64, sha256: &str, token: Option<&str>, ctl: &JobControl, on_bytes: &dyn Fn(u64)) -> Result<()> {
     if dest.exists() {
         bail!("{} already exists", dest.display());
     }
@@ -119,40 +206,7 @@ pub fn download_file(url: &str, dest: &Path, bytes: u64, sha256: &str, ctl: &Job
     {
         bail!("Not enough disk space in {}: {} needed.", dir.display(), human_bytes(bytes + (256 << 20)));
     }
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_connect(Some(Duration::from_secs(20)))
-        .timeout_recv_body(Some(Duration::from_secs(120)))
-        .max_redirects(0)
-        .http_status_as_error(false)
-        .user_agent(concat!("LocalImage/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .into();
-    let mut url = url.to_owned();
-    let mut response = None;
-    for _ in 0..8 {
-        if !host_allowed(&url) {
-            bail!("Refusing to download from an unexpected host: {url}");
-        }
-        let r = agent.get(&url).call()?;
-        if r.status().is_redirection() {
-            let loc = r.headers().get("location").and_then(|v| v.to_str().ok()).context("redirect without a location")?;
-            url = if loc.starts_with("https://") {
-                loc.to_owned()
-            } else if loc.starts_with('/') {
-                let origin: String = url.splitn(4, '/').take(3).collect::<Vec<_>>().join("/");
-                format!("{origin}{loc}")
-            } else {
-                bail!("Unexpected redirect: {loc}");
-            };
-            continue;
-        }
-        if !r.status().is_success() {
-            bail!("Download failed: HTTP {} for {url}", r.status().as_u16());
-        }
-        response = Some(r);
-        break;
-    }
-    let mut r = response.context("too many redirects")?;
+    let (_, mut r) = open(&download_agent(Duration::from_secs(120)), url, token, false)?;
     let part = dir.join(format!(".{}.local-image-{}.part", dest.file_name().and_then(|n| n.to_str()).unwrap_or("file"), uuid::Uuid::new_v4().simple()));
     let result = (|| -> Result<()> {
         let mut out = std::fs::File::create(&part)?;

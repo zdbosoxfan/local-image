@@ -136,6 +136,26 @@ pub fn flatten_rgba(doc: &Document) -> RgbaImage {
     })
 }
 
+/// local-image: the selection as an 8-bit mask the size of the document (white = selected), or
+/// `None` without a selection.
+pub fn selection_gray(doc: &Document) -> Option<GrayImage> {
+    let sel = doc.selection.as_ref()?;
+    let bounds = doc.bounds();
+    let r = sel.content_bounds().intersect(&bounds);
+    if r.is_empty() {
+        return None;
+    }
+    let vals = sel.read_region(r);
+    let mut m = GrayImage::new(bounds.width(), bounds.height());
+    for y in r.y0..r.y1 {
+        for x in r.x0..r.x1 {
+            let v = vals[((y - r.y0) as u32 * r.width() + (x - r.x0) as u32) as usize];
+            m.put_pixel(x as u32, y as u32, Luma([(v.clamp(0.0, 1.0) * 255.0).round() as u8]));
+        }
+    }
+    Some(m)
+}
+
 /// A new raster layer holding `img`, in the document's format, at `(x, y)`.
 pub fn layer_from_rgba(doc: &Document, name: &str, img: &RgbaImage, x: i32, y: i32) -> Layer {
     let fmt = doc.pixel_format();

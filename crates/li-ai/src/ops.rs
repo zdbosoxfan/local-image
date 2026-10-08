@@ -702,6 +702,40 @@ impl Ai {
         }
     }
 
+    /// Runs an imported custom workflow: its marked fields get `inputs`; `images` fills its
+    /// `li:image…` inputs in order, `mask` its `li:mask`.
+    pub fn run_custom(
+        &self,
+        w: &crate::custom::CustomWorkflow,
+        inputs: &crate::custom::Inputs,
+        images: &[RgbaImage],
+        mask: Option<&GrayImage>,
+        ctl: &JobControl,
+    ) -> Result<RgbaImage> {
+        use crate::custom::FieldKind;
+        ctl.set_stage(Stage::Preparing);
+        let info = self.inventory()?;
+        let missing: Vec<String> =
+            w.graph.as_object().into_iter().flat_map(|o| o.values()).filter_map(|n| n["class_type"].as_str()).filter(|c| !info.has_node(c)).map(str::to_owned).collect();
+        if !missing.is_empty() {
+            bail!("This workflow needs nodes ComfyUI doesn't have: {}. Install them with ComfyUI-Manager.", missing.join(", "));
+        }
+        if w.has(&FieldKind::Prompt) && inputs.prompt.trim().is_empty() {
+            bail!("Describe the image first.");
+        }
+        let (graph, slots) = crate::custom::prepare(w, inputs);
+        let mut uploads = Vec::new();
+        for (kind, node) in slots {
+            let png = match kind {
+                FieldKind::Image(i) => imaging::encode_png(&imaging::over_white(images.get(i as usize).with_context(|| format!("This workflow takes image {} — add it first.", i + 1))?))?,
+                FieldKind::Mask => imaging::encode_png(&image::DynamicImage::ImageLuma8(mask.context("This workflow needs a selection.")?.clone()).to_rgb8())?,
+                _ => continue,
+            };
+            uploads.push((node, png));
+        }
+        imaging::decode_rgba(&self.client.run(graph, &uploads, ctl)?)
+    }
+
     /// SeedVR2 enhancement to `width × height` (same aspect, larger, even). Keeps the alpha.
     pub fn upscale(&self, image: &RgbaImage, width: u32, height: u32, seed: u64, ctl: &JobControl) -> Result<RgbaImage> {
         let (sw, sh) = image.dimensions();
