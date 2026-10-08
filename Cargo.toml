@@ -1,45 +1,132 @@
-# Local Image 2: PhotoCraft's editor and LightCraft's photo pipeline, vendored unmodified-as-possible
-# under vendor/ (git subtree; see docs/UPSTREAM.md), plus Local Image's own AI crates.
+# Local Image 2 — one native app: a layered raster editor (from PhotoCraft), a photo catalog and
+# raw pipeline (from LightCraft) and local AI (ComfyUI). GPL-3.0-or-later; see LICENSE and
+# licenses/ for the notices of the MIT/Apache-2.0 projects this work incorporates.
 [workspace]
 resolver = "3"
-members = ["crates/*"]
-# The vendored projects are their own Cargo workspaces; our crates use them as path dependencies.
-exclude = ["vendor"]
+members = ["crates/*", "apps/*"]
+default-members = ["apps/local-image", "apps/local-image-cli"]
 
 [workspace.package]
 version = "2.0.0-alpha.1"
 edition = "2024"
-license = "MIT OR Apache-2.0"
+license = "GPL-3.0-or-later"
 rust-version = "1.95"
 repository = "https://github.com/zdbosoxfan/local-image"
 
 [workspace.dependencies]
+ab_glyph = { version = "0.2", default-features = false, features = ["std"] }
+anyhow = { version = "1" }
+arc-swap = { version = "1" }
+bytemuck = { version = "1", features = ["derive"] }
+candle-core = { version = "=0.9.2", default-features = false }
+candle-nn = { version = "=0.9.2", default-features = false }
+crc32fast = { version = "1" }
+criterion = { version = "0.5", default-features = false }
+dhat = { version = "0.3" }
+dirs = { version = "6" }
+eframe = { version = "0.36", default-features = false }
+egui = { version = "0.36" }
+egui_extras = { version = "0.36", default-features = false }
+egui_kittest = { version = "0.36" }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+getrandom = { version = "0.3" }
+hex = { version = "0.4" }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff", "webp"] }
+image-webp = { version = "0.2" }
+jpeg-decoder = { version = "0.3", default-features = false }
+jpeg-encoder = { version = "0.7", default-features = false, features = ["std"] }
+js-sys = { version = "0.3" }
+jxl-oxide = { version = "0.12", default-features = false }
 li-ai = { path = "crates/li-ai" }
-
-anyhow = "1"
+li-seg = { path = "crates/li-seg" }
+libc = { version = "0.2" }
+lightcraft-catalog = { path = "crates/lc-catalog" }
+lightcraft-codecs = { path = "crates/lc-codecs" }
+lightcraft-color = { path = "crates/lc-color" }
+lightcraft-develop = { path = "crates/lc-develop" }
+lightcraft-engine = { path = "crates/lc-engine" }
+lightcraft-fetch = { path = "crates/lc-fetch" }
+lightcraft-geom = { path = "crates/lc-geom" }
+lightcraft-gpu = { path = "crates/lc-gpu" }
+lightcraft-mcp = { path = "crates/lc-mcp" }
+lightcraft-merge = { path = "crates/lc-merge" }
+lightcraft-meta = { path = "crates/lc-meta" }
+lightcraft-pipeline = { path = "crates/lc-pipeline" }
+lightcraft-preview = { path = "crates/lc-preview" }
+lightcraft-raster = { path = "crates/lc-raster" }
+lightcraft-raw = { path = "crates/lc-raw" }
+lightcraft-scenes = { path = "crates/lc-scenes" }
+lightcraft-segment = { path = "crates/lc-segment" }
+lightcraft-sysmem = { path = "crates/lc-sysmem" }
+lightcraft-tiff = { path = "crates/lc-tiff" }
+lightcraft-ui-egui = { path = "crates/lc-ui-egui" }
+log = { version = "0.4" }
+miniz_oxide = { version = "0.8" }
+moxcms = { version = "0.9", default-features = false, features = ["lut"] }
+muda = { version = "0.21", default-features = false }
+photocraft-algo = { path = "crates/pc-algo" }
+photocraft-automation = { path = "crates/pc-automation" }
+photocraft-cms = { path = "crates/pc-cms" }
+photocraft-codecs = { path = "crates/pc-codecs" }
+photocraft-color = { path = "crates/pc-color" }
+photocraft-compose = { path = "crates/pc-compose" }
+photocraft-doc = { path = "crates/pc-doc" }
+photocraft-engine = { path = "crates/pc-engine" }
+photocraft-format = { path = "crates/pc-format" }
+photocraft-geom = { path = "crates/pc-geom" }
+photocraft-gpu = { path = "crates/pc-gpu" }
+photocraft-io = { path = "crates/pc-io" }
+photocraft-ops = { path = "crates/pc-ops" }
+photocraft-paint = { path = "crates/pc-paint" }
+photocraft-plugins = { path = "crates/pc-plugins" }
+photocraft-psd = { path = "crates/pc-psd" }
+photocraft-raster = { path = "crates/pc-raster" }
+photocraft-raw = { path = "crates/pc-raw" }
+photocraft-tablet = { path = "crates/pc-tablet" }
+photocraft-testkit = { path = "crates/pc-testkit" }
+photocraft-text = { path = "crates/pc-text" }
+photocraft-ui-egui = { path = "crates/pc-ui-egui" }
+photocraft-vector = { path = "crates/pc-vector" }
+png = { version = "0.18" }
+pollster = { version = "1" }
+proptest = { version = "1" }
+quick-xml = { version = "0.38" }
+rand = { version = "0.9" }
+ravif = { version = "0.13", default-features = false, features = ["threading"] }
+rayon = { version = "1" }
+rfd = { version = "0.17" }
 serde = { version = "1", features = ["derive", "rc"] }
-serde_json = "1"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "tiff"] }
-rayon = "1"
-log = "0.4"
-sha2 = "0.10"
-hex = "0.4"
+serde_json = { version = "1", features = ["float_roundtrip"] }
+sha2 = { version = "0.10" }
+siphasher = { version = "1" }
+thiserror = { version = "2" }
+tiff = { version = "0.11" }
+tiny_http = { version = "0.12" }
+tungstenite = { version = "0.27" }
 ureq = { version = "3", features = ["json"] }
-tungstenite = "0.27"
 uuid = { version = "1", features = ["v4"] }
-rand = "0.9"
-dirs = "6"
-tiny_http = "0.12"
+wasm-bindgen = { version = "0.2.129" }
+wasm-bindgen-futures = { version = "0.4" }
+web-sys = { version = "0.3" }
+web-time = { version = "1" }
+wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "metal", "vulkan", "dx12", "wgsl"] }
+zune-core = { version = "0.5", default-features = false, features = ["std"] }
+zune-jpeg = { version = "0.5", default-features = false, features = ["std", "x86", "neon"] }
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+# PhotoCraft forbade unsafe code and LightCraft denied it; `deny` keeps both crates' rules (the
+# one isolated platform helper per project opts out explicitly).
+unsafe_code = "deny"
 
 [workspace.lints.clippy]
 dbg_macro = "warn"
 todo = "warn"
 too_many_arguments = "allow"
+needless_range_loop = "allow"
+type_complexity = "allow"
+excessive_precision = "allow"
 
-# Pixel code is unusably slow unoptimised; these match PhotoCraft's and LightCraft's own profiles.
+# Pixel code is unusably slow unoptimised.
 [profile.dev]
 opt-level = 1
 

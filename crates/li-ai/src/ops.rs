@@ -212,6 +212,31 @@ impl Ai {
         }))
     }
 
+    /// Generative fill: changes only the selected area according to `prompt` (Qwen edit with the
+    /// selection as a second reference, composited through the selection).
+    pub fn fill(&self, image: &RgbImage, mask: &GrayImage, prompt: &str, variant: &str, seed: u64, ctl: &JobControl) -> Result<RgbImage> {
+        if image.dimensions() != mask.dimensions() {
+            bail!("The selection does not match the image size.");
+        }
+        if prompt.trim().is_empty() {
+            bail!("Describe what should appear in the selection.");
+        }
+        if imaging::bbox(mask, 0).is_none() {
+            bail!("Make a selection first.");
+        }
+        ctl.set_stage(Stage::Preparing);
+        let info = self.inventory()?;
+        let instruction = format!(
+            "<image1> is the photograph to edit. <image2> is a black and white selection mask: white marks the area to change and black marks the area to keep. In the white area only: {}. Blend it naturally with the surrounding light, perspective and colour. Do not draw the mask in the result. Keep all other areas unchanged.",
+            prompt.trim()
+        );
+        let rgba = image::DynamicImage::ImageRgb8(image.clone()).to_rgba8();
+        let mask_rgba = image::DynamicImage::ImageLuma8(mask.clone()).to_rgba8();
+        let edited = self.qwen_edit(&[rgba, mask_rgba], &instruction, "", variant, seed, 25, 1.0, &[], &info, ctl)?;
+        let edited = image::DynamicImage::ImageRgba8(imaging::over_white(&edited)).to_rgb8();
+        Ok(RgbImage::from_fn(image.width(), image.height(), |x, y| if mask.get_pixel(x, y)[0] > 0 { *edited.get_pixel(x, y) } else { *image.get_pixel(x, y) }))
+    }
+
     /// Qwen "edit": the output follows reference 1 and is resized back to its size.
     #[allow(clippy::too_many_arguments)]
     fn qwen_edit(
