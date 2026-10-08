@@ -181,7 +181,10 @@ pub fn backends(plan: &Plan, os: Os) -> Option<wgpu::Backends> {
         GpuBackend::Cpu => match os {
             Os::Windows => wgpu::Backends::DX12,
             Os::Mac => wgpu::Backends::METAL,
-            Os::Other => wgpu::Backends::GL,
+            // local-image: GL alone could leave no backend able to present (EGL/GLX missing while
+            // Vulkan's lavapipe works, as on headless and some Wayland setups), and the window then
+            // never opened again after "Keep Using CPU". Software adapters still rank first.
+            Os::Other => wgpu::Backends::VULKAN | wgpu::Backends::GL,
         },
     })
 }
@@ -483,7 +486,7 @@ mod tests {
         let p = plan(Vulkan, Some(&crashed("vulkan", "vulkan")), None, true, Os::Other);
         assert_eq!((p.backend, p.remember), (Cpu, false));
         assert_eq!(backends(&p, Os::Windows), Some(wgpu::Backends::DX12));
-        assert_eq!(backends(&p, Os::Other), Some(wgpu::Backends::GL));
+        assert_eq!(backends(&p, Os::Other), Some(wgpu::Backends::VULKAN | wgpu::Backends::GL));
         assert_eq!(backends(&p, Os::Mac), Some(wgpu::Backends::METAL));
     }
 

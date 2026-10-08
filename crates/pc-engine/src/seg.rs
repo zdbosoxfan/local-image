@@ -91,28 +91,6 @@ pub fn object_at(doc: &Document, layer: Option<LayerId>, all_layers: bool, x: i3
     region(area, &obj)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn region_is_the_tight_box_of_the_coverage() {
-        let area = Rect::new(10, 20, 15, 24);
-        let mut p = vec![0.0f32; 5 * 4];
-        p[5 + 1] = 1.0;
-        p[2 * 5 + 3] = 0.5;
-        let r = region(area, &p).unwrap();
-        assert_eq!(r.bbox, Rect::new(11, 21, 14, 23));
-        assert_eq!(r.mask, vec![255, 0, 0, 0, 0, 128]);
-        assert!(region(area, &[0.0; 20]).is_none());
-    }
-
-    #[test]
-    fn classic_engine_needs_no_model() {
-        assert_eq!(wanted(&serde_json::json!({"engine": "classic"})), Ok(false));
-    }
-}
-
 /// The installed sky model, if any.
 pub fn sky_installed() -> Option<&'static li_seg::ModelSpec> {
     li_seg::best_sky(&models_dir()).map(|(s, _)| s)
@@ -142,5 +120,27 @@ pub fn shape(prob: &mut [f32], threshold: f32, softness: f32) {
     let s = (softness / 100.0 * 0.5).clamp(0.01, 0.5);
     for v in prob.iter_mut() {
         *v = ((*v - (t - s / 2.0)) / s).clamp(0.0, 1.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn region_is_the_tight_box_of_the_coverage() {
+        let area = Rect::new(10, 20, 15, 24);
+        let mut p = vec![0.0f32; 5 * 4];
+        p[5 + 1] = 1.0;
+        p[2 * 5 + 3] = 0.5;
+        let r = region(area, &p).unwrap();
+        assert_eq!(r.bbox, Rect::new(11, 21, 14, 23));
+        assert_eq!(r.mask, vec![255, 0, 0, 0, 0, 128]);
+        assert!(region(area, &[0.0; 20]).is_none());
+    }
+
+    #[test]
+    fn classic_engine_needs_no_model() {
+        assert_eq!(wanted(&serde_json::json!({"engine": "classic"})), Ok(false));
     }
 }

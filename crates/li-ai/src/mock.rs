@@ -468,7 +468,7 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
             let key = req
                 .headers()
                 .iter()
-                .find(|h| ["authorization", "x-goog-api-key", "x-key"].iter().any(|k| h.field.equiv(*k)))
+                .find(|h| ["authorization", "x-goog-api-key", "x-key"].iter().any(|k| h.field.equiv(k)))
                 .map(|h| h.value.as_str().trim_start_matches("Bearer ").to_owned());
             let reply = if path.starts_with("/cloud/") {
                 crate::mock_hub::handle_cloud(&host, m, &url, key.as_deref(), &body)
@@ -570,16 +570,16 @@ fn render(graph: &Value, uploads: &HashMap<String, Vec<u8>>) -> Vec<u8> {
         return png(&out);
     }
     // Instruction edits and upscales: return the (first) input, tinted slightly.
-    if input_of(graph, "SeedVR2Preprocess").is_some() || input_of(graph, "TextEncodeQwenImage21").is_some_and(|i| i["resolution"] == json!(0)) {
-        if let Some(mut src) = uploaded(graph, uploads, 0) {
-            let tint = hash_color(&prompt);
-            for p in src.pixels_mut() {
-                for k in 0..3 {
-                    p[k] = ((p[k] as u32 * 3 + tint[k] as u32) / 4) as u8;
-                }
+    if (input_of(graph, "SeedVR2Preprocess").is_some() || input_of(graph, "TextEncodeQwenImage21").is_some_and(|i| i["resolution"] == json!(0)))
+        && let Some(mut src) = uploaded(graph, uploads, 0)
+    {
+        let tint = hash_color(&prompt);
+        for p in src.pixels_mut() {
+            for k in 0..3 {
+                p[k] = ((p[k] as u32 * 3 + tint[k] as u32) / 4) as u8;
             }
-            return png(&src);
         }
+        return png(&src);
     }
     // Refine, inpaint and generic edits (a source image, no empty latent): the source, tinted;
     // green-filled areas (instruction inpainting) are painted with the prompt colour.

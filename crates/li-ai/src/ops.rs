@@ -634,7 +634,7 @@ impl Ai {
         };
         if f.pipeline.encode == Encode::QwenImage21 {
             // Qwen Image 2.1 refines as an instruction edit of the draft.
-            let out = self.qwen_edit(&[src.clone()], &prompt, &negative, &step.variant, p.seed, p.steps, p.cfg, &[], info, ctl)?;
+            let out = self.qwen_edit(std::slice::from_ref(&src), &prompt, &negative, &step.variant, p.seed, p.steps, p.cfg, &[], info, ctl)?;
             return Ok(imaging::over_white(&out));
         }
         let (w, h) = (src.width().min(f.sizes.max.max(1024) * 2), src.height().min(f.sizes.max.max(1024) * 2));
@@ -748,7 +748,7 @@ impl Ai {
     /// SeedVR2 enhancement to `width × height` (same aspect, larger, even). Keeps the alpha.
     pub fn upscale(&self, image: &RgbaImage, width: u32, height: u32, seed: u64, ctl: &JobControl) -> Result<RgbaImage> {
         let (sw, sh) = image.dimensions();
-        if width % 2 != 0 || height % 2 != 0 || width <= sw || height <= sh {
+        if !width.is_multiple_of(2) || !height.is_multiple_of(2) || width <= sw || height <= sh {
             bail!("Choose a larger, even size to enhance to.");
         }
         let ratio_err = (width as f64 / height as f64 - sw as f64 / sh as f64).abs() * height as f64;

@@ -128,11 +128,10 @@ pub fn develop_with_settings(name: &str, bytes: &[u8], settings: &serde_json::Va
     let (src, info) = lightcraft_engine::files::load_bytes(bytes, usize::MAX).map_err(IoError::Unsupported)?;
     let req = RenderRequest { space: OutputSpace::ProPhoto, depth: OutputDepth::U16, ..RenderRequest::fit(src.width, src.height) };
     let rendered = lightcraft_pipeline::render(&src, &info, &settings, &req);
-    let Some(lightcraft_pipeline::DeepSamples::U16(samples)) = rendered.deep.as_ref().map(|d| &d.samples) else {
+    let Some((width, height, lightcraft_pipeline::DeepSamples::U16(samples))) = rendered.deep.as_ref().map(|d| (d.width, d.height, &d.samples)) else {
         return Err(IoError::Unsupported(format!("{name}: the develop pipeline produced no 16-bit output")));
     };
-    let deep = rendered.deep.as_ref().expect("checked above");
-    let img = Image::from_u16(deep.width as u32, deep.height as u32, ChannelLayout::Rgb, samples)?;
+    let img = Image::from_u16(width as u32, height as u32, ChannelLayout::Rgb, samples)?;
     let mut r = image_to_document(name, &img)?;
     r.document.icc_profile = Some(Arc::new(lightcraft_codecs::icc::write_named(lightcraft_codecs::NamedSpace::ProPhoto)));
     let meta = lightcraft_meta::embedded(bytes);

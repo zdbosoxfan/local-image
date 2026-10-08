@@ -605,7 +605,7 @@ pub fn list(dir: &Path) -> Vec<CustomWorkflow> {
         .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
         .filter_map(|e| serde_json::from_slice(&std::fs::read(e.path()).ok()?).ok())
         .collect();
-    v.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    v.sort_by_key(|a| a.name.to_lowercase());
     v
 }
 
@@ -717,7 +717,7 @@ mod tests {
         assert_eq!(api["76:37"]["class_type"], "UNETLoader");
         assert_eq!(api["76:37"]["inputs"]["unet_name"], "qwen_image_fp8_e4m3fn.safetensors");
         assert_eq!(api["60"]["inputs"]["images"], json!(["76:8", 0]));
-        assert_eq!(api["76:3"]["inputs"]["seed"].as_u64().is_some(), true);
+        assert!(api["76:3"]["inputs"]["seed"].as_u64().is_some());
         assert_eq!(api["76:3"]["inputs"]["sampler_name"], "euler");
         let w = from_template("Qwen", &ui, &info).unwrap();
         assert!(w.basic);

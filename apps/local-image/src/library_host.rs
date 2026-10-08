@@ -114,11 +114,11 @@ impl Host {
                 self.sync_develop_layers();
                 let photo = self.active_photo();
                 let changed = photo.as_ref().map(|p| p.0) != self.left_compositing_with || self.editor.session.documents().is_empty();
-                if let Some((id, path, settings, name)) = photo.filter(|_| changed || from == Module::Develop) {
-                    if let Err(e) = photocraft_ui_egui::develop_layer::open_photo(&mut self.editor, id, &path, &settings, &name) {
-                        self.editor.ui.status = e;
-                        self.editor.ui.status_error = true;
-                    }
+                if let Some((id, path, settings, name)) = photo.filter(|_| changed || from == Module::Develop)
+                    && let Err(e) = photocraft_ui_egui::develop_layer::open_photo(&mut self.editor, id, &path, &settings, &name)
+                {
+                    self.editor.ui.status = e;
+                    self.editor.ui.status_error = true;
                 }
             }
         }

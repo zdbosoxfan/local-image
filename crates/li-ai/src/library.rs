@@ -185,7 +185,7 @@ mod tests {
         assert_eq!(list[1].seed(), Some(42));
         assert_eq!(lib.load(&list[0]).unwrap().dimensions(), (64, 32));
         assert!(lib.thumbnail_path(&a.id).exists());
-        assert_eq!(lib.delete(&[a.id.clone()]).unwrap(), 1);
+        assert_eq!(lib.delete(std::slice::from_ref(&a.id)).unwrap(), 1);
         assert_eq!(lib.list().len(), 1);
         assert!(lib.delete(&["../x".into()]).is_err());
         std::fs::remove_dir_all(root).ok();

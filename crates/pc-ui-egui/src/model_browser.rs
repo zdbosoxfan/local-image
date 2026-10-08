@@ -863,10 +863,10 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
         None if installed => {
             ui.label(RichText::new(tl!("Installed")).size(11.5).color(Color32::from_rgb(70, 190, 110)));
         }
-        None if item.source != Some(Source::Installed) => {
-            if widgets::primary_button(ui, if item.template.is_some() { tl!("Get Template") } else { tl!("Install") }, 0.0).clicked() {
-                clicked = true;
-            }
+        None if item.source != Some(Source::Installed)
+            && widgets::primary_button(ui, if item.template.is_some() { tl!("Get Template") } else { tl!("Install") }, 0.0).clicked() =>
+        {
+            clicked = true;
         }
         None => {}
     }

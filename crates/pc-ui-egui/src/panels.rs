@@ -2211,11 +2211,11 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             });
         });
     }
-    if let Some((cmd, i)) = snap_action.filter(|_| app.ui.transform.is_none()) {
-        if let Err(e) = app.run(cmd, json!({ "index": i })) {
-            app.ui.status = e;
-            app.ui.status_error = true;
-        }
+    if let Some((cmd, i)) = snap_action.filter(|_| app.ui.transform.is_none())
+        && let Err(e) = app.run(cmd, json!({ "index": i }))
+    {
+        app.ui.status = e;
+        app.ui.status_error = true;
     }
     // An open Free Transform owns Undo (transform_tool::intercept): stepping the document's history under
     // its box would leave it transforming pixels that changed.

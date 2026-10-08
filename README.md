@@ -13,7 +13,7 @@ checking for updates).
 > ([build instructions](docs/DEVELOPMENT.md)); the 0.7 installers on the
 > [releases page](https://github.com/zdbosoxfan/local-image/releases) are the current stable version.
 
-[![Local Image 2: a photo open in the editor, the Generate panel docked on the right with a prompt, model picker, size and the Generate button, and a result below it](docs/images/v2/editor-generate.png)](docs/images/v2/editor-generate.png)
+[![Local Image 2: a photo open in the editor, the Generate panel docked on the right with modes, preset, model picker, prompt, size, references, LoRAs and the Generate button](docs/images/v2/editor-generate.png)](docs/images/v2/editor-generate.png)
 
 ## What it does
 

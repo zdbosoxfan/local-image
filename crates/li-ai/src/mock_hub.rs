@@ -19,7 +19,7 @@ pub fn fixtures_dir() -> PathBuf {
 pub fn synth(path: &str) -> Vec<u8> {
     let header = json!({ "__metadata__": { "mock": path }, "marker": { "dtype": "F16", "shape": [1], "data_offsets": [0, 2] } }).to_string();
     let mut h = header.into_bytes();
-    while h.len() % 8 != 0 {
+    while !h.len().is_multiple_of(8) {
         h.push(b' ');
     }
     let mut out = (h.len() as u64).to_le_bytes().to_vec();
