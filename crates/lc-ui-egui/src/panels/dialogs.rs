@@ -730,7 +730,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                         _ => {
                             ui.label(egui::RichText::new("Local Image").font(t.semibold(20.0)).color(t.text));
                             ui.label(crate::i18n::tr_format!("Version {} — a clean-room, pure-Rust photo library and raw developer.", env!("CARGO_PKG_VERSION")));
-                            ui.label(format!("MIT OR Apache-2.0. Fonts: {} (OFL). Icons: original.", crate::theme::font_credits()));
+                            ui.label(format!("GPL-3.0-or-later (includes PhotoCraft and LightCraft, MIT OR Apache-2.0). Fonts: {} (OFL). Icons: original.", crate::theme::font_credits()));
                             ui.add_space(10.0);
                             for (label, url) in [
                                 ("Local Image website", crate::links::APP_PAGE),

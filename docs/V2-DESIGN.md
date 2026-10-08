@@ -74,8 +74,8 @@ browser UI in a WebView and a Python server. V2 is a single editor in which the 
     edited copy with a ✓ badge and reopens it when you go back. The options menu switches to
     overwriting the original or Save As.
   - **Review in Library** shows the folder in the Library's grid (read in place, not imported) to
-    compare, rate and flag the results; there **Photo › Edit Original in Local Image (⌘⌥E)** opens a
-    JPEG/PNG/TIFF itself in the editor (raw files go through Edit in External Editor's TIFF).
+    compare, rate and flag the results; **Develop** and **Compositing** in the title bar take the
+    chosen photo on from there (Compositing opens it as a Develop layer, no copy).
   Window › Filmstrip toggles it.
 * **Status bar** gains an **AI status pill**: grey "AI off", amber "Starting…", green "AI ready ·
   GPU · used/total"; click it to open Preferences › Local AI. Running AI jobs show their stage

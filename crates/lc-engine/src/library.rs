@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use crate::{EngineError, LibrarySource, Result, Selection, Session};
 
 /// Library directory name inside the user's Pictures folder.
-pub const DEFAULT_NAME: &str = "LightCraft Library";
+pub const DEFAULT_NAME: &str = "Local Image Library";
 
 /// The default library location: `$LIGHTCRAFT_LIBRARY` if set, else `~/Pictures/LightCraft Library`
 /// (`%USERPROFILE%\Pictures\LightCraft Library` on Windows).
@@ -194,6 +194,7 @@ fn program_name() -> String {
     let exe = std::env::current_exe().ok().and_then(|p| p.file_stem().map(|s| s.to_string_lossy().to_string()));
     match exe.as_deref() {
         Some("lightcraft") | None => "LightCraft".into(),
+        Some("local-image") => "Local Image".into(),
         Some(other) => other.to_string(),
     }
 }
@@ -218,7 +219,7 @@ impl SettingsLoad {
                 log::error!("library: {name}: {e}");
                 self.blocked.push(name);
                 self.warnings.push(format!(
-                    "{name} couldn't be read ({e}). LightCraft uses the defaults for now and won't overwrite the file; reopen the library to try again."
+                    "{name} couldn't be read ({e}). Local Image uses the defaults for now and won't overwrite the file; reopen the library to try again."
                 ));
                 return None;
             }
@@ -235,7 +236,7 @@ impl SettingsLoad {
             Err(w) => {
                 self.blocked.push(name);
                 self.warnings.push(format!(
-                    "{name} is damaged ({err}) and couldn't be set aside ({w}). LightCraft uses the defaults and won't overwrite the file."
+                    "{name} is damaged ({err}) and couldn't be set aside ({w}). Local Image uses the defaults and won't overwrite the file."
                 ));
             }
         }
