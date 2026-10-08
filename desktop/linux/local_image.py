@@ -15,15 +15,15 @@ from urllib.error import HTTPError
 from urllib.request import Request, build_opener, ProxyHandler
 import uuid
 
-from PySide6.QtCore import QFile, QIODevice, QObject, QRunnable, QThreadPool, QTimer, QUrl, Signal, Slot
+from PySide6.QtCore import QEvent, QFile, QIODevice, QObject, QRunnable, QThreadPool, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QIcon
-from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBox
+from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBox, QWidget
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineScript, QWebEngineProfile
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from shiboken6 import delete
 
-from protocol import (BASE, CloseGate, batch_payload, decode_message, identifier, project_payload, trusted_download,
+from protocol import (BASE, CloseGate, batch_payload, decode_message, identifier, local_drop_paths, project_payload, trusted_download,
                       trusted_page, verified_update_package)
 
 FROZEN = bool(getattr(sys, 'frozen', False))
@@ -204,6 +204,7 @@ class Window(QMainWindow):
         super().__init__()
         self.client, self.process, self.paths, self.smoke = client, process, paths, smoke
         self.ready = self.busy = False
+        self.pending_drop = None
         self.close_gate = CloseGate()
         # A verified release package to open once this window has closed.
         self.pending_installer = None
@@ -212,7 +213,10 @@ class Window(QMainWindow):
         icon = Path(sys._MEIPASS) / 'app-icon.png' if FROZEN else ROOT / 'backend' / 'frontend' / 'app-icon.png'
         self.setWindowIcon(QIcon(str(icon)))
         self.view = QWebEngineView(self)
-        self.view.setAcceptDrops(False)  # Page strings must never supply OS paths.
+        self.view.setAcceptDrops(True)
+        # Chromium's render widget is a child of the view. Intercept its native
+        # drop events before they become page File objects or file navigation.
+        QApplication.instance().installEventFilter(self)
         self.profile = create_desktop_profile(self)
         self.page = Page(self.profile, self.view)
         self.view.setPage(self.page)
@@ -261,6 +265,27 @@ class Window(QMainWindow):
 
     def work(self, function, callback):
         QThreadPool.globalInstance().start(Task(function, callback, self))
+
+    def eventFilter(self, watched, event):
+        if (event.type() in (QEvent.Type.DragEnter, QEvent.Type.DragMove, QEvent.Type.Drop)
+                and isinstance(watched, QWidget) and (watched is self.view or self.view.isAncestorOf(watched))):
+            paths = local_drop_paths([url.toString() for url in event.mimeData().urls()])
+            if (event.source() is not None or not paths or not self.ready or self.busy or self.pending_drop or self.close_gate.pending
+                    or not trusted_page(self.view.url().toString())):
+                event.ignore()
+                return True
+            event.acceptProposedAction()
+            if event.type() == QEvent.Type.Drop:
+                identity = str(uuid.uuid4())
+                self.pending_drop = {'id': identity, 'paths': paths}
+                self.bridge.send({'action': 'requestDrop', 'id': identity})
+                QTimer.singleShot(30000, lambda: self.clear_drop(identity))
+            return True
+        return super().eventFilter(watched, event)
+
+    def clear_drop(self, identity):
+        if self.pending_drop and self.pending_drop['id'] == identity:
+            self.pending_drop = None
 
     def open_initial(self):
         def completed(result, error):
@@ -317,6 +342,14 @@ class Window(QMainWindow):
 
     def prepare_command(self, action, message):
         call = self.client.call
+        if action == 'acceptDrop':
+            pending = self.pending_drop
+            if not pending or pending['id'] != message.get('drop_id'):
+                raise ValueError('Drop the files or folder again to open them.')
+            self.pending_drop = None
+            if message.get('accept') is not True:
+                return None
+            return lambda: self.client.register(pending['paths'])
         if action in ('openFiles', 'openProject', 'openFolder'):
             if action == 'openFolder':
                 folder = self.folder('Open a folder of images')
@@ -348,10 +381,21 @@ class Window(QMainWindow):
                     return call('/api/local-remove/save-project', payload)
                 return save
             return lambda: call('/api/local-remove/save-project', payload)
+        if action == 'batchChooseExportFolder':
+            folder = self.folder('Choose batch output folder')
+            if not folder:
+                return None
+            self.batch_export_directory = str(Path(folder).absolute())
+            return lambda: {'directory': self.batch_export_directory}
         if action == 'batchExportFolder':
             job, items = batch_payload(message)
-            folder = self.folder('Export reviewed batch copies')
-            return (lambda: call('/api/local-remove/batch/jobs/' + job + '/export-folder', {'path': folder, 'item_ids': items})) if folder else None
+            template = message.get('naming_template', '{name}-local-image')
+            if not isinstance(template, str) or not 1 <= len(template) <= 160:
+                raise ValueError('Enter a filename pattern of 1–160 characters.')
+            folder = getattr(self, 'batch_export_directory', None) if message.get('use_selected_folder') is True else self.folder('Export reviewed batch copies')
+            if message.get('use_selected_folder') is True and not folder:
+                raise ValueError('Choose a batch output folder first.')
+            return (lambda: call('/api/local-remove/batch/jobs/' + job + '/export-folder', {'path': folder, 'item_ids': items, 'naming_template': template})) if folder else None
         if action == 'chooseBackgroundFolder':
             folder = self.folder('Choose background images')
             return (lambda: call('/api/local-remove/backgrounds/register-folder', {'path': folder})) if folder else None
@@ -431,6 +475,7 @@ class Window(QMainWindow):
         # Qt requires disk profiles to be destroyed before QApplication exits.
         # Delete their pages first so profile storage can finish flushing safely.
         self.heartbeat.stop()
+        QApplication.instance().removeEventFilter(self)
         delete(self.view)
         delete(self.profile)
 

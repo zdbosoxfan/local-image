@@ -1,0 +1,30 @@
+.li-model-files {
+  min-width: 0;
+  font-size: var(--ui-note);
+}
+.li-model-files p {
+  color: var(--colorNeutralForeground3);
+  line-height: 1.4;
+}
+.li-model-files ul {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+}
+.li-model-files li {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--colorNeutralStroke2);
+}
+.li-model-files li > div {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.li-model-files li > div > span {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--colorNeutralForeground3);
+}

@@ -1,4 +1,10 @@
 import type { HardwareGuide, SetupState } from '../settings/types.ts';
+export interface ModelFile {
+  name: string;
+  folder: string;
+  bytes: number;
+  exists: boolean;
+}
 export interface ModelVariant {
   id: string;
   label: string;
@@ -6,6 +12,7 @@ export interface ModelVariant {
   reason?: string;
   total_bytes?: number;
   missing_bytes?: number;
+  files?: ModelFile[];
   downloadable?: boolean;
   download_note?: string;
   hardware?: { vram_recommendation?: string; basis?: string };
@@ -56,7 +63,13 @@ export interface ModelDownloads extends DownloadJob {
   model_directory?: string;
   models?: Array<{
     id: string;
-    variants?: Array<{ id: string; installed?: boolean; total_bytes?: number; missing_bytes?: number }>;
+    variants?: Array<{
+      id: string;
+      installed?: boolean;
+      total_bytes?: number;
+      missing_bytes?: number;
+      files?: ModelFile[];
+    }>;
   }>;
 }
 export interface LoraSelection {
@@ -137,6 +150,7 @@ export interface ModelBridge {
   chooseModelDirectory(): Promise<SetupState | null>;
   startBackend(): Promise<unknown | null>;
   downloadModel(model: string, variant: string): Promise<unknown | null>;
+  downloadRemovalModels?(): Promise<unknown | null>;
   downloadLora(payload: LoraDownload): Promise<unknown | null>;
   legacyModelSelection?(): ModelBrowserSelection;
   getLegacyLoraPort?(context: 'generate' | 'draft' | 'final'): LoraDraftPort;

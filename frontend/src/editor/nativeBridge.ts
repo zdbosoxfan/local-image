@@ -27,6 +27,8 @@ export interface NativeProjectSave {
 export interface NativeBatchExport {
   job_id: string;
   item_ids: readonly string[];
+  naming_template?: string;
+  use_selected_folder?: boolean;
 }
 export interface NativeLoraDownload {
   model: string;
@@ -38,6 +40,7 @@ export interface NativeLoraDownload {
 export interface NativeBridgeOptions {
   transport?: NativeTransport | null;
   onCloseRequest(id: string): boolean | Promise<boolean>;
+  onDropRequest?(id: string): unknown | Promise<unknown>;
   onError?(error: Error): void;
   clock?: { now(): number; setTimeout(callback: () => void, delay: number): unknown; clearTimeout(id: unknown): void };
 }
@@ -48,8 +51,10 @@ type NativeAction =
   | 'openProject'
   | 'saveProject'
   | 'drop'
+  | 'acceptDrop'
   | 'chooseBackgroundFolder'
   | 'batchExportFolder'
+  | 'batchChooseExportFolder'
   | 'configureAi'
   | 'setupUseInstallation'
   | 'setupChooseComfyDirectory'
@@ -63,9 +68,10 @@ type NativeAction =
   | 'setupStart'
   | 'setupEject'
   | 'updateInstall';
-// These ten owned dialogs deliberately have no machine-operation deadline.
+// Owned dialogs deliberately have no machine-operation deadline.
 const DIALOG_ACTIONS = new Set<NativeAction>([
   'batchExportFolder',
+  'batchChooseExportFolder',
   'openFiles',
   'openFolder',
   'openProject',
@@ -205,6 +211,14 @@ export function createNativeBridge(options: NativeBridgeOptions) {
       if (data.id && data.id.length <= 128) void reviewClose(data.id);
       return;
     }
+    if (data.action === 'requestDrop') {
+      if (data.id && data.id.length <= 128) {
+        void Promise.resolve()
+          .then(() => options.onDropRequest?.(data.id as string))
+          .catch(error => options.onError?.(error instanceof Error ? error : Error('Could not open dropped files.')));
+      }
+      return;
+    }
     const waiting = pending.get(data.id);
     if (!waiting) return;
     if (waiting.timer !== null) clock.clearTimeout(waiting.timer);
@@ -271,6 +285,7 @@ export function createNativeBridge(options: NativeBridgeOptions) {
     openFolder: () => command('openFolder'),
     openProject: () => command('openProject', {}, 'projects'),
     drop: (files: readonly File[]) => command('drop', {}, 'ready', [...files]),
+    acceptDrop: (id: string, accept = true) => command('acceptDrop', { drop_id: id, accept }),
     saveProject: (value: NativeProjectSave) =>
       command(
         'saveProject',
@@ -278,8 +293,18 @@ export function createNativeBridge(options: NativeBridgeOptions) {
         'projects',
       ),
     chooseBackgroundFolder: () => command('chooseBackgroundFolder'),
+    batchChooseExportFolder: () => command('batchChooseExportFolder', {}, 'batch'),
     batchExportFolder: (value: NativeBatchExport) =>
-      command('batchExportFolder', { job_id: value.job_id, item_ids: [...value.item_ids] }, 'batch'),
+      command(
+        'batchExportFolder',
+        {
+          job_id: value.job_id,
+          item_ids: [...value.item_ids],
+          ...(value.naming_template !== undefined ? { naming_template: value.naming_template } : {}),
+          ...(value.use_selected_folder ? { use_selected_folder: true } : {}),
+        },
+        'batch',
+      ),
     configureAi: () => command('configureAi'),
     setupUseInstallation: (installationId: string) =>
       command('setupUseInstallation', { installation_id: installationId }, 'setup'),

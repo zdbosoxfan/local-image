@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { ModelFiles } from '../models/ModelFiles.tsx';
 import {
   Accordion,
   AccordionHeader,
@@ -230,13 +231,11 @@ export function SettingsDialogs({ controller }: { controller: SettingsController
 function LocalAi({ controller, state }: { controller: SettingsController; state: SettingsSnapshot }) {
   const setup = state.setup,
     service = setup?.service,
-    files = setup?.models ?? [],
     job = setup?.job;
   const selected = modelDownloadSelection(state),
     modelJob = state.modelDownloads;
   const locked = controller.locked() || state.loading;
   const nativeLocked = locked || !state.capabilities.setup;
-  const allFiles = files.length > 0 && files.every(file => file.exists);
   const progress =
     job?.progress != null && Number.isFinite(job.progress) ? Math.min(100, Math.max(0, job.progress)) / 100 : undefined;
   const installPath = setup?.install_directory || setup?.managed_directory || setup?.configured_ai_directory;
@@ -385,6 +384,14 @@ function LocalAi({ controller, state }: { controller: SettingsController; state:
           <Button size="small" disabled={nativeLocked} onClick={() => void controller.run('chooseModelDirectory')}>
             Choose folder…
           </Button>
+          <Button
+            id="settings-scan-model-folder"
+            size="small"
+            disabled={locked || !(setup?.model_directory || modelJob?.model_directory)}
+            onClick={() => void controller.scanModels()}
+          >
+            Scan folder for models
+          </Button>
         </div>
         {storageText(setup?.storage?.model_folder) && (
           <p className="li-settings-note">{storageText(setup?.storage?.model_folder)}</p>
@@ -421,6 +428,7 @@ function LocalAi({ controller, state }: { controller: SettingsController; state:
             )}
           </Field>
         </div>
+        <ModelFiles files={selected.files} />
         <div className="li-settings-download-action">
           <Button
             id="settings-download-model-button"
@@ -430,7 +438,7 @@ function LocalAi({ controller, state }: { controller: SettingsController; state:
             title={downloadBlock || undefined}
             onClick={() => void controller.run('downloadModel')}
           >
-            {selected.ready
+            {selected.ready && (selected.filesPresent || selected.missing === undefined)
               ? 'Ready'
               : selected.filesPresent
                 ? 'Files present'
@@ -440,7 +448,7 @@ function LocalAi({ controller, state }: { controller: SettingsController; state:
           </Button>
           {selected.model && (
             <p id="settings-model-status" className="li-settings-note">
-              {selected.ready
+              {selected.ready && (selected.filesPresent || selected.missing === undefined)
                 ? 'Ready in the AI backend.'
                 : selected.filesPresent
                   ? 'Model files are present. Start the AI backend to use them.'
@@ -476,36 +484,6 @@ function LocalAi({ controller, state }: { controller: SettingsController; state:
             )}
           </section>
         )}
-        <Accordion collapsible>
-          <AccordionItem value="removal-model">
-            <AccordionHeader>FLUX AI Remove · optional</AccordionHeader>
-            <AccordionPanel className="li-settings-disclosure">
-              <p className="li-settings-note">
-                This set supports FLUX object removal. Compare generation and cutout models in Model details.
-              </p>
-              <ul className="li-settings-file-list" aria-label="Required FLUX model files">
-                {files.map(file => (
-                  <li key={`${file.folder}/${file.name}`}>
-                    <span title={`${file.folder ? `${file.folder}/` : ''}${file.name}`}>{file.label || file.name}</span>
-                    <span>
-                      {file.exists ? 'Ready' : 'Required'}
-                      {(file.exists ? file.bytes : file.expected_bytes)
-                        ? ` · ${setupBytes(file.exists ? file.bytes : file.expected_bytes)}`
-                        : ''}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <Button
-                size="small"
-                disabled={nativeLocked || !setup?.model_directory || allFiles}
-                onClick={() => void controller.run('downloadRemovalModels')}
-              >
-                {allFiles ? 'FLUX models ready' : 'Download FLUX models'}
-              </Button>
-            </AccordionPanel>
-          </AccordionItem>
-        </Accordion>
       </section>
       {job && (
         <section className="li-settings-job" aria-label="Setup progress">

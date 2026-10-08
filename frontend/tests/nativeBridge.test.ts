@@ -350,3 +350,35 @@ test('failed close review denies approval and disposal rejects pending commands 
   assert.equal(f.transport.listeners.size, 0);
   assert.equal(f.bridge.getPendingCount(), 0);
 });
+
+test('native drop requests carry only the host identity and rejection reports callback failures', async () => {
+  const transport = new Transport(),
+    clock = new Clock(),
+    ids: string[] = [],
+    errors: Error[] = [];
+  const bridge = createNativeBridge({
+    transport,
+    clock,
+    onCloseRequest: () => false,
+    onDropRequest: id => {
+      ids.push(id);
+      if (id === 'failed') throw Error('Drop failed');
+    },
+    onError: error => errors.push(error),
+  });
+  const ready = bridge.connect();
+  transport.reply(transport.messages.at(-1)!.id, { native: true, version: 2 });
+  await ready;
+  transport.event({ type: 'local-remove-native', action: 'requestDrop', id: 'owned', paths: ['/untrusted'] });
+  transport.event({ type: 'local-remove-native', action: 'requestDrop', id: 'failed' });
+  await tick();
+  assert.deepEqual(ids, ['owned', 'failed']);
+  assert.equal(errors[0].message, 'Drop failed');
+  const accepted = bridge.acceptDrop('owned');
+  assert.equal(transport.messages.at(-1)!.drop_id, 'owned');
+  assert.equal(transport.messages.at(-1)!.accept, true);
+  assert.equal('paths' in transport.messages.at(-1)!, false);
+  transport.reply(transport.messages.at(-1)!.id, { collection: { id: 'test' } });
+  await accepted;
+  bridge.dispose();
+});

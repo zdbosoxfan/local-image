@@ -66,6 +66,7 @@ export function createFeatureAdapters(options: {
     chooseModelDirectory: async () => (await native.setupChooseModelDirectory()) as SetupState | null,
     startBackend: () => native.setupStart(),
     downloadModel: (model, variant) => native.setupDownloadGenerationModel(model, variant),
+    downloadRemovalModels: () => native.setupDownloadModels(),
     downloadLora: value =>
       native.loraDownload({
         model: value.model,
@@ -137,10 +138,17 @@ export function createFeatureAdapters(options: {
       return value;
     },
     returnToPendingSelection: id => documents.returnToPendingSelection(id),
+    chooseBatchExportFolder: async () => {
+      const result = await native.batchChooseExportFolder();
+      if (result === null) return null;
+      if (typeof result.directory !== 'string' || !result.directory)
+        throw Error('The desktop did not return a selected output folder.');
+      return { directory: result.directory };
+    },
     exportBatchFolder: async value => {
       if (!native.capabilities().ready || !native.capabilities().batch)
         throw Error('This desktop host does not support batch folder export.');
-      const result = await native.batchExportFolder({ job_id: value.job_id, item_ids: [...value.item_ids] });
+      const result = await native.batchExportFolder({ ...value, item_ids: [...value.item_ids] });
       if (result === null) return null;
       if (result.id !== value.job_id || !Array.isArray(result.items) || typeof result.modified !== 'number')
         throw Error(

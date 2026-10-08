@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import re
 import uuid
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, unquote
 
 BASE = 'http://127.0.0.1:51247'
 # A transport memory budget, shared with the Windows host. Batch selections are
@@ -47,6 +47,23 @@ def identifier(value):
     if not isinstance(value, str) or str(uuid.UUID(value)) != value:
         raise ValueError('Choose an open document or prepared batch.')
     return value
+
+
+def local_drop_paths(urls):
+    """Only file-manager URLs from a native Qt drop, never page strings."""
+    paths = []
+    for value in urls:
+        try:
+            url = urlsplit(value)
+            path = unquote(url.path)
+            if (url.scheme != 'file' or url.netloc not in ('', 'localhost') or url.query or url.fragment
+                    or not path.startswith('/') or '\x00' in path):
+                return []
+            if path not in paths:
+                paths.append(path)
+        except (ValueError, TypeError):
+            return []
+    return paths
 
 
 def project_payload(message):

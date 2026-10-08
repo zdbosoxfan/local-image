@@ -203,7 +203,8 @@ export type DocumentCanvasPort = Pick<
 export type DocumentNativePort = Pick<
   NativeBridge,
   'capabilities' | 'subscribe' | 'connect' | 'openFiles' | 'openFolder' | 'openProject' | 'drop' | 'saveProject'
->;
+> &
+  Partial<Pick<NativeBridge, 'acceptDrop'>>;
 export interface DocumentDialogsPort {
   isOpen(): boolean;
   confirmOverwrite(filename: string): Promise<OverwriteChoice>;

@@ -633,13 +633,24 @@ export function createDocumentController(options: DocumentControllerPorts & { to
     if (result.session) return openSession(readDocument(result.session));
     throw Error('The desktop did not return an image or project.');
   }
-  async function openNative(kind: 'openFiles' | 'openFolder' | 'openProject' | 'drop', dropped?: readonly File[]) {
+  async function openNative(
+    kind: 'openFiles' | 'openFolder' | 'openProject' | 'drop' | 'acceptDrop',
+    dropped?: readonly File[],
+    dropId?: string,
+  ) {
     if (!native || busy() || modal()) return false;
-    const finish = startOperation('Choosing files');
+    const finish = startOperation(
+      kind === 'acceptDrop' || kind === 'drop' ? 'Opening dropped files' : 'Choosing files',
+    );
     let result: unknown;
     try {
       await api.flush();
-      result = kind === 'drop' ? await native.drop([...(dropped ?? [])]) : await native[kind]();
+      result =
+        kind === 'drop'
+          ? await native.drop([...(dropped ?? [])])
+          : kind === 'acceptDrop'
+            ? await native.acceptDrop?.(dropId!)
+            : await native[kind]();
     } catch (error) {
       report(failureText(error), true);
       return false;
@@ -1559,6 +1570,15 @@ export function createDocumentController(options: DocumentControllerPorts & { to
     },
     drop: (dropped: readonly File[]) =>
       native?.capabilities().ready ? openNative('drop', dropped) : openBrowserFiles(dropped),
+    acceptNativeDrop: async (id: string) => {
+      if (!native) return false;
+      if (busy() || modal()) {
+        await native.acceptDrop?.(id, false);
+        report('Finish the current operation or close the dialog, then drop the folder again.', true);
+        return false;
+      }
+      return openNative('acceptDrop', undefined, id);
+    },
     openInitial,
     async initialize(search = '') {
       await native?.connect();

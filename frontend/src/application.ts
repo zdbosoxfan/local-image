@@ -57,7 +57,11 @@ export function createApplication(token: string) {
     !!models?.isOpen() ||
     !!batch?.isOpen() ||
     !!shell?.getSnapshot().backgroundGenerator;
-  const native = createNativeBridge({ onCloseRequest: () => controller?.closeAll() ?? false, onError: report });
+  const native = createNativeBridge({
+    onCloseRequest: () => controller?.closeAll() ?? false,
+    onDropRequest: id => controller?.acceptNativeDrop(id),
+    onError: report,
+  });
   const canvas = createCanvasController(
     {
       viewport: required('viewport'),

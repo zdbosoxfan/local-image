@@ -10,7 +10,8 @@ import type {
   UpdateStatus,
   SetupState,
 } from './types.ts';
-import { modelDownloadSelection } from './modelDownload.ts';
+import { modelDownloadSelection, modelFolderSummary } from './modelDownload.ts';
+import { removalModel, REMOVAL_MODEL_ID } from './removalModel.ts';
 
 const UPDATE_CHECK_KEY = 'local-image.update-check.v1';
 const UPDATE_CHECK_INTERVAL = 24 * 60 * 60 * 1000;
@@ -96,20 +97,21 @@ export function createSettingsController(options: {
     if (capabilities.ready !== snapshot.capabilities.ready || capabilities.setup !== snapshot.capabilities.setup)
       update({ capabilities });
   }
-  async function refresh(detect = false) {
+  async function refresh(detect = false, scan = false) {
     const requestEpoch = ++epoch;
     refreshCapabilities();
     update({
       loading: true,
       error: '',
       ...(detect ? { showInstallations: true, message: 'Looking for ComfyUI on this PC…' } : {}),
+      ...(scan ? { message: 'Scanning the selected model folder…' } : {}),
     });
     const results = await Promise.allSettled([
       api.settings(),
       api.setup(detect),
       api.status(),
       api.qwen(),
-      api.modelCatalog(),
+      api.modelCatalog(scan),
       api.modelDownloads(),
     ]);
     if (disposed || requestEpoch !== epoch) return;
@@ -147,10 +149,12 @@ export function createSettingsController(options: {
       errors.push('Could not read FLUX settings. Refresh the local backend state.');
     const nextSetup = accepted.setup ?? snapshot.setup;
     const modelCatalogAvailable = catalog.status === 'fulfilled' && Array.isArray(catalog.value.models);
-    const models =
+    const generationModels =
       catalog.status === 'fulfilled' && modelCatalogAvailable
         ? catalog.value.models.filter(model => !model.historical && !!model.variants?.length)
         : snapshot.models;
+    const removal = removalModel(nextSetup, accepted.settings);
+    const models = [...generationModels.filter(model => model.id !== REMOVAL_MODEL_ID), ...(removal ? [removal] : [])];
     const model =
       models.find(item => item.id === snapshot.selectedModelId) || models.find(item => item.id === 'qwen') || models[0];
     const selectedVariant =
@@ -177,6 +181,14 @@ export function createSettingsController(options: {
       selectedVariant,
       modelDownloads: downloads.status === 'fulfilled' ? downloads.value : snapshot.modelDownloads,
       error: [...new Set(errors)].join(' '),
+      ...(scan
+        ? {
+            message:
+              downloads.status === 'fulfilled'
+                ? modelFolderSummary(downloads.value, models)
+                : 'The model folder scan failed. Try again.',
+          }
+        : {}),
       ...(detect
         ? {
             message: candidates.length
@@ -259,7 +271,7 @@ export function createSettingsController(options: {
     if (locked() || snapshot.loading) return 'Wait for the current operation to finish.';
     if (!snapshot.modelCatalogAvailable) return 'Refresh model details before downloading.';
     if (!selected.model || !selected.variant) return 'Choose a model and precision.';
-    if (selected.ready) return 'This model is ready in the AI backend.';
+    if (selected.ready && selected.missing === undefined) return 'This model is ready in the AI backend.';
     if (selected.filesPresent) return 'Model files are present. Start the AI backend to use them.';
     if (!selected.downloadable) return selected.note || 'Publisher access is required for this model.';
     if (!snapshot.setup?.model_directory && !snapshot.modelDownloads?.model_directory)
@@ -289,7 +301,9 @@ export function createSettingsController(options: {
         action === 'useInstallation'
           ? await bridge.useInstallation(selected)
           : action === 'downloadModel'
-            ? await bridge.downloadModel(model, variant)
+            ? model === REMOVAL_MODEL_ID
+              ? await bridge.downloadRemovalModels()
+              : await bridge.downloadModel(model, variant)
             : await bridge[action]();
       if (result === null || result === undefined) return;
       if (disposed) return;
@@ -302,7 +316,8 @@ export function createSettingsController(options: {
             action === 'ejectModels'
               ? 'GPU unload requested. Model files remain on disk.'
               : action === 'downloadModel'
-                ? snapshot.modelDownloads?.message || 'Model download started.'
+                ? (model === REMOVAL_MODEL_ID ? snapshot.setup?.job?.message : snapshot.modelDownloads?.message) ||
+                  'Model download started.'
                 : 'Setup updated.',
         });
     } catch (error) {
@@ -463,6 +478,15 @@ export function createSettingsController(options: {
     open,
     close,
     refresh,
+    scanModels: () => {
+      if (
+        locked() ||
+        snapshot.loading ||
+        (!snapshot.setup?.model_directory && !snapshot.modelDownloads?.model_directory)
+      )
+        return Promise.resolve();
+      return refresh(false, true);
+    },
     reloadConfiguration: refresh,
     maybeFirstRun,
     refreshCapabilities,

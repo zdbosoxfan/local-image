@@ -476,3 +476,71 @@ test('content preferences use authenticated app storage while preview opt-in sta
   );
   assert.ok(calls.every(([, init]) => !('x-local-launcher' in (init?.headers || {}))));
 });
+
+test('model browser scans the folder and routes the removal preset to its companion download', async t => {
+  const f = fixture(),
+    forces: boolean[] = [];
+  t.after(() => f.controller.dispose());
+  const catalog = f.api.catalog;
+  f.api.catalog = async force => {
+    forces.push(!!force);
+    return catalog(force);
+  };
+  f.api.setup = async () => ({
+    model_directory: '/models',
+    models: [{ name: 'base.safetensors', folder: 'diffusion_models', expected_bytes: 100, exists: false }],
+  });
+  f.bridge.downloadRemovalModels = async () => {
+    f.actions.push(['removalDownload']);
+    return {};
+  };
+  await f.controller.openModels();
+  await f.controller.scanModels();
+  assert.equal(forces.at(-1), true);
+  assert.deepEqual(f.actions, []);
+  f.controller.selectModel('flux2-klein-remove');
+  await f.controller.downloadModel();
+  assert.deepEqual(f.actions, [['removalDownload']]);
+});
+
+test('AI Remove download refreshes setup progress and prevents another download until complete', async t => {
+  const f = fixture();
+  t.after(() => f.controller.dispose());
+  let downloading = false;
+  f.api.setup = async () => ({
+    model_directory: '/models',
+    models: [{ name: 'base.safetensors', folder: 'diffusion_models', expected_bytes: 100, exists: false }],
+    job: downloading ? { action: 'download-models', status: 'running', progress: 25, message: 'Receiving VAE' } : null,
+  });
+  f.bridge.downloadRemovalModels = async () => {
+    downloading = true;
+    f.actions.push('removalDownload');
+    return {};
+  };
+  await f.controller.openModels();
+  f.controller.selectModel('flux2-klein-remove');
+  await f.controller.downloadModel();
+  assert.equal(f.controller.getSnapshot().setup?.job?.progress, 25);
+  assert.match(f.controller.modelDownloadBlock(), /Wait/);
+  assert.equal(f.schedules.length, 1);
+  await f.controller.downloadModel();
+  assert.deepEqual(f.actions, ['removalDownload']);
+  downloading = false;
+  f.schedules.at(-1)!();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.controller.getSnapshot().setup?.job, null);
+});
+
+test('model browser download checks selected folder inventory when ComfyUI has the model elsewhere', async t => {
+  const f = fixture();
+  t.after(() => f.controller.dispose());
+  f.api.catalog = async () => ({
+    models: [
+      { id: 'qwen', label: 'Qwen', variants: [{ id: 'int8', label: 'INT8', available: true, missing_bytes: 100 }] },
+    ],
+  });
+  await f.controller.openModels();
+  assert.equal(f.controller.modelDownloadBlock(), '');
+  await f.controller.downloadModel();
+  assert.deepEqual(f.actions, [['modelDownload', 'qwen', 'int8']]);
+});

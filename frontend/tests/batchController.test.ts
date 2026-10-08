@@ -276,7 +276,7 @@ test('native picker cancellation refreshes reviewed queue without exporting or f
   await controller.open();
   await controller.loadQueue();
   await controller.exportReviewed();
-  assert.deepEqual(native, [{ job_id: 'queue-one', item_ids: ['item-a'] }]);
+  assert.deepEqual(native, [{ job_id: 'queue-one', item_ids: ['item-a'], naming_template: '{name}-local-image' }]);
   assert.equal(reads, 2);
   assert.equal(zipExports, 0);
   assert.equal(controller.getSnapshot().active?.phase, 'review');
@@ -641,4 +641,32 @@ test('lazy unopened collection items retain identity without selecting unrelated
   assert.equal(controller.getSnapshot().selectedIds.length, 136);
   assert.ok(!controller.getSnapshot().selectedIds.includes('entry-136'));
   assert.ok(!controller.getSnapshot().selectedIds.includes('unrelated-entry'));
+});
+
+test('output folder choice is retained on cancel and filename patterns reach native exports', async t => {
+  const f = editorFixture(),
+    sent: unknown[] = [];
+  f.update({ nativeExportAvailable: true });
+  let folder: { directory: string } | null = { directory: '/tmp/Reviewed photos' };
+  f.adapter.chooseBatchExportFolder = async () => folder;
+  f.adapter.exportBatchFolder = async body => {
+    sent.push(body);
+    return queue();
+  };
+  const controller = createBatchController({ token: 'x', editor: f.adapter, api: apiFixture() });
+  t.after(() => controller.dispose());
+  await controller.open();
+  await controller.chooseOutputFolder();
+  folder = null;
+  await controller.chooseOutputFolder();
+  assert.equal(controller.getSnapshot().output.directory, '/tmp/Reviewed photos');
+  await controller.prepare();
+  controller.setOutput({ namingTemplate: '../{name}' });
+  assert.equal(controller.getSnapshot().canExport, false);
+  controller.setOutput({ namingTemplate: 'product-{index}-{name}' });
+  assert.equal(controller.getSnapshot().canExport, true);
+  await controller.exportReviewed();
+  assert.deepEqual(sent, [
+    { job_id: 'queue-one', item_ids: ['item-a'], naming_template: 'product-{index}-{name}', use_selected_folder: true },
+  ]);
 });

@@ -40,13 +40,13 @@ The release also supplies `SHA256SUMS`. To verify a downloaded asset, download t
 
 ## Start editing or connect AI
 
-CPU editing, layers, selections, compositing and Quick Heal work without ComfyUI or downloaded models. Use **File > Open…** to choose images or `.lremove` projects. The Linux host currently uses native file pickers; native drag and drop is not implemented.
+CPU editing, layers, selections, compositing and Quick Heal work without ComfyUI or downloaded models. Use **File > Open…** to choose images or `.lremove` projects. You can also drag local images, a folder of images, or one `.lremove` project from your file manager into the app. Folder entries load on demand; filmstrip thumbnails use reduced JPEG decoding to keep large-photo folders responsive.
 
 For AI features, open **Edit > Settings > Local AI**:
 
 1. Choose a writable **Models folder**, or keep the default. A folder shared with an existing ComfyUI installation is supported.
 2. Use **Find existing** or **Choose existing folder…** to select your Linux ComfyUI installation. If necessary, install ComfyUI separately using its [official Linux/manual installation guide](https://docs.comfy.org/installation/manual_install). Its GPU/Python environment is independent of the bundled editor runtime. Local Image's Windows portable ComfyUI installer is unavailable on Linux.
-3. Start or connect the AI backend, then refresh the connection. Use the model picker and **Download** in Local AI settings to install the preset needed for your task. Model downloads are large and do not start automatically.
+3. Start or connect the AI backend, then refresh the connection. Use the model picker and **Download** in Local AI settings to install the preset needed for your task. Use **Scan folder for models** next to the folder selector to detect files you downloaded elsewhere. It checks complete supported presets in the standard model subfolders and reports file presence separately from backend readiness. The download list shows the main model, VAE, text encoders and any required adapters before you start. Model downloads are large and do not start automatically.
 
 Local Image's validated AI presets use NVIDIA CUDA. See the [model guide](GEN-MODELS.md) and the in-app **Help > Hardware guide** for requirements. Model files being present does not guarantee that the connected ComfyUI has the required model nodes; the app reports backend availability separately. Publisher licenses and gated-download requirements still apply.
 

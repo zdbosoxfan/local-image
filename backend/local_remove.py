@@ -284,8 +284,9 @@ def decode_original(path):
     else:
         with Image.open(path) as img:
             icc = img.info.get('icc_profile')
-            preview = ImageOps.exif_transpose(img).convert('RGB')
-            data = np.asarray(ImageOps.exif_transpose(img).convert('RGBA' if 'A' in img.getbands() or 'transparency' in img.info else 'RGB')).copy()
+            oriented = ImageOps.exif_transpose(img)
+            preview = oriented.convert('RGB')
+            data = np.asarray(oriented.convert('RGBA' if 'A' in img.getbands() or 'transparency' in img.info else 'RGB')).copy()
     if icc:
         preview = ImageCms.profileToProfile(preview, ImageCms.ImageCmsProfile(io.BytesIO(icc)), SRGB, outputMode='RGB')
     return data, icc, preview
@@ -845,6 +846,30 @@ async def collection(cid:str,request:Request):
     return public_collection(read_collection(cid))
 
 
+def source_thumbnail(path, size=(160, 160)):
+    """Presentation-only decoding: JPEG uses the decoder's reduced resolution.
+    No full native pixel array or recovery session is needed for the filmstrip.
+    TIFF retains its existing 16-bit-aware conversion and validation.
+    """
+    if path.suffix.lower() in {'.tif', '.tiff'}:
+        _, _, image = decode_original(path)
+        image.thumbnail(size, Image.Resampling.LANCZOS)
+        return image
+    with Image.open(path) as source:
+        icc = source.info.get('icc_profile')
+        if source.format == 'JPEG':
+            source.draft('RGB', size)
+        image = ImageOps.exif_transpose(source)
+        image.thumbnail(size, Image.Resampling.LANCZOS)
+        alpha = image.convert('RGBA').getchannel('A') if 'A' in image.getbands() or 'transparency' in image.info else None
+        image = image.convert('RGB')
+        if icc:
+            image = ImageCms.profileToProfile(image, ImageCms.ImageCmsProfile(io.BytesIO(icc)), SRGB, outputMode='RGB')
+        if alpha is not None:
+            image.putalpha(alpha)
+        return image
+
+
 @router.get('/api/local-remove/collection/{cid}/entry/{eid}/thumbnail')
 async def collection_thumbnail(cid:str,eid:str,request:Request):
     guard(request)
@@ -875,7 +900,7 @@ async def collection_thumbnail(cid:str,eid:str,request:Request):
                 if saved:
                     image=render(saved)
                 else:
-                    _,_,image=decode_original(Path(entry['path']))
+                    image=source_thumbnail(Path(entry['path']))
                 image.thumbnail((160,160),Image.Resampling.LANCZOS)
                 # Filmstrip JPEGs are presentation copies. Composite alpha only
                 # after resizing; document pixels and export rules stay intact.

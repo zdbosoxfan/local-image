@@ -159,6 +159,7 @@ def public_job(value):
     result['qwen_variant'] = value.get('qwen_variant', 'int8')
     result['background_mode'] = value.get('background_mode', 'transparent')
     result['background_name'] = value.get('background_name')
+    result['naming_template'] = value.get('naming_template', DEFAULT_NAMING_TEMPLATE)
     result['items'] = [{key: item.get(key) for key in ('id', 'name', 'session_id', 'revision', 'status', 'error', 'output_name', 'credits_name', 'export_bit_depth')}
                        | {'preview': f'/api/local-remove/batch/jobs/{value["id"]}/items/{item["id"]}/preview' if item.get('prepared') else None}
                        for item in value['items']]
@@ -684,6 +685,31 @@ def unique_export(temporary, destination, stem, suffix, before_publish=None):
     raise ValueError('Too many exports use this filename. Choose another folder.')
 
 
+DEFAULT_NAMING_TEMPLATE = '{name}-local-image'
+
+
+def validate_naming_template(template):
+    if not isinstance(template, str) or not template.strip() or len(template) > 160:
+        raise HTTPException(400, 'Enter a filename pattern of 1–160 characters.')
+    if re.search(r'[<>:"/\\|?*\x00-\x1f]', template):
+        raise HTTPException(400, 'Use a filename without folder separators or reserved characters.')
+    literal = template.replace('{name}', '').replace('{index}', '')
+    if '{' in literal or '}' in literal:
+        raise HTTPException(400, 'Use only {name} and {index} in the pattern.')
+    if not template.replace('{name}', 'Image').replace('{index}', '001').strip(' .'):
+        raise HTTPException(400, 'Enter a filename pattern.')
+    return template
+
+
+def export_stem(template, name, index):
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', Path(name).stem).strip(' .')[:160] or 'Image'
+    stem = template.replace('{name}', name).replace('{index}', f'{index:03d}').strip(' .')[:160].rstrip(' .') or 'Image'
+    stem = stem.encode('utf-8')[:230].decode('utf-8', errors='ignore').rstrip(' .')
+    if re.match(r'^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)', stem, re.I):
+        stem = '_' + stem
+    return stem
+
+
 async def export_item(value, item):
     source = own_directory('jobs', value['id']) / item['id']
     if linked(source):
@@ -715,7 +741,8 @@ async def export_item(value, item):
             if job(value['id']).get('cancel_requested'):
                 item['status'] = 'ready'
                 return
-            stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', Path(item['name']).stem).strip(' .')[:160] or 'Image'
+            template = validate_naming_template(value.get('naming_template', DEFAULT_NAMING_TEMPLATE))
+            stem = export_stem(template, item['name'], item.get('export_index', 1))
             # Journal before no-replace publication. If Windows/app closes just
             # after publishing a file, resume recognizes these exact bytes and
             # keeps one output rather than creating an unnecessary duplicate.
@@ -725,15 +752,16 @@ async def export_item(value, item):
                 recorded = load_json(journal_path)
                 name = recorded.get('name')
                 if (isinstance(name, str) and Path(name).name == name and not any(char in name for char in '\\/:\x00')
-                        and recorded.get('directory') == str(destination.resolve())):
+                        and recorded.get('directory') == str(destination.resolve())
+                        and recorded.get('naming_template', DEFAULT_NAMING_TEMPLATE) == template):
                     candidate = destination / name
                     if candidate.is_file() and not linked(candidate) and editor.file_hash(candidate) == recorded.get('sha256'):
                         output = candidate
             if output is None:
                 digest = await asyncio.to_thread(editor.file_hash, temporary)
                 def record(candidate):
-                    atomic_json(journal_path, {'directory': str(destination.resolve()), 'name': candidate.name, 'sha256': digest})
-                output = await asyncio.to_thread(unique_export, temporary, destination, stem + '-local-image', suffix, record)
+                    atomic_json(journal_path, {'directory': str(destination.resolve()), 'name': candidate.name, 'sha256': digest, 'naming_template': template})
+                output = await asyncio.to_thread(unique_export, temporary, destination, stem, suffix, record)
             item.update(status='exported', output_name=output.name, error=None,
                         export_bit_depth=16 if data['bit_depth'] == 16 and suffix.lower() in ('.tif', '.tiff') else 8)
             credits = collect_attributions(data)
@@ -755,7 +783,8 @@ async def run_queue(identifier, mode):
         value = job(identifier)
         live_jobs[identifier] = value
         storage_ledgers[identifier] = batch_store.StorageLedger(own_directory('jobs', identifier), linked)
-        export_ids = set(value.get('export_item_ids', []))
+        export_order = {item_id: index + 1 for index, item_id in enumerate(value.get('export_item_ids', []))}
+        export_ids = set(export_order)
         for index in range(len(value['items'])):
             current = job(identifier)
             if current.get('cancel_requested'):
@@ -765,6 +794,8 @@ async def run_queue(identifier, mode):
             if not eligible:
                 continue
             item['status'] = 'preparing' if mode == 'prepare' else 'exporting'
+            if mode == 'export':
+                item['export_index'] = export_order[item['id']]
             current['message'] = ('Preparing' if mode == 'prepare' else 'Exporting') + f' {index + 1} of {len(current["items"])}: {item["name"]}'
             save_job(current, changed_items=[(index, item)], progress=True)
             try:
@@ -904,7 +935,8 @@ async def resume_job(identifier: str, request: Request):
         return public_job(value)
 
 
-async def begin_export(identifier, *, directory=None, item_ids=None):
+async def begin_export(identifier, *, directory=None, item_ids=None, naming_template=DEFAULT_NAMING_TEMPLATE):
+    naming_template = validate_naming_template(naming_template)
     async with queue_lock:
         require_idle()
         value = job(identifier)
@@ -915,7 +947,7 @@ async def begin_export(identifier, *, directory=None, item_ids=None):
         if not selected:
             raise HTTPException(400, 'Prepare and review at least one ready image first.')
         value.update(mode='folder' if directory is not None else 'zip', output_directory=str(directory) if directory else None,
-                     export_item_ids=selected, running=True, phase='exporting', cancel_requested=False, message='Exporting reviewed images one at a time.')
+                     export_item_ids=selected, naming_template=naming_template, running=True, phase='exporting', cancel_requested=False, message='Exporting reviewed images one at a time.')
         save_job(value, changed_items=())
         launch(identifier, 'export')
         return public_job(value)
@@ -923,12 +955,13 @@ async def begin_export(identifier, *, directory=None, item_ids=None):
 
 class ExportSelection(StrictModel):
     item_ids: list[str] | None = Field(default=None, min_length=1)
+    naming_template: str = Field(default=DEFAULT_NAMING_TEMPLATE, min_length=1, max_length=160)
 
 
 @router.post('/jobs/{identifier}/export')
 async def export_zip(identifier: str, request: Request, payload: ExportSelection):
     editor.guard(request, True)
-    return await begin_export(identifier, item_ids=payload.item_ids)
+    return await begin_export(identifier, item_ids=payload.item_ids, naming_template=payload.naming_template)
 
 
 class ExportFolder(ExportSelection):
@@ -943,7 +976,7 @@ async def export_folder(identifier: str, request: Request, payload: ExportFolder
         raise HTTPException(400, 'Choose an existing regular export folder.')
     if destination.resolve() == editor.ROOT.resolve() or editor.ROOT.resolve() in destination.resolve().parents:
         raise HTTPException(400, 'Choose a folder outside Local Image recovery storage.')
-    return await begin_export(identifier, directory=destination.resolve(), item_ids=payload.item_ids)
+    return await begin_export(identifier, directory=destination.resolve(), item_ids=payload.item_ids, naming_template=payload.naming_template)
 
 
 @router.get('/jobs/{identifier}/items/{item_id}/preview')

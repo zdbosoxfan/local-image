@@ -546,6 +546,7 @@ internal sealed class LocalImageWindow : Form
     private bool bridgeBusy;
     private bool trustedEditorReady;
     private string pendingInstaller;
+    private string batchExportDirectory;
     private readonly CloseRequestGate closeGate = new CloseRequestGate();
     private readonly HashSet<ulong> ignoredNavigations = new HashSet<ulong>();
     internal LocalImageWindow(string[] initialPaths, bool hiddenProbe, string resultPath)
@@ -706,7 +707,7 @@ internal sealed class LocalImageWindow : Form
                     BeginInvoke(new Action(delegate { if (!IsDisposed) Close(); }));
                 return;
             }
-            if (verb != "openFiles" && verb != "openFolder" && verb != "chooseBackgroundFolder" && verb != "openProject" && verb != "saveProject" && verb != "drop" && verb != "configureAi" && verb != "batchExportFolder" && verb != "updateInstall" && !LocalImageLauncher.IsSetupAction(verb)) throw new InvalidOperationException("Unknown desktop action.");
+            if (verb != "openFiles" && verb != "openFolder" && verb != "chooseBackgroundFolder" && verb != "openProject" && verb != "saveProject" && verb != "drop" && verb != "configureAi" && verb != "batchExportFolder" && verb != "batchChooseExportFolder" && verb != "updateInstall" && !LocalImageLauncher.IsSetupAction(verb)) throw new InvalidOperationException("Unknown desktop action.");
             if (bridgeBusy) throw new InvalidOperationException("Finish opening the current selection first.");
             bridgeBusy = true; ownsBusy = true;
             if (LocalImageLauncher.IsSetupAction(verb))
@@ -736,19 +737,41 @@ internal sealed class LocalImageWindow : Form
                 var saved = await SaveProject(message);
                 Reply(id, saved, null); return;
             }
+            if (verb == "batchChooseExportFolder")
+            {
+                await Task.Yield();
+                if (IsDisposed) return;
+                using (var picker = new FolderBrowserDialog { Description = "Choose batch output folder.", ShowNewFolderButton = true })
+                {
+                    if (picker.ShowDialog(this) != DialogResult.OK) { Reply(id, null, null); return; }
+                    batchExportDirectory = Path.GetFullPath(picker.SelectedPath);
+                    Reply(id, new { directory = batchExportDirectory }, null); return;
+                }
+            }
             if (verb == "batchExportFolder")
             {
                 var payload = LocalImageLauncher.BatchSelectionPayload(message);
                 string job = (string)payload["job_id"];
+                string namingTemplate = LocalImageLauncher.StringValue(message, "naming_template", "{name}-local-image");
+                if (namingTemplate.Length < 1 || namingTemplate.Length > 160)
+                    throw new InvalidOperationException("Enter a filename pattern of 1–160 characters.");
+                object useSelected;
+                bool selected = message.TryGetValue("use_selected_folder", out useSelected) && useSelected is bool && (bool)useSelected;
                 await Task.Yield();
                 if (IsDisposed) return;
-                using (var picker = new FolderBrowserDialog { Description = "Choose a folder for unique exported batch copies. Originals are kept.", ShowNewFolderButton = true })
+                string folder = selected ? batchExportDirectory : null;
+                if (selected && String.IsNullOrEmpty(folder)) throw new InvalidOperationException("Choose a batch output folder first.");
+                if (!selected)
                 {
-                    if (picker.ShowDialog(this) != DialogResult.OK) { Reply(id, null, null); return; }
-                    var batchResult = await LocalImageLauncher.Api("/api/local-remove/batch/jobs/" + job + "/export-folder",
-                        new { path = Path.GetFullPath(picker.SelectedPath), item_ids = (string[])payload["item_ids"] });
-                    Reply(id, batchResult, null); return;
+                    using (var picker = new FolderBrowserDialog { Description = "Choose a folder for unique exported batch copies. Originals are kept.", ShowNewFolderButton = true })
+                    {
+                        if (picker.ShowDialog(this) != DialogResult.OK) { Reply(id, null, null); return; }
+                        folder = Path.GetFullPath(picker.SelectedPath);
+                    }
                 }
+                var batchResult = await LocalImageLauncher.Api("/api/local-remove/batch/jobs/" + job + "/export-folder",
+                    new { path = folder, item_ids = (string[])payload["item_ids"], naming_template = namingTemplate });
+                Reply(id, batchResult, null); return;
             }
             if (verb == "chooseBackgroundFolder")
             {

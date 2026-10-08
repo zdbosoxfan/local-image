@@ -77,6 +77,21 @@ class QwenSetupTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException):
             await self.routes.qwen_download_status(self.request(origin='https://remote.example'))
 
+    async def test_scan_tracks_files_added_removed_and_incomplete_in_selected_folder(self):
+        files, body = self.small_catalog(); self.routes.QWEN_FILES = files
+        with patch.object(self.routes, 'download_verified', AsyncMock(side_effect=AssertionError('Scan must not download'))):
+            before = await self.routes.qwen_download_status(self.request())
+            self.assertFalse(before['variants'][0]['installed'])
+            for artifact in files['int8']:
+                path = self.root / artifact['folder'] / artifact['name']; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(body)
+            found = await self.routes.qwen_download_status(self.request())
+            self.assertTrue(found['variants'][0]['installed']); self.assertFalse(found['variants'][1]['installed'])
+            self.assertEqual([(item['folder'], item['name']) for item in found['variants'][0]['files']], [('diffusion_models', 'compact.safetensors'), ('vae', 'shared.safetensors')])
+            (self.root / 'vae' / 'shared.safetensors').unlink()
+            missing = await self.routes.qwen_download_status(self.request())
+            self.assertFalse(missing['variants'][0]['installed']); self.assertFalse(missing['variants'][0]['files'][1]['exists'])
+            self.assertIsNone(self.routes.manager.task)
+
     def test_request_cannot_supply_arbitrary_download_url_or_destination(self):
         for payload in ({'variant': 'int4'}, {'variant': 'int8', 'url': 'https://untrusted.example'},
                         {'variant': 'bf16', 'directory': 'C:/elsewhere'}):

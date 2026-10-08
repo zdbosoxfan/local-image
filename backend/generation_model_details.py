@@ -71,8 +71,10 @@ def enrich_model(model, root=None):
     profiles = {item['id']: item for item in PROFILES}
     for variant in model['variants']:
         files = CATALOGS[model['id']][variant['id']]
+        variant['files'] = [{'name': item['name'], 'folder': item['folder'], 'bytes': item['bytes'],
+                             'exists': matching_file(root, item)} for item in files]
         variant['total_bytes'] = sum(item['bytes'] for item in files)
-        variant['missing_bytes'] = sum(item['bytes'] for item in files if not matching_file(root, item))
+        variant['missing_bytes'] = sum(item['bytes'] for item in variant['files'] if not item['exists'])
         variant['files_present'] = variant['missing_bytes'] == 0
         if model['id'] == 'flux2-klein-9b' and not variant['files_present']:
             variant['downloadable'] = False
