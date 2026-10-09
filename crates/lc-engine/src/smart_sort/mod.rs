@@ -6,6 +6,7 @@ pub mod classify;
 pub mod mock;
 pub mod plan;
 mod presets;
+pub mod sessions;
 pub mod store;
 
 use crate::{RenderJob, Session};
