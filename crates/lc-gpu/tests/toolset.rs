@@ -607,57 +607,13 @@ fn ai_remove_patches_are_in_the_gpu_render() {
     forget("lc-gpu-test-patch");
 }
 
-#[test]
-fn ai_denoised_sources_render_on_the_gpu() {
-    if !gpu() {
-        return;
-    }
-    // AI Denoise replaces the decoded source before either renderer (`enhance::for_render` in the
-    // engine mixes the stored result in by the amount): the GPU renders that source like any other.
-    // A stub result: the source with its noise flattened (a 5×5 box blur).
-    let src = scene(6, 900, 600);
-    let den = Rgb32f::from_fn(src.width, src.height, |x, y| {
-        let mut acc = [0.0f32; 3];
-        let mut n = 0.0;
-        for dy in -2i32..=2 {
-            for dx in -2i32..=2 {
-                let (sx, sy) = ((x as i32 + dx).clamp(0, src.width as i32 - 1), (y as i32 + dy).clamp(0, src.height as i32 - 1));
-                let p = src.get(sx as usize, sy as usize);
-                (0..3).for_each(|c| acc[c] += p[c]);
-                n += 1.0;
-            }
-        }
-        acc.map(|v| v / n)
-    });
-    let info = raw();
-    let req = RenderRequest::fit(900, 900);
-    let mut s = DevelopSettings::default();
-    s.light.exposure = 0.3;
-    s.effects.texture = 20.0;
-    s.detail.sharpen_amount = 40.0;
-    let plain = check("denoise 0%", &src, &info, &s, &req);
-    let cache = StageCache::default();
-    for amount in [25.0f32, 100.0] {
-        let mixed = Arc::new(Rgb32f {
-            width: src.width,
-            height: src.height,
-            data: src.data.iter().zip(&den.data).map(|(o, d)| std::array::from_fn(|c| o[c] + (d[c] - o[c]) * amount / 100.0)).collect(),
-        });
-        let g = check(&format!("denoise {amount}%"), &mixed, &info, &s, &req);
-        assert!(changed(&plain, &g) > 0.05, "{amount}%: the denoised source is rendered");
-        assert_eq!(gpu_render(&mixed, &info, &s, &req, Some(&cache)), g, "{amount}%: a cached view uploads the new source");
-    }
-}
-
 // ------------------------------------------------------------------------------------------------
 // Timings at 24 MP (`cargo test --release -p lightcraft-gpu --test toolset -- --ignored --nocapture`)
 
 #[test]
 #[ignore = "benchmark: run with --release --ignored"]
 fn bench_toolset_24mp() {
-    if !gpu() {
-        return;
-    }
+    let has_gpu = gpu();
     let (w, h) = (6000, 4000);
     let src = scene(3, w, h);
     let req = RenderRequest::fit(w, h);
@@ -675,6 +631,24 @@ fn bench_toolset_24mp() {
         s.detail.sharpen_amount = 40.0;
     };
     let cases: Vec<(&str, SourceInfo, DevelopSettings)> = vec![
+        ("detail sharpening", info.clone(), {
+            let mut s = DevelopSettings::default();
+            s.detail.sharpen_amount = 100.0;
+            s.detail.sharpen_radius = 1.0;
+            s.detail.sharpen_detail = 70.0;
+            s
+        }),
+        ("detail wavelet NR", info.clone(), {
+            let mut s = DevelopSettings::default();
+            s.detail.nr_luminance = 60.0;
+            s.detail.nr_color = 50.0;
+            s
+        }),
+        ("detail dehaze", info.clone(), {
+            let mut s = DevelopSettings::default();
+            s.effects.dehaze = 60.0;
+            s
+        }),
         ("typical edit", info.clone(), DevelopSettings::default()),
         ("lens profile (db)", SourceInfo { lens_db: Some(barrel()), ..info.clone() }, {
             let mut s = DevelopSettings::default();
@@ -719,9 +693,16 @@ fn bench_toolset_24mp() {
     let ms = |t: std::time::Instant| t.elapsed().as_secs_f64() * 1e3;
     eprintln!("{:<34} {:>10} {:>10}  renderer", "24 MP (6000×4000), full size", "GPU path", "CPU only");
     for (name, info, mut s) in cases {
-        typical(&mut s);
+        if std::env::var_os("LC_DETAIL_BENCH_ONLY").is_some() && !name.starts_with("detail ") {
+            continue;
+        }
+        if !name.starts_with("detail ") {
+            typical(&mut s);
+        }
         // warm-up (device, kernels, patch cache), then the timed renders
-        let _ = lightcraft_gpu::render(&src, &info, &s, &req, None);
+        if has_gpu {
+            let _ = lightcraft_gpu::render(&src, &info, &s, &req, None);
+        }
         let t = std::time::Instant::now();
         let on_gpu = lightcraft_gpu::render(&src, &info, &s, &req, None).is_some();
         let gpu_ms = if on_gpu { ms(t) } else { f64::NAN };
@@ -802,5 +783,118 @@ fn dual_illuminant_wb_and_dcp_inside_gpu_render() {
                 assert_eq!(cached.data, fresh.data, "WB/profile cache invalidation");
             }
         }
+    }
+}
+
+fn detail_scene() -> Arc<Rgb32f> {
+    Arc::new(Rgb32f::from_fn(257, 193, |x, y| {
+        let base = if x < 128 { [0.035, 0.015, 0.009] } else { [0.24, 0.36, 0.18] };
+        std::array::from_fn(|k| {
+            let v = (x as u32).wrapping_mul(7919) ^ (y as u32).wrapping_mul(104729) ^ (k as u32).wrapping_mul(941083);
+            let noise = ((v.wrapping_mul(1664525).wrapping_add(1013904223) >> 16) as f32 / 65535.0 - 0.5) * 0.05;
+            base[k] + noise + 0.02 * (x as f32 * 0.8).sin() + if y < 24 { 1.5 } else { 0.0 }
+        })
+    }))
+}
+#[test]
+fn detail_sharpen_radius_detail_masking_and_alt_preview_match() {
+    if !gpu() {
+        return;
+    }
+    let src = detail_scene();
+    let mut s = DevelopSettings::default();
+    for scale in [1.0, 2.0] {
+        let info = SourceInfo { sensor_scale: scale, ..raw() };
+        for edge in [257, 137, 31] {
+            for (radius, detail, masking) in [(0.5, 0.0, 0.0), (1.0, 50.0, 60.0), (3.0, 100.0, 100.0)] {
+                s.detail.sharpen_amount = 150.0;
+                s.detail.sharpen_radius = radius;
+                s.detail.sharpen_detail = detail;
+                s.detail.sharpen_masking = masking;
+                let req = RenderRequest::fit(edge, edge);
+                check(&format!("detail sharp r{radius} d{detail} m{masking} sensor{scale}"), &src, &info, &s, &req);
+                check("detail Alt Masking", &src, &info, &s, &RenderRequest { overlay: Overlay::SharpenMask, ..req });
+            }
+        }
+    }
+}
+#[test]
+fn detail_y0u0v0_wavelets_six_sliders_and_preview_match() {
+    if !gpu() {
+        return;
+    }
+    let src = detail_scene();
+    let info = raw();
+    for edge in [257, 137, 31] {
+        for (lum, col, detail, contrast, col_detail, smoothness) in [
+            (60.0, 0.0, 0.0, 0.0, 50.0, 50.0),
+            (60.0, 0.0, 100.0, 100.0, 50.0, 50.0),
+            (0.0, 100.0, 50.0, 0.0, 0.0, 0.0),
+            (0.0, 100.0, 50.0, 0.0, 100.0, 100.0),
+            (80.0, 70.0, 50.0, 50.0, 50.0, 50.0),
+        ] {
+            let mut s = DevelopSettings::default();
+            s.detail.nr_luminance = lum;
+            s.detail.nr_color = col;
+            s.detail.nr_detail = detail;
+            s.detail.nr_contrast = contrast;
+            s.detail.nr_color_detail = col_detail;
+            s.detail.nr_color_smoothness = smoothness;
+            s.light.exposure = 1.7;
+            check(
+                &format!("detail NR Y{lum} UV{col} D{detail} C{contrast} CD{col_detail} S{smoothness}"),
+                &src,
+                &info,
+                &s,
+                &RenderRequest::fit(edge, edge),
+            );
+        }
+    }
+}
+#[test]
+fn detail_dark_channel_rgb_guidance_positive_negative_match() {
+    if !gpu() {
+        return;
+    }
+    let src = detail_scene();
+    for scale in [1.0, 2.0] {
+        for edge in [257, 137, 31] {
+            for strength in [-100.0, -35.0, 35.0, 100.0] {
+                let mut s = DevelopSettings::default();
+                s.effects.dehaze = strength;
+                let info = SourceInfo { sensor_scale: scale, ..raw() };
+                check(&format!("detail haze {strength} sensor{scale}"), &src, &info, &s, &RenderRequest::fit(edge, edge));
+            }
+        }
+    }
+}
+#[test]
+fn detail_slider_and_sensor_scale_changes_invalidate_cached_planes() {
+    if !gpu() {
+        return;
+    }
+    let src = detail_scene();
+    let stages = StageCache::default();
+    let mut info = raw();
+    let req = RenderRequest::fit(200, 200);
+    let mut s = DevelopSettings::default();
+    for step in 0..12 {
+        match step {
+            0 => s.detail.sharpen_amount = 90.0,
+            1 => s.detail.sharpen_radius = 3.0,
+            2 => s.detail.sharpen_masking = 80.0,
+            3 => s.detail.sharpen_detail = 90.0,
+            4 => s.effects.dehaze = 60.0,
+            5 => s.effects.dehaze = -60.0,
+            6 => s.detail.nr_luminance = 65.0,
+            7 => s.detail.nr_contrast = 100.0,
+            8 => s.detail.nr_color = 60.0,
+            9 => s.detail.nr_color_smoothness = 100.0,
+            10 => info.sensor_scale = 2.0,
+            _ => s.detail.nr_detail = 100.0,
+        }
+        let cached = gpu_render(&src, &info, &s, &req, Some(&stages));
+        let fresh = check(&format!("detail cached step {step}"), &src, &info, &s, &req);
+        assert_eq!(cached, fresh, "cache at step {step}");
     }
 }

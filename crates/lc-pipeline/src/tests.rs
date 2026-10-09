@@ -224,9 +224,13 @@ fn stage_cache_matches_uncached_render_through_a_slider_session() {
 fn exposure_after_spatial_filters_equals_exposing_the_source() {
     // The pipeline filters the image before exposure and applies exposure per pixel; filters on
     // log luminance are shift-equivariant, so this must equal scaling the source.
+    // Image-profiled NR and scene-linear dark-channel dehaze depend on input amplitudes.
     let src = scene();
     let info = SourceInfo { raw: true, ..Default::default() };
     let mut s = typical_edits();
+    s.effects.dehaze = 0.0;
+    s.detail.nr_luminance = 0.0;
+    s.detail.nr_color = 0.0;
     s.light.exposure = 1.3;
     let a = render(&src, &info, &s, &RenderRequest::fit(200, 200)).image;
     let g = 2f32.powf(1.3);

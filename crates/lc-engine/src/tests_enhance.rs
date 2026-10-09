@@ -1,5 +1,5 @@
-//! local-image: AI Remove and AI Denoise through the commands, with a mock AI engine and a stand-in
-//! denoiser — one undo step per result, copies leave them behind, foreign or missing results never
+//! AI Remove through the commands with a mock engine — one undo step per result,
+//! copies leave patches behind, foreign or missing results never
 //! render, and the photo renders as before without them.
 
 use std::sync::Arc;
@@ -7,7 +7,7 @@ use std::sync::Arc;
 use serde_json::json;
 
 use crate::Session;
-use crate::enhance::{AiHost, DenoiseState, Download, JobCtl, PatchState, RemoveEngine, RemoveRequest, RemoveResult, denoise_state, patch_state};
+use crate::enhance::{AiHost, JobCtl, PatchState, RemoveEngine, RemoveRequest, RemoveResult, patch_state};
 
 /// Paints the masked area magenta.
 struct Mock;
@@ -24,13 +24,6 @@ impl AiHost for Mock {
         let rgb = req.rgb.iter().zip(&req.mask).map(|(c, m)| if *m > 127 { [250, 0, 250] } else { *c }).collect();
         Ok(RemoveResult { rgb, alpha: req.mask.iter().map(|m| if *m > 127 { 255 } else { 0 }).collect() })
     }
-    fn start_model_download(&self, _: &str) -> Result<(), String> {
-        Err("not in tests".into())
-    }
-    fn model_download(&self, _: &str) -> Option<Download> {
-        None
-    }
-    fn cancel_model_download(&self, _: &str) {}
 }
 
 fn session() -> Session {
@@ -135,44 +128,6 @@ fn copies_and_other_photos_never_get_ai_results() {
     s.set_develop(b, d, "test").unwrap();
     assert_eq!(patch_state(&s, b, &s.develop_of(b).unwrap().spots[0]), PatchState::Foreign);
     assert_eq!(centre(&mut s), clean, "rendered as without the AI spot");
-}
-
-#[test]
-fn denoise_through_the_commands() {
-    let mut s = session();
-    // (the last raw demo photo: `enhance::denoise`'s own tests use the first, with the same
-    // stand-in model, so the stored results differ)
-    let id = s.visible_cloned().into_iter().rev().find(|id| crate::enhance::denoise::can_denoise(&s, *id).is_ok()).unwrap();
-    s.execute("library.select", &json!({"ids": [id.0]})).unwrap();
-    assert!(matches!(denoise_state(&s, id), DenoiseState::NoModel { .. }));
-    assert!(s.execute("enhance.denoise", &json!({"wait": true})).is_err(), "no model");
-    // a stand-in: everything becomes mid grey
-    s.enhance.denoiser = Some(Arc::new(|px, _, _, _| Ok(vec![[0.18, 0.18, 0.18]; px.len()])));
-    assert_eq!(denoise_state(&s, id), DenoiseState::Ready);
-    let before = centre(&mut s);
-    s.execute("enhance.denoise", &json!({"wait": true})).unwrap();
-    let d = s.develop_of(id).unwrap();
-    let r = d.enhance.ai.expect("the result is referenced");
-    assert_eq!(d.enhance.denoise, crate::enhance::session::DEFAULT_AMOUNT);
-    assert_eq!(s.undo.last().map(|u| u.label.as_str()), Some("AI Denoise"));
-    assert_eq!(denoise_state(&s, id), DenoiseState::Done { amount: 60.0 });
-    let half = centre(&mut s);
-    assert_ne!(half, before);
-    s.execute("develop.set", &json!({"control": "enhance.denoise", "value": 100})).unwrap();
-    let full = centre(&mut s);
-    let grey = |c: [u8; 4]| (c[0] as i32 - c[2] as i32).abs();
-    // A nonlinear tone curve can increase display chroma of the mixed source. The full
-    // replacement must be neutral, and the partial amount must keep some source colour.
-    assert!(grey(full) <= 1 && grey(half) > grey(full), "{before:?} {half:?} {full:?}");
-    // the result gone: the photo renders from its own pixels and Develop offers to run it again
-    crate::enhance::store::delete(crate::enhance::store::Kind::Denoise, &r.key.to_string());
-    crate::enhance::store::delete(crate::enhance::store::Kind::Denoise, &crate::enhance::denoise::preview_key(&r.key.to_string()));
-    assert_eq!(denoise_state(&s, id), DenoiseState::Missing);
-    s.execute("develop.set", &json!({"control": "enhance.denoise", "value": 60})).unwrap();
-    assert_eq!(centre(&mut s), before);
-    // copies keep the amount, not the result
-    let c = lightcraft_develop::extract_groups(&s.develop_of(id).unwrap(), &[lightcraft_develop::SettingsGroup::Detail]);
-    assert!(c["enhance"].get("ai").is_none());
 }
 
 /// A session whose active photo is `img` (from a file loader that makes it up), with no AI host.

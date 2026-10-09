@@ -101,24 +101,24 @@ fn cases() -> Vec<(&'static str, Value)> {
 
 /// (case/source kind, render hash, settings hash), x86_64 Linux.
 const GOLDEN: [(&str, u64, u64); 14] = [
-    ("default/rendered", 0x9c4d1d077ec4855f, 0x12a719f1bc9181a3),
-    ("default/raw", 0xe4cadb152e11a72a, 0x12a719f1bc9181a3),
-    ("raw defaults + edits/rendered", 0x3ccf1e25fb86c471, 0x4de6ce922ddbca2c),
-    ("raw defaults + edits/raw", 0xdffc0e02ab440efe, 0x4de6ce922ddbca2c),
-    ("optics + geometry + crop/rendered", 0xc0c59a4c8cd4a92a, 0xc35ab3adf97809b0),
-    ("optics + geometry + crop/raw", 0xded90c5d0013a5d1, 0xc35ab3adf97809b0),
-    ("profile look/rendered", 0xf340243918f5d0d7, 0x2e1a0b037741d7c4),
-    ("profile look/raw", 0xbf9002730b346eb4, 0x2e1a0b037741d7c4),
-    ("b&w profile/rendered", 0xaf0827daa56de037, 0xe03778c72eb700fb),
-    ("b&w profile/raw", 0x1e627cb4c60f4827, 0xe03778c72eb700fb),
-    ("negative/rendered", 0x30b5bb6ca4d2340b, 0x6c1203e7c3fdbcb3),
-    ("negative/raw", 0xd4e80f8f014fb4b0, 0x6c1203e7c3fdbcb3),
-    ("layers/rendered", 0x5d7d052c40911a42, 0x47486480d432991f),
-    ("layers/raw", 0xca6bb1ad16f271e4, 0x47486480d432991f),
+    ("default/rendered", 0x9c4d1d077ec4855f, 0x97d20305a4beb718),
+    ("default/raw", 0xe4cadb152e11a72a, 0x97d20305a4beb718),
+    ("raw defaults + edits/rendered", 0xf2364afc56909ea9, 0x15c51fec88c0f59f),
+    ("raw defaults + edits/raw", 0xc5693c7dca173f4d, 0x15c51fec88c0f59f),
+    ("optics + geometry + crop/rendered", 0xc0c59a4c8cd4a92a, 0x0d608f6981034f4f),
+    ("optics + geometry + crop/raw", 0xded90c5d0013a5d1, 0x0d608f6981034f4f),
+    ("profile look/rendered", 0xf340243918f5d0d7, 0x67aea33bdcc2fa0b),
+    ("profile look/raw", 0xbf9002730b346eb4, 0x67aea33bdcc2fa0b),
+    ("b&w profile/rendered", 0xaf0827daa56de037, 0xb6159ee7a2d437b0),
+    ("b&w profile/raw", 0x1e627cb4c60f4827, 0xb6159ee7a2d437b0),
+    ("negative/rendered", 0x30b5bb6ca4d2340b, 0xb00a5805f4d46110),
+    ("negative/raw", 0xd4e80f8f014fb4b0, 0xb00a5805f4d46110),
+    ("layers/rendered", 0x5d7d052c40911a42, 0x72a3db4f1a1900ec),
+    ("layers/raw", 0xca6bb1ad16f271e4, 0x72a3db4f1a1900ec),
 ];
 
 #[test]
-fn old_settings_load_and_match_colour_tone_goldens() {
+fn old_settings_load_and_match_detail_goldens() {
     let src = scene();
     let mut got = Vec::new();
     for (name, v) in cases() {

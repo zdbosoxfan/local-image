@@ -257,17 +257,23 @@ pub fn to_partial(props: &Props, raw: Option<bool>) -> Value {
     n(o, "ColorGradeBlending", "grading.blending");
     n(o, "SplitToningBalance", "grading.balance");
 
-    // ---- Detail
-    n(o, "Sharpness", "detail.sharpen_amount");
-    n(o, "SharpenRadius", "detail.sharpen_radius");
-    n(o, "SharpenDetail", "detail.sharpen_detail");
-    n(o, "SharpenEdgeMasking", "detail.sharpen_masking");
-    n(o, "LuminanceSmoothing", "detail.nr_luminance");
-    n(o, "LuminanceNoiseReductionDetail", "detail.nr_detail");
-    n(o, "LuminanceNoiseReductionContrast", "detail.nr_contrast");
-    n(o, "ColorNoiseReduction", "detail.nr_color");
-    n(o, "ColorNoiseReductionDetail", "detail.nr_color_detail");
-    n(o, "ColorNoiseReductionSmoothness", "detail.nr_color_smoothness");
+    // ---- Detail (Lightroom's native units and ranges)
+    for (crs, path, lo, hi) in [
+        ("Sharpness", "sharpen_amount", 0.0, 150.0),
+        ("SharpenRadius", "sharpen_radius", 0.5, 3.0),
+        ("SharpenDetail", "sharpen_detail", 0.0, 100.0),
+        ("SharpenEdgeMasking", "sharpen_masking", 0.0, 100.0),
+        ("LuminanceSmoothing", "nr_luminance", 0.0, 100.0),
+        ("LuminanceNoiseReductionDetail", "nr_detail", 0.0, 100.0),
+        ("LuminanceNoiseReductionContrast", "nr_contrast", 0.0, 100.0),
+        ("ColorNoiseReduction", "nr_color", 0.0, 100.0),
+        ("ColorNoiseReductionDetail", "nr_color_detail", 0.0, 100.0),
+        ("ColorNoiseReductionSmoothness", "nr_color_smoothness", 0.0, 100.0),
+    ] {
+        if let Some(v) = num(props, &format!("crs:{crs}")) {
+            put(o, &format!("detail.{path}"), json!(v.clamp(lo, hi)));
+        }
+    }
 
     // ---- Effects: post-crop vignette + grain
     n(o, "PostCropVignetteAmount", "vignette.amount");
@@ -538,5 +544,36 @@ mod tests {
         assert_eq!(p.settings, json!({"light": {"contrast": 25.0}}));
         assert!(!p.builtin);
         assert!(preset_from_xmp("<x/>", "f").is_none());
+    }
+}
+
+#[cfg(test)]
+mod detail_interchange_tests {
+    use super::*;
+    #[test]
+    fn all_detail_fields_and_import_bounds() {
+        let fields = [
+            ("Sharpness", "sharpen_amount", 120.0, 0.0, 150.0),
+            ("SharpenRadius", "sharpen_radius", 1.7, 0.5, 3.0),
+            ("SharpenDetail", "sharpen_detail", 23.0, 0.0, 100.0),
+            ("SharpenEdgeMasking", "sharpen_masking", 65.0, 0.0, 100.0),
+            ("LuminanceSmoothing", "nr_luminance", 37.0, 0.0, 100.0),
+            ("LuminanceNoiseReductionDetail", "nr_detail", 61.0, 0.0, 100.0),
+            ("LuminanceNoiseReductionContrast", "nr_contrast", 82.0, 0.0, 100.0),
+            ("ColorNoiseReduction", "nr_color", 43.0, 0.0, 100.0),
+            ("ColorNoiseReductionDetail", "nr_color_detail", 74.0, 0.0, 100.0),
+            ("ColorNoiseReductionSmoothness", "nr_color_smoothness", 56.0, 0.0, 100.0),
+        ];
+        for (crs, path, value, lo, hi) in fields {
+            for (input, want) in [(value, value), (-999.0, lo), (999.0, hi)] {
+                let props = Props::from([(format!("crs:{crs}"), vec![input.to_string()])]);
+                let v = to_partial(&props, None);
+                assert_eq!(v["detail"][path], json!(want));
+            }
+            for invalid in ["NaN", "inf", "1/0"] {
+                let props = Props::from([(format!("crs:{crs}"), vec![invalid.into()])]);
+                assert!(to_partial(&props, None).get("detail").is_none());
+            }
+        }
     }
 }

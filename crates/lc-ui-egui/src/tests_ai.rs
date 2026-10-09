@@ -1,10 +1,10 @@
 //! Headless tests of AI in Develop: the Remove tool's AI mode (brush, lasso, Regenerate, undo)
-//! with a mock AI engine, and AI Denoise in the Detail section with a stand-in denoiser.
+//! with a mock AI engine.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use lightcraft_engine::enhance::{AiHost, Download, JobCtl, RemoveEngine, RemoveRequest, RemoveResult};
+use lightcraft_engine::enhance::{AiHost, JobCtl, RemoveEngine, RemoveRequest, RemoveResult};
 use serde_json::json;
 
 use crate::headless::Headless;
@@ -24,13 +24,6 @@ impl AiHost for Mock {
         let rgb = req.rgb.iter().zip(&req.mask).map(|(c, m)| if *m > 127 { [250, 0, 250] } else { *c }).collect();
         Ok(RemoveResult { rgb, alpha: req.mask.iter().map(|m| if *m > 127 { 255 } else { 0 }).collect() })
     }
-    fn start_model_download(&self, _: &str) -> Result<(), String> {
-        Err("not in tests".into())
-    }
-    fn model_download(&self, _: &str) -> Option<Download> {
-        None
-    }
-    fn cancel_model_download(&self, _: &str) {}
 }
 
 fn app() -> Headless {
@@ -263,24 +256,18 @@ fn heal_over_an_ai_removal_makes_a_new_heal_spot() {
 }
 
 #[test]
-fn ai_denoise_in_the_detail_section() {
-    let mut h = app();
-    h.app.session.enhance.denoiser = Some(Arc::new(|px, _, _, _| Ok(px.iter().map(|p| [(p[0] + p[1] + p[2]) / 3.0; 3]).collect())));
-    exec(&mut h, "panel.edit", json!({}));
-    h.step();
-    let id = h.app.session.active().unwrap();
-    let ready = h.request("ui.widgets", json!({"filter": "button:denoiseRun"}), T);
-    if ready["result"].as_array().is_some_and(|a| !a.is_empty()) {
-        click(&mut h, "button:denoiseRun");
-    } else {
-        // (the Detail section is scrolled out of view or folded: start it the way the button does)
-        exec(&mut h, "enhance.denoise", json!({}));
-    }
-    assert!(h.step_until(JOB, |h| h.app.session.develop_of(id).is_some_and(|d| d.enhance.ai.is_some())), "Denoise finishes");
-    let d = h.app.session.develop_of(id).unwrap();
-    assert_eq!(d.enhance.denoise, 60.0);
-    assert_eq!(h.app.session.undo.last().map(|u| u.label.clone()).as_deref(), Some("AI Denoise"));
-    // the Amount slider drives it now
-    exec(&mut h, "develop.set", json!({"control": "enhance.denoise", "value": 30}));
-    assert_eq!(h.app.session.develop_of(id).unwrap().enhance.denoise, 30.0);
+fn masking_alt_preview_ends_with_the_drag() {
+    use lightcraft_pipeline::Overlay;
+    let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Services::default());
+    let mut d = lightcraft_develop::DevelopSettings::default();
+    d.detail.sharpen_amount = 80.0;
+    app.ui.right = crate::state::RightPanel::Edit;
+    app.ui.dragging_control = Some("detail.sharpenMasking".into());
+    app.ui.sharpen_mask_preview = true;
+    assert_eq!(crate::panels::detail::view_overlay(&app, &d), Overlay::SharpenMask);
+    app.ui.dragging_control = None;
+    assert_eq!(crate::panels::detail::view_overlay(&app, &d), Overlay::None);
+    app.ui.dragging_control = Some("detail.sharpenMasking".into());
+    app.ui.fullscreen = true;
+    assert_eq!(crate::panels::detail::view_overlay(&app, &d), Overlay::None);
 }

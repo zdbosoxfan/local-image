@@ -60,8 +60,6 @@ Status as of 2026-10-09.
 | Highlights: Inpaint Opposed | Built | Port | darktable `src/iop/hlreconstruct/opposed.c` | GPL-3.0-or-later | `crates/lc-raw/src/highlight/opposed.rs` |
 | Capture sharpening (auto radius) | Built | Port | darktable `src/iop/demosaicing/capture.c`, radius estimation (originally RawTherapee) | GPL-3.0-or-later | `crates/lc-raw/src/capture.rs` |
 | Capture sharpening (deconvolution) | Built | Port | darktable `src/iop/demosaicing/capture.c`, Richardson–Lucy deconvolution and blend mask | GPL-3.0-or-later | `crates/lc-pipeline/src/capture.rs` |
-| AI Denoise (model) | Built | Model | RawNIND UtNet2 linear model, darktable-ai release-5.6.0 (`rawdenoise-nind.dtmodel`) | GPL-3.0 | downloaded on request |
-| AI Denoise (tiling, gain matching) | Built | Port | darktable-ai `models/rawdenoise-nind/demo.py` (`_run_tiled`, `_match_gain`) | GPL-3.0-only | `crates/li-seg/src/denoise.rs`, `crates/lc-engine/src/enhance/denoise.rs` |
 
 ### Optics and geometry
 
@@ -124,7 +122,7 @@ Status as of 2026-10-09.
 ## 4. Still to check
 
 * **GPU path** (on the owner's machine): lens profiles with crop and rotate, the tone equalizer's switch to the CPU, the linear colour calibration modes against the CPU, capture-sharpening refresh, depth masks, film looks, and switching demosaic and highlight modes back to Default.
-* **AI Remove in Develop** has run only against a mock engine in tests. The real AI Denoise model was tested on its own: about 9× less noise on a test crop. It took about 7 minutes per 24 MP photo on a shared 4-CPU machine.
+* **AI Remove in Develop** has run only against a mock engine in tests.
 * **Follow-ups:**
   * the tone equalizer as a develop-layer tool;
   * GPU ports of the tone equalizer, non-linear colour calibration and lens-database sampling;

@@ -140,14 +140,11 @@ pub fn extract_groups(s: &DevelopSettings, groups: &[SettingsGroup]) -> Value {
     Value::Object(out)
 }
 
-/// local-image: drop what belongs to one photo's pixels — AI removals and the AI Denoise result
+/// local-image: drop what belongs to one photo's pixels — AI removals
 /// (generated from that photo) — from settings copied to others (copy/paste, sync, presets).
 pub fn strip_photo_bound(out: &mut Map<String, Value>) {
     if let Some(Value::Array(spots)) = out.get_mut("spots") {
         spots.retain(|s| s.get("mode").and_then(Value::as_str) != Some("ai"));
-    }
-    if let Some(Value::Object(e)) = out.get_mut("enhance") {
-        e.remove("ai");
     }
 }
 

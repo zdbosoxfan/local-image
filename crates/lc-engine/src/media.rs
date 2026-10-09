@@ -62,7 +62,7 @@ impl SettingsHashes {
 }
 
 /// Bump when the pipeline's output changes, to invalidate cached thumbnails.
-pub const RENDER_CACHE_VERSION: u64 = 13;
+pub const RENDER_CACHE_VERSION: u64 = 14;
 
 /// Thumbnails render at one of these long edges (so window/cell size changes reuse the cache).
 pub const THUMB_SIZES: [usize; 4] = [128, 256, 384, 512];
@@ -603,7 +603,7 @@ impl RenderJob {
         match self.source.load_source() {
             Ok(source) => {
                 let info = source.info_or(self.info.clone());
-                // local-image: the AI Denoise result in place of the source, AI patches of other
+                // local-image: exclude AI patches of other
                 // photos left out (see `enhance::for_render`)
                 let (src, settings) = crate::enhance::for_render(&source.image, &self.settings, self.source_key);
                 // Thumbnails (many small jobs side by side) stay on the CPU; views and exports use

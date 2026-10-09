@@ -1,11 +1,11 @@
 //! local-image: AI in Develop — the Remove tool's AI mode (engine, brush or lasso, a develop
-//! layer's area, the selected AI removal's Regenerate) and AI Denoise in the Detail section. The
+//! layer's area, the selected AI removal's Regenerate). The
 //! work runs as background jobs in the engine (`lightcraft_engine::enhance`); these panels start,
 //! watch and cancel them.
 
 use egui::RichText;
 use lightcraft_develop::{DevelopSettings, Spot};
-use lightcraft_engine::enhance::{DenoiseState, JobKind, PatchState, denoise_state, patch_state};
+use lightcraft_engine::enhance::{JobKind, PatchState, patch_state};
 use serde_json::json;
 
 use crate::LightcraftApp;
@@ -23,68 +23,15 @@ fn dim(ui: &mut egui::Ui, text: &str) {
 }
 
 /// A progress bar with its Cancel button (cancels job `job`).
-fn progress(app: &mut LightcraftApp, ui: &mut egui::Ui, id: &str, label: &str, frac: f32, job: Option<u64>) {
+fn progress(app: &mut LightcraftApp, ui: &mut egui::Ui, id: &str, label: &str, frac: f32, job: u64) {
     ui.horizontal(|ui| {
         let bar = ui.add(egui::ProgressBar::new(frac).desired_width(150.0).text(format!("{} {:.0}%", tr(label), frac * 100.0)));
         register(ui.ctx(), format!("progress:{id}"), bar.rect);
         if text_button(ui, &format!("{id}Cancel"), "Cancel", false).clicked() {
-            let _ = match job {
-                Some(j) => app.run("enhance.cancel", json!({"job": j})),
-                None => app.run("enhance.downloadModel", json!({"cancel": true})),
-            };
+            let _ = app.run("enhance.cancel", json!({"job": job}));
         }
     });
     ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
-}
-
-// ------------------------------------------------------------------------------ AI Denoise
-
-/// The AI Denoise part of the photo's Detail section.
-pub fn denoise_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
-    let Some(id) = app.session.active() else { return };
-    super::edit::sub_title(ui, tr("AI Denoise"));
-    let state = denoise_state(&app.session, id);
-    if let DenoiseState::Done { .. } = state {
-        super::edit::control_t(app, ui, d, "enhance.denoise", true, super::edit::Target::Global);
-    }
-    padded(ui, |ui| match state {
-        DenoiseState::Unavailable { why } => dim(ui, &why),
-        DenoiseState::NoModel { download } => match download {
-            Some(dl) if dl.running => {
-                let frac = if dl.total > 0 { dl.done as f32 / dl.total as f32 } else { 0.0 };
-                progress(app, ui, "denoiseDownload", "Downloading", frac, None);
-            }
-            dl => {
-                dim(ui, "AI Denoise needs its model (58 MB download, runs on this computer).");
-                if let Some(e) = dl.and_then(|d| d.error) {
-                    ui.label(RichText::new(e).color(Tokens::get(ui.ctx()).reject).size(11.5));
-                }
-                if text_button(ui, "denoiseDownload", "Download Model", false).clicked()
-                    && let Err(e) = app.run("enhance.downloadModel", json!({}))
-                {
-                    app.toast_error(ui.ctx(), e);
-                }
-            }
-        },
-        DenoiseState::Ready => {
-            dim(ui, "Removes noise with an AI model, on this computer (a few minutes for a large raw).");
-            if text_button(ui, "denoiseRun", "Denoise", false).clicked()
-                && let Err(e) = app.run("enhance.denoise", json!({}))
-            {
-                app.toast_error(ui.ctx(), e);
-            }
-        }
-        DenoiseState::Running { progress: p, job } => progress(app, ui, "denoise", "Denoising", p, Some(job)),
-        DenoiseState::Done { .. } => {}
-        DenoiseState::Missing => {
-            dim(ui, "The denoised result is missing from the library. Run Denoise again to use it.");
-            if text_button(ui, "denoiseRun", "Run Denoise Again", false).clicked()
-                && let Err(e) = app.run("enhance.denoise", json!({}))
-            {
-                app.toast_error(ui.ctx(), e);
-            }
-        }
-    });
 }
 
 // ------------------------------------------------------------------------------ AI Remove
@@ -97,14 +44,13 @@ pub fn is_local(sp: &Spot) -> bool {
 /// Progress (and Cancel) of the active photo's removals and heals being made.
 pub fn remove_jobs(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let Some(id) = app.session.active() else { return };
-    let running: Vec<(u64, f32, String)> =
-        app.session.enhance.running_for(id).filter(|j| j.kind != JobKind::Denoise).map(|j| (j.id, j.ctl.progress(), j.label.clone())).collect();
+    let running: Vec<(u64, f32, String)> = app.session.enhance.running_for(id).map(|j| (j.id, j.ctl.progress(), j.label.clone())).collect();
     if running.is_empty() {
         return;
     }
     padded(ui, |ui| {
         for (job, frac, label) in running {
-            progress(app, ui, &format!("removeJob{job}"), &label, frac, Some(job));
+            progress(app, ui, &format!("removeJob{job}"), &label, frac, job);
         }
     });
 }
@@ -192,10 +138,9 @@ pub fn remove_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSe
             });
         }
         // removals being generated
-        let running: Vec<(u64, f32, String)> =
-            app.session.enhance.running_for(id).filter(|j| j.kind != JobKind::Denoise).map(|j| (j.id, j.ctl.progress(), j.label.clone())).collect();
+        let running: Vec<(u64, f32, String)> = app.session.enhance.running_for(id).map(|j| (j.id, j.ctl.progress(), j.label.clone())).collect();
         for (job, frac, label) in running {
-            progress(app, ui, &format!("removeJob{job}"), &label, frac, Some(job));
+            progress(app, ui, &format!("removeJob{job}"), &label, frac, job);
         }
     });
 }

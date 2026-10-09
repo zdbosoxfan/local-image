@@ -11,8 +11,13 @@ updated to a newer upstream commit, update its row (commit and date) rather than
 
 | Our file | Upstream project | Upstream path | Upstream commit | Licence | Date |
 |---|---|---|---|---|---|
+| `crates/lc-pipeline/src/detail/nr.rs`, `crates/lc-gpu/src/wgsl/detail.wgsl` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/denoiseprofile.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
+| `crates/lc-pipeline/src/detail/nr.rs`, `crates/lc-gpu/src/wgsl/detail.wgsl` | [darktable](https://github.com/darktable-org/darktable) | `src/common/eaw.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
+| `crates/lc-pipeline/src/detail/nr.rs`, `crates/lc-gpu/src/wgsl/detail.wgsl` | [darktable](https://github.com/darktable-org/darktable) | `src/common/math.h` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
+| `crates/lc-pipeline/src/detail/haze.rs`, `crates/lc-gpu/src/wgsl/detail.wgsl` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/hazeremoval.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
+| `crates/lc-pipeline/src/detail/haze.rs`, `crates/lc-gpu/src/wgsl/detail.wgsl` | [darktable](https://github.com/darktable-org/darktable) | `src/common/guided_filter.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
+| `crates/lc-pipeline/src/detail/haze.rs`, `crates/lc-gpu/src/wgsl/detail.wgsl` | [darktable](https://github.com/darktable-org/darktable) | `src/common/box_filters.cc` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
 | `crates/lc-pipeline/src/negative.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/negadoctor.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-08 |
-| `crates/li-seg/src/denoise.rs` | [darktable-ai](https://github.com/darktable-org/darktable-ai) | `models/rawdenoise-nind/demo.py` (`_run_tiled`, `_match_gain`) | `6bcd41c6f296ca692e6f845b25cf7cdb8148305c` (tag `release-5.6.0`) | GPL-3.0-only | 2026-10-09 |
 | `crates/lc-raw/src/demosaic/vng.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/demosaicing/vng.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
 | `crates/lc-raw/src/demosaic/vng.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/demosaicing/basics.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
 | `crates/lc-raw/src/demosaic/amaze.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/demosaicing/amaze.cc` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
@@ -59,3 +64,13 @@ The upstream numerical fixtures and complete extraction/regeneration recipes are
 [pipeline fixtures](../crates/lc-pipeline/tests/fixtures/README.md).
 [The raw quality report](wip/CODEX-REPORT.md) records tolerances, measured discrepancies,
 intentional host differences, synthetic quality metrics, timings and remaining reference limitations.
+
+Detail XMP import (`lc-engine/src/crs.rs`): Sharpness → Amount (0–150),
+SharpenRadius → Radius (0.5–3 original pixels), SharpenDetail → Detail,
+SharpenEdgeMasking → Masking, LuminanceSmoothing → Luminance Amount,
+LuminanceNoiseReductionDetail → Luminance Detail,
+LuminanceNoiseReductionContrast → Luminance Contrast,
+ColorNoiseReduction → Colour Amount, ColorNoiseReductionDetail → Colour Detail,
+ColorNoiseReductionSmoothness → Colour Smoothness (the last eight: 0–100).
+Every field is clamped at import; absent/non-finite fields are ignored. Adobe
+ProcessVersion metadata does not select a Local Image renderer.

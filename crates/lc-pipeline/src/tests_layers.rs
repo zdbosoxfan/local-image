@@ -1,5 +1,5 @@
 //! Develop layers (`Mask::tools`, `Mask::opacity`): pixel tests, and the golden hashes that pin
-//! renders of settings written before layers existed (re-recorded for the unified colour/tone path).
+//! renders of settings written before layers existed (re-recorded for the unified Detail path).
 
 use lightcraft_develop::DevelopSettings;
 use lightcraft_raster::{Rgb32f, Rgba8};
@@ -92,19 +92,19 @@ fn golden_cases() -> Vec<(&'static str, Value)> {
     ]
 }
 
-/// Hashes of the renders above, recorded on x86_64 Linux before develop layers were added
+/// Historical settings rendered by the unified Detail pipeline, recorded on x86_64 Linux
 /// (other platforms' libm may round differently).
 const GOLDEN: [(&str, u64); 6] = [
     ("default/rendered", 0xa0f156d3ca352210),
     ("default/raw", 0x61dfdd1c1479866c),
-    ("global edits/rendered", 0xbf0d6424cd534566),
-    ("global edits/raw", 0x00547bd4de761061),
-    ("old masks/rendered", 0x48acc164340c33b2),
-    ("old masks/raw", 0x96a665e1707ccd35),
+    ("global edits/rendered", 0xde4f12b360deb639),
+    ("global edits/raw", 0x57ebbae81d3c021a),
+    ("old masks/rendered", 0xf6cacf8f24c584fe),
+    ("old masks/raw", 0x2db505da57c14063),
 ];
 
 #[test]
-fn old_settings_load_and_match_colour_tone_goldens() {
+fn old_settings_load_and_match_detail_goldens() {
     let mut got = Vec::new();
     for (name, v) in golden_cases() {
         let s = DevelopSettings::from_json(&v).expect("old settings parse");

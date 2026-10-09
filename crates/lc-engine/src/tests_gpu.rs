@@ -1,6 +1,6 @@
 //! The toolset upgrades through the engine's own render path on the GPU (`media::develop` via a
 //! view's [`RenderJob`] with its stage cache), against the CPU pipeline: raw options decoded again
-//! when switched, lens profiles from the real lens database, AI Remove patches and AI Denoise
+//! when switched, lens profiles from the real lens database, AI Remove patches
 //! results (both put in place before the renderers split). Same bounds as `lightcraft-gpu`'s
 //! equivalence tests (mean |Δ| < 0.5 LSB, max |Δ| ≤ 3 LSB). Skips when no GPU adapter exists.
 
@@ -211,27 +211,17 @@ impl crate::enhance::AiHost for Mock {
         let rgb = req.rgb.iter().zip(&req.mask).map(|(c, m)| if *m > 127 { [250, 0, 250] } else { *c }).collect();
         Ok(crate::enhance::RemoveResult { rgb, alpha: req.mask.iter().map(|m| if *m > 127 { 255 } else { 0 }).collect() })
     }
-    fn start_model_download(&self, _: &str) -> Result<(), String> {
-        Err("not in tests".into())
-    }
-    fn model_download(&self, _: &str) -> Option<crate::enhance::Download> {
-        None
-    }
-    fn cancel_model_download(&self, _: &str) {}
 }
 
 #[test]
-fn ai_remove_and_denoise_are_in_the_gpu_render() {
+fn ai_remove_is_in_the_gpu_render() {
     let _gpu = gpu_state();
     if !gpu() {
         return;
     }
     let mut s = Session::with_demo();
     s.enhance.host = Some(Arc::new(Mock));
-    // (a raw demo photo that `enhance::denoise`'s and `tests_enhance`' tests don't use, so the
-    // stand-in's stored result is this test's own)
-    let ids: Vec<_> = s.visible_cloned().into_iter().filter(|id| crate::enhance::denoise::can_denoise(&s, *id).is_ok()).collect();
-    let id = ids[ids.len() / 2];
+    let id = s.visible_cloned()[0];
     s.execute("library.select", &json!({"ids": [id.0]})).unwrap();
     let stages = Arc::new(StageCache::default());
     let plain = views(&mut s, id, 480, &stages);
@@ -252,19 +242,4 @@ fn ai_remove_and_denoise_are_in_the_gpu_render() {
     s.execute("edit.undo", &json!({})).unwrap();
     let v = views(&mut s, id, 480, &stages);
     assert_eq!(v.view, plain.view, "undone: the photo as before");
-
-    // AI Denoise: a stand-in result (mid grey) mixed into the source by the amount
-    s.enhance.denoiser = Some(Arc::new(|px, _, _, _| Ok(vec![[0.18, 0.18, 0.18]; px.len()])));
-    s.execute("enhance.denoise", &json!({"wait": true})).unwrap();
-    let mut prev = plain.view.clone();
-    for amount in [60.0, 100.0, 20.0] {
-        s.execute("develop.set", &json!({"control": "enhance.denoise", "value": amount})).unwrap();
-        let v = views(&mut s, id, 480, &stages);
-        assert_eq!(v.view, v.gpu, "{amount}%: the view renders the mixed source");
-        assert_close(&format!("ai denoise {amount}%"), &v.cpu, &v.gpu);
-        assert_ne!(v.view, prev, "{amount}%: the amount changes the render");
-        prev = v.view;
-    }
-    s.execute("develop.set", &json!({"control": "enhance.denoise", "value": 0})).unwrap();
-    assert_eq!(views(&mut s, id, 480, &stages).view, plain.view, "amount 0: as before");
 }

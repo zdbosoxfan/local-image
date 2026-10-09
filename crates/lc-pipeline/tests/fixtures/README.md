@@ -118,3 +118,33 @@ fclose(fp);fclose(fg);}
 write('toneeq',body,main)
 
 ```
+
+## Detail reference vectors
+
+Regenerate from the pinned offline source archive:
+
+```sh
+python3 crates/lc-pipeline/tests/fixtures/regenerate_detail.py --sources /home/zdavidson/.local/share/local-image-dev/engine-sources/dt-src
+PATH="$HOME/.cargo/bin:$PATH" cargo +1.98.1 test --offline -p lightcraft-pipeline tests_detail_refvec -- --nocapture
+```
+
+The script extracts the numeric upstream functions with their bodies unchanged,
+supplies standalone types/allocation/OpenMP stubs and deterministic inputs, and
+compiles `gcc`/`g++ -O2 -ffp-contract=off` under `target/refvec/{nr,haze}`.
+The archive must be darktable `733bd69f32cac7ff5e41025115942772add1f088`.
+Cargo never runs this script or compiles C/C++. Only small CSV fixtures and the
+regeneration script are tracked. Source-function scope is in the script and notice.
+
+- `detail-nr.csv`: conversion matrices, negative/black/shadow/HDR VST cases,
+  historical fast exponent, 37x29 noisy edge EAW at three scales, squared band
+  sums, BayesShrink thresholds and accumulated soft-thresholded detail.
+  Matrix tolerance 1e-6, forward VST 2e-4, inverse 2e-6; fast exponent bit-exact.
+  EAW coarse/detail 2e-5, synthesis 3e-5; sums/thresholds relative 1e-4 (floor 1).
+  The host's wide sum is deliberately more stable than upstream f32 summation.
+- `detail-haze.csv`: modern ambient/depth selection, both signs of morphology
+  and RGB guidance at strength 0.7, scene-linear inversion, and cropped box means.
+  Air/depth tolerance 2e-6, transmission/output 3e-5, box mean 2e-7.
+
+These check numerical kernels, independently of Local Image's six-slider/noise
+estimator host mapping. The measured differences and quality checks are in
+`docs/wip/CODEX-REPORT-detail.md`; GPU execution needs the coordinator's adapter.

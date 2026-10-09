@@ -194,24 +194,6 @@ impl LookOptions {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ProcessVersion {
-    #[default]
-    Legacy,
-    V2026,
-}
-
-pub fn is_legacy_process(p: &ProcessVersion) -> bool {
-    *p == ProcessVersion::Legacy
-}
-
-impl DevelopSettings {
-    pub fn v2026(&self) -> bool {
-        self.process == ProcessVersion::V2026
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Treatment {
     #[default]
@@ -1429,44 +1411,6 @@ pub struct AiPatch {
     pub geometry: String,
 }
 
-/// A 128-bit content key, written as 32 hex digits.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct AiKey(pub u128);
-
-impl std::fmt::Display for AiKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:032x}", self.0)
-    }
-}
-
-impl AiKey {
-    pub fn parse(s: &str) -> Option<AiKey> {
-        (s.len() == 32).then(|| u128::from_str_radix(s, 16).ok().map(AiKey)).flatten()
-    }
-}
-
-impl Serialize for AiKey {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&self.to_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for AiKey {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let s = String::deserialize(d)?;
-        AiKey::parse(&s).ok_or_else(|| serde::de::Error::custom("expected 32 hex digits"))
-    }
-}
-
-/// A photo's AI Denoise result in the library's AI store (local-image).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DenoiseRef {
-    /// Store key of the result.
-    pub key: AiKey,
-    /// Content hash of the photo it was made from (never applied to another photo).
-    pub source: AiKey,
-}
-
 /// A red eye / pet eye correction: the user's ellipse (centre normalized, radii as fractions of
 /// the long edge); the pupil inside it is found automatically.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -1502,11 +1446,6 @@ pub struct LensBlur {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Enhance {
-    /// AI Denoise amount 0..100 (how much of the denoised result is used).
-    pub denoise: f64,
     pub raw_details: bool,
     pub super_resolution: bool,
-    /// local-image: the AI Denoise result (`None` until Denoise ran; left out of the JSON then).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ai: Option<DenoiseRef>,
 }

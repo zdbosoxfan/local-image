@@ -135,7 +135,7 @@ impl Session {
             src: self.media.source_ref(&p, SourceLevel::Full),
             header: crate::media::source_info(&p),
             settings,
-            source: super::denoise::source_hash(&p),
+            source: super::source_hash(&p),
             stroke: stroke.clone(),
             mask,
             engine,

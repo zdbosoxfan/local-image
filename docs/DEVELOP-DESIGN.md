@@ -42,7 +42,7 @@ and metadata kept re-editable, and with a Camera Raw Filter that has the same to
 `lc-pipeline` becomes the only develop engine: Library Develop, Develop layers in the Editor, and **Filter › Camera Raw Filter…** all render through it and share one Develop UI (the Library's panels, reused as a workspace/dialog in the Editor). Each input declares capabilities:
 
 * **Scene-referred source** (raw, or a linear DNG): every tool.
-* **Rendered pixels** (a JPEG, a layer, a composite): raw-only tools are hidden (demosaic, raw NR/AI Denoise on mosaic data, highlight reconstruction from clipped channels, camera profiles/calibration that need a camera matrix) — exactly Adobe's split.
+* **Rendered pixels** (a JPEG, a layer, a composite): raw-only tools are hidden (demosaic, raw NR on mosaic data, highlight reconstruction from clipped channels, camera profiles/calibration that need a camera matrix) — exactly Adobe's split.
 
 `pc-algo::camera_raw` is retired; its Photoshop descriptor mapping (`pc-io/src/camera_raw_map.rs`) is kept so PSDs from Photoshop still open with their Camera Raw smart filters (mapped onto `DevelopSettings`).
 
@@ -99,13 +99,12 @@ White Balance picker, curve presets / targeted adjustment on layers.
   * The host passes the editor's AI service into the Library (a `Services.ai_remove` callback, like `open_with`), so `lc-*` doesn't depend on ComfyUI; engines are the ones on the AI Remove tool (FLUX.2 Klein / Qwen, or cloud with the user's key). Offline option: LaMa (Apache-2.0) via ONNX as a fast local engine, later.
   * **Generated pixels are stored, not baked:** a patch store beside the catalog (`<library>/Patches/<hash>.png`, 16-bit where possible; like Lightroom's `.acr`/`lrcat-data`) referenced from the layer (`Remove { patch, bbox, seed, engine, source_hash }`). Applied at the spot stage in scene-linear. If something upstream that moves pixels changes (crop/geometry, lens), the patch is marked stale and the layer offers **Regenerate**.
   * **Built (October 2026):** the Remove panel has modes **AI** · Remove (content-aware) · Heal · Clone; AI removals are brushed, lassoed or take a develop layer's area (`spot.add {mode:"ai", points|polygon|mask, engine?, seed?}`). They are spots (`SpotMode::Ai`, with `polygon`, `mask` and `patch: AiPatch {key, source, rect, engine, seed, geometry}`, all left out of the JSON when empty, so older settings hash as before). A background job (`lightcraft_engine::enhance`) samples the uncropped, lens-corrected photo around the stroke at full size, shows it to the host's engine through an exactly reversible 8-bit view (white balance, a gain putting the 99th percentile below white, Rec.2020 → sRGB) and stores the decoded patch, linear RGBA, in a content-addressed store `<library>/Patches/remove/<key>.lip` (key = photo content + stroke + engine + seed + geometry; deflated √-encoded u16, no TIFF). The pipeline composites it first in `lin_cpu`, before white balance (`lc-pipeline/src/patches.rs`), so every develop change applies to it. The engine reaches Compositing's engines through an `AiHost` on the session (`apps/local-image/src/develop_ai.rs`; a session field rather than `Services`, so commands, the CLI and tests use it), and `lc-*` stays free of `li-ai`/`pc-*`. One undo step per result ("AI Remove", "Regenerate"); AI spots can't be moved or reshaped (only faded, regenerated, deleted); copy/paste, sync, presets and Auto Sync leave them behind (`presets::strip_photo_bound`), and a render never applies a patch made from another photo. A patch made under another geometry is shown as stale (Regenerate); a missing one renders as if absent.
-* **AI Denoise (built):** Develop › Detail › AI Denoise runs darktable-ai's RawNIND UtNet2 linear model (GPL-3.0, 31 MB, downloaded as `rawdenoise-nind.dtmodel` from release-5.6.0 through the hash-checked Local AI model list and unpacked) with `tract` on the CPU (`li-seg/src/denoise.rs`: 256 px tiles — the export's static 512 px input re-declared —, 32 px overlap, feathered blend, one gain over the whole image). It runs as a background job on the full-size demosaiced source and stores the result in `<library>/Patches/denoise/` (full size + a 2560 px copy; key = photo content + model); `Enhance.ai` refers to it and the render uses it in place of the source, mixed by the Amount slider (`enhance.denoise`) at render time, before GPU/CPU (`enhance::for_render` in `RenderJob::run`). Without the stored result the photo renders normally and Develop offers to run Denoise again. Raw photos only; not in the Camera Raw Filter.
 
 ### 3.4 No more TIFF copies: the Develop layer (a raw smart object)
 
 **Library → Editor** (Photo › Edit in Local Image, ⌘E-style; replaces the TIFF path for our own editor):
 
-1. The editor opens a new document whose **Background is a Develop layer**: a `SmartObject` whose source is the original file (**Linked** to the library photo by path + photo id by default; **Embedded** on request or when saving portable PSDs) and whose new `develop: DevelopSettings` is applied *at source decode* — so a raw stays raw (full highlight recovery, white balance, lens correction, AI Denoise).
+1. The editor opens a new document whose **Background is a Develop layer**: a `SmartObject` whose source is the original file (**Linked** to the library photo by path + photo id by default; **Embedded** on request or when saving portable PSDs) and whose new `develop: DevelopSettings` is applied *at source decode* — so a raw stays raw (full highlight recovery, white balance, lens correction).
 2. EXIF/XMP/IPTC come with it (today's raw import drops them — fixed as part of this).
 3. Retouch, AI Remove, compositing all happen in **layers above** (the Develop layer is never rasterised; a pixel tool aimed at it offers "Work on a new layer above" — the Photoshop rasterise trap avoided).
 4. **Double-click the Develop layer** → the Develop workspace opens on that layer (same panels, layers, AI masks). Change it and the layer re-renders; layers above stay put.
@@ -148,7 +147,7 @@ White Balance picker, curve presets / targeted adjustment on layers.
   outside Rec.2020 (saturated ProPhoto) or above white keep the part outside it, so unchanged
   settings change nothing (identity is skipped outright; the full path is within 1/255).
 * **Tools a filter can't use are off** (`develop_filter::sanitize`): crop, Geometry/Upright,
-  orientation, lens profile, camera calibration, Enhance (AI Denoise, Raw Details, Super
+  orientation, lens profile, camera calibration, Enhance (Raw Details, Super
   Resolution). The Negative conversion, masks, point colour, spots, red eye, manual optics,
   profiles and presets stay.
 * **Plain layer → smart filter**: the menu asks "Convert to Smart Object to keep it editable?"
@@ -191,7 +190,6 @@ LightCraft already has: AHD/PPG/bilinear/X-Trans demosaic, clip-aware highlight 
 |---|---|---|
 | P1 | AI masks Subject/Sky/Background (real models), mask refine | li-seg U²-Net/IS-Net; darktable refinement (GPL-3) |
 | P1 | AI Remove in Develop + patch store (*built*, §3.3) | li-ai engines; LaMa ONNX later (Apache-2.0) |
-| P1 | AI Denoise (*built*, §3.3) | darktable-ai RawNIND UtNet2 (GPL-3.0); OIDN (Apache-2.0) / vkdt `jddcnn` (BSD-2) as alternatives |
 | P1 | Develop layers holding the full toolset | Capture One model, darktable blending |
 | P2 | RCD + AMaZE + dual demosaic, capture sharpening (deconvolution, auto radius) (*built*, §4.1) | RawTherapee / ART (GPL-3) |
 | P2 | Tone equalizer (EIGF) driving highlights/shadows/whites/blacks (*built*, guided filter, §4.1) | darktable (GPL-3), vkdt `llap` (BSD-2) |
@@ -303,7 +301,7 @@ Ports are listed in `docs/PORTS.md`, with notices in `licenses/darktable-NOTICE.
 1. **Develop layer** — `SmartObject.develop`, raw/JPEG source decoded through `lc-pipeline` with the layer's settings; Library → Editor opens a Develop-layer document (linked), metadata carried; double-click opens Develop on the layer; saves to `.pcraft`/PSD; stacked back into the Library. *Retires the TIFF path for our own editor.*
 2. **One engine for Camera Raw Filter** — `filter.develop` smart filter, edited in the Develop module through a host session; composite → develop (live smart object / merge visible). *(Shipped, §3.5.)*
 3. **Develop layers** — `DevelopSettings.layers`, migration from masks, per-stage blending, layer UI. *(Built on the masks, §3.2.)*
-4. **AI in develop** — unified segmentation service; AI Remove with the patch store; AI Denoise.
+4. **AI in develop** — unified segmentation service; AI Remove with the patch store.
 5. **Toolset upgrades** — the P2/P3 table.
 
 Each step ships with tests against the mock ComfyUI and pipeline golden images, like the rest of V2.

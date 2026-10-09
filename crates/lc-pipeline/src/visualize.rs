@@ -193,7 +193,6 @@ pub fn apply(img: &mut Rgba8, o: Overlay, plan: &Plan<'_>, mask: Option<&Plane>)
         // `mask` holds the zones (see `crate::toneeq::preview_grey`) or the sharpening mask as
         // grey levels
         Overlay::ToneEqMask | Overlay::SharpenMask => {
-
             if let Some(a) = mask.filter(|a| (a.width, a.height) == (img.width, img.height)) {
                 let w = img.width;
                 for_rows(&mut img.data, w, |y, row| {

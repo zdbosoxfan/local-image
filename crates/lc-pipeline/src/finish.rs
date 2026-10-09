@@ -268,21 +268,17 @@ pub struct FinishParams {
     pub clar: f32,
     pub tex: f32,
     pub dehaze: f32,
-    pub sharpen: f32,
-    pub sharpen_mask: f32,
-    /// Process version 2026's detail tools (see [`crate::detail`]): sharpening Amount / 100,
+    /// Pixel-scale detail tools (see [`crate::detail`]): sharpening Amount / 100,
     /// Detail and Masking (0..1), the sharpening planes' blur radius (output px), and the
     /// dehaze airlight before exposure (the last two from the prepared planes, see
     /// [`FinishParams::with_planes`]).
-    pub v2026: bool,
     pub sharp_amount: f32,
     pub sharp_detail: f32,
     pub sharp_masking: f32,
     pub sharp_sigma: f32,
     pub haze_air: [f32; 3],
-    /// Airlight after and before exposure, exposure gain and EV (see [`crate::Prepared`]).
-    pub air: f32,
-    pub air_pre: f32,
+    pub haze_distance: f32,
+    /// Exposure gain and EV (see [`crate::Prepared`]).
     pub gain: f32,
     pub ev: f32,
     /// Grain: amount, cell size (px), roughness, seed.
@@ -301,18 +297,9 @@ pub struct FinishParams {
 }
 
 impl FinishParams {
-    /// Parameters for a `w × h` render into `space`; `ev`/`air_pre` as in [`crate::Prepared`].
+    /// Parameters for a `w × h` render into `space`; `ev` as in [`crate::Prepared`].
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        s: &DevelopSettings,
-        frame: &Frame,
-        info: &SourceInfo,
-        w: usize,
-        h: usize,
-        px_per_long: f64,
-        air_pre: f32,
-        space: OutputSpace,
-    ) -> FinishParams {
+    pub fn new(s: &DevelopSettings, frame: &Frame, info: &SourceInfo, w: usize, h: usize, px_per_long: f64, space: OutputSpace) -> FinishParams {
         let effects = s.section_enabled("effects");
         let (clar, tex, dehaze) = if effects {
             ((s.effects.clarity / 100.0) as f32, (s.effects.texture / 100.0) as f32, (s.effects.dehaze / 100.0) as f32)
@@ -344,16 +331,12 @@ impl FinishParams {
             clar,
             tex,
             dehaze,
-            sharpen: if s.v2026() { 0.0 } else { (s.detail.sharpen_amount / 150.0) as f32 },
-            sharpen_mask: (s.detail.sharpen_masking / 100.0) as f32,
-            v2026: s.v2026(),
-            sharp_amount: if s.v2026() { (s.detail.sharpen_amount / 100.0).clamp(0.0, 1.5) as f32 } else { 0.0 },
+            sharp_amount: if s.section_enabled("detail") { (s.detail.sharpen_amount / 100.0).clamp(0.0, 1.5) as f32 } else { 0.0 },
             sharp_detail: (s.detail.sharpen_detail / 100.0).clamp(0.0, 1.0) as f32,
             sharp_masking: (s.detail.sharpen_masking / 100.0).clamp(0.0, 1.0) as f32,
             sharp_sigma: 0.0,
             haze_air: [1.0; 3],
-            air: air_pre * gain,
-            air_pre,
+            haze_distance: 0.0,
             gain,
             ev,
             grain,
@@ -368,18 +351,19 @@ impl FinishParams {
 }
 
 impl FinishParams {
-    /// The process 2026 values that come with the planes: the sharpening radius (output px; 0
+    /// The pixel-scale values that come with the planes: the sharpening radius (output px; 0
     /// when the planes aren't there) and the dehaze airlight (before exposure).
-    pub fn with_planes(mut self, sharp_sigma: Option<f32>, haze_air: Option<[f32; 3]>) -> FinishParams {
+    pub fn with_planes(mut self, sharp_sigma: Option<f32>, haze: Option<([f32; 3], f32)>) -> FinishParams {
         self.sharp_sigma = sharp_sigma.unwrap_or(0.0);
-        self.haze_air = haze_air.unwrap_or([1.0; 3]);
+        (self.haze_air, self.haze_distance) = haze.unwrap_or(([1.0; 3], 0.0));
         self
     }
 }
 
 pub(crate) fn finish(p: &Prepared, s: &DevelopSettings, frame: &Frame, info: &SourceInfo, space: OutputSpace, proof: Option<crate::Proof>) -> Rgba8 {
     let (w, h) = (p.img.width, p.img.height);
-    let mut fp = FinishParams::new(s, frame, info, w, h, p.px_per_long, p.air, space).with_planes(p.sharp.as_ref().map(|x| x.2), p.haze.as_ref().map(|x| x.1));
+    let mut fp = FinishParams::new(s, frame, info, w, h, p.px_per_long, space)
+        .with_planes(p.sharp.as_ref().map(|x| x.2), p.haze.as_ref().map(|x| (x.air, x.distance)));
     fp.proof = proof.map(|pr| pr.params(space));
     let trc = fp.out_trc;
     let data = finish_with(p, &fp, false, |e, x, y| {
@@ -405,7 +389,8 @@ pub(crate) fn finish_deep(
 ) -> DeepImage {
     use lightcraft_color::transfer::srgb_to_linear;
     let (w, h) = (p.img.width, p.img.height);
-    let mut fp = FinishParams::new(s, frame, info, w, h, p.px_per_long, p.air, space).with_planes(p.sharp.as_ref().map(|x| x.2), p.haze.as_ref().map(|x| x.1));
+    let mut fp = FinishParams::new(s, frame, info, w, h, p.px_per_long, space)
+        .with_planes(p.sharp.as_ref().map(|x| x.2), p.haze.as_ref().map(|x| (x.air, x.distance)));
     fp.proof = proof.map(|pr| pr.params(space));
     let trc = fp.out_trc;
     let samples = match depth {
@@ -436,35 +421,13 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
 ) -> Vec<T> {
     let (w, h) = (p.img.width, p.img.height);
     let p_lut = fp.lut.clone();
-    let FinishParams {
-        tone,
-        ops,
-        curves,
-        vig,
-        to_out,
-        out_luma,
-        hl,
-        sh,
-        clar,
-        tex,
-        dehaze,
-        sharpen,
-        sharpen_mask,
-        air,
-        air_pre,
-        gain,
-        ev,
-        grain,
-        ..
-    } = fp;
-    let (hl, sh, clar, tex, dehaze, sharpen, sharpen_mask, air, air_pre, gain, ev) =
-        (*hl, *sh, *clar, *tex, *dehaze, *sharpen, *sharpen_mask, *air, *air_pre, *gain, *ev);
+    let FinishParams { tone, ops, curves, vig, to_out, out_luma, hl, sh, clar, tex, dehaze, gain, ev, grain, .. } = fp;
+    let (hl, sh, clar, tex, dehaze, gain, ev) = (*hl, *sh, *clar, *tex, *dehaze, *gain, *ev);
     let terms: Vec<[f32; MASK_TERMS]> = p.masks.iter().map(|m| mask_terms(&m.adjust)).collect();
     let out_to_norm = fp.out_to_norm;
     let long = fp.ow.max(fp.oh);
     let aspect = w as f32 / h as f32;
-    // process 2026 (see `crate::detail`)
-    let v2026 = fp.v2026;
+    // pixel-scale (see `crate::detail`)
     let sharp_k = crate::detail::SharpK::new(fp.sharp_detail, fp.sharp_masking, fp.sharp_sigma);
     let haze_air = fp.haze_air.map(|v| v * gain);
 
@@ -526,14 +489,9 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
             // --- dehaze (scene linear)
             let dz = dehaze + l_dehaze;
             if dz != 0.0
-                && let Some(dark) = &p.dark
+                && let Some(hz) = &p.haze
             {
-                c = dehaze_px(c, dz, dark.data[i], air_pre, air);
-            }
-            if dz != 0.0
-                && let Some((hz, _)) = &p.haze
-            {
-                c = crate::detail::dehaze_px(c, dz, hz.data[i], haze_air);
+                c = crate::detail::dehaze_px(c, dz, hz.at(i, dz), haze_air, fp.haze_distance);
             }
             // layers: their dehaze, then (below) their white balance and exposure
             let mut layer_scene = false;
@@ -544,14 +502,9 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
                 }
                 layer_scene = true;
                 if l.dehaze != 0.0
-                    && let Some(dark) = &p.dark
+                    && let Some(hz) = &p.haze
                 {
-                    c = mix3(c, dehaze_px(c, l.dehaze, dark.data[i], air_pre, air), a);
-                }
-                if l.dehaze != 0.0
-                    && let Some((hz, _)) = &p.haze
-                {
-                    c = mix3(c, crate::detail::dehaze_px(c, l.dehaze, hz.data[i], haze_air), a);
+                    c = mix3(c, crate::detail::dehaze_px(c, l.dehaze, hz.at(i, l.dehaze), haze_air, fp.haze_distance), a);
                 }
             }
 
@@ -622,24 +575,19 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
                 delta += cl * 0.85 * det * (0.35 + 0.65 * mid);
             }
             let tx = tex + l_tex;
-            let sp = if v2026 { 0.0 } else { l_sharp * 0.6 + sharpen };
-            if (tx != 0.0 || sp != 0.0)
+            if tx != 0.0
                 && let Some(b) = &p.texture_blur
             {
                 let det = l_pre - b.data[i];
                 let tame = 1.0 - 0.6 * smooth(0.4, 1.6, det.abs());
                 delta += tx * 1.1 * det.clamp(-1.0, 1.0) * tame;
-                if sp != 0.0 {
-                    let m = if sharpen_mask > 0.0 { smooth(sharpen_mask * 0.25, sharpen_mask * 0.25 + 0.15, det.abs()) } else { 1.0 };
-                    delta += sp * 1.3 * det.clamp(-0.8, 0.8) * m;
-                }
             }
-            // process 2026 sharpening: pixel-scale, on its own planes (local Sharpness too)
-            let a26 = fp.sharp_amount + l_sharp * 0.9;
-            if a26 != 0.0
+            // pixel-scale sharpening: pixel-scale, on its own planes (local Sharpness too)
+            let sharp_amount = fp.sharp_amount + l_sharp * 0.9;
+            if sharp_amount != 0.0
                 && let Some((b1, b2, _)) = &p.sharp
             {
-                delta += crate::detail::sharpen_at(a26, &sharp_k, &p.log_l.data, &b1.data, &b2.data, w, h, x, y);
+                delta += crate::detail::sharpen_at(sharp_amount, &sharp_k, &p.log_l.data, &b1.data, &b2.data, w, h, x, y);
             }
             // local Noise: smooth (or, negative, boost) small-amplitude detail, keep edges
             if l_noise != 0.0
@@ -658,12 +606,13 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
                 if a <= 0.0 {
                     continue;
                 }
-                let mut dl = layer_tone_delta(lt, base, l_pre, p.clarity_blur.as_ref().map(|b| b.data[i]), p.texture_blur.as_ref().map(|b| b.data[i]));
-                if lt.sharpen_2026 != 0.0
-                    && let Some((b1, b2, sg)) = &p.sharp
+                let mut dl =
+                    layer_tone_delta(lt, base, l_pre, p.clarity_blur.as_ref().map(|b| b.data[i]), p.texture_blur.as_ref().map(|b| b.data[i]));
+                if lt.sharp_amount != 0.0
+                    && let Some((_, b1, b2, sg)) = p.layer_sharp.iter().find(|(mask, _, _, _)| *mask == l.mask)
                 {
                     let k = crate::detail::SharpK::new(lt.sharpen_detail, lt.sharpen_mask, *sg);
-                    dl += crate::detail::sharpen_at(lt.sharpen_2026, &k, &p.log_l.data, &b1.data, &b2.data, w, h, x, y);
+                    dl += crate::detail::sharpen_at(lt.sharp_amount, &k, &p.log_l.data, &b1.data, &b2.data, w, h, x, y);
                 }
 
                 if dl != 0.0 {
@@ -781,26 +730,6 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
 
 use crate::layers::mix3;
 
-/// Dehaze of scene-linear `c` by `dz` (−1..1) with dark channel `dark` (before exposure),
-/// airlight before / after exposure.
-#[inline]
-fn dehaze_px(c: [f32; 3], dz: f32, dark: f32, air_pre: f32, air: f32) -> [f32; 3] {
-    let d = (dark / air_pre).clamp(0.0, 1.0);
-    if dz > 0.0 {
-        let t = (1.0 - 0.95 * dz.min(1.0) * d).max(0.12);
-        // A tiny mask-alpha residue can select this branch with no representable
-        // veil removal. Keep negative scene channels for tone/gamut handling,
-        // just as when dehaze is not selected at all (GPU: `finish.wgsl`).
-        if t == 1.0 {
-            return c;
-        }
-        c.map(|v| ((v - air * (1.0 - t)) / t).max(0.0))
-    } else {
-        let k = (-dz).min(1.0) * 0.7 * (0.35 + 0.65 * d);
-        c.map(|v| v + (air * 0.9 - v) * k)
-    }
-}
-
 /// The tone map on scene-linear `c`'s luminance, then the curve's chroma scale and highlight
 /// desaturation (display linear).
 #[inline]
@@ -867,16 +796,12 @@ fn layer_tone_delta(t: &crate::layers::LocalTone, base: f32, l_pre: f32, clar_b:
         let mid = (-(base / 3.2).powi(2)).exp();
         delta += t.clar * 0.85 * det * (0.35 + 0.65 * mid);
     }
-    if (t.tex != 0.0 || t.sharpen != 0.0)
+    if t.tex != 0.0
         && let Some(b) = tex_b
     {
         let det = l_pre - b;
         let tame = 1.0 - 0.6 * smooth(0.4, 1.6, det.abs());
         delta += t.tex * 1.1 * det.clamp(-1.0, 1.0) * tame;
-        if t.sharpen != 0.0 {
-            let m = if t.sharpen_mask > 0.0 { smooth(t.sharpen_mask * 0.25, t.sharpen_mask * 0.25 + 0.15, det.abs()) } else { 1.0 };
-            delta += t.sharpen * 1.3 * det.clamp(-0.8, 0.8) * m;
-        }
     }
     delta
 }
@@ -1014,14 +939,14 @@ mod colour_tone_tests {
         // resampling/profile channels, which the tone stage desaturates later.
         for c in [[-0.004_114_710_3, 0.001_321_920_3, 0.004_300_609_7], [-0.1, 0.2, 0.3], [1.0, -0.2, 0.1]] {
             for dz in [0.0, f32::MIN_POSITIVE, 1e-14, 1e-8, f32::EPSILON / 4.0] {
-                assert_eq!(dehaze_px(c, dz, 1.0, 1.0, 1.0), c, "{c:?}, strength {dz}");
+                assert_eq!(crate::detail::dehaze_px(c, dz, 1.0, [1.0; 3], 1.0), c, "{c:?}, strength {dz}");
             }
-            assert_eq!(dehaze_px(c, 0.4, 0.0, 1.0, 1.0), c);
+            assert_eq!(crate::detail::dehaze_px(c, 0.4, 0.0, [1.0; 3], 1.0), c);
         }
         // Actual veil removal still follows the existing dehaze formula.
         let c = [-0.1, 0.2, 0.3];
-        let t = 1.0 - 0.95 * 0.4 * 0.5;
-        assert_eq!(dehaze_px(c, 0.4, 0.5, 1.0, 1.0), c.map(|v| ((v - (1.0 - t)) / t).max(0.0)));
+        let t = 1.0 - 0.4 * 0.5;
+        assert_eq!(crate::detail::dehaze_px(c, 0.4, 0.5, [1.0; 3], 1.0), c.map(|v| (v - 1.0) / t + 1.0));
     }
 
     #[test]

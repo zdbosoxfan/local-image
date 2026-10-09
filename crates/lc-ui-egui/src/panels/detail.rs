@@ -727,6 +727,14 @@ pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcra
         return Overlay::Spots(app.ui.spots_threshold.clamp(0.0, 100.0).round() as u8);
     }
     let edit = app.ui.right == RightPanel::Edit;
+    if edit
+        && app.ui.sharpen_mask_preview
+        && app.ui.dragging_control.as_deref() == Some("detail.sharpenMasking")
+        && d.section_enabled("detail")
+        && d.detail.sharpen_amount > 0.0
+    {
+        return Overlay::SharpenMask;
+    }
     // the tone equalizer's mask preview
     if edit && app.ui.flyout_open("toneEqMask") && d.tone_eq.enabled && d.section_enabled("toneEq") {
         return Overlay::ToneEqMask;

@@ -187,11 +187,8 @@ pub(crate) struct Prepared {
     pub base: Arc<Plane>,
     pub clarity_blur: Option<Arc<Plane>>,
     pub texture_blur: Option<Arc<Plane>>,
-    pub dark: Option<Arc<Plane>>,
     /// Blurred chromaticity (`rgb / Y`) for local Moiré / Noise.
     pub chroma_blur: Option<Arc<Rgb32f>>,
-    /// Airlight of `dark` (before exposure).
-    pub air: f32,
     pub masks: Vec<masks::Evaluated>,
     /// Develop layers' noise reduction: (evaluated mask index, the image denoised again with the
     /// layer's settings), see [`layers`].
@@ -200,10 +197,11 @@ pub(crate) struct Prepared {
     pub px_per_long: f64,
     /// The tone equalizer's mask (see [`toneeq`]) when the tool is on.
     pub tone_eq: Option<Arc<Plane>>,
-    /// Process 2026 sharpening: `log_l` blurred once and twice, and the blur radius (output px).
+    /// sharpening: `log_l` blurred once and twice, and the blur radius (output px).
     pub sharp: Option<(Arc<Plane>, Arc<Plane>, f32)>,
-    /// Process 2026 dehaze: the refined dark channel and the airlight (before exposure).
-    pub haze: Option<(Arc<Plane>, [f32; 3])>,
+    pub layer_sharp: Vec<(usize, Arc<Plane>, Arc<Plane>, f32)>,
+    /// dehaze: the refined dark channel and the airlight (before exposure).
+    pub haze: Option<Arc<detail::Haze>>,
 }
 
 /// Output size for a source of `src_w × src_h` under `s`, fitting `max_w × max_h`.
@@ -297,11 +295,14 @@ impl StageCache {
             }
             let pl = &e.planes;
             let planes = pl.log_l.iter().chain(pl.base.iter().map(|x| &x.1)).chain(pl.clarity.iter().map(|x| &x.1));
-            for p in planes.chain(pl.texture.iter().map(|x| &x.1)).chain(pl.dark.iter().map(|x| &x.1)) {
+            for p in planes.chain(pl.texture.iter().map(|x| &x.1)) {
                 add(Arc::as_ptr(p) as usize, size(p));
             }
-            for p in pl.sharp.iter().flat_map(|x| [&x.1, &x.2]).chain(pl.haze.iter().map(|x| &x.0)) {
+            for p in pl.sharp.iter().flat_map(|x| [&x.1, &x.2]).chain(pl.layer_sharp.iter().flat_map(|x| [&x.1, &x.2])) {
                 add(Arc::as_ptr(p) as usize, size(p));
+            }
+            if let Some(h) = &pl.haze {
+                add(Arc::as_ptr(h) as usize, (h.positive.data.len() + h.negative.data.len()) * 4);
             }
             for (_, l) in &pl.layer_nr {
                 add(Arc::as_ptr(l) as usize, size(l));
@@ -401,14 +402,12 @@ pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &R
         // nothing while it is off)
         format!("{:?}", negative::params(s)),
         [d.nr_luminance, d.nr_detail, d.nr_color, d.nr_color_detail, d.nr_color_smoothness, d.nr_contrast].map(f64::to_bits),
-        // noise reduction differs by process version
-        s.v2026(),
-        src_long,
+        (src_long, s.section_enabled("detail")),
         // colour calibration runs with the white balance
         format!("{:?}", colorcal::of(info, s)),
         format!("{:?}", info.camera_color),
         info.camera_profile.as_ref().map(|p| p.hash64()),
-        info.baseline_gain.to_bits(),
+        (info.baseline_gain.to_bits(), info.sensor_scale.to_bits()),
     ));
     Plan { settings, frame, w, h, px_per_long, src_long, geo, lin_key, eyes }
 }
@@ -564,7 +563,7 @@ fn render_impl(src: Src<'_>, info: &SourceInfo, s: &DevelopSettings, req: &Rende
             // Without a cache the resampled buffer is ours: work on it in place.
             let mut img = if shared.is_some() { (*sampled).clone() } else { Arc::unwrap_or_clone(sampled.clone()) };
             lin_cpu(&mut img, info, &plan);
-            local::denoise(&mut img, s, src_long, w.max(h), info.sensor_scale);
+            local::denoise(&mut img, s, src_long, px_per_long, info.sensor_scale);
             Arc::new(img)
         }
     };
@@ -627,8 +626,10 @@ pub fn color_range_sample(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, 
 /// fresh evaluation.
 fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared) -> Option<Plane> {
     if o == Overlay::SharpenMask {
-        let (_, b2, sigma) = prep.sharp.as_ref()?;
-        let k = detail::SharpK::new(0.0, (plan.settings.detail.sharpen_masking / 100.0) as f32, *sigma);
+        // At very small preview scales the Gaussian is effectively identity, but
+        // Alt Masking still shows the edge mask rather than the photograph.
+        let (b2, sigma) = prep.sharp.as_ref().map_or((&prep.log_l, 0.0), |(_, b2, sg)| (b2, *sg));
+        let k = detail::SharpK::new(0.0, (plan.settings.detail.sharpen_masking / 100.0) as f32, sigma);
         return Some(detail::sharp_mask_plane(b2, &k));
     }
 
@@ -683,6 +684,10 @@ pub(crate) fn for_rows<T: Send>(data: &mut [T], w: usize, f: impl Fn(usize, &mut
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_detail;
+#[cfg(test)]
+mod tests_detail_refvec;
 #[cfg(test)]
 mod tests_geometry;
 #[cfg(test)]

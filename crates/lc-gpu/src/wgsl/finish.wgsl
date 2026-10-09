@@ -471,19 +471,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // --- dehaze (scene linear)
     let dz = pf(F_DEHAZE) + lt[10];
     if (dz != 0.0 && pu(F_HAS_DARK) != 0u) {
-        let d = clamp(dark[i] / pf(F_AIR_PRE), 0.0, 1.0);
-        let air = pf(F_AIR);
-        if (dz > 0.0) {
-            let t = max(1.0 - 0.95 * min(dz, 1.0) * d, 0.12);
-            // Match `dehaze_px`: tiny signed alpha residues must not turn unit
-            // transmission into clipping of negative scene channels.
-            if (t < 1.0) {
-                c = max((c - air * (1.0 - t)) / t, vec3<f32>(0.0));
-            }
-        } else {
-            let k = min(-dz, 1.0) * 0.7 * (0.35 + 0.65 * d);
-            c = c + (air * 0.9 - c) * k;
-        }
+        let strength=clamp(dz,-1.0,1.0);
+        let at=i+select(0u,w*h,strength<0.0);
+        let d=dark[at];let air=vec3<f32>(pf(F_AIR_RGB),pf(F_AIR_RGB+1u),pf(F_AIR_RGB+2u));
+        let tmin=clamp(exp(-abs(strength)*pf(F_HAZE_DISTANCE)),1.0/1024.0,1.0);
+        let t=max(1.0-strength*d,tmin);
+        if(t!=1.0) {c=(c-air)/t+air;}
     }
 
     // --- local exposure / temp / tint
@@ -529,18 +522,33 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         delta += cl * 0.85 * det * (0.35 + 0.65 * mid);
     }
     let tx = pf(F_TEX) + lt[8];
-    let sp = lt[13] * 0.6 + pf(F_SHARPEN);
-    if ((tx != 0.0 || sp != 0.0) && pu(F_HAS_TEX) != 0u) {
-        let det = l_pre - tex[i];
-        let tame = 1.0 - 0.6 * sstep(0.4, 1.6, abs(det));
-        delta += tx * 1.1 * clamp(det, -1.0, 1.0) * tame;
-        if (sp != 0.0) {
-            let sm = pf(F_SHARPEN_MASK);
-            var mk = 1.0;
-            if (sm > 0.0) {
-                mk = sstep(sm * 0.25, sm * 0.25 + 0.15, abs(det));
+    if (tx != 0.0 && pu(F_HAS_TEX) != 0u) {
+        let det=l_pre-tex[i];let tame=1.0-0.6*sstep(0.4,1.6,abs(det));
+        delta+=tx*1.1*clamp(det,-1.0,1.0)*tame;
+    }
+    let amount=pf(F_SHARP_A)+lt[13]*0.9;
+    if(amount!=0.0 && pu(F_HAS_SHARP)!=0u) {
+        let n=w*h;let h1=l_pre-tex[n+i];
+        if(amount<0.0) {delta+=max(amount,-1.0)*h1;}
+        else {
+            let hb=tex[n+i]-tex[2u*n+i];let detail=h1+pf(F_SHARP_D)*(h1-hb);
+            var mn=l_pre;var mx=l_pre;
+            for(var yy=max(i32(y)-1,0);yy<=min(i32(y)+1,i32(h)-1);yy++) {
+                for(var xx=max(i32(x)-1,0);xx<=min(i32(x)+1,i32(w)-1);xx++) {
+                    let v=log_l[u32(yy)*w+u32(xx)];mn=min(mn,v);mx=max(mx,v);
+                }
             }
-            delta += sp * 1.3 * clamp(det, -0.8, 0.8) * mk;
+            var v=l_pre+amount*detail;
+            if(v>mx){v=mx+(v-mx)*pf(F_SHARP_HALO);}else if(v<mn){v=mn+(v-mn)*pf(F_SHARP_HALO);}
+            var mask=1.0;
+            if(pf(F_SHARP_T)>0.0) {
+                let xl=u32(max(i32(x)-1,0));let xr=min(x+1u,w-1u);
+                let yu=u32(max(i32(y)-1,0));let yd=min(y+1u,h-1u);
+                let gx=(tex[2u*n+y*w+xr]-tex[2u*n+y*w+xl])*0.5;
+                let gy=(tex[2u*n+yd*w+x]-tex[2u*n+yu*w+x])*0.5;
+                mask=sstep(0.5*pf(F_SHARP_T),pf(F_SHARP_T),sqrt(gx*gx+gy*gy)*pf(F_SHARP_EK));
+            }
+            delta+=(v-l_pre)*mask;
         }
     }
     // local Noise: smooth (or, negative, boost) small-amplitude detail, keep edges

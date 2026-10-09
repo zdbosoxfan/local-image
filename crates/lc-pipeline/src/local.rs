@@ -174,90 +174,11 @@ pub fn guided_fast_step(sigma: f32) -> usize {
     (sigma / 3.0).floor().clamp(1.0, 16.0) as usize
 }
 
-/// Luminance noise reduction: guided filter of log luminance (`sigma` px, `eps`), blended by `k`.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct NrLum {
-    pub sigma: f32,
-    pub eps: f32,
-    pub k: f32,
-}
-
-/// Colour noise reduction: chromaticity blurred by `sigma` px, mixed in by `t`.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct NrColor {
-    pub sigma: f32,
-    pub t: f32,
-}
-
-/// Noise-reduction parameters at an output long edge of `out_long` px (see [`denoise`]; the
-/// legacy process: process 2026 has [`crate::detail::nr_params`]).
-pub fn nr_params(s: &DevelopSettings, src_long: usize, out_long: usize) -> (Option<NrLum>, Option<NrColor>) {
-    let lum = (s.detail.nr_luminance / 100.0) as f32;
-    let col = (s.detail.nr_color / 100.0) as f32;
-    let scale = (out_long as f32 / src_long.max(1) as f32).clamp(0.05, 1.0);
-    let l = (lum > 0.0).then(|| {
-        let detail = (s.detail.nr_detail / 100.0) as f32;
-        NrLum { sigma: (1.0 + 2.5 * lum) * scale.max(0.4), eps: 0.002 + lum * lum * 0.25 * (1.0 - 0.7 * detail), k: lum.sqrt() }
-    });
-    let c = (col > 0.0).then(|| {
-        let sigma = (1.5 + 6.0 * col) * scale.max(0.35) * (1.0 + (s.detail.nr_color_smoothness / 100.0) as f32);
-        let keep = (s.detail.nr_color_detail / 100.0) as f32 * 0.5;
-        NrColor { sigma, t: col * (1.0 - keep) }
-    });
-    (l, c)
-}
-
-/// Noise reduction at output resolution: luminance via an edge-aware self-guided filter on
-/// log-luminance, colour by blurring chromaticity (rgb / Y) and re-applying the original luminance.
-/// Radii scale with how much the source was downsampled (preview noise is already averaged out).
-/// Process 2026 has its own ([`crate::detail::denoise`]; `sensor_scale` as
-/// [`SourceInfo::sensor_scale`] sizes its scales).
-pub fn denoise(img: &mut Rgb32f, s: &DevelopSettings, src_long: usize, out_long: usize, sensor_scale: f32) {
-    if s.v2026() {
-        let opo = crate::detail::out_per_orig(out_long as f64, src_long, sensor_scale);
-        if let Some(p) = crate::detail::nr_params(s, opo) {
-            crate::timed("nr 2026", || crate::detail::denoise(img, &p));
-        }
-        return;
-    }
-    let (lum, col) = nr_params(s, src_long, out_long);
-    let w = img.width;
-
-    if let Some(nr) = lum {
-        let _t = crate::profiling().then(std::time::Instant::now);
-        let l = img.map(log_lum);
-        let f = guided(&l, nr.sigma, nr.eps);
-        for_rows(&mut img.data, w, |y, row| {
-            for (x, p) in row.iter_mut().enumerate() {
-                let i = y * w + x;
-                let d = (f.data[i] - l.data[i]) * nr.k;
-                let g = d.exp2();
-                *p = p.map(|v| v * g);
-            }
-        });
-        if let Some(t) = _t {
-            eprintln!("    nr luminance: {:.1} ms", t.elapsed().as_secs_f64() * 1e3);
-        }
-    }
-    if let Some(nr) = col {
-        let _t = crate::profiling().then(std::time::Instant::now);
-        let chroma = img.map(|c| {
-            let y = luminance_2020(c).max(1e-6);
-            [c[0] / y, c[1] / y, c[2] / y]
-        });
-        let b = gaussian(&chroma, nr.sigma);
-        for_rows(&mut img.data, w, |y, row| {
-            for (x, p) in row.iter_mut().enumerate() {
-                let i = y * w + x;
-                let yl = luminance_2020(*p);
-                let c0 = chroma.data[i];
-                let cb = b.data[i];
-                *p = [0, 1, 2].map(|k| ((c0[k] + (cb[k] - c0[k]) * nr.t) * yl).max(0.0));
-            }
-        });
-        if let Some(t) = _t {
-            eprintln!("    nr colour: {:.1} ms", t.elapsed().as_secs_f64() * 1e3);
-        }
+/// Wavelet noise reduction at the output's original-pixel scale.
+pub fn denoise(img: &mut Rgb32f, s: &DevelopSettings, src_long: usize, px_per_long: f64, sensor_scale: f32) {
+    let scale = crate::detail::out_per_orig(px_per_long, src_long, sensor_scale);
+    if let Some(p) = crate::detail::nr_params(s, scale) {
+        crate::timed("wavelet NR", || crate::detail::denoise(img, &p));
     }
 }
 
@@ -274,17 +195,16 @@ pub(crate) struct Planes {
     pub base: Option<(u32, Arc<Plane>)>,
     pub clarity: Option<(u32, Arc<Plane>)>,
     pub texture: Option<(u32, Arc<Plane>)>,
-    /// Dark channel and its airlight.
-    pub dark: Option<(u32, Arc<Plane>, f32)>,
-    /// Process 2026: log luminance blurred once and twice by the sharpening radius.
+    ///  log luminance blurred once and twice by the sharpening radius.
     pub sharp: Option<(u32, Arc<Plane>, Arc<Plane>)>,
-    /// Process 2026: the refined dark channel and its coloured airlight (see [`crate::detail`]).
-    pub haze: Option<(Arc<Plane>, [f32; 3])>,
+    ///  the refined dark channel and its coloured airlight (see [`crate::detail`]).
+    pub haze: Option<Arc<crate::detail::Haze>>,
     /// Blurred chromaticity (local Moiré / Noise).
     pub chroma: Option<(u32, Arc<Rgb32f>)>,
     /// Develop layers' noise reduction: the image denoised again with a layer's settings, by
     /// their key (see [`crate::layers::nr_images`]).
     pub layer_nr: Vec<(u64, Arc<Rgb32f>)>,
+    pub layer_sharp: Vec<(u32, Arc<Plane>, Arc<Plane>)>,
     /// The tone equalizer's mask (pre-exposure zones, see [`crate::toneeq::mask_plane`]) by the
     /// key of its radius and epsilon.
     pub tone_eq: Option<(u64, Arc<Plane>)>,
@@ -306,12 +226,6 @@ fn plane_at(slot: &mut Option<(u32, Arc<Plane>)>, sigma: f32, f: impl FnOnce() -
 pub const BASE_EPS: f32 = 0.35;
 pub const CLARITY_EPS: f32 = 0.8;
 
-/// Dark channel of a pixel (dehaze).
-#[inline]
-pub fn dark_of(c: [f32; 3]) -> f32 {
-    c[0].min(c[1]).min(c[2])
-}
-
 /// Radius of the local Moiré / colour-noise chromaticity blur, as a fraction of the long edge.
 pub const CHROMA_SIGMA: f32 = 0.004;
 
@@ -324,18 +238,16 @@ pub struct PlaneSigmas {
     pub clarity: Option<f32>,
     /// Texture / sharpening band (Gaussian).
     pub texture: Option<f32>,
-    /// Dehaze dark channel (Gaussian).
-    pub dark: Option<f32>,
     /// Chromaticity blur for local Moiré / colour noise (Gaussian).
     pub chroma: Option<f32>,
-    /// Process 2026: sharpening blur (true Gaussian, output px).
+    ///  sharpening blur (true Gaussian, output px).
     pub sharp: Option<f32>,
-    /// Process 2026: the dehaze plane (dark channel prior) is needed.
+    ///  the dehaze plane (dark channel prior) is needed.
     pub haze: bool,
 }
 
 /// The planes `s` needs at `px_per_long`; `out_per_orig` (see [`crate::detail::out_per_orig`])
-/// sizes the process 2026 sharpening radius.
+/// sizes the sharpening radius.
 pub fn plane_sigmas(s: &DevelopSettings, px_per_long: f64, out_per_orig: f32, q: Quality) -> PlaneSigmas {
     let ppl = px_per_long as f32;
     let local_any = |f: fn(&lightcraft_develop::LocalAdjustments) -> f64| s.masks.iter().any(|m| f(&m.adjust) != 0.0);
@@ -343,7 +255,6 @@ pub fn plane_sigmas(s: &DevelopSettings, px_per_long: f64, out_per_orig: f32, q:
         s.light.highlights != 0.0 || s.light.shadows != 0.0 || s.masks.iter().any(|m| m.adjust.highlights != 0.0 || m.adjust.shadows != 0.0);
     // Edge-aware base at ~1.5% of the long edge (EV² epsilon: edges of > ~0.6 EV are preserved).
     let (l_base, l_clarity, l_texture, l_dark, l_sharp) = crate::layers::planes_needed(s);
-    let v2026 = s.v2026();
     let tone_active = tone_active || l_base;
     let base = tone_active.then(|| {
         let sigma = (0.015 * ppl).max(1.0);
@@ -351,9 +262,8 @@ pub fn plane_sigmas(s: &DevelopSettings, px_per_long: f64, out_per_orig: f32, q:
     });
     let clarity = (s.effects.clarity != 0.0 || local_any(|a| a.clarity) || l_clarity).then(|| (0.012 * ppl).max(1.0));
     // local Noise and Defringe read the fine detail band too
-    // (process 2026 sharpening has planes of its own)
+    // (sharpening has planes of its own)
     let texture = (s.effects.texture != 0.0
-        || (s.detail.sharpen_amount != 0.0 && !v2026)
         || local_any(|a| a.texture)
         || local_any(|a| a.sharpness)
         || local_any(|a| a.noise)
@@ -361,12 +271,11 @@ pub fn plane_sigmas(s: &DevelopSettings, px_per_long: f64, out_per_orig: f32, q:
         || l_texture)
         .then(|| (0.0018 * ppl).max(0.6));
     let dehaze = s.effects.dehaze != 0.0 || local_any(|a| a.dehaze) || l_dark;
-    let dark = (dehaze && !v2026).then(|| (0.02 * ppl).max(1.0));
     let chroma = (local_any(|a| a.moire) || s.masks.iter().any(|m| m.adjust.noise > 0.0)).then(|| (CHROMA_SIGMA * ppl).max(1.0));
-    let sharp = (v2026 && (s.detail.sharpen_amount != 0.0 || local_any(|a| a.sharpness) || l_sharp))
+    let sharp = (s.section_enabled("detail") && s.detail.sharpen_amount != 0.0 || local_any(|a| a.sharpness) || l_sharp)
         .then(|| crate::detail::sharp_sigma(s, out_per_orig))
         .filter(|sg| *sg >= crate::detail::SHARP_MIN_SIGMA);
-    PlaneSigmas { base, clarity, texture, dark, chroma, sharp, haze: dehaze && v2026 }
+    PlaneSigmas { base, clarity, texture, chroma, sharp, haze: dehaze }
 }
 
 /// The spatial planes the per-pixel stage needs for `img` (white-balanced, before exposure),
@@ -385,18 +294,11 @@ pub(crate) fn prepare(
 ) -> Prepared {
     let log_l = planes.log_l.get_or_insert_with(|| Arc::new(timed("log_l", || img.map(log_lum)))).clone();
     let opo = crate::detail::out_per_orig(px_per_long, src_long, info.sensor_scale);
-    let PlaneSigmas {
-        base: base_sigma,
-        clarity: clarity_sigma,
-        texture: texture_sigma,
-        dark: dark_sigma,
-        chroma: chroma_sigma,
-        sharp: sharp_sigma,
-        haze: haze_on,
-    } = plane_sigmas(s, px_per_long, opo, q);
+    let PlaneSigmas { base: base_sigma, clarity: clarity_sigma, texture: texture_sigma, chroma: chroma_sigma, sharp: sharp_sigma, haze: haze_on } =
+        plane_sigmas(s, px_per_long, opo, q);
 
-    let Planes { base: sb, clarity: sc, texture: st, dark: sd, chroma: sch, sharp: ssh, haze: shz, .. } = planes;
-    // process 2026: the sharpening blurs and the dehaze plane
+    let Planes { base: sb, clarity: sc, texture: st, chroma: sch, sharp: ssh, haze: shz, .. } = planes;
+    // Detail: the sharpening blurs and the dehaze plane
     let sharp = sharp_sigma.map(|sg| match ssh {
         Some((k, b1, b2)) if *k == sg.to_bits() => (b1.clone(), b2.clone(), sg),
         _ => {
@@ -406,15 +308,7 @@ pub(crate) fn prepare(
             (b1, b2, sg)
         }
     });
-    let haze = haze_on.then(|| match shz {
-        Some((p, air)) => (p.clone(), *air),
-        None => {
-            let (p, air) = timed("dehaze 2026", || crate::detail::haze_plane(&img));
-            let p = Arc::new(p);
-            *shz = Some((p.clone(), air));
-            (p, air)
-        }
-    });
+    let haze = haze_on.then(|| shz.get_or_insert_with(|| Arc::new(timed("dehaze", || crate::detail::haze_plane(&img, opo)))).clone());
     let chroma_blur = chroma_sigma.map(|sg| match sch {
         Some((k, c)) if *k == sg.to_bits() => c.clone(),
         _ => {
@@ -424,38 +318,42 @@ pub(crate) fn prepare(
         }
     });
     let l = &log_l;
-    let (base, (clarity_blur, (texture_blur, dark))) = par_join(
+    let (base, (clarity_blur, texture_blur)) = par_join(
         || base_sigma.map(|sg| plane_at(sb, sg, || timed("base", || guided_fast(l, sg, BASE_EPS)))),
         || {
             par_join(
                 || clarity_sigma.map(|sg| plane_at(sc, sg, || timed("clarity", || guided_fast(l, sg, CLARITY_EPS)))),
-                || {
-                    par_join(
-                        || texture_sigma.map(|sg| plane_at(st, sg, || timed("texture", || gaussian(l, sg)))),
-                        || {
-                            dark_sigma.map(|sg| match sd {
-                                Some((k, d, air)) if *k == sg.to_bits() => (d.clone(), *air),
-                                _ => {
-                                    let d = timed("dehaze", || Arc::new(gaussian(&img.map(dark_of), sg)));
-                                    let air = airlight(&d);
-                                    *sd = Some((sg.to_bits(), d.clone(), air));
-                                    (d, air)
-                                }
-                            })
-                        },
-                    )
-                },
+                || texture_sigma.map(|sg| plane_at(st, sg, || timed("texture", || gaussian(l, sg)))),
             )
         },
     );
     let base = base.unwrap_or_else(|| log_l.clone());
-    let (dark, air) = match dark {
-        Some((d, air)) => (Some(d), air),
-        None => (None, 1.0),
-    };
     let ev = s.light.exposure as f32;
     let masks = timed("masks", || masks::evaluate(&s.masks, frame, img.width, img.height, &img, &log_l, ev));
-    let layer_nr = timed("layer nr", || crate::layers::nr_images(&img, s, info, src_long, &mut planes.layer_nr));
+    let mut layer_sharp = Vec::new();
+    let mut wanted = Vec::new();
+    for (mask, m) in s.masks.iter().filter(|m| m.visible && !m.components.is_empty()).enumerate() {
+        if let Some(d) = m.tools.detail.filter(|d| d.sharpen_amount != 0.0) {
+            let sg = d.sharpen_radius.clamp(0.5, 3.0) as f32 * opo;
+            if sg < crate::detail::SHARP_MIN_SIGMA {
+                continue;
+            }
+            let key = sg.to_bits();
+            wanted.push(key);
+            let pair = match planes.layer_sharp.iter().find(|p| p.0 == key) {
+                Some((_, a, b)) => (a.clone(), b.clone()),
+                None => {
+                    let (a, b) = crate::detail::sharp_planes(&log_l, sg);
+                    let pair = (Arc::new(a), Arc::new(b));
+                    planes.layer_sharp.push((key, pair.0.clone(), pair.1.clone()));
+                    pair
+                }
+            };
+            layer_sharp.push((mask, pair.0, pair.1, sg));
+        }
+    }
+    planes.layer_sharp.retain(|p| wanted.contains(&p.0));
+    let layer_nr = timed("layer nr", || crate::layers::nr_images(&img, s, info, src_long, px_per_long, &mut planes.layer_nr));
     let tone_eq = crate::toneeq::mask_wanted(s).then(|| {
         let (sg, eps) = crate::toneeq::mask_sigma_eps(s, px_per_long);
         let k = (u64::from(sg.to_bits()) << 32) | u64::from(eps.to_bits());
@@ -468,26 +366,7 @@ pub(crate) fn prepare(
             }
         }
     });
-    Prepared { img, log_l, base, clarity_blur, texture_blur, dark, chroma_blur, air, masks, layer_nr, px_per_long, tone_eq, sharp, haze }
-}
-
-/// The airlight is estimated from every `AIRLIGHT_STEP`-th value of the dark channel.
-pub const AIRLIGHT_STEP: usize = 7;
-
-/// Airlight estimate: bright end of the dark channel.
-pub fn airlight(dark: &Plane) -> f32 {
-    airlight_of(dark.data.iter().step_by(AIRLIGHT_STEP).copied().collect())
-}
-
-/// Airlight from the sampled dark-channel values (see [`airlight`]): their 99.5th percentile.
-pub fn airlight_of(mut v: Vec<f32>) -> f32 {
-    if v.is_empty() {
-        return 1.0;
-    }
-    let k = ((v.len() as f32) * 0.995) as usize;
-    let k = k.min(v.len() - 1);
-    v.select_nth_unstable_by(k, |a, b| a.total_cmp(b));
-    v[k].max(0.05)
+    Prepared { img, log_l, base, clarity_blur, texture_blur, chroma_blur, masks, layer_nr, px_per_long, tone_eq, sharp, haze, layer_sharp }
 }
 
 #[cfg(test)]
@@ -563,10 +442,10 @@ mod nr_tests {
         let (v0, m0) = var(&img);
         let mut s = DevelopSettings::default();
         s.detail.nr_luminance = 80.0;
-        denoise(&mut img, &s, 64, 64, 1.0);
+        denoise(&mut img, &s, 64, 64.0, 1.0);
 
         let (v1, m1) = var(&img);
         assert!(v1 < v0 * 0.5, "{v0} -> {v1}");
-        assert!((m1 - m0).abs() < 0.01);
+        assert!((m1 - m0).abs() < 0.01, "mean {m0} -> {m1}");
     }
 }

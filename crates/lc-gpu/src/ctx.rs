@@ -29,7 +29,11 @@ const MODULES: &[Module] = &[
         ],
         entries: &["main"],
     },
-    Module { src: include_str!("wgsl/blur.wgsl"), bindings: &[("src", false, "f32"), ("dst", true, "f32")], entries: &["box_h", "box_v"] },
+    Module {
+        src: include_str!("wgsl/blur.wgsl"),
+        bindings: &[("src", false, "f32"), ("dst", true, "f32")],
+        entries: &["box_h", "box_v", "conv_h", "conv_v", "extrema", "mean_box"],
+    },
     Module {
         src: include_str!("wgsl/resize.wgsl"),
         bindings: &[("src", false, "f32"), ("table", false, "u32"), ("dst", true, "f32")],
@@ -40,19 +44,35 @@ const MODULES: &[Module] = &[
         bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
         entries: &[
             "log_lum_k",
-            "dark_k",
             "guided_pre",
             "guided_ab",
             "guided_apply",
             "wb_k",
-            "nr_lum",
             "chroma_k",
-            "nr_col",
             "subsample",
             "redeye_k",
             "xguided_pre",
             "xguided_ab",
             "xguided_apply",
+        ],
+    },
+    Module {
+        src: include_str!("wgsl/detail.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
+        entries: &[
+            "nr_forward",
+            "nr_backward",
+            "nr_eaw",
+            "nr_detail",
+            "nr_sum",
+            "nr_synthesize",
+            "nr_residual",
+            "nr_join",
+            "haze_moments",
+            "haze_solve",
+            "haze_apply",
+            "haze_dark",
+            "sharp_preview",
         ],
     },
     Module {
@@ -737,13 +757,14 @@ mod tests {
 #[cfg(test)]
 mod shader_validation {
     #[test]
-    fn colour_tone_finish_wgsl_validates_without_an_adapter() {
+    fn all_wgsl_validates_without_an_adapter() {
         let constants = super::constants();
-        let module = &super::MODULES[0];
-        let source = super::module_source(module, &constants);
-        let parsed = wgpu::naga::front::wgsl::parse_str(&source).unwrap_or_else(|e| panic!("{}", e.emit_to_string(&source)));
-        wgpu::naga::valid::Validator::new(wgpu::naga::valid::ValidationFlags::all(), wgpu::naga::valid::Capabilities::all())
-            .validate(&parsed)
-            .unwrap();
+        for module in super::MODULES {
+            let source = super::module_source(module, &constants);
+            let parsed = wgpu::naga::front::wgsl::parse_str(&source).unwrap_or_else(|e| panic!("{}", e.emit_to_string(&source)));
+            wgpu::naga::valid::Validator::new(wgpu::naga::valid::ValidationFlags::all(), wgpu::naga::valid::Capabilities::all())
+                .validate(&parsed)
+                .unwrap_or_else(|e| panic!("entry points {:?}: {e:?}", module.entries));
+        }
     }
 }

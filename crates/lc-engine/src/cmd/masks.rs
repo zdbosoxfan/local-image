@@ -1024,7 +1024,7 @@ fn spots_edit(s: &mut Session, c: &str, label: &str, f: impl FnOnce(&mut Vec<Spo
 fn pick_source(s: &mut Session, id: crate::PhotoId, d: &lightcraft_develop::DevelopSettings, spot: &Spot, avoid: Option<Point>) -> Option<Point> {
     let src = s.source_now(id, crate::media::SourceLevel::Thumb).ok()?;
     let info = s.source_info(id);
-    let hash = s.catalog.photo(id).map(|p| crate::enhance::denoise::source_hash(p));
+    let hash = s.catalog.photo(id).map(|p| crate::enhance::source_hash(p));
     let foreign = |sp: &Spot| sp.patch.as_ref().is_some_and(|p| hash.as_deref() != Some(p.source.as_str()));
     let own;
     let d = if d.spots.iter().any(foreign) {
