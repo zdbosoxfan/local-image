@@ -2,8 +2,8 @@
 //! kept in the library, so photos stay editable — and exportable at proxy size — while their
 //! originals are offline (an unplugged drive). The proxy is the scene-linear source scaled into
 //! 0..1 by a stored factor, sRGB-encoded and saved as a JPEG after a one-line header. The header
-//! also keeps the decoder's file-local camera tone curve (Sony ARW camera look), which is applied
-//! at render time and is not baked into the pixels.
+//! also keeps the decoder's colour interpretation and Camera curve, applied at render time.
+//! Old tone-only headers still load; new proxies retain DCP tables and dual-illuminant matrices.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -22,10 +22,22 @@ pub fn file_name(p: &Photo) -> String {
 }
 
 /// The most header [`is_valid`] reads (the JSON line before the JPEG).
-const HEADER_MAX: u64 = 4096;
+const HEADER_MAX: u64 = 64 * 1024 * 1024;
 
 /// Encode a source image (and the decoder's camera tone curve, if any) as a smart preview.
+#[cfg(test)]
 pub fn encode(img: &Rgb32f, tone: Option<&CameraTone>) -> Result<Vec<u8>, String> {
+    encode_with_info(img, tone, None)
+}
+
+/// Keep the decoder colour interpretation with the proxy: its unbaked DCP tables, matrix,
+/// white balance and Camera curve are needed when the original is offline.
+pub fn encode_source(src: &crate::media::DecodedSource) -> Result<Vec<u8>, String> {
+    let info = src.info_or(Default::default());
+    encode_with_info(&src.image, info.camera_tone.as_ref(), Some(&info))
+}
+
+fn encode_with_info(img: &Rgb32f, tone: Option<&CameraTone>, info: Option<&lightcraft_pipeline::SourceInfo>) -> Result<Vec<u8>, String> {
     // scale so all but the brightest 0.05 % fit into 0..1
     let mut lum: Vec<f32> = img.data.iter().map(|c| c[0].max(c[1]).max(c[2])).filter(|v| v.is_finite()).collect();
     let scale = if lum.is_empty() {
@@ -57,7 +69,14 @@ pub fn encode(img: &Rgb32f, tone: Option<&CameraTone>) -> Result<Vec<u8>, String
     if let Some(t) = tone {
         head["tone"] = serde_json::to_value(t).map_err(|e| e.to_string())?;
     }
-    out.extend_from_slice(head.to_string().as_bytes());
+    if let Some(info) = info {
+        head["source"] = serde_json::to_value(info).map_err(|e| e.to_string())?;
+    }
+    let header = head.to_string();
+    if header.len() as u64 + MAGIC.len() as u64 + 1 >= HEADER_MAX {
+        return Err("smart preview colour metadata is too large".into());
+    }
+    out.extend_from_slice(header.as_bytes());
     out.push(b'\n');
     out.extend_from_slice(&jpg);
     Ok(out)
@@ -65,9 +84,17 @@ pub fn encode(img: &Rgb32f, tone: Option<&CameraTone>) -> Result<Vec<u8>, String
 
 /// Decode a smart preview back into a source image and its stored camera tone curve (an invalid
 /// curve is ignored, like a missing one).
+#[cfg(test)]
 pub fn decode(bytes: &[u8]) -> Result<(Rgb32f, Option<CameraTone>), String> {
+    decode_with_info(bytes).map(|(img, tone, _)| (img, tone))
+}
+
+fn decode_with_info(bytes: &[u8]) -> Result<(Rgb32f, Option<CameraTone>, Option<lightcraft_pipeline::SourceInfo>), String> {
     let rest = bytes.strip_prefix(MAGIC).ok_or("not a smart preview")?;
     let nl = rest.iter().position(|b| *b == b'\n').ok_or("bad smart preview")?;
+    if nl as u64 >= HEADER_MAX {
+        return Err("smart preview header is too large".into());
+    }
     let head: serde_json::Value = serde_json::from_slice(&rest[..nl]).map_err(|e| e.to_string())?;
     let scale = head["scale"].as_f64().unwrap_or(1.0) as f32;
     let tone = head.get("tone").and_then(|t| serde_json::from_value::<CameraTone>(t.clone()).ok());
@@ -75,7 +102,8 @@ pub fn decode(bytes: &[u8]) -> Result<(Rgb32f, Option<CameraTone>), String> {
     // the decoder undoes the sRGB encoding; the values are the source's own primaries
     let mut img = d.image;
     img.data.iter_mut().for_each(|c| *c = c.map(|v| v * scale));
-    Ok((img, tone))
+    let info = head.get("source").and_then(|v| serde_json::from_value(v.clone()).ok());
+    Ok((img, tone, info))
 }
 
 /// Where a library keeps its smart previews.
@@ -168,11 +196,19 @@ pub fn migrate(from: &Path, to: &Path, what: Existing) -> (usize, Vec<String>) {
 /// start marker to its end marker. A file cut short by a crash, a full drive or an unplugged one
 /// fails it (and is then rebuilt by Build Smart Previews, not counted as there).
 pub fn is_valid(path: &Path) -> bool {
-    use std::io::{Read, Seek, SeekFrom};
+    use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
     let Ok(mut f) = std::fs::File::open(path) else { return false };
     let mut head = Vec::with_capacity(1024);
-    if (&mut f).take(HEADER_MAX).read_to_end(&mut head).is_err() {
-        return false;
+    {
+        let mut reader = BufReader::new((&mut f).take(HEADER_MAX));
+        if reader.read_until(b'\n', &mut head).is_err() || reader.read_until(b'\n', &mut head).is_err() {
+            return false;
+        }
+        let mut soi = [0u8; 2];
+        if reader.read_exact(&mut soi).is_err() {
+            return false;
+        }
+        head.extend_from_slice(&soi);
     }
     let Some(rest) = head.strip_prefix(MAGIC) else { return false };
     let Some(nl) = rest.iter().position(|b| *b == b'\n') else { return false };
@@ -190,12 +226,24 @@ pub fn is_valid(path: &Path) -> bool {
 /// Load the proxy at `path`.
 pub fn load(path: &Path) -> Result<crate::media::DecodedSource, String> {
     let b = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    decode(&b).map(|(image, camera_tone)| crate::media::DecodedSource { image: Arc::new(image), info: None, camera_tone, raw_key: 0 })
+    decode_with_info(&b).map(|(image, camera_tone, info)| crate::media::DecodedSource { image: Arc::new(image), info, camera_tone, raw_key: 0 })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn malformed_stored_profile_tables_and_curves_are_rejected() {
+        use lightcraft_color::profile::{HsvTable, ToneCurve};
+        let valid = HsvTable { hue_divisions: 6, sat_divisions: 3, val_divisions: 2, data: vec![[0., 1., 1.]; 36], srgb_value: false };
+        let mut value = serde_json::to_value(valid).unwrap();
+        assert!(serde_json::from_value::<HsvTable>(value.clone()).is_ok());
+        value["hue_divisions"] = serde_json::json!(0);
+        assert!(serde_json::from_value::<HsvTable>(value).is_err());
+        assert!(serde_json::from_value::<ToneCurve>(serde_json::json!({"points": []})).is_err());
+        assert!(serde_json::from_value::<ToneCurve>(serde_json::json!({"points": [[0.5, 0.5], [0.2, 0.8]]})).is_err());
+    }
 
     fn temp(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("lc-smart-{tag}-{}", std::process::id()));
@@ -286,6 +334,38 @@ mod tests {
         let (pixels, tone) = decode(&hostile).unwrap();
         assert_eq!((pixels.width, tone), (img.width, None));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn deferred_dcp_and_camera_white_travel_with_the_proxy() {
+        let profile = lightcraft_raw::dcp::Dcp::parse(include_bytes!("../../lc-raw/data/dcp/NIKON_D7500.dcp")).unwrap();
+        let color = lightcraft_color::camera::CameraColor {
+            illuminant: profile.color.illuminant,
+            color_matrix: profile.color.color_matrix,
+            forward_matrix: profile.color.forward_matrix,
+            ..Default::default()
+        };
+        let info = lightcraft_pipeline::SourceInfo {
+            raw: true,
+            as_shot_temp: 5200.,
+            as_shot_tint: 3.,
+            baseline_gain: 1.2,
+            camera_profile: Some(Arc::new(profile.color.profile)),
+            camera_color: Some(lightcraft_color::camera::CameraWhite { color, undo: lightcraft_color::Mat3::IDENTITY }),
+            look_curve: lightcraft_pipeline::basecurves::camera("Nikon", "D7500"),
+            ..Default::default()
+        };
+        let source = crate::media::DecodedSource::new(Arc::new(lightcraft_scenes::demo_library()[0].render(64, 40)), Some(info.clone()));
+        let bytes = encode_source(&source).unwrap();
+        let (_, _, restored) = decode_with_info(&bytes).unwrap();
+        assert_eq!(restored.unwrap(), info);
+        assert!(bytes[MAGIC.len()..].iter().position(|b| *b == b'\n').unwrap() > 4096, "DCP header exceeds the old tone-only limit");
+        let dir = temp("dcp");
+        let path = dir.join("p.lcsp");
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(is_valid(&path));
+        assert_eq!(load(&path).unwrap().info, Some(info));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

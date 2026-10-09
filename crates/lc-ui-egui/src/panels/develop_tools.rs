@@ -138,10 +138,14 @@ pub fn raw_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettin
     }
     let r = d.raw;
     let t = Tokens::get(ui.ctx());
-    let methods: Vec<(&str, String)> = Demosaic::ALL.iter().map(|m| (m.label(), key_of(*m))).collect();
-    let items: Vec<(&str, &str)> = methods.iter().map(|(l, k)| (*l, k.as_str())).collect();
-    choice(app, ui, "rawDemosaic", "Demosaic", &items, Demosaic::ALL.iter().position(|m| *m == r.demosaic), 3, |k| json!({"raw": {"demosaic": k}}));
+    let mut available = Demosaic::ALL.to_vec();
     if r.demosaic == Demosaic::DualRcd {
+        available.push(Demosaic::DualRcd);
+    }
+    let methods: Vec<(&str, String)> = available.iter().map(|m| (m.label(), key_of(*m))).collect();
+    let items: Vec<(&str, &str)> = methods.iter().map(|(l, k)| (*l, k.as_str())).collect();
+    choice(app, ui, "rawDemosaic", "Demosaic", &items, available.iter().position(|m| *m == r.demosaic), 3, |k| json!({"raw": {"demosaic": k}}));
+    if r.demosaic.is_dual() {
         control(app, ui, d, "raw.dualThreshold", true);
     }
     pad(ui, |ui| {

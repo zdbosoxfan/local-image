@@ -104,6 +104,52 @@ impl RawImage {
         });
         Ok(Some(out))
     }
+
+    /// Binned development with a pre-demosaic CFA operation. Bayer blocks are reduced to
+    /// four separate CFA phases at twice the RGB output size, preserving a clipped phase's
+    /// maximum. `hook` receives the reduced mosaic and its sensor sampling interval.
+    /// X-Trans uses a full-size CFA hook because arbitrary reduction cannot preserve its phase.
+    pub fn develop_binned_with(&self, k: usize, clip: f32, hook: impl FnOnce(&mut Normalized, usize)) -> Result<Option<Rgb32f>> {
+        self.validate()?;
+        if !self.can_bin(k) || !self.opcodes.list3.is_empty() {
+            return Ok(None);
+        }
+        let mut n = self.normalized()?;
+        let Some(cfa) = n.cfa.clone() else {
+            return Ok(None);
+        };
+        let c = self.crop.clipped(n.width, n.height);
+        let c = if c.width < k || c.height < k { crate::Rect::new(0, 0, n.width, n.height) } else { c };
+        if c.width < k || c.height < k {
+            return Ok(None);
+        }
+        if !cfa.is_bayer() {
+            hook(&mut n, 1);
+            return Ok(Some(bin_normalized(&n, &cfa, c, k, clip)));
+        }
+        let scale = k / 2;
+        let (w, h) = (2 * (c.width / k), 2 * (c.height / k));
+        let data: Vec<f32> = (0..w * h)
+            .into_par_iter()
+            .map(|i| {
+                let (x, y) = (i % w, i / w);
+                let (x0, y0) = (c.x + (x / 2) * k + x % 2, c.y + (y / 2) * k + y % 2);
+                let (mut sum, mut max) = (0.0, f32::MIN);
+                for dy in 0..scale {
+                    for dx in 0..scale {
+                        let v = n.data[(y0 + 2 * dy) * n.width + x0 + 2 * dx];
+                        sum += v;
+                        max = max.max(v);
+                    }
+                }
+                if max >= clip { max } else { sum / (scale * scale) as f32 }
+            })
+            .collect();
+        let reduced_cfa = cfa.shifted(c.x, c.y);
+        let mut reduced = Normalized { width: w, height: h, cpp: 1, data, cfa: Some(reduced_cfa.clone()) };
+        hook(&mut reduced, scale);
+        Ok(Some(bin_normalized(&reduced, &reduced_cfa, crate::Rect::new(0, 0, w, h), 2, clip)))
+    }
 }
 
 /// Colours of the `k × k` samples of a block whose corner sits at pattern position `(i, j)`
@@ -118,6 +164,24 @@ fn block_layout(cfa: &crate::Cfa, i: usize, j: usize, k: usize) -> (Vec<u8>, [u3
         })
         .collect();
     (l, n)
+}
+
+/// Same clipping-aware channel reduction as the historical row-normalized binner.
+fn bin_normalized(n: &Normalized, cfa: &crate::Cfa, crop: crate::Rect, k: usize, clip: f32) -> Rgb32f {
+    Rgb32f::from_fn(crop.width / k, crop.height / k, |bx, by| {
+        let (mut sum, mut max, mut count) = ([0.0; 3], [f32::MIN; 3], [0usize; 3]);
+        for dy in 0..k {
+            for dx in 0..k {
+                let (x, y) = (crop.x + bx * k + dx, crop.y + by * k + dy);
+                let c = cfa.color_at(x, y) as usize;
+                let v = n.data[y * n.width + x];
+                sum[c] += v;
+                max[c] = max[c].max(v);
+                count[c] += 1;
+            }
+        }
+        std::array::from_fn(|c| if max[c] >= clip { max[c] } else { sum[c] / count[c].max(1) as f32 })
+    })
 }
 
 #[cfg(test)]
@@ -190,5 +254,110 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn cfa_hook_preserves_phases_crop_black_and_clipping() {
+        let img = Rgb32f::from_fn(50, 42, |x, y| [0.12 + x as f32 * 0.003, 0.22 + y as f32 * 0.004, 0.35]);
+        for pattern in ["RGGB", "BGGR", "GRBG", "GBRG"] {
+            let mut raw = raw_from(&mosaic_from_rgb(&img, &Cfa::bayer(pattern).unwrap()), 512.0, 16383.0);
+            raw.active_area = Rect::new(1, 1, 48, 40);
+            raw.crop = Rect::new(1, 3, 40, 32);
+            raw.black.values = vec![511.0, 512.0, 513.0, 514.0];
+            raw.black.repeat_cols = 2;
+            raw.black.repeat_rows = 2;
+            if let RawData::U16(d) = &mut raw.data {
+                d[6 * raw.width + 5] = 16383;
+            }
+            for k in [2, 4, 6, 8] {
+                let old = raw.develop_binned(k, 0.99).unwrap().unwrap();
+                let new = raw
+                    .develop_binned_with(k, 0.99, |n, scale| {
+                        assert_eq!(scale, k / 2);
+                        assert_eq!((n.width, n.height), (2 * (40 / k), 2 * (32 / k)));
+                        let shifted = raw.cfa.as_ref().unwrap().shifted(2, 4);
+                        assert_eq!(n.cfa.as_ref(), Some(&shifted));
+                    })
+                    .unwrap()
+                    .unwrap();
+                assert_eq!((new.width, new.height), (old.width, old.height));
+                for (a, b) in new.data.iter().zip(&old.data) {
+                    for c in 0..3 {
+                        assert!((a[c] - b[c]).abs() < 2e-7, "{pattern} k={k}: {a:?} {b:?}");
+                    }
+                }
+                let altered = raw
+                    .develop_binned_with(k, 0.99, |n, _| {
+                        // Distinguish the two green phases; they must both reach the hook.
+                        for y in 0..n.height {
+                            for x in 0..n.width {
+                                n.data[y * n.width + x] = [0.1, 0.2, 0.4, 0.8][(y % 2) * 2 + x % 2];
+                            }
+                        }
+                    })
+                    .unwrap()
+                    .unwrap();
+                let shifted = raw.cfa.as_ref().unwrap().shifted(2, 4);
+                let mut expected = [0.0; 3];
+                let mut counts = [0.0; 3];
+                for (i, v) in [0.1, 0.2, 0.4, 0.8].into_iter().enumerate() {
+                    let c = shifted.color_at(i % 2, i / 2) as usize;
+                    expected[c] += v;
+                    counts[c] += 1.0;
+                }
+                for c in 0..3 {
+                    expected[c] /= counts[c];
+                }
+                assert!(altered.data.iter().all(|p| *p == expected));
+            }
+        }
+    }
+
+    #[test]
+    fn xtrans_hook_runs_before_crop_and_binning() {
+        let img = Rgb32f::from_fn(48, 42, |_, _| [0.2, 0.3, 0.4]);
+        let mut raw = raw_from(&mosaic_from_rgb(&img, &Cfa::xtrans()), 0.0, 4095.0);
+        raw.crop = Rect::new(1, 2, 42, 36);
+        let out = raw
+            .develop_binned_with(6, 0.99, |n, scale| {
+                assert_eq!(scale, 1);
+                assert_eq!((n.width, n.height), (48, 42));
+                n.data.fill(0.5);
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!((out.width, out.height), (7, 6));
+        assert!(out.data.iter().all(|p| *p == [0.5; 3]));
+    }
+
+    #[test]
+    fn cfa_hook_follows_mosaic_opcodes_and_defers_rgb_opcodes() {
+        let img = Rgb32f::from_fn(48, 40, |_, _| [0.1, 0.2, 0.3]);
+        let mut raw = raw_from(&mosaic_from_rgb(&img, &Cfa::bayer("RGGB").unwrap()), 256.0, 4095.0);
+        raw.opcodes.list2.push(Opcode::MapPolynomial {
+            area: crate::opcodes::Area { bottom: 40, right: 48, planes: 1, row_pitch: 1, col_pitch: 1, ..Default::default() },
+            coefficients: vec![0.0, 2.0],
+        });
+        let expected = raw.normalized().unwrap();
+        let full = raw
+            .develop_with_cfa(Method::Bilinear, &Default::default(), |n| {
+                assert_eq!(n.data, expected.data);
+                n.data.fill(0.25);
+            })
+            .unwrap();
+        assert!(full.data.iter().all(|p| *p == [0.25; 3]));
+        let binned = raw
+            .develop_binned_with(2, 0.99, |n, scale| {
+                assert_eq!(scale, 1);
+                assert_eq!(n.data, expected.data);
+                n.data.fill(0.25);
+            })
+            .unwrap()
+            .unwrap();
+        assert!(binned.data.iter().all(|p| *p == [0.25; 3]));
+        raw.opcodes.list3.push(Opcode::FixVignetteRadial { k: [0.0; 5], center: [0.5; 2] });
+        let called = std::cell::Cell::new(false);
+        assert!(raw.develop_binned_with(2, 0.99, |_, _| called.set(true)).unwrap().is_none());
+        assert!(!called.get(), "RGB opcodes require full development");
     }
 }

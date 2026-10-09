@@ -47,6 +47,11 @@ impl DevelopSettings {
             o.entry("lens_db").or_insert_with(|| serde_json::to_value(&self.lens_db).unwrap_or(Value::Null));
             o.entry("tone_eq").or_insert_with(|| serde_json::to_value(self.tone_eq).unwrap_or(Value::Null));
             o.entry("color_cal").or_insert_with(|| serde_json::to_value(self.color_cal).unwrap_or(Value::Null));
+            o.entry("look").or_insert_with(|| serde_json::to_value(self.look).unwrap_or(Value::Null));
+            o.entry("look_options").or_insert_with(|| serde_json::to_value(self.look_options).unwrap_or(Value::Null));
+            if let Some(Value::Object(c)) = o.get_mut("curve") {
+                c.entry("mode").or_insert_with(|| serde_json::to_value(self.curve.mode).unwrap_or(Value::Null));
+            }
         }
         v
     }
@@ -212,6 +217,17 @@ mod tests {
         let mut stock = DevelopSettings::default();
         stock.negative.film = FilmStock::Slide;
         assert_eq!(DevelopSettings::from_json(&stock.to_json()).unwrap(), stock);
+    }
+
+    #[test]
+    fn old_process_fields_are_ignored_and_looks_roundtrip() {
+        let s = DevelopSettings::from_json(&json!({"process": "legacy", "look": "sigmoid", "curve": {"mode": "rgb"}})).unwrap();
+        assert_eq!((s.look, s.curve.mode), (Look::Sigmoid, CurveMode::Rgb));
+        assert!(s.to_json_full().get("process").is_none());
+        assert_eq!(DevelopSettings::from_json(&s.to_json()).unwrap(), s);
+        assert_eq!(DevelopSettings::from_json(&json!({"process": "unknown-future-version"})).unwrap(), DevelopSettings::default());
+        assert_eq!(extract_groups(&s, &[SettingsGroup::Profile])["look"], "sigmoid");
+        assert_eq!(Look::from_id("Camera"), Some(Look::Camera));
     }
 
     #[test]
