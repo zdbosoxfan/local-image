@@ -217,6 +217,22 @@ pub fn ready() -> bool {
     }
 }
 
+/// Wait (up to `timeout`) until no GPU render is running on any thread and the device's queue is
+/// empty; false if renders were still running. Call it before the process (or a test) exits:
+/// NVIDIA's driver crashes (SIGSEGV in `libnvidia-glcore`, GPU Xid 13 "Illegal Instruction
+/// Encoding") when it is torn down while a background thread is still recording or submitting.
+pub fn quiesce(timeout: std::time::Duration) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        ctx::quiesce(timeout)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = timeout;
+        true
+    }
+}
+
 /// Whether a usable GPU adapter exists and GPU rendering is enabled (creates the device on first
 /// use).
 pub fn available() -> bool {
