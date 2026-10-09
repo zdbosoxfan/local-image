@@ -562,3 +562,26 @@ Add `Task::ImageText` variant data `{family: Clip|Siglip}`; SentencePiece-Unigra
      embedding near "podium". Headless UI tests type tags into a folder, save a tag set, apply it to another folder.
    - Automation ids: `smartSort:tags:<index>`, `smartSort:tagInput:<index>`, `smartSort:tagSetMenu:<index>`,
      `smartSort:matchAll:<index>`.
+6. **Person folders are opt-in, per person** (owner, 2026-10-09): there is no folder per person by default. The user
+   picks the few people who should get a folder (e.g. the keynote speaker) and gets a folder of just their photos.
+   This overrides §5.11's "Create a folder for this person (default on for named people)" — it is now **off** by default,
+   and unnamed clusters never get folders.
+   - **Pick a person from a photo** (main entry point): in Step 2 (and from the Library grid/loupe context menu
+     "Find This Person…"), the user picks a photo of the person, the dialog shows that photo with its detected faces
+     outlined, they click the face, type a name ("Keynote — Dr. Jane Doe") and press **Find Photos**. The engine
+     ranks every analysed photo by that face's similarity (assignment rules of §5.8 step 4, using the picked face(s) as
+     the person's centroid), shows the matches in a review grid with "Not this person" to reject, and clicking more
+     faces of the same person refines the centroid. **Create Folder** adds an export folder row whose rule is
+     "Person is <name>" (default folder name = the person's name, editable).
+   - **From suggestions**: the People section's cluster cards still exist (to name people quickly) but each card has an
+     unticked "Folder" checkbox; only ticked people get folder rows in Step 3.
+   - People folders combine with tag folders: a photo can be in "Speakers" and "Keynote – Jane Doe" (per the
+     multi-match choice). A person folder may optionally be narrowed by tags ("Jane Doe on stage only" = person rule AND
+     tag folder rule) via the existing "Edit Rules…".
+   - Face analysis can be limited to the people the user is looking for: if no suggestions are wanted, Smart Sort only
+     needs embeddings; the People suggestions panel is collapsed by default and computed lazily.
+   - Engine commands: `smartSort.facesInPhoto {photo}` → faces with rects; `smartSort.findPerson {name, faces:[…]}` →
+     ranked matches; `smartSort.rejectFace`, `smartSort.personFolder {person, enabled}`. Tests: picking one face of a
+     mock person finds that person's other photos and not others; rejecting removes a match; folders appear only for
+     ticked/created people. Headless: open a photo, click a face (automation id `smartSort:face:<photoId>:<i>`), name it,
+     Find Photos, Create Folder → one folder row in Step 3.
