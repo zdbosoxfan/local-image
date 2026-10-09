@@ -541,3 +541,24 @@ Add `Task::ImageText` variant data `{family: Clip|Siglip}`; SentencePiece-Unigra
    matching folder only"), defaulting to copying into every matching folder; saved with the sort preset.
 4. Export default: **rendered JPEGs** through the normal export settings; "Copy originals" is the alternative. People's
    names are not written into exported files unless the user turns that on (off by default).
+5. **Folders are defined by a list of tags** (owner, 2026-10-09). In Step 1 each folder row shows its tags as editable
+   chips with a type-ahead field ("speaker, podium, microphone" — comma or Enter adds a tag; × removes; drag to reorder;
+   paste a comma-separated list). A tag may be a word or a short phrase ("panel discussion", "sponsor logo banner").
+   Tags are the folder's `prompts` (no schema change; old presets' sentences simply show as long chips). Each tag is
+   turned into a CLIP prompt by the existing §5.6 prefix rule ("a photo of a speaker").
+   - **Matching**: a folder matches when the photo strongly matches **any** of its tags (default) — score per category
+     is the max over its per-tag prototypes (each tag prototype gets the same exemplar boost), instead of the mean of all
+     prompts. A per-folder toggle "Match: Any tag / All tags" (All = min over tags) is saved in the category
+     (`match_all: bool`, serde default false). Update classify.rs, its tests and the built-in presets (convert their
+     sentences to short tag lists, e.g. Speakers: "speaker on stage", "presenter with microphone", "podium",
+     "panel discussion").
+   - **Tag sets**: a "Tag sets" menu on each folder row: "Save Tags as Tag Set…" (name it, e.g. "Speakers") and a list
+     of saved tag sets to apply (replace or add). Tag sets are user data saved next to the user sort presets
+     (`smart-sort-tagsets.json`, same atomic save), with Rename/Delete in a small manager. Built-in tag sets are derived
+     from the built-in presets' folders. Whole-dialog presets ("Save Preset…") remain and store each folder's name, tags,
+     match mode and rules.
+   - Engine: commands `smartSort.tagSets`, `smartSort.saveTagSet`, `smartSort.deleteTagSet`, `smartSort.renameTagSet`;
+     tests for persistence, any/all matching, and that a folder with tags ["podium"] beats one with ["crowd"] on a mock
+     embedding near "podium". Headless UI tests type tags into a folder, save a tag set, apply it to another folder.
+   - Automation ids: `smartSort:tags:<index>`, `smartSort:tagInput:<index>`, `smartSort:tagSetMenu:<index>`,
+     `smartSort:matchAll:<index>`.
