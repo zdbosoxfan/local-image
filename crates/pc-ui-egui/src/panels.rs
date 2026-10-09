@@ -938,6 +938,11 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             ui.separator();
                             section(ui, tl!("Distribute"), "layer.distribute.");
                         });
+                        // local-image: a selected shape or type layer's own options, bound to it.
+                        if crate::context_bar::has_layer_options(app) {
+                            widgets::vline(ui, 22.0);
+                            crate::context_bar::layer_options(app, ui);
+                        }
                     }
                     Tool::RectMarquee | Tool::EllipseMarquee => hint(
                         ui,
@@ -948,7 +953,11 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             crate::shortcuts::pretty("Shift+Alt")
                         ),
                     ),
-                    Tool::Move => hint(ui, tl!("Drag to move the active layer")),
+                    Tool::Move => {
+                        if !crate::context_bar::layer_options(app, ui) {
+                            hint(ui, tl!("Drag to move the active layer"));
+                        }
+                    }
                     Tool::Eyedropper => hint(
                         ui,
                         &crate::i18n::fmt(
@@ -2033,6 +2042,11 @@ fn layer_row(
                 // One rename at a time: starting this one commits any other (#314).
                 actions.push(done);
             }
+        } else if matches!(l.content, LayerContent::Shape(_)) && on(thumb) {
+            // local-image: a shape thumbnail opens its fill colour in Properties, as in Photoshop.
+            crate::vector_ui::open_fill_picker(ctx, l.id);
+            crate::dock::reveal(app, crate::dock::Group::Properties);
+            app.ui.dock_tabs.properties = 0;
         } else if pos.and_then(|p| masks.hit(p)).is_none() {
             let id = match &l.content {
                 LayerContent::Adjustment(_) | LayerContent::Fill(_) if on(thumb) => "layer.layerContentOptions",
@@ -2240,8 +2254,8 @@ pub fn properties_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let Some(st) = app.session.active() else { return };
     let Some(id) = st.active_layer else { return };
     let Some(layer) = st.doc.layer(id) else { return };
-    // The floating card appears for adjustment and fill layers (their controls live here).
-    if !matches!(layer.content, LayerContent::Adjustment(_) | LayerContent::Fill(_)) {
+    // The floating card appears for adjustment, fill, shape and type layers (their controls live here).
+    if !matches!(layer.content, LayerContent::Adjustment(_) | LayerContent::Fill(_) | LayerContent::Shape(_) | LayerContent::Text(_)) {
         return;
     }
     let layer = layer.clone();
@@ -2282,6 +2296,8 @@ pub fn properties_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 LayerContent::Adjustment(_) => "sliders-horizontal",
                 LayerContent::Group(_) => "folder",
                 LayerContent::Fill(_) => "paint-bucket",
+                LayerContent::Shape(_) => "pentagon",
+                LayerContent::Text(_) => "type",
                 _ => "image",
             };
             ui.horizontal(|ui| {
@@ -2307,6 +2323,11 @@ pub fn properties_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     adjustment_controls(app, ui, id, adj);
                 } else {
                     layer_controls(app, ui, &layer);
+                    match &layer.content {
+                        LayerContent::Shape(_) => crate::vector_ui::shape_properties(app, ui, id),
+                        LayerContent::Text(_) => crate::type_tool::type_properties(app, ui),
+                        _ => {}
+                    }
                 }
             });
         });

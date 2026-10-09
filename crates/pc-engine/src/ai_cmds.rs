@@ -447,12 +447,16 @@ fn select_subject(s: &mut Session, p: &Value) -> Result<Value> {
     )
 }
 
+/// What Generative Fill asks for when the prompt is left empty: Photoshop's "fill from the
+/// surroundings".
+pub const SURROUNDINGS_PROMPT: &str =
+    "Fill the masked area so it continues the surrounding image seamlessly: the same background, texture, lighting and perspective, with no new objects";
+
 fn generative_fill(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "ai.generativeFill";
-    let prompt = p.get("prompt").and_then(Value::as_str).unwrap_or("").trim().chars().take(4000).collect::<String>();
-    if prompt.is_empty() {
-        return Err(bad(CMD, "describe what should fill the selection (`prompt`)"));
-    }
+    let typed = p.get("prompt").and_then(Value::as_str).unwrap_or("").trim().chars().take(4000).collect::<String>();
+    // As in Photoshop, an empty prompt fills the selection from its surroundings.
+    let prompt = if typed.is_empty() { SURROUNDINGS_PROMPT.to_owned() } else { typed.clone() };
     let mut q = p.clone();
     if let Some(o) = q.as_object_mut() {
         o.remove("points");
@@ -461,7 +465,12 @@ fn generative_fill(s: &mut Session, p: &Value) -> Result<Value> {
     let doc = s.active().ok_or(EngineError::NoDocument)?.doc.clone();
     let region = context_rect(bbox, doc.bounds());
     let (variant, seed, fmt) = (qwen_variant(p), seed(p), doc.pixel_format());
-    let name: String = format!("Fill: {}", prompt.chars().take(32).collect::<String>());
+    let name: String = if typed.is_empty() { "Generative Fill".to_owned() } else { format!("Fill: {}", typed.chars().take(32).collect::<String>()) };
+    // Kept on the layer, so the Contextual Task Bar can regenerate it.
+    let generation = json!({
+        "command": CMD, "prompt": typed, "seed": seed, "engine": variant,
+        "bounds": [bbox.x0, bbox.y0, bbox.width(), bbox.height()],
+    });
     crate::jobs::run(
         s,
         "Generative Fill",
@@ -478,6 +487,7 @@ fn generative_fill(s: &mut Session, p: &Value) -> Result<Value> {
             let id = s.edit("Generative Fill", move |doc, active| {
                 let mut l = Layer::raster(name, surf.format());
                 *crate::pixels_mut(&mut l)? = surf;
+                l.generation = Some(generation);
                 Ok(add_layer_above(doc, active, l))
             })?;
             Ok(json!({ "layer": id.0 }))
@@ -497,6 +507,7 @@ fn generate_background(s: &mut Session, p: &Value) -> Result<Value> {
     let doc = s.active().ok_or(EngineError::NoDocument)?.doc.clone();
     let (variant, seed, fmt, bounds) = (qwen_variant(p), seed(p), doc.pixel_format(), doc.bounds());
     let (gw, gh) = generation_size(doc.size);
+    let generation = json!({"command": "ai.generateBackground", "prompt": prompt, "seed": seed, "engine": variant});
     crate::jobs::run(
         s,
         "Generate Background",
@@ -511,6 +522,7 @@ fn generate_background(s: &mut Session, p: &Value) -> Result<Value> {
             let id = s.edit("Generate Background", move |doc, active| {
                 let mut l = Layer::raster(doc.next_layer_name("Background"), surf.format());
                 *crate::pixels_mut(&mut l)? = surf;
+                l.generation = Some(generation);
                 let target = *active;
                 let id = doc.insert_above(target, l);
                 // Below the active layer: the subject stays on top.
@@ -649,7 +661,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Generative Fill",
             menu: &[],
             shortcut: None,
-            params: r#"{"prompt": str, "engine"?: "int8"|"bf16", "seed"?: int}"#,
+            params: r#"{"prompt"?: str (empty: fill from the surroundings), "engine"?: "int8"|"bf16", "seed"?: int}"#,
             enabled: has_selection,
             run: generative_fill,
             journal: true,
@@ -720,7 +732,15 @@ mod tests {
         let active = d.active_layer.expect("active");
         assert!(d.doc.layer(active).expect("layer").mask.is_some());
         s.execute("select.all", json!({})).expect("select all");
-        s.execute("ai.generativeFill", json!({"prompt": "a red balloon"})).expect("fill");
+        let r = s.execute("ai.generativeFill", json!({"prompt": "a red balloon", "seed": 7})).expect("fill");
+        // The layer keeps how it was made, for Regenerate.
+        let id = LayerId(r["layer"].as_u64().expect("layer"));
+        let g = s.active().expect("doc").doc.layer(id).expect("layer").generation.clone().expect("generation");
+        assert_eq!((g["command"].as_str(), g["prompt"].as_str(), g["seed"].as_u64()), (Some("ai.generativeFill"), Some("a red balloon"), Some(7)));
+        // An empty prompt fills from the surroundings, as in Photoshop.
+        let r = s.execute("ai.generativeFill", json!({"prompt": ""})).expect("empty prompt fills");
+        let id = LayerId(r["layer"].as_u64().expect("layer"));
+        assert_eq!(s.active().expect("doc").doc.layer(id).expect("layer").name, "Generative Fill");
         s.execute("ai.generateBackground", json!({"prompt": "marble"})).expect("bg");
         let before = s.documents().len();
         s.execute("ai.enhance", json!({"scale": 2.0})).expect("enhance");
