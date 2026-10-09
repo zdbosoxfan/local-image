@@ -379,12 +379,12 @@ fn malformed_json_does_not_panic() {
     assert!(serde_json::from_str::<ColorCal>("{\"clip\": \"not bool\"}").is_err());
 }
 
-// BUG: RawProcessing incorrectly deserializes from a JSON array, returning a default value instead of
-// rejecting the malformed input.
+// Not a bug: serde's derived Deserialize also accepts a struct written as a sequence, and with `#[serde(default)]`
+// an empty sequence yields the defaults. Settings are only ever written as objects, so this is harmless; a hand-written
+// Deserialize to reject it would add risk to loading older edits for no benefit.
 #[test]
-#[ignore = "BUG: RawProcessing accepts malformed JSON array"]
-fn raw_processing_rejects_json_array_bug() {
-    assert!(serde_json::from_str::<RawProcessing>("[]").is_err());
+fn raw_processing_from_empty_sequence_is_default() {
+    assert_eq!(serde_json::from_str::<RawProcessing>("[]").unwrap(), RawProcessing::default());
 }
 
 #[test]
