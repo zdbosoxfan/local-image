@@ -4,6 +4,7 @@ Until every planned feature is merged, merges are gated on: compiles, clippy cle
 Full workspace + GPU (RTX 5090) suites, benchmarks and these items are handled in the final bug-fixing run.
 
 ## Known issues
+- pc-algo features: `ransac` panics when src and dst lengths differ (ignored test in `crates/pc-algo/tests/coverage/ds_features_coverage.rs`).
 - Develop GPU tone equalizer: `tone_equalizer_extremes_masks_tiny_odd_and_cached_edits_match` and
   `native_toneeq_5090_extreme_fixture_matches` still fail on the RTX 5090 (a few pixels, max ~25 LSB on a 641×427
   extreme+mask case); dehaze speed fixed (338 ms at 24 MP). Typical edit 257–423 ms under heavy load — re-bench idle.
