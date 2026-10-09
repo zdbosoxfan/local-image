@@ -30,6 +30,7 @@ pub mod previews;
 mod query;
 pub mod save_over;
 mod smart_sort;
+mod smart_sort_people;
 mod xmp;
 
 use serde::Serialize;
@@ -132,6 +133,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(lut_profiles::specs());
         v.extend(cull::specs());
         v.extend(smart_sort::specs());
+        v.extend(smart_sort_people::specs());
         v.extend(convert::specs());
         v.extend(convert::edit_specs());
         v.extend(merge::specs());

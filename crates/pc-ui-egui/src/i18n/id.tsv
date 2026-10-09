@@ -3077,3 +3077,9 @@ ai	New	Baru
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Kelas langit {class} di luar rentang: model ini memiliki {classes} kelas (0 hingga {max})
 	{path} isn't a file	{path} bukan file
 	Custom models are not supported for this function	Model kustom tidak didukung untuk fungsi ini
+
+# Smart Sort face model bundle
+	Faces	Wajah
+	Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library.	Menemukan wajah dan mengenali orang yang sama di berbagai foto. Nonaktif sampai Anda mengaktifkannya di Smart Sort. Data wajah tetap di pustaka Anda.
+	Finds faces and their landmarks, ready to recognise the same person in other photos. Runs locally on the CPU.	Menemukan wajah dan titik acuannya untuk mengenali orang yang sama di foto lain. Berjalan secara lokal di CPU.
+	Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.	Menemukan wajah dan mengelompokkan foto orang yang sama untuk Smart Sort. Mencakup kedua model wajah; berjalan di CPU dan menyimpan data wajah di pustaka Anda.

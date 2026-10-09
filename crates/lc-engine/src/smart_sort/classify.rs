@@ -21,6 +21,7 @@ pub struct Classifier {
     prototypes: Vec<Option<Vec<f32>>>,
     threshold: f32,
     multi: bool,
+    face_gates: Vec<(Option<u32>, Option<u32>)>,
 }
 
 fn mean(vectors: &[Vec<f32>], dim: usize) -> Result<Vec<f32>, String> {
@@ -68,10 +69,21 @@ impl Classifier {
             prototypes,
             threshold: preset.sensitivity.threshold(),
             multi: preset.multi,
+            face_gates: preset.categories.iter().map(|c| (c.min_faces, c.max_faces)).collect(),
         })
     }
 
     pub fn classify(&self, key: &str, image: Option<&[f32]>, manual: Option<&[String]>) -> Result<Classification, String> {
+        self.classify_with_faces(key, image, manual, None)
+    }
+
+    pub fn classify_with_faces(
+        &self,
+        key: &str,
+        image: Option<&[f32]>,
+        manual: Option<&[String]>,
+        faces: Option<usize>,
+    ) -> Result<Classification, String> {
         let mut scores = BTreeMap::new();
         let mut assigned = Vec::new();
         if let Some(image) = image {
@@ -85,7 +97,14 @@ impl Classifier {
             let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
             let weights: Vec<_> = logits.iter().map(|l| (l - max).exp()).collect();
             let total: f32 = weights.iter().sum();
-            let probs: Vec<_> = weights.iter().map(|p| p / total).collect();
+            let mut probs: Vec<_> = weights.iter().map(|p| p / total).collect();
+            if let Some(count) = faces {
+                for (prob, (min, max)) in probs.iter_mut().zip(&self.face_gates) {
+                    if min.is_some_and(|n| count < n as usize) || max.is_some_and(|n| count > n as usize) {
+                        *prob = 0.;
+                    }
+                }
+            }
             for (name, p) in self.names.iter().zip(&probs) {
                 scores.insert(name.clone(), *p);
             }
