@@ -193,9 +193,9 @@ LightCraft already has: AHD/PPG/bilinear/X-Trans demosaic, clip-aware highlight 
 | P1 | AI Remove in Develop + patch store (*built*, §3.3) | li-ai engines; LaMa ONNX later (Apache-2.0) |
 | P1 | AI Denoise (*built*, §3.3) | darktable-ai RawNIND UtNet2 (GPL-3.0); OIDN (Apache-2.0) / vkdt `jddcnn` (BSD-2) as alternatives |
 | P1 | Develop layers holding the full toolset | Capture One model, darktable blending |
-| P2 | RCD + AMaZE + dual demosaic, capture sharpening (deconvolution, auto radius) (*RCD, dual, capture built*, §4.1; AMaZE deferred) | RawTherapee / ART (GPL-3) |
+| P2 | RCD + AMaZE + dual demosaic, capture sharpening (deconvolution, auto radius) (*built*, §4.1) | RawTherapee / ART (GPL-3) |
 | P2 | Tone equalizer (EIGF) driving highlights/shadows/whites/blacks (*built*, guided filter, §4.1) | darktable (GPL-3), vkdt `llap` (BSD-2) |
-| P2 | Highlight reconstruction: inpaint-opposed / segmentation (*opposed built*, §4.1; segmentation deferred) | darktable (GPL-3) |
+| P2 | Highlight reconstruction: inpaint-opposed / segmentation (*built*, §4.1) | darktable (GPL-3) |
 | P2 | Lens profiles (lensfun-format reader in Rust; database CC-BY-SA) (*built*, `lensfun` crate, §4.1) | darktable lens, ART lensexif |
 | P2 | Colour calibration (CAT + colour checker), colour balance rgb, colour equalizer (*CAT + gamut compression built*, §4.1) | darktable (GPL-3) |
 | P3 | Diffuse or sharpen, contrast & texture (5.8), haze removal upgrade (*diffuse or sharpen deferred*, §4.1) | darktable (GPL-3) |
@@ -214,11 +214,24 @@ render bit-identically. Golden hashes guard this:
 * `lc-engine` `tests_toolset`: the raw loader at a binned, a bilinear and a full size.
 
 Ports are listed in `docs/PORTS.md`, with notices in `licenses/darktable-NOTICE.md`,
-`licenses/lensfun-NOTICE.md` and `licenses/model-system-NOTICE.md`.
+`licenses/RawTherapee-NOTICE.md`, `licenses/lensfun-NOTICE.md` and `licenses/model-system-NOTICE.md`.
 
 * **Raw processing** (`DevelopSettings.raw`, raw files only; Detail copy group):
-  * Demosaic: Default (AHD) / AHD / **RCD** / **Dual (RCD + bilinear)** / PPG / Bilinear.
-  * Highlights: Reconstruct (today's) / **Inpaint Opposed** / Clip.
+  * Demosaic: Default (AHD) / AHD / **RCD** / **Dual (RCD + VNG4)** / **VNG4** /
+    **AMaZE** / **Dual (AMaZE + VNG4)** / PPG / Bilinear. The saved `dualRcd`
+    (RCD + bilinear) decoder and mask are unchanged and appear in the menu only when selected.
+    New keys are `vng4`, `amaze`, `dualRcdVng`, `dualAmazeVng`.
+    AMaZE and the new duals are Bayer-only; X-Trans keeps its existing decoder.
+    Standalone VNG4 runs all 64 gradient terms. New duals use upstream's four-colour
+    VNG-linear pass and two median colour-smoothing passes; their mask includes the
+    exact upstream 9x9 disc Gaussian and exponential approximation.
+  * Highlights: Reconstruct (today's) / **Inpaint Opposed** / **Segmentation** / Clip.
+    `segmentation` runs on normalized CFA after opcode lists 1/2, before demosaic and
+    opcode list 3. Bayer previews reduce each of the four CFA phases separately,
+    preserving clipped maxima, before reconstruction with scaled morphology. X-Trans
+    reconstructs its full CFA before binning. RGB/monochrome raws use opposed as fallback.
+    The raw API implements all seven upstream recovery modes and noise; the Develop
+    menu uses upstream defaults (combine 2, candidating 0.4, recovery off).
   * **Capture sharpening**: Richardson–Lucy with an automatic radius measured from the raw,
     corner boost and an ISO-based threshold.
   * Demosaic and highlights are applied when the file is decoded (`lc-engine` `files::RawOptions`).
@@ -226,7 +239,17 @@ Ports are listed in `docs/PORTS.md`, with notices in `licenses/darktable-NOTICE.
   * Capture sharpening is a *presource* stage on the decoded source (`lightcraft_pipeline::presource`,
     cached in `StageCache.pre`). It runs before the CPU and the GPU renders alike.
   * Binned previews scale the radius by `SourceInfo.sensor_scale`.
-  * Speed: RCD matches AHD's PSNR on the test scenes and runs about 3.4× faster.
+  * Quality/speed: AMaZE improves fine-detail PSNR on the supersampled zone plate and
+    Siemens star; RCD has the highest PSNR on the colour-edge chart. On a Ryzen 7 9800X3D
+    with eight workers, 24 MP RCD takes 57 ms, VNG4 353 ms, AMaZE 1288 ms; duals take
+    634 / 1860 ms. Segmentation takes 1067 ms for 24 MP CFA alone. These are single
+    synthetic release runs, not camera benchmarks. Preview-versus-full segmentation
+    PSNR is 62.81 / 47.71 / 41.84 / 38.31 dB at bin factors 2 / 4 / 6 / 8;
+    previews are approximations. See [CODEX-REPORT](wip/CODEX-REPORT.md) for all metrics.
+  * Raw decoding and CFA reconstruction run on CPU before both CPU and GPU rendering;
+    these options do not change the shader boundary. Existing default render goldens pass.
+    The upstream reference suite also found and corrected an X-Trans capture-radius
+    row offset; capture sharpening enabled on X-Trans can therefore improve/change.
 * **Lens profiles** (`DevelopSettings.lens_db`, Optics; for cameras without embedded lens data).
   * The `lensfun` crate supplies the database, lookup and interpolation; it is used only in
     `lc-engine` (`lens_db`).
@@ -256,18 +279,9 @@ Ports are listed in `docs/PORTS.md`, with notices in `licenses/darktable-NOTICE.
 
 **Deferred, with reasons:**
 
-* **AMaZE demosaic.** It is very large (about 1,500 lines of tightly coupled C with many special
-  cases). Its advantage over RCD is mostly on the finest periodic detail and is small in practice.
-  AMaZE was not measured here. RCD plus dual covers the quality need.
-* **Segmentation-based highlight reconstruction** (darktable `segbased`). It works on the CFA data
-  before demosaic, with segment detection and per-segment candidates. Our highlight stage runs
-  after demosaic, and binned or bilinear previews would not match the full-size result.
-  Inpaint-opposed covers the common case.
 * **Diffuse or sharpen.** This is an iterative multi-scale anisotropic diffusion with tens of
   iterations of wavelet passes. It is far too slow on the CPU at interactive preview sizes without
   the GPU port, and the WGSL work is out of scope for this round.
-* **VNG4 in dual demosaic.** Dual uses bilinear for flat areas. VNG4 would be a separate port, for
-  a small visual difference in areas that are flat by construction.
 * **EIGF mask in the tone equalizer.** The existing fast guided filter (on log luminance) is used.
   EIGF would be a second filter implementation for a similar mask.
 * **Colour checker calibration, colour balance rgb, colour equalizer.** These were not in this

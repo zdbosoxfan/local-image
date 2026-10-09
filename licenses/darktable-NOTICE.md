@@ -12,6 +12,16 @@ upstream source in its module documentation. The project-wide list of ports is
 | Our file | Upstream file | Upstream commit | Copyright | Licence |
 |---|---|---|---|---|
 | `crates/lc-pipeline/src/negative.rs` | [`src/iop/negadoctor.c`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/negadoctor.c) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2020-2026 darktable developers | GPL-3.0-or-later |
+| `crates/lc-raw/src/demosaic/vng.rs` | [`src/iop/demosaicing/vng.c`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/demosaicing/vng.c) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2010-2026 darktable developers; dcraw VNG by Dave Coffin | GPL-3.0-or-later |
+| `crates/lc-raw/src/demosaic/vng.rs` | [`src/iop/demosaicing/basics.c`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/demosaicing/basics.c) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2010-2026 darktable developers (median colour smoothing) | GPL-3.0-or-later |
+| `crates/lc-raw/src/demosaic/amaze.rs` | [`src/iop/demosaicing/amaze.cc`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/demosaicing/amaze.cc) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2011-2024 darktable developers; 2008-2010 Emil Martinec; Ingo Weyrich (optimization); ideas of Luis Sanz Rodrigues and Paul Lee | GPL-3.0-or-later |
+| `crates/lc-raw/src/highlight/segbased.rs` | [`src/iop/hlreconstruct/segbased.c`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/hlreconstruct/segbased.c) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2022-2026 darktable developers; Hanno Schwalm | GPL-3.0-or-later |
+| `crates/lc-raw/src/highlight/segmentation.rs` | [`src/iop/hlreconstruct/segmentation.c`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/hlreconstruct/segmentation.c) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2022-2026 darktable developers; Hanno Schwalm | GPL-3.0-or-later |
+| `crates/lc-raw/src/highlight/segbased.rs` | [`src/common/distance_transform.c`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/common/distance_transform.c) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2022-2026 darktable developers; original Copyright (C) 2006 Pedro Felzenszwalb, GPL-2.0-or-later; Pedro F. Felzenszwalb and Daniel P. Huttenlocher | GPL-3.0-or-later |
+| `crates/lc-raw/src/highlight/segbased.rs` | [`src/common/box_filters.cc`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/common/box_filters.cc) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2009-2026 darktable developers | GPL-3.0-or-later |
+| `crates/lc-raw/src/highlight/segbased.rs` | [`src/develop/noise_generator.h`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/develop/noise_generator.h) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2020-2023 darktable developers | GPL-3.0-or-later |
+| `crates/lc-raw/src/numerics.rs` | [`src/common/gaussian.c`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/common/gaussian.c) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2012-2026 darktable developers | GPL-3.0-or-later |
+| `crates/lc-raw/src/numerics.rs` | [`src/common/math.h`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/common/math.h) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2018-2025 darktable developers | GPL-3.0-or-later |
 | `crates/lc-raw/src/demosaic/rcd.rs` | [`src/iop/demosaicing/rcd.c`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/demosaicing/rcd.c) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2010-2026 darktable developers; RCD by Luis Sanz Rodríguez; tiling by Ingo Weyrich (RawTherapee); Hanno Schwalm | GPL-3.0-or-later |
 | `crates/lc-raw/src/demosaic/dual.rs` | [`src/iop/demosaicing/dual.c`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/demosaicing/dual.c), [`src/develop/masks/detail.c`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/develop/masks/detail.c) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2010-2025 / 2013-2025 darktable developers; dual demosaic by Ingo Weyrich (RawTherapee), adapted by Hanno Schwalm | GPL-3.0-or-later |
 | `crates/lc-raw/src/highlight/opposed.rs` | [`src/iop/hlreconstruct/opposed.c`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/hlreconstruct/opposed.c) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2022-2026 darktable developers | GPL-3.0-or-later |
@@ -63,7 +73,7 @@ compression (lists.gnu.org/archive/html/openexr-devel/2005-03/msg00009.html).
 ### Develop toolset upgrades (2026-10-09)
 
 All of these are off by default (or at the behaviour photos had before), so earlier edits render
-exactly as before. Each file's module documentation lists the upstream functions it follows and
+as before by default; the X-Trans capture-radius row offset was deliberately corrected. Each file's module documentation lists the upstream functions it follows and
 how it differs from them. Several of the algorithms started in **RawTherapee** (GPL-3.0-or-later,
 <https://github.com/RawTherapee/RawTherapee>) and **ART** (GPL-3.0-or-later). The ports here were
 made from darktable's versions. The authors named in the upstream headers are credited above and
@@ -74,10 +84,24 @@ in the module documentation.
   mirror-reflected, so the borders are interpolated like the interior; the input is not rescaled;
   the diagonal high-pass filters are read at the site itself. Upstream's half-width packing reads
   the neighbouring column on some rows, while the original RCD code reads the site.
-* **`dual.c`, `detail.c` → dual demosaic** (`Demosaic::DualRcd`). RCD is used on detail and a
-  smooth method in flat areas, blended by the detail mask. The dual method is by Ingo Weyrich
-  (RawTherapee) and was adapted by Hanno Schwalm. Differences: the flat method is bilinear (not
-  VNG4), and the mask is computed without white balance.
+* **`vng.c`, `basics.c` → VNG4 and median colour smoothing.** The full four-colour gradient
+  interpolation (all 64 terms) is available separately. The new RCD/AMaZE dual options use
+  upstream's VNG-linear + two median passes with its exact 9x9 disc Gaussian detail mask.
+  The `dualRcd` bilinear decode and historical separable-Gaussian mask remain unchanged for
+  saved settings. Masks use unbalanced camera RGB, equivalent to upstream undoing WB.
+* **`amaze.cc` → AMaZE and dual-AMaZE.** Emil Martinec's full algorithm, optimized by Ingo
+  Weyrich, with ideas from Luis Sanz Rodrigues and Paul Lee. Shared scratch-plane lifetimes,
+  border reflection, tile overlaps, Nyquist refinement and diagonal interpolation are retained
+  in safe Rust. Tiny crops get parity-preserving mirror extension. Finite negatives/HDR are
+  preserved like darktable; RawTherapee clamps negative outputs. See its separate notice.
+* **`segbased.c`, `segmentation.c` → segmentation-based CFA highlights.** The opposed CFA
+  fallback, morphological combination, scanline segments, per-segment candidates, Euclidean
+  distance transform, ring-gradient recovery, box/Gaussian filtering and Poisson noise are
+  ported. All seven recovery modes are available in the raw API. WB is temporarily applied and
+  undone; host GUI diagnostic masks/chroma caches are omitted. Bayer preview reductions keep
+  the four CFA phases and clipped maxima before the CFA hook. X-Trans runs the full CFA hook.
+  Segmentation preview/full discrepancies and reference tolerances are recorded in
+  [CODEX-REPORT](../docs/wip/CODEX-REPORT.md).
 * **`opposed.c` → inpaint-opposed highlights** (`HighlightMode::Opposed`). This is the linear
   (demosaiced) variant, by Hanno Schwalm with @garagecoder and @Iain (G'MIC). Differences: it runs
   on camera RGB before white balance; the clipped test reads each channel; the superpixel grid
@@ -86,7 +110,7 @@ in the module documentation.
   Richardson–Lucy deconvolution, the per-pixel kernel table with corner boost, and the blend mask
   are in `lc-pipeline/src/capture.rs`. The algorithm is Ingo Weyrich's from RawTherapee.
   Differences: the deconvolution runs on the scene-linear Rec.2020 source with Rec.2020 luminance
-  weights.
+  weights. The X-Trans radius scan now uses the upstream post-search row offset.
 * **`toneequal.c`, `gaussian_elimination.h`, `luminance_mask.h` → tone equalizer**, by Aurélien
   Pierre. Ported: the Gaussian interpolation matrix, the least-squares solve, the correction
   table and the per-pixel correction. Differences: the mask is a guided filter of the log2
@@ -98,3 +122,8 @@ in the module documentation.
 
 The upstream headers of these files are the same GPL-3.0-or-later notice as `negadoctor.c` above,
 with the copyright years listed in the table.
+
+Independent extracted upstream fixtures and regeneration recipes accompany every listed raw
+quality port under the raw/pipeline `tests/fixtures/README.md` files. No C/C++ is part of the build.
+The distance transform retains Pedro Felzenszwalb's original GPL-2.0-or-later authorship and
+algorithm attribution (compatible with this GPL-3.0-or-later combined work).

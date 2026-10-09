@@ -9,6 +9,10 @@
 //!   ratio-corrected directional green, diagonal-discriminated red/blue. Sharp, few artefacts, fast.
 //! - [`Method::DualRcd`] — RCD where the image has detail, bilinear in flat areas, blended by a
 //!   local-contrast mask ([`DemosaicOptions::dual_threshold`]; darktable's dual demosaic, `dual`).
+//! - [`Method::Vng4`] — full four-colour VNG with all 64 gradient terms, ported from darktable.
+//! - [`Method::Amaze`] — Emil Martinec's full AMaZE kernel, including Nyquist refinement.
+//! - [`Method::DualRcdVng`] / [`Method::DualAmazeVng`] — upstream VNG-linear with two median
+//!   colour-smoothing passes in flat areas, RCD/AMaZE in detail; legacy bilinear dual is preserved.
 //! - Non-Bayer patterns (X-Trans, …) always use `xtrans::directional`, our own edge-weighted colour-difference
 //!   interpolation.
 //!
@@ -20,8 +24,8 @@ mod bilinear;
 mod dual;
 mod ppg;
 mod rcd;
-mod xtrans;
 mod vng;
+mod xtrans;
 
 use crate::{Cfa, Normalized, Rgb32f};
 use serde::{Deserialize, Serialize};
@@ -49,8 +53,8 @@ pub enum Method {
 /// Parameters of the demosaic methods that have any.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DemosaicOptions {
-    /// [`Method::DualRcd`]: contrast threshold 0..1 below which an area counts as flat (darktable's
-    /// default 0.2; 0 = RCD everywhere).
+    /// All dual methods: contrast threshold 0..1 below which an area counts as flat
+    /// (darktable's default 0.2; 0 = the high-detail method everywhere).
     pub dual_threshold: f32,
 }
 
@@ -194,7 +198,17 @@ mod tests {
         })
     }
 
-    const ALL: [Method; 5] = [Method::Bilinear, Method::Ppg, Method::Ahd, Method::Rcd, Method::DualRcd];
+    const ALL: [Method; 9] = [
+        Method::Bilinear,
+        Method::Ppg,
+        Method::Ahd,
+        Method::Rcd,
+        Method::DualRcd,
+        Method::Vng4,
+        Method::Amaze,
+        Method::DualRcdVng,
+        Method::DualAmazeVng,
+    ];
 
     fn run(img: &Rgb32f, cfa: &Cfa, m: Method) -> Rgb32f {
         demosaic(&mosaic_from_rgb(img, cfa), m)
@@ -223,6 +237,10 @@ mod tests {
         let img = edgy_scene(40, 32);
         let cfa = Cfa::bayer("GRBG").unwrap();
         for m in ALL {
+            // VNG deliberately merges the two green phases; dual blending smooths known samples.
+            if matches!(m, Method::Vng4 | Method::DualRcdVng | Method::DualAmazeVng) {
+                continue;
+            }
             let out = run(&img, &cfa, m);
             for y in 0..32 {
                 for x in 0..40 {
