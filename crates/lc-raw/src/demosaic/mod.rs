@@ -15,11 +15,13 @@
 //! Every method reproduces a constant-colour mosaic exactly.
 
 mod ahd;
+mod amaze;
 mod bilinear;
 mod dual;
 mod ppg;
 mod rcd;
 mod xtrans;
+mod vng;
 
 use crate::{Cfa, Normalized, Rgb32f};
 use serde::{Deserialize, Serialize};
@@ -34,6 +36,14 @@ pub enum Method {
     Rcd,
     /// RCD blended with bilinear in flat areas (Bayer only).
     DualRcd,
+    /// Full four-colour variable-number-of-gradients demosaic.
+    Vng4,
+    /// Aliasing Minimization and Zipper Elimination (Bayer).
+    Amaze,
+    /// AMaZE with smoothed four-colour linear VNG in flat areas.
+    DualAmazeVng,
+    /// RCD with darktable four-colour linear VNG and colour smoothing in flat areas.
+    DualRcdVng,
 }
 
 /// Parameters of the demosaic methods that have any.
@@ -119,6 +129,10 @@ pub fn demosaic_with(n: &Normalized, method: Method, opts: &DemosaicOptions) -> 
                 Method::Ahd => ahd::ahd(&m),
                 Method::Rcd => rcd::rcd(&m),
                 Method::DualRcd => dual::dual(&m, rcd::rcd(&m), opts.dual_threshold),
+                Method::Vng4 => vng::vng(&m, false),
+                Method::Amaze => amaze::amaze(&m),
+                Method::DualAmazeVng => dual::dual_vng(&m, amaze::amaze(&m), opts.dual_threshold),
+                Method::DualRcdVng => dual::dual_vng(&m, rcd::rcd(&m), opts.dual_threshold),
             }
         }
     }

@@ -64,3 +64,19 @@ pub(crate) fn dual(m: &Mosaic, high: Rgb32f, threshold: f32) -> Rgb32f {
     });
     out
 }
+
+/// darktable's VNG-linear + two colour-smoothing passes, using the existing detail mask.
+pub(crate) fn dual_vng(m: &Mosaic, high: Rgb32f, threshold: f32) -> Rgb32f {
+    if m.w < 16 || m.h < 16 || threshold <= 0.0 {return high;}
+    let mask = detail_mask(&high, threshold);
+    let mut low = super::vng::vng(m, true);
+    super::vng::color_smoothing(&mut low, 2);
+    let mut out = high;
+    par_rows(&mut out.data, m.w, |y,row| {
+        for (x,p) in row.iter_mut().enumerate() {
+            let i=y*m.w+x;
+            *p=std::array::from_fn(|c|mask.data[i]*(p[c]-low.data[i][c])+low.data[i][c]);
+        }
+    });
+    out
+}
