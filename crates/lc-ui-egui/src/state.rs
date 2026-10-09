@@ -105,6 +105,37 @@ pub enum GridBadges {
     Never,
 }
 
+/// When the Remove tool shows its spots' pins and outlines on the photo (Lightroom's Tool Overlay).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SpotOverlay {
+    /// Pins while the pointer is on the photo; the outline of the selected or hovered spot.
+    #[default]
+    Auto,
+    /// Pins all the time; the outline of the selected or hovered spot.
+    Always,
+    /// Nothing (painting never grabs a spot).
+    Never,
+}
+
+/// Remove tool, AI mode: what was painted and not removed yet (Lightroom's generative Remove
+/// waits for Apply). Normalized transformed coordinates, like spots.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RemoveDraft {
+    /// The photo it was painted on.
+    pub photo: u64,
+    /// Brush dabs, removed at the brush size.
+    pub points: Vec<lightcraft_geom::Point>,
+    /// Lasso outlines (each closed).
+    pub lassos: Vec<Vec<lightcraft_geom::Point>>,
+}
+
+impl RemoveDraft {
+    pub fn is_empty(&self) -> bool {
+        self.points.is_empty() && self.lassos.is_empty()
+    }
+}
+
 /// The loupe's info overlay (Cmd+I cycles; I in the full-screen preview).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -283,6 +314,9 @@ pub struct UiState {
     /// The develop control whose slider is being dragged (geometry sliders show a grid).
     #[serde(skip)]
     pub dragging_control: Option<String>,
+    /// Temporary Alt-drag sharpening mask preview.
+    #[serde(skip)]
+    pub sharpen_mask_preview: bool,
     pub search: String,
     /// Focus the search field on the next frame (Edit → Find…).
     #[serde(skip)]
@@ -332,6 +366,11 @@ pub struct UiState {
     /// a lasso instead of a brush stroke.
     pub remove_engine: String,
     pub remove_lasso: bool,
+    /// Remove tool, AI mode: strokes waiting for Remove (Enter) or Cancel (Esc).
+    #[serde(skip)]
+    pub remove_draft: Option<RemoveDraft>,
+    /// Remove tool: when spots' pins and outlines show.
+    pub remove_overlay: SpotOverlay,
     /// Selected Point Color sample.
     pub point_color: usize,
     /// Point Color "Visualize range": the selected sample's range in colour, the rest grey.
@@ -588,6 +627,7 @@ impl Default for UiState {
             collapsed_sidebar: Vec::new(),
             hidden_locations: Vec::new(),
             dragging_control: None,
+            sharpen_mask_preview: false,
             external_edits: Vec::new(),
             was_focused: true,
             auto_import_at: 0.0,
@@ -614,6 +654,8 @@ impl Default for UiState {
             remove_opacity: 100.0,
             remove_engine: String::new(),
             remove_lasso: false,
+            remove_draft: None,
+            remove_overlay: SpotOverlay::Auto,
             point_color: 0,
             point_color_visualize: false,
             point_color_mask: None,

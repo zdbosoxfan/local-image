@@ -113,7 +113,8 @@ fn max_ratio_xtrans(win: &Win, cfa: &Cfa) -> f32 {
             }
         }
     };
-    let rows: Vec<usize> = (sy + 2..win.h.saturating_sub(4)).step_by(3).collect();
+    // Upstream advances starty once after finding the solitary green.
+    let rows: Vec<usize> = (sy + 3..win.h.saturating_sub(4)).step_by(3).collect();
     rows.into_par_iter()
         .map(|row| {
             let mut m = 1.0f32;
@@ -241,5 +242,45 @@ mod tests {
         // flat: no transition at all → the widest radius
         let flat = capture_radius(&mosaic_from_rgb(&Rgb32f::filled(1100, 1000, [0.3; 3]), &cfa));
         assert_eq!(flat, 1.5);
+    }
+}
+
+#[cfg(test)]
+mod refvec_tests {
+    use super::*;
+    #[test]
+    fn upstream_radius_vectors() {
+        let (w, h) = (128, 128);
+        let mut result = Vec::new();
+        for scene in 0..3 {
+            let data: Vec<_> = (0..w * h)
+                .map(|i| {
+                    if scene == 2 {
+                        0.3
+                    } else if scene == 1 && i % 37 == 0 {
+                        1.0
+                    } else {
+                        0.05 + 0.6 * ((i % w) % 23) as f32 / 23.0 + 0.0005 * crate::test_vectors::noise(i)
+                    }
+                })
+                .collect();
+            let win = Win { data: &data, stride: w, cpp: 1, plane: 0, x0: 0, y0: 0, w, h };
+            for pat in ["RGGB", "BGGR", "GRBG", "GBRG"] {
+                let cfa = Cfa::bayer(pat).unwrap();
+                let r = max_ratio_diagonal(&win, |row| 5 + (cfa.color_at(0, row) & 1) as usize);
+                result.push((1.0 / r.ln()).sqrt());
+            }
+            result.push((1.0 / max_ratio_diagonal(&win, |_| 5).ln()).sqrt());
+            result.push((1.0 / max_ratio_xtrans(&win, &Cfa::xtrans()).ln()).sqrt());
+        }
+        let expected = crate::test_vectors::read("capture-radius/ratios.f32");
+        assert_eq!(result.len(), expected.len());
+        for (i, (&a, &b)) in result.iter().zip(&expected).enumerate() {
+            if a.is_infinite() && b.is_infinite() {
+                continue;
+            }
+            eprintln!("radius {i}: abs {}", (a - b).abs());
+            assert!((a - b).abs() < 2e-7, "{i} {a} {b}");
+        }
     }
 }

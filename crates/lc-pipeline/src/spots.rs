@@ -80,6 +80,10 @@ pub fn auto_source(img: &Rgb32f, target: (f32, f32), r: f32) -> (f32, f32) {
 /// A source offset (normalized, as [`Spot::source_offset`]) for `spot` on `src` developed with
 /// `s`: the best match, or with `avoid` (the current offset) the best one at least a spot radius
 /// away from it ("refresh source"). `None` when no candidate fits in the image.
+///
+/// The candidates are scored on the photo with `s`'s AI removals and heals composited
+/// ([`crate::patches::apply_spots`]), so a source is never taken from what one of them removed.
+/// (This only picks the offset a new spot stores; renders are unaffected.)
 pub fn pick_source(
     src: &Rgb32f,
     info: &crate::SourceInfo,
@@ -92,7 +96,8 @@ pub fn pick_source(
     if w == 0 || h == 0 {
         return None;
     }
-    let img = frame.sample(src, w, h);
+    let mut img = frame.sample(src, w, h);
+    crate::patches::apply_spots(&mut img, &s.spots, &frame);
     let (to_out, to_norm) = (frame.norm_to_out(w, h), frame.out_to_norm(w, h));
     let t = to_out.apply(*spot.points.first()?);
     let r = (spot.size * frame.px_per_long(w)).max(1.0) as f32;

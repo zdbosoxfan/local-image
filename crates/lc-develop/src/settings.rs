@@ -11,6 +11,12 @@ pub const SCHEMA_VERSION: u32 = 1;
 pub struct DevelopSettings {
     pub version: u32,
     pub profile: Profile,
+    /// The base rendition of a raw photo ([`Look`]). Left out at its default.
+    #[serde(default, skip_serializing_if = "Look::is_default")]
+    pub look: Look,
+    /// The look's base-curve variant and hue preservation. Left out at defaults.
+    #[serde(default, skip_serializing_if = "LookOptions::is_default")]
+    pub look_options: LookOptions,
     pub treatment: Treatment,
     pub wb: WhiteBalance,
     pub light: Light,
@@ -63,6 +69,8 @@ impl Default for DevelopSettings {
         Self {
             version: SCHEMA_VERSION,
             profile: Profile::default(),
+            look: Look::default(),
+            look_options: LookOptions::default(),
             treatment: Treatment::Color,
             wb: WhiteBalance::default(),
             light: Light::default(),
@@ -93,6 +101,95 @@ impl Default for DevelopSettings {
             color_cal: Default::default(),
             disabled_sections: Vec::new(),
         }
+    }
+}
+
+/// The base rendition of a scene-referred (raw) photo: how scene light becomes
+/// display tones before any slider. Rendered photos (JPEG, …) show as the file under every look.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Look {
+    /// A Lightroom-like rendition: bright midtones, a soft toe and a long, gentle shoulder.
+    #[default]
+    Adobe,
+    /// darktable's sigmoid: a neutral scene-referred log-logistic curve, hue preserving.
+    Sigmoid,
+    /// The camera's own rendition: a curve fitted to the file's embedded JPEG (or the maker's
+    /// base curve when the file has no usable preview).
+    Camera,
+}
+
+impl Look {
+    pub const ALL: [Look; 3] = [Look::Adobe, Look::Sigmoid, Look::Camera];
+    pub fn is_default(&self) -> bool {
+        *self == Look::default()
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Look::Adobe => "Soft Film",
+            Look::Sigmoid => "Sigmoid",
+            Look::Camera => "Camera",
+        }
+    }
+    /// The JSON / command name (`adobe`, `sigmoid`, `camera`).
+    pub fn id(self) -> &'static str {
+        match self {
+            Look::Adobe => "adobe",
+            Look::Sigmoid => "sigmoid",
+            Look::Camera => "camera",
+        }
+    }
+    pub fn from_id(id: &str) -> Option<Look> {
+        Look::ALL.into_iter().find(|l| l.id().eq_ignore_ascii_case(id))
+    }
+}
+
+/// A base-curve variant under every look (like Capture One's film curves): Standard, Extra
+/// Shadow (shadows opened up for high dynamic range sensors), High Contrast, Linear (scene-linear to 80% display luminance,
+/// then a smooth output shoulder).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ToneBase {
+    #[default]
+    Standard,
+    ExtraShadow,
+    HighContrast,
+    Linear,
+}
+
+impl ToneBase {
+    pub const ALL: [ToneBase; 4] = [ToneBase::Standard, ToneBase::ExtraShadow, ToneBase::HighContrast, ToneBase::Linear];
+    pub fn label(self) -> &'static str {
+        match self {
+            ToneBase::Standard => "Standard",
+            ToneBase::ExtraShadow => "Extra Shadow",
+            ToneBase::HighContrast => "High Contrast",
+            ToneBase::Linear => "Linear",
+        }
+    }
+}
+
+/// Options of the look.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LookOptions {
+    /// The base-curve variant (raw photos).
+    pub base: ToneBase,
+    /// Hue preservation 0..100 % of the tone curve: 100 keeps every hue as bright colours bleach
+    /// towards white; lower values let them drift towards the secondaries (yellow, cyan,
+    /// magenta) as a per-channel film curve does.
+    pub hue_preservation: f64,
+}
+
+impl Default for LookOptions {
+    fn default() -> Self {
+        Self { base: ToneBase::Standard, hue_preservation: 75.0 }
+    }
+}
+
+impl LookOptions {
+    pub fn is_default(&self) -> bool {
+        *self == LookOptions::default()
     }
 }
 
@@ -220,6 +317,27 @@ pub struct ToneCurve {
     /// Refine Saturation 0..100: 100 keeps the saturation a curve produces, lower values pull it
     /// back towards the saturation before the curve (strong contrast curves oversaturate).
     pub refine_saturation: f64,
+    /// How the parametric and master curves apply ([`CurveMode`]). Left out of the JSON at its default.
+    #[serde(skip_serializing_if = "CurveMode::is_default")]
+    pub mode: CurveMode,
+}
+
+/// How the master (and parametric) tone curve changes colours.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CurveMode {
+    /// On a luminance norm, every channel scaled by the same ratio: hue and saturation kept.
+    #[default]
+    Luminance,
+    /// On each RGB channel (encoded values): contrast also saturates and shifts hues, like a
+    /// classic per-channel curve.
+    Rgb,
+}
+
+impl CurveMode {
+    pub fn is_default(&self) -> bool {
+        *self == CurveMode::default()
+    }
 }
 
 impl Default for ToneCurve {
@@ -237,6 +355,7 @@ impl Default for ToneCurve {
             green: Vec::new(),
             blue: Vec::new(),
             refine_saturation: 100.0,
+            mode: CurveMode::default(),
         }
     }
 }
@@ -1292,44 +1411,6 @@ pub struct AiPatch {
     pub geometry: String,
 }
 
-/// A 128-bit content key, written as 32 hex digits.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct AiKey(pub u128);
-
-impl std::fmt::Display for AiKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:032x}", self.0)
-    }
-}
-
-impl AiKey {
-    pub fn parse(s: &str) -> Option<AiKey> {
-        (s.len() == 32).then(|| u128::from_str_radix(s, 16).ok().map(AiKey)).flatten()
-    }
-}
-
-impl Serialize for AiKey {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&self.to_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for AiKey {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let s = String::deserialize(d)?;
-        AiKey::parse(&s).ok_or_else(|| serde::de::Error::custom("expected 32 hex digits"))
-    }
-}
-
-/// A photo's AI Denoise result in the library's AI store (local-image).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DenoiseRef {
-    /// Store key of the result.
-    pub key: AiKey,
-    /// Content hash of the photo it was made from (never applied to another photo).
-    pub source: AiKey,
-}
-
 /// A red eye / pet eye correction: the user's ellipse (centre normalized, radii as fractions of
 /// the long edge); the pupil inside it is found automatically.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -1365,11 +1446,6 @@ pub struct LensBlur {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Enhance {
-    /// AI Denoise amount 0..100 (how much of the denoised result is used).
-    pub denoise: f64,
     pub raw_details: bool,
     pub super_resolution: bool,
-    /// local-image: the AI Denoise result (`None` until Denoise ran; left out of the JSON then).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ai: Option<DenoiseRef>,
 }
