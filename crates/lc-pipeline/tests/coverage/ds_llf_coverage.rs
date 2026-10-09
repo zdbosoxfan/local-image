@@ -3,7 +3,6 @@ use lightcraft_pipeline::llf::{
 };
 
 #[test]
-#[ignore = "BUG: dl(0, level) panics for level > 0 due to unsigned subtraction underflow"]
 fn dl_zero_size_always_zero() {
     for level in 0..10 {
         assert_eq!(dl(0, level), 0);
@@ -138,7 +137,6 @@ fn curve_at_clamps_to_domain() {
 }
 
 #[test]
-#[ignore = "BUG: curve_at panics on empty LUT"]
 fn curve_at_empty_lut_does_not_panic() {
     let lut: Vec<f32> = vec![];
     let result = std::panic::catch_unwind(|| curve_at(&lut, 0.0));
@@ -205,7 +203,6 @@ fn num_levels_small_sizes_are_one() {
 }
 
 #[test]
-#[ignore = "BUG: num_levels(0,0) panics due to integer underflow"]
 fn num_levels_zero_size_does_not_panic() {
     let result = std::panic::catch_unwind(|| num_levels(0, 0));
     assert!(result.is_ok());
