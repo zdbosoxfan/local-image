@@ -603,7 +603,12 @@ fn committing_a_live_stroke_reuses_its_pixels_bit_for_bit() {
         .collect();
     let cases: Vec<(&str, &str, Value, bool)> = vec![
         ("hard round", "paint.stroke", json!({"brush": {"size": 18, "hardness": 1.0, "spacing": 0.1}}), false),
-        ("soft round, smoothing, pressure", "paint.stroke", json!({"brush": {"size": 40, "hardness": 0.0, "pressureSize": true, "smoothing": {"amount": 0.45}}}), false),
+        (
+            "soft round, smoothing, pressure",
+            "paint.stroke",
+            json!({"brush": {"size": 40, "hardness": 0.0, "pressureSize": true, "smoothing": {"amount": 0.45}}}),
+            false,
+        ),
         ("spatter preset", "paint.stroke", json!({"preset": "Spatter", "zoom": 0.5}), false),
         (
             "scatter, dual brush, colour dynamics, wet edges, noise",
@@ -611,17 +616,27 @@ fn committing_a_live_stroke_reuses_its_pixels_bit_for_bit() {
             json!({"brush": {"size": 26, "hardness": 0.4, "scattering": {"enabled": true}, "dualBrush": {"enabled": true, "size": 12}, "colorDynamics": {"enabled": true, "hueJitter": 0.3}, "wetEdges": true, "noise": true}}),
             false,
         ),
-        ("multiply at 50%, in a feathered selection", "paint.stroke", json!({"mode": "multiply", "opacity": 0.5, "brush": {"size": 30, "hardness": 0.7}}), true),
+        (
+            "multiply at 50%, in a feathered selection",
+            "paint.stroke",
+            json!({"mode": "multiply", "opacity": 0.5, "brush": {"size": 30, "hardness": 0.7}}),
+            true,
+        ),
         ("dissolve", "paint.stroke", json!({"mode": "dissolve", "brush": {"size": 22, "hardness": 0.2}}), false),
         ("eraser", "paint.stroke", json!({"erase": true, "brush": {"size": 34, "hardness": 0.3, "pressureOpacity": true}}), false),
         ("pencil", "paint.pencil", json!({"size": 7}), false),
         ("pencil with auto erase", "paint.pencil", json!({"size": 5, "autoErase": true}), false),
         ("layer mask", "paint.stroke", json!({"target": "mask", "brush": {"size": 28, "hardness": 0.5}}), false),
-        ("symmetry, soft round with smoothing", "paint.stroke", json!({"__symmetry": true, "brush": {"size": 36, "hardness": 0.1, "smoothing": {"amount": 0.3}}}), false),
+        (
+            "symmetry, soft round with smoothing",
+            "paint.stroke",
+            json!({"__symmetry": true, "brush": {"size": 36, "hardness": 0.1, "smoothing": {"amount": 0.3}}}),
+            false,
+        ),
         ("symmetry, spatter, in a selection", "paint.stroke", json!({"__symmetry": true, "preset": "Spatter"}), true),
         ("symmetry, pencil", "paint.pencil", json!({"__symmetry": true, "size": 4}), false),
     ];
-    for depth in [8, 16] {
+    for depth in [8, 16, 32] {
         for (label, cmd, extra, selection) in &cases {
             let label = format!("{label} ({depth}-bit)");
             let (mut live_s, mut replay) = (painted_session(depth, *selection), painted_session(depth, *selection));
@@ -642,12 +657,14 @@ fn committing_a_live_stroke_reuses_its_pixels_bit_for_bit() {
             p["freehand"] = json!(true);
             let mut live = LiveStroke::begin_with(&live_s, cmd, &p).unwrap();
             // Pointer moves of varying sizes, like the canvas feeds them.
+            let document_ptr = std::sync::Arc::as_ptr(&live.doc);
             let mut i = 1;
             let mut n = 1;
             while i < pts.len() {
                 let end = (i + n).min(pts.len());
                 let sp: Vec<StrokePoint> = pts[i..end].iter().map(|q| StrokePoint::new(q[0], q[1], q[2] as f32)).collect();
                 live.push(&sp).unwrap();
+                assert_eq!(document_ptr, std::sync::Arc::as_ptr(&live.doc), "{label}: document cloned per push");
                 i = end;
                 n = n % 5 + 1;
             }

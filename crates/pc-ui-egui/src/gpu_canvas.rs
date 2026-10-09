@@ -21,8 +21,8 @@
 //! GPU resources live in the renderer's `callback_resources` type map; the per-frame callback only
 //! carries plain view parameters, so it is `Send + Sync` on every target (including wasm).
 //!
-//! The document pixels still come from the CPU compositor (`photocraft-compose`) for now; the wgpu
-//! compositor (M5) will render straight into these tiles.
+//! Supported documents composite straight into these tiles on the GPU. Unsupported features
+//! and recoverable errors use the CPU reference compositor for the affected refresh.
 
 use std::collections::HashMap;
 use std::num::NonZeroU64;
@@ -100,6 +100,8 @@ pub struct GpuCanvas {
     tile: u32,
     high: HighPolicy,
     health: photocraft_gpu::DeviceHealth,
+    seen_errors: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    health_frame: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// Can `adapter` use `Rgba16Float` as a sampled, filtered, render-target and copy texture?
@@ -133,7 +135,14 @@ impl GpuCanvas {
         res.health = health.clone();
         rs.renderer.write().callback_resources.insert(res);
         log::info!("gpu canvas: target {:?}, max texture {max}, tile {tile}, 16F canvas {high:?}", rs.target_format);
-        Self { rs: rs.clone(), tile, high, health }
+        Self {
+            rs: rs.clone(),
+            tile,
+            high,
+            health,
+            seen_errors: Default::default(),
+            health_frame: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(u64::MAX)),
+        }
     }
 
     /// The device's health flag (shared with the wgpu compositor and the paint callback).
@@ -146,6 +155,30 @@ impl GpuCanvas {
         self.health.fault()
     }
 
+    /// Advance strikes once per app frame, even when the host checks health twice.
+    pub fn begin_frame(&self, frame: u64) {
+        if self.health_frame.swap(frame, std::sync::atomic::Ordering::AcqRel) != frame {
+            self.health.tick();
+        }
+    }
+
+    /// Errors can arrive during paint, after refresh returned. Invalidate the affected canvas
+    /// at the next frame boundary and retry once through the CPU without dropping the device.
+    pub fn recover_transient_errors(&self) -> bool {
+        let count = self.health.errors();
+        if !self.health.is_ok() || self.seen_errors.swap(count, std::sync::atomic::Ordering::AcqRel) == count {
+            return false;
+        }
+        let mut r = self.rs.renderer.write();
+        if let Some(res) = r.callback_resources.get_mut::<Resources>() {
+            res.retry_cpu = true;
+            res.compositor = None;
+            res.encode_pool.clear();
+            res.docs.clear();
+        }
+        true
+    }
+
     /// Free every GPU resource the canvas holds (compositor pages, document textures, LUTs) after
     /// a fault; the paint callback draws nothing from then on.
     pub fn release(&self) {
@@ -153,6 +186,7 @@ impl GpuCanvas {
         if let Some(res) = r.callback_resources.get_mut::<Resources>() {
             res.compositor = None;
             res.compositor_failed = Some(photocraft_gpu::Unsupported(self.fault().map_or_else(|| "GPU canvas released".into(), |f| f.to_string())));
+            res.encode_pool.clear();
             res.docs.clear();
             res.luts.clear();
             res.display_lut_signatures.clear();
@@ -356,6 +390,9 @@ impl GpuCanvas {
         let errors = self.health.errors();
         let mut renderer = self.rs.renderer.write();
         let Some(res) = renderer.callback_resources.get_mut::<Resources>() else { return Err(photocraft_gpu::Unsupported("no GPU canvas".into())) };
+        if std::mem::take(&mut res.retry_cpu) {
+            return Err(photocraft_gpu::Unsupported(format!("GPU error: {}; retrying this frame on the CPU", self.health.last_error().unwrap_or_default())));
+        }
         // A driver that couldn't build the pipelines once won't later: stay on the CPU compositor.
         if let Some(e) = &res.compositor_failed {
             return Err(e.clone());
@@ -385,13 +422,6 @@ impl GpuCanvas {
             res.compositor = Some(comp);
             return Err(e);
         }
-        // A full refresh whose layer pages don't fit the memory budget would re-upload the
-        // evicted ones every time (no faster than the CPU, and more memory): the banded CPU
-        // compositor does it, and edits in the view (damage rects) stay on the GPU.
-        if region == doc.bounds() && !comp.fits_budget(doc, region) {
-            res.compositor = Some(comp);
-            return Err(photocraft_gpu::Unsupported("layers exceed the GPU memory budget; full refresh on the CPU".into()));
-        }
         if fresh {
             let tex = DocTextures::new(device, res, size, self.tile, format);
             res.docs.insert(key, tex);
@@ -400,49 +430,84 @@ impl GpuCanvas {
             res.compositor = Some(comp);
             return Err(photocraft_gpu::Unsupported(format!("no {format:?} canvas texture or pipeline")));
         };
-        let bgl = &res.encode_bgl;
+        let pipe = pipe.clone();
+        let d = d.clone();
+        let bgl = res.encode_bgl.clone();
+        let mip_pipe = res.mip_pipeline(format).cloned();
+        let mut encode_pool = std::mem::take(&mut res.encode_pool);
+        drop(renderer);
+        let mut encode_index = 0usize;
         // A float canvas keeps values above 1.0 (32-bit documents, for the 32-bit preview).
         let keep_hdr = i32::from(format == FORMAT_HIGH);
         // Last-resort guard: a wgpu panic (e.g. polling a device lost mid-refresh) marks the
         // device lost instead of taking the app and its documents down.
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            comp.render(device, queue, doc, region, |enc, out| {
-                for t in &d.tiles {
-                    let [tx, ty, tw, th] = t.rect.map(|v| v as i32);
-                    let r = out.rect.intersect(&photocraft_geom::Rect::from_xywh(tx, ty, tw as u32, th as u32));
-                    if r.is_empty() {
-                        continue;
+            comp.render_with_finish(
+                device,
+                queue,
+                doc,
+                region,
+                |enc, out| {
+                    for t in &d.tiles {
+                        let [tx, ty, tw, th] = t.rect.map(|v| v as i32);
+                        let r = out.rect.intersect(&photocraft_geom::Rect::from_xywh(tx, ty, tw as u32, th as u32));
+                        if r.is_empty() {
+                            continue;
+                        }
+                        let offset = [out.rect.x0 - tx, out.rect.y0 - ty, i32::from(encode_srgb), keep_hdr];
+                        if encode_index == encode_pool.len() {
+                            let ubuf = device.create_buffer(&wgpu::BufferDescriptor {
+                                label: Some("pc_encode"),
+                                size: 16,
+                                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                                mapped_at_creation: false,
+                            });
+                            encode_pool.push((ubuf, None));
+                        }
+                        let (ubuf, cached) = &mut encode_pool[encode_index];
+                        encode_index += 1;
+                        queue.write_buffer(ubuf, 0, &offset.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<_>>());
+                        if cached.as_ref().is_none_or(|(v, _)| v != out.view) {
+                            let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                label: Some("pc_encode"),
+                                layout: &bgl,
+                                entries: &[
+                                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(out.view) },
+                                    wgpu::BindGroupEntry { binding: 1, resource: ubuf.as_entire_binding() },
+                                ],
+                            });
+                            *cached = Some((out.view.clone(), bg));
+                        }
+                        let Some((_, bg)) = cached else { continue };
+                        let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("pc_encode"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &t.levels[0],
+                                resolve_target: None,
+                                depth_slice: None,
+                                ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                            })],
+                            depth_stencil_attachment: None,
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                            multiview_mask: None,
+                        });
+                        pass.set_pipeline(&pipe);
+                        pass.set_bind_group(0, &*bg, &[]);
+                        pass.set_scissor_rect((r.x0 - tx) as u32, (r.y0 - ty) as u32, r.width(), r.height());
+                        pass.draw(0..3, 0..1);
                     }
-                    let offset = [out.rect.x0 - tx, out.rect.y0 - ty, i32::from(encode_srgb), keep_hdr];
-                    let ubuf = init_buffer(device, "pc_encode", &offset.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>(), wgpu::BufferUsages::UNIFORM);
-                    let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("pc_encode"),
-                        layout: bgl,
-                        entries: &[
-                            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(out.view) },
-                            wgpu::BindGroupEntry { binding: 1, resource: ubuf.as_entire_binding() },
-                        ],
-                    });
-                    let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("pc_encode"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &t.levels[0],
-                            resolve_target: None,
-                            depth_slice: None,
-                            ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
-                        })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                        multiview_mask: None,
-                    });
-                    pass.set_pipeline(pipe);
-                    pass.set_bind_group(0, &bg, &[]);
-                    pass.set_scissor_rect((r.x0 - tx) as u32, (r.y0 - ty) as u32, r.width(), r.height());
-                    pass.draw(0..3, 0..1);
-                }
-            })
+                },
+                |enc| {
+                    if let Some(pipe) = &mip_pipe {
+                        d.encode_mips(enc, pipe, [region.x0 as u32, region.y0 as u32, region.x1 as u32, region.y1 as u32]);
+                    }
+                },
+            )
         }));
+        let mut renderer = self.rs.renderer.write();
+        let Some(res) = renderer.callback_resources.get_mut::<Resources>() else { return Err(photocraft_gpu::Unsupported("no GPU canvas".into())) };
+        res.encode_pool = encode_pool;
         let Ok(result) = result else {
             self.health.mark(photocraft_gpu::Fault::Lost("the GPU compositor stopped (internal error)".into()));
             res.docs.remove(&key);
@@ -453,21 +518,23 @@ impl GpuCanvas {
             Some(f) => Err(photocraft_gpu::Unsupported(f.to_string())),
             None => result,
         };
-        if result.is_ok() {
-            d.regenerate_mips(device, queue, res, [region.x0 as u32, region.y0 as u32, region.x1 as u32, region.y1 as u32]);
-            if std::env::var_os("PHOTOCRAFT_GPU_SYNC").is_some() {
-                // Benchmarking: wait for the GPU so callers can time the whole refresh.
-                #[cfg(not(target_arch = "wasm32"))]
-                self.health.wait(device, None);
-            }
+        if result.is_ok() && std::env::var_os("PHOTOCRAFT_GPU_SYNC").is_some() {
+            // Benchmarking: wait for the GPU so callers can time the whole refresh.
+            #[cfg(not(target_arch = "wasm32"))]
+            self.health.wait(device, None);
         }
         // An uncaptured error during the refresh (a validation error, out of memory): its output
         // can't be trusted, so the caller redoes it on the CPU into a new texture, and the
         // compositor drops its cached textures. The GPU stays in use unless errors repeat.
-        let errored = self.health.errors() != errors;
+        let end_errors = self.health.errors();
+        let errored = end_errors != errors;
+        self.seen_errors.store(end_errors, std::sync::atomic::Ordering::Release);
+        if errored {
+            comp.forget_all();
+            res.encode_pool.clear();
+        }
         let result = match result {
             Ok(_) if errored => {
-                comp.forget_all();
                 let why = self.fault().map_or_else(|| format!("GPU error: {}", self.health.last_error().unwrap_or_default()), |f| f.to_string());
                 log::warn!("{why}; this refresh is redone on the CPU");
                 Err(photocraft_gpu::Unsupported(why))
@@ -1105,7 +1172,11 @@ fn detect_physical_memory() -> Option<u64> {
     None
 }
 
+type EncodePool = Vec<(wgpu::Buffer, Option<(wgpu::TextureView, wgpu::BindGroup)>)>;
+
 struct Resources {
+    encode_pool: EncodePool,
+    retry_cpu: bool,
     view_bgl: wgpu::BindGroupLayout,
     tile_bgl: wgpu::BindGroupLayout,
     shadow_pipeline: wgpu::RenderPipeline,
@@ -1199,17 +1270,20 @@ struct ViewGpu {
     frame_data: [f32; VIEW_FLOATS],
 }
 
+#[derive(Clone)]
 struct DocTextures {
     size: [u32; 2],
     format: wgpu::TextureFormat,
     tiles: Vec<Tile>,
 }
 
+#[derive(Clone)]
 struct Tile {
     /// Document-pixel rect: x, y, w, h.
     rect: [u32; 4],
     texture: wgpu::Texture,
     levels: Vec<wgpu::TextureView>,
+    mip_groups: Vec<wgpu::BindGroup>,
     bind_group: wgpu::BindGroup,
     _uniform: wgpu::Buffer,
 }
@@ -1370,6 +1444,8 @@ impl Resources {
         let encode_pipeline_high = high.then(|| pipeline(device, "pc_encode_16f", &encode_layout, &encode_module, ("vs", "fs"), FORMAT_HIGH, None));
         let identity_lut = lut_bind_group(device, queue, &lut_bgl, 2, &identity_lut_bytes());
         Self {
+            encode_pool: Vec::new(),
+            retry_cpu: false,
             lut_bgl,
             luts: HashMap::new(),
             display_lut_signatures: HashMap::new(),
@@ -1447,8 +1523,22 @@ impl DocTextures {
                         | wgpu::TextureUsages::RENDER_ATTACHMENT,
                     view_formats: &[],
                 });
-                let levels = (0..levels_n)
+                let levels: Vec<_> = (0..levels_n)
                     .map(|l| texture.create_view(&wgpu::TextureViewDescriptor { base_mip_level: l, mip_level_count: Some(1), ..Default::default() }))
+                    .collect();
+                let mip_groups = levels
+                    .iter()
+                    .take(levels.len().saturating_sub(1))
+                    .map(|view| {
+                        device.create_bind_group(&wgpu::BindGroupDescriptor {
+                            label: Some("pc_mip"),
+                            layout: &res.mip_bgl,
+                            entries: &[
+                                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(view) },
+                                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&res.mip_sampler) },
+                            ],
+                        })
+                    })
                     .collect();
                 let full = texture.create_view(&wgpu::TextureViewDescriptor::default());
                 let uniform = init_buffer(device, "pc_canvas_tile", &f32_bytes(&[tx as f32, ty as f32, w as f32, h as f32]), wgpu::BufferUsages::UNIFORM);
@@ -1460,7 +1550,7 @@ impl DocTextures {
                         wgpu::BindGroupEntry { binding: 1, resource: uniform.as_entire_binding() },
                     ],
                 });
-                tiles.push(Tile { rect: [tx, ty, w, h], texture, levels, bind_group, _uniform: uniform });
+                tiles.push(Tile { rect: [tx, ty, w, h], texture, levels, mip_groups, bind_group, _uniform: uniform });
             }
         }
         Self { size, format, tiles }
@@ -1496,6 +1586,11 @@ impl DocTextures {
     fn regenerate_mips(&self, device: &wgpu::Device, queue: &wgpu::Queue, res: &Resources, r: [u32; 4]) {
         let Some(mip_pipeline) = res.mip_pipeline(self.format) else { return };
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("pc_mips") });
+        self.encode_mips(&mut encoder, mip_pipeline, r);
+        queue.submit([encoder.finish()]);
+    }
+
+    fn encode_mips(&self, encoder: &mut wgpu::CommandEncoder, mip_pipeline: &wgpu::RenderPipeline, r: [u32; 4]) {
         for t in &self.tiles {
             let [tx, ty, tw, th] = t.rect;
             let (mut x0, mut y0, mut x1, mut y1) = (r[0].max(tx), r[1].max(ty), r[2].min(tx + tw), r[3].min(ty + th));
@@ -1508,14 +1603,7 @@ impl DocTextures {
                 // Damage at this level, padded by one texel for odd-size rounding.
                 (x0, y0) = ((x0 / 2).saturating_sub(1), (y0 / 2).saturating_sub(1));
                 (x1, y1) = ((x1.div_ceil(2) + 1).min(lw), (y1.div_ceil(2) + 1).min(lh));
-                let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("pc_mip"),
-                    layout: &res.mip_bgl,
-                    entries: &[
-                        wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&t.levels[level - 1]) },
-                        wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&res.mip_sampler) },
-                    ],
-                });
+                let bg = &t.mip_groups[level - 1];
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("pc_mip"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1530,12 +1618,11 @@ impl DocTextures {
                     multiview_mask: None,
                 });
                 pass.set_pipeline(mip_pipeline);
-                pass.set_bind_group(0, &bg, &[]);
+                pass.set_bind_group(0, bg, &[]);
                 pass.set_scissor_rect(x0, y0, x1 - x0, y1 - y0);
                 pass.draw(0..3, 0..1);
             }
         }
-        queue.submit([encoder.finish()]);
     }
 }
 

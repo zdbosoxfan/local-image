@@ -23,7 +23,12 @@ pub fn check(app: &mut PhotocraftApp, ctx: &egui::Context) {
     // A frame boundary for the error strikes: one uncaptured error is redone on the CPU, errors
     // in several frames drop the GPU canvas (`photocraft_gpu::health`).
     if let Some(g) = &app.gpu {
-        g.health().tick();
+        g.begin_frame(app.frame);
+    }
+    if app.gpu.as_ref().is_some_and(|g| g.recover_transient_errors()) {
+        app.canvases.clear();
+        app.proxy_uploaded = None;
+        ctx.request_repaint();
     }
     if let Some(fault) = app.gpu.as_ref().and_then(|g| g.fault()) {
         fall_back(app, &fault);

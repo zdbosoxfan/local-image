@@ -2,6 +2,7 @@
 //! through the CPU compositor and egui textures): the flipped canvas is the unflipped one
 //! mirrored about the view centre, and it is still drawn by the GPU path. Skips without a GPU.
 
+use egui_kittest::kittest::Queryable;
 use photocraft_ui_egui::PhotocraftApp;
 use serde_json::json;
 
@@ -62,7 +63,11 @@ fn flipped_view_is_mirrored_on_the_gpu() {
     photocraft_ui_egui::control::handle(h.state_mut(), &ctx, &req);
     let (plain, w) = canvas(&mut h);
     assert!(h.state().perf.last_refresh.starts_with("gpu"), "unflipped refresh {}", h.state().perf.last_refresh);
-    h.state_mut().ui.view.flip_horizontal = true;
+    h.get_by_label("View").click();
+    h.run_steps(3);
+    h.get_by_label_contains("Flip Horizontal").click();
+    h.run_steps(3);
+    assert!(h.state().ui.view.flip_horizontal);
     let (flipped, w2) = canvas(&mut h);
     assert_eq!(w, w2);
     assert!(h.state().gpu_active() && h.state().perf.gpu, "flipped view left the GPU canvas");

@@ -14,7 +14,7 @@ use std::time::Instant;
 
 use eframe::egui_wgpu::RenderState;
 use photocraft_color::{BlendMode, Color, ColorMode, SampleType};
-use photocraft_doc::{Document, Effect, Layer, LayerContent, LayerId, LayerMask, Size};
+use photocraft_doc::{Document, Effect, Layer, LayerId, LayerMask, Size};
 use photocraft_engine::Session;
 use photocraft_geom::Rect;
 use photocraft_ui_egui::gpu_canvas::{self, GpuCanvas};
@@ -30,7 +30,9 @@ fn gpu_lock() -> std::sync::MutexGuard<'static, ()> {
 fn render_state() -> Option<RenderState> {
     let rs =
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| egui_kittest::wgpu::create_render_state(gpu_canvas::wgpu_setup(), Default::default()))).ok();
-    if rs.is_none() {
+    if let Some(rs) = &rs {
+        eprintln!("test adapter: {:?}", rs.adapter.get_info());
+    } else {
         eprintln!("skipping: no GPU adapter");
     }
     rs
@@ -124,7 +126,11 @@ fn realistic(w: u32, h: u32) -> (Session, LayerId, LayerId) {
         st.doc = std::sync::Arc::new(d);
     }
     // 7. A type layer with a drop shadow; 8. a shape.
-    let text = layer_of(&exec(&mut s, "type.create", json!({"x": wi / 10, "y": hi / 5, "text": "Golden hour", "size": (h as f32 / 12.0).max(8.0), "color": "#fff4e0"})));
+    let text = layer_of(&exec(
+        &mut s,
+        "type.create",
+        json!({"x": wi / 10, "y": hi / 5, "text": "Golden hour", "size": (h as f32 / 12.0).max(8.0), "color": "#fff4e0"}),
+    ));
     {
         let st = s.active_mut().expect("doc");
         let mut d = (*st.doc).clone();
@@ -322,4 +328,147 @@ fn bench_gpu_canvas_24mp() {
     let t = Instant::now();
     let thumb = photocraft_compose::thumbnail_buffer(&d, 512);
     eprintln!("navigator thumbnail_buffer: {:.1} ms ({}×{})", ms(t), thumb.rect.width(), thumb.rect.height());
+}
+
+/// CPU-only before/after comparisons. The before paths are the original implementations:
+/// plan each refresh, hash all tile pointers each frame, replay the whole stroke at mouse-up.
+#[test]
+#[ignore = "CPU stutter benchmark; run with --ignored --nocapture"]
+fn bench_cpu_stutter() {
+    let row = |name: &str, v: &[f64]| {
+        let mut sorted = v.to_vec();
+        sorted.sort_by(f64::total_cmp);
+        eprintln!("{name}: median {:.6} ms; min {:.6}; max {:.6}; n={}", median(v.to_vec()), sorted[0], sorted[sorted.len() - 1], v.len());
+    };
+    let (mut s, paint, _) = realistic(1800, 1200);
+    let d = s.active().unwrap().doc.clone();
+    let mut cache = photocraft_gpu::plan_cache::PlanCache::default();
+    cache.get(&d, |_| Ok(())).unwrap();
+    let mut before = Vec::new();
+    let mut after = Vec::new();
+    for _ in 0..100 {
+        let t = Instant::now();
+        std::hint::black_box(photocraft_gpu::plan(&d).unwrap());
+        before.push(ms(t));
+        let t = Instant::now();
+        std::hint::black_box(cache.get(&d, |_| Ok(())).unwrap());
+        after.push(ms(t));
+    }
+    assert_eq!(cache.builds, 1);
+    row("plan before (uncached)", &before);
+    row("plan after (structure cached)", &after);
+    let surfaces: Vec<_> = d.walk().into_iter().filter_map(|(_, _, l)| l.surface()).collect();
+    before.clear();
+    after.clear();
+    for _ in 0..1000 {
+        let t = Instant::now();
+        let mut h = 0u64;
+        for surf in &surfaces {
+            let mut v = 0xcbf2_9ce4_8422_2325 ^ surf.tile_count() as u64;
+            for (c, tile) in surf.tiles() {
+                let ptr = std::sync::Arc::as_ptr(tile) as usize as u64;
+                v = (v ^ ptr ^ ((c.tx as u64) << 32 | c.ty as u32 as u64)).wrapping_mul(0x100_0000_01b3);
+            }
+            h ^= v;
+        }
+        std::hint::black_box(h);
+        before.push(ms(t));
+        let t = Instant::now();
+        std::hint::black_box(surfaces.iter().fold(0u64, |h, s| h ^ photocraft_ui_egui::surface_fingerprint(s)));
+        after.push(ms(t));
+    }
+    row("thumbnail fingerprint before (all tile pointers)", &before);
+    row("thumbnail fingerprint after (surface revisions)", &after);
+
+    let pts: Vec<[f64; 3]> = (0..400).map(|i| [100.0 + i as f64 * 4.0, 600.0 + (i as f64 * 0.06).sin() * 240.0, 0.8]).collect();
+    let mut p = json!({"points": [pts[0]], "size": 24, "hardness": 1.0, "freehand": true, "seed": 123});
+    let mut live = photocraft_engine::brush_cmds::LiveStroke::begin(&s, &p).unwrap();
+    let ptr = std::sync::Arc::as_ptr(&live.doc);
+    let mut pushes = Vec::new();
+    for chunk in pts[1..].chunks(4) {
+        let t = Instant::now();
+        live.push(&chunk.iter().map(|p| photocraft_engine::paint::StrokePoint::new(p[0], p[1], p[2] as f32)).collect::<Vec<_>>()).unwrap();
+        pushes.push(ms(t));
+        assert_eq!(ptr, std::sync::Arc::as_ptr(&live.doc), "document cloned during a push");
+    }
+    row("live stroke push (4 points, no document clone)", &pushes);
+    p["points"] = json!(pts);
+    let t = Instant::now();
+    s.prepare_live_commit(live);
+    s.execute("paint.stroke", p.clone()).unwrap();
+    let reuse = ms(t);
+    assert_eq!(s.live_commits_reused(), 1);
+    let result = s.active().unwrap().doc.clone();
+    s.execute("edit.undo", json!({})).unwrap();
+    s.execute("layer.select", json!({"layer": paint.0})).unwrap();
+    let t = Instant::now();
+    s.execute("paint.stroke", p).unwrap();
+    let replay = ms(t);
+    assert_eq!(result.layers, s.active().unwrap().doc.layers);
+    eprintln!("mouse-up before (replay): {replay:.3} ms; after (reuse): {reuse:.3} ms");
+}
+
+#[test]
+#[ignore = "CPU symmetry before/after benchmark; run with --ignored --nocapture"]
+fn bench_cpu_symmetry() {
+    use photocraft_color::PixelFormat;
+    use photocraft_engine::paint::{BrushSettings, StrokePoint, StrokeRenderer};
+    let brush = BrushSettings { size: 16.0, hardness: 1.0, spacing: 0.15, seed: 123, pressure_size: false, ..Default::default() };
+    let pre = photocraft_doc::Surface::new(PixelFormat::RGBA8);
+    let points: Vec<_> = (0..240).map(|i| StrokePoint::new(10.0 + i as f64 * 3.0, 100.0 + (i as f64 * 0.08).sin() * 50.0, 1.0)).collect();
+    let run = |incremental: bool| {
+        let (mut a, mut b) = (StrokeRenderer::new(&brush, Some(pre.format()), 1.0), StrokeRenderer::new(&brush, Some(pre.format()), 1.0));
+        let mut target = pre.clone();
+        let mut tail = Rect::EMPTY;
+        let mut times = Vec::new();
+        for p in &points {
+            let t = Instant::now();
+            a.push(&[*p]);
+            let mut mirror = *p;
+            mirror.x = 800.0 - p.x;
+            b.push(&[mirror]);
+            if incremental {
+                let (_, next, _) = a.composite_union_live(&mut b, &pre, &mut target, None, false, tail);
+                tail = next;
+            } else {
+                // Original live symmetry path: clone both renderers to finish and merge their
+                // whole coverage maps on every pointer move.
+                let (mut fa, mut fb) = (a.clone(), b.clone());
+                fa.finish();
+                fb.finish();
+                let bounds = fa.bounds().union(&fb.bounds()).union(&tail);
+                if !bounds.is_empty() {
+                    target.write_region(bounds, &pre.read_region(bounds));
+                }
+                tail = bounds;
+                fa.composite_union(&fb, &pre, &mut target, None, false);
+            }
+            times.push(ms(t));
+        }
+        (target, times)
+    };
+    let (old, before) = run(false);
+    let (new, after) = run(true);
+    assert_eq!(old, new);
+    eprintln!(
+        "symmetry push before: median {:.3} ms, max {:.3}; after: median {:.3} ms, max {:.3}; n=240",
+        median(before.clone()),
+        before.iter().copied().fold(0.0, f64::max),
+        median(after.clone()),
+        after.iter().copied().fold(0.0, f64::max)
+    );
+}
+
+#[test]
+fn full_refresh_over_residency_budget_keeps_gpu_compositing() {
+    let _gpu = gpu_lock();
+    let Some(rs) = render_state() else { return };
+    let g = GpuCanvas::with_tile(&rs, Some(256));
+    g.set_memory_budget(1 << 20);
+    let (s, _, _) = realistic(900, 600);
+    let d = &s.active().unwrap().doc;
+    let r = g.refresh(d.id.0, d, None, None);
+    assert_eq!(r.kind, "gpu-full", "{:?}", r.fallback);
+    let (_, _, pixels) = g.read_texels(d.id.0).unwrap();
+    assert!(max_error(d, &pixels) <= 3.0 / 255.0);
 }

@@ -1487,3 +1487,85 @@ fn the_focused_view_stays_resident_after_a_full_refresh() {
         assert!(worst_diff(&cpu.px, &out).0 <= TOL);
     }
 }
+
+#[test]
+fn cached_plans_rebind_pixel_edits_and_survive_document_switches() {
+    let Some(mut g) = gpu() else { return };
+    let mut a = base_doc(64, 64);
+    let b = base_doc(64, 64);
+    check(&mut g, &a, "cached A");
+    check(&mut g, &b, "cached B");
+    let n = g.comp.plan_builds();
+    for i in 0..3 {
+        a.layers[0].surface_mut().unwrap().fill_rect(Rect::new(12, 12, 20, 20), &[0.1 * i as f32, 0.2, 0.8, 1.0]);
+        check(&mut g, &a, "pixel edit with cached plan");
+        check(&mut g, &b, "other cached document");
+        assert_eq!(g.comp.plan_builds(), n);
+    }
+    a.layers[0].opacity = 0.4;
+    check(&mut g, &a, "opacity invalidates plan");
+    assert_eq!(g.comp.plan_builds(), n + 1);
+    g.comp.forget_doc(a.id);
+    check(&mut g, &a, "reopened document");
+}
+
+#[test]
+fn cached_feathered_mask_updates_match_cpu() {
+    let Some(mut g) = gpu() else { return };
+    let mut d = base_doc(64, 64);
+    let mut mask = LayerMask::reveal_all();
+    mask.feather = 3.0;
+    mask.surface.fill_rect(Rect::new(1, 1, 40, 40), &[0.0]);
+    d.layers[0].mask = Some(mask);
+    check(&mut g, &d, "cached feathered mask");
+    let n = g.comp.plan_builds();
+    d.layers[0].mask.as_mut().unwrap().surface.fill_rect(Rect::new(5, 5, 10, 10), &[0.5]);
+    check(&mut g, &d, "feathered mask pixel edit inside existing bounds");
+    assert_eq!(g.comp.plan_builds(), n + 1);
+}
+
+#[test]
+fn deferred_encode_uniforms_survive_an_intervening_render() {
+    let Some(mut g) = gpu() else { return };
+    let a = Document::with_background("deferred", Size::new(64, 64), ColorMode::Rgb, SampleType::U8, Color::rgb(0.2, 0.5, 0.8));
+    let b = Document::with_background("submitted first", Size::new(64, 64), ColorMode::Rgb, SampleType::U8, Color::rgb(0.9, 0.1, 0.3));
+    let row = 64 * 16;
+    let buffer = g.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("deferred readback"),
+        size: u64::from(row * 64),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = g.device.create_command_encoder(&Default::default());
+    let mut format = wgpu::TextureFormat::Rgba32Float;
+    g.comp
+        .encode(&g.device, &g.queue, &mut encoder, &a, a.bounds(), &mut |enc, out| {
+            assert_eq!(out.rect, a.bounds());
+            format = out.texture.format();
+            enc.copy_texture_to_buffer(
+                wgpu::TexelCopyTextureInfo { texture: out.texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &buffer,
+                    layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(64) },
+                },
+                wgpu::Extent3d { width: 64, height: 64, depth_or_array_layers: 1 },
+            );
+        })
+        .unwrap();
+    // render() owns its submit and resets its uniform pool. The earlier encoder has not
+    // been submitted yet, so it needs independent uniforms until the caller submits it.
+    g.comp.render(&g.device, &g.queue, &b, b.bounds(), |_, _| {}).unwrap();
+    g.queue.submit([encoder.finish()]);
+    buffer.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+    g.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None }).unwrap();
+    let data = buffer.slice(..).get_mapped_range().unwrap();
+    let actual: [f32; 4] = std::array::from_fn(|i| {
+        if format == wgpu::TextureFormat::Rgba32Float {
+            f32::from_le_bytes(data[i * 4..i * 4 + 4].try_into().unwrap())
+        } else {
+            half::f16::from_le_bytes(data[i * 2..i * 2 + 2].try_into().unwrap()).to_f32()
+        }
+    });
+    let expected = photocraft_compose::render(&a, a.bounds()).px[0];
+    assert!(actual.iter().zip(expected).all(|(a, b)| (a - b).abs() <= TOL), "{actual:?} != {expected:?}");
+}

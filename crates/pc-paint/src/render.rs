@@ -682,7 +682,8 @@ impl StrokeRenderer {
         if let Some(d) = self.dual.as_mut() {
             d.dirty.clear();
         }
-        let dmg = composite_tiles(&self.ctx, &self.cov, self.dual.as_ref(), self.per_dab_color, &keys, self.bounds(), pre, target, selection, lock_transparency);
+        let dmg =
+            composite_tiles(&self.ctx, &self.cov, self.dual.as_ref(), self.per_dab_color, &keys, self.bounds(), pre, target, selection, lock_transparency);
         if all { self.bounds() } else { dmg }
     }
 

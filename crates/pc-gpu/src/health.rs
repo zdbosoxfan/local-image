@@ -109,9 +109,9 @@ impl DeviceHealth {
         health
     }
 
-    /// Record an uncaptured wgpu error. Errors about lost or destroyed objects follow a device
-    /// loss whose callback may not have run yet (it fires on the next poll): those mark the
-    /// device lost. Any other error is a strike for the current frame (see [`STRIKE_LIMIT`]).
+    /// Record an uncaptured wgpu error. Errors explicitly naming a lost/destroyed device can
+    /// precede its loss callback (it fires on the next poll): those mark the device lost.
+    /// Other errors are strikes for the current frame (see [`STRIKE_LIMIT`]).
     pub fn uncaptured(&self, e: &wgpu::Error) {
         self.error_text(&e.to_string());
     }
@@ -122,7 +122,15 @@ impl DeviceHealth {
         let line = first_line(text);
         *self.0.last_error.lock().unwrap_or_else(PoisonError::into_inner) = Some(line.clone());
         let lower = text.to_ascii_lowercase();
-        if lower.contains("lost") || lower.contains("destroyed") {
+        let device_loss = lower.lines().map(str::trim).any(|line| {
+            // A destroyed texture/buffer is recoverable even when the error context names
+            // Device::create_bind_group. Match the diagnostic's subject, not separate words.
+            let state = line.strip_prefix("parent device ").or_else(|| line.strip_prefix("device "));
+            state.is_some_and(|state| {
+                ["is lost", "was lost", "has been lost", "is destroyed", "was destroyed", "has been destroyed"].iter().any(|p| state.starts_with(p))
+            })
+        });
+        if device_loss {
             self.mark(Fault::Lost(line));
             return;
         }
@@ -144,7 +152,7 @@ impl DeviceHealth {
     pub fn tick(&self) {
         let frame = self.0.frame.fetch_add(1, Ordering::AcqRel) + 1;
         let last = self.0.strike_frame.load(Ordering::Acquire);
-        if last != 0 && frame.saturating_sub(last) >= DECAY_FRAMES {
+        if last != 0 && frame.saturating_add(1).saturating_sub(last) >= DECAY_FRAMES {
             self.0.strikes.store(0, Ordering::Release);
             self.0.strike_frame.store(0, Ordering::Release);
         }
@@ -276,6 +284,19 @@ mod tests {
         let l = DeviceHealth::new();
         l.error_text("Parent device is lost");
         assert!(l.fault().is_some_and(|f| f.is_lost()));
+    }
+
+    #[test]
+    fn validation_resource_names_do_not_count_as_device_loss() {
+        let h = DeviceHealth::new();
+        h.error_text("Validation Error: Texture 'lost panorama' is invalid");
+        h.error_text("Validation Error: Buffer 'destroyed' is invalid");
+        h.error_text("Validation Error\nCaused by:\n  In Device::create_bind_group\n    Texture 'panorama' is destroyed");
+        h.error_text("Validation Error\nCaused by:\n  Buffer 'device is lost' is invalid");
+        assert!(h.is_ok());
+        assert_eq!(h.strikes(), 1);
+        h.error_text("Validation Error\nCaused by:\n  Parent device is lost");
+        assert!(h.fault().is_some_and(|f| f.is_lost()));
     }
 
     #[test]
