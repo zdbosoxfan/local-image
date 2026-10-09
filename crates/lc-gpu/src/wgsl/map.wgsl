@@ -199,3 +199,9 @@ fn redeye_k(@builtin(global_invocation_id) g: vec3<u32>, @builtin(num_workgroups
     }
     put_rgb(i, c);
 }
+
+@compute @workgroup_size(256)
+fn xguided_refine(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) nw: vec3<u32>) {
+    let i=lin_index(g,nw);if(i>=pu(0u)) {return;}
+    let q=clamp(b[2u*i]*a[i]+b[2u*i+1u],0.0,1.0);dst[i]=c[i]+(q-c[i])*pf(1u);
+}

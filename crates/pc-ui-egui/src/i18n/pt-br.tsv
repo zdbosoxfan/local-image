@@ -3253,3 +3253,9 @@ ai	New	Novos
 	Tool tips	Dicas de ferramentas
 	Rich (name, shortcut and how to use)	Detalhada (nome, atalho e como usar)
 	Simple (name and shortcut)	Simples (nome e atalho)
+
+# Smart Sort face model bundle
+	Faces	Rostos
+	Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library.	Encontra rostos e reconhece a mesma pessoa em várias fotos. Desativado até você ativar no Smart Sort. Os dados faciais ficam na sua biblioteca.
+	Finds faces and their landmarks, ready to recognise the same person in other photos. Runs locally on the CPU.	Encontra rostos e seus pontos de referência para reconhecer a mesma pessoa em outras fotos. Executado localmente na CPU.
+	Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.	Encontra rostos e agrupa fotos da mesma pessoa para o Smart Sort. Inclui os dois modelos faciais; executado na CPU com os dados mantidos na sua biblioteca.

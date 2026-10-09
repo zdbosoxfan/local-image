@@ -1,0 +1,13 @@
+{
+  "darktable": "733bd69f32cac7ff5e41025115942772add1f088",
+  "compiler": "gcc -O0 -ffp-contract=off",
+  "fixtures": {
+    "eigf.csv": "23501d331df4485901b3801ffc425be90a2e7d2356b8c8427c9b65e167d77a34",
+    "llf.csv": "2f48b1e9818bcb4d778915d8e47825e8864d12608765d68d43ced81f8ce8bfe7",
+    "ucs.csv": "f91650bba8bd379d66e263e813e4b461e55c973fade01c79377c7ce67a6b48a8",
+    "colorequal-filter.csv": "8a3789875bd6af82270b2240e56e343d5126ba13630cbf5c3d634600cfdae6cb",
+    "balance.csv": "d460daab22711cebdbef0866dc13c3d2fc4e29e4e1c318e519dce4689ff03eed",
+    "jz.csv": "75edb2c6f321d76b0dea3335559d5827a604d08b9bc3212998d67d5f5bdec4e4",
+    "colorequal-rbf.csv": "13d1c6523d7fd6f902844d4d8dd501cb2f639241a9bd0287ceb627c70ab580ff"
+  }
+}

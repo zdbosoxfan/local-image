@@ -3,3 +3,5 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod perf;
+
+pub mod vector;

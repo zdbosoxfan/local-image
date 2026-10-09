@@ -105,6 +105,7 @@ pub mod type_spell_cmds;
 pub mod type_styles_cmds;
 mod variables_cmds;
 pub mod vector_cmds;
+pub mod vectorize_cmds;
 mod video_cmds;
 pub mod vp_cmds;
 pub mod warp_cmds;
@@ -474,6 +475,9 @@ impl Session {
 
     /// The command's own precondition for a call with `params` (their target filled in).
     fn precondition(&self, spec: &commands::CommandSpec, params: &Value) -> std::result::Result<(), String> {
+        if matches!(spec.id, "layer.vectorize" | "layer.vectorize.preview") {
+            return vectorize_cmds::enabled_with(self, params);
+        }
         channel_cmds::mask_target_enabled(self, spec.id, params).unwrap_or_else(|| (spec.enabled)(self))
     }
 

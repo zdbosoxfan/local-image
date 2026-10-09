@@ -3158,3 +3158,9 @@ ai	New	Новые
 	Tool tips	Подсказки инструментов
 	Rich (name, shortcut and how to use)	Подробные (название, сочетание клавиш и применение)
 	Simple (name and shortcut)	Простые (название и сочетание клавиш)
+
+# Smart Sort face model bundle
+	Faces	Лица
+	Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library.	Находит лица и узнаёт одного человека на разных фотографиях. Выключено до включения в Smart Sort. Данные лиц остаются в вашей библиотеке.
+	Finds faces and their landmarks, ready to recognise the same person in other photos. Runs locally on the CPU.	Находит лица и их ключевые точки для распознавания одного человека на других фотографиях. Работает локально на процессоре.
+	Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.	Находит лица и группирует фотографии одного человека для Smart Sort. Включает обе модели; работает на процессоре и хранит данные лиц в вашей библиотеке.

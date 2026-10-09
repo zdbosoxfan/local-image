@@ -2802,3 +2802,9 @@ ai	New	最新
 	Tool tips	工具提示
 	Rich (name, shortcut and how to use)	豐富（名稱、快速鍵和使用方式）
 	Simple (name and shortcut)	簡單（名稱和快速鍵）
+
+# Smart Sort face model bundle
+	Faces	人臉
+	Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library.	尋找人臉並辨識不同照片中的同一個人。在 Smart Sort 中啟用前預設關閉。人臉資料保存在圖庫中。
+	Finds faces and their landmarks, ready to recognise the same person in other photos. Runs locally on the CPU.	尋找人臉及其特徵點，以辨識其他照片中的同一個人。在本機 CPU 上執行。
+	Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.	為 Smart Sort 尋找人臉並將同一個人的照片分組。包含兩個人臉模型；在 CPU 上執行，人臉資料保存在圖庫中。

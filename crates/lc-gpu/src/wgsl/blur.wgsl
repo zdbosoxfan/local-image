@@ -2,27 +2,14 @@
 // Gaussian (`lightcraft_raster::blur::gaussian`). Each thread slides a running sum over CH pixels.
 // P: w, h, nc, r, ch. Bindings: src, dst.
 
-// Pixel `i` (all nc ≤ 3 channels at once: one contiguous read per pixel).
-fn ld(i: u32, nc: u32) -> vec3<f32> {
-    let j = i * nc;
-    if (nc == 1u) {
-        return vec3<f32>(src[j], 0.0, 0.0);
-    }
-    if (nc == 2u) {
-        return vec3<f32>(src[j], src[j + 1u], 0.0);
-    }
-    return vec3<f32>(src[j], src[j + 1u], src[j + 2u]);
+// Pixel i: all one to four interleaved channels in one contiguous read.
+fn ld(i: u32, nc: u32) -> vec4<f32> {
+    let j=i*nc; var v=vec4<f32>(src[j],0.0,0.0,0.0);
+    if(nc>1u) {v.y=src[j+1u];} if(nc>2u) {v.z=src[j+2u];} if(nc>3u) {v.w=src[j+3u];} return v;
 }
-
-fn st(i: u32, nc: u32, v: vec3<f32>) {
-    let j = i * nc;
-    dst[j] = v.x;
-    if (nc > 1u) {
-        dst[j + 1u] = v.y;
-    }
-    if (nc > 2u) {
-        dst[j + 2u] = v.z;
-    }
+fn st(i: u32, nc: u32, v: vec4<f32>) {
+    let j=i*nc;dst[j]=v.x;
+    if(nc>1u) {dst[j+1u]=v.y;} if(nc>2u) {dst[j+2u]=v.z;} if(nc>3u) {dst[j+3u]=v.w;}
 }
 
 // Horizontal: one thread per CH consecutive pixels of a row.
@@ -42,7 +29,7 @@ fn box_h(@builtin(global_invocation_id) g: vec3<u32>) {
     let inv = 1.0 / f32(2 * r + 1);
     let row = y * w;
     let x1 = min(x0 + ch, w);
-    var acc = vec3<f32>(0.0);
+    var acc = vec4<f32>(0.0);
     for (var k = -r; k <= r; k++) {
         acc += ld(row + u32(clamp(i32(x0) + k, 0, last)), nc);
     }
@@ -69,7 +56,7 @@ fn box_v(@builtin(global_invocation_id) g: vec3<u32>) {
     let last = i32(h) - 1;
     let inv = 1.0 / f32(2 * r + 1);
     let y1 = min(y0 + ch, h);
-    var acc = vec3<f32>(0.0);
+    var acc = vec4<f32>(0.0);
     for (var k = -r; k <= r; k++) {
         acc += ld(u32(clamp(i32(y0) + k, 0, last)) * w + x, nc);
     }

@@ -2825,3 +2825,9 @@ ai	New	Nové
 	Tool tips	Popisky nástrojů
 	Rich (name, shortcut and how to use)	Bohaté (název, zkratka a jak používat)
 	Simple (name and shortcut)	Jednoduché (název a zkratka)
+
+# Smart Sort face model bundle
+	Faces	Tváře
+	Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library.	Vyhledá tváře a rozpozná stejnou osobu na různých fotografiích. Vypnuto, dokud funkci nezapnete ve Smart Sort. Údaje o tvářích zůstávají ve vaší knihovně.
+	Finds faces and their landmarks, ready to recognise the same person in other photos. Runs locally on the CPU.	Vyhledá tváře a jejich orientační body pro rozpoznání stejné osoby na dalších fotografiích. Běží místně na CPU.
+	Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.	Vyhledá tváře a seskupí fotografie stejné osoby pro Smart Sort. Obsahuje oba modely; běží na CPU a údaje zůstávají ve vaší knihovně.

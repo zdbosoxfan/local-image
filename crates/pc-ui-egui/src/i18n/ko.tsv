@@ -3401,3 +3401,9 @@ ai	New	새 항목
 	Tool tips	도구 팁
 	Rich (name, shortcut and how to use)	자세히 (이름, 단축키 및 사용 방법)
 	Simple (name and shortcut)	간단히 (이름 및 단축키)
+
+# Smart Sort face model bundle
+	Faces	얼굴
+	Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library.	얼굴을 찾고 여러 사진에서 같은 사람을 인식합니다. Smart Sort에서 켤 때까지 꺼져 있습니다. 얼굴 데이터는 라이브러리에 보관됩니다.
+	Finds faces and their landmarks, ready to recognise the same person in other photos. Runs locally on the CPU.	얼굴과 특징점을 찾아 다른 사진에서 같은 사람을 인식할 수 있게 합니다. 로컬 CPU에서 실행됩니다.
+	Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.	Smart Sort에서 얼굴을 찾고 같은 사람의 사진을 묶습니다. 두 얼굴 모델을 모두 포함하며 CPU에서 실행되고 얼굴 데이터는 라이브러리에 보관됩니다.
