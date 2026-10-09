@@ -537,7 +537,11 @@ fn function_row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>,
         ui.label(
             RichText::new(crate::i18n::fmt(
                 tl!("{name} · {size} download · runs on the CPU · {licence}"),
-                &[("name", spec.label), ("size", &li_ai::download::human_bytes(spec.download_bytes())), ("licence", spec.licence)],
+                &[
+                    ("name", spec.label),
+                    ("size", &li_ai::download::human_bytes(spec.download_bytes())),
+                    ("licence", if group == li_seg::Group::Faces { "Apache-2.0 (SFace); MIT (YuNet)" } else { spec.licence }),
+                ],
             ))
             .color(t.text_faint)
             .size(11.0),
@@ -603,7 +607,7 @@ fn custom_controls(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, group: 
                     ui.label(RichText::new(tl!("Only used when the model gives one map per class (ADE20K: 2).")).color(t.text_faint).size(11.0));
                 });
             }
-            li_seg::Group::Depth | li_seg::Group::Tagging => {}
+            li_seg::Group::Depth | li_seg::Group::Tagging | li_seg::Group::Faces => {}
         }
         if job == Some(CustomJob::Testing) {
             ui.horizontal(|ui| {
@@ -1679,7 +1683,7 @@ mod tests {
     /// A harness drawing the on-device model rows (all of them, or one function's) for `dir`.
     fn seg_harness(dir: &std::path::Path, only: Option<li_seg::Group>) -> egui_kittest::Harness<'static> {
         let dir = dir.to_path_buf();
-        let mut h = egui_kittest::Harness::builder().with_size(vec2(760.0, 900.0)).build_ui(move |ui| {
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(760.0, 1100.0)).build_ui(move |ui| {
             // fonts set on the context only apply from the next frame
             if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("semibold".into()))) {
                 return;
@@ -1714,17 +1718,17 @@ mod tests {
     fn settings_lists_one_row_per_function() {
         let dir = temp_dir("rows");
         let h = seg_harness(&dir, None);
-        for title in ["Subject & Background", "Sky", "Depth", "Smart Sort (scenes)"] {
+        for title in ["Subject & Background", "Sky", "Depth", "Smart Sort (scenes)", "Faces"] {
             h.get_by_label(title);
         }
-        for model in ["IS-Net general", "PP-MobileSeg", "Depth Anything V2 Small", "CLIP ViT-B-32 LAION"] {
+        for model in ["IS-Net general", "PP-MobileSeg", "Depth Anything V2 Small", "CLIP ViT-B-32 LAION", "YuNet + SFace"] {
             h.get_by_label(model);
         }
         for gone in ["U²-Net small", "U²-Net", "TinySkyNet", "MiDaS v2.1 small"] {
             assert!(h.query_by_label(gone).is_none(), "{gone} is still listed");
         }
         assert_eq!(h.get_all_by_label("Custom model…").count(), 3);
-        assert_eq!(h.get_all_by_label("Download").count(), 4);
+        assert_eq!(h.get_all_by_label("Download").count(), 5);
         assert!(h.query_by_label_contains("Remove old models").is_none());
         assert!(h.query_by_label_contains("Finds the main subject").is_some());
         assert!(h.query_by_label_contains("Finds the sky.").is_some());
@@ -1929,6 +1933,45 @@ mod tests {
         let size = li_ai::download::human_bytes(li_seg::Group::Tagging.official().download_bytes());
         h.get_by_label_contains(&format!("{size} download"));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Clicking Cancel on the Faces bundle cancels the entire two-file job, without network.
+    #[test]
+    fn faces_function_is_one_row_without_custom_options_and_cancel_works() {
+        let dir = temp_dir("faces");
+        let h = seg_harness(&dir, Some(li_seg::Group::Faces));
+        h.get_by_label("Faces");
+        h.get_by_label("YuNet + SFace");
+        h.get_by_label("Download");
+        assert!(h.query_by_label("Custom model…").is_none());
+        assert!(h.query_by_label("Choose an ONNX file…").is_none());
+        let ctl = JobControl::new();
+        let observed = ctl.clone();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(760.0, 400.0)).build_ui(move |ui| {
+            if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("semibold".into()))) {
+                return;
+            }
+            let t = Tokens::get(ui.ctx());
+            let mut dls = BTreeMap::new();
+            dls.insert(
+                "seg:sface".into(),
+                Download { total: li_seg::Group::Faces.official().download_bytes(), done: 100, ctl: ctl.clone(), ..Default::default() },
+            );
+            function_row(ui, &t, &dls, &dir, li_seg::Group::Faces);
+        });
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(3);
+        h.get_by_label("Cancel").click();
+        h.run_steps(2);
+        assert!(observed.is_cancelled());
+        let files = std::cell::RefCell::new(Vec::new());
+        download_seg_with(li_seg::Group::Faces.official(), &|file, offset| {
+            files.borrow_mut().push((file.file, offset));
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(files.borrow().len(), 2);
+        assert_eq!(files.borrow()[1].1, li_seg::faces::SFACE.bytes);
     }
 
     #[test]

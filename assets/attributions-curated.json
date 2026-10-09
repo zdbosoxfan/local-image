@@ -14,6 +14,16 @@
       "intro": "Algorithms re-implemented in Rust from other projects (docs/PORTS.md). No C, C++ or Python from them is compiled or shipped.",
       "entries": [
         {
+          "name": "vkdt",
+          "author": "Johannes Hanika",
+          "used_for": "The local-Laplacian reduce/assemble stencils and sampled construction in LI Tone, with Local Image's exposure remapping and rectangular pyramid extensions.",
+          "ours": "crates/lc-pipeline/src/primary.rs, crates/lc-gpu/src/wgsl/primary.wgsl",
+          "commit": "afc34256fb22bcaf6dcf6503d19d5f9a6f477af5",
+          "licence": "BSD-2-Clause",
+          "licence_files": ["licenses/vkdt-NOTICE.md"],
+          "url": "https://github.com/hanatos/vkdt"
+        },
+        {
           "name": "Hugging Face Transformers (SAM 3)",
           "author": "The HuggingFace Team and Meta Platforms, Inc.",
           "used_for": "The SAM 3 model code behind Develop's object masks, ported from Python/PyTorch to Rust on candle (crates/lc-segment).",

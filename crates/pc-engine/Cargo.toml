@@ -12,6 +12,7 @@ workspace = true
 corpus = []
 
 [dependencies]
+pc-trace.workspace = true
 # local-image: AI services (ComfyUI client, workflows) and the image buffers they use.
 li-ai = { workspace = true }
 li-seg = { workspace = true }
