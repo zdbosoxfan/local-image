@@ -39,6 +39,58 @@ fn every_tool_and_group_member_has_a_distinct_colour_icon_and_none_are_unused() 
     assert_eq!(disk, embedded, "every SVG must be embedded");
 }
 
+#[test]
+fn formerly_shared_glyphs_have_distinct_rendered_silhouettes() {
+    for (a, b) in [("blur", "smooth"), ("smudge", "forward-warp"), ("healing", "spot-healing"), ("linear-mask", "luminance-range")] {
+        for size in [20, 24, 48] {
+            let a_image = color_icons::raster(a, size, false).unwrap();
+            let b_image = color_icons::raster(b, size, false).unwrap();
+            // Alpha compares the artwork's silhouette, independent of family colour.
+            let different = a_image.pixels.iter().zip(&b_image.pixels).filter(|(a, b)| a.a().abs_diff(b.a()) > 50).count();
+            assert!(different > (size * size / 8) as usize, "{a}/{b} look alike at {size}px: {different} silhouette pixels differ");
+        }
+    }
+}
+
+#[test]
+fn liquify_tool_strip_and_global_action_icons_are_clickable_in_both_modes() {
+    use photocraft_algo::liquify::LiquifyTool as L;
+    for mode in ["colour", "monochrome"] {
+        let mut session = photocraft_engine::Session::new();
+        session.execute("file.new", json!({"width": 120, "height": 80})).unwrap();
+        session.execute("layer.new.layer", json!({})).unwrap();
+        session.prefs.edit(|p| {
+            p.interface.language = "en".into();
+            p.interface.tool_icons = mode.into();
+        });
+        let mut h = Harness::builder().with_size(vec2(1280.0, 900.0)).build_eframe(move |cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+            let mut app = PhotocraftApp::new(session, Default::default());
+            app.background_jobs = false;
+            crate::liquify_ui::open(&mut app, &cc.egui_ctx).unwrap();
+            app
+        });
+        h.run_steps(4);
+        for (label, tool) in [("Smooth (E)", L::Smooth), ("Forward Warp (W)", L::ForwardWarp), ("Freeze Mask (F)", L::Freeze), ("Thaw Mask (D)", L::Thaw)] {
+            h.get_by_label(label).click();
+            h.run_steps(3);
+            assert_eq!(h.state().distort.liquify.as_ref().unwrap().opts.tool, tool, "{mode}: {label}");
+        }
+        for (label, tool) in [("Mask All", L::FreezeAll), ("Invert All", L::InvertFreeze), ("None", L::ThawAll), ("Reconstruct", L::ReconstructAll)] {
+            // Click the new 20 px image immediately before the existing text button.
+            let at = h.get_by_label(label).rect().left_center() - vec2(18.0, 0.0);
+            h.hover_at(at);
+            h.step();
+            for pressed in [true, false] {
+                h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
+                h.step();
+            }
+            h.run_steps(3);
+            assert_eq!(h.state().distort.liquify.as_ref().unwrap().strokes.last().unwrap().tool, tool, "{mode}: {label} icon");
+        }
+    }
+}
+
 fn toolbar_pixels(app: &mut PhotocraftApp, ppp: f32) -> egui::ColorImage {
     let ctx = egui::Context::default();
     PhotocraftApp::setup_context(&ctx, crate::theme::ThemeKind::Studio);

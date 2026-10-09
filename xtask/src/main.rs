@@ -14,6 +14,10 @@
 //!     for every algorithm ported from another project (docs/PORTS.md), the upstream commits that
 //!     touched its source file since the commit it was ported from — what to review and re-port.
 //!     Clones go to target/upstream/ (blob-less); --offline skips fetching.
+//! cargo xtask assets
+//!     audit asset attribution rows and referenced licence files.
+//! cargo xtask tool-icons
+//!     render docs/design/tool-icons.png with resvg at 24/48 px on dark/light backgrounds.
 //! cargo xtask attributions [--fetch]
 //!     regenerate assets/attributions.json (Settings › Attributions) from
 //!     assets/attributions-curated.json, docs/PORTS.md, the AI model tables and Cargo.lock.
