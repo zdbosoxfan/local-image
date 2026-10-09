@@ -128,6 +128,8 @@ impl Library {
 #[serde(default, rename_all = "camelCase")]
 struct PrefsFile {
     xmp: crate::sidecar::XmpPrefs,
+    #[serde(default)]
+    smart_sort: crate::smart_sort::SmartSortPrefs,
     /// Parameters of the last export (for Export with Previous).
     #[serde(alias = "last_export")]
     last_export: Option<serde_json::Value>,
@@ -332,6 +334,8 @@ impl Session {
         // preferences
         let prefs = settings.read::<PrefsFile>(files.as_mut(), "prefs.json").unwrap_or_default();
         self.xmp = prefs.xmp;
+        self.smart.prefs = prefs.smart_sort;
+        self.smart.store = crate::smart_sort::Store::new(on_disk.then_some(dir.as_path()));
         self.last_export = prefs.last_export;
         self.export_presets = prefs.export_presets;
         self.metadata_presets = prefs.metadata_presets;
@@ -533,6 +537,7 @@ impl Session {
     pub fn save_prefs(&mut self) -> Result<()> {
         let v = serde_json::to_vec_pretty(&PrefsFile {
             xmp: self.xmp,
+            smart_sort: self.smart.prefs.clone(),
             last_export: self.last_export.clone(),
             export_presets: self.export_presets.clone(),
             metadata_presets: self.metadata_presets.clone(),

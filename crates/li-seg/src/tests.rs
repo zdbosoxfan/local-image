@@ -164,7 +164,7 @@ fn object_flood_keeps_the_clicked_region_only() {
 /// One official model per function, each explained in plain language.
 #[test]
 fn one_official_model_per_function() {
-    assert_eq!(MODELS.len(), 3);
+    assert_eq!(MODELS.len(), 4);
     for g in Group::ALL {
         let m = g.official();
         assert_eq!(m.group, Some(g));
@@ -180,6 +180,13 @@ fn one_official_model_per_function() {
     assert_eq!(Group::Subject.official().task, Task::Subject);
     assert!(matches!(Group::Sky.official().task, Task::Sky { .. }));
     assert_eq!(Group::Depth.official().task, Task::Depth);
+    assert_eq!(Group::Tagging.official().task, Task::ImageText);
+    assert_eq!(Group::Tagging.official().files().count(), 4);
+    for group in [Group::Subject, Group::Sky, Group::Depth] {
+        assert!(group.supports_custom());
+        assert!(group.official().companions.is_empty());
+    }
+    assert!(!Group::Tagging.supports_custom());
     for (file, _) in LEGACY {
         assert!(MODELS.iter().all(|m| m.file != *file), "{file} is still offered");
     }
@@ -359,6 +366,9 @@ fn old_models_are_listed_never_used_and_can_be_removed() {
     std::fs::write(seg.join("u2netp.onnx"), vec![0u8; 100]).unwrap();
     std::fs::write(seg.join("midas_v21_small_256.onnx"), vec![0u8; 50]).unwrap();
     std::fs::write(seg.join("unrelated.onnx"), vec![0u8; 7]).unwrap();
+    for file in Group::Tagging.official().files() {
+        std::fs::write(companion_path(&dir, file.file), b"clip file").unwrap();
+    }
     assert_eq!(legacy_installed(&dir).iter().map(|(_, b)| b).sum::<u64>(), 150);
     for g in Group::ALL {
         assert!(!available(g, &dir), "old files don't serve {g:?}");
@@ -368,6 +378,9 @@ fn old_models_are_listed_never_used_and_can_be_removed() {
     let freed = remove_legacy_with(&dir, &|p| std::fs::rename(p, trash.join(p.file_name().unwrap()))).unwrap();
     assert_eq!(freed, 150);
     assert!(legacy_installed(&dir).is_empty() && seg.join("unrelated.onnx").is_file());
+    for file in Group::Tagging.official().files() {
+        assert_eq!(std::fs::read(companion_path(&dir, file.file)).unwrap(), b"clip file");
+    }
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -487,4 +500,61 @@ fn depth_model_finds_the_near_ground() {
     let (near, far) = (at(w / 8, h - 6), at(w / 8, (h as f32 * 0.42) as usize));
     assert!(near > far + 0.2, "near ground {near}, horizon {far}");
     assert!(at(w / 2, h * 3 / 4) > far, "the box is nearer than the horizon");
+}
+
+#[test]
+fn companions_install_and_remove_as_one_bundle() {
+    let dir = temp_models();
+    let mut bundle = *spec("clip-b32-laion").unwrap();
+    bundle.bytes = 2;
+    bundle.sha256 = "";
+    bundle.companions = &[Companion { file: "tiny-text", url: "https://huggingface.co/tiny", bytes: 3, sha256: "" }];
+    std::fs::write(model_path(&dir, &bundle), b"xx").unwrap();
+    assert_eq!(installed_bytes(&dir, &bundle), None);
+    std::fs::write(companion_path(&dir, "tiny-text"), b"x").unwrap();
+    assert_eq!(installed_bytes(&dir, &bundle), None, "partial companion");
+    std::fs::write(companion_path(&dir, "tiny-text"), b"xxx").unwrap();
+    assert_eq!(installed_bytes(&dir, &bundle), Some(5));
+    assert_eq!(bundle.download_bytes(), 5);
+    assert_eq!(remove(&dir, &bundle).unwrap(), 5);
+    assert!(!model_path(&dir, &bundle).exists());
+    assert!(!companion_path(&dir, "tiny-text").exists());
+    std::fs::write(model_path(&dir, &bundle), b"x").unwrap();
+    assert_eq!(remove(&dir, &bundle).unwrap(), 1, "remove partial bundle too");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn wrong_bundle_hash_is_not_installed() {
+    let dir = temp_models();
+    let mut bundle = *spec("clip-b32-laion").unwrap();
+    bundle.bytes = 2;
+    bundle.sha256 = "incorrect";
+    bundle.companions = &[Companion { file: "tiny-vocab", url: "", bytes: 1, sha256: "" }];
+    std::fs::write(model_path(&dir, &bundle), b"xx").unwrap();
+    std::fs::write(companion_path(&dir, "tiny-vocab"), b"x").unwrap();
+    assert_eq!(installed_bytes(&dir, &bundle), None);
+    // Invalid bundles can still be removed in full.
+    assert_eq!(remove(&dir, &bundle).unwrap(), 3);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn tagging_requires_its_bundle_and_refuses_custom_models() {
+    let dir = temp_models();
+    let source = picked(&dir, "single.onnx", Some((32, 32)), Out::Map);
+    let err = add_custom(&dir, Group::Tagging, &source, CustomOptions::default(), &keep).unwrap_err();
+    assert_eq!(err.downcast_ref::<CustomModelError>(), Some(&CustomModelError::UnsupportedFunction));
+    assert!(!custom_dir(&dir).exists(), "nothing is copied for tagging");
+    std::fs::write(model_path(&dir, Group::Tagging.official()), b"partial bundle").unwrap();
+    assert!(Group::Tagging.in_use(&dir).is_none());
+    assert!(!available(Group::Tagging, &dir));
+    // A hand-edited custom list cannot activate a single file in place of CLIP's bundle.
+    std::fs::create_dir_all(custom_dir(&dir)).unwrap();
+    std::fs::copy(&source, custom_dir(&dir).join("single.onnx")).unwrap();
+    std::fs::write(custom_list(&dir), "tagging\tsingle.onnx\tCustom CLIP\t32\tisnet\t1\t0\n").unwrap();
+    assert!(custom(&dir, Group::Tagging).is_none());
+    assert!(Group::Tagging.in_use(&dir).is_none());
+    assert!(Segmenter::load(Group::Tagging.official(), &source).is_err());
+    let _ = std::fs::remove_dir_all(dir);
 }

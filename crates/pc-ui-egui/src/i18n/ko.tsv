@@ -3205,6 +3205,9 @@ ai	New	새 항목
 	Search attributions…	저작자 표시 검색…
 	No matches.	일치하는 항목이 없습니다.
 	Show licence text	라이선스 전문 보기
+	Smart Sort (scenes)	스마트 분류 (장면)
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	사진의 내용(발표자, 청중, 세부 사항 등)을 인식하여 알맞은 폴더에 넣습니다. CPU에서 실행되며 사진은 이 컴퓨터 밖으로 전송되지 않습니다.
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	입력한 설명으로 장면을 인식합니다. 발표자, 청중, 세부 사항 및 선택한 다른 범주를 위한 빠른 로컬 모델입니다. 다운로드에는 텍스트 모델과 토크나이저가 포함됩니다.
 	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	사진의 주요 피사체를 찾습니다. 선택 › 피사체, 배경 제거(빠르게), 개체 선택 도구의 클릭 모드, 라이브러리의 피사체·배경 마스크에서 사용됩니다.
 	Finds the sky. Used by Select › Sky and the Library's sky masks.	하늘을 찾습니다. 선택 › 하늘과 라이브러리의 하늘 마스크에서 사용됩니다.
 	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	사진의 각 부분이 얼마나 멀리 있는지 추정합니다. 라이브러리의 깊이 마스크에서 사용됩니다(예: 배경을 어둡게 하거나 흐리게 하거나, 거리에 따라 전경을 선택할 때).
@@ -3241,3 +3244,4 @@ ai	New	새 항목
 	The model's input must be an image (batch × 3 × height × width)	모델 입력은 이미지(배치 × 3 × 높이 × 너비)여야 합니다
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	하늘 클래스 {class} 값이 범위를 벗어났습니다. 이 모델은 {classes}개의 클래스(0~{max})를 가집니다
 	{path} isn't a file	{path}은(는) 파일이 아닙니다
+	Custom models are not supported for this function	이 기능에서는 사용자 지정 모델을 지원하지 않습니다

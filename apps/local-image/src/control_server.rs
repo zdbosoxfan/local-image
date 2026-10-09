@@ -114,7 +114,14 @@ mod tests {
     fn oversized_reply_preserves_framing_id_and_the_next_control_request() {
         use photocraft_automation::budgets::MAX_RESPONSE_BYTES;
         const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let listener = match TcpListener::bind("127.0.0.1:0") {
+            Ok(listener) => listener,
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                eprintln!("skipped: sandbox denies sockets for the control-server test");
+                return;
+            }
+            Err(e) => panic!("control-server listener: {e}"),
+        };
         let addr = listener.local_addr().unwrap();
         let (tx, rx) = channel::<ControlRequest>();
         let server = std::thread::spawn(move || {

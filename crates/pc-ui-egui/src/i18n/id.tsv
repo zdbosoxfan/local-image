@@ -3037,6 +3037,9 @@ ai	New	Baru
 	Search attributions…	Cari atribusi…
 	No matches.	Tidak ada yang cocok.
 	Show licence text	Tampilkan teks lisensi
+	Smart Sort (scenes)	Urut Cerdas (adegan)
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	Mengenali isi foto (pembicara, penonton, detail…) agar Urut Cerdas menempatkannya di folder yang tepat. Berjalan di CPU; foto tidak pernah meninggalkan komputer ini.
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	Mengenali adegan dari deskripsi Anda untuk Urut Cerdas. Model lokal cepat untuk pembicara, penonton, detail, dan kategori lain pilihan Anda. Unduhan menyertakan model teks dan tokenizer.
 	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Menemukan subjek utama foto. Dipakai oleh Pilih › Subjek, Hapus Latar Belakang (Cepat), mode klik Alat Seleksi Objek, serta masker Subjek dan Latar Belakang di Pustaka.
 	Finds the sky. Used by Select › Sky and the Library's sky masks.	Menemukan langit. Dipakai oleh Pilih › Langit dan masker langit di Pustaka.
 	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Memperkirakan seberapa jauh setiap bagian foto. Dipakai oleh masker kedalaman di Pustaka (misalnya untuk menggelapkan atau mengaburkan latar belakang, atau memilih latar depan berdasarkan jarak).
@@ -3073,3 +3076,4 @@ ai	New	Baru
 	The model's input must be an image (batch × 3 × height × width)	Masukan model harus berupa citra (batch × 3 × tinggi × lebar)
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Kelas langit {class} di luar rentang: model ini memiliki {classes} kelas (0 hingga {max})
 	{path} isn't a file	{path} bukan file
+	Custom models are not supported for this function	Model kustom tidak didukung untuk fungsi ini

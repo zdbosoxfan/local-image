@@ -3,12 +3,16 @@
 //! GPU, no external runtime), or a custom `.onnx` file the user picks for a function. Powers
 //! Select › Subject and Sky, Remove Background (Quick), the Object Selection tool's click mode,
 //! and the Library's Subject / Sky / Background / Depth masks — small, quick models that need no
-//! AI server.
+//! AI server. Smart Sort uses a paired CLIP image/text bundle through [`Clip`].
 //!
 //! Pre- and post-processing follow the rembg conventions the models were trained for (and
 //! OmaPhoto's port of Compositor): premultiplied resize to the model size, normalisation by the
 //! image's peak value then mean 0.5 / std 1 (IS-Net) or ImageNet mean/std (U²-Net style), the
 //! first output map, min–max stretch, bilinear upscale.
+
+pub mod bpe;
+pub mod clip;
+pub use clip::{Clip, Crops, shared_clip};
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -20,12 +24,22 @@ use tract_onnx::tract_hir::infer::Factoid;
 
 pub mod faces;
 
+/// Another file required by a multi-file model (weights or tokenizer data).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Companion {
+    pub file: &'static str,
+    pub url: &'static str,
+    pub bytes: u64,
+    pub sha256: &'static str,
+}
+
 /// A downloadable model: (file name, bytes, sha256, url, input size, label).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ModelSpec {
     pub id: &'static str,
     pub label: &'static str,
     pub file: &'static str,
+    pub companions: &'static [Companion],
     pub bytes: u64,
     pub sha256: &'static str,
     pub url: &'static str,
@@ -47,16 +61,18 @@ pub enum Group {
     Subject,
     Sky,
     Depth,
+    Tagging,
 }
 
 impl Group {
-    pub const ALL: [Group; 3] = [Group::Subject, Group::Sky, Group::Depth];
+    pub const ALL: [Group; 4] = [Group::Subject, Group::Sky, Group::Depth, Group::Tagging];
 
     pub fn label(self) -> &'static str {
         match self {
             Group::Subject => "Subject & Background",
             Group::Sky => "Sky",
             Group::Depth => "Depth",
+            Group::Tagging => "Smart Sort (scenes)",
         }
     }
 
@@ -66,7 +82,13 @@ impl Group {
             Group::Subject => "subject",
             Group::Sky => "sky",
             Group::Depth => "depth",
+            Group::Tagging => "tagging",
         }
+    }
+
+    /// Only the mask/depth functions support user-picked single ONNX files.
+    pub fn supports_custom(self) -> bool {
+        matches!(self, Group::Subject | Group::Sky | Group::Depth)
     }
 
     /// What the function does and where the app uses it.
@@ -76,6 +98,9 @@ impl Group {
                 "Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks."
             }
             Group::Sky => "Finds the sky. Used by Select › Sky and the Library's sky masks.",
+            Group::Tagging => {
+                "Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer."
+            }
             Group::Depth => {
                 "Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance)."
             }
@@ -88,6 +113,7 @@ impl Group {
             Group::Subject => "isnet",
             Group::Sky => "sky-mobileseg",
             Group::Depth => "depth-anything-v2-small",
+            Group::Tagging => "clip-b32-laion",
         };
         MODELS.iter().find(|m| m.id == id).expect("the official model is in MODELS")
     }
@@ -155,6 +181,8 @@ pub enum Task {
     /// Monocular relative depth (Depth Anything V2): one map of relative inverse depth
     /// (larger = nearer), ImageNet-normalised input.
     Depth,
+    /// Paired image/text embedding models; kept separate from mask inference.
+    ImageText,
 }
 
 pub const MODELS: &[ModelSpec] = &[
@@ -162,6 +190,7 @@ pub const MODELS: &[ModelSpec] = &[
         id: "isnet",
         label: "IS-Net general",
         file: "isnet-general-use.onnx",
+        companions: &[],
         bytes: 178648008,
         sha256: "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a",
         url: "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx",
@@ -177,6 +206,7 @@ pub const MODELS: &[ModelSpec] = &[
         id: "sky-mobileseg",
         label: "PP-MobileSeg",
         file: "pp_mobileseg_base_ade20k_512.onnx",
+        companions: &[],
         bytes: 23711565,
         sha256: "63c15451d3907472410de9417cabf2f121b62006d50b980fb2f774ceddaeec7a",
         url: "https://raw.githubusercontent.com/kisakutanaka/SkySegmentation/4f1715a9517e065d2867a724b4dc6aad914f0aca/models/pp_mobileseg_base_ade20k_512.onnx",
@@ -195,6 +225,7 @@ pub const MODELS: &[ModelSpec] = &[
         id: "depth-anything-v2-small",
         label: "Depth Anything V2 Small",
         file: "depth_anything_v2_vits_dynamic.onnx",
+        companions: &[],
         bytes: 99092268,
         sha256: "46c4e8eeda3a27f34701831b6a2ec7753d7b38779b215acb5633424703deed8f",
         url: "https://github.com/fabio-sim/Depth-Anything-ONNX/releases/download/v2.0.0/depth_anything_v2_vits_dynamic.onnx",
@@ -204,6 +235,40 @@ pub const MODELS: &[ModelSpec] = &[
         task: Task::Depth,
         group: Some(Group::Depth),
         about: "Clean edges between near and far, good on most photos. Takes a few seconds per photo.",
+    },
+    ModelSpec {
+        id: "clip-b32-laion",
+        label: "CLIP ViT-B-32 LAION",
+        file: "clip-vit-b32-laion2b-visual.onnx",
+        url: "https://huggingface.co/immich-app/ViT-B-32__laion2b-s34b-b79k/resolve/19a057a0fb927cf239541300e74237cd56c7ffe2/visual/model.onnx",
+        companions: &[
+            Companion {
+                file: "clip-vit-b32-laion2b-textual.onnx",
+                url: "https://huggingface.co/immich-app/ViT-B-32__laion2b-s34b-b79k/resolve/19a057a0fb927cf239541300e74237cd56c7ffe2/textual/model.onnx",
+                bytes: 254193396,
+                sha256: "48c25be37b352398f2533c9426dab6f9340535e14e46f884cc894236a5060722",
+            },
+            Companion {
+                file: "clip-vocab.json",
+                url: "https://huggingface.co/immich-app/ViT-B-32__laion2b-s34b-b79k/resolve/19a057a0fb927cf239541300e74237cd56c7ffe2/textual/vocab.json",
+                bytes: 862328,
+                sha256: "5047b556ce86ccaf6aa22b3ffccfc52d391ea4accdab9c2f2407da5b742d4363",
+            },
+            Companion {
+                file: "clip-merges.txt",
+                url: "https://huggingface.co/immich-app/ViT-B-32__laion2b-s34b-b79k/resolve/19a057a0fb927cf239541300e74237cd56c7ffe2/textual/merges.txt",
+                bytes: 524619,
+                sha256: "9fd691f7c8039210e0fced15865466c65820d09b63988b0174bfe25de299051a",
+            },
+        ],
+        bytes: 351613724,
+        sha256: "b9ce24b91a8c62ef8d40ea786051709c93140104cbf2b6b4a2cc270df3838f9c",
+        size: 224,
+        isnet: false,
+        licence: "MIT (LAION CLIP weights; Immich ONNX export; OpenAI tokenizer)",
+        task: Task::ImageText,
+        group: Some(Group::Tagging),
+        about: "Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.",
     },
 ];
 
@@ -264,6 +329,9 @@ impl Segmenter {
     }
 
     fn load_cfg(cfg: Config, path: &Path) -> Result<Self> {
+        if cfg.task == Task::ImageText {
+            bail!("use Clip to load an image/text model");
+        }
         let s = cfg.size;
         // the dynamic-shape depth export declares symbolic intermediate shapes that conflict
         // with the fixed input: let tract infer them
@@ -449,7 +517,22 @@ pub fn object_at(prob: &[f32], w: usize, h: usize, cx: usize, cy: usize) -> Opti
 
 /// Where segmentation models live: `<models>/segmentation/<file>`.
 pub fn model_path(models_dir: &Path, spec: &ModelSpec) -> std::path::PathBuf {
-    models_dir.join("segmentation").join(spec.file)
+    companion_path(models_dir, spec.file)
+}
+
+pub fn companion_path(models_dir: &Path, file: &str) -> std::path::PathBuf {
+    models_dir.join("segmentation").join(file)
+}
+
+impl ModelSpec {
+    /// Main weights first, then all companion files, in download order.
+    pub fn files(&self) -> impl Iterator<Item = Companion> + '_ {
+        std::iter::once(Companion { file: self.file, url: self.url, bytes: self.bytes, sha256: self.sha256 }).chain(self.companions.iter().copied())
+    }
+
+    pub fn download_bytes(&self) -> u64 {
+        self.files().map(|f| f.bytes).sum()
+    }
 }
 
 // ------------------------------------------------------------------------------ custom models
@@ -484,6 +567,7 @@ impl Custom {
             Group::Subject => Task::Subject,
             Group::Sky => Task::Sky { classes: self.classes, class: self.class, margin: if self.classes == 1 { 0.0 } else { 2.0 } },
             Group::Depth => Task::Depth,
+            Group::Tagging => Task::ImageText,
         };
         Config { id: format!("custom:{}", self.file), size: self.size, norm: self.norm, task }
     }
@@ -515,6 +599,9 @@ fn custom_list(models_dir: &Path) -> PathBuf {
 
 /// The custom model set for `group`, when its file is still there.
 pub fn custom(models_dir: &Path, group: Group) -> Option<Custom> {
+    if !group.supports_custom() {
+        return None;
+    }
     read_customs(models_dir).into_iter().find(|c| c.group == group).filter(|c| c.path(models_dir).is_file())
 }
 
@@ -526,7 +613,7 @@ fn read_customs(models_dir: &Path) -> Vec<Custom> {
             let f: Vec<&str> = line.split('\t').collect();
             let [key, file, name, size, norm, classes, class] = f.as_slice() else { return None };
             Some(Custom {
-                group: Group::ALL.into_iter().find(|g| g.key() == *key)?,
+                group: Group::ALL.into_iter().find(|g| g.supports_custom() && g.key() == *key)?,
                 file: (*file).to_owned(),
                 name: (*name).to_owned(),
                 size: size.parse().ok().filter(|s| *s > 0)?,
@@ -559,6 +646,8 @@ fn safe_name(name: &str) -> String {
 /// Why a user-picked custom model cannot be used.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CustomModelError {
+    /// This function requires a bundle and has no custom-model flow.
+    UnsupportedFunction,
     /// The path isn't a regular file.
     NotAFile { path: PathBuf },
     /// The file name doesn't end in `.onnx`.
@@ -588,6 +677,7 @@ pub enum CustomModelError {
 impl fmt::Display for CustomModelError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            CustomModelError::UnsupportedFunction => f.write_str("Custom models are not supported for this function"),
             CustomModelError::NotAFile { path } => write!(f, "{} isn't a file", path.display()),
             CustomModelError::NotOnnx => f.write_str("Choose an ONNX model (a file ending in .onnx)"),
             CustomModelError::NoInput => f.write_str("The model has no input"),
@@ -657,6 +747,7 @@ fn validate(custom: &Custom, path: &Path) -> Result<(), CustomModelError> {
     let seg = Segmenter::load_cfg(custom.config(), path).map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
     let shape = seg.output_shape().map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
     match custom.group {
+        Group::Tagging => return Err(CustomModelError::UnsupportedFunction),
         Group::Subject => {
             if single_map(&shape).is_none() {
                 return Err(CustomModelError::NotSubjectModel);
@@ -683,6 +774,9 @@ fn validate(custom: &Custom, path: &Path) -> Result<(), CustomModelError> {
 /// custom folder and remembers it. A custom model already set is replaced; `dispose` puts its old
 /// file away (the Trash). Nothing changes when the model doesn't fit.
 pub fn add_custom(models_dir: &Path, group: Group, src: &Path, opts: CustomOptions, dispose: &dyn Fn(&Path) -> std::io::Result<()>) -> Result<Custom> {
+    if !group.supports_custom() {
+        return Err(CustomModelError::UnsupportedFunction.into());
+    }
     if !src.is_file() {
         return Err(CustomModelError::NotAFile { path: src.to_path_buf() }.into());
     }
@@ -782,7 +876,7 @@ fn active(group: Group, models_dir: &Path) -> Option<Active> {
     }
     let spec = group.official();
     let path = model_path(models_dir, spec);
-    path.is_file().then(|| Active { key: spec.id.to_owned(), path, cfg: Config::of_spec(spec), in_use: InUse::Official(spec) })
+    installed_bytes(models_dir, spec).map(|_| Active { key: spec.id.to_owned(), path, cfg: Config::of_spec(spec), in_use: InUse::Official(spec) })
 }
 
 /// Whether a model is ready for `group` (a custom one, or the installed official one).
@@ -805,9 +899,56 @@ pub fn shared_sky(models_dir: &Path) -> Option<Segmenter> {
     cached(active(Group::Sky, models_dir)?, &SKY)
 }
 
+type FileStamp = (std::path::PathBuf, u64, Option<std::time::SystemTime>, &'static str);
+static VERIFIED_FILES: std::sync::Mutex<Vec<(FileStamp, bool)>> = std::sync::Mutex::new(Vec::new());
+
+fn verified_file(stamp: FileStamp) -> bool {
+    use sha2::{Digest, Sha256};
+    let mut cache = VERIFIED_FILES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((_, valid)) = cache.iter().find(|(s, _)| *s == stamp) {
+        return *valid;
+    }
+    let valid = if stamp.3.is_empty() {
+        true
+    } else {
+        std::fs::File::open(&stamp.0).is_ok_and(|mut f| {
+            let mut digest = Sha256::new();
+            std::io::copy(&mut f, &mut digest).is_ok() && format!("{:x}", digest.finalize()) == stamp.3
+        })
+    };
+    // Only keep the current metadata of each file, avoiding growth after repeated reinstalls.
+    cache.retain(|(s, _)| s.0 != stamp.0);
+    cache.push((stamp, valid));
+    valid
+}
+
+/// Verified files from an interrupted bundle download can be retained on retry. Metadata
+/// invalidates the checksum cache when a file changes, so Settings need not hash weights per frame.
+pub fn file_installed(models_dir: &Path, file: Companion) -> bool {
+    let path = companion_path(models_dir, file.file);
+    let Ok(m) = std::fs::metadata(&path) else {
+        return false;
+    };
+    m.is_file() && m.len() == file.bytes && verified_file((path, m.len(), m.modified().ok(), file.sha256))
+}
+
 /// Size of the installed copy of `spec`, when it is installed.
 pub fn installed_bytes(models_dir: &Path, spec: &ModelSpec) -> Option<u64> {
-    std::fs::metadata(model_path(models_dir, spec)).ok().filter(|m| m.is_file()).map(|m| m.len())
+    let mut total = 0;
+    let mut stamp = Vec::new();
+    for file in spec.files() {
+        let path = companion_path(models_dir, file.file);
+        let m = std::fs::metadata(&path).ok()?;
+        if !m.is_file() || (!spec.companions.is_empty() && m.len() != file.bytes) {
+            return None;
+        }
+        total += m.len();
+        stamp.push((path, m.len(), m.modified().ok(), file.sha256));
+    }
+    if !spec.companions.is_empty() && !stamp.into_iter().all(verified_file) {
+        return None;
+    }
+    Some(total)
 }
 
 /// Removes an installed model, deleting its file. See [`remove_with`].
@@ -819,18 +960,29 @@ pub fn remove(models_dir: &Path, spec: &ModelSpec) -> Result<u64> {
 /// and the loaded copy is forgotten so nothing keeps using it. Returns the bytes freed (0 when it
 /// wasn't installed).
 pub fn remove_with(models_dir: &Path, spec: &ModelSpec, dispose: &dyn Fn(&Path) -> std::io::Result<()>) -> Result<u64> {
-    let path = model_path(models_dir, spec);
-    let Some(bytes) = installed_bytes(models_dir, spec) else {
-        forget(spec);
-        return Ok(0);
-    };
-    dispose(&path).with_context(|| format!("Could not remove {}", path.display()))?;
     forget(spec);
+    let mut bytes = 0;
+    // Also remove a partially installed bundle, so failed downloads can be cleaned up.
+    for file in spec.files() {
+        let path = companion_path(models_dir, file.file);
+        match std::fs::metadata(&path) {
+            Ok(m) if m.is_file() => {
+                dispose(&path).with_context(|| format!("Could not remove {}", path.display()))?;
+                bytes += m.len();
+            }
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
     Ok(bytes)
 }
 
 /// Drops the process-wide loaded copy of `spec` (after it is removed).
 fn forget(spec: &ModelSpec) {
+    if spec.task == Task::ImageText {
+        clip::forget();
+    }
     for slot in [&SUBJECT, &SKY, &DEPTH] {
         let mut g = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if g.as_ref().is_some_and(|(key, _)| key == spec.id) {
@@ -841,7 +993,12 @@ fn forget(spec: &ModelSpec) {
 
 /// Drops the loaded copy of whatever serves `group`.
 fn forget_group(group: Group) {
-    let mut g = slot(group).lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if group == Group::Tagging {
+        clip::forget();
+        return;
+    }
+    let Some(slot) = slot(group) else { return };
+    let mut g = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     *g = None;
 }
 
@@ -850,11 +1007,12 @@ static SUBJECT: Slot = std::sync::Mutex::new(None);
 static SKY: Slot = std::sync::Mutex::new(None);
 static DEPTH: Slot = std::sync::Mutex::new(None);
 
-fn slot(group: Group) -> &'static Slot {
+fn slot(group: Group) -> Option<&'static Slot> {
     match group {
-        Group::Subject => &SUBJECT,
-        Group::Sky => &SKY,
-        Group::Depth => &DEPTH,
+        Group::Subject => Some(&SUBJECT),
+        Group::Sky => Some(&SKY),
+        Group::Depth => Some(&DEPTH),
+        Group::Tagging => None,
     }
 }
 

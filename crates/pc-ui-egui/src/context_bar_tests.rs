@@ -322,7 +322,17 @@ fn path_and_selection_ai_and_generated_layer_buttons_work() {
             crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = None);
         }
     }
-    let server = li_ai::mock::MockComfy::start().expect("mock server");
+    let server = match li_ai::mock::MockComfy::start() {
+        Ok(server) => server,
+        Err(e)
+            if e.kind() == std::io::ErrorKind::PermissionDenied
+                || e.get_ref().and_then(|e| e.downcast_ref::<std::io::Error>()).is_some_and(|e| e.kind() == std::io::ErrorKind::PermissionDenied) =>
+        {
+            eprintln!("skipped: sandbox denies sockets for the mock HTTP server");
+            return;
+        }
+        Err(e) => panic!("mock server: {e}"),
+    };
     li_ai::set_service_override(Some(server.host().to_owned()));
     let _reset = Reset;
     let (model, variant) = crate::ai_ui::remove_engine("klein");

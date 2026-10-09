@@ -259,7 +259,7 @@ pub fn start_download(preset_id: &str) {
     });
 }
 
-/// Downloads a CPU selection model (U²-Net / IS-Net) into `<model folder>/segmentation/`; keyed
+/// Downloads an official on-device model or bundle into `<model folder>/segmentation/`; keyed
 /// `seg:<id>` in [`downloads`].
 pub fn start_seg_download(spec: &'static li_seg::ModelSpec) {
     let key = format!("seg:{}", spec.id);
@@ -268,17 +268,14 @@ pub fn start_seg_download(spec: &'static li_seg::ModelSpec) {
         if d.get(&key).is_some_and(|x| !x.finished) {
             return;
         }
-        d.insert(key.clone(), Download { total: spec.bytes, file: spec.file.to_owned(), ctl: ctl.clone(), ..Default::default() });
+        d.insert(key.clone(), Download { total: spec.download_bytes(), file: spec.file.to_owned(), ctl: ctl.clone(), ..Default::default() });
     }
     let _ = std::thread::Builder::new().name("seg-download".into()).spawn(move || {
-        let dest = li_seg::model_path(&photocraft_engine::seg::models_dir(), spec);
-        let file = dest;
-        let k2 = key.clone();
-        let r = li_ai::download::download_file(spec.url, &file, spec.bytes, spec.sha256, &ctl, &|n| {
+        let r = download_seg_files(spec, &photocraft_engine::seg::models_dir(), &ctl, &|done| {
             if let Ok(mut d) = shared().downloads.lock()
-                && let Some(x) = d.get_mut(&k2)
+                && let Some(x) = d.get_mut(&key)
             {
-                x.done = n;
+                x.done = done;
             }
         });
         if let Ok(mut d) = shared().downloads.lock()
@@ -289,6 +286,46 @@ pub fn start_seg_download(spec: &'static li_seg::ModelSpec) {
         }
         refresh();
     });
+}
+
+/// Fetch a bundle in order, with one cumulative progress counter. Kept separate from the
+/// thread so tests can verify sequencing and cancellation without any network.
+fn download_seg_files(spec: &li_seg::ModelSpec, dir: &std::path::Path, ctl: &JobControl, progress: &dyn Fn(u64)) -> anyhow::Result<()> {
+    download_seg_files_with(spec, dir, ctl, progress, &|file, path, on_bytes| {
+        li_ai::download::download_file(file.url, path, file.bytes, file.sha256, ctl, on_bytes)
+    })
+}
+
+fn download_seg_files_with(
+    spec: &li_seg::ModelSpec,
+    dir: &std::path::Path,
+    ctl: &JobControl,
+    progress: &dyn Fn(u64),
+    fetch: &dyn Fn(li_seg::Companion, &std::path::Path, &dyn Fn(u64)) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    download_seg_with(spec, &|file, offset| {
+        if ctl.is_cancelled() {
+            anyhow::bail!("download cancelled");
+        }
+        let path = li_seg::companion_path(dir, file.file);
+        if li_seg::file_installed(dir, file) {
+            progress(offset + file.bytes);
+            return Ok(());
+        }
+        if path.is_file() {
+            std::fs::remove_file(&path)?;
+        }
+        fetch(file, &path, &|n| progress(offset + n))
+    })
+}
+
+fn download_seg_with(spec: &li_seg::ModelSpec, download: &dyn Fn(li_seg::Companion, u64) -> anyhow::Result<()>) -> anyhow::Result<()> {
+    let mut done = 0;
+    for file in spec.files() {
+        download(file, done)?;
+        done += file.bytes;
+    }
+    Ok(())
 }
 
 /// Where a function's custom-model test stands (see [`CUSTOM_JOBS`]).
@@ -358,6 +395,7 @@ fn pick_onnx() -> Option<std::path::PathBuf> {
 /// Translates a custom-model validation error into a one-line reason.
 fn custom_model_reason(e: &li_seg::CustomModelError) -> String {
     match e {
+        li_seg::CustomModelError::UnsupportedFunction => tl!("Custom models are not supported for this function").to_owned(),
         li_seg::CustomModelError::NotAFile { path } => crate::i18n::fmt(tl!("{path} isn't a file"), &[("path", &path.display().to_string())]),
         li_seg::CustomModelError::NotOnnx => tl!("Choose an ONNX model (a file ending in .onnx)").to_owned(),
         li_seg::CustomModelError::NoInput => tl!("The model has no input").to_owned(),
@@ -409,9 +447,9 @@ fn start_custom(dir: std::path::PathBuf, group: li_seg::Group, src: std::path::P
     });
 }
 
-/// Settings › Local AI › On-device models: one row per function (Subject & Background, Sky,
-/// Depth) with what it does, its official model (Download or Remove) and a "Custom model…"
-/// button; then "Remove old models" when models the app no longer uses are still on disk.
+/// Settings › Local AI › On-device models: one row per function, including Smart Sort tagging.
+/// Mask/depth rows offer a custom ONNX flow; tagging uses its official bundle. "Remove old models"
+/// appears when models the app no longer uses are still on disk.
 fn seg_rows(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>, dir: &std::path::Path) {
     for group in li_seg::Group::ALL {
         function_row(ui, t, dls, dir, group);
@@ -499,7 +537,7 @@ fn function_row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>,
         ui.label(
             RichText::new(crate::i18n::fmt(
                 tl!("{name} · {size} download · runs on the CPU · {licence}"),
-                &[("name", spec.label), ("size", &li_ai::download::human_bytes(spec.bytes)), ("licence", spec.licence)],
+                &[("name", spec.label), ("size", &li_ai::download::human_bytes(spec.download_bytes())), ("licence", spec.licence)],
             ))
             .color(t.text_faint)
             .size(11.0),
@@ -507,14 +545,19 @@ fn function_row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>,
         if let Some(err) = dl.and_then(|d| d.error.as_ref()) {
             ui.label(RichText::new(err).color(t.danger).size(11.5));
         }
-        ui.add_space(4.0);
-        custom_controls(ui, t, dir, group);
+        if group.supports_custom() {
+            ui.add_space(4.0);
+            custom_controls(ui, t, dir, group);
+        }
     });
     ui.add_space(4.0);
 }
 
 /// The small "Custom model…" button and, when open, its options and file picker.
 fn custom_controls(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, group: li_seg::Group) {
+    if !group.supports_custom() {
+        return;
+    }
     let mut o = dialogs_mut(|d| d.seg_opts.entry(group).or_default().clone());
     let before = o.clone();
     let mut job = custom_job(dir, group);
@@ -560,7 +603,7 @@ fn custom_controls(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, group: 
                     ui.label(RichText::new(tl!("Only used when the model gives one map per class (ADE20K: 2).")).color(t.text_faint).size(11.0));
                 });
             }
-            li_seg::Group::Depth => {}
+            li_seg::Group::Depth | li_seg::Group::Tagging => {}
         }
         if job == Some(CustomJob::Testing) {
             ui.horizontal(|ui| {
@@ -1605,7 +1648,8 @@ mod tests {
     /// sky models' host was missing, so both refused to download).
     #[test]
     fn every_local_model_downloads_from_an_allowed_host() {
-        let refused: Vec<_> = li_seg::MODELS.iter().filter(|m| !li_ai::download::host_allowed(m.url)).map(|m| (m.id, m.url)).collect();
+        let refused: Vec<_> =
+            li_seg::MODELS.iter().flat_map(|m| m.files()).filter(|f| !li_ai::download::host_allowed(f.url)).map(|f| (f.file, f.url)).collect();
         assert!(refused.is_empty(), "{refused:?}");
     }
 
@@ -1670,17 +1714,17 @@ mod tests {
     fn settings_lists_one_row_per_function() {
         let dir = temp_dir("rows");
         let h = seg_harness(&dir, None);
-        for title in ["Subject & Background", "Sky", "Depth"] {
+        for title in ["Subject & Background", "Sky", "Depth", "Smart Sort (scenes)"] {
             h.get_by_label(title);
         }
-        for model in ["IS-Net general", "PP-MobileSeg", "Depth Anything V2 Small"] {
+        for model in ["IS-Net general", "PP-MobileSeg", "Depth Anything V2 Small", "CLIP ViT-B-32 LAION"] {
             h.get_by_label(model);
         }
         for gone in ["U²-Net small", "U²-Net", "TinySkyNet", "MiDaS v2.1 small"] {
             assert!(h.query_by_label(gone).is_none(), "{gone} is still listed");
         }
         assert_eq!(h.get_all_by_label("Custom model…").count(), 3);
-        assert_eq!(h.get_all_by_label("Download").count(), 3);
+        assert_eq!(h.get_all_by_label("Download").count(), 4);
         assert!(h.query_by_label_contains("Remove old models").is_none());
         assert!(h.query_by_label_contains("Finds the main subject").is_some());
         assert!(h.query_by_label_contains("Finds the sky.").is_some());
@@ -1795,15 +1839,103 @@ mod tests {
         let seg = dir.join("segmentation");
         std::fs::write(seg.join("u2net.onnx"), vec![0u8; 3 * 1024 * 1024]).unwrap();
         std::fs::write(seg.join("midas_v21_small_256.onnx"), vec![0u8; 1024 * 1024]).unwrap();
+        for file in li_seg::Group::Tagging.official().files() {
+            std::fs::write(li_seg::companion_path(&dir, file.file), b"clip file").unwrap();
+        }
         let mut h = seg_harness(&dir, None);
         assert!(li_seg::Group::ALL.iter().all(|g| g.in_use(&dir).is_none()), "old files serve nothing");
         h.get_by_label_contains("Remove old models (").click();
         h.run_steps(3);
         assert!(li_seg::legacy_installed(&dir).is_empty());
+        for file in li_seg::Group::Tagging.official().files() {
+            assert_eq!(std::fs::read(li_seg::companion_path(&dir, file.file)).unwrap(), b"clip file");
+        }
         assert!(h.query_by_label_contains("Remove old models").is_none());
         let note = REMOVE_NOTE.lock().unwrap().take().expect("a status note");
         assert!(!note.1 && note.0.contains("the old models"), "{note:?}");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn bundle_download_progress_is_cumulative_and_stops_on_failure() {
+        let spec = li_seg::spec("clip-b32-laion").unwrap();
+        let calls = std::cell::RefCell::new(Vec::new());
+        download_seg_with(spec, &|file, offset| {
+            calls.borrow_mut().push((file.file, offset, offset + file.bytes));
+            Ok(())
+        })
+        .unwrap();
+        let calls = calls.into_inner();
+        assert_eq!(calls.len(), 4);
+        assert_eq!(calls[0].1, 0);
+        for pair in calls.windows(2) {
+            assert_eq!(pair[0].2, pair[1].1);
+        }
+        assert_eq!(calls.last().unwrap().2, spec.download_bytes());
+        let count = std::cell::Cell::new(0);
+        assert!(
+            download_seg_with(spec, &|_, _| {
+                count.set(count.get() + 1);
+                if count.get() == 2 {
+                    anyhow::bail!("cancelled");
+                }
+                Ok(())
+            })
+            .is_err()
+        );
+        assert_eq!(count.get(), 2);
+    }
+
+    #[test]
+    fn bundle_download_retry_keeps_verified_files_and_repairs_invalid_ones() {
+        let dir = std::env::temp_dir().join(format!("smart-sort-download-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("segmentation")).unwrap();
+        let mut spec = *li_seg::spec("clip-b32-laion").unwrap();
+        spec.bytes = 1;
+        spec.sha256 = "";
+        spec.companions =
+            &[li_seg::Companion { file: "test-text", url: "", bytes: 2, sha256: "" }, li_seg::Companion { file: "test-vocab", url: "", bytes: 3, sha256: "" }];
+        std::fs::write(li_seg::model_path(&dir, &spec), b"x").unwrap();
+        std::fs::write(li_seg::companion_path(&dir, "test-text"), b"x").unwrap();
+        let fetched = std::cell::RefCell::new(Vec::new());
+        let progress = std::cell::Cell::new(0);
+        let ctl = JobControl::new();
+        download_seg_files_with(&spec, &dir, &ctl, &|n| progress.set(n), &|file, path, on_bytes| {
+            fetched.borrow_mut().push(file.file);
+            assert!(!path.exists());
+            std::fs::write(path, vec![b'x'; file.bytes as usize])?;
+            on_bytes(file.bytes);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(fetched.into_inner(), ["test-text", "test-vocab"]);
+        assert_eq!(progress.get(), 6);
+        ctl.cancel();
+        assert!(download_seg_files_with(&spec, &dir, &ctl, &|_| {}, &|_, _, _| panic!("must not fetch after cancel")).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Tagging is its own function row and never offers the single-ONNX custom flow.
+    #[test]
+    fn smart_sort_function_has_no_custom_model_flow() {
+        let dir = temp_dir("tagging");
+        let h = seg_harness(&dir, Some(li_seg::Group::Tagging));
+        h.get_by_label("Smart Sort (scenes)");
+        h.get_by_label("CLIP ViT-B-32 LAION");
+        h.get_by_label("Download");
+        assert!(h.query_by_label("Custom model…").is_none());
+        assert!(h.query_by_label("Use official model").is_none());
+        assert!(h.query_by_label("Choose an ONNX file…").is_none());
+        let size = li_ai::download::human_bytes(li_seg::Group::Tagging.official().download_bytes());
+        h.get_by_label_contains(&format!("{size} download"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn custom_model_reasons_follow_the_ui_language() {
+        let reason =
+            crate::i18n::with_language(crate::i18n::Lang::from_code("ja").unwrap(), || custom_model_reason(&li_seg::CustomModelError::UnsupportedFunction));
+        assert_eq!(reason, "この機能ではカスタムモデルを使用できません");
     }
 
     /// A job that runs until cancelled.

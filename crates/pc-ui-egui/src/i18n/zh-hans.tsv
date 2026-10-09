@@ -2636,6 +2636,9 @@ ai	New	最新
 	Search attributions…	搜索致谢与许可…
 	No matches.	没有匹配项。
 	Show licence text	显示许可证全文
+	Smart Sort (scenes)	智能分类（场景）
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	识别照片内容（演讲者、观众、细节等），将照片放入合适的文件夹。在 CPU 上运行；照片始终保留在此电脑上。
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	根据您的描述识别场景。快速的本地模型可识别演讲者、观众、细节及其他自选类别。下载包含文本模型和分词器。
 	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	找出照片的主体。用于选择 › 主体、移除背景（快速）、对象选择工具的单击模式，以及图库的主体和背景蒙版。
 	Finds the sky. Used by Select › Sky and the Library's sky masks.	找出天空。用于选择 › 天空和图库的天空蒙版。
 	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	估计照片各部分的远近。用于图库的深度蒙版（例如压暗或模糊背景，或按距离选择前景）。
@@ -2672,3 +2675,4 @@ ai	New	最新
 	The model's input must be an image (batch × 3 × height × width)	模型的输入必须是图像（批 × 3 × 高 × 宽）
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	天空类别 {class} 超出范围：此模型有 {classes} 个类别（0 到 {max}）
 	{path} isn't a file	{path} 不是文件
+	Custom models are not supported for this function	此功能不支持自定义模型

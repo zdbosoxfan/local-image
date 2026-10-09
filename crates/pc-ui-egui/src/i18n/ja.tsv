@@ -2611,6 +2611,9 @@ ai	New	新着
 	Search attributions…	帰属表示を検索…
 	No matches.	一致する項目はありません。
 	Show licence text	ライセンス全文を表示
+	Smart Sort (scenes)	スマート分類（シーン）
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	写真の内容（講演者、聴衆、細部など）を認識し、適切なフォルダーに分類します。CPUで動作し、写真はこのコンピューターから送信されません。
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	入力した説明からシーンを認識します。講演者、聴衆、細部など、選択したカテゴリーを素早く分類するローカルモデルです。ダウンロードにはテキストモデルとトークナイザーも含まれます。
 	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	写真の被写体を見つけます。選択 › 被写体、背景を削除（クイック）、オブジェクト選択ツールのクリックモード、ライブラリの被写体・背景マスクで使われます。
 	Finds the sky. Used by Select › Sky and the Library's sky masks.	空を見つけます。選択 › 空とライブラリの空マスクで使われます。
 	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	写真の各部分までの距離を推定します。ライブラリの深度マスクで使われます（背景を暗くしたりぼかしたり、距離で前景を選ぶ場合など）。
@@ -2647,3 +2650,4 @@ ai	New	新着
 	The model's input must be an image (batch × 3 × height × width)	モデルの入力は画像（バッチ × 3 × 高さ × 幅）である必要があります
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	空（スカイ）のクラス番号 {class} は範囲外です：このモデルには {classes} クラスあります（0〜{max}）
 	{path} isn't a file	{path} はファイルではありません
+	Custom models are not supported for this function	この機能ではカスタムモデルを使用できません

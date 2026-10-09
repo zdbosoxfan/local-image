@@ -2695,6 +2695,9 @@ ai	New	Nuovi
 	Search attributions…	Cerca nelle attribuzioni…
 	No matches.	Nessun risultato.
 	Show licence text	Mostra il testo della licenza
+	Smart Sort (scenes)	Ordinamento intelligente (scene)
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	Riconosce il contenuto delle foto (relatori, pubblico, dettagli…) per inserirle nella cartella giusta. Funziona sulla CPU; le foto restano su questo computer.
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	Riconosce le scene dalle tue descrizioni. Un modello locale veloce per relatori, pubblico, dettagli e altre categorie scelte da te. Il download include il modello di testo e il tokenizer.
 	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Trova il soggetto principale di una foto. Usato da Selezione › Soggetto, Rimuovi sfondo (rapido), dalla modalità clic dello strumento di selezione oggetto e dalle maschere Soggetto e Sfondo della Libreria.
 	Finds the sky. Used by Select › Sky and the Library's sky masks.	Trova il cielo. Usato da Selezione › Cielo e dalle maschere del cielo della Libreria.
 	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Stima la distanza di ogni parte di una foto. Usato dalle maschere di profondità della Libreria (ad es. per scurire o sfocare lo sfondo, o scegliere il primo piano in base alla distanza).
@@ -2731,3 +2734,4 @@ ai	New	Nuovi
 	The model's input must be an image (batch × 3 × height × width)	L'input del modello deve essere un'immagine (batch × 3 × altezza × larghezza)
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	La classe cielo {class} è fuori intervallo: questo modello ha {classes} classi (da 0 a {max})
 	{path} isn't a file	{path} non è un file
+	Custom models are not supported for this function	I modelli personalizzati non sono supportati per questa funzione

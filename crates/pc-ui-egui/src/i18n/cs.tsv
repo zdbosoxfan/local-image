@@ -2628,6 +2628,9 @@ ai	New	Nové
 	Search attributions…	Hledat v atribucích…
 	No matches.	Žádné shody.
 	Show licence text	Zobrazit text licence
+	Smart Sort (scenes)	Chytré třídění (scény)
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	Rozpozná obsah fotografie (řečníky, publikum, detaily…), aby ji chytré třídění zařadilo do správné složky. Běží na CPU; fotografie neopustí tento počítač.
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	Rozpoznává scény podle vašich popisů pro chytré třídění. Rychlý místní model pro řečníky, publikum, detaily a další zvolené kategorie. Stahuje se i textový model a tokenizér.
 	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Najde hlavní objekt na fotografii. Používají ho Výběr › Objekt, Odstranit pozadí (rychle), režim kliknutí nástroje Výběr objektu a masky Objekt a Pozadí v Knihovně.
 	Finds the sky. Used by Select › Sky and the Library's sky masks.	Najde oblohu. Používají ho Výběr › Obloha a masky oblohy v Knihovně.
 	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Odhaduje, jak daleko je každá část fotografie. Používají ho masky hloubky v Knihovně (např. ke ztmavení nebo rozostření pozadí či výběru popředí podle vzdálenosti).
@@ -2664,3 +2667,4 @@ ai	New	Nové
 	The model's input must be an image (batch × 3 × height × width)	Vstup modelu musí být obrázek (dávka × 3 × výška × šířka)
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Třída oblohy {class} je mimo rozsah: tento model má {classes} tříd (0 až {max})
 	{path} isn't a file	{path} není soubor
+	Custom models are not supported for this function	Vlastní modely nejsou pro tuto funkci podporovány

@@ -2962,6 +2962,9 @@ ai	New	Новые
 	Search attributions…	Поиск атрибуций…
 	No matches.	Совпадений нет.
 	Show licence text	Показать текст лицензии
+	Smart Sort (scenes)	Умная сортировка (сцены)
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	Распознаёт содержимое фото (докладчиков, аудиторию, детали…), чтобы поместить его в нужную папку. Работает на CPU; фотографии не покидают этот компьютер.
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	Распознаёт сцены по вашим описаниям. Быстрая локальная модель для докладчиков, аудитории, деталей и других выбранных категорий. Загрузка включает текстовую модель и токенизатор.
 	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Находит главный объект на фото. Используется в «Выделение › Объект», «Удалить фон (быстро)», в режиме щелчка инструмента «Выделение объектов» и в масках «Объект» и «Фон» Библиотеки.
 	Finds the sky. Used by Select › Sky and the Library's sky masks.	Находит небо. Используется в «Выделение › Небо» и в масках неба Библиотеки.
 	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Оценивает, как далеко находится каждая часть фото. Используется в масках глубины Библиотеки (например, чтобы затемнить или размыть фон или выбрать передний план по расстоянию).
@@ -2998,3 +3001,4 @@ ai	New	Новые
 	The model's input must be an image (batch × 3 × height × width)	Вход модели должен быть изображением (пакет × 3 × высота × ширина)
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Класс неба {class} вне диапазона: модель имеет {classes} классов (от 0 до {max})
 	{path} isn't a file	{path} не является файлом
+	Custom models are not supported for this function	Пользовательские модели не поддерживаются для этой функции

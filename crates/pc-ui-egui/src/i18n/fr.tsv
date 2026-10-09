@@ -3050,6 +3050,9 @@ ai	New	Nouveautés
 	Search attributions…	Rechercher dans les attributions…
 	No matches.	Aucun résultat.
 	Show licence text	Afficher le texte de la licence
+	Smart Sort (scenes)	Tri intelligent (scènes)
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	Reconnaît le contenu des photos (intervenants, public, détails…) pour les placer dans le bon dossier. Fonctionne sur le processeur ; les photos restent sur cet ordinateur.
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	Reconnaît les scènes à partir de vos descriptions. Un modèle local rapide pour les intervenants, le public, les détails et vos autres catégories. Le téléchargement inclut le modèle de texte et le tokenizer.
 	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Repère le sujet principal d'une photo. Utilisé par Sélection › Sujet, Supprimer l'arrière-plan (rapide), le mode clic de l'outil Sélection d'objet et les masques Sujet et Arrière-plan de la Bibliothèque.
 	Finds the sky. Used by Select › Sky and the Library's sky masks.	Repère le ciel. Utilisé par Sélection › Ciel et les masques de ciel de la Bibliothèque.
 	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Estime la distance de chaque partie d'une photo. Utilisé par les masques de profondeur de la Bibliothèque (par ex. pour assombrir ou flouter l'arrière-plan, ou choisir le premier plan selon la distance).
@@ -3086,3 +3089,4 @@ ai	New	Nouveautés
 	The model's input must be an image (batch × 3 × height × width)	L'entrée du modèle doit être une image (lot × 3 × hauteur × largeur)
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	La classe de ciel {class} est hors limites : ce modèle a {classes} classes (0 à {max})
 	{path} isn't a file	{path} n'est pas un fichier
+	Custom models are not supported for this function	Les modèles personnalisés ne sont pas pris en charge pour cette fonction
