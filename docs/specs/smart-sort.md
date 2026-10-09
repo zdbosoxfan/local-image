@@ -624,3 +624,62 @@ Add `Task::ImageText` variant data `{family: Clip|Siglip}`; SentencePiece-Unigra
    - This replaces the separate cluster-card UI of §5.11/item 6; "Find This Person…" from a photo remains as a way to
      create/locate a bubble.
    - Automation ids: `smartSort:bubble:<personId>`, `smartSort:bubbleName:<personId>`, `smartSort:folderPeople:<index>`.
+
+### Owner-approved research additions (2026-10-09; research notes in docs/specs/smart-sort-ux-research.md)
+
+9. **Confirm queue for people** (Phase 3). Each person bubble and each person folder has "Review matches…". It opens a
+   full-screen queue of that person's suggested photos, least sure first, with the face crop large next to the photo,
+   and buttons **Yes (Y) / No (N) / Not sure (S)** plus Undo (⌘Z). A Yes adds the face to the person's centroid and
+   re-ranks the rest live. A No is stored as a rejection (`smartSort.rejectFace`) and the face is **never suggested
+   again** for that person. Photos below the "sure" cut-off appear in a person folder only after a Yes. The bubble shows
+   a "?" badge with the number of matches still to review. Before the queue opens, if another bubble is probably the same
+   person, offer "Merge with …? Same / Different / Not sure". Merges and splits are undoable.
+   Automation ids: `smartSort:review:<personId>`, `smartSort:reviewYes`, `smartSort:reviewNo`, `smartSort:reviewSkip`.
+   Tests: a rejected face never comes back after re-ranking; a Yes moves a face from suggested to confirmed; a merge
+   can be undone.
+
+10. **Seed people from headshots or a name list** (Phase 3). The People panel has "Add People from Photos…": choose a
+    folder of headshots, and each image with exactly one face becomes a named person (name = file name without its
+    extension, editable), shown as a bubble even before any match. A "Paste names…" box accepts `name[,title]` lines,
+    which become name suggestions in the bubble name fields (type-ahead). Seeded people can be put into folders straight
+    away, so "one folder per speaker" can be set up before analysis finishes. Headshot embeddings stay in the library
+    like all face data. Tests: a folder of 3 mock headshots gives 3 named people; their gallery matches rank first.
+
+11. **Hide strangers in the background** (Phase 3). Bubbles appear only for people seen in at least **3** photos
+    (setting: 1–10; a "Show everyone (N more)" link). Each bubble has **Ignore** (hidden, data kept, listed under
+    "Ignored" where it can be restored) and **Pin to top** (pinned bubbles come before the frequency order). Counts on
+    bubbles follow the selected folder: "12 / 46" = in this folder / total. Automation ids: `smartSort:minFaces`,
+    `smartSort:ignore:<personId>`, `smartSort:pin:<personId>`. Tests: a mock person with 2 photos is hidden by default
+    and shown with "Show everyone"; an ignored person never appears in folder pickers.
+
+12. **Sessions by capture time** (Phase 2). Step 1 has "☐ Split into sessions when there is a gap of more than
+    [20] minutes". It lists the sessions found ("Session 1 · 09:02–10:15 · 312 photos"), each renameable ("Morning
+    keynote"). Sessions can be export folders by themselves or a narrowing filter on any folder or custom folder
+    ("Speakers" AND session "Afternoon"), and they are available as the `{session}` token. Photos with no capture time
+    go to "No time". Sessions use corrected capture times if the clocks have been synced (later: "Sync camera clocks…").
+    Automation ids: `smartSort:sessions`, `smartSort:sessionGap`, `smartSort:session:<index>`. Tests: a 25-minute gap
+    splits, a 10-minute gap does not (with a 20-minute setting); rename round-trips through the preset.
+
+13. **Folder and file name tokens on export** (Phase 2). Step 3 asks once for **Event name** (default: the source
+    folder name). The destination folder pattern defaults to `{event}/{folder}` and accepts `{event}`, `{folder}`,
+    `{person}`, `{session}`, `{date}` (capture date) and `{camera}`, with `/` for nested folders. Export presets keep
+    their own file naming, plus an optional Smart Sort file name pattern (`{event}_{folder}_{seq:4}`). Unsafe characters
+    are replaced, and if two folders resolve to the same path they are numbered. The pattern is saved in the sort preset.
+    Automation ids: `smartSort:eventName`, `smartSort:folderPattern`, `smartSort:filePattern`. Tests: tokens expand; a
+    nested pattern makes nested folders; duplicate resolved names get " (2)".
+
+14. **Folder from example photos** (Phase 2b). "+ Folder from Examples…": select a few photos in Review (or the Library
+    grid) → a new category whose prototype is built only from those exemplars (no tags required; tags may be added
+    later). Uses the §5.6 exemplar path with `γ` such that exemplars alone define the category. Automation id
+    `smartSort:folderFromExamples`. Tests: three mock exemplars near a direction pull matching photos and not others.
+15. **"Everyone" people folders** (Phase 3). A people folder's people picker has "Any of these people" (default) /
+    "Everyone in the photo together". Tests: with mock faces, "Jane and John together" contains only photos with both.
+16. **Burst / duplicate stacking** (Phase 2b). Option "Group bursts and near-duplicates" with strictness (Strict /
+    Normal / Loose): consecutive photos within a short capture-time window whose CLIP embeddings are within a cosine
+    threshold form a stack; per stack the dialog shows one thumbnail with a count badge. Export: "Best of each burst"
+    (sharpest by a cheap Laplacian-variance measure on the analysis image, ties → highest rating, then earliest) or
+    "All photos". Stacks are not written to the catalog unless "Also stack in the Library" is ticked (uses existing
+    `stack.group`). Tests: deterministic stacking at thresholds; best-shot choice; export modes.
+17. **Keyboard review** (Phase 2b, plus Y/N/S in the Phase 3 queue). In Review: arrows move, Shift/⌘ select, 1–9 move
+    the selection to folder N (as listed), 0 → Unsorted, Alt+1–9 "also add to", Backspace removes from the current
+    folder, Z/⌘Z undo. Shortcut hints shown on the folder list. Headless tests press keys and check assignments.
