@@ -39,6 +39,9 @@ pub enum Task {
     /// The sky. `classes` = 1: one logit map (sigmoid); otherwise ADE20K-style class logits where
     /// `class` is the sky and `margin` how far it must lead every other class.
     Sky { classes: usize, class: usize, margin: f32 },
+    /// Monocular relative depth (Depth Anything V2, MiDaS): one map of relative inverse depth
+    /// (larger = nearer), ImageNet-normalised input.
+    Depth,
 }
 
 pub const MODELS: &[ModelSpec] = &[
@@ -103,6 +106,35 @@ pub const MODELS: &[ModelSpec] = &[
         isnet: false,
         licence: "MIT (TinySkyNet-SkySeg)",
         task: Task::Sky { classes: 1, class: 0, margin: 0.0 },
+    },
+    // Depth: Depth Anything V2 Small (Yang et al. 2024; the Small weights are Apache-2.0, the
+    // larger ones are not), the TorchScript ONNX export of fabio-sim/Depth-Anything-ONNX
+    // (Apache-2.0) release v2.0.0 — plain opset-17 operators that tract runs (that release's
+    // other export uses ONNX local functions, which it doesn't).
+    ModelSpec {
+        id: "depth-anything-v2-small",
+        label: "Depth · Depth Anything V2 Small (99 MB)",
+        file: "depth_anything_v2_vits_dynamic.onnx",
+        bytes: 99092268,
+        sha256: "46c4e8eeda3a27f34701831b6a2ec7753d7b38779b215acb5633424703deed8f",
+        url: "https://github.com/fabio-sim/Depth-Anything-ONNX/releases/download/v2.0.0/depth_anything_v2_vits_dynamic.onnx",
+        size: 518,
+        isnet: false,
+        licence: "Apache-2.0 (Depth Anything V2 Small, Yang et al. 2024)",
+        task: Task::Depth,
+    },
+    // Depth, smaller and older: MiDaS v2.1 small (Ranftl et al.), MIT, from the MiDaS release.
+    ModelSpec {
+        id: "depth-midas-small",
+        label: "Depth · MiDaS v2.1 small (67 MB)",
+        file: "midas_v21_small_256.onnx",
+        bytes: 66764249,
+        sha256: "2d8c6cb8f415229daf1eb041024208e2608c9f98e17c81cc7c6ecb449c56fd58",
+        url: "https://github.com/isl-org/MiDaS/releases/download/v2_1/model-small.onnx",
+        size: 256,
+        isnet: false,
+        licence: "MIT (MiDaS v2.1 small, Ranftl et al. 2020)",
+        task: Task::Depth,
     },
 ];
 
@@ -202,6 +234,37 @@ impl Segmenter {
         };
         Ok(upscale(&prob, ow, oh, w, h))
     }
+
+    /// Relative nearness (0 = farthest, 1 = nearest in the photo) for an RGBA8 image, at the
+    /// image's size (a depth model). The model sees the photo squeezed to its square input; its
+    /// relative inverse depth is min–max stretched (it has no absolute scale).
+    pub fn predict_depth(&self, rgba: &[u8], w: usize, h: usize) -> Result<Vec<f32>> {
+        if self.spec.task != Task::Depth {
+            bail!("not a depth model");
+        }
+        if rgba.len() != w * h * 4 || w == 0 || h == 0 {
+            bail!("image buffer size mismatch");
+        }
+        let s = self.spec.size;
+        let small = resize_premultiplied(rgba, w, h, s, s);
+        let (mean, std) = ([0.485f32, 0.456, 0.406], [0.229f32, 0.224, 0.225]);
+        let input = tract_ndarray::Array4::from_shape_fn((1, 3, s, s), |(_, c, y, x)| (small[y * s + x][c] - mean[c]) / std[c]);
+        let out = (self.run)(input.into())?;
+        let map = out[0].to_plain_array_view::<f32>()?;
+        let shape = map.shape().to_vec();
+        let (oh, ow) = match shape.as_slice() {
+            [_, oh, ow] | [_, 1, oh, ow] => (*oh, *ow),
+            other => bail!("unexpected depth model output {other:?}"),
+        };
+        let vals: Vec<f32> = map.iter().copied().collect();
+        let vals = &vals[..oh * ow];
+        let (lo, hi) = vals.iter().filter(|v| v.is_finite()).fold((f32::MAX, f32::MIN), |(a, b), v| (a.min(*v), b.max(*v)));
+        if hi <= lo {
+            return Ok(vec![0.5; w * h]);
+        }
+        let norm: Vec<f32> = vals.iter().map(|v| if v.is_finite() { (v - lo) / (hi - lo) } else { 0.0 }).collect();
+        Ok(upscale(&norm, ow, oh, w, h))
+    }
 }
 
 /// Area-filtered, premultiplied (transparent reads as black) resize to `tw × th`, values 0–1.
@@ -291,6 +354,16 @@ pub fn best_sky(models_dir: &Path) -> Option<(&'static ModelSpec, std::path::Pat
     ["sky-mobileseg", "sky-tiny"].iter().filter_map(|id| spec(id)).map(|s| (s, model_path(models_dir, s))).find(|(_, p)| p.is_file())
 }
 
+/// The best installed depth model (Depth Anything V2 Small, then MiDaS small).
+pub fn best_depth(models_dir: &Path) -> Option<(&'static ModelSpec, std::path::PathBuf)> {
+    ["depth-anything-v2-small", "depth-midas-small"].iter().filter_map(|id| spec(id)).map(|s| (s, model_path(models_dir, s))).find(|(_, p)| p.is_file())
+}
+
+/// A process-wide cache of the loaded depth model.
+pub fn shared_depth(models_dir: &Path) -> Option<Segmenter> {
+    cached(best_depth(models_dir)?, &DEPTH)
+}
+
 /// A process-wide cache of the loaded subject model (loading takes a moment).
 pub fn shared(models_dir: &Path) -> Option<Segmenter> {
     cached(best_installed(models_dir)?, &SUBJECT)
@@ -304,6 +377,7 @@ pub fn shared_sky(models_dir: &Path) -> Option<Segmenter> {
 type Slot = std::sync::Mutex<Option<(String, Segmenter)>>;
 static SUBJECT: Slot = std::sync::Mutex::new(None);
 static SKY: Slot = std::sync::Mutex::new(None);
+static DEPTH: Slot = std::sync::Mutex::new(None);
 
 fn cached((spec, path): (&'static ModelSpec, std::path::PathBuf), slot: &Slot) -> Option<Segmenter> {
     let mut g = slot.lock().ok()?;
@@ -394,5 +468,68 @@ mod tests {
     fn subject_and_sky_models_are_told_apart() {
         assert!(MODELS.iter().filter(|m| matches!(m.task, Task::Sky { .. })).count() >= 2);
         assert!(best_installed(Path::new("/nonexistent")).is_none() && best_sky(Path::new("/nonexistent")).is_none());
+        assert!(best_depth(Path::new("/nonexistent")).is_none());
+        // the subject / sky choosers never pick a depth model
+        for id in ["depth-anything-v2-small", "depth-midas-small"] {
+            assert_eq!(spec(id).map(|s| s.task), Some(Task::Depth), "{id}");
+        }
+    }
+
+    /// A photo-like scene with depth cues: a checkered ground plane receding to the horizon
+    /// (in perspective) under a plain sky, and a box standing on the near ground.
+    fn ground_scene(w: usize, h: usize) -> Vec<u8> {
+        let horizon = h as f32 * 0.4;
+        let mut img = vec![0u8; w * h * 4];
+        for y in 0..h {
+            for x in 0..w {
+                let i = (y * w + x) * 4;
+                let c = if (y as f32) < horizon {
+                    [150 + (y * 60 / h) as u8, 185, 235]
+                } else {
+                    // ground point at distance z ∝ 1 / (y − horizon)
+                    let dy = (y as f32 - horizon + 0.5).max(0.5);
+                    let z = 40.0 / dy;
+                    let gx = (x as f32 - w as f32 / 2.0) * z / 40.0;
+                    let check = ((gx.floor() as i64 + (z * 2.0).floor() as i64) & 1) == 0;
+                    let fog = (z / 4.0).min(1.0);
+                    let base = if check { [120.0, 100.0, 70.0] } else { [70.0, 60.0, 45.0] };
+                    std::array::from_fn(|k| (base[k] * (1.0 - fog) + [150.0, 175.0, 210.0][k] * fog) as u8)
+                };
+                let in_box = x > w * 2 / 5 && x < w * 3 / 5 && y > h * 3 / 5 && y < h * 9 / 10;
+                let c = if in_box { [200, 40, 40] } else { c };
+                img[i..i + 3].copy_from_slice(&c);
+                img[i + 3] = 255;
+            }
+        }
+        img
+    }
+
+    /// The depth models run under tract and see the near ground as nearer than the horizon
+    /// (`LI_SEG_TEST_MODELS` holding the Depth Anything V2 Small and/or MiDaS small file).
+    #[test]
+    fn depth_models_find_the_near_ground() {
+        let Some(dir) = std::env::var_os("LI_SEG_TEST_MODELS") else { return };
+        for id in ["depth-anything-v2-small", "depth-midas-small"] {
+            let spec = spec(id).unwrap();
+            let path = Path::new(&dir).join(spec.file);
+            if !path.is_file() {
+                continue;
+            }
+            let t = std::time::Instant::now();
+            let seg = Segmenter::load(spec, &path).unwrap();
+            let loaded = t.elapsed();
+            let (w, h) = (384, 288);
+            let img = ground_scene(w, h);
+            let t = std::time::Instant::now();
+            let d = seg.predict_depth(&img, w, h).unwrap();
+            eprintln!("{id}: load {loaded:?}, predict {:?}", t.elapsed());
+            assert_eq!(d.len(), w * h);
+            assert!(d.iter().all(|v| (0.0..=1.0).contains(v)));
+            let at = |x: usize, y: usize| d[y * w + x];
+            let (near, far) = (at(w / 8, h - 6), at(w / 8, (h as f32 * 0.42) as usize));
+            assert!(near > far + 0.2, "{id}: near ground {near}, horizon {far}");
+            assert!(at(w / 2, h * 3 / 4) > far, "{id}: the box is nearer than the horizon");
+            assert!(seg.predict(&img, w, h).is_ok() || seg.predict_sky(&img, w, h).is_err());
+        }
     }
 }
