@@ -2549,3 +2549,41 @@ ai	New	Nové
 	Cage is not active	Klec není aktivní
 	Could not use Cage: the layer is empty	Klec nelze použít: vrstva je prázdná
 	Index	Index
+
+# Selected-item context bars and live shapes
+	AI Fill	Výplň pomocí AI
+	Add a vector mask from the path	Přidat vektorovou masku z cesty
+	Bottom-left corner radius	Poloměr levého dolního rohu
+	Bottom-right corner radius	Poloměr pravého dolního rohu
+	Content-Aware Fill	Výplň podle obsahu
+	Corners	Rohy
+	Create another variation using this layer's prompt and a new seed	Vytvořit další variantu se zadáním této vrstvy a novým semenem
+	Describe what to generate, or leave empty to fill from the surroundings	Popište, co vygenerovat, nebo ponechte prázdné pro výplň z okolí
+	Edit Path	Upravit cestu
+	Edit Text	Upravit text
+	Edit the shape's anchors and handles	Upravit kotevní body a táhla tvaru
+	Edit this photo's develop settings	Upravit nastavení vyvolání této fotografie
+	Fill the path's area from the image around it	Vyplnit oblast cesty z okolního obrazu
+	Fill the selection from the image around it	Vyplnit výběr z okolního obrazu
+	Generate this area again from its surroundings	Znovu vygenerovat tuto oblast podle okolí
+	Generate “{prompt}” again with a new seed	Znovu vygenerovat „{prompt}“ s novým semenem
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	Generativní výplň: znovu vytvořit oblast podle popisu (prázdné: podle okolí)
+	Generative Fill: regenerate the path's area from a description	Generativní výplň: znovu vytvořit oblast cesty podle popisu
+	L	D
+	Line weight	Tloušťka čáry
+	Mask out the background with AI	Zamaskovat pozadí pomocí AI
+	Number of sides	Počet stran
+	Open in Develop	Otevřít ve Vyvolání
+	Open the Smart Object's contents	Otevřít obsah inteligentního objektu
+	Regenerate	Znovu vygenerovat
+	Select the main subject with AI	Vybrat hlavní objekt pomocí AI
+	Set radius of all corners	Nastavit poloměr všech rohů
+	Set shape stroke width	Nastavit šířku obrysu tvaru
+	Set the font size	Nastavit velikost písma
+	This layer has no generation model to repeat	Tato vrstva nemá model pro opakování generování
+	This layer has no generation settings to repeat	Tato vrstva nemá nastavení pro opakování generování
+	This layer's generation model is unavailable	Model generování této vrstvy není dostupný
+	Top-left corner radius	Poloměr levého horního rohu
+	Top-right corner radius	Poloměr pravého horního rohu
+	Turn the shape into pixels	Převést tvar na pixely
+	Variations	Varianty

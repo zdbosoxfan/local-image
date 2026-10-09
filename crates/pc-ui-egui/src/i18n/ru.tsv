@@ -2883,3 +2883,41 @@ ai	New	Новые
 	Soft	Мягкий
 	Linear	Линейный
 	Index	Индекс
+
+# Selected-item context bars and live shapes
+	AI Fill	Заливка ИИ
+	Add a vector mask from the path	Добавить векторную маску из контура
+	Bottom-left corner radius	Радиус нижнего левого угла
+	Bottom-right corner radius	Радиус нижнего правого угла
+	Content-Aware Fill	Заливка с учётом содержимого
+	Corners	Углы
+	Create another variation using this layer's prompt and a new seed	Создать другой вариант с запросом этого слоя и новым зерном
+	Describe what to generate, or leave empty to fill from the surroundings	Опишите результат или оставьте поле пустым для заливки по окружению
+	Edit Path	Редактировать контур
+	Edit Text	Редактировать текст
+	Edit the shape's anchors and handles	Редактировать узлы и направляющие фигуры
+	Edit this photo's develop settings	Изменить настройки проявки этой фотографии
+	Fill the path's area from the image around it	Залить область контура по окружающему изображению
+	Fill the selection from the image around it	Залить выделение по окружающему изображению
+	Generate this area again from its surroundings	Снова создать эту область по окружению
+	Generate “{prompt}” again with a new seed	Снова создать «{prompt}» с новым зерном
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	Генеративная заливка: создать область по описанию (пусто: по окружению)
+	Generative Fill: regenerate the path's area from a description	Генеративная заливка: создать область контура по описанию
+	L	Д
+	Line weight	Толщина линии
+	Mask out the background with AI	Скрыть фон маской с помощью ИИ
+	Number of sides	Количество сторон
+	Open in Develop	Открыть в Проявке
+	Open the Smart Object's contents	Открыть содержимое смарт-объекта
+	Regenerate	Создать заново
+	Select the main subject with AI	Выделить основной объект с помощью ИИ
+	Set radius of all corners	Задать радиус всех углов
+	Set shape stroke width	Задать толщину обводки фигуры
+	Set the font size	Задать размер шрифта
+	This layer has no generation model to repeat	У этого слоя нет модели для повторной генерации
+	This layer has no generation settings to repeat	У этого слоя нет настроек для повторной генерации
+	This layer's generation model is unavailable	Модель генерации этого слоя недоступна
+	Top-left corner radius	Радиус верхнего левого угла
+	Top-right corner radius	Радиус верхнего правого угла
+	Turn the shape into pixels	Преобразовать фигуру в пиксели
+	Variations	Варианты

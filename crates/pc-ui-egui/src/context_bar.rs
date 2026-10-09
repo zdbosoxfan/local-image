@@ -43,6 +43,9 @@ struct State {
     focus: bool,
     /// `(doc id, layer)` last seen active, to reveal Properties when a shape or type layer is selected.
     last_active: Option<(u64, u64)>,
+    /// Whether the current press began away from the bar. Keep this decision for a drag,
+    /// even when edits change the item's bounds.
+    pressed_elsewhere: Option<bool>,
 }
 
 thread_local! { static STATE: RefCell<State> = RefCell::new(State::default()); }
@@ -105,10 +108,37 @@ fn selection_bounds(app: &PhotocraftApp) -> Option<photocraft_geom::Rect> {
     cached(app, 0, || sel.content_bounds())
 }
 
-/// The bounds of the work path when it has a closed subpath.
-fn path_bounds(app: &PhotocraftApp) -> Option<photocraft_geom::Rect> {
+/// The selected path, including saved paths and targeted vector masks. A shape retains its
+/// shape context; an explicitly selected work/saved path takes precedence over it.
+fn selected_path(app: &PhotocraftApp) -> Option<(String, photocraft_doc::vector::Path)> {
     let d = app.session.active()?;
-    let path = d.doc.work_path.as_ref()?;
+    let layer = d.active_layer.and_then(|id| d.doc.layer(id));
+    let named = |name: &str| {
+        if name.eq_ignore_ascii_case("work") || name == "Work Path" {
+            d.doc.work_path.clone().map(|p| ("work".into(), p))
+        } else if name == "layer" {
+            layer?.vector_mask.as_ref().map(|m| ("layer".into(), m.path.clone()))
+        } else {
+            d.doc.paths.iter().find(|p| p.name == name).map(|p| (name.to_owned(), p.path.clone()))
+        }
+    };
+    if let Some(path) = app.ui.selected_path.as_deref().and_then(named) {
+        return Some(path);
+    }
+    if app.ui.vector_mask_target {
+        return named("layer");
+    }
+    if matches!(app.ui.tool, crate::Tool::Pen | crate::Tool::PathSelection | crate::Tool::DirectSelection)
+        && !layer.is_some_and(|l| matches!(l.content, LayerContent::Shape(_)))
+    {
+        return named("work");
+    }
+    None
+}
+
+/// The bounds of the selected path when it has a closed subpath.
+fn path_bounds(app: &PhotocraftApp) -> Option<photocraft_geom::Rect> {
+    let (_, path) = selected_path(app)?;
     let closed: Vec<_> = path.subpaths.iter().filter(|s| s.closed && s.knots.len() >= 3).collect();
     if closed.is_empty() {
         return None;
@@ -123,13 +153,6 @@ fn path_bounds(app: &PhotocraftApp) -> Option<photocraft_geom::Rect> {
         }
     }
     Some(photocraft_geom::Rect::new(x0.floor() as i32, y0.floor() as i32, x1.ceil() as i32, y1.ceil() as i32))
-}
-
-/// The work path is the selected item: a Pen or path selection tool is active, or it is
-/// selected in the Paths panel.
-fn path_selected(app: &PhotocraftApp) -> bool {
-    matches!(app.ui.tool, crate::Tool::Pen | crate::Tool::PathSelection | crate::Tool::DirectSelection)
-        || app.ui.selected_path.as_deref().is_some_and(|n| n.eq_ignore_ascii_case("work") || n == "Work Path")
 }
 
 /// The selected layer's context, from its kind (whatever tool is active).
@@ -150,24 +173,37 @@ pub fn layer_context(app: &PhotocraftApp) -> Option<Context> {
 }
 
 /// What the bar is for and where: a selection, then the selected path, then the selected layer.
-/// The layer bar stays away while painting (its strokes would land under it).
+/// `show` keeps the bar out of the way while a canvas stroke/drag is held.
 pub fn resolve(app: &PhotocraftApp) -> Option<(Context, photocraft_geom::Rect)> {
     if let Some(r) = selection_bounds(app) {
         return Some((Context::Selection, r));
     }
-    if path_selected(app)
-        && let Some(r) = path_bounds(app)
-    {
+    if let Some(r) = path_bounds(app) {
         return Some((Context::Path, r));
-    }
-    if app.ui.tool.is_brushlike() {
-        return None;
     }
     let what = layer_context(app)?;
     let d = app.session.active()?;
     let id = d.active_layer?;
-    let surf = d.doc.layer(id)?.surface()?;
-    cached(app, id.0, || surf.content_bounds()).map(|r| (what, r))
+    let layer = d.doc.layer(id)?;
+    cached(app, id.0, || {
+        if let Some(bounds) = layer.surface().map(|s| s.content_bounds()).filter(|r| !r.is_empty()) {
+            return bounds;
+        }
+        // An unpainted shape still has editable geometry; missing previews and empty layers
+        // still have useful actions. Their context must not depend on a raster cache.
+        if let LayerContent::Shape(sh) = &layer.content
+            && let Some((x0, y0, x1, y1)) = sh.path.control_bounds()
+        {
+            return photocraft_geom::Rect::new(
+                x0.floor() as i32,
+                y0.floor() as i32,
+                (x1.ceil() as i32).max((x0.floor() as i32).saturating_add(1)),
+                (y1.ceil() as i32).max((y0.floor() as i32).saturating_add(1)),
+            );
+        }
+        d.doc.bounds()
+    })
+    .map(|r| (what, r))
 }
 
 /// When the bar shows, and for what.
@@ -198,12 +234,21 @@ pub fn layer_options(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
 
 /// Photoshop brings Properties forward when a shape or type layer is selected (or a shape is
 /// drawn): its controls are where that layer is edited.
-fn reveal_properties(app: &mut PhotocraftApp) {
+fn reveal_properties(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let Some(d) = app.session.active() else { return };
     let now = d.active_layer.map(|id| (d.doc.id.0, id.0));
-    if with(|s| std::mem::replace(&mut s.last_active, now)) == now {
+    if with(|s| s.last_active) == now {
         return;
     }
+    // Expanding a dock group moves Layers rows. Allow the current click sequence to finish
+    // first, so the second click of a thumbnail double-click lands on the same row.
+    let since_click = f64::from(ctx.input(|i| i.pointer.time_since_last_click()));
+    let delay = ctx.options(|o| o.input_options.max_double_click_delay);
+    if since_click < delay {
+        ctx.request_repaint_after(std::time::Duration::from_secs_f64(delay - since_click));
+        return;
+    }
+    with(|s| s.last_active = now);
     if matches!(layer_context(app), Some(Context::Shape(_) | Context::Text(_))) {
         crate::dock::reveal(app, crate::dock::Group::Properties);
         app.ui.dock_tabs.properties = 0;
@@ -271,12 +316,15 @@ fn bar_id() -> egui::Id {
 /// or egui drops the press when its widget vanishes and the button never clicks.
 fn pressed_elsewhere(ctx: &egui::Context) -> bool {
     let Some(origin) = ctx.input(|i| if i.pointer.any_down() { i.pointer.press_origin() } else { None }) else {
+        with(|s| s.pressed_elsewhere = None);
         return false;
     };
-    if ctx.memory(|m| m.area_rect(bar_id())).is_some_and(|r| r.contains(origin)) {
-        return false;
-    }
-    !ctx.layer_id_at(origin).is_some_and(|l| matches!(l.order, egui::Order::Foreground | egui::Order::Tooltip | egui::Order::Debug))
+    with(|s| {
+        *s.pressed_elsewhere.get_or_insert_with(|| {
+            !ctx.memory(|m| m.area_rect(bar_id())).is_some_and(|r| r.contains(origin))
+                && !ctx.layer_id_at(origin).is_some_and(|l| matches!(l.order, egui::Order::Foreground | egui::Order::Tooltip | egui::Order::Debug))
+        })
+    })
 }
 
 /// What a bar click asks for, applied after drawing.
@@ -289,13 +337,14 @@ enum Act {
 
 /// Draws the bar (call every frame after the canvas).
 pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
-    reveal_properties(app);
+    reveal_properties(app, ctx);
+    let pressed_elsewhere = pressed_elsewhere(ctx);
     let Some((what, bounds)) = context(app) else {
         with(|s| s.fill_open = false);
         return;
     };
     // Never over a drag, a text edit on the canvas, or a modal.
-    if pressed_elsewhere(ctx) || app.session.active().is_none() || ctx.memory(|m| m.top_modal_layer().is_some()) {
+    if pressed_elsewhere || app.session.active().is_none() || ctx.memory(|m| m.top_modal_layer().is_some()) {
         return;
     }
     if app.ui.text_edit.is_some() {
@@ -323,6 +372,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         y = (sel.top() - gap - size.y).max(canvas.top() + 8.0);
     }
     let x = (sel.center().x - size.x / 2.0).clamp(canvas.left() + 8.0, (canvas.right() - size.x - 8.0).max(canvas.left() + 8.0));
+    let pos = if ctx.input(|i| i.pointer.any_down()) { ctx.memory(|m| m.area_rect(id)).map(|r| r.min).unwrap_or(egui::pos2(x, y)) } else { egui::pos2(x, y) };
     let ready = remove_ready(app);
     // Tooltips name the user's own shortcuts (Edit › Keyboard Shortcuts), in the platform's notation.
     let with_key = |text: &str, command: &str| match crate::shortcuts::shortcut_label(app, command) {
@@ -341,7 +391,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         _ => None,
     };
     let mut act: Option<Act> = None;
-    egui::Area::new(id).order(egui::Order::Foreground).fixed_pos(egui::pos2(x, y)).constrain(false).show(ctx, |ui| {
+    egui::Area::new(id).order(egui::Order::Foreground).fixed_pos(pos).constrain(false).show(ctx, |ui| {
         egui::Frame::new()
             .fill(t.card)
             .stroke(Stroke::new(1.0, t.card_border))
@@ -372,7 +422,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         {
                             go("fill.go");
                         }
-                        if crate::icons::button(ui, "x", 26.0, false, tl!("Back")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        let back = crate::icons::button(ui, "x", 26.0, false, tl!("Back"));
+                        back.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Back")));
+                        if back.clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                             go("fill.close");
                         }
                         return;
@@ -390,7 +442,10 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                             {
                                 go("remove");
                             }
-                            if bar_button(ui, "sparkles", tl!("Generative Fill"), false, true, &t).on_hover_text(tl!("Regenerate the area from a description")).clicked() {
+                            if bar_button(ui, "sparkles", tl!("Generative Fill"), false, true, &t)
+                                .on_hover_text(tl!("Regenerate the area from a description"))
+                                .clicked()
+                            {
                                 go("fill.open");
                             }
                             if bar_button(ui, "paint-bucket", tl!("Content-Aware Fill"), false, true, &t)
@@ -403,7 +458,8 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                             if bar_button(ui, "squares-subtract", tl!("Invert"), false, true, &t).on_hover_text(&invert_tip).clicked() {
                                 go("invert");
                             }
-                            if bar_button(ui, "layers", tl!("Mask"), false, true, &t).on_hover_text(tl!("Add a layer mask that shows only this area")).clicked() {
+                            if bar_button(ui, "layers", tl!("Mask"), false, true, &t).on_hover_text(tl!("Add a layer mask that shows only this area")).clicked()
+                            {
                                 go("mask");
                             }
                             let deselect = crate::icons::button(ui, "x", 26.0, false, &deselect_tip);
@@ -451,7 +507,10 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                                 }
                             }
                             divider(ui, &t);
-                            if bar_button(ui, "pen-tool", tl!("Edit Path"), false, true, &t).on_hover_text(tl!("Edit the shape's anchors and handles")).clicked() {
+                            if bar_button(ui, "pen-tool", tl!("Edit Path"), false, true, &t)
+                                .on_hover_text(tl!("Edit the shape's anchors and handles"))
+                                .clicked()
+                            {
                                 act = Some(Act::Do("editPath"));
                             }
                             if bar_button(ui, "image", tl!("Rasterize"), false, true, &t).on_hover_text(tl!("Turn the shape into pixels")).clicked() {
@@ -466,12 +525,16 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                             }
                         }
                         Context::Smart(_) => {
-                            if bar_button(ui, "package", tl!("Edit Contents"), true, true, &t).on_hover_text(tl!("Open the Smart Object's contents")).clicked() {
+                            if bar_button(ui, "package", tl!("Edit Contents"), true, true, &t).on_hover_text(tl!("Open the Smart Object's contents")).clicked()
+                            {
                                 go("editContents");
                             }
                         }
                         Context::Develop(_) => {
-                            if bar_button(ui, "sliders-horizontal", tl!("Open in Develop"), true, true, &t).on_hover_text(tl!("Edit this photo's develop settings")).clicked() {
+                            if bar_button(ui, "sliders-horizontal", tl!("Open in Develop"), true, true, &t)
+                                .on_hover_text(tl!("Edit this photo's develop settings"))
+                                .clicked()
+                            {
                                 go("develop");
                             }
                         }
@@ -483,13 +546,22 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                             if bar_button(ui, "refresh-cw", tl!("Regenerate"), true, true, &t).on_hover_text(&what).clicked() {
                                 go("regenerate");
                             }
+                            if bar_button(ui, "sparkles", tl!("Variations"), false, true, &t)
+                                .on_hover_text(tl!("Create another variation using this layer's prompt and a new seed"))
+                                .clicked()
+                            {
+                                go("variations");
+                            }
                             divider(ui, &t);
                             if bar_button(ui, "wand-sparkles", tl!("Select Subject"), false, true, &t).clicked() {
                                 go("selectSubject");
                             }
                         }
                         Context::Pixel(_) => {
-                            if bar_button(ui, "wand-sparkles", tl!("Select Subject"), false, true, &t).on_hover_text(tl!("Select the main subject with AI")).clicked() {
+                            if bar_button(ui, "wand-sparkles", tl!("Select Subject"), false, true, &t)
+                                .on_hover_text(tl!("Select the main subject with AI"))
+                                .clicked()
+                            {
                                 go("selectSubject");
                             }
                             if bar_button(ui, "eraser-background", tl!("Remove Background"), false, true, &t)
@@ -503,11 +575,16 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                             }
                         }
                     }
+                    if what == Context::Path {
+                        return;
+                    }
                     let more = crate::icons::button(ui, "ellipsis", 26.0, false, tl!("More"));
+                    more.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("More")));
                     egui::Popup::menu(&more).show(|ui| {
                         ui.set_min_width(190.0);
                         if what == Context::Selection {
-                            for (label, a) in [(tl!("Feather…"), "feather"), (tl!("Select and Mask…"), "selectAndMask"), (tl!("Content-Aware Fill…"), "cafDialog")]
+                            for (label, a) in
+                                [(tl!("Feather…"), "feather"), (tl!("Select and Mask…"), "selectAndMask"), (tl!("Content-Aware Fill…"), "cafDialog")]
                             {
                                 if ui.button(label).clicked() {
                                     act = Some(Act::Do(a));
@@ -541,7 +618,8 @@ fn run(app: &mut PhotocraftApp, ctx: &egui::Context, what: Context, a: &str, pro
     // A path's actions start from its selection (Mask tries a vector mask first).
     let from_path = what == Context::Path && matches!(a, "path.select" | "caf" | "fill.go");
     if from_path {
-        let r = app.run("path.toSelection", json!({ "name": "work" }));
+        let name = selected_path(app).map(|(name, _)| name).unwrap_or_else(|| "work".into());
+        let r = app.run("path.toSelection", json!({ "name": name }));
         if r.is_err() {
             report(app, r);
             return;
@@ -591,7 +669,7 @@ fn run(app: &mut PhotocraftApp, ctx: &egui::Context, what: Context, a: &str, pro
         "editText" => crate::menus::invoke(app, ctx, "type.editText", json!({})),
         "editContents" => crate::menus::invoke(app, ctx, "layer.smartObjects.editContents", json!({})),
         "develop" => crate::menus::invoke(app, ctx, crate::develop_layer::DEVELOP_ID, json!({})),
-        "regenerate" => regenerate(app, layer, generation),
+        "regenerate" | "variations" => regenerate(app, ctx, layer, generation, a == "variations"),
         "selectSubject" => app.run("ai.selectSubject", json!({})),
         "removeBackground" => app.run("ai.removeBackground", json!({ "layer": layer })),
         "transform" => crate::menus::invoke(app, ctx, "edit.freeTransform", json!({})),
@@ -609,34 +687,35 @@ fn run(app: &mut PhotocraftApp, ctx: &egui::Context, what: Context, a: &str, pro
 /// Mask from the work path: a vector mask on the active layer, as in Photoshop; where a layer
 /// can't take one (a shape layer, the Background), a layer mask from the path's selection.
 fn path_mask(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<Value, String> {
-    let vector = app.session.active().and_then(|d| d.doc.layer(d.active_layer?).map(|l| !crate::doc_props_ui::is_background(&d.doc, l) && !matches!(l.content, LayerContent::Shape(_))));
+    let name = selected_path(app).map(|(name, _)| name).unwrap_or_else(|| "work".into());
+    let vector = app
+        .session
+        .active()
+        .and_then(|d| d.doc.layer(d.active_layer?).map(|l| !crate::doc_props_ui::is_background(&d.doc, l) && !matches!(l.content, LayerContent::Shape(_))));
     if vector == Some(true)
-        && let Ok(v) = app.run("layer.vectorMask.currentPath", json!({ "name": "work" }))
+        && let Ok(v) = app.run("layer.vectorMask.currentPath", json!({ "name": name }))
     {
         return Ok(v);
     }
-    app.run("path.toSelection", json!({ "name": "work" }))?;
+    app.run("path.toSelection", json!({ "name": name }))?;
     crate::menus::invoke(app, ctx, "layer.layerMask.revealSelection", json!({}))
 }
 
 /// Regenerate an AI layer with the prompt it was made from and a new seed: Generative Fill over
 /// the layer's own pixels (or Generate Background again). The old result is hidden, not deleted.
-fn regenerate(app: &mut PhotocraftApp, layer: Option<u64>, generation: Option<Value>) -> Result<Value, String> {
+fn regenerate(app: &mut PhotocraftApp, ctx: &egui::Context, layer: Option<u64>, generation: Option<Value>, variations: bool) -> Result<Value, String> {
     let (Some(layer), Some(g)) = (layer, generation) else { return Err(tl!("This layer has no generation settings to repeat").into()) };
-    let mut p = json!({ "prompt": g["prompt"].as_str().unwrap_or("") });
+    let mut p = json!({ "prompt": g["prompt"].as_str().unwrap_or(""), "replaceLayer": layer });
     if let Some(e) = g["engine"].as_str() {
         p["engine"] = json!(e);
     }
     match g["command"].as_str() {
         Some("ai.generativeFill") => {
             app.run("select.loadSelection", json!({ "channel": "transparency", "layer": layer }))?;
-            app.run("layer.setProps", json!({ "layer": layer, "visible": false }))?;
             app.run("ai.generativeFill", p)
         }
-        Some("ai.generateBackground") => {
-            app.run("layer.setProps", json!({ "layer": layer, "visible": false }))?;
-            app.run("ai.generateBackground", p)
-        }
+        Some("ai.generateBackground") => app.run("ai.generateBackground", p),
+        Some("ai.generate") => crate::generate_ui::regenerate_layer(app, ctx, layer, &g, variations).map(|()| Value::Null),
         _ => Err(tl!("This layer has no generation settings to repeat").into()),
     }
 }

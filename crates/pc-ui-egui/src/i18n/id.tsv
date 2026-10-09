@@ -2958,3 +2958,41 @@ ai	New	Baru
 	Cage is not active	Sangkar tidak aktif
 	Could not use Cage: the layer is empty	Tidak dapat memakai Sangkar: lapisan kosong
 	Index	Indeks
+
+# Selected-item context bars and live shapes
+	AI Fill	Isi dengan AI
+	Add a vector mask from the path	Tambahkan masker vektor dari jalur
+	Bottom-left corner radius	Radius sudut kiri bawah
+	Bottom-right corner radius	Radius sudut kanan bawah
+	Content-Aware Fill	Isi sesuai konten
+	Corners	Sudut
+	Create another variation using this layer's prompt and a new seed	Buat variasi lain dengan prompt lapisan ini dan seed baru
+	Describe what to generate, or leave empty to fill from the surroundings	Jelaskan yang ingin dibuat, atau kosongkan untuk mengisi dari sekitarnya
+	Edit Path	Edit jalur
+	Edit Text	Edit teks
+	Edit the shape's anchors and handles	Edit jangkar dan handel bentuk
+	Edit this photo's develop settings	Edit pengaturan pengembangan foto ini
+	Fill the path's area from the image around it	Isi area jalur dari gambar di sekitarnya
+	Fill the selection from the image around it	Isi seleksi dari gambar di sekitarnya
+	Generate this area again from its surroundings	Buat ulang area ini dari sekitarnya
+	Generate “{prompt}” again with a new seed	Buat ulang “{prompt}” dengan seed baru
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	Isi generatif: buat ulang area dari deskripsi (kosong: dari sekitarnya)
+	Generative Fill: regenerate the path's area from a description	Isi generatif: buat ulang area jalur dari deskripsi
+	L	P
+	Line weight	Ketebalan garis
+	Mask out the background with AI	Masker latar belakang dengan AI
+	Number of sides	Jumlah sisi
+	Open in Develop	Buka di Pengembangan
+	Open the Smart Object's contents	Buka isi objek pintar
+	Regenerate	Buat ulang
+	Select the main subject with AI	Pilih subjek utama dengan AI
+	Set radius of all corners	Atur radius semua sudut
+	Set shape stroke width	Atur ketebalan goresan bentuk
+	Set the font size	Atur ukuran font
+	This layer has no generation model to repeat	Lapisan ini tidak memiliki model untuk pembuatan ulang
+	This layer has no generation settings to repeat	Lapisan ini tidak memiliki pengaturan untuk pembuatan ulang
+	This layer's generation model is unavailable	Model pembuatan lapisan ini tidak tersedia
+	Top-left corner radius	Radius sudut kiri atas
+	Top-right corner radius	Radius sudut kanan atas
+	Turn the shape into pixels	Ubah bentuk menjadi piksel
+	Variations	Variasi

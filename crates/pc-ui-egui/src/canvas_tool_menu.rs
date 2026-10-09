@@ -109,10 +109,8 @@ pub const PEN_MENU: &[Row] = &[
 
 /// Tools whose plain canvas right-click offers selection actions.
 pub fn applies(tool: Tool) -> bool {
-    matches!(
-        tool,
-        Tool::RectMarquee | Tool::EllipseMarquee | Tool::Lasso | Tool::PolygonLasso | Tool::MagneticLasso | Tool::MagicWand | Tool::ObjectSelection
-    ) || path_tool(tool)
+    matches!(tool, Tool::RectMarquee | Tool::EllipseMarquee | Tool::Lasso | Tool::PolygonLasso | Tool::MagneticLasso | Tool::MagicWand | Tool::ObjectSelection)
+        || path_tool(tool)
 }
 
 /// Tools whose right-click offers the path menu: the Pen, and (as in Photoshop) the path selection

@@ -2978,3 +2978,41 @@ ai	New	Novos
 	Cage is not active	A gaiola não está ativa
 	Could not use Cage: the layer is empty	Não foi possível usar a Gaiola: a camada está vazia
 	Index	Índice
+
+# Selected-item context bars and live shapes
+	AI Fill	Preenchimento por IA
+	Add a vector mask from the path	Adicionar máscara vetorial a partir do demarcador
+	Bottom-left corner radius	Raio do canto inferior esquerdo
+	Bottom-right corner radius	Raio do canto inferior direito
+	Content-Aware Fill	Preenchimento sensível ao conteúdo
+	Corners	Cantos
+	Create another variation using this layer's prompt and a new seed	Criar outra variação com o prompt desta camada e uma nova semente
+	Describe what to generate, or leave empty to fill from the surroundings	Descreva o que gerar ou deixe vazio para preencher a partir do entorno
+	Edit Path	Editar demarcador
+	Edit Text	Editar texto
+	Edit the shape's anchors and handles	Editar os pontos de ancoragem e alças da forma
+	Edit this photo's develop settings	Editar as configurações de revelação desta foto
+	Fill the path's area from the image around it	Preencher a área do demarcador a partir da imagem ao redor
+	Fill the selection from the image around it	Preencher a seleção a partir da imagem ao redor
+	Generate this area again from its surroundings	Gerar esta área novamente a partir do entorno
+	Generate “{prompt}” again with a new seed	Gerar “{prompt}” novamente com uma nova semente
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	Preenchimento generativo: recriar a área pela descrição (vazio: pelo entorno)
+	Generative Fill: regenerate the path's area from a description	Preenchimento generativo: recriar a área do demarcador pela descrição
+	L	C
+	Line weight	Espessura da linha
+	Mask out the background with AI	Mascarar o fundo com IA
+	Number of sides	Número de lados
+	Open in Develop	Abrir em Revelação
+	Open the Smart Object's contents	Abrir o conteúdo do objeto inteligente
+	Regenerate	Gerar novamente
+	Select the main subject with AI	Selecionar o assunto principal com IA
+	Set radius of all corners	Definir o raio de todos os cantos
+	Set shape stroke width	Definir a largura do traçado da forma
+	Set the font size	Definir o tamanho da fonte
+	This layer has no generation model to repeat	Esta camada não tem modelo para gerar novamente
+	This layer has no generation settings to repeat	Esta camada não tem configurações para gerar novamente
+	This layer's generation model is unavailable	O modelo de geração desta camada não está disponível
+	Top-left corner radius	Raio do canto superior esquerdo
+	Top-right corner radius	Raio do canto superior direito
+	Turn the shape into pixels	Converter a forma em pixels
+	Variations	Variações

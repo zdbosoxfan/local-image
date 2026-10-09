@@ -2971,3 +2971,41 @@ ai	New	Nouveautés
 	Cage is not active	La cage n’est pas active
 	Could not use Cage: the layer is empty	Impossible d’utiliser la cage : le calque est vide
 	Index	Index
+
+# Selected-item context bars and live shapes
+	AI Fill	Remplissage IA
+	Add a vector mask from the path	Ajouter un masque vectoriel depuis le tracé
+	Bottom-left corner radius	Rayon du coin inférieur gauche
+	Bottom-right corner radius	Rayon du coin inférieur droit
+	Content-Aware Fill	Remplissage d'après le contenu
+	Corners	Coins
+	Create another variation using this layer's prompt and a new seed	Créer une autre variation avec l'invite de ce calque et une nouvelle graine
+	Describe what to generate, or leave empty to fill from the surroundings	Décrivez ce qu'il faut générer, ou laissez vide pour remplir depuis les alentours
+	Edit Path	Modifier le tracé
+	Edit Text	Modifier le texte
+	Edit the shape's anchors and handles	Modifier les points d'ancrage et poignées de la forme
+	Edit this photo's develop settings	Modifier les réglages de développement de cette photo
+	Fill the path's area from the image around it	Remplir la zone du tracé depuis l'image environnante
+	Fill the selection from the image around it	Remplir la sélection depuis l'image environnante
+	Generate this area again from its surroundings	Régénérer cette zone depuis les alentours
+	Generate “{prompt}” again with a new seed	Régénérer « {prompt} » avec une nouvelle graine
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	Remplissage génératif : régénérer la zone depuis votre description (vide : depuis les alentours)
+	Generative Fill: regenerate the path's area from a description	Remplissage génératif : régénérer la zone du tracé depuis une description
+	L	L
+	Line weight	Épaisseur du trait
+	Mask out the background with AI	Masquer l'arrière-plan avec l'IA
+	Number of sides	Nombre de côtés
+	Open in Develop	Ouvrir dans Développement
+	Open the Smart Object's contents	Ouvrir le contenu de l'objet dynamique
+	Regenerate	Régénérer
+	Select the main subject with AI	Sélectionner le sujet principal avec l'IA
+	Set radius of all corners	Définir le rayon de tous les coins
+	Set shape stroke width	Définir l'épaisseur du contour de la forme
+	Set the font size	Définir la taille de police
+	This layer has no generation model to repeat	Ce calque n'a pas de modèle de génération à réutiliser
+	This layer has no generation settings to repeat	Ce calque n'a pas de réglages de génération à réutiliser
+	This layer's generation model is unavailable	Le modèle de génération de ce calque est indisponible
+	Top-left corner radius	Rayon du coin supérieur gauche
+	Top-right corner radius	Rayon du coin supérieur droit
+	Turn the shape into pixels	Convertir la forme en pixels
+	Variations	Variations

@@ -1146,6 +1146,56 @@ fn add_reference(_ctx: &egui::Context, name: String, img: RgbaImage) {
     rt(|r| r.references.push(Reference { name, image: Arc::new(img), texture: None }));
 }
 
+/// Restore a placed Generate/Library result's settings. Regenerate starts a fresh job;
+/// Variations brings its settings forward so the user can choose a batch or adjust the prompt.
+pub(crate) fn regenerate_layer(app: &mut PhotocraftApp, ctx: &egui::Context, layer: u64, g: &Value, variations: bool) -> Result<(), String> {
+    let model = g["model"].as_str().ok_or_else(|| tl!("This layer has no generation model to repeat").to_owned())?;
+    let mut s = GenerateState::default();
+    if let Some(m) = ModelId::from_key(model) {
+        set_model(&mut s, m);
+    } else if model.starts_with("custom:") || model.starts_with("cloud:") {
+        s.model = model.to_owned();
+    } else {
+        return Err(tl!("This layer's generation model is unavailable").into());
+    }
+    s.prompt = g["prompt"].as_str().unwrap_or("").to_owned();
+    s.negative = g["negative_prompt"].as_str().unwrap_or("").to_owned();
+    if let Some(v) = g["variant"].as_str() {
+        s.variant = v.to_owned();
+    }
+    let uint = |key: &str| g[key].as_u64().and_then(|n| u32::try_from(n).ok());
+    s.width = uint("width").unwrap_or(s.width);
+    s.height = uint("height").unwrap_or(s.height);
+    s.aspect = "custom".into();
+    s.steps = uint("steps").unwrap_or(s.steps);
+    s.guidance = g["guidance"].as_f64().map_or(s.guidance, |v| v as f32);
+    s.denoise = g["denoise"].as_f64().map_or(s.denoise, |v| v as f32);
+    s.transparent = g["transparent"].as_bool().unwrap_or(false);
+    s.loras = serde_json::from_value(g["loras"].clone()).unwrap_or_default();
+    s.mode = match g["mode"].as_str() {
+        Some("fill") => Mode::Fill,
+        Some("edit") => Mode::Edit,
+        Some("refine") => Mode::Refine,
+        Some("upscale") => Mode::Upscale,
+        _ => Mode::Create,
+    };
+    if s.mode == Mode::Fill {
+        app.run("select.loadSelection", json!({"channel": "transparency", "layer": layer}))?;
+    }
+    app.ui.ai.generate = s;
+    crate::dock::reveal(app, crate::dock::Group::Generate);
+    app.ui.dock_tabs.generate = 0;
+    focus_prompt(ctx);
+    if !variations {
+        app.ui.status_error = false;
+        start(app, ctx);
+        if app.ui.status_error {
+            return Err(app.ui.status.clone());
+        }
+    }
+    Ok(())
+}
+
 /// Starts the generation jobs for the current settings.
 fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let s = app.ui.ai.generate.clone();
@@ -1474,7 +1524,7 @@ fn place_into(app: &mut PhotocraftApp, doc_id: u64, entry: &Entry) {
     app.sync_views();
     let path = Library::default().image_path(&entry.id);
     let name = format!("Edit: {}", entry.prompt().chars().take(40).collect::<String>());
-    if let Err(e) = app.run("ai.placeLayer", json!({ "path": path.display().to_string(), "name": name, "fit": "none" })) {
+    if let Err(e) = app.run("ai.placeLayer", json!({ "path": path.display().to_string(), "name": name, "fit": "none", "generation": entry.generation })) {
         app.ui.status = e;
         app.ui.status_error = true;
     }
@@ -1627,7 +1677,7 @@ fn entry_action(app: &mut PhotocraftApp, ctx: &egui::Context, e: &Entry, act: &s
         "place" => {
             let r = app.run(
                 "ai.placeLayer",
-                json!({ "path": lib.image_path(&e.id).display().to_string(), "name": e.name.trim_end_matches(".png"), "fit": "contain" }),
+                json!({ "path": lib.image_path(&e.id).display().to_string(), "name": e.name.trim_end_matches(".png"), "fit": "contain", "generation": e.generation }),
             );
             if let Err(err) = r {
                 app.ui.status = err;

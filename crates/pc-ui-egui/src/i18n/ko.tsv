@@ -3128,3 +3128,39 @@ ai	New	새 항목
 	Cage is not active	케이지가 활성 상태가 아닙니다
 	Could not use Cage: the layer is empty	케이지를 사용할 수 없음: 레이어가 비어 있습니다
 	Index	인덱스
+
+# Selected-item context bars and live shapes
+	AI Fill	AI 채우기
+	Add a vector mask from the path	패스에서 벡터 마스크 추가
+	Bottom-left corner radius	왼쪽 아래 모서리 반경
+	Bottom-right corner radius	오른쪽 아래 모서리 반경
+	Create another variation using this layer's prompt and a new seed	이 레이어의 프롬프트와 새 시드로 다른 변형 만들기
+	Describe what to generate, or leave empty to fill from the surroundings	생성할 내용을 설명하거나 비워 두어 주변 내용으로 채우기
+	Edit Path	패스 편집
+	Edit Text	텍스트 편집
+	Edit the shape's anchors and handles	도형의 고정점과 핸들 편집
+	Edit this photo's develop settings	이 사진의 현상 설정 편집
+	Fill the path's area from the image around it	패스 영역을 주변 이미지로 채우기
+	Fill the selection from the image around it	선택 영역을 주변 이미지로 채우기
+	Generate this area again from its surroundings	주변 내용을 바탕으로 이 영역 다시 생성
+	Generate “{prompt}” again with a new seed	새 시드로 “{prompt}” 다시 생성
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	생성형 채우기: 설명에 따라 영역 다시 생성 (비워 두면 주변 내용 사용)
+	Generative Fill: regenerate the path's area from a description	생성형 채우기: 설명에 따라 패스 영역 다시 생성
+	L	길이
+	Line weight	선 두께
+	Mask out the background with AI	AI로 배경 마스크 처리
+	Number of sides	변의 수
+	Open in Develop	현상에서 열기
+	Open the Smart Object's contents	고급 개체의 내용 열기
+	Regenerate	다시 생성
+	Select the main subject with AI	AI로 주요 피사체 선택
+	Set radius of all corners	모든 모서리의 반경 설정
+	Set shape stroke width	도형 획 너비 설정
+	Set the font size	글꼴 크기 설정
+	This layer has no generation model to repeat	이 레이어에는 다시 생성할 모델이 없습니다
+	This layer has no generation settings to repeat	이 레이어에는 다시 생성할 설정이 없습니다
+	This layer's generation model is unavailable	이 레이어의 생성 모델을 사용할 수 없습니다
+	Top-left corner radius	왼쪽 위 모서리 반경
+	Top-right corner radius	오른쪽 위 모서리 반경
+	Turn the shape into pixels	도형을 픽셀로 변환
+	Variations	변형

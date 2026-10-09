@@ -115,7 +115,8 @@ fn pixel_layer_shows_remove_background_quick_action() {
     let shown: Vec<&str> = visible_quick_actions(app, &layer_of(app, pixel).content).iter().map(|(_, id)| *id).collect();
     assert!(shown.contains(&"layer.removeBackground"), "{shown:?}");
     assert!(crate::menus::is_live("layer.removeBackground"));
-    assert!(h.query_by_label("Remove Background").is_some());
+    let quick = headers(&h).into_iter().find(|(name, _)| name == "Quick Actions").unwrap().1;
+    assert!(h.query_all(egui_kittest::kittest::by().label("Remove Background")).any(|n| n.rect().left() >= quick.left() && n.rect().top() > quick.bottom()));
 }
 
 #[test]

@@ -557,7 +557,9 @@ pub fn stroke_color_control(ui: &mut egui::Ui, sh: &photocraft_doc::vector::Shap
 /// The stroke width (0 removes the stroke).
 pub fn stroke_width_control(ui: &mut egui::Ui, sh: &photocraft_doc::vector::ShapeLayer, id: photocraft_doc::LayerId, width: f32) -> Option<Value> {
     let mut w = sh.stroke.as_ref().map_or(0.0, |s| s.width);
-    if !crate::widgets::value_field(ui, &mut w, 0.0..=288.0, "px", width).on_hover_text(tl!("Set shape stroke width")).changed() {
+    let resp = crate::widgets::value_field(ui, &mut w, 0.0..=288.0, "px", width).on_hover_text(tl!("Set shape stroke width"));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::DragValue, true, tl!("Set shape stroke width")));
+    if !resp.changed() {
         return None;
     }
     Some(if w <= 0.0 { json!({"stroke": null}) } else { json!({"stroke": {"width": w}, "coalesce": key(id, "stroke-w")}) })
@@ -614,7 +616,9 @@ pub fn box_controls(ui: &mut egui::Ui, sh: &photocraft_doc::vector::ShapeLayer, 
     let field = |ui: &mut egui::Ui, label: &str, v: f64, range: std::ops::RangeInclusive<f32>, unit: &str| -> Option<f64> {
         dim(ui, label);
         let mut f = v as f32;
-        crate::widgets::value_field(ui, &mut f, range, unit, width).changed().then_some(f64::from(f))
+        let resp = crate::widgets::value_field(ui, &mut f, range, unit, width);
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::DragValue, true, label));
+        resp.changed().then_some(f64::from(f))
     };
     const BIG: f32 = 300_000.0;
     if let Some(LiveShape::Line { from, to, .. }) = &sh.live {
@@ -670,7 +674,9 @@ pub fn kind_controls(ui: &mut egui::Ui, sh: &photocraft_doc::vector::ShapeLayer,
     let num = |ui: &mut egui::Ui, label: &str, v: f64, range: std::ops::RangeInclusive<f32>, unit: &str, tip: &str| -> Option<f64> {
         dim(ui, label);
         let mut f = v as f32;
-        crate::widgets::value_field(ui, &mut f, range, unit, 58.0).on_hover_text(tip).changed().then_some(f64::from(f))
+        let resp = crate::widgets::value_field(ui, &mut f, range, unit, 58.0).on_hover_text(tip);
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::DragValue, true, tip));
+        resp.changed().then_some(f64::from(f))
     };
     match sh.live.as_ref()? {
         LiveShape::Rect { radii, .. } if corners => {
@@ -729,6 +735,15 @@ pub fn shape_layer_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
     if sh.live.as_ref().is_some_and(|l| !matches!(l, photocraft_doc::vector::LiveShape::Ellipse { .. })) {
         crate::widgets::vline(ui, 22.0);
         edit = kind_controls(ui, &sh, id, false).or(edit);
+        if matches!(sh.live, Some(photocraft_doc::vector::LiveShape::Rect { .. })) {
+            let corners = ui.button(tl!("Corners"));
+            egui::Popup::menu(&corners).show(|ui| {
+                ui.set_min_width(190.0);
+                ui.horizontal_wrapped(|ui| {
+                    edit = kind_controls(ui, &sh, id, true).or(edit.take());
+                });
+            });
+        }
     }
     apply_shape_edit(app, id, edit);
     true
@@ -810,6 +825,11 @@ fn swatch_opening(ui: &mut egui::Ui, fill: Option<&photocraft_doc::Fill>, tip: &
         if egui::color_picker::color_picker_color32(ui, &mut c, egui::color_picker::Alpha::Opaque) {
             out = Some(format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()));
         }
+        // With No Color selected, the picker's initial black is already its current value;
+        // choosing it needs an explicit way to enable the paint without first changing hue.
+        if fill.is_none() && ui.button(tl!("Solid Color")).clicked() {
+            out = Some(format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()));
+        }
         if fill.is_some() && ui.button(tl!("No Color")).clicked() {
             out = Some("none".into());
         }
@@ -831,6 +851,9 @@ pub fn shape_properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, id: photocra
     // A double-click on the layer's thumbnail opens the fill picker.
     let open_key = egui::Id::new("shape-open-fill");
     let open = ui.ctx().data_mut(|d| d.get_temp::<u64>(open_key).filter(|v| *v == id.0).inspect(|_| d.remove::<u64>(open_key))).is_some();
+    if open {
+        ui.data_mut(|d| d.insert_temp(egui::Id::new(("props-section", "appearance")), true));
+    }
     // The shared collapsible section headers (#155).
     if crate::props_layout::section(ui, "appearance", tl!("Appearance")) {
         ui.horizontal(|ui| {
