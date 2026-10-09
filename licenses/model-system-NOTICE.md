@@ -41,6 +41,14 @@ the connected ComfyUI (`/templates`) or this repository.
   which the Model Browser shows before downloading.
 * **Local Image family profiles** (`crates/li-ai/families/*.json` in this repository): fetched from
   GitHub by *Update Model Profiles*.
+* **Depth models for Develop depth masks** (`li-seg`, `Task::Depth`; downloaded on request, checked
+  against a pinned size and SHA-256, run on the CPU with tract):
+  * **Depth Anything V2 Small** (<https://github.com/DepthAnything/Depth-Anything-V2>; the Small
+    model is Apache-2.0, unlike Base/Large, which are not used). The ONNX export
+    `depth_anything_v2_vits_dynamic.onnx` is from **fabio-sim/Depth-Anything-ONNX** release v2.0.0
+    (<https://github.com/fabio-sim/Depth-Anything-ONNX>, Apache-2.0).
+  * **MiDaS v2.1 small** (`model-small.onnx`, <https://github.com/isl-org/MiDaS> release v2_1,
+    MIT, Copyright (c) 2019 Intel ISL), the fallback.
 
 ## Ideas only (no code)
 

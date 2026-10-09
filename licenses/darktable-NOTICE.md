@@ -12,6 +12,12 @@ upstream source in its module documentation. The project-wide list of ports is
 | Our file | Upstream file | Upstream commit | Copyright | Licence |
 |---|---|---|---|---|
 | `crates/lc-pipeline/src/negative.rs` | [`src/iop/negadoctor.c`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/negadoctor.c) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2020-2026 darktable developers | GPL-3.0-or-later |
+| `crates/lc-raw/src/demosaic/rcd.rs` | [`src/iop/demosaicing/rcd.c`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/demosaicing/rcd.c) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2010-2026 darktable developers; RCD by Luis Sanz Rodríguez; tiling by Ingo Weyrich (RawTherapee); Hanno Schwalm | GPL-3.0-or-later |
+| `crates/lc-raw/src/demosaic/dual.rs` | [`src/iop/demosaicing/dual.c`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/demosaicing/dual.c), [`src/develop/masks/detail.c`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/develop/masks/detail.c) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2010-2025 / 2013-2025 darktable developers; dual demosaic by Ingo Weyrich (RawTherapee), adapted by Hanno Schwalm | GPL-3.0-or-later |
+| `crates/lc-raw/src/highlight/opposed.rs` | [`src/iop/hlreconstruct/opposed.c`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/hlreconstruct/opposed.c) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2022-2026 darktable developers | GPL-3.0-or-later |
+| `crates/lc-raw/src/capture.rs`, `crates/lc-pipeline/src/capture.rs` | [`src/iop/demosaicing/capture.c`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/demosaicing/capture.c) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2025-2026 darktable developers; algorithm by Ingo Weyrich (RawTherapee) | GPL-3.0-or-later |
+| `crates/lc-pipeline/src/toneeq.rs` | [`src/iop/toneequal.c`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/toneequal.c), [`src/iop/gaussian_elimination.h`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/gaussian_elimination.h), [`src/common/luminance_mask.h`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/common/luminance_mask.h) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2018-2026 / 2017-2023 / 2019-2026 darktable developers (Aurélien Pierre) | GPL-3.0-or-later |
+| `crates/lc-pipeline/src/colorcal.rs` | [`src/iop/channelmixerrgb.c`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/channelmixerrgb.c), [`src/common/chromatic_adaptation.h`](https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/common/chromatic_adaptation.h) | `733bd69f32cac7ff5e41025115942772add1f088` | Copyright (C) 2010-2026 / 2020-2025 darktable developers (Aurélien Pierre) | GPL-3.0-or-later |
 
 ### `negadoctor.c` → film negative conversion
 
@@ -53,3 +59,42 @@ Upstream header (`src/iop/negadoctor.c`):
 The module's documentation credits its references: Kodak's sensitometry workbook, the Cineon
 format paper (digital-intermediate.co.uk) and an OpenEXR mailing-list post on highlight
 compression (lists.gnu.org/archive/html/openexr-devel/2005-03/msg00009.html).
+
+### Develop toolset upgrades (2026-10-09)
+
+All of these are off by default (or at the behaviour photos had before), so earlier edits render
+exactly as before. Each file's module documentation lists the upstream functions it follows and
+how it differs from them. Several of the algorithms started in **RawTherapee** (GPL-3.0-or-later,
+<https://github.com/RawTherapee/RawTherapee>) and **ART** (GPL-3.0-or-later). The ports here were
+made from darktable's versions. The authors named in the upstream headers are credited above and
+in the module documentation.
+
+* **`rcd.c` → RCD demosaic** (`Demosaic::Rcd`). Ratio Corrected Demosaicing v2.3 by Luis Sanz
+  Rodríguez. The tiling is Ingo Weyrich's from RawTherapee. Differences: the mosaic is read
+  mirror-reflected, so the borders are interpolated like the interior; the input is not rescaled;
+  the diagonal high-pass filters are read at the site itself. Upstream's half-width packing reads
+  the neighbouring column on some rows, while the original RCD code reads the site.
+* **`dual.c`, `detail.c` → dual demosaic** (`Demosaic::DualRcd`). RCD is used on detail and a
+  smooth method in flat areas, blended by the detail mask. The dual method is by Ingo Weyrich
+  (RawTherapee) and was adapted by Hanno Schwalm. Differences: the flat method is bilinear (not
+  VNG4), and the mask is computed without white balance.
+* **`opposed.c` → inpaint-opposed highlights** (`HighlightMode::Opposed`). This is the linear
+  (demosaiced) variant, by Hanno Schwalm with @garagecoder and @Iain (G'MIC). Differences: it runs
+  on camera RGB before white balance; the clipped test reads each channel; the superpixel grid
+  rounds up.
+* **`capture.c` → capture sharpening.** The radius estimation is in `lc-raw/src/capture.rs`. The
+  Richardson–Lucy deconvolution, the per-pixel kernel table with corner boost, and the blend mask
+  are in `lc-pipeline/src/capture.rs`. The algorithm is Ingo Weyrich's from RawTherapee.
+  Differences: the deconvolution runs on the scene-linear Rec.2020 source with Rec.2020 luminance
+  weights.
+* **`toneequal.c`, `gaussian_elimination.h`, `luminance_mask.h` → tone equalizer**, by Aurélien
+  Pierre. Ported: the Gaussian interpolation matrix, the least-squares solve, the correction
+  table and the per-pixel correction. Differences: the mask is a guided filter of the log2
+  Euclidean-norm luminance; upstream uses a guided filter or EIGF of the linear luminance.
+* **`channelmixerrgb.c`, `chromatic_adaptation.h` → colour calibration** (adaptation and gamut
+  compression only, not the channel mixer), by Aurélien Pierre. It supports the CAT16, Bradford
+  (linear and non-linear) and XYZ adaptations. Differences: the target white is D65, which is
+  this pipeline's Rec.2020 working space (upstream: D50), and adaptation is always complete.
+
+The upstream headers of these files are the same GPL-3.0-or-later notice as `negadoctor.c` above,
+with the copyright years listed in the table.

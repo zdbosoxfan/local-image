@@ -193,16 +193,96 @@ LightCraft already has: AHD/PPG/bilinear/X-Trans demosaic, clip-aware highlight 
 | P1 | AI Remove in Develop + patch store (*built*, §3.3) | li-ai engines; LaMa ONNX later (Apache-2.0) |
 | P1 | AI Denoise (*built*, §3.3) | darktable-ai RawNIND UtNet2 (GPL-3.0); OIDN (Apache-2.0) / vkdt `jddcnn` (BSD-2) as alternatives |
 | P1 | Develop layers holding the full toolset | Capture One model, darktable blending |
-| P2 | RCD + AMaZE + dual demosaic, capture sharpening (deconvolution, auto radius) | RawTherapee / ART (GPL-3) |
-| P2 | Tone equalizer (EIGF) driving highlights/shadows/whites/blacks | darktable (GPL-3), vkdt `llap` (BSD-2) |
-| P2 | Highlight reconstruction: inpaint-opposed / segmentation | darktable (GPL-3) |
-| P2 | Lens profiles (lensfun-format reader in Rust; database CC-BY-SA) | darktable lens, ART lensexif |
-| P2 | Colour calibration (CAT + colour checker), colour balance rgb, colour equalizer | darktable (GPL-3) |
-| P3 | Diffuse or sharpen, contrast & texture (5.8), haze removal upgrade | darktable (GPL-3) |
-| P3 | Negative conversion, film simulation, focus stacking | darktable negadoctor, vkdt (BSD-2) |
-| P3 | Depth masks (Depth Anything V2-Small, Apache-2.0; not Base/Large) | — |
+| P2 | RCD + AMaZE + dual demosaic, capture sharpening (deconvolution, auto radius) (*RCD, dual, capture built*, §4.1; AMaZE deferred) | RawTherapee / ART (GPL-3) |
+| P2 | Tone equalizer (EIGF) driving highlights/shadows/whites/blacks (*built*, guided filter, §4.1) | darktable (GPL-3), vkdt `llap` (BSD-2) |
+| P2 | Highlight reconstruction: inpaint-opposed / segmentation (*opposed built*, §4.1; segmentation deferred) | darktable (GPL-3) |
+| P2 | Lens profiles (lensfun-format reader in Rust; database CC-BY-SA) (*built*, `lensfun` crate, §4.1) | darktable lens, ART lensexif |
+| P2 | Colour calibration (CAT + colour checker), colour balance rgb, colour equalizer (*CAT + gamut compression built*, §4.1) | darktable (GPL-3) |
+| P3 | Diffuse or sharpen, contrast & texture (5.8), haze removal upgrade (*diffuse or sharpen deferred*, §4.1) | darktable (GPL-3) |
+| P3 | Negative conversion, film simulation, focus stacking (*negative built; film looks built as profiles*, §4.1) | darktable negadoctor, vkdt (BSD-2) |
+| P3 | Depth masks (Depth Anything V2-Small, Apache-2.0; not Base/Large) (*built*, MiDaS small fallback, §4.1) | — |
 
 All ports keep their copyright notices under `licenses/`. RapidRAW (AGPL-3.0) is a design reference only.
+
+### 4.1 Toolset upgrades — *built* (2026-10-09)
+
+Every tool is off by default, or at the behaviour photos had before. A new settings section is left
+out of the JSON while it is at its defaults, so older settings and catalogues serialize, hash and
+render bit-identically. Golden hashes guard this:
+
+* `lc-pipeline` `tests_toolset`: 14 renders recorded before the tools were wired in;
+* `lc-engine` `tests_toolset`: the raw loader at a binned, a bilinear and a full size.
+
+Ports are listed in `docs/PORTS.md`, with notices in `licenses/darktable-NOTICE.md`,
+`licenses/lensfun-NOTICE.md` and `licenses/model-system-NOTICE.md`.
+
+* **Raw processing** (`DevelopSettings.raw`, raw files only; Detail copy group):
+  * Demosaic: Default (AHD) / AHD / **RCD** / **Dual (RCD + bilinear)** / PPG / Bilinear.
+  * Highlights: Reconstruct (today's) / **Inpaint Opposed** / Clip.
+  * **Capture sharpening**: Richardson–Lucy with an automatic radius measured from the raw,
+    corner boost and an ISO-based threshold.
+  * Demosaic and highlights are applied when the file is decoded (`lc-engine` `files::RawOptions`).
+    The decoded source is cached per option set (`raw_key`; 0 is the default, the old cache entry).
+  * Capture sharpening is a *presource* stage on the decoded source (`lightcraft_pipeline::presource`,
+    cached in `StageCache.pre`). It runs before the CPU and the GPU renders alike.
+  * Binned previews scale the radius by `SourceInfo.sensor_scale`.
+  * Speed: RCD matches AHD's PSNR on the test scenes and runs about 3.4× faster.
+* **Lens profiles** (`DevelopSettings.lens_db`, Optics; for cameras without embedded lens data).
+  * The `lensfun` crate supplies the database, lookup and interpolation; it is used only in
+    `lc-engine` (`lens_db`).
+  * The pipeline evaluates the rescaled correction (`lensdb::LensCorrection`) as part of the
+    geometry warp: distortion, TCA and vignetting, each with a strength.
+  * Lens-database frames are not GPU-samplable (`Frame::gpu_samplable`), so the GPU renderer
+    resamples their geometry on the CPU.
+* **Tone equalizer** (`DevelopSettings.tone_eq`, Light group).
+  * Nine zones from −8 to 0 EV, fitted by 8 Gaussians.
+  * The mask is a guided filter of log2 of the RGB norm. It has size, refinement and
+    exposure/contrast compensation controls, and a *Show Mask* overlay (`Overlay::ToneEqMask`).
+  * It renders on the CPU (`tools_need_cpu`).
+* **Colour calibration** (`DevelopSettings.color_cal`, Calibration group).
+  * Adaptation from a standard, custom or White Balance illuminant to D65, with CAT16,
+    Bradford (linear and non-linear) or XYZ.
+  * Gamut compression in u′v′, and a clip of negatives.
+  * Linear cases fold into the white-balance matrix and run on the GPU. The non-linear cases
+    (non-linear Bradford, gamut > 0, clip) take the CPU path for the linear stage (`lin_needs_cpu`).
+* **Film looks**: eight `lc.filmsim.*` profiles in the "Film Simulation" group. Each is a profile
+  delta (calibration primaries, RGB-curve fades, grading wheels) on the existing profile mechanism.
+  No vkdt code is used.
+* **Depth masks**: a *Depth* mask component (`MaskShape::DepthRange` with a near→far band and
+  smoothness).
+  * The depth map comes from `li-seg` `Task::Depth`: Depth Anything V2 Small, falling back to
+    MiDaS v2.1 small.
+  * It is stored as distance (0 = near) in a `SegMask` and evaluated on the CPU.
+
+**Deferred, with reasons:**
+
+* **AMaZE demosaic.** It is very large (about 1,500 lines of tightly coupled C with many special
+  cases). Its advantage over RCD is mostly on the finest periodic detail and is small in practice.
+  AMaZE was not measured here. RCD plus dual covers the quality need.
+* **Segmentation-based highlight reconstruction** (darktable `segbased`). It works on the CFA data
+  before demosaic, with segment detection and per-segment candidates. Our highlight stage runs
+  after demosaic, and binned or bilinear previews would not match the full-size result.
+  Inpaint-opposed covers the common case.
+* **Diffuse or sharpen.** This is an iterative multi-scale anisotropic diffusion with tens of
+  iterations of wavelet passes. It is far too slow on the CPU at interactive preview sizes without
+  the GPU port, and the WGSL work is out of scope for this round.
+* **VNG4 in dual demosaic.** Dual uses bilinear for flat areas. VNG4 would be a separate port, for
+  a small visual difference in areas that are flat by construction.
+* **EIGF mask in the tone equalizer.** The existing fast guided filter (on log luminance) is used.
+  EIGF would be a second filter implementation for a similar mask.
+* **Colour checker calibration, colour balance rgb, colour equalizer.** These were not in this
+  round's approved list.
+
+**Follow-ups:**
+
+* Tone equalizer as a develop-layer tool (`LayerTools`).
+* WGSL ports of the tone equalizer, the non-linear colour calibration and lens-database sampling,
+  so they stop falling back to the CPU.
+* `lensDb.*` commands for MCP and scripting (detect, search, pick).
+* Depth masks in the Camera Raw Filter.
+* `pc-io` develop layers decoding with the photo's raw options (`files::load_bytes_with`).
+* The other `Frame::with_lens` sites in the UI should use the lens database: the neighbour
+  prefetch in `panels/detail.rs` and `compare.rs`.
 
 ## 5. Plan
 
