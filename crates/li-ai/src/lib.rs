@@ -21,6 +21,7 @@ pub mod ops;
 pub mod presets;
 pub mod settings;
 pub mod setup;
+pub mod trash;
 pub mod workflows;
 
 pub use catalog::ModelId;

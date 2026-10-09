@@ -3,7 +3,8 @@
 //!
 //! Behaviour follows the 0.7 Python client (`local_comfy_client.py`): submit once, poll
 //! `/history/{id}` (0.15 s for 10 s, then 0.5 s, then 1 s, 20 min deadline), use the WebSocket for
-//! progress only, and cancel only our own prompt (never the global `/interrupt`).
+//! progress only, and cancel only our own prompt (the global `/interrupt` only for an explicit
+//! Stop, and only while one of our prompts is the one running: [`ComfyClient::interrupt_ours`]).
 
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -323,6 +324,27 @@ impl ComfyClient {
         Ok(())
     }
 
+    /// Stops the prompt ComfyUI is executing right now (`POST /interrupt`), but only when it is
+    /// one of ours (queued by this process): the global interrupt would otherwise stop someone
+    /// else's work. Returns whether it interrupted. For an explicit "Stop generation"; ordinary
+    /// cancellation uses [`Self::cancel`].
+    pub fn interrupt_ours(&self) -> Result<bool> {
+        let ours = our_prompts(&self.host);
+        if ours.is_empty() {
+            return Ok(false);
+        }
+        let q = self.queue_state()?;
+        let running = q.get("queue_running").and_then(Value::as_array).is_some_and(|items| items.iter().any(|i| ours.iter().any(|id| item_has(i, id))));
+        if !running {
+            return Ok(false);
+        }
+        let r = self.quick.post(&self.url("/interrupt")).send_json(json!({}))?;
+        if !r.status().is_success() {
+            bail!("ComfyUI refused to stop ({})", r.status());
+        }
+        Ok(true)
+    }
+
     /// Runs `graph`: uploads `images` (node id → PNG bytes) into those `LoadImage` nodes, queues,
     /// reports progress into `ctl`, and returns the first output image's bytes.
     pub fn run(&self, mut graph: Value, images: &[(String, Vec<u8>)], ctl: &JobControl) -> Result<Vec<u8>> {
@@ -338,6 +360,7 @@ impl ComfyClient {
         let socket = ProgressSocket::start(&self.host, &client_id, ctl.clone());
         ctl.set_stage(Stage::Queued);
         let prompt_id = self.queue_prompt(&graph, &client_id)?;
+        let _ours = OurPrompt::new(&self.host, &prompt_id);
         if let Some(s) = &socket {
             s.set_prompt(&prompt_id, &graph);
         }
@@ -395,6 +418,34 @@ impl ComfyClient {
                 1000
             };
             std::thread::sleep(Duration::from_millis(wait));
+        }
+    }
+}
+
+/// Prompts this process queued and still waits for, as `(host, prompt id)`.
+static OURS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
+/// The prompts this process is waiting for on `host`.
+pub fn our_prompts(host: &str) -> Vec<String> {
+    OURS.lock().map(|v| v.iter().filter(|(h, _)| h == host).map(|(_, id)| id.clone()).collect()).unwrap_or_default()
+}
+
+/// Lists a prompt in [`OURS`] while [`ComfyClient::run`] waits for it.
+struct OurPrompt(String, String);
+
+impl OurPrompt {
+    fn new(host: &str, id: &str) -> Self {
+        if let Ok(mut v) = OURS.lock() {
+            v.push((host.to_owned(), id.to_owned()));
+        }
+        Self(host.to_owned(), id.to_owned())
+    }
+}
+
+impl Drop for OurPrompt {
+    fn drop(&mut self) {
+        if let Ok(mut v) = OURS.lock() {
+            v.retain(|(h, id)| !(*h == self.0 && *id == self.1));
         }
     }
 }

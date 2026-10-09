@@ -368,9 +368,15 @@ pub fn installed(models_dir: &Path) -> Option<std::path::PathBuf> {
 /// Id of the denoise model in [`crate::MODELS`].
 pub const DENOISE_ID: &str = "rawdenoise-nind";
 
+static SLOT: std::sync::Mutex<Option<(std::path::PathBuf, Denoiser)>> = std::sync::Mutex::new(None);
+
+/// Drops the cached denoiser (the model was removed).
+pub fn forget() {
+    *SLOT.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+}
+
 /// A process-wide cache of the loaded denoiser (loading takes a moment).
 pub fn shared(models_dir: &Path) -> Result<Denoiser> {
-    static SLOT: std::sync::Mutex<Option<(std::path::PathBuf, Denoiser)>> = std::sync::Mutex::new(None);
     let path = installed(models_dir).context("The AI Denoise model is not installed.")?;
     let mut g = SLOT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some((p, d)) = g.as_ref()
