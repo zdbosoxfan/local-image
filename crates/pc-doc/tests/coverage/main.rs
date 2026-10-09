@@ -2,3 +2,5 @@
 
 mod ds_adjust_coverage;
 mod ds_slices_coverage;
+mod doc_model_coverage;
+mod vector_text_coverage;

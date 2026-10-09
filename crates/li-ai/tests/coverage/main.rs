@@ -9,3 +9,5 @@ mod ds_custom_coverage;
 mod ds_mock_coverage;
 mod ds_mock_hub_coverage;
 mod ds_ops_coverage;
+mod download_trash_inventory_coverage;
+mod family_coverage;
