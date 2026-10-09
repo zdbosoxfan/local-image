@@ -82,10 +82,13 @@ pub fn visible_sections(app: &PhotocraftApp) -> Vec<Vec<(usize, Vec<Tool>)>> {
     let mut out: Vec<Vec<(usize, Vec<Tool>)>> = Vec::new();
     let mut previous = None;
     for (_, section, index, kept) in ordered {
-        if previous != Some(section) {
-            out.push(Vec::new());
+        if previous == Some(section)
+            && let Some(group) = out.last_mut()
+        {
+            group.push((index, kept));
+        } else {
+            out.push(vec![(index, kept)]);
         }
-        out.last_mut().unwrap().push((index, kept));
         previous = Some(section);
     }
     out
@@ -3153,49 +3156,29 @@ mod swatch_type_tests {
 mod type_flyout_tests {
     use super::*;
 
-    fn frame(app: &mut PhotocraftApp, ctx: &egui::Context, time: f64, events: Vec<egui::Event>) {
-        let mut out = ctx.run_ui(
-            egui::RawInput { time: Some(time), events, screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(1200.0, 1800.0))), ..Default::default() },
-            |ui| toolbar(app, ui),
-        );
-        out.textures_delta.clear();
-    }
+    use egui_kittest::{Harness, kittest::Queryable};
 
     #[test]
     fn long_press_type_button_selects_vertical_without_selecting_on_release() {
-        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         let initial = app.ui.tool;
-        let ctx = egui::Context::default();
-        PhotocraftApp::setup_context(&ctx, crate::theme::ThemeKind::ALL[0]);
-        frame(&mut app, &ctx, 0.0, vec![]);
-        frame(&mut app, &ctx, 0.1, vec![]);
+        let mut h = Harness::builder().with_size(vec2(1200.0, 1800.0)).with_step_dt(0.1).build_ui_state(|ui, app: &mut PhotocraftApp| toolbar(app, ui), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        h.run_steps(2);
         let index = TOOL_SECTIONS.iter().flat_map(|section| section.iter()).position(|slot| slot.contains(&Tool::Type)).unwrap();
-        let bx = if Tokens::get(&ctx).pro { 30.0 } else { 36.0 };
-        let mut buttons: Vec<Rect> = ctx.viewport(|v| {
-            v.prev_pass
-                .widgets
-                .layers()
-                .flat_map(|(_, w)| w.iter())
-                .filter(|w| w.rect.size() == Vec2::splat(bx) && w.sense.senses_click())
-                .map(|w| w.rect)
-                .collect()
-        });
-        buttons.sort_by(|a, b| a.top().total_cmp(&b.top()));
-        let at = buttons[index].center();
+        let at = h.get_by_role_and_label(egui::accesskit::Role::Button, "Horizontal Type Tool").rect().center();
         let pointer = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
-        frame(&mut app, &ctx, 1.0, vec![egui::Event::PointerMoved(at), pointer(at, true)]);
-        frame(&mut app, &ctx, 1.36, vec![]);
-        assert_eq!(ctx.data(|d| d.get_temp::<(egui::Id, Rect)>(egui::Id::new("tool-flyout"))).map(|(id, _)| id), Some(egui::Id::new(("tool-slot", index))));
-        frame(&mut app, &ctx, 1.4, vec![pointer(at, false)]);
-        frame(&mut app, &ctx, 1.45, vec![]);
-        assert_eq!(app.ui.tool, initial);
-        let key = egui::Id::new(("tool-slot", index));
-        let menu = ctx.memory(|m| m.area_rect(key.with("flyout"))).unwrap();
-        let row = egui::pos2(menu.left() + 65.0, menu.top() + 39.0 + 8.0);
-        frame(&mut app, &ctx, 2.0, vec![egui::Event::PointerMoved(row), pointer(row, true)]);
-        frame(&mut app, &ctx, 2.05, vec![pointer(row, false)]);
-        assert_eq!(app.ui.tool, Tool::VerticalType);
-        assert!(ctx.data(|d| d.get_temp::<(egui::Id, Rect)>(egui::Id::new("tool-flyout"))).is_none());
+        h.event(egui::Event::PointerMoved(at));
+        h.event(pointer(at, true));
+        h.run_steps(5);
+        assert_eq!(h.ctx.data(|d| d.get_temp::<(egui::Id, Rect)>(egui::Id::new("tool-flyout"))).map(|(id, _)| id), Some(egui::Id::new(("tool-slot", index))));
+        h.event(pointer(at, false));
+        h.run_steps(2);
+        assert_eq!(h.state().ui.tool, initial);
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Vertical Type Tool").click();
+        h.run_steps(2);
+        assert_eq!(h.state().ui.tool, Tool::VerticalType);
+        assert!(h.ctx.data(|d| d.get_temp::<(egui::Id, Rect)>(egui::Id::new("tool-flyout"))).is_none());
     }
 }
 
