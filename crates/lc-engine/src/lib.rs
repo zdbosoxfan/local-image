@@ -18,6 +18,7 @@ pub mod crs;
 pub mod crs_masks;
 pub mod demo;
 pub mod devices;
+pub mod enhance;
 pub mod ephemeral;
 pub mod export;
 pub mod files;
@@ -213,6 +214,9 @@ pub struct Session {
     pub forget_local_days: u32,
     /// local-image: the Camera Raw Filter's temporary photo (see [`ephemeral`]).
     pub(crate) ephemeral: Option<ephemeral::Ephemeral>,
+    /// local-image: AI Remove / AI Denoise — the host's AI services and the running jobs (see
+    /// [`enhance`]).
+    pub enhance: enhance::Enhance,
 }
 
 impl Default for Session {
@@ -278,6 +282,7 @@ impl Session {
             smart_previews_dir: None,
             forget_local_days: lightcraft_catalog::DEFAULT_FORGET_DAYS,
             ephemeral: None,
+            enhance: enhance::Enhance::default(),
         }
     }
 

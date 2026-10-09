@@ -12,7 +12,10 @@ use crate::theme::Tokens;
 
 /// The curve points stored under `key` (or the linear curve).
 fn read(obj: &Map<String, Value>, key: &str) -> Vec<[f32; 2]> {
-    obj.get(key).and_then(|v| serde_json::from_value::<Vec<[f32; 2]>>(v.clone()).ok()).map(|p| pressure::sanitize(&p)).unwrap_or_else(|| pressure::LINEAR.to_vec())
+    obj.get(key)
+        .and_then(|v| serde_json::from_value::<Vec<[f32; 2]>>(v.clone()).ok())
+        .map(|p| pressure::sanitize(&p))
+        .unwrap_or_else(|| pressure::LINEAR.to_vec())
 }
 
 /// Preset id for the menu: one of [`pressure::PRESETS`], or `"custom"`.

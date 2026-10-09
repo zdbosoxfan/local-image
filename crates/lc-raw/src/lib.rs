@@ -36,7 +36,7 @@ mod tiffraw;
 mod unpack;
 mod vendor;
 
-pub use demosaic::{Method, demosaic};
+pub use demosaic::{DemosaicOptions, Method, demosaic, demosaic_with};
 pub use dngwrite::{DngCompression, DngWriteOptions, write_dng};
 pub use lightcraft_color::Mat3;
 pub use lightcraft_geom::Orientation;

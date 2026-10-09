@@ -291,8 +291,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
             ];
             crate::widgets::dropdown(ui, "clone-sample", &mut o.clone_sample, &opts, 130.0);
             if tool == Tool::CloneStamp {
-                crate::widgets::checkbox(ui, &mut o.clone_seamless, tl!("Seamless"))
-                    .on_hover_text(tl!("Blend the cloned pixels into their surroundings"));
+                crate::widgets::checkbox(ui, &mut o.clone_seamless, tl!("Seamless")).on_hover_text(tl!("Blend the cloned pixels into their surroundings"));
             }
             if app.ui.clone_source.is_none() {
                 crate::widgets::vline(ui, 22.0);

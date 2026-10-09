@@ -261,14 +261,28 @@ pub fn start_seg_download(spec: &'static li_seg::ModelSpec) {
     }
     let _ = std::thread::Builder::new().name("seg-download".into()).spawn(move || {
         let dest = li_seg::model_path(&photocraft_engine::seg::models_dir(), spec);
+        // a packaged model (AI Denoise) downloads as its package, then the model is unpacked
+        let packaged = matches!(spec.task, li_seg::Task::Denoise { .. });
+        let file = if packaged { dest.with_extension("dtmodel") } else { dest.clone() };
+        if packaged {
+            let _ = std::fs::remove_file(&file);
+        }
         let k2 = key.clone();
-        let r = li_ai::download::download_file(spec.url, &dest, spec.bytes, spec.sha256, &ctl, &|n| {
+        let r = li_ai::download::download_file(spec.url, &file, spec.bytes, spec.sha256, &ctl, &|n| {
             if let Ok(mut d) = shared().downloads.lock()
                 && let Some(x) = d.get_mut(&k2)
             {
                 x.done = n;
             }
         });
+        let r = match r {
+            Ok(()) if packaged => {
+                let r = li_seg::denoise::install_package(&file, spec, &dest);
+                let _ = std::fs::remove_file(&file);
+                r
+            }
+            r => r,
+        };
         if let Ok(mut d) = shared().downloads.lock()
             && let Some(x) = d.get_mut(&key)
         {

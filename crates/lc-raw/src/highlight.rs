@@ -5,6 +5,11 @@
 //! - [`reconstruct`]: where only some channels are clipped, rebuild them from the unclipped channels using the
 //!   local chromaticity of nearby unclipped pixels (diffused into the clipped region with a coarse-to-fine
 //!   normalised-convolution fill). Fully clipped pixels become neutral at the brightest plausible level.
+//! - [`opposed`]: darktable's "inpaint opposed" (see [`mod@opposed`]): a clipped channel becomes the
+//!   cube-root mean of the two other channels plus a chrominance offset measured around clipped areas.
+
+mod opposed;
+pub use opposed::opposed;
 
 use lightcraft_raster::Rgb32f;
 use rayon::prelude::*;

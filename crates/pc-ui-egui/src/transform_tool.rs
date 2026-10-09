@@ -1111,7 +1111,11 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
         for (src, dst) in m.pieces() {
             let base = mesh.vertices.len() as u32;
             for (s, d) in src.iter().zip(dst) {
-                mesh.vertices.push(egui::epaint::Vertex { pos: xf.to_screen(d[0] as f32, d[1] as f32), uv: pos2(s[0] as f32 * uv[0], s[1] as f32 * uv[1]), color: tint });
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: xf.to_screen(d[0] as f32, d[1] as f32),
+                    uv: pos2(s[0] as f32 * uv[0], s[1] as f32 * uv[1]),
+                    color: tint,
+                });
             }
             mesh.add_triangle(base, base + 1, base + 2);
         }

@@ -161,8 +161,8 @@ pub mod point_curve;
 pub mod prefs_ui;
 pub mod preset_files_ui;
 // local-image: Preferences › Tools › Pen pressure curve.
-pub mod pressure_curve_ui;
 pub mod preset_panels;
+pub mod pressure_curve_ui;
 pub mod props_layout;
 pub mod proxy;
 pub mod puppet_ui;

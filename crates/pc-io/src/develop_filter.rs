@@ -243,7 +243,7 @@ pub fn develop_rgba(px: &mut [[f32; 4]], w: usize, h: usize, s: &DevelopSettings
 
 /// Layer pixels over `area` as linear Rec.2020 RGB plus alpha (the Develop session's source).
 pub fn surface_to_working(surf: &Surface, area: Rect, profile: &Profile) -> Result<(Vec<[f32; 3]>, Vec<f32>), String> {
-    let (w, h) = (area.width().max(0) as usize, area.height().max(0) as usize);
+    let (w, h) = (area.width() as usize, area.height() as usize);
     let mut px = vec![[0.0f32; 4]; w * h];
     surf.read_rgba_into(area, &mut px);
     let mut rgb: Vec<[f32; 3]> = px.iter().map(|p| [p[0], p[1], p[2]]).collect();

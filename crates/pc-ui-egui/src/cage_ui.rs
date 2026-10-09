@@ -71,12 +71,7 @@ impl CageSession {
     }
 
     fn point_at(pts: &[[f64; 2]], p: [f64; 2], tol: f64) -> Option<usize> {
-        pts.iter()
-            .enumerate()
-            .map(|(i, q)| (i, (q[0] - p[0]).hypot(q[1] - p[1])))
-            .filter(|(_, d)| *d <= tol)
-            .min_by(|a, b| a.1.total_cmp(&b.1))
-            .map(|(i, _)| i)
+        pts.iter().enumerate().map(|(i, q)| (i, (q[0] - p[0]).hypot(q[1] - p[1]))).filter(|(_, d)| *d <= tol).min_by(|a, b| a.1.total_cmp(&b.1)).map(|(i, _)| i)
     }
 
     /// Adds a cage point (drawing phase). A point that would make the cage cross itself is
@@ -403,7 +398,9 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         crate::widgets::vline(ui, 22.0);
         ui.label(egui::RichText::new(tl!("Drag the cage's points to deform")).color(t.text_dim).size(12.0));
     } else {
-        ui.label(egui::RichText::new(tl!("Click to draw a cage around the content; click the first point or press Enter to close it")).color(t.text_dim).size(12.0));
+        ui.label(
+            egui::RichText::new(tl!("Click to draw a cage around the content; click the first point or press Enter to close it")).color(t.text_dim).size(12.0),
+        );
         if s.cage.len() >= 3 && ui.button(tl!("Close Cage")).clicked() {
             if let Err(e) = s.close(Some(&ctx)) {
                 app.ui.status = e;

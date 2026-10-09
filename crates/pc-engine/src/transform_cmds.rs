@@ -217,7 +217,9 @@ pub(crate) fn transform_layer_map(doc_sel: Option<&Surface>, group: Locks, l: &m
         }
         LayerContent::Smart(sm) => {
             let Some(h) = m.homography() else {
-                return Err(EngineError::Other("Distort with folded corners on a smart object inside a group needs the smart object selected by itself".into()));
+                return Err(EngineError::Other(
+                    "Distort with folded corners on a smart object inside a group needs the smart object selected by itself".into(),
+                ));
             };
             // Smart objects keep the transform and re-render from their source afterwards
             // (`refresh_text`), so repeated transforms don't degrade the pixels. Distort and
@@ -457,7 +459,10 @@ fn transform_folded(s: &mut Session, p: &Value, id: Option<LayerId>, rect: [f64;
         );
         let warp = photocraft_geom::warp::Warp::custom(mesh, rect);
         let layer = id.map(|l| l.0);
-        return s.execute("edit.transform.warp", json!({"layer": layer, "rect": rect, "warp": warp, "interpolation": p.get("interpolation").cloned().unwrap_or(json!("bicubic"))}));
+        return s.execute(
+            "edit.transform.warp",
+            json!({"layer": layer, "rect": rect, "warp": warp, "interpolation": p.get("interpolation").cloned().unwrap_or(json!("bicubic"))}),
+        );
     }
     let lone = lone_target(&st.doc, id, p)?.is_some();
     s.edit("Free Transform", |doc, _| {

@@ -5,6 +5,10 @@
 //! - [`Method::Ppg`] — Patterned Pixel Grouping (Chuan-kai Lin): gradient-selected green, colour-difference R/B.
 //! - [`Method::Ahd`] — Adaptive Homogeneity-Directed (Hirakawa & Parks, IEEE TIP 2005): horizontal/vertical
 //!   candidates chosen per pixel by CIELab homogeneity. The quality default for Bayer sensors.
+//! - [`Method::Rcd`] — Ratio Corrected Demosaicing (Luis Sanz Rodríguez), ported from darktable (`rcd`):
+//!   ratio-corrected directional green, diagonal-discriminated red/blue. Sharp, few artefacts, fast.
+//! - [`Method::DualRcd`] — RCD where the image has detail, bilinear in flat areas, blended by a
+//!   local-contrast mask ([`DemosaicOptions::dual_threshold`]; darktable's dual demosaic, `dual`).
 //! - Non-Bayer patterns (X-Trans, …) always use `xtrans::directional`, our own edge-weighted colour-difference
 //!   interpolation.
 //!
@@ -12,7 +16,9 @@
 
 mod ahd;
 mod bilinear;
+mod dual;
 mod ppg;
+mod rcd;
 mod xtrans;
 
 use crate::{Cfa, Normalized, Rgb32f};
@@ -24,6 +30,24 @@ pub enum Method {
     Ppg,
     #[default]
     Ahd,
+    /// Ratio Corrected Demosaicing (Bayer; other patterns use the X-Trans method).
+    Rcd,
+    /// RCD blended with bilinear in flat areas (Bayer only).
+    DualRcd,
+}
+
+/// Parameters of the demosaic methods that have any.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DemosaicOptions {
+    /// [`Method::DualRcd`]: contrast threshold 0..1 below which an area counts as flat (darktable's
+    /// default 0.2; 0 = RCD everywhere).
+    pub dual_threshold: f32,
+}
+
+impl Default for DemosaicOptions {
+    fn default() -> Self {
+        DemosaicOptions { dual_threshold: 0.2 }
+    }
 }
 
 /// Mirror-reflected access to a single-plane mosaic (reflection keeps Bayer parity: −k → k, w−1+k → w−1−k).
@@ -65,6 +89,11 @@ impl Mosaic<'_> {
 
 /// Demosaic normalised raw data. `cpp == 3` data is returned as is; monochrome data is replicated to grey.
 pub fn demosaic(n: &Normalized, method: Method) -> Rgb32f {
+    demosaic_with(n, method, &DemosaicOptions::default())
+}
+
+/// [`demosaic`] with the methods' parameters.
+pub fn demosaic_with(n: &Normalized, method: Method, opts: &DemosaicOptions) -> Rgb32f {
     let (w, h) = (n.width, n.height);
     if w == 0 || h == 0 {
         return Rgb32f::new(w, h);
@@ -88,6 +117,8 @@ pub fn demosaic(n: &Normalized, method: Method) -> Rgb32f {
                 Method::Bilinear => bilinear::bilinear(&m),
                 Method::Ppg => ppg::ppg(&m),
                 Method::Ahd => ahd::ahd(&m),
+                Method::Rcd => rcd::rcd(&m),
+                Method::DualRcd => dual::dual(&m, rcd::rcd(&m), opts.dual_threshold),
             }
         }
     }
@@ -149,6 +180,8 @@ mod tests {
         })
     }
 
+    const ALL: [Method; 5] = [Method::Bilinear, Method::Ppg, Method::Ahd, Method::Rcd, Method::DualRcd];
+
     fn run(img: &Rgb32f, cfa: &Cfa, m: Method) -> Rgb32f {
         demosaic(&mosaic_from_rgb(img, cfa), m)
     }
@@ -158,7 +191,7 @@ mod tests {
         let img = Rgb32f::filled(17, 13, [0.3, 0.55, 0.8]);
         for pat in ["RGGB", "BGGR", "GRBG", "GBRG"] {
             let cfa = Cfa::bayer(pat).unwrap();
-            for m in [Method::Bilinear, Method::Ppg, Method::Ahd] {
+            for m in ALL {
                 let out = run(&img, &cfa, m);
                 for p in &out.data {
                     for c in 0..3 {
@@ -175,7 +208,7 @@ mod tests {
     fn known_samples_are_preserved() {
         let img = edgy_scene(40, 32);
         let cfa = Cfa::bayer("GRBG").unwrap();
-        for m in [Method::Bilinear, Method::Ppg, Method::Ahd] {
+        for m in ALL {
             let out = run(&img, &cfa, m);
             for y in 0..32 {
                 for x in 0..40 {
@@ -206,11 +239,51 @@ mod tests {
     }
 
     #[test]
+    fn rcd_and_dual_quality() {
+        let edgy = edgy_scene(96, 80);
+        let cfa = Cfa::bayer("GBRG").unwrap();
+        let p = |m| psnr(&edgy, &run(&edgy, &cfa, m), 4);
+        let (b, a, r, d) = (p(Method::Bilinear), p(Method::Ahd), p(Method::Rcd), p(Method::DualRcd));
+        eprintln!("edgy: bilinear {b:.1} ahd {a:.1} rcd {r:.1} dual {d:.1}");
+        assert!(r > b + 6.0, "rcd {r:.1} vs bilinear {b:.1}");
+        assert!(r > a - 1.5, "rcd {r:.1} vs ahd {a:.1}");
+        assert!(d >= b && d <= r + 0.5, "dual {d:.1} between bilinear {b:.1} and rcd {r:.1}");
+        // a threshold of 0 is RCD itself
+        let n = mosaic_from_rgb(&edgy, &cfa);
+        let rcd = demosaic(&n, Method::Rcd);
+        assert_eq!(demosaic_with(&n, Method::DualRcd, &DemosaicOptions { dual_threshold: 0.0 }).data, rcd.data);
+        // flat noise takes the smooth method, edges keep RCD
+        let flat = Rgb32f::from_fn(64, 64, |x, y| {
+            let k = ((x * 7 + y * 13) % 5) as f32 * 0.0004;
+            if x < 32 { [0.30 + k, 0.31 + k, 0.29 + k] } else { [0.8, 0.8, 0.8] }
+        });
+        let mask = dual::detail_mask(&demosaic(&mosaic_from_rgb(&flat, &cfa), Method::Rcd), 0.2);
+        assert!(mask.get(31, 32) > 0.3 && mask.get(10, 32) < 0.05, "{} {}", mask.get(10, 32), mask.get(31, 32));
+    }
+
+    /// RCD works in tiles: no seams where they meet, at any phase.
+    #[test]
+    fn rcd_tiles_have_no_seams() {
+        let img = smooth_scene(450, 401);
+        for pat in ["RGGB", "BGGR", "GRBG", "GBRG"] {
+            let cfa = Cfa::bayer(pat).unwrap();
+            let out = run(&img, &cfa, Method::Rcd);
+            assert!(psnr(&img, &out, 0) > 38.0, "{pat}: {:.1}", psnr(&img, &out, 0));
+            // across the tile boundaries (x = 192, y = 192, 384) as good as elsewhere
+            for (x, y) in [(191, 100), (192, 100), (100, 191), (100, 192), (300, 384), (384, 383)] {
+                for c in 0..3 {
+                    assert!((out.get(x, y)[c] - img.get(x, y)[c]).abs() < 0.01, "{pat} ({x}, {y})");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn tiny_and_degenerate_inputs() {
         let cfa = Cfa::bayer("RGGB").unwrap();
         for (w, h) in [(1, 1), (2, 2), (3, 5), (5, 3), (1, 7)] {
             let img = Rgb32f::filled(w, h, [0.5; 3]);
-            for m in [Method::Bilinear, Method::Ppg, Method::Ahd] {
+            for m in ALL {
                 let out = run(&img, &cfa, m);
                 assert_eq!((out.width, out.height), (w, h));
                 assert!(out.data.iter().all(|p| p.iter().all(|v| v.is_finite())));
@@ -239,7 +312,7 @@ mod tests {
         let img = smooth_scene(w, h);
         let cfa = Cfa::bayer("RGGB").unwrap();
         let n = mosaic_from_rgb(&img, &cfa);
-        for m in [Method::Bilinear, Method::Ppg, Method::Ahd] {
+        for m in ALL {
             let t = std::time::Instant::now();
             let _ = demosaic(&n, m);
             let s = t.elapsed().as_secs_f64();
