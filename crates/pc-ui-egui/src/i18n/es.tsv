@@ -2614,3 +2614,33 @@ ai	New	Nuevos
 	Cage is not active	La jaula no está activa
 	Could not use Cage: the layer is empty	No se pudo usar Jaula: la capa está vacía
 	Index	Índice
+	Browse LoRAs for this model family	Explorar LoRA para esta familia de modelos
+	Browse LoRAs…	Explorar LoRA…
+	Choose another model…	Elegir otro modelo…
+	Couldn't remove {name}: {error}	No se pudo quitar {name}: {error}
+	Find LoRAs (styles) for the chosen model's family	Buscar LoRA (estilos) para la familia del modelo elegido
+	Kept because other installed models use them: {files}	Se conservan porque otros modelos instalados los usan: {files}
+	List only the official upscalers (SeedVR2)	Mostrar solo los escaladores oficiales (SeedVR2)
+	Move to Trash	Mover a la papelera
+	None of its files are in the model folder.	Ninguno de sus archivos está en la carpeta de modelos.
+	ON-DEVICE MODELS (CPU)	MODELOS EN EL EQUIPO (CPU)
+	Official upscalers only	Solo escaladores oficiales
+	Recommended	Recomendado
+	Remove (deletes the files)	Quitar (elimina los archivos)
+	Remove (moves the files to the Trash)	Quitar (mueve los archivos a la papelera)
+	Remove {name}?	¿Quitar {name}?
+	Removed {name} ({size} freed)	Se quitó {name} ({size} liberados)
+	Stop generation	Detener la generación
+	Stopped generation	Generación detenida
+	This frees {size}. The files are deleted permanently.	Esto libera {size}. Los archivos se eliminan de forma permanente.
+	This frees {size}. The files go to the Trash, so you can restore them from there.	Esto libera {size}. Los archivos van a la papelera, desde donde puede restaurarlos.
+	Unload AI models from GPU memory (the AI engine is off)	Descargar los modelos de IA de la memoria de la GPU (el motor de IA está apagado)
+	Unload AI models from GPU memory	Descargar los modelos de IA de la memoria de la GPU
+	Unloading AI models…	Descargando los modelos de IA de la memoria…
+	Upscale with any image model instead: enlarge, then add detail with img2img	Escalar con cualquier modelo de imagen: ampliar y luego añadir detalle con img2img
+	kept {files}	se conservan {files}
+	using {name}	usando {name}
+	{n} of {total} installed	{n} de {total} instalados
+	{size} download · runs on the CPU · {licence}	{size} de descarga · se ejecuta en la CPU · {licence}
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	Modelos pequeños que se ejecutan en el procesador de este equipo: sin ComfyUI ni GPU, descargas rápidas y sus fotos nunca salen del equipo. Cada grupo sirve a herramientas distintas, y se usa el mejor modelo instalado de cada grupo.
+	Subject & Background	Sujeto y fondo

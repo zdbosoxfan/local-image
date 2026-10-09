@@ -2978,3 +2978,33 @@ ai	New	Novos
 	Cage is not active	A gaiola não está ativa
 	Could not use Cage: the layer is empty	Não foi possível usar a Gaiola: a camada está vazia
 	Index	Índice
+	Browse LoRAs for this model family	Procurar LoRAs para esta família de modelos
+	Browse LoRAs…	Procurar LoRAs…
+	Choose another model…	Escolher outro modelo…
+	Couldn't remove {name}: {error}	Não foi possível remover {name}: {error}
+	Find LoRAs (styles) for the chosen model's family	Encontrar LoRAs (estilos) para a família do modelo escolhido
+	Kept because other installed models use them: {files}	Mantidos porque outros modelos instalados os usam: {files}
+	List only the official upscalers (SeedVR2)	Mostrar só os ampliadores oficiais (SeedVR2)
+	Move to Trash	Mover para a Lixeira
+	None of its files are in the model folder.	Nenhum dos arquivos dele está na pasta de modelos.
+	ON-DEVICE MODELS (CPU)	MODELOS NO DISPOSITIVO (CPU)
+	Official upscalers only	Só ampliadores oficiais
+	Recommended	Recomendado
+	Remove (deletes the files)	Remover (exclui os arquivos)
+	Remove (moves the files to the Trash)	Remover (move os arquivos para a Lixeira)
+	Remove {name}?	Remover {name}?
+	Removed {name} ({size} freed)	{name} removido ({size} liberados)
+	Stop generation	Parar a geração
+	Stopped generation	Geração parada
+	This frees {size}. The files are deleted permanently.	Isso libera {size}. Os arquivos são excluídos permanentemente.
+	This frees {size}. The files go to the Trash, so you can restore them from there.	Isso libera {size}. Os arquivos vão para a Lixeira, de onde você pode restaurá-los.
+	Unload AI models from GPU memory (the AI engine is off)	Descarregar os modelos de IA da memória da GPU (o mecanismo de IA está desligado)
+	Unload AI models from GPU memory	Descarregar os modelos de IA da memória da GPU
+	Unloading AI models…	Descarregando os modelos de IA…
+	Upscale with any image model instead: enlarge, then add detail with img2img	Ampliar com qualquer modelo de imagem: aumentar e depois adicionar detalhes com img2img
+	kept {files}	mantidos {files}
+	using {name}	usando {name}
+	{n} of {total} installed	{n} de {total} instalados
+	{size} download · runs on the CPU · {licence}	{size} para baixar · roda na CPU · {licence}
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	Modelos pequenos que rodam no processador deste computador: sem ComfyUI nem GPU, downloads rápidos, e suas fotos nunca saem do computador. Cada grupo atende ferramentas diferentes, e o melhor modelo instalado do grupo é o usado.
+	Subject & Background	Assunto e fundo

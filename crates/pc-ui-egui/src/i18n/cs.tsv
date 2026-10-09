@@ -2549,3 +2549,33 @@ ai	New	Nové
 	Cage is not active	Klec není aktivní
 	Could not use Cage: the layer is empty	Klec nelze použít: vrstva je prázdná
 	Index	Index
+	Browse LoRAs for this model family	Procházet LoRA pro tuto rodinu modelů
+	Browse LoRAs…	Procházet LoRA…
+	Choose another model…	Zvolit jiný model…
+	Couldn't remove {name}: {error}	{name} nelze odebrat: {error}
+	Find LoRAs (styles) for the chosen model's family	Najít LoRA (styly) pro rodinu zvoleného modelu
+	Kept because other installed models use them: {files}	Ponecháno, protože je používají jiné nainstalované modely: {files}
+	List only the official upscalers (SeedVR2)	Zobrazit jen oficiální zvětšovače (SeedVR2)
+	Move to Trash	Přesunout do koše
+	None of its files are in the model folder.	Žádný z jeho souborů není ve složce modelů.
+	ON-DEVICE MODELS (CPU)	MODELY V ZAŘÍZENÍ (CPU)
+	Official upscalers only	Jen oficiální zvětšovače
+	Recommended	Doporučeno
+	Remove (deletes the files)	Odebrat (smaže soubory)
+	Remove (moves the files to the Trash)	Odebrat (přesune soubory do koše)
+	Remove {name}?	Odebrat {name}?
+	Removed {name} ({size} freed)	{name} odebráno (uvolněno {size})
+	Stop generation	Zastavit generování
+	Stopped generation	Generování zastaveno
+	This frees {size}. The files are deleted permanently.	Uvolní se {size}. Soubory budou trvale smazány.
+	This frees {size}. The files go to the Trash, so you can restore them from there.	Uvolní se {size}. Soubory půjdou do koše, odkud je můžete obnovit.
+	Unload AI models from GPU memory (the AI engine is off)	Uvolnit modely AI z paměti GPU (AI engine je vypnutý)
+	Unload AI models from GPU memory	Uvolnit modely AI z paměti GPU
+	Unloading AI models…	Uvolňování modelů AI…
+	Upscale with any image model instead: enlarge, then add detail with img2img	Zvětšit raději libovolným obrazovým modelem: zvětšit a pak doplnit detaily pomocí img2img
+	kept {files}	ponecháno {files}
+	using {name}	používá se {name}
+	{n} of {total} installed	nainstalováno {n} z {total}
+	{size} download · runs on the CPU · {licence}	stažení {size} · běží na CPU · {licence}
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	Malé modely, které běží na procesoru tohoto počítače: bez ComfyUI a GPU, rychlé stažení a vaše fotky nikdy neopustí počítač. Každá skupina pohání jiné nástroje a používá se nejlepší nainstalovaný model skupiny.
+	Subject & Background	Objekt a pozadí

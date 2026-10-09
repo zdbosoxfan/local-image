@@ -31,8 +31,8 @@ pub struct ModelSpec {
     pub licence: &'static str,
     /// What the model finds.
     pub task: Task,
-    /// The group it is listed under in Settings (what it is for).
-    pub group: Group,
+    /// The group Settings lists it under (what it is for); `None`: listed on its own.
+    pub group: Option<Group>,
     /// Plain-language description: what it does, the speed / quality trade-off, when you'd want
     /// it.
     pub about: &'static str,
@@ -45,19 +45,16 @@ pub enum Group {
     Subject,
     Sky,
     Depth,
-    /// AI Denoise for raw photos.
-    Denoise,
 }
 
 impl Group {
-    pub const ALL: [Group; 4] = [Group::Subject, Group::Sky, Group::Depth, Group::Denoise];
+    pub const ALL: [Group; 3] = [Group::Subject, Group::Sky, Group::Depth];
 
     pub fn label(self) -> &'static str {
         match self {
             Group::Subject => "Subject & Background",
             Group::Sky => "Sky",
             Group::Depth => "Depth",
-            Group::Denoise => "Noise Reduction",
         }
     }
 
@@ -71,7 +68,6 @@ impl Group {
             Group::Depth => {
                 "Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance). The best one installed is used."
             }
-            Group::Denoise => "AI noise reduction for raw photos. Used by AI Denoise in the Library's develop tools.",
         }
     }
 
@@ -81,13 +77,12 @@ impl Group {
             Group::Subject => "isnet",
             Group::Sky => "sky-mobileseg",
             Group::Depth => "depth-anything-v2-small",
-            Group::Denoise => denoise::DENOISE_ID,
         }
     }
 
     /// The group's models, in catalogue order.
     pub fn models(self) -> impl Iterator<Item = &'static ModelSpec> {
-        MODELS.iter().filter(move |m| m.group == self)
+        MODELS.iter().filter(move |m| m.group == Some(self))
     }
 
     /// The installed model the app uses for this group, if any.
@@ -96,7 +91,6 @@ impl Group {
             Group::Subject => best_installed(models_dir).map(|(s, _)| s),
             Group::Sky => best_sky(models_dir).map(|(s, _)| s),
             Group::Depth => best_depth(models_dir).map(|(s, _)| s),
-            Group::Denoise => denoise::installed(models_dir).and_then(|_| spec(denoise::DENOISE_ID)),
         }
     }
 }
@@ -129,7 +123,7 @@ pub const MODELS: &[ModelSpec] = &[
         isnet: false,
         licence: "Apache-2.0 (U²-Net, Qin et al. 2020)",
         task: Task::Subject,
-        group: Group::Subject,
+        group: Some(Group::Subject),
         about: "The smallest and fastest subject finder. Good for quick selections on simple photos with one clear subject; edges are softer and less exact than IS-Net's. Used only when neither larger subject model is installed.",
     },
     ModelSpec {
@@ -143,7 +137,7 @@ pub const MODELS: &[ModelSpec] = &[
         isnet: false,
         licence: "Apache-2.0 (U²-Net, Qin et al. 2020)",
         task: Task::Subject,
-        group: Group::Subject,
+        group: Some(Group::Subject),
         about: "The full-size U²-Net: steadier than the small version on busy photos, but with less detailed edges than IS-Net at a similar size. A middle option; IS-Net is usually the better download.",
     },
     ModelSpec {
@@ -157,7 +151,7 @@ pub const MODELS: &[ModelSpec] = &[
         isnet: true,
         licence: "Apache-2.0 (DIS / IS-Net, Qin et al. 2022)",
         task: Task::Subject,
-        group: Group::Subject,
+        group: Some(Group::Subject),
         about: "Finds the subject with the finest edges (hair, fur, thin details). Slower than U²-Net small and a bigger download, but the best quality for Select Subject and Remove Background. Used first whenever it's installed.",
     },
     // Sky: PaddleSeg's PP-MobileSeg-Base trained on ADE20K (sky = class 2), ONNX opset 13.
@@ -172,7 +166,7 @@ pub const MODELS: &[ModelSpec] = &[
         isnet: false,
         licence: "Apache-2.0 (PaddleSeg PP-MobileSeg; trained on ADE20K)",
         task: Task::Sky { classes: 150, class: 2, margin: 2.0 },
-        group: Group::Sky,
+        group: Some(Group::Sky),
         about: "Finds the sky precisely, including around trees, buildings and the horizon. A scene-parsing model that knows 150 kinds of things, so tricky skies work well. Takes a second or two per photo.",
     },
     // Sky, tiny: a 49K-parameter UNet distilled from SkySeg (Open Images), for a quick first guess.
@@ -187,7 +181,7 @@ pub const MODELS: &[ModelSpec] = &[
         isnet: false,
         licence: "MIT (TinySkyNet-SkySeg)",
         task: Task::Sky { classes: 1, class: 0, margin: 0.0 },
-        group: Group::Sky,
+        group: Some(Group::Sky),
         about: "A tiny, very fast sky finder for a quick first guess or a slow computer. Less accurate along trees and buildings. Used only when PP-MobileSeg isn't installed.",
     },
     // Depth: Depth Anything V2 Small (Yang et al. 2024; the Small weights are Apache-2.0, the
@@ -205,7 +199,7 @@ pub const MODELS: &[ModelSpec] = &[
         isnet: false,
         licence: "Apache-2.0 (Depth Anything V2 Small, Yang et al. 2024)",
         task: Task::Depth,
-        group: Group::Depth,
+        group: Some(Group::Depth),
         about: "The more detailed and accurate depth model: clean edges between near and far, good on most photos. Takes a few seconds per photo.",
     },
     // Depth, smaller and older: MiDaS v2.1 small (Ranftl et al.), MIT, from the MiDaS release.
@@ -220,7 +214,7 @@ pub const MODELS: &[ModelSpec] = &[
         isnet: false,
         licence: "MIT (MiDaS v2.1 small, Ranftl et al. 2020)",
         task: Task::Depth,
-        group: Group::Depth,
+        group: Some(Group::Depth),
         about: "An older, smaller depth model. Faster, but its depth is coarser and blurrier. Used only when Depth Anything isn't installed.",
     },
     // AI Denoise: darktable-ai's RawNIND UtNet2 package (release-5.6.0, GPL-3.0); its linear
@@ -240,7 +234,7 @@ pub const MODELS: &[ModelSpec] = &[
             inner_bytes: 31053823,
             inner_sha256: "df957efadcc152c007d5d3b0917bdff9e41c0d4a0efe56584ef30b36393cd181",
         },
-        group: Group::Denoise,
+        group: None,
         about: "Removes noise from high-ISO raw photos with a network trained on real camera noise, keeping detail that classic noise reduction smooths away. Works tile by tile, so large photos take a while. The download is a package; only the 31 MB model inside it stays installed.",
     },
 ];
@@ -620,11 +614,15 @@ mod tests {
         for m in MODELS {
             assert!(!m.about.trim().is_empty(), "{} has no description", m.id);
             assert!(m.about.len() > 60, "{}: say what it does and when you'd want it", m.id);
-            let expected = match m.task {
-                Task::Subject => Group::Subject,
-                Task::Sky { .. } => Group::Sky,
-                Task::Depth => Group::Depth,
-                Task::Denoise { .. } => Group::Denoise,
+            // the selection models are grouped by what they find
+            let expected = if m.task == Task::Subject {
+                Some(Group::Subject)
+            } else if matches!(m.task, Task::Sky { .. }) {
+                Some(Group::Sky)
+            } else if m.task == Task::Depth {
+                Some(Group::Depth)
+            } else {
+                continue;
             };
             assert_eq!(m.group, expected, "{}", m.id);
             // sizes are shown from `bytes`, so labels don't repeat (or contradict) them
@@ -632,7 +630,7 @@ mod tests {
         }
         for g in Group::ALL {
             assert!(g.models().count() >= 1, "{g:?} is empty");
-            assert_eq!(spec(g.recommended()).map(|s| s.group), Some(g), "{g:?}");
+            assert_eq!(spec(g.recommended()).and_then(|s| s.group), Some(g), "{g:?}");
             assert!(!g.about().is_empty() && !g.label().is_empty());
             assert!(g.in_use(Path::new("/nonexistent")).is_none());
         }

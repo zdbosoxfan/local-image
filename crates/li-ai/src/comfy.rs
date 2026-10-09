@@ -329,7 +329,12 @@ impl ComfyClient {
     /// else's work. Returns whether it interrupted. For an explicit "Stop generation"; ordinary
     /// cancellation uses [`Self::cancel`].
     pub fn interrupt_ours(&self) -> Result<bool> {
-        let ours = our_prompts(&self.host);
+        self.interrupt_if_running(&our_prompts(&self.host))
+    }
+
+    /// [`Self::interrupt_ours`] for prompts noted earlier with [`our_prompts`] (before their jobs
+    /// were cancelled, which takes them off the list).
+    pub fn interrupt_if_running(&self, ours: &[String]) -> Result<bool> {
         if ours.is_empty() {
             return Ok(false);
         }

@@ -2616,3 +2616,33 @@ ai	New	Nuovi
 	Cage is not active	La gabbia non è attiva
 	Could not use Cage: the layer is empty	Impossibile usare Gabbia: il livello è vuoto
 	Index	Indice
+	Browse LoRAs for this model family	Sfoglia i LoRA per questa famiglia di modelli
+	Browse LoRAs…	Sfoglia LoRA…
+	Choose another model…	Scegli un altro modello…
+	Couldn't remove {name}: {error}	Impossibile rimuovere {name}: {error}
+	Find LoRAs (styles) for the chosen model's family	Trova LoRA (stili) per la famiglia del modello scelto
+	Kept because other installed models use them: {files}	Mantenuti perché altri modelli installati li usano: {files}
+	List only the official upscalers (SeedVR2)	Mostra solo gli upscaler ufficiali (SeedVR2)
+	Move to Trash	Sposta nel cestino
+	None of its files are in the model folder.	Nessuno dei suoi file si trova nella cartella dei modelli.
+	ON-DEVICE MODELS (CPU)	MODELLI SUL DISPOSITIVO (CPU)
+	Official upscalers only	Solo upscaler ufficiali
+	Recommended	Consigliato
+	Remove (deletes the files)	Rimuovi (elimina i file)
+	Remove (moves the files to the Trash)	Rimuovi (sposta i file nel cestino)
+	Remove {name}?	Rimuovere {name}?
+	Removed {name} ({size} freed)	{name} rimosso ({size} liberati)
+	Stop generation	Interrompi la generazione
+	Stopped generation	Generazione interrotta
+	This frees {size}. The files are deleted permanently.	Libera {size}. I file vengono eliminati definitivamente.
+	This frees {size}. The files go to the Trash, so you can restore them from there.	Libera {size}. I file vanno nel cestino, da cui puoi ripristinarli.
+	Unload AI models from GPU memory (the AI engine is off)	Scarica i modelli IA dalla memoria della GPU (il motore IA è spento)
+	Unload AI models from GPU memory	Scarica i modelli IA dalla memoria della GPU
+	Unloading AI models…	Scaricamento dei modelli IA dalla memoria…
+	Upscale with any image model instead: enlarge, then add detail with img2img	Ingrandisci invece con qualsiasi modello di immagini: ingrandisci, poi aggiungi dettagli con img2img
+	kept {files}	mantenuti {files}
+	using {name}	in uso {name}
+	{n} of {total} installed	{n} di {total} installati
+	{size} download · runs on the CPU · {licence}	{size} da scaricare · funziona sulla CPU · {licence}
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	Piccoli modelli che funzionano sul processore di questo computer: niente ComfyUI né GPU, download rapidi, e le tue foto non lasciano mai il computer. Ogni gruppo alimenta strumenti diversi e viene usato il miglior modello installato del gruppo.
+	Subject & Background	Soggetto e sfondo
