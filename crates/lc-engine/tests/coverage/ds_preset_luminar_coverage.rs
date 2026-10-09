@@ -423,13 +423,12 @@ fn read_lmp_rejects_binary_plist() {
 }
 
 #[test]
-#[ignore = "BUG: read_lmp accepts NaN and produces 'NaN' string in settings"]
 fn read_lmp_nan_value_is_not_guarded() {
-    // A NaN slider value currently flows through and becomes "NaN" in the preset.
+    // A NaN slider value cannot be represented in a photo editor. read_lmp now skips
+    // non-finite values like explicit defaults; with no other adjustments this look has
+    // nothing to import.
     let layers = layer(1.0, "Normal", true, &[effect("MIPLExposureEffect", &param("Exposure", f64::NAN))], "");
     let xml = look(&layers, "");
-    let i = read_lmp("test.lmp", xml.as_bytes(), None).unwrap();
-    let s = &i.preset.settings;
-    // If the bug is fixed, this assertion would change; the test is ignored for now.
-    assert_eq!(s["light"]["exposure"].as_str(), Some("NaN"));
+    let err = read_lmp("test.lmp", xml.as_bytes(), None).unwrap_err();
+    assert!(err.contains("no adjustments"), "{err}");
 }
