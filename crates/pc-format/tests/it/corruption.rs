@@ -1,6 +1,6 @@
 //! Damaged or hostile bundles must fail cleanly, never panic.
 
-mod common;
+use crate::common;
 use common::*;
 use photocraft_color::{ColorMode, SampleType};
 use photocraft_format::*;

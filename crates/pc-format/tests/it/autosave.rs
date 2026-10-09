@@ -1,6 +1,6 @@
 //! Background autosave and crash recovery.
 
-mod common;
+use crate::common;
 use std::sync::Arc;
 
 use common::*;

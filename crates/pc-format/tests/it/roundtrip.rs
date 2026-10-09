@@ -1,6 +1,6 @@
 //! doc → .pcraft → doc equality, incremental saves, ids, previews.
 
-mod common;
+use crate::common;
 use common::*;
 use photocraft_color::{ColorMode, SampleType};
 use photocraft_doc::text::{CharStyle, ParagraphStyle, TextRun};
