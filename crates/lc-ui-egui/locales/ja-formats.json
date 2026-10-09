@@ -120,5 +120,7 @@
   "{weekday}, {day} {month} {year}": "{year}年{month}月{day}日（{weekday}）",
   "{year}": "{year}年",
   "{n} more layers": "ほか{n}個のレイヤー",
-  "Follows {name}": "{name} に連動"
+  "Follows {name}": "{name} に連動",
+  "Auto: {lens}": "自動：{lens}",
+  "Camera: {camera}": "カメラ：{camera}"
 }

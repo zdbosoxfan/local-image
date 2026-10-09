@@ -188,7 +188,7 @@ fn put_samples(kind: Kind, key: &str, width: usize, height: usize, channels: usi
     match to {
         #[cfg(not(target_arch = "wasm32"))]
         Some(root) => {
-            let p = path(&root, kind, key);
+            let p = path(root, kind, key);
             if let Some(dir) = p.parent() {
                 std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
             }

@@ -190,6 +190,25 @@ fn resolve(q: &Query) -> Option<LensCorrection> {
     correction_for(lens, q.focal, crop, q.aperture, q.distance)
 }
 
+/// The correction a photo's settings ask for (`lens_db` on, Optics not switched off), from its
+/// EXIF camera, lens, focal length and aperture and the user's picks.
+pub fn for_photo(p: &lightcraft_catalog::Photo, s: &lightcraft_develop::DevelopSettings) -> Option<LensCorrection> {
+    let l = &s.lens_db;
+    if !l.enabled || !s.section_enabled("optics") {
+        return None;
+    }
+    let named = |n: &lightcraft_develop::LensName| Named { maker: n.maker.clone(), model: n.model.clone() };
+    correction(&Query {
+        exif_camera: p.meta.camera.clone(),
+        exif_lens: p.meta.lens.clone(),
+        camera: l.camera.as_ref().map(named),
+        lens: l.lens.as_ref().map(named),
+        focal: p.meta.focal_mm.unwrap_or(0.0),
+        aperture: p.meta.aperture,
+        distance: None,
+    })
+}
+
 /// [`correction`] for a known lens (lensfun's `lfModifier` set-up).
 pub fn correction_for(lens: &Lens, focal: f32, crop: f32, aperture: Option<f32>, distance: Option<f32>) -> Option<LensCorrection> {
     let calib_dist = lens.interpolate_distortion(focal);
@@ -226,7 +245,9 @@ fn rescale_distortion(d: &CalibDistortion, aspect: f32, crop: f32, real_focal: f
             }
             Distortion::Poly3 { k1: (k1 as f64 * hs.powi(2) / dd.powi(3)) as f32 as f64 }
         }
-        DistortionModel::Poly5 { k1, k2 } => Distortion::Poly5 { k1: (k1 as f64 * hs.powi(2)) as f32 as f64, k2: (k2 as f64 * hs.powi(4)) as f32 as f64 },
+        DistortionModel::Poly5 { k1, k2 } => {
+            Distortion::Poly5 { k1: (k1 as f64 * hs.powi(2)) as f32 as f64, k2: (k2 as f64 * hs.powi(4)) as f32 as f64 }
+        }
         DistortionModel::Ptlens { a, b, c } => {
             let dd = 1.0 - a as f64 - b as f64 - c as f64;
             Distortion::Ptlens {

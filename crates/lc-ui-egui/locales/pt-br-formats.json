@@ -120,5 +120,7 @@
   "· {n} photo{}": "· {n} foto{:.0}",
   "… and {more} more": "… e mais {more}",
   "{n} more layers": "mais {n} camadas",
-  "Follows {name}": "Segue {name}"
+  "Follows {name}": "Segue {name}",
+  "Auto: {lens}": "Automático: {lens}",
+  "Camera: {camera}": "Câmera: {camera}"
 }

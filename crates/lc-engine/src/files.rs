@@ -8,8 +8,8 @@ use lightcraft_catalog::{MediaKind, Meta};
 use lightcraft_color::cct::xy_to_temp_tint;
 use lightcraft_geom::Orientation;
 use lightcraft_pipeline::SourceInfo;
-use lightcraft_raster::Rgb32f;
 use lightcraft_preview::Hasher128;
+use lightcraft_raster::Rgb32f;
 use lightcraft_raster::resample::{Filter, fit};
 
 use crate::media::{FileLoader, FileProbe, PreviewLoader, ProbeInfo};
@@ -375,12 +375,21 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
         let relative = crate::camera_preview::file_local_look(raw.format) && t.matrix_is_fallback;
         let camera_tone = camera_look.as_ref().map(|p| p.tone).or_else(|| raw.color.profile.tone_curve.as_ref().and_then(dng_tone_curve));
         let (temp, tint) = if relative { (6500.0, 0.0) } else { (temp.round(), tint.round()) };
-        return Ok((img, SourceInfo { raw: true, as_shot_temp: temp, as_shot_tint: tint, lens, relative_wb: relative, camera_tone,
-            lens_db: None,
-            sensor_scale,
-            capture_radius,
-            capture_threshold,
-        }));
+        return Ok((
+            img,
+            SourceInfo {
+                raw: true,
+                as_shot_temp: temp,
+                as_shot_tint: tint,
+                lens,
+                relative_wb: relative,
+                camera_tone,
+                lens_db: None,
+                sensor_scale,
+                capture_radius,
+                capture_threshold,
+            },
+        ));
     }
     let d = lightcraft_codecs::decode(&bytes, lightcraft_codecs::DecodeOptions::fit(max_edge as u32, max_edge as u32)).map_err(|e| e.to_string())?;
     drop(bytes);
@@ -446,6 +455,20 @@ pub fn fs_preview_loader() -> PreviewLoader {
     Arc::new(|path: &str, max_edge: usize| embedded_preview_srgb(&std::fs::read(path).ok()?, max_edge))
 }
 
+/// The filesystem loader for raw files decoded with non-default options (see [`fs_hooks`]).
+pub fn fs_loader_with() -> crate::media::FileLoaderWith {
+    Arc::new(|path: &str, max_edge: usize, opts: &RawOptions| {
+        let len = std::fs::metadata(path).map(|m| m.len() as usize).unwrap_or(0);
+        let weight = len * if max_edge <= crate::media::SourceLevel::Thumb.max_edge() { 3 } else { 6 };
+        let gate = crate::memory::work_gate();
+        let _permit = if crate::memory::is_background() { gate.acquire(weight) } else { gate.acquire_urgent(weight) };
+        let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+        let r = load_vec_with(bytes, max_edge, opts);
+        crate::memory::release();
+        r
+    })
+}
+
 /// Filesystem-backed hooks (native). On the web the host installs bytes-based hooks instead.
 ///
 /// Their working memory is bounded by [`crate::memory::work_gate`]: background loads (grid
@@ -479,6 +502,7 @@ impl crate::Session {
     pub fn with_fs(mut self) -> Self {
         let (l, p) = fs_hooks();
         self.media.file_loader = Some(l);
+        self.media.file_loader_with = Some(fs_loader_with());
         self.media.file_probe = Some(p);
         self.media.preview_loader = Some(fs_preview_loader());
         self

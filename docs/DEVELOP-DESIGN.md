@@ -123,18 +123,12 @@ White Balance picker, curve presets / targeted adjustment on layers.
 * **Layer viewer in the Library:** for a layered document in Develop, a collapsible Layers list (visibility, which layer develop targets, open in Editor). Hidden for single-layer photos.
 
 **Built (October 2026, #31):**
-* **PSD:** a Develop layer is written as a smart object with its source embedded (as other smart
-  objects are), and our record `{"command":"developLayer","settings","photo"}` under the private
-  `localImage` key of its placed-layer descriptor (`soLD`), which the importer reads first
-  (`pc-io/src/develop_layer_map.rs`). For Photoshop: a **raw** source carries its Camera Raw
-  settings as the embedded file's open descriptor (a `crs:` XMP packet, `XMPMetadataAsUTF8`;
-  unverified against a Photoshop-made raw smart object, kept behind `open_descriptor`), one
-  embedded file per settings version; any **other** source gets a stand-in Camera Raw Filter at the
-  bottom of its smart-filter stack (the subset Camera Raw understands), marked with our record and
-  turned back into the Develop layer on import (Photoshop's edits to it apply over our settings). A
-  PSD with only `crs:` settings (or Camera Raw descriptor keys) beside the embedded file opens as a
-  Develop layer following no photo. The `crs:` mapping is the Library's sidecar one
-  (`lc-engine/src/crs.rs`: one field table, `to_partial` reads, `from_settings` + `packet` write).
+* **PSD:** a Develop layer is written as the smart object it is (source embedded, as for any
+  smart object) with its develop as the existing Camera Raw Filter smart filter at the bottom of
+  its stack (`filter.develop` → Photoshop's Camera Raw Filter, §3.5), carrying our private
+  `localImage` record `{"command":"developLayer","settings","photo"}`; the importer takes that
+  filter out of the stack and restores the layer's link (Photoshop's edits to the filter apply over
+  our settings). Glue only: `smart_map::{develop_layer_filter, resolve_develop_layers}`.
 * **Layers list:** Develop (Edit panel) and Library (Info) show a read-only Layers section for
   PSD/PSB, layered TIFF and `.pcraft` photos with more than one layer or a Develop layer:
   thumbnail, name, visibility, blend mode, opacity, Develop layers with the photo they follow

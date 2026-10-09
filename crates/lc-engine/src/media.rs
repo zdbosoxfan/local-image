@@ -107,6 +107,10 @@ impl SourceLevel {
 /// Decodes a file into a linear Rec.2020 image no larger than `max_edge` (set by the app).
 pub type FileLoader = Arc<dyn Fn(&str, usize) -> Result<(Rgb32f, SourceInfo), String> + Send + Sync>;
 
+/// [`FileLoader`] decoding raw files with non-default options (a photo's Raw Processing settings,
+/// [`crate::files::RawOptions`]).
+pub type FileLoaderWith = Arc<dyn Fn(&str, usize, &crate::files::RawOptions) -> Result<(Rgb32f, SourceInfo), String> + Send + Sync>;
+
 /// A raw file's embedded (camera-rendered) preview as display sRGB, oriented, no larger than
 /// `max_edge` (set by the app). `None`: no usable preview.
 pub type PreviewLoader = Arc<dyn Fn(&str, usize) -> Option<Rgba8> + Send + Sync>;
@@ -119,17 +123,22 @@ pub struct DecodedSource {
     /// A smart preview's stored camera tone curve: the one decoder fact its pixels need that the
     /// catalog's header facts lack (used when `info` is `None`).
     pub camera_tone: Option<lightcraft_pipeline::tone::CameraTone>,
+    /// [`crate::files::RawOptions::key`] of the decoding (0 = the default decoding).
+    pub raw_key: u64,
 }
 
 impl DecodedSource {
     pub fn new(image: Arc<Rgb32f>, info: Option<SourceInfo>) -> Self {
-        DecodedSource { image, info, camera_tone: None }
+        DecodedSource { image, info, camera_tone: None, raw_key: 0 }
     }
 
     /// What to render these pixels against: the decoder's facts, else `header` (the catalog's)
-    /// with any stored camera tone curve.
+    /// with any stored camera tone curve. The lens database's correction always comes from
+    /// `header` (it follows the settings, not the file).
     pub fn info_or(&self, header: SourceInfo) -> SourceInfo {
-        self.info.unwrap_or(SourceInfo { camera_tone: self.camera_tone.or(header.camera_tone), ..header })
+        let mut i = self.info.unwrap_or(SourceInfo { camera_tone: self.camera_tone.or(header.camera_tone), ..header });
+        i.lens_db = header.lens_db;
+        i
     }
 }
 
@@ -152,6 +161,14 @@ pub enum SourceRef {
     Smart {
         path: std::path::PathBuf,
     },
+    /// A raw file decoded with non-default Raw Processing options.
+    RawFile {
+        path: String,
+        max_edge: usize,
+        opts: crate::files::RawOptions,
+        loader: FileLoaderWith,
+        fallback: Option<std::path::PathBuf>,
+    },
 }
 
 impl SourceRef {
@@ -169,6 +186,15 @@ impl SourceRef {
                     None => Err(format!("no decoder available for {path}")),
                 };
                 // An offline original renders from its smart preview (no decoder facts: header ones).
+                return match (r, fallback) {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    (Err(e), Some(sp)) if crate::smart::is_valid(sp) => crate::smart::load(sp).map_err(|e2| format!("{e}; smart preview: {e2}")),
+                    (r, _) => r,
+                };
+            }
+            SourceRef::RawFile { path, max_edge, opts, loader, fallback } => {
+                let r = loader(path, *max_edge, opts)
+                    .map(|(image, info)| DecodedSource { raw_key: opts.key(), ..DecodedSource::new(Arc::new(image), Some(info)) });
                 return match (r, fallback) {
                     #[cfg(not(target_arch = "wasm32"))]
                     (Err(e), Some(sp)) if crate::smart::is_valid(sp) => crate::smart::load(sp).map_err(|e2| format!("{e}; smart preview: {e2}")),
@@ -198,6 +224,8 @@ pub struct MediaCache {
     /// share of [`crate::memory::budget`]); the least recently used entry of any of them goes first.
     budget: usize,
     pub file_loader: Option<FileLoader>,
+    /// Decodes raw files with non-default options (set with `file_loader` by the app).
+    pub file_loader_with: Option<FileLoaderWith>,
     pub file_probe: Option<FileProbe>,
     pub preview_loader: Option<PreviewLoader>,
     /// Reads a photo file's bytes (Photo Merge); `None` = the local file system.
@@ -223,6 +251,7 @@ impl Default for MediaCache {
             preview_capacity: 0,
             budget,
             file_loader: None,
+            file_loader_with: None,
             file_probe: None,
             preview_loader: None,
             file_bytes: None,
@@ -321,7 +350,12 @@ impl MediaCache {
     }
 
     fn get_source(&mut self, id: PhotoId, level: SourceLevel) -> Option<DecodedSource> {
-        match level {
+        self.get_source_keyed(id, level, 0)
+    }
+
+    /// A cached source decoded with raw options `key` ([`crate::files::RawOptions::key`]).
+    fn get_source_keyed(&mut self, id: PhotoId, level: SourceLevel, key: u64) -> Option<DecodedSource> {
+        let s = match level {
             SourceLevel::Thumb => self.thumbs.get(&id).cloned(),
             SourceLevel::Preview => self.previews.iter_mut().find(|e| e.0 == id).map(|e| {
                 e.2 = lightcraft_preview::next_tick();
@@ -331,7 +365,8 @@ impl MediaCache {
                 e.2 = lightcraft_preview::next_tick();
                 e.1.clone()
             }),
-        }
+        };
+        s.filter(|s| s.raw_key == key)
     }
 
     /// The facts of photo `id`'s cached sources: the decoder's when one has them, else `header`
@@ -398,9 +433,22 @@ impl MediaCache {
     }
 
     pub fn source_ref(&mut self, p: &Photo, level: SourceLevel) -> SourceRef {
-        if let Some(a) = self.get_source(p.id, level) {
+        // a raw decoded with the photo's Raw Processing options (the default decoding: key 0)
+        let opts = crate::files::RawOptions::of(&p.develop);
+        let opts = if p.develops_raw() { opts } else { Default::default() };
+        if let Some(a) = self.get_source_keyed(p.id, level, opts.key()) {
             return SourceRef::Loaded(Box::new(a));
         }
+        let r = self.source_ref_default(p, level);
+        match (r, &self.file_loader_with) {
+            (SourceRef::File { path, max_edge, fallback, .. }, Some(l)) if !opts.is_default() => {
+                SourceRef::RawFile { path, max_edge, opts, loader: l.clone(), fallback }
+            }
+            (r, _) => r,
+        }
+    }
+
+    fn source_ref_default(&mut self, p: &Photo, level: SourceLevel) -> SourceRef {
         // Procedural scenes have a nominal size: "full" is that size, not unbounded.
         let max_edge = level.max_edge().min(match (&p.source, level) {
             (Source::Demo { .. }, SourceLevel::Full) => p.width.max(p.height).max(1) as usize,
@@ -601,6 +649,8 @@ pub fn develop(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &
         && !s.masks.iter().any(|m| m.visible && m.refine > 0.0)
         // develop layer tools have no GPU kernels yet
         && !lightcraft_pipeline::layers_need_cpu(s)
+        // nor the tone equalizer
+        && !lightcraft_pipeline::tools_need_cpu(s, req)
         && req.proof.is_none()
         && let Some(r) = lightcraft_gpu::render(src, info, s, req, stages)
     {
@@ -684,6 +734,11 @@ pub fn content_key(p: &Photo) -> String {
     }
 }
 
+/// [`source_info`] with what the settings `s` add to it (the lens database's correction).
+pub fn job_info(p: &Photo, s: &DevelopSettings) -> SourceInfo {
+    SourceInfo { lens_db: crate::lens_db::for_photo(p, s), ..source_info(p) }
+}
+
 pub fn source_info(p: &Photo) -> SourceInfo {
     // Procedural demo scenes are scene-referred HDR (like raw files): use the filmic tone map.
     if matches!(p.source, Source::Demo { .. }) {
@@ -759,7 +814,7 @@ impl crate::Session {
             level,
             source,
             origin: p.source.clone(),
-            info: source_info(&p),
+            info: job_info(&p, &settings),
             settings,
             request,
             key,
@@ -809,7 +864,7 @@ impl crate::Session {
             level,
             source,
             origin: p.source.clone(),
-            info: source_info(&p),
+            info: job_info(&p, &settings),
             settings: Arc::new(settings.clone()),
             request: RenderRequest { apply_crop: true, ..RenderRequest::fit(edge, edge) },
             key: (ck.0 as u64) ^ ((ck.0 >> 64) as u64),
@@ -854,7 +909,7 @@ impl crate::Session {
             level,
             source,
             origin: p.source.clone(),
-            info: source_info(&p),
+            info: job_info(&p, &settings),
             settings: Arc::new(settings),
             request: RenderRequest { apply_crop: true, ..RenderRequest::fit(edge, edge) },
             key: (ck.0 as u64) ^ ((ck.0 >> 64) as u64),
@@ -974,7 +1029,7 @@ impl crate::Session {
 
     /// Prefer decoder facts to header-only metadata for pixel-statistics commands.
     pub fn source_info(&self, id: PhotoId) -> SourceInfo {
-        let header = self.catalog.photo(id).map(|p| source_info(p)).unwrap_or_default();
+        let header = self.catalog.photo(id).map(|p| job_info(p, &p.develop)).unwrap_or_default();
         self.media.source_facts(id, header)
     }
 

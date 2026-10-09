@@ -85,3 +85,90 @@ fn default_raw_loading_is_bit_identical() {
         }
     }
 }
+
+#[test]
+fn raw_options_change_the_decoding() {
+    use crate::files::{RawOptions, load_bytes, load_bytes_with};
+    use lightcraft_develop::{Demosaic, HighlightMode};
+    let dng = textured_dng();
+    let (base, info) = load_bytes(&dng, usize::MAX).unwrap();
+    assert_eq!((info.sensor_scale, info.capture_radius), (1.0, None));
+    assert!((0.2..=0.5).contains(&info.capture_threshold), "{}", info.capture_threshold);
+    for opts in [
+        RawOptions { demosaic: Demosaic::Rcd, ..Default::default() },
+        RawOptions { demosaic: Demosaic::DualRcd, dual_threshold: 0.2, ..Default::default() },
+        RawOptions { highlights: HighlightMode::Opposed, ..Default::default() },
+        RawOptions { highlights: HighlightMode::Clip, ..Default::default() },
+    ] {
+        let (img, _) = load_bytes_with(&dng, usize::MAX, &opts).unwrap();
+        assert_ne!(hash_img(&img), hash_img(&base), "{opts:?}");
+        assert_ne!(opts.key(), 0);
+    }
+    assert_eq!(RawOptions::default().key(), 0);
+    // the radius is measured when asked for; a binned preview knows its scale
+    let (_, i) = load_bytes_with(&dng, usize::MAX, &RawOptions { capture_radius: true, ..Default::default() }).unwrap();
+    assert!(i.capture_radius.is_some_and(|r| (0.0..=1.5).contains(&r)));
+    let (_, i) = load_bytes(&dng, 200).unwrap();
+    assert!((i.sensor_scale - 3.2).abs() < 0.01, "{}", i.sensor_scale);
+}
+
+#[test]
+fn sources_are_cached_per_raw_options() {
+    use serde_json::json;
+    let dir = std::env::temp_dir().join(format!("lc-toolset-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("t.dng");
+    std::fs::write(&path, textured_dng()).unwrap();
+    let mut s = crate::Session::new().with_fs();
+    let r = s.execute("library.import", &json!({"paths": [path.to_string_lossy()]})).unwrap();
+    let id = lightcraft_catalog::PhotoId(r["imported"][0].as_u64().unwrap());
+    s.execute("library.select", &json!({"ids": [id.0]})).unwrap();
+    let a = s.render_now(id, 640, 480).unwrap().image;
+    // a default-decoded source is cached
+    let p = s.catalog.photo(id).unwrap().clone();
+    assert!(matches!(s.media.source_ref(&p, crate::SourceLevel::Preview), crate::media::SourceRef::Loaded(_)));
+    s.execute("develop.merge", &json!({"settings": {"raw": {"demosaic": "rcd", "highlights": "opposed"}}})).unwrap();
+    let p = s.catalog.photo(id).unwrap().clone();
+    assert!(matches!(s.media.source_ref(&p, crate::SourceLevel::Preview), crate::media::SourceRef::RawFile { .. }), "decoded again");
+    let b = s.render_now(id, 640, 480).unwrap().image;
+    assert_ne!(a.data, b.data);
+    let p = s.catalog.photo(id).unwrap().clone();
+    assert!(matches!(s.media.source_ref(&p, crate::SourceLevel::Preview), crate::media::SourceRef::Loaded(_)), "and cached");
+    // back to the defaults: the original render
+    s.execute("develop.merge", &json!({"settings": {"raw": {"demosaic": "auto", "highlights": "reconstruct"}}})).unwrap();
+    assert_eq!(s.render_now(id, 640, 480).unwrap().image.data, a.data);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn lens_database_corrections_follow_the_settings() {
+    let db = crate::lens_db::database().unwrap();
+    // a fully calibrated lens and a camera for it
+    let lens = db
+        .lenses
+        .iter()
+        .find(|l| l.calib_distortion.len() > 1 && l.calib_vignetting.len() > 2 && !l.calib_tca.is_empty())
+        .unwrap();
+    let cam = db.cameras.iter().find(|c| lens.mounts.contains(&c.mount)).unwrap();
+    let mut p = lightcraft_catalog::Photo::new(
+        lightcraft_catalog::PhotoId(1),
+        lightcraft_catalog::Source::File { path: "x.nef".into() },
+        "x.nef",
+        "NEF",
+        6000,
+        4000,
+        "2026-10-09",
+    );
+    p.meta.camera = format!("{} {}", cam.maker, cam.model);
+    p.meta.lens = lens.model.clone();
+    p.meta.focal_mm = Some(lens.calib_distortion[0].focal);
+    p.meta.aperture = Some(lens.calib_vignetting[0].aperture);
+    let mut s = lightcraft_develop::DevelopSettings::default();
+    assert_eq!(crate::lens_db::for_photo(&p, &s), None, "off by default");
+    s.lens_db.enabled = true;
+    s.lens_db.lens = Some(lightcraft_develop::LensName { maker: lens.maker.clone(), model: lens.model.clone() });
+    assert!(crate::lens_db::for_photo(&p, &s).is_some());
+    assert!(crate::media::job_info(&p, &s).lens_db.is_some());
+    s.set_section_enabled("optics", false);
+    assert_eq!(crate::lens_db::for_photo(&p, &s), None);
+}

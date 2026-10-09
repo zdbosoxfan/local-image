@@ -76,12 +76,13 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 0, bottom: 10 }).show(ui, |ui| {
         ui.label(egui::RichText::new(crate::i18n::tr("Create New Mask")).color(t.text_dim));
         ui.add_space(6.0);
-        let tiles: [(&str, &str, Icon); 10] = [
+        let tiles: [(&str, &str, Icon); 11] = [
             ("object", "Object", Icon::Subject),
             ("prompt", "Describe", Icon::Subject),
             ("subject", "Subject", Icon::Subject),
             ("sky", "Sky", Icon::Sky),
             ("background", "Background", Icon::Subject),
+            ("depth", "Depth", Icon::Sliders),
             ("brush", "Brush", Icon::Brush),
             ("linear", "Linear", Icon::Linear),
             ("radial", "Radial", Icon::Radial),
@@ -599,6 +600,70 @@ fn range_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, comp: usize, shape
                 }
             }
         }
+        MaskShape::DepthRange { lo, hi, feather, seg } => {
+            if seg.is_none() {
+                ui.label(
+                    egui::RichText::new(crate::i18n::tr("No depth map: install a depth model (Settings › Selection models) and add the mask again."))
+                        .color(t.text_dim)
+                        .size(11.0),
+                );
+                return;
+            }
+            ui.label(egui::RichText::new(crate::i18n::tr("Select Depth Range (near → far)")).color(t.text_dim).size(11.5));
+            let (lo, hi, feather) = (*lo, *hi, *feather);
+            let w = ui.available_width().min(240.0);
+            let (rect, resp) = ui.allocate_exact_size(vec2(w, 18.0), Sense::click_and_drag());
+            register(ui.ctx(), format!("depthRange:{comp}"), rect);
+            let p = ui.painter();
+            let n = 24;
+            for k in 0..n {
+                let a = k as f32 / n as f32;
+                let r = Rect::from_min_max(
+                    pos2(rect.left() + a * w, rect.top() + 4.0),
+                    pos2(rect.left() + (a + 1.0 / n as f32) * w + 0.5, rect.bottom() - 4.0),
+                );
+                // near warm, far cool
+                p.rect_filled(r, 0.0, egui::Color32::from_rgb((220.0 - a * 160.0) as u8, 120, (60.0 + a * 170.0) as u8));
+            }
+            let x = |v: f64| rect.left() + v.clamp(0.0, 1.0) as f32 * w;
+            p.rect_stroke(
+                Rect::from_min_max(pos2(x(lo), rect.top() + 2.0), pos2(x(hi), rect.bottom() - 2.0)),
+                2.0,
+                Stroke::new(1.5, t.accent),
+                egui::StrokeKind::Middle,
+            );
+            for v in [lo, hi] {
+                p.circle_filled(pos2(x(v), rect.center().y), 5.0, egui::Color32::WHITE);
+                p.circle_stroke(pos2(x(v), rect.center().y), 5.0, Stroke::new(1.0, egui::Color32::from_gray(40)));
+            }
+            let with = |lo: f64, hi: f64, feather: f64| MaskShape::DepthRange { lo, hi, feather, seg: seg.clone() };
+            if resp.drag_started() {
+                let _ = app.run("develop.beginInteraction", json!({"label": "Depth Range"}));
+            }
+            if (resp.dragged() || resp.clicked())
+                && let Some(pos) = resp.interact_pointer_pos()
+            {
+                let v = (((pos.x - rect.left()) / w) as f64).clamp(0.0, 1.0);
+                let (nlo, nhi) = if (v - lo).abs() <= (v - hi).abs() { (v.min(hi - 0.01), hi) } else { (lo, v.max(lo + 0.01)) };
+                update(app, with(nlo, nhi, feather));
+            }
+            if resp.drag_stopped() {
+                let _ = app.run("develop.endInteraction", json!({}));
+            }
+            let smooth = ControlSpec {
+                id: "depthSmoothness",
+                label: "Smoothness",
+                section: Section::Light,
+                min: 0.0,
+                max: 100.0,
+                default: 30.0,
+                step: 1.0,
+                decimals: 0,
+                track: Track::Plain,
+            };
+            let out = slider(ui, &smooth, (feather / 0.5 * 100.0).clamp(0.0, 100.0), true, None);
+            apply_slider_out(app, &smooth, out, |app, v| app.run("mask.update", json!({"component": comp, "shape": with(lo, hi, v / 100.0 * 0.5)})));
+        }
         MaskShape::Object { edge, .. } | MaskShape::Prompt { edge, .. } => {
             // Edge: how crisp the selection's border is (−100 hard … 0 as computed … 100 soft)
             let spec = ControlSpec {
@@ -818,6 +883,7 @@ fn component_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, op: &str) {
         ("radial", "Radial Gradient"),
         ("sky", "Sky"),
         ("subject", "Subject"),
+        ("depth", "Depth"),
         ("luminanceRange", "Luminance Range"),
     ] {
         // painting only adds or erases

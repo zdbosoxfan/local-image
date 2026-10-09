@@ -455,7 +455,9 @@ pub(crate) fn resolve_develop_layers(doc: &mut photocraft_doc::Document) {
         .collect();
     for id in ids {
         let Some(photocraft_doc::LayerContent::Smart(sm)) = doc.layer_mut(id).map(|l| &mut l.content) else { continue };
-        let Some(i) = sm.smart_filters.iter().position(|f| f.command == crate::develop_filter::COMMAND && f.params.get(DEVELOP_LAYER_MARKER).is_some()) else { continue };
+        let Some(i) = sm.smart_filters.iter().position(|f| f.command == crate::develop_filter::COMMAND && f.params.get(DEVELOP_LAYER_MARKER).is_some()) else {
+            continue;
+        };
         let f = sm.smart_filters.remove(i);
         let m = f.params.get(DEVELOP_LAYER_MARKER);
         let settings = m.and_then(|m| m.get("settings")).cloned().unwrap_or_else(|| json!({}));

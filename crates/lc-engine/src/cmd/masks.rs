@@ -26,12 +26,9 @@ fn shape_from(kind: &str, p: &Value, c: &str) -> Result<MaskShape> {
         "subject" => MaskShape::Subject { seg: None },
         "background" => MaskShape::Background { seg: None },
         // local-image: near (0) … far (1) band of the depth model's distance map (`quick_segment`)
-        "depth" | "depthRange" => MaskShape::DepthRange {
-            lo: f64_or(p, "lo", 0.0),
-            hi: f64_or(p, "hi", 0.45),
-            feather: f64_or(p, "feather", 0.15),
-            seg: None,
-        },
+        "depth" | "depthRange" => {
+            MaskShape::DepthRange { lo: f64_or(p, "lo", 0.0), hi: f64_or(p, "hi", 0.45), feather: f64_or(p, "feather", 0.15), seg: None }
+        }
         "luminanceRange" => MaskShape::LuminanceRange {
             lo: f64_or(p, "lo", 0.6),
             hi: f64_or(p, "hi", 1.0),

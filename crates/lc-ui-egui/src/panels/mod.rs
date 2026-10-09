@@ -5,6 +5,7 @@ pub mod chips;
 pub mod compare;
 pub mod crop_overlay;
 pub mod detail;
+pub mod develop_tools;
 pub mod dialogs;
 pub mod doc_layers;
 pub mod edit;
