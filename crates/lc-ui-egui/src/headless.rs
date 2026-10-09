@@ -1873,6 +1873,16 @@ mod tests {
             let r = h.request("ui.clickWidget", json!({"id": format!("button:aboutTab-{tab}")}), t);
             assert_eq!(r["ok"], true, "{tab}: {r}");
             h.step();
+            // a tab with taller content (Attributions' sections animate open) grows the window, which
+            // re-centres: wait for the tab row to stop moving before the next click
+            let row = |h: &mut Headless| h.request("ui.widgets", json!({"filter": "button:aboutTab-about"}), t)["result"].clone();
+            for _ in 0..600 {
+                let before = row(&mut h);
+                h.step();
+                if row(&mut h) == before {
+                    break;
+                }
+            }
             let shown = h.view.ctx.data_mut(|d| d.get_temp::<u8>(egui::Id::new("about_tab")));
             assert_eq!(shown.map(usize::from), Some(i), "{tab}");
         }

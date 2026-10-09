@@ -56,7 +56,8 @@ pub(crate) fn rename_preview(
 }
 
 /// About dialog tabs: (widget id suffix, label). The credits come from `crate::credits`.
-pub const ABOUT_TABS: &[(&str, &str)] = &[("about", "About"), ("contributors", "Contributors"), ("models", "Models"), ("attributions", "Attributions")];
+pub const ABOUT_TABS: &[(&str, &str)] =
+    &[("about", "About"), ("contributors", "Contributors"), ("models", "Models"), ("attributions", "Attributions")];
 
 /// Help ▸ What's New (docs/whats-new.md).
 pub const WHATS_NEW: &str = include_str!("../../../../docs/whats-new.md");
