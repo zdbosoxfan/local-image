@@ -83,6 +83,7 @@ mod camera_raw_preview_ui;
 mod camera_raw_scope_ui;
 pub mod camera_raw_ui;
 // local-image: Edit › Transform › Cage on the canvas.
+pub mod attributions;
 pub mod cage_ui;
 pub mod canvas;
 pub mod canvas_tool_menu;
@@ -95,7 +96,6 @@ pub mod color_range_ui;
 pub mod comps_ui;
 pub mod context_bar;
 pub mod control;
-pub mod attributions;
 pub mod credits;
 pub mod crop_ui;
 pub mod develop_filter_ui;

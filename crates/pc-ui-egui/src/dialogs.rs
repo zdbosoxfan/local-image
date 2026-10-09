@@ -141,7 +141,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     let tab = about_tab(&fields);
                     let mut chosen = tab;
                     ui.horizontal(|ui| {
-                        for (key, label) in [("about", tl!("About")), ("contributors", tl!("Contributors")), ("models", tl!("Models")), ("attributions", tl!("Attributions"))] {
+                        for (key, label) in
+                            [("about", tl!("About")), ("contributors", tl!("Contributors")), ("models", tl!("Models")), ("attributions", tl!("Attributions"))]
+                        {
                             if crate::widgets::pill_tab(ui, label, tab == key).clicked() {
                                 chosen = key;
                             }

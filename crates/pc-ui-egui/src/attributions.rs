@@ -79,7 +79,16 @@ mod tests {
     use crate::state::DialogKind;
 
     fn harness(app: PhotocraftApp) -> Harness<'static, PhotocraftApp> {
-        let mut h = Harness::builder().with_size(egui::vec2(1200.0, 900.0)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app);
+        // The dialog is already open, and fonts set on the context only apply from the next frame:
+        // draw it once the app's font families (semibold) exist, as panels.rs does.
+        let mut h = Harness::builder().with_size(egui::vec2(1200.0, 900.0)).build_ui_state(
+            |ui, app| {
+                if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("semibold".into()))) {
+                    crate::dialogs::show(app, ui.ctx());
+                }
+            },
+            app,
+        );
         PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
         h.run_steps(3);
         h

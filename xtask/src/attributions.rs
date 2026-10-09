@@ -631,9 +631,9 @@ pub fn app_crates(root: &Path) -> Result<Vec<(String, String)>> {
             }
             continue;
         }
-        if !members.contains_key(&i) {
+        if let std::collections::hash_map::Entry::Vacant(e) = members.entry(i) {
             let manifest = manifests.get(&p.name).with_context(|| format!("no manifest for workspace member {}", p.name))?;
-            members.insert(i, read_member(manifest, &workspace_deps)?);
+            e.insert(read_member(manifest, &workspace_deps)?);
         }
         let m = &members[&i];
         let (enabled, dep_features) = member_activation(m, requested.get(&i).unwrap_or(&empty));
