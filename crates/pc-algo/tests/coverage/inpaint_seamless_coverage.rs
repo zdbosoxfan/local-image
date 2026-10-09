@@ -186,13 +186,16 @@ fn mvc_membrane_reproduces_linear_diff() {
 }
 
 #[test]
-#[ignore = "BUG: mvc_membrane clamps ch to 8 and returns a shorter buffer than requested"]
 fn mvc_membrane_ch_greater_than_eight_respects_requested_length() {
     let (w, h, ch) = (8, 8, 10);
     let mask = vec![true; w * h];
     let diff = vec![0.5; w * h * ch];
     let m = seamless::mvc_membrane(w, h, &mask, &diff, ch);
     assert_eq!(m.len(), w * h * ch, "expected full requested length");
+    // A constant boundary value is reproduced in every channel, including those past the 8th.
+    for v in &m {
+        assert!((v - 0.5).abs() < 0.01, "channel value {v}");
+    }
 }
 
 #[test]

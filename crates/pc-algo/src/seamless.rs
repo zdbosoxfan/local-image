@@ -287,9 +287,24 @@ fn inside_distance(mask: &[bool], w: usize, h: usize) -> Vec<f32> {
 
 /// The mean-value membrane of a patch: for every pixel of `mask` (row-major `w × h`), the
 /// interpolation of `diff` (`ch` values per pixel, read on the patch's boundary pixels) from the
-/// patch boundary. Pixels outside the mask get 0. `ch` is at most 8.
+/// patch boundary. Pixels outside the mask get 0. Any `ch` works; the solver handles 8 channels
+/// at a time, so wider inputs are computed in groups of 8 and interleaved back.
 pub fn mvc_membrane(w: usize, h: usize, mask: &[bool], diff: &[f32], ch: usize) -> Vec<f32> {
-    let ch = ch.min(8);
+    if ch > 8 {
+        let mut out = vec![0.0f32; w * h * ch];
+        if w == 0 || h == 0 || mask.len() < w * h || diff.len() < w * h * ch {
+            return out;
+        }
+        for c0 in (0..ch).step_by(8) {
+            let n = (ch - c0).min(8);
+            let part: Vec<f32> = (0..w * h).flat_map(|i| diff[i * ch + c0..i * ch + c0 + n].iter().copied()).collect();
+            let m = mvc_membrane(w, h, mask, &part, n);
+            for i in 0..w * h {
+                out[i * ch + c0..i * ch + c0 + n].copy_from_slice(&m[i * n..(i + 1) * n]);
+            }
+        }
+        return out;
+    }
     let mut out = vec![0.0f32; w * h * ch];
     if w == 0 || h == 0 || mask.len() < w * h || diff.len() < w * h * ch {
         return out;

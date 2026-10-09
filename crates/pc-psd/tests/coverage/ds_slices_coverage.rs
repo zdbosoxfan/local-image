@@ -154,8 +154,9 @@ fn v6_roundtrip_many_slices() {
 }
 
 #[test]
-#[ignore = "BUG: v6 origin=1 with layer_id=None roundtrips as Some(0)"]
-fn v6_origin1_none_layer_id_bug() {
+fn v6_origin1_none_layer_id_roundtrips_as_zero() {
+    // The v6 binary layout always carries a layer id for origin=1 slices, so `None` cannot be
+    // represented; it is written as 0 and read back as Some(0). That is a format limit, not a bug.
     let s = SlicesResource {
         version: 6,
         bounds: [0, 0, 10, 10],
@@ -163,7 +164,6 @@ fn v6_origin1_none_layer_id_bug() {
         slices: vec![SliceRecord { id: 1, origin: 1, layer_id: None, ..Default::default() }],
     };
     let back = SlicesResource::from_bytes(&s.to_bytes()).unwrap();
-    // Current behavior: layer_id becomes Some(0) instead of None
     assert_eq!(back.slices[0].layer_id, Some(0));
 }
 
@@ -289,16 +289,15 @@ fn from_bytes_ignores_trailing_data() {
 }
 
 #[test]
-#[ignore = "BUG: v7 descriptor does not preserve horizontal/vertical align and color"]
-fn v7_descriptor_loses_alignment_and_color() {
+fn v7_descriptor_preserves_alignment_and_color() {
     let s = sample_with_outsets();
     let back = SlicesResource::from_bytes(&s.to_descriptor_bytes()).unwrap();
     let original_slice = &s.slices[1];
     let parsed_slice = &back.slices[1];
-    assert_eq!(parsed_slice.horizontal_align, 0);
-    assert_eq!(parsed_slice.vertical_align, 0);
-    assert_eq!(parsed_slice.color, [0, 0, 0, 0]);
     assert_eq!(original_slice.horizontal_align, 1);
     assert_eq!(original_slice.vertical_align, 2);
     assert_eq!(original_slice.color, [255, 10, 20, 30]);
+    assert_eq!(parsed_slice.horizontal_align, 1);
+    assert_eq!(parsed_slice.vertical_align, 2);
+    assert_eq!(parsed_slice.color, [255, 10, 20, 30]);
 }

@@ -124,6 +124,34 @@ fn origin_from(s: &str) -> u32 {
     }
 }
 
+/// Descriptor alignment enum to the v6 integer (0 default, 1 left/top, 2 centre, 3 right/bottom).
+fn align_from(s: Option<String>) -> u32 {
+    match s.as_deref() {
+        Some("Left" | "Top ") => 1,
+        Some("Cntr") => 2,
+        Some("Rght" | "Btom") => 3,
+        _ => 0,
+    }
+}
+
+fn horz_align_name(v: u32) -> &'static str {
+    match v {
+        1 => "Left",
+        2 => "Cntr",
+        3 => "Rght",
+        _ => "default",
+    }
+}
+
+fn vert_align_name(v: u32) -> &'static str {
+    match v {
+        1 => "Top ",
+        2 => "Cntr",
+        3 => "Btom",
+        _ => "default",
+    }
+}
+
 fn kind_from(s: &str) -> u32 {
     match s {
         "noImage" => 0,
@@ -157,8 +185,8 @@ fn slice_from_descriptor(d: &Descriptor) -> SliceRecord {
         alt: d_text(d, "altTag"),
         cell_text_is_html: d_bool(d, "cellTextIsHTML"),
         cell_text: d_text(d, "cellText"),
-        horizontal_align: 0,
-        vertical_align: 0,
+        horizontal_align: align_from(d_enum(d, "horzAlign")),
+        vertical_align: align_from(d_enum(d, "vertAlign")),
         color,
         outsets: [
             d_int(d, "topOutset").unwrap_or(0) as i32,
@@ -345,7 +373,8 @@ impl SlicesResource {
                 if let Some(l) = s.layer_id.filter(|_| s.origin == 1) {
                     d = d.with("layerID", Value::Integer(l as i32));
                 }
-                d.with("Nm  ", Value::Text(UnicodeString::new(&s.name)))
+                let d = d
+                    .with("Nm  ", Value::Text(UnicodeString::new(&s.name)))
                     .with("Type", enumerated("ESliceType", kind))
                     .with("bounds", bounds_descriptor([s.rect[1], s.rect[0], s.rect[3], s.rect[2]]))
                     .with("url", Value::Text(UnicodeString::new(&s.url)))
@@ -354,10 +383,26 @@ impl SlicesResource {
                     .with("altTag", Value::Text(UnicodeString::new(&s.alt)))
                     .with("cellTextIsHTML", Value::Boolean(s.cell_text_is_html))
                     .with("cellText", Value::Text(UnicodeString::new(&s.cell_text)))
-                    .with("horzAlign", enumerated("ESliceHorzAlign", "default"))
-                    .with("vertAlign", enumerated("ESliceVertAlign", "default"))
-                    .with("bgColorType", enumerated("ESliceBGColorType", "None"))
-                    .with("topOutset", Value::Integer(s.outsets[0]))
+                    .with("horzAlign", enumerated("ESliceHorzAlign", horz_align_name(s.horizontal_align)))
+                    .with("vertAlign", enumerated("ESliceVertAlign", vert_align_name(s.vertical_align)));
+                // Background colour: "None" when unset, otherwise a user-specified RGB colour
+                // descriptor with the alpha carried alongside (what `slice_from_descriptor` reads).
+                let d = if s.color == [0; 4] {
+                    d.with("bgColorType", enumerated("ESliceBGColorType", "None"))
+                } else {
+                    d.with("bgColorType", enumerated("ESliceBGColorType", "Clr "))
+                        .with(
+                            "bgColor",
+                            Value::Descriptor(
+                                Descriptor::new("RGBC")
+                                    .with("Rd  ", Value::Double(f64::from(s.color[1])))
+                                    .with("Grn ", Value::Double(f64::from(s.color[2])))
+                                    .with("Bl  ", Value::Double(f64::from(s.color[3])))
+                                    .with("alpha", Value::Integer(i32::from(s.color[0]))),
+                            ),
+                        )
+                };
+                d.with("topOutset", Value::Integer(s.outsets[0]))
                     .with("leftOutset", Value::Integer(s.outsets[1]))
                     .with("bottomOutset", Value::Integer(s.outsets[2]))
                     .with("rightOutset", Value::Integer(s.outsets[3]))
