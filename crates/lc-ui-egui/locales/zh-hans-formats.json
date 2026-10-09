@@ -118,5 +118,7 @@
   "{month}": "{month}月",
   "{month} {year}": "{year}年{month}月",
   "{weekday}, {day}": "{day}日 {weekday}",
-  "{weekday}, {day} {month} {year}": "{year}年{month}月{day}日 {weekday}"
+  "{weekday}, {day} {month} {year}": "{year}年{month}月{day}日 {weekday}",
+  "{n} more layers": "另外 {n} 个图层",
+  "Follows {name}": "跟随 {name}"
 }

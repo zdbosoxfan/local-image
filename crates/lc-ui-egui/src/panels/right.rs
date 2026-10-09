@@ -581,6 +581,9 @@ fn info(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             let _ = app.run("dialog.allMetadata", json!({}));
         }
     });
+    // local-image: a layered document's layers (read-only)
+    ui.add_space(6.0);
+    crate::panels::doc_layers::show(app, ui, id);
 }
 
 /// The camera card at the top of Info: camera, lens, size · file size and format, then the

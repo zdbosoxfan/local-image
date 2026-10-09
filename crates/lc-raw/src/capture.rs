@@ -207,13 +207,13 @@ mod tests {
             if x >= 0.0 { y } else { -y }
         };
         Rgb32f::from_fn(w, h, |x, y| {
-            // vertical stripes 23 px wide: a step edge blurred by σ along x
-            let fx = x as f32 + 0.5;
-            let k = (fx / 23.0).floor();
-            let e0 = k * 23.0;
-            let t = 0.5 * (1.0 + erf((fx - e0 - 0.5) / (sigma * std::f32::consts::SQRT_2)));
-            let (a, b) = if (k as i64) % 2 == 0 { (0.08, 0.6) } else { (0.6, 0.08) };
-            let v = a + (b - a) * t.clamp(0.0, 1.0) + 0.0 * y as f32;
+            // vertical stripes 23 px wide: step edges (at the nearest multiple of 23 px, rising
+            // and falling in turn) blurred by σ along x
+            let fx = x as f32 + 0.5 + 0.0 * y as f32;
+            let k = (fx / 23.0).round();
+            let t = 0.5 * (1.0 + erf((fx - k * 23.0 - 0.3) / (sigma * std::f32::consts::SQRT_2)));
+            let t = if (k as i64) % 2 == 0 { t } else { 1.0 - t };
+            let v = 0.08 + 0.52 * t.clamp(0.0, 1.0);
             [v * 0.9, v, v * 0.8]
         })
     }
@@ -222,9 +222,6 @@ mod tests {
     fn sharper_data_gives_a_smaller_radius() {
         let cfa = Cfa::bayer("RGGB").unwrap();
         let r = |sigma| capture_radius(&mosaic_from_rgb(&blurred_scene(1200, 1020, sigma), &cfa));
-        for s in [0.3f32, 0.5, 0.8, 1.2, 2.0] {
-            eprintln!("σ {s}: {}", r(s));
-        }
         let (sharp, soft) = (r(0.5), r(1.2));
         eprintln!("radius: σ 0.5 → {sharp:.3}, σ 1.2 → {soft:.3}");
         assert!(sharp < soft, "{sharp} {soft}");

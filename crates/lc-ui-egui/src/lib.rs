@@ -29,6 +29,8 @@ pub mod widgets;
 #[cfg(test)]
 mod tests_curve;
 #[cfg(test)]
+mod tests_doc_layers;
+#[cfg(test)]
 mod tests_grid;
 #[cfg(test)]
 mod tests_library_problem;
@@ -108,6 +110,10 @@ pub struct Services {
     pub backup_library: Option<HostAction>,
     /// File ▸ Restore Library from Backup… (web only; keeps the current library).
     pub restore_library: Option<HostAction>,
+    /// local-image: the layers of a layered document (PSD, layered TIFF, `.pcraft`) for the
+    /// read-only Layers list ([`panels::doc_layers`]); the host reads them (this crate has no
+    /// layered-document reader). Runs on a worker thread.
+    pub doc_layers: Option<panels::doc_layers::DocLayersFn>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
