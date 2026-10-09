@@ -185,6 +185,8 @@ pub struct AppSettings {
     pub film_badges: bool,
     /// Grid: when to show the rating / flag / edited badges.
     pub grid_badges: GridBadges,
+    /// Hover tips on the tool strip: rich, simple (name and shortcut) or off.
+    pub tool_tips: crate::panels::tool_tips::ToolTipMode,
 }
 
 impl Default for AppSettings {
@@ -201,6 +203,7 @@ impl Default for AppSettings {
             film_names: true,
             film_badges: true,
             grid_badges: GridBadges::Auto,
+            tool_tips: Default::default(),
         }
     }
 }

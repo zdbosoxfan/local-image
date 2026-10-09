@@ -605,12 +605,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let mut strip = ui.new_child(egui::UiBuilder::new().max_rect(left.shrink2(vec2(6.0, 8.0))));
         strip.spacing_mut().item_spacing.y = 4.0;
         for tool in LiquifyTool::ALL {
-            let tip = match tool {
-                // The lasso works on the same freeze mask as Freeze/Thaw.
-                LiquifyTool::LassoMask => tl!("Freeze Lasso: drag to freeze an area, Alt-drag to thaw it (L)").to_string(),
-                _ => format!("{} ({})", tl!(tool.label()), shortcut(tool)),
-            };
-            if crate::icons::button(&mut strip, tool_icon(tool), 34.0, d.opts.tool == tool, &tip).clicked() {
+            let resp = crate::icons::button(&mut strip, tool_icon(tool), 34.0, d.opts.tool == tool, "");
+            crate::tool_tips::attach_liquify(&app.session, &strip, &resp, tool, shortcut(tool), tool_icon(tool));
+            if resp.clicked() {
                 d.opts.tool = tool;
             }
             if matches!(tool, LiquifyTool::Smooth | LiquifyTool::PushLeft | LiquifyTool::Thaw) {

@@ -71,6 +71,11 @@ choice!(
     /// CPU disables image acceleration; the native window may still need hardware graphics.
     RenderingMode { Auto = "auto", Gpu = "gpu", Cpu = "cpu" } default Auto
 );
+choice!(
+    /// Toolbar hover tips: `rich` (name, shortcut, what it does and how to use it), `simple` (name and
+    /// shortcut) or `off`.
+    ToolTips { Rich = "rich", Simple = "simple", Off = "off" } default Rich
+);
 choice!(UiFontSize { Tiny = "tiny", Small = "small", Medium = "medium", Large = "large" } default Small);
 choice!(LogDestination { Metadata = "metadata", TextFile = "textFile", Both = "both" } default Metadata);
 choice!(LogDetail { SessionsOnly = "sessionsOnly", Concise = "concise", Detailed = "detailed" } default Concise);
@@ -216,6 +221,8 @@ pub struct Interface {
     /// Draw menu item colours set with Edit › Menus.
     pub show_menu_colors: bool,
     pub show_tooltips: bool,
+    /// local-image: how much a tool button's hover tip shows.
+    pub tool_tips: ToolTips,
     /// Move tool drags show only the layer's outline and an arrow, leaving its pixels in place
     /// until release. Off (the default), the pixels follow the pointer live inside the outline.
     pub show_bounding_box_when_dragging_layer: bool,
@@ -244,6 +251,7 @@ impl Default for Interface {
             dynamic_color_sliders: true,
             show_menu_colors: true,
             show_tooltips: true,
+            tool_tips: ToolTips::Rich,
             show_bounding_box_when_dragging_layer: false,
             contextual_task_bar: true,
             filmstrip_shows_folder: true,
@@ -736,8 +744,17 @@ pub struct MenuCustomization {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ToolbarCustomization {
+    /// Before tool sets: hidden tools. Read once and turned into the set "My Tools"
+    /// ([`ToolbarCustomization::migrate`]); never written.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub hidden: Vec<String>,
+    /// Before tool sets: a custom order (see `hidden`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub order: Vec<String>,
+    /// Id of the tool set in use (`""` = All Tools, the default).
+    pub active_set: String,
+    /// The user's own tool sets (the built-ins are in [`crate::toolsets`]).
+    pub sets: Vec<crate::toolsets::ToolSet>,
 }
 
 /// All preferences. JSON keys are the `edit.preferences.<section>` ids.
@@ -892,6 +909,7 @@ pub fn choices(path: &str) -> Option<&'static [&'static str]> {
         "interface.canvasBorder" => CanvasBorder::NAMES,
         "interface.uiScale" => UiScale::NAMES,
         "interface.uiFontSize" => UiFontSize::NAMES,
+        "interface.toolTips" => ToolTips::NAMES,
         "historyLog.destination" => LogDestination::NAMES,
         "historyLog.detail" => LogDetail::NAMES,
         "fileHandling.imagePreviews" | "fileHandling.maximizePsdCompatibility" => Ask::NAMES,
@@ -1287,7 +1305,10 @@ impl Session {
             self.color.settings = serde_json::from_value(c).unwrap_or_default();
             photocraft_compose::psblend::set_text_gamma(self.color.settings.blend_text_gamma);
         }
-        self.prefs.edit(|p| *p = prefs);
+        self.prefs.edit(|p| {
+            *p = prefs;
+            p.toolbar.migrate();
+        });
         if let Some(v) = presets {
             self.load_presets_json(v);
         }
@@ -1527,21 +1548,52 @@ fn menus(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(serde_json::to_value(&s.prefs().menus).unwrap_or_default())
 }
 
-/// Edit › Toolbar: hide tools and reorder the toolbar.
+/// Edit › Toolbar: hide tools and reorder the toolbar. The change lands in the active custom
+/// tool set; with a built-in set (read-only) active it first becomes a copy, "My Tools".
 fn toolbar(s: &mut Session, p: &Value) -> Result<Value> {
+    use crate::toolsets::{ALL_TOOLS, Persona, ToolSet};
     let ids = |k: &str| -> Option<Vec<String>> { p.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()) };
     s.edit_prefs(|pr| {
         if p.get("reset").and_then(Value::as_bool) == Some(true) {
             pr.toolbar = ToolbarCustomization::default();
         }
-        if let Some(h) = ids("hidden") {
-            pr.toolbar.hidden = h;
+        let (hidden, order) = (ids("hidden"), ids("order"));
+        if hidden.is_none() && order.is_none() {
+            return;
         }
-        if let Some(o) = ids("order") {
-            pr.toolbar.order = o;
+        let active = pr.toolbar.active();
+        if ToolbarCustomization::is_builtin(&active.id) {
+            let id = (1u32..).map(|n| format!("custom-{n}")).find(|id| !pr.toolbar.sets.iter().any(|x| &x.id == id)).unwrap_or_default();
+            let name = pr.toolbar.unique_name("My Tools");
+            pr.toolbar.sets.push(ToolSet { id: id.clone(), name, persona: Persona::Pixel, tools: active.tools.clone() });
+            pr.toolbar.active_set = id;
+        }
+        let canon = |t: &str| ALL_TOOLS.iter().find(|a| a.eq_ignore_ascii_case(t)).map(|a| a.to_string());
+        let id = pr.toolbar.active_set.clone();
+        if let Some(set) = pr.toolbar.sets.iter_mut().find(|x| x.id == id) {
+            let mut tools: Vec<String> = Vec::new();
+            for t in order.iter().flatten().filter_map(|t| canon(t)).chain(set.tools.iter().cloned()).chain(ALL_TOOLS.iter().map(|t| t.to_string())) {
+                if !tools.contains(&t) {
+                    tools.push(t);
+                }
+            }
+            let keep: Vec<String> = match &hidden {
+                Some(h) => {
+                    let h: Vec<String> = h.iter().filter_map(|t| canon(t)).collect();
+                    tools.retain(|t| !h.contains(t));
+                    tools
+                }
+                None => {
+                    tools.retain(|t| set.tools.contains(t));
+                    tools
+                }
+            };
+            set.tools = keep;
         }
     });
-    Ok(serde_json::to_value(&s.prefs().toolbar).unwrap_or_default())
+    let mut out = serde_json::to_value(&s.prefs().toolbar).unwrap_or_default();
+    out["active"] = json!(s.prefs().toolbar.active().id);
+    Ok(out)
 }
 
 macro_rules! spec {

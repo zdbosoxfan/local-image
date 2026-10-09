@@ -3077,3 +3077,159 @@ ai	New	Baru
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Kelas langit {class} di luar rentang: model ini memiliki {classes} kelas (0 hingga {max})
 	{path} isn't a file	{path} bukan file
 	Custom models are not supported for this function	Model kustom tidak didukung untuk fungsi ini
+	Moves the selected layers or the selection.	Memindahkan lapisan yang dipilih atau seleksi.
+	Drag to move; hold {shift} to keep to one axis.	Seret untuk memindahkan; tahan {shift} agar tetap pada satu sumbu.
+	{alt}-drag to move a copy.	{alt}-seret untuk memindahkan salinan.
+	{cmd}-click picks the layer under the pointer (it switches Auto-Select for that click).	{cmd}-klik memilih lapisan di bawah penunjuk (mengalihkan Pilih Otomatis untuk klik tersebut).
+	Arrow keys nudge by 1 pixel, {shift}+arrow by 10.	Tombol panah menggeser 1 piksel, {shift}+panah 10 piksel.
+	Selects a rectangular area.	Memilih area persegi panjang.
+	Drag to select; {shift}-drag adds to the selection, {alt}-drag subtracts.	Seret untuk memilih; {shift}-seret menambah seleksi, {alt}-seret mengurangi.
+	Hold {shift} and {alt} together to intersect.	Tahan {shift} dan {alt} bersamaan untuk irisan.
+	Selects an oval or circular area.	Memilih area oval atau lingkaran.
+	Selects by drawing a freehand outline.	Memilih dengan menggambar garis bebas.
+	Drag to draw; release to close the outline.	Seret untuk menggambar; lepaskan untuk menutup garis.
+	Hold {alt} while drawing for straight segments; let go to go freehand again.	Tahan {alt} saat menggambar untuk segmen lurus; lepaskan untuk kembali bebas.
+	Hold {shift} before you start to add, {alt} to subtract.	Tahan {shift} sebelum mulai untuk menambah, {alt} untuk mengurangi.
+	Selects with a straight-sided outline.	Memilih dengan garis bersisi lurus.
+	Click to place each corner.	Klik untuk menempatkan setiap sudut.
+	Click the first point, or double-click, to close the shape.	Klik titik pertama, atau klik dua kali, untuk menutup bentuk.
+	Hold {shift} for the first click to add, {alt} to subtract.	Tahan {shift} untuk klik pertama untuk menambah, {alt} untuk mengurangi.
+	Selects by following the edge of an object.	Memilih dengan mengikuti tepi objek.
+	Click to start, then move along the edge; click to fasten a point.	Klik untuk memulai, lalu gerakkan di sepanjang tepi; klik untuk menambatkan titik.
+	{alt}-click adds a straight segment; drag for freehand.	{alt}-klik menambah segmen lurus; seret untuk bebas.
+	Double-click, or click the first point, to close the outline.	Klik dua kali, atau klik titik pertama, untuk menutup garis.
+	Selects an object with the local AI model.	Memilih objek dengan model AI lokal.
+	Click an object, or drag a box around it.	Klik objek, atau seret kotak di sekelilingnya.
+	{shift} adds to the selection, {alt} subtracts.	{shift} menambah seleksi, {alt} mengurangi.
+	Paints a selection that grows out to the edges.	Melukis seleksi yang meluas ke tepi.
+	Drag over the area you want.	Seret di atas area yang diinginkan.
+	Hold {alt} while dragging to subtract.	Tahan {alt} saat menyeret untuk mengurangi.
+	Selects pixels of a similar colour with one click.	Memilih piksel dengan warna serupa dengan satu klik.
+	Click a colour; Tolerance and Contiguous are in the options bar.	Klik warna; Toleransi dan Bersebelahan ada di bilah opsi.
+	{shift}-click adds, {alt}-click subtracts, {shift}+{alt}-click intersects.	{shift}-klik menambah, {alt}-klik mengurangi, {shift}+{alt}-klik irisan.
+	Trims the image to a rectangle.	Memangkas gambar menjadi persegi panjang.
+	Drag to draw the crop, then drag the handles to adjust.	Seret untuk menggambar pangkasan, lalu seret gagang untuk menyesuaikan.
+	Hold {shift} to keep the ratio and {alt} to resize from the centre.	Tahan {shift} untuk mempertahankan rasio dan {alt} untuk mengubah ukuran dari tengah.
+	Press Enter to apply, Esc to cancel.	Tekan Enter untuk menerapkan, Esc untuk membatalkan.
+	Crops to a four-cornered shape and straightens it, as for a photographed page or building.	Memangkas ke bentuk bersudut empat dan meluruskannya, seperti halaman atau bangunan yang difoto.
+	Divides the image into slices for web export.	Membagi gambar menjadi irisan untuk ekspor web.
+	Selects and adjusts existing slices.	Memilih dan menyesuaikan irisan yang ada.
+	Samples a colour from the image.	Mengambil sampel warna dari gambar.
+	Click to set the foreground colour.	Klik untuk menetapkan warna depan.
+	{alt}-click sets the background colour.	{alt}-klik menetapkan warna latar belakang.
+	Measures distances and angles on the image.	Mengukur jarak dan sudut pada gambar.
+	Adds a text note to the document.	Menambahkan catatan teks ke dokumen.
+	Counts items in the image by clicking on each.	Menghitung item di gambar dengan mengklik masing-masing.
+	Removes a blemish by blending in the pixels around it.	Menghilangkan noda dengan membaurkan piksel di sekitarnya.
+	Paint over the spot.	Lukis di atas titik.
+	Hold {shift} for a straight line from the last stroke.	Tahan {shift} untuk garis lurus dari sapuan terakhir.
+	Repairs an area using sampled pixels, matching light and texture.	Memperbaiki area menggunakan piksel sampel, mencocokkan cahaya dan tekstur.
+	{alt}-click to set the source point.	{alt}-klik untuk menetapkan titik sumber.
+	Then paint over the area to repair.	Kemudian lukis di atas area untuk diperbaiki.
+	Repairs a selected area from another area.	Memperbaiki area yang dipilih dari area lain.
+	Draw around the flaw, then drag the selection onto clean pixels.	Gambar di sekitar cacat, kemudian seret seleksi ke piksel bersih.
+	Drag from inside an existing selection to move it.	Seret dari dalam seleksi yang ada untuk memindahkannya.
+	Moves a selected object and fills the gap it leaves.	Memindahkan objek yang dipilih dan mengisi celah yang ditinggalkannya.
+	Draw around the object, then drag the selection to its new place.	Gambar di sekitar objek, lalu seret seleksi ke tempat barunya.
+	Removes red from the pupils in flash photos.	Menghilangkan merah dari pupil pada foto kilat.
+	Click on the red pupil.	Klik pada pupil merah.
+	Paints soft or hard strokes in the foreground colour.	Melukis sapuan lembut atau keras dengan warna depan.
+	Drag to paint; hold {shift} to keep a straight line.	Seret untuk melukis; tahan {shift} agar tetap lurus.
+	{shift}-click draws a line from the end of the last stroke.	{shift}-klik menggambar garis dari ujung sapuan terakhir.
+	Hold {alt} to pick a colour from the image.	Tahan {alt} untuk mengambil warna dari gambar.
+	Paints hard-edged strokes.	Melukis sapuan dengan tepi keras.
+	Paints with colours that mix with the canvas, like wet paint.	Melukis dengan warna yang bercampur dengan kanvas, seperti cat basah.
+	Paints with pixels copied from another part of the image.	Melukis dengan piksel yang disalin dari bagian lain gambar.
+	Then paint where you want the copy.	Kemudian lukis di tempat salinan yang diinginkan.
+	Paints back an earlier state of the image.	Melukis kembali keadaan gambar sebelumnya.
+	Erases pixels as you drag.	Menghapus piksel saat Anda menyeret.
+	Drag to erase; hold {shift} to keep a straight line.	Seret untuk menghapus; tahan {shift} agar tetap lurus.
+	Erases the background colour under the brush, keeping edges.	Menghapus warna latar belakang di bawah kuas, mempertahankan tepi.
+	Drag along the edge of the subject.	Seret di sepanjang tepi subjek.
+	Erases all pixels of a similar colour with one click.	Menghapus semua piksel dengan warna serupa dengan satu klik.
+	Click the colour to erase.	Klik warna untuk menghapus.
+	Fills with a blend between colours.	Mengisi dengan gradasi antara warna.
+	Drag from where the blend starts to where it ends.	Seret dari tempat gradasi dimulai ke tempat berakhir.
+	Hold {shift} to snap the angle to 45 degrees.	Tahan {shift} untuk mengunci sudut ke 45 derajat.
+	Fills an area of similar colour with the foreground colour.	Mengisi area dengan warna serupa dengan warna depan.
+	Click inside the area to fill.	Klik di dalam area untuk mengisi.
+	Softens the pixels you paint over.	Melembutkan piksel yang Anda lukis.
+	Drag to blur; hold {shift} to keep a straight line.	Seret untuk memburamkan; tahan {shift} agar tetap lurus.
+	Sharpens the pixels you paint over.	Menajamkan piksel yang Anda lukis.
+	Drag to sharpen; hold {shift} to keep a straight line.	Seret untuk menajamkan; tahan {shift} agar tetap lurus.
+	Smears pixels in the direction you drag, like wet paint.	Mengoles piksel ke arah Anda menyeret, seperti cat basah.
+	Drag to smudge; hold {shift} to keep a straight line.	Seret untuk mengoles; tahan {shift} agar tetap lurus.
+	Lightens the areas you paint over.	Mencerahkan area yang Anda lukis.
+	Drag to lighten; hold {shift} to keep a straight line.	Seret untuk mencerahkan; tahan {shift} agar tetap lurus.
+	Darkens the areas you paint over.	Menggelapkan area yang Anda lukis.
+	Drag to darken; hold {shift} to keep a straight line.	Seret untuk menggelapkan; tahan {shift} agar tetap lurus.
+	Raises or lowers the colour saturation where you paint.	Menaikkan atau menurunkan saturasi warna di tempat Anda melukis.
+	Drag to change saturation; hold {shift} to keep a straight line.	Seret untuk mengubah saturasi; tahan {shift} agar tetap lurus.
+	Draws precise paths and shapes with anchor points.	Menggambar jalur dan bentuk presisi dengan titik jangkar.
+	Click to add points; {alt} on an anchor turns it into a corner or smooth point.	Klik untuk menambah titik; {alt} pada jangkar mengubahnya menjadi titik sudut atau halus.
+	Selects and moves whole paths.	Memilih dan memindahkan seluruh jalur.
+	Selects and edits individual anchor points and handles.	Memilih dan mengedit titik jangkar dan gagang individual.
+	Click an anchor or handle; drag a box to select several.	Klik jangkar atau gagang; seret kotak untuk memilih beberapa.
+	{shift}-click toggles an anchor in the selection.	{shift}-klik mengalihkan jangkar dalam seleksi.
+	{alt}-drag a handle to move it on its own.	{alt}-seret gagang untuk memindahkannya sendiri.
+	Adds text to the image.	Menambahkan teks ke gambar.
+	Click to type a line of text.	Klik untuk mengetik baris teks.
+	Drag to make a box for paragraph text.	Seret untuk membuat kotak untuk teks paragraf.
+	Adds text that runs top to bottom.	Menambahkan teks yang mengalir dari atas ke bawah.
+	Draws rectangles as editable shape layers.	Menggambar persegi panjang sebagai lapisan bentuk yang dapat diedit.
+	Draws ellipses and circles as editable shape layers.	Menggambar elips dan lingkaran sebagai lapisan bentuk yang dapat diedit.
+	Draws triangles as editable shape layers.	Menggambar segitiga sebagai lapisan bentuk yang dapat diedit.
+	Draws polygons with any number of sides.	Menggambar poligon dengan jumlah sisi berapa pun.
+	Draws straight lines as editable shape layers.	Menggambar garis lurus sebagai lapisan bentuk yang dapat diedit.
+	Draws a shape chosen from the shape library.	Menggambar bentuk yang dipilih dari pustaka bentuk.
+	Pans the view around the image.	Menggeser tampilan di sekitar gambar.
+	Drag to move the image.	Seret untuk memindahkan gambar.
+	Hold Space with any other tool to pan temporarily.	Tahan Spasi dengan alat lain untuk menggeser sementara.
+	Magnifies or reduces the view.	Memperbesar atau memperkecil tampilan.
+	Click to zoom in, {alt}-click to zoom out.	Klik untuk memperbesar, {alt}-klik untuk memperkecil.
+	Drag right to zoom in and left to zoom out, or drag a box when Scrubby Zoom is off.	Seret ke kanan untuk memperbesar dan ke kiri untuk memperkecil, atau seret kotak saat Zoom Geser nonaktif.
+	Removes distractions with the local AI model.	Menghilangkan gangguan dengan model AI lokal.
+	Paint over what you want gone.	Lukis di atas apa yang ingin dihilangkan.
+	When you let go, the repair lands on its own layer.	Saat dilepaskan, hasil perbaikan ditempatkan pada lapisannya sendiri.
+	Cuts out the subject with the local AI model.	Memotong subjek dengan model AI lokal.
+	Use Remove Background in the options bar to make the mask.	Gunakan Hapus Latar Belakang di bilah opsi untuk membuat masker.
+	Then paint to erase or restore parts of it; X swaps the two.	Kemudian lukis untuk menghapus atau memulihkan bagian-bagiannya; X menukar keduanya.
+	Pushes pixels forward as you drag.	Mendorong piksel ke depan saat Anda menyeret.
+	Drag across the area to push it along.	Seret melintasi area untuk mendorongnya.
+	Undoes warping where you paint.	Membatalkan pembengkokan di tempat Anda melukis.
+	Paint over a distorted area to restore it; hold still to keep restoring.	Sapukan pada area yang terdistorsi untuk memulihkannya; tahan diam untuk terus memulihkan.
+	Smooths out the distortion where you paint.	Menghaluskan distorsi di area yang Anda sapu.
+	Paint over an area; hold still to keep smoothing.	Sapukan pada area; tahan diam untuk terus menghaluskan.
+	Spins pixels clockwise.	Memutar piksel searah jarum jam.
+	Click or hold still to keep twirling.	Klik atau tahan diam untuk terus memutar.
+	Spins pixels counterclockwise.	Memutar piksel berlawanan arah jarum jam.
+	Pulls pixels in toward the centre of the brush.	Menarik piksel ke arah tengah kuas.
+	Click or hold still to keep pinching.	Klik atau tahan diam untuk terus mencubit.
+	Pushes pixels out from the centre of the brush.	Mendorong piksel keluar dari tengah kuas.
+	Click or hold still to keep swelling.	Klik atau tahan diam untuk terus menggembung.
+	Shifts pixels sideways as you drag.	Menggeser piksel ke samping saat Anda menyeret.
+	Drag to move pixels to the left of your direction.	Seret untuk memindahkan piksel ke kiri dari arah Anda.
+	Protects areas from being warped.	Melindungi area agar tidak terdistorsi.
+	Paint over the areas to protect.	Sapukan pada area yang ingin dilindungi.
+	Removes protection from frozen areas.	Menghapus perlindungan dari area beku.
+	Paint over the frozen areas to release them.	Sapukan pada area beku untuk melepaskannya.
+	Freezes an area you outline.	Membekukan area yang Anda lingkari.
+	Drag to freeze an outlined area.	Seret untuk membekukan area yang dilingkari.
+	{alt}-drag to thaw it.	{alt}-seret untuk mencairkannya.
+	Changes the whole image at once.	Mengubah seluruh gambar sekaligus.
+	Also in this group:	Juga di grup ini:
+	How to use	Cara penggunaan
+	All Tools	Semua Alat
+	Photographer	Fotografer
+	Retouching	Retouching
+	Tool Set	Set Alat
+	Tool Sets	Set Alat
+	built-in	bawaan
+	My Tools	Alat Saya
+	Reset to All Tools	Atur Ulang ke Semua Alat
+	Built-in sets can't be changed. Save a copy to choose your own tools.	Set bawaan tidak dapat diubah. Simpan salinan untuk memilih alat Anda sendiri.
+	Save as New Set	Simpan sebagai Set Baru
+	Tick the tools this set shows.	Centang alat yang ditampilkan set ini.
+	Tool tips	Tips Alat
+	Rich (name, shortcut and how to use)	Detail (nama, pintasan, dan cara penggunaan)
+	Simple (name and shortcut)	Sederhana (nama dan pintasan)

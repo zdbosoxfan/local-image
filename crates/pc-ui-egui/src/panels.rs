@@ -53,12 +53,39 @@ fn slot_tool(ui: &egui::Ui, current: Tool, slot: &[Tool], key: egui::Id) -> Tool
     ui.data(|d| d.get_temp::<Tool>(key)).filter(|t| slot.contains(t)).unwrap_or(slot[0])
 }
 
+/// The toolbar's sections for the active tool set: each slot keeps the tools the set lists
+/// (with its index in [`TOOL_SECTIONS`], which keys the slot's memory), slots and sections left
+/// empty are dropped. The active tool is always shown, whatever the set says: its shortcut works
+/// for a tool the set leaves out, and the toolbar then shows it in its usual place.
+pub fn visible_sections(app: &PhotocraftApp) -> Vec<Vec<(usize, Vec<Tool>)>> {
+    let set = app.session.prefs().toolbar.active();
+    let listed: std::collections::HashSet<Tool> = set.tools.iter().filter_map(|n| Tool::from_name(n)).collect();
+    let current = app.ui.tool;
+    let mut index = 0usize;
+    let mut out = Vec::new();
+    for section in TOOL_SECTIONS {
+        let mut slots = Vec::new();
+        for slot in *section {
+            let kept: Vec<Tool> = slot.iter().copied().filter(|t| listed.contains(t) || *t == current).collect();
+            if !kept.is_empty() {
+                slots.push((index, kept));
+            }
+            index += 1;
+        }
+        if !slots.is_empty() {
+            out.push(slots);
+        }
+    }
+    out
+}
+
 pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let (w1, bx, m) = if t.pro { (40.0, 30.0, 5i8) } else { (50.0, 36.0, 7i8) };
     // Photoshop switches to a double-column toolbar only when one column doesn't fit.
-    let slots: usize = TOOL_SECTIONS.iter().map(|g| g.len()).sum();
-    let double = toolbar_needs_double(slots, TOOL_SECTIONS.len(), bx, t.pro, ui.available_rect_before_wrap().height());
+    let sections = visible_sections(app);
+    let slots: usize = sections.iter().map(|g| g.len()).sum();
+    let double = toolbar_needs_double(slots + 1, sections.len(), bx, t.pro, ui.available_rect_before_wrap().height());
     let w = if double { w1 + bx + 2.0 } else { w1 };
     egui::Panel::left("toolbar").resizable(false).exact_size(w).frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(m, 8))).show(
         ui,
@@ -71,6 +98,9 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 icons::paint(ui, cr, "chevrons-right", 11.0, t.text_faint);
                 ui.add_space(4.0);
             }
+            // Tool set switcher (Window › Tool Set).
+            crate::toolsets_ui::switcher(app, ui, if t.pro { bx } else { bx * 0.8 });
+            ui.add_space(4.0);
             // Subtle violet wash at the bottom of the toolbar.
             let full = ui.max_rect();
             if !t.bevel && !t.pro && t.dark() {
@@ -92,8 +122,7 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             if ui.input(|i| i.pointer.any_pressed()) {
                 ui.data_mut(|d| d.remove::<egui::Id>(held_id));
             }
-            let mut slot_index = 0usize;
-            for (si, section) in TOOL_SECTIONS.iter().enumerate() {
+            for (si, section) in sections.iter().enumerate() {
                 // Photoshop 2026 draws one uninterrupted column (no group dividers).
                 if si > 0 && !t.pro {
                     ui.add_space(4.0);
@@ -101,16 +130,17 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     ui.painter().line_segment([r.left_center() + vec2(8.0, 0.0), r.right_center() - vec2(8.0, 0.0)], Stroke::new(1.0, t.separator));
                     ui.add_space(4.0);
                 }
-                let rows: Vec<&[&[Tool]]> = if double { section.chunks(2).collect() } else { section.chunks(1).collect() };
+                let rows: Vec<&[(usize, Vec<Tool>)]> = if double { section.chunks(2).collect() } else { section.chunks(1).collect() };
                 for row in rows {
                     ui.horizontal(|ui| {
-                        for slot in row.iter() {
-                            let key = egui::Id::new(("tool-slot", slot_index));
-                            slot_index += 1;
+                        for (slot_index, slot) in row.iter() {
+                            let key = egui::Id::new(("tool-slot", *slot_index));
+                            let slot: &[Tool] = slot;
                             let tool = slot_tool(ui, app.ui.tool, slot, key);
                             let sel = slot.contains(&app.ui.tool);
-                            let tip = if tool.key() == '\0' { tl!(tool.label()).to_string() } else { format!("{}  ({})", tl!(tool.label()), tool.key()) };
-                            let resp = icons::button(ui, icons::tool_icon(tool), bx, sel, &tip);
+                            let resp = icons::button(ui, icons::tool_icon(tool), bx, sel, "");
+                            let flyout_open = ui.data(|d| d.get_temp::<(egui::Id, Rect)>(flyout_id)).is_some();
+                            crate::tool_tips::attach(&app.session, ui, &resp, tool, slot, flyout_open);
                             if slot.len() > 1 {
                                 let r = resp.rect;
                                 let tri = vec![r.right_bottom() + vec2(-2.0, -2.0), r.right_bottom() + vec2(-6.0, -2.0), r.right_bottom() + vec2(-2.0, -6.0)];

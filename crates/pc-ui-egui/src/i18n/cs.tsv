@@ -2668,3 +2668,160 @@ ai	New	Nové
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Třída oblohy {class} je mimo rozsah: tento model má {classes} tříd (0 až {max})
 	{path} isn't a file	{path} není soubor
 	Custom models are not supported for this function	Vlastní modely nejsou pro tuto funkci podporovány
+	Moves the selected layers or the selection.	Přesune vybrané vrstvy nebo výběr.
+	Drag to move; hold {shift} to keep to one axis.	Tažením přesunete; podržením {shift} omezíte na jednu osu.
+	{alt}-drag to move a copy.	{alt}-tažením přesunete kopii.
+	{cmd}-click picks the layer under the pointer (it switches Auto-Select for that click).	{cmd}-klik vybere vrstvu pod ukazatelem (pro toto kliknutí přepne automatický výběr).
+	Arrow keys nudge by 1 pixel, {shift}+arrow by 10.	Šipky posunou o 1 pixel, {shift}+šipka o 10.
+	Selects a rectangular area.	Vybere obdélníkovou oblast.
+	Drag to select; {shift}-drag adds to the selection, {alt}-drag subtracts.	Tažením vyberete; {shift}-tažení přidá k výběru, {alt}-tažení odebere.
+	Hold {shift} and {alt} together to intersect.	Podržením {shift} a {alt} současně provedete průnik.
+	Selects an oval or circular area.	Vybere oválnou nebo kruhovou oblast.
+	Selects by drawing a freehand outline.	Vybere nakreslením volného obrysu.
+	Drag to draw; release to close the outline.	Tažením kreslete; uvolněním obrys uzavřete.
+	Hold {alt} while drawing for straight segments; let go to go freehand again.	Podržením {alt} při kreslení vytvoříte rovné úseky; uvolněním se vrátíte k volnému kreslení.
+	Hold {shift} before you start to add, {alt} to subtract.	Před zahájením podržte {shift} pro přidání, {alt} pro odebrání.
+	Selects with a straight-sided outline.	Vybere pomocí obrysu s rovnými stranami.
+	Click to place each corner.	Kliknutím umístíte každý roh.
+	Click the first point, or double-click, to close the shape.	Kliknutím na první bod nebo dvojitým kliknutím tvar uzavřete.
+	Hold {shift} for the first click to add, {alt} to subtract.	Při prvním kliknutí podržte {shift} pro přidání, {alt} pro odebrání.
+	Selects by following the edge of an object.	Vybere sledováním okraje objektu.
+	Click to start, then move along the edge; click to fasten a point.	Kliknutím začněte, poté se pohybujte podél okraje; kliknutím ukotvěte bod.
+	{alt}-click adds a straight segment; drag for freehand.	{alt}-klik přidá rovný úsek; tažením kreslíte volně.
+	Double-click, or click the first point, to close the outline.	Dvojitým kliknutím nebo kliknutím na první bod obrys uzavřete.
+	Selects an object with the local AI model.	Vybere objekt pomocí místního modelu AI.
+	Click an object, or drag a box around it.	Klikněte na objekt nebo kolem něj tažením nakreslete rámeček.
+	{shift} adds to the selection, {alt} subtracts.	{shift} přidá k výběru, {alt} odebere.
+	Paints a selection that grows out to the edges.	Vytvoří výběr malováním, který se rozroste k okrajům.
+	Drag over the area you want.	Tažením přejeďte přes požadovanou oblast.
+	Hold {alt} while dragging to subtract.	Při tažení podržte {alt} pro odebrání.
+	Selects pixels of a similar colour with one click.	Vybere pixely podobné barvy jedním kliknutím.
+	Click a colour; Tolerance and Contiguous are in the options bar.	Klikněte na barvu; Tolerance a Souvisle jsou na panelu možností.
+	{shift}-click adds, {alt}-click subtracts, {shift}+{alt}-click intersects.	{shift}-klik přidá, {alt}-klik odebere, {shift}+{alt}-klik provede průnik.
+	Trims the image to a rectangle.	Ořízne obraz na obdélník.
+	Drag to draw the crop, then drag the handles to adjust.	Tažením nakreslete oříznutí a poté tažením úchytů upravte.
+	Hold {shift} to keep the ratio and {alt} to resize from the centre.	Podržením {shift} zachováte poměr stran a {alt} změní velikost od středu.
+	Press Enter to apply, Esc to cancel.	Stisknutím klávesy Enter použijete, Esc zrušíte.
+	Crops to a four-cornered shape and straightens it, as for a photographed page or building.	Ořízne na čtyřúhelníkový tvar a narovná ho, jako u fotografované stránky nebo budovy.
+	Divides the image into slices for web export.	Rozdělí obraz na řezy pro webový export.
+	Selects and adjusts existing slices.	Vybere a upraví existující řezy.
+	Samples a colour from the image.	Vzorkuje barvu z obrazu.
+	Click to set the foreground colour.	Kliknutím nastavíte barvu popředí.
+	{alt}-click sets the background colour.	{alt}-klik nastaví barvu pozadí.
+	Measures distances and angles on the image.	Měří vzdálenosti a úhly v obraze.
+	Adds a text note to the document.	Přidá textovou poznámku do dokumentu.
+	Counts items in the image by clicking on each.	Počítá položky v obraze klikáním na každou.
+	Removes a blemish by blending in the pixels around it.	Odstraní skvrnu smícháním okolních pixelů.
+	Paint over the spot.	Přetřete místo.
+	Hold {shift} for a straight line from the last stroke.	Podržením {shift} nakreslíte rovnou čáru od posledního tahu.
+	Repairs an area using sampled pixels, matching light and texture.	Opraví oblast pomocí vzorkovaných pixelů, se zachováním světla a textury.
+	{alt}-click to set the source point.	{alt}-kliknutím nastavíte zdrojový bod.
+	Then paint over the area to repair.	Poté přetřete oblast k opravě.
+	Repairs a selected area from another area.	Opraví vybranou oblast z jiné oblasti.
+	Draw around the flaw, then drag the selection onto clean pixels.	Obkreslete vadu, poté tažením přesuňte výběr na čisté pixely.
+	Drag from inside an existing selection to move it.	Tažením zevnitř stávajícího výběru ho přesunete.
+	Moves a selected object and fills the gap it leaves.	Přesune vybraný objekt a vyplní mezeru, kterou zanechá.
+	Draw around the object, then drag the selection to its new place.	Obkreslete objekt, poté tažením přesuňte výběr na nové místo.
+	Removes red from the pupils in flash photos.	Odstraní červené oči u fotografií s bleskem.
+	Click on the red pupil.	Klikněte na červenou zornici.
+	Paints soft or hard strokes in the foreground colour.	Maluje měkké nebo tvrdé tahy barvou popředí.
+	Drag to paint; hold {shift} to keep a straight line.	Tažením malujte; podržením {shift} zachováte rovnou čáru.
+	{shift}-click draws a line from the end of the last stroke.	{shift}-klik nakreslí čáru od konce posledního tahu.
+	Hold {alt} to pick a colour from the image.	Podržením {alt} vyberete barvu z obrazu.
+	Paints hard-edged strokes.	Maluje tahy s tvrdými okraji.
+	Paints with colours that mix with the canvas, like wet paint.	Maluje barvami, které se mísí s plátnem, jako mokrá barva.
+	Paints with pixels copied from another part of the image.	Maluje pixely zkopírovanými z jiné části obrazu.
+	Then paint where you want the copy.	Poté malujte na místo, kam chcete kopii.
+	Paints back an earlier state of the image.	Obnoví malováním dřívější stav obrazu.
+	Erases pixels as you drag.	Při tažení maže pixely.
+	Drag to erase; hold {shift} to keep a straight line.	Tažením mažete; podržením {shift} zachováte rovnou čáru.
+	Erases the background colour under the brush, keeping edges.	Maže barvu pozadí pod štětcem, zachovává okraje.
+	Drag along the edge of the subject.	Tažením přejeďte podél okraje objektu.
+	Erases all pixels of a similar colour with one click.	Vymaže všechny pixely podobné barvy jedním kliknutím.
+	Click the colour to erase.	Klikněte na barvu, kterou chcete vymazat.
+	Fills with a blend between colours.	Vyplní přechodem mezi barvami.
+	Drag from where the blend starts to where it ends.	Tažením od místa, kde přechod začíná, k místu, kde končí.
+	Hold {shift} to snap the angle to 45 degrees.	Podržením {shift} přichytíte úhel na 45 stupňů.
+	Fills an area of similar colour with the foreground colour.	Vyplní oblast podobné barvy barvou popředí.
+	Click inside the area to fill.	Kliknutím dovnitř oblasti provedete výplň.
+	Softens the pixels you paint over.	Změkčí pixely, přes které malujete.
+	Drag to blur; hold {shift} to keep a straight line.	Tažením rozmažete; podržením {shift} zachováte rovnou čáru.
+	Sharpens the pixels you paint over.	Ostří pixely, přes které malujete.
+	Drag to sharpen; hold {shift} to keep a straight line.	Tažením ostříte; podržením {shift} zachováte rovnou čáru.
+	Smears pixels in the direction you drag, like wet paint.	Rozmazává pixely ve směru tažení, jako mokrá barva.
+	Drag to smudge; hold {shift} to keep a straight line.	Tažením rozmazáváte; podržením {shift} zachováte rovnou čáru.
+	Lightens the areas you paint over.	Zesvětlí oblasti, přes které malujete.
+	Drag to lighten; hold {shift} to keep a straight line.	Tažením zesvětlujete; podržením {shift} zachováte rovnou čáru.
+	Darkens the areas you paint over.	Ztmaví oblasti, přes které malujete.
+	Drag to darken; hold {shift} to keep a straight line.	Tažením ztmavujete; podržením {shift} zachováte rovnou čáru.
+	Raises or lowers the colour saturation where you paint.	Zvýší nebo sníží sytost barev tam, kde malujete.
+	Drag to change saturation; hold {shift} to keep a straight line.	Tažením měníte sytost; podržením {shift} zachováte rovnou čáru.
+	Draws precise paths and shapes with anchor points.	Kreslí přesné cesty a tvary pomocí kotevních bodů.
+	Click to add points; {alt} on an anchor turns it into a corner or smooth point.	Kliknutím přidáte body; {alt} na kotevním bodu ho změní na rohový nebo hladký bod.
+	Selects and moves whole paths.	Vybere a přesune celé cesty.
+	Selects and edits individual anchor points and handles.	Vybere a upraví jednotlivé kotevní body a úchyty.
+	Click an anchor or handle; drag a box to select several.	Klikněte na kotevní bod nebo úchyt; tažením nakreslete rámeček pro výběr více.
+	{shift}-click toggles an anchor in the selection.	{shift}-klik přepne kotevní bod ve výběru.
+	{alt}-drag a handle to move it on its own.	{alt}-tažení úchytu ho přesune samostatně.
+	Adds text to the image.	Přidá text do obrazu.
+	Click to type a line of text.	Kliknutím napište řádek textu.
+	Drag to make a box for paragraph text.	Tažením vytvořte rámeček pro odstavcový text.
+	Adds text that runs top to bottom.	Přidá text, který běží shora dolů.
+	Draws rectangles as editable shape layers.	Kreslí obdélníky jako upravitelné vrstvy tvarů.
+	Draws ellipses and circles as editable shape layers.	Kreslí elipsy a kruhy jako upravitelné vrstvy tvarů.
+	Draws triangles as editable shape layers.	Kreslí trojúhelníky jako upravitelné vrstvy tvarů.
+	Draws polygons with any number of sides.	Kreslí mnohoúhelníky s libovolným počtem stran.
+	Draws straight lines as editable shape layers.	Kreslí rovné čáry jako upravitelné vrstvy tvarů.
+	Draws a shape chosen from the shape library.	Kreslí tvar vybraný z knihovny tvarů.
+	Pans the view around the image.	Posouvá zobrazení po obraze.
+	Drag to move the image.	Tažením posunete obraz.
+	Hold Space with any other tool to pan temporarily.	Podržením mezerníku s jakýmkoli jiným nástrojem dočasně posouváte.
+	Magnifies or reduces the view.	Zvětší nebo zmenší zobrazení.
+	Click to zoom in, {alt}-click to zoom out.	Kliknutím přiblížíte, {alt}-kliknutím oddálíte.
+	Drag right to zoom in and left to zoom out, or drag a box when Scrubby Zoom is off.	Tažením doprava přiblížíte a doleva oddálíte, nebo tažením nakreslete rámeček, když je vypnutý Scrubby Zoom.
+	Removes distractions with the local AI model.	Odstraní rušivé prvky pomocí místního modelu AI.
+	Paint over what you want gone.	Přetřete to, co chcete odstranit.
+	When you let go, the repair lands on its own layer.	Po uvolnění se oprava umístí na vlastní vrstvu.
+	Cuts out the subject with the local AI model.	Vyjme objekt pomocí místního modelu AI.
+	Use Remove Background in the options bar to make the mask.	Použijte Odebrat pozadí na panelu možností k vytvoření masky.
+	Then paint to erase or restore parts of it; X swaps the two.	Poté malujte pro vymazání nebo obnovení částí; klávesa X je prohodí.
+	Pushes pixels forward as you drag.	Posouvá pixely dopředu při tažení.
+	Drag across the area to push it along.	Tažením přes oblast ji posunete.
+	Undoes warping where you paint.	Zruší deformaci v místě malování.
+	Paint over a distorted area to restore it; hold still to keep restoring.	Malujte přes zkreslenou oblast, abyste ji obnovili; podržte pro pokračování obnovy.
+	Smooths out the distortion where you paint.	Vyhlazuje zkreslení v místě malování.
+	Paint over an area; hold still to keep smoothing.	Malujte přes oblast; podržte pro pokračování vyhlazování.
+	Spins pixels clockwise.	Otáčí pixely po směru hodinových ručiček.
+	Click or hold still to keep twirling.	Klikněte nebo podržte pro pokračování otáčení.
+	Spins pixels counterclockwise.	Otáčí pixely proti směru hodinových ručiček.
+	Pulls pixels in toward the centre of the brush.	Přitahuje pixely směrem do středu štětce.
+	Click or hold still to keep pinching.	Klikněte nebo podržte pro pokračování stahování.
+	Pushes pixels out from the centre of the brush.	Vytlačuje pixely ze středu štětce.
+	Click or hold still to keep swelling.	Klikněte nebo podržte pro pokračování nafukování.
+	Shifts pixels sideways as you drag.	Posouvá pixely do strany při tažení.
+	Drag to move pixels to the left of your direction.	Tažením posouvá pixely vlevo od směru tažení.
+	Protects areas from being warped.	Chrání oblasti před deformací.
+	Paint over the areas to protect.	Malujte přes oblasti, které chcete chránit.
+	Removes protection from frozen areas.	Odstraňuje ochranu ze zmrazených oblastí.
+	Paint over the frozen areas to release them.	Malujte přes zmrazené oblasti, abyste je uvolnili.
+	Freezes an area you outline.	Zmrazí oblast, kterou obkreslíte.
+	Drag to freeze an outlined area.	Tažením zmrazíte obkreslenou oblast.
+	{alt}-drag to thaw it.	{alt}-tažením ji uvolníte.
+	Changes the whole image at once.	Změní celý snímek najednou.
+	Also in this group:	Také v této skupině:
+	How to use	Jak používat
+	All Tools	Všechny nástroje
+	Photographer	Fotograf
+	Retouching	Retušování
+	Tool Set	Sada nástrojů
+	Tool Sets	Sady nástrojů
+	built-in	vestavěné
+	My Tools	Moje nástroje
+	Duplicate	Duplikovat
+	Reset to All Tools	Obnovit na všechny nástroje
+	Built-in sets can't be changed. Save a copy to choose your own tools.	Vestavěné sady nelze měnit. Uložte kopii a vyberte si vlastní nástroje.
+	Save as New Set	Uložit jako novou sadu
+	Tick the tools this set shows.	Zaškrtněte nástroje, které tato sada zobrazuje.
+	Tool tips	Popisky nástrojů
+	Rich (name, shortcut and how to use)	Bohaté (název, zkratka a jak používat)
+	Simple (name and shortcut)	Jednoduché (název a zkratka)

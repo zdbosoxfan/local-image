@@ -2073,4 +2073,51 @@ mod tests {
         let r = h.request("ui.screenshot", json!({"headless": true}), SETTLE);
         assert_eq!(r["result"]["width"], 640, "{r}");
     }
+
+    /// Tool-strip hover tips: Rich shows the name, shortcut (from the command table), a sentence
+    /// and how-to lines after a short delay and straight away on the next tool; Simple and Off
+    /// show no rich tip; the Settings row switches them and old settings files still load.
+    #[test]
+    fn strip_tool_tips_rich_simple_and_off() {
+        use crate::panels::tool_tips::{StripTool, ToolTipMode, shown};
+        let mut h = demo([1400.0, 900.0]);
+        let t = Duration::from_secs(10);
+        h.request("ui.set", json!({"view": "detail"}), t);
+        h.settle(SETTLE);
+        assert_eq!(h.app.ui.settings.tool_tips, ToolTipMode::Rich, "rich is the default");
+        h.request("ui.hoverWidget", json!({"id": "icon:crop"}), t);
+        assert!(shown(&h.view.ctx).is_none(), "no tip before the delay");
+        assert!(h.step_until(SETTLE, |h| shown(&h.view.ctx).is_some()), "the tip opens");
+        let tip = shown(&h.view.ctx).unwrap();
+        assert_eq!(tip.tool, "crop");
+        let key = StripTool::Crop.shortcut().expect("Crop has a shortcut");
+        assert!(tip.text.starts_with(&format!("Crop & Rotate ({key})")), "{}", tip.text);
+        assert!(tip.text.contains("Drag along the horizon"), "{}", tip.text);
+        // moving to another tool shows its tip at once (within a couple of frames)
+        h.request("ui.hoverWidget", json!({"id": "icon:masking"}), t);
+        h.step();
+        h.step();
+        assert_eq!(shown(&h.view.ctx).map(|s| s.tool).as_deref(), Some("masking"));
+        // the Settings row
+        h.request("ui.key", json!({"key": ",", "cmd": true}), t);
+        h.request("ui.clickWidget", json!({"id": "button:settingsTab-interface"}), t);
+        h.request("ui.clickWidget", json!({"id": "button:settingsToolTips-1"}), t);
+        assert_eq!(h.app.ui.settings.tool_tips, ToolTipMode::Simple);
+        h.request("ui.clickWidget", json!({"id": "button:settingsToolTips-2"}), t);
+        assert_eq!(h.app.ui.settings.tool_tips, ToolTipMode::Off);
+        h.request("ui.key", json!({"key": "Escape"}), t);
+        for mode in [ToolTipMode::Simple, ToolTipMode::Off] {
+            h.app.ui.settings.tool_tips = mode;
+            h.request("ui.hoverWidget", json!({"id": "icon:activity"}), t);
+            for _ in 0..60 {
+                h.step();
+            }
+            assert!(shown(&h.view.ctx).is_none(), "{mode:?} shows no rich tip");
+            h.request("ui.move", json!({"x": 5, "y": 500}), t);
+        }
+        // an old settings file (no toolTips) loads with the default
+        let old: crate::state::AppSettings = serde_json::from_str(r#"{"confirmDelete": true}"#).unwrap();
+        assert_eq!(old.tool_tips, ToolTipMode::Rich);
+        assert!(old.confirm_delete);
+    }
 }

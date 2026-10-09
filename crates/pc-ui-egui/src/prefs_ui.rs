@@ -707,7 +707,6 @@ pub fn open_shortcuts(app: &mut PhotocraftApp, tab: u64) -> u64 {
         "overrides": p.shortcuts,
         "hidden": p.menus.hidden,
         "colors": p.menus.colors,
-        "toolbarHidden": p.toolbar.hidden,
         "selected": "",
         "capture": false,
         "message": "",
@@ -779,6 +778,8 @@ fn choice_label(v: &str) -> String {
         "original" => "The original file".into(),
         "saveAs" => "Ask each time (Save As)".into(),
         "mm" => "Millimeters".into(),
+        "rich" => "Rich (name, shortcut and how to use)".into(),
+        "simple" => "Simple (name and shortcut)".into(),
         "75" | "100" | "125" | "150" | "175" | "200" | "250" | "300" => format!("{v}%"),
         "8" => "8 Bits/Channel".into(),
         "16" => "16 Bits/Channel".into(),
@@ -1077,7 +1078,7 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
     f.insert("tab".into(), json!(tab));
     ui.add_space(6.0);
     if tab == 2 {
-        toolbar_tab(ui, f);
+        crate::toolsets_ui::tab(app, ui, f);
         return;
     }
     let mut filter = f.get("filter").and_then(Value::as_str).unwrap_or("").to_string();
@@ -1239,31 +1240,6 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
     f.insert("message".into(), json!(message));
 }
 
-fn toolbar_tab(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
-    let mut hidden: Vec<String> = f.get("toolbarHidden").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
-    egui::ScrollArea::vertical().max_height(380.0).id_salt("toolbar-scroll").show(ui, |ui| {
-        egui::Grid::new("toolbar-grid").num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
-            for tool in crate::state::Tool::ALL {
-                let name = format!("{tool:?}");
-                let mut on = !hidden.contains(&name);
-                crate::widgets::checkbox(ui, &mut on, tl!(tool.label()));
-                if on {
-                    hidden.retain(|h| *h != name);
-                } else if !hidden.contains(&name) {
-                    hidden.push(name);
-                }
-                let k = tool.key();
-                ui.label(if k == '\0' { String::new() } else { k.to_string() });
-                ui.end_row();
-            }
-        });
-    });
-    if ui.button(tl!("Restore Defaults")).clicked() {
-        hidden.clear();
-    }
-    f.insert("toolbarHidden".into(), json!(hidden));
-}
-
 fn presets_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     let t = Tokens::get(ui.ctx());
     let mut kind = f.get("kind").and_then(Value::as_str).unwrap_or("brushes").to_string();
@@ -1380,9 +1356,8 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
             }
             let hidden = f.get("hidden").cloned().unwrap_or(json!([]));
             let colors = f.get("colors").cloned().unwrap_or(json!({}));
-            let toolbar = f.get("toolbarHidden").cloned().unwrap_or(json!([]));
             app.run("edit.keyboardShortcuts", json!({"reset": true, "set": ov, "allowUnknown": true, "removeConflicts": false}))?;
-            app.run("prefs.set", json!({"values": {"menus": {"hidden": hidden, "colors": colors}, "toolbar": {"hidden": toolbar}}}))
+            app.run("prefs.set", json!({"values": {"menus": {"hidden": hidden, "colors": colors}}}))
         }
         "presets" => Ok(Value::Null),
         "presetsIO" => {

@@ -4,7 +4,6 @@ use egui::vec2;
 use serde_json::json;
 
 use crate::LightcraftApp;
-use crate::icons::Icon;
 use crate::state::RightPanel;
 use crate::theme::Tokens;
 use crate::widgets::icon_button;
@@ -25,22 +24,29 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             ui.vertical_centered(|ui| {
                 ui.spacing_mut().item_spacing.y = 6.0;
                 let sz = vec2(t.strip_w, 40.0);
-                if icon_button(ui, "presets", Icon::Presets, sz, app.ui.presets, has_photo, "Presets (Shift+P)").clicked() {
+                use crate::panels::tool_tips::{StripTool as T, attach};
+                let mode = app.ui.settings.tool_tips;
+                let r = icon_button(ui, "presets", T::Presets.icon(), sz, app.ui.presets, has_photo, "");
+                attach(mode, ui, &r, T::Presets);
+                if r.clicked() {
                     let _ = app.run("panel.presets", json!({}));
                 }
-                for (id, icon, panel, tip) in [
-                    ("edit", Icon::Sliders, RightPanel::Edit, "Edit (E)"),
-                    ("crop", Icon::Crop, RightPanel::Crop, "Crop & Rotate (C)"),
-                    ("remove", Icon::Eraser, RightPanel::Remove, "Remove (H)"),
-                    ("masking", Icon::Mask, RightPanel::Masking, "Masking (M)"),
-                    ("redeye", Icon::Eye, RightPanel::RedEye, "Red Eye"),
+                for (tool, panel) in [
+                    (T::Edit, RightPanel::Edit),
+                    (T::Crop, RightPanel::Crop),
+                    (T::Remove, RightPanel::Remove),
+                    (T::Masking, RightPanel::Masking),
+                    (T::RedEye, RightPanel::RedEye),
                 ] {
+                    let id = tool.id();
                     // local-image: a Camera Raw Filter session has no Crop
                     if crate::panels::host_session::hides(app, id) {
                         continue;
                     }
                     let on = app.ui.right == panel || (panel == RightPanel::Edit && app.ui.right == RightPanel::Profiles);
-                    if icon_button(ui, id, icon, sz, on, has_photo, tip).clicked() {
+                    let r = icon_button(ui, id, tool.icon(), sz, on, has_photo, "");
+                    attach(mode, ui, &r, tool);
+                    if r.clicked() {
                         let _ = app.run(&format!("panel.{id}"), json!({}));
                     }
                     if id == "edit" {
@@ -48,13 +54,19 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     }
                 }
                 separator(ui, &t);
-                if icon_button(ui, "versions", Icon::Versions, sz, app.ui.right == RightPanel::Versions, has_photo, "Versions (Shift+V)").clicked() {
+                let r = icon_button(ui, "versions", T::Versions.icon(), sz, app.ui.right == RightPanel::Versions, has_photo, "");
+                attach(mode, ui, &r, T::Versions);
+                if r.clicked() {
                     let _ = app.run("panel.versions", json!({}));
                 }
-                if icon_button(ui, "activity", Icon::Activity, sz, app.ui.right == RightPanel::Activity, true, "History & Activity (Y)").clicked() {
+                let r = icon_button(ui, "activity", T::Activity.icon(), sz, app.ui.right == RightPanel::Activity, true, "");
+                attach(mode, ui, &r, T::Activity);
+                if r.clicked() {
                     let _ = app.run("panel.activity", json!({}));
                 }
-                if icon_button(ui, "more", Icon::More, sz, false, true, "More").clicked() {
+                let r = icon_button(ui, "more", T::More.icon(), sz, false, true, "");
+                attach(mode, ui, &r, T::More);
+                if r.clicked() {
                     app.ui.dialog = Some(crate::state::Dialog::About);
                 }
             });
@@ -66,10 +78,15 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             );
             child.vertical_centered(|ui| {
                 let sz = vec2(t.strip_w, 40.0);
-                if icon_button(ui, "keywords", Icon::Tag, sz, app.ui.right == RightPanel::Keywords, has_photo, "Keywords (K)").clicked() {
+                use crate::panels::tool_tips::{StripTool as T, attach};
+                let r = icon_button(ui, "keywords", T::Keywords.icon(), sz, app.ui.right == RightPanel::Keywords, has_photo, "");
+                attach(app.ui.settings.tool_tips, ui, &r, T::Keywords);
+                if r.clicked() {
                     let _ = app.run("panel.keywords", json!({}));
                 }
-                if icon_button(ui, "info", Icon::Info, sz, app.ui.right == RightPanel::Info, has_photo, "Info (I)").clicked() {
+                let r = icon_button(ui, "info", T::Info.icon(), sz, app.ui.right == RightPanel::Info, has_photo, "");
+                attach(app.ui.settings.tool_tips, ui, &r, T::Info);
+                if r.clicked() {
                     let _ = app.run("panel.info", json!({}));
                 }
             });

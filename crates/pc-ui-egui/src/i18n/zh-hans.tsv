@@ -2676,3 +2676,160 @@ ai	New	最新
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	天空类别 {class} 超出范围：此模型有 {classes} 个类别（0 到 {max}）
 	{path} isn't a file	{path} 不是文件
 	Custom models are not supported for this function	此功能不支持自定义模型
+	Moves the selected layers or the selection.	移动选定的图层或选区。
+	Drag to move; hold {shift} to keep to one axis.	拖动可移动；按住 {shift} 可保持在一个轴上。
+	{alt}-drag to move a copy.	{alt}-拖动可移动副本。
+	{cmd}-click picks the layer under the pointer (it switches Auto-Select for that click).	{cmd}-单击可选择指针下方的图层（该次单击会切换自动选择）。
+	Arrow keys nudge by 1 pixel, {shift}+arrow by 10.	箭头键微调 1 像素，{shift}+箭头微调 10 像素。
+	Selects a rectangular area.	选择矩形区域。
+	Drag to select; {shift}-drag adds to the selection, {alt}-drag subtracts.	拖动可选择；{shift}-拖动添加到选区，{alt}-拖动从选区中减去。
+	Hold {shift} and {alt} together to intersect.	同时按住 {shift} 和 {alt} 可交叉选区。
+	Selects an oval or circular area.	选择椭圆或圆形区域。
+	Selects by drawing a freehand outline.	通过绘制手绘轮廓进行选择。
+	Drag to draw; release to close the outline.	拖动以绘制；松开以闭合轮廓。
+	Hold {alt} while drawing for straight segments; let go to go freehand again.	绘制时按住 {alt} 可绘制直线段；松开可恢复手绘。
+	Hold {shift} before you start to add, {alt} to subtract.	开始前按住 {shift} 可添加到选区，按住 {alt} 可减去。
+	Selects with a straight-sided outline.	使用直边轮廓进行选择。
+	Click to place each corner.	单击可放置每个角点。
+	Click the first point, or double-click, to close the shape.	单击第一个点或双击可闭合形状。
+	Hold {shift} for the first click to add, {alt} to subtract.	首次单击时按住 {shift} 可添加，按住 {alt} 可减去。
+	Selects by following the edge of an object.	沿对象边缘进行选择。
+	Click to start, then move along the edge; click to fasten a point.	单击开始，然后沿边缘移动；单击可固定一个点。
+	{alt}-click adds a straight segment; drag for freehand.	{alt}-单击可添加直线段；拖动可手绘。
+	Double-click, or click the first point, to close the outline.	双击或单击第一个点可闭合轮廓。
+	Selects an object with the local AI model.	使用本地 AI 模型选择对象。
+	Click an object, or drag a box around it.	单击对象，或在对象周围拖动一个框。
+	{shift} adds to the selection, {alt} subtracts.	{shift} 添加到选区，{alt} 减去。
+	Paints a selection that grows out to the edges.	绘制可扩展到边缘的选区。
+	Drag over the area you want.	在所需区域上拖动。
+	Hold {alt} while dragging to subtract.	拖动时按住 {alt} 可减去。
+	Selects pixels of a similar colour with one click.	单击一次选择相似颜色的像素。
+	Click a colour; Tolerance and Contiguous are in the options bar.	单击一种颜色；容差和连续选项位于选项栏中。
+	{shift}-click adds, {alt}-click subtracts, {shift}+{alt}-click intersects.	{shift}-单击添加，{alt}-单击减去，{shift}+{alt}-单击交叉。
+	Trims the image to a rectangle.	将图像裁剪为矩形。
+	Drag to draw the crop, then drag the handles to adjust.	拖动绘制裁剪框，然后拖动手柄进行调整。
+	Hold {shift} to keep the ratio and {alt} to resize from the centre.	按住 {shift} 保持比例，按住 {alt} 从中心调整大小。
+	Press Enter to apply, Esc to cancel.	按 Enter 应用，按 Esc 取消。
+	Crops to a four-cornered shape and straightens it, as for a photographed page or building.	裁剪为四角形状并校正透视，适用于拍摄的页面或建筑。
+	Divides the image into slices for web export.	将图像分割为切片以用于 Web 导出。
+	Selects and adjusts existing slices.	选择并调整现有切片。
+	Samples a colour from the image.	从图像中取样颜色。
+	Click to set the foreground colour.	单击以设置前景色。
+	{alt}-click sets the background colour.	{alt}-单击设置背景色。
+	Measures distances and angles on the image.	测量图像上的距离和角度。
+	Adds a text note to the document.	向文档添加文本注释。
+	Counts items in the image by clicking on each.	通过单击每个项目来对图像中的项目进行计数。
+	Removes a blemish by blending in the pixels around it.	通过混合周围像素来去除瑕疵。
+	Paint over the spot.	在瑕疵上涂抹。
+	Hold {shift} for a straight line from the last stroke.	按住 {shift} 可从上一笔划绘制直线。
+	Repairs an area using sampled pixels, matching light and texture.	使用取样像素修复区域，匹配光线和纹理。
+	{alt}-click to set the source point.	{alt}-单击设置源点。
+	Then paint over the area to repair.	然后涂抹要修复的区域。
+	Repairs a selected area from another area.	使用另一个区域修复选定区域。
+	Draw around the flaw, then drag the selection onto clean pixels.	围绕缺陷绘制，然后将选区拖到干净像素上。
+	Drag from inside an existing selection to move it.	从现有选区内部拖动以移动它。
+	Moves a selected object and fills the gap it leaves.	移动选定对象并填充其留下的空白。
+	Draw around the object, then drag the selection to its new place.	围绕对象绘制，然后将选区拖到新位置。
+	Removes red from the pupils in flash photos.	去除闪光照片中瞳孔的红色。
+	Click on the red pupil.	单击红色瞳孔。
+	Paints soft or hard strokes in the foreground colour.	使用前景色绘制柔和或硬边笔画。
+	Drag to paint; hold {shift} to keep a straight line.	拖动以绘画；按住 {shift} 可保持直线。
+	{shift}-click draws a line from the end of the last stroke.	{shift}-单击从上一笔划末端绘制直线。
+	Hold {alt} to pick a colour from the image.	按住 {alt} 可从图像中拾取颜色。
+	Paints hard-edged strokes.	绘制硬边笔画。
+	Paints with colours that mix with the canvas, like wet paint.	使用与画布混合的颜色绘制，如湿颜料。
+	Paints with pixels copied from another part of the image.	使用从图像其他部分复制的像素进行绘制。
+	Then paint where you want the copy.	然后在需要复制的位置绘画。
+	Paints back an earlier state of the image.	绘制回图像的早期状态。
+	Erases pixels as you drag.	拖动时擦除像素。
+	Drag to erase; hold {shift} to keep a straight line.	拖动以擦除；按住 {shift} 可保持直线。
+	Erases the background colour under the brush, keeping edges.	擦除画笔下的背景色，保留边缘。
+	Drag along the edge of the subject.	沿主体边缘拖动。
+	Erases all pixels of a similar colour with one click.	单击一次擦除所有相似颜色的像素。
+	Click the colour to erase.	单击要擦除的颜色。
+	Fills with a blend between colours.	使用颜色之间的混合进行填充。
+	Drag from where the blend starts to where it ends.	从混合开始位置拖动到结束位置。
+	Hold {shift} to snap the angle to 45 degrees.	按住 {shift} 可将角度对齐到 45 度。
+	Fills an area of similar colour with the foreground colour.	使用前景色填充相似颜色的区域。
+	Click inside the area to fill.	在区域内单击以填充。
+	Softens the pixels you paint over.	柔化所涂抹的像素。
+	Drag to blur; hold {shift} to keep a straight line.	拖动以模糊；按住 {shift} 可保持直线。
+	Sharpens the pixels you paint over.	锐化所涂抹的像素。
+	Drag to sharpen; hold {shift} to keep a straight line.	拖动以锐化；按住 {shift} 可保持直线。
+	Smears pixels in the direction you drag, like wet paint.	沿拖动方向涂抹像素，如湿颜料。
+	Drag to smudge; hold {shift} to keep a straight line.	拖动以涂抹；按住 {shift} 可保持直线。
+	Lightens the areas you paint over.	提亮所涂抹的区域。
+	Drag to lighten; hold {shift} to keep a straight line.	拖动以提亮；按住 {shift} 可保持直线。
+	Darkens the areas you paint over.	加深所涂抹的区域。
+	Drag to darken; hold {shift} to keep a straight line.	拖动以加深；按住 {shift} 可保持直线。
+	Raises or lowers the colour saturation where you paint.	在涂抹位置提高或降低颜色饱和度。
+	Drag to change saturation; hold {shift} to keep a straight line.	拖动以更改饱和度；按住 {shift} 可保持直线。
+	Draws precise paths and shapes with anchor points.	使用锚点绘制精确路径和形状。
+	Click to add points; {alt} on an anchor turns it into a corner or smooth point.	单击添加点；在锚点上按 {alt} 可将其转换为角点或平滑点。
+	Selects and moves whole paths.	选择并移动整个路径。
+	Selects and edits individual anchor points and handles.	选择并编辑单个锚点和手柄。
+	Click an anchor or handle; drag a box to select several.	单击锚点或手柄；拖动框可选择多个。
+	{shift}-click toggles an anchor in the selection.	{shift}-单击切换选中的锚点。
+	{alt}-drag a handle to move it on its own.	{alt}-拖动手柄可单独移动它。
+	Adds text to the image.	向图像添加文本。
+	Click to type a line of text.	单击以输入一行文本。
+	Drag to make a box for paragraph text.	拖动以创建用于段落文本的框。
+	Adds text that runs top to bottom.	添加从上到下的文本。
+	Draws rectangles as editable shape layers.	绘制矩形作为可编辑形状图层。
+	Draws ellipses and circles as editable shape layers.	绘制椭圆和圆形作为可编辑形状图层。
+	Draws triangles as editable shape layers.	绘制三角形作为可编辑形状图层。
+	Draws polygons with any number of sides.	绘制任意边数的多边形。
+	Draws straight lines as editable shape layers.	绘制直线作为可编辑形状图层。
+	Draws a shape chosen from the shape library.	绘制从形状库中选择的形状。
+	Pans the view around the image.	平移图像周围的视图。
+	Drag to move the image.	拖动以移动图像。
+	Hold Space with any other tool to pan temporarily.	按住空格键并配合任何其他工具可临时平移。
+	Magnifies or reduces the view.	放大或缩小视图。
+	Click to zoom in, {alt}-click to zoom out.	单击放大，{alt}-单击缩小。
+	Drag right to zoom in and left to zoom out, or drag a box when Scrubby Zoom is off.	向右拖动放大，向左拖动缩小，或在关闭细微缩放时拖动一个框。
+	Removes distractions with the local AI model.	使用本地 AI 模型去除干扰。
+	Paint over what you want gone.	涂抹想要去除的内容。
+	When you let go, the repair lands on its own layer.	松开后，修复内容会落在其自己的图层上。
+	Cuts out the subject with the local AI model.	使用本地 AI 模型抠出主体。
+	Use Remove Background in the options bar to make the mask.	在选项栏中使用“移除背景”创建蒙版。
+	Then paint to erase or restore parts of it; X swaps the two.	然后涂抹以擦除或恢复部分内容；按 X 交换两者。
+	Pushes pixels forward as you drag.	拖动时向前推动像素。
+	Drag across the area to push it along.	在区域上拖动以推动它。
+	Undoes warping where you paint.	在涂抹位置撤销变形。
+	Paint over a distorted area to restore it; hold still to keep restoring.	在扭曲区域上涂抹以将其恢复；按住不动可继续恢复。
+	Smooths out the distortion where you paint.	在涂抹处平滑扭曲。
+	Paint over an area; hold still to keep smoothing.	在区域上涂抹；按住不动可继续平滑。
+	Spins pixels clockwise.	顺时针旋转像素。
+	Click or hold still to keep twirling.	单击或按住不动可继续旋转扭曲。
+	Spins pixels counterclockwise.	逆时针旋转像素。
+	Pulls pixels in toward the centre of the brush.	使像素向画笔中心收缩。
+	Click or hold still to keep pinching.	单击或按住不动可继续收缩。
+	Pushes pixels out from the centre of the brush.	使像素从画笔中心向外膨胀。
+	Click or hold still to keep swelling.	单击或按住不动可继续膨胀。
+	Shifts pixels sideways as you drag.	拖动时使像素向侧边移动。
+	Drag to move pixels to the left of your direction.	拖动以将像素向您的方向左侧移动。
+	Protects areas from being warped.	防止区域被扭曲。
+	Paint over the areas to protect.	涂抹要保护的区域。
+	Removes protection from frozen areas.	移除冻结区域的保护。
+	Paint over the frozen areas to release them.	涂抹冻结区域以将其解冻。
+	Freezes an area you outline.	冻结您勾画的区域。
+	Drag to freeze an outlined area.	拖动以冻结勾画的区域。
+	{alt}-drag to thaw it.	{alt}-拖动可将其解冻。
+	Changes the whole image at once.	一次性更改整个图像。
+	Also in this group:	此组中还包括：
+	How to use	使用方法
+	All Tools	所有工具
+	Photographer	摄影师
+	Retouching	修饰
+	Tool Set	工具集
+	Tool Sets	工具集
+	built-in	内置
+	My Tools	我的工具
+	Duplicate	复制
+	Reset to All Tools	重置为所有工具
+	Built-in sets can't be changed. Save a copy to choose your own tools.	内置工具集无法更改。保存副本以选择您自己的工具。
+	Save as New Set	另存为新工具集
+	Tick the tools this set shows.	勾选此工具集要显示的工具。
+	Tool tips	工具提示
+	Rich (name, shortcut and how to use)	详细（名称、快捷键和使用方法）
+	Simple (name and shortcut)	简单（名称和快捷键）

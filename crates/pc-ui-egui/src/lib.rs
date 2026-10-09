@@ -190,6 +190,8 @@ mod timeline_ui;
 mod titlebar;
 pub mod tone;
 pub mod tool_feedback;
+pub mod tool_tips;
+pub mod toolsets_ui;
 pub mod transform_tex;
 pub mod transform_tool;
 pub mod type_panels_ui;

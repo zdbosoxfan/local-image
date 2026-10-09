@@ -202,6 +202,9 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
     if let Some(alias) = panel_alias(id) {
         return invoke(app, ctx, alias, params);
     }
+    if let Some(r) = crate::toolsets_ui::run(app, id) {
+        return r;
+    }
     if let Some(ws) = workspace_name(id) {
         // Reset re-applies the current workspace; Essentials is the default layout.
         match (ws, id) {
@@ -507,6 +510,7 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
     match id {
         "file.open" | "file.exit" | "file.clearRecent" | "help.about" | "help.systemInfo" | "edit.search" => true,
         i if i.starts_with("file.openRecent.") => true,
+        i if crate::toolsets_ui::handles(i) => true,
         i if crate::links::url_for(i).is_some() => true,
         i if i.starts_with("window.theme.") => true,
         crate::develop_layer::SAVE_RETURN_ID => app.host_modes && app.services.export.is_some() && crate::develop_layer::library_original(app).is_some(),
@@ -563,7 +567,11 @@ fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
     if let Some(c) = crate::view_cmds::checked(app, id) {
         return Some(c);
     }
-    if let Some(c) = crate::analysis_ui::checked(app, id).or_else(|| crate::workspace_ui::checked(app, id)).or_else(|| crate::file_ui::checked(app, id)) {
+    if let Some(c) = crate::analysis_ui::checked(app, id)
+        .or_else(|| crate::toolsets_ui::checked(app, id))
+        .or_else(|| crate::workspace_ui::checked(app, id))
+        .or_else(|| crate::file_ui::checked(app, id))
+    {
         return Some(c);
     }
     if let Some(c) = crate::preset_panels::checked(app, id).or_else(|| crate::context_bar::checked(app, id)) {
@@ -660,6 +668,7 @@ pub fn is_live(id: &str) -> bool {
         || crate::view_cmds::handles(id)
         || crate::analysis_ui::handles(id)
         || crate::workspace_ui::handles(id)
+        || crate::toolsets_ui::handles(id)
         || crate::preset_panels::handles(id)
         || crate::type_panels_ui::handles(id)
         || crate::timeline_ui::handles(id)
@@ -723,6 +732,7 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
         }
     }
     crate::plugin_ui::insert_menu_items(app, &mut items);
+    crate::toolsets_ui::menu_items(app, &mut items);
     // File › Open Recent: a dynamic submenu of recently opened files (inserted after "Open As…").
     if let Some(after) = items.iter().position(|i| i.id == "file.openAs") {
         let rp: Vec<String> = vec!["File".into(), "Open Recent".into()];
