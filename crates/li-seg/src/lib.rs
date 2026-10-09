@@ -18,6 +18,8 @@ use anyhow::{Context, Result, bail};
 use tract_onnx::prelude::*;
 use tract_onnx::tract_hir::infer::Factoid;
 
+pub mod faces;
+
 /// A downloadable model: (file name, bytes, sha256, url, input size, label).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ModelSpec {
