@@ -1103,6 +1103,8 @@ struct RenderWork {
 }
 
 enum Work {
+    /// At most one four-photo wave of encoded results, consumed in selection order.
+    Ready(Result<Exported, String>),
     Render(Box<RenderWork>),
     /// [`ExportFormat::Original`] (the file's bytes + an XMP sidecar) or [`ExportFormat::Dng`] (the
     /// raw data re-encoded as a lossless DNG with the edits in its XMP).
@@ -1187,6 +1189,7 @@ impl PreparedExport {
     pub fn run(self) -> Result<Exported, String> {
         let file_name = self.file_name;
         match self.work {
+            Work::Ready(result) => result,
             Work::Render(w) => {
                 let RenderWork { job, meta, opts } = *w;
                 let r = job.run().rendered?;
@@ -1335,8 +1338,43 @@ pub fn run_batch(
     let single = items.len() == 1;
     let mut taken = std::collections::HashSet::new();
     let mut out = Vec::new();
-    for (i, item) in items.into_iter().enumerate() {
-        if !progress(i, &item.file_name) {
+    if let Some(first) = items.first()
+        && !progress(0, &first.file_name)
+    {
+        return Ok(out);
+    }
+    let gate = crate::memory::WorkGate::new(crate::memory::budget() / 2);
+    let mut todo = items.into_iter();
+    let mut ready = std::collections::VecDeque::new();
+    // Decoding/encoding is parallel; path reservation and writes stay in selection order.
+    // Cancellation can discard at most one speculative wave; nothing later is written.
+    let work = std::iter::from_fn(|| {
+        if ready.is_empty() {
+            let wave: Vec<_> = todo.by_ref().take(4).collect();
+            if wave.is_empty() {
+                return None;
+            }
+            ready.extend(crate::bulk::map(wave, |item| {
+                if o.same_folder && item.source_dir.is_none() {
+                    return item;
+                }
+                let weight = match &item.work {
+                    Work::Render(w) => crate::bulk::source_weight(&w.job.source),
+                    Work::File { path, dng, .. } => {
+                        std::fs::metadata(path).map_or(1 << 20, |m| (m.len() as usize).saturating_mul(if dng.is_some() { 24 } else { 1 }))
+                    }
+                    Work::Ready(_) => 1,
+                };
+                let _permit = gate.acquire(weight);
+                let (photo, file_name, guard, source_dir) = (item.photo, item.file_name.clone(), item.guard.clone(), item.source_dir.clone());
+                let result = item.run();
+                PreparedExport { photo, file_name, guard, source_dir, work: Work::Ready(result) }
+            }));
+        }
+        ready.pop_front()
+    });
+    for (i, item) in work.enumerate() {
+        if i > 0 && !progress(i, &item.file_name) {
             break;
         }
         let (photo, name, guard) = (item.photo, item.file_name.clone(), item.guard.clone());

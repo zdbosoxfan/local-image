@@ -3,7 +3,6 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
@@ -20,15 +19,30 @@ impl Drop for Scratch {
     }
 }
 fn scratch(label: &str) -> Scratch {
-    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.library-scale-artifacts").join(format!("library-scale-{label}-{}", std::process::id()));
-    fs::create_dir_all(&p).unwrap();
-    Scratch(p)
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.library-scale-artifacts");
+    fs::create_dir_all(&base).unwrap();
+    let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    for attempt in 0.. {
+        let path = base.join(format!("library-scale-{label}-{}-{nonce}-{attempt}", std::process::id()));
+        match fs::create_dir(&path) {
+            Ok(()) => return Scratch(path),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(_) => panic!("cannot create benchmark scratch directory"),
+        }
+    }
+    unreachable!()
 }
+
 fn rss_kib() -> usize {
     fs::read_to_string("/proc/self/status")
         .ok()
         .and_then(|s| s.lines().find(|l| l.starts_with("VmRSS:")).and_then(|l| l.split_whitespace().nth(1)).and_then(|v| v.parse().ok()))
         .unwrap_or(0)
+}
+static PHASE_PEAK: AtomicUsize = AtomicUsize::new(0);
+fn phase_peak_rss_kib() -> usize {
+    let current = rss_kib();
+    PHASE_PEAK.fetch_max(current, Ordering::Relaxed).max(current)
 }
 struct StopSample<'a>(&'a AtomicBool);
 impl Drop for StopSample<'_> {
@@ -38,7 +52,8 @@ impl Drop for StopSample<'_> {
 }
 fn measure<T>(row: &str, n: usize, f: impl FnOnce() -> T) -> T {
     let stop = AtomicBool::new(false);
-    let peak = AtomicUsize::new(rss_kib());
+    let peak = &PHASE_PEAK;
+    peak.store(rss_kib(), Ordering::Relaxed);
     std::thread::scope(|scope| {
         scope.spawn(|| {
             while !stop.load(Ordering::Relaxed) {
@@ -117,11 +132,11 @@ fn generate(dir: &Path, n: usize) {
     let preview = lightcraft_raster::Rgba8::from_fn(1536, 1024, |x, y| [(x * 255 / 1536) as u8, (y * 255 / 1024) as u8, 100, 255]);
     let jpeg = lightcraft_preview::encode_jpeg(&preview).unwrap();
     let full_jpeg = {
-        let image = lightcraft_raster::Rgba8::from_fn(edge,height,|x,y| {
-            let seed=(x as u32).wrapping_mul(0x9e3779b9) ^ (y as u32).wrapping_mul(0x85ebca6b);
-            let noise=((seed ^ (seed>>16)) & 31) as i32 - 16;
-            let channel=|base:i32| (base+noise).clamp(0,255) as u8;
-            [channel((x*255/edge) as i32),channel((y*255/height) as i32),channel(100),255]
+        let image = lightcraft_raster::Rgba8::from_fn(edge, height, |x, y| {
+            let seed = (x as u32).wrapping_mul(0x9e3779b9) ^ (y as u32).wrapping_mul(0x85ebca6b);
+            let noise = ((seed ^ (seed >> 16)) & 31) as i32 - 16;
+            let channel = |base: i32| (base + noise).clamp(0, 255) as u8;
+            [channel((x * 255 / edge) as i32), channel((y * 255 / height) as i32), channel(100), 255]
         });
         lightcraft_preview::encode_jpeg(&image).unwrap()
     };
@@ -180,6 +195,7 @@ fn queries() {
         let c = synthetic_catalog(n);
         for (name, f, s) in [
             ("filter", Filter { rating: 3, ..Default::default() }, Sort::default()),
+            ("filter_ids", Filter { only: (1..=n as u64).step_by(2).map(PhotoId).collect(), ..Default::default() }, Sort::default()),
             ("sort", Filter::default(), Sort { key: SortKey::FileName, ..Default::default() }),
             ("search", Filter { text: "conference camera:sony rating:>2".into(), ..Default::default() }, Sort::default()),
         ] {
@@ -196,6 +212,8 @@ fn thumbnails(s: &mut Session, ids: &[PhotoId], quick: bool) {
     let mut first = false;
     let mut next = 0;
     let mut done = 0;
+    let visible = &ids[..ids.len().min(24)];
+    let mut visible_done = 0;
     let mut pool = JobPool::new(4);
     let mut digests = Vec::with_capacity(ids.len());
     while done < ids.len() {
@@ -216,13 +234,24 @@ fn thumbnails(s: &mut Session, ids: &[PhotoId], quick: bool) {
             let image = &r.result.rendered.as_ref().unwrap().image;
             digests.push((r.slot, lightcraft_preview::hash_bytes(image.data.as_flattened())));
             done += 1;
+            if quick && visible.contains(&r.slot) {
+                visible_done += 1;
+                if visible_done == visible.len() {
+                    eprintln!(
+                        "library_bench,row=first_visible_screen,n={},ms={:.3},peak_rss_kib={}",
+                        visible.len(),
+                        start.elapsed().as_secs_f64() * 1000.0,
+                        phase_peak_rss_kib()
+                    );
+                }
+            }
             if !first {
                 eprintln!(
                     "library_bench,row=first_{}_thumbnail,n={},ms={:.3},peak_rss_kib={}",
                     if quick { "visible" } else { "developed" },
                     ids.len(),
                     start.elapsed().as_secs_f64() * 1000.0,
-                    rss_kib()
+                    phase_peak_rss_kib()
                 );
                 first = true;
             }

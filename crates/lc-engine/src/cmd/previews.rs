@@ -63,16 +63,22 @@ fn jobs_for(s: &mut Session, id: lightcraft_catalog::PhotoId, edge: Option<usize
 }
 
 fn run_all(jobs: Vec<Vec<RenderJob>>, state: &PreviewBuild) {
-    for photo_jobs in jobs {
+    let gate = crate::memory::WorkGate::new(crate::memory::budget() / 2);
+    crate::bulk::map(jobs, |photo_jobs| {
         if state.cancel.load(Ordering::Relaxed) {
-            break;
+            return;
+        }
+        let weight = photo_jobs.iter().map(|j| crate::bulk::source_weight(&j.source)).max().unwrap_or(1);
+        let _permit = gate.acquire(weight);
+        if state.cancel.load(Ordering::Relaxed) {
+            return;
         }
         let ok = photo_jobs.into_iter().all(|j| j.run().rendered.is_ok());
         if !ok {
             state.failed.fetch_add(1, Ordering::Relaxed);
         }
         state.done.fetch_add(1, Ordering::Relaxed);
-    }
+    });
     state.finished.store(true, Ordering::Relaxed);
 }
 
@@ -145,9 +151,15 @@ fn smart_run(
             std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         }
     }
-    for (id, path, source) in jobs {
+    let gate = crate::memory::WorkGate::new(crate::memory::budget() / 2);
+    let counts = crate::bulk::map(jobs, |(id, path, source)| {
+        let mut n = SmartCounts::default();
         if state.is_some_and(|st| st.cancel.load(Ordering::Relaxed)) {
-            break;
+            return n;
+        }
+        let _permit = gate.acquire(source.as_ref().map(crate::bulk::source_weight).unwrap_or(1));
+        if state.is_some_and(|st| st.cancel.load(Ordering::Relaxed)) {
+            return n;
         }
         if discard {
             if std::fs::remove_file(&path).is_ok() {
@@ -190,6 +202,13 @@ fn smart_run(
         if let Some(st) = state {
             st.done.fetch_add(1, Ordering::Relaxed);
         }
+        n
+    });
+    for count in counts {
+        n.built += count.built;
+        n.repaired += count.repaired;
+        n.removed += count.removed;
+        n.failed.extend(count.failed);
     }
     Ok(n)
 }
@@ -359,4 +378,39 @@ pub fn specs() -> Vec<CommandSpec> {
             Ok(s.preview_build.as_ref().map_or(Value::Null, |b| b.json()))
         }),
     ]
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod bulk_tests {
+    use super::*;
+    use crate::media::{DecodedSource, SourceRef};
+    use lightcraft_catalog::PhotoId;
+    use lightcraft_raster::Rgb32f;
+
+    #[test]
+    fn library_scale_parallel_smart_previews_keep_serial_bytes_and_ordered_failure_counts() {
+        let dir = crate::tests_xmp::temp_dir("parallel-smart");
+        let mut jobs = Vec::new();
+        let mut expected = Vec::new();
+        for i in 0..8 {
+            let path = dir.join(format!("{i}.lcsp"));
+            let image = Rgb32f::from_fn(64, 48, |x, y| [x as f32 / 128.0, y as f32 / 96.0, i as f32 / 10.0]);
+            let source = DecodedSource::new(Arc::new(image), Some(Default::default()));
+            let missing = i == 1 || i == 5;
+            if !missing {
+                expected.push((path.clone(), crate::smart::encode_source(&source).unwrap()));
+            }
+            jobs.push((PhotoId(i + 1), path, (!missing).then(|| SourceRef::Loaded(Box::new(source)))));
+        }
+        let state = PreviewBuild { total: jobs.len(), ..Default::default() };
+        let counts = smart_run(&dir, false, false, jobs, Some(&state)).unwrap();
+        assert_eq!(counts.built, 6);
+        assert_eq!(counts.failed, vec![json!([2, "nothing to build from"]), json!([6, "nothing to build from"])]);
+        assert_eq!(state.done.load(Ordering::Relaxed), 8);
+        assert_eq!(state.failed.load(Ordering::Relaxed), 2);
+        for (path, bytes) in expected {
+            assert_eq!(std::fs::read(path).unwrap(), bytes);
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

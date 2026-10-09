@@ -224,10 +224,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // once this photo is on screen: prepare its neighbours in filmstrip order (source decoded and
     // kept, view render cached) so stepping to them is instant
     if !interacting && !app.renderer.is_pending(Slot::Main) && app.renderer.textures.get(&Slot::Main).is_some_and(|t| t.photo == id) {
-        let ids = app.session.visible_cloned();
-        if let Some(i) = ids.iter().position(|p| *p == id) {
-            let next = ids.get(i + 1).copied();
-            let prev = i.checked_sub(1).and_then(|j| ids.get(j)).copied();
+        let neighbours = {
+            let ids = app.session.visible();
+            ids.iter().position(|p| *p == id).map(|i| (ids.get(i + 1).copied(), i.checked_sub(1).and_then(|j| ids.get(j)).copied()))
+        };
+        if let Some((next, prev)) = neighbours {
             for (n, nid) in [next, prev].into_iter().enumerate() {
                 let Some(nid) = nid else { continue };
                 let Some(np) = app.session.catalog.photo(nid).cloned() else { continue };

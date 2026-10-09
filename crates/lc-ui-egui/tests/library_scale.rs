@@ -65,6 +65,7 @@ fn library_scale_ui() {
             let canvas = h.app.canvas_rect.unwrap();
             let before = h.app.caches.grid_stats.clone();
             let mut times = Vec::new();
+            let mut max_scroll = 0.0f32;
             for frame in 0..120 {
                 let raw = HeadlessView::raw_input(
                     h.size,
@@ -75,6 +76,7 @@ fn library_scale_ui() {
                         egui::Event::MouseWheel {
                             unit: egui::MouseWheelUnit::Point,
                             delta: egui::vec2(0.0, if frame < 60 { -120.0 } else { 120.0 }),
+                            phase: egui::TouchPhase::Move,
                             modifiers: Default::default(),
                         },
                     ],
@@ -85,7 +87,9 @@ fn library_scale_ui() {
                     h.app.ui(ui);
                 });
                 times.push(t.elapsed().as_secs_f64() * 1000.0);
+                max_scroll = max_scroll.max(h.app.grid_scroll.unwrap_or(0.0));
             }
+            assert!(max_scroll > 0.0, "wheel events must actually scroll the grid");
             let stats = &h.app.caches.grid_stats;
             eprintln!(
                 "library_bench,row=grid_work,n={n},cells_per_frame={},layout_rebuilds={}",

@@ -117,7 +117,7 @@ fn filmstrip_wheel_scrolls_and_keeps_its_position() {
 }
 
 #[test]
-fn clicking_prefetched_neighbours_reuses_decoded_sources_at_event_scale() {
+fn library_scale_clicking_prefetched_neighbours_reuses_decoded_sources_at_event_scale() {
     use crate::state::ViewMode;
     use lightcraft_catalog::{Op, Photo, PhotoId, Source};
     use std::sync::{Arc, Mutex};

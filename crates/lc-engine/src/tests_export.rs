@@ -374,7 +374,7 @@ fn exports_are_atomic_without_a_sync() {
 }
 
 #[test]
-fn parallel_export_wave_keeps_selection_order_and_encoded_bytes() {
+fn library_scale_parallel_export_wave_keeps_selection_order_and_encoded_bytes() {
     let mut s = Session::with_demo();
     let id = s.active().unwrap();
     let ids = vec![id; 8];
@@ -399,4 +399,63 @@ fn parallel_export_wave_keeps_selection_order_and_encoded_bytes() {
         };
         assert!(normalize(actual.1.clone()) == normalize(expected.bytes), "parallelism changed encoded output beyond the ICC creation timestamp");
     }
+}
+
+#[test]
+fn library_scale_cancelling_parallel_export_writes_only_accepted_photos_and_bounds_speculation() {
+    use lightcraft_catalog::{Op, Photo, PhotoId, Source};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let loaded = Arc::new(AtomicUsize::new(0));
+    let counter = loaded.clone();
+    let mut s = Session::new();
+    s.media.file_loader = Some(Arc::new(move |_, _| {
+        counter.fetch_add(1, Ordering::Relaxed);
+        Ok((lightcraft_raster::Rgb32f::filled(64, 48, [0.2, 0.3, 0.4]), Default::default()))
+    }));
+    let ids: Vec<_> = (1..=12).map(PhotoId).collect();
+    for &id in &ids {
+        let photo = Photo::new(
+            id,
+            Source::File { path: format!("/export-cancel-synthetic/{}.jpg", id.0) },
+            &format!("{}.jpg", id.0),
+            "JPEG",
+            64,
+            48,
+            "2026-01-01",
+        );
+        s.catalog.apply(Op::AddPhoto { photo: Box::new(photo) }).unwrap();
+    }
+    let o = ExportOptions::from_json(&json!({"format":"jpeg", "width":64}));
+    let to = crate::export::Destination::default();
+    let mut writes = Vec::new();
+    let result = crate::export::run_batch(
+        crate::export::prepare_batch(&mut s, &ids, &o).unwrap(),
+        &o,
+        &to,
+        &mut |name, _| {
+            writes.push(name.to_string());
+            Ok(())
+        },
+        &|_| false,
+        true,
+        &mut |done, _| done < 1,
+    )
+    .unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(writes, ["1.jpg"]);
+    assert!((1..=4).contains(&loaded.load(Ordering::Relaxed)), "at most one wave may run ahead");
+    let before = loaded.load(Ordering::Relaxed);
+    let result = crate::export::run_batch(
+        crate::export::prepare_batch(&mut s, &ids, &o).unwrap(),
+        &o,
+        &to,
+        &mut |_, _| panic!("cancelled batch wrote output"),
+        &|_| false,
+        true,
+        &mut |_, _| false,
+    )
+    .unwrap();
+    assert!(result.is_empty());
+    assert_eq!(loaded.load(Ordering::Relaxed), before, "cancel before the first photo must not decode");
 }

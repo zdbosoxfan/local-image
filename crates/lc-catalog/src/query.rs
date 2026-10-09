@@ -109,7 +109,10 @@ fn shuffle_rank(seed: u64, id: PhotoId) -> u64 {
 }
 
 fn token_matches(p: &Photo, tok: &str) -> bool {
-    let t = tok.to_lowercase();
+    token_matches_lowered(p, &tok.to_lowercase())
+}
+
+fn token_matches_lowered(p: &Photo, t: &str) -> bool {
     if let Some((field, val)) = t.split_once(':') {
         let num = |s: &str| -> Option<(char, f64)> {
             let (op, rest) = match s.chars().next()? {
@@ -144,7 +147,7 @@ fn token_matches(p: &Photo, tok: &str) -> bool {
         };
     }
     let hay = [&p.file_name, &p.meta.title, &p.meta.caption, &p.meta.camera, &p.meta.lens, &p.meta.location, &p.format];
-    hay.iter().any(|h| h.to_lowercase().contains(&t)) || p.meta.keywords.iter().any(|k| k.to_lowercase().contains(&t))
+    hay.iter().any(|h| h.to_lowercase().contains(t)) || p.meta.keywords.iter().any(|k| k.to_lowercase().contains(t))
 }
 
 /// Whether `p` has a named face region called `name` (case-insensitive).
@@ -213,6 +216,10 @@ impl Filter {
     }
 
     pub fn matches(&self, p: &Photo, cat: &Catalog) -> bool {
+        self.matches_tokens(p, cat, None, None)
+    }
+
+    fn matches_tokens(&self, p: &Photo, cat: &Catalog, tokens: Option<&[&str]>, only: Option<&std::collections::HashSet<PhotoId>>) -> bool {
         if p.deleted != self.deleted {
             return false;
         }
@@ -251,7 +258,7 @@ impl Filter {
         if !self.labels.is_empty() && !p.label.is_some_and(|l| self.labels.contains(&l)) {
             return false;
         }
-        if !self.only.is_empty() && !self.only.contains(&p.id) {
+        if only.map_or_else(|| !self.only.is_empty() && !self.only.contains(&p.id), |ids| !ids.contains(&p.id)) {
             return false;
         }
         if let Some(want) = &self.merged {
@@ -310,20 +317,36 @@ impl Filter {
         {
             return false;
         }
-        self.text.split_whitespace().all(|tok| token_matches(p, tok))
+        match tokens {
+            Some(tokens) => tokens.iter().all(|tok| token_matches_lowered(p, tok)),
+            None => self.text.split_whitespace().all(|tok| token_matches(p, tok)),
+        }
     }
 }
 
 impl Catalog {
     /// Photos matching `filter`, in `sort` order (ties broken by id for stability).
     pub fn query(&self, filter: &Filter, sort: &Sort) -> Vec<PhotoId> {
-        let mut v: Vec<&Photo> = self.photos().map(|p| p.as_ref()).filter(|p| filter.matches(p, self)).collect();
-        v.sort_by(|a, b| {
+        let text = filter.text.to_lowercase();
+        let tokens: Vec<&str> = text.split_whitespace().collect();
+        // Large selections (Find Similar and agent queries) must not scan the ID list for every photo.
+        let only = (filter.only.len() > 8).then(|| filter.only.iter().copied().collect::<std::collections::HashSet<_>>());
+        let mut v: Vec<&Photo> = self.photos().map(|p| p.as_ref()).filter(|p| filter.matches_tokens(p, self, Some(&tokens), only.as_ref())).collect();
+        if sort.key == SortKey::FileName {
+            // Lowercase each name once, rather than allocate twice per comparison.
+            v.sort_by_cached_key(|p| (p.file_name.to_lowercase(), p.id));
+            if !sort.ascending {
+                v.reverse();
+            }
+            return v.into_iter().map(|p| p.id).collect();
+        }
+        // IDs break every tie, so an unstable in-place sort has the same total order.
+        v.sort_unstable_by(|a, b| {
             let o = match sort.key {
                 SortKey::CaptureDate => a.date().cmp(b.date()),
                 SortKey::ImportDate => a.imported.cmp(&b.imported),
                 SortKey::EditDate => a.edited.cmp(&b.edited),
-                SortKey::FileName => a.file_name.to_lowercase().cmp(&b.file_name.to_lowercase()),
+                SortKey::FileName => std::cmp::Ordering::Equal, // handled above
                 SortKey::Rating => a.rating.cmp(&b.rating),
                 SortKey::FileSize => a.file_size.cmp(&b.file_size),
                 SortKey::Random => shuffle_rank(sort.seed, a.id).cmp(&shuffle_rank(sort.seed, b.id)),

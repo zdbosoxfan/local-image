@@ -53,7 +53,11 @@ pub use lightcraft_geom::Orientation;
 pub use lightcraft_meta::Metadata;
 pub use lightcraft_raster::Rgb32f;
 pub use opcodes::{Opcode, OpcodeLists};
+mod container_metadata;
+mod preview_reader;
+pub use container_metadata::metadata_with_xmp;
 pub use preview::embedded_preview;
+pub use preview_reader::{EmbeddedPreview, embedded_preview_reader};
 
 use lightcraft_color::Xy;
 use lightcraft_tiff::{Tiff, TiffError};

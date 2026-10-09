@@ -100,7 +100,7 @@ fn ext_upper(name: &str) -> String {
 /// headers ([`lightcraft_raw::probe_info`]): no pixel data is decompressed.
 pub fn probe_bytes(name: &str, bytes: &[u8]) -> Result<ProbeInfo, String> {
     let content_hash = Some(lightcraft_preview::hash_bytes(bytes).to_string());
-    let m = lightcraft_meta::extract(bytes);
+    let (m, xmp) = lightcraft_raw::metadata_with_xmp(bytes);
     let (meta, captured) = meta_of(&m);
     if lightcraft_raw::probe(bytes).is_some() {
         let mut raw = match lightcraft_raw::probe_info(bytes) {
@@ -118,7 +118,7 @@ pub fn probe_bytes(name: &str, bytes: &[u8]) -> Result<ProbeInfo, String> {
                     meta,
                     as_shot_wb: None,
                     content_hash,
-                    xmp: lightcraft_meta::embedded(bytes).xmp,
+                    xmp,
                     preview_only: Some(why),
                     ..Default::default()
                 });
@@ -154,7 +154,7 @@ pub fn probe_bytes(name: &str, bytes: &[u8]) -> Result<ProbeInfo, String> {
             meta,
             as_shot_wb,
             content_hash,
-            xmp: lightcraft_meta::embedded(bytes).xmp,
+            xmp,
             preview_only: None,
         });
     }
@@ -200,7 +200,13 @@ fn sensor_clip_confidence(raw: &lightcraft_raw::RawImage) -> Option<lightcraft_r
     let crop = raw.crop.clipped(n.width, n.height);
     let crop = if crop.width > 1 && crop.height > 1 { crop } else { lightcraft_raw::Rect { x: 0, y: 0, width: n.width, height: n.height } };
     let tile = n.cfa.as_ref().map_or(1, |c| c.width.max(c.height));
-    let p = lightcraft_raster::Plane::from_fn(crop.width.div_ceil(tile), crop.height.div_ceil(tile), |x, y| {
+    // Independent sensor tiles keep their arithmetic order, but no longer serialize the
+    // full-sensor clipping pass on one worker while developing a small thumbnail.
+    use rayon::prelude::*;
+    let width = crop.width.div_ceil(tile);
+    let mut p = lightcraft_raster::Plane::new(width, crop.height.div_ceil(tile));
+    p.data.par_iter_mut().enumerate().for_each(|(i, value)| {
+        let (x, y) = (i % width, i / width);
         let mut counts = [0usize; 3];
         let mut clipped = [0usize; 3];
         for dy in 0..tile {
@@ -223,7 +229,7 @@ fn sensor_clip_confidence(raw: &lightcraft_raw::RawImage) -> Option<lightcraft_r
                 }
             }
         }
-        (0..3).map(|c| clipped[c] as f32 / counts[c].max(1) as f32).sum::<f32>() / 3.
+        *value = (0..3).map(|c| clipped[c] as f32 / counts[c].max(1) as f32).sum::<f32>() / 3.;
     });
     Some(p)
 }
@@ -542,18 +548,37 @@ pub fn load_embedded_preview(bytes: &[u8], max_edge: usize) -> Option<(Rgb32f, S
 /// loupe and grid show it until the raw itself has been developed ([`crate::media::QuickJob`]).
 pub fn embedded_preview_srgb(bytes: &[u8], max_edge: usize) -> Option<lightcraft_raster::Rgba8> {
     let jpeg = lightcraft_raw::embedded_preview(bytes)?;
-    let mut d = lightcraft_codecs::decode(&jpeg, lightcraft_codecs::DecodeOptions::fit(max_edge as u32, max_edge as u32)).ok()?;
+    preview_srgb(&jpeg, lightcraft_meta::extract(bytes).orientation.unwrap_or_default(), max_edge)
+}
+
+fn preview_srgb(jpeg: &[u8], raw_orientation: Orientation, max_edge: usize) -> Option<lightcraft_raster::Rgba8> {
+    let max_edge = max_edge.max(1);
+    let mut d = lightcraft_codecs::decode(jpeg, lightcraft_codecs::DecodeOptions::fit(max_edge as u32, max_edge as u32)).ok()?;
     if d.image.width.max(d.image.height) > max_edge {
         d.image = fit(&d.image, max_edge, max_edge, Filter::Box);
         d.alpha = None;
     }
-    let o = preview_orientation(bytes, d.orientation);
+    let o = if d.orientation > 1 { Orientation::from_exif(d.orientation) } else { raw_orientation };
     Some(d.to_srgb8().oriented(o))
 }
 
 /// Filesystem-backed embedded-preview hook (native).
 pub fn fs_preview_loader() -> PreviewLoader {
-    Arc::new(|path: &str, max_edge: usize| embedded_preview_srgb(&std::fs::read(path).ok()?, max_edge))
+    Arc::new(|path: &str, max_edge: usize| {
+        let mut file = std::fs::File::open(path).ok()?;
+        let len = file.metadata().ok()?.len() as usize;
+        let edge = max_edge.clamp(1, crate::media::SourceLevel::Preview.max_edge());
+        let weight = len.min(64 << 20).saturating_add(edge.saturating_mul(edge).saturating_mul(24));
+        let gate = crate::memory::work_gate();
+        let permit = if crate::memory::is_background() { gate.acquire(weight) } else { gate.acquire_urgent(weight) };
+        if let Some(preview) = lightcraft_raw::embedded_preview_reader(&mut file) {
+            return preview_srgb(&preview.jpeg, preview.orientation, max_edge);
+        }
+        drop(permit);
+        let weight = len.saturating_mul(3).saturating_add(edge.saturating_mul(edge).saturating_mul(24));
+        let _permit = if crate::memory::is_background() { gate.acquire(weight) } else { gate.acquire_urgent(weight) };
+        embedded_preview_srgb(&std::fs::read(path).ok()?, max_edge)
+    })
 }
 
 /// The filesystem loader for raw files decoded with non-default options (see [`fs_hooks`]).
@@ -628,6 +653,74 @@ mod tests {
         b.extend_from_slice(&(jpeg.len() as u32).to_be_bytes());
         b.extend_from_slice(&jpeg);
         b
+    }
+
+    #[test]
+    fn library_scale_sensor_confidence_keeps_channel_fractions_for_cfa_rgb_and_mono() {
+        let mut raw = lightcraft_raw::decode(&crate::tests_xmp::synthetic_dng_with(None, Default::default())).unwrap();
+        raw.width = 4;
+        raw.height = 4;
+        raw.active_area = lightcraft_raw::Rect::new(0, 0, 4, 4);
+        raw.crop = raw.active_area;
+        raw.black = lightcraft_raw::BlackLevel::uniform(0.0);
+        raw.white = vec![1000.0];
+        raw.cfa = Some(lightcraft_raw::Cfa::bayer("RGGB").unwrap());
+        let mut data = vec![200; 16];
+        data[0] = 1000; // clipped red in the first tile
+        data[1] = 1000; // one of its two greens
+        data[5] = 1000; // its blue
+        raw.data = lightcraft_raw::RawData::U16(data);
+        let p = sensor_clip_confidence(&raw).unwrap();
+        assert_eq!((p.width, p.height), (2, 2));
+        assert_eq!(p.data, vec![5.0 / 6.0, 0.0, 0.0, 0.0]);
+        raw.cfa = None;
+        let p = sensor_clip_confidence(&raw).unwrap();
+        assert_eq!(p.data.iter().filter(|&&v| v == 1.0).count(), 3);
+        assert!(p.data.iter().all(|&v| v == 0.0 || v == 1.0));
+        raw.width = 2;
+        raw.height = 1;
+        raw.cpp = 3;
+        raw.active_area = lightcraft_raw::Rect::new(0, 0, 2, 1);
+        raw.crop = raw.active_area;
+        raw.data = lightcraft_raw::RawData::U16(vec![1000, 200, 1000, 200, 200, 200]);
+        assert_eq!(sensor_clip_confidence(&raw).unwrap().data, vec![2.0 / 3.0, 0.0]);
+    }
+
+    #[test]
+    fn library_scale_seek_preview_loader_matches_buffer_pixels_and_orientation_including_fallback() {
+        let dir = crate::tests_xmp::temp_dir("seek-preview");
+        let loader = fs_preview_loader();
+        for orientation in [1, 8] {
+            let px: Vec<u8> = (0..64 * 48).flat_map(|i| [(i % 251) as u8, 128, 200]).collect();
+            let exif = lightcraft_meta::write_exif(&lightcraft_meta::Metadata {
+                orientation: Some(Orientation::from_exif(orientation)),
+                ..Default::default()
+            });
+            let meta = EncodeMeta { exif: Some(&exif), ..Default::default() };
+            let jpeg = encode_jpeg(&EncodeImage::new(64, 48, 3, Samples::U8(&px)), 90, ChromaSubsampling::S444, &meta).unwrap();
+            let at = 2 << 20;
+            let mut bytes = b"II\x2a\0\x08\0\0\0".to_vec();
+            bytes.extend(3u16.to_le_bytes());
+            for (tag, ty, value) in [(274u16, 3u16, 6u32), (513, 4, at as u32), (514, 4, jpeg.len() as u32)] {
+                bytes.extend(tag.to_le_bytes());
+                bytes.extend(ty.to_le_bytes());
+                bytes.extend(1u32.to_le_bytes());
+                bytes.extend(value.to_le_bytes());
+            }
+            bytes.extend(0u32.to_le_bytes());
+            bytes.resize(at, 0);
+            bytes.extend(jpeg);
+            let path = dir.join(format!("orientation-{orientation}.dng"));
+            std::fs::write(&path, &bytes).unwrap();
+            let expected = embedded_preview_srgb(&bytes, 32).unwrap();
+            let actual = loader(path.to_str().unwrap(), 32).unwrap();
+            assert_eq!(actual, expected);
+        }
+        let bytes = cr3_with_preview(64, 48);
+        let path = dir.join("fallback.cr3");
+        std::fs::write(&path, &bytes).unwrap();
+        assert_eq!(loader(path.to_str().unwrap(), 32), embedded_preview_srgb(&bytes, 32));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Issue #138: a DNG's own profile look (hue/saturation map, look table, tone curve) is

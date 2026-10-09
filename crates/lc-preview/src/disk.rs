@@ -26,6 +26,8 @@ pub struct DiskCache {
     budget: AtomicU64,
     /// Bytes on disk (`None` until first scanned).
     total: Mutex<Option<u64>>,
+    /// Serializes file replacement and pruning; JPEG encoding stays outside the lock.
+    maintenance: Mutex<()>,
     pub hits: AtomicU64,
     pub misses: AtomicU64,
     pub writes: AtomicU64,
@@ -37,6 +39,7 @@ impl DiskCache {
             dir: dir.to_path_buf(),
             budget: AtomicU64::new(budget),
             total: Mutex::new(None),
+            maintenance: Mutex::new(()),
             hits: AtomicU64::new(0),
             misses: AtomicU64::new(0),
             writes: AtomicU64::new(0),
@@ -80,7 +83,14 @@ impl DiskCache {
             }
             None => {
                 log::warn!("preview cache: dropping unreadable {}", p.display());
-                let _ = std::fs::remove_file(&p);
+                let _guard = self.maintenance.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let len = std::fs::metadata(&p).map_or(0, |m| m.len());
+                if std::fs::read(&p).is_ok_and(|current| current == bytes) && std::fs::remove_file(&p).is_ok() {
+                    let mut total = self.total.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if let Some(t) = total.as_mut() {
+                        *t = t.saturating_sub(len);
+                    }
+                }
                 self.misses.fetch_add(1, Ordering::Relaxed);
                 None
             }
@@ -89,6 +99,7 @@ impl DiskCache {
 
     pub fn put(&self, key: Hash128, img: &Rgba8) {
         let Some(bytes) = encode_jpeg(img) else { return };
+        let _guard = self.maintenance.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let p = self.path(key);
         let Some(parent) = p.parent() else { return };
         if std::fs::create_dir_all(parent).is_err() {
@@ -96,6 +107,7 @@ impl DiskCache {
         }
         // know the current total before adding (the first scan must not count this file twice)
         let _ = self.size();
+        let previous = std::fs::metadata(&p).map_or(0, |m| m.len());
         let tmp = p.with_extension(format!("tmp{:?}", std::thread::current().id()).replace(['(', ')'], ""));
         if std::fs::write(&tmp, &bytes).is_err() || std::fs::rename(&tmp, &p).is_err() {
             let _ = std::fs::remove_file(&tmp);
@@ -105,11 +117,11 @@ impl DiskCache {
         let over = {
             let mut t = self.total.lock().unwrap_or_else(|e| e.into_inner());
             let total = t.get_or_insert(0);
-            *total += bytes.len() as u64;
+            *total = total.saturating_sub(previous).saturating_add(bytes.len() as u64);
             *total > self.budget()
         };
         if over {
-            self.prune();
+            self.prune_inner();
         }
     }
 
@@ -144,6 +156,11 @@ impl DiskCache {
 
     /// Remove least recently used files until the cache is at most 80 % of its budget.
     pub fn prune(&self) {
+        let _guard = self.maintenance.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.prune_inner();
+    }
+
+    fn prune_inner(&self) {
         let mut files = self.scan();
         let mut total: u64 = files.iter().map(|f| f.1).sum();
         let target = self.budget() / 5 * 4;
@@ -166,6 +183,7 @@ impl DiskCache {
     }
 
     pub fn clear(&self) {
+        let _guard = self.maintenance.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         for (p, _, _) in self.scan() {
             let _ = std::fs::remove_file(p);
         }

@@ -11,6 +11,7 @@
 #![forbid(unsafe_code)]
 
 pub mod availability;
+mod bulk;
 mod camera_preview;
 pub mod camera_profiles;
 pub mod cmd;

@@ -4,15 +4,18 @@ use crate::media::SourceRef;
 
 pub(crate) fn source_weight(source: &SourceRef) -> usize {
     let (file, edge) = match source {
-        SourceRef::File { path, max_edge, .. } | SourceRef::RawFile { path, max_edge, .. } =>
-            (std::fs::metadata(path).map_or(0, |m| m.len() as usize), *max_edge),
+        SourceRef::File { path, max_edge, .. } | SourceRef::RawFile { path, max_edge, .. } => {
+            (std::fs::metadata(path).map_or(0, |m| m.len() as usize), *max_edge)
+        }
         SourceRef::Loaded(s) => return s.image.data.len().saturating_mul(96),
         SourceRef::Demo { max_edge, .. } => (0, *max_edge),
         SourceRef::Smart { path } => (std::fs::metadata(path).map_or(0, |m| m.len() as usize), 2560),
     };
     // Preview-size mosaics are binned by the loader. Full-size work is deliberately large
     // enough to run alone under the default budget; one oversized item can still proceed.
-    if edge == usize::MAX { return file.max(1 << 20).saturating_mul(24).max(crate::memory::budget()); }
+    if edge == usize::MAX {
+        return file.max(1 << 20).saturating_mul(24).max(crate::memory::budget());
+    }
     let pixels = edge.saturating_mul(edge);
     file.saturating_mul(3).saturating_add(pixels.saturating_mul(32)).max(1 << 20)
 }
@@ -31,14 +34,19 @@ pub(crate) fn map<T: Send, R: Send>(items: Vec<T>, work: impl Fn(T) -> R + Sync 
                 let mut workers = Vec::new();
                 for _ in 0..threads {
                     let chunk: Vec<_> = items.by_ref().take(chunk_size).collect();
-                    if chunk.is_empty() { break; }
+                    if chunk.is_empty() {
+                        break;
+                    }
                     let work = &work;
                     workers.push(scope.spawn(move || chunk.into_iter().map(work).collect::<Vec<_>>()));
                 }
-                workers.into_iter().flat_map(|worker| match worker.join() {
-                    Ok(results) => results,
-                    Err(panic) => std::panic::resume_unwind(panic),
-                }).collect()
+                workers
+                    .into_iter()
+                    .flat_map(|worker| match worker.join() {
+                        Ok(results) => results,
+                        Err(panic) => std::panic::resume_unwind(panic),
+                    })
+                    .collect()
             });
         }
     }
@@ -46,7 +54,7 @@ pub(crate) fn map<T: Send, R: Send>(items: Vec<T>, work: impl Fn(T) -> R + Sync 
 }
 
 #[cfg(test)]
-mod tests {
+mod library_scale_tests {
     #[test]
     fn results_keep_input_order_with_nested_pixel_work_and_one_memory_permit() {
         let gate = crate::memory::WorkGate::new(1);
