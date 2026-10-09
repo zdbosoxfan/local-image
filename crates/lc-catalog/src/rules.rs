@@ -60,6 +60,7 @@ pub const FIELDS: &[(&str, &str, Kind)] = &[
     ("kind", "File Type", Kind::Choice(&["image", "raw", "video"])),
     ("edited", "Has Edits", Kind::Bool),
     ("keywords", "Keywords", Kind::Keywords),
+    ("person", "Person", Kind::Text),
     ("text", "Any Searchable Text", Kind::Text),
     ("fileName", "Filename", Kind::Text),
     ("filePath", "File Path", Kind::Text),
@@ -288,6 +289,37 @@ impl Rule {
                 "notContains" => !m.keywords.iter().any(|k| text_op("contains", k, &want)),
                 _ => m.keywords.iter().any(|k| text_op(op, k, &want) || (op == "is" && k.to_lowercase().split('|').any(|part| part == want))),
             },
+            "person" => {
+                let ids: Vec<_> = match value {
+                    Value::Array(v) => v.iter().filter_map(Value::as_u64).collect(),
+                    _ => value.as_u64().into_iter().collect(),
+                };
+                if value.is_number() || value.is_array() {
+                    if ids.is_empty() {
+                        return false;
+                    }
+                    return match op {
+                        "is" | "anyOf" => ids.iter().any(|id| m.person_ids.contains(id)),
+                        "allOf" => !ids.is_empty() && ids.iter().all(|id| m.person_ids.contains(id)),
+                        "isNot" => ids.iter().all(|id| !m.person_ids.contains(id)),
+                        _ => false,
+                    };
+                }
+                let names: Vec<_> = m
+                    .regions
+                    .iter()
+                    .filter(|r| r.kind == lightcraft_meta::RegionKind::Face)
+                    .filter_map(|r| r.name.as_deref())
+                    .filter(|n| !n.trim().is_empty())
+                    .collect();
+                match op {
+                    "isEmpty" => names.is_empty() && m.person_ids.is_empty(),
+                    "isNotEmpty" => !names.is_empty() || !m.person_ids.is_empty(),
+                    "isNot" => !names.iter().any(|n| text_op("is", n, &want)),
+                    "notContains" => !names.iter().any(|n| text_op("contains", n, &want)),
+                    _ => names.iter().any(|n| text_op(op, n, &want)),
+                }
+            }
             "text" => {
                 let all = [
                     p.file_name.as_str(),

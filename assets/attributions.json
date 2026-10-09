@@ -18,6 +18,30 @@
       "intro": "Algorithms re-implemented in Rust from other projects (docs/PORTS.md). No C, C++ or Python from them is compiled or shipped.",
       "entries": [
         {
+          "name": "OpenCV",
+          "used_for": "Opt-in face inference on the CPU, with no process-wide state or persistence.",
+          "upstream": "modules/objdetect/src/face_detect.cpp",
+          "commit": "52100328d82d0502534323e9524a701baa3a1e2a",
+          "ours": "crates/li-seg/src/faces.rs",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/opencv-NOTICE.md"
+          ],
+          "url": "https://github.com/opencv/opencv/blob/52100328d82d0502534323e9524a701baa3a1e2a/modules/objdetect/src/face_detect.cpp"
+        },
+        {
+          "name": "OpenCV",
+          "used_for": "Resize directly from the borrowed input: a 24 MP source never needs an RGB8 copy merely to produce the detector's small tensor.",
+          "upstream": "modules/objdetect/src/face_recognize.cpp",
+          "commit": "13c571a801ad5c67a752e5cd58a8a7e7725f99d2",
+          "ours": "crates/li-seg/src/faces/geometry.rs",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/opencv-NOTICE.md"
+          ],
+          "url": "https://github.com/opencv/opencv/blob/13c571a801ad5c67a752e5cd58a8a7e7725f99d2/modules/objdetect/src/face_recognize.cpp"
+        },
+        {
           "name": "Local Image / LightCraft",
           "used_for": "The CLIP byte-pair-encoding tokenizer (lower-cased, </w> word ends), padded to the configurable context CLIP text encoders take (77 tokens for Smart Sort).",
           "upstream": "crates/lc-segment/src/tokenizer.rs (Apache-2.0 tokenizer port from Hugging Face Transformers)",
@@ -559,6 +583,26 @@
           "used_for": "Smart Sort: sorting photos into folders by what they show.",
           "licence": "MIT",
           "url": "https://huggingface.co/immich-app/ViT-B-32__laion2b-s34b-b79k"
+        },
+        {
+          "name": "YuNet",
+          "author": "YuNet, Shiqi Yu / OpenCV Zoo",
+          "used_for": "Smart Sort: finding faces and recognising people (opt-in).",
+          "licence": "MIT",
+          "licence_files": [
+            "licenses/opencv-NOTICE.md"
+          ],
+          "url": "https://huggingface.co/opencv/face_detection_yunet"
+        },
+        {
+          "name": "YuNet + SFace",
+          "author": "SFace, OpenCV Zoo",
+          "used_for": "Smart Sort: finding faces and recognising people (opt-in).",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/opencv-NOTICE.md"
+          ],
+          "url": "https://huggingface.co/opencv/face_recognition_sface"
         },
         {
           "name": "SAM 3 (Segment Anything 3)",
