@@ -17,7 +17,8 @@ use crate::theme::Tokens;
 use crate::widgets::register;
 
 /// (id, label) of the tabs, in order.
-pub const TABS: &[(&str, &str)] = &[("general", "General"), ("import", "Import"), ("performance", "Performance"), ("interface", "Interface"), ("attributions", "Attributions")];
+pub const TABS: &[(&str, &str)] =
+    &[("general", "General"), ("import", "Import"), ("performance", "Performance"), ("interface", "Interface"), ("attributions", "Attributions")];
 
 /// Thumbnail cache sizes offered (MB).
 const CACHE_SIZES: [u32; 5] = [512, 1024, 2048, 4096, 8192];

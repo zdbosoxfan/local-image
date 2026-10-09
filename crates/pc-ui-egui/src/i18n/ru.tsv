@@ -2962,3 +2962,28 @@ ai	New	Новые
 	Search attributions…	Поиск атрибуций…
 	No matches.	Совпадений нет.
 	Show licence text	Показать текст лицензии
+	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Находит главный объект на фото. Используется в «Выделение › Объект», «Удалить фон (быстро)», в режиме щелчка инструмента «Выделение объектов» и в масках «Объект» и «Фон» Библиотеки.
+	Finds the sky. Used by Select › Sky and the Library's sky masks.	Находит небо. Используется в «Выделение › Небо» и в масках неба Библиотеки.
+	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Оценивает, как далеко находится каждая часть фото. Используется в масках глубины Библиотеки (например, чтобы затемнить или размыть фон или выбрать передний план по расстоянию).
+	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	Находит объект с самыми тонкими краями (волосы, шерсть, мелкие детали). Лучшее качество для «Выделить объект» и «Удалить фон»; одна-две секунды на фото.
+	Clean edges between near and far, good on most photos. Takes a few seconds per photo.	Чистые края между ближним и дальним, подходит для большинства фото. Несколько секунд на фото.
+	Custom: {name}	Пользовательская: {name}
+	Use official model	Использовать официальную модель
+	Your own model, run on the CPU instead of the official one.	Ваша собственная модель, работающая на процессоре вместо официальной.
+	{name} · {size} download · runs on the CPU · {licence}	{name} · загрузка {size} · работает на процессоре · {licence}
+	Custom model…	Пользовательская модель…
+	Pick any .onnx model that does this. It is copied into the models folder and used instead of the official one.	Выберите любую модель .onnx для этой функции. Она копируется в папку моделей и используется вместо официальной.
+	Input style:	Стиль входа:
+	IS-Net style	Стиль IS-Net
+	U²-Net / ImageNet style	Стиль U²-Net / ImageNet
+	Sky class:	Класс неба:
+	Only used when the model gives one map per class (ADE20K: 2).	Используется, только если модель выдаёт по одной карте на класс (ADE20K: 2).
+	Testing the model…	Проверка модели…
+	Choose an ONNX file…	Выбрать файл ONNX…
+	That model can't be used: {error}	Эту модель нельзя использовать: {error}
+	Choose an ONNX model	Выбор модели ONNX
+	ONNX model	Модель ONNX
+	Remove old models ({size})	Удалить старые модели ({size})
+	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	Перемещает в Корзину модели, которые приложение больше не использует (U²-Net, TinySkyNet, MiDaS).
+	the old models	старые модели
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	Небольшие модели, работающие на процессоре этого компьютера: не нужны ни ComfyUI, ни GPU, загрузка быстрая, а ваши фото не покидают компьютер. У каждой функции есть рекомендуемая модель; вместо неё можно использовать собственную модель ONNX.

@@ -238,3 +238,42 @@ fn disk_cache_never_touches_foreign_files() {
     assert!(!disk::is_cache_file("01", "0123456789abcdef0123456789abcdef.jpg.bak"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Dropping a pool waits for the jobs running right now (a worker still inside a GPU render when
+/// the process exits crashes NVIDIA's driver: SIGSEGV in libnvidia-glcore + Xid 13) and discards
+/// the queued ones.
+#[test]
+fn dropping_a_pool_waits_for_running_jobs() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    let started = Arc::new(AtomicU32::new(0));
+    let finished = Arc::new(AtomicU32::new(0));
+    let ran_queued = Arc::new(AtomicU32::new(0));
+    {
+        let mut p: JobPool<u32, ()> = JobPool::new(1);
+        let (s, f) = (started.clone(), finished.clone());
+        p.submit(
+            1,
+            0,
+            10,
+            Box::new(move || {
+                s.fetch_add(1, Ordering::SeqCst);
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                f.fetch_add(1, Ordering::SeqCst);
+            }),
+        );
+        while started.load(Ordering::SeqCst) == 0 {
+            std::thread::yield_now();
+        }
+        let q = ran_queued.clone();
+        p.submit(
+            2,
+            0,
+            1,
+            Box::new(move || {
+                q.fetch_add(1, Ordering::SeqCst);
+            }),
+        );
+    }
+    assert_eq!(finished.load(Ordering::SeqCst), 1, "the running job finished before the pool was gone");
+    assert_eq!(ran_queued.load(Ordering::SeqCst), 0, "queued jobs are discarded");
+}

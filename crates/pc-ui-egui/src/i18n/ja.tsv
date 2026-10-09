@@ -2611,3 +2611,28 @@ ai	New	新着
 	Search attributions…	帰属表示を検索…
 	No matches.	一致する項目はありません。
 	Show licence text	ライセンス全文を表示
+	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	写真の被写体を見つけます。選択 › 被写体、背景を削除（クイック）、オブジェクト選択ツールのクリックモード、ライブラリの被写体・背景マスクで使われます。
+	Finds the sky. Used by Select › Sky and the Library's sky masks.	空を見つけます。選択 › 空とライブラリの空マスクで使われます。
+	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	写真の各部分までの距離を推定します。ライブラリの深度マスクで使われます（背景を暗くしたりぼかしたり、距離で前景を選ぶ場合など）。
+	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	髪や毛、細かい部分まで最も細かいエッジで被写体を見つけます。被写体を選択と背景を削除で最高の品質。1枚あたり1〜2秒かかります。
+	Clean edges between near and far, good on most photos. Takes a few seconds per photo.	近景と遠景の境目がきれいで、ほとんどの写真に向いています。1枚あたり数秒かかります。
+	Custom: {name}	カスタム: {name}
+	Use official model	公式モデルを使う
+	Your own model, run on the CPU instead of the official one.	公式モデルの代わりに、お持ちのモデルをCPUで実行します。
+	{name} · {size} download · runs on the CPU · {licence}	{name} · ダウンロード {size} · CPUで実行 · {licence}
+	Custom model…	カスタムモデル…
+	Pick any .onnx model that does this. It is copied into the models folder and used instead of the official one.	この機能用の .onnx モデルを選んでください。モデルフォルダにコピーされ、公式モデルの代わりに使われます。
+	Input style:	入力スタイル:
+	IS-Net style	IS-Net スタイル
+	U²-Net / ImageNet style	U²-Net / ImageNet スタイル
+	Sky class:	空のクラス:
+	Only used when the model gives one map per class (ADE20K: 2).	モデルがクラスごとに1枚のマップを出力する場合のみ使われます（ADE20K: 2）。
+	Testing the model…	モデルをテスト中…
+	Choose an ONNX file…	ONNX ファイルを選択…
+	That model can't be used: {error}	このモデルは使用できません: {error}
+	Choose an ONNX model	ONNX モデルを選択
+	ONNX model	ONNX モデル
+	Remove old models ({size})	古いモデルを削除 ({size})
+	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	アプリが使わなくなったモデル（U²-Net、TinySkyNet、MiDaS）をゴミ箱に移動します。
+	the old models	古いモデル
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	このコンピュータのプロセッサで動く小さなモデルです。ComfyUI も GPU も不要で、ダウンロードが速く、写真がコンピュータの外に出ることはありません。機能ごとに推奨モデルが1つあり、代わりに独自の ONNX モデルも使えます。

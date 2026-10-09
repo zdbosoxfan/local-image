@@ -3205,3 +3205,28 @@ ai	New	새 항목
 	Search attributions…	저작자 표시 검색…
 	No matches.	일치하는 항목이 없습니다.
 	Show licence text	라이선스 전문 보기
+	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	사진의 주요 피사체를 찾습니다. 선택 › 피사체, 배경 제거(빠르게), 개체 선택 도구의 클릭 모드, 라이브러리의 피사체·배경 마스크에서 사용됩니다.
+	Finds the sky. Used by Select › Sky and the Library's sky masks.	하늘을 찾습니다. 선택 › 하늘과 라이브러리의 하늘 마스크에서 사용됩니다.
+	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	사진의 각 부분이 얼마나 멀리 있는지 추정합니다. 라이브러리의 깊이 마스크에서 사용됩니다(예: 배경을 어둡게 하거나 흐리게 하거나, 거리에 따라 전경을 선택할 때).
+	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	머리카락, 털, 가는 디테일까지 가장 섬세한 가장자리로 피사체를 찾습니다. 피사체 선택과 배경 제거에 가장 좋은 품질이며 사진당 1~2초 걸립니다.
+	Clean edges between near and far, good on most photos. Takes a few seconds per photo.	가까운 곳과 먼 곳의 경계가 깔끔하며 대부분의 사진에 적합합니다. 사진당 몇 초 걸립니다.
+	Custom: {name}	사용자 지정: {name}
+	Use official model	공식 모델 사용
+	Your own model, run on the CPU instead of the official one.	공식 모델 대신 직접 가져온 모델을 CPU에서 실행합니다.
+	{name} · {size} download · runs on the CPU · {licence}	{name} · 다운로드 {size} · CPU에서 실행 · {licence}
+	Custom model…	사용자 지정 모델…
+	Pick any .onnx model that does this. It is copied into the models folder and used instead of the official one.	이 기능에 맞는 .onnx 모델을 선택하세요. 모델 폴더로 복사되어 공식 모델 대신 사용됩니다.
+	Input style:	입력 방식:
+	IS-Net style	IS-Net 방식
+	U²-Net / ImageNet style	U²-Net / ImageNet 방식
+	Sky class:	하늘 클래스:
+	Only used when the model gives one map per class (ADE20K: 2).	모델이 클래스마다 맵 하나를 출력할 때만 사용됩니다(ADE20K: 2).
+	Testing the model…	모델 테스트 중…
+	Choose an ONNX file…	ONNX 파일 선택…
+	That model can't be used: {error}	이 모델은 사용할 수 없습니다: {error}
+	Choose an ONNX model	ONNX 모델 선택
+	ONNX model	ONNX 모델
+	Remove old models ({size})	이전 모델 제거({size})
+	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	앱에서 더 이상 사용하지 않는 모델(U²-Net, TinySkyNet, MiDaS)을 휴지통으로 이동합니다.
+	the old models	이전 모델
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	이 컴퓨터의 프로세서에서 실행되는 작은 모델입니다. ComfyUI나 GPU가 필요 없고 다운로드가 빠르며 사진이 컴퓨터 밖으로 나가지 않습니다. 기능마다 권장 모델이 하나씩 있으며, 대신 직접 가져온 ONNX 모델을 사용할 수도 있습니다.

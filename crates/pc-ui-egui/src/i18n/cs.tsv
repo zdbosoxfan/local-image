@@ -2628,3 +2628,28 @@ ai	New	Nové
 	Search attributions…	Hledat v atribucích…
 	No matches.	Žádné shody.
 	Show licence text	Zobrazit text licence
+	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Najde hlavní objekt na fotografii. Používají ho Výběr › Objekt, Odstranit pozadí (rychle), režim kliknutí nástroje Výběr objektu a masky Objekt a Pozadí v Knihovně.
+	Finds the sky. Used by Select › Sky and the Library's sky masks.	Najde oblohu. Používají ho Výběr › Obloha a masky oblohy v Knihovně.
+	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Odhaduje, jak daleko je každá část fotografie. Používají ho masky hloubky v Knihovně (např. ke ztmavení nebo rozostření pozadí či výběru popředí podle vzdálenosti).
+	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	Najde objekt s nejjemnějšími okraji (vlasy, srst, tenké detaily). Nejlepší kvalita pro Vybrat objekt a Odstranit pozadí; zabere sekundu nebo dvě na fotografii.
+	Clean edges between near and far, good on most photos. Takes a few seconds per photo.	Čisté okraje mezi blízkým a vzdáleným, vhodné pro většinu fotografií. Zabere několik sekund na fotografii.
+	Custom: {name}	Vlastní: {name}
+	Use official model	Použít oficiální model
+	Your own model, run on the CPU instead of the official one.	Váš vlastní model, spouštěný na procesoru místo oficiálního.
+	{name} · {size} download · runs on the CPU · {licence}	{name} · stažení {size} · běží na procesoru · {licence}
+	Custom model…	Vlastní model…
+	Pick any .onnx model that does this. It is copied into the models folder and used instead of the official one.	Vyberte libovolný model .onnx pro tuto funkci. Zkopíruje se do složky modelů a použije se místo oficiálního.
+	Input style:	Styl vstupu:
+	IS-Net style	Styl IS-Net
+	U²-Net / ImageNet style	Styl U²-Net / ImageNet
+	Sky class:	Třída oblohy:
+	Only used when the model gives one map per class (ADE20K: 2).	Použije se jen tehdy, když model dává jednu mapu na třídu (ADE20K: 2).
+	Testing the model…	Testování modelu…
+	Choose an ONNX file…	Vybrat soubor ONNX…
+	That model can't be used: {error}	Tento model nelze použít: {error}
+	Choose an ONNX model	Vybrat model ONNX
+	ONNX model	Model ONNX
+	Remove old models ({size})	Odstranit staré modely ({size})
+	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	Přesune do koše modely, které aplikace již nepoužívá (U²-Net, TinySkyNet, MiDaS).
+	the old models	staré modely
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	Malé modely běžící na procesoru tohoto počítače: nepotřebujete ComfyUI ani GPU, stahování je rychlé a vaše fotografie počítač nikdy neopustí. Každá funkce má jeden doporučený model; místo něj můžete použít vlastní model ONNX.
