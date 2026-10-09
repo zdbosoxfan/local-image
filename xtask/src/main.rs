@@ -32,6 +32,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
+mod assets;
 mod attributions;
 
 fn root() -> PathBuf {
@@ -434,6 +435,8 @@ const USAGE: &str = "usage: cargo xtask <task>
   package windows [--arch x64|x86|arm64] [--skip-build]
   check-icons [file.wxs]
   upstream-check [--offline]
+  assets
+  tool-icons
   attributions [--fetch]
   sign <files…>";
 
@@ -449,6 +452,22 @@ fn main() -> Result<()> {
         },
         Some("check-icons") => check_icons(&args.get(1).map(PathBuf::from).unwrap_or_else(|| root().join("packaging").join("windows").join("local-image.wxs"))),
         Some("upstream-check") => upstream_check(flag("--offline")),
+        Some("assets") => assets::run(&root()),
+        Some("tool-icons") => run(
+            "render tool icon contact sheet",
+            Command::new("cargo").current_dir(root()).env("CARGO_BUILD_JOBS", "3").args([
+                "+1.98.1",
+                "test",
+                "--offline",
+                "--lib",
+                "-p",
+                "photocraft-ui-egui",
+                "write_tool_icon_contact_sheet",
+                "--",
+                "--ignored",
+                "--nocapture",
+            ]),
+        ),
         Some("attributions") => attributions::run(&root(), flag("--fetch")),
         Some("sign") if args.len() > 1 => sign(&args[1..].iter().map(PathBuf::from).collect::<Vec<_>>()),
         _ => {

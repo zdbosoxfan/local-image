@@ -381,6 +381,24 @@ pub fn segmented(ui: &mut Ui, id: &str, items: &[(&str, &str)], active: Option<u
 
 /// An icon-only button. `active` draws the selected background (tool strip).
 pub fn icon_button(ui: &mut Ui, id: &str, icon: Icon, size: egui::Vec2, active: bool, enabled: bool, tooltip: &str) -> Response {
+    icon_button_inner(ui, id, icon, None, size, active, enabled, tooltip)
+}
+
+pub fn tool_button(ui: &mut Ui, id: &str, icon: Icon, size: egui::Vec2, active: bool, enabled: bool, tooltip: &str) -> Response {
+    let name = crate::icons::tool_name(id.strip_prefix("removeMode-").unwrap_or(id));
+    icon_button_inner(ui, id, icon, name, size, active, enabled, tooltip)
+}
+
+fn icon_button_inner(
+    ui: &mut Ui,
+    id: &str,
+    icon: Icon,
+    tool: Option<&str>,
+    size: egui::Vec2,
+    active: bool,
+    enabled: bool,
+    tooltip: &str,
+) -> Response {
     let tooltip = crate::i18n::tr(tooltip);
     let t = Tokens::get(ui.ctx());
     let (r, resp) = ui.allocate_exact_size(size, if enabled { Sense::click() } else { Sense::hover() });
@@ -403,7 +421,13 @@ pub fn icon_button(ui: &mut Ui, id: &str, icon: Icon, size: egui::Vec2, active: 
         t.icon
     };
     let glyph = (size.x.min(size.y) * 0.62).min(22.0);
-    paint(p, Rect::from_center_size(r.center(), vec2(glyph, glyph)), icon, c);
+    let glyph = if tool.is_some() { glyph.max(20.0) } else { glyph };
+    let rect = Rect::from_center_size(r.center(), vec2(glyph, glyph));
+    if let Some(name) = tool {
+        crate::icons::paint_tool(ui, rect, name, icon, c, enabled);
+    } else {
+        paint(p, rect, icon, c);
+    }
     if !tooltip.is_empty() { resp.on_hover_text(tooltip) } else { resp }
 }
 

@@ -2701,3 +2701,5 @@ ai	New	Neu
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Die Himmelsklasse {class} liegt außerhalb des Bereichs: Dieses Modell hat {classes} Klassen (0 bis {max})
 	{path} isn't a file	{path} ist keine Datei
 	Custom models are not supported for this function	Benutzerdefinierte Modelle werden für diese Funktion nicht unterstützt
+	Tool icons	Werkzeugsymbole
+	Colour (default)	Farbe (Standard)

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <!-- Original Local Image SVG; GPL-3.0-or-later. Glossy Duotone, blue family. -->
+  <defs>
+    <linearGradient id="a" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="#61B5FF"/><stop offset="1" stop-color="#3474B5"/></linearGradient>
+    <linearGradient id="n" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="#CCD3DF"/><stop offset="1" stop-color="#66717F"/></linearGradient>
+  </defs>
+  <g transform="translate(1.5 1.5) scale(.875)">
+  <g stroke="#1b1c20" stroke-width="1.43" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 7-4 11H7L3 10Z" fill="url(#a)" /><path d="M12 7l5 4-2 6H9l-2-6Z" fill="url(#n)" /></g>
+  <g stroke-linecap="round" stroke-linejoin="round"><path d="M5 10l7-5" fill="none" stroke="#F7F9FC" stroke-opacity=".28" stroke-width="1.5"/></g>
+  </g>
+</svg>

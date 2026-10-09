@@ -7,7 +7,7 @@ use crate::LightcraftApp;
 use crate::icons::Icon;
 use crate::state::RightPanel;
 use crate::theme::Tokens;
-use crate::widgets::icon_button;
+use crate::widgets::tool_button;
 
 pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
@@ -25,7 +25,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             ui.vertical_centered(|ui| {
                 ui.spacing_mut().item_spacing.y = 6.0;
                 let sz = vec2(t.strip_w, 40.0);
-                if icon_button(ui, "presets", Icon::Presets, sz, app.ui.presets, has_photo, "Presets (Shift+P)").clicked() {
+                if tool_button(ui, "presets", Icon::Presets, sz, app.ui.presets, has_photo, "Presets (Shift+P)").clicked() {
                     let _ = app.run("panel.presets", json!({}));
                 }
                 for (id, icon, panel, tip) in [
@@ -40,7 +40,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                         continue;
                     }
                     let on = app.ui.right == panel || (panel == RightPanel::Edit && app.ui.right == RightPanel::Profiles);
-                    if icon_button(ui, id, icon, sz, on, has_photo, tip).clicked() {
+                    if tool_button(ui, id, icon, sz, on, has_photo, tip).clicked() {
                         let _ = app.run(&format!("panel.{id}"), json!({}));
                     }
                     if id == "edit" {
@@ -48,13 +48,13 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     }
                 }
                 separator(ui, &t);
-                if icon_button(ui, "versions", Icon::Versions, sz, app.ui.right == RightPanel::Versions, has_photo, "Versions (Shift+V)").clicked() {
+                if tool_button(ui, "versions", Icon::Versions, sz, app.ui.right == RightPanel::Versions, has_photo, "Versions (Shift+V)").clicked() {
                     let _ = app.run("panel.versions", json!({}));
                 }
-                if icon_button(ui, "activity", Icon::Activity, sz, app.ui.right == RightPanel::Activity, true, "History & Activity (Y)").clicked() {
+                if tool_button(ui, "activity", Icon::Activity, sz, app.ui.right == RightPanel::Activity, true, "History & Activity (Y)").clicked() {
                     let _ = app.run("panel.activity", json!({}));
                 }
-                if icon_button(ui, "more", Icon::More, sz, false, true, "More").clicked() {
+                if tool_button(ui, "more", Icon::More, sz, false, true, "More").clicked() {
                     app.ui.dialog = Some(crate::state::Dialog::About);
                 }
             });
@@ -66,10 +66,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             );
             child.vertical_centered(|ui| {
                 let sz = vec2(t.strip_w, 40.0);
-                if icon_button(ui, "keywords", Icon::Tag, sz, app.ui.right == RightPanel::Keywords, has_photo, "Keywords (K)").clicked() {
+                if tool_button(ui, "keywords", Icon::Tag, sz, app.ui.right == RightPanel::Keywords, has_photo, "Keywords (K)").clicked() {
                     let _ = app.run("panel.keywords", json!({}));
                 }
-                if icon_button(ui, "info", Icon::Info, sz, app.ui.right == RightPanel::Info, has_photo, "Info (I)").clicked() {
+                if tool_button(ui, "info", Icon::Info, sz, app.ui.right == RightPanel::Info, has_photo, "Info (I)").clicked() {
                     let _ = app.run("panel.info", json!({}));
                 }
             });

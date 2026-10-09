@@ -4098,6 +4098,7 @@ name = "lightcraft-ui-egui"
 version = "2.0.0-alpha.1"
 dependencies = [
  "egui",
+ "egui_extras",
  "li-attributions",
  "lightcraft-catalog",
  "lightcraft-codecs",

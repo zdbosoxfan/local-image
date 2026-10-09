@@ -3097,3 +3097,5 @@ ai	New	Novos
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	A classe de céu {class} está fora do intervalo: este modelo tem {classes} classes (0 a {max})
 	{path} isn't a file	{path} não é um arquivo
 	Custom models are not supported for this function	Esta função não oferece suporte a modelos personalizados
+	Tool icons	Ícones de ferramentas
+	Colour (default)	Cor (padrão)

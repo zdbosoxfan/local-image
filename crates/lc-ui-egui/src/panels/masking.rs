@@ -96,7 +96,14 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 let (r, resp) = ui.allocate_exact_size(vec2(tile, 52.0), Sense::click());
                 register(ui.ctx(), format!("maskNew:{kind}"), r);
                 ui.painter().rect_filled(r, 4.0, if resp.hovered() { t.hover } else { t.inset });
-                paint(ui.painter(), Rect::from_center_size(r.center() - vec2(0.0, 7.0), vec2(20.0, 20.0)), *icon, t.text_label);
+                crate::icons::paint_tool(
+                    ui,
+                    Rect::from_center_size(r.center() - vec2(0.0, 7.0), vec2(20.0, 20.0)),
+                    crate::icons::tool_name(kind).unwrap_or("mask"),
+                    *icon,
+                    t.text_label,
+                    true,
+                );
                 ui.painter().text(pos2(r.center().x, r.bottom() - 9.0), Align2::CENTER_CENTER, *label, t.font(10.5), t.text_dim);
                 if resp.clicked() {
                     match *kind {
@@ -207,7 +214,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 },
             );
             let icon = m.components.first().map(|c| kind_label(&c.shape).1).unwrap_or(Icon::Mask);
-            paint(ui.painter(), Rect::from_min_size(r.min + vec2(8.0, 7.0), vec2(16.0, 16.0)), icon, t.text_label);
+            let name = m.components.first().map(|c| crate::icons::mask_name(&c.shape)).unwrap_or("mask");
+            crate::icons::paint_tool(ui, Rect::from_min_size(r.min + vec2(6.0, 5.0), vec2(20.0, 20.0)), name, icon, t.text_label, m.visible);
             ui.painter().text(
                 pos2(r.left() + 32.0, r.center().y),
                 Align2::LEFT_CENTER,
@@ -267,8 +275,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 _ => kind.to_string(),
             });
             ui.horizontal(|ui| {
-                let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-                paint(ui.painter(), r, icon, t.text_label);
+                let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
+                crate::icons::paint_tool(ui, r, crate::icons::mask_name(&c.shape), icon, t.text_label, true);
                 let op = match c.op {
                     lightcraft_develop::MaskOp::Add => "",
                     lightcraft_develop::MaskOp::Subtract => "− ",

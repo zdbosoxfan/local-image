@@ -118,6 +118,8 @@ pub mod gallery_ui;
 pub mod generate_ui;
 pub mod perspective_crop_ui;
 // local-image: the Model Browser.
+mod color_icon_data;
+mod color_icons;
 pub mod gpu_canvas;
 pub mod gpu_status;
 pub mod gradient_ui;
@@ -1581,6 +1583,12 @@ impl PhotocraftApp {
         true
     }
 }
+
+#[cfg(test)]
+mod tool_icon_sheet;
+
+#[cfg(test)]
+mod tool_icon_tests;
 
 #[cfg(test)]
 mod input_tests;

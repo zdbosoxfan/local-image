@@ -110,7 +110,7 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             let tool = slot_tool(ui, app.ui.tool, slot, key);
                             let sel = slot.contains(&app.ui.tool);
                             let tip = if tool.key() == '\0' { tl!(tool.label()).to_string() } else { format!("{}  ({})", tl!(tool.label()), tool.key()) };
-                            let resp = icons::button(ui, icons::tool_icon(tool), bx, sel, &tip);
+                            let resp = icons::tool_button(ui, icons::tool_icon_name(tool), bx, sel, &tip);
                             if slot.len() > 1 {
                                 let r = resp.rect;
                                 let tri = vec![r.right_bottom() + vec2(-2.0, -2.0), r.right_bottom() + vec2(-6.0, -2.0), r.right_bottom() + vec2(-2.0, -6.0)];
@@ -166,11 +166,11 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                                         t.text,
                                                     );
                                                 }
-                                                icons::paint(
+                                                icons::paint_tool(
                                                     ui,
                                                     Rect::from_center_size(pos2(r.left() + 26.0, r.center().y), vec2(18.0, 18.0)),
-                                                    icons::tool_icon(item),
-                                                    14.0,
+                                                    icons::tool_icon_name(item),
+                                                    20.0,
                                                     t.icon,
                                                 );
                                                 ui.painter().text(
@@ -207,7 +207,7 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 }
             }
             let ctx = ui.ctx().clone();
-            if t.pro && icons::button(ui, "ellipsis", bx, false, tl!("Edit Toolbar…")).clicked() {
+            if t.pro && icons::tool_button(ui, "edit-toolbar", bx, false, tl!("Edit Toolbar…")).clicked() {
                 let _ = crate::menus::invoke(app, &ctx, "edit.toolbar", json!({}));
             }
             ui.add_space(if t.pro { 8.0 } else { 14.0 });
@@ -215,9 +215,9 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             if t.pro {
                 ui.add_space(8.0);
                 let quick_mask = app.session.active().is_some_and(|s| s.doc.quick_mask.is_some());
-                if icons::button(
+                if icons::tool_button(
                     ui,
-                    "square-dashed",
+                    "quick-mask",
                     bx,
                     quick_mask,
                     if quick_mask { tl!("Edit in Standard Mode  (Q)") } else { tl!("Edit in Quick Mask Mode  (Q)") },
@@ -536,7 +536,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     widgets::vline(ui, 22.0);
                 }
                 // The tool's icon opens the Tool Presets panel (Photoshop's tool preset picker).
-                if icons::button(ui, icons::tool_icon(app.ui.tool), if t.pro { 26.0 } else { 28.0 }, !t.pro, tl!(app.ui.tool.label()))
+                if icons::tool_button(ui, icons::tool_icon_name(app.ui.tool), if t.pro { 26.0 } else { 28.0 }, !t.pro, tl!(app.ui.tool.label()))
                     .on_hover_text(tl!("Tool presets"))
                     .clicked()
                 {

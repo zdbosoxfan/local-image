@@ -3002,3 +3002,5 @@ ai	New	Новые
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Класс неба {class} вне диапазона: модель имеет {classes} классов (от 0 до {max})
 	{path} isn't a file	{path} не является файлом
 	Custom models are not supported for this function	Пользовательские модели не поддерживаются для этой функции
+	Tool icons	Значки инструментов
+	Colour (default)	Цветные (по умолчанию)

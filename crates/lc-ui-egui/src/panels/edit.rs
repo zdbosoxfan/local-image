@@ -1385,7 +1385,7 @@ fn point_color(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, 
             ui.spacing_mut().item_spacing.x = 5.0;
             let active = app.ui.tool == "pointColor" && app.ui.point_color_mask == layer;
             let full = n >= lightcraft_develop::MAX_POINT_COLORS;
-            if crate::widgets::icon_button(ui, "pointColorPicker", Icon::Picker, vec2(26.0, 26.0), active, !full, "Sample a colour on the photo")
+            if crate::widgets::tool_button(ui, "pointColorPicker", Icon::Picker, vec2(26.0, 26.0), active, !full, "Sample a colour on the photo")
                 .clicked()
             {
                 app.ui.tool = if active { String::new() } else { "pointColor".into() };

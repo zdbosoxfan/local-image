@@ -20,6 +20,8 @@ web-time = { workspace = true }
 lightcraft-engine = { workspace = true }
 lightcraft-preview = { workspace = true }
 egui = { workspace = true }
+# Reuse the workspace's existing pure-Rust usvg/resvg renderer (no new packages).
+egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
 # The Attributions page (Settings / Preferences / About).
 li-attributions = { workspace = true }
 serde = { workspace = true }
