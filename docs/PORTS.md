@@ -12,3 +12,4 @@ updated to a newer upstream commit, update its row (commit and date) rather than
 | Our file | Upstream project | Upstream path | Upstream commit | Licence | Date |
 |---|---|---|---|---|---|
 | `crates/lc-pipeline/src/negative.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/negadoctor.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-08 |
+| `crates/li-seg/src/denoise.rs` | [darktable-ai](https://github.com/darktable-org/darktable-ai) | `models/rawdenoise-nind/demo.py` (`_run_tiled`, `_match_gain`) | `6bcd41c6f296ca692e6f845b25cf7cdb8148305c` (tag `release-5.6.0`) | GPL-3.0-only | 2026-10-09 |

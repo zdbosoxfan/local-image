@@ -7,9 +7,10 @@
 //! we declare a 256 × 256 input instead (smaller tiles, same result) and fall back to 512 when that
 //! doesn't load.
 //!
-//! The tiling and gain matching follow darktable-ai's `models/rawdenoise-nind/demo.py`
-//! (GPL-3.0; mirror-padded edges, overlapping tiles, one scalar gain matching the output's mean to
-//! the input's), with two changes: tiles are blended with feathered weights instead of keeping
+//! The tiling and gain matching follow darktable-ai's `models/rawdenoise-nind/demo.py` (tag
+//! `release-5.6.0`, commit 6bcd41c6; GPL-3.0; see `docs/PORTS.md` and
+//! `licenses/darktable-ai-NOTICE.md`): mirror-padded edges, overlapping tiles, one scalar gain
+//! matching the output's mean to the input's — with two changes: tiles are blended with feathered weights instead of keeping
 //! only each tile's core, and the gain is matched once over the whole image (a per-tile gain goes
 //! wild — even negative — on dark, flat tiles). The model: Brummer & De Vleeschouwer, "Learning
 //! Joint Denoising, Demosaicing, and Compression from the Raw Natural Image Noise Dataset" (2025),

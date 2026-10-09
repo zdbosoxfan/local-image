@@ -161,12 +161,8 @@ fn resolve_one(sm: &mut SmartObject, meta: &Metadata) -> Option<DevelopLink> {
 
 /// Turns the smart objects of an imported PSD that are Develop layers back into Develop layers.
 pub(crate) fn resolve(doc: &mut Document) {
-    let ids: Vec<LayerId> = doc
-        .walk()
-        .into_iter()
-        .filter(|(_, _, l)| matches!(&l.content, LayerContent::Smart(sm) if sm.develop.is_none()))
-        .map(|(_, _, l)| l.id)
-        .collect();
+    let ids: Vec<LayerId> =
+        doc.walk().into_iter().filter(|(_, _, l)| matches!(&l.content, LayerContent::Smart(sm) if sm.develop.is_none())).map(|(_, _, l)| l.id).collect();
     if ids.is_empty() {
         return;
     }
@@ -234,7 +230,13 @@ mod tests {
     #[test]
     fn stand_in_filters_become_the_link_again() {
         let mut sm = SmartObject::new(SmartSource::Linked { path: "x".into() }, photocraft_geom::Affine::IDENTITY, None);
-        let other = SmartFilter { command: "filter.gaussianBlur".into(), params: json!({"radius": 2}), blend: photocraft_color::BlendMode::Normal, opacity: 1.0, visible: true };
+        let other = SmartFilter {
+            command: "filter.gaussianBlur".into(),
+            params: json!({"radius": 2}),
+            blend: photocraft_color::BlendMode::Normal,
+            opacity: 1.0,
+            visible: true,
+        };
         sm.smart_filters = vec![stand_in_filter(&link()), other.clone()];
         assert_eq!(resolve_one(&mut sm, &Metadata::default()), Some(link()));
         assert_eq!(sm.smart_filters, vec![other]);

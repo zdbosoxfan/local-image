@@ -24,12 +24,14 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod auto;
+pub mod capture;
 pub mod colorops;
 pub mod cull;
 pub mod dust;
 pub mod finish;
 pub mod geometry;
 pub mod layers;
+pub mod lensdb;
 pub mod local;
 pub mod lut;
 pub mod masks;

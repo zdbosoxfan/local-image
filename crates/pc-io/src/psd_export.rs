@@ -697,9 +697,7 @@ impl Ex {
                 crate::linked::find_linked_file(&meta, path).map(|f| (f.file_name, f.bytes, false))
             }
             #[cfg(not(target_arch = "wasm32"))]
-            SmartSource::Linked { path } => {
-                std::fs::read(path).ok().map(|b| (path.rsplit(['/', '\\']).next().unwrap_or(path).to_string(), b, true))
-            }
+            SmartSource::Linked { path } => std::fs::read(path).ok().map(|b| (path.rsplit(['/', '\\']).next().unwrap_or(path).to_string(), b, true)),
             #[cfg(target_arch = "wasm32")]
             SmartSource::Linked { .. } => None,
         };

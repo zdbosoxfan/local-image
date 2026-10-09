@@ -375,8 +375,8 @@ mod tests {
     fn the_ai_view_round_trips() {
         let region: Vec<[f32; 3]> = (0..400).map(|i| [0.02 + i as f32 * 0.002, 0.05 + i as f32 * 0.0015, 0.01 + i as f32 * 0.001]).collect();
         let info = SourceInfo { raw: true, as_shot_temp: 5000.0, ..Default::default() };
-        let mut s = DevelopSettings::default();
-        s.wb = lightcraft_develop::WhiteBalance { mode: lightcraft_develop::WbMode::Custom, temp: 4300.0, tint: 8.0 };
+        let wb = lightcraft_develop::WhiteBalance { mode: lightcraft_develop::WbMode::Custom, temp: 4300.0, tint: 8.0 };
+        let s = DevelopSettings { wb, ..Default::default() };
         let v = AiView::new(&region, &info, &s);
         for p in region.iter().take(390) {
             let back = v.decode(v.encode(*p));
