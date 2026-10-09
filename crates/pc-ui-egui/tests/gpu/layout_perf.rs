@@ -4,7 +4,7 @@
 //! nothing and hiding one recomposites only its area; and the GPU compositor (which composites
 //! small layers over their bounds only) matches the CPU reference on the whole document.
 
-#[path = "support/layout_doc.rs"]
+#[path = "../support/layout_doc.rs"]
 mod layout_doc;
 
 use egui::{Event, Modifiers, PointerButton, Pos2};
@@ -102,6 +102,7 @@ fn actual_pixels(h: &mut H) {
 
 #[test]
 fn move_drag_follows_the_pointer_and_is_one_undo_step() {
+    let _gpu = crate::gpu_lock();
     let (mut h, k) = app();
     actual_pixels(&mut h);
     h.state_mut().ui.tool = Tool::Move;
@@ -128,6 +129,7 @@ fn move_drag_follows_the_pointer_and_is_one_undo_step() {
 
 #[test]
 fn auto_select_moves_the_layer_under_the_pointer() {
+    let _gpu = crate::gpu_lock();
     let (mut h, k) = app();
     actual_pixels(&mut h);
     h.state_mut().ui.tool = Tool::Move;
@@ -145,6 +147,7 @@ fn auto_select_moves_the_layer_under_the_pointer() {
 
 #[test]
 fn a_move_tool_click_selects_without_moving() {
+    let _gpu = crate::gpu_lock();
     // Snapping stays on (the default): it used to pull the release point onto a nearby edge, so
     // a plain click nudged the layer (and recomposited the whole document).
     let (mut h, k) = app();
@@ -166,6 +169,7 @@ fn a_move_tool_click_selects_without_moving() {
 
 #[test]
 fn selecting_recomposites_nothing_and_hiding_only_the_layer() {
+    let _gpu = crate::gpu_lock();
     let (mut h, k) = app();
     for id in [k.text, k.group, k.smart, k.shape] {
         h.state_mut().perf.last_refresh = "untouched";
@@ -193,6 +197,7 @@ fn selecting_recomposites_nothing_and_hiding_only_the_layer() {
 
 #[test]
 fn the_move_preview_is_what_the_move_commits() {
+    let _gpu = crate::gpu_lock();
     let (d, k) = layout_doc::build(layout_doc::Spec::small());
     let mut s = photocraft_engine::Session::new();
     s.open_document(d, None);
@@ -216,6 +221,7 @@ fn the_move_preview_is_what_the_move_commits() {
 
 #[test]
 fn layout_document_composites_on_the_gpu_like_the_cpu() {
+    let _gpu = crate::gpu_lock();
     use eframe::wgpu;
     fn block_on<F: std::future::Future>(f: F) -> F::Output {
         let mut cx = std::task::Context::from_waker(std::task::Waker::noop());

@@ -46,6 +46,7 @@ fn canvas(h: &mut Harness) -> (Vec<[u8; 3]>, usize) {
 
 #[test]
 fn flipped_view_is_mirrored_on_the_gpu() {
+    let _gpu = crate::gpu_lock();
     let Some(mut h) = harness() else { return };
     {
         let app = h.state_mut();

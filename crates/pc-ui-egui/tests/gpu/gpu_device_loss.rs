@@ -12,11 +12,7 @@ use photocraft_ui_egui::{PhotocraftApp, gpu_status};
 use serde_json::json;
 
 /// Concurrent wgpu devices in one process crash on some drivers (see `canvas_16f.rs`).
-static GPU_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn gpu_lock() -> std::sync::MutexGuard<'static, ()> {
-    GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-}
+use crate::gpu_lock;
 
 fn render_state() -> Option<RenderState> {
     let rs =

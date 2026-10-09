@@ -7,11 +7,7 @@ use serde_json::{Value, json};
 /// Concurrent wgpu devices in one process crash NVIDIA's driver (SIGSEGV inside `libnvidia-glcore`
 /// or a call through a null/unloaded function pointer when the devices are torn down together;
 /// see #194), so every test that builds a GPU harness holds this lock for its whole run.
-static GPU_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn gpu_lock() -> std::sync::MutexGuard<'static, ()> {
-    GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-}
+use crate::gpu_lock;
 
 fn gpu_available() -> bool {
     let instance = eframe::wgpu::Instance::default();
