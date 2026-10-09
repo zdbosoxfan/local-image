@@ -16,18 +16,41 @@ pub enum Demosaic {
     Rcd,
     /// RCD on detail, bilinear in flat areas.
     DualRcd,
+    /// RCD on detail, smoothed four-colour VNG-linear in flat areas.
+    DualRcdVng,
+    Vng4,
+    Amaze,
+    DualAmazeVng,
     Ppg,
     Bilinear,
 }
 
 impl Demosaic {
-    pub const ALL: [Demosaic; 6] = [Demosaic::Auto, Demosaic::Ahd, Demosaic::Rcd, Demosaic::DualRcd, Demosaic::Ppg, Demosaic::Bilinear];
+    /// Menu methods; the saved bilinear dual is shown only when selected.
+    pub const ALL: [Demosaic; 9] = [
+        Demosaic::Auto,
+        Demosaic::Ahd,
+        Demosaic::Rcd,
+        Demosaic::DualRcdVng,
+        Demosaic::Vng4,
+        Demosaic::Amaze,
+        Demosaic::DualAmazeVng,
+        Demosaic::Ppg,
+        Demosaic::Bilinear,
+    ];
+    pub fn is_dual(self) -> bool {
+        matches!(self, Self::DualRcd | Self::DualRcdVng | Self::DualAmazeVng)
+    }
     pub fn label(self) -> &'static str {
         match self {
             Demosaic::Auto => "Default (AHD)",
             Demosaic::Ahd => "AHD",
             Demosaic::Rcd => "RCD",
             Demosaic::DualRcd => "Dual (RCD + bilinear)",
+            Demosaic::DualRcdVng => "Dual (RCD + VNG)",
+            Demosaic::Vng4 => "VNG4",
+            Demosaic::Amaze => "AMaZE",
+            Demosaic::DualAmazeVng => "Dual (AMaZE + VNG)",
             Demosaic::Ppg => "PPG",
             Demosaic::Bilinear => "Bilinear",
         }
@@ -43,16 +66,19 @@ pub enum HighlightMode {
     Reconstruct,
     /// Inpaint opposed (darktable).
     Opposed,
+    /// CFA segmentation before demosaic (darktable).
+    Segmentation,
     /// Clip to neutral white.
     Clip,
 }
 
 impl HighlightMode {
-    pub const ALL: [HighlightMode; 3] = [HighlightMode::Reconstruct, HighlightMode::Opposed, HighlightMode::Clip];
+    pub const ALL: [HighlightMode; 4] = [HighlightMode::Reconstruct, HighlightMode::Opposed, HighlightMode::Segmentation, HighlightMode::Clip];
     pub fn label(self) -> &'static str {
         match self {
             HighlightMode::Reconstruct => "Reconstruct",
             HighlightMode::Opposed => "Inpaint Opposed",
+            HighlightMode::Segmentation => "Segmentation",
             HighlightMode::Clip => "Clip",
         }
     }
@@ -301,5 +327,23 @@ impl Default for ColorCal {
 impl ColorCal {
     pub fn is_default(&self) -> bool {
         *self == ColorCal::default()
+    }
+}
+
+#[cfg(test)]
+mod raw_quality_tests {
+    use super::*;
+    #[test]
+    fn option_serialization_and_menu_compatibility() {
+        assert!(!Demosaic::ALL.contains(&Demosaic::DualRcd));
+        assert_eq!(serde_json::from_str::<Demosaic>("\"dualRcd\"").unwrap(), Demosaic::DualRcd);
+        for (value, key) in
+            [(Demosaic::DualRcdVng, "dualRcdVng"), (Demosaic::Vng4, "vng4"), (Demosaic::Amaze, "amaze"), (Demosaic::DualAmazeVng, "dualAmazeVng")]
+        {
+            assert!(Demosaic::ALL.contains(&value));
+            assert_eq!(serde_json::to_value(value).unwrap(), serde_json::json!(key));
+        }
+        assert_eq!(serde_json::to_value(HighlightMode::Segmentation).unwrap(), serde_json::json!("segmentation"));
+        assert!(HighlightMode::ALL.contains(&HighlightMode::Segmentation));
     }
 }

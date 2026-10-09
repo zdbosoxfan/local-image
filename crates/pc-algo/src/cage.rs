@@ -40,7 +40,7 @@ pub fn polygon_coverage(poly: &[[f64; 2]], r: Rect) -> Vec<f32> {
                 }
             }
             xs.sort_by(f64::total_cmp);
-            for span in xs.chunks_exact(2) {
+            for span in xs.as_chunks::<2>().0 {
                 let (x0, x1) = (span[0] - f64::from(r.x0), span[1] - f64::from(r.x0));
                 let (x0, x1) = (x0.clamp(0.0, w as f64), x1.clamp(0.0, w as f64));
                 if x1 <= x0 {
@@ -149,7 +149,7 @@ pub fn cage_warp_gray(s: &Surface, map: &CageMap, interp: Interp) -> Surface {
     if !b.is_empty() {
         let m = moved.read_region(b);
         let under = out.read_region(b);
-        let flat: Vec<f32> = m.chunks_exact(2).zip(&under).map(|(p, u)| p[0] * p[1] + u * (1.0 - p[1])).collect();
+        let flat: Vec<f32> = m.as_chunks::<2>().0.iter().zip(&under).map(|(p, u)| p[0] * p[1] + u * (1.0 - p[1])).collect();
         out.write_region(b, &flat);
     }
     out.prune();

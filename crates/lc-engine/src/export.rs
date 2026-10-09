@@ -1698,6 +1698,8 @@ mod tests {
     fn distinct_levels(bytes: &[u8]) -> (usize, lightcraft_codecs::Decoded) {
         let d = lightcraft_codecs::decode(bytes, Default::default()).expect("decodes");
         let mut v: Vec<u32> = (0..d.image.width).map(|x| d.image.get(x, 1)[1].to_bits()).collect();
+        // Dither alternates adjacent levels: count distinct values, not transitions.
+        v.sort_unstable();
         v.dedup();
         (v.len(), d)
     }
