@@ -8,3 +8,4 @@ mod ds_profiles_coverage;
 mod ds_spots_coverage;
 mod ds_ucs_coverage;
 mod ds_upright_coverage;
+mod ds_visualize_coverage;
