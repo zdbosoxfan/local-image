@@ -89,11 +89,45 @@ pub fn denoise_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSe
 
 // ------------------------------------------------------------------------------ AI Remove
 
-/// The Remove panel's AI mode: engine, brush or lasso, a layer's area, running removals.
+/// Whether `sp` is a content-aware heal (made on this computer) rather than an AI removal.
+pub fn is_local(sp: &Spot) -> bool {
+    sp.patch.as_ref().is_some_and(|p| p.engine == lightcraft_engine::enhance::remove::LOCAL)
+}
+
+/// Progress (and Cancel) of the active photo's removals and heals being made.
+pub fn remove_jobs(app: &mut LightcraftApp, ui: &mut egui::Ui) {
+    let Some(id) = app.session.active() else { return };
+    let running: Vec<(u64, f32, String)> =
+        app.session.enhance.running_for(id).filter(|j| j.kind != JobKind::Denoise).map(|j| (j.id, j.ctl.progress(), j.label.clone())).collect();
+    if running.is_empty() {
+        return;
+    }
+    padded(ui, |ui| {
+        for (job, frac, label) in running {
+            progress(app, ui, &format!("removeJob{job}"), &label, frac, Some(job));
+        }
+    });
+}
+
+/// The Remove panel's AI mode: what is painted and waiting (Remove / Cancel), engine, brush or
+/// lasso, a layer's area, running removals.
 pub fn remove_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
     let Some(id) = app.session.active() else { return };
     let engines = app.session.enhance.host.as_ref().map(|h| h.remove_engines()).unwrap_or_default();
+    let draft = app.ui.remove_draft.as_ref().is_some_and(|dr| dr.photo == id.0);
     padded(ui, |ui| {
+        if draft {
+            dim(ui, "Paint more to add to it (⌥ takes away), then remove it all at once.");
+            ui.horizontal(|ui| {
+                if text_button(ui, "removePanelApply", "Remove", true).on_hover_text(tr("Remove what you painted (Enter)")).clicked() {
+                    super::detail::apply_remove_draft(app, ui.ctx());
+                }
+                if text_button(ui, "removePanelCancel", "Cancel", false).on_hover_text(tr("Discard what you painted (Esc)")).clicked() {
+                    app.ui.remove_draft = None;
+                }
+            });
+            ui.add_space(6.0);
+        }
         if engines.is_empty() {
             dim(ui, "AI Remove needs the AI engine. Set it up in Compositing › Local AI.");
             return;
@@ -124,7 +158,16 @@ pub fn remove_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSe
                 app.ui.remove_lasso = true;
             }
         });
-        dim(ui, if app.ui.remove_lasso { "Draw around a distraction to remove it." } else { "Paint over a distraction to remove it." });
+        if !draft {
+            dim(
+                ui,
+                if app.ui.remove_lasso {
+                    "Draw around a distraction, then click Remove (Enter)."
+                } else {
+                    "Paint over a distraction, then click Remove (Enter)."
+                },
+            );
+        }
         // a develop layer's area
         let masks: Vec<(u32, String)> = d.masks.iter().map(|m| (m.id, m.name.clone())).collect();
         if !masks.is_empty() {
@@ -171,7 +214,9 @@ pub fn spot_info(app: &mut LightcraftApp, ui: &mut egui::Ui, sp: &Spot) {
         if let Some(n) = note {
             ui.label(RichText::new(tr(n)).color(Tokens::get(ui.ctx()).caution).size(11.5));
         }
-        if let Some(p) = &sp.patch {
+        if is_local(sp) {
+            dim(ui, "Content-aware heal, made on this computer");
+        } else if let Some(p) = &sp.patch {
             let engine = app
                 .session
                 .enhance
@@ -206,7 +251,8 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
     }
     if let Some(e) = p.errors.into_iter().last() {
         app.toast_error(ctx, e);
-    } else if let Some(done) = p.done.last() {
+    } else if let Some(done) = p.done.iter().rfind(|l| *l != lightcraft_engine::enhance::remove::HEAL_LABEL) {
+        // (a heal shows on the photo when it is done: no toast for each)
         app.toast(ctx, format!("{} ✓", tr(done)));
     }
     if app.session.enhance.busy() {
