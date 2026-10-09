@@ -286,12 +286,9 @@ fn mtb_offset_zero_levels_or_small_image() {
 }
 
 #[test]
-#[ignore = "BUG: mtb_offset returns a nonzero offset for identical images when ties occur"]
 fn mtb_offset_identical_images_is_zero() {
     let img = vec![0.5f32; 32 * 32];
-    // Identical images must align to (0,0); but mtb_offset's tie-breaking
-    // prefers the first searched offset, e.g. (-1,-1) when active pixels
-    // disagree nowhere.
+    // Ties (every pixel excluded) must keep the centre offset, not the first corner searched.
     assert_eq!(hdr::mtb_offset(32, 32, &img, &img, 4), (0, 0));
 }
 
@@ -340,7 +337,7 @@ fn merge_single_image_returns_finite_basic_result() {
     let img = vec![[0.5, 0.5, 0.5, 1.0]; 64];
     let refs = [img.as_slice()];
     let opts = MergeOptions { exposures: vec![1.0], remove_ghosts: false, ghost_base: None, response: None };
-    let m = hdr::merge(8, 8, &refs, &opts);
+    let m = hdr::merge(8, 8, &refs, &opts).unwrap();
     assert_eq!(m.px.len(), 64);
     assert_eq!(m.response.len(), 3);
     for curve in &m.response {
@@ -357,9 +354,75 @@ fn merge_single_image_returns_finite_basic_result() {
 }
 
 #[test]
-#[ignore = "BUG: merge panics on empty input"]
-fn merge_empty_input_does_not_panic() {
-    let _ = hdr::merge(1, 1, &[], &MergeOptions { exposures: Vec::new(), remove_ghosts: false, ghost_base: None, response: None });
+fn merge_empty_input_is_an_error() {
+    let opts = MergeOptions { exposures: Vec::new(), remove_ghosts: false, ghost_base: None, response: None };
+    assert!(hdr::merge(1, 1, &[], &opts).is_err());
+}
+
+#[test]
+fn merge_mismatched_inputs_are_errors() {
+    let a = vec![[0.5, 0.5, 0.5, 1.0]; 64];
+    let b = vec![[0.5, 0.5, 0.5, 1.0]; 63];
+    let opts = |e: Vec<f64>| MergeOptions { exposures: e, remove_ghosts: false, ghost_base: None, response: None };
+    // Different sized frames.
+    assert!(hdr::merge(8, 8, &[a.as_slice(), b.as_slice()], &opts(vec![1.0, 2.0])).is_err());
+    // Frames not matching w*h.
+    assert!(hdr::merge(9, 8, &[a.as_slice()], &opts(vec![1.0])).is_err());
+    // Exposure count mismatch.
+    assert!(hdr::merge(8, 8, &[a.as_slice(), a.as_slice()], &opts(vec![1.0])).is_err());
+    // Zero size.
+    assert!(hdr::merge(0, 8, &[&[][..]], &opts(vec![1.0])).is_err());
+}
+
+fn textured(w: usize, h: usize) -> Vec<f32> {
+    // Deterministic multi-scale value noise (cells of 24, 12 and 6 px): photo-like contrast with
+    // steep enough edges that a one-pixel shift survives MTB's exclusion band.
+    let lattice = |cx: i64, cy: i64, seed: u64| -> f32 {
+        let mut v =
+            (cx as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (cy as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F) ^ seed.wrapping_mul(0x1656_67B1_9E37_79F9);
+        v ^= v >> 29;
+        v = v.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        v ^= v >> 32;
+        (v & 0xFFFF) as f32 / 65535.0
+    };
+    let noise = |x: f32, y: f32, cell: f32, seed: u64| -> f32 {
+        let (fx, fy) = (x / cell, y / cell);
+        let (ix, iy) = (fx.floor(), fy.floor());
+        let (tx, ty) = (fx - ix, fy - iy);
+        let (ix, iy) = (ix as i64, iy as i64);
+        let a = lattice(ix, iy, seed) * (1.0 - tx) + lattice(ix + 1, iy, seed) * tx;
+        let b = lattice(ix, iy + 1, seed) * (1.0 - tx) + lattice(ix + 1, iy + 1, seed) * tx;
+        a * (1.0 - ty) + b * ty
+    };
+    (0..w * h)
+        .map(|i| {
+            let (x, y) = ((i % w) as f32, (i / w) as f32);
+            0.5 * noise(x, y, 24.0, 1) + 0.3 * noise(x, y, 12.0, 2) + 0.2 * noise(x, y, 6.0, 3)
+        })
+        .collect()
+}
+
+#[test]
+fn mtb_offset_finds_real_shifts_both_axes() {
+    // 256x192: the pyramid stops once a side drops below 16 px, so this size reaches +-15.
+    let (w, h) = (256usize, 192usize);
+    let img = textured(w, h);
+    for d in (-8i32..=8).filter(|d| *d != 0) {
+        for (dx, dy) in [(d, 0), (0, d), (d, -d)] {
+            let shifted: Vec<f32> = (0..w * h)
+                .map(|i| {
+                    // Wrap-around shift keeps the histogram (and so the median) identical, as a
+                    // real exposure pair's would be; clamping would skew the median threshold.
+                    let (x, y) = (((i % w) as i32 - dx).rem_euclid(w as i32), ((i / w) as i32 - dy).rem_euclid(h as i32));
+                    img[(y as usize) * w + x as usize] * 0.6
+                })
+                .collect();
+            let got = hdr::mtb_offset(w, h, &shifted, &img, 4);
+            assert_eq!(got, (dx, dy), "shift ({dx},{dy})");
+        }
+    }
+    // Identical textured images stay at zero too.
+    assert_eq!(hdr::mtb_offset(w, h, &img, &img, 4), (0, 0));
 }
 
 #[test]
