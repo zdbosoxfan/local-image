@@ -240,3 +240,16 @@ and reports the minimum of three timed repeats after warm-up. The ignored
 a zero-strength row. No GPU adapter is available in this sandbox; device parity
 and before/after timings remain for the RTX 5090. Exact commands and sandbox
 test counts are in [`CODEX-REPORT-gpu-lensdb.md`](wip/CODEX-REPORT-gpu-lensdb.md).
+
+### Lens database on the GPU — RTX 5090 validation (2026-10-09)
+
+NVIDIA GeForce RTX 5090, Vulkan, driver 615.71.09. `lightcraft-gpu` + `lightcraft-pipeline`: 242 passed, 0 failed,
+no device test skipped; every lens comparison within mean < 0.5 LSB, max ≤ 1 LSB.
+
+| 24 MP geometry | Before: CPU resample + upload | After: upload + GPU warp | After: reused upload + warp |
+| --- | ---: | ---: | ---: |
+| lens 0% | 96.3 ms | 36.7 ms | 0.0 ms |
+| lens 100% | 274.2 ms | 48.2 ms | 5.2 ms |
+| lens 200% | 260.7 ms | 51.0 ms | 5.6 ms |
+
+Full-render toolset bench (24 MP): lens profile (db) 276 ms on the GPU path vs 2894 ms CPU (was 315 ms hybrid).
