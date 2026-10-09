@@ -35,6 +35,8 @@ mod tests_doc_layers;
 #[cfg(test)]
 mod tests_grid;
 #[cfg(test)]
+mod tests_host_composite;
+#[cfg(test)]
 mod tests_library_problem;
 #[cfg(test)]
 mod tests_masking;
@@ -216,6 +218,11 @@ pub struct LightcraftApp {
     pub host_fonts: bool,
     /// local-image: a host session in Develop (Compositing's Camera Raw Filter): banner, OK/Cancel.
     pub host_session: Option<panels::host_session::HostSession>,
+    /// local-image: photos being edited in Compositing, shown as their unsaved composite in the
+    /// Library's loupe and grid (the host sets them; [`panels::host_composite`]).
+    pub host_composites: std::collections::HashMap<lightcraft_catalog::PhotoId, panels::host_composite::HostComposite>,
+    /// local-image: "Open in Compositing" was clicked on such a photo: the host shows its document.
+    pub host_composite_open: Option<lightcraft_catalog::PhotoId>,
 }
 
 impl LightcraftApp {
@@ -267,6 +274,8 @@ impl LightcraftApp {
             library_problem: None,
             host_fonts: false,
             host_session: None,
+            host_composites: Default::default(),
+            host_composite_open: None,
         }
     }
 

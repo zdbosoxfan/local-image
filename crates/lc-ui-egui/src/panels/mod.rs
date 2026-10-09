@@ -12,6 +12,7 @@ pub mod edit;
 pub mod enhance;
 pub mod filterbar;
 pub mod grid;
+pub mod host_composite;
 pub mod host_session;
 pub mod left;
 pub mod library_problem;

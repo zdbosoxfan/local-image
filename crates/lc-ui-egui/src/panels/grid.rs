@@ -497,15 +497,19 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
     // thumbnail
     let size = thumb_px(img_rect.width().max(img_rect.height()), ppp);
     request_thumb(app, id, size, if onscreen { 10 } else { 5 });
-    if let Some(tex) = app.renderer.thumb(id) {
-        let [tw, th] = tex.size;
+    // local-image: a photo being edited in Compositing shows its unsaved composite
+    let composite = super::host_composite::thumb(app, id);
+    if let Some((tex_id, [tw, th])) = composite.or_else(|| app.renderer.thumb(id).map(|t| (t.tex.id(), t.size))) {
         let fit = if square {
             let s = (img_rect.width() / tw as f32).min(img_rect.height() / th as f32);
             Rect::from_center_size(img_rect.center(), vec2(tw as f32 * s, th as f32 * s))
         } else {
             img_rect
         };
-        p.image(tex.tex.id(), fit, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+        p.image(tex_id, fit, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+        if composite.is_some() {
+            super::host_composite::grid_badge(ui, fit);
+        }
         if active {
             p.rect_stroke(fit.expand(if square { 2.0 } else { 0.0 }), 0.0, Stroke::new(2.0, Color32::WHITE), StrokeKind::Outside);
         } else if selected {

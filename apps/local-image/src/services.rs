@@ -182,6 +182,10 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             for (name, exts) in save_filters(suggested) {
                 d = d.add_filter(name, exts);
             }
+            // A suggestion with a folder (a photo from the Library: beside its original) opens there.
+            if let Some(dir) = p.parent().filter(|d| d.is_absolute() && d.is_dir()) {
+                d = d.set_directory(dir);
+            }
             if let Some(name) = p.file_name() {
                 d = d.set_file_name(name.to_string_lossy());
             }

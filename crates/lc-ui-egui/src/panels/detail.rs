@@ -278,6 +278,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         p.text(pos2(canvas.right() - 16.0, canvas.top() + 14.0), Align2::RIGHT_CENTER, label, t.font(12.5), Color32::from_gray(60));
     }
     let shown;
+    let mut open_composite = false;
     if split {
         let br = fit_rect(areas[0], aspect, app.ui.zoom, native, ppp, app.ui.pan);
         draw(Slot::Before, br);
@@ -296,6 +297,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         p.rect_filled(bg, 4.0, Color32::from_black_alpha(160));
         p.galley(bg.min + vec2(8.0, 4.0), g, Color32::WHITE);
         shown = "hover";
+    } else if let Some(open) = (!right.is_edit_tool()).then(|| super::host_composite::loupe(app, ui, id, main_area)).flatten() {
+        // local-image: being edited in Compositing (unsaved): the Library shows it as it is there
+        open_composite = open;
+        shown = "compositing";
     } else {
         shown = draw(Slot::Main, img_rect);
         if shown == "none" {
@@ -317,6 +322,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         }
     }
     app.loupe_shown = Some((id, shown));
+    if open_composite {
+        app.host_composite_open = Some(id);
+    }
     if app.ui.before_after == BeforeAfter::Split {
         let mid = img_rect.center().x;
         if let Some(tex) = app.renderer.textures.get(&Slot::Before).filter(|t| t.photo == id) {
