@@ -2883,3 +2883,122 @@ ai	New	Новые
 	Soft	Мягкий
 	Linear	Линейный
 	Index	Индекс
+	Browse LoRAs for this model family	Найти LoRA для этого семейства моделей
+	Browse LoRAs…	Обзор LoRA…
+	Choose another model…	Выбрать другую модель…
+	Couldn't remove {name}: {error}	Не удалось удалить {name}: {error}
+	Find LoRAs (styles) for the chosen model's family	Найти LoRA (стили) для семейства выбранной модели
+	Kept because other installed models use them: {files}	Оставлены, так как их используют другие установленные модели: {files}
+	List only the official upscalers (SeedVR2)	Показывать только официальные апскейлеры (SeedVR2)
+	Move to Trash	Переместить в корзину
+	None of its files are in the model folder.	Ни одного из его файлов нет в папке моделей.
+	ON-DEVICE MODELS (CPU)	МОДЕЛИ НА УСТРОЙСТВЕ (CPU)
+	Official upscalers only	Только официальные апскейлеры
+	Recommended	Рекомендуется
+	Remove (deletes the files)	Удалить (файлы удаляются)
+	Remove (moves the files to the Trash)	Удалить (файлы перемещаются в корзину)
+	Remove {name}?	Удалить {name}?
+	Removed {name} ({size} freed)	{name} удалено (освобождено {size})
+	Stop generation	Остановить генерацию
+	Stopped generation	Генерация остановлена
+	This frees {size}. The files are deleted permanently.	Освободится {size}. Файлы будут удалены безвозвратно.
+	This frees {size}. The files go to the Trash, so you can restore them from there.	Освободится {size}. Файлы попадут в корзину, откуда их можно восстановить.
+	Unload AI models from GPU memory (the AI engine is off)	Выгрузить модели ИИ из памяти GPU (движок ИИ выключен)
+	Unload AI models from GPU memory	Выгрузить модели ИИ из памяти GPU
+	Unloading AI models…	Выгрузка моделей ИИ…
+	Upscale with any image model instead: enlarge, then add detail with img2img	Увеличить любой моделью изображений: увеличить, затем добавить детали через img2img
+	kept {files}	оставлены {files}
+	using {name}	используется {name}
+	{n} of {total} installed	установлено {n} из {total}
+	{size} download · runs on the CPU · {licence}	загрузка {size} · работает на CPU · {licence}
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	Небольшие модели, которые работают на процессоре этого компьютера: не нужны ни ComfyUI, ни GPU, загрузки быстрые, а ваши фотографии не покидают компьютер. Каждая группа обслуживает свои инструменты; используется лучшая установленная модель группы.
+	Subject & Background	Объект и фон
+# Selected-item context bars and live shapes
+	AI Fill	Заливка ИИ
+	Add a vector mask from the path	Добавить векторную маску из контура
+	Bottom-left corner radius	Радиус нижнего левого угла
+	Bottom-right corner radius	Радиус нижнего правого угла
+	Content-Aware Fill	Заливка с учётом содержимого
+	Corners	Углы
+	Create another variation using this layer's prompt and a new seed	Создать другой вариант с запросом этого слоя и новым зерном
+	Describe what to generate, or leave empty to fill from the surroundings	Опишите результат или оставьте поле пустым для заливки по окружению
+	Edit Path	Редактировать контур
+	Edit Text	Редактировать текст
+	Edit the shape's anchors and handles	Редактировать узлы и направляющие фигуры
+	Edit this photo's develop settings	Изменить настройки проявки этой фотографии
+	Fill the path's area from the image around it	Залить область контура по окружающему изображению
+	Fill the selection from the image around it	Залить выделение по окружающему изображению
+	Generate this area again from its surroundings	Снова создать эту область по окружению
+	Generate “{prompt}” again with a new seed	Снова создать «{prompt}» с новым зерном
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	Генеративная заливка: создать область по описанию (пусто: по окружению)
+	Generative Fill: regenerate the path's area from a description	Генеративная заливка: создать область контура по описанию
+	L	Д
+	Line weight	Толщина линии
+	Mask out the background with AI	Скрыть фон маской с помощью ИИ
+	Number of sides	Количество сторон
+	Open in Develop	Открыть в Проявке
+	Open the Smart Object's contents	Открыть содержимое смарт-объекта
+	Regenerate	Создать заново
+	Select the main subject with AI	Выделить основной объект с помощью ИИ
+	Set radius of all corners	Задать радиус всех углов
+	Set shape stroke width	Задать толщину обводки фигуры
+	Set the font size	Задать размер шрифта
+	This layer has no generation model to repeat	У этого слоя нет модели для повторной генерации
+	This layer has no generation settings to repeat	У этого слоя нет настроек для повторной генерации
+	This layer's generation model is unavailable	Модель генерации этого слоя недоступна
+	Top-left corner radius	Радиус верхнего левого угла
+	Top-right corner radius	Радиус верхнего правого угла
+	Turn the shape into pixels	Преобразовать фигуру в пиксели
+	Variations	Варианты
+	Close panel	Закрыть панель
+	Dock Panel	Закрепить панель
+	Float Panel Group	Открепить группу панелей
+	Save and Return to Library	Сохранить и вернуться в библиотеку
+	Added your new Develop edits as layer {name}	Ваши новые правки Develop добавлены как слой {name}
+	Open the Library to save into it	Откройте библиотеку, чтобы сохранить в неё
+	The layers below are unchanged; hide or delete the new layer to go back.	Нижние слои не изменены; чтобы вернуться, скройте или удалите новый слой.
+# Attributions page (li-attributions)
+	Attributions	Атрибуции
+	Search attributions…	Поиск атрибуций…
+	No matches.	Совпадений нет.
+	Show licence text	Показать текст лицензии
+	Smart Sort (scenes)	Умная сортировка (сцены)
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	Распознаёт содержимое фото (докладчиков, аудиторию, детали…), чтобы поместить его в нужную папку. Работает на CPU; фотографии не покидают этот компьютер.
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	Распознаёт сцены по вашим описаниям. Быстрая локальная модель для докладчиков, аудитории, деталей и других выбранных категорий. Загрузка включает текстовую модель и токенизатор.
+	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Находит главный объект на фото. Используется в «Выделение › Объект», «Удалить фон (быстро)», в режиме щелчка инструмента «Выделение объектов» и в масках «Объект» и «Фон» Библиотеки.
+	Finds the sky. Used by Select › Sky and the Library's sky masks.	Находит небо. Используется в «Выделение › Небо» и в масках неба Библиотеки.
+	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Оценивает, как далеко находится каждая часть фото. Используется в масках глубины Библиотеки (например, чтобы затемнить или размыть фон или выбрать передний план по расстоянию).
+	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	Находит объект с самыми тонкими краями (волосы, шерсть, мелкие детали). Лучшее качество для «Выделить объект» и «Удалить фон»; одна-две секунды на фото.
+	Clean edges between near and far, good on most photos. Takes a few seconds per photo.	Чистые края между ближним и дальним, подходит для большинства фото. Несколько секунд на фото.
+	Custom: {name}	Пользовательская: {name}
+	Use official model	Использовать официальную модель
+	Your own model, run on the CPU instead of the official one.	Ваша собственная модель, работающая на процессоре вместо официальной.
+	{name} · {size} download · runs on the CPU · {licence}	{name} · загрузка {size} · работает на процессоре · {licence}
+	Custom model…	Пользовательская модель…
+	Pick any .onnx model that does this. It is copied into the models folder and used instead of the official one.	Выберите любую модель .onnx для этой функции. Она копируется в папку моделей и используется вместо официальной.
+	Input style:	Стиль входа:
+	IS-Net style	Стиль IS-Net
+	U²-Net / ImageNet style	Стиль U²-Net / ImageNet
+	Sky class:	Класс неба:
+	Only used when the model gives one map per class (ADE20K: 2).	Используется, только если модель выдаёт по одной карте на класс (ADE20K: 2).
+	Testing the model…	Проверка модели…
+	Choose an ONNX file…	Выбрать файл ONNX…
+	That model can't be used: {error}	Эту модель нельзя использовать: {error}
+	Choose an ONNX model	Выбор модели ONNX
+	ONNX model	Модель ONNX
+	Remove old models ({size})	Удалить старые модели ({size})
+	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	Перемещает в Корзину модели, которые приложение больше не использует (U²-Net, TinySkyNet, MiDaS).
+	the old models	старые модели
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	Небольшие модели, работающие на процессоре этого компьютера: не нужны ни ComfyUI, ни GPU, загрузка быстрая, а ваши фото не покидают компьютер. У каждой функции есть рекомендуемая модель; вместо неё можно использовать собственную модель ONNX.
+	Choose an ONNX model (a file ending in .onnx)	Выберите модель ONNX (файл с расширением .onnx)
+	Not a depth model: it must output one depth map	Не является моделью глубины: она должна выводить одну карту глубины
+	Not a sky model	Не модель неба
+	Not a sky model: its output {shape} should be 1 map or one map per class	Не модель неба: её выход {shape} должен быть 1 картой или одной картой на класс
+	Not a subject model: it must output one foreground map	Не модель объекта: она должна выводить одну карту переднего плана
+	The model has no input	У модели нет входа
+	The model's input has {channels} channels; an RGB image (3) is needed	Вход модели имеет {channels} каналов; необходимо RGB-изображение (3)
+	The model's input is {height}×{width}; a square input (or a flexible size) is needed	Вход модели — {height}×{width}; требуется квадратный вход (или гибкий размер)
+	The model's input must be an image (batch × 3 × height × width)	Вход модели должен быть изображением (пакет × 3 × высота × ширина)
+	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Класс неба {class} вне диапазона: модель имеет {classes} классов (от 0 до {max})
+	{path} isn't a file	{path} не является файлом
+	Custom models are not supported for this function	Пользовательские модели не поддерживаются для этой функции

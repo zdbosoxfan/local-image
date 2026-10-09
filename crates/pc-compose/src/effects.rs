@@ -558,6 +558,10 @@ pub fn spread_split(size: f32, spread: f32) -> (f32, f32) {
 }
 
 fn shadow_map(shape: &Map, s: &Shadow, light: &GlobalLight, inner: bool, origin: (i32, i32)) -> Map {
+    shadow_coverage(shape, s, light, inner, origin, false)
+}
+
+fn shadow_coverage(shape: &Map, s: &Shadow, light: &GlobalLight, inner: bool, origin: (i32, i32), gate_only: bool) -> Map {
     let angle = if s.use_global_light { light.angle } else { s.angle };
     let (dx, dy) = offset(angle, s.distance);
     let src = if inner { shape.clone().map(|a| 1.0 - a) } else { shape.clone() };
@@ -566,6 +570,9 @@ fn shadow_map(shape: &Map, s: &Shadow, light: &GlobalLight, inner: bool, origin:
     m = dilate(&m, r);
     blur(&mut m, bw);
     let mut m = apply_contour(m, &s.contour);
+    if gate_only {
+        return m;
+    }
     noise(&mut m, s.noise, origin.0, origin.1);
     if inner {
         for (v, a) in m.v.iter_mut().zip(&shape.v) {
@@ -576,6 +583,10 @@ fn shadow_map(shape: &Map, s: &Shadow, light: &GlobalLight, inner: bool, origin:
 }
 
 fn glow_map(shape: &Map, g: &Glow, inner: bool, origin: (i32, i32)) -> Map {
+    glow_coverage(shape, g, inner, origin, false)
+}
+
+fn glow_coverage(shape: &Map, g: &Glow, inner: bool, origin: (i32, i32), gate_only: bool) -> Map {
     let src = if inner {
         match g.source {
             GlowSource::Edge => shape.clone().map(|a| 1.0 - a),
@@ -612,6 +623,9 @@ fn glow_map(shape: &Map, g: &Glow, inner: bool, origin: (i32, i32)) -> Map {
         }
     };
     m = apply_lut(m, glow_lut(g));
+    if gate_only {
+        return m;
+    }
     noise(&mut m, g.noise, origin.0, origin.1);
     if inner {
         for (v, a) in m.v.iter_mut().zip(&shape.v) {
@@ -619,6 +633,32 @@ fn glow_map(shape: &Map, g: &Glow, inner: bool, origin: (i32, i32)) -> Map {
         }
     }
     m
+}
+
+/// Exact eligibility for effect noise, in enabled-item order, over the full reference region.
+/// The running-sum blur uses f64: tiny positive residues outside its mathematical support
+/// still receive noise. GPU f32 convolution cannot reproduce their sign. These cached binary
+/// gates preserve that reference behavior while the GPU computes coverage and speckle.
+pub fn noise_gates(layer: &Layer, shape: Vec<f32>, rect: Rect, light: &GlobalLight) -> Vec<Option<Vec<u8>>> {
+    let shape = Map { w: rect.width() as usize, h: rect.height() as usize, v: shape };
+    layer
+        .effects
+        .items
+        .iter()
+        .filter(|e| e.enabled())
+        .map(|e| {
+            let map = match e {
+                Effect::DropShadow(s) | Effect::InnerShadow(s) if s.noise.is_finite() && s.noise > 0.0 => {
+                    shadow_coverage(&shape, s, light, matches!(e, Effect::InnerShadow(_)), (rect.x0, rect.y0), true)
+                }
+                Effect::OuterGlow(g) | Effect::InnerGlow(g) if g.noise.is_finite() && g.noise > 0.0 => {
+                    glow_coverage(&shape, g, matches!(e, Effect::InnerGlow(_)), (rect.x0, rect.y0), true)
+                }
+                _ => return None,
+            };
+            Some(map.v.into_iter().map(|v| if v > 0.0 { 255 } else { 0 }).collect())
+        })
+        .collect()
 }
 
 /// Paints a pattern (looked up in `patterns`) through coverage `m`; missing patterns paint nothing.

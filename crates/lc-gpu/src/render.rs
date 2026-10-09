@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use lightcraft_develop::DevelopSettings;
 use lightcraft_geom::Orientation;
+use lightcraft_pipeline::capture::CaptureParams;
 use lightcraft_pipeline::finish::{FinishParams, MASK_TERMS, mask_terms};
 use lightcraft_pipeline::geometry::SampleMode;
 use lightcraft_pipeline::{Plan, RenderRequest, Rendered, SourceInfo, local};
@@ -20,9 +21,15 @@ use crate::params::{Present, finish_block};
 #[derive(Default)]
 pub struct GpuStages {
     entries: Mutex<Vec<Entry>>,
-    /// The uploaded source (a view renders one photo at several sizes).
-    source: Mutex<Option<(Arc<Rgb32f>, Arc<Buf>)>>,
+    /// The uploaded source and last capture result (shared by all output sizes).
+    source: Mutex<Option<Source>>,
     primary_dispatches: std::sync::atomic::AtomicUsize,
+}
+
+struct Source {
+    src: Arc<Rgb32f>,
+    uploaded: Arc<Buf>,
+    capture: Option<(CaptureParams, Arc<Buf>)>,
 }
 
 const CAPACITY: usize = 2;
@@ -30,6 +37,7 @@ const CAPACITY: usize = 2;
 #[derive(Clone)]
 struct Entry {
     src: Arc<Rgb32f>,
+    capture: Option<CaptureParams>,
     geo: u64,
     sampled: Arc<Buf>,
     lin: Option<(u64, Arc<Buf>)>,
@@ -52,8 +60,8 @@ struct Planes {
 }
 
 impl GpuStages {
-    fn get(&self, src: &Arc<Rgb32f>, geo: u64) -> Option<Entry> {
-        self.lock().iter().find(|e| e.geo == geo && Arc::ptr_eq(&e.src, src)).cloned()
+    fn get(&self, src: &Arc<Rgb32f>, geo: u64, capture: Option<CaptureParams>) -> Option<Entry> {
+        self.lock().iter().find(|e| e.geo == geo && e.capture == capture && Arc::ptr_eq(&e.src, src)).cloned()
     }
 
     fn put(&self, e: Entry) {
@@ -65,17 +73,24 @@ impl GpuStages {
         }
     }
 
-    fn source(&self, src: &Arc<Rgb32f>, upload: impl FnOnce() -> Buf) -> Arc<Buf> {
+    fn source(&self, cx: &mut Cx<'_>, src: &Arc<Rgb32f>, capture: Option<CaptureParams>) -> Arc<Buf> {
         let mut g = self.source.lock().unwrap_or_else(|e| e.into_inner());
-        match &*g {
-            Some((s, b)) if Arc::ptr_eq(s, src) => b.clone(),
-            _ => {
-                *g = None; // free the previous photo's buffer first
-                let b = Arc::new(upload());
-                *g = Some((src.clone(), b.clone()));
-                b
-            }
+        if !g.as_ref().is_some_and(|s| Arc::ptr_eq(&s.src, src)) {
+            *g = None; // free the previous photo's buffers first
         }
+        let source = g.get_or_insert_with(|| Source { src: src.clone(), uploaded: Arc::new(cx.gpu.upload(rgb_words(src))), capture: None });
+        let Some(p) = capture else { return source.uploaded.clone() };
+        if let Some((key, buf)) = &source.capture
+            && *key == p
+        {
+            return buf.clone();
+        }
+        source.capture = None;
+        let buf = Arc::new(crate::capture::sharpen(cx, &source.uploaded, src.width, src.height, &p));
+        // Publish only after submission: another render thread may reuse this result immediately.
+        cx.flush();
+        source.capture = Some((p, buf.clone()));
+        buf
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Vec<Entry>> {
@@ -126,8 +141,9 @@ impl GpuStages {
             });
             p.chroma.iter().for_each(|(_, b)| add(b));
         }
-        if let Some((_, b)) = &*self.source.lock().unwrap_or_else(|e| e.into_inner()) {
-            add(b);
+        if let Some(s) = &*self.source.lock().unwrap_or_else(|e| e.into_inner()) {
+            add(&s.uploaded);
+            s.capture.iter().for_each(|(_, b)| add(b));
         }
         total
     }
@@ -435,7 +451,37 @@ fn warp_params(
     p.extend([f(v.center.x), f(v.center.y), f(v.radius)]);
     p.push(wp.per_channel() as u32);
     p.push(wp.has_gain() as u32);
-    debug_assert_eq!(p.len(), 65);
+    // `set_lensdb` has already moved the optical centre into the user-oriented
+    // frame and removed the embedded profile. Zero strengths disable the model
+    // branches entirely (including the normalize/denormalize round trip).
+    use lightcraft_pipeline::lensdb::{Distortion, Tca};
+    let m = wp.lensdb;
+    let c = m.map(|m| m.c).unwrap_or_default();
+    let (dist, k) = match c.distortion {
+        _ if wp.lensdb_dist == 0.0 || c.distortion.is_identity() => (0, [0.0; 3]),
+        Distortion::None => (0, [0.0; 3]),
+        Distortion::Poly3 { k1 } => (1, [k1, 0.0, 0.0]),
+        Distortion::Poly5 { k1, k2 } => (2, [k1, k2, 0.0]),
+        Distortion::Ptlens { a, b, c } => (3, [a, b, c]),
+    };
+    p.push(dist);
+    // The CPU multiplies each distortion coefficient by the strength in f64.
+    p.extend(k.map(|k| f(k * wp.lensdb_dist)));
+    let (tca, red, blue) = match c.tca {
+        _ if wp.lensdb_tca == 0.0 || c.tca.is_identity() => (0, [1.0, 0.0, 0.0], [1.0, 0.0, 0.0]),
+        Tca::None => (0, [1.0, 0.0, 0.0], [1.0, 0.0, 0.0]),
+        Tca::Linear { kr, kb } => (1, [1.0 + (kr - 1.0) * wp.lensdb_tca, 0.0, 0.0], [1.0 + (kb - 1.0) * wp.lensdb_tca, 0.0, 0.0]),
+        Tca::Poly3 { red, blue } => (2, red, blue),
+    };
+    p.push(tca);
+    p.extend(red.map(f));
+    p.extend(blue.map(f));
+    p.push((wp.lensdb_vig != 0.0 && c.vignetting.is_some_and(|k| k != [0.0; 3])) as u32);
+    p.extend(c.vignetting.unwrap_or_default().map(f));
+    p.extend([f(m.map_or(1.0, |m| m.ns)), f(m.map_or(0.0, |m| m.cx)), f(m.map_or(0.0, |m| m.cy))]);
+    p.push(f(wp.lensdb_tca));
+    p.push(f(wp.lensdb_vig));
+    debug_assert_eq!(p.len(), 85);
     p
 }
 
@@ -558,12 +604,30 @@ pub fn render(
         }
         None => cx.flush(),
     };
-    let mut plan = lightcraft_pipeline::plan(src, info, s, req);
-    let (w, h) = (plan.w, plan.h);
     let _limit = match fault {
         Some(crate::Fault::Limit(bytes)) => Some(crate::ctx::LimitOverride::new(bytes)),
         _ => None,
     };
+    let capture = lightcraft_pipeline::capture_params(info, s).filter(|_| src.width >= 9 && src.height >= 9);
+    if capture.is_some() && !gpu.fits(src.data.len() * 3) {
+        fail(FailKind::Limit, "capture sharpening needs a source buffer over the device's storage-buffer limit".into());
+        return None;
+    }
+    let mut cx = Cx::new(gpu);
+    // The CPU plans automatic Upright and detects pupils AFTER capture. These
+    // uncommon source analyses need the same sharpened pixels; ordinary renders
+    // plan from dimensions/settings alone and leave the source entirely on device.
+    let needs_analysis = !s.red_eye.is_empty()
+        || (s.section_enabled("geometry")
+            && s.geometry.upright_transform.is_none()
+            && !matches!(s.geometry.upright, lightcraft_develop::Upright::Off | lightcraft_develop::Upright::Guided));
+    let analysis_buf = (capture.is_some() && needs_analysis).then(|| source_buffer(&mut cx, src, capture, stages));
+    let mut analysis_src = analysis_buf.as_ref().map(|buf| cx.read_rgb(buf, src.width, src.height));
+    if crate::ctx::failed() {
+        return None;
+    }
+    let mut plan = lightcraft_pipeline::plan(analysis_src.as_ref().unwrap_or(src), info, s, req);
+    let (w, h) = (plan.w, plan.h);
     // checked: an absurd request (e.g. a fit into `usize::MAX`) must not wrap into a size that
     // passes the check and then dispatches bands forever
     let Some(n) = w.checked_mul(h).filter(|n| n.checked_mul(12).is_some() && gpu.fits(n * 3)) else {
@@ -571,27 +635,26 @@ pub fn render(
         fail(FailKind::Limit, format!("{w}×{h} needs {mib} MiB buffers, over the device's {} MiB storage-buffer limit", gpu.limit() >> 20));
         return None;
     };
-    let cached = stages.and_then(|c| c.get(src, plan.geo));
+    let cached = stages.and_then(|c| c.get(src, plan.geo, capture));
     let mut host = Host::default();
-    let mut cx = Cx::new(gpu);
-    let mut uploaded_source: Option<Arc<Buf>> = None;
+    let mut uploaded_source = analysis_buf;
     lap("plan", &mut t, &mut cx);
 
-    // 1. geometry (on the CPU when the source exceeds the device's buffer limit)
+    // 1. capture on the uploaded sensor-scale source, then geometry.
     let sampled = match &cached {
         Some(e) => e.sampled.clone(),
-        // (the lens database's models have no GPU kernel: such frames are sampled on the CPU)
         None if gpu.fits(src.data.len() * 3) && plan.frame.gpu_samplable() => {
-            let upload = || gpu.upload(rgb_words(src));
-            let src_buf = match stages {
-                Some(c) => c.source(src, upload),
-                None => Arc::new(upload()),
-            };
-            uploaded_source = Some(src_buf.clone());
+            let src_buf = uploaded_source.get_or_insert_with(|| source_buffer(&mut cx, src, capture, stages)).clone();
+            lap("capture/upload", &mut t, &mut cx);
             sample(&mut cx, src, src_buf, &plan)
         }
         None => {
-            let img = plan.frame.sample(src, w, h);
+            // A source over the device limit is prefiltered/resampled on the CPU.
+            if capture.is_some() && analysis_src.is_none() {
+                let buf = uploaded_source.get_or_insert_with(|| source_buffer(&mut cx, src, capture, stages));
+                analysis_src = Some(cx.read_rgb(buf, src.width, src.height));
+            }
+            let img = plan.frame.sample(analysis_src.as_ref().unwrap_or(src), w, h);
             let b = Arc::new(gpu.upload(rgb_words(&img)));
             host.sampled = Some(img);
             b
@@ -614,16 +677,19 @@ pub fn render(
             Some(p) => Some(p),
             None => {
                 let proxy = if lightcraft_pipeline::primary::needs_proxy(&plan.settings) {
-                    let pp = lightcraft_pipeline::primary::proxy_plan(src, &plan);
+                    let pp = lightcraft_pipeline::primary::proxy_plan(analysis_src.as_ref().unwrap_or(src), &plan);
                     let pk = plan.lin_key;
                     let b = native_primary.proxy(pk, || {
                         let sampled = if gpu.fits(src.data.len() * 3) && pp.frame.gpu_samplable() {
-                            let source = uploaded_source.clone().unwrap_or_else(|| {
-                                stages.map_or_else(|| Arc::new(gpu.upload(rgb_words(src))), |c| c.source(src, || gpu.upload(rgb_words(src))))
-                            });
+                            // The proxy must see the same device capture result as the full image.
+                            let source = uploaded_source.get_or_insert_with(|| source_buffer(&mut cx, src, capture, stages)).clone();
                             sample(&mut cx, src, source, &pp)
                         } else {
-                            Arc::new(gpu.upload(rgb_words(&pp.frame.sample(src, pp.w, pp.h))))
+                            if capture.is_some() && analysis_src.is_none() {
+                                let source = uploaded_source.get_or_insert_with(|| source_buffer(&mut cx, src, capture, stages));
+                                analysis_src = Some(cx.read_rgb(source, src.width, src.height));
+                            }
+                            Arc::new(gpu.upload(rgb_words(&pp.frame.sample(analysis_src.as_ref().unwrap_or(src), pp.w, pp.h))))
                         };
                         linear(&mut cx, &sampled, info, &pp, &mut Host::default())
                     });
@@ -678,13 +744,6 @@ pub fn render(
     let s = &*plan.settings;
     let prepared_lin = primary.as_ref().map_or_else(|| lin.clone(), |p| p.1.clone());
     let planes_key = if primary.is_some() { primary_key } else { plan.lin_key };
-    if lightcraft_pipeline::toneeq::mask_wanted(s) || req.overlay == lightcraft_pipeline::Overlay::ToneEqMask {
-        let image = Arc::new(cx.read_rgb(&prepared_lin, w, h));
-        if crate::ctx::failed() {
-            return None;
-        }
-        return Some(lightcraft_pipeline::finish_scene_stage(image, &plan, info, req));
-    }
     // 3. spatial planes
     let mut planes = match cached.map(|e| e.planes) {
         Some(p) if p.key == planes_key => p,
@@ -693,7 +752,7 @@ pub fn render(
     let prep = prepare(&mut cx, &prepared_lin, &plan, req, &mut planes, info.sensor_scale);
     lap("planes", &mut t, &mut cx);
     if let Some(c) = stages {
-        c.put(Entry { src: src.clone(), geo: plan.geo, sampled, lin: Some((plan.lin_key, lin.clone())), planes, primary, native_primary });
+        c.put(Entry { src: src.clone(), capture, geo: plan.geo, sampled, lin: Some((plan.lin_key, lin.clone())), planes, primary, native_primary });
     }
 
     // 4. masks
@@ -803,6 +862,19 @@ pub fn render(
     });
     lightcraft_pipeline::visualize::apply(&mut image, req.overlay, &plan, overlay_mask.as_ref());
     Some(Rendered { image, histogram, deep: None })
+}
+
+fn source_buffer(cx: &mut Cx<'_>, src: &Arc<Rgb32f>, capture: Option<CaptureParams>, stages: Option<&GpuStages>) -> Arc<Buf> {
+    match stages {
+        Some(c) => c.source(cx, src, capture),
+        None => {
+            let uploaded = cx.gpu.upload(rgb_words(src));
+            Arc::new(match capture {
+                Some(p) => crate::capture::sharpen(cx, &uploaded, src.width, src.height, &p),
+                None => uploaded,
+            })
+        }
+    }
 }
 
 /// Pixels whose alpha is not 255 (cheap: no early exit, so it vectorizes).
@@ -1258,8 +1330,45 @@ fn haze_planes(cx: &mut Cx<'_>, lin: &Buf, w: usize, h: usize, scale: f32) -> (A
 }
 
 #[cfg(test)]
+#[path = "lensdb_tests.rs"]
+mod lensdb_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capture_source_cache_reuses_upload_and_invalidates_parameters() {
+        let Some(gpu) = crate::test_device() else {
+            eprintln!("skipped: no GPU adapter");
+            return;
+        };
+        let _scope = crate::ctx::RenderScope::new(gpu);
+        let errors = crate::ctx::ErrorScopes::push(gpu);
+        let mut cx = Cx::new(gpu);
+        let stages = GpuStages::default();
+        let src = Arc::new(lightcraft_scenes::demo_library()[3].render(73, 49));
+        let p = CaptureParams { sigma: 0.8, ..Default::default() };
+        let original = stages.source(&mut cx, &src, None);
+        let sharp = stages.source(&mut cx, &src, Some(p));
+        assert!(!Arc::ptr_eq(&original, &sharp));
+        assert!(Arc::ptr_eq(&sharp, &stages.source(&mut cx, &src, Some(p))));
+        assert!(Arc::ptr_eq(&original, &stages.source(&mut cx, &src, None)));
+        assert!(Arc::ptr_eq(&sharp, &stages.source(&mut cx, &src, Some(p))), "off/on reuses the same capture result");
+        assert_eq!(stages.bytes(), 73 * 49 * 3 * 4 * 2, "upload and sharpened source counted once");
+        let changed = stages.source(&mut cx, &src, Some(CaptureParams { threshold: 0.8, ..p }));
+        assert!(!Arc::ptr_eq(&sharp, &changed), "parameter change reruns capture");
+        assert!(Arc::ptr_eq(&original, &stages.source(&mut cx, &src, None)), "capture change preserves the original upload");
+        let new_src = Arc::new((*src).clone());
+        let new_upload = stages.source(&mut cx, &new_src, None);
+        assert!(!Arc::ptr_eq(&original, &new_upload), "decoder source identity invalidates upload");
+        assert_eq!(stages.bytes(), 73 * 49 * 3 * 4);
+        stages.clear();
+        assert_eq!(stages.bytes(), 0);
+        cx.flush();
+        assert!(errors.pop().is_none());
+        assert!(!crate::ctx::failed());
+    }
 
     #[test]
     fn coverage_mask_matches_per_pixel_decision() {

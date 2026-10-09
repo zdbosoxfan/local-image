@@ -128,7 +128,18 @@ fn shared() -> &'static Arc<Shared> {
 
 /// The current engine status (cheap).
 pub fn status() -> EngineStatus {
+    #[cfg(test)]
+    if let Some(status) = TEST_STATUS.with(|s| s.borrow().clone()) {
+        return status;
+    }
     shared().status.lock().map(|s| s.clone()).unwrap_or_default()
+}
+
+// UI tests use the real mock server for commands, with deterministic readiness on their
+// own thread rather than racing the asynchronous status poller.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TEST_STATUS: std::cell::RefCell<Option<EngineStatus>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Ask the poller to check again now.
@@ -248,7 +259,7 @@ pub fn start_download(preset_id: &str) {
     });
 }
 
-/// Downloads a CPU selection model (U²-Net / IS-Net) into `<model folder>/segmentation/`; keyed
+/// Downloads an official on-device model or bundle into `<model folder>/segmentation/`; keyed
 /// `seg:<id>` in [`downloads`].
 pub fn start_seg_download(spec: &'static li_seg::ModelSpec) {
     let key = format!("seg:{}", spec.id);
@@ -257,17 +268,14 @@ pub fn start_seg_download(spec: &'static li_seg::ModelSpec) {
         if d.get(&key).is_some_and(|x| !x.finished) {
             return;
         }
-        d.insert(key.clone(), Download { total: spec.bytes, file: spec.file.to_owned(), ctl: ctl.clone(), ..Default::default() });
+        d.insert(key.clone(), Download { total: spec.download_bytes(), file: spec.file.to_owned(), ctl: ctl.clone(), ..Default::default() });
     }
     let _ = std::thread::Builder::new().name("seg-download".into()).spawn(move || {
-        let dest = li_seg::model_path(&photocraft_engine::seg::models_dir(), spec);
-        let file = dest;
-        let k2 = key.clone();
-        let r = li_ai::download::download_file(spec.url, &file, spec.bytes, spec.sha256, &ctl, &|n| {
+        let r = download_seg_files(spec, &photocraft_engine::seg::models_dir(), &ctl, &|done| {
             if let Ok(mut d) = shared().downloads.lock()
-                && let Some(x) = d.get_mut(&k2)
+                && let Some(x) = d.get_mut(&key)
             {
-                x.done = n;
+                x.done = done;
             }
         });
         if let Ok(mut d) = shared().downloads.lock()
@@ -280,51 +288,546 @@ pub fn start_seg_download(spec: &'static li_seg::ModelSpec) {
     });
 }
 
-/// Local Image › Selection models: rows for the CPU segmentation models.
-fn seg_rows(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>) {
-    let dir = photocraft_engine::seg::models_dir();
-    let active = photocraft_engine::seg::installed().map(|s| s.id);
-    for spec in li_seg::MODELS {
-        let dl = dls.get(&format!("seg:{}", spec.id));
-        let frame = egui::Frame::NONE.fill(t.field).corner_radius(t.radius).inner_margin(egui::Margin::symmetric(10, 8));
-        frame.show(ui, |ui| {
-            ui.set_width(ui.available_width());
+/// Fetch a bundle in order, with one cumulative progress counter. Kept separate from the
+/// thread so tests can verify sequencing and cancellation without any network.
+fn download_seg_files(spec: &li_seg::ModelSpec, dir: &std::path::Path, ctl: &JobControl, progress: &dyn Fn(u64)) -> anyhow::Result<()> {
+    download_seg_files_with(spec, dir, ctl, progress, &|file, path, on_bytes| {
+        li_ai::download::download_file(file.url, path, file.bytes, file.sha256, ctl, on_bytes)
+    })
+}
+
+fn download_seg_files_with(
+    spec: &li_seg::ModelSpec,
+    dir: &std::path::Path,
+    ctl: &JobControl,
+    progress: &dyn Fn(u64),
+    fetch: &dyn Fn(li_seg::Companion, &std::path::Path, &dyn Fn(u64)) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    download_seg_with(spec, &|file, offset| {
+        if ctl.is_cancelled() {
+            anyhow::bail!("download cancelled");
+        }
+        let path = li_seg::companion_path(dir, file.file);
+        if li_seg::file_installed(dir, file) {
+            progress(offset + file.bytes);
+            return Ok(());
+        }
+        if path.is_file() {
+            std::fs::remove_file(&path)?;
+        }
+        fetch(file, &path, &|n| progress(offset + n))
+    })
+}
+
+fn download_seg_with(spec: &li_seg::ModelSpec, download: &dyn Fn(li_seg::Companion, u64) -> anyhow::Result<()>) -> anyhow::Result<()> {
+    let mut done = 0;
+    for file in spec.files() {
+        download(file, done)?;
+        done += file.bytes;
+    }
+    Ok(())
+}
+
+/// Where a function's custom-model test stands (see [`CUSTOM_JOBS`]).
+#[derive(Clone, Debug, PartialEq)]
+enum CustomJob {
+    /// Loading the picked model and running it once.
+    Testing,
+    /// The model was set; the row closes its options.
+    Done,
+    /// The model doesn't fit; why.
+    Failed(String),
+}
+
+/// Custom-model tests in flight or just finished, keyed by models folder and function.
+static CUSTOM_JOBS: Mutex<BTreeMap<String, CustomJob>> = Mutex::new(BTreeMap::new());
+
+fn job_key(dir: &std::path::Path, group: li_seg::Group) -> String {
+    format!("{}|{}", dir.display(), group.key())
+}
+
+fn custom_job(dir: &std::path::Path, group: li_seg::Group) -> Option<CustomJob> {
+    CUSTOM_JOBS.lock().ok().and_then(|j| j.get(&job_key(dir, group)).cloned())
+}
+
+fn set_custom_job(dir: &std::path::Path, group: li_seg::Group, job: Option<CustomJob>) {
+    if let Ok(mut j) = CUSTOM_JOBS.lock() {
+        match job {
+            Some(job) => j.insert(job_key(dir, group), job),
+            None => j.remove(&job_key(dir, group)),
+        };
+    }
+}
+
+/// What the custom-model options of one function currently show.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct SegOpts {
+    open: bool,
+    /// Subject: U²-Net / ImageNet normalisation (else IS-Net style).
+    imagenet: bool,
+    /// Sky: the class index of the sky for class-logit models (default 2, ADE20K).
+    sky_class: Option<usize>,
+}
+
+impl SegOpts {
+    fn options(&self) -> li_seg::CustomOptions {
+        li_seg::CustomOptions { norm: if self.imagenet { li_seg::Norm::ImageNet } else { li_seg::Norm::IsNet }, sky_class: self.sky_class.unwrap_or(2) }
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The file the next "Choose an ONNX file…" click picks, in place of a real dialog.
+    pub(crate) static TEST_PICK: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The native file dialog for an `.onnx` model (tests inject the pick instead of opening it).
+#[cfg(not(test))]
+fn pick_onnx() -> Option<std::path::PathBuf> {
+    rfd::FileDialog::new().set_title(tl!("Choose an ONNX model")).add_filter(tl!("ONNX model"), &["onnx"]).pick_file()
+}
+
+#[cfg(test)]
+fn pick_onnx() -> Option<std::path::PathBuf> {
+    TEST_PICK.with(|p| p.borrow_mut().take())
+}
+
+/// Translates a custom-model validation error into a one-line reason.
+fn custom_model_reason(e: &li_seg::CustomModelError) -> String {
+    match e {
+        li_seg::CustomModelError::UnsupportedFunction => tl!("Custom models are not supported for this function").to_owned(),
+        li_seg::CustomModelError::NotAFile { path } => crate::i18n::fmt(tl!("{path} isn't a file"), &[("path", &path.display().to_string())]),
+        li_seg::CustomModelError::NotOnnx => tl!("Choose an ONNX model (a file ending in .onnx)").to_owned(),
+        li_seg::CustomModelError::NoInput => tl!("The model has no input").to_owned(),
+        li_seg::CustomModelError::NotAnImageInput => tl!("The model's input must be an image (batch × 3 × height × width)").to_owned(),
+        li_seg::CustomModelError::WrongChannels { channels } => {
+            crate::i18n::fmt(tl!("The model's input has {channels} channels; an RGB image (3) is needed"), &[("channels", &channels.to_string())])
+        }
+        li_seg::CustomModelError::NonSquareInput { height, width } => crate::i18n::fmt(
+            tl!("The model's input is {height}×{width}; a square input (or a flexible size) is needed"),
+            &[("height", &height.to_string()), ("width", &width.to_string())],
+        ),
+        li_seg::CustomModelError::NotSkyModel => tl!("Not a sky model").to_owned(),
+        li_seg::CustomModelError::NotSkyModelOutput { shape } => {
+            crate::i18n::fmt(tl!("Not a sky model: its output {shape} should be 1 map or one map per class"), &[("shape", &format!("{shape:?}"))])
+        }
+        li_seg::CustomModelError::SkyClassOutOfRange { class, classes } => crate::i18n::fmt(
+            tl!("The sky class {class} is out of range: this model has {classes} classes (0 to {max})"),
+            &[("class", &class.to_string()), ("classes", &classes.to_string()), ("max", &(classes - 1).to_string())],
+        ),
+        li_seg::CustomModelError::NotSubjectModel => tl!("Not a subject model: it must output one foreground map").to_owned(),
+        li_seg::CustomModelError::NotDepthModel => tl!("Not a depth model: it must output one depth map").to_owned(),
+        li_seg::CustomModelError::Other(msg) => msg.clone(),
+    }
+}
+
+/// Tests the picked model and, when it fits, sets it as the function's custom model; in the
+/// background (loading a model takes a moment).
+fn start_custom(dir: std::path::PathBuf, group: li_seg::Group, src: std::path::PathBuf, opts: li_seg::CustomOptions) {
+    if custom_job(&dir, group) == Some(CustomJob::Testing) {
+        return;
+    }
+    set_custom_job(&dir, group, Some(CustomJob::Testing));
+    // the drawing language is per thread: translate the reason in the UI's language
+    let lang = crate::i18n::current();
+    let _ = std::thread::Builder::new().name("seg-custom".into()).spawn(move || {
+        let job = match li_seg::add_custom(&dir, group, &src, opts, &dispose) {
+            Ok(_) => CustomJob::Done,
+            Err(e) => {
+                let reason =
+                    crate::i18n::with_language(lang, || e.downcast_ref::<li_seg::CustomModelError>().map(custom_model_reason)).unwrap_or_else(|| e.to_string());
+                CustomJob::Failed(reason)
+            }
+        };
+        set_custom_job(&dir, group, Some(job));
+        refresh();
+        if let Some(ctx) = shared().ctx.lock().ok().and_then(|c| c.clone()) {
+            ctx.request_repaint();
+        }
+    });
+}
+
+/// Settings › Local AI › On-device models: one row per function, including Smart Sort tagging.
+/// Mask/depth rows offer a custom ONNX flow; tagging uses its official bundle. "Remove old models"
+/// appears when models the app no longer uses are still on disk.
+fn seg_rows(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>, dir: &std::path::Path) {
+    for group in li_seg::Group::ALL {
+        function_row(ui, t, dls, dir, group);
+    }
+    let old = li_seg::legacy_installed(dir);
+    if !old.is_empty() {
+        let size = li_ai::download::human_bytes(old.iter().map(|(_, b)| b).sum());
+        let r = widgets::secondary_button(ui, &crate::i18n::fmt(tl!("Remove old models ({size})"), &[("size", &size)]), 0.0)
+            .on_hover_text(tl!("Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash."));
+        if r.clicked() {
+            let note = match li_seg::remove_legacy_with(dir, &dispose) {
+                Ok(freed) => (
+                    crate::i18n::fmt(tl!("Removed {name} ({size} freed)"), &[("name", tl!("the old models")), ("size", &li_ai::download::human_bytes(freed))]),
+                    false,
+                ),
+                Err(e) => (crate::i18n::fmt(tl!("Couldn't remove {name}: {error}"), &[("name", tl!("the old models")), ("error", &format!("{e:#}"))]), true),
+            };
+            if let Ok(mut n) = REMOVE_NOTE.lock() {
+                *n = Some(note);
+            }
+        }
+    }
+}
+
+/// One function: its name and what it does, the model in use, and the custom-model controls.
+fn function_row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>, dir: &std::path::Path, group: li_seg::Group) {
+    let spec = group.official();
+    let key = format!("seg:{}", spec.id);
+    let dl = dls.get(&key);
+    let installed = li_seg::installed_bytes(dir, spec);
+    let custom = li_seg::custom(dir, group);
+    let official_in_use = custom.is_none() && installed.is_some();
+    let frame = egui::Frame::NONE.fill(t.field).corner_radius(t.radius).inner_margin(egui::Margin::symmetric(10, 8));
+    frame.show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.label(RichText::new(tl!(group.label())).size(13.0).strong().color(t.text));
+        ui.label(RichText::new(tl!(group.about())).color(t.text_dim).size(11.5));
+        ui.add_space(4.0);
+        if let Some(c) = &custom {
             ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.label(RichText::new(spec.label).strong());
-                    ui.label(
-                        RichText::new(crate::i18n::fmt(
-                            tl!("{size} · runs on the CPU · {licence}"),
-                            &[("size", &li_ai::download::human_bytes(spec.bytes)), ("licence", spec.licence)],
-                        ))
-                        .color(t.text_dim)
-                        .size(11.5),
-                    );
-                });
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| match dl {
-                    Some(d) if !d.finished => {
-                        if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
-                            d.ctl.cancel();
-                        }
-                        let frac = if d.total > 0 { d.done as f32 / d.total as f32 } else { 0.0 };
-                        ui.add(egui::ProgressBar::new(frac).desired_width(140.0).text(format!("{:.0}%", frac * 100.0)));
-                    }
-                    _ if li_seg::model_path(&dir, spec).is_file() => {
-                        let text = if active == Some(spec.id) { tl!("In use") } else { tl!("Installed") };
-                        ui.label(RichText::new(text).color(Color32::from_rgb(70, 190, 110)));
-                    }
-                    _ => {
-                        if widgets::secondary_button(ui, tl!("Download"), 0.0).clicked() {
-                            start_seg_download(spec);
+                ui.label(RichText::new(crate::i18n::fmt(tl!("Custom: {name}"), &[("name", &c.name)])).strong());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let r = widgets::secondary_button(ui, tl!("Use official model"), 0.0);
+                    if r.clicked() {
+                        match li_seg::clear_custom(dir, group, &dispose) {
+                            Ok(_) => set_custom_job(dir, group, None),
+                            Err(e) => set_custom_job(dir, group, Some(CustomJob::Failed(format!("{e:#}")))),
                         }
                     }
+                    ui.label(RichText::new(tl!("In use")).color(Color32::from_rgb(70, 190, 110)));
                 });
             });
-            if let Some(err) = dl.and_then(|d| d.error.as_ref()) {
-                ui.label(RichText::new(err).color(t.danger).size(11.5));
-            }
+            ui.label(RichText::new(tl!("Your own model, run on the CPU instead of the official one.")).color(t.text_faint).size(11.0));
+            ui.add_space(4.0);
+        }
+        // the official model
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(spec.label).color(if custom.is_some() { t.text_dim } else { t.text }));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| match dl {
+                Some(d) if !d.finished => {
+                    if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
+                        d.ctl.cancel();
+                    }
+                    let frac = if d.total > 0 { d.done as f32 / d.total as f32 } else { 0.0 };
+                    ui.add(egui::ProgressBar::new(frac).desired_width(140.0).text(format!("{:.0}%", frac * 100.0)));
+                }
+                _ if removing(&key) => {
+                    ui.spinner();
+                }
+                _ if installed.is_some() => {
+                    if remove_button(ui) {
+                        ask_remove(spec.label.to_owned(), RemoveTarget::Seg(spec));
+                    }
+                    let text = if official_in_use { tl!("In use") } else { tl!("Installed") };
+                    ui.label(RichText::new(text).color(Color32::from_rgb(70, 190, 110)));
+                }
+                _ => {
+                    if widgets::secondary_button(ui, tl!("Download"), 0.0).clicked() {
+                        start_seg_download(spec);
+                    }
+                }
+            });
         });
-        ui.add_space(4.0);
+        ui.label(RichText::new(tl!(spec.about)).color(t.text_dim).size(11.5));
+        ui.label(
+            RichText::new(crate::i18n::fmt(
+                tl!("{name} · {size} download · runs on the CPU · {licence}"),
+                &[("name", spec.label), ("size", &li_ai::download::human_bytes(spec.download_bytes())), ("licence", spec.licence)],
+            ))
+            .color(t.text_faint)
+            .size(11.0),
+        );
+        if let Some(err) = dl.and_then(|d| d.error.as_ref()) {
+            ui.label(RichText::new(err).color(t.danger).size(11.5));
+        }
+        if group.supports_custom() {
+            ui.add_space(4.0);
+            custom_controls(ui, t, dir, group);
+        }
+    });
+    ui.add_space(4.0);
+}
+
+/// The small "Custom model…" button and, when open, its options and file picker.
+fn custom_controls(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, group: li_seg::Group) {
+    if !group.supports_custom() {
+        return;
+    }
+    let mut o = dialogs_mut(|d| d.seg_opts.entry(group).or_default().clone());
+    let before = o.clone();
+    let mut job = custom_job(dir, group);
+    if job == Some(CustomJob::Done) {
+        // the model was set: tidy up
+        set_custom_job(dir, group, None);
+        o.open = false;
+        job = None;
+    }
+    if widgets::secondary_button(ui, tl!("Custom model…"), 0.0).clicked() {
+        o.open = !o.open;
+        if !o.open && matches!(job, Some(CustomJob::Failed(_))) {
+            set_custom_job(dir, group, None);
+            job = None;
+        }
+    }
+    if o.open {
+        ui.add_space(2.0);
+        ui.label(
+            RichText::new(tl!("Pick any .onnx model that does this. It is copied into the models folder and used instead of the official one."))
+                .color(t.text_faint)
+                .size(11.0),
+        );
+        match group {
+            li_seg::Group::Subject => {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(tl!("Input style:")).color(t.text_dim).size(11.5));
+                    let shown = if o.imagenet { li_seg::Norm::ImageNet } else { li_seg::Norm::IsNet };
+                    egui::ComboBox::from_id_salt(("seg-norm", group.key())).selected_text(tl!(shown.label())).show_ui(ui, |ui| {
+                        for n in li_seg::Norm::ALL {
+                            ui.selectable_value(&mut o.imagenet, n == li_seg::Norm::ImageNet, tl!(n.label()));
+                        }
+                    });
+                });
+            }
+            li_seg::Group::Sky => {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(tl!("Sky class:")).color(t.text_dim).size(11.5));
+                    let mut class = o.sky_class.unwrap_or(2);
+                    if ui.add(egui::DragValue::new(&mut class).range(0..=9999)).changed() {
+                        o.sky_class = Some(class);
+                    }
+                    ui.label(RichText::new(tl!("Only used when the model gives one map per class (ADE20K: 2).")).color(t.text_faint).size(11.0));
+                });
+            }
+            li_seg::Group::Depth | li_seg::Group::Tagging => {}
+        }
+        if job == Some(CustomJob::Testing) {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(RichText::new(tl!("Testing the model…")).color(t.text_dim).size(11.5));
+            });
+        } else if widgets::secondary_button(ui, tl!("Choose an ONNX file…"), 0.0).clicked()
+            && let Some(src) = pick_onnx()
+        {
+            set_custom_job(dir, group, None);
+            job = None;
+            start_custom(dir.to_path_buf(), group, src, o.options());
+        }
+        if let Some(CustomJob::Failed(why)) = job {
+            ui.label(RichText::new(crate::i18n::fmt(tl!("That model can't be used: {error}"), &[("error", &why)])).color(t.danger).size(11.5));
+        }
+    } else if let Some(CustomJob::Failed(why)) = job {
+        ui.label(RichText::new(why).color(t.danger).size(11.5));
+    }
+    if o != before {
+        dialogs_mut(|d| {
+            d.seg_opts.insert(group, o);
+        });
+    }
+}
+
+/// The trash button beside "Installed" / "Ready".
+fn remove_button(ui: &mut egui::Ui) -> bool {
+    let tip = if li_ai::trash::available() { tl!("Remove (moves the files to the Trash)") } else { tl!("Remove (deletes the files)") };
+    let r = crate::icons::button(ui, "trash", 22.0, false, tip);
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Remove")));
+    r.clicked()
+}
+
+// ------------------------------------------------------------------------------ removing models
+
+/// What a confirmed removal takes out.
+#[derive(Clone, Debug)]
+pub enum RemoveTarget {
+    /// An on-device CPU model.
+    Seg(&'static li_seg::ModelSpec),
+    /// Curated presets' verified files (by preset id; files other installed presets use stay).
+    Presets(Vec<String>),
+    /// One file ComfyUI lists (an installed model or LoRA), from the model folder.
+    Listed { folders: Vec<&'static str>, name: String },
+}
+
+impl RemoveTarget {
+    fn key(&self) -> String {
+        match self {
+            RemoveTarget::Seg(s) => format!("seg:{}", s.id),
+            RemoveTarget::Presets(ids) => ids.join("+"),
+            RemoveTarget::Listed { name, .. } => format!("file:{name}"),
+        }
+    }
+}
+
+/// The catalogue presets `ids` names, and every other one (those may hold shared files back).
+fn split_presets(ids: &[String]) -> (Vec<&'static catalog::Preset>, Vec<catalog::Preset>) {
+    let all = catalog::presets();
+    (all.iter().filter(|p| ids.contains(&p.id())).collect(), all.iter().filter(|p| !ids.contains(&p.id())).cloned().collect())
+}
+
+/// A removal waiting for the user's confirmation.
+#[derive(Clone, Debug)]
+pub struct RemoveAsk {
+    pub what: String,
+    /// What it frees.
+    pub bytes: u64,
+    /// Files kept because other installed models use them.
+    pub kept: Vec<String>,
+    pub target: RemoveTarget,
+}
+
+static REMOVING: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// The last removal's outcome for the status bar: (message, is an error).
+static REMOVE_NOTE: Mutex<Option<(String, bool)>> = Mutex::new(None);
+
+fn removing(key: &str) -> bool {
+    REMOVING.lock().is_ok_and(|v| v.iter().any(|k| k == key))
+}
+
+/// Puts a file out of the way: into the system Trash where there is one, else deletes it (the
+/// confirmation says which).
+pub fn dispose(path: &std::path::Path) -> std::io::Result<()> {
+    // tests delete: they must not fill the real Trash
+    if !cfg!(test) && li_ai::trash::available() { li_ai::trash::move_to_trash(path).map(|_| ()) } else { std::fs::remove_file(path) }
+}
+
+/// What removing `target` would free and keep (cheap: sizes only, no hashing).
+pub fn plan_removal(what: String, target: RemoveTarget) -> RemoveAsk {
+    let model_dir = AiSettings::load().model_dir();
+    let (bytes, kept) = match &target {
+        RemoveTarget::Seg(spec) => (li_seg::installed_bytes(&photocraft_engine::seg::models_dir(), spec).unwrap_or(0), Vec::new()),
+        RemoveTarget::Presets(ids) => {
+            let (these, others) = split_presets(ids);
+            let mut files = BTreeMap::new();
+            let mut kept = Vec::new();
+            for p in these {
+                let plan = li_ai::download::removal_plan(&model_dir, p, &others);
+                files.extend(plan.remove);
+                kept.extend(plan.shared.into_iter().filter(|n| !kept.contains(n)).collect::<Vec<_>>());
+            }
+            (files.values().sum(), kept)
+        }
+        RemoveTarget::Listed { folders, name } => {
+            (li_ai::download::listed_file(&model_dir, folders, name).and_then(|p| std::fs::metadata(p).ok()).map_or(0, |m| m.len()), Vec::new())
+        }
+    };
+    RemoveAsk { what, bytes, kept, target }
+}
+
+/// Asks to remove `target` (the confirmation shows what it frees).
+pub fn ask_remove(what: String, target: RemoveTarget) {
+    let ask = plan_removal(what, target);
+    dialogs_mut(|d| d.remove = Some(ask));
+}
+
+/// Removes in the background; the outcome goes to the status bar and the engine re-checks.
+fn remove_now(ask: RemoveAsk) {
+    let key = ask.target.key();
+    if let Ok(mut v) = REMOVING.lock() {
+        if v.contains(&key) {
+            return;
+        }
+        v.push(key.clone());
+    }
+    let lang = crate::i18n::current();
+    let _ = std::thread::Builder::new().name("model-remove".into()).spawn(move || {
+        crate::i18n::set_current(lang);
+        let model_dir = AiSettings::load().model_dir();
+        let r: anyhow::Result<(u64, Vec<String>)> = match &ask.target {
+            RemoveTarget::Seg(spec) => li_seg::remove_with(&photocraft_engine::seg::models_dir(), spec, &dispose).map(|b| (b, Vec::new())),
+            RemoveTarget::Presets(ids) => {
+                let (these, others) = split_presets(ids);
+                these.into_iter().try_fold((0u64, Vec::<String>::new()), |(freed, mut kept), p| {
+                    let r = li_ai::download::remove_preset(&model_dir, p, &others, &dispose)?;
+                    for n in r.shared.into_iter().chain(r.mismatched) {
+                        if !kept.contains(&n) {
+                            kept.push(n);
+                        }
+                    }
+                    Ok((freed + r.freed, kept))
+                })
+            }
+            RemoveTarget::Listed { folders, name } => li_ai::download::remove_listed_file(&model_dir, folders, name, &dispose).map(|b| (b, Vec::new())),
+        };
+        let note = match r {
+            Ok((freed, kept)) => {
+                let mut m = crate::i18n::fmt(tl!("Removed {name} ({size} freed)"), &[("name", &ask.what), ("size", &li_ai::download::human_bytes(freed))]);
+                if !kept.is_empty() {
+                    m = format!("{m} · {}", crate::i18n::fmt(tl!("kept {files}"), &[("files", &kept.join(", "))]));
+                }
+                (m, false)
+            }
+            Err(e) => (crate::i18n::fmt(tl!("Couldn't remove {name}: {error}"), &[("name", &ask.what), ("error", &format!("{e:#}"))]), true),
+        };
+        if let Ok(mut n) = REMOVE_NOTE.lock() {
+            *n = Some(note);
+        }
+        if let Ok(mut d) = shared().downloads.lock() {
+            d.remove(&key);
+        }
+        if let Ok(mut v) = REMOVING.lock() {
+            v.retain(|k| *k != key);
+        }
+        refresh();
+        if let Some(ctx) = shared().ctx.lock().ok().and_then(|c| c.clone()) {
+            ctx.request_repaint();
+        }
+    });
+}
+
+/// The removal confirmation (states what it frees, and whether it goes to the Trash).
+fn remove_confirm(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    if let Some((msg, err)) = REMOVE_NOTE.lock().ok().and_then(|mut n| n.take()) {
+        app.ui.status = msg;
+        app.ui.status_error = err;
+    }
+    let Some(ask) = dialogs_mut(|d| d.remove.clone()) else { return };
+    let t = Tokens::get(ctx);
+    let mut close = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    let mut go = false;
+    use widgets::{ButtonRole, DialogButton};
+    egui::Modal::new(egui::Id::new("li-remove-model")).backdrop_color(Color32::TRANSPARENT).show(ctx, |ui| {
+        ui.set_width(420.0);
+        ui.label(RichText::new(crate::i18n::fmt(tl!("Remove {name}?"), &[("name", &ask.what)])).size(15.0).strong().color(t.text));
+        ui.add_space(6.0);
+        let size = li_ai::download::human_bytes(ask.bytes);
+        let what = if ask.bytes == 0 {
+            tl!("None of its files are in the model folder.").to_owned()
+        } else if li_ai::trash::available() {
+            crate::i18n::fmt(tl!("This frees {size}. The files go to the Trash, so you can restore them from there."), &[("size", &size)])
+        } else {
+            crate::i18n::fmt(tl!("This frees {size}. The files are deleted permanently."), &[("size", &size)])
+        };
+        ui.label(RichText::new(what).color(t.text_dim));
+        if !ask.kept.is_empty() {
+            ui.label(
+                RichText::new(crate::i18n::fmt(tl!("Kept because other installed models use them: {files}"), &[("files", &ask.kept.join(", "))]))
+                    .size(11.5)
+                    .color(t.text_faint),
+            );
+        }
+        ui.add_space(10.0);
+        let label = if li_ai::trash::available() { tl!("Move to Trash") } else { tl!("Delete") };
+        let r = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            widgets::dialog_buttons(
+                ui,
+                &[DialogButton::new(ButtonRole::Default, label, 80.0).enabled(ask.bytes > 0), DialogButton::new(ButtonRole::Cancel, tl!("Cancel"), 80.0)],
+            )
+        });
+        match r.inner {
+            Some(ButtonRole::Default) => go = true,
+            Some(_) => close = true,
+            None => {}
+        }
+    });
+    if go {
+        remove_now(ask);
+        close = true;
+    }
+    if close {
+        dialogs_mut(|d| d.remove = None);
     }
 }
 
@@ -538,6 +1041,76 @@ pub fn status_pill(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
 }
 
+/// The status bar's AI controls, drawn just left of [`status_pill`] (right-to-left layout):
+/// a red Stop while AI jobs run, and Eject (unload the models from GPU memory) while the
+/// engine is connected.
+pub fn status_controls(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    status_controls_with(app, ui, &status());
+}
+
+/// AI jobs running in the session (Generate, AI Remove, Enhance, …).
+pub fn ai_jobs(app: &PhotocraftApp) -> Vec<photocraft_engine::jobs::JobId> {
+    app.session.jobs().into_iter().filter(|j| j.command.starts_with("ai.")).map(|j| j.id).collect()
+}
+
+/// A small status-bar icon button with an accessible name; disabled ones are faint and inert.
+fn bar_icon(ui: &mut egui::Ui, icon: &str, tint: Color32, enabled: bool, tip: &str) -> egui::Response {
+    let t = Tokens::get(ui.ctx());
+    let sense = if enabled { Sense::click() } else { Sense::hover() };
+    let (r, resp) = ui.allocate_exact_size(vec2(20.0, 18.0), sense);
+    if enabled && resp.hovered() {
+        ui.painter().rect_filled(r, t.radius_sm, t.hover);
+    }
+    crate::icons::paint(ui, r, icon, 13.0, if enabled { tint } else { t.text_faint });
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, tip));
+    resp.on_hover_text(tip)
+}
+
+pub(crate) fn status_controls_with(app: &mut PhotocraftApp, ui: &mut egui::Ui, st: &EngineStatus) {
+    let t = Tokens::get(ui.ctx());
+    let jobs = ai_jobs(app);
+    if !jobs.is_empty() && bar_icon(ui, "circle-stop", t.danger, true, tl!("Stop generation")).clicked() {
+        stop_generation(app, &jobs);
+    }
+    let tip = if st.connected { tl!("Unload AI models from GPU memory") } else { tl!("Unload AI models from GPU memory (the AI engine is off)") };
+    if bar_icon(ui, "eject", t.text_dim, st.connected, tip).clicked() {
+        app.ui.status = tl!("Unloading AI models…").into();
+        app.ui.status_error = false;
+        let lang = crate::i18n::current();
+        let _ = std::thread::Builder::new().name("ai-unload".into()).spawn(move || {
+            crate::i18n::set_current(lang);
+            let note = match li_ai::service().client.free_memory() {
+                Ok(()) => (tl!("Models unloaded.").to_owned(), false),
+                Err(e) => (format!("{e:#}"), true),
+            };
+            if let Ok(mut n) = REMOVE_NOTE.lock() {
+                *n = Some(note);
+            }
+            refresh();
+        });
+    }
+}
+
+/// Stops AI work: cancels `jobs` and, when one of this app's prompts is what ComfyUI is
+/// executing, interrupts it (older ComfyUI versions can't cancel a single running prompt).
+pub fn stop_generation(app: &mut PhotocraftApp, jobs: &[photocraft_engine::jobs::JobId]) {
+    // Note our prompts before cancelling takes them off the list.
+    let client = li_ai::service().client;
+    let ours = li_ai::comfy::our_prompts(client.host());
+    for id in jobs {
+        crate::jobs_ui::cancel(app, *id);
+    }
+    app.ui.status = tl!("Stopped generation").into();
+    app.ui.status_error = false;
+    if !ours.is_empty() {
+        let _ = std::thread::Builder::new().name("ai-interrupt".into()).spawn(move || {
+            if let Err(e) = client.interrupt_if_running(&ours) {
+                log::warn!("interrupt: {e:#}");
+            }
+        });
+    }
+}
+
 fn short_gpu(name: &str) -> String {
     name.replace("NVIDIA ", "").replace("GeForce ", "").replace("Laptop GPU", "Laptop")
 }
@@ -554,6 +1127,9 @@ struct Dialogs {
     detected: Option<Vec<li_ai::setup::Installation>>,
     settings: Option<AiSettings>,
     message: String,
+    remove: Option<RemoveAsk>,
+    /// The custom-model options each on-device function shows.
+    seg_opts: BTreeMap<li_seg::Group, SegOpts>,
 }
 
 fn dialogs_mut<R>(f: impl FnOnce(&mut Dialogs) -> R) -> R {
@@ -585,6 +1161,7 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
     crate::generate_ui::batch_window(app, ctx);
     crate::model_browser::window(app, ctx);
+    remove_confirm(app, ctx);
 }
 
 fn window_frame(ctx: &egui::Context) -> egui::Frame {
@@ -861,16 +1438,16 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     });
                 }
                 ui.add_space(8.0);
-                widgets::section_label(ui, tl!("SELECTION MODELS (CPU)"));
+                widgets::section_label(ui, tl!("ON-DEVICE MODELS (CPU)"));
                 ui.label(
-                    RichText::new(
-                        tl!("Select Subject, Remove Background (Quick) and Object Selection clicks use the best one installed. No GPU or ComfyUI needed."),
-                    )
+                    RichText::new(tl!(
+                        "Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead."
+                    ))
                     .color(t.text_faint)
                     .size(11.0),
                 );
                 ui.add_space(4.0);
-                seg_rows(ui, &t, &dls);
+                seg_rows(ui, &t, &dls, &photocraft_engine::seg::models_dir());
                 if settings != before {
                     if let Err(e) = settings.save() {
                         dialogs_mut(|d| d.message = crate::i18n::fmt(tl!("Could not save settings: {error}"), &[("error", &format!("{e:#}"))]));
@@ -920,6 +1497,15 @@ fn model_row(ui: &mut egui::Ui, t: &Tokens, info: &catalog::ModelInfo, p: &catal
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let missing = li_ai::download::missing_files(&settings.model_dir(), p);
                 let state = st.presets.get(&p.id());
+                let downloading = dl.is_some_and(|d| !d.finished);
+                // Some of its files are on disk: it can be removed (shared ones stay).
+                if !downloading && missing.len() < p.files.len() {
+                    if removing(&p.id()) {
+                        ui.spinner();
+                    } else if remove_button(ui) {
+                        ask_remove(format!("{} · {}", info.label, p.label), RemoveTarget::Presets(vec![p.id()]));
+                    }
+                }
                 match (dl, state) {
                     (Some(d), _) if !d.finished => {
                         if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
@@ -1055,11 +1641,378 @@ pub fn on_job_event(app: &mut PhotocraftApp, e: &JobEvent) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use egui_kittest::kittest::{NodeT, Queryable};
+
     /// Every local CPU model Settings offers must come from a host the downloader accepts (the
     /// sky models' host was missing, so both refused to download).
     #[test]
     fn every_local_model_downloads_from_an_allowed_host() {
-        let refused: Vec<_> = li_seg::MODELS.iter().filter(|m| !li_ai::download::host_allowed(m.url)).map(|m| (m.id, m.url)).collect();
+        let refused: Vec<_> =
+            li_seg::MODELS.iter().flat_map(|m| m.files()).filter(|f| !li_ai::download::host_allowed(f.url)).map(|f| (f.file, f.url)).collect();
         assert!(refused.is_empty(), "{refused:?}");
+    }
+
+    const MAP_32: &[u8] = include_bytes!("test_fixtures/map_32.onnx");
+    /// Echoes its RGB input: not a single map (so not a subject model), but 3 class channels.
+    const ECHO_32: &[u8] = include_bytes!("test_fixtures/echo_32.onnx");
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("li-seg-ui-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("segmentation")).unwrap();
+        dir
+    }
+
+    fn pick_file(dir: &std::path::Path, name: &str, bytes: &[u8]) -> std::path::PathBuf {
+        let p = dir.join("downloads").join(name);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, bytes).unwrap();
+        p
+    }
+
+    /// The file the next "Choose an ONNX file…" click picks.
+    fn will_pick(path: Option<std::path::PathBuf>) {
+        TEST_PICK.with(|p| *p.borrow_mut() = path);
+    }
+
+    /// A harness drawing the on-device model rows (all of them, or one function's) for `dir`.
+    fn seg_harness(dir: &std::path::Path, only: Option<li_seg::Group>) -> egui_kittest::Harness<'static> {
+        let dir = dir.to_path_buf();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(760.0, 900.0)).build_ui(move |ui| {
+            // fonts set on the context only apply from the next frame
+            if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("semibold".into()))) {
+                return;
+            }
+            let t = Tokens::get(ui.ctx());
+            let dls = BTreeMap::new();
+            match only {
+                Some(g) => function_row(ui, &t, &dls, &dir, g),
+                None => seg_rows(ui, &t, &dls, &dir),
+            }
+        });
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(3);
+        h
+    }
+
+    /// Waits for the background custom-model test of `group` to finish.
+    fn settle(h: &mut egui_kittest::Harness<'static>, dir: &std::path::Path, group: li_seg::Group) {
+        for _ in 0..300 {
+            h.run_steps(1);
+            if !matches!(custom_job(dir, group), Some(CustomJob::Testing)) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        h.run_steps(3);
+    }
+
+    /// One row per function, titled by what it does, each with its single official model and a
+    /// "Custom model…" button; none of the retired models is offered.
+    #[test]
+    fn settings_lists_one_row_per_function() {
+        let dir = temp_dir("rows");
+        let h = seg_harness(&dir, None);
+        for title in ["Subject & Background", "Sky", "Depth", "Smart Sort (scenes)"] {
+            h.get_by_label(title);
+        }
+        for model in ["IS-Net general", "PP-MobileSeg", "Depth Anything V2 Small", "CLIP ViT-B-32 LAION"] {
+            h.get_by_label(model);
+        }
+        for gone in ["U²-Net small", "U²-Net", "TinySkyNet", "MiDaS v2.1 small"] {
+            assert!(h.query_by_label(gone).is_none(), "{gone} is still listed");
+        }
+        assert_eq!(h.get_all_by_label("Custom model…").count(), 3);
+        assert_eq!(h.get_all_by_label("Download").count(), 4);
+        assert!(h.query_by_label_contains("Remove old models").is_none());
+        assert!(h.query_by_label_contains("Finds the main subject").is_some());
+        assert!(h.query_by_label_contains("Finds the sky.").is_some());
+        assert!(h.query_by_label_contains("Estimates how far away").is_some());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Picking a model sets it; its row says "Custom: <file>" and offers the way back.
+    #[test]
+    fn the_custom_model_flow_sets_and_reverts_a_model() {
+        let dir = temp_dir("flow");
+        std::fs::write(li_seg::model_path(&dir, li_seg::Group::Subject.official()), b"x").unwrap();
+        let mut h = seg_harness(&dir, Some(li_seg::Group::Subject));
+        h.get_by_label("In use");
+        assert!(h.query_by_label("Choose an ONNX file…").is_none(), "options are hidden until asked for");
+        h.get_by_label("Custom model…").click();
+        h.run_steps(2);
+        h.get_by_label("Input style:");
+        // pick a model (the dialog is replaced by the test hook)
+        will_pick(Some(pick_file(&dir, "my-subject.onnx", MAP_32)));
+        h.get_by_label("Choose an ONNX file…").click();
+        settle(&mut h, &dir, li_seg::Group::Subject);
+        let c = li_seg::custom(&dir, li_seg::Group::Subject).expect("the model was accepted");
+        assert_eq!((c.name.as_str(), c.size, c.norm), ("my-subject.onnx", 32, li_seg::Norm::IsNet));
+        assert!(c.path(&dir).is_file());
+        h.get_by_label("Custom: my-subject.onnx");
+        assert!(h.query_by_label("Choose an ONNX file…").is_none(), "the options close");
+        // the official model stays installed but is no longer the one in use
+        h.get_by_label("Installed");
+        assert!(matches!(li_seg::Group::Subject.in_use(&dir), Some(li_seg::InUse::Custom(_))));
+        // back to the official model: the copy goes away
+        h.get_by_label("Use official model").click();
+        h.run_steps(3);
+        assert!(li_seg::custom(&dir, li_seg::Group::Subject).is_none() && !c.path(&dir).exists());
+        assert!(h.query_by_label_contains("Custom: ").is_none());
+        h.get_by_label("In use");
+        assert!(matches!(li_seg::Group::Subject.in_use(&dir), Some(li_seg::InUse::Official(_))));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_model_that_does_not_fit_is_explained_and_not_kept() {
+        let dir = temp_dir("bad");
+        let mut h = seg_harness(&dir, Some(li_seg::Group::Subject));
+        h.get_by_label("Custom model…").click();
+        h.run_steps(2);
+        will_pick(Some(pick_file(&dir, "echo.onnx", ECHO_32)));
+        h.get_by_label("Choose an ONNX file…").click();
+        settle(&mut h, &dir, li_seg::Group::Subject);
+        assert!(li_seg::custom(&dir, li_seg::Group::Subject).is_none());
+        h.get_by_label_contains("That model can't be used: Not a subject model");
+        // a text file is refused too, and cancelling the dialog changes nothing
+        will_pick(Some(pick_file(&dir, "notes.txt", b"hi")));
+        h.get_by_label("Choose an ONNX file…").click();
+        settle(&mut h, &dir, li_seg::Group::Subject);
+        h.get_by_label_contains("a file ending in .onnx");
+        will_pick(None);
+        h.get_by_label("Choose an ONNX file…").click();
+        h.run_steps(2);
+        assert!(li_seg::custom(&dir, li_seg::Group::Subject).is_none());
+        assert!(!li_seg::custom_dir(&dir).exists() || std::fs::read_dir(li_seg::custom_dir(&dir)).unwrap().next().is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Each function shows only the options that matter to it, and the choices are used.
+    #[test]
+    fn the_options_follow_the_function() {
+        let dir = temp_dir("opts");
+        let mut h = seg_harness(&dir, Some(li_seg::Group::Depth));
+        h.get_by_label("Custom model…").click();
+        h.run_steps(2);
+        assert!(h.query_by_label("Input style:").is_none() && h.query_by_label("Sky class:").is_none());
+        h.get_by_label("Choose an ONNX file…");
+        let mut h = seg_harness(&dir, Some(li_seg::Group::Subject));
+        h.get_by_label("Custom model…").click();
+        h.run_steps(2);
+        h.get_by_value("IS-Net style");
+        assert!(h.query_by_label("Sky class:").is_none());
+        // the U²-Net / ImageNet choice is what gets stored
+        dialogs_mut(|d| d.seg_opts.get_mut(&li_seg::Group::Subject).unwrap().imagenet = true);
+        h.run_steps(2);
+        h.get_by_value("U²-Net / ImageNet style");
+        will_pick(Some(pick_file(&dir, "u2.onnx", MAP_32)));
+        h.get_by_label("Choose an ONNX file…").click();
+        settle(&mut h, &dir, li_seg::Group::Subject);
+        assert_eq!(li_seg::custom(&dir, li_seg::Group::Subject).unwrap().norm, li_seg::Norm::ImageNet);
+        // sky: the echo model has 3 class channels; the default class 2 fits, class 7 doesn't
+        let mut h = seg_harness(&dir, Some(li_seg::Group::Sky));
+        h.get_by_label("Custom model…").click();
+        h.run_steps(2);
+        h.get_by_label("Sky class:");
+        assert!(h.query_by_label("Input style:").is_none());
+        dialogs_mut(|d| d.seg_opts.get_mut(&li_seg::Group::Sky).unwrap().sky_class = Some(7));
+        will_pick(Some(pick_file(&dir, "sky.onnx", ECHO_32)));
+        h.get_by_label("Choose an ONNX file…").click();
+        settle(&mut h, &dir, li_seg::Group::Sky);
+        assert!(li_seg::custom(&dir, li_seg::Group::Sky).is_none());
+        h.get_by_label_contains("out of range");
+        dialogs_mut(|d| d.seg_opts.get_mut(&li_seg::Group::Sky).unwrap().sky_class = None);
+        will_pick(Some(pick_file(&dir, "sky.onnx", ECHO_32)));
+        h.get_by_label("Choose an ONNX file…").click();
+        settle(&mut h, &dir, li_seg::Group::Sky);
+        let c = li_seg::custom(&dir, li_seg::Group::Sky).expect("class 2 of 3 fits");
+        assert_eq!((c.classes, c.class), (3, 2));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Models the app no longer offers are never used; a button moves them out of the way.
+    #[test]
+    fn old_models_can_be_removed_from_settings() {
+        let dir = temp_dir("old");
+        let seg = dir.join("segmentation");
+        std::fs::write(seg.join("u2net.onnx"), vec![0u8; 3 * 1024 * 1024]).unwrap();
+        std::fs::write(seg.join("midas_v21_small_256.onnx"), vec![0u8; 1024 * 1024]).unwrap();
+        for file in li_seg::Group::Tagging.official().files() {
+            std::fs::write(li_seg::companion_path(&dir, file.file), b"clip file").unwrap();
+        }
+        let mut h = seg_harness(&dir, None);
+        assert!(li_seg::Group::ALL.iter().all(|g| g.in_use(&dir).is_none()), "old files serve nothing");
+        h.get_by_label_contains("Remove old models (").click();
+        h.run_steps(3);
+        assert!(li_seg::legacy_installed(&dir).is_empty());
+        for file in li_seg::Group::Tagging.official().files() {
+            assert_eq!(std::fs::read(li_seg::companion_path(&dir, file.file)).unwrap(), b"clip file");
+        }
+        assert!(h.query_by_label_contains("Remove old models").is_none());
+        let note = REMOVE_NOTE.lock().unwrap().take().expect("a status note");
+        assert!(!note.1 && note.0.contains("the old models"), "{note:?}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn bundle_download_progress_is_cumulative_and_stops_on_failure() {
+        let spec = li_seg::spec("clip-b32-laion").unwrap();
+        let calls = std::cell::RefCell::new(Vec::new());
+        download_seg_with(spec, &|file, offset| {
+            calls.borrow_mut().push((file.file, offset, offset + file.bytes));
+            Ok(())
+        })
+        .unwrap();
+        let calls = calls.into_inner();
+        assert_eq!(calls.len(), 4);
+        assert_eq!(calls[0].1, 0);
+        for pair in calls.windows(2) {
+            assert_eq!(pair[0].2, pair[1].1);
+        }
+        assert_eq!(calls.last().unwrap().2, spec.download_bytes());
+        let count = std::cell::Cell::new(0);
+        assert!(
+            download_seg_with(spec, &|_, _| {
+                count.set(count.get() + 1);
+                if count.get() == 2 {
+                    anyhow::bail!("cancelled");
+                }
+                Ok(())
+            })
+            .is_err()
+        );
+        assert_eq!(count.get(), 2);
+    }
+
+    #[test]
+    fn bundle_download_retry_keeps_verified_files_and_repairs_invalid_ones() {
+        let dir = std::env::temp_dir().join(format!("smart-sort-download-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("segmentation")).unwrap();
+        let mut spec = *li_seg::spec("clip-b32-laion").unwrap();
+        spec.bytes = 1;
+        spec.sha256 = "";
+        spec.companions =
+            &[li_seg::Companion { file: "test-text", url: "", bytes: 2, sha256: "" }, li_seg::Companion { file: "test-vocab", url: "", bytes: 3, sha256: "" }];
+        std::fs::write(li_seg::model_path(&dir, &spec), b"x").unwrap();
+        std::fs::write(li_seg::companion_path(&dir, "test-text"), b"x").unwrap();
+        let fetched = std::cell::RefCell::new(Vec::new());
+        let progress = std::cell::Cell::new(0);
+        let ctl = JobControl::new();
+        download_seg_files_with(&spec, &dir, &ctl, &|n| progress.set(n), &|file, path, on_bytes| {
+            fetched.borrow_mut().push(file.file);
+            assert!(!path.exists());
+            std::fs::write(path, vec![b'x'; file.bytes as usize])?;
+            on_bytes(file.bytes);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(fetched.into_inner(), ["test-text", "test-vocab"]);
+        assert_eq!(progress.get(), 6);
+        ctl.cancel();
+        assert!(download_seg_files_with(&spec, &dir, &ctl, &|_| {}, &|_, _, _| panic!("must not fetch after cancel")).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Tagging is its own function row and never offers the single-ONNX custom flow.
+    #[test]
+    fn smart_sort_function_has_no_custom_model_flow() {
+        let dir = temp_dir("tagging");
+        let h = seg_harness(&dir, Some(li_seg::Group::Tagging));
+        h.get_by_label("Smart Sort (scenes)");
+        h.get_by_label("CLIP ViT-B-32 LAION");
+        h.get_by_label("Download");
+        assert!(h.query_by_label("Custom model…").is_none());
+        assert!(h.query_by_label("Use official model").is_none());
+        assert!(h.query_by_label("Choose an ONNX file…").is_none());
+        let size = li_ai::download::human_bytes(li_seg::Group::Tagging.official().download_bytes());
+        h.get_by_label_contains(&format!("{size} download"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn custom_model_reasons_follow_the_ui_language() {
+        let reason =
+            crate::i18n::with_language(crate::i18n::Lang::from_code("ja").unwrap(), || custom_model_reason(&li_seg::CustomModelError::UnsupportedFunction));
+        assert_eq!(reason, "この機能ではカスタムモデルを使用できません");
+    }
+
+    /// A job that runs until cancelled.
+    fn endless(app: &mut PhotocraftApp, command: &str, gate: &Arc<std::sync::atomic::AtomicBool>) -> photocraft_engine::jobs::JobId {
+        let gate = gate.clone();
+        match app
+            .session
+            .start_job(
+                command,
+                json!({}),
+                command,
+                false,
+                move |ctx| {
+                    while !gate.load(std::sync::atomic::Ordering::Relaxed) {
+                        ctx.check()?;
+                        std::thread::sleep(Duration::from_millis(2));
+                    }
+                    Ok(())
+                },
+                |_, ()| Ok(Value::Null),
+            )
+            .unwrap()
+        {
+            photocraft_engine::jobs::Started::Job(id) => id,
+            photocraft_engine::jobs::Started::Done(v) => panic!("ran inline: {v}"),
+        }
+    }
+
+    /// The status bar's AI controls: Eject and a red Stop (shown while AI jobs run) render, and
+    /// Stop cancels the AI jobs only.
+    #[test]
+    fn stop_cancels_ai_jobs_and_the_icons_render() {
+        assert!(crate::icons::exists("eject") && crate::icons::exists("circle-stop"));
+        let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let connected = EngineStatus { checked: true, connected: true, ..Default::default() };
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(400.0, 40.0)).build_ui_state(
+            move |ui, app: &mut PhotocraftApp| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| status_controls_with(app, ui, &connected));
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(2);
+        // No AI work: Eject only.
+        assert!(h.query_by_label("Stop generation").is_none());
+        h.get_by_label("Unload AI models from GPU memory");
+        let gate = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let ai = endless(h.state_mut(), "ai.generate", &gate);
+        let other = endless(h.state_mut(), "test.slow", &gate);
+        h.run_steps(2);
+        assert_eq!(ai_jobs(h.state()), vec![ai]);
+        h.get_by_label("Stop generation").click();
+        h.run_steps(2);
+        assert!(ai_jobs(h.state()).is_empty(), "the AI job was cancelled");
+        assert!(h.state().session.job(other).is_some(), "other work keeps running");
+        assert!(h.query_by_label("Stop generation").is_none());
+        assert_eq!(h.state().ui.status, "Stopped generation");
+        // Both icons were rasterised from their SVGs.
+        for icon in ["eject", "circle-stop"] {
+            let poll = h.ctx.try_load_image(&format!("bytes://icons/{icon}.svg"), egui::SizeHint::default());
+            assert!(matches!(poll, Ok(egui::load::ImagePoll::Ready { .. })), "{icon} did not rasterise");
+        }
+        gate.store(true, std::sync::atomic::Ordering::Relaxed);
+        let _ = h.state_mut().session.wait_job(other);
+    }
+
+    /// Disconnected: Eject is shown but inert.
+    #[test]
+    fn eject_is_disabled_without_the_engine() {
+        let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let off = EngineStatus { checked: true, ..Default::default() };
+        let mut h = egui_kittest::Harness::builder()
+            .with_size(vec2(400.0, 40.0))
+            .build_ui_state(move |ui, app: &mut PhotocraftApp| status_controls_with(app, ui, &off), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(2);
+        let node = h.get_by_label("Unload AI models from GPU memory (the AI engine is off)");
+        assert!(node.accesskit_node().is_disabled());
     }
 }

@@ -134,9 +134,9 @@ impl Warp {
             || self.k1 != 0.0
             || self.ca.iter().any(|c| *c != 0.0)
             || (self.lens_dist != 0.0 && self.lens.is_some_and(|l| l.warp.is_some()))
-            || self.lensdb.is_some_and(|m| {
-                (self.lensdb_dist != 0.0 && m.c.distortion != crate::lensdb::Distortion::None) || (self.lensdb_tca != 0.0 && m.c.per_channel())
-            })
+            || self
+                .lensdb
+                .is_some_and(|m| (self.lensdb_dist != 0.0 && !m.c.distortion.is_identity()) || (self.lensdb_tca != 0.0 && m.c.per_channel()))
     }
 
     /// Whether the colour planes are sampled at different positions.
@@ -150,7 +150,7 @@ impl Warp {
     pub fn has_gain(&self) -> bool {
         self.vig_stops != 0.0
             || (self.lens_vig != 0.0 && self.lens.is_some_and(|l| l.vignette.is_some()))
-            || (self.lensdb_vig != 0.0 && self.lensdb.is_some_and(|m| m.c.vignetting.is_some()))
+            || (self.lensdb_vig != 0.0 && self.lensdb.is_some_and(|m| m.c.vignetting.is_some_and(|k| k != [0.0; 3])))
     }
 
     pub fn is_identity(&self) -> bool {

@@ -32,7 +32,8 @@ New GPU ↔ CPU equivalence coverage (`lightcraft-gpu/tests/toolset.rs`, bounds 
 - **Lens profiles** (lens database): poly3 / poly5 / ptlens distortion, linear and poly3 TCA,
   vignetting, off-centre axis; each part and all together at 0 %, 100 %, 200 %; with crop,
   straighten, flips, orientations, perspective + constrain crop, manual CA, edits and a mask;
-  strength changes on a cached view. Geometry is resampled on the CPU (`Frame::gpu_samplable`).
+  strength changes on a cached view. The original RTX run resampled geometry on the CPU;
+  the native GPU warp now evaluates these models (RTX rerun described below).
 - **Tone equalizer**: `render` returns `None` with the reason; the Show Mask overlay
   (`Overlay::ToneEqMask`) falls back too, even with every zone at 0, and draws a grey mask that
   follows the image; with the section off the GPU renders again.
@@ -42,8 +43,9 @@ New GPU ↔ CPU equivalence coverage (`lightcraft-gpu/tests/toolset.rs`, bounds 
   switching between the two paths on a cached view.
 - **Capture sharpening**: several radius / threshold / iterations / corner-boost values, a binned
   preview, a rendered source; on one cached view each change (radius, threshold, iterations, corner
-  boost, off, on) re-makes and re-uploads the sharpened source (cached == fresh == CPU), and going
-  back to the first values gives the first image.
+  boost, off, on) invalidates the sharpened source and downstream stages (cached == fresh within
+  the CPU bounds), and going back to the first values gives the first image. The original RTX
+  run used CPU capture; the new native GPU implementation is awaiting the rerun described below.
 - **Depth masks**: three bands, combined with an inverted linear, opacity, inverted mask, rotation
   + crop, and the mask overlay.
 - **Film looks**: all eight `lc.filmsim.*` profiles at 50 / 100 / 200 % on a raw and a rendered
@@ -88,31 +90,32 @@ full-size render of a synthetic scene with a typical edit on top, warm device:
 | Tool | GPU path | CPU only | Renderer |
 | --- | ---: | ---: | --- |
 | typical edit | 109 ms | 673 ms | GPU |
-| lens profile (database) | 315 ms | 796 ms | GPU + CPU geometry |
+| lens profile (database, historical CPU resample) | 315 ms | 796 ms | previous hybrid implementation |
 | tone equalizer | — | 772 ms | CPU fallback |
 | colour calibration, linear | 111 ms | 644 ms | GPU |
 | colour calibration, gamut + clip | 320 ms | 703 ms | GPU + CPU linear stage |
 | colour calibration, non-linear Bradford | 285 ms | 661 ms | GPU + CPU linear stage |
-| capture sharpening | 1155 ms | 1657 ms | GPU + CPU capture presource |
+| capture sharpening (historical CPU presource) | 1155 ms | 1657 ms | previous hybrid implementation |
 | depth mask | 302 ms | 699 ms | GPU + CPU mask shape |
 | film look | 109 ms | 723 ms | GPU |
 | AI Remove patch | 282 ms | 653 ms | GPU + CPU linear stage |
 | develop layer tools (curve on a mask) | — | 695 ms | CPU fallback |
 
-On the real ARWs (18.7 MP output) capture sharpening took 1.4–3.5 s (radius measured from the raw).
+Lens profiles now run in the GPU geometry kernel; the historical 315 ms row does
+not measure the native implementation. The before/after benchmark below and the
+current full-render lens rows await RTX measurements.
+
+On the real ARWs (18.7 MP output) the previous CPU capture stage took 1.4–3.5 s
+(radius measured from the raw). Capture now runs on the device; these historical timings do
+not measure the native GPU implementation.
 
 ### Candidates for native WGSL kernels (not built)
 
-- **Capture sharpening** — the slowest stage by far (1–3.5 s per full render, every time a capture
-  value changes); Richardson–Lucy is a few separable blurs and multiplies per iteration, which the
-  existing blur kernels already cover. Highest value.
 - **Tone equalizer** — a whole-render CPU fallback (~0.8 s at 24 MP) for a guided filter on log
   luminance and a per-pixel gain: the guided filter kernels exist (`guided_fast`), only the zone
   curve is new.
 - **Develop layer tools** — a whole-render CPU fallback whenever a mask carries tools; the per-stage
   blends mirror kernels that exist for the global tools, but it is the largest port.
-- **Lens-database sampling** — +200 ms at 24 MP for the CPU resample; the warp kernel would need
-  the lensfun models (closed-form polynomials). Moderate value.
 - Non-linear colour calibration and depth-mask evaluation cost ~0.2 s each; low priority.
 
 ## Needs a human eye
@@ -167,11 +170,116 @@ This does not measure RTX performance or replace hardware equivalence testing.
 
 `equivalence.rs` still covers both HS candidates, clipping metadata, preview/full
 sizes, all Clarity modes, Texture/Structure, grading + mixer, Skin Tone, layers,
-A→B→A and tone-equalizer gain/overlay. Mean <0.5 LSB and max <=3 LSB are unchanged.
+A→B→A and tone-equalizer CPU fallback/overlay. Mean <0.5 LSB and max <=3 LSB are unchanged.
 `toolset.rs` retains the original 6000×4000 rows and adds primary identity and
 cached single-slider drags. `LC_PRIMARY_BENCH_ONLY=1` includes typical edit too.
 Targets for the RTX 5090 release run: typical <=~200 ms, primary increment <=~100 ms,
 cached single-tool drags well below 100 ms. Hardware results remain pending.
 
-The separate Tone Equalizer mask/finish remains CPU, as do established non-primary
-fallbacks and optional NR/dehaze statistics. See the slider report for exact scope.
+The separate Tone Equalizer and its mask overlay request the CPU renderer through
+`tools_need_cpu`; it has no native kernel. Established non-primary fallbacks and
+optional NR/dehaze statistics remain. See the slider report for exact scope.
+
+## Native capture sharpening (2026-10-09; RTX validation pending)
+
+Capture is no longer a CPU stage inside GPU renders. `lc-gpu/src/capture.rs` and
+`wgsl/capture.wgsl` run luminance, the black/clipped exclusion and 21-pixel variance
+mask, corner-boost kernel indices, Richardson–Lucy and the final RGB gain on the
+uploaded source before geometry. The 256 quarter Gaussian kernels (25 KiB) are
+generated once on the host in exactly the reference's f32 order. Their disc
+truncation makes them non-separable; both 5x5 and 9x9 convolution use the actual
+Gaussian taps, including at small sigma. A shared-memory tile includes the 4px halo.
+
+The mask's sigma-2 blur reuses `blur.wgsl` box kernels with whole-row horizontal
+sums and 32-row vertical bands to match the CPU's addition order. RL accumulates
+taps in the CPU's row-major order. Radial distance uses WGSL sqrt in place of Rust
+hypot; device exp/log/division and multiply-add contraction can differ by ulps.
+A residual correction on division protects the sigma-index truncation boundary.
+The CPU reference and its output goldens are unchanged.
+
+The per-view device cache keeps the original upload and the last sharpened source,
+keyed by source identity and all resolved capture parameters. Sampled, linear and
+spatial stages also include that capture key. Other tools and output-size changes
+reuse capture; radius/threshold/iterations/corner boost and sensor metadata changes
+rebuild it. Device memory accounting and cache clearing include both source buffers.
+Source-dependent pupil/automatic Upright analyses read back the GPU-sharpened
+source. Lens-database geometry consumes it directly on the device. If capture's full
+source exceeds the device buffer limit, the renderer returns `None` with a limit
+reason for the ordinary CPU fallback; it does not run hidden CPU capture inside a
+successful GPU render.
+
+Adapter-independent tests compare the f32 WGSL transcription's mask and output
+with the CPU at 1/2/8/50 iterations and its estimate with the independent upstream
+RL fixture (4096 samples). Device tests inspect luminance, mask, kernel indices,
+ratio and estimate after each iteration, exercise cache reuse/invalidation and
+source-limit refusal. `toolset.rs` requires mean |delta| <0.5 LSB and max <=3 LSB
+for parameter sweeps, binned previews, odd/tiny dimensions, HDR/black/negative
+border pixels, cached edits and lens geometry. No adapter is available in the
+sandbox, so device numerical comparisons and timings still need the RTX 5090.
+
+`bench_capture_sharpening_24mp` measures a fresh capture render, a cached exposure
+edit and a radius change that preserves the upload, plus CPU ms at 6000x4000.
+`bench_toolset_24mp` retains its capture row and now reports it as GPU. Exact RTX
+commands and sandbox test counts are in
+[`CODEX-REPORT-gpu-capture.md`](wip/CODEX-REPORT-gpu-capture.md).
+
+## Native lens-database geometry (2026-10-09; RTX validation pending)
+
+Lens profiles are no longer a CPU pixel stage inside GPU renders. The existing
+`geom.wgsl::sample_warp` evaluates lensfun poly3/poly5/ptlens distortion, linear
+and poly3 TCA, and PA vignetting. Parameters come from the same `Warp::lensdb`
+map as the CPU, including its already reoriented optical centre and pixel-centre
+normalisation. The order is inverse perspective, manual distortion, embedded
+warp if present, database distortion and TCA, then manual CA. The database
+replaces the embedded profile under the existing `set_lensdb` rules. Gain is
+evaluated at the final green source position and multiplies manual/embedded
+vignetting; PA retains the reference's nonpositive/near-zero denominator guard
+and strength exponent.
+
+Positions and gains use f32 on the GPU. Distortion coefficients and linear TCA
+scales incorporate their strengths in f64 on the host before packing. WGSL
+sqrt/pow/division and multiply-add contraction can differ from CPU f64 math.
+The host still computes the exact reference f64 coverage bit for each output
+pixel, using outward-rounded block intervals and per-pixel decisions near edges;
+the shader never uses rounded f32 positions to classify blank canvas. Red and
+blue sample independently, and gain uses green, like `Frame::sample`.
+
+Zero strengths and numerically identity models use the ordinary copy/affine
+sample plan with no coverage mask or lens dispatch. If unrelated tools require
+a warp, inactive database models bypass their coordinate/gain calculations.
+Profile and strength edits invalidate sampled stages through the existing
+geometry key while retaining the uploaded/capture-sharpened source. The source
+buffer size limit can still require host prefiltering/resampling, as for other
+geometry; this is independent of whether a lens profile is present.
+
+Adapter-independent tests check packed f32 models against the f64 reference at
+24 MP, all eight optical-centre orientations, identity/zero-strength branches,
+the PA denominator guard, and every coverage bit in edge-heavy frames. Device
+tests verify the rounding boundary and source upload reuse. `toolset.rs` adds 96
+border comparisons with strong barrel/pincushion poly3/poly5/ptlens, an
+off-centre axis, TCA at 200%, all eight orientations, native size and Mitchell
+prefiltered previews with crop/rotation/flips/perspective/manual corrections;
+it also checks embedded-profile replacement and PA's guard. Every rendered
+comparison requires mean absolute error <0.5 LSB and max <=3 LSB.
+
+`render::lensdb_tests::bench_lensdb_geometry_24mp` directly measures the old
+CPU resample + upload against the new source upload + GPU warp, plus the GPU
+warp with an existing source upload, at 0/100/200%. It synchronizes device work
+and reports the minimum of three timed repeats after warm-up. The ignored
+`toolset::bench_toolset_24mp` retains the full lens render row (now GPU) and adds
+a zero-strength row. No GPU adapter is available in this sandbox; device parity
+and before/after timings remain for the RTX 5090. Exact commands and sandbox
+test counts are in [`CODEX-REPORT-gpu-lensdb.md`](wip/CODEX-REPORT-gpu-lensdb.md).
+
+### Lens database on the GPU — RTX 5090 validation (2026-10-09)
+
+NVIDIA GeForce RTX 5090, Vulkan, driver 615.71.09. `lightcraft-gpu` + `lightcraft-pipeline`: 242 passed, 0 failed,
+no device test skipped; every lens comparison within mean < 0.5 LSB, max ≤ 1 LSB.
+
+| 24 MP geometry | Before: CPU resample + upload | After: upload + GPU warp | After: reused upload + warp |
+| --- | ---: | ---: | ---: |
+| lens 0% | 96.3 ms | 36.7 ms | 0.0 ms |
+| lens 100% | 274.2 ms | 48.2 ms | 5.2 ms |
+| lens 200% | 260.7 ms | 51.0 ms | 5.6 ms |
+
+Full-render toolset bench (24 MP): lens profile (db) 276 ms on the GPU path vs 2894 ms CPU (was 315 ms hybrid).

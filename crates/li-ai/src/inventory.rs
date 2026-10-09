@@ -113,23 +113,41 @@ pub fn label_for(name: &str) -> String {
 }
 
 /// Family of a listed file: its header if local, else ComfyUI's metadata (`metadata`), else its
-/// name. `None` when nothing recognises it.
+/// name. `None` when nothing recognises it — or when a file listed as a main model (`kind`
+/// checkpoint or diffusion model) turns out to be a LoRA.
 pub fn family_of(name: &str, kind: FileKind, local: Option<&Path>, metadata: Option<&serde_json::Value>) -> Option<(String, String)> {
+    let wants_model = matches!(kind, FileKind::Checkpoint | FileKind::DiffusionModel);
     if let Some(p) = local
         && let Some(d) = detect_file(p)
-        && let Some(f) = d.family
     {
-        return Some((f, d.evidence));
+        if wants_model && d.kind == FileKind::Lora {
+            return None;
+        }
+        if let Some(f) = d.family {
+            return Some((f, d.evidence));
+        }
     }
     if let Some(m) = metadata.and_then(|m| m.as_object()) {
         let meta: BTreeMap<String, String> = m.iter().map(|(k, v)| (k.clone(), v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string()))).collect();
         let h = arch::Header { metadata: meta, ..Default::default() };
         let d = arch::classify(&h, name);
+        if wants_model && d.kind == FileKind::Lora {
+            return None;
+        }
         if let Some(f) = d.family {
             return Some((f, d.evidence));
         }
     }
     arch::guess_from_name(name, kind).map(|f| (f, "file name".to_owned()))
+}
+
+/// Whether a file a main-model loader lists is really a LoRA (its header when local, else its
+/// name): such files are left out of the model list.
+pub fn listed_as_model_but_lora(name: &str, local: Option<&Path>) -> bool {
+    match local.and_then(detect_file) {
+        Some(d) => d.kind == FileKind::Lora,
+        None => arch::name_looks_like_lora(name),
+    }
 }
 
 /// One LoRA found installed.
@@ -147,6 +165,10 @@ pub fn scan(info: &ObjectInfo, model_dir: Option<&Path>, reg: &Registry) -> (Vec
         for name in info.choices(class, input) {
             let kind = if *role == Role::Checkpoint { FileKind::Checkpoint } else { FileKind::DiffusionModel };
             let local = local_path(model_dir, folders, &name);
+            // LoRAs saved into a model folder (or listed through extra model paths) aren't models.
+            if listed_as_model_but_lora(&name, local.as_deref()) {
+                continue;
+            }
             let Some((family, _)) = family_of(&name, kind, local.as_deref(), None) else { continue };
             // A checkpoint-loading family found as a bare diffusion model (or the reverse) is still
             // listed; the loader follows the file.
@@ -226,6 +248,40 @@ mod tests {
         assert_eq!(fam("unet:qwen_image_edit_2511_bf16.safetensors").as_deref(), Some("qwen-edit"));
         assert!(fam("ckpt:mystery.safetensors").is_none());
         assert_eq!(loras.iter().find(|l| l.name == "pony_style.safetensors").unwrap().family.as_deref(), Some("pony"));
+    }
+
+    /// LoRAs that sit in a model folder (a LoRA collection installed as a "model", or extra model
+    /// paths) are not listed as models: by name when the file is remote, by header when local.
+    #[test]
+    fn loras_in_model_folders_are_not_models() {
+        let dir = std::env::temp_dir().join(format!("li-inv-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(dir.join("diffusion_models")).unwrap();
+        // A neutrally named file whose tensors are a FLUX LoRA's.
+        let header = serde_json::to_vec(&json!({
+            "double_blocks.18.img_attn.qkv.lora_A.weight": {"dtype": "F16", "shape": [16, 3072], "data_offsets": [0, 0]},
+            "double_blocks.18.img_attn.qkv.lora_B.weight": {"dtype": "F16", "shape": [9216, 16], "data_offsets": [0, 0]}
+        }))
+        .unwrap();
+        let mut bytes = (header.len() as u64).to_le_bytes().to_vec();
+        bytes.extend(header);
+        std::fs::write(dir.join("diffusion_models").join("flux_ink.safetensors"), bytes).unwrap();
+        let info = ObjectInfo(json!({
+            "CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["juggernautXL_v9.safetensors", "sdxl_detail_LoRA.safetensors"]]}}},
+            "UNETLoader": {"input": {"required": {"unet_name": [["flux1-dev-fp8.safetensors", "flux_realism_lora.safetensors", "loras/qwen_style.safetensors", "flux_ink.safetensors"]]}}},
+            "LoraLoader": {"input": {"required": {"lora_name": [["flux_realism_lora.safetensors"]]}}},
+        }));
+        let (models, loras) = scan(&info, Some(&dir), crate::family::registry());
+        let keys: Vec<&str> = models.iter().map(|m| m.key.as_str()).collect();
+        assert_eq!(keys, vec!["ckpt:juggernautXL_v9.safetensors", "unet:flux1-dev-fp8.safetensors"], "{keys:?}");
+        // the LoRA loader's own list is unchanged
+        assert_eq!(loras.len(), 1);
+        assert_eq!(loras[0].family.as_deref(), Some("flux1"));
+        // and the local header decides for the main loaders too
+        let p = dir.join("diffusion_models").join("flux_ink.safetensors");
+        assert!(listed_as_model_but_lora("flux_ink.safetensors", Some(&p)));
+        assert_eq!(family_of("flux_ink.safetensors", FileKind::DiffusionModel, Some(&p), None), None);
+        assert_eq!(family_of("flux_ink.safetensors", FileKind::Lora, Some(&p), None).map(|f| f.0).as_deref(), Some("flux1"));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

@@ -28,6 +28,8 @@ use lightcraft_raster::Rgb32f;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod backend;
 #[cfg(not(target_arch = "wasm32"))]
+mod capture;
+#[cfg(not(target_arch = "wasm32"))]
 mod ctx;
 #[cfg(not(target_arch = "wasm32"))]
 mod params;
@@ -161,6 +163,16 @@ fn env_disabled() -> bool {
 #[cfg(not(target_arch = "wasm32"))]
 static GPU: std::sync::OnceLock<Result<ctx::Gpu, String>> = std::sync::OnceLock::new();
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+static TEST_INIT_LOCK: Mutex<()> = Mutex::new(());
+
+/// Unit tests serialize creation with the crash-marker test's global configuration.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+fn test_device() -> Option<&'static ctx::Gpu> {
+    let _init = TEST_INIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    device()
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn device() -> Option<&'static ctx::Gpu> {
     // turned off (preference, environment): don't even load the driver (issue #136)
@@ -203,6 +215,22 @@ pub fn ready() -> bool {
     }
     #[cfg(target_arch = "wasm32")]
     {
+        true
+    }
+}
+
+/// Wait (up to `timeout`) until no GPU render is running on any thread and the device's queue is
+/// empty; false if renders were still running. Call it before the process (or a test) exits:
+/// NVIDIA's driver crashes (SIGSEGV in `libnvidia-glcore`, GPU Xid 13 "Illegal Instruction
+/// Encoding") when it is torn down while a background thread is still recording or submitting.
+pub fn quiesce(timeout: std::time::Duration) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        ctx::quiesce(timeout)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = timeout;
         true
     }
 }
@@ -317,9 +345,11 @@ pub fn render_hs_candidate(
             record_fallback("develop layer tools render on the CPU".into());
             return None;
         }
-        // capture sharpening works on the source before anything else (both renderers)
-        let pre = lightcraft_pipeline::presource(src, info, s, stages);
-        let src = pre.as_ref().unwrap_or(src);
+        // the tone equalizer has no kernel yet: CPU
+        if lightcraft_pipeline::tools_need_cpu(s, req) {
+            record_fallback("the tone equalizer renders on the CPU".into());
+            return None;
+        }
         let gpu = device()?;
         let ext = stages.map(|c| c.extension::<GpuStages>());
         let fault = take_fault();

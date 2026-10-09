@@ -1,5 +1,6 @@
 //! Window regions and panels.
 
+pub mod attributions;
 pub mod bottombar;
 pub mod chips;
 pub mod compare;
@@ -10,8 +11,10 @@ pub mod dialogs;
 pub mod doc_layers;
 pub mod edit;
 pub mod enhance;
+pub mod export_dialog;
 pub mod filterbar;
 pub mod grid;
+pub mod host_composite;
 pub mod host_session;
 pub mod left;
 pub mod library_problem;

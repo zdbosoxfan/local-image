@@ -2958,3 +2958,122 @@ ai	New	Baru
 	Cage is not active	Sangkar tidak aktif
 	Could not use Cage: the layer is empty	Tidak dapat memakai Sangkar: lapisan kosong
 	Index	Indeks
+	Browse LoRAs for this model family	Jelajahi LoRA untuk keluarga model ini
+	Browse LoRAs…	Jelajahi LoRA…
+	Choose another model…	Pilih model lain…
+	Couldn't remove {name}: {error}	Tidak dapat menghapus {name}: {error}
+	Find LoRAs (styles) for the chosen model's family	Cari LoRA (gaya) untuk keluarga model yang dipilih
+	Kept because other installed models use them: {files}	Disimpan karena model terpasang lain memakainya: {files}
+	List only the official upscalers (SeedVR2)	Tampilkan hanya upscaler resmi (SeedVR2)
+	Move to Trash	Pindahkan ke Tempat Sampah
+	None of its files are in the model folder.	Tidak ada berkasnya di folder model.
+	ON-DEVICE MODELS (CPU)	MODEL DI PERANGKAT (CPU)
+	Official upscalers only	Hanya upscaler resmi
+	Recommended	Disarankan
+	Remove (deletes the files)	Hapus (menghapus berkas)
+	Remove (moves the files to the Trash)	Hapus (memindahkan berkas ke Tempat Sampah)
+	Remove {name}?	Hapus {name}?
+	Removed {name} ({size} freed)	{name} dihapus ({size} dibebaskan)
+	Stop generation	Hentikan pembuatan
+	Stopped generation	Pembuatan dihentikan
+	This frees {size}. The files are deleted permanently.	Ini membebaskan {size}. Berkas dihapus secara permanen.
+	This frees {size}. The files go to the Trash, so you can restore them from there.	Ini membebaskan {size}. Berkas masuk ke Tempat Sampah, jadi Anda bisa memulihkannya dari sana.
+	Unload AI models from GPU memory (the AI engine is off)	Keluarkan model AI dari memori GPU (mesin AI mati)
+	Unload AI models from GPU memory	Keluarkan model AI dari memori GPU
+	Unloading AI models…	Mengeluarkan model AI…
+	Upscale with any image model instead: enlarge, then add detail with img2img	Perbesar dengan model gambar apa pun: perbesar, lalu tambahkan detail dengan img2img
+	kept {files}	disimpan {files}
+	using {name}	memakai {name}
+	{n} of {total} installed	{n} dari {total} terpasang
+	{size} download · runs on the CPU · {licence}	unduhan {size} · berjalan di CPU · {licence}
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	Model kecil yang berjalan di prosesor komputer ini: tanpa ComfyUI atau GPU, unduhan cepat, dan foto Anda tidak pernah meninggalkan komputer. Setiap grup melayani alat yang berbeda, dan model terbaik yang terpasang di grup itulah yang dipakai.
+	Subject & Background	Subjek & Latar Belakang
+# Selected-item context bars and live shapes
+	AI Fill	Isi dengan AI
+	Add a vector mask from the path	Tambahkan masker vektor dari jalur
+	Bottom-left corner radius	Radius sudut kiri bawah
+	Bottom-right corner radius	Radius sudut kanan bawah
+	Content-Aware Fill	Isi sesuai konten
+	Corners	Sudut
+	Create another variation using this layer's prompt and a new seed	Buat variasi lain dengan prompt lapisan ini dan seed baru
+	Describe what to generate, or leave empty to fill from the surroundings	Jelaskan yang ingin dibuat, atau kosongkan untuk mengisi dari sekitarnya
+	Edit Path	Edit jalur
+	Edit Text	Edit teks
+	Edit the shape's anchors and handles	Edit jangkar dan handel bentuk
+	Edit this photo's develop settings	Edit pengaturan pengembangan foto ini
+	Fill the path's area from the image around it	Isi area jalur dari gambar di sekitarnya
+	Fill the selection from the image around it	Isi seleksi dari gambar di sekitarnya
+	Generate this area again from its surroundings	Buat ulang area ini dari sekitarnya
+	Generate “{prompt}” again with a new seed	Buat ulang “{prompt}” dengan seed baru
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	Isi generatif: buat ulang area dari deskripsi (kosong: dari sekitarnya)
+	Generative Fill: regenerate the path's area from a description	Isi generatif: buat ulang area jalur dari deskripsi
+	L	P
+	Line weight	Ketebalan garis
+	Mask out the background with AI	Masker latar belakang dengan AI
+	Number of sides	Jumlah sisi
+	Open in Develop	Buka di Pengembangan
+	Open the Smart Object's contents	Buka isi objek pintar
+	Regenerate	Buat ulang
+	Select the main subject with AI	Pilih subjek utama dengan AI
+	Set radius of all corners	Atur radius semua sudut
+	Set shape stroke width	Atur ketebalan goresan bentuk
+	Set the font size	Atur ukuran font
+	This layer has no generation model to repeat	Lapisan ini tidak memiliki model untuk pembuatan ulang
+	This layer has no generation settings to repeat	Lapisan ini tidak memiliki pengaturan untuk pembuatan ulang
+	This layer's generation model is unavailable	Model pembuatan lapisan ini tidak tersedia
+	Top-left corner radius	Radius sudut kiri atas
+	Top-right corner radius	Radius sudut kanan atas
+	Turn the shape into pixels	Ubah bentuk menjadi piksel
+	Variations	Variasi
+	Close panel	Tutup panel
+	Dock Panel	Tambatkan panel
+	Float Panel Group	Lepaskan grup panel
+	Save and Return to Library	Simpan dan Kembali ke Pustaka
+	Added your new Develop edits as layer {name}	Hasil edit Develop baru Anda ditambahkan sebagai layer {name}
+	Open the Library to save into it	Buka Pustaka untuk menyimpan ke dalamnya
+	The layers below are unchanged; hide or delete the new layer to go back.	Layer di bawahnya tidak berubah; sembunyikan atau hapus layer baru untuk kembali.
+# Attributions page (li-attributions)
+	Attributions	Atribusi
+	Search attributions…	Cari atribusi…
+	No matches.	Tidak ada yang cocok.
+	Show licence text	Tampilkan teks lisensi
+	Smart Sort (scenes)	Urut Cerdas (adegan)
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	Mengenali isi foto (pembicara, penonton, detail…) agar Urut Cerdas menempatkannya di folder yang tepat. Berjalan di CPU; foto tidak pernah meninggalkan komputer ini.
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	Mengenali adegan dari deskripsi Anda untuk Urut Cerdas. Model lokal cepat untuk pembicara, penonton, detail, dan kategori lain pilihan Anda. Unduhan menyertakan model teks dan tokenizer.
+	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Menemukan subjek utama foto. Dipakai oleh Pilih › Subjek, Hapus Latar Belakang (Cepat), mode klik Alat Seleksi Objek, serta masker Subjek dan Latar Belakang di Pustaka.
+	Finds the sky. Used by Select › Sky and the Library's sky masks.	Menemukan langit. Dipakai oleh Pilih › Langit dan masker langit di Pustaka.
+	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Memperkirakan seberapa jauh setiap bagian foto. Dipakai oleh masker kedalaman di Pustaka (misalnya untuk menggelapkan atau mengaburkan latar belakang, atau memilih latar depan berdasarkan jarak).
+	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	Menemukan subjek dengan tepi paling halus (rambut, bulu, detail tipis). Kualitas terbaik untuk Pilih Subjek dan Hapus Latar Belakang; butuh satu-dua detik per foto.
+	Clean edges between near and far, good on most photos. Takes a few seconds per photo.	Tepi bersih antara dekat dan jauh, bagus untuk sebagian besar foto. Butuh beberapa detik per foto.
+	Custom: {name}	Kustom: {name}
+	Use official model	Pakai model resmi
+	Your own model, run on the CPU instead of the official one.	Model Anda sendiri, dijalankan di prosesor menggantikan model resmi.
+	{name} · {size} download · runs on the CPU · {licence}	{name} · unduhan {size} · berjalan di prosesor · {licence}
+	Custom model…	Model kustom…
+	Pick any .onnx model that does this. It is copied into the models folder and used instead of the official one.	Pilih model .onnx apa pun untuk fungsi ini. Model disalin ke folder model dan dipakai menggantikan model resmi.
+	Input style:	Gaya input:
+	IS-Net style	Gaya IS-Net
+	U²-Net / ImageNet style	Gaya U²-Net / ImageNet
+	Sky class:	Kelas langit:
+	Only used when the model gives one map per class (ADE20K: 2).	Hanya dipakai jika model menghasilkan satu peta per kelas (ADE20K: 2).
+	Testing the model…	Menguji model…
+	Choose an ONNX file…	Pilih berkas ONNX…
+	That model can't be used: {error}	Model itu tidak dapat dipakai: {error}
+	Choose an ONNX model	Pilih model ONNX
+	ONNX model	Model ONNX
+	Remove old models ({size})	Hapus model lama ({size})
+	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	Memindahkan model yang tidak lagi dipakai aplikasi (U²-Net, TinySkyNet, MiDaS) ke Tempat Sampah.
+	the old models	model lama
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	Model kecil yang berjalan di prosesor komputer ini: tanpa ComfyUI atau GPU, unduhan cepat, dan foto Anda tidak pernah meninggalkan komputer. Setiap fungsi punya satu model yang direkomendasikan; Anda bisa memakai model ONNX sendiri.
+	Choose an ONNX model (a file ending in .onnx)	Pilih model ONNX (file yang berakhiran .onnx)
+	Not a depth model: it must output one depth map	Bukan model kedalaman: harus menghasilkan satu peta kedalaman
+	Not a sky model	Bukan model langit
+	Not a sky model: its output {shape} should be 1 map or one map per class	Bukan model langit: keluarannya {shape} harus 1 peta atau satu peta per kelas
+	Not a subject model: it must output one foreground map	Bukan model subjek: harus menghasilkan satu peta latar depan
+	The model has no input	Model tidak memiliki masukan
+	The model's input has {channels} channels; an RGB image (3) is needed	Masukan model memiliki {channels} saluran; diperlukan citra RGB (3)
+	The model's input is {height}×{width}; a square input (or a flexible size) is needed	Masukan model adalah {height}×{width}; diperlukan masukan persegi (atau ukuran fleksibel)
+	The model's input must be an image (batch × 3 × height × width)	Masukan model harus berupa citra (batch × 3 × tinggi × lebar)
+	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Kelas langit {class} di luar rentang: model ini memiliki {classes} kelas (0 hingga {max})
+	{path} isn't a file	{path} bukan file
+	Custom models are not supported for this function	Model kustom tidak didukung untuk fungsi ini

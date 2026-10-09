@@ -40,6 +40,7 @@ pub mod rename;
 pub mod segment;
 pub mod sidecar;
 pub mod smart;
+pub mod smart_sort;
 mod view;
 
 use std::sync::Arc;
@@ -183,6 +184,8 @@ pub struct Session {
     pub curve_presets: Vec<cmd::curves::CurvePreset>,
     /// Saved colour-label name sets.
     pub label_sets: Vec<cmd::manage::LabelSet>,
+    /// Smart Sort models and library-local embedding cache.
+    pub smart: smart_sort::SmartSort,
     /// Look-alike signatures by content key (Find Similar).
     pub signatures: std::collections::HashMap<String, [f32; 64]>,
     /// Imported `.cube` LUT profiles.
@@ -268,6 +271,7 @@ impl Session {
             filter_presets: Vec::new(),
             curve_presets: Vec::new(),
             label_sets: Vec::new(),
+            smart: Default::default(),
             signatures: Default::default(),
             lut_profiles: Vec::new(),
             target_album: None,
@@ -758,6 +762,8 @@ mod tests_organize;
 mod tests_persist;
 #[cfg(test)]
 mod tests_prefs;
+#[cfg(test)]
+mod tests_save_over;
 #[cfg(test)]
 mod tests_segment;
 #[cfg(test)]

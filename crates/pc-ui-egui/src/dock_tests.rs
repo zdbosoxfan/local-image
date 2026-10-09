@@ -476,15 +476,16 @@ fn tab_strips_never_overlap_the_menu_button() {
         for scale in [1.0, 2.0] {
             for width in [180.0, 250.0, 290.0, 420.0] {
                 for g in Group::ALL {
-                    let tabs = g.tabs(is_pro(theme));
-                    for sel in 0..tabs.len() {
+                    let labels = g.labels(is_pro(theme));
+                    for sel in 0..labels.len() {
+                        let tabs = labels.clone();
                         let mut h = Harness::builder().with_size(vec2(width, 200.0)).with_pixels_per_point(scale).build_ui_state(
                             move |ui, out: &mut StripProbe| {
                                 if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
                                     return;
                                 }
                                 let mut s = sel;
-                                let r = crate::widgets::card_ex(ui, "t", tabs, &mut s, false, |ui, _| {
+                                let r = crate::widgets::card_ex(ui, "t", &tabs, &mut s, false, |ui, _| {
                                     ui.label("body");
                                 });
                                 *out = Some((r.tabs, r.menu.rect, r.chevron, ui.max_rect()));
@@ -506,7 +507,7 @@ fn tab_strips_never_overlap_the_menu_button() {
                         if let Some(c) = chevron {
                             assert!(!overlap(c, menu) && shown.iter().all(|(_, r)| !overlap(*r, c)), "{what}: chevron overlaps");
                         } else {
-                            assert_eq!(shown.len(), tabs.len(), "{what}: a tab went missing without a chevron");
+                            assert_eq!(shown.len(), labels.len(), "{what}: a tab went missing without a chevron");
                         }
                     }
                 }
@@ -565,4 +566,333 @@ fn dock_strips_fit_and_the_chevron_menu_switches_tabs() {
     h.get_by_label("Patterns").click();
     h.run_steps(3);
     assert_eq!(*h.state(), 3, "Patterns chosen from the chevron menu");
+}
+
+// ------------------------------------------------------------- tear-off and docking back
+
+/// The dock, the canvas and the floating panels, as the app draws them.
+fn float_harness(app: PhotocraftApp, size: egui::Vec2, theme: ThemeKind) -> Harness<'static, PhotocraftApp> {
+    let mut h = Harness::builder().with_size(size).with_step_dt(1.0 / 60.0).build_ui_state(
+        |ui, app: &mut PhotocraftApp| {
+            if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                return;
+            }
+            crate::panels::right_dock(app, ui);
+            egui::CentralPanel::default().show(ui, |_| {});
+            crate::panels::floating_panels(app, ui.ctx());
+        },
+        app,
+    );
+    PhotocraftApp::setup_context(&h.ctx, theme);
+    h.state_mut().ui.theme = theme;
+    h.run_steps(4);
+    h
+}
+
+fn strip_of(h: &Harness<'static, PhotocraftApp>, g: Group) -> StripRects {
+    last_strips(&h.ctx).into_iter().find(|s| s.group == g).unwrap_or_else(|| panic!("{g:?} strip not drawn"))
+}
+
+fn tab_rect(h: &Harness<'static, PhotocraftApp>, g: Group, tab: Tab) -> Rect {
+    let s = strip_of(h, g);
+    let i = s.tab_ids.iter().position(|t| *t == tab).unwrap_or_else(|| panic!("{tab:?} not in {g:?}: {:?}", s.tab_ids));
+    s.tabs.iter().find(|(j, _)| *j == i).map(|(_, r)| *r).unwrap_or_else(|| panic!("{tab:?} in the chevron menu"))
+}
+
+fn docked_tabs(h: &Harness<'static, PhotocraftApp>) -> Vec<Tab> {
+    last_strips(&h.ctx).into_iter().flat_map(|s| s.tab_ids).collect()
+}
+
+fn groups_drawn(h: &Harness<'static, PhotocraftApp>) -> Vec<Group> {
+    last_rects(&h.ctx).into_iter().map(|(g, _)| g).collect()
+}
+
+#[test]
+fn a_tab_dragged_out_floats_and_docks_back_into_a_group() {
+    for theme in [ThemeKind::ProMedium, ThemeKind::Studio] {
+        let (app, _, _) = app_with_layers();
+        let mut h = float_harness(app, vec2(1200.0, 800.0), theme);
+        let from = tab_rect(&h, Group::Layers, Tab::Channels).center();
+        let to = Pos2::new(400.0, 300.0);
+        drag(&mut h, from, to);
+        let app = h.state();
+        assert_eq!(app.ui.dock.floating.len(), 1, "{theme:?}: {:?}", app.ui.dock);
+        assert_eq!(app.ui.dock.floating[0].tabs, vec![Tab::Channels]);
+        assert!(!docked_tabs(&h).contains(&Tab::Channels), "{theme:?}: the dock still shows Channels");
+        assert_eq!(strip_of(&h, Group::Layers).tab_ids, vec![Tab::Layers, Tab::Paths]);
+        let floats = last_floats(&h.ctx);
+        assert_eq!(floats.len(), 1);
+        assert_eq!(floats[0].tab_ids, vec![Tab::Channels]);
+        assert!(floats[0].rect.expand(2.0).contains(to), "{theme:?}: the panel follows the pointer: {:?}", floats[0].rect);
+        assert_eq!(app.ui.dock_tabs.layers, 1, "Channels is the chosen tab of its family");
+
+        // Drag it back by its grip onto the Color group's tab strip.
+        let color = strip_of(&h, Group::Color);
+        let back = Pos2::new(color.menu.left() - 4.0, color.strip.center().y);
+        drag(&mut h, floats[0].grip.center(), back);
+        assert!(h.state().ui.dock.floating.is_empty(), "{theme:?}: {:?}", h.state().ui.dock.floating);
+        assert!(last_floats(&h.ctx).is_empty());
+        assert!(strip_of(&h, Group::Color).tab_ids.contains(&Tab::Channels), "{theme:?}");
+        assert_eq!(active_tab(h.state(), Place::Docked(Group::Color)), Some(Tab::Channels), "the dropped tab shows");
+        assert_eq!(docked_tabs(&h).iter().filter(|t| **t == Tab::Channels).count(), 1);
+    }
+}
+
+#[test]
+fn a_tab_dragged_onto_another_strip_moves_there_without_floating() {
+    let (app, _, _) = app_with_layers();
+    let mut h = float_harness(app, vec2(1200.0, 800.0), ThemeKind::ProMedium);
+    let from = tab_rect(&h, Group::Layers, Tab::Paths).center();
+    let color = strip_of(&h, Group::Color);
+    drag(&mut h, from, Pos2::new(color.menu.left() - 4.0, color.strip.center().y));
+    assert!(h.state().ui.dock.floating.is_empty());
+    assert_eq!(strip_of(&h, Group::Color).tab_ids, vec![Tab::Color, Tab::Swatches, Tab::Gradients, Tab::Patterns, Tab::Paths]);
+    assert_eq!(strip_of(&h, Group::Layers).tab_ids, vec![Tab::Layers, Tab::Channels]);
+    // Dragged along its own strip, a tab changes places.
+    let from = tab_rect(&h, Group::Layers, Tab::Channels).center();
+    let to = tab_rect(&h, Group::Layers, Tab::Layers).left_center() + vec2(2.0, 0.0);
+    drag(&mut h, from, to);
+    assert_eq!(strip_of(&h, Group::Layers).tab_ids, vec![Tab::Channels, Tab::Layers]);
+}
+
+#[test]
+fn a_group_dragged_out_floats_whole_and_docks_back_between_groups() {
+    let (app, _, _) = app_with_layers();
+    let mut h = float_harness(app, vec2(1200.0, 800.0), ThemeKind::ProMedium);
+    let layers = rect_of(&h, Group::Layers);
+    drag(&mut h, Pos2::new(layers.right() - 60.0, layers.top() + 13.0), Pos2::new(400.0, 400.0));
+    assert_eq!(h.state().ui.dock.floating.len(), 1);
+    assert_eq!(h.state().ui.dock.floating[0].tabs, vec![Tab::Layers, Tab::Channels, Tab::Paths]);
+    assert_eq!(groups_drawn(&h), vec![Group::Color, Group::Properties], "Layers left the column");
+    // Back between Color and Properties: the Layers group again, at that place.
+    let (color, props) = (rect_of(&h, Group::Color), rect_of(&h, Group::Properties));
+    let gap = Pos2::new(color.center().x, (color.bottom() + props.top()) / 2.0);
+    assert_eq!(target_at(&h.ctx, gap, Some(h.state().ui.dock.floating[0].id)), Some(Target::NewGroup(Some(Group::Properties))));
+    let grip = last_floats(&h.ctx)[0].grip.center();
+    drag(&mut h, grip, gap);
+    assert!(h.state().ui.dock.floating.is_empty());
+    assert_eq!(groups_drawn(&h), vec![Group::Color, Group::Layers, Group::Properties]);
+    assert_eq!(strip_of(&h, Group::Layers).tab_ids, vec![Tab::Layers, Tab::Channels, Tab::Paths]);
+    // The column still reorders by strip as before.
+    let layers = rect_of(&h, Group::Layers);
+    let to = rect_of(&h, Group::Color).left_top() + vec2(120.0, 10.0);
+    drag(&mut h, Pos2::new(layers.right() - 60.0, layers.top() + 13.0), to);
+    assert_eq!(groups_drawn(&h), vec![Group::Layers, Group::Color, Group::Properties]);
+    assert!(h.state().ui.dock.floating.is_empty(), "a reorder inside the column never floats");
+}
+
+#[test]
+fn floating_panels_merge_move_close_and_pull_tabs_out() {
+    let (app, _, _) = app_with_layers();
+    let mut h = float_harness(app, vec2(1400.0, 900.0), ThemeKind::ProMedium);
+    let from = tab_rect(&h, Group::Layers, Tab::Channels).center();
+    drag(&mut h, from, Pos2::new(250.0, 150.0));
+    let from = tab_rect(&h, Group::Layers, Tab::Paths).center();
+    drag(&mut h, from, Pos2::new(650.0, 300.0));
+    assert_eq!(h.state().ui.dock.floating.len(), 2);
+    let floats = last_floats(&h.ctx);
+    let channels = floats.iter().find(|f| f.tab_ids == vec![Tab::Channels]).unwrap().clone();
+    let paths = floats.iter().find(|f| f.tab_ids == vec![Tab::Paths]).unwrap().clone();
+    // Paths' panel onto Channels' strip: one panel with both tabs.
+    drag(&mut h, paths.grip.center(), Pos2::new(channels.strip.right() - 30.0, channels.strip.center().y));
+    let f = &h.state().ui.dock.floating;
+    assert_eq!(f.len(), 1, "{f:?}");
+    assert_eq!(f[0].tabs, vec![Tab::Channels, Tab::Paths]);
+    assert_eq!(f[0].shown_tab(), Some(Tab::Paths));
+    // Pulling a tab out of a floating panel with two makes a panel of its own.
+    let merged = last_floats(&h.ctx)[0].clone();
+    let tab = merged.tabs.iter().find(|(i, _)| *i == 0).unwrap().1.center();
+    drag(&mut h, tab, Pos2::new(800.0, 600.0));
+    let f = &h.state().ui.dock.floating;
+    assert_eq!(f.len(), 2, "{f:?}");
+    assert!(f.iter().any(|p| p.tabs == vec![Tab::Channels]) && f.iter().any(|p| p.tabs == vec![Tab::Paths]));
+    // Moving a floating panel by its grip keeps it floating where it's let go.
+    let r = last_floats(&h.ctx).into_iter().find(|p| p.tab_ids == vec![Tab::Paths]).unwrap();
+    drag(&mut h, r.grip.center(), r.grip.center() + vec2(-120.0, 80.0));
+    let moved = last_floats(&h.ctx).into_iter().find(|p| p.tab_ids == vec![Tab::Paths]).unwrap();
+    assert!((moved.rect.min - (r.rect.min + vec2(-120.0, 80.0))).length() < 12.0, "{:?} -> {:?}", r.rect, moved.rect);
+    // Its close button hides it; Window › Paths brings it back where it was.
+    drag(&mut h, moved.close.center(), moved.close.center());
+    assert!(h.state().ui.dock.floating.iter().any(|p| p.tabs == vec![Tab::Paths] && p.hidden));
+    assert!(!last_floats(&h.ctx).iter().any(|p| p.tab_ids == vec![Tab::Paths]));
+    let ctx = h.ctx.clone();
+    crate::menus::invoke(h.state_mut(), &ctx, "window.panel.paths", json!({})).unwrap();
+    h.run_steps(3);
+    let back = last_floats(&h.ctx).into_iter().find(|p| p.tab_ids == vec![Tab::Paths]).expect("Paths floats again");
+    assert_eq!(back.rect.min, moved.rect.min);
+}
+
+#[test]
+fn a_locked_workspace_keeps_tabs_docked() {
+    let (app, _, _) = app_with_layers();
+    let mut h = float_harness(app, vec2(1200.0, 800.0), ThemeKind::ProMedium);
+    h.state_mut().session.prefs.edit(|p| p.workspace_locked = true);
+    let from = tab_rect(&h, Group::Layers, Tab::Channels).center();
+    drag(&mut h, from, Pos2::new(400.0, 300.0));
+    let layers = rect_of(&h, Group::Layers);
+    drag(&mut h, Pos2::new(layers.right() - 60.0, layers.top() + 13.0), Pos2::new(400.0, 300.0));
+    assert!(h.state().ui.dock.floating.is_empty());
+    assert_eq!(strip_of(&h, Group::Layers).tab_ids, vec![Tab::Layers, Tab::Channels, Tab::Paths]);
+}
+
+#[test]
+fn old_layouts_without_tab_lists_load_into_the_default_grouping() {
+    let (mut app, _, _) = app_with_layers();
+    // A `panelLayout` as saved before tabs could move.
+    let old = json!({
+        "workspace": "Essentials",
+        "panels": serde_json::to_value(crate::state::Panels::default()).unwrap(),
+        "dockTabs": {"layers": 2, "color": 1},
+        "dock": {"order": ["layers", "color", "properties"], "heights": {"color": 200.0}, "collapsed": ["properties"]}
+    });
+    apply(&mut app, &old);
+    let d = &app.ui.dock;
+    assert!(d.tabs.is_empty() && d.floating.is_empty() && d.active.is_empty());
+    assert_eq!(d.heights.get(&Group::Color), Some(&200.0));
+    assert!(d.is_collapsed(Group::Properties));
+    for pro in [true, false] {
+        for (g, tabs) in d.assignment(pro) {
+            assert_eq!(tabs, g.default_tabs(pro), "{g:?}");
+        }
+    }
+    assert_eq!(active_tab(&app, Place::Docked(Group::Layers)), Some(Tab::Paths));
+    // The default layout serialises as before (no tab lists, no floating panels).
+    let v = serde_json::to_value(DockLayout::default()).unwrap();
+    assert_eq!(v, json!({"order": [], "heights": {}, "collapsed": []}));
+    // Unknown groups or tabs make the saved dock unreadable: it keeps the current one.
+    let mut app2 = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    apply(&mut app2, &json!({"dock": {"order": ["layers"], "tabs": {"layers": ["layers", "someFutureTab"]}}}));
+    assert_eq!(app2.ui.dock, DockLayout::default());
+}
+
+/// A layout with moved tabs, a user group and a floating panel.
+fn rearranged(pro: bool) -> DockLayout {
+    let mut d = DockLayout::default();
+    d.insert(&[Tab::Paths], Group::Color, 1, pro);
+    let g = d.new_group(&[Tab::Swatches], Tab::Swatches, Some(Group::Layers), pro);
+    assert_eq!(g, Group::Custom(1), "Color still holds tabs, so Swatches makes a group of its own");
+    d.heights.insert(g, 180.0);
+    let id = d.float(&[Tab::Channels, Tab::Histogram], Some(Tab::Histogram), pos2(300.0, 200.0), vec2(260.0, 340.0), pro);
+    assert_eq!(id, 1);
+    d
+}
+
+#[test]
+fn rearranged_layouts_round_trip_through_json_preferences_and_workspaces() {
+    let pro = true;
+    let d = rearranged(pro);
+    let v = serde_json::to_value(&d).unwrap();
+    assert_eq!(v["tabs"]["custom1"], json!(["swatches"]), "{v}");
+    assert_eq!(v["floating"][0]["tabs"], json!(["channels", "histogram"]));
+    assert_eq!(v["floating"][0]["pos"], json!([300.0, 200.0]));
+    let back: DockLayout = serde_json::from_value(v).unwrap();
+    assert_eq!(back, d);
+    assert_eq!(back.assignment(pro), d.assignment(pro));
+    assert_eq!(back.locate(Tab::Histogram, pro), Place::Floating(1));
+    assert_eq!(back.locate(Tab::Paths, pro), Place::Docked(Group::Color));
+    let order = back.order();
+    assert_eq!(order.iter().position(|g| *g == Group::Custom(1)).map(|i| i + 1), order.iter().position(|g| *g == Group::Layers));
+
+    // Remembered in the preferences and restored at the next launch.
+    let (mut app, _, _) = app_with_layers();
+    app.ui.theme = ThemeKind::ProMedium;
+    app.ui.dock = d.clone();
+    let ctx = egui::Context::default();
+    persist(&mut app, &ctx);
+    let prefs = app.session.prefs_to_json();
+    let mut s2 = photocraft_engine::Session::new();
+    s2.load_prefs_json(&prefs).unwrap();
+    let mut app2 = PhotocraftApp::new(s2, crate::Services::default());
+    restore(&mut app2);
+    assert_eq!(app2.ui.dock, d);
+
+    // Saved with a workspace; Essentials and Reset Workspace bring the default grouping back.
+    crate::menus::invoke(&mut app, &ctx, "window.workspace.newWorkspace", json!({"name": "Floaty"})).unwrap();
+    crate::menus::invoke(&mut app, &ctx, "window.workspace.essentials", json!({})).unwrap();
+    assert_eq!(app.ui.dock, DockLayout::default());
+    crate::menus::invoke(&mut app, &ctx, "window.workspace.select", json!({"name": "Floaty"})).unwrap();
+    assert_eq!(app.ui.dock, d);
+    crate::menus::invoke(&mut app, &ctx, "window.workspace.essentials", json!({})).unwrap();
+    app.ui.dock = d.clone();
+    crate::menus::invoke(&mut app, &ctx, "window.workspace.resetWorkspace", json!({})).unwrap();
+    assert_eq!(app.ui.dock, DockLayout::default());
+}
+
+#[test]
+fn the_layout_is_only_written_to_the_preferences_when_it_changes() {
+    let (mut app, _, _) = app_with_layers();
+    let ctx = egui::Context::default();
+    persist(&mut app, &ctx);
+    assert_eq!(app.session.prefs().panel_layout["dock"], json!({"order": [], "heights": {}, "collapsed": []}));
+    // Nothing changed: the JSON isn't rebuilt or written again.
+    app.session.prefs.edit(|p| p.panel_layout = Value::Null);
+    persist(&mut app, &ctx);
+    assert_eq!(app.session.prefs().panel_layout, Value::Null);
+    // A change is.
+    app.ui.dock.float(&[Tab::Info], None, pos2(10.0, 10.0), vec2(240.0, 200.0), true);
+    persist(&mut app, &ctx);
+    assert_eq!(app.session.prefs().panel_layout["dock"]["floating"][0]["tabs"], json!(["info"]));
+}
+
+#[test]
+fn user_groups_and_closed_panels_send_tabs_home() {
+    let pro = true;
+    let mut d = rearranged(pro);
+    // Taking every tab out of a user group removes it (and what was stored about it).
+    d.take(&[Tab::Swatches], pro);
+    assert!(!d.order().contains(&Group::Custom(1)) && !d.heights.contains_key(&Group::Custom(1)));
+    // A tab found nowhere goes back to its home group.
+    assert!(d.group_tabs(Group::Color, pro).contains(&Tab::Swatches));
+    // A group whose tabs all left is empty (and isn't drawn) until a tab comes back.
+    let mut e = DockLayout::default();
+    e.float(&[Tab::Navigator, Tab::Histogram, Tab::Info], None, pos2(0.0, 0.0), vec2(250.0, 250.0), pro);
+    assert!(e.group_tabs(Group::Navigator, pro).is_empty());
+    let (mut app, _, _) = app_with_layers();
+    app.ui.theme = ThemeKind::ProMedium;
+    app.ui.dock = e;
+    app.ui.panels.navigator = true;
+    assert!(!docked(&app, true).iter().any(|(g, _)| *g == Group::Navigator));
+    // Window › Histogram toggles the floating panel, never the dock group.
+    let ctx = egui::Context::default();
+    assert_eq!(crate::view_cmds::checked(&app, "window.panel.navigator"), Some(true));
+    crate::menus::invoke(&mut app, &ctx, "window.panel.histogram", json!({})).unwrap();
+    assert!(!app.ui.dock.floating[0].hidden && app.ui.dock.floating[0].shown_tab() == Some(Tab::Histogram));
+    assert_eq!(app.ui.dock_tabs.navigator, 1);
+    assert_eq!(crate::view_cmds::checked(&app, "window.panel.histogram"), Some(true));
+    assert_eq!(crate::view_cmds::checked(&app, "window.panel.navigator"), Some(false));
+    crate::menus::invoke(&mut app, &ctx, "window.panel.histogram", json!({})).unwrap();
+    assert!(app.ui.dock.floating[0].hidden && app.ui.panels.navigator, "the floating panel closed, the group flag untouched");
+    // The rail / Window › toggle on the emptied group reopens its floating panel.
+    reveal(&mut app, Group::Navigator);
+    assert!(!app.ui.dock.floating[0].hidden);
+}
+
+#[test]
+fn choosing_a_moved_tab_keeps_what_its_home_group_shows() {
+    let pro = true;
+    let (mut app, _, _) = app_with_layers();
+    app.ui.theme = ThemeKind::ProMedium;
+    app.ui.dock_tabs.color = 2; // Gradients
+    sync(&mut app);
+    app.ui.dock.insert(&[Tab::Swatches], Group::Layers, 3, pro);
+    select(&mut app, Tab::Swatches);
+    assert_eq!(active_tab(&app, Place::Docked(Group::Layers)), Some(Tab::Swatches));
+    assert_eq!(active_tab(&app, Place::Docked(Group::Color)), Some(Tab::Gradients), "Color keeps showing Gradients");
+    assert_eq!(app.ui.dock_tabs.color, 1);
+    // Window › Layers (dockTabs written by the menu) shows Layers in its group.
+    let ctx = egui::Context::default();
+    crate::menus::invoke(&mut app, &ctx, "window.panel.layers", json!({})).unwrap();
+    sync(&mut app);
+    assert_eq!(active_tab(&app, Place::Docked(Group::Layers)), Some(Tab::Layers));
+    // A panel writing dockTabs itself is followed wherever the tab is.
+    app.ui.dock.insert(&[Tab::Patterns], Group::Custom(3), 0, pro);
+    app.ui.dock.float(&[Tab::Gradients, Tab::Color], Some(Tab::Gradients), pos2(0.0, 0.0), vec2(250.0, 250.0), pro);
+    sync(&mut app);
+    app.ui.dock_tabs.color = 3; // Patterns
+    sync(&mut app);
+    assert_eq!(active_tab(&app, Place::Docked(Group::Custom(3))), Some(Tab::Patterns));
+    assert_eq!(active_tab(&app, Place::Floating(1)), Some(Tab::Gradients), "the floating panel keeps its tab");
+    app.ui.dock_tabs.color = 0; // Color
+    sync(&mut app);
+    assert_eq!(active_tab(&app, Place::Floating(1)), Some(Tab::Color));
 }

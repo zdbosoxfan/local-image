@@ -817,6 +817,65 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn native_capture_lens_and_primary_caches_match_cpu() {
+        use lightcraft_pipeline::lensdb::{Distortion, LensCorrection, Tca};
+        let Some(g) = device() else { return };
+        let _scope = crate::ctx::RenderScope::new(g);
+        let errors = crate::ctx::ErrorScopes::push(g);
+        let src = Arc::new(lightcraft_scenes::demo_library()[2].render(137, 89));
+        let info = SourceInfo {
+            raw: true,
+            capture_radius: Some(0.8),
+            lens_db: Some(LensCorrection {
+                distortion: Distortion::Poly3 { k1: -0.2 },
+                tca: Tca::Linear { kr: 1.01, kb: 0.99 },
+                vignetting: Some([-0.3, 0.05, 0.]),
+                diag_norm: 2.,
+                center: [0.1, -0.15],
+            }),
+            ..Default::default()
+        };
+        let mut s = DevelopSettings::default();
+        s.raw.capture.enabled = true;
+        s.raw.capture.radius = 0.8;
+        s.raw.capture.threshold = 25.;
+        s.raw.capture.iterations = 2.;
+        s.lens_db.enabled = true;
+        s.light.highlights = -60.;
+        s.light.shadows = 35.;
+        s.effects.clarity = 20.;
+        s.effects.texture = 15.;
+        s.effects.structure = 25.;
+        s.color.vibrance = 20.;
+        s.mixer.orange.lum = 10.;
+        let mut req = RenderRequest::fit(137, 89);
+        let cache = crate::render::GpuStages::default();
+        for step in 0..8 {
+            match step {
+                1 => s.light.highlights = -40.,
+                2 => s.raw.capture.radius = 1.2,
+                3 => s.lens_db.distortion = 200.,
+                4 => req = RenderRequest::fit(73, 59),
+                5 => s.raw.capture.enabled = false,
+                6 => s.raw.capture.enabled = true,
+                7 => s.red_eye.push(lightcraft_develop::RedEye {
+                    center: lightcraft_geom::Point::new(0.55, 0.48),
+                    rx: 0.1,
+                    ry: 0.1,
+                    ..Default::default()
+                }),
+                _ => {}
+            }
+            let method = if step == 6 { HsMethod::Eigf } else { HsMethod::LiTone };
+            let cached = check_render(g, &src, &info, &s, &req, method, &cache);
+            let fresh = check_render(g, &src, &info, &s, &req, method, &crate::render::GpuStages::default());
+            assert_eq!(cached, fresh, "capture/lens/primary cache edit {step}");
+        }
+        assert!(errors.pop().is_none());
+        assert!(!crate::ctx::failed());
+    }
+
     fn check_render(
         g: &crate::ctx::Gpu,
         src: &Arc<Rgb32f>,

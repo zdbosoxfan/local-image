@@ -124,6 +124,35 @@ pub fn open_loras(family: &str) {
     });
 }
 
+/// Opens it on LoRAs (trending), for a model whose family is unknown.
+pub fn open_loras_any() {
+    with(|s| {
+        s.open = true;
+        s.kind = Kind::Lora;
+        if matches!(s.nav, Nav::Family(_)) {
+            s.nav = Nav::Trending;
+        }
+    });
+}
+
+/// Which list it shows: (LoRAs, family) — for tests.
+pub fn showing() -> (bool, Option<String>) {
+    with(|s| {
+        (
+            s.kind == Kind::Lora,
+            match &s.nav {
+                Nav::Family(f) => Some(f.clone()),
+                _ => None,
+            },
+        )
+    })
+}
+
+/// Closes the window.
+pub fn close() {
+    with(|s| s.open = false);
+}
+
 pub fn is_open() -> bool {
     with(|s| s.open)
 }
@@ -248,6 +277,49 @@ fn installed_items(kind: Kind) -> Vec<Item> {
             })
             .collect(),
     }
+}
+
+/// The model folder (the settings re-read every two seconds, not for every card every frame).
+fn model_dir() -> std::path::PathBuf {
+    thread_local! { static DIR: RefCell<Option<(std::time::Instant, std::path::PathBuf)>> = const { RefCell::new(None) }; }
+    DIR.with(|d| {
+        let mut d = d.borrow_mut();
+        match d.as_ref() {
+            Some((t, p)) if t.elapsed() < Duration::from_secs(2) => p.clone(),
+            _ => {
+                let p = AiSettings::load().model_dir();
+                *d = Some((std::time::Instant::now(), p.clone()));
+                p
+            }
+        }
+    })
+}
+
+/// What removing an Installed card takes out, when its files are in the model folder: a curated
+/// model's downloaded presets, or the one file of a model or LoRA ComfyUI found.
+fn removal_for(item: &Item) -> Option<crate::ai_ui::RemoveTarget> {
+    use crate::ai_ui::RemoveTarget;
+    if item.source != Some(Source::Installed) {
+        return None;
+    }
+    let dir = model_dir();
+    if let Some(name) = item.id.strip_prefix("installed-lora:") {
+        return li_ai::download::listed_file(&dir, &["loras"], name).map(|_| RemoveTarget::Listed { folders: vec!["loras"], name: name.to_owned() });
+    }
+    let key = item.id.strip_prefix("installed:")?;
+    let m = li_ai::catalog::ModelId::from_key(key)?;
+    let info = m.try_info()?;
+    if info.origin == li_ai::catalog::Origin::Profile {
+        let ids: Vec<String> =
+            li_ai::catalog::presets_for(m).filter(|p| li_ai::download::missing_files(&dir, p).len() < p.files.len()).map(|p| p.id()).collect();
+        return (!ids.is_empty()).then_some(RemoveTarget::Presets(ids));
+    }
+    let (folders, name): (Vec<&'static str>, &str) = match key.split_once(':')? {
+        ("ckpt", n) => (vec!["checkpoints"], n),
+        ("unet", n) => (vec!["diffusion_models", "unet", "unet_gguf"], n),
+        _ => return None,
+    };
+    li_ai::download::listed_file(&dir, &folders, name).map(|_| RemoveTarget::Listed { folders, name: name.to_owned() })
 }
 
 /// File names ComfyUI already has (main models and LoRAs), by base name.
@@ -521,6 +593,11 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
         } else {
             s.fetch = Some(start_fetch(query(s)));
         }
+    }
+    // Installed: always current (no network), so removed models drop off once ComfyUI re-scans.
+    if s.nav == Nav::Installed && s.fetch.is_none() {
+        s.items = installed_items(s.kind);
+        s.items.retain(|i| s.search.trim().is_empty() || i.title.to_lowercase().contains(&s.search.trim().to_lowercase()));
     }
     if let Some(f) = s.fetch.as_ref().and_then(|f| f.lock().ok().and_then(|mut o| o.take())) {
         s.items = f.items;
@@ -862,6 +939,14 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
         }
         None if installed => {
             ui.label(RichText::new(tl!("Installed")).size(11.5).color(Color32::from_rgb(70, 190, 110)));
+            if let Some(target) = removal_for(item) {
+                let tip = if li_ai::trash::available() { tl!("Remove (moves the files to the Trash)") } else { tl!("Remove (deletes the files)") };
+                let r = crate::icons::button(ui, "trash", 22.0, false, tip);
+                r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Remove")));
+                if r.clicked() {
+                    crate::ai_ui::ask_remove(item.title.clone(), target);
+                }
+            }
         }
         None if item.source != Some(Source::Installed)
             && widgets::primary_button(ui, if item.template.is_some() { tl!("Get Template") } else { tl!("Install") }, 0.0).clicked() =>

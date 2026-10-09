@@ -513,7 +513,7 @@ mod tests {
                 let out = develop_surface_always(&src, area, identity(), &profile).unwrap();
                 let (a, b) = (src.read_region(area), out.read_region(area));
                 let mut worst = 0.0f32;
-                for (p, q) in a.chunks_exact(4).zip(b.chunks_exact(4)) {
+                for (p, q) in a.as_chunks::<4>().0.iter().zip(b.chunks_exact(4)) {
                     assert_eq!(p[3].to_bits(), q[3].to_bits(), "{name} {sample:?}: alpha changed");
                     // linear data is compared as it displays (sRGB-encoded)
                     let enc = |v: f32| if name.starts_with("linear") { photocraft_cms::curve::srgb_trc().eval_inverse(v.clamp(0.0, 1.0)) } else { v };
@@ -535,9 +535,9 @@ mod tests {
         s.light.exposure = 1.0;
         let out = develop_surface(&src, area, &s, Builtin::Srgb.profile()).unwrap();
         let (a, b) = (src.read_region(area), out.read_region(area));
-        let mean = |v: &[f32]| v.chunks_exact(4).map(|p| p[1]).sum::<f32>() / (v.len() / 4) as f32;
+        let mean = |v: &[f32]| v.as_chunks::<4>().0.iter().map(|p| p[1]).sum::<f32>() / (v.len() / 4) as f32;
         assert!(mean(&b) > mean(&a) + 0.05);
-        for (p, q) in a.chunks_exact(4).zip(b.chunks_exact(4)) {
+        for (p, q) in a.as_chunks::<4>().0.iter().zip(b.chunks_exact(4)) {
             assert_eq!(p[3].to_bits(), q[3].to_bits());
         }
     }

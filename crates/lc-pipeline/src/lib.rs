@@ -486,6 +486,12 @@ pub fn lin_needs_cpu(s: &DevelopSettings) -> bool {
     defringe || !s.spots.is_empty() || negative::converts(s) || colorcal::needs_cpu(s)
 }
 
+/// Whether a tool without a native GPU kernel requires the CPU renderer.
+/// The separate Tone Equalizer and its mask overlay still use the CPU reference.
+pub fn tools_need_cpu(s: &DevelopSettings, req: &RenderRequest) -> bool {
+    toneeq::active(s) || req.overlay == Overlay::ToneEqMask
+}
+
 /// Whether the remaining develop layer tools require the CPU renderer (`layers`).
 /// New primary tools have native scene-stage kernels inside the GPU render.
 pub fn layers_need_cpu(s: &DevelopSettings) -> bool {

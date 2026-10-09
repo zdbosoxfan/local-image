@@ -77,6 +77,19 @@ const MODULES: &[Module] = &[
         ],
     },
     Module {
+        src: include_str!("wgsl/capture.wgsl"),
+        bindings: &[
+            ("img", false, "f32"),
+            ("a", false, "f32"),
+            ("b", false, "f32"),
+            ("blend", false, "f32"),
+            ("indices", true, "u32"),
+            ("kernels", false, "f32"),
+            ("dst", true, "f32"),
+        ],
+        entries: &["capture_lum", "capture_mask", "capture_blend", "capture_div", "capture_mul", "capture_apply"],
+    },
+    Module {
         src: include_str!("wgsl/finish.wgsl"),
         bindings: &[
             ("img", false, "f32"),
@@ -238,12 +251,14 @@ pub(crate) struct RenderScope<'a>(&'a Gpu);
 impl<'a> RenderScope<'a> {
     pub fn new(g: &'a Gpu) -> RenderScope<'a> {
         IN_RENDER.with(|c| c.set(c.get() + 1));
+        *RUNNING.0.lock().unwrap_or_else(|e| e.into_inner()) += 1;
         RenderScope(g)
     }
 }
 
 impl Drop for RenderScope<'_> {
     fn drop(&mut self) {
+        let _end = RenderEnd; // declared first, so it drops last: after the buffers are pooled
         let outer = IN_RENDER.with(|c| {
             c.set(c.get().saturating_sub(1));
             c.get() == 0
@@ -252,6 +267,36 @@ impl Drop for RenderScope<'_> {
             self.0.pool(take_retired());
         }
     }
+}
+
+/// Renders running on any thread, and the condvar [`quiesce`] waits on.
+static RUNNING: (std::sync::Mutex<u32>, std::sync::Condvar) = (std::sync::Mutex::new(0), std::sync::Condvar::new());
+
+/// Counts a render out when it ends.
+struct RenderEnd;
+
+impl Drop for RenderEnd {
+    fn drop(&mut self) {
+        let mut n = RUNNING.0.lock().unwrap_or_else(|e| e.into_inner());
+        *n = n.saturating_sub(1);
+        RUNNING.1.notify_all();
+    }
+}
+
+/// Wait (at most `timeout`) for every running render, then for the device to finish its queue.
+/// Returns false when renders were still running at the deadline.
+pub(crate) fn quiesce(timeout: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    let mut n = RUNNING.0.lock().unwrap_or_else(|e| e.into_inner());
+    while *n > 0 {
+        let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) else { return false };
+        n = RUNNING.1.wait_timeout(n, left).unwrap_or_else(|e| e.into_inner()).0;
+    }
+    drop(n);
+    if let Some(g) = crate::existing_device() {
+        let _ = g.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(timeout) });
+    }
+    true
 }
 
 /// A device buffer, counted in [`ALLOCATED`] while it exists.
@@ -387,6 +432,9 @@ impl Gpu {
     /// CPU Vulkan is useful only for numerical kernel tests; never enabled by a renderer.
     #[cfg(test)]
     pub(crate) fn numerical_test_device() -> Result<Gpu, String> {
+        // Share the production test device's initialization lock: the combined
+        // suite also creates that device and mutates crash-marker configuration.
+        let _init = crate::TEST_INIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         Self::new_inner(wgpu::Backends::VULKAN, true)
     }
 

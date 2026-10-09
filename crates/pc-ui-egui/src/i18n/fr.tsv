@@ -2971,3 +2971,122 @@ ai	New	Nouveautés
 	Cage is not active	La cage n’est pas active
 	Could not use Cage: the layer is empty	Impossible d’utiliser la cage : le calque est vide
 	Index	Index
+	Browse LoRAs for this model family	Parcourir les LoRA de cette famille de modèles
+	Browse LoRAs…	Parcourir les LoRA…
+	Choose another model…	Choisir un autre modèle…
+	Couldn't remove {name}: {error}	Impossible de supprimer {name} : {error}
+	Find LoRAs (styles) for the chosen model's family	Trouver des LoRA (styles) pour la famille du modèle choisi
+	Kept because other installed models use them: {files}	Conservés car d'autres modèles installés les utilisent : {files}
+	List only the official upscalers (SeedVR2)	N'afficher que les agrandisseurs officiels (SeedVR2)
+	Move to Trash	Placer dans la corbeille
+	None of its files are in the model folder.	Aucun de ses fichiers n'est dans le dossier des modèles.
+	ON-DEVICE MODELS (CPU)	MODÈLES SUR L'APPAREIL (CPU)
+	Official upscalers only	Agrandisseurs officiels uniquement
+	Recommended	Recommandé
+	Remove (deletes the files)	Supprimer (efface les fichiers)
+	Remove (moves the files to the Trash)	Supprimer (place les fichiers dans la corbeille)
+	Remove {name}?	Supprimer {name} ?
+	Removed {name} ({size} freed)	{name} supprimé ({size} libérés)
+	Stop generation	Arrêter la génération
+	Stopped generation	Génération arrêtée
+	This frees {size}. The files are deleted permanently.	Cela libère {size}. Les fichiers sont supprimés définitivement.
+	This frees {size}. The files go to the Trash, so you can restore them from there.	Cela libère {size}. Les fichiers vont dans la corbeille, d'où vous pouvez les restaurer.
+	Unload AI models from GPU memory (the AI engine is off)	Décharger les modèles d'IA de la mémoire GPU (le moteur d'IA est arrêté)
+	Unload AI models from GPU memory	Décharger les modèles d'IA de la mémoire GPU
+	Unloading AI models…	Déchargement des modèles d'IA…
+	Upscale with any image model instead: enlarge, then add detail with img2img	Agrandir plutôt avec n'importe quel modèle d'image : agrandir, puis ajouter des détails en img2img
+	kept {files}	conservés : {files}
+	using {name}	utilise {name}
+	{n} of {total} installed	{n} sur {total} installés
+	{size} download · runs on the CPU · {licence}	{size} à télécharger · s'exécute sur le CPU · {licence}
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	De petits modèles qui s'exécutent sur le processeur de cet ordinateur : ni ComfyUI ni GPU nécessaires, des téléchargements rapides, et vos photos ne quittent jamais l'ordinateur. Chaque groupe alimente des outils différents ; c'est le meilleur modèle installé du groupe qui est utilisé.
+	Subject & Background	Sujet et arrière-plan
+# Selected-item context bars and live shapes
+	AI Fill	Remplissage IA
+	Add a vector mask from the path	Ajouter un masque vectoriel depuis le tracé
+	Bottom-left corner radius	Rayon du coin inférieur gauche
+	Bottom-right corner radius	Rayon du coin inférieur droit
+	Content-Aware Fill	Remplissage d'après le contenu
+	Corners	Coins
+	Create another variation using this layer's prompt and a new seed	Créer une autre variation avec l'invite de ce calque et une nouvelle graine
+	Describe what to generate, or leave empty to fill from the surroundings	Décrivez ce qu'il faut générer, ou laissez vide pour remplir depuis les alentours
+	Edit Path	Modifier le tracé
+	Edit Text	Modifier le texte
+	Edit the shape's anchors and handles	Modifier les points d'ancrage et poignées de la forme
+	Edit this photo's develop settings	Modifier les réglages de développement de cette photo
+	Fill the path's area from the image around it	Remplir la zone du tracé depuis l'image environnante
+	Fill the selection from the image around it	Remplir la sélection depuis l'image environnante
+	Generate this area again from its surroundings	Régénérer cette zone depuis les alentours
+	Generate “{prompt}” again with a new seed	Régénérer « {prompt} » avec une nouvelle graine
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	Remplissage génératif : régénérer la zone depuis votre description (vide : depuis les alentours)
+	Generative Fill: regenerate the path's area from a description	Remplissage génératif : régénérer la zone du tracé depuis une description
+	L	L
+	Line weight	Épaisseur du trait
+	Mask out the background with AI	Masquer l'arrière-plan avec l'IA
+	Number of sides	Nombre de côtés
+	Open in Develop	Ouvrir dans Développement
+	Open the Smart Object's contents	Ouvrir le contenu de l'objet dynamique
+	Regenerate	Régénérer
+	Select the main subject with AI	Sélectionner le sujet principal avec l'IA
+	Set radius of all corners	Définir le rayon de tous les coins
+	Set shape stroke width	Définir l'épaisseur du contour de la forme
+	Set the font size	Définir la taille de police
+	This layer has no generation model to repeat	Ce calque n'a pas de modèle de génération à réutiliser
+	This layer has no generation settings to repeat	Ce calque n'a pas de réglages de génération à réutiliser
+	This layer's generation model is unavailable	Le modèle de génération de ce calque est indisponible
+	Top-left corner radius	Rayon du coin supérieur gauche
+	Top-right corner radius	Rayon du coin supérieur droit
+	Turn the shape into pixels	Convertir la forme en pixels
+	Variations	Variations
+	Close panel	Fermer le panneau
+	Dock Panel	Ancrer le panneau
+	Float Panel Group	Détacher le groupe de panneaux
+	Save and Return to Library	Enregistrer et retourner à la bibliothèque
+	Added your new Develop edits as layer {name}	Vos nouvelles retouches Develop ont été ajoutées en tant que calque {name}
+	Open the Library to save into it	Ouvrez la bibliothèque pour y enregistrer
+	The layers below are unchanged; hide or delete the new layer to go back.	Les calques du dessous sont inchangés ; masquez ou supprimez le nouveau calque pour revenir en arrière.
+# Attributions page (li-attributions)
+	Attributions	Attributions
+	Search attributions…	Rechercher dans les attributions…
+	No matches.	Aucun résultat.
+	Show licence text	Afficher le texte de la licence
+	Smart Sort (scenes)	Tri intelligent (scènes)
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	Reconnaît le contenu des photos (intervenants, public, détails…) pour les placer dans le bon dossier. Fonctionne sur le processeur ; les photos restent sur cet ordinateur.
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	Reconnaît les scènes à partir de vos descriptions. Un modèle local rapide pour les intervenants, le public, les détails et vos autres catégories. Le téléchargement inclut le modèle de texte et le tokenizer.
+	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Repère le sujet principal d'une photo. Utilisé par Sélection › Sujet, Supprimer l'arrière-plan (rapide), le mode clic de l'outil Sélection d'objet et les masques Sujet et Arrière-plan de la Bibliothèque.
+	Finds the sky. Used by Select › Sky and the Library's sky masks.	Repère le ciel. Utilisé par Sélection › Ciel et les masques de ciel de la Bibliothèque.
+	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Estime la distance de chaque partie d'une photo. Utilisé par les masques de profondeur de la Bibliothèque (par ex. pour assombrir ou flouter l'arrière-plan, ou choisir le premier plan selon la distance).
+	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	Repère le sujet avec les contours les plus fins (cheveux, poils, détails minces). La meilleure qualité pour Sélectionner le sujet et Supprimer l'arrière-plan ; une à deux secondes par photo.
+	Clean edges between near and far, good on most photos. Takes a few seconds per photo.	Contours nets entre proche et lointain, bon sur la plupart des photos. Quelques secondes par photo.
+	Custom: {name}	Personnalisé : {name}
+	Use official model	Utiliser le modèle officiel
+	Your own model, run on the CPU instead of the official one.	Votre propre modèle, exécuté sur le processeur à la place du modèle officiel.
+	{name} · {size} download · runs on the CPU · {licence}	{name} · téléchargement de {size} · s'exécute sur le processeur · {licence}
+	Custom model…	Modèle personnalisé…
+	Pick any .onnx model that does this. It is copied into the models folder and used instead of the official one.	Choisissez n'importe quel modèle .onnx pour cette fonction. Il est copié dans le dossier des modèles et utilisé à la place du modèle officiel.
+	Input style:	Style d'entrée :
+	IS-Net style	Style IS-Net
+	U²-Net / ImageNet style	Style U²-Net / ImageNet
+	Sky class:	Classe du ciel :
+	Only used when the model gives one map per class (ADE20K: 2).	Utilisé uniquement si le modèle fournit une carte par classe (ADE20K : 2).
+	Testing the model…	Test du modèle…
+	Choose an ONNX file…	Choisir un fichier ONNX…
+	That model can't be used: {error}	Ce modèle ne peut pas être utilisé : {error}
+	Choose an ONNX model	Choisir un modèle ONNX
+	ONNX model	Modèle ONNX
+	Remove old models ({size})	Supprimer les anciens modèles ({size})
+	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	Déplace vers la corbeille les modèles que l'application n'utilise plus (U²-Net, TinySkyNet, MiDaS).
+	the old models	les anciens modèles
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	Petits modèles qui s'exécutent sur le processeur de cet ordinateur : ni ComfyUI ni GPU requis, téléchargements rapides, et vos photos ne quittent jamais l'ordinateur. Chaque fonction a un modèle recommandé ; vous pouvez utiliser votre propre modèle ONNX à la place.
+	Choose an ONNX model (a file ending in .onnx)	Choisir un modèle ONNX (un fichier se terminant par .onnx)
+	Not a depth model: it must output one depth map	Pas un modèle de profondeur : il doit produire une seule carte de profondeur
+	Not a sky model	Pas un modèle de ciel
+	Not a sky model: its output {shape} should be 1 map or one map per class	Pas un modèle de ciel : sa sortie {shape} doit être 1 carte ou une carte par classe
+	Not a subject model: it must output one foreground map	Pas un modèle de sujet : il doit produire une seule carte de premier plan
+	The model has no input	Le modèle n'a pas d'entrée
+	The model's input has {channels} channels; an RGB image (3) is needed	L'entrée du modèle a {channels} canaux ; une image RVB (3) est nécessaire
+	The model's input is {height}×{width}; a square input (or a flexible size) is needed	L'entrée du modèle est {height}×{width} ; une entrée carrée (ou une taille flexible) est requise
+	The model's input must be an image (batch × 3 × height × width)	L'entrée du modèle doit être une image (lot × 3 × hauteur × largeur)
+	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	La classe de ciel {class} est hors limites : ce modèle a {classes} classes (0 à {max})
+	{path} isn't a file	{path} n'est pas un fichier
+	Custom models are not supported for this function	Les modèles personnalisés ne sont pas pris en charge pour cette fonction

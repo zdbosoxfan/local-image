@@ -19,6 +19,28 @@ fn check_zip(mode: ColorMode, depth: SampleType) {
     assert_eq!(back, doc, "{mode:?} {depth:?}");
 }
 
+#[test]
+fn generated_layers_keep_their_prompt_seed_and_engine() {
+    let mut doc = rich_doc(ColorMode::Rgb, SampleType::U8);
+    let generation = serde_json::json!({"command": "ai.generativeFill", "prompt": "a cat", "seed": 42, "engine": "int8"});
+    doc.layers[0].generation = Some(generation.clone());
+    let bytes = save_to_bytes(&doc, &SaveOptions::default()).unwrap();
+    let back = load_from_bytes(&bytes).unwrap();
+    assert_eq!(back.layers[0].generation, Some(generation));
+    assert_eq!(back, doc);
+}
+
+#[test]
+fn old_layer_manifests_load_without_generation_metadata() {
+    let doc = rich_doc(ColorMode::Rgb, SampleType::U8);
+    let bytes = save_to_bytes(&doc, &SaveOptions::default()).unwrap();
+    let manifest = read_manifest(&bytes).unwrap();
+    let mut layer = serde_json::to_value(&manifest.document.layers[0]).unwrap();
+    layer.as_object_mut().unwrap().remove("generation");
+    let loaded: photocraft_format::manifest::LayerM = serde_json::from_value(layer).unwrap();
+    assert_eq!(loaded.generation, None);
+}
+
 macro_rules! zip_cases {
     ($($name:ident: $m:ident, $d:ident;)*) => {$(
         #[test]

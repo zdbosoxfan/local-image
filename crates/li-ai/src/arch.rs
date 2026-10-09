@@ -500,8 +500,30 @@ fn classify_lora(h: &Header, file_name: &str) -> Detected {
     Detected::new(FileKind::Lora, None, "LoRA of an unknown family")
 }
 
+/// Whether a file name (maybe with subfolders) says it is a LoRA or another adapter
+/// (`flux_realism_lora.safetensors`, `add-detail-XL-LoRA`, `myStyleLoRA_v2`, `loras/x`,
+/// LyCORIS / LoCon / LoHa / LoKr). Words only: `floral_dream` is not a LoRA.
+pub fn name_looks_like_lora(file_name: &str) -> bool {
+    let path = file_name.replace('\\', "/");
+    let stem = path.rsplit_once('.').filter(|(_, ext)| !ext.contains('/')).map_or(path.as_str(), |(s, _)| s);
+    let words = ["lora", "loras", "lycoris", "locon", "loha", "lokr"];
+    let lower = stem.to_ascii_lowercase();
+    let word = lower.split(|c: char| !c.is_ascii_alphanumeric()).any(|w| {
+        words.contains(&w) || w.strip_prefix("lora").is_some_and(|rest| !rest.is_empty() && rest.trim_start_matches('v').chars().all(|c| c.is_ascii_digit()))
+    });
+    // camelCase: "styleLoRA", "detailLora" (a lowercase letter or digit right before it).
+    let camel = ["LoRA", "Lora", "LORA"]
+        .iter()
+        .any(|k| stem.match_indices(k).any(|(i, _)| stem[..i].chars().next_back().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())));
+    word || camel
+}
+
 /// Best guess from the name alone (for remote ComfyUI installs where the file can't be read).
+/// A name that says LoRA is no main model (`folder_kind` checkpoint or diffusion model).
 pub fn guess_from_name(file_name: &str, folder_kind: FileKind) -> Option<String> {
+    if matches!(folder_kind, FileKind::Checkpoint | FileKind::DiffusionModel) && name_looks_like_lora(file_name) {
+        return None;
+    }
     let n = file_name.to_ascii_lowercase();
     let pick = [
         ("qwen_image_2.1", "qwen-image-21"),
@@ -538,7 +560,6 @@ pub fn guess_from_name(file_name: &str, folder_kind: FileKind) -> Option<String>
         ("sd_1.5", "sd15"),
         ("seedvr2", "seedvr2"),
     ];
-    let _ = folder_kind;
     pick.iter().find(|(k, _)| n.contains(k)).map(|(_, f)| (*f).to_owned())
 }
 
@@ -672,5 +693,29 @@ mod tests {
         assert_eq!(guess_from_name("qwen_image_edit_2511_bf16.safetensors", FileKind::DiffusionModel).as_deref(), Some("qwen-edit"));
         assert_eq!(guess_from_name("ponyDiffusionV6XL.safetensors", FileKind::Checkpoint).as_deref(), Some("pony"));
         assert_eq!(guess_from_name("random.safetensors", FileKind::Checkpoint), None);
+    }
+
+    /// LoRA files that end up in a model folder are not models; in the LoRA folder they keep
+    /// their family.
+    #[test]
+    fn lora_names_are_not_models() {
+        for n in [
+            "flux_realism_lora.safetensors",
+            "add-detail-XL-LoRA.safetensors",
+            "myStyleLoRA_v2.safetensors",
+            "pixel-art-xl-lora2.safetensors",
+            "sub/loras/thing.safetensors",
+            "lycoris_ink.safetensors",
+            "qwen_image_lora_v1.safetensors",
+        ] {
+            assert!(name_looks_like_lora(n), "{n}");
+            assert_eq!(guess_from_name(n, FileKind::DiffusionModel), None, "{n}");
+            assert_eq!(guess_from_name(n, FileKind::Checkpoint), None, "{n}");
+        }
+        for n in ["floral_dream_xl.safetensors", "FLORA.safetensors", "Flora_v1.safetensors", "juggernautXL_v9.safetensors", "colorful_xl.safetensors"] {
+            assert!(!name_looks_like_lora(n), "{n}");
+        }
+        assert_eq!(guess_from_name("flux_realism_lora.safetensors", FileKind::Lora).as_deref(), Some("flux1"));
+        assert_eq!(guess_from_name("qwen_image_lora_v1.safetensors", FileKind::Lora).as_deref(), Some("qwen-image"));
     }
 }

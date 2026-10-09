@@ -217,6 +217,9 @@ mod tests {
 
     #[test]
     fn init_marker_is_written_during_creation_and_removed_after() {
+        // Device tests also enter with_init_marker. Don't let initialization
+        // overlap this test's temporary process-wide marker configuration.
+        let _init = crate::TEST_INIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("lc-gpu-marker-{}", std::process::id()));
         let m = dir.join("gpu-init.marker");
         let _ = std::fs::remove_dir_all(&dir);

@@ -55,6 +55,9 @@ fn gpu_render(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &R
 }
 
 fn check(name: &str, src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest) -> Rgba8 {
+    if info.lens_db.is_some() {
+        assert!(lightcraft_pipeline::plan(src, info, s, req).frame.gpu_samplable(), "{name}: exercise the native lens warp");
+    }
     let cpu = render(src, info, s, req).image;
     let gpu = gpu_render(src, info, s, req, None);
     let (mean, max) = diff(&cpu, &gpu);
@@ -69,7 +72,7 @@ fn changed(a: &Rgba8, b: &Rgba8) -> f64 {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Lens profiles (lens database): geometry resampled on the CPU, the rest on the GPU
+// Lens profiles (lens database): native geometry warp, including per-channel sampling and gain
 
 fn barrel() -> LensCorrection {
     LensCorrection {
@@ -213,14 +216,99 @@ fn lens_profile_strength_changes_reach_cached_renders() {
     }
 }
 
-// ------------------------------------------------------------------------------------------------
-// Tone equalizer: a faithful EIGF CPU spatial/finish stage inside the GPU render.
-
 #[test]
-fn tone_equalizer_uses_host_finish_stage_and_draws_a_mask() {
+fn lens_profiles_at_borders_all_orientations_match() {
     if !gpu() {
         return;
     }
+    // High contrast edges reach all four borders, with distinct colour planes.
+    // Odd, non-square dimensions expose half-pixel/axis-swap mistakes.
+    let src = Arc::new(Rgb32f::from_fn(769, 513, |x, y| {
+        let edge = |v: usize| if v.is_multiple_of(2) { 0.015 } else { 0.75 };
+        [edge(x / 5 + y / 7), edge(x / 9), edge(y / 6)]
+    }));
+    for sign in [-1.0, 1.0] {
+        for distortion in [
+            Distortion::Poly3 { k1: sign * 0.3 },
+            Distortion::Poly5 { k1: sign * 0.25, k2: sign * 0.08 },
+            Distortion::Ptlens { a: sign * 0.12, b: sign * 0.16, c: sign * 0.05 },
+        ] {
+            let c = LensCorrection {
+                diag_norm: 2.0,
+                center: [0.23, -0.19],
+                distortion,
+                tca: Tca::Poly3 { red: [1.015, 0.006, 0.004], blue: [0.985, 0.0, -0.004] },
+                vignetting: Some([-0.35, 0.08, -0.01]),
+            };
+            let info = SourceInfo { lens_db: Some(c), ..raw() };
+            for orientation in [
+                Orientation::Normal,
+                Orientation::Rotate90,
+                Orientation::Rotate180,
+                Orientation::Rotate270,
+                Orientation::FlipH,
+                Orientation::FlipV,
+                Orientation::Transpose,
+                Orientation::Transverse,
+            ] {
+                let mut s = DevelopSettings { orientation, ..Default::default() };
+                lens_on(&mut s, 200.0);
+                check(&format!("border {distortion:?} {orientation:?}"), &src, &info, &s, &RenderRequest::fit(769, 769));
+                s.optics.distortion = -25.0;
+                s.optics.ca_red = 100.0;
+                s.optics.ca_blue = -100.0;
+                s.optics.vignetting = 20.0;
+                s.geometry.horizontal = -15.0;
+                s.geometry.vertical = 12.0;
+                s.geometry.rotate = 3.0;
+                s.crop.geometry.rect = Rect::new(0.02, 0.03, 0.97, 0.98);
+                s.crop.geometry.angle = -4.5;
+                s.crop.flip_h = true;
+                check(&format!("border mixed {distortion:?} {orientation:?}"), &src, &info, &s, &RenderRequest::fit(257, 257));
+            }
+        }
+    }
+}
+
+#[test]
+fn lens_profiles_replace_embedded_and_zero_strength_matches_disabled() {
+    use lightcraft_develop::{EmbeddedLens, EmbeddedVignette, EmbeddedWarp};
+    if !gpu() {
+        return;
+    }
+    let src = scene(2, 301, 199);
+    let req = RenderRequest::fit(301, 301);
+    let lens = EmbeddedLens {
+        warp: Some(EmbeddedWarp { planes: [[1.0, 0.3, 0.0, 0.0, 0.01, -0.01]; 3], center: Point::new(0.4, 0.6), radius: 0.6 }),
+        vignette: Some(EmbeddedVignette { k: [0.4, 0.0, 0.0, 0.0, 0.0], center: Point::new(0.4, 0.6), radius: 0.6 }),
+    };
+    let info = SourceInfo { lens_db: Some(barrel()), lens: Some(lens), ..raw() };
+    let mut s = DevelopSettings::default();
+    s.optics.lens_profile = true;
+    for strength in [0.0, 100.0, 200.0] {
+        lens_on(&mut s, strength);
+        let g = check(&format!("db replaces embedded {strength}%"), &src, &info, &s, &req);
+        let without_embedded = SourceInfo { lens: None, ..info.clone() };
+        assert_eq!(g, gpu_render(&src, &without_embedded, &s, &req, None));
+        if strength == 0.0 {
+            let disabled = SourceInfo { lens: None, lens_db: None, ..info.clone() };
+            assert_eq!(g, gpu_render(&src, &disabled, &s, &req, None), "zero strengths take the ordinary copy path");
+        }
+    }
+    // A PA polynomial at/below its guard returns unity, including at 200%.
+    s.optics.lens_profile = false;
+    let info = SourceInfo {
+        lens_db: Some(LensCorrection { distortion: Distortion::None, tca: Tca::None, vignetting: Some([-8.0, 0.0, 0.0]), ..barrel() }),
+        ..raw()
+    };
+    check("database vignette nonpositive polynomial", &src, &info, &s, &req);
+}
+
+// ------------------------------------------------------------------------------------------------
+// Tone equalizer: retain the CPU fallback until a native kernel exists.
+
+#[test]
+fn tone_equalizer_falls_back_to_cpu_and_draws_a_mask() {
     let src = scene(0, 640, 427);
     let info = raw();
     let mut s = DevelopSettings::default();
@@ -229,14 +317,16 @@ fn tone_equalizer_uses_host_finish_stage_and_draws_a_mask() {
     s.tone_eq.ev5 = 0.8;
     s.tone_eq.ev1 = -0.6;
     let req = RenderRequest::fit(640, 640);
-    check("tone equalizer EIGF host stage", &src, &info, &s, &req);
-    // Show Mask is supported inside the GPU render, including neutral zones.
+    assert!(lightcraft_pipeline::tools_need_cpu(&s, &req));
+    assert!(lightcraft_gpu::render(&src, &info, &s, &req, None).is_none());
+    // Show Mask also uses the CPU renderer, including neutral zones.
     let mut shown = s.clone();
     shown.tone_eq.ev6 = 0.;
     shown.tone_eq.ev5 = 0.;
     shown.tone_eq.ev1 = 0.;
     let mreq = RenderRequest { overlay: Overlay::ToneEqMask, ..req };
-    check("tone equalizer mask host stage", &src, &info, &shown, &mreq);
+    assert!(lightcraft_pipeline::tools_need_cpu(&shown, &mreq));
+    assert!(lightcraft_gpu::render(&src, &info, &shown, &mreq, None).is_none());
     let mask = render(&src, &info, &shown, &mreq).image;
     assert!(mask.data.iter().all(|p| p[0] == p[1] && p[1] == p[2]), "the mask is drawn in grey");
     let levels = mask.data.iter().map(|p| p[0]).fold((255u8, 0u8), |(lo, hi), v| (lo.min(v), hi.max(v)));
@@ -244,6 +334,7 @@ fn tone_equalizer_uses_host_finish_stage_and_draws_a_mask() {
     // off (or with the section turned off): the GPU renders again
     s.set_section_enabled("toneEq", false);
     assert!(!lightcraft_pipeline::toneeq::mask_wanted(&s));
+    assert!(!lightcraft_pipeline::tools_need_cpu(&s, &req));
     if lightcraft_gpu::available() {
         check("tone eq section off", &src, &info, &s, &req);
     }
@@ -339,7 +430,7 @@ fn color_calibration_changes_reach_cached_renders() {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Capture sharpening: the sharpened source is what the GPU uploads
+// Capture sharpening: sharpen the uploaded source before geometry; keep it resident
 
 fn capture(s: &mut DevelopSettings, radius: f64, threshold: f64, iterations: f64) {
     s.raw.capture.enabled = true;
@@ -378,8 +469,8 @@ fn capture_sharpening_changes_re_upload_the_source() {
     if !gpu() {
         return;
     }
-    // Render, change one capture value, render again on the same view: the sharpened source must
-    // be made and uploaded again (not a stale texture of the previous values).
+    // Render, change one capture value, render again on the same view: the device's sharpened
+    // source and downstream stages must be rebuilt (the original upload can now stay resident).
     let src = scene(3, 900, 600);
     let info = SourceInfo { capture_radius: Some(0.8), ..raw() };
     let cache = StageCache::default();
@@ -415,6 +506,216 @@ fn capture_sharpening_changes_re_upload_the_source() {
     capture(&mut s, 0.8, 10.0, 8.0);
     s.raw.capture.corner_boost = 0.0;
     assert_eq!(gpu_render(&src, &info, &s, &req, Some(&cache)), first, "back to the first values");
+}
+
+/// Soft edges, fine colour texture, black/negative pixels and HDR near every border.
+fn capture_chart(w: usize, h: usize) -> Arc<Rgb32f> {
+    Arc::new(Rgb32f::from_fn(w, h, |x, y| {
+        let fx = x as f32;
+        let fy = y as f32;
+        let edge = 0.5 + 0.5 * ((fx - 0.43 * w as f32) * 0.9 + fy * 0.04).tanh();
+        let texture = 0.015 * (fx * 1.4 + fy * 0.7).sin();
+        let v = 0.035 + 0.6 * edge + texture;
+        if (x < 4 && y < h / 2) || (x == w - 5 && y == h - 5) {
+            [-0.01, 0.0, 0.005]
+        } else if y < 3 || (x > w.saturating_sub(8) && y > h / 2) {
+            [2.0, 1.2, 0.8]
+        } else {
+            [v * 0.8 + texture, v, v * 1.15 - texture]
+        }
+    }))
+}
+
+#[test]
+fn capture_sharpening_parameter_sweeps_match() {
+    if !gpu() {
+        return;
+    }
+    let src = capture_chart(193, 129);
+    let info = SourceInfo { capture_radius: Some(0.8), capture_threshold: 0.32, ..raw() };
+    let req = RenderRequest::fit(193, 193);
+    let mut s = DevelopSettings::default();
+    capture(&mut s, 0.8, 25.0, 8.0);
+    for radius in [0.0, 0.25, 0.26, 0.3, 0.5, 0.65, 0.66, 0.67, 1.0, 1.5, 2.55, 3.0] {
+        s.raw.capture.radius = radius;
+        check(&format!("capture radius {radius}"), &src, &info, &s, &req);
+    }
+    s.raw.capture.radius = 0.8;
+    for threshold in [0.0, 1.0, 10.0, 40.0, 80.0, 100.0] {
+        s.raw.capture.threshold = threshold;
+        check(&format!("capture threshold {threshold}"), &src, &info, &s, &req);
+    }
+    s.raw.capture.threshold = 25.0;
+    for iterations in [1.0, 2.0, 8.0, 15.0, 25.0] {
+        s.raw.capture.iterations = iterations;
+        check(&format!("capture iterations {iterations}"), &src, &info, &s, &req);
+    }
+    s.raw.capture.iterations = 8.0;
+    for boost in [0.0, 10.0, 50.0, 100.0, 150.0] {
+        s.raw.capture.corner_boost = boost;
+        check(&format!("capture corner boost {boost}"), &src, &info, &s, &req);
+    }
+}
+
+#[test]
+fn capture_sharpening_binned_previews_edges_and_borders_match() {
+    // Build tiny fixtures even without an adapter so border arithmetic is exercised.
+    let fixtures = [(7, 5), (8, 33), (9, 9), (17, 41), (257, 193)].map(|(w, h)| ((w, h), capture_chart(w, h)));
+    if !gpu() {
+        return;
+    }
+    for ((w, h), src) in fixtures {
+        for scale in [1.0, 2.0, 4.0] {
+            let info = SourceInfo { sensor_scale: scale, capture_radius: Some(1.2), ..raw() };
+            let mut s = DevelopSettings::default();
+            capture(&mut s, 0.0, 10.0, 25.0);
+            s.raw.capture.corner_boost = 150.0;
+            for edge in [w.max(h), 31] {
+                check(&format!("capture {w}x{h} sensor {scale} output {edge}"), &src, &info, &s, &RenderRequest::fit(edge, edge));
+            }
+        }
+    }
+}
+
+#[test]
+fn capture_sharpening_source_info_and_geometry_changes_invalidate_cache() {
+    if !gpu() {
+        return;
+    }
+    let mut src = capture_chart(193, 129);
+    let mut info = SourceInfo { capture_radius: Some(0.8), capture_threshold: 0.2, ..raw() };
+    let stages = StageCache::default();
+    let mut s = DevelopSettings::default();
+    capture(&mut s, 0.0, 0.0, 8.0);
+    s.raw.capture.corner_boost = 50.0;
+    for step in 0..10 {
+        match step {
+            1 => info.capture_radius = Some(1.4),
+            2 => info.capture_threshold = 0.65,
+            3 => info.sensor_scale = 2.0,
+            4 => s.light.exposure = 0.7,
+            5 => src = Arc::new((*src).clone()), // new decoder source, identical dimensions
+            6 => info.raw = false,
+            7 => info.raw = true,
+            8 => s.disabled_sections.push("raw".into()),
+            9 => s.disabled_sections.clear(),
+            _ => {}
+        }
+        let req = RenderRequest::fit(if step % 2 == 0 { 193 } else { 97 }, 193);
+        let cached = gpu_render(&src, &info, &s, &req, Some(&stages));
+        let fresh = check(&format!("capture info/cache step {step}"), &src, &info, &s, &req);
+        assert_eq!(cached, fresh, "capture source-info invalidation {step}");
+    }
+    // Native lens geometry must resample the GPU's sharpened source, including
+    // on a cached view, rather than resampling the original.
+    info.lens_db = Some(barrel());
+    lens_on(&mut s, 100.0);
+    let req = RenderRequest::fit(151, 151);
+    check("capture before GPU lens geometry", &src, &info, &s, &req);
+    assert_eq!(gpu_render(&src, &info, &s, &req, Some(&stages)), gpu_render(&src, &info, &s, &req, None));
+}
+
+#[test]
+fn capture_sharpening_reuses_device_source_for_other_tools_and_sizes() {
+    if !gpu() {
+        return;
+    }
+    let src = capture_chart(193, 129);
+    let info = raw();
+    let stages = StageCache::default();
+    let mut s = DevelopSettings::default();
+    capture(&mut s, 0.8, 25.0, 8.0);
+    for (edge, exposure, clarity) in [(193, 0.0, 0.0), (97, 0.7, 0.0), (193, 0.7, 25.0), (53, -0.4, 25.0)] {
+        s.light.exposure = exposure;
+        s.effects.clarity = clarity;
+        let req = RenderRequest::fit(edge, edge);
+        let cached = gpu_render(&src, &info, &s, &req, Some(&stages));
+        let fresh = check(&format!("capture + edits/size {edge}/{exposure}/{clarity}"), &src, &info, &s, &req);
+        assert_eq!(cached, fresh);
+    }
+    // GPU renders must not populate StageCache.pre with a CPU-sharpened copy.
+    assert_eq!(stages.bytes(), 0, "all capture and downstream image stages are device-resident");
+    assert!(lightcraft_gpu::stage_bytes(&stages) > 0);
+    stages.clear();
+    assert_eq!(lightcraft_gpu::stage_bytes(&stages), 0);
+}
+
+#[test]
+fn capture_sharpening_over_limit_source_falls_back_without_device_failure() {
+    if !gpu() {
+        return;
+    }
+    let src = capture_chart(257, 193);
+    let info = raw();
+    let mut s = DevelopSettings::default();
+    capture(&mut s, 0.8, 25.0, 8.0);
+    let req = RenderRequest::fit(31, 31);
+    lightcraft_gpu::inject_fault(lightcraft_gpu::Fault::Limit(64 << 10));
+    assert!(lightcraft_gpu::render(&src, &info, &s, &req, None).is_none());
+    assert!(lightcraft_gpu::last_fallback().is_some_and(|r| r.contains("capture sharpening") && r.contains("limit")));
+    assert!(lightcraft_gpu::available());
+    check("capture after source-limit refusal", &src, &info, &s, &req);
+}
+
+#[test]
+fn capture_sharpening_before_source_analysis_matches() {
+    if !gpu() {
+        return;
+    }
+    let src = Arc::new(Rgb32f::from_fn(193, 129, |x, y| {
+        let dx = x as f32 - 105.0;
+        let dy = y as f32 - 61.0;
+        let pupil = (-0.5 * (dx * dx + dy * dy) / 36.0).exp();
+        let v = 0.15 + 0.12 * (0.5 + 0.5 * (x as f32 * 0.45 + y as f32 * 0.1).sin());
+        [v + 0.45 * pupil, v * (1.0 - 0.8 * pupil), v * (1.0 - 0.8 * pupil)]
+    }));
+    let info = raw();
+    let mut s = DevelopSettings::default();
+    capture(&mut s, 1.2, 10.0, 8.0);
+    let stages = StageCache::default();
+    let req = RenderRequest::fit(193, 193);
+    s.red_eye.push(lightcraft_develop::RedEye { center: Point::new(0.55, 0.48), rx: 0.1, ry: 0.1, ..Default::default() });
+    for upright in [lightcraft_develop::Upright::Off, lightcraft_develop::Upright::Level] {
+        s.geometry.upright = upright;
+        let fresh = check(&format!("capture before pupil/Upright {upright:?}"), &src, &info, &s, &req);
+        assert_eq!(gpu_render(&src, &info, &s, &req, Some(&stages)), fresh);
+    }
+}
+
+/// Fresh full render reruns capture; exposure on the same view reuses its device
+/// source. RTX command: --test toolset bench_capture_sharpening_24mp -- --ignored --exact --nocapture
+#[test]
+#[ignore = "24 MP benchmark: run with --release --ignored"]
+fn bench_capture_sharpening_24mp() {
+    let has_gpu = gpu();
+    let (w, h) = (6000, 4000);
+    let src = scene(3, w, h);
+    let info = raw();
+    let req = RenderRequest::fit(w, h);
+    let mut s = DevelopSettings::default();
+    capture(&mut s, 0.8, 25.0, 8.0);
+    s.raw.capture.corner_boost = 30.0;
+    let ms = |t: std::time::Instant| t.elapsed().as_secs_f64() * 1e3;
+    let stages = StageCache::default();
+    if has_gpu {
+        let _ = gpu_render(&src, &info, &s, &req, Some(&stages)); // warm device/pool
+        let t = std::time::Instant::now();
+        let _ = gpu_render(&src, &info, &s, &req, None);
+        eprintln!("24 MP capture r0.8 / 8 it / boost30, fresh GPU: {:.1} ms", ms(t));
+        s.light.exposure = 0.3;
+        let t = std::time::Instant::now();
+        let _ = gpu_render(&src, &info, &s, &req, Some(&stages));
+        eprintln!("24 MP capture cached + exposure GPU: {:.1} ms", ms(t));
+        s.raw.capture.radius = 1.0;
+        let t = std::time::Instant::now();
+        let _ = gpu_render(&src, &info, &s, &req, Some(&stages));
+        eprintln!("24 MP capture radius change GPU (upload reused): {:.1} ms", ms(t));
+    }
+    capture(&mut s, 0.8, 25.0, 8.0);
+    s.light.exposure = 0.0;
+    let t = std::time::Instant::now();
+    std::hint::black_box(render(&src, &info, &s, &req));
+    eprintln!("24 MP capture r0.8 / 8 it / boost30, fresh CPU: {:.1} ms", ms(t));
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -683,6 +984,11 @@ fn bench_toolset_24mp() {
             lens_on(&mut s, 100.0);
             s
         }),
+        ("lens profile (db) 0%", SourceInfo { lens_db: Some(barrel()), ..info.clone() }, {
+            let mut s = DevelopSettings::default();
+            lens_on(&mut s, 0.0);
+            s
+        }),
         ("tone equalizer", info.clone(), {
             let mut s = DevelopSettings::default();
             s.tone_eq.enabled = true;
@@ -749,9 +1055,6 @@ fn bench_toolset_24mp() {
         // what runs on the CPU inside a GPU render (per-stage hybrid)
         let plan = lightcraft_pipeline::plan(&src, &info, &s, &req);
         let mut cpu_parts = Vec::new();
-        if lightcraft_pipeline::capture_params(&info, &plan.settings).is_some() {
-            cpu_parts.push("capture presource");
-        }
         if !plan.frame.gpu_samplable() {
             cpu_parts.push("geometry");
         }

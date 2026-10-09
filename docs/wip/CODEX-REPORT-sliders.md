@@ -315,3 +315,31 @@ historical CPU costs, not the new GPU path or release/RTX results:
 The coordinator's unacceptable release/RTX measurements and the native replacement
 are recorded at the start of this report. Those CPU host costs are no longer part
 of requested primary processing in a GPU render. New RTX timings remain pending.
+
+## Merge with the working branch
+
+Resolved the four conflicted files against `claude/sleepy-franklin-egimjb`, preserving
+native lens-database distortion/TCA/vignetting, zero-strength bypass, native capture
+sharpening and their tests/benchmarks. The full render and primary proxy share the
+same uploaded/capture-sharpened source; capture keys invalidate all downstream
+primary fields, and memory accounting retains both capture and primary buffers.
+Pupil/Upright analysis and proxy pupil resolution use the sharpened pixels.
+
+Kept `quiesce(timeout)`, the running-render counter and JobPool worker joins.
+Restored `tools_need_cpu`: the separate Tone Equalizer and its mask overlay request
+the CPU renderer because they have no native kernel. The primary EIGF candidate
+remains native. Tone Equalizer tests assert this fallback; numerical bounds,
+fixtures and goldens are unchanged. GPU validation retains both branches' sections.
+
+A new software Vulkan regression combines capture, lens and primary edits, both
+HS candidates, preview resizing and pupil analysis; cached output matches fresh
+output and the CPU reference within the original bounds. Numerical-test device
+creation now shares the existing test initialization lock. An initial parallel GPU
+process exited with SIGSEGV; the GPU suite and full rerun pass after this change.
+The index is untouched; the coordinator stages and commits the resolved files.
+
+Final offline five-crate regression: **816 passed, 0 failed, 9 ignored**, all doc-tests
+pass. Six native numerical tests execute on software Vulkan; hardware-only tests
+report 51 explicit no-adapter skips. Five-crate format checking and all-target Clippy
+with `-D warnings` pass. Logs: `target/sliders-merge-tests-final.log` and
+`target/sliders-merge-clippy-final.log`. Fixture SHA-256 values still match the manifest.

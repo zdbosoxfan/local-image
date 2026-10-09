@@ -27,6 +27,10 @@ struct State {
     host: String,
     /// A model folder whose files `/object_info` lists too (installs show up after a refresh).
     model_dir: Option<std::path::PathBuf>,
+    /// Prompts still executing (reported as `queue_running`).
+    running: Vec<String>,
+    /// `POST /interrupt` calls.
+    interrupts: u32,
 }
 
 /// A running mock server; stops when dropped.
@@ -77,6 +81,11 @@ impl MockComfy {
         if let Ok(mut s) = self.state.lock() {
             s.model_dir = Some(dir.into());
         }
+    }
+
+    /// How many times `/interrupt` was called.
+    pub fn interrupts(&self) -> u32 {
+        self.state.lock().map(|s| s.interrupts).unwrap_or(0)
     }
 
     /// Makes the next job end with an execution error (e.g. out of memory).
@@ -410,7 +419,22 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
             200,
             json!({ "system": { "comfyui_version": "mock" }, "devices": [{ "name": "cuda:0 Mock GPU 32 GB : cudaMallocAsync", "type": "cuda", "vram_total": 34359738368u64, "vram_free": 30064771072u64 }] }),
         ),
-        ("GET", "/queue") => json_resp(req, 200, json!({ "queue_running": [], "queue_pending": [] })),
+        ("GET", "/queue") => {
+            let running: Vec<Value> = st.lock().map(|s| s.running.iter().enumerate().map(|(i, id)| json!([i, id, {}, {}, []])).collect()).unwrap_or_default();
+            json_resp(req, 200, json!({ "queue_running": running, "queue_pending": [] }))
+        }
+        ("POST", "/interrupt") => {
+            if let Ok(mut s) = st.lock() {
+                s.interrupts += 1;
+                for id in std::mem::take(&mut s.running) {
+                    s.history.insert(
+                        id,
+                        json!({ "status": { "status_str": "error", "completed": false, "messages": [["execution_interrupted", {}]] }, "outputs": {} }),
+                    );
+                }
+            }
+            json_resp(req, 200, json!({}))
+        }
         ("POST", "/free") => json_resp(req, 200, json!({})),
         ("POST", "/upload/image") => {
             let (name, data) = parse_multipart(&body);
@@ -426,13 +450,18 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
                 let Ok(mut s) = st.lock() else { return };
                 s.next += 1;
                 s.prompts.push(graph.clone());
-                format!("mock-{}", s.next)
+                let id = format!("mock-{}", s.next);
+                s.running.push(id.clone());
+                id
             };
             json_resp(req, 200, json!({ "prompt_id": id, "number": 1 }));
             let (st, ms, fail_now) = (st.clone(), delay.load(Ordering::SeqCst), fail.swap(false, Ordering::SeqCst));
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_millis(ms));
                 let Ok(mut s) = st.lock() else { return };
+                // Interrupted or cancelled meanwhile: that already wrote its history.
+                let Some(i) = s.running.iter().position(|r| *r == id) else { return };
+                s.running.remove(i);
                 if fail_now {
                     s.history.insert(id.clone(), json!({ "status": { "status_str": "error", "completed": false, "messages": [["execution_error", { "exception_message": "CUDA out of memory. Tried to allocate 2.00 GiB" }]] }, "outputs": {} }));
                     return;
@@ -458,6 +487,7 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
         ("POST", p) if p.starts_with("/api/jobs/") && p.ends_with("/cancel") => {
             let id = p.trim_start_matches("/api/jobs/").trim_end_matches("/cancel").to_owned();
             if let Ok(mut s) = st.lock() {
+                s.running.retain(|r| *r != id);
                 s.history
                     .insert(id, json!({ "status": { "status_str": "error", "completed": false, "messages": [["execution_interrupted", {}]] }, "outputs": {} }));
             }
@@ -707,6 +737,31 @@ mod tests {
         let err = gone.generate(&GenerateRequest::new(ModelId::ZImageTurbo, "x"), &JobControl::new()).unwrap_err();
         assert!(err.to_string().contains("Cannot reach ComfyUI"), "{err}");
         assert!(t.elapsed() < Duration::from_secs(5));
+    }
+
+    /// Stop generation: `/interrupt` only while one of our prompts is the one executing.
+    #[test]
+    fn interrupt_stops_only_our_running_prompt() {
+        let server = MockComfy::start().unwrap();
+        let client = crate::ComfyClient::new(server.host());
+        // Nothing of ours is running: no global interrupt.
+        assert!(!client.interrupt_ours().unwrap());
+        assert_eq!(server.interrupts(), 0);
+        server.delay_ms.store(5000, Ordering::SeqCst);
+        let host = server.host().to_owned();
+        let job = std::thread::spawn(move || Ai::new(host).generate(&GenerateRequest::new(ModelId::ZImageTurbo, "x"), &JobControl::new()));
+        let t = std::time::Instant::now();
+        while crate::comfy::our_prompts(server.host()).is_empty() && t.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(crate::comfy::our_prompts(server.host()).len(), 1);
+        assert!(client.interrupt_ours().unwrap());
+        assert_eq!(server.interrupts(), 1);
+        let err = job.join().unwrap().unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("interrupt") || err.to_string().contains("stopped"), "{err:#}");
+        assert!(t.elapsed() < Duration::from_secs(4), "stopped well before the job would end");
+        // Finished prompts are no longer ours.
+        assert!(crate::comfy::our_prompts(server.host()).is_empty());
     }
 
     fn classes_of(g: &Value) -> Vec<String> {

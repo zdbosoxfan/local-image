@@ -199,6 +199,7 @@ fn layer_m(l: &Layer, sink: &mut dyn Sink) -> LayerM {
         excluded_channels: l.excluded_channels,
         blend_if: l.blend_if.clone(),
         video: l.video.as_ref().map(|v| video_m(v, sink)),
+        generation: l.generation.clone(),
     }
 }
 
@@ -491,6 +492,7 @@ impl Loader<'_> {
             excluded_channels: m.excluded_channels,
             blend_if: m.blend_if.clone(),
             video: m.video.as_ref().map(|v| self.video(v)).transpose()?,
+            generation: m.generation.clone(),
         })
     }
 

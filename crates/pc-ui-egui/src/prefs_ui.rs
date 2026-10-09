@@ -673,7 +673,8 @@ pub fn width(fields: &Map<String, Value>) -> Option<f32> {
 
 /// Open Edit › Preferences on `section`.
 pub fn open_preferences(app: &mut PhotocraftApp, section: &str) -> u64 {
-    let section = if SECTIONS.iter().any(|(id, _)| *id == section) { section } else { "general" };
+    let known = SECTIONS.iter().any(|(id, _)| *id == section) || section == crate::attributions::SECTION;
+    let section = if known { section } else { "general" };
     let working = preference_values(app.session.prefs());
     let order = field_order(app.session.prefs(), &working);
     open_kind(app, "prefs", "Preferences", json!({"section": section, "values": working, "__order": order}))
@@ -746,6 +747,7 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
         "prefs" => {
             f.insert("__gpuInfo".into(), json!(app.perf.gpu_info.lines()));
             prefs_body(ui, f);
+            crate::attributions::open_pending(app, ui.ctx(), f);
         }
         "shortcuts" => shortcuts_body(app, ui, f),
         "presets" => presets_body(app, ui, f),
@@ -853,10 +855,14 @@ fn prefs_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                     section = id.to_string();
                 }
             }
+            crate::attributions::prefs_nav(ui, &mut section);
         });
         crate::widgets::vline(ui, 420.0);
         ui.vertical(|ui| {
             ui.set_width(540.0);
+            if crate::attributions::prefs_page(ui, &section, f) {
+                return;
+            }
             let title = SECTIONS.iter().find(|(id, _)| *id == section).map_or("General", |(_, t)| *t);
             ui.label(RichText::new(tl!(&title)).font(crate::theme::semibold(14.0)).color(t.text));
             ui.add_space(6.0);

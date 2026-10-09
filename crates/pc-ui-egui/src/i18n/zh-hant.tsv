@@ -2526,3 +2526,122 @@ ai	New	最新
 	Cage is not active	籠形未啟用
 	Could not use Cage: the layer is empty	無法使用籠形：圖層是空的
 	Index	索引
+	Browse LoRAs for this model family	瀏覽此模型系列的 LoRA
+	Browse LoRAs…	瀏覽 LoRA…
+	Choose another model…	選擇其他模型…
+	Couldn't remove {name}: {error}	無法移除 {name}：{error}
+	Find LoRAs (styles) for the chosen model's family	為所選模型的系列尋找 LoRA（風格）
+	Kept because other installed models use them: {files}	因其他已安裝的模型正在使用而保留：{files}
+	List only the official upscalers (SeedVR2)	只顯示官方放大模型（SeedVR2）
+	Move to Trash	移到垃圾桶
+	None of its files are in the model folder.	模型資料夾中沒有它的任何檔案。
+	ON-DEVICE MODELS (CPU)	本機模型（CPU）
+	Official upscalers only	僅官方放大模型
+	Recommended	推薦
+	Remove (deletes the files)	移除（刪除檔案）
+	Remove (moves the files to the Trash)	移除（將檔案移到垃圾桶）
+	Remove {name}?	移除 {name}？
+	Removed {name} ({size} freed)	已移除 {name}（釋放 {size}）
+	Stop generation	停止生成
+	Stopped generation	已停止生成
+	This frees {size}. The files are deleted permanently.	這會釋放 {size}。檔案將被永久刪除。
+	This frees {size}. The files go to the Trash, so you can restore them from there.	這會釋放 {size}。檔案會移到垃圾桶，可從那裡復原。
+	Unload AI models from GPU memory (the AI engine is off)	從 GPU 記憶體卸載 AI 模型（AI 引擎未執行）
+	Unload AI models from GPU memory	從 GPU 記憶體卸載 AI 模型
+	Unloading AI models…	正在卸載 AI 模型…
+	Upscale with any image model instead: enlarge, then add detail with img2img	改用任何影像模型放大：先放大，再以 img2img 加入細節
+	kept {files}	已保留 {files}
+	using {name}	正在使用 {name}
+	{n} of {total} installed	已安裝 {n}/{total}
+	{size} download · runs on the CPU · {licence}	下載 {size} · 在 CPU 上執行 · {licence}
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	在本機處理器上執行的小型模型：不需要 ComfyUI 或 GPU，下載快速，相片也不會離開這台電腦。每組服務不同的工具，並使用組內已安裝的最佳模型。
+	Subject & Background	主體與背景
+# Selected-item context bars and live shapes
+	AI Fill	AI 填色
+	Add a vector mask from the path	從路徑新增向量遮色片
+	Bottom-left corner radius	左下角半徑
+	Bottom-right corner radius	右下角半徑
+	Content-Aware Fill	內容感知填色
+	Corners	角落
+	Create another variation using this layer's prompt and a new seed	使用此圖層的提示詞與新種子建立另一個變化
+	Describe what to generate, or leave empty to fill from the surroundings	描述要生成的內容，或留白以依周圍內容填色
+	Edit Path	編輯路徑
+	Edit Text	編輯文字
+	Edit the shape's anchors and handles	編輯形狀的錨點與控制把手
+	Edit this photo's develop settings	編輯此照片的顯影設定
+	Fill the path's area from the image around it	依周圍影像填滿路徑區域
+	Fill the selection from the image around it	依周圍影像填滿選取範圍
+	Generate this area again from its surroundings	依周圍內容重新生成此區域
+	Generate “{prompt}” again with a new seed	使用新種子重新生成「{prompt}」
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	生成式填色：依描述重新生成區域（留白：依周圍內容）
+	Generative Fill: regenerate the path's area from a description	生成式填色：依描述重新生成路徑區域
+	L	長
+	Line weight	線條粗細
+	Mask out the background with AI	使用 AI 遮住背景
+	Number of sides	邊數
+	Open in Develop	在顯影中開啟
+	Open the Smart Object's contents	開啟智慧型物件的內容
+	Regenerate	重新生成
+	Select the main subject with AI	使用 AI 選取主體
+	Set radius of all corners	設定所有角落的半徑
+	Set shape stroke width	設定形狀筆畫寬度
+	Set the font size	設定字級
+	This layer has no generation model to repeat	此圖層沒有可重複生成的模型
+	This layer has no generation settings to repeat	此圖層沒有可重複生成的設定
+	This layer's generation model is unavailable	此圖層的生成模型無法使用
+	Top-left corner radius	左上角半徑
+	Top-right corner radius	右上角半徑
+	Turn the shape into pixels	將形狀轉換為像素
+	Variations	變化
+	Close panel	關閉面板
+	Dock Panel	停靠面板
+	Float Panel Group	浮動面板群組
+	Save and Return to Library	儲存並返回資料庫
+	Added your new Develop edits as layer {name}	已將您新的 Develop 編輯加入為圖層 {name}
+	Open the Library to save into it	請先開啟資料庫再儲存至其中
+	The layers below are unchanged; hide or delete the new layer to go back.	下方圖層未變更；如需還原，請隱藏或刪除新圖層。
+# Attributions page (li-attributions)
+	Attributions	致謝與授權
+	Search attributions…	搜尋致謝與授權…
+	No matches.	沒有符合的項目。
+	Show licence text	顯示授權全文
+	Smart Sort (scenes)	智慧分類（場景）
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	辨識照片內容（演講者、觀眾、細節等），將照片放入合適的資料夾。在 CPU 上執行；照片始終保留在此電腦上。
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	根據您的描述辨識場景。快速的本機模型可辨識演講者、觀眾、細節及其他自選類別。下載包含文字模型和分詞器。
+	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	找出照片的主體。用於選取 › 主體、移除背景（快速）、物件選取工具的點按模式，以及圖庫的主體與背景遮色片。
+	Finds the sky. Used by Select › Sky and the Library's sky masks.	找出天空。用於選取 › 天空以及圖庫的天空遮色片。
+	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	估計照片各部分的遠近。用於圖庫的深度遮色片（例如壓暗或模糊背景，或依距離選取前景）。
+	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	以最精細的邊緣找出主體（頭髮、毛髮、細小細節）。選取主體與移除背景的最佳品質；每張照片約需一兩秒。
+	Clean edges between near and far, good on most photos. Takes a few seconds per photo.	遠近之間邊緣乾淨，適合大多數照片。每張照片約需幾秒。
+	Custom: {name}	自訂：{name}
+	Use official model	使用官方模型
+	Your own model, run on the CPU instead of the official one.	您自己的模型，在 CPU 上執行，取代官方模型。
+	{name} · {size} download · runs on the CPU · {licence}	{name} · 下載 {size} · 在 CPU 上執行 · {licence}
+	Custom model…	自訂模型…
+	Pick any .onnx model that does this. It is copied into the models folder and used instead of the official one.	選擇任何可執行此功能的 .onnx 模型。它會被複製到模型資料夾，並取代官方模型使用。
+	Input style:	輸入樣式：
+	IS-Net style	IS-Net 樣式
+	U²-Net / ImageNet style	U²-Net / ImageNet 樣式
+	Sky class:	天空類別：
+	Only used when the model gives one map per class (ADE20K: 2).	僅當模型為每個類別輸出一張圖時使用（ADE20K：2）。
+	Testing the model…	正在測試模型…
+	Choose an ONNX file…	選擇 ONNX 檔案…
+	That model can't be used: {error}	無法使用該模型：{error}
+	Choose an ONNX model	選擇 ONNX 模型
+	ONNX model	ONNX 模型
+	Remove old models ({size})	移除舊模型（{size}）
+	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	將應用程式不再使用的模型（U²-Net、TinySkyNet、MiDaS）移到垃圾桶。
+	the old models	舊模型
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	在這台電腦的處理器上執行的小型模型：不需要 ComfyUI 或 GPU，下載快速，您的照片永遠不會離開這台電腦。每項功能有一個建議模型；您也可以改用自己的 ONNX 模型。
+	Choose an ONNX model (a file ending in .onnx)	選擇一個 ONNX 模型（以 .onnx 結尾的檔案）
+	Not a depth model: it must output one depth map	不是深度模型：必須輸出一個深度圖
+	Not a sky model	不是天空模型
+	Not a sky model: its output {shape} should be 1 map or one map per class	不是天空模型：其輸出 {shape} 應為 1 個圖或每個類別一個圖
+	Not a subject model: it must output one foreground map	不是主體模型：必須輸出一個前景圖
+	The model has no input	模型沒有輸入
+	The model's input has {channels} channels; an RGB image (3) is needed	模型的輸入具有 {channels} 個通道；需要 RGB 影像（3）
+	The model's input is {height}×{width}; a square input (or a flexible size) is needed	模型的輸入為 {height}×{width}；需要正方形輸入（或彈性尺寸）
+	The model's input must be an image (batch × 3 × height × width)	模型的輸入必須是影像（批次 × 3 × 高度 × 寬度）
+	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	天空類別 {class} 超出範圍：此模型具有 {classes} 個類別（0 到 {max}）
+	{path} isn't a file	{path} 不是檔案
+	Custom models are not supported for this function	此功能不支援自訂模型

@@ -1,6 +1,6 @@
 //! The canvas is colour-managed (#46): a Display P3 document shows its colours converted to
-//! the (sRGB) monitor on the GPU canvas (display LUT) and on the CPU canvas (flipped views draw
-//! through the CPU path); sRGB documents are shown unchanged. Skips when no GPU adapter with
+//! the (sRGB) monitor on the GPU canvas (display LUT) and on the CPU canvas (the canvas after the
+//! GPU one is dropped); sRGB documents are shown unchanged. Skips when no GPU adapter with
 //! 32-bit float render targets exists (like `crates/gpu/tests/parity.rs`).
 
 use std::sync::Arc;
@@ -98,7 +98,9 @@ fn render(profile: &str, rgb: [f32; 3], reopen: bool) -> Option<([u8; 3], [u8; 3
         photocraft_ui_egui::adjust_preview::display_doc(harness.state_mut(), 0).expect("rebuilt adjustment preview");
         harness.state_mut().ui.dialogs.clear();
     }
-    harness.state_mut().ui.view.flip_horizontal = true;
+    // The CPU canvas: drop the GPU one (as after a device loss), without its notice window.
+    photocraft_ui_egui::gpu_status::fall_back(harness.state_mut(), &photocraft_gpu::Fault::Lost("test: draw the CPU canvas".into()));
+    harness.state_mut().ui.gpu_fallback_notice = None;
     let cpu = sample(&mut harness);
     eprintln!("gpu {gpu:?} cpu {cpu:?}");
     Some((gpu, cpu))

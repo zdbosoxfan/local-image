@@ -83,6 +83,7 @@ mod camera_raw_preview_ui;
 mod camera_raw_scope_ui;
 pub mod camera_raw_ui;
 // local-image: Edit › Transform › Cage on the canvas.
+pub mod attributions;
 pub mod cage_ui;
 pub mod canvas;
 pub mod canvas_tool_menu;
@@ -423,6 +424,10 @@ pub struct PhotocraftApp {
     pub browse_in_library: Option<String>,
     /// local-image: a Develop layer was double-clicked: the host shows Develop on this Library photo.
     pub develop_request: Option<u64>,
+    /// local-image: files written by Save / Save As since the host last looked (the host takes
+    /// them): the Library adds a document that came from one of its photos, stacked on top of
+    /// that photo, and reloads a file it already has (see [`develop_layer::LibrarySave`]).
+    pub library_saves: Vec<develop_layer::LibrarySave>,
     /// local-image: Filter › Camera Raw Filter… sessions in the Library's Develop module (the host
     /// takes `develop_filter.request`), and the prompts around them.
     pub develop_filter: develop_filter_ui::State,
@@ -569,6 +574,7 @@ impl PhotocraftApp {
             switch_module: None,
             browse_in_library: None,
             develop_request: None,
+            library_saves: Vec::new(),
             develop_filter: Default::default(),
             current_module: Module::Compositing,
             fonts_ready: false,
@@ -919,7 +925,13 @@ impl PhotocraftApp {
         }
         let st = self.session.active().ok_or("no document")?;
         // Documents are named after their file ("cat.png"): suggest "cat.psd", not "cat.png.psd".
-        let suggested = st.path.clone().unwrap_or_else(|| format!("{}.psd", st.doc.name.rsplit_once('.').map_or(st.doc.name.as_str(), |(stem, _)| stem)));
+        // local-image: a photo from the Library is suggested beside its original, as
+        // "<name>-Edit.psd" (Photoshop's Edit In from Lightroom).
+        let suggested = st
+            .path
+            .clone()
+            .or_else(|| develop_layer::library_original(self).map(|(_, original)| develop_layer::edit_path(&original)))
+            .unwrap_or_else(|| format!("{}.psd", st.doc.name.rsplit_once('.').map_or(st.doc.name.as_str(), |(stem, _)| stem)));
         let path = match path {
             Some(p) => p,
             None => self.services.pick_save.as_mut().and_then(|f| f(&suggested)).ok_or("cancelled")?,
@@ -954,6 +966,11 @@ impl PhotocraftApp {
         }
         self.ui.status_error = false;
         notices::io_warnings(self, &format!("Saved {}", file_open::display_name(&path)), &warnings);
+        // local-image: the Library picks the file up (adds it stacked on its photo, or reloads it).
+        if self.host_modes {
+            let photo = develop_layer::active_photo(self);
+            self.library_saves.push(develop_layer::LibrarySave { path: path.clone(), photo, show: false });
+        }
         self.sync_views();
         Ok((path, warnings))
     }
@@ -1164,6 +1181,9 @@ impl eframe::App for PhotocraftApp {
             canvas::document_area(self, ui);
         });
         panels::properties_window(self, &ctx);
+        if chrome {
+            panels::floating_panels(self, &ctx);
+        }
         brush_panel::window(self, &ctx);
         preset_panels::windows(self, &ctx);
         // local-image: Local AI window and the AI prompt dialogs.
@@ -1291,9 +1311,9 @@ impl PhotocraftApp {
 
     /// Cached 64px thumbnail of a pixel-ish layer, laid out in document space.
     pub fn layer_thumb(&mut self, ctx: &egui::Context, doc: &Document, layer: &photocraft_doc::Layer) -> egui::TextureId {
-        // Key by content, not document revision: COW tiles change pointer only when their pixels
-        // change, so unrelated edits (e.g. painting another layer) don't rebuild this thumbnail.
-        let rev = layer.surface().map_or(0, surface_fingerprint) ^ (doc.size.width as u64) << 40;
+        // Surface revisions keep unrelated edits (e.g. painting another layer) from rebuilding
+        // this thumbnail, without inspecting every COW tile each frame.
+        let rev = layer.surface().map_or(0, surface_fingerprint) ^ (doc.size.width as u64) << 40 ^ (doc.size.height as u64) << 20;
         let key = (layer.id, mask_thumbs_ui::THUMB_LAYER);
         if let Some((r, tex)) = self.thumbs.get(&key)
             && *r == rev
@@ -1311,7 +1331,7 @@ impl PhotocraftApp {
     }
 
     pub fn mask_thumb(&mut self, ctx: &egui::Context, doc: &Document, id: photocraft_doc::LayerId, mask: &photocraft_doc::LayerMask) -> egui::TextureId {
-        let rev = surface_fingerprint(&mask.surface) ^ (doc.size.width as u64) << 40;
+        let rev = surface_fingerprint(&mask.surface) ^ (doc.size.width as u64) << 40 ^ (doc.size.height as u64) << 20;
         let key = (id, mask_thumbs_ui::THUMB_MASK);
         if let Some((r, tex)) = self.thumbs.get(&key)
             && *r == rev
@@ -1343,14 +1363,9 @@ impl PhotocraftApp {
     }
 }
 
-/// Cheap identity of a surface's pixels: tile coordinates and `Arc` pointers.
+/// Constant-time identity of a surface's pixels (including format and default pixel).
 pub fn surface_fingerprint(s: &photocraft_raster::Surface) -> u64 {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325 ^ s.tile_count() as u64;
-    for (c, t) in s.tiles() {
-        let p = std::sync::Arc::as_ptr(t) as usize as u64;
-        h = (h ^ p ^ ((c.tx as u64) << 32 | c.ty as u32 as u64)).wrapping_mul(0x100_0000_01b3);
-    }
-    h
+    s.revision()
 }
 
 /// Square thumbnail of the canvas area, letterboxed, sampling `f(x, y)` in document space.

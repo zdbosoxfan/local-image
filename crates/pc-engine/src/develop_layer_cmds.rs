@@ -10,8 +10,10 @@
 //!   Develop layer of the file (or the open document that already shows that photo).
 //! * `layer.develop.set {settings, layer?}` — re-develops a Develop layer (or turns a smart object
 //!   into one).
-//! * `develop.syncPhoto {photo, settings}` — every Develop layer following that Library photo, in
-//!   every open document, takes the new settings (one undo step per document).
+//! * `develop.syncPhoto {photo, settings}` — the new settings of that Library photo reach every
+//!   open document following it (one undo step per document): a document that is still just the
+//!   photo re-develops its layer; one with compositing work gets a new Develop layer on top
+//!   ("Develop 2"…) and keeps every existing layer as it was.
 //! * `develop.layers {}` — the Develop layers of the open documents (for the host).
 
 use photocraft_doc::{DevelopLink, Document, Layer, LayerContent, LayerId, SmartObject, SmartSource};
@@ -102,38 +104,82 @@ fn set_settings(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "layer": id.0 }))
 }
 
+/// Is `doc` still just the photo: one layer, its Develop layer (no compositing work yet)?
+pub fn is_untouched(doc: &Document) -> bool {
+    doc.walk().len() == 1 && develop_layers(doc).len() == 1
+}
+
+/// The name of the next Develop layer: "Develop 2", "Develop 3"… (the first one is "Develop").
+fn next_develop_name(doc: &Document) -> String {
+    let names: Vec<&str> = doc.walk().into_iter().map(|(_, _, l)| l.name.as_str()).collect();
+    (2..).map(|n| format!("Develop {n}")).find(|n| !names.contains(&n.as_str())).unwrap_or_else(|| "Develop".into())
+}
+
+/// A new Develop layer on top of `doc` following `link`: the source, placement and geometry of
+/// Develop layer `template`, without its smart filters, mask or layer settings.
+fn add_develop_layer(doc: &mut Document, template: LayerId, link: DevelopLink) -> Result<Layer> {
+    let Some(LayerContent::Smart(sm)) = doc.layer(template).map(|l| &l.content) else {
+        return Err(EngineError::Other("not a Develop layer".into()));
+    };
+    let mut sm = sm.clone();
+    sm.smart_filters.clear();
+    sm.filter_mask = None;
+    sm.filters_enabled = true;
+    sm.stack_mode = None;
+    sm.psd_raw = None;
+    sm.develop = Some(link);
+    let mut l = Layer::new(next_develop_name(doc), LayerContent::Smart(sm));
+    crate::smart_cmds::refresh_layer(doc, &mut l)?;
+    doc.layers.push(l.clone());
+    Ok(l)
+}
+
+/// New develop settings for Library photo `photo`, in every open document that follows it:
+/// a document that is still just the photo re-develops its layer in place; one with compositing
+/// work on it keeps every layer as it is and gets the new settings as a new Develop layer on top
+/// ("Develop 2", "Develop 3"…), so the work above and the earlier develop stay untouched. A
+/// document whose newest Develop layer of the photo already has the settings is left alone.
 fn sync_photo(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = "develop.syncPhoto";
     let photo = p.get("photo").and_then(Value::as_u64).ok_or_else(|| bad(C, "missing `photo`"))?;
     let settings = p.get("settings").cloned().ok_or_else(|| bad(C, "missing `settings`"))?;
     let active = s.active_index();
     let mut updated = 0;
+    let mut added = Vec::new();
     for i in 0..s.documents().len() {
-        let stale: Vec<LayerId> = s.documents()[i]
-            .doc
+        let doc = &s.documents()[i].doc;
+        // bottom to top: the last is the newest
+        let mine: Vec<(LayerId, bool)> = doc
             .walk()
             .into_iter()
             .filter_map(|(_, _, l)| match &l.content {
-                LayerContent::Smart(SmartObject { develop: Some(d), .. }) if d.photo == Some(photo) && d.settings != settings => Some(l.id),
+                LayerContent::Smart(SmartObject { develop: Some(d), .. }) if d.photo == Some(photo) => Some((l.id, d.settings == settings)),
                 _ => None,
             })
             .collect();
-        if stale.is_empty() {
+        let Some(&(newest, current)) = mine.last() else { continue };
+        if current {
             continue;
         }
+        let in_place = is_untouched(doc);
         s.set_active(i);
-        s.edit("Update from Develop", |doc, _| {
-            for id in &stale {
-                redevelop(doc, *id, DevelopLink { settings: settings.clone(), photo: Some(photo) })?;
-            }
-            Ok(())
-        })?;
-        updated += stale.len();
+        let link = DevelopLink { settings: settings.clone(), photo: Some(photo) };
+        if in_place {
+            s.edit("Update from Develop", |doc, _| redevelop(doc, newest, link))?;
+            updated += 1;
+        } else {
+            let l = s.edit("Add Develop Layer", |doc, active| {
+                let l = add_develop_layer(doc, newest, link)?;
+                *active = Some(l.id);
+                Ok(l)
+            })?;
+            added.push(json!({ "document": i, "layer": l.id.0, "name": l.name }));
+        }
     }
     if let Some(a) = active {
         s.set_active(a);
     }
-    Ok(json!({ "updated": updated }))
+    Ok(json!({ "updated": updated, "added": added }))
 }
 
 fn list(s: &mut Session, _: &Value) -> Result<Value> {
@@ -181,7 +227,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Update Develop Layers",
             menu: &[],
             shortcut: None,
-            params: r##"{"photo":id,"settings":DevelopSettings JSON} → {updated}"##,
+            params: r##"{"photo":id,"settings":DevelopSettings JSON} → {updated, added: [{document, layer, name}]}"##,
             enabled: always,
             run: sync_photo,
             journal: true,

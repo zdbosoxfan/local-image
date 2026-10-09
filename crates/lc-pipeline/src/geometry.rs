@@ -113,9 +113,9 @@ impl Frame {
         self.crop.rect = Rect::from_center(r.center(), r.width() * t, r.height() * t);
     }
 
-    /// Whether the GPU's geometry kernel can sample this frame (it has no lens database models).
+    /// Whether the GPU's geometry kernel can sample this frame, including lens database models.
     pub fn gpu_samplable(&self) -> bool {
-        self.warp.as_ref().is_none_or(|w| w.lensdb.is_none())
+        true
     }
 
     /// Add automatically estimated lateral CA (`[α_R, α_B]`, see [`crate::optics::estimate_lateral_ca`]).
@@ -340,6 +340,64 @@ mod tests {
         let p = m.apply(Point::new(150.0, 100.0));
         assert!((p.x - 0.5).abs() < 1e-9 && (p.y - 0.5).abs() < 1e-9);
         assert!((f.px_per_long(300) - 300.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn lens_database_zero_strength_and_identity_use_the_fast_sample_plan() {
+        use crate::lensdb::{Distortion, LensCorrection, Tca};
+        let mut s = DevelopSettings::default();
+        s.lens_db.enabled = true;
+        let active = LensCorrection {
+            diag_norm: 2.0,
+            distortion: Distortion::Poly3 { k1: -0.3 },
+            tca: Tca::Linear { kr: 1.02, kb: 0.98 },
+            vignetting: Some([-0.4, 0.1, 0.0]),
+            ..Default::default()
+        };
+        let identities = [
+            LensCorrection::default(),
+            LensCorrection { distortion: Distortion::Poly3 { k1: 0.0 }, tca: Tca::Linear { kr: 1.0, kb: 1.0 }, vignetting: Some([0.0; 3]), ..active },
+            LensCorrection {
+                distortion: Distortion::Poly5 { k1: 0.0, k2: 0.0 },
+                tca: Tca::Poly3 { red: [1.0, 0.0, 0.0], blue: [1.0, 0.0, 0.0] },
+                vignetting: None,
+                ..active
+            },
+            LensCorrection { distortion: Distortion::Ptlens { a: 0.0, b: 0.0, c: 0.0 }, tca: Tca::None, vignetting: None, ..active },
+        ];
+        for c in identities {
+            assert!(c.is_identity());
+            let f = Frame::with_lenses(301, 199, &s, true, None, Some(&c));
+            assert!(f.gpu_samplable() && f.warp.is_none());
+            assert!(matches!(f.sample_plan(301, 199, 301, 199).mode, SampleMode::Copy));
+        }
+        s.lens_db.distortion = 0.0;
+        s.lens_db.tca = 0.0;
+        s.lens_db.vignetting = 0.0;
+        for o in [
+            Orientation::Normal,
+            Orientation::Rotate90,
+            Orientation::Rotate180,
+            Orientation::Rotate270,
+            Orientation::FlipH,
+            Orientation::FlipV,
+            Orientation::Transpose,
+            Orientation::Transverse,
+        ] {
+            s.orientation = o;
+            let f = Frame::with_lenses(301, 199, &s, true, None, Some(&active));
+            assert!(f.gpu_samplable() && f.warp.is_none());
+            assert!(matches!(f.sample_plan(301, 199, f.ow as usize, f.oh as usize).mode, SampleMode::Copy));
+            s.crop.geometry.angle = 3.0;
+            let cropped = Frame::with_lenses(301, 199, &s, true, None, Some(&active));
+            assert!(cropped.warp.is_none());
+            assert!(matches!(cropped.sample_plan(301, 199, 150, 100).mode, SampleMode::Affine(_)));
+            s.crop.geometry.angle = 0.0;
+        }
+        s.lens_db.distortion = 100.0;
+        let f = Frame::with_lenses(301, 199, &s, true, None, Some(&active));
+        assert!(f.gpu_samplable());
+        assert!(matches!(f.sample_plan(301, 199, 301, 199).mode, SampleMode::Warp(_)));
     }
 
     #[test]

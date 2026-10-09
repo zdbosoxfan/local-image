@@ -228,14 +228,23 @@ fn erase_locked(brush: &mut BrushSettings, lock: bool, bg: [f32; 4]) {
 }
 
 /// Stroke with a resolved brush onto the target layer (pixels or mask).
-fn stroke_with(s: &mut Session, p: &Value, label: &str, brush: BrushSettings, pts: Vec<StrokePoint>, auto_erase: bool) -> Result<Value> {
+fn stroke_with(s: &mut Session, cmd: &str, p: &Value, label: &str, brush: BrushSettings, pts: Vec<StrokePoint>, auto_erase: bool) -> Result<Value> {
     let bg = s.tools.background;
     let fg = brush.color;
     let symmetry = s.active().and_then(|st| st.symmetry_path.clone());
     let (id, brush, zoom) = stroke_target(s, p, brush)?;
+    // The live stroke the canvas drew, when it rendered exactly this stroke: its pixels.
+    let live = s.live_commit.take().and_then(|l| l.result_for(s, cmd, p, id, &brush, zoom, &pts, auto_erase, symmetry.as_ref()));
+    if live.is_some() {
+        s.live_commits_reused += 1;
+    }
     let dmg = s.edit(label, |doc, _| {
         let sel = doc.selection.clone();
         let (surf, lock) = crate::channel_cmds::target_surface(doc, id, p)?;
+        if let Some((done, damage)) = live {
+            *surf = done;
+            return Ok(damage);
+        }
         let mut brush = brush;
         erase_locked(&mut brush, lock, bg);
         if auto_erase {
@@ -313,7 +322,7 @@ pub fn paint_stroke(s: &mut Session, p: &Value) -> Result<Value> {
     let pts = parse_points(p, "paint.stroke")?;
     let brush = with_blend_mode(resolve_brush(s, p, "paint.stroke")?, p);
     let label = if brush.erase { "Eraser" } else { "Brush Tool" };
-    stroke_with(s, p, label, brush, pts, false)
+    stroke_with(s, "paint.stroke", p, label, brush, pts, false)
 }
 
 /// A `paint.stroke` rendered while it is drawn, onto a copy of the active document, so the canvas
@@ -334,6 +343,20 @@ pub struct LiveStroke {
     params: Value,
     /// Where the doc shows the stroke's end as finishing it would draw it (see `push`).
     tail: Rect,
+    // What the commit must match to reuse the pixels (see `Session::prepare_live_commit`).
+    cmd: &'static str,
+    /// The document and revision the stroke started from.
+    base: std::sync::Weak<photocraft_doc::Document>,
+    revision: u64,
+    /// The brush as `stroke_target` gave it (before locked transparency or Auto Erase).
+    brush: BrushSettings,
+    zoom: f32,
+    auto_erase: bool,
+    symmetry: Option<crate::symmetry_cmds::SymmetryAxis>,
+    /// Every point rendered so far.
+    points: Vec<StrokePoint>,
+    /// The damage rect the commit returns for the stroke so far.
+    final_damage: Rect,
 }
 
 impl LiveStroke {
@@ -355,20 +378,86 @@ impl LiveStroke {
         let brush = if pencil { pencil_brush(s, p)? } else { with_blend_mode(resolve_brush(s, p, cmd)?, p) };
         let (seed, fg) = (brush.seed, brush.color);
         let (layer, mut brush, zoom) = stroke_target(s, p, brush)?;
-        let mut doc = (*s.active().ok_or(EngineError::NoDocument)?.doc).clone();
+        let committed_brush = brush.clone();
+        let st = s.active().ok_or(EngineError::NoDocument)?;
+        let (base, revision, symmetry) = (std::sync::Arc::downgrade(&st.doc), st.revision, st.symmetry_path.clone());
+        let mut doc = (*st.doc).clone();
         let sel = doc.selection.clone();
         let (surf, lock) = crate::channel_cmds::target_surface(&mut doc, layer, p)?;
         erase_locked(&mut brush, lock, s.tools.background);
-        if pencil && flag(p, "autoErase", false) {
+        let auto_erase = pencil && flag(p, "autoErase", false);
+        if auto_erase {
             apply_auto_erase(&mut brush, surf, pts.first(), fg, s.tools.background);
         }
         let renderer = StrokeRenderer::new(&brush, Some(surf.format()), zoom);
-        let mirror = s.active().and_then(|st| st.symmetry_path.clone()).map(|axis| (axis, StrokeRenderer::new(&brush, Some(surf.format()), zoom)));
+        let mirror = symmetry.clone().map(|axis| (axis, StrokeRenderer::new(&brush, Some(surf.format()), zoom)));
         let pre = surf.clone();
-        let mut live =
-            Self { doc: std::sync::Arc::new(doc), seed, renderer, mirror, mirror_distinct: false, pre, sel, lock, layer, params: p.clone(), tail: Rect::EMPTY };
+        let mut live = Self {
+            doc: std::sync::Arc::new(doc),
+            seed,
+            renderer,
+            mirror,
+            mirror_distinct: false,
+            pre,
+            sel,
+            lock,
+            layer,
+            params: p.clone(),
+            tail: Rect::EMPTY,
+            cmd: if pencil { "paint.pencil" } else { "paint.stroke" },
+            base,
+            revision,
+            brush: committed_brush,
+            zoom,
+            auto_erase,
+            symmetry,
+            points: Vec::new(),
+            final_damage: Rect::EMPTY,
+        };
         live.push(&pts)?;
         Ok(live)
+    }
+
+    /// The target's pixels and the damage rect committing `cmd` with `p` would produce, when
+    /// that commit is exactly this stroke on the document it started from (see
+    /// [`Session::prepare_live_commit`]); `None` otherwise.
+    #[allow(clippy::too_many_arguments)]
+    fn result_for(
+        self,
+        s: &Session,
+        cmd: &str,
+        p: &Value,
+        layer: Option<photocraft_doc::LayerId>,
+        brush: &BrushSettings,
+        zoom: f32,
+        pts: &[StrokePoint],
+        auto_erase: bool,
+        symmetry: Option<&crate::symmetry_cmds::SymmetryAxis>,
+    ) -> Option<(Surface, Rect)> {
+        let st = s.active()?;
+        // Everything but the points and the seed (the brush comparison covers the seed).
+        fn rest(v: &Value) -> Option<Vec<(&String, &Value)>> {
+            v.as_object().map(|o| o.iter().filter(|(k, _)| *k != "points" && *k != "seed").collect())
+        }
+        let same = self.cmd == cmd
+            && st.revision == self.revision
+            && self.base.strong_count() > 0
+            && std::ptr::eq(self.base.as_ptr(), std::sync::Arc::as_ptr(&st.doc))
+            && self.layer == layer
+            && self.zoom.to_bits() == zoom.to_bits()
+            && self.auto_erase == auto_erase
+            && self.symmetry.as_ref() == symmetry
+            && self.brush == *brush
+            && self.points.as_slice() == pts
+            && rest(&self.params) == rest(p);
+        if !same {
+            return None;
+        }
+        let damage = self.final_damage;
+        let (layer, params) = (self.layer, self.params);
+        let mut doc = std::sync::Arc::unwrap_or_clone(self.doc);
+        let (surf, _) = crate::channel_cmds::target_surface(&mut doc, layer, &params).ok()?;
+        Some((std::mem::replace(surf, Surface::new(photocraft_color::PixelFormat::GRAY8)), damage))
     }
 
     /// Everything the stroke has touched so far.
@@ -382,6 +471,7 @@ impl LiveStroke {
     /// when the stroke ends, so that catch-up tail is drawn too (and redrawn on every step), and
     /// nothing new appears on release.
     pub fn push(&mut self, pts: &[StrokePoint]) -> Result<Rect> {
+        self.points.extend_from_slice(pts);
         self.renderer.push(pts);
         if let Some((axis, mirror)) = &mut self.mirror {
             let reflected = axis.reflect_points(pts);
@@ -390,20 +480,13 @@ impl LiveStroke {
         }
         let (surf, _) = crate::channel_cmds::target_surface(std::sync::Arc::make_mut(&mut self.doc), self.layer, &self.params)?;
         if let (true, Some((_, mirror))) = (self.mirror_distinct, &mut self.mirror) {
-            // Preview the finished strokes through one coverage buffer. Shared axis pixels
-            // therefore receive the brush opacity once, exactly like the final commit.
-            let old = self.tail;
-            let mut original_preview = self.renderer.clone();
-            original_preview.finish();
-            let mut mirror_preview = mirror.clone();
-            mirror_preview.finish();
-            let bounds = original_preview.bounds().union(&mirror_preview.bounds()).union(&old);
-            if !bounds.is_empty() {
-                surf.write_region(bounds, &self.pre.read_region(bounds));
-            }
-            let damage = original_preview.composite_union(&mirror_preview, &self.pre, surf, self.sel.as_ref(), self.lock);
-            self.tail = bounds;
-            return Ok(damage.union(&bounds));
+            // Preview the finished strokes through one coverage buffer, as the commit composites
+            // them (shared axis pixels receive the brush opacity once), redrawing only what
+            // changed since the last step.
+            let (damage, tail, done) = self.renderer.composite_union_live(mirror, &self.pre, surf, self.sel.as_ref(), self.lock, self.tail);
+            self.final_damage = done;
+            self.tail = tail;
+            return Ok(damage);
         }
         let mut dmg = Rect::EMPTY;
         let old = std::mem::replace(&mut self.tail, Rect::EMPTY);
@@ -414,7 +497,10 @@ impl LiveStroke {
             dmg = old;
         }
         dmg = dmg.union(&self.renderer.composite(&self.pre, surf, self.sel.as_ref(), self.lock, false));
+        // What `render_stroke` returns: the finished stroke's bounds.
+        self.final_damage = self.renderer.bounds();
         if let Some(mut tail) = self.renderer.tail_preview() {
+            self.final_damage = tail.bounds();
             self.tail = tail.composite(&self.pre, surf, self.sel.as_ref(), self.lock, false);
             dmg = dmg.union(&self.tail);
         }
@@ -426,7 +512,7 @@ fn pencil(s: &mut Session, p: &Value) -> Result<Value> {
     let pts = parse_points(p, "paint.pencil")?;
     let brush = pencil_brush(s, p)?;
     let label = if brush.erase { "Eraser" } else { "Pencil" };
-    stroke_with(s, p, label, brush, pts, flag(p, "autoErase", false))
+    stroke_with(s, "paint.pencil", p, label, brush, pts, flag(p, "autoErase", false))
 }
 
 fn pct(p: &Value, k: &str, d: f32) -> f32 {
