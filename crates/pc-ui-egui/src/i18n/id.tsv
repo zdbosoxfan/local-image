@@ -2958,3 +2958,33 @@ ai	New	Baru
 	Cage is not active	Sangkar tidak aktif
 	Could not use Cage: the layer is empty	Tidak dapat memakai Sangkar: lapisan kosong
 	Index	Indeks
+	Browse LoRAs for this model family	Jelajahi LoRA untuk keluarga model ini
+	Browse LoRAs…	Jelajahi LoRA…
+	Choose another model…	Pilih model lain…
+	Couldn't remove {name}: {error}	Tidak dapat menghapus {name}: {error}
+	Find LoRAs (styles) for the chosen model's family	Cari LoRA (gaya) untuk keluarga model yang dipilih
+	Kept because other installed models use them: {files}	Disimpan karena model terpasang lain memakainya: {files}
+	List only the official upscalers (SeedVR2)	Tampilkan hanya upscaler resmi (SeedVR2)
+	Move to Trash	Pindahkan ke Tempat Sampah
+	None of its files are in the model folder.	Tidak ada berkasnya di folder model.
+	ON-DEVICE MODELS (CPU)	MODEL DI PERANGKAT (CPU)
+	Official upscalers only	Hanya upscaler resmi
+	Recommended	Disarankan
+	Remove (deletes the files)	Hapus (menghapus berkas)
+	Remove (moves the files to the Trash)	Hapus (memindahkan berkas ke Tempat Sampah)
+	Remove {name}?	Hapus {name}?
+	Removed {name} ({size} freed)	{name} dihapus ({size} dibebaskan)
+	Stop generation	Hentikan pembuatan
+	Stopped generation	Pembuatan dihentikan
+	This frees {size}. The files are deleted permanently.	Ini membebaskan {size}. Berkas dihapus secara permanen.
+	This frees {size}. The files go to the Trash, so you can restore them from there.	Ini membebaskan {size}. Berkas masuk ke Tempat Sampah, jadi Anda bisa memulihkannya dari sana.
+	Unload AI models from GPU memory (the AI engine is off)	Keluarkan model AI dari memori GPU (mesin AI mati)
+	Unload AI models from GPU memory	Keluarkan model AI dari memori GPU
+	Unloading AI models…	Mengeluarkan model AI…
+	Upscale with any image model instead: enlarge, then add detail with img2img	Perbesar dengan model gambar apa pun: perbesar, lalu tambahkan detail dengan img2img
+	kept {files}	disimpan {files}
+	using {name}	memakai {name}
+	{n} of {total} installed	{n} dari {total} terpasang
+	{size} download · runs on the CPU · {licence}	unduhan {size} · berjalan di CPU · {licence}
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	Model kecil yang berjalan di prosesor komputer ini: tanpa ComfyUI atau GPU, unduhan cepat, dan foto Anda tidak pernah meninggalkan komputer. Setiap grup melayani alat yang berbeda, dan model terbaik yang terpasang di grup itulah yang dipakai.
+	Subject & Background	Subjek & Latar Belakang

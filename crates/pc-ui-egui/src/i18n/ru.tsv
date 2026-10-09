@@ -2883,3 +2883,33 @@ ai	New	Новые
 	Soft	Мягкий
 	Linear	Линейный
 	Index	Индекс
+	Browse LoRAs for this model family	Найти LoRA для этого семейства моделей
+	Browse LoRAs…	Обзор LoRA…
+	Choose another model…	Выбрать другую модель…
+	Couldn't remove {name}: {error}	Не удалось удалить {name}: {error}
+	Find LoRAs (styles) for the chosen model's family	Найти LoRA (стили) для семейства выбранной модели
+	Kept because other installed models use them: {files}	Оставлены, так как их используют другие установленные модели: {files}
+	List only the official upscalers (SeedVR2)	Показывать только официальные апскейлеры (SeedVR2)
+	Move to Trash	Переместить в корзину
+	None of its files are in the model folder.	Ни одного из его файлов нет в папке моделей.
+	ON-DEVICE MODELS (CPU)	МОДЕЛИ НА УСТРОЙСТВЕ (CPU)
+	Official upscalers only	Только официальные апскейлеры
+	Recommended	Рекомендуется
+	Remove (deletes the files)	Удалить (файлы удаляются)
+	Remove (moves the files to the Trash)	Удалить (файлы перемещаются в корзину)
+	Remove {name}?	Удалить {name}?
+	Removed {name} ({size} freed)	{name} удалено (освобождено {size})
+	Stop generation	Остановить генерацию
+	Stopped generation	Генерация остановлена
+	This frees {size}. The files are deleted permanently.	Освободится {size}. Файлы будут удалены безвозвратно.
+	This frees {size}. The files go to the Trash, so you can restore them from there.	Освободится {size}. Файлы попадут в корзину, откуда их можно восстановить.
+	Unload AI models from GPU memory (the AI engine is off)	Выгрузить модели ИИ из памяти GPU (движок ИИ выключен)
+	Unload AI models from GPU memory	Выгрузить модели ИИ из памяти GPU
+	Unloading AI models…	Выгрузка моделей ИИ…
+	Upscale with any image model instead: enlarge, then add detail with img2img	Увеличить любой моделью изображений: увеличить, затем добавить детали через img2img
+	kept {files}	оставлены {files}
+	using {name}	используется {name}
+	{n} of {total} installed	установлено {n} из {total}
+	{size} download · runs on the CPU · {licence}	загрузка {size} · работает на CPU · {licence}
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	Небольшие модели, которые работают на процессоре этого компьютера: не нужны ни ComfyUI, ни GPU, загрузки быстрые, а ваши фотографии не покидают компьютер. Каждая группа обслуживает свои инструменты; используется лучшая установленная модель группы.
+	Subject & Background	Объект и фон

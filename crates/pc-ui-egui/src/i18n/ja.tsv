@@ -2532,3 +2532,33 @@ ai	New	新着
 	Cage is not active	ケージは有効ではありません
 	Could not use Cage: the layer is empty	ケージを使用できません：レイヤーが空です
 	Index	インデックス
+	Browse LoRAs for this model family	このモデルファミリーの LoRA を探す
+	Browse LoRAs…	LoRA を探す…
+	Choose another model…	別のモデルを選択…
+	Couldn't remove {name}: {error}	{name} を削除できませんでした: {error}
+	Find LoRAs (styles) for the chosen model's family	選択したモデルのファミリー向けの LoRA（スタイル）を探す
+	Kept because other installed models use them: {files}	ほかのインストール済みモデルが使うため残しました: {files}
+	List only the official upscalers (SeedVR2)	公式のアップスケーラーだけを表示（SeedVR2）
+	Move to Trash	ゴミ箱に移動
+	None of its files are in the model folder.	モデルフォルダーにはこのファイルがありません。
+	ON-DEVICE MODELS (CPU)	デバイス上のモデル（CPU）
+	Official upscalers only	公式のアップスケーラーのみ
+	Recommended	おすすめ
+	Remove (deletes the files)	削除（ファイルを削除します）
+	Remove (moves the files to the Trash)	削除（ファイルをゴミ箱に移動します）
+	Remove {name}?	{name} を削除しますか？
+	Removed {name} ({size} freed)	{name} を削除しました（{size} を解放）
+	Stop generation	生成を停止
+	Stopped generation	生成を停止しました
+	This frees {size}. The files are deleted permanently.	{size} が解放されます。ファイルは完全に削除されます。
+	This frees {size}. The files go to the Trash, so you can restore them from there.	{size} が解放されます。ファイルはゴミ箱に移動するので、そこから元に戻せます。
+	Unload AI models from GPU memory (the AI engine is off)	AI モデルを GPU メモリから解放（AI エンジンは停止中）
+	Unload AI models from GPU memory	AI モデルを GPU メモリから解放
+	Unloading AI models…	AI モデルを解放しています…
+	Upscale with any image model instead: enlarge, then add detail with img2img	代わりに任意の画像モデルで拡大: 拡大してから img2img でディテールを加えます
+	kept {files}	残したファイル: {files}
+	using {name}	{name} を使用中
+	{n} of {total} installed	{total} 個中 {n} 個インストール済み
+	{size} download · runs on the CPU · {licence}	ダウンロード {size} · CPU で動作 · {licence}
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	このコンピューターのプロセッサーで動く小さなモデルです。ComfyUI や GPU は不要で、ダウンロードも小さく、写真がコンピューターの外に出ることはありません。グループごとに使われるツールが異なり、各グループでインストール済みの最良のモデルが使われます。
+	Subject & Background	被写体と背景

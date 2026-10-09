@@ -158,9 +158,8 @@ impl ModelInfo {
         if self.upscale {
             t.push("Upscale".to_owned());
         }
-        if self.lora {
-            t.push("LoRA".to_owned());
-        }
+        // No "LoRA" tag: in a list of models it read as "this is a LoRA" (LoRA support shows
+        // as the Styles (LoRA) section once the model is picked).
         t
     }
 }
@@ -499,6 +498,8 @@ mod tests {
         assert_eq!(m.family, "sdxl");
         assert_eq!(m.origin, Origin::Installed);
         assert!(m.tags().contains(&"Fill".to_owned()));
+        // a LoRA-capable model is not tagged as if it were a LoRA
+        assert!(m.lora && !m.tags().iter().any(|t| t.contains("LoRA")), "{:?}", m.tags());
         let p = cat.presets.iter().find(|p| p.model == m.id).unwrap();
         assert!(p.installed);
     }

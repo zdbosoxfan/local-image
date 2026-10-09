@@ -2526,3 +2526,33 @@ ai	New	最新
 	Cage is not active	籠形未啟用
 	Could not use Cage: the layer is empty	無法使用籠形：圖層是空的
 	Index	索引
+	Browse LoRAs for this model family	瀏覽此模型系列的 LoRA
+	Browse LoRAs…	瀏覽 LoRA…
+	Choose another model…	選擇其他模型…
+	Couldn't remove {name}: {error}	無法移除 {name}：{error}
+	Find LoRAs (styles) for the chosen model's family	為所選模型的系列尋找 LoRA（風格）
+	Kept because other installed models use them: {files}	因其他已安裝的模型正在使用而保留：{files}
+	List only the official upscalers (SeedVR2)	只顯示官方放大模型（SeedVR2）
+	Move to Trash	移到垃圾桶
+	None of its files are in the model folder.	模型資料夾中沒有它的任何檔案。
+	ON-DEVICE MODELS (CPU)	本機模型（CPU）
+	Official upscalers only	僅官方放大模型
+	Recommended	推薦
+	Remove (deletes the files)	移除（刪除檔案）
+	Remove (moves the files to the Trash)	移除（將檔案移到垃圾桶）
+	Remove {name}?	移除 {name}？
+	Removed {name} ({size} freed)	已移除 {name}（釋放 {size}）
+	Stop generation	停止生成
+	Stopped generation	已停止生成
+	This frees {size}. The files are deleted permanently.	這會釋放 {size}。檔案將被永久刪除。
+	This frees {size}. The files go to the Trash, so you can restore them from there.	這會釋放 {size}。檔案會移到垃圾桶，可從那裡復原。
+	Unload AI models from GPU memory (the AI engine is off)	從 GPU 記憶體卸載 AI 模型（AI 引擎未執行）
+	Unload AI models from GPU memory	從 GPU 記憶體卸載 AI 模型
+	Unloading AI models…	正在卸載 AI 模型…
+	Upscale with any image model instead: enlarge, then add detail with img2img	改用任何影像模型放大：先放大，再以 img2img 加入細節
+	kept {files}	已保留 {files}
+	using {name}	正在使用 {name}
+	{n} of {total} installed	已安裝 {n}/{total}
+	{size} download · runs on the CPU · {licence}	下載 {size} · 在 CPU 上執行 · {licence}
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	在本機處理器上執行的小型模型：不需要 ComfyUI 或 GPU，下載快速，相片也不會離開這台電腦。每組服務不同的工具，並使用組內已安裝的最佳模型。
+	Subject & Background	主體與背景

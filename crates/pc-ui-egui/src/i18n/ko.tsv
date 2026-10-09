@@ -3128,3 +3128,33 @@ ai	New	새 항목
 	Cage is not active	케이지가 활성 상태가 아닙니다
 	Could not use Cage: the layer is empty	케이지를 사용할 수 없음: 레이어가 비어 있습니다
 	Index	인덱스
+	Browse LoRAs for this model family	이 모델 계열의 LoRA 찾아보기
+	Browse LoRAs…	LoRA 찾아보기…
+	Choose another model…	다른 모델 선택…
+	Couldn't remove {name}: {error}	{name}을(를) 제거할 수 없습니다: {error}
+	Find LoRAs (styles) for the chosen model's family	선택한 모델 계열의 LoRA(스타일) 찾기
+	Kept because other installed models use them: {files}	다른 설치된 모델이 사용하므로 유지함: {files}
+	List only the official upscalers (SeedVR2)	공식 업스케일러만 표시 (SeedVR2)
+	Move to Trash	휴지통으로 이동
+	None of its files are in the model folder.	모델 폴더에 이 모델의 파일이 없습니다.
+	ON-DEVICE MODELS (CPU)	기기 내 모델 (CPU)
+	Official upscalers only	공식 업스케일러만
+	Recommended	추천
+	Remove (deletes the files)	제거 (파일을 삭제합니다)
+	Remove (moves the files to the Trash)	제거 (파일을 휴지통으로 옮깁니다)
+	Remove {name}?	{name}을(를) 제거할까요?
+	Removed {name} ({size} freed)	{name} 제거됨 ({size} 확보)
+	Stop generation	생성 중지
+	Stopped generation	생성을 중지했습니다
+	This frees {size}. The files are deleted permanently.	{size}가 확보됩니다. 파일은 영구적으로 삭제됩니다.
+	This frees {size}. The files go to the Trash, so you can restore them from there.	{size}가 확보됩니다. 파일은 휴지통으로 이동하므로 거기서 복원할 수 있습니다.
+	Unload AI models from GPU memory (the AI engine is off)	GPU 메모리에서 AI 모델 내리기 (AI 엔진이 꺼져 있음)
+	Unload AI models from GPU memory	GPU 메모리에서 AI 모델 내리기
+	Unloading AI models…	AI 모델을 내리는 중…
+	Upscale with any image model instead: enlarge, then add detail with img2img	대신 아무 이미지 모델로 업스케일: 확대한 뒤 img2img로 디테일 추가
+	kept {files}	유지함 {files}
+	using {name}	{name} 사용 중
+	{n} of {total} installed	{total}개 중 {n}개 설치됨
+	{size} download · runs on the CPU · {licence}	다운로드 {size} · CPU에서 실행 · {licence}
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	이 컴퓨터의 프로세서에서 실행되는 작은 모델입니다. ComfyUI나 GPU가 필요 없고 다운로드가 빠르며 사진이 컴퓨터 밖으로 나가지 않습니다. 그룹마다 쓰이는 도구가 다르며, 각 그룹에 설치된 가장 좋은 모델이 사용됩니다.
+	Subject & Background	피사체 및 배경

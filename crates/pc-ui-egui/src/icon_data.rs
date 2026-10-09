@@ -24,6 +24,7 @@ pub static ICONS: &[(&str, &[u8])] = &[
     ("circle", include_bytes!("../../../assets/icons/circle.svg")),
     ("circle-dashed", include_bytes!("../../../assets/icons/circle-dashed.svg")),
     ("circle-dot", include_bytes!("../../../assets/icons/circle-dot.svg")),
+    ("circle-stop", include_bytes!("../../../assets/icons/circle-stop.svg")),
     ("clock", include_bytes!("../../../assets/icons/clock.svg")),
     ("cloud", include_bytes!("../../../assets/icons/cloud.svg")),
     ("compass", include_bytes!("../../../assets/icons/compass.svg")),
@@ -36,6 +37,8 @@ pub static ICONS: &[(&str, &[u8])] = &[
     ("direct-select", include_bytes!("../../../assets/icons/direct-select.svg")),
     ("download", include_bytes!("../../../assets/icons/download.svg")),
     ("droplet", include_bytes!("../../../assets/icons/droplet.svg")),
+    // Not Lucide: drawn for Local Image on Lucide's 24 px stroke grid (see ATTRIBUTION).
+    ("eject", include_bytes!("../../../assets/icons/eject.svg")),
     ("ellipsis", include_bytes!("../../../assets/icons/ellipsis.svg")),
     ("eraser", include_bytes!("../../../assets/icons/eraser.svg")),
     ("eraser-background", include_bytes!("../../../assets/icons/eraser-background.svg")),

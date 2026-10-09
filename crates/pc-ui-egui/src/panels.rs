@@ -1062,6 +1062,8 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // local-image: the AI engine status pill.
                         crate::ai_ui::status_pill(app, ui);
+                        // Stop generation and unload models, left of the GPU stats.
+                        crate::ai_ui::status_controls(app, ui);
                         crate::jobs_ui::status_progress(app, ui)
                     });
                     return;

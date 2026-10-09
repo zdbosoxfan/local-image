@@ -176,6 +176,8 @@ struct Runtime {
     customs: Option<Vec<li_ai::custom::CustomWorkflow>>,
     presets: Option<Vec<li_ai::presets::GenPreset>>,
     preset_name: String,
+    /// Upscale lists every image model, not just the official upscalers.
+    upscale_any: bool,
 }
 
 struct Reference {
@@ -293,8 +295,18 @@ fn set_model(s: &mut GenerateState, m: ModelId) {
     }
 }
 
-/// Whether a model can run `mode`.
+/// Whether a model can run `mode` (Upscale: the official upscalers, or any image model once
+/// "Choose another model…" was picked this session).
 fn fits_mode(info: &catalog::ModelInfo, mode: Mode) -> bool {
+    fits_mode_with(info, mode, upscale_any())
+}
+
+/// [`fits_mode`]; `any_upscaler`: Upscale lists every image model (diffusion refine-upscale)
+/// instead of the official upscalers (SeedVR2).
+fn fits_mode_with(info: &catalog::ModelInfo, mode: Mode, any_upscaler: bool) -> bool {
+    if mode == Mode::Upscale && !any_upscaler {
+        return is_upscaler(info);
+    }
     if info.tool || info.resolved.kind != li_ai::family::FamilyKind::Image {
         return false;
     }
@@ -303,6 +315,23 @@ fn fits_mode(info: &catalog::ModelInfo, mode: Mode) -> bool {
         Mode::Fill => info.inpaint,
         Mode::Edit | Mode::Refine | Mode::Upscale => true,
     }
+}
+
+/// An official upscaler (SeedVR2): runs through AI Enhance rather than a diffusion refine.
+/// (ESRGAN-type `upscale_models` files have no workflow builder yet, so they aren't offered.)
+fn is_upscaler(info: &catalog::ModelInfo) -> bool {
+    info.upscale
+}
+
+/// Upscale with an official upscaler goes to `ai.enhance` (SeedVR2), not a diffusion
+/// refine-upscale.
+fn runs_as_enhance(info: &catalog::ModelInfo, mode: Mode) -> bool {
+    mode == Mode::Upscale && is_upscaler(info)
+}
+
+/// "Choose another model…" in Upscale mode (this session only).
+fn upscale_any() -> bool {
+    rt(|r| r.upscale_any)
 }
 
 fn size_for(aspect: &str, s: &GenerateState, native: u32) -> (u32, u32) {
@@ -520,12 +549,23 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &cra
             if ui.button(tl!("Browse Models…")).clicked() {
                 picked = Some("browse:".into());
             }
+            if ui.button(tl!("Browse LoRAs…")).on_hover_text(tl!("Find LoRAs (styles) for the chosen model's family")).clicked() {
+                picked = Some("browse-loras:".into());
+            }
             if allow_custom && ui.button(tl!("Import Workflow…")).clicked() {
                 picked = Some("import:".into());
             }
         });
     });
     picked
+}
+
+/// The Model Browser on LoRAs for `model`'s family (or on LoRAs in general).
+fn browse_loras(model: &str) {
+    match ModelId::from_key(model).and_then(|m| m.try_info()) {
+        Some(info) => crate::model_browser::open_loras(&info.family),
+        None => crate::model_browser::open_loras_any(),
+    }
 }
 
 /// The Generate tab.
@@ -603,9 +643,38 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             });
         });
         // ---- Model.
-        if let Some(k) = model_picker(ui, "gen-model", &s.model.clone(), s.mode, &st, true) {
+        // Upscale offers the official upscalers; a diffusion model chosen earlier (saved
+        // settings) keeps the full list.
+        if s.mode == Mode::Upscale
+            && !upscale_any()
+            && !s.model.starts_with("custom:")
+            && !s.model.starts_with("cloud:")
+            && ModelId::from_key(&s.model).and_then(|m| m.try_info()).is_some_and(|i| !is_upscaler(i))
+        {
+            rt(|r| r.upscale_any = true);
+        }
+        let picked = model_picker(ui, "gen-model", &s.model.clone(), s.mode, &st, true);
+        if s.mode == Mode::Upscale {
+            let any = upscale_any();
+            ui.horizontal(|ui| {
+                let (text, tip) = if any {
+                    (tl!("Official upscalers only"), tl!("List only the official upscalers (SeedVR2)"))
+                } else {
+                    (tl!("Choose another model…"), tl!("Upscale with any image model instead: enlarge, then add detail with img2img"))
+                };
+                if ui.add(egui::Button::new(RichText::new(text).size(11.0)).small()).on_hover_text(tip).clicked() {
+                    rt(|r| r.upscale_any = !any);
+                    // Back to the official list: the model gives way to an upscaler.
+                    if any && let Some(u) = ModelId::all().into_iter().find(|m| is_upscaler(m.info())) {
+                        set_model(s, u);
+                    }
+                }
+            });
+        }
+        if let Some(k) = picked {
             match k.as_str() {
                 "browse:" => crate::model_browser::open(),
+                "browse-loras:" => browse_loras(&app.ui.ai.generate.model),
                 "import:" => import_workflow(app),
                 k if k.starts_with("custom:") || k.starts_with("cloud:") => app.ui.ai.generate.model = k.to_owned(),
                 k => {
@@ -620,6 +689,8 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let cloud = cloud_of(s);
         let m = model_of(s);
         let info = m.info();
+        // An official upscaler (SeedVR2) restores and enlarges by itself: no prompt or strength.
+        let upscaler = s.mode == Mode::Upscale && custom.is_none() && cloud.is_none() && is_upscaler(info);
         if let Some(c) = cloud {
             ui.horizontal_wrapped(|ui| {
                 let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
@@ -650,7 +721,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             });
         }
         // ---- Prompt.
-        let wants_prompt = custom.as_ref().is_none_or(|w| w.has(&li_ai::custom::FieldKind::Prompt));
+        let wants_prompt = !upscaler && custom.as_ref().is_none_or(|w| w.has(&li_ai::custom::FieldKind::Prompt));
         let mut enter = false;
         if wants_prompt {
             let hint = match s.mode {
@@ -729,7 +800,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             (Some(w), _) => w.has(&li_ai::custom::FieldKind::Denoise),
             (None, Some(c)) => c.key == "stability:sd3.5-large" && s.mode == Mode::Edit,
             (None, None) => {
-                matches!(s.mode, Mode::Refine | Mode::Upscale)
+                (matches!(s.mode, Mode::Refine | Mode::Upscale) && !upscaler)
                     || (s.mode == Mode::Edit && !info.edit)
                     || (s.mode == Mode::Fill && info.resolved.pipeline.inpaint != li_ai::family::InpaintMethod::Instruction)
             }
@@ -788,6 +859,8 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 if let Some(k) = model_picker(ui, "gen-refine-model", &s.refine_model.clone(), Mode::Refine, &st, false) {
                     if k == "browse:" {
                         crate::model_browser::open();
+                    } else if k == "browse-loras:" {
+                        browse_loras(&s.refine_model);
                     } else if let Some(m) = ModelId::from_key(&k) {
                         s.refine_model = k;
                         s.refine_variant = catalog::default_variant(m).into();
@@ -949,6 +1022,11 @@ fn loras_ui(ui: &mut egui::Ui, s: &mut GenerateState, fam: &li_ai::family::Famil
                 && let Some((l, _)) = free.first()
             {
                 s.loras.push(LoraPick { name: l.name.clone(), strength: 0.8 });
+            }
+            let browse = crate::icons::button(ui, "search", 22.0, false, tl!("Browse LoRAs for this model family"));
+            browse.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Browse LoRAs…")));
+            if browse.clicked() {
+                crate::model_browser::open_loras(&fam.id);
             }
         });
     });
@@ -1189,6 +1267,19 @@ fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
     let m = model_of(&s);
     let info = m.info();
+    // An official upscaler runs as AI Enhance (SeedVR2); the result opens as a new document.
+    if runs_as_enhance(info, s.mode) {
+        if doc.is_none() {
+            return;
+        }
+        let seed = s.seed.unwrap_or_else(li_ai::ops::new_seed);
+        if let Err(e) = app.run("ai.enhance", json!({ "scale": s.upscale, "seed": seed })) {
+            app.ui.status = e;
+            app.ui.status_error = true;
+        }
+        ctx.request_repaint();
+        return;
+    }
     let mut req = GenerateRequest::new(m, prompt);
     req.variant = s.variant.clone();
     req.width = s.width;
@@ -2055,5 +2146,62 @@ mod tests {
             assert!(((w as f32 / h as f32) - r).abs() < 0.05, "{k}: {w}x{h}");
             assert!((800_000..1_300_000).contains(&(w * h)), "{k}: {w}x{h}");
         }
+    }
+
+    /// Upscale lists the official upscalers (SeedVR2) and routes them to AI Enhance; "Choose
+    /// another model…" switches to every image model (diffusion refine-upscale).
+    #[test]
+    fn upscale_offers_the_official_upscalers_first() {
+        let official: Vec<&str> = catalog::catalog().models.iter().filter(|m| fits_mode_with(m, Mode::Upscale, false)).map(|m| m.id.key()).collect();
+        assert_eq!(official, vec![ModelId::SeedVr2.key()]);
+        let any: Vec<ModelId> = catalog::catalog().models.iter().filter(|m| fits_mode_with(m, Mode::Upscale, true)).map(|m| m.id).collect();
+        assert!(any.contains(&ModelId::Klein4B) && any.contains(&ModelId::Qwen) && !any.contains(&ModelId::SeedVr2), "{any:?}");
+        // other modes never offer the upscaler
+        for mode in [Mode::Create, Mode::Edit, Mode::Fill, Mode::Refine] {
+            assert!(!fits_mode_with(ModelId::SeedVr2.info(), mode, false), "{mode:?}");
+        }
+        assert!(runs_as_enhance(ModelId::SeedVr2.info(), Mode::Upscale));
+        assert!(!runs_as_enhance(ModelId::Klein4B.info(), Mode::Upscale));
+        assert!(!runs_as_enhance(ModelId::SeedVr2.info(), Mode::Refine));
+        // the picker's filter follows the session's choice
+        assert!(!upscale_any());
+        assert!(!fits_mode(ModelId::Klein4B.info(), Mode::Upscale));
+        rt(|r| r.upscale_any = true);
+        assert!(fits_mode(ModelId::Klein4B.info(), Mode::Upscale));
+        rt(|r| r.upscale_any = false);
+    }
+
+    /// The model list holds models only: LoRA-capable models carry no "LoRA" chip.
+    #[test]
+    fn model_tags_do_not_call_models_loras() {
+        for m in &catalog::catalog().models {
+            assert!(!m.tags().iter().any(|t| t.contains("LoRA")), "{}: {:?}", m.label, m.tags());
+        }
+    }
+
+    /// The Styles (LoRA) row always offers the LoRA browser, opened on the model's family.
+    #[test]
+    fn styles_row_opens_the_lora_browser() {
+        use egui_kittest::kittest::Queryable;
+        let fam = ModelId::Klein4B.info().resolved.clone();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(360.0, 200.0)).build_ui_state(
+            move |ui, s: &mut GenerateState| {
+                let t = Tokens::get(ui.ctx());
+                loras_ui(ui, s, &fam, &t);
+            },
+            GenerateState::default(),
+        );
+        crate::PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(2);
+        crate::model_browser::close();
+        h.get_by_label("Browse LoRAs…").click();
+        h.run_steps(2);
+        assert!(crate::model_browser::is_open());
+        assert_eq!(crate::model_browser::showing(), (true, Some(ModelId::Klein4B.info().resolved.id.clone())));
+        crate::model_browser::close();
+        // and from the model picker's footer, for a model of any family
+        browse_loras("no-such-model");
+        assert!(crate::model_browser::showing().0);
+        crate::model_browser::close();
     }
 }
