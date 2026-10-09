@@ -121,8 +121,8 @@ enum TexKind {
     Rgba8,
     /// 16/32-bit formats converted to RGBA16F.
     Rgba16F,
-    /// Full precision for Blend If thresholds and native tone transforms (which amplify
-    /// conversion/half-float rounding). Ordinary RGB8 tiles still upload verbatim.
+    /// CPU-decoded float32 for Blend If and native tones, including RGB8: a UNORM load's
+    /// implementation-dependent rounding must not decide an inclusive threshold.
     Rgba32F,
     /// GRAY8 masks copied verbatim.
     R8Direct,
@@ -133,8 +133,8 @@ enum TexKind {
 impl TexKind {
     fn for_surface(role: Role, f: PixelFormat, precise: bool) -> Self {
         match role {
-            Role::Content | Role::Stroke if f == PixelFormat::RGBA8 => TexKind::Rgba8Direct,
             Role::Content | Role::Stroke if precise => TexKind::Rgba32F,
+            Role::Content | Role::Stroke if f == PixelFormat::RGBA8 => TexKind::Rgba8Direct,
             Role::Content | Role::Stroke if f.sample == SampleType::U8 => TexKind::Rgba8,
             Role::Content | Role::Stroke => TexKind::Rgba16F,
             Role::Mask if f == PixelFormat::GRAY8 => TexKind::R8Direct,
@@ -2141,6 +2141,20 @@ pub fn render_to_vec_stats(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn threshold_sources_upload_cpu_decoded_sample_bits() {
+        for sample in [SampleType::U8, SampleType::U16, SampleType::F32] {
+            let format = PixelFormat::new(photocraft_color::ColorMode::Rgb, sample, true);
+            let surface = Surface::with_default(format, &[200.0 / 255.0, 50.0 / 255.0, 1.0, 0.8]);
+            assert_eq!(TexKind::for_surface(Role::Content, format, true), TexKind::Rgba32F);
+            let bytes = convert_tile(&surface, None, TexKind::Rgba32F, TileCoord::new(0, 0));
+            let actual: [u32; 4] = std::array::from_fn(|c| u32::from_le_bytes(bytes[c * 4..c * 4 + 4].try_into().unwrap()));
+            let expected = photocraft_raster::to_rgba(&format, &surface.default_pixel()).map(f32::to_bits);
+            assert_eq!(actual, expected, "{sample:?}");
+        }
+        assert_eq!(TexKind::for_surface(Role::Content, PixelFormat::RGBA8, false), TexKind::Rgba8Direct);
+    }
 
     #[test]
     fn half_roundtrip() {

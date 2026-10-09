@@ -48,7 +48,6 @@ const F_STROKE_OUT: u32 = 1024u; // effect paint: outside stroke band
 const F_FIRST: u32 = 2048u;      // outside strokes: nothing accumulated yet
 const F_CHANNELS: u32 = 4096u;   // lerp: per-channel weights in p0 (channel restrictions)
 const F_LAB: u32 = 65536u;      // Lab document: Normal mixes in CIELAB
-const F_EXACT8: u32 = 262144u;  // exact byte normalization for discontinuous/native operations
 const F_QUANT: u32 = 32768u;    // lerp: A rounded to p0.x steps (adjustment results, integer docs)
 const F_ADD_DIFF: u32 = 16384u;  // lerp: A + (B - C) premultiplied (clips on pass-through groups)
 const F_TEXT_GAMMA: u32 = 8192u; // blend / atop / fx merge: type layer, mix coverage at gamma p4.w
@@ -315,18 +314,136 @@ fn dissolve_noise(d: vec2<i32>) -> f32 {
     return f32(h & 0xffffu) / 65536.0;
 }
 
-// BlendRange::weight, including inclusive unsplit endpoints and split ramps.
-fn blend_ramp(lo: f32, hi: f32, x: f32) -> f32 {
-    if (hi <= lo) { return select(0.0, 1.0, x >= lo); }
-    return clamp((x - lo) / (hi - lo), 0.0, 1.0);
+// BEGIN Blend If integer arithmetic
+// CPU f32 round-to-nearest-even, for nonnegative finite colors. WGSL float arithmetic can
+// contract and has driver-dependent accuracy; an ULP must not flip an unsplit slider.
+// Keep the 24-bit significands in integers, including guard/round/sticky bits. Float32
+// source uploads contain the CPU's decoded sample bits, with no UNORM normalization.
+fn bi_mask(n: u32) -> u32 {
+    if (n >= 32u) { return 0xffffffffu; }
+    return (1u << n) - 1u;
 }
 
-fn blend_range(i: i32, v: f32) -> f32 {
+fn bi_round64(v: vec2<u32>, shift: u32) -> u32 {
+    if (shift > 64u) { return 0u; }
+    var whole: u32;
+    var guard: u32;
+    var sticky: bool;
+    if (shift < 32u) {
+        whole = (v.x >> shift) | (v.y << (32u - shift));
+        guard = (v.x >> (shift - 1u)) & 1u;
+        sticky = (v.x & bi_mask(shift - 1u)) != 0u;
+    } else if (shift == 32u) {
+        whole = v.y;
+        guard = v.x >> 31u;
+        sticky = (v.x & 0x7fffffffu) != 0u;
+    } else {
+        whole = select(v.y >> (shift - 32u), 0u, shift == 64u);
+        guard = (v.y >> (shift - 33u)) & 1u;
+        sticky = v.x != 0u || (v.y & bi_mask(shift - 33u)) != 0u;
+    }
+    return whole + select(0u, 1u, guard != 0u && (sticky || (whole & 1u) != 0u));
+}
+
+// Mantissa and biased exponent (a subnormal's exponent can become negative).
+fn bi_parts(bits: u32) -> vec2<i32> {
+    var m = bits & 0x7fffffu;
+    var e = i32(bits >> 23u);
+    if (e != 0) { m |= 0x800000u; }
+    else {
+        let shift = countLeadingZeros(m) - 8u;
+        m <<= shift;
+        e = 1 - i32(shift);
+    }
+    return vec2(i32(m), e);
+}
+
+fn bi_mul(a: u32, b: u32) -> u32 {
+    if (a == 0u || b == 0u) { return 0u; }
+    let ap = bi_parts(a);
+    let bp = bi_parts(b);
+    let am = u32(ap.x);
+    let bm = u32(bp.x);
+    // 24 x 24 -> 48 bits, using base-4096 digits (no 64-bit shader feature required).
+    let p0 = (am & 4095u) * (bm & 4095u);
+    let p1 = (am >> 12u) * (bm & 4095u) + (am & 4095u) * (bm >> 12u) + (p0 >> 12u);
+    let p2 = (am >> 12u) * (bm >> 12u) + (p1 >> 12u);
+    let product = vec2((p0 & 4095u) | ((p1 & 4095u) << 12u) | (p2 << 24u), p2 >> 8u);
+    let extra = select(0u, 1u, (product.y & 0x8000u) != 0u);
+    var e = ap.y + bp.y - 127 + i32(extra);
+    if (e <= 0) { return bi_round64(product, 23u + extra + u32(1 - e)); }
+    var m = bi_round64(product, 23u + extra);
+    if (m >= 0x1000000u) { m >>= 1u; e += 1; }
+    return (u32(e) << 23u) | (m & 0x7fffffu);
+}
+
+fn bi_jam(v: u32, shift: u32) -> u32 {
+    if (shift >= 32u) { return select(0u, 1u, v != 0u); }
+    return (v >> shift) | select(0u, 1u, (v & bi_mask(shift)) != 0u);
+}
+
+fn bi_pack(mantissa: u32, exponent: u32) -> u32 {
+    var m = (mantissa >> 3u) + select(0u, 1u, (mantissa & 7u) > 4u || ((mantissa & 7u) == 4u && (mantissa & 8u) != 0u));
+    var e = exponent;
+    if (m >= 0x1000000u) { m >>= 1u; e += 1u; }
+    if (e == 1u && m < 0x800000u) { return m; }
+    return (e << 23u) | (m & 0x7fffffu);
+}
+
+// Addition, or a-b for a>=b. Zero/subnormal exponents use the same integer scale.
+fn bi_add_sub(a: u32, b: u32, subtract: bool) -> u32 {
+    let hi = max(a, b);
+    let lo = min(a, b);
+    var e = max(1u, hi >> 23u);
+    let d = e - max(1u, lo >> 23u);
+    let hm = ((hi & 0x7fffffu) | select(0u, 0x800000u, hi >= 0x800000u)) << 3u;
+    let lm = bi_jam(((lo & 0x7fffffu) | select(0u, 0x800000u, lo >= 0x800000u)) << 3u, d);
+    var m = hm + lm;
+    if (subtract) { m = hm - lm; }
+    if (m == 0u) { return 0u; }
+    if (m >= 0x8000000u) { m = bi_jam(m, 1u); e += 1u; }
+    else if (m < 0x4000000u) {
+        let shift = min(countLeadingZeros(m) - 5u, e - 1u);
+        m <<= shift;
+        e -= shift;
+    }
+    return bi_pack(m, e);
+}
+
+fn bi_unit(v: f32) -> u32 {
+    let bits = bitcast<u32>(v);
+    if ((bits & 0x80000000u) != 0u) { return 0u; }
+    return min(bits, 0x3f800000u);
+}
+
+// CPU order: round each clamped channel *255, then three luma products and two additions.
+fn bi_values(rgb: vec3<f32>) -> vec4<u32> {
+    let r = bi_mul(bi_unit(rgb.r), 0x437f0000u);
+    let g = bi_mul(bi_unit(rgb.g), 0x437f0000u);
+    let b = bi_mul(bi_unit(rgb.b), 0x437f0000u);
+    let gray = bi_add_sub(bi_add_sub(bi_mul(r, 0x3e991687u), bi_mul(g, 0x3f1645a2u), false), bi_mul(b, 0x3de978d5u), false);
+    return vec4(gray, r, g, b);
+}
+// END Blend If integer arithmetic
+
+// Ordered positive-float bit comparisons decide hard sliders and split-ramp endpoints.
+// Only a split ramp's continuous interior uses floating division; it cannot flip inclusion.
+fn blend_ramp(lo: f32, hi: f32, bits: u32) -> f32 {
+    if (hi <= lo) { return select(0.0, 1.0, bits >= bitcast<u32>(lo)); }
+    if (bits <= bitcast<u32>(lo)) { return 0.0; }
+    if (bits >= bitcast<u32>(hi)) { return 1.0; }
+    return clamp((bitcast<f32>(bits) - lo) / (hi - lo), 0.0, 1.0);
+}
+
+fn blend_range(i: i32, bits: u32) -> f32 {
     let black_lo = lut_at(i);
     let black_hi = lut_at(i + 1);
     let white_lo = lut_at(i + 2);
     let white_hi = lut_at(i + 3);
-    return blend_ramp(black_lo, black_hi, v) * blend_ramp(255.0 - white_hi, 255.0 - white_lo, 255.0 - v);
+    // Mirror with CPU-rounded subtraction, including the very close floats it rounds onto
+    // a white threshold. Integer slider subtraction is exact (all values fit in 8 bits).
+    let mirrored = bi_add_sub(0x437f0000u, bits, true);
+    return blend_ramp(black_lo, black_hi, bits) * blend_ramp(255.0 - white_hi, 255.0 - white_lo, mirrored);
 }
 
 @fragment
@@ -342,14 +459,14 @@ fn fs_blend_if(in: VOut) -> @location(0) vec4<f32> {
         if (side == 1) { px = before; }
         // Adjustment results are tested even when transparent; absent content/backdrop is not.
         if (px.a <= 0.0 && !(side == 0 && op.kind == 1)) { continue; }
-        let v = clamp(px.rgb, vec3(0.0), vec3(1.0)) * 255.0;
+        let v = bi_values(px.rgb);
         if (op.p0.x > 2.0) {
-            k *= blend_range(side * 16, gray(v));
-            k *= blend_range(side * 16 + 4, v.r);
-            k *= blend_range(side * 16 + 8, v.g);
-            k *= blend_range(side * 16 + 12, v.b);
+            k *= blend_range(side * 16, v.x);
+            k *= blend_range(side * 16 + 4, v.y);
+            k *= blend_range(side * 16 + 8, v.z);
+            k *= blend_range(side * 16 + 12, v.w);
         } else {
-            k *= blend_range(side * 16, v.r) * blend_range(side * 16 + 4, v.r);
+            k *= blend_range(side * 16, v.y) * blend_range(side * 16 + 4, v.y);
         }
     }
     if (k >= 1.0) { return after; }
@@ -769,16 +886,7 @@ fn layer_texel(d: vec2<i32>) -> vec4<f32> {
     if ((op.flags & F_TEX) != 0u) {
         let q = d - op.tex_origin;
         if (inside(q, op.tex_size)) {
-            let c = textureLoad(layer_tex, q, 0);
-            if ((op.flags & F_EXACT8) != 0u) {
-                // UNORM reads may use a rounded reciprocal. Recover the integer and correct
-                // division like fs_lerp's quantization, preserving CPU-inclusive endpoints.
-                let levels = vec4(255.0);
-                let n = floor(c * levels + 0.5);
-                let v = n / levels;
-                return v + fma(-v, levels, n) / levels;
-            }
-            return c;
+            return textureLoad(layer_tex, q, 0);
         }
     }
     return op.color;

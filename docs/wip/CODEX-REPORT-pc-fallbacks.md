@@ -14,9 +14,10 @@ to the owner's files outside this worktree. The supplied `CODEX-TASK.md` is unch
    first channel; CMYK/Lab ignore Blend If just as the CPU does. Groups, clipping, masks and
    effects use the same wrapper. Converted inputs retain full float precision on plans using
    Blend If or native tone adjustments: half-float rounding crossed hard Blend If endpoints,
-   and RGB8 conversion of CMYK colors amplified native Levels errors. Direct RGBA8 uploads
-   remain: a shader residual correction normalizes byte texels like the CPU, avoiding UNORM
-   reciprocal rounding at inclusive endpoints.
+   and RGB8 conversion of CMYK colors amplified native Levels errors. Following the RTX 5090
+   results, these plans also upload RGBA8 as CPU-decoded float32. Integer bit arithmetic
+   preserves the CPU's channel/luma/white-subtraction rounding at inclusive endpoints;
+   the earlier residual normalization was removed. See the 5090 follow-up below.
 2. **Noisy shadows/glows.** WGSL applies the CPU's fixed seed (`0x9e3779b9`), wrapping per-pixel
    coordinate hash and monochrome coverage perturbation after the contour and before the inner
    shape gate. Drop/Inner Shadow and Outer/Inner Glow, softer/precise techniques and center/edge
@@ -184,3 +185,94 @@ Multichannel ink documents remain on the CPU, as allowed. Patterns exceeding the
 limit, adapters without float effect-map targets, GPU errors/loss and aprons too large for one
 output pixel retain their existing fallback handling. A CMYK transform without exportable
 accelerated grids is declined rather than approximated. No new dependencies were needed.
+
+## 5090 follow-up
+
+The coordinator reported a deterministic failure on RTX 5090 / NVIDIA 615.71.09 / Vulkan:
+the U8 Gray inclusive endpoint at code 200 disappeared, with 204/255 premultiplied error,
+in three consecutive runs. The preceding llvmpipe run had passed. The previous shader's
+UNORM normalization/residual correction and floating multiply/luma expressions could turn
+a rounding difference into a hard inclusion decision.
+
+The follow-up removes `F_EXACT8` and the residual-correction trick. Plans containing Blend If
+or native tones now upload every color source, including RGBA8, as CPU-decoded RGBA32F.
+Ordinary plans retain direct RGBA8 uploads. Existing residency-format invalidation and working
+set accounting handle the change. The CPU compositor and sample decoding are unchanged.
+
+Blend If now computes the CPU's f32 channel multiplication by 255, Rec. 601 luma products
+and additions, and mirrored white subtraction using **u32 integer bit arithmetic** with
+round-to-nearest-even, guard/round/sticky bits and subnormal handling. The 48-bit significand
+product uses two u32 words; no 64-bit GPU capability is required. Inclusive comparisons use
+ordered nonnegative f32 bit patterns. This keeps division, FMA, contraction, UNORM conversion
+and driver float-operation accuracy out of the endpoint decision at every sample depth.
+
+The white subtraction is also reproduced exactly: the CPU can round a float just above a
+white slider onto its inclusive mirrored threshold. A direct `v <= white` rewrite would
+change that behavior. Likewise, globally rounding Gray or composited colors to 8/16-bit
+sample codes would change the CPU's fractional comparisons, so this fix preserves those
+fractions instead. No comparison epsilon or parity-bound relaxation was added. Split ramps
+classify their endpoints with the same bit comparisons and use float division only in their
+continuous interior.
+
+New coverage:
+
+- Unit test `threshold_sources_upload_cpu_decoded_sample_bits` checks actual upload bytes
+  at 8/16/32 bits, and verifies that ordinary RGBA8 sources retain their direct path.
+- `blend_if_integer_arithmetic_matches_cpu` executes the production WGSL helpers and checks
+  exact result bits against Rust f32 for 143,639 cases: every U8/U16 grayscale code, 65,536
+  colored byte samples, neighboring F32 slider inputs, arbitrary exponents and subnormals.
+- The coordinator's `blend_if_ranges_depth_modes_and_boundaries` test now also checks
+  immediately adjacent F32 values, adjacent U16 sample codes, both This/Underlying sides,
+  all four channels, hard black/white limits, ordinary split ramps and one-step split ramps.
+  It retains the original failing U8 case and the existing 1/255 bound.
+
+The tradeoff is 16 bytes per cached RGBA8 source pixel on these plans instead of 4, CPU
+decoding on upload, and additional integer shader work. Cached uploads, paging, eviction
+and the GPU compositor remain in use. Native tones share the precise upload path so they
+also stop relying on the removed normalization flag.
+
+Follow-up validation passed on the same Mesa llvmpipe Vulkan adapter:
+
+- Full `photocraft-gpu` run: **68 passed**, comprising 23 unit, 3 device-loss, 41 parity
+  and 1 vector-mask test. The production WGSL arithmetic matched all reference bits.
+- Final `blend_if_` focused rerun: **4 passed**, including the expanded coordinator test,
+  arithmetic check, group/clipping test and noisy-group Blend If invalidation test.
+- `gpu_canvas_perf`: **4 passed, 3 ignored**, including tiled/damaged former-fallback
+  documents and embedded CMYK profiles.
+- GPU Clippy, all targets, `-D warnings`, with `CARGO_TARGET_DIR=target/clippy`: passed.
+- GPU formatting check and `git diff --check`: passed. No CPU source, dependencies,
+  serialization or commits changed in this follow-up.
+
+The current 24 MP ignored benchmark also passed (1 passed, 6 filtered) with no fallback,
+from `target/debug/deps/gpu_canvas_perf-b9a3f67901aef87e`. In the optimized test profile
+on **software llvmpipe**, the featured document measured:
+
+| Full render/refresh, three samples | Median ms | Min ms | Max ms |
+| --- | ---: | ---: | ---: |
+| CPU reference | 944.37 | 920.04 | 957.37 |
+| GPU canvas including completion | 677.88 | 677.32 | 4699.57 |
+
+The GPU maximum is the first feature refresh, including cold precise source uploads and
+feature caches. It exposes a substantial cold cost on this software adapter; the later
+samples reuse the caches. These timings are not an RTX estimate or a controlled comparison
+against the earlier report's run. The entire benchmark passed in 16.75 seconds.
+
+Logs: `/tmp/pc-fallbacks-5090-gpu.log`, `/tmp/pc-fallbacks-5090-focused.log`,
+`/tmp/pc-fallbacks-5090-canvas.log`, `/tmp/pc-fallbacks-5090-clippy.log`, and
+`/tmp/pc-fallbacks-5090-bench.log`.
+
+The 5090 rerun remains the coordinator's responsibility; this sandbox exposes llvmpipe,
+not NVIDIA hardware. Suggested rerun commands (offline, single Cargo build, three build jobs):
+
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"
+export CARGO_BUILD_JOBS=3 RUST_TEST_THREADS=1
+cargo +1.98.1 test --offline -p photocraft-gpu --test parity \
+  blend_if_ranges_depth_modes_and_boundaries -- --nocapture
+cargo +1.98.1 test --offline -p photocraft-gpu --test parity \
+  blend_if_integer_arithmetic_matches_cpu -- --nocapture
+cargo +1.98.1 test --offline -p photocraft-gpu
+cargo +1.98.1 test --offline -p photocraft-ui-egui --test gpu_canvas_perf -- --nocapture
+cargo +1.98.1 test --offline --release -p photocraft-ui-egui --test gpu_canvas_perf \
+  bench_gpu_canvas_24mp -- --ignored --nocapture
+```

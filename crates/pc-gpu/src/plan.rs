@@ -328,15 +328,7 @@ fn plan_scoped(doc: &Document) -> Result<Plan<'_>, Unsupported> {
     // layers below can't change the result, so they cost no passes or uploads.
     let start = doc.layers.iter().rposition(|l| photocraft_compose::occludes_below(l, doc.mode)).unwrap_or(0);
     let root = p.stack(doc.layers.get(start..).unwrap_or(&doc.layers), root)?;
-    let mut plan = p.finish(root);
-    if plan.passes.iter().any(|p| p.kernel == Kernel::BlendIf || (p.kernel == Kernel::Adjust && matches!(p.adjust_kind, 17 | 18))) {
-        for pass in &mut plan.passes {
-            if pass.tex.as_ref().is_some_and(|t| t.surface.get().format() == photocraft_color::PixelFormat::RGBA8) {
-                pass.flags |= F_EXACT8;
-            }
-        }
-    }
-    Ok(plan)
+    Ok(p.finish(root))
 }
 
 struct Planner<'a> {
@@ -379,8 +371,6 @@ pub const F_FIRST: u32 = 2048;
 pub const F_CHANNELS: u32 = 4096;
 /// Lab document: Normal blending mixes in CIELAB (`psblend::LAB_MIX`).
 pub const F_LAB: u32 = 65536;
-/// Decode byte textures with CPU-equivalent rounding (hard Blend If endpoints).
-pub const F_EXACT8: u32 = 262144;
 /// `Lerp`: A rounded to `p0.x` steps per unit (adjustment results on integer documents).
 pub const F_QUANT: u32 = 32768;
 /// `Lerp` as A + (B − C) premultiplied (layers clipped to pass-through groups).
