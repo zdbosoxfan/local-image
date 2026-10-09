@@ -632,3 +632,10 @@ mod tests {
         assert_eq!(decode(b"junk"), Err(RawError::NotRaw));
     }
 }
+
+pub mod camera_matrices;
+pub mod dcp;
+mod dcp_bundled;
+
+#[cfg(test)]
+mod tests_camera_matrices;

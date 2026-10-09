@@ -101,24 +101,24 @@ fn cases() -> Vec<(&'static str, Value)> {
 
 /// (case/source kind, render hash, settings hash), x86_64 Linux.
 const GOLDEN: [(&str, u64, u64); 14] = [
-    ("default/rendered", 0x11aba23997cf23ea, 0x12a719f1bc9181a3),
-    ("default/raw", 0xc2082c862dbb6ee9, 0x12a719f1bc9181a3),
-    ("raw defaults + edits/rendered", 0x1ff221ea991f326a, 0x4de6ce922ddbca2c),
-    ("raw defaults + edits/raw", 0xbc9c429bb9ac900a, 0x4de6ce922ddbca2c),
-    ("optics + geometry + crop/rendered", 0x5626a087deaf3da3, 0xc35ab3adf97809b0),
-    ("optics + geometry + crop/raw", 0x40a3e4fc12596d81, 0xc35ab3adf97809b0),
-    ("profile look/rendered", 0xdef219e6f08ead62, 0x2e1a0b037741d7c4),
-    ("profile look/raw", 0x5718b047fd492719, 0x2e1a0b037741d7c4),
-    ("b&w profile/rendered", 0xb0647da755d9d959, 0xe03778c72eb700fb),
-    ("b&w profile/raw", 0xbfe5b0881505b6b4, 0xe03778c72eb700fb),
-    ("negative/rendered", 0xb71acfaa8b5e6ed7, 0x6c1203e7c3fdbcb3),
-    ("negative/raw", 0xb71acfaa8b5e6ed7, 0x6c1203e7c3fdbcb3),
-    ("layers/rendered", 0xceba5c62420067ad, 0x47486480d432991f),
-    ("layers/raw", 0x686f18d0cb9cae25, 0x47486480d432991f),
+    ("default/rendered", 0x9c4d1d077ec4855f, 0x12a719f1bc9181a3),
+    ("default/raw", 0xe4cadb152e11a72a, 0x12a719f1bc9181a3),
+    ("raw defaults + edits/rendered", 0x3ccf1e25fb86c471, 0x4de6ce922ddbca2c),
+    ("raw defaults + edits/raw", 0xdffc0e02ab440efe, 0x4de6ce922ddbca2c),
+    ("optics + geometry + crop/rendered", 0xc0c59a4c8cd4a92a, 0xc35ab3adf97809b0),
+    ("optics + geometry + crop/raw", 0xded90c5d0013a5d1, 0xc35ab3adf97809b0),
+    ("profile look/rendered", 0xf340243918f5d0d7, 0x2e1a0b037741d7c4),
+    ("profile look/raw", 0xbf9002730b346eb4, 0x2e1a0b037741d7c4),
+    ("b&w profile/rendered", 0xaf0827daa56de037, 0xe03778c72eb700fb),
+    ("b&w profile/raw", 0x1e627cb4c60f4827, 0xe03778c72eb700fb),
+    ("negative/rendered", 0x30b5bb6ca4d2340b, 0x6c1203e7c3fdbcb3),
+    ("negative/raw", 0xd4e80f8f014fb4b0, 0x6c1203e7c3fdbcb3),
+    ("layers/rendered", 0x5d7d052c40911a42, 0x47486480d432991f),
+    ("layers/raw", 0xca6bb1ad16f271e4, 0x47486480d432991f),
 ];
 
 #[test]
-fn settings_from_before_the_toolset_render_bit_identically() {
+fn old_settings_load_and_match_colour_tone_goldens() {
     let src = scene();
     let mut got = Vec::new();
     for (name, v) in cases() {
@@ -174,7 +174,7 @@ fn tools_off_or_neutral_change_nothing() {
         assert_eq!(fnv(&shot(&with(v.clone()), &info)), reference, "{v}");
     }
     // a lens correction the settings don't ask for is ignored
-    let lensed = SourceInfo { lens_db: Some(barrel()), ..info };
+    let lensed = SourceInfo { lens_db: Some(barrel()), ..info.clone() };
     assert_eq!(fnv(&shot(&base, &lensed)), reference);
     // capture sharpening is for raw sources only
     let cs = with(json!({"raw": {"capture": {"enabled": true, "radius": 1.0}}}));
@@ -196,14 +196,14 @@ fn barrel() -> crate::lensdb::LensCorrection {
 fn each_tool_changes_the_render() {
     let info = raw_info();
     let reference = shot(&DevelopSettings::default(), &info);
-    let lensed = SourceInfo { lens_db: Some(barrel()), ..info };
+    let lensed = SourceInfo { lens_db: Some(barrel()), ..info.clone() };
     let cases: Vec<(&str, DevelopSettings, SourceInfo)> = vec![
-        ("tone eq", with(json!({"tone_eq": {"enabled": true, "ev6": 1.5, "ev5": 1.0, "ev1": -0.8}})), info),
-        ("capture", with(json!({"raw": {"capture": {"enabled": true, "radius": 1.0}}})), info),
-        ("color cal", with(json!({"color_cal": {"enabled": true, "illuminant": "a"}})), info),
-        ("color cal linear", with(json!({"color_cal": {"enabled": true, "illuminant": "f11", "gamut": 0.0, "clip": false}})), info),
+        ("tone eq", with(json!({"tone_eq": {"enabled": true, "ev6": 1.5, "ev5": 1.0, "ev1": -0.8}})), info.clone()),
+        ("capture", with(json!({"raw": {"capture": {"enabled": true, "radius": 1.0}}})), info.clone()),
+        ("color cal", with(json!({"color_cal": {"enabled": true, "illuminant": "a"}})), info.clone()),
+        ("color cal linear", with(json!({"color_cal": {"enabled": true, "illuminant": "f11", "gamut": 0.0, "clip": false}})), info.clone()),
         ("lens db", with(json!({"lens_db": {"enabled": true}})), lensed),
-        ("film look", with(json!({"profile": {"id": "lc.filmsim.portrait-negative", "amount": 100.0}})), info),
+        ("film look", with(json!({"profile": {"id": "lc.filmsim.portrait-negative", "amount": 100.0}})), info.clone()),
     ];
     for (name, s, i) in cases {
         let img = shot(&s, &i);

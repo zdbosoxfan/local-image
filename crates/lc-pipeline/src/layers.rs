@@ -24,7 +24,6 @@
 
 use std::sync::Arc;
 
-use lightcraft_color::spline::Lut1;
 use lightcraft_develop::{DevelopSettings, LayerTools, Mask};
 use lightcraft_raster::Rgb32f;
 
@@ -78,7 +77,7 @@ pub struct LayerK {
     pub ops: Option<ColorOps>,
     pub vig: Option<Vig>,
     /// Tone curves on encoded values and Refine Saturation (0..1).
-    pub curves: Option<([Lut1; 3], f32)>,
+    pub curves: Option<(crate::finish::CurveTables, f32)>,
     /// Grain: amount, cell size (px), roughness, seed.
     pub grain: Option<(f32, f32, f32, u32)>,
 }

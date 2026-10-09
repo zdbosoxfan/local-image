@@ -64,7 +64,7 @@ struct Views {
 fn views(s: &mut Session, id: PhotoId, size: usize, stages: &Arc<StageCache>) -> Views {
     let mut job: RenderJob = s.render_job(id, size, size, false, true).expect("job").with_stages(stages.clone());
     let decoded = job.source.load_source().expect("source");
-    let info: SourceInfo = decoded.info_or(job.info);
+    let info: SourceInfo = decoded.info_or(job.info.clone());
     job.source = SourceRef::Loaded(Box::new(decoded.clone()));
     let (src, settings) = crate::enhance::for_render(&decoded.image, &job.settings, job.source_key);
     let req: RenderRequest = job.request;

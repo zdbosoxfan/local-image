@@ -1,6 +1,6 @@
 //! Toolset upgrades in the engine: the raw loader's default path (demosaic, highlight
-//! reconstruction, no capture sharpening, no lens database) stays bit-identical — golden hashes
-//! recorded before the raw options existed — and the new options change what they should.
+//! reconstruction, no capture sharpening, no lens database) has colour/tone golden hashes;
+//! raw options change what they should without changing their neutral defaults.
 
 use lightcraft_raster::Rgb32f;
 
@@ -65,11 +65,11 @@ pub(crate) fn hash_img(img: &Rgb32f) -> u64 {
 }
 
 /// Loader output hashes at a binned preview size, a bilinear thumbnail size and full size
-/// (AHD), recorded on x86_64 Linux before the raw options existed.
-const GOLDEN: [(usize, u64); 3] = [(200, 0xa0de_2a87_4e35_4a66), (500, 0x1cc8_83f3_9dae_2c30), (usize::MAX, 0x96a3_63c6_ffd0_f874)];
+/// (AHD), recorded on x86_64 Linux. The 200px colour/tone golden retains negative scene channels.
+const GOLDEN: [(usize, u64); 3] = [(200, 0x1ce5_8e40_d2f5_4b2d), (500, 0x1cc8_83f3_9dae_2c30), (usize::MAX, 0x96a3_63c6_ffd0_f874)];
 
 #[test]
-fn default_raw_loading_is_bit_identical() {
+fn default_raw_loading_matches_colour_tone_goldens() {
     let dng = textured_dng();
     let mut got = Vec::new();
     for (edge, _) in GOLDEN {

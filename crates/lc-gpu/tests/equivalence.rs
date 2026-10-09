@@ -34,7 +34,7 @@ fn camera_tone_and_relative_wb() {
     }))
     .unwrap();
     let info = SourceInfo { raw: true, relative_wb: true, camera_tone: Some(curve), ..Default::default() };
-    let mut s = DevelopSettings::default();
+    let mut s = DevelopSettings { look: lightcraft_develop::Look::Camera, ..Default::default() };
     check("camera tone neutral", &src, &info, &s, &RenderRequest::fit(320, 240));
     s.light.exposure = 1.0;
     s.light.contrast = 40.0;
@@ -44,7 +44,13 @@ fn camera_tone_and_relative_wb() {
     // a camera chroma curve: richer shadows, highlights bleached toward white
     let curve = curve.with_chroma([1.4, 1.3, 1.1, 1.0, 0.7, 0.4, 0.25, 0.2]).unwrap();
     let info = SourceInfo { camera_tone: Some(curve), ..info };
-    check("camera chroma curve", &src, &info, &DevelopSettings::default(), &RenderRequest::fit(320, 240));
+    check(
+        "camera chroma curve",
+        &src,
+        &info,
+        &DevelopSettings { look: lightcraft_develop::Look::Camera, ..Default::default() },
+        &RenderRequest::fit(320, 240),
+    );
     check("camera chroma curve edited", &src, &info, &s, &RenderRequest::fit(320, 240));
 }
 
@@ -427,6 +433,62 @@ fn gpu_matches_cpu() {
 }
 
 #[test]
+fn masked_dehaze_unit_transmission_is_identity() {
+    use lightcraft_develop::{LocalAdjustments, Look};
+    // Negative channels from Mitchell resampling in the original 720x480 mask
+    // case, plus ordinary scene colours. Small positive alpha must behave like
+    // zero alpha when transmission and exposure gain both round to 1.
+    let colours = [
+        [-0.004_114_710_3, 0.001_321_920_3, 0.004_300_609_7],
+        [-0.003_025_98, 0.002_429_790_8, 0.005_604_162],
+        [-0.1, 0.2, 0.3],
+        [0.3, 0.2, 0.1],
+        [1.2, 0.9, 0.7],
+    ];
+    let src = Arc::new(Rgb32f::from_fn(80, 48, |x, y| colours[(x + y) % colours.len()]));
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let req = RenderRequest::fit(80, 48);
+    let adapter = gpu();
+    for look in Look::ALL {
+        let mut s = DevelopSettings { look, ..Default::default() };
+        s.masks = vec![
+            Mask {
+                components: vec![MaskComponent {
+                    name: None,
+                    op: MaskOp::Add,
+                    invert: false,
+                    shape: MaskShape::Linear { start: Point::new(0.5, 1.0), end: Point::new(0.5, 2.0) },
+                }],
+                adjust: LocalAdjustments { exposure: -0.5, dehaze: 40.0, amount: 70.0, ..Default::default() },
+                opacity: 0.0,
+                ..Default::default()
+            },
+            Mask {
+                components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: true, shape: MaskShape::Background { seg: None } }],
+                adjust: LocalAdjustments { saturation: -60.0, ..Default::default() },
+                invert: true,
+                ..Default::default()
+            },
+        ];
+        let zero = render(&src, &info, &s, &req).image;
+        for opacity in [0.0, 1e-12, 1e-8, 1e-6, 100.0] {
+            s.masks[0].opacity = opacity;
+            let cpu = render(&src, &info, &s, &req).image;
+            if opacity < 100.0 {
+                // Runs without an adapter too: regression for the discontinuous
+                // clip formerly triggered by arbitrarily small positive alpha.
+                assert_eq!(cpu, zero, "{look:?}, opacity {opacity}");
+            } else {
+                assert_ne!(cpu, zero, "actual masked dehaze must still apply");
+            }
+            if adapter {
+                check(&format!("tiny masked dehaze {look:?} {opacity}"), &src, &info, &s, &req);
+            }
+        }
+    }
+}
+
+#[test]
 fn rendered_sources_and_other_scenes() {
     if !gpu() {
         return;
@@ -658,4 +720,92 @@ fn output_spaces_match() {
             check(&format!("{space:?} {name}"), &src, &raw, &s, &req);
         }
     }
+}
+
+/// All combinations use the common uploaded tone tables and the per-channel hue kernel.
+#[test]
+fn colour_tone_looks_bases_hue_and_rolloff() {
+    if !gpu() {
+        return;
+    }
+    use lightcraft_develop::{Look, ToneBase};
+    let src = Arc::new(Rgb32f::from_fn(192, 96, |x, y| {
+        let gain = 2f32.powf(-10.0 + 16.0 * x as f32 / 191.0);
+        let c = match y / 16 {
+            0 => [1.0, 1.0, 1.0],
+            1 => [1.0, 0.35, 0.08],
+            2 => [0.12, 0.9, 0.2],
+            3 => [0.1, 0.15, 1.0],
+            4 => [-0.1, 0.4, 0.8],
+            _ => [0.95, 0.2, 0.7],
+        };
+        c.map(|v| v * gain)
+    }));
+    let camera = lightcraft_pipeline::basecurves::camera("NIKON CORPORATION", "NIKON D750").unwrap();
+    let info = SourceInfo { raw: true, look_curve: Some(camera), ..Default::default() };
+    for look in Look::ALL {
+        for base in ToneBase::ALL {
+            for hue in [0.0, 75.0, 100.0] {
+                let mut s = DevelopSettings { look, ..Default::default() };
+                s.look_options.base = base;
+                s.look_options.hue_preservation = hue;
+                check(&format!("{look:?}/{base:?}/hue {hue}"), &src, &info, &s, &RenderRequest::fit(192, 96));
+                s.light.whites = 100.0;
+                s.light.blacks = -100.0;
+                s.light.contrast = 70.0;
+                check(&format!("{look:?}/{base:?}/extremes {hue}"), &src, &info, &s, &RenderRequest::fit(192, 96));
+            }
+        }
+    }
+    let chroma = camera.with_chroma([1.4, 1.3, 1.1, 1.0, 0.7, 0.4, 0.25, 0.2]).unwrap();
+    check(
+        "camera fitted chroma",
+        &src,
+        &SourceInfo { look_curve: Some(chroma), ..info },
+        &DevelopSettings { look: Look::Camera, ..Default::default() },
+        &RenderRequest::fit(192, 96),
+    );
+}
+
+#[test]
+fn working_curves_gamut_and_dither() {
+    if !gpu() {
+        return;
+    }
+    use lightcraft_develop::CurveMode;
+    use lightcraft_pipeline::OutputSpace;
+    let src = Arc::new(Rgb32f::from_fn(256, 64, |x, y| {
+        let v = x as f32 / 255.0;
+        match y / 16 {
+            0 => [v; 3],
+            1 => [v, 0.08 * v, 0.35 * v],
+            2 => [0.05 * v, v, 0.2 * v],
+            _ => [0.08 * v, 0.12 * v, v],
+        }
+    }));
+    for raw in [false, true] {
+        for mode in [CurveMode::Luminance, CurveMode::Rgb] {
+            for refine in [0.0, 50.0, 100.0] {
+                let mut s = DevelopSettings::default();
+                s.curve.mode = mode;
+                s.curve.refine_saturation = refine;
+                s.curve.master = vec![Point::new(0., 0.), Point::new(0.3, 0.48), Point::new(0.75, 0.86), Point::new(1., 1.)];
+                s.curve.red = vec![Point::new(0., 0.), Point::new(0.5, 0.57), Point::new(1., 1.)];
+                s.curve.blue = vec![Point::new(0., 0.02), Point::new(0.5, 0.47), Point::new(1., 1.)];
+                s.curve.highlights = -40.;
+                s.curve.shadows = 35.;
+                let info = SourceInfo { raw, ..Default::default() };
+                for space in [OutputSpace::Srgb, OutputSpace::DisplayP3, OutputSpace::Rec2020] {
+                    let req = RenderRequest { space, ..RenderRequest::fit(256, 64) };
+                    check(&format!("curve {mode:?} refine {refine} raw {raw} {space:?}"), &src, &info, &s, &req);
+                }
+            }
+        }
+    }
+    check("dither shallow ramp", &src, &SourceInfo::default(), &DevelopSettings::default(), &RenderRequest::fit(256, 64));
+    let cpu = render(&src, &SourceInfo::default(), &DevelopSettings::default(), &RenderRequest::fit(256, 64)).image;
+    let a = lightcraft_gpu::render(&src, &SourceInfo::default(), &DevelopSettings::default(), &RenderRequest::fit(256, 64), None).unwrap().image;
+    let b = lightcraft_gpu::render(&src, &SourceInfo::default(), &DevelopSettings::default(), &RenderRequest::fit(256, 64), None).unwrap().image;
+    assert_eq!(a.data, b.data, "deterministic position dither");
+    assert_eq!(a.get(0, 0), cpu.get(0, 0));
 }

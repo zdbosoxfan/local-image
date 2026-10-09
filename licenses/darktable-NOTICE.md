@@ -98,3 +98,32 @@ in the module documentation.
 
 The upstream headers of these files are the same GPL-3.0-or-later notice as `negadoctor.c` above,
 with the copyright years listed in the table.
+
+### Colour and tone (2026-10-09)
+
+At **733bd69f32cac7ff5e41025115942772add1f088**:
+
+| Our file | Upstream file | Copyright / authors | Licence |
+|---|---|---|---|
+| `crates/lc-pipeline/src/tone2.rs`, GPU `finish.wgsl` | `src/iop/sigmoid.c` | Copyright (C) 2020-2026 darktable developers; sigmoid by Jakob Andrén | GPL-3.0-or-later |
+| `crates/lc-pipeline/src/base_curve_data.rs`, `basecurves.rs` | `src/iop/basecurve.c` | Copyright (C) 2010-2026 darktable developers and preset contributors | GPL-3.0-or-later |
+| `crates/lc-pipeline/src/basecurves.rs` | `src/common/curve_tools.c` | Copyright (C) 2011-2022 darktable developers; based in part on UFraw `nikon_curve.c`, Shawn Freeman and Udi Fuchs (2004-2008) | GPL-3.0-or-later |
+
+Sigmoid: `commit_params`, `_generalized_loglogistic_sigmoid`, negative desaturation, channel
+ordering and `_preserve_hue_and_energy` are faithful scalar ports. With upstream default
+primaries (work profile, zero attenuation/rotation/purity), the extra primary transforms are
+identity. Those optional darktable controls are not exposed. The runtime curve is log-sampled
+for matching CPU/GPU interpolation; exposure is +0.7 EV, chosen hue preservation defaults to
+75% (owner decision), and the absolute black endpoint is extended continuously to zero.
+
+Base curves: all 31 active monotone camera/maker presets and the upstream monotone Hermite
+polynomial are retained. Above 90% display luminance a C1 asymptotic shoulder replaces the
+upstream unbounded exponential extrapolation and clipping, retaining highlight headroom.
+The Camera JPEG fit uses the luminance norm and scales all channels together, then applies its
+fitted chroma curve and hue-preserving gamut containment. The hue slider blends the
+luminance-ratio colour with a per-channel curve at the same luminance (a documented extension;
+at 100% the luminance-ratio port is exact). Soft Film is an independently fitted
+parametric curve; **no Adobe DNG SDK / ACR3 table is copied**. Standard, Extra Shadow, High
+Contrast and Linear variants are our own scene-exposure shapers (Linear is identity in scene light
+below 80%, with a continuous output shoulder). C fixtures test the extracted upstream scalar functions;
+see `crates/lc-pipeline/tests/fixtures/README.md`.
