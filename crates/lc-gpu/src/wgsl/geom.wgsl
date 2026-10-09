@@ -73,8 +73,11 @@ fn sample_affine(@builtin(global_invocation_id) g: vec3<u32>) {
 // 10 sx, 11 sy, 12 W, 13 H, 14 persp?, 15..24 persp_inv, 24 k1, 25..28 ca, 28 lens_dist,
 // 29 warp?, 30..48 warp planes (3 × 6), 48 warp centre x, 49 y, 50 warp radius, 51 vig_stops,
 // 52 vig_power, 53 lens_vig, 54 vignette?, 55..60 vignette k, 60 vignette centre x, 61 y,
-// 62 vignette radius, 63 per-channel?, 64 gain?
-const WP_N: u32 = 65u;
+// 62 vignette radius, 63 per-channel?, 64 gain?, 65 database distortion kind (0/1/2/3),
+// 66..69 strength-scaled distortion k (poly3/poly5/ptlens), 69 TCA kind (0/1/2),
+// 70..73 red TCA [v,c,b], 73..76 blue TCA [v,c,b] (linear v is strength-scaled),
+// 76 database vignette?, 77..80 pa k, 80 ns, 81 cx, 82 cy, 83 TCA strength, 84 vig strength.
+const WP_N: u32 = 85u;
 
 fn centre() -> vec2<f32> {
     return vec2<f32>(pf(12u) / 2.0, pf(13u) / 2.0);
@@ -112,6 +115,43 @@ fn embedded_warp(p: vec2<f32>, ch: u32) -> vec2<f32> {
     return cc + m * vec2<f32>(sx, sy);
 }
 
+// LensMap::to_source_real: distortion first, then TCA at the distorted radius.
+fn database_warp(p: vec2<f32>, ch: u32) -> vec2<f32> {
+    let dt = pu(65u);
+    let tc = pu(69u);
+    if (dt == 0u && (tc == 0u || ch == 1u)) {
+        return p;
+    }
+    let cc = vec2<f32>(pf(81u), pf(82u));
+    let ns = pf(80u);
+    var d = (p - cc) * ns;
+    let r2 = d.x * d.x + d.y * d.y;
+    var f = 1.0;
+    if (dt == 1u) {
+        f = r2 * pf(66u) + 1.0;
+    } else if (dt == 2u) {
+        f = r2 * pf(66u) + r2 * r2 * pf(67u) + 1.0;
+    } else if (dt == 3u) {
+        let r = sqrt(max(r2, 0.0));
+        f = r2 * r * pf(66u) + r2 * pf(67u) + r * pf(68u) + 1.0;
+    }
+    d *= f;
+    if (tc != 0u && ch != 1u) {
+        let o = select(73u, 70u, ch == 0u);
+        var scale = pf(o);
+        if (tc == 2u) {
+            let dr2 = d.x * d.x + d.y * d.y;
+            scale = dr2 * pf(o + 2u) + pf(o);
+            if (pf(o + 1u) != 0.0) {
+                scale = dr2 * pf(o + 2u) + sqrt(max(dr2, 0.0)) * pf(o + 1u) + pf(o);
+            }
+            scale = (scale - 1.0) * pf(83u) + 1.0;
+        }
+        d *= scale;
+    }
+    return d / ns + cc;
+}
+
 fn corrected_to_source(p: vec2<f32>, ch: u32) -> vec2<f32> {
     let c = centre();
     let hd = max(sqrt(pf(12u) * pf(12u) + pf(13u) * pf(13u)) / 2.0, 1e-9);
@@ -127,6 +167,7 @@ fn corrected_to_source(p: vec2<f32>, ch: u32) -> vec2<f32> {
         let s = embedded_warp(q, ch);
         q = q + (s - q) * ld;
     }
+    q = database_warp(q, ch);
     let k = pf(25u + ch);
     if (k != 0.0) {
         q = c + (q - c) * (1.0 + k);
@@ -157,6 +198,15 @@ fn warp_gain(s: vec2<f32>) -> f32 {
             rp *= r2;
         }
         g *= 1.0 + (vg - 1.0) * lv;
+    }
+    if (pu(76u) != 0u) {
+        // LensMap::gain uses the GREEN source position, after manual CA.
+        let d = (s - vec2<f32>(pf(81u), pf(82u))) * pf(80u);
+        let r2 = d.x * d.x + d.y * d.y;
+        let vg = 1.0 + pf(77u) * r2 + pf(78u) * r2 * r2 + pf(79u) * r2 * r2 * r2;
+        if (vg > 1e-6) {
+            g *= pow(1.0 / vg, pf(84u));
+        }
     }
     return g;
 }

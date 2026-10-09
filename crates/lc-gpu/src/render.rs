@@ -428,7 +428,37 @@ fn warp_params(
     p.extend([f(v.center.x), f(v.center.y), f(v.radius)]);
     p.push(wp.per_channel() as u32);
     p.push(wp.has_gain() as u32);
-    debug_assert_eq!(p.len(), 65);
+    // `set_lensdb` has already moved the optical centre into the user-oriented
+    // frame and removed the embedded profile. Zero strengths disable the model
+    // branches entirely (including the normalize/denormalize round trip).
+    use lightcraft_pipeline::lensdb::{Distortion, Tca};
+    let m = wp.lensdb;
+    let c = m.map(|m| m.c).unwrap_or_default();
+    let (dist, k) = match c.distortion {
+        _ if wp.lensdb_dist == 0.0 || c.distortion.is_identity() => (0, [0.0; 3]),
+        Distortion::None => (0, [0.0; 3]),
+        Distortion::Poly3 { k1 } => (1, [k1, 0.0, 0.0]),
+        Distortion::Poly5 { k1, k2 } => (2, [k1, k2, 0.0]),
+        Distortion::Ptlens { a, b, c } => (3, [a, b, c]),
+    };
+    p.push(dist);
+    // The CPU multiplies each distortion coefficient by the strength in f64.
+    p.extend(k.map(|k| f(k * wp.lensdb_dist)));
+    let (tca, red, blue) = match c.tca {
+        _ if wp.lensdb_tca == 0.0 || c.tca.is_identity() => (0, [1.0, 0.0, 0.0], [1.0, 0.0, 0.0]),
+        Tca::None => (0, [1.0, 0.0, 0.0], [1.0, 0.0, 0.0]),
+        Tca::Linear { kr, kb } => (1, [1.0 + (kr - 1.0) * wp.lensdb_tca, 0.0, 0.0], [1.0 + (kb - 1.0) * wp.lensdb_tca, 0.0, 0.0]),
+        Tca::Poly3 { red, blue } => (2, red, blue),
+    };
+    p.push(tca);
+    p.extend(red.map(f));
+    p.extend(blue.map(f));
+    p.push((wp.lensdb_vig != 0.0 && c.vignetting.is_some_and(|k| k != [0.0; 3])) as u32);
+    p.extend(c.vignetting.unwrap_or_default().map(f));
+    p.extend([f(m.map_or(1.0, |m| m.ns)), f(m.map_or(0.0, |m| m.cx)), f(m.map_or(0.0, |m| m.cy))]);
+    p.push(f(wp.lensdb_tca));
+    p.push(f(wp.lensdb_vig));
+    debug_assert_eq!(p.len(), 85);
     p
 }
 
@@ -588,14 +618,13 @@ pub fn render(
     // 1. capture on the uploaded sensor-scale source, then geometry.
     let sampled = match &cached {
         Some(e) => e.sampled.clone(),
-        // (the lens database's models have no GPU kernel: such frames are sampled on the CPU)
         None if gpu.fits(src.data.len() * 3) && plan.frame.gpu_samplable() => {
             let src_buf = analysis_buf.unwrap_or_else(|| source_buffer(&mut cx, src, capture, stages));
             lap("capture/upload", &mut t, &mut cx);
             sample(&mut cx, src, src_buf, &plan)
         }
         None => {
-            // CPU-only lens geometry still receives the GPU-sharpened source.
+            // A source over the device limit is prefiltered/resampled on the CPU.
             let pre = analysis_src.or_else(|| {
                 capture.map(|_| {
                     let buf = source_buffer(&mut cx, src, capture, stages);
@@ -1156,6 +1185,10 @@ fn haze_planes(cx: &mut Cx<'_>, lin: &Buf, w: usize, h: usize, scale: f32) -> (A
     cx.copy_into(&negative, &buf, n);
     (Arc::new(buf), air, distance)
 }
+
+#[cfg(test)]
+#[path = "lensdb_tests.rs"]
+mod lensdb_tests;
 
 #[cfg(test)]
 mod tests {

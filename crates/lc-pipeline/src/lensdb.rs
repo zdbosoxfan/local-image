@@ -42,6 +42,18 @@ pub enum Distortion {
     },
 }
 
+impl Distortion {
+    /// Includes calibrated models whose coefficients leave every position unchanged.
+    pub fn is_identity(&self) -> bool {
+        match *self {
+            Self::None => true,
+            Self::Poly3 { k1 } => k1 == 0.0,
+            Self::Poly5 { k1, k2 } => k1 == 0.0 && k2 == 0.0,
+            Self::Ptlens { a, b, c } => a == 0.0 && b == 0.0 && c == 0.0,
+        }
+    }
+}
+
 /// Transverse chromatic aberration model, rescaled to the image (lensfun's `rescale_tca`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Tca {
@@ -56,6 +68,16 @@ pub enum Tca {
         red: [f64; 3],
         blue: [f64; 3],
     },
+}
+
+impl Tca {
+    pub fn is_identity(&self) -> bool {
+        match *self {
+            Self::None => true,
+            Self::Linear { kr, kb } => kr == 1.0 && kb == 1.0,
+            Self::Poly3 { red, blue } => red == [1.0, 0.0, 0.0] && blue == [1.0, 0.0, 0.0],
+        }
+    }
 }
 
 /// A lens correction for one shot, independent of the image's resolution.
@@ -75,16 +97,16 @@ pub struct LensCorrection {
 impl LensCorrection {
     /// Whether the correction moves pixels (distortion or TCA).
     pub fn moves_pixels(&self) -> bool {
-        self.distortion != Distortion::None || self.tca != Tca::None
+        !self.distortion.is_identity() || !self.tca.is_identity()
     }
 
     /// Whether the colour planes land on different source positions.
     pub fn per_channel(&self) -> bool {
-        self.tca != Tca::None
+        !self.tca.is_identity()
     }
 
     pub fn is_identity(&self) -> bool {
-        !self.moves_pixels() && self.vignetting.is_none()
+        !self.moves_pixels() && self.vignetting.is_none_or(|k| k == [0.0; 3])
     }
 
     /// The correction laid on an image of `w × h` pixels.

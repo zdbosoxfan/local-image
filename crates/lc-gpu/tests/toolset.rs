@@ -55,6 +55,9 @@ fn gpu_render(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &R
 }
 
 fn check(name: &str, src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest) -> Rgba8 {
+    if info.lens_db.is_some() {
+        assert!(lightcraft_pipeline::plan(src, info, s, req).frame.gpu_samplable(), "{name}: exercise the native lens warp");
+    }
     let cpu = render(src, info, s, req).image;
     let gpu = gpu_render(src, info, s, req, None);
     let (mean, max) = diff(&cpu, &gpu);
@@ -69,7 +72,7 @@ fn changed(a: &Rgba8, b: &Rgba8) -> f64 {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Lens profiles (lens database): geometry resampled on the CPU, the rest on the GPU
+// Lens profiles (lens database): native geometry warp, including per-channel sampling and gain
 
 fn barrel() -> LensCorrection {
     LensCorrection {
@@ -211,6 +214,94 @@ fn lens_profile_strength_changes_reach_cached_renders() {
         let fresh = gpu_render(&src, &info, &s, &req, None);
         assert_eq!(warm, fresh, "cached render at {strength}%");
     }
+}
+
+#[test]
+fn lens_profiles_at_borders_all_orientations_match() {
+    if !gpu() {
+        return;
+    }
+    // High contrast edges reach all four borders, with distinct colour planes.
+    // Odd, non-square dimensions expose half-pixel/axis-swap mistakes.
+    let src = Arc::new(Rgb32f::from_fn(769, 513, |x, y| {
+        let edge = |v: usize| if v.is_multiple_of(2) { 0.015 } else { 0.75 };
+        [edge(x / 5 + y / 7), edge(x / 9), edge(y / 6)]
+    }));
+    for sign in [-1.0, 1.0] {
+        for distortion in [
+            Distortion::Poly3 { k1: sign * 0.3 },
+            Distortion::Poly5 { k1: sign * 0.25, k2: sign * 0.08 },
+            Distortion::Ptlens { a: sign * 0.12, b: sign * 0.16, c: sign * 0.05 },
+        ] {
+            let c = LensCorrection {
+                diag_norm: 2.0,
+                center: [0.23, -0.19],
+                distortion,
+                tca: Tca::Poly3 { red: [1.015, 0.006, 0.004], blue: [0.985, 0.0, -0.004] },
+                vignetting: Some([-0.35, 0.08, -0.01]),
+            };
+            let info = SourceInfo { lens_db: Some(c), ..raw() };
+            for orientation in [
+                Orientation::Normal,
+                Orientation::Rotate90,
+                Orientation::Rotate180,
+                Orientation::Rotate270,
+                Orientation::FlipH,
+                Orientation::FlipV,
+                Orientation::Transpose,
+                Orientation::Transverse,
+            ] {
+                let mut s = DevelopSettings { orientation, ..Default::default() };
+                lens_on(&mut s, 200.0);
+                check(&format!("border {distortion:?} {orientation:?}"), &src, &info, &s, &RenderRequest::fit(769, 769));
+                s.optics.distortion = -25.0;
+                s.optics.ca_red = 100.0;
+                s.optics.ca_blue = -100.0;
+                s.optics.vignetting = 20.0;
+                s.geometry.horizontal = -15.0;
+                s.geometry.vertical = 12.0;
+                s.geometry.rotate = 3.0;
+                s.crop.geometry.rect = Rect::new(0.02, 0.03, 0.97, 0.98);
+                s.crop.geometry.angle = -4.5;
+                s.crop.flip_h = true;
+                check(&format!("border mixed {distortion:?} {orientation:?}"), &src, &info, &s, &RenderRequest::fit(257, 257));
+            }
+        }
+    }
+}
+
+#[test]
+fn lens_profiles_replace_embedded_and_zero_strength_matches_disabled() {
+    use lightcraft_develop::{EmbeddedLens, EmbeddedVignette, EmbeddedWarp};
+    if !gpu() {
+        return;
+    }
+    let src = scene(2, 301, 199);
+    let req = RenderRequest::fit(301, 301);
+    let lens = EmbeddedLens {
+        warp: Some(EmbeddedWarp { planes: [[1.0, 0.3, 0.0, 0.0, 0.01, -0.01]; 3], center: Point::new(0.4, 0.6), radius: 0.6 }),
+        vignette: Some(EmbeddedVignette { k: [0.4, 0.0, 0.0, 0.0, 0.0], center: Point::new(0.4, 0.6), radius: 0.6 }),
+    };
+    let info = SourceInfo { lens_db: Some(barrel()), lens: Some(lens), ..raw() };
+    let mut s = DevelopSettings::default();
+    s.optics.lens_profile = true;
+    for strength in [0.0, 100.0, 200.0] {
+        lens_on(&mut s, strength);
+        let g = check(&format!("db replaces embedded {strength}%"), &src, &info, &s, &req);
+        let without_embedded = SourceInfo { lens: None, ..info.clone() };
+        assert_eq!(g, gpu_render(&src, &without_embedded, &s, &req, None));
+        if strength == 0.0 {
+            let disabled = SourceInfo { lens: None, lens_db: None, ..info.clone() };
+            assert_eq!(g, gpu_render(&src, &disabled, &s, &req, None), "zero strengths take the ordinary copy path");
+        }
+    }
+    // A PA polynomial at/below its guard returns unity, including at 200%.
+    s.optics.lens_profile = false;
+    let info = SourceInfo {
+        lens_db: Some(LensCorrection { distortion: Distortion::None, tca: Tca::None, vignetting: Some([-8.0, 0.0, 0.0]), ..barrel() }),
+        ..raw()
+    };
+    check("database vignette nonpositive polynomial", &src, &info, &s, &req);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -520,12 +611,12 @@ fn capture_sharpening_source_info_and_geometry_changes_invalidate_cache() {
         let fresh = check(&format!("capture info/cache step {step}"), &src, &info, &s, &req);
         assert_eq!(cached, fresh, "capture source-info invalidation {step}");
     }
-    // Lens-database geometry is CPU-only. It must resample the GPU's sharpened
-    // source, including on a cached view, rather than resampling the original.
+    // Native lens geometry must resample the GPU's sharpened source, including
+    // on a cached view, rather than resampling the original.
     info.lens_db = Some(barrel());
     lens_on(&mut s, 100.0);
     let req = RenderRequest::fit(151, 151);
-    check("capture before CPU lens geometry", &src, &info, &s, &req);
+    check("capture before GPU lens geometry", &src, &info, &s, &req);
     assert_eq!(gpu_render(&src, &info, &s, &req, Some(&stages)), gpu_render(&src, &info, &s, &req, None));
 }
 
@@ -863,6 +954,11 @@ fn bench_toolset_24mp() {
         ("lens profile (db)", SourceInfo { lens_db: Some(barrel()), ..info.clone() }, {
             let mut s = DevelopSettings::default();
             lens_on(&mut s, 100.0);
+            s
+        }),
+        ("lens profile (db) 0%", SourceInfo { lens_db: Some(barrel()), ..info.clone() }, {
+            let mut s = DevelopSettings::default();
+            lens_on(&mut s, 0.0);
             s
         }),
         ("tone equalizer", info.clone(), {
