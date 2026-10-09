@@ -189,6 +189,9 @@ pub struct Display {
 /// The display showing most of a window whose frame (OS points, as [`Display::frame`]) is
 /// `rect`: the one it overlaps most, as AppKit's `NSWindow.screen`. `None` when it overlaps none.
 pub fn display_at(displays: &[Display], rect: [f64; 4]) -> Option<u32> {
+    if !rect.iter().all(|v| v.is_finite()) {
+        return None;
+    }
     let area = |d: &Display| {
         let w = (rect[0] + rect[2]).min(d.frame[0] + d.frame[2]) - rect[0].max(d.frame[0]);
         let h = (rect[1] + rect[3]).min(d.frame[1] + d.frame[3]) - rect[1].max(d.frame[1]);
