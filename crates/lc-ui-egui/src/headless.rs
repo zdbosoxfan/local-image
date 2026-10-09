@@ -1866,12 +1866,23 @@ mod tests {
         let r = h.request("ui.menu.invoke", json!({"id": "app.about"}), t);
         assert_eq!(r["ok"], true, "{r}");
         assert_eq!(h.app.ui.dialog, Some(crate::state::Dialog::About));
-        // Each tab has different-sized credits; let the anchored window settle before clicks.
-        assert!(h.settle(SETTLE));
+        // a new window sizes itself on its first frame: let it settle before clicking its tabs
+        h.step();
+        h.step();
         for (i, (tab, _)) in crate::panels::dialogs::ABOUT_TABS.iter().enumerate().rev() {
             let r = h.request("ui.clickWidget", json!({"id": format!("button:aboutTab-{tab}")}), t);
             assert_eq!(r["ok"], true, "{tab}: {r}");
-            assert!(h.settle(SETTLE));
+            h.step();
+            // a tab with taller content (Attributions' sections animate open) grows the window, which
+            // re-centres: wait for the tab row to stop moving before the next click
+            let row = |h: &mut Headless| h.request("ui.widgets", json!({"filter": "button:aboutTab-about"}), t)["result"].clone();
+            for _ in 0..600 {
+                let before = row(&mut h);
+                h.step();
+                if row(&mut h) == before {
+                    break;
+                }
+            }
             let shown = h.view.ctx.data_mut(|d| d.get_temp::<u8>(egui::Id::new("about_tab")));
             assert_eq!(shown.map(usize::from), Some(i), "{tab}");
         }

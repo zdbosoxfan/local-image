@@ -2965,3 +2965,40 @@ ai	New	Новые
 	Smart Sort (scenes)	Умная сортировка (сцены)
 	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	Распознаёт содержимое фото (докладчиков, аудиторию, детали…), чтобы поместить его в нужную папку. Работает на CPU; фотографии не покидают этот компьютер.
 	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	Распознаёт сцены по вашим описаниям. Быстрая локальная модель для докладчиков, аудитории, деталей и других выбранных категорий. Загрузка включает текстовую модель и токенизатор.
+	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Находит главный объект на фото. Используется в «Выделение › Объект», «Удалить фон (быстро)», в режиме щелчка инструмента «Выделение объектов» и в масках «Объект» и «Фон» Библиотеки.
+	Finds the sky. Used by Select › Sky and the Library's sky masks.	Находит небо. Используется в «Выделение › Небо» и в масках неба Библиотеки.
+	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Оценивает, как далеко находится каждая часть фото. Используется в масках глубины Библиотеки (например, чтобы затемнить или размыть фон или выбрать передний план по расстоянию).
+	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	Находит объект с самыми тонкими краями (волосы, шерсть, мелкие детали). Лучшее качество для «Выделить объект» и «Удалить фон»; одна-две секунды на фото.
+	Clean edges between near and far, good on most photos. Takes a few seconds per photo.	Чистые края между ближним и дальним, подходит для большинства фото. Несколько секунд на фото.
+	Custom: {name}	Пользовательская: {name}
+	Use official model	Использовать официальную модель
+	Your own model, run on the CPU instead of the official one.	Ваша собственная модель, работающая на процессоре вместо официальной.
+	{name} · {size} download · runs on the CPU · {licence}	{name} · загрузка {size} · работает на процессоре · {licence}
+	Custom model…	Пользовательская модель…
+	Pick any .onnx model that does this. It is copied into the models folder and used instead of the official one.	Выберите любую модель .onnx для этой функции. Она копируется в папку моделей и используется вместо официальной.
+	Input style:	Стиль входа:
+	IS-Net style	Стиль IS-Net
+	U²-Net / ImageNet style	Стиль U²-Net / ImageNet
+	Sky class:	Класс неба:
+	Only used when the model gives one map per class (ADE20K: 2).	Используется, только если модель выдаёт по одной карте на класс (ADE20K: 2).
+	Testing the model…	Проверка модели…
+	Choose an ONNX file…	Выбрать файл ONNX…
+	That model can't be used: {error}	Эту модель нельзя использовать: {error}
+	Choose an ONNX model	Выбор модели ONNX
+	ONNX model	Модель ONNX
+	Remove old models ({size})	Удалить старые модели ({size})
+	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	Перемещает в Корзину модели, которые приложение больше не использует (U²-Net, TinySkyNet, MiDaS).
+	the old models	старые модели
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	Небольшие модели, работающие на процессоре этого компьютера: не нужны ни ComfyUI, ни GPU, загрузка быстрая, а ваши фото не покидают компьютер. У каждой функции есть рекомендуемая модель; вместо неё можно использовать собственную модель ONNX.
+	Choose an ONNX model (a file ending in .onnx)	Выберите модель ONNX (файл с расширением .onnx)
+	Not a depth model: it must output one depth map	Не является моделью глубины: она должна выводить одну карту глубины
+	Not a sky model	Не модель неба
+	Not a sky model: its output {shape} should be 1 map or one map per class	Не модель неба: её выход {shape} должен быть 1 картой или одной картой на класс
+	Not a subject model: it must output one foreground map	Не модель объекта: она должна выводить одну карту переднего плана
+	The model has no input	У модели нет входа
+	The model's input has {channels} channels; an RGB image (3) is needed	Вход модели имеет {channels} каналов; необходимо RGB-изображение (3)
+	The model's input is {height}×{width}; a square input (or a flexible size) is needed	Вход модели — {height}×{width}; требуется квадратный вход (или гибкий размер)
+	The model's input must be an image (batch × 3 × height × width)	Вход модели должен быть изображением (пакет × 3 × высота × ширина)
+	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Класс неба {class} вне диапазона: модель имеет {classes} классов (от 0 до {max})
+	{path} isn't a file	{path} не является файлом
+	Custom models are not supported for this function	Пользовательские модели не поддерживаются для этой функции

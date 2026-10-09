@@ -85,9 +85,9 @@ Status as of 2026-10-09.
 |---|---|---|---|---|---|
 | Brush, linear, radial, colour and luminance range masks | Existing | Existing | LightCraft | MIT OR Apache-2.0 | `crates/lc-pipeline/src/masks.rs` |
 | Object and Describe masks (SAM 3, optional) | Existing | Model | LightCraft's SAM 3 integration | per model | `crates/lc-engine/src/segment/` |
-| Quick Subject and Background | Built | Model | U²-Net, U²-Net-p (Qin et al. 2020), IS-Net (Qin et al. 2022), files from the rembg release | Apache-2.0 | `crates/li-seg`, `crates/lc-engine/src/quickseg.rs` |
-| Quick Sky | Built | Model | PP-MobileSeg (PaddleSeg, trained on ADE20K); TinySkyNet as the 0.2 MB preview model | Apache-2.0; MIT | `crates/li-seg` |
-| Depth masks | Built | Model | Depth Anything V2 Small (Yang et al. 2024; ONNX export by fabio-sim); MiDaS v2.1 small (Ranftl et al. 2020) as fallback | Apache-2.0; MIT | `crates/li-seg`, `crates/lc-engine/src/quickseg.rs` |
+| Quick Subject and Background | Built | Model | IS-Net (Qin et al. 2022), file from the rembg release; or a custom ONNX model the user picks (Settings › Local AI) | Apache-2.0 | `crates/li-seg`, `crates/lc-engine/src/quickseg.rs` |
+| Quick Sky | Built | Model | PP-MobileSeg (PaddleSeg, trained on ADE20K) | Apache-2.0 | `crates/li-seg` |
+| Depth masks | Built | Model | Depth Anything V2 Small (Yang et al. 2024; ONNX export by fabio-sim) | Apache-2.0 | `crates/li-seg`, `crates/lc-engine/src/quickseg.rs` |
 | Capture One-style develop layers (any tool per mask, opacity) | Built | Concept | Capture One's layers. Blending inspired by darktable's "any module is maskable" | ours | `crates/lc-pipeline/src/layers.rs`, `crates/lc-develop` |
 
 ### Removal and AI

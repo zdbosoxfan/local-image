@@ -259,7 +259,7 @@ pub fn start_download(preset_id: &str) {
     });
 }
 
-/// Downloads a CPU selection model (U²-Net / IS-Net) into `<model folder>/segmentation/`; keyed
+/// Downloads an official on-device model or bundle into `<model folder>/segmentation/`; keyed
 /// `seg:<id>` in [`downloads`].
 pub fn start_seg_download(spec: &'static li_seg::ModelSpec) {
     let key = format!("seg:{}", spec.id);
@@ -328,71 +328,186 @@ fn download_seg_with(spec: &li_seg::ModelSpec, download: &dyn Fn(li_seg::Compani
     Ok(())
 }
 
-/// The header of an on-device model group: "2 of 3 installed · using IS-Net".
-pub fn seg_group_summary(group: li_seg::Group, models_dir: &std::path::Path) -> String {
-    let all: Vec<_> = group.models().collect();
-    let n = all.iter().filter(|m| li_seg::installed_bytes(models_dir, m).is_some()).count();
-    let counts = crate::i18n::fmt(tl!("{n} of {total} installed"), &[("n", &n.to_string()), ("total", &all.len().to_string())]);
-    match group.in_use(models_dir) {
-        Some(m) => format!("{counts} · {}", crate::i18n::fmt(tl!("using {name}"), &[("name", m.label)])),
-        None => counts,
+/// Where a function's custom-model test stands (see [`CUSTOM_JOBS`]).
+#[derive(Clone, Debug, PartialEq)]
+enum CustomJob {
+    /// Loading the picked model and running it once.
+    Testing,
+    /// The model was set; the row closes its options.
+    Done,
+    /// The model doesn't fit; why.
+    Failed(String),
+}
+
+/// Custom-model tests in flight or just finished, keyed by models folder and function.
+static CUSTOM_JOBS: Mutex<BTreeMap<String, CustomJob>> = Mutex::new(BTreeMap::new());
+
+fn job_key(dir: &std::path::Path, group: li_seg::Group) -> String {
+    format!("{}|{}", dir.display(), group.key())
+}
+
+fn custom_job(dir: &std::path::Path, group: li_seg::Group) -> Option<CustomJob> {
+    CUSTOM_JOBS.lock().ok().and_then(|j| j.get(&job_key(dir, group)).cloned())
+}
+
+fn set_custom_job(dir: &std::path::Path, group: li_seg::Group, job: Option<CustomJob>) {
+    if let Ok(mut j) = CUSTOM_JOBS.lock() {
+        match job {
+            Some(job) => j.insert(job_key(dir, group), job),
+            None => j.remove(&job_key(dir, group)),
+        };
     }
 }
 
-/// A small rounded badge ("Recommended").
-fn badge(ui: &mut egui::Ui, text: &str, fill: Color32, ink: Color32) -> egui::Response {
-    let galley = ui.painter().layout_no_wrap(text.to_owned(), egui::FontId::proportional(10.5), ink);
-    let (r, resp) = ui.allocate_exact_size(vec2(galley.size().x + 12.0, 16.0), Sense::hover());
-    ui.painter().rect_filled(r, 8.0, fill);
-    ui.painter().galley(r.center() - galley.size() / 2.0, galley, ink);
-    resp
+/// What the custom-model options of one function currently show.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct SegOpts {
+    open: bool,
+    /// Subject: U²-Net / ImageNet normalisation (else IS-Net style).
+    imagenet: bool,
+    /// Sky: the class index of the sky for class-logit models (default 2, ADE20K).
+    sky_class: Option<usize>,
 }
 
-/// Settings › Local AI › On-device models: the CPU models (`li-seg`) in collapsible groups by
-/// what they do, each with what it's for, its size and a Download or Remove button. Models
-/// without a group are listed after the groups, one row each.
-fn seg_rows(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>) {
-    let dir = photocraft_engine::seg::models_dir();
-    for group in li_seg::Group::ALL {
-        let downloading = group.models().any(|m| dls.get(&format!("seg:{}", m.id)).is_some_and(|d| !d.finished));
-        let mut head = egui::text::LayoutJob::default();
-        head.append(tl!(group.label()), 0.0, egui::TextFormat::simple(crate::theme::semibold(13.0), t.text));
-        head.append(&seg_group_summary(group, &dir), 10.0, egui::TextFormat::simple(egui::FontId::proportional(11.5), t.text_dim));
-        let in_use = group.in_use(&dir).map(|m| m.id);
-        egui::CollapsingHeader::new(head).id_salt(("seg-group", group.label())).default_open(false).open(downloading.then_some(true)).show(ui, |ui| {
-            ui.label(RichText::new(tl!(group.about())).color(t.text_faint).size(11.0));
-            ui.add_space(4.0);
-            for spec in group.models() {
-                seg_row(ui, t, dls, &dir, spec, group.recommended() == spec.id, in_use == Some(spec.id));
+impl SegOpts {
+    fn options(&self) -> li_seg::CustomOptions {
+        li_seg::CustomOptions { norm: if self.imagenet { li_seg::Norm::ImageNet } else { li_seg::Norm::IsNet }, sky_class: self.sky_class.unwrap_or(2) }
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The file the next "Choose an ONNX file…" click picks, in place of a real dialog.
+    pub(crate) static TEST_PICK: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The native file dialog for an `.onnx` model (tests inject the pick instead of opening it).
+#[cfg(not(test))]
+fn pick_onnx() -> Option<std::path::PathBuf> {
+    rfd::FileDialog::new().set_title(tl!("Choose an ONNX model")).add_filter(tl!("ONNX model"), &["onnx"]).pick_file()
+}
+
+#[cfg(test)]
+fn pick_onnx() -> Option<std::path::PathBuf> {
+    TEST_PICK.with(|p| p.borrow_mut().take())
+}
+
+/// Translates a custom-model validation error into a one-line reason.
+fn custom_model_reason(e: &li_seg::CustomModelError) -> String {
+    match e {
+        li_seg::CustomModelError::UnsupportedFunction => tl!("Custom models are not supported for this function").to_owned(),
+        li_seg::CustomModelError::NotAFile { path } => crate::i18n::fmt(tl!("{path} isn't a file"), &[("path", &path.display().to_string())]),
+        li_seg::CustomModelError::NotOnnx => tl!("Choose an ONNX model (a file ending in .onnx)").to_owned(),
+        li_seg::CustomModelError::NoInput => tl!("The model has no input").to_owned(),
+        li_seg::CustomModelError::NotAnImageInput => tl!("The model's input must be an image (batch × 3 × height × width)").to_owned(),
+        li_seg::CustomModelError::WrongChannels { channels } => {
+            crate::i18n::fmt(tl!("The model's input has {channels} channels; an RGB image (3) is needed"), &[("channels", &channels.to_string())])
+        }
+        li_seg::CustomModelError::NonSquareInput { height, width } => crate::i18n::fmt(
+            tl!("The model's input is {height}×{width}; a square input (or a flexible size) is needed"),
+            &[("height", &height.to_string()), ("width", &width.to_string())],
+        ),
+        li_seg::CustomModelError::NotSkyModel => tl!("Not a sky model").to_owned(),
+        li_seg::CustomModelError::NotSkyModelOutput { shape } => {
+            crate::i18n::fmt(tl!("Not a sky model: its output {shape} should be 1 map or one map per class"), &[("shape", &format!("{shape:?}"))])
+        }
+        li_seg::CustomModelError::SkyClassOutOfRange { class, classes } => crate::i18n::fmt(
+            tl!("The sky class {class} is out of range: this model has {classes} classes (0 to {max})"),
+            &[("class", &class.to_string()), ("classes", &classes.to_string()), ("max", &(classes - 1).to_string())],
+        ),
+        li_seg::CustomModelError::NotSubjectModel => tl!("Not a subject model: it must output one foreground map").to_owned(),
+        li_seg::CustomModelError::NotDepthModel => tl!("Not a depth model: it must output one depth map").to_owned(),
+        li_seg::CustomModelError::Other(msg) => msg.clone(),
+    }
+}
+
+/// Tests the picked model and, when it fits, sets it as the function's custom model; in the
+/// background (loading a model takes a moment).
+fn start_custom(dir: std::path::PathBuf, group: li_seg::Group, src: std::path::PathBuf, opts: li_seg::CustomOptions) {
+    if custom_job(&dir, group) == Some(CustomJob::Testing) {
+        return;
+    }
+    set_custom_job(&dir, group, Some(CustomJob::Testing));
+    // the drawing language is per thread: translate the reason in the UI's language
+    let lang = crate::i18n::current();
+    let _ = std::thread::Builder::new().name("seg-custom".into()).spawn(move || {
+        let job = match li_seg::add_custom(&dir, group, &src, opts, &dispose) {
+            Ok(_) => CustomJob::Done,
+            Err(e) => {
+                let reason =
+                    crate::i18n::with_language(lang, || e.downcast_ref::<li_seg::CustomModelError>().map(custom_model_reason)).unwrap_or_else(|| e.to_string());
+                CustomJob::Failed(reason)
             }
-        });
+        };
+        set_custom_job(&dir, group, Some(job));
+        refresh();
+        if let Some(ctx) = shared().ctx.lock().ok().and_then(|c| c.clone()) {
+            ctx.request_repaint();
+        }
+    });
+}
+
+/// Settings › Local AI › On-device models: one row per function, including Smart Sort tagging.
+/// Mask/depth rows offer a custom ONNX flow; tagging uses its official bundle. "Remove old models"
+/// appears when models the app no longer uses are still on disk.
+fn seg_rows(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>, dir: &std::path::Path) {
+    for group in li_seg::Group::ALL {
+        function_row(ui, t, dls, dir, group);
     }
-    for spec in li_seg::MODELS.iter().filter(|m| m.group.is_none()) {
-        seg_row(ui, t, dls, &dir, spec, false, false);
+    let old = li_seg::legacy_installed(dir);
+    if !old.is_empty() {
+        let size = li_ai::download::human_bytes(old.iter().map(|(_, b)| b).sum());
+        let r = widgets::secondary_button(ui, &crate::i18n::fmt(tl!("Remove old models ({size})"), &[("size", &size)]), 0.0)
+            .on_hover_text(tl!("Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash."));
+        if r.clicked() {
+            let note = match li_seg::remove_legacy_with(dir, &dispose) {
+                Ok(freed) => (
+                    crate::i18n::fmt(tl!("Removed {name} ({size} freed)"), &[("name", tl!("the old models")), ("size", &li_ai::download::human_bytes(freed))]),
+                    false,
+                ),
+                Err(e) => (crate::i18n::fmt(tl!("Couldn't remove {name}: {error}"), &[("name", tl!("the old models")), ("error", &format!("{e:#}"))]), true),
+            };
+            if let Ok(mut n) = REMOVE_NOTE.lock() {
+                *n = Some(note);
+            }
+        }
     }
 }
 
-/// One on-device model: name, badge, description, size and licence, and its button.
-fn seg_row(
-    ui: &mut egui::Ui,
-    t: &Tokens,
-    dls: &BTreeMap<String, Download>,
-    dir: &std::path::Path,
-    spec: &'static li_seg::ModelSpec,
-    recommended: bool,
-    in_use: bool,
-) {
+/// One function: its name and what it does, the model in use, and the custom-model controls.
+fn function_row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>, dir: &std::path::Path, group: li_seg::Group) {
+    let spec = group.official();
     let key = format!("seg:{}", spec.id);
     let dl = dls.get(&key);
     let installed = li_seg::installed_bytes(dir, spec);
+    let custom = li_seg::custom(dir, group);
+    let official_in_use = custom.is_none() && installed.is_some();
     let frame = egui::Frame::NONE.fill(t.field).corner_radius(t.radius).inner_margin(egui::Margin::symmetric(10, 8));
     frame.show(ui, |ui| {
         ui.set_width(ui.available_width());
+        ui.label(RichText::new(tl!(group.label())).size(13.0).strong().color(t.text));
+        ui.label(RichText::new(tl!(group.about())).color(t.text_dim).size(11.5));
+        ui.add_space(4.0);
+        if let Some(c) = &custom {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(crate::i18n::fmt(tl!("Custom: {name}"), &[("name", &c.name)])).strong());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let r = widgets::secondary_button(ui, tl!("Use official model"), 0.0);
+                    if r.clicked() {
+                        match li_seg::clear_custom(dir, group, &dispose) {
+                            Ok(_) => set_custom_job(dir, group, None),
+                            Err(e) => set_custom_job(dir, group, Some(CustomJob::Failed(format!("{e:#}")))),
+                        }
+                    }
+                    ui.label(RichText::new(tl!("In use")).color(Color32::from_rgb(70, 190, 110)));
+                });
+            });
+            ui.label(RichText::new(tl!("Your own model, run on the CPU instead of the official one.")).color(t.text_faint).size(11.0));
+            ui.add_space(4.0);
+        }
+        // the official model
         ui.horizontal(|ui| {
-            ui.label(RichText::new(spec.label).strong());
-            if recommended {
-                badge(ui, tl!("Recommended"), t.accent_soft, t.accent_text);
-            }
+            ui.label(RichText::new(spec.label).color(if custom.is_some() { t.text_dim } else { t.text }));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| match dl {
                 Some(d) if !d.finished => {
                     if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
@@ -408,7 +523,7 @@ fn seg_row(
                     if remove_button(ui) {
                         ask_remove(spec.label.to_owned(), RemoveTarget::Seg(spec));
                     }
-                    let text = if in_use { tl!("In use") } else { tl!("Installed") };
+                    let text = if official_in_use { tl!("In use") } else { tl!("Installed") };
                     ui.label(RichText::new(text).color(Color32::from_rgb(70, 190, 110)));
                 }
                 _ => {
@@ -421,8 +536,8 @@ fn seg_row(
         ui.label(RichText::new(tl!(spec.about)).color(t.text_dim).size(11.5));
         ui.label(
             RichText::new(crate::i18n::fmt(
-                tl!("{size} download · runs on the CPU · {licence}"),
-                &[("size", &li_ai::download::human_bytes(spec.download_bytes())), ("licence", spec.licence)],
+                tl!("{name} · {size} download · runs on the CPU · {licence}"),
+                &[("name", spec.label), ("size", &li_ai::download::human_bytes(spec.download_bytes())), ("licence", spec.licence)],
             ))
             .color(t.text_faint)
             .size(11.0),
@@ -430,8 +545,89 @@ fn seg_row(
         if let Some(err) = dl.and_then(|d| d.error.as_ref()) {
             ui.label(RichText::new(err).color(t.danger).size(11.5));
         }
+        if group.supports_custom() {
+            ui.add_space(4.0);
+            custom_controls(ui, t, dir, group);
+        }
     });
     ui.add_space(4.0);
+}
+
+/// The small "Custom model…" button and, when open, its options and file picker.
+fn custom_controls(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, group: li_seg::Group) {
+    if !group.supports_custom() {
+        return;
+    }
+    let mut o = dialogs_mut(|d| d.seg_opts.entry(group).or_default().clone());
+    let before = o.clone();
+    let mut job = custom_job(dir, group);
+    if job == Some(CustomJob::Done) {
+        // the model was set: tidy up
+        set_custom_job(dir, group, None);
+        o.open = false;
+        job = None;
+    }
+    if widgets::secondary_button(ui, tl!("Custom model…"), 0.0).clicked() {
+        o.open = !o.open;
+        if !o.open && matches!(job, Some(CustomJob::Failed(_))) {
+            set_custom_job(dir, group, None);
+            job = None;
+        }
+    }
+    if o.open {
+        ui.add_space(2.0);
+        ui.label(
+            RichText::new(tl!("Pick any .onnx model that does this. It is copied into the models folder and used instead of the official one."))
+                .color(t.text_faint)
+                .size(11.0),
+        );
+        match group {
+            li_seg::Group::Subject => {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(tl!("Input style:")).color(t.text_dim).size(11.5));
+                    let shown = if o.imagenet { li_seg::Norm::ImageNet } else { li_seg::Norm::IsNet };
+                    egui::ComboBox::from_id_salt(("seg-norm", group.key())).selected_text(tl!(shown.label())).show_ui(ui, |ui| {
+                        for n in li_seg::Norm::ALL {
+                            ui.selectable_value(&mut o.imagenet, n == li_seg::Norm::ImageNet, tl!(n.label()));
+                        }
+                    });
+                });
+            }
+            li_seg::Group::Sky => {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(tl!("Sky class:")).color(t.text_dim).size(11.5));
+                    let mut class = o.sky_class.unwrap_or(2);
+                    if ui.add(egui::DragValue::new(&mut class).range(0..=9999)).changed() {
+                        o.sky_class = Some(class);
+                    }
+                    ui.label(RichText::new(tl!("Only used when the model gives one map per class (ADE20K: 2).")).color(t.text_faint).size(11.0));
+                });
+            }
+            li_seg::Group::Depth | li_seg::Group::Tagging => {}
+        }
+        if job == Some(CustomJob::Testing) {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(RichText::new(tl!("Testing the model…")).color(t.text_dim).size(11.5));
+            });
+        } else if widgets::secondary_button(ui, tl!("Choose an ONNX file…"), 0.0).clicked()
+            && let Some(src) = pick_onnx()
+        {
+            set_custom_job(dir, group, None);
+            job = None;
+            start_custom(dir.to_path_buf(), group, src, o.options());
+        }
+        if let Some(CustomJob::Failed(why)) = job {
+            ui.label(RichText::new(crate::i18n::fmt(tl!("That model can't be used: {error}"), &[("error", &why)])).color(t.danger).size(11.5));
+        }
+    } else if let Some(CustomJob::Failed(why)) = job {
+        ui.label(RichText::new(why).color(t.danger).size(11.5));
+    }
+    if o != before {
+        dialogs_mut(|d| {
+            d.seg_opts.insert(group, o);
+        });
+    }
 }
 
 /// The trash button beside "Installed" / "Ready".
@@ -493,7 +689,8 @@ fn removing(key: &str) -> bool {
 /// Puts a file out of the way: into the system Trash where there is one, else deletes it (the
 /// confirmation says which).
 pub fn dispose(path: &std::path::Path) -> std::io::Result<()> {
-    if li_ai::trash::available() { li_ai::trash::move_to_trash(path).map(|_| ()) } else { std::fs::remove_file(path) }
+    // tests delete: they must not fill the real Trash
+    if !cfg!(test) && li_ai::trash::available() { li_ai::trash::move_to_trash(path).map(|_| ()) } else { std::fs::remove_file(path) }
 }
 
 /// What removing `target` would free and keep (cheap: sizes only, no hashing).
@@ -931,6 +1128,8 @@ struct Dialogs {
     settings: Option<AiSettings>,
     message: String,
     remove: Option<RemoveAsk>,
+    /// The custom-model options each on-device function shows.
+    seg_opts: BTreeMap<li_seg::Group, SegOpts>,
 }
 
 fn dialogs_mut<R>(f: impl FnOnce(&mut Dialogs) -> R) -> R {
@@ -1242,13 +1441,13 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 widgets::section_label(ui, tl!("ON-DEVICE MODELS (CPU)"));
                 ui.label(
                     RichText::new(tl!(
-                        "Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used."
+                        "Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead."
                     ))
                     .color(t.text_faint)
                     .size(11.0),
                 );
                 ui.add_space(4.0);
-                seg_rows(ui, &t, &dls);
+                seg_rows(ui, &t, &dls, &photocraft_engine::seg::models_dir());
                 if settings != before {
                     if let Err(e) = settings.save() {
                         dialogs_mut(|d| d.message = crate::i18n::fmt(tl!("Could not save settings: {error}"), &[("error", &format!("{e:#}"))]));
@@ -1454,19 +1653,206 @@ mod tests {
         assert!(refused.is_empty(), "{refused:?}");
     }
 
-    /// The on-device groups' headers say how many are installed and which one is used.
-    #[test]
-    fn group_headers_summarise_what_is_installed() {
-        let dir = std::env::temp_dir().join(format!("li-seg-ui-{}", std::process::id()));
+    const MAP_32: &[u8] = include_bytes!("test_fixtures/map_32.onnx");
+    /// Echoes its RGB input: not a single map (so not a subject model), but 3 class channels.
+    const ECHO_32: &[u8] = include_bytes!("test_fixtures/echo_32.onnx");
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("li-seg-ui-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("segmentation")).unwrap();
-        assert_eq!(seg_group_summary(li_seg::Group::Subject, &dir), "0 of 3 installed");
-        for id in ["u2netp", "isnet"] {
-            std::fs::write(li_seg::model_path(&dir, li_seg::spec(id).unwrap()), b"x").unwrap();
+        dir
+    }
+
+    fn pick_file(dir: &std::path::Path, name: &str, bytes: &[u8]) -> std::path::PathBuf {
+        let p = dir.join("downloads").join(name);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, bytes).unwrap();
+        p
+    }
+
+    /// The file the next "Choose an ONNX file…" click picks.
+    fn will_pick(path: Option<std::path::PathBuf>) {
+        TEST_PICK.with(|p| *p.borrow_mut() = path);
+    }
+
+    /// A harness drawing the on-device model rows (all of them, or one function's) for `dir`.
+    fn seg_harness(dir: &std::path::Path, only: Option<li_seg::Group>) -> egui_kittest::Harness<'static> {
+        let dir = dir.to_path_buf();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(760.0, 900.0)).build_ui(move |ui| {
+            // fonts set on the context only apply from the next frame
+            if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("semibold".into()))) {
+                return;
+            }
+            let t = Tokens::get(ui.ctx());
+            let dls = BTreeMap::new();
+            match only {
+                Some(g) => function_row(ui, &t, &dls, &dir, g),
+                None => seg_rows(ui, &t, &dls, &dir),
+            }
+        });
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(3);
+        h
+    }
+
+    /// Waits for the background custom-model test of `group` to finish.
+    fn settle(h: &mut egui_kittest::Harness<'static>, dir: &std::path::Path, group: li_seg::Group) {
+        for _ in 0..300 {
+            h.run_steps(1);
+            if !matches!(custom_job(dir, group), Some(CustomJob::Testing)) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
         }
-        assert_eq!(seg_group_summary(li_seg::Group::Subject, &dir), "2 of 3 installed · using IS-Net general");
-        assert_eq!(seg_group_summary(li_seg::Group::Sky, &dir), "0 of 2 installed");
-        std::fs::write(li_seg::model_path(&dir, li_seg::spec("depth-midas-small").unwrap()), b"x").unwrap();
-        assert_eq!(seg_group_summary(li_seg::Group::Depth, &dir), "1 of 2 installed · using MiDaS v2.1 small");
+        h.run_steps(3);
+    }
+
+    /// One row per function, titled by what it does, each with its single official model and a
+    /// "Custom model…" button; none of the retired models is offered.
+    #[test]
+    fn settings_lists_one_row_per_function() {
+        let dir = temp_dir("rows");
+        let h = seg_harness(&dir, None);
+        for title in ["Subject & Background", "Sky", "Depth", "Smart Sort (scenes)"] {
+            h.get_by_label(title);
+        }
+        for model in ["IS-Net general", "PP-MobileSeg", "Depth Anything V2 Small", "CLIP ViT-B-32 LAION"] {
+            h.get_by_label(model);
+        }
+        for gone in ["U²-Net small", "U²-Net", "TinySkyNet", "MiDaS v2.1 small"] {
+            assert!(h.query_by_label(gone).is_none(), "{gone} is still listed");
+        }
+        assert_eq!(h.get_all_by_label("Custom model…").count(), 3);
+        assert_eq!(h.get_all_by_label("Download").count(), 4);
+        assert!(h.query_by_label_contains("Remove old models").is_none());
+        assert!(h.query_by_label_contains("Finds the main subject").is_some());
+        assert!(h.query_by_label_contains("Finds the sky.").is_some());
+        assert!(h.query_by_label_contains("Estimates how far away").is_some());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Picking a model sets it; its row says "Custom: <file>" and offers the way back.
+    #[test]
+    fn the_custom_model_flow_sets_and_reverts_a_model() {
+        let dir = temp_dir("flow");
+        std::fs::write(li_seg::model_path(&dir, li_seg::Group::Subject.official()), b"x").unwrap();
+        let mut h = seg_harness(&dir, Some(li_seg::Group::Subject));
+        h.get_by_label("In use");
+        assert!(h.query_by_label("Choose an ONNX file…").is_none(), "options are hidden until asked for");
+        h.get_by_label("Custom model…").click();
+        h.run_steps(2);
+        h.get_by_label("Input style:");
+        // pick a model (the dialog is replaced by the test hook)
+        will_pick(Some(pick_file(&dir, "my-subject.onnx", MAP_32)));
+        h.get_by_label("Choose an ONNX file…").click();
+        settle(&mut h, &dir, li_seg::Group::Subject);
+        let c = li_seg::custom(&dir, li_seg::Group::Subject).expect("the model was accepted");
+        assert_eq!((c.name.as_str(), c.size, c.norm), ("my-subject.onnx", 32, li_seg::Norm::IsNet));
+        assert!(c.path(&dir).is_file());
+        h.get_by_label("Custom: my-subject.onnx");
+        assert!(h.query_by_label("Choose an ONNX file…").is_none(), "the options close");
+        // the official model stays installed but is no longer the one in use
+        h.get_by_label("Installed");
+        assert!(matches!(li_seg::Group::Subject.in_use(&dir), Some(li_seg::InUse::Custom(_))));
+        // back to the official model: the copy goes away
+        h.get_by_label("Use official model").click();
+        h.run_steps(3);
+        assert!(li_seg::custom(&dir, li_seg::Group::Subject).is_none() && !c.path(&dir).exists());
+        assert!(h.query_by_label_contains("Custom: ").is_none());
+        h.get_by_label("In use");
+        assert!(matches!(li_seg::Group::Subject.in_use(&dir), Some(li_seg::InUse::Official(_))));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_model_that_does_not_fit_is_explained_and_not_kept() {
+        let dir = temp_dir("bad");
+        let mut h = seg_harness(&dir, Some(li_seg::Group::Subject));
+        h.get_by_label("Custom model…").click();
+        h.run_steps(2);
+        will_pick(Some(pick_file(&dir, "echo.onnx", ECHO_32)));
+        h.get_by_label("Choose an ONNX file…").click();
+        settle(&mut h, &dir, li_seg::Group::Subject);
+        assert!(li_seg::custom(&dir, li_seg::Group::Subject).is_none());
+        h.get_by_label_contains("That model can't be used: Not a subject model");
+        // a text file is refused too, and cancelling the dialog changes nothing
+        will_pick(Some(pick_file(&dir, "notes.txt", b"hi")));
+        h.get_by_label("Choose an ONNX file…").click();
+        settle(&mut h, &dir, li_seg::Group::Subject);
+        h.get_by_label_contains("a file ending in .onnx");
+        will_pick(None);
+        h.get_by_label("Choose an ONNX file…").click();
+        h.run_steps(2);
+        assert!(li_seg::custom(&dir, li_seg::Group::Subject).is_none());
+        assert!(!li_seg::custom_dir(&dir).exists() || std::fs::read_dir(li_seg::custom_dir(&dir)).unwrap().next().is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Each function shows only the options that matter to it, and the choices are used.
+    #[test]
+    fn the_options_follow_the_function() {
+        let dir = temp_dir("opts");
+        let mut h = seg_harness(&dir, Some(li_seg::Group::Depth));
+        h.get_by_label("Custom model…").click();
+        h.run_steps(2);
+        assert!(h.query_by_label("Input style:").is_none() && h.query_by_label("Sky class:").is_none());
+        h.get_by_label("Choose an ONNX file…");
+        let mut h = seg_harness(&dir, Some(li_seg::Group::Subject));
+        h.get_by_label("Custom model…").click();
+        h.run_steps(2);
+        h.get_by_value("IS-Net style");
+        assert!(h.query_by_label("Sky class:").is_none());
+        // the U²-Net / ImageNet choice is what gets stored
+        dialogs_mut(|d| d.seg_opts.get_mut(&li_seg::Group::Subject).unwrap().imagenet = true);
+        h.run_steps(2);
+        h.get_by_value("U²-Net / ImageNet style");
+        will_pick(Some(pick_file(&dir, "u2.onnx", MAP_32)));
+        h.get_by_label("Choose an ONNX file…").click();
+        settle(&mut h, &dir, li_seg::Group::Subject);
+        assert_eq!(li_seg::custom(&dir, li_seg::Group::Subject).unwrap().norm, li_seg::Norm::ImageNet);
+        // sky: the echo model has 3 class channels; the default class 2 fits, class 7 doesn't
+        let mut h = seg_harness(&dir, Some(li_seg::Group::Sky));
+        h.get_by_label("Custom model…").click();
+        h.run_steps(2);
+        h.get_by_label("Sky class:");
+        assert!(h.query_by_label("Input style:").is_none());
+        dialogs_mut(|d| d.seg_opts.get_mut(&li_seg::Group::Sky).unwrap().sky_class = Some(7));
+        will_pick(Some(pick_file(&dir, "sky.onnx", ECHO_32)));
+        h.get_by_label("Choose an ONNX file…").click();
+        settle(&mut h, &dir, li_seg::Group::Sky);
+        assert!(li_seg::custom(&dir, li_seg::Group::Sky).is_none());
+        h.get_by_label_contains("out of range");
+        dialogs_mut(|d| d.seg_opts.get_mut(&li_seg::Group::Sky).unwrap().sky_class = None);
+        will_pick(Some(pick_file(&dir, "sky.onnx", ECHO_32)));
+        h.get_by_label("Choose an ONNX file…").click();
+        settle(&mut h, &dir, li_seg::Group::Sky);
+        let c = li_seg::custom(&dir, li_seg::Group::Sky).expect("class 2 of 3 fits");
+        assert_eq!((c.classes, c.class), (3, 2));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Models the app no longer offers are never used; a button moves them out of the way.
+    #[test]
+    fn old_models_can_be_removed_from_settings() {
+        let dir = temp_dir("old");
+        let seg = dir.join("segmentation");
+        std::fs::write(seg.join("u2net.onnx"), vec![0u8; 3 * 1024 * 1024]).unwrap();
+        std::fs::write(seg.join("midas_v21_small_256.onnx"), vec![0u8; 1024 * 1024]).unwrap();
+        for file in li_seg::Group::Tagging.official().files() {
+            std::fs::write(li_seg::companion_path(&dir, file.file), b"clip file").unwrap();
+        }
+        let mut h = seg_harness(&dir, None);
+        assert!(li_seg::Group::ALL.iter().all(|g| g.in_use(&dir).is_none()), "old files serve nothing");
+        h.get_by_label_contains("Remove old models (").click();
+        h.run_steps(3);
+        assert!(li_seg::legacy_installed(&dir).is_empty());
+        for file in li_seg::Group::Tagging.official().files() {
+            assert_eq!(std::fs::read(li_seg::companion_path(&dir, file.file)).unwrap(), b"clip file");
+        }
+        assert!(h.query_by_label_contains("Remove old models").is_none());
+        let note = REMOVE_NOTE.lock().unwrap().take().expect("a status note");
+        assert!(!note.1 && note.0.contains("the old models"), "{note:?}");
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -1529,22 +1915,27 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// Open the actual manager group without downloading any weights or opening a GUI window.
+    /// Tagging is its own function row and never offers the single-ONNX custom flow.
     #[test]
-    fn smart_sort_group_can_be_opened_in_the_model_manager() {
-        let mut h = egui_kittest::Harness::builder().with_size(vec2(800.0, 700.0)).build_ui(|ui| {
-            // Harness construction renders once before setup_context installs app fonts.
-            if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("semibold".into()))) {
-                let t = Tokens::get(ui.ctx());
-                seg_rows(ui, &t, &BTreeMap::new());
-            }
-        });
-        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
-        h.run_steps(2);
-        assert!(h.query_by_label("CLIP ViT-B-32 LAION").is_none());
-        h.get_by_label_contains("Smart Sort (scenes)").click();
-        h.run_steps(5);
-        assert!(h.query_by_label("CLIP ViT-B-32 LAION").is_some());
+    fn smart_sort_function_has_no_custom_model_flow() {
+        let dir = temp_dir("tagging");
+        let h = seg_harness(&dir, Some(li_seg::Group::Tagging));
+        h.get_by_label("Smart Sort (scenes)");
+        h.get_by_label("CLIP ViT-B-32 LAION");
+        h.get_by_label("Download");
+        assert!(h.query_by_label("Custom model…").is_none());
+        assert!(h.query_by_label("Use official model").is_none());
+        assert!(h.query_by_label("Choose an ONNX file…").is_none());
+        let size = li_ai::download::human_bytes(li_seg::Group::Tagging.official().download_bytes());
+        h.get_by_label_contains(&format!("{size} download"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn custom_model_reasons_follow_the_ui_language() {
+        let reason =
+            crate::i18n::with_language(crate::i18n::Lang::from_code("ja").unwrap(), || custom_model_reason(&li_seg::CustomModelError::UnsupportedFunction));
+        assert_eq!(reason, "この機能ではカスタムモデルを使用できません");
     }
 
     /// A job that runs until cancelled.

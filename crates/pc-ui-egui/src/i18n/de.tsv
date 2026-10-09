@@ -2664,3 +2664,40 @@ ai	New	Neu
 	Smart Sort (scenes)	Intelligent sortieren (Szenen)
 	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	Erkennt den Inhalt eines Fotos (Redner, Publikum, Details…), damit es im richtigen Ordner landet. Läuft auf der CPU; Fotos bleiben auf diesem Computer.
 	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	Erkennt Szenen anhand Ihrer Beschreibungen. Ein schnelles lokales Modell für Redner, Publikum, Details und andere gewählte Kategorien. Der Download enthält auch Textmodell und Tokenizer.
+	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Findet das Hauptmotiv eines Fotos. Verwendet von Auswahl › Motiv, Hintergrund entfernen (Schnell), dem Klick-Modus des Objektauswahl-Werkzeugs sowie den Motiv- und Hintergrundmasken der Bibliothek.
+	Finds the sky. Used by Select › Sky and the Library's sky masks.	Findet den Himmel. Verwendet von Auswahl › Himmel und den Himmelsmasken der Bibliothek.
+	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Schätzt, wie weit jeder Teil eines Fotos entfernt ist. Verwendet von den Tiefenmasken der Bibliothek (z. B. um den Hintergrund abzudunkeln oder zu verwischen oder den Vordergrund nach Entfernung zu wählen).
+	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	Findet das Motiv mit den feinsten Kanten (Haare, Fell, dünne Details). Beste Qualität für Motiv auswählen und Hintergrund entfernen; braucht ein bis zwei Sekunden pro Foto.
+	Clean edges between near and far, good on most photos. Takes a few seconds per photo.	Saubere Kanten zwischen nah und fern, gut für die meisten Fotos. Braucht einige Sekunden pro Foto.
+	Custom: {name}	Eigenes: {name}
+	Use official model	Offizielles Modell verwenden
+	Your own model, run on the CPU instead of the official one.	Ihr eigenes Modell, auf dem Prozessor ausgeführt statt des offiziellen.
+	{name} · {size} download · runs on the CPU · {licence}	{name} · {size} Download · läuft auf dem Prozessor · {licence}
+	Custom model…	Eigenes Modell…
+	Pick any .onnx model that does this. It is copied into the models folder and used instead of the official one.	Wählen Sie ein beliebiges .onnx-Modell für diese Aufgabe. Es wird in den Modellordner kopiert und statt des offiziellen verwendet.
+	Input style:	Eingabestil:
+	IS-Net style	IS-Net-Stil
+	U²-Net / ImageNet style	U²-Net-/ImageNet-Stil
+	Sky class:	Himmelsklasse:
+	Only used when the model gives one map per class (ADE20K: 2).	Wird nur verwendet, wenn das Modell eine Karte pro Klasse liefert (ADE20K: 2).
+	Testing the model…	Modell wird getestet…
+	Choose an ONNX file…	ONNX-Datei wählen…
+	That model can't be used: {error}	Dieses Modell kann nicht verwendet werden: {error}
+	Choose an ONNX model	ONNX-Modell wählen
+	ONNX model	ONNX-Modell
+	Remove old models ({size})	Alte Modelle entfernen ({size})
+	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	Verschiebt die Modelle, die die App nicht mehr verwendet (U²-Net, TinySkyNet, MiDaS), in den Papierkorb.
+	the old models	die alten Modelle
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	Kleine Modelle, die auf dem Prozessor dieses Computers laufen: kein ComfyUI und keine GPU nötig, schnelle Downloads und Ihre Fotos verlassen den Computer nie. Jede Funktion hat ein empfohlenes Modell; stattdessen können Sie ein eigenes ONNX-Modell verwenden.
+	Choose an ONNX model (a file ending in .onnx)	ONNX-Modell auswählen (Datei mit Endung .onnx)
+	Not a depth model: it must output one depth map	Kein Tiefenmodell: Es muss eine Tiefenkarte ausgeben
+	Not a sky model	Kein Himmelsmodell
+	Not a sky model: its output {shape} should be 1 map or one map per class	Kein Himmelsmodell: Die Ausgabe {shape} sollte 1 Karte oder eine Karte pro Klasse sein
+	Not a subject model: it must output one foreground map	Kein Motivmodell: Es muss eine Vordergrundkarte ausgeben
+	The model has no input	Das Modell hat keine Eingabe
+	The model's input has {channels} channels; an RGB image (3) is needed	Die Eingabe des Modells hat {channels} Kanäle; ein RGB-Bild (3) wird benötigt
+	The model's input is {height}×{width}; a square input (or a flexible size) is needed	Die Eingabe des Modells ist {height}×{width}; eine quadratische Eingabe (oder eine flexible Größe) wird benötigt
+	The model's input must be an image (batch × 3 × height × width)	Die Eingabe des Modells muss ein Bild sein (Batch × 3 × Höhe × Breite)
+	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Die Himmelsklasse {class} liegt außerhalb des Bereichs: Dieses Modell hat {classes} Klassen (0 bis {max})
+	{path} isn't a file	{path} ist keine Datei
+	Custom models are not supported for this function	Benutzerdefinierte Modelle werden für diese Funktion nicht unterstützt

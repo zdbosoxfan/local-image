@@ -33,6 +33,7 @@ lightcraft-engine = { workspace = true }
 lightcraft-catalog = { workspace = true }
 lightcraft-raster = { workspace = true }
 lightcraft-codecs = { workspace = true }
+lightcraft-gpu = { workspace = true }
 # Develop's AI Remove / AI Denoise services (develop_ai.rs).
 li-ai = { workspace = true }
 li-seg = { workspace = true }
