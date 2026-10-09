@@ -1,6 +1,6 @@
 //! Single integration-test binary for this crate (one link instead of one per file).
-mod common;
 mod camera_raw;
+mod common;
 mod decode_warnings;
 mod deep_exr;
 mod detect_caps;

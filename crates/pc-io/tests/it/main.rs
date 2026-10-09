@@ -1,5 +1,4 @@
 //! Single integration-test binary for this crate (one link instead of one per file).
-mod common;
 mod adjust_blend_roundtrip;
 mod annotations;
 mod artboard_guide_order;
@@ -7,11 +6,12 @@ mod banded;
 mod cancel;
 mod channels;
 mod color;
+mod common;
 mod composite;
 mod comps_artboards;
-mod corpus_regressions;
 #[cfg(feature = "corpus")]
 mod corpus;
+mod corpus_regressions;
 mod develop_layer_psd;
 mod effects_multi;
 mod flat;
