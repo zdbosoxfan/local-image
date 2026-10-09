@@ -98,10 +98,12 @@ pub fn decode(bytes: &[u8]) -> Result<Raster, String> {
         return Err("damaged patch file (short)".into());
     }
     let data = raw
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .enumerate()
         .map(|(i, b)| {
-            let q = u16::from_le_bytes([b[0], b[1]]) as f32 / 65535.0;
+            let q = u16::from_le_bytes(*b) as f32 / 65535.0;
             if c == 4 && i % 4 == 3 { q } else { q * q * MAX_LINEAR }
         })
         .collect();

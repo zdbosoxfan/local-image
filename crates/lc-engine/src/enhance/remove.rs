@@ -31,9 +31,7 @@ pub struct Patches;
 impl PatchSource for Patches {
     fn load(&self, key: &str) -> Option<Arc<PatchPixels>> {
         let r = store::get(Kind::Remove, key)?;
-        (r.channels == 4).then(|| {
-            Arc::new(PatchPixels { width: r.width, height: r.height, data: r.data.chunks_exact(4).map(|p| [p[0], p[1], p[2], p[3]]).collect() })
-        })
+        (r.channels == 4).then(|| Arc::new(PatchPixels { width: r.width, height: r.height, data: r.data.as_chunks::<4>().0.to_vec() }))
     }
 }
 
@@ -220,7 +218,7 @@ impl Prepared {
         let key = patch_key(&self.source, &self.stroke, &self.engine, self.seed, &geometry);
         let raster = store::Raster { width: pw, height: ph, channels: 4, data };
         store::put(Kind::Remove, &key, &raster, self.to.as_deref())?;
-        let pixels = PatchPixels { width: pw, height: ph, data: raster.data.chunks_exact(4).map(|p| [p[0], p[1], p[2], p[3]]).collect() };
+        let pixels = PatchPixels { width: pw, height: ph, data: raster.data.as_chunks::<4>().0.to_vec() };
         lightcraft_pipeline::patches::insert(&key, Arc::new(pixels));
         let to_norm = frame.out_to_norm(w, h);
         let a = to_norm.apply(Point::new((region.x0 + pb.x0) as f64, (region.y0 + pb.y0) as f64));
@@ -254,7 +252,7 @@ fn stroke_coverage(stroke: &AiStroke, frame: &lightcraft_pipeline::geometry::Fra
                 }
             }
             xs.sort_by(f64::total_cmp);
-            for pair in xs.chunks_exact(2) {
+            for pair in xs.as_chunks::<2>().0 {
                 let (xa, xb) = ((pair[0] - 0.5).ceil().max(0.0) as usize, ((pair[1] - 0.5).floor() + 1.0).max(0.0) as usize);
                 for x in xa..xb.min(w) {
                     cov[y * w + x] = 1.0;
