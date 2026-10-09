@@ -1,6 +1,6 @@
 # Smart Sort & Export — Phase 2a report
 
-Continues the merged Phase 1 engine and faces core on this branch. No commits were made. No dependencies or Cargo.lock packages were added; the lockfile is unchanged. All implementation changes are Rust, with no unsafe code.
+The original Phase 2a implementation below continued the merged Phase 1 engine and faces core. That implementation added no dependencies or Cargo.lock packages and used Rust without unsafe code. The subsequent people-engine merge and its verification are recorded in the final section.
 
 ## Implemented
 
@@ -14,7 +14,7 @@ Continues the merged Phase 1 engine and faces core on this branch. No commits we
 - **Translations:** all 62 new Library labels/errors/formatted messages (55 basic, 7 formatted) are present in Japanese, Brazilian Portuguese, simplified Chinese and traditional Chinese JSON catalogs. Existing catalog entries/order were preserved; format placeholders match in every language.
 - **Extension points:** folder rules retain stable person ids, the preset reserves a folder pattern, and the dialog keeps its state in a dedicated type. Faces/people controls and Phase 2b sessions, tokens, examples, bursts and keyboard review are intentionally deferred as the task requires.
 
-## Verification
+## Phase 2a verification (before the people-engine merge)
 
 All in-scope Phase 2a work is complete. Final results: **1,682 passed, 14 ignored, 0 failed**, counting each package once. All builds were offline on toolchain 1.98.1, with three build jobs and one Cargo build at a time.
 
@@ -58,11 +58,46 @@ No GUI windows were opened and the running desktop app/owner's files were not to
 
 ## Merge with people engine
 
-Continued the committed checkpoint `3a138026` ("Checkpoint after the machine crash") rather than redoing the merge. The initial offline check passed for `lightcraft-engine`, `lightcraft-ui-egui` and `local-image`. No commits were made in this continuation.
+Continued the committed checkpoint `3a138026` ("Checkpoint after the machine crash") rather than redoing the merge. The initial offline check passed for `lightcraft-engine`, `lightcraft-ui-egui` and `local-image`. The coordinator subsequently checkpointed this continuation in `053cdde8` and synchronized the working branch in `5b359301`; the required three-crate check passed again after that synchronization. This agent made no commits; the final report edits remain uncommitted.
 
 - **Unified folders and planning:** the checkpoint's one serde-defaulted `FolderDef` retains `unsorted`, `custom`, `tags` and `combineAll`, alongside `peopleEnabled`, one stable `personIds` field, `everyone`, `peopleOr` and `useRules`. The shared planner supports ordered first-match/copy-in-each, Any/All tag rules, people AND/OR rules, duplicate-input and video filtering, sanitized names and Unsorted after all enabled conditions. `smartSort.plan` calls `smart_sort_people::prepare_folders` and returns both `folders` and `notices`, including unknown/ignored IDs and resolution of retired IDs after merges.
 - **Compatibility and analysis:** presets retain `firstMatch`, `folders`, `folderPattern` and `peopleLayout`; both older JSON forms and combined roundtrips are covered. Combined `smartSort.analyze {faces:true}` calls `require_faces()` before tag inference, runs both analysis paths and reuses both caches on repeat calls. Both stores (`tag_sets`, `people`), the sessions/tokens/bursts/examples groundwork and both UI modules (`smart_sort_task`, `smart_sort_keys`) remain available.
 - **Additional integration fix:** person preparation previously inspected disabled people rows, Unsorted rows and unused advanced rules, so a saved people folder could block tag-only planning after face opt-out. A new regression reproduced that error before the fix. Preparation now checks only enabled ordinary folders and their active people/rule conditions. Inactive selections no longer demand opt-in or emit unknown-ID notices; active conditions still enforce opt-in and resolve IDs. Phase 2a's reserved IDs remain harmless when the people picker is off.
 - **Added coverage:** three engine regressions exercise nonempty combined tag/face analysis with opt-in, duplicate inputs and cache reuse; planning after opt-out with disabled/Unsorted/unused people conditions; and nested numeric person rules with retired/unknown IDs and inactive selections. Existing merge regressions cover legacy layouts, mixed tags/people, overlap and Unsorted. No UI behavior, dependencies, lockfile, translations, GPU code or GPU tests were added in this continuation.
 
-Final verification results will be recorded after the remaining UI, lint and crate-suite runs complete.
+Merge verification is complete: **599 passed, 4 ignored, 0 failed**, counting each engine/UI test once. The current test inventories contain 411 engine cases and 192 UI cases; every case is accounted for in `target/smart-sort-merge/coverage.json`. Filtered Smart Sort runs and repeated credits checks are included in these totals, not counted again.
+
+| Check | Passed | Ignored | Result |
+|---|---:|---:|---|
+| Latest `cargo check`: engine, UI and app | | | Pass after synchronization |
+| Engine `smart_sort` filter | 86 | 1 | Pass, including all three added regressions |
+| UI `smart_sort` filter | 13 | 0 | Pass; four actual UI interaction tests plus nine keyboard tests |
+| Full engine suite before synchronization | 407 | 3 | Pass; zero doctests |
+| Engine GPU test added by synchronization | 1 | 0 | Pass through its no-adapter skip |
+| Full UI coverage across interrupted/resumed runs | 191 | 1 | Pass; zero doctests |
+| Latest Clippy: engine, UI and app, all targets, `-D warnings` | | | Pass |
+| Latest formatting of those three crates; `git diff --check` | | | Pass |
+| Required attributions regeneration | | | Pass; regenerated 690 crate entries with no diff |
+
+The full engine run completed before the coordinator synchronized `5b359301`. That synchronization added one engine GPU test and changed GPU dispatch; the CPU pixel algorithms and Smart Sort implementation remained unchanged. The added `tests_gpu::native_tone_equalizer_layers_and_depth_use_engine_gpu_stages` test was checked separately afterward. The synchronized workspace/dependency graph also passed the required three-crate check and strict Clippy.
+
+The first full UI run was stopped by the machine-wide OOM shutdown after 26 passing cases. Its continuation was stopped by the coordinator's synchronization after another 157 passing cases. Neither interruption was a test failure. With UI Rust sources unchanged by synchronization, the final run skipped 177 completed, unaffected cases and ran the eight unfinished cases plus six credits rechecks: **14 passed, 1 ignored, 177 filtered out**. The six rechecks cover the regenerated attribution data, including the About dialog. The union of all three runs covers every current UI test. No test was killed by the memory watchdog.
+
+All continuation builds used offline toolchain 1.98.1, three build jobs and one Cargo build at a time. Tests used one test thread, with `VK_DRIVER_FILES`, `VK_ICD_FILENAMES` and `__EGL_VENDOR_LIBRARY_FILENAMES` set to `/dev/null` for this sandbox. The final runs used the configured memory watchdog. Commands included:
+
+```sh
+cargo +1.98.1 check --offline -p lightcraft-engine -p lightcraft-ui-egui -p local-image
+cargo +1.98.1 test --offline -p lightcraft-engine smart_sort -- --test-threads=1
+cargo +1.98.1 test --offline -p lightcraft-ui-egui smart_sort -- --test-threads=1
+cargo +1.98.1 test --offline -p lightcraft-engine -- --test-threads=1 --nocapture
+cargo +1.98.1 test --offline -p lightcraft-ui-egui -- --test-threads=1 --nocapture
+cargo +1.98.1 run -q --offline -p xtask -- attributions
+cargo +1.98.1 test --offline -p lightcraft-engine native_tone_equalizer_layers_and_depth_use_engine_gpu_stages -- --test-threads=1 --nocapture
+CARGO_TARGET_DIR=target/clippy cargo +1.98.1 clippy --offline -p lightcraft-engine -p lightcraft-ui-egui -p local-image --all-targets -- -D warnings
+cargo +1.98.1 fmt -p lightcraft-engine -p lightcraft-ui-egui -p local-image -- --check
+git diff --check
+```
+
+The resumed UI commands additionally supplied `--skip` for previously completed tests; the final exact argument list is retained in `target/smart-sort-merge/ui-resume-latest-argv.json`. Validation logs, the completed-test manifests and the regression's failure before the fix are retained under `target/smart-sort-merge/`. Current inventories were listed without executing tests to verify the coverage union. No whole-workspace or GPU suite was run in this continuation.
+
+**GPU tests added by this Smart Sort task: none.** Six existing/synchronized engine GPU cases took no-adapter skips, included in the passed count. The ignored cases are the people real-weight test and three existing timing/100k benchmarks. Hardware execution of the synchronized GPU test and real-weight people accuracy/throughput remain coordinator checks; no models were downloaded. Further Phase 2b and people UI controls remain outside this merge task; their groundwork was preserved. No required merge work remains. No GUI windows were opened, and the running app and owner's files were not touched.
