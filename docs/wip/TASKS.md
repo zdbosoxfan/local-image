@@ -9,7 +9,7 @@ workspace once → `cargo xtask package linux` → reinstall (`local-image --ins
 
 | # | Item | Branch / WIP commit |
 |---|---|---|
-| 1 | Develop: AI Remove asks before removing (Remove / Cancel); ghost stroke that blocked healing; heal brush as good as Compositing's (content-aware, stored as a patch) | `acad756ec0eb5721d` 9582301 |
+| 1 | Develop: AI Remove asks before removing (Remove / Cancel); ghost stroke that blocked healing; heal brush as good as Compositing's (content-aware, stored as a patch) | **Merged** (ca2129a) |
 | 2 | Develop: Save Over Original (confirm, backup, raw → JPEG beside + stack); Lightroom-style Export dialog | `acef5313be33a1eb5` 554aa9a |
 | 3 | Compositing: Pen bar buttons work (Make Selection / Content-Aware Fill / AI Fill / Mask); live shape options; context menus follow the selected item | `a710220f846256f37` 0ceb78e |
 | 4 | Library ↔ Compositing round trip without saving (Library shows the composite, quit warning, new Develop edits → new layer); Save → `<stem>-Edit.psd` stacked | `a78bac644dd1fe189` cce83cf |
@@ -31,6 +31,12 @@ data in `~/.local/share/local-image-dev/engine-sources/`.
 | 10 | Detail: sharpening (CPU done), darktable denoise-profiled + haze removal ports, GPU | `afd6402aed9ef067b` 4a3a112 |
 | 11 | Primary sliders: Highlights/Shadows (Capture One bar, A/B page for the owner), Clarity modes, Texture, Structure, color balance rgb, color equalizer, Skin Tone | `a5fc7556e46ab4857` 29f74bc |
 | 12 | Raw quality: VNG4, AMaZE, segmentation highlights, reference checks of existing ports | `a39423f3409b6058a` 3dee439 |
+
+## Follow-ups found along the way
+
+- Occasional SIGSEGV at process exit in UI tests, inside the NVIDIA Vulkan driver during a background `lightcraft_gpu::render` (`wgpu create_buffer`) — likely a GPU render still running when the test process tears down. Check the app's own shutdown path for the same race.
+- Content-aware Heal on 24 MP photos with large strokes: unbenchmarked (runs in the background with progress).
+- Remove overlay visibility (Auto / Always / Never) isn't bound to H yet (H opens the Remove panel).
 
 ## Integration (last)
 
