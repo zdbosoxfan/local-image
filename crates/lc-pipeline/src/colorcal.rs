@@ -334,3 +334,43 @@ mod tests {
         assert_eq!(Standard::ALL.len(), 9);
     }
 }
+
+#[cfg(test)]
+mod refvec_tests {
+    use super::*;
+    #[test]
+    fn upstream_adaptation_vectors() {
+        // Exercise the ported adaptation in LMS/XYZ coordinates; working-space matrices are
+        // identity for this test, avoiding any dependence on our colour-space conventions.
+        let identity = Mat3::IDENTITY.to_f32();
+        let src = [0.7f32, 1.0, 1.3];
+        let mut actual = Vec::new();
+        for mode in 0..4 {
+            let dst = match mode {
+                0 | 1 => [0.941238, 1.040633, 1.088932],
+                2 => [0.97553267, 1.01647859, 1.0848344],
+                _ => [0.9504285453771807, 1.0, 1.0889003707981277],
+            };
+            let nonlinear = mode == 1;
+            let cal = ColorCal {
+                matrix: if nonlinear {
+                    identity
+                } else {
+                    Mat3::diag(f64::from(dst[0] / src[0]), f64::from(dst[1] / src[1]), f64::from(dst[2] / src[2])).to_f32()
+                },
+                cat: if nonlinear { Cat::FullBradford } else { Cat::Cat16 },
+                full: nonlinear.then(|| (src, (src[2] / dst[2]).powf(0.0834), dst)),
+                to_xyz: identity,
+                from_xyz: identity,
+                lms: identity,
+                lms_inv: identity,
+                compression: 0.0,
+                clip: false,
+            };
+            for i in 0..256 {
+                actual.extend(cal.apply([-1.0 + 3.0 * crate::test_vectors::noise(i * 2), 1.0, -1.0 + 3.0 * crate::test_vectors::noise(i * 2 + 1)]));
+            }
+        }
+        crate::test_vectors::compare("colorcal/lms.f32", &actual, 5e-7);
+    }
+}

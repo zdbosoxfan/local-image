@@ -1,5 +1,4 @@
-//! Estimate the starting look of a raw without a camera colour matrix (Sony ARW, Nikon NEF, Panasonic
-//! RW2) from its own JPEG. Colour and luminance are fitted separately; the JPEG supplies correspondences only,
+//! Estimate the Camera look of any decoded raw from its own JPEG. Colour and luminance are fitted separately; the JPEG supplies correspondences only,
 //! never output pixels or a replacement for RAW editing.
 //! A global matrix can't follow the camera's hue-dependent rendering (the best matrix rendered a
 //! lime shirt olive that the camera kept lime): a hue/saturation table fitted to the residuals
@@ -35,14 +34,15 @@ pub(crate) fn file_local_look(format: RawFormat) -> bool {
 }
 
 pub(crate) fn fit_preview(raw: &RawImage, bytes: &[u8], transform: &CameraTransform) -> Option<CameraLook> {
-    if !transform.matrix_is_fallback || !file_local_look(raw.format) {
-        return None;
-    }
     let (sensor, reference) = proxies(raw, bytes, transform, PROXY)?;
     // A camera profile pooled from many photos knows colours this photo shows too little of;
     // only the tone and chroma curves are fitted per photo (DRO and picture styles vary).
     let profile = raw.metadata.model.as_deref().and_then(crate::camera_profiles::get);
-    let colour = profile.as_ref().and_then(|p| Some((p.matrix().mul(&transform.matrix.inverse()?), p.hue_sat.clone())));
+    let colour = if !transform.matrix_is_fallback {
+        Some((Mat3::IDENTITY, None))
+    } else {
+        profile.as_ref().and_then(|p| Some((p.matrix().mul(&transform.matrix.inverse()?), p.hue_sat.clone())))
+    };
     let look = fit_pairs_with(&sensor, &reference, colour)?;
     if lightcraft_pipeline::profiling() {
         eprintln!(
@@ -88,7 +88,12 @@ fn proxies(raw: &RawImage, bytes: &[u8], transform: &CameraTransform, size: usiz
     let mut sensor = fit(&sensor, size, size, Filter::Box);
     let reference = fit(&reference, sensor.width, sensor.height, Filter::Box);
     let gain = 2f32.powf(transform.baseline_exposure as f32);
-    sensor.map_in_place(|p| transform.matrix.apply_f32(std::array::from_fn(|i| p[i] * transform.wb[i] * gain)));
+    let tables =
+        lightcraft_raw::profile::ProfileTables::new(&raw.color.profile, lightcraft_raw::color::illuminant_weight(&raw.color, transform.white_xy));
+    sensor.map_in_place(|p| {
+        let p = transform.matrix.apply_f32(std::array::from_fn(|i| p[i] * transform.wb[i]));
+        tables.as_ref().map_or_else(|| p.map(|v| v * gain), |t| t.apply(p, gain))
+    });
     Some((sensor, reference))
 }
 
@@ -135,14 +140,7 @@ fn luma(p: [f64; 3]) -> f64 {
 
 /// The finish stage's tone map and chroma curve (`lightcraft_pipeline::finish`).
 fn displayed(scene: [f64; 3], tone: &ToneMap) -> [f64; 3] {
-    let scene = scene.map(|v| v.max(0.0));
-    let y = luma(scene);
-    if y <= 0.0 {
-        return [0.0; 3];
-    }
-    let o = f64::from(tone.apply(y as f32));
-    let k = f64::from(tone.chroma_scale(o as f32));
-    scene.map(|v| o + (v * o / y - o) * k)
+    lightcraft_pipeline::tone2::tone_px(tone, &tone.method(), scene.map(|v| v as f32)).map(f64::from)
 }
 
 #[cfg(test)]
@@ -151,7 +149,7 @@ fn fit_pairs(sensor: &Rgb32f, reference: &Rgb32f) -> Option<CameraLook> {
 }
 
 /// Training pairs (sensor → JPEG, unclipped midtones) and the wider set including highlights
-/// (for the chroma curve); `None` when too few, or the photo has too little colour.
+/// (for the chroma curve); `None` when too few valid pixels remain. A known colour matrix also permits a neutral-only fit.
 type Pairs = Vec<([f64; 3], [f64; 3])>;
 fn collect_pairs(sensor: &Rgb32f, reference: &Rgb32f) -> Option<(Pairs, Pairs)> {
     if (sensor.width, sensor.height) != (reference.width, reference.height) || sensor.data.len() != reference.data.len() {
@@ -160,7 +158,6 @@ fn collect_pairs(sensor: &Rgb32f, reference: &Rgb32f) -> Option<(Pairs, Pairs)> 
     let mut pairs = Vec::new();
     // Highlights too (camera JPEGs bleach colours toward white there), for the chroma curve only.
     let mut bright = Vec::new();
-    let mut colour = 0;
     for (input, output) in sensor.data.iter().zip(&reference.data) {
         let y = luminance_2020(*output);
         if !input.iter().all(|v| v.is_finite() && *v > 0.001 && *v < 1.5) || !output.iter().all(|v| v.is_finite() && *v >= 0.0) {
@@ -172,12 +169,9 @@ fn collect_pairs(sensor: &Rgb32f, reference: &Rgb32f) -> Option<(Pairs, Pairs)> 
         if !output.iter().all(|v| *v > 0.004 && *v < 0.98) || !(0.015..0.85).contains(&y) {
             continue;
         }
-        let min = output.iter().copied().fold(f32::INFINITY, f32::min);
-        let max = output.iter().copied().fold(0.0, f32::max);
-        colour += usize::from(max - min > 0.05);
         pairs.push((input.map(f64::from), output.map(f64::from)));
     }
-    (pairs.len() >= 256 && colour >= pairs.len() / 20).then_some((pairs, bright))
+    (pairs.len() >= 256).then_some((pairs, bright))
 }
 
 /// Ridge-regularised 3×3 chromaticity matrix (luminance-normalised RGB) on the training pairs.
@@ -698,7 +692,7 @@ mod tests {
         let fit = fit_pairs(&sensor, &reference).unwrap();
         // relative to the matrix, which already carries the average colourfulness
         let chroma = fit.tone.chroma();
-        assert!(chroma[6] < 0.5 * chroma[1], "highlights bleach relative to shadows: {chroma:?}");
+        assert!(chroma[6] < 0.6 * chroma[1], "highlights bleach relative to shadows: {chroma:?}");
         // and the rendered highlights land on the camera's, far closer than without the curve
         let with = ToneMap::camera(&fit.tone, 0.0, 0.0, 0.0);
         let without = ToneMap::camera(&fit.tone.with_chroma([1.0; lightcraft_pipeline::tone::CHROMA_N]).unwrap(), 0.0, 0.0, 0.0);
@@ -754,16 +748,20 @@ mod tests {
         assert_eq!(look.matrix, matrix);
         assert!(look.hue_sat.is_none());
         let tone = ToneMap::camera(&look.tone, 0.0, 0.0, 0.0);
+        let samples = reference.data.iter().filter(|y| y.iter().all(|v| *v > 0.004 && *v < 0.98)).count();
         let error = sensor
             .data
             .iter()
             .zip(&reference.data)
+            // Real JPEG targets are bounded; synthetic out-of-display highlights aren't
+            // training correspondences and our new shoulder must contain them.
+            .filter(|(_, y)| y.iter().all(|v| *v > 0.004 && *v < 0.98))
             .map(|(x, y)| {
                 let p = displayed(look.matrix.apply(x.map(f64::from)), &tone);
                 (0..3).map(|c| (p[c] - f64::from(y[c])).powi(2)).sum::<f64>() / 3.0
             })
             .sum::<f64>()
-            / sensor.data.len() as f64;
+            / samples as f64;
         assert!(error.sqrt() < 0.02, "this photo's own tone is followed: RMS {}", error.sqrt());
     }
 

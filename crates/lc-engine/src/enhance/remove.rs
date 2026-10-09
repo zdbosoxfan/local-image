@@ -4,6 +4,15 @@
 //! it through a reversible 8-bit view ([`AiView`]), and stores the repaired pixels as a patch
 //! ([`super::store`]) that the pipeline composites at the retouching stage. The develop settings
 //! only refer to the patch, so the removal stays editable (opacity, delete, regenerate, undo).
+//!
+//! The same path makes Develop's content-aware **Heal** ([`LOCAL`] engine): instead of asking the
+//! host, the worker fills the stroke with Compositing's Spot Healing Brush — multi-scale PatchMatch
+//! completion (`photocraft_algo::inpaint::complete`) and a Poisson seamless blend — on this
+//! computer, and stores the result as a patch like an AI removal (Regenerate, undo, geometry
+//! staleness and copies work the same).
+//!
+//! Both see the photo with the patches of earlier removals and heals already in place, so a second
+//! removal next to (or over) a first one never brings back what the first one removed.
 
 use std::sync::Arc;
 
@@ -24,6 +33,11 @@ use crate::media::SourceLevel;
 const CONTEXT_MIN: usize = 640;
 /// Long edge at which a develop layer's mask is evaluated for "remove inside mask".
 const MASK_EDGE: usize = 1536;
+/// The engine key of content-aware healing on this computer (no AI host needed).
+pub const LOCAL: &str = "local";
+/// Margin of texture around a heal for the patch search, as Compositing's Spot Healing Brush:
+/// three brush diameters, within these bounds (px).
+const HEAL_MARGIN: (f64, f64) = (48.0, 600.0);
 
 /// The store as the pipeline's patch source. Installed once per process ([`install`]).
 pub struct Patches;
@@ -73,6 +87,9 @@ fn new_seed(salt: u64) -> u64 {
 impl Session {
     /// The AI Remove engine to use: `wanted` if the host has it, else the first ready one.
     pub fn ai_remove_engine(&self, wanted: Option<&str>) -> Result<String, String> {
+        if wanted == Some(LOCAL) {
+            return Ok(LOCAL.into());
+        }
         let host = self.enhance.host.as_ref().ok_or(NO_HOST)?;
         let engines = host.remove_engines();
         let e = match wanted {
@@ -86,7 +103,8 @@ impl Session {
     }
 
     /// Start an AI removal of `stroke` on photo `id` (`regenerate`: a new variation of that AI
-    /// spot). In the background, or here with `wait`.
+    /// spot). In the background, or here with `wait`. With engine [`LOCAL`] it is a content-aware
+    /// heal, made on this computer (no AI host needed).
     pub fn start_ai_remove(
         &mut self,
         id: PhotoId,
@@ -102,8 +120,8 @@ impl Session {
         if stroke.points.is_empty() && stroke.polygon.len() < 3 && stroke.mask.is_none() {
             return Err("Paint over what you want to remove first.".into());
         }
-        let host = self.enhance.host.clone().ok_or(NO_HOST)?;
         let engine = self.ai_remove_engine(engine)?;
+        let host = if engine == LOCAL { None } else { Some(self.enhance.host.clone().ok_or(NO_HOST)?) };
         let p = self.catalog.photo(id).ok_or("no such photo")?.clone();
         let settings = self.develop_of(id).unwrap_or_default();
         let mask = match stroke.mask {
@@ -117,15 +135,17 @@ impl Session {
             src: self.media.source_ref(&p, SourceLevel::Full),
             header: crate::media::source_info(&p),
             settings,
-            source: super::denoise::source_hash(&p),
+            source: super::source_hash(&p),
             stroke: stroke.clone(),
             mask,
             engine,
             seed,
             host,
+            exclude: regenerate,
         };
         let (kind, label) = match regenerate {
             Some(spot) => (JobKind::Regenerate { spot }, "Regenerate"),
+            None if job.engine == LOCAL => (JobKind::Remove { stroke }, HEAL_LABEL),
             None => (JobKind::Remove { stroke }, "AI Remove"),
         };
         Ok(self.enhance.spawn(id, kind, label, wait, Box::new(move |ctl| job.run(ctl))))
@@ -133,6 +153,8 @@ impl Session {
 }
 
 const NO_HOST: &str = "AI Remove needs the AI engine. Set it up in Compositing › Local AI.";
+/// The job (and undo step) label of a content-aware heal.
+pub const HEAL_LABEL: &str = "Heal";
 
 /// Everything the worker needs, detached from the session.
 struct Prepared {
@@ -146,7 +168,10 @@ struct Prepared {
     mask: Option<lightcraft_develop::Mask>,
     engine: String,
     seed: u64,
-    host: Arc<dyn AiHost>,
+    /// `None` for the [`LOCAL`] engine.
+    host: Option<Arc<dyn AiHost>>,
+    /// The AI spot being regenerated: its own patch is left out of what the engine sees.
+    exclude: Option<usize>,
 }
 
 /// An inclusive-exclusive pixel box.
@@ -174,8 +199,18 @@ impl Prepared {
         let info = decoded.info_or(self.header);
         ctl.check()?;
         let s = &*self.settings;
-        let (frame, img) = lightcraft_pipeline::patches::transformed(&decoded.image, &info, s);
+        let (frame, mut img) = lightcraft_pipeline::patches::transformed(&decoded.image, &info, s);
         drop(decoded);
+        // what earlier removals and heals left (not this spot's own patch when regenerating, nor
+        // patches made on another photo): the engine works on the photo as it looks now
+        let earlier: Vec<lightcraft_develop::Spot> = s
+            .spots
+            .iter()
+            .enumerate()
+            .filter(|(i, sp)| Some(*i) != self.exclude && sp.patch.as_ref().is_some_and(|p| p.source == self.source))
+            .map(|(_, sp)| sp.clone())
+            .collect();
+        lightcraft_pipeline::patches::apply_spots(&mut img, &earlier, &frame);
         let (w, h) = (img.width, img.height);
         ctl.set(0.05, "Preparing");
         let coverage = match &self.mask {
@@ -183,35 +218,55 @@ impl Prepared {
             None => stroke_coverage(&self.stroke, &frame, w, h),
         };
         let Some(area) = bbox(&coverage, w, h) else { return Err("Paint over what you want to remove first.".into()) };
-        let region = context(area, w, h);
+        let local = self.engine == LOCAL;
+        let region = if local {
+            // as Compositing's Spot Healing Brush: three brush diameters of texture around it
+            let size =
+                if self.stroke.points.is_empty() { area.width().min(area.height()) as f64 } else { 2.0 * self.stroke.size * frame.px_per_long(w) };
+            let margin = (size * 3.0).ceil().clamp(HEAL_MARGIN.0, HEAL_MARGIN.1) as usize;
+            inflate(area, margin, w, h)
+        } else {
+            context(area, w, h)
+        };
         let (rw, rh) = (region.width(), region.height());
         let pixels: Vec<[f32; 3]> = (0..rw * rh).map(|i| img.get(region.x0 + i % rw, region.y0 + i / rw)).collect();
-        let view = AiView::new(&pixels, &info, s);
-        let req = RemoveRequest {
-            width: rw,
-            height: rh,
-            rgb: pixels.iter().map(|p| view.encode(*p)).collect(),
-            mask: (0..rw * rh).map(|i| (coverage[(region.y0 + i / rw) * w + region.x0 + i % rw] * 255.0 + 0.5) as u8).collect(),
-            engine: self.engine.clone(),
-            seed: self.seed,
+        let cov: Vec<f32> = (0..rw * rh).map(|i| coverage[(region.y0 + i / rw) * w + region.x0 + i % rw]).collect();
+        drop(img);
+        // the repaired region (in the photo's own light) and where it replaces the photo (0..1)
+        let (out, alpha): (Vec<[f32; 3]>, Vec<f32>) = if local {
+            ctl.set(0.1, "Healing");
+            (heal(&pixels, rw, rh, &cov, self.seed, ctl)?, cov)
+        } else {
+            let host = self.host.as_ref().ok_or(NO_HOST)?;
+            let view = AiView::new(&pixels, &info, s);
+            let req = RemoveRequest {
+                width: rw,
+                height: rh,
+                rgb: pixels.iter().map(|p| view.encode(*p)).collect(),
+                mask: cov.iter().map(|c| (c * 255.0 + 0.5) as u8).collect(),
+                engine: self.engine.clone(),
+                seed: self.seed,
+            };
+            ctl.set(0.1, "Removing");
+            let out = host.remove(&req, ctl)?;
+            ctl.check()?;
+            if out.rgb.len() != rw * rh || out.alpha.len() != rw * rh {
+                return Err("The AI engine returned an unexpected size.".into());
+            }
+            (out.rgb.iter().map(|c| view.decode(*c)).collect(), out.alpha.iter().map(|a| *a as f32 / 255.0).collect())
         };
-        ctl.set(0.1, "Removing");
-        let out = self.host.remove(&req, ctl)?;
         ctl.check()?;
-        if out.rgb.len() != rw * rh || out.alpha.len() != rw * rh {
-            return Err("The AI engine returned an unexpected size.".into());
-        }
         ctl.set(0.95, "Saving");
-        // the patch: the repaired part only, back in the photo's own light
-        let Some(pb) = bbox(&out.alpha.iter().map(|a| *a as f32 / 255.0).collect::<Vec<_>>(), rw, rh) else {
+        // the patch: the repaired part only
+        let Some(pb) = bbox(&alpha, rw, rh) else {
             return Err("The AI engine changed nothing.".into());
         };
         let (pw, ph) = (pb.width(), pb.height());
         let data: Vec<f32> = (0..pw * ph)
             .flat_map(|i| {
                 let j = (pb.y0 + i / pw) * rw + pb.x0 + i % pw;
-                let c = view.decode(out.rgb[j]);
-                [c[0].max(0.0), c[1].max(0.0), c[2].max(0.0), out.alpha[j] as f32 / 255.0]
+                let c = out[j];
+                [c[0].max(0.0), c[1].max(0.0), c[2].max(0.0), alpha[j]]
             })
             .collect();
         let geometry = geometry_tag(s);
@@ -229,12 +284,85 @@ impl Prepared {
     }
 }
 
+/// Dilate a `w × h` mask by `r` pixels (square structuring element, separable).
+fn dilate(w: usize, h: usize, m: &[bool], r: usize) -> Vec<bool> {
+    let mut tmp = vec![false; w * h];
+    for y in 0..h {
+        for x in (0..w).filter(|x| m[y * w + x]) {
+            tmp[y * w + x.saturating_sub(r)..y * w + (x + r + 1).min(w)].fill(true);
+        }
+    }
+    let mut out = vec![false; w * h];
+    for y in 0..h {
+        for x in (0..w).filter(|x| tmp[y * w + x]) {
+            for yy in y.saturating_sub(r)..(y + r + 1).min(h) {
+                out[yy * w + x] = true;
+            }
+        }
+    }
+    out
+}
+
+/// Content-aware healing of `cov` (the stroke's coverage) in `pixels` (`w × h`, linear, the
+/// source's space), as Compositing's Spot Healing Brush does it: PatchMatch completion of the
+/// stroke from the texture around it, then a Poisson seamless blend into the surroundings. Works
+/// through a perceptual encoding (the area's bright end at 1, a 2.2 gamma) so the patch search
+/// weighs shadows as the eye does. Returns the region healed (as it was away from the stroke).
+pub(crate) fn heal(pixels: &[[f32; 3]], w: usize, h: usize, cov: &[f32], seed: u64, ctl: &JobCtl) -> Result<Vec<[f32; 3]>, String> {
+    use photocraft_algo::inpaint::{CompleteParams, complete_with};
+    use photocraft_algo::poisson;
+    const GAMMA: f32 = 2.2;
+    let Some(hb) = bbox(cov, w, h) else { return Ok(pixels.to_vec()) };
+    let hole: Vec<bool> = cov.iter().map(|c| *c > 0.004).collect();
+    // the encoding: the area's 99th percentile at 1
+    let mut peak: Vec<f32> = pixels.iter().map(|p| p[0].max(p[1]).max(p[2])).filter(|v| v.is_finite()).collect();
+    let k = if peak.is_empty() {
+        1.0
+    } else {
+        let i = ((peak.len() - 1) as f32 * 0.99) as usize;
+        let (_, p99, _) = peak.select_nth_unstable_by(i, f32::total_cmp);
+        1.0 / p99.max(1e-6)
+    };
+    let img: Vec<f32> = pixels.iter().flat_map(|p| p.map(|v| if v.is_finite() { (v.max(0.0) * k).powf(1.0 / GAMMA) } else { 0.0 })).collect();
+    // fill a slightly larger domain than the blend's, so the blend's border carries filled values
+    // that differ from the surroundings: that mismatch is what the membrane corrects
+    let domain = dilate(w, h, &hole, 2);
+    let blend = dilate(w, h, &hole, 1);
+    let cancel = || ctl.cancelled();
+    let progress = |f: f32| ctl.set(0.1 + 0.8 * f, "Healing");
+    let interrupt = photocraft_raster::Interrupt::new(&cancel, &progress);
+    let params = CompleteParams { seed, ..CompleteParams::default() };
+    let filled = complete_with(w, h, 3, &img, &domain, &params, &interrupt)
+        .map_err(|_| super::CANCELLED.to_string())?
+        .unwrap_or_else(|| poisson::membrane_fill(w, h, 3, &img, &domain));
+    ctl.check()?;
+    // the seamless clone over the stroke's box (with a border of known pixels around it)
+    let r = inflate(hb, 2, w, h);
+    let (cw, ch) = (r.width(), r.height());
+    let crop = |src: &[f32]| -> Vec<f32> { (r.y0..r.y1).flat_map(|y| src[(y * w + r.x0) * 3..(y * w + r.x1) * 3].iter().copied()).collect() };
+    let mask: Vec<bool> = (r.y0..r.y1).flat_map(|y| blend[y * w + r.x0..y * w + r.x1].iter().copied()).collect();
+    let healed = poisson::seamless_clone(cw, ch, 3, &crop(&filled), &crop(&img), &mask);
+    let mut out = pixels.to_vec();
+    for y in 0..ch {
+        for x in 0..cw {
+            if mask[y * cw + x] {
+                let j = (y * cw + x) * 3;
+                out[(r.y0 + y) * w + r.x0 + x] = [0, 1, 2].map(|c| healed[j + c].max(0.0).powf(GAMMA) / k);
+            }
+        }
+    }
+    Ok(out)
+}
+
 fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
     let t = ((x - e0) / (e1 - e0).max(1e-6)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }
 
-/// Coverage (0..1) of a brushed or lassoed stroke on the `w × h` transformed image.
+/// Coverage (0..1) of a brushed and/or lassoed stroke on the `w × h` transformed image: the union
+/// of the lasso outline and the brush dabs. The outline is filled by the non-zero winding rule, so
+/// several lassos joined into one outline (each closed, consistently oriented, linked by a bridge
+/// walked there and back) cover their union.
 fn stroke_coverage(stroke: &AiStroke, frame: &lightcraft_pipeline::geometry::Frame, w: usize, h: usize) -> Vec<f32> {
     let to_out = frame.norm_to_out(w, h);
     let mut cov = vec![0.0f32; w * h];
@@ -243,23 +371,27 @@ fn stroke_coverage(stroke: &AiStroke, frame: &lightcraft_pipeline::geometry::Fra
         let (y0, y1) = poly.iter().fold((f64::MAX, f64::MIN), |(a, b), p| (a.min(p.y), b.max(p.y)));
         for y in (y0.floor().max(0.0) as usize)..(y1.ceil().max(0.0) as usize).min(h) {
             let py = y as f64 + 0.5;
-            // even-odd scanline fill
-            let mut xs: Vec<f64> = Vec::new();
+            // non-zero winding scanline fill: crossings with the edges' directions
+            let mut xs: Vec<(f64, i32)> = Vec::new();
             for i in 0..poly.len() {
                 let (a, b) = (poly[i], poly[(i + 1) % poly.len()]);
                 if (a.y <= py) != (b.y <= py) {
-                    xs.push(a.x + (py - a.y) / (b.y - a.y) * (b.x - a.x));
+                    xs.push((a.x + (py - a.y) / (b.y - a.y) * (b.x - a.x), if b.y > a.y { 1 } else { -1 }));
                 }
             }
-            xs.sort_by(f64::total_cmp);
-            for pair in xs.as_chunks::<2>().0 {
-                let (xa, xb) = ((pair[0] - 0.5).ceil().max(0.0) as usize, ((pair[1] - 0.5).floor() + 1.0).max(0.0) as usize);
+            xs.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let mut winding = 0;
+            for pair in xs.windows(2) {
+                winding += pair[0].1;
+                if winding == 0 {
+                    continue;
+                }
+                let (xa, xb) = ((pair[0].0 - 0.5).ceil().max(0.0) as usize, ((pair[1].0 - 0.5).floor() + 1.0).max(0.0) as usize);
                 for x in xa..xb.min(w) {
                     cov[y * w + x] = 1.0;
                 }
             }
         }
-        return cov;
     }
     let r = (stroke.size * frame.px_per_long(w)).max(1.0) as f32;
     let inner = r * (1.0 - (stroke.feather / 100.0).clamp(0.0, 1.0) as f32 * 0.8);
@@ -312,6 +444,11 @@ fn bbox(cov: &[f32], w: usize, h: usize) -> Option<PxBox> {
     (x1 > x0 && y1 > y0).then_some(PxBox { x0, y0, x1, y1 })
 }
 
+/// `b` grown by `m` on every side, within the image.
+fn inflate(b: PxBox, m: usize, w: usize, h: usize) -> PxBox {
+    PxBox { x0: b.x0.saturating_sub(m), y0: b.y0.saturating_sub(m), x1: (b.x1 + m).min(w), y1: (b.y1 + m).min(h) }
+}
+
 /// The area the AI sees around `b`: twice its size on every side, at least [`CONTEXT_MIN`],
 /// within the image.
 fn context(b: PxBox, w: usize, h: usize) -> PxBox {
@@ -343,6 +480,53 @@ mod tests {
         assert_eq!(bbox(&c, 200, 100), Some(PxBox { x0: 20, y0: 10, x1: 60, y1: 50 }));
         let ctx = context(PxBox { x0: 20, y0: 10, x1: 60, y1: 50 }, 200, 100);
         assert_eq!(ctx, PxBox { x0: 0, y0: 0, x1: 200, y1: 100 });
+    }
+
+    #[test]
+    fn joined_lassos_and_dabs_cover_their_union() {
+        let frame = lightcraft_pipeline::geometry::Frame::new(200, 100, &DevelopSettings::default(), false);
+        let sq = |x0: f64, y0: f64, x1: f64, y1: f64| vec![Point::new(x0, y0), Point::new(x1, y0), Point::new(x1, y1), Point::new(x0, y1)];
+        // two overlapping squares, the second wound the same way, joined by a bridge: A…, A0, B…, B0
+        let (a, b) = (sq(0.1, 0.1, 0.3, 0.5), sq(0.2, 0.3, 0.5, 0.8));
+        let mut poly = a.clone();
+        poly.push(a[0]);
+        poly.extend(b.iter().copied());
+        poly.push(b[0]);
+        let st = AiStroke { polygon: poly, ..stroke(vec![Point::new(0.9, 0.2)]) };
+        let c = stroke_coverage(&st, &frame, 200, 100);
+        for (x, y) in [(30, 20), (50, 40), (80, 70), (180, 20)] {
+            assert_eq!(c[y * 200 + x], 1.0, "({x}, {y}) is covered");
+        }
+        for (x, y) in [(90, 20), (30, 70), (150, 50)] {
+            assert_eq!(c[y * 200 + x], 0.0, "({x}, {y}) is not");
+        }
+        // a single lasso is filled whichever way it was drawn
+        let mut cw = sq(0.1, 0.1, 0.3, 0.5);
+        cw.reverse();
+        let c = stroke_coverage(&AiStroke { polygon: cw, ..stroke(vec![]) }, &frame, 200, 100);
+        assert_eq!(c[30 * 200 + 40], 1.0);
+    }
+
+    #[test]
+    fn local_heal_fills_from_the_surroundings() {
+        // vertical stripes with a dark blob in the middle
+        let (w, h) = (96usize, 96usize);
+        let px: Vec<[f32; 3]> = (0..w * h)
+            .map(|i| {
+                let (x, y) = (i % w, i / w);
+                let d = ((x as f32 - 48.0).powi(2) + (y as f32 - 48.0).powi(2)).sqrt();
+                if d < 6.0 { [0.01; 3] } else { [if (x / 3).is_multiple_of(2) { 0.2 } else { 0.4 }; 3] }
+            })
+            .collect();
+        let cov: Vec<f32> =
+            (0..w * h).map(|i| if ((i % w) as f32 - 48.0).powi(2) + ((i / w) as f32 - 48.0).powi(2) < 81.0 { 1.0 } else { 0.0 }).collect();
+        let out = heal(&px, w, h, &cov, 1, &JobCtl::default()).unwrap();
+        let centre: Vec<f32> = (44..52).flat_map(|y| (44..52).map(move |x| (x, y))).map(|(x, y)| out[y * w + x][1]).collect();
+        let mean = centre.iter().sum::<f32>() / centre.len() as f32;
+        assert!((mean - 0.3).abs() < 0.06, "the blob is gone: {mean}");
+        let spread = centre.iter().fold(0.0f32, |a, v| a.max(*v)) - centre.iter().fold(1.0f32, |a, v| a.min(*v));
+        assert!(spread > 0.1, "the stripes continue: {spread}");
+        assert_eq!(out[5 * w + 5], px[5 * w + 5], "untouched away from the stroke");
     }
 
     #[test]

@@ -21,7 +21,7 @@ fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
 }
 
 /// Parametric region curve (encoded domain) composed with the master point curve.
-pub(crate) fn curve_luts(c: &ToneCurve) -> Option<[Lut1; 3]> {
+pub(crate) fn curve_luts(c: &ToneCurve) -> Option<CurveTables> {
     let parametric = c.highlights != 0.0 || c.lights != 0.0 || c.darks != 0.0 || c.shadows != 0.0;
     let master = !ToneCurve::point_curve_is_identity(&c.master);
     let chans = [&c.red, &c.green, &c.blue].map(|p| !ToneCurve::point_curve_is_identity(p));
@@ -53,7 +53,87 @@ pub(crate) fn curve_luts(c: &ToneCurve) -> Option<[Lut1; 3]> {
         base = MonotoneCurve::new(&to_pts(&c.master)).to_lut(N).compose(&base);
     }
     let per = [&c.red, &c.green, &c.blue];
-    Some(std::array::from_fn(|i| if chans[i] { MonotoneCurve::new(&to_pts(per[i])).to_lut(N).compose(&base) } else { base.clone() }))
+    Some(CurveTables {
+        tables: std::array::from_fn(|i| {
+            if i == 0 {
+                base.clone()
+            } else if chans[i - 1] {
+                MonotoneCurve::new(&to_pts(per[i - 1])).to_lut(N)
+            } else {
+                Lut1::identity(N)
+            }
+        }),
+        luminance: c.mode == lightcraft_develop::CurveMode::Luminance,
+    })
+}
+
+/// Master/parametric table followed by three independent channel tables, in working RGB.
+pub struct CurveTables {
+    pub tables: [Lut1; 4],
+    pub luminance: bool,
+}
+
+impl CurveTables {
+    /// Linear Rec.2020 in/out. The master uses encoded luminance or encoded RGB; channel
+    /// curves follow it. Keeping this before the output conversion makes export spaces agree.
+    pub fn apply(&self, c: [f32; 3], refine: f32) -> [f32; 3] {
+        use lightcraft_color::transfer::srgb_to_linear;
+        let mut d = if self.luminance {
+            let y = luminance_2020(c).max(0.0);
+            let z = srgb_to_linear(self.tables[0].eval(linear_to_srgb(y)));
+            if y > 1e-9 { c.map(|x| x * z / y) } else { [z; 3] }
+        } else {
+            let e = c.map(linear_to_srgb);
+            let q = e.map(|x| self.tables[0].eval(x));
+            refine_saturation(e, q, refine).map(srgb_to_linear)
+        };
+        // Smooth hue-preserving path to white when a luminance lift exceeds the RGB cube.
+        let y = luminance_2020(d).clamp(0.0, 1.0);
+        let mx = d[0].max(d[1]).max(d[2]);
+        if mx > 1.0 {
+            let k = (1.0 - y) / (mx - y).max(1e-9);
+            d = d.map(|x| y + (x - y) * k);
+        }
+        std::array::from_fn(|i| srgb_to_linear(self.tables[i + 1].eval(linear_to_srgb(d[i].max(0.0)))))
+    }
+}
+
+/// Soft compression of channel distances from the achromatic axis (threshold 0.8,
+/// input distance 1.3 maps to 1.0, power 1.2), followed by final gamut containment.
+pub fn soft_gamut(r: [f32; 3]) -> [f32; 3] {
+    let a = r[0].max(r[1]).max(r[2]);
+    if a <= 1e-9 {
+        return r;
+    }
+    let threshold = 0.8f32;
+    let power = 1.2f32;
+    let scale = (1.3f32 - threshold) / (((1.0 - threshold) / (1.3 - threshold)).powf(-power) - 1.0).powf(1.0 / power);
+    r.map(|x| {
+        let distance = (a - x) / a;
+        if distance <= threshold {
+            x
+        } else {
+            let u = (distance - threshold) / scale;
+            let compressed = threshold + scale * u / (1.0 + u.powf(power)).powf(1.0 / power);
+            a * (1.0 - compressed)
+        }
+    })
+}
+
+/// Position-hashed TPDF noise shared with WGSL; exactly representable 16-bit fractions.
+pub const DITHER_HASH: [u32; 3] = [0x7feb_352d, 0x846c_a68b, 0x9e37_79b9];
+
+pub fn dither8(v: f32, x: usize, y: usize, _channel: usize) -> u8 {
+    let mut h = (x as u32).wrapping_mul(DITHER_HASH[2]) ^ (y as u32).wrapping_mul(DITHER_HASH[0]);
+    h ^= h >> 16;
+    h = h.wrapping_mul(DITHER_HASH[0]);
+    h ^= h >> 15;
+    h = h.wrapping_mul(DITHER_HASH[1]);
+    h ^= h >> 16;
+    let noise = (h & 65535) as f32 / 65536.0 - (h >> 16) as f32 / 65536.0;
+    let q = v.clamp(0.0, 1.0) * 255.0;
+    let fade = q.min(255.0 - q).clamp(0.0, 1.0);
+    (q + noise * fade + 0.5).clamp(0.0, 255.0) as u8
 }
 
 /// Vignette (post-crop) parameters.
@@ -94,16 +174,7 @@ pub(crate) fn grain(s: &DevelopSettings, px_per_long: f64) -> Option<(f32, f32, 
 
 /// The tone map for `s` on `info`'s source with these contrast / whites / blacks.
 pub(crate) fn tone_map(s: &DevelopSettings, info: &SourceInfo, contrast: f64, whites: f64, blacks: f64) -> ToneMap {
-    // a converted negative is already a print (display-referred): no camera / scene curve
-    if crate::negative::converts(s) {
-        ToneMap::display(contrast, whites, blacks)
-    } else if let Some(curve) = info.camera_tone.as_ref().filter(|_| info.raw) {
-        ToneMap::camera(curve, contrast, whites, blacks)
-    } else if info.raw {
-        ToneMap::new(contrast, whites, blacks)
-    } else {
-        ToneMap::display(contrast, whites, blacks)
-    }
+    crate::tone2::tone_map(s, info, contrast, whites, blacks)
 }
 
 /// Hash constants of [`grain_noise`] (shared with the GPU kernel).
@@ -180,9 +251,10 @@ pub struct FinishParams {
     pub calib: Option<[[f32; 3]; 3]>,
     pub shadow_tint: f32,
     /// Tone curves (parametric ∘ point, per channel) on encoded values, 1024 entries each.
-    pub curves: Option<[Lut1; 3]>,
+    pub curves: Option<CurveTables>,
     /// Refine Saturation as 0..1 (1 = the curves' own saturation).
     pub refine_sat: f32,
+    pub soft_gamut: bool,
     pub vig: Option<Vig>,
     /// Linear Rec.2020 → linear output RGB, the output's luminance weights (gamut mapping) and its
     /// encoding curve (see [`crate::output`]).
@@ -196,11 +268,17 @@ pub struct FinishParams {
     pub clar: f32,
     pub tex: f32,
     pub dehaze: f32,
-    pub sharpen: f32,
-    pub sharpen_mask: f32,
-    /// Airlight after and before exposure, exposure gain and EV (see [`crate::Prepared`]).
-    pub air: f32,
-    pub air_pre: f32,
+    /// Pixel-scale detail tools (see [`crate::detail`]): sharpening Amount / 100,
+    /// Detail and Masking (0..1), the sharpening planes' blur radius (output px), and the
+    /// dehaze airlight before exposure (the last two from the prepared planes, see
+    /// [`FinishParams::with_planes`]).
+    pub sharp_amount: f32,
+    pub sharp_detail: f32,
+    pub sharp_masking: f32,
+    pub sharp_sigma: f32,
+    pub haze_air: [f32; 3],
+    pub haze_distance: f32,
+    /// Exposure gain and EV (see [`crate::Prepared`]).
     pub gain: f32,
     pub ev: f32,
     /// Grain: amount, cell size (px), roughness, seed.
@@ -219,18 +297,9 @@ pub struct FinishParams {
 }
 
 impl FinishParams {
-    /// Parameters for a `w × h` render into `space`; `ev`/`air_pre` as in [`crate::Prepared`].
+    /// Parameters for a `w × h` render into `space`; `ev` as in [`crate::Prepared`].
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        s: &DevelopSettings,
-        frame: &Frame,
-        info: &SourceInfo,
-        w: usize,
-        h: usize,
-        px_per_long: f64,
-        air_pre: f32,
-        space: OutputSpace,
-    ) -> FinishParams {
+    pub fn new(s: &DevelopSettings, frame: &Frame, info: &SourceInfo, w: usize, h: usize, px_per_long: f64, space: OutputSpace) -> FinishParams {
         let effects = s.section_enabled("effects");
         let (clar, tex, dehaze) = if effects {
             ((s.effects.clarity / 100.0) as f32, (s.effects.texture / 100.0) as f32, (s.effects.dehaze / 100.0) as f32)
@@ -250,6 +319,7 @@ impl FinishParams {
             lut: crate::lut::get(&s.profile.id).map(|l| (l, (s.profile.amount / 100.0).clamp(0.0, 2.0) as f32)),
             ops: ColorOps::new(s),
             curves: curve_luts(&s.curve),
+            soft_gamut: info.raw,
             refine_sat: (s.curve.refine_saturation / 100.0).clamp(0.0, 1.0) as f32,
             vig: if effects { vignette(s) } else { None },
             to_out: space.from_working(),
@@ -261,10 +331,12 @@ impl FinishParams {
             clar,
             tex,
             dehaze,
-            sharpen: (s.detail.sharpen_amount / 150.0) as f32,
-            sharpen_mask: (s.detail.sharpen_masking / 100.0) as f32,
-            air: air_pre * gain,
-            air_pre,
+            sharp_amount: if s.section_enabled("detail") { (s.detail.sharpen_amount / 100.0).clamp(0.0, 1.5) as f32 } else { 0.0 },
+            sharp_detail: (s.detail.sharpen_detail / 100.0).clamp(0.0, 1.0) as f32,
+            sharp_masking: (s.detail.sharpen_masking / 100.0).clamp(0.0, 1.0) as f32,
+            sharp_sigma: 0.0,
+            haze_air: [1.0; 3],
+            haze_distance: 0.0,
             gain,
             ev,
             grain,
@@ -278,17 +350,28 @@ impl FinishParams {
     }
 }
 
+impl FinishParams {
+    /// The pixel-scale values that come with the planes: the sharpening radius (output px; 0
+    /// when the planes aren't there) and the dehaze airlight (before exposure).
+    pub fn with_planes(mut self, sharp_sigma: Option<f32>, haze: Option<([f32; 3], f32)>) -> FinishParams {
+        self.sharp_sigma = sharp_sigma.unwrap_or(0.0);
+        (self.haze_air, self.haze_distance) = haze.unwrap_or(([1.0; 3], 0.0));
+        self
+    }
+}
+
 pub(crate) fn finish(p: &Prepared, s: &DevelopSettings, frame: &Frame, info: &SourceInfo, space: OutputSpace, proof: Option<crate::Proof>) -> Rgba8 {
     let (w, h) = (p.img.width, p.img.height);
-    let mut fp = FinishParams::new(s, frame, info, w, h, p.px_per_long, p.air, space);
+    let mut fp = FinishParams::new(s, frame, info, w, h, p.px_per_long, space)
+        .with_planes(p.sharp.as_ref().map(|x| x.2), p.haze.as_ref().map(|x| (x.air, x.distance)));
     fp.proof = proof.map(|pr| pr.params(space));
     let trc = fp.out_trc;
-    let data = finish_with(p, &fp, false, |e| match trc {
-        OutputTrc::Srgb => [enc(e[0]), enc(e[1]), enc(e[2]), 255],
-        t => {
-            let x = e.map(|v| enc(t.encode(lightcraft_color::transfer::srgb_to_linear(v.clamp(0.0, 1.0)))));
-            [x[0], x[1], x[2], 255]
-        }
+    let data = finish_with(p, &fp, false, |e, x, y| {
+        let e = match trc {
+            OutputTrc::Srgb => e,
+            t => e.map(|v| t.encode(lightcraft_color::transfer::srgb_to_linear(v.clamp(0.0, 1.0)))),
+        };
+        [dither8(e[0], x, y, 0), dither8(e[1], x, y, 1), dither8(e[2], x, y, 2), 255]
     });
     Rgba8 { width: w, height: h, data }
 }
@@ -306,17 +389,18 @@ pub(crate) fn finish_deep(
 ) -> DeepImage {
     use lightcraft_color::transfer::srgb_to_linear;
     let (w, h) = (p.img.width, p.img.height);
-    let mut fp = FinishParams::new(s, frame, info, w, h, p.px_per_long, p.air, space);
+    let mut fp = FinishParams::new(s, frame, info, w, h, p.px_per_long, space)
+        .with_planes(p.sharp.as_ref().map(|x| x.2), p.haze.as_ref().map(|x| (x.air, x.distance)));
     fp.proof = proof.map(|pr| pr.params(space));
     let trc = fp.out_trc;
     let samples = match depth {
         OutputDepth::F32Linear => {
-            let v = finish_with(p, &fp, true, |e| e.map(|v| srgb_to_linear(v.clamp(0.0, 1.0))));
+            let v = finish_with(p, &fp, true, |e, _, _| e.map(|v| srgb_to_linear(v.clamp(0.0, 1.0))));
             DeepSamples::F32(v.into_flattened())
         }
         _ => {
             let q = |v: f32| (v.clamp(0.0, 1.0) * 65535.0 + 0.5) as u16;
-            let v = finish_with(p, &fp, true, |e| match trc {
+            let v = finish_with(p, &fp, true, |e, _, _| match trc {
                 OutputTrc::Srgb => e.map(q),
                 t => e.map(|v| q(t.encode(srgb_to_linear(v.clamp(0.0, 1.0))))),
             });
@@ -333,37 +417,19 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
     p: &Prepared,
     fp: &FinishParams,
     exact: bool,
-    store: impl Fn([f32; 3]) -> T + Sync + Send,
+    store: impl Fn([f32; 3], usize, usize) -> T + Sync + Send,
 ) -> Vec<T> {
     let (w, h) = (p.img.width, p.img.height);
     let p_lut = fp.lut.clone();
-    let FinishParams {
-        tone,
-        ops,
-        curves,
-        vig,
-        to_out,
-        out_luma,
-        hl,
-        sh,
-        clar,
-        tex,
-        dehaze,
-        sharpen,
-        sharpen_mask,
-        air,
-        air_pre,
-        gain,
-        ev,
-        grain,
-        ..
-    } = fp;
-    let (hl, sh, clar, tex, dehaze, sharpen, sharpen_mask, air, air_pre, gain, ev) =
-        (*hl, *sh, *clar, *tex, *dehaze, *sharpen, *sharpen_mask, *air, *air_pre, *gain, *ev);
+    let FinishParams { tone, ops, curves, vig, to_out, out_luma, hl, sh, clar, tex, dehaze, gain, ev, grain, .. } = fp;
+    let (hl, sh, clar, tex, dehaze, gain, ev) = (*hl, *sh, *clar, *tex, *dehaze, *gain, *ev);
     let terms: Vec<[f32; MASK_TERMS]> = p.masks.iter().map(|m| mask_terms(&m.adjust)).collect();
     let out_to_norm = fp.out_to_norm;
     let long = fp.ow.max(fp.oh);
     let aspect = w as f32 / h as f32;
+    // pixel-scale (see `crate::detail`)
+    let sharp_k = crate::detail::SharpK::new(fp.sharp_detail, fp.sharp_masking, fp.sharp_sigma);
+    let haze_air = fp.haze_air.map(|v| v * gain);
 
     let srgb = srgb_lut();
     let mut out = vec![T::default(); w * h];
@@ -423,9 +489,9 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
             // --- dehaze (scene linear)
             let dz = dehaze + l_dehaze;
             if dz != 0.0
-                && let Some(dark) = &p.dark
+                && let Some(hz) = &p.haze
             {
-                c = dehaze_px(c, dz, dark.data[i], air_pre, air);
+                c = crate::detail::dehaze_px(c, dz, hz.at(i, dz), haze_air, fp.haze_distance);
             }
             // layers: their dehaze, then (below) their white balance and exposure
             let mut layer_scene = false;
@@ -436,9 +502,9 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
                 }
                 layer_scene = true;
                 if l.dehaze != 0.0
-                    && let Some(dark) = &p.dark
+                    && let Some(hz) = &p.haze
                 {
-                    c = mix3(c, dehaze_px(c, l.dehaze, dark.data[i], air_pre, air), a);
+                    c = mix3(c, crate::detail::dehaze_px(c, l.dehaze, hz.at(i, l.dehaze), haze_air, fp.haze_distance), a);
                 }
             }
 
@@ -509,17 +575,19 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
                 delta += cl * 0.85 * det * (0.35 + 0.65 * mid);
             }
             let tx = tex + l_tex;
-            let sp = l_sharp * 0.6 + sharpen;
-            if (tx != 0.0 || sp != 0.0)
+            if tx != 0.0
                 && let Some(b) = &p.texture_blur
             {
                 let det = l_pre - b.data[i];
                 let tame = 1.0 - 0.6 * smooth(0.4, 1.6, det.abs());
                 delta += tx * 1.1 * det.clamp(-1.0, 1.0) * tame;
-                if sp != 0.0 {
-                    let m = if sharpen_mask > 0.0 { smooth(sharpen_mask * 0.25, sharpen_mask * 0.25 + 0.15, det.abs()) } else { 1.0 };
-                    delta += sp * 1.3 * det.clamp(-0.8, 0.8) * m;
-                }
+            }
+            // pixel-scale sharpening: pixel-scale, on its own planes (local Sharpness too)
+            let sharp_amount = fp.sharp_amount + l_sharp * 0.9;
+            if sharp_amount != 0.0
+                && let Some((b1, b2, _)) = &p.sharp
+            {
+                delta += crate::detail::sharpen_at(sharp_amount, &sharp_k, &p.log_l.data, &b1.data, &b2.data, w, h, x, y);
             }
             // local Noise: smooth (or, negative, boost) small-amplitude detail, keep edges
             if l_noise != 0.0
@@ -538,7 +606,15 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
                 if a <= 0.0 {
                     continue;
                 }
-                let dl = layer_tone_delta(lt, base, l_pre, p.clarity_blur.as_ref().map(|b| b.data[i]), p.texture_blur.as_ref().map(|b| b.data[i]));
+                let mut dl =
+                    layer_tone_delta(lt, base, l_pre, p.clarity_blur.as_ref().map(|b| b.data[i]), p.texture_blur.as_ref().map(|b| b.data[i]));
+                if lt.sharp_amount != 0.0
+                    && let Some((_, b1, b2, sg)) = p.layer_sharp.iter().find(|(mask, _, _, _)| *mask == l.mask)
+                {
+                    let k = crate::detail::SharpK::new(lt.sharpen_detail, lt.sharpen_mask, *sg);
+                    dl += crate::detail::sharpen_at(lt.sharp_amount, &k, &p.log_l.data, &b1.data, &b2.data, w, h, x, y);
+                }
+
                 if dl != 0.0 {
                     let g = dl.exp2();
                     c = mix3(c, c.map(|v| v * g), a);
@@ -589,20 +665,36 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
                 }
             }
 
+            if let Some(l) = curves {
+                d = l.apply(d, fp.refine_sat);
+            }
+            for l in &fp.layers {
+                if let Some((lut, refine)) = &l.curves {
+                    let a = p.masks[l.mask].alpha.data[i];
+                    if a > 0.0 {
+                        d = mix3(d, lut.apply(d, *refine), a);
+                    }
+                }
+            }
+
             // --- gamut map to the output space (desaturate towards luminance until in range);
             // soft proofing maps into the proof space first and shows that in the output space
             let mut warn = None;
             let mut r = match &fp.proof {
                 Some(pp) => {
                     let q0 = mul3(&pp.to_proof, d);
-                    let (q, t) = gamut_map(q0, pp.luma);
+                    let (_, t) = gamut_map(q0, pp.luma);
+                    let q = gamut_map(if fp.soft_gamut { soft_gamut(q0) } else { q0 }, pp.luma).0;
                     if pp.dest_warning && out_of_gamut(q0, t) {
                         warn = Some(crate::output::PROOF_DEST_WARNING);
                     }
-                    mul3(&pp.proof_to_out, q)
+                    if pp.to_proof == *to_out { q } else { mul3(&pp.proof_to_out, q) }
                 }
                 None => mul3(to_out, d),
             };
+            if fp.soft_gamut && fp.proof.is_none() {
+                r = soft_gamut(r);
+            }
             let (mapped, t) = gamut_map(r, *out_luma);
             if fp.proof.is_some_and(|pp| pp.display_warning) && warn.is_none() && out_of_gamut(r, t) {
                 warn = Some(crate::output::PROOF_DISPLAY_WARNING);
@@ -611,25 +703,6 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
 
             // --- encode, curves, grain
             let mut e = if exact { r.map(|v| linear_to_srgb(v.clamp(0.0, 1.0))) } else { r.map(|v| encode_srgb(srgb, v)) };
-            if let Some(l) = curves {
-                let e0 = e;
-                e = [l[0].eval(e[0]), l[1].eval(e[1]), l[2].eval(e[2])];
-                if fp.refine_sat < 1.0 {
-                    e = refine_saturation(e0, e, fp.refine_sat);
-                }
-            }
-            for l in &fp.layers {
-                if let Some((lut, refine)) = &l.curves {
-                    let a = p.masks[l.mask].alpha.data[i];
-                    if a > 0.0 {
-                        let mut q = [lut[0].eval(e[0]), lut[1].eval(e[1]), lut[2].eval(e[2])];
-                        if *refine < 1.0 {
-                            q = refine_saturation(e, q, *refine);
-                        }
-                        e = mix3(e, q, a);
-                    }
-                }
-            }
             let n_at = || out_to_norm.apply(Point::new(x as f64 + 0.5, y as f64 + 0.5));
             if let Some(g) = *grain {
                 e = grain_px(e, g, n_at(), fp, long);
@@ -649,7 +722,7 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
                 }
                 None => e,
             };
-            *px = store(warn.unwrap_or(e));
+            *px = store(warn.unwrap_or(e), x, y);
         }
     });
     out
@@ -657,37 +730,11 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
 
 use crate::layers::mix3;
 
-/// Dehaze of scene-linear `c` by `dz` (−1..1) with dark channel `dark` (before exposure),
-/// airlight before / after exposure.
-#[inline]
-fn dehaze_px(c: [f32; 3], dz: f32, dark: f32, air_pre: f32, air: f32) -> [f32; 3] {
-    let d = (dark / air_pre).clamp(0.0, 1.0);
-    if dz > 0.0 {
-        let t = (1.0 - 0.95 * dz.min(1.0) * d).max(0.12);
-        c.map(|v| ((v - air * (1.0 - t)) / t).max(0.0))
-    } else {
-        let k = (-dz).min(1.0) * 0.7 * (0.35 + 0.65 * d);
-        c.map(|v| v + (air * 0.9 - v) * k)
-    }
-}
-
 /// The tone map on scene-linear `c`'s luminance, then the curve's chroma scale and highlight
 /// desaturation (display linear).
 #[inline]
 fn tone_px(tone: &ToneMap, c: [f32; 3]) -> [f32; 3] {
-    let yl = luminance_2020(c);
-    let o = tone.apply(yl);
-    let mut d = if yl > 1e-9 { c.map(|v| v * o / yl) } else { [0.0; 3] };
-    let k = tone.chroma_scale(o);
-    if k != 1.0 {
-        d = d.map(|v| o + (v - o) * k);
-    }
-    let mx = d[0].max(d[1]).max(d[2]);
-    if mx > 1.0 {
-        let t = ((mx - 1.0) / (mx - o).max(1e-6)).clamp(0.0, 1.0);
-        d = d.map(|v| v + (o - v) * t);
-    }
-    d
+    crate::tone2::tone_px(tone, &tone.method(), c)
 }
 
 /// The post-crop vignette at output pixel (x, y) of a `w × h` render on display-linear `d`.
@@ -749,16 +796,12 @@ fn layer_tone_delta(t: &crate::layers::LocalTone, base: f32, l_pre: f32, clar_b:
         let mid = (-(base / 3.2).powi(2)).exp();
         delta += t.clar * 0.85 * det * (0.35 + 0.65 * mid);
     }
-    if (t.tex != 0.0 || t.sharpen != 0.0)
+    if t.tex != 0.0
         && let Some(b) = tex_b
     {
         let det = l_pre - b;
         let tame = 1.0 - 0.6 * smooth(0.4, 1.6, det.abs());
         delta += t.tex * 1.1 * det.clamp(-1.0, 1.0) * tame;
-        if t.sharpen != 0.0 {
-            let m = if t.sharpen_mask > 0.0 { smooth(t.sharpen_mask * 0.25, t.sharpen_mask * 0.25 + 0.15, det.abs()) } else { 1.0 };
-            delta += t.sharpen * 1.3 * det.clamp(-0.8, 0.8) * m;
-        }
     }
     delta
 }
@@ -851,12 +894,6 @@ fn encode_srgb(lut: &[f32; SRGB_LUT_N + 1], v: f32) -> f32 {
     lut[i] + (lut[i + 1] - lut[i]) * t
 }
 
-#[inline]
-fn enc(v: f32) -> u8 {
-    // `v` is already sRGB-encoded; round to 8 bits.
-    (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -888,5 +925,139 @@ mod tests {
         assert!(worst < 2e-5, "{worst}");
         assert_eq!(encode_srgb(lut, -1.0), 0.0);
         assert!((encode_srgb(lut, 2.0) - 1.0).abs() < 1e-6);
+    }
+}
+
+#[cfg(test)]
+mod colour_tone_tests {
+    use super::*;
+
+    #[test]
+    fn dehaze_unit_transmission_preserves_negative_scene_channels() {
+        // Sky's blurred alpha can have tiny signed residues outside its support. Once
+        // transmission rounds to 1, dehaze must be an identity even on negative
+        // resampling/profile channels, which the tone stage desaturates later.
+        for c in [[-0.004_114_710_3, 0.001_321_920_3, 0.004_300_609_7], [-0.1, 0.2, 0.3], [1.0, -0.2, 0.1]] {
+            for dz in [0.0, f32::MIN_POSITIVE, 1e-14, 1e-8, f32::EPSILON / 4.0] {
+                assert_eq!(crate::detail::dehaze_px(c, dz, 1.0, [1.0; 3], 1.0), c, "{c:?}, strength {dz}");
+            }
+            assert_eq!(crate::detail::dehaze_px(c, 0.4, 0.0, [1.0; 3], 1.0), c);
+        }
+        // Actual veil removal still follows the existing dehaze formula.
+        let c = [-0.1, 0.2, 0.3];
+        let t = 1.0 - 0.4 * 0.5;
+        assert_eq!(crate::detail::dehaze_px(c, 0.4, 0.5, [1.0; 3], 1.0), c.map(|v| (v - 1.0) / t + 1.0));
+    }
+
+    #[test]
+    fn cpu_shape_roundoff_does_not_clip_unselected_scene_channels() {
+        use lightcraft_develop::{LocalAdjustments, Mask, MaskComponent, MaskOp, MaskShape};
+        use std::sync::Arc;
+
+        // The resampled scene and masked adjustments from GPU equivalence's
+        // "masks (cpu shapes, ops, amount)" failure. A small log-luminance change
+        // models CPU/GPU rounding before the CPU-evaluated Sky/Background shapes.
+        let src = lightcraft_scenes::demo_library()[0].render(960, 640);
+        let info = SourceInfo { raw: true, ..Default::default() };
+        let s = DevelopSettings {
+            masks: vec![
+                Mask {
+                    components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape: MaskShape::Sky { seg: None } }],
+                    adjust: LocalAdjustments { exposure: -0.5, dehaze: 40.0, amount: 70.0, ..Default::default() },
+                    ..Default::default()
+                },
+                Mask {
+                    components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: true, shape: MaskShape::Background { seg: None } }],
+                    adjust: LocalAdjustments { saturation: -60.0, ..Default::default() },
+                    invert: true,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let req = crate::RenderRequest::fit(720, 720);
+        let plan = crate::plan(&src, &info, &s, &req);
+        let img = Arc::new(plan.frame.sample(&src, plan.w, plan.h));
+        assert!(img.data.iter().any(|c| c.iter().any(|v| *v < 0.0)), "fixture must include negative resampling channels");
+        let mut prep = crate::local::prepare(
+            img.clone(),
+            &s,
+            &info,
+            &plan.frame,
+            plan.px_per_long,
+            plan.src_long,
+            req.quality,
+            &mut crate::local::Planes::default(),
+        );
+        let reference = finish(&prep, &s, &plan.frame, &info, req.space, None);
+        let alpha = prep.masks[0].alpha.clone();
+        for delta in [-1e-6, 1e-6] {
+            let log_l = prep.log_l.map(|v| v + delta);
+            prep.masks = crate::masks::evaluate(&s.masks, &plan.frame, plan.w, plan.h, &img, &log_l, 0.0);
+            assert!(
+                alpha
+                    .data
+                    .iter()
+                    .zip(&prep.masks[0].alpha.data)
+                    .zip(&img.data)
+                    .any(|((a, b), c)| { (*a > 0.0) != (*b > 0.0) && a.abs().max(b.abs()) < 1e-8 && c.iter().any(|v| *v < 0.0) }),
+                "fixture must flip tiny alpha residues on negative scene colours"
+            );
+            let actual = finish(&prep, &s, &plan.frame, &info, req.space, None);
+            let max = reference.data.iter().zip(&actual.data).flat_map(|(a, b)| (0..3).map(move |k| a[k].abs_diff(b[k]))).max().unwrap();
+            assert!(max <= 1, "mask log-luminance perturbation {delta}: {max} LSB");
+        }
+    }
+
+    #[test]
+    fn dither_is_deterministic_neutral_unbiased_and_keeps_endpoints() {
+        let mut sum = 0u64;
+        let mut lo = 255u8;
+        let mut hi = 0u8;
+        for y in 0..128 {
+            for x in 0..128 {
+                assert_eq!(dither8(0., x, y, 0), 0);
+                assert_eq!(dither8(1., x, y, 0), 255);
+                let v = dither8(0.501, x, y, 0);
+                assert_eq!(v, dither8(0.501, x, y, 1));
+                assert_eq!(v, dither8(0.501, x, y, 2));
+                assert_eq!(v, dither8(0.501, x, y, 0));
+                sum += u64::from(v);
+                lo = lo.min(v);
+                hi = hi.max(v);
+            }
+        }
+        assert!((sum as f64 / 16384. - 0.501 * 255.).abs() < 0.02);
+        assert!(hi > lo && hi - lo <= 2, "TPDF quantization support: {lo}..{hi}");
+    }
+    #[test]
+    fn soft_gamut_is_identity_interior_monotone_and_continuous() {
+        assert_eq!(soft_gamut([0.3; 3]), [0.3; 3]);
+        assert_eq!(soft_gamut([0.5, 0.2, 0.3]), [0.5, 0.2, 0.3]);
+        let mut previous = 1.0f32;
+        for i in 0..3000 {
+            let d = i as f32 / 1000.;
+            let mapped = soft_gamut([1., 1. - d, 0.8]);
+            assert!(mapped.iter().all(|v| v.is_finite()));
+            assert!(mapped[1] <= previous + 1e-6);
+            assert!((mapped[1] - previous).abs() < 0.0011);
+            previous = mapped[1];
+        }
+        let e = 1e-5;
+        assert!((soft_gamut([1., 0.2 - e, 0.8])[1] - soft_gamut([1., 0.2 + e, 0.8])[1]).abs() < 3e-5);
+    }
+    #[test]
+    fn luminance_master_keeps_channel_ratios_and_rgb_mode_refines_saturation() {
+        use lightcraft_geom::Point;
+        let mut curve = ToneCurve { master: vec![Point::new(0., 0.), Point::new(0.4, 0.5), Point::new(1., 1.)], ..Default::default() };
+        let c = [0.16, 0.08, 0.04];
+        let t = curve_luts(&curve).unwrap();
+        let a = t.apply(c, 1.);
+        assert!((a[0] / a[1] - c[0] / c[1]).abs() < 1e-5);
+        assert!((a[1] / a[2] - c[1] / c[2]).abs() < 1e-5);
+        assert_eq!(t.apply(c, 0.), a, "luminance curve already preserves chroma");
+        curve.mode = lightcraft_develop::CurveMode::Rgb;
+        let t = curve_luts(&curve).unwrap();
+        assert_ne!(t.apply(c, 0.), t.apply(c, 1.));
     }
 }

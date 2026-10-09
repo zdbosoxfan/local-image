@@ -78,3 +78,77 @@ fn box_v(@builtin(global_invocation_id) g: vec3<u32>) {
         acc = acc + ld(u32(min(i32(y) + r + 1, last)) * w + x, nc) - ld(u32(max(i32(y) - r, 0)) * w + x, nc);
     }
 }
+
+// Pixel-scale Gaussian, host supplies one-sided taps after w,h,nc,r.
+@compute @workgroup_size(16,16)
+fn conv_h(@builtin(global_invocation_id) g:vec3<u32>) {
+    let w=pu(0u); let h=pu(1u); let nc=pu(2u); let r=pu(3u);
+    if(g.x>=w || g.y>=h) {return;}
+    for(var c=0u;c<nc;c++) {
+        var v=src[(g.y*w+g.x)*nc+c]*pf(4u);
+        for(var k=1u;k<=r;k++) {
+            let lo=u32(max(i32(g.x)-i32(k),0)); let hi=min(g.x+k,w-1u);
+            v=v+src[(g.y*w+lo)*nc+c]*pf(4u+k);
+            v=v+src[(g.y*w+hi)*nc+c]*pf(4u+k);
+        }
+        dst[(g.y*w+g.x)*nc+c]=v;
+    }
+}
+@compute @workgroup_size(16,16)
+fn conv_v(@builtin(global_invocation_id) g:vec3<u32>) {
+    let w=pu(0u); let h=pu(1u); let nc=pu(2u); let r=pu(3u);
+    if(g.x>=w || g.y>=h) {return;}
+    for(var c=0u;c<nc;c++) {
+        var v=src[(g.y*w+g.x)*nc+c]*pf(4u);
+        for(var k=1u;k<=r;k++) {
+            let lo=u32(max(i32(g.y)-i32(k),0)); let hi=min(g.y+k,h-1u);
+            v=v+src[(lo*w+g.x)*nc+c]*pf(4u+k);
+            v=v+src[(hi*w+g.x)*nc+c]*pf(4u+k);
+        }
+        dst[(g.y*w+g.x)*nc+c]=v;
+    }
+}
+
+// Cropped-window extrema, w,h,r,max(0=min,1=max),vertical.
+@compute @workgroup_size(16,16)
+fn extrema(@builtin(global_invocation_id) g:vec3<u32>) {
+    let w=pu(0u); let h=pu(1u); let r=i32(pu(2u));
+    if(g.x>=w || g.y>=h) {return;}
+    var v=src[g.y*w+g.x];
+    for(var k=-r;k<=r;k++) {
+        var x=i32(g.x);var y=i32(g.y);
+        if(pu(4u)==0u) {x=clamp(x+k,0,i32(w)-1);} else {y=clamp(y+k,0,i32(h)-1);}
+        let q=src[u32(y)*w+u32(x)];
+        if(pu(3u)==0u) {v=min(v,q);} else {v=max(v,q);}
+    }
+    dst[g.y*w+g.x]=v;
+}
+
+// darktable box mean: cropped window, Kahan sum, arbitrary interleaved channel count.
+// One thread owns an entire row/column, preserving CPU's summation order.
+// P: w,h,nc,r,vertical. Host uses groups1(lines*nc).
+@compute @workgroup_size(256)
+fn mean_box(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {
+    let index=lin_index(g,nw);let w=pu(0u);let h=pu(1u);let nc=pu(2u);let r=pu(3u);
+    let vertical=pu(4u)!=0u;
+    let lines=select(h,w,vertical);let len=select(w,h,vertical);
+    if(index>=lines*nc) {return;}
+    let line=index/nc;let c=index%nc;var sum=0.0;var err=0.0;
+    for(var k=0u;k<=min(r,len-1u);k++) {
+        let pos=select(line*w+k,k*w+line,vertical)*nc+c;
+        let y=src[pos]-err;let t=sum+y;err=(t-sum)-y;sum=t;
+    }
+    for(var k=0u;k<len;k++) {
+        let lo=u32(max(i32(k)-i32(r),0));let hi=min(k+r,len-1u);
+        let pos=select(line*w+k,k*w+line,vertical)*nc+c;
+        dst[pos]=sum/f32(hi-lo+1u);
+        if(k>=r) {
+            let sub=select(line*w+k-r,(k-r)*w+line,vertical)*nc+c;
+            let y=-src[sub]-err;let t=sum+y;err=(t-sum)-y;sum=t;
+        }
+        if(k+r+1u<len) {
+            let add=select(line*w+k+r+1u,(k+r+1u)*w+line,vertical)*nc+c;
+            let y=src[add]-err;let t=sum+y;err=(t-sum)-y;sum=t;
+        }
+    }
+}

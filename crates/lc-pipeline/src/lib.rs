@@ -23,11 +23,15 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+#[cfg(test)]
+mod test_vectors;
+
 pub mod auto;
 pub mod capture;
 pub mod colorcal;
 pub mod colorops;
 pub mod cull;
+pub mod detail;
 pub mod dust;
 pub mod finish;
 pub mod geometry;
@@ -44,6 +48,7 @@ pub mod profiles;
 pub mod redeye;
 pub mod spots;
 pub mod tone;
+pub mod tone2;
 pub mod toneeq;
 pub mod transform;
 pub mod upright;
@@ -62,7 +67,8 @@ use lightcraft_raster::{Histogram, Plane, Rgb32f, Rgba8, par_rows};
 pub use tone::ToneMap;
 
 /// Facts about the source the settings are interpreted against.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct SourceInfo {
     /// Lens corrections embedded in the file (DNG opcodes), relative to the EXIF-oriented source.
     pub lens: Option<lightcraft_develop::EmbeddedLens>,
@@ -73,9 +79,15 @@ pub struct SourceInfo {
     pub as_shot_tint: f64,
     /// No measured camera illuminant: WB adjustments are relative to the camera's rendered look.
     pub relative_wb: bool,
+    pub camera_color: Option<lightcraft_color::camera::CameraWhite>,
+    /// DNG/DCP tables evaluated after WB for the chosen illuminant (CPU stage inside GPU renders).
+    pub camera_profile: Option<Arc<lightcraft_color::profile::ProfileLook>>,
+    /// Baseline exposure already present in the decoded source, undone before the base table.
+    pub baseline_gain: f32,
     pub camera_tone: Option<tone::CameraTone>,
     /// The lens database's correction for the photo's lens (set by the engine when the settings
     /// ask for it; relative to the EXIF-oriented source).
+    #[serde(skip)]
     pub lens_db: Option<lensdb::LensCorrection>,
     /// Sensor pixels per source pixel (a binned or downscaled raw preview is > 1), for tools
     /// sized in sensor pixels (capture sharpening).
@@ -84,6 +96,12 @@ pub struct SourceInfo {
     pub capture_radius: Option<f32>,
     /// Capture sharpening's contrast threshold for this sensor and ISO (0..1).
     pub capture_threshold: f32,
+    /// Camera look: the camera's own curve (fitted to the embedded JPEG, else the
+    /// maker's base curve). Set by raw decodes.
+    pub look_curve: Option<tone::CameraTone>,
+    /// A DNG profile's tone curve (`ProfileToneCurve`), available as a Camera fallback.
+    /// Soft Film always keeps its own curve. Set by raw decodes.
+    pub profile_curve: Option<tone::CameraTone>,
 }
 
 impl Default for SourceInfo {
@@ -94,11 +112,16 @@ impl Default for SourceInfo {
             as_shot_tint: 0.0,
             lens: None,
             relative_wb: false,
+            camera_color: None,
+            camera_profile: None,
+            baseline_gain: 1.0,
             camera_tone: None,
             lens_db: None,
             sensor_scale: 1.0,
             capture_radius: None,
             capture_threshold: 0.4,
+            look_curve: None,
+            profile_curve: None,
         }
     }
 }
@@ -164,11 +187,8 @@ pub(crate) struct Prepared {
     pub base: Arc<Plane>,
     pub clarity_blur: Option<Arc<Plane>>,
     pub texture_blur: Option<Arc<Plane>>,
-    pub dark: Option<Arc<Plane>>,
     /// Blurred chromaticity (`rgb / Y`) for local Moiré / Noise.
     pub chroma_blur: Option<Arc<Rgb32f>>,
-    /// Airlight of `dark` (before exposure).
-    pub air: f32,
     pub masks: Vec<masks::Evaluated>,
     /// Develop layers' noise reduction: (evaluated mask index, the image denoised again with the
     /// layer's settings), see [`layers`].
@@ -177,6 +197,11 @@ pub(crate) struct Prepared {
     pub px_per_long: f64,
     /// The tone equalizer's mask (see [`toneeq`]) when the tool is on.
     pub tone_eq: Option<Arc<Plane>>,
+    /// sharpening: `log_l` blurred once and twice, and the blur radius (output px).
+    pub sharp: Option<(Arc<Plane>, Arc<Plane>, f32)>,
+    pub layer_sharp: Vec<(usize, Arc<Plane>, Arc<Plane>, f32)>,
+    /// dehaze: the refined dark channel and the airlight (before exposure).
+    pub haze: Option<Arc<detail::Haze>>,
 }
 
 /// Output size for a source of `src_w × src_h` under `s`, fitting `max_w × max_h`.
@@ -270,8 +295,14 @@ impl StageCache {
             }
             let pl = &e.planes;
             let planes = pl.log_l.iter().chain(pl.base.iter().map(|x| &x.1)).chain(pl.clarity.iter().map(|x| &x.1));
-            for p in planes.chain(pl.texture.iter().map(|x| &x.1)).chain(pl.dark.iter().map(|x| &x.1)) {
+            for p in planes.chain(pl.texture.iter().map(|x| &x.1)) {
                 add(Arc::as_ptr(p) as usize, size(p));
+            }
+            for p in pl.sharp.iter().flat_map(|x| [&x.1, &x.2]).chain(pl.layer_sharp.iter().flat_map(|x| [&x.1, &x.2])) {
+                add(Arc::as_ptr(p) as usize, size(p));
+            }
+            if let Some(h) = &pl.haze {
+                add(Arc::as_ptr(h) as usize, (h.positive.data.len() + h.negative.data.len()) * 4);
             }
             for (_, l) in &pl.layer_nr {
                 add(Arc::as_ptr(l) as usize, size(l));
@@ -370,10 +401,13 @@ pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &R
         // the negative conversion runs in this stage (only while it is on: its sliders change
         // nothing while it is off)
         format!("{:?}", negative::params(s)),
-        [d.nr_luminance, d.nr_detail, d.nr_color, d.nr_color_detail, d.nr_color_smoothness].map(f64::to_bits),
-        src_long,
+        [d.nr_luminance, d.nr_detail, d.nr_color, d.nr_color_detail, d.nr_color_smoothness, d.nr_contrast].map(f64::to_bits),
+        (src_long, s.section_enabled("detail")),
         // colour calibration runs with the white balance
         format!("{:?}", colorcal::of(info, s)),
+        format!("{:?}", info.camera_color),
+        info.camera_profile.as_ref().map(|p| p.hash64()),
+        (info.baseline_gain.to_bits(), info.sensor_scale.to_bits()),
     ));
     Plan { settings, frame, w, h, px_per_long, src_long, geo, lin_key, eyes }
 }
@@ -529,7 +563,7 @@ fn render_impl(src: Src<'_>, info: &SourceInfo, s: &DevelopSettings, req: &Rende
             // Without a cache the resampled buffer is ours: work on it in place.
             let mut img = if shared.is_some() { (*sampled).clone() } else { Arc::unwrap_or_clone(sampled.clone()) };
             lin_cpu(&mut img, info, &plan);
-            local::denoise(&mut img, s, src_long, w.max(h));
+            local::denoise(&mut img, s, src_long, px_per_long, info.sensor_scale);
             Arc::new(img)
         }
     };
@@ -591,6 +625,14 @@ pub fn color_range_sample(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, 
 /// The alpha plane a mask overlay shows: the one the render evaluated, or (for a hidden mask) a
 /// fresh evaluation.
 fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared) -> Option<Plane> {
+    if o == Overlay::SharpenMask {
+        // At very small preview scales the Gaussian is effectively identity, but
+        // Alt Masking still shows the edge mask rather than the photograph.
+        let (b2, sigma) = prep.sharp.as_ref().map_or((&prep.log_l, 0.0), |(_, b2, sg)| (b2, *sg));
+        let k = detail::SharpK::new(0.0, (plan.settings.detail.sharpen_masking / 100.0) as f32, sigma);
+        return Some(detail::sharp_mask_plane(b2, &k));
+    }
+
     if o == Overlay::ToneEqMask {
         let m = prep.tone_eq.as_ref()?;
         let t = &plan.settings.tone_eq;
@@ -609,7 +651,8 @@ fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared) -> Option<Plane> 
 /// Convenience: render a before/after pair side by side is up to the UI; this renders "before"
 /// (default look, keeping the crop so framing matches).
 pub fn before_settings(s: &DevelopSettings) -> DevelopSettings {
-    let mut b = DevelopSettings { crop: s.crop, orientation: s.orientation, ..DevelopSettings::default() };
+    // (the photo's look: "before" is its unedited rendition)
+    let mut b = DevelopSettings { crop: s.crop, orientation: s.orientation, look: s.look, ..DevelopSettings::default() };
     b.wb = lightcraft_develop::WhiteBalance { mode: lightcraft_develop::WbMode::AsShot, ..b.wb };
     b
 }
@@ -642,6 +685,10 @@ pub(crate) fn for_rows<T: Send>(data: &mut [T], w: usize, f: impl Fn(usize, &mut
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_detail;
+#[cfg(test)]
+mod tests_detail_refvec;
+#[cfg(test)]
 mod tests_geometry;
 #[cfg(test)]
 mod tests_layers;
@@ -649,3 +696,6 @@ mod tests_layers;
 mod tests_local;
 #[cfg(test)]
 mod tests_toolset;
+
+mod base_curve_data;
+pub mod basecurves;

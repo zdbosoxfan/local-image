@@ -1,6 +1,6 @@
 //! Toolset upgrades in the engine: the raw loader's default path (demosaic, highlight
-//! reconstruction, no capture sharpening, no lens database) stays bit-identical — golden hashes
-//! recorded before the raw options existed — and the new options change what they should.
+//! reconstruction, no capture sharpening, no lens database) has colour/tone golden hashes;
+//! raw options change what they should without changing their neutral defaults.
 
 use lightcraft_raster::Rgb32f;
 
@@ -65,11 +65,11 @@ pub(crate) fn hash_img(img: &Rgb32f) -> u64 {
 }
 
 /// Loader output hashes at a binned preview size, a bilinear thumbnail size and full size
-/// (AHD), recorded on x86_64 Linux before the raw options existed.
-const GOLDEN: [(usize, u64); 3] = [(200, 0xa0de_2a87_4e35_4a66), (500, 0x1cc8_83f3_9dae_2c30), (usize::MAX, 0x96a3_63c6_ffd0_f874)];
+/// (AHD), recorded on x86_64 Linux. The 200px colour/tone golden retains negative scene channels.
+const GOLDEN: [(usize, u64); 3] = [(200, 0x1ce5_8e40_d2f5_4b2d), (500, 0x1cc8_83f3_9dae_2c30), (usize::MAX, 0x96a3_63c6_ffd0_f874)];
 
 #[test]
-fn default_raw_loading_is_bit_identical() {
+fn default_raw_loading_matches_colour_tone_goldens() {
     let dng = textured_dng();
     let mut got = Vec::new();
     for (edge, _) in GOLDEN {
@@ -97,6 +97,11 @@ fn raw_options_change_the_decoding() {
     for opts in [
         RawOptions { demosaic: Demosaic::Rcd, ..Default::default() },
         RawOptions { demosaic: Demosaic::DualRcd, dual_threshold: 0.2, ..Default::default() },
+        RawOptions { demosaic: Demosaic::DualRcdVng, dual_threshold: 0.2, ..Default::default() },
+        RawOptions { demosaic: Demosaic::Vng4, ..Default::default() },
+        RawOptions { demosaic: Demosaic::Amaze, ..Default::default() },
+        RawOptions { demosaic: Demosaic::DualAmazeVng, dual_threshold: 0.2, ..Default::default() },
+        RawOptions { highlights: HighlightMode::Segmentation, ..Default::default() },
         RawOptions { highlights: HighlightMode::Opposed, ..Default::default() },
         RawOptions { highlights: HighlightMode::Clip, ..Default::default() },
     ] {
@@ -167,4 +172,32 @@ fn lens_database_corrections_follow_the_settings() {
     assert!(crate::media::job_info(&p, &s).lens_db.is_some());
     s.set_section_enabled("optics", false);
     assert_eq!(crate::lens_db::for_photo(&p, &s), None);
+}
+
+#[test]
+fn new_raw_option_keys_and_preview_highlights() {
+    use crate::files::{RawOptions, load_bytes_with};
+    use lightcraft_develop::{Demosaic, DevelopSettings, HighlightMode};
+    let mut keys = std::collections::BTreeSet::new();
+    for method in Demosaic::ALL.into_iter().chain([Demosaic::DualRcd]) {
+        let mut s = DevelopSettings::default();
+        s.raw.demosaic = method;
+        let a = RawOptions::of(&s);
+        assert!(keys.insert(a.key()), "{method:?}");
+        if method.is_dual() {
+            s.raw.dual_threshold = 35.0;
+            let b = RawOptions::of(&s);
+            assert_ne!(a.key(), b.key());
+            assert!((b.dual_threshold - 0.35).abs() < 1e-6);
+        }
+    }
+    let dng = textured_dng();
+    for edge in [200, 500, usize::MAX] {
+        let (a, _) = load_bytes_with(&dng, edge, &RawOptions::default()).unwrap();
+        let (b, info) = load_bytes_with(&dng, edge, &RawOptions { highlights: HighlightMode::Segmentation, ..Default::default() }).unwrap();
+        assert_eq!((a.width, a.height), (b.width, b.height));
+        assert!(b.data.iter().flatten().all(|v| v.is_finite()));
+        assert_ne!(hash_img(&a), hash_img(&b), "segmentation hook at {edge}");
+        assert!(info.sensor_scale >= 1.0);
+    }
 }

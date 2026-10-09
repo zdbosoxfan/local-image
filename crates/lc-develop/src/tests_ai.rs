@@ -1,9 +1,8 @@
-//! local-image: AI spots and the AI Denoise reference in the settings — older settings load and
-//! serialize unchanged, new ones round-trip, and copies to other photos leave them behind.
+//! AI Remove settings round-trip; obsolete Enhance fields are ignored on load.
 
 use serde_json::json;
 
-use crate::{AiKey, AiPatch, DenoiseRef, DevelopSettings, SettingsGroup, Spot, SpotMode, extract_groups};
+use crate::{AiPatch, DevelopSettings, SettingsGroup, Spot, SpotMode, extract_groups};
 
 fn old_json() -> serde_json::Value {
     let mut v = DevelopSettings::default().to_json();
@@ -18,9 +17,10 @@ fn older_settings_load_and_serialize_unchanged() {
     let s = DevelopSettings::from_json(&v).unwrap();
     assert_eq!(s.spots[0].mode, SpotMode::Heal);
     assert!(s.spots[0].polygon.is_empty() && s.spots[0].mask.is_none() && s.spots[0].patch.is_none());
-    assert!(s.enhance.ai.is_none());
-    // the same JSON back (so the same hash, sidecars and thumbnails)
-    assert_eq!(s.to_json(), v);
+    // The obsolete field is dropped on reserialization.
+    let mut expected = v.clone();
+    expected["enhance"].as_object_mut().unwrap().remove("denoise");
+    assert_eq!(s.to_json(), expected);
     assert_eq!(DevelopSettings::from_json(&s.to_json()).unwrap().hash64(), s.hash64());
 }
 
@@ -41,23 +41,21 @@ fn ai() -> DevelopSettings {
         }),
         ..Default::default()
     });
-    s.enhance.denoise = 60.0;
-    s.enhance.ai = Some(DenoiseRef { key: AiKey(0xabc), source: AiKey(u128::MAX) });
     s
 }
 
 #[test]
-fn ai_spots_and_denoise_round_trip() {
+fn ai_spots_round_trip_and_old_denoise_is_ignored() {
     let s = ai();
     let v = s.to_json();
     assert_eq!(v["spots"][1]["mode"], "ai");
     assert_eq!(v["spots"][1]["patch"]["engine"], "klein");
-    assert_eq!(v["enhance"]["ai"]["key"], format!("{:032x}", 0xabc));
     assert_eq!(DevelopSettings::from_json(&v).unwrap(), s);
     let mut bad = v.clone();
-    bad["enhance"]["ai"]["key"] = json!("xyz");
-    assert!(DevelopSettings::from_json(&bad).is_err());
-    assert_eq!(AiKey::parse(&AiKey(7).to_string()), Some(AiKey(7)));
+    bad["enhance"]["ai"] = json!({"key": "xyz", "source": null});
+    bad["enhance"]["denoise"] = json!(100);
+    assert_eq!(DevelopSettings::from_json(&bad).unwrap(), s);
+    assert!(s.to_json_full()["enhance"].get("denoise").is_none());
 }
 
 #[test]
@@ -68,13 +66,6 @@ fn copies_leave_photo_bound_ai_results_behind() {
     assert_eq!(spots.len(), 1, "the heal spot is copied, the AI spot is not");
     assert_eq!(spots[0]["mode"], "heal");
     assert!(c["enhance"].get("ai").is_none());
-    assert_eq!(c["enhance"]["denoise"], 60.0);
-    // pasting onto a photo with its own Denoise result keeps that result
-    let mut other = DevelopSettings::default();
-    other.enhance.ai = Some(DenoiseRef { key: AiKey(1), source: AiKey(2) });
-    let pasted = crate::apply_partial(&other, &c, 1.0);
-    assert_eq!(pasted.enhance.ai, other.enhance.ai);
-    assert_eq!(pasted.enhance.denoise, 60.0);
 }
 
 /// Pasting, syncing or applying a preset with the Remove group keeps the target photo's own AI
