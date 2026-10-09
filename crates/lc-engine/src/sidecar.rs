@@ -116,6 +116,11 @@ pub enum DevelopPatch {
 
 /// Parse a sidecar / XMP packet. `raw` selects absolute (raw) vs relative white balance for `crs:`.
 pub fn parse_sidecar(xmp: &str, raw: bool) -> std::result::Result<SidecarData, String> {
+    // Text with no markup at all (empty, or a stray text file) is not an XMP packet. Anything that
+    // *is* markup stays lenient: a packet with no recognised properties is a valid, empty sidecar.
+    if !xmp.contains('<') {
+        return Err("not an XMP packet (no XML markup)".to_string());
+    }
     let d = lightcraft_meta::parse_xmp(xmp).map_err(|e| e.to_string())?;
     let m = &d.metadata;
     let lc = |k: &str| d.properties.get(&format!("lc:{k}")).and_then(|v| v.first()).cloned();

@@ -293,10 +293,9 @@ fn session_read_sidecar_op_no_photo_errors() {
     assert!(session.read_sidecar_op(PhotoId(123)).is_err());
 }
 
-// This test reveals a real bug: parse_sidecar accepts arbitrary non-XMP input and returns
-// Ok with default SidecarData instead of an error. Kept but ignored as requested.
+// Text with no XML markup is not an XMP packet and is rejected (import logs and skips it; an explicit
+// sidecar read reports it). Markup with no recognised properties stays a valid, empty sidecar.
 #[test]
-#[ignore = "BUG: parse_sidecar accepts arbitrary non-XMP input"]
 fn parse_sidecar_malformed_returns_err() {
     assert!(parse_sidecar("not a valid xmp", false).is_err());
     assert!(parse_sidecar("", false).is_err());
