@@ -2594,3 +2594,24 @@ ai	New	Nuovi
 	Show the Library's Develop module.	Mostra il modulo Sviluppo della Libreria.
 	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	I livelli visibili diventano un oggetto avanzato (modificabile all'interno) con un filtro Camera Raw.
 	This document has no Develop layer. How should Develop work on it?	Questo documento non ha livelli Sviluppo. Come deve lavorarci lo Sviluppo?
+	Pen pressure curve	Curva della pressione della penna
+	Paste Seamless	Incolla senza giunture
+	Cage	Gabbia
+	Seamless	Senza giunture
+	Blend the cloned pixels into their surroundings	Fondi i pixel clonati con ciò che li circonda
+	Subject Assist	Aiuto soggetto
+	Guide the selection with the installed selection model	Guida la selezione con il modello di selezione installato
+	Firm	Decisa
+	Input pressure → brush pressure	Pressione della penna → pressione del pennello
+	Green Coordinates	Coordinate di Green
+	Mean Value Coordinates	Coordinate a valor medio
+	Reset Cage	Reimposta gabbia
+	Close Cage	Chiudi gabbia
+	Commit Cage ({key})	Conferma gabbia ({key})
+	Drag the cage's points to deform	Trascina i punti della gabbia per deformare
+	Click to draw a cage around the content; click the first point or press Enter to close it	Fai clic per disegnare una gabbia attorno al contenuto; fai clic sul primo punto o premi Invio per chiuderla
+	The cage can't cross itself	La gabbia non può intersecarsi
+	A cage needs at least three points	Una gabbia richiede almeno tre punti
+	The cage is closed: drag its points	La gabbia è chiusa: trascina i suoi punti
+	Cage is not active	La gabbia non è attiva
+	Could not use Cage: the layer is empty	Impossibile usare Gabbia: il livello è vuoto

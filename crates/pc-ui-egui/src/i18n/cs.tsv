@@ -2527,3 +2527,24 @@ ai	New	Nové
 	Show the Library's Develop module.	Zobrazit modul Vyvolat v Knihovně.
 	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	Viditelné vrstvy se stanou chytrým objektem (uvnitř stále upravitelným) s filtrem Camera Raw.
 	This document has no Develop layer. How should Develop work on it?	Tento dokument nemá vrstvu Vyvolat. Jak má Vyvolat s dokumentem pracovat?
+	Pen pressure curve	Křivka přítlaku pera
+	Paste Seamless	Vložit plynule
+	Cage	Klec
+	Seamless	Plynule
+	Blend the cloned pixels into their surroundings	Prolnout klonované pixely s okolím
+	Subject Assist	Pomoc s objektem
+	Guide the selection with the installed selection model	Řídit výběr nainstalovaným modelem pro výběr
+	Firm	Tvrdá
+	Input pressure → brush pressure	Přítlak pera → přítlak štětce
+	Green Coordinates	Greenovy souřadnice
+	Mean Value Coordinates	Souřadnice střední hodnoty
+	Reset Cage	Obnovit klec
+	Close Cage	Uzavřít klec
+	Commit Cage ({key})	Potvrdit klec ({key})
+	Drag the cage's points to deform	Tažením bodů klece deformujte
+	Click to draw a cage around the content; click the first point or press Enter to close it	Klepnutím nakreslete klec kolem obsahu; uzavřete ji klepnutím na první bod nebo klávesou Enter
+	The cage can't cross itself	Klec se nesmí křížit
+	A cage needs at least three points	Klec potřebuje alespoň tři body
+	The cage is closed: drag its points	Klec je uzavřená: táhněte její body
+	Cage is not active	Klec není aktivní
+	Could not use Cage: the layer is empty	Klec nelze použít: vrstva je prázdná

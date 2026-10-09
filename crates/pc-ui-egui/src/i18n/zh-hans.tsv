@@ -2535,3 +2535,24 @@ ai	New	最新
 	Show the Library's Develop module.	显示图库的“修改照片”模块。
 	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	可见图层将成为带 Camera Raw 滤镜的智能对象（内部仍可编辑）。
 	This document has no Develop layer. How should Develop work on it?	此文档没有修改照片图层。“修改照片”应如何处理它？
+	Pen pressure curve	压感笔压力曲线
+	Paste Seamless	无缝粘贴
+	Cage	笼形
+	Seamless	无缝
+	Blend the cloned pixels into their surroundings	将仿制的像素融入周围
+	Subject Assist	主体辅助
+	Guide the selection with the installed selection model	用已安装的选择模型引导选区
+	Firm	偏硬
+	Input pressure → brush pressure	笔的压力 → 画笔压力
+	Green Coordinates	Green 坐标
+	Mean Value Coordinates	均值坐标
+	Reset Cage	重置笼形
+	Close Cage	闭合笼形
+	Commit Cage ({key})	应用笼形（{key}）
+	Drag the cage's points to deform	拖动笼形的点进行变形
+	Click to draw a cage around the content; click the first point or press Enter to close it	单击以围绕内容绘制笼形；单击第一个点或按 Enter 键将其闭合
+	The cage can't cross itself	笼形不能自相交
+	A cage needs at least three points	笼形至少需要三个点
+	The cage is closed: drag its points	笼形已闭合：请拖动它的点
+	Cage is not active	笼形未激活
+	Could not use Cage: the layer is empty	无法使用笼形：图层为空

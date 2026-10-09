@@ -2936,3 +2936,24 @@ ai	New	Baru
 	Show the Library's Develop module.	Tampilkan modul Kembangkan di Pustaka.
 	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	Layer yang terlihat menjadi Smart Object (tetap dapat diedit di dalamnya) dengan Filter Camera Raw.
 	This document has no Develop layer. How should Develop work on it?	Dokumen ini tidak memiliki layer Kembangkan. Bagaimana Kembangkan harus mengolahnya?
+	Pen pressure curve	Kurva tekanan pena
+	Paste Seamless	Tempel Mulus
+	Cage	Sangkar
+	Seamless	Mulus
+	Blend the cloned pixels into their surroundings	Padukan piksel kloningan dengan sekitarnya
+	Subject Assist	Bantuan Subjek
+	Guide the selection with the installed selection model	Pandu seleksi dengan model seleksi yang terpasang
+	Firm	Keras
+	Input pressure → brush pressure	Tekanan pena → tekanan kuas
+	Green Coordinates	Koordinat Green
+	Mean Value Coordinates	Koordinat Nilai Rata-rata
+	Reset Cage	Atur Ulang Sangkar
+	Close Cage	Tutup Sangkar
+	Commit Cage ({key})	Terapkan Sangkar ({key})
+	Drag the cage's points to deform	Seret titik sangkar untuk mengubah bentuk
+	Click to draw a cage around the content; click the first point or press Enter to close it	Klik untuk menggambar sangkar di sekitar konten; klik titik pertama atau tekan Enter untuk menutupnya
+	The cage can't cross itself	Sangkar tidak boleh bersilangan dengan dirinya sendiri
+	A cage needs at least three points	Sangkar memerlukan minimal tiga titik
+	The cage is closed: drag its points	Sangkar sudah tertutup: seret titik-titiknya
+	Cage is not active	Sangkar tidak aktif
+	Could not use Cage: the layer is empty	Tidak dapat memakai Sangkar: lapisan kosong

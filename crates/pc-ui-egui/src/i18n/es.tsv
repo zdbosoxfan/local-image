@@ -2592,3 +2592,24 @@ ai	New	Nuevos
 	Show the Library's Develop module.	Mostrar el módulo Revelar de la Biblioteca.
 	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	Las capas visibles se convierten en un objeto inteligente (editable por dentro) con un filtro Camera Raw.
 	This document has no Develop layer. How should Develop work on it?	Este documento no tiene capa de revelado. ¿Cómo debe trabajar Revelar con él?
+	Pen pressure curve	Curva de presión del lápiz
+	Paste Seamless	Pegar sin costuras
+	Cage	Jaula
+	Seamless	Sin costuras
+	Blend the cloned pixels into their surroundings	Fundir los píxeles clonados con su entorno
+	Subject Assist	Ayuda de sujeto
+	Guide the selection with the installed selection model	Guiar la selección con el modelo de selección instalado
+	Firm	Firme
+	Input pressure → brush pressure	Presión del lápiz → presión del pincel
+	Green Coordinates	Coordenadas de Green
+	Mean Value Coordinates	Coordenadas de valor medio
+	Reset Cage	Restablecer jaula
+	Close Cage	Cerrar jaula
+	Commit Cage ({key})	Confirmar jaula ({key})
+	Drag the cage's points to deform	Arrastre los puntos de la jaula para deformar
+	Click to draw a cage around the content; click the first point or press Enter to close it	Haga clic para dibujar una jaula alrededor del contenido; haga clic en el primer punto o pulse Intro para cerrarla
+	The cage can't cross itself	La jaula no puede cruzarse consigo misma
+	A cage needs at least three points	Una jaula necesita al menos tres puntos
+	The cage is closed: drag its points	La jaula está cerrada: arrastre sus puntos
+	Cage is not active	La jaula no está activa
+	Could not use Cage: the layer is empty	No se pudo usar Jaula: la capa está vacía

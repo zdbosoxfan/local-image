@@ -2504,3 +2504,24 @@ ai	New	最新
 	Show the Library's Develop module.	顯示圖庫的「編輯相片」模組。
 	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	可見圖層會成為帶 Camera Raw 濾鏡的智慧型物件（內部仍可編輯）。
 	This document has no Develop layer. How should Develop work on it?	此文件沒有編輯相片圖層。「編輯相片」應如何處理它？
+	Pen pressure curve	壓感筆壓力曲線
+	Paste Seamless	無縫貼上
+	Cage	籠形
+	Seamless	無縫
+	Blend the cloned pixels into their surroundings	將仿製的像素融入周圍
+	Subject Assist	主體輔助
+	Guide the selection with the installed selection model	以已安裝的選取模型引導選取範圍
+	Firm	偏硬
+	Input pressure → brush pressure	筆的壓力 → 筆刷壓力
+	Green Coordinates	Green 座標
+	Mean Value Coordinates	均值座標
+	Reset Cage	重設籠形
+	Close Cage	閉合籠形
+	Commit Cage ({key})	套用籠形 ({key})
+	Drag the cage's points to deform	拖曳籠形的點進行變形
+	Click to draw a cage around the content; click the first point or press Enter to close it	按一下以在內容周圍繪製籠形；按一下第一個點或按 Enter 鍵將其閉合
+	The cage can't cross itself	籠形不能自我交叉
+	A cage needs at least three points	籠形至少需要三個點
+	The cage is closed: drag its points	籠形已閉合：請拖曳它的點
+	Cage is not active	籠形未啟用
+	Could not use Cage: the layer is empty	無法使用籠形：圖層是空的

@@ -2859,3 +2859,26 @@ ai	New	Новые
 	Show the Library's Develop module.	Показать модуль «Обработка» библиотеки.
 	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	Видимые слои становятся смарт-объектом (внутри по-прежнему редактируемым) с фильтром Camera Raw.
 	This document has no Develop layer. How should Develop work on it?	В этом документе нет слоя обработки. Как модулю «Обработка» работать с ним?
+	Pen pressure curve	Кривая нажима пера
+	Paste Seamless	Вставить бесшовно
+	Cage	Клетка
+	Seamless	Бесшовно
+	Blend the cloned pixels into their surroundings	Вплавить клонированные пиксели в окружение
+	Subject Assist	Помощь с объектом
+	Guide the selection with the installed selection model	Направлять выделение установленной моделью выделения
+	Firm	Жёсткая
+	Input pressure → brush pressure	Нажим пера → нажим кисти
+	Green Coordinates	Координаты Грина
+	Mean Value Coordinates	Координаты среднего значения
+	Reset Cage	Сбросить клетку
+	Close Cage	Замкнуть клетку
+	Commit Cage ({key})	Принять клетку ({key})
+	Drag the cage's points to deform	Перетаскивайте точки клетки для деформации
+	Click to draw a cage around the content; click the first point or press Enter to close it	Щёлкайте, чтобы нарисовать клетку вокруг содержимого; щёлкните первую точку или нажмите Enter, чтобы замкнуть её
+	The cage can't cross itself	Клетка не может пересекать саму себя
+	A cage needs at least three points	Для клетки нужны хотя бы три точки
+	The cage is closed: drag its points	Клетка замкнута: перетаскивайте её точки
+	Cage is not active	Клетка не активна
+	Could not use Cage: the layer is empty	Не удалось применить клетку: слой пуст
+	Soft	Мягкий
+	Linear	Линейный

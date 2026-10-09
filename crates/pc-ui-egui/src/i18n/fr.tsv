@@ -2949,3 +2949,24 @@ ai	New	Nouveautés
 	Show the Library's Develop module.	Afficher le module Développement de la Bibliothèque.
 	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	Les calques visibles deviennent un objet intelligent (toujours modifiable à l'intérieur) avec un filtre Camera Raw.
 	This document has no Develop layer. How should Develop work on it?	Ce document n'a pas de calque de développement. Comment le module Développement doit-il le traiter ?
+	Pen pressure curve	Courbe de pression du stylet
+	Paste Seamless	Coller sans raccord
+	Cage	Cage
+	Seamless	Sans raccord
+	Blend the cloned pixels into their surroundings	Fondre les pixels clonés dans leur entourage
+	Subject Assist	Aide au sujet
+	Guide the selection with the installed selection model	Guider la sélection avec le modèle de sélection installé
+	Firm	Ferme
+	Input pressure → brush pressure	Pression du stylet → pression du pinceau
+	Green Coordinates	Coordonnées de Green
+	Mean Value Coordinates	Coordonnées en valeur moyenne
+	Reset Cage	Réinitialiser la cage
+	Close Cage	Fermer la cage
+	Commit Cage ({key})	Valider la cage ({key})
+	Drag the cage's points to deform	Faites glisser les points de la cage pour déformer
+	Click to draw a cage around the content; click the first point or press Enter to close it	Cliquez pour dessiner une cage autour du contenu ; cliquez sur le premier point ou appuyez sur Entrée pour la fermer
+	The cage can't cross itself	La cage ne peut pas se croiser elle-même
+	A cage needs at least three points	Une cage nécessite au moins trois points
+	The cage is closed: drag its points	La cage est fermée : faites glisser ses points
+	Cage is not active	La cage n’est pas active
+	Could not use Cage: the layer is empty	Impossible d’utiliser la cage : le calque est vide

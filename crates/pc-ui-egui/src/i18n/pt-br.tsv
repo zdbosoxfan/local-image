@@ -2956,3 +2956,24 @@ ai	New	Novos
 	Show the Library's Develop module.	Mostrar o módulo Revelação da Biblioteca.
 	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	As camadas visíveis se tornam um objeto inteligente (editável por dentro) com um filtro Camera Raw.
 	This document has no Develop layer. How should Develop work on it?	Este documento não tem camada de revelação. Como a Revelação deve trabalhar nele?
+	Pen pressure curve	Curva de pressão da caneta
+	Paste Seamless	Colar sem emendas
+	Cage	Gaiola
+	Seamless	Sem emendas
+	Blend the cloned pixels into their surroundings	Mesclar os pixels clonados com o entorno
+	Subject Assist	Assistência de assunto
+	Guide the selection with the installed selection model	Guiar a seleção com o modelo de seleção instalado
+	Firm	Firme
+	Input pressure → brush pressure	Pressão da caneta → pressão do pincel
+	Green Coordinates	Coordenadas de Green
+	Mean Value Coordinates	Coordenadas de valor médio
+	Reset Cage	Redefinir gaiola
+	Close Cage	Fechar gaiola
+	Commit Cage ({key})	Confirmar gaiola ({key})
+	Drag the cage's points to deform	Arraste os pontos da gaiola para deformar
+	Click to draw a cage around the content; click the first point or press Enter to close it	Clique para desenhar uma gaiola em volta do conteúdo; clique no primeiro ponto ou pressione Enter para fechá-la
+	The cage can't cross itself	A gaiola não pode se cruzar
+	A cage needs at least three points	Uma gaiola precisa de pelo menos três pontos
+	The cage is closed: drag its points	A gaiola está fechada: arraste os pontos dela
+	Cage is not active	A gaiola não está ativa
+	Could not use Cage: the layer is empty	Não foi possível usar a Gaiola: a camada está vazia

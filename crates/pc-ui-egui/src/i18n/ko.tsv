@@ -3106,3 +3106,24 @@ ai	New	새 항목
 	Show the Library's Develop module.	라이브러리의 현상 모듈을 표시합니다.
 	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	보이는 레이어가 Camera Raw 필터가 적용된 스마트 오브젝트가 됩니다(내부는 계속 편집 가능).
 	This document has no Develop layer. How should Develop work on it?	이 문서에는 현상 레이어가 없습니다. 현상에서 어떻게 처리할까요?
+	Pen pressure curve	펜 필압 곡선
+	Paste Seamless	매끄럽게 붙여넣기
+	Cage	케이지
+	Seamless	매끄럽게
+	Blend the cloned pixels into their surroundings	복제한 픽셀을 주변과 자연스럽게 섞기
+	Subject Assist	피사체 보조
+	Guide the selection with the installed selection model	설치된 선택 모델로 선택을 보조
+	Firm	단단하게
+	Input pressure → brush pressure	펜 필압 → 브러시 필압
+	Green Coordinates	Green 좌표
+	Mean Value Coordinates	평균값 좌표
+	Reset Cage	케이지 재설정
+	Close Cage	케이지 닫기
+	Commit Cage ({key})	케이지 적용 ({key})
+	Drag the cage's points to deform	케이지 점을 드래그하여 변형
+	Click to draw a cage around the content; click the first point or press Enter to close it	클릭하여 내용 주위에 케이지를 그리고, 첫 번째 점을 클릭하거나 Enter 키를 눌러 닫습니다
+	The cage can't cross itself	케이지는 스스로 교차할 수 없습니다
+	A cage needs at least three points	케이지에는 점이 세 개 이상 필요합니다
+	The cage is closed: drag its points	케이지가 닫혔습니다: 점을 드래그하세요
+	Cage is not active	케이지가 활성 상태가 아닙니다
+	Could not use Cage: the layer is empty	케이지를 사용할 수 없음: 레이어가 비어 있습니다

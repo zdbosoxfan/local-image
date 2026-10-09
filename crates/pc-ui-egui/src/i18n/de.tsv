@@ -2560,3 +2560,24 @@ ai	New	Neu
 	Show the Library's Develop module.	Das Entwickeln-Modul der Bibliothek anzeigen.
 	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	Die sichtbaren Ebenen werden zu einem Smart-Objekt (innen weiter bearbeitbar) mit einem Camera-Raw-Filter.
 	This document has no Develop layer. How should Develop work on it?	Dieses Dokument hat keine Entwicklungsebene. Wie soll „Entwickeln“ damit arbeiten?
+	Pen pressure curve	Stiftdruck-Kurve
+	Paste Seamless	Nahtlos einfügen
+	Cage	Käfig
+	Seamless	Nahtlos
+	Blend the cloned pixels into their surroundings	Die geklonten Pixel nahtlos in die Umgebung einblenden
+	Subject Assist	Motivhilfe
+	Guide the selection with the installed selection model	Die Auswahl mit dem installierten Auswahlmodell führen
+	Firm	Fest
+	Input pressure → brush pressure	Stiftdruck → Pinseldruck
+	Green Coordinates	Green-Koordinaten
+	Mean Value Coordinates	Mittelwertkoordinaten
+	Reset Cage	Käfig zurücksetzen
+	Close Cage	Käfig schließen
+	Commit Cage ({key})	Käfig übernehmen ({key})
+	Drag the cage's points to deform	Ziehen Sie die Käfigpunkte, um zu verformen
+	Click to draw a cage around the content; click the first point or press Enter to close it	Klicken Sie, um einen Käfig um den Inhalt zu zeichnen; schließen Sie ihn mit einem Klick auf den ersten Punkt oder mit der Eingabetaste
+	The cage can't cross itself	Der Käfig darf sich nicht selbst kreuzen
+	A cage needs at least three points	Ein Käfig braucht mindestens drei Punkte
+	The cage is closed: drag its points	Der Käfig ist geschlossen: Ziehen Sie seine Punkte
+	Cage is not active	Käfig ist nicht aktiv
+	Could not use Cage: the layer is empty	Käfig nicht möglich: Die Ebene ist leer

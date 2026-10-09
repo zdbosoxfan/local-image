@@ -2510,3 +2510,24 @@ ai	New	新着
 	Show the Library's Develop module.	ライブラリの現像モジュールを表示します。
 	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	表示レイヤーを Camera Raw フィルター付きのスマートオブジェクトにまとめます（中身は編集可能なまま）。
 	This document has no Develop layer. How should Develop work on it?	このドキュメントには現像レイヤーがありません。現像でどのように扱いますか？
+	Pen pressure curve	ペン筆圧カーブ
+	Paste Seamless	継ぎ目なく貼り付け
+	Cage	ケージ
+	Seamless	継ぎ目なし
+	Blend the cloned pixels into their surroundings	複製したピクセルを周囲になじませる
+	Subject Assist	被写体アシスト
+	Guide the selection with the installed selection model	インストール済みの選択モデルで選択を補助
+	Firm	硬め
+	Input pressure → brush pressure	ペンの筆圧 → ブラシの筆圧
+	Green Coordinates	Green 座標
+	Mean Value Coordinates	平均値座標
+	Reset Cage	ケージをリセット
+	Close Cage	ケージを閉じる
+	Commit Cage ({key})	ケージを確定({key})
+	Drag the cage's points to deform	ケージの点をドラッグして変形
+	Click to draw a cage around the content; click the first point or press Enter to close it	クリックして内容の周りにケージを描き、最初の点をクリックするか Enter キーで閉じます
+	The cage can't cross itself	ケージは自己交差できません
+	A cage needs at least three points	ケージには 3 つ以上の点が必要です
+	The cage is closed: drag its points	ケージは閉じています：点をドラッグしてください
+	Cage is not active	ケージは有効ではありません
+	Could not use Cage: the layer is empty	ケージを使用できません：レイヤーが空です

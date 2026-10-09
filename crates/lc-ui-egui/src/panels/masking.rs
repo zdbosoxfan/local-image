@@ -376,21 +376,21 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     let out = slider(ui, &refine, m.refine, true, None);
     apply_slider_out(app, &refine, out, |app, v| app.run("mask.refine", json!({"value": v})));
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 6, bottom: 6 }).show(ui, |ui| {
+        // (two rows: side by side they don't fit the narrowest panel)
+        let mut only = app.ui.layer_used_only;
+        let r = ui.checkbox(&mut only, crate::i18n::tr("Show only tools this layer uses"));
+        register(ui.ctx(), "layerUsedOnly", r.rect);
+        if r.changed() {
+            app.ui.layer_used_only = only;
+        }
+        ui.add_space(4.0);
         ui.horizontal(|ui| {
-            let mut only = app.ui.layer_used_only;
-            let r = ui.checkbox(&mut only, crate::i18n::tr("Show only tools this layer uses"));
-            register(ui.ctx(), "layerUsedOnly", r.rect);
-            if r.changed() {
-                app.ui.layer_used_only = only;
+            if text_button(ui, "layerReset", crate::i18n::tr("Reset Layer"), false)
+                .on_hover_text(crate::i18n::tr("Remove every tool from this layer and reset its sliders and opacity"))
+                .clicked()
+            {
+                let _ = app.run("mask.resetTools", json!({"id": m.id}));
             }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if text_button(ui, "layerReset", crate::i18n::tr("Reset Layer"), false)
-                    .on_hover_text(crate::i18n::tr("Remove every tool from this layer and reset its sliders and opacity"))
-                    .clicked()
-                {
-                    let _ = app.run("mask.resetTools", json!({"id": m.id}));
-                }
-            });
         });
     });
     divider(ui);
