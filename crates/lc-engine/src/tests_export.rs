@@ -180,6 +180,8 @@ fn prepared_exports_run_on_another_thread() {
 /// image — with the reason recorded.
 #[test]
 fn export_falls_back_to_the_cpu_when_gpu_work_is_lost() {
+    // the injected failure stops the GPU for the whole process until `reset_failures`
+    let _gpu = crate::tests_gpu::gpu_state();
     let mut s = Session::with_demo();
     let id = s.active().unwrap();
     s.execute("develop.set", &json!({"control": "light.exposure", "value": 0.4})).unwrap();

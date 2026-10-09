@@ -739,6 +739,8 @@ mod tests_export;
 #[cfg(test)]
 mod tests_forget_local;
 #[cfg(test)]
+mod tests_gpu;
+#[cfg(test)]
 mod tests_import;
 #[cfg(test)]
 mod tests_import_move;
