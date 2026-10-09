@@ -674,7 +674,216 @@ mod tests {
         }
         let w1 = width(&mut h);
         assert!((w1 - w0).abs() < 0.5, "the export dialog grew from {w0} to {w1}");
-        assert!(w1 < 700.0, "{w1}");
+        assert!((800.0..=1100.0).contains(&w1), "wide preset/sections layout: {w1}");
+        let widgets = h.request("ui.widgets", json!({}), t);
+        let rect = widgets["result"].as_array().unwrap().iter().find(|w| w["id"] == "dialog:window").unwrap()["rect"].as_array().unwrap();
+        let right = rect[0].as_f64().unwrap() + rect[2].as_f64().unwrap() - 2.0;
+        let bottom = rect[1].as_f64().unwrap() + rect[3].as_f64().unwrap() - 2.0;
+        let result = h.request("ui.drag", json!({"x": right, "y": bottom, "toX": right + 100.0, "toY": bottom + 30.0, "steps": 12}), t);
+        assert_eq!(result["ok"], true, "{result}");
+        for _ in 0..10 {
+            h.step();
+        }
+        let resized = width(&mut h);
+        assert!(resized > w1 + 40.0, "dragging the corner resizes the export window: {w1} → {resized}");
+    }
+
+    fn export_click(h: &mut Headless, id: &str) {
+        let result = h.request("ui.clickWidget", json!({"id": id}), Duration::from_secs(10));
+        assert_eq!(result["ok"], true, "{id}: {result}");
+        for _ in 0..4 {
+            h.step();
+        }
+    }
+
+    fn export_type(h: &mut Headless, id: &str, text: &str) {
+        export_click(h, id);
+        let t = Duration::from_secs(10);
+        h.request("ui.key", json!({"key": "A", "cmd": true}), t);
+        h.request("ui.text", json!({"text": text}), t);
+        h.request("ui.key", json!({"key": "Tab"}), t);
+        h.step();
+    }
+
+    #[test]
+    fn export_presets_sections_and_live_filename_are_interactive() {
+        let mut h = demo([1400.0, 1100.0]);
+        let t = Duration::from_secs(10);
+        h.request("engine.execute", json!({"command": "dialog.export"}), t);
+        h.settle(SETTLE);
+        assert!(
+            matches!(h.app.ui.dialog, Some(crate::state::Dialog::Export { limit_kb: 0, .. })),
+            "a disabled file-size field must keep the limit off"
+        );
+        export_click(&mut h, "exportPreset:JPEG (Large)");
+        assert!(matches!(h.app.ui.dialog, Some(crate::state::Dialog::Export { full_size: true, .. })));
+        // Collapse and reopen real headers; this also puts naming and the later sections in view.
+        export_click(&mut h, "exportSection:location");
+        export_type(&mut h, "field:exportNaming", "Edited-{name}-{seq:2}");
+        let photo = h.app.session.catalog.photo(h.app.session.active().unwrap()).unwrap();
+        let stem = std::path::Path::new(&photo.file_name).file_stem().unwrap().to_string_lossy();
+        let want = format!("Edited-{stem}-01.jpg");
+        let dialog = h.app.ui.dialog.clone().unwrap();
+        assert_eq!(crate::panels::export_dialog::example_name(&mut h.app, &dialog), Some(want.clone()));
+        assert_eq!(crate::panels::export_dialog::summary(&mut h.app, &dialog, "naming"), want);
+        export_click(&mut h, "exportSection:naming");
+        let fields = h.request("ui.widgets", json!({}), t);
+        assert!(!fields["result"].to_string().contains("field:exportNaming"), "collapsed fields are hidden");
+        export_click(&mut h, "exportSection:naming");
+        export_type(&mut h, "field:exportPresetName", "Client Proof");
+        export_click(&mut h, "button:exportPresetAdd");
+        assert_eq!(h.app.session.export_presets.len(), 1);
+        assert_eq!(h.app.session.export_presets[0].params["naming"], "Edited-{name}-{seq:2}");
+        export_type(&mut h, "field:exportNaming", "Proof-{seq:2}");
+        export_click(&mut h, "button:exportPresetUpdate");
+        assert_eq!(h.app.session.export_presets[0].params["naming"], "Proof-{seq:2}");
+        export_click(&mut h, "exportPreset:JPEG (Small)");
+        export_click(&mut h, "exportPreset:Client Proof");
+        let dialog = h.app.ui.dialog.clone().unwrap();
+        assert_eq!(crate::panels::export_dialog::example_name(&mut h.app, &dialog).as_deref(), Some("Proof-01.jpg"));
+        // All nine anchors respond to actual clicks.
+        for key in ["naming", "file", "sizing"] {
+            export_click(&mut h, &format!("exportSection:{key}"));
+        }
+        export_click(&mut h, "exportSection:watermark");
+        export_click(&mut h, "check:exportWatermark");
+        export_click(&mut h, "combo:exportWmStyle");
+        export_click(&mut h, "option:exportWmStyle:1");
+        export_click(&mut h, "exportPreset:Client Proof");
+        export_click(&mut h, "check:exportWatermark");
+        let fields = h.request("ui.widgets", json!({}), t);
+        assert!(fields["result"].to_string().contains("field:exportWmText"), "the loaded preset clears an unfinished Graphic selection");
+        for i in 0..9 {
+            export_click(&mut h, &format!("button:exportWmAnchor-{i}"));
+        }
+        let Some(crate::state::Dialog::Export { opts, .. }) = &h.app.ui.dialog else { panic!("export open") };
+        assert_eq!(opts.watermark.as_ref().unwrap().anchor, lightcraft_engine::export::Anchor::BottomRight);
+        export_click(&mut h, "button:exportPresetRemove");
+        assert!(h.app.session.export_presets.is_empty());
+        export_click(&mut h, "button:dialogCancel");
+        assert!(h.app.ui.dialog.is_none());
+    }
+
+    #[test]
+    fn export_same_folder_conflicts_catalog_stack_and_postprocessing() {
+        let base = std::env::temp_dir().join(format!("lc-ui-export-location-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let image = lightcraft_raster::Rgba8::from_fn(16, 12, |_, _| [50, 90, 120, 255]);
+        let original = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &Default::default()).unwrap();
+        let source = base.join("Photo.png");
+        std::fs::write(&source, &original).unwrap();
+        std::fs::write(base.join("Photo.jpg"), b"existing export").unwrap();
+        let shown = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let revealed = shown.clone();
+        let services = crate::Services {
+            write: Some(Box::new(lightcraft_engine::export::write_file)),
+            reveal: Some(Box::new(move |path| {
+                revealed.lock().unwrap().push(path.to_string());
+                Ok(())
+            })),
+            ..Default::default()
+        };
+        let mut session = lightcraft_engine::Session::new().with_fs();
+        session.execute("library.import", &json!({"paths": [source.to_string_lossy()]})).unwrap();
+        let id = session.active().unwrap();
+        let mut h = Headless::new(LightcraftApp::new(session, services), [1400.0, 1100.0], 1.0);
+        let t = Duration::from_secs(10);
+        h.request("engine.execute", json!({"command": "dialog.export"}), t);
+        h.settle(SETTLE);
+        export_click(&mut h, "combo:exportTo");
+        export_click(&mut h, "option:exportTo:1");
+        export_click(&mut h, "check:exportAddToLibrary");
+        export_click(&mut h, "check:exportAddToStack");
+        export_click(&mut h, "combo:exportExisting");
+        export_click(&mut h, "option:exportExisting:0");
+        // Keep the location choices, expose the post-processing section.
+        for key in ["location", "naming", "file", "sizing"] {
+            export_click(&mut h, &format!("exportSection:{key}"));
+        }
+        export_click(&mut h, "exportSection:post");
+        export_click(&mut h, "combo:exportAfter");
+        export_click(&mut h, "option:exportAfter:1");
+        export_click(&mut h, "button:dialogOk");
+        assert!(matches!(h.app.ui.dialog, Some(crate::state::Dialog::Export { existing: Some(1), .. })), "ask before writing");
+        assert_eq!(std::fs::read(base.join("Photo.jpg")).unwrap(), b"existing export");
+        export_click(&mut h, "button:exportExisting-0");
+        h.settle(SETTLE);
+        assert!(h.app.ui.dialog.is_none(), "export failed: {:?}", h.app.ui.toast);
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert_eq!(std::fs::read(base.join("Photo.jpg")).unwrap(), b"existing export");
+        let output = base.join("Photo-2.jpg");
+        assert!(output.is_file());
+        assert_eq!(shown.lock().unwrap().as_slice(), &[output.to_string_lossy().to_string()]);
+        let stack = h.app.session.catalog.stack_of(id).expect("export imported and stacked");
+        assert_eq!(stack.photos.len(), 2);
+        assert_ne!(stack.photos[0], id);
+        let last = h.app.session.last_export.as_ref().unwrap();
+        assert_eq!(last["sameFolder"], true);
+        assert_eq!(last["askExisting"], true);
+        assert_eq!(last["afterExport"], "showInFolder");
+        h.request("engine.execute", json!({"command": "library.select", "params": {"ids": [id.0]}}), t);
+        h.request("engine.execute", json!({"command": "app.exportPrevious"}), t);
+        assert!(matches!(h.app.ui.dialog, Some(crate::state::Dialog::Export { existing: Some(1), .. })), "Export with Previous still asks");
+        export_click(&mut h, "button:dialogCancel");
+        h.request("engine.execute", json!({"command": "export.savePreset", "params": {"name": "Ask Proof", "params": {"sameFolder": true, "askExisting": true, "conflict": "overwrite"}}}), t);
+        h.request("engine.execute", json!({"command": "app.export", "params": {"preset": "Ask Proof"}}), t);
+        assert!(matches!(h.app.ui.dialog, Some(crate::state::Dialog::Export { existing: Some(1), .. })), "Export with Preset still asks");
+        assert_eq!(std::fs::read(base.join("Photo.jpg")).unwrap(), b"existing export");
+        export_click(&mut h, "button:dialogCancel");
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn save_over_confirmation_cancel_copy_overwrite_and_preference() {
+        let base = std::env::temp_dir().join(format!("lc-ui-save-over-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let image = lightcraft_raster::Rgba8::from_fn(16, 12, |_, _| [30, 60, 90, 255]);
+        let original = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &Default::default()).unwrap();
+        let source = base.join("Photo.png");
+        std::fs::write(&source, &original).unwrap();
+        let mut session = lightcraft_engine::Session::new().with_fs();
+        session.open_library(base.join("lib"), false).unwrap();
+        session.execute("library.import", &json!({"paths": [source.to_string_lossy()]})).unwrap();
+        let id = session.active().unwrap();
+        session.execute("develop.set", &json!({"control": "light.exposure", "value": 1.0})).unwrap();
+        let mut h = Headless::new(LightcraftApp::new(session, Default::default()), [1300.0, 1000.0], 1.0);
+        let t = Duration::from_secs(10);
+        for view in [crate::state::ViewMode::PhotoGrid, crate::state::ViewMode::Detail] {
+            h.app.ui.view = view;
+            let menu = h.request("ui.menu.tree", json!({}), t);
+            assert!(menu.to_string().contains("Save Over Original…"));
+            if view == crate::state::ViewMode::PhotoGrid {
+                h.request("ui.key", json!({"key": "S", "cmd": true, "alt": true}), t);
+            } else {
+                h.request("engine.execute", json!({"command": "dialog.saveOverOriginal"}), t);
+            }
+            h.settle(SETTLE);
+            export_click(&mut h, "button:dialogCancel");
+            assert_eq!(std::fs::read(&source).unwrap(), original);
+        }
+        h.request("engine.execute", json!({"command": "dialog.saveOverOriginal"}), t);
+        h.settle(SETTLE);
+        export_click(&mut h, "button:saveOverBeside");
+        assert!(base.join("Photo-2.png").is_file());
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        h.request("engine.execute", json!({"command": "library.select", "params": {"ids": [id.0]}}), t);
+        h.request("engine.execute", json!({"command": "dialog.saveOverOriginal"}), t);
+        h.settle(SETTLE);
+        export_click(&mut h, "check:saveOverDontAsk");
+        export_click(&mut h, "button:dialogOk");
+        assert!(h.app.ui.dialog.is_none());
+        assert_ne!(std::fs::read(&source).unwrap(), original);
+        assert_eq!(h.app.session.catalog.photo(id).unwrap().develop.light.exposure, 0.0);
+        assert!(!h.app.ui.settings.confirm_save_over);
+        let prefs: crate::state::AppSettings = serde_json::from_value(serde_json::to_value(&h.app.ui.settings).unwrap()).unwrap();
+        assert!(!prefs.confirm_save_over);
+        assert!(serde_json::from_value::<crate::state::AppSettings>(json!({})).unwrap().confirm_save_over, "old preferences ask by default");
+        h.request("engine.execute", json!({"command": "dialog.saveOverOriginal"}), t);
+        assert!(h.app.ui.dialog.is_none(), "Don't ask again is honoured");
+        drop(h);
+        let _ = std::fs::remove_dir_all(base);
     }
 
     #[test]
@@ -717,7 +926,7 @@ mod tests {
         }
         assert!(h.app.export.is_none(), "finished (no progress for 120 s)");
         let w = written.lock().unwrap().clone();
-        assert_eq!(w.len(), 3, "{w:?}");
+        assert_eq!(w.len(), 3, "{w:?}; result: {:?}", h.app.last_export_result);
         assert!(w.iter().all(|p| p.starts_with("/lc-test-out/")));
         let last = h.request("ui.inspect", json!({}), t)["result"]["export"]["last"].clone();
         assert_eq!(last["files"].as_array().map(Vec::len), Some(3), "{last}");

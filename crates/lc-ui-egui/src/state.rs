@@ -169,6 +169,8 @@ pub struct AppSettings {
     pub startup_view: StartupView,
     /// Ask before moving photos to Recently Deleted (keyboard and menu).
     pub confirm_delete: bool,
+    /// File ▸ Save Over Original asks first (its "Don't ask again" turns this off).
+    pub confirm_save_over: bool,
     /// GPU rendering allowed (`app.gpu`).
     pub gpu: bool,
     /// Largest long edge (pixels) the loupe renders at.
@@ -191,6 +193,7 @@ impl Default for AppSettings {
             library_path: String::new(),
             startup_view: StartupView::Last,
             confirm_delete: false,
+            confirm_save_over: true,
             gpu: true,
             preview_edge: 2560,
             external_editor: String::new(),
@@ -551,16 +554,47 @@ pub enum Dialog {
     PasteSettings {
         groups: Vec<String>,
     },
-    /// `resize` is used unless `full_size`; `limit_kb` 0 = no limit; `dir` empty = default export folder.
+    /// The Export dialog (Lightroom Classic's layout: presets on the left, collapsible sections on
+    /// the right). `resize` is used unless `full_size`; `limit_kb` 0 = no limit; `dir` empty =
+    /// default export folder (unused with `opts.same_folder`).
     Export {
-        opts: lightcraft_engine::export::ExportOptions,
+        opts: Box<lightcraft_engine::export::ExportOptions>,
         full_size: bool,
         resize: lightcraft_engine::export::Resize,
-        /// Name typed for "Save as Preset".
+        /// Name typed for a new preset (Add).
         #[serde(default)]
         preset_name: String,
         limit_kb: u32,
         dir: String,
+        /// The preset chosen in the list (empty = none).
+        #[serde(default)]
+        preset: String,
+        /// Export Location ▸ Add to This Catalog / Add to Stack.
+        #[serde(default)]
+        add_to_library: bool,
+        #[serde(default)]
+        add_to_stack: bool,
+        /// Existing Files ▸ Ask what to do (the export asks before it starts).
+        #[serde(default)]
+        ask_existing: bool,
+        /// Files that already exist, found when Export was pressed with `ask_existing`.
+        #[serde(default)]
+        existing: Option<usize>,
+        /// Post-Processing ▸ After Export: `nothing` | `showInFolder` | `openIn`.
+        #[serde(default)]
+        after: String,
+        /// The application for `openIn`.
+        #[serde(default)]
+        after_app: String,
+    },
+    /// File ▸ Save Over Original: what will happen (`photo.saveOverOriginalPlan`) and "Don't ask
+    /// again". `beside`: Save Copy Beside was chosen instead of Overwrite.
+    SaveOverOriginal {
+        plan: serde_json::Value,
+        #[serde(default)]
+        dont_ask: bool,
+        #[serde(default)]
+        beside: bool,
     },
     /// Photo Merge (HDR / Panorama / HDR Panorama) options; the preview lives in the app.
     Merge {

@@ -1,68 +1,58 @@
-# Codex task: develop engine — detail tools (item 10) + remove AI Denoise
+# Codex task: Save Over Original + Lightroom-style Export dialog (item 2)
 
-You are working in a git worktree of "Local Image", a GPL-3.0-or-later, **all-Rust** raw photo editor
-(Library/Develop: crates/lc-*; Compositing: crates/pc-*; app: apps/local-image). Read `docs/wip/engine-detail.md`
-first: the previous builder's progress note for this task (CPU sharpening done in `crates/lc-pipeline/src/detail.rs`,
-interim NR/dehaze to replace, tests written but unregistered, lc-gpu callers broken). The branch was just merged with
-the finished colour & tone and raw-quality work (see `docs/wip/CODEX-REPORT-colour-tone.md` and `CODEX-REPORT-raw.md`
-for what changed: one renderer, no Process Version). Also read `docs/PORTS.md`, `licenses/darktable-NOTICE.md`,
-`docs/GPU-VALIDATION.md`.
+Worktree of "Local Image" (Library/Develop UI: crates/lc-ui-egui; engine: crates/lc-engine). A previous builder was
+stopped mid-work; its changes are in the last WIP commit ("Save Over Original and Lightroom-style Export dialog") —
+continue from it (new files `crates/lc-engine/src/cmd/save_over.rs`, `tests_save_over.rs`,
+`crates/lc-ui-egui/src/panels/export_dialog.rs`).
 
-Goal (owner): Lightroom Classic / Capture One quality for the Detail tools; faithful darktable ports where they're used.
+## A. "I want my 'save over original' function back for if I remove some junk from a photo and just want to save it
+over the original quickly."
 
-## Work
+The old 0.7.x app had it (`git show dd46a73:backend/frontend/editor.js` ~158-159, 1177-1240: Overwrite kept the original
+format, asked first with Cancel / Save Unique / Overwrite + "don't ask again"). lc-engine forbids writing over originals
+(`originals.rs` OriginalGuard; test `export_never_overwrites_an_original` must keep passing for normal exports).
+Implement `photo.saveOverOriginal` + Library/Develop File menu "Save Over Original…" (free shortcut) + confirm dialog
+(Cancel / Save Copy Beside / Overwrite, "Don't ask again" in prefs): full-size render through the export path in the
+original's format (JPEG ~95, PNG/TIFF/WebP at source bit depth) with the original's metadata and colour space; atomic
+write (temp + rename) bypassing the guard only on this explicit path; keep a backup of the original in the library's
+data folder (say so in the dialog); then reset the photo's develop settings, drop spots/AI patches referencing the old
+pixels, and `photo.reload`. Raw/DNG originals: the action becomes "Save JPEG Beside Original" (Conflict::Unique),
+imported and stacked with the raw (same import + `stack.group` as `edit_external` in cmd/convert.rs). Engine tests.
 
-1. **One renderer — remove Process Version.** The merge left this branch's `ProcessVersion` / `v2026()` code behind
-   (the rest of the codebase no longer has it). Remove the enum, field, helpers and every `v2026()` branch: the NEW
-   detail tools are the only behaviour. Old settings JSON must still load (serde defaults; an old `process` field is
-   ignored). Re-record golden hashes (lc-pipeline `tests_toolset.rs`, `tests_layers.rs`; lc-engine `tests_toolset.rs`)
-   where the output changes intentionally, and say why.
-2. **Sharpening** (already on the CPU in `detail.rs`): pixel-scale USM on log luminance with overshoot clamping to the
-   local min/max (C1-style halo suppression), Radius / Amount / Detail / Masking all working, Masking preview overlay.
-   Finish it, register `tests_detail.rs`, and port it to the GPU.
-3. **Noise reduction — faithful darktable port** of `src/iop/denoiseprofile.c` wavelet mode (its Y0U0V0 colour mode
-   and newer variance-stabilising transform) + `src/common/eaw.c` edge-aware decompose/synthesize (+ `fast_mexp2f`).
-   No camera noise-profile database: estimate the noise model from the image (or use darktable's generic profile) and
-   document the slider mapping (Luminance Amount / Detail / Contrast, Colour Amount / Detail / Smoothness). Edge-aware
-   chroma (no colour bleeding across edges); NR Contrast actually works.
-4. **Dehaze — faithful port** of darktable `src/iop/hazeremoval.c` + `src/common/guided_filter.c` + `box_filters.cc`
-   (dark channel, guided transmission refinement, airlight), scene-linear; no halos at strong edges.
-5. **Remove the AI Denoise feature entirely** (owner dropped it): li-seg `denoise.rs` and its model entry in
-   `li_seg::MODELS`, lc-engine `enhance/denoise.rs` + its commands/session/UI (Develop › Detail AI Denoise controls),
-   `DevelopSettings.enhance.denoise` / `enhance.ai` rendering (keep old JSON loadable: unknown/old fields ignored),
-   tests that use it (e.g. `tests_enhance::denoise_through_the_commands`, the AI Denoise part of
-   `lc-engine/src/tests_gpu.rs`, `lc-gpu/tests/toolset.rs::ai_denoised_sources_render_on_the_gpu`), and
-   `licenses/darktable-ai-NOTICE.md` + its `docs/PORTS.md` row. AI Remove stays.
-6. **Reference vectors**: gcc is available; extract upstream C functions into tiny standalone harnesses under
-   `target/refvec/<name>/` (inside this worktree, ignored by git), run on deterministic inputs, commit only small
-   fixtures under the crate's `tests/fixtures/` + README with regeneration steps, assert matches within stated
-   tolerances. Any deviation must be equal-or-better and documented.
-7. **GPU twins** for every pixel stage (crates/lc-gpu WGSL + host) and GPU-vs-CPU cases in
-   `crates/lc-gpu/tests/equivalence.rs` / `toolset.rs` (mean |Δ| < 0.5 LSB, max ≤ 3 LSB). If a stage can't be ported
-   now, make it a CPU stage inside the GPU render (not a whole-render fallback). Add 24 MP timings to the ignored bench
-   in `toolset.rs`.
-8. Map Lightroom XMP (`crs:Sharpness`, `SharpenRadius`, `SharpenDetail`, `SharpenEdgeMasking`, `LuminanceSmoothing`,
-   `LuminanceNoiseReductionDetail`, `LuminanceNoiseReductionContrast`, `ColorNoiseReduction`,
-   `ColorNoiseReductionDetail`, `ColorNoiseReductionSmoothness`) in lc-engine `crs.rs`. Update `docs/PORTS.md` and the
-   darktable notice.
+## B. "The export menu from Develop has bad UI; it should more closely match Adobe Lightroom or Capture One export
+menus. Replace it with a real one; darktable's export module is a reference."
 
-## Reference material (read-only, outside the worktree)
+Rebuild in the **Lightroom Classic Export dialog** layout: wide resizable modal, preset list on the left (built-in +
+User Presets; Add / Remove / Update), collapsible sections on the right in Lightroom's order — Export Location (Specific
+folder / Same folder as original; Choose…; subfolder; Add to This Catalog [+ Add to Stack]; Existing Files:
+Ask / New name / Overwrite / Skip), File Naming (template + live example filename + start number), File Settings
+(format, quality, limit size, colour space, bit depth, compression), Image Sizing (W&H / Dimensions / Long / Short edge /
+Megapixels / Percentage, Don't Enlarge, ppi), Output Sharpening (Screen / Matte / Glossy; Low / Standard / High),
+Metadata (All / All except camera / Copyright only / None; Remove Location), Watermarking (all 9 anchors, inset, colour),
+Post-Processing (Do nothing / Show in file manager / Open in other application…). Collapsed headers show a one-line
+summary. Bottom bar "Export N photos" / Cancel. Engine additions only where cheap: same-folder destination, add to
+catalog/stack, show in folder. Keep `ExportOptions` serde-compatible so saved presets / `last_export` load. Update
+`headless.rs` export tests and add tests for presets, same-folder destination and the filename preview.
 
-`/home/zdavidson/.local/share/local-image-dev/engine-sources/`: `dt/` (darktable at
-733bd69f32cac7ff5e41025115942772add1f088), `dt-src/` (denoiseprofile.c, eaw.c, hazeremoval.c, guided_filter.c,
-box_filters.cc, math.h — fetched for this task), `refvec/`.
+Tests: `cargo +1.98.1 test --offline -p lightcraft-engine -p lightcraft-ui-egui`.
 
-## Rules
+Report file: `docs/wip/CODEX-REPORT-export.md`.
 
-- **Pure Rust**, workspace denies `unsafe`, no new dependencies (C only in out-of-build refvec harnesses).
-- Offline builds (`--offline`); ONE cargo build at a time (the PC has 60 GB RAM); `PATH=~/.cargo/bin:$PATH`, use
-  `cargo +1.98.1`. Format: `cargo +1.98.1 fmt -p <crate>`; lint: `CARGO_TARGET_DIR=target/clippy cargo +1.98.1 clippy
-  -p <crate> --all-targets -- -D warnings`.
-- Tests that must pass at the end: `cargo +1.98.1 test --offline -p lightcraft-develop -p lightcraft-pipeline
-  -p lightcraft-gpu -p lightcraft-engine -p lightcraft-ui-egui -p li-seg`.
-- Your sandbox has **no GPU adapter**: GPU tests print "skipped: no GPU adapter" and pass without running. Still write
-  the WGSL and the GPU-vs-CPU cases; list them in the report — the coordinator runs them on the real RTX 5090.
-- Don't touch: colorops.rs, masks.rs, Highlights/Shadows/Clarity/Texture code (another job), lc-raw demosaic/highlight,
-  crates/pc-*. A Local Image app may be running: don't kill it or open GUI windows.
-- **Do not commit.** Leave changes in the working tree. When done, write `docs/wip/CODEX-REPORT-detail.md`: what's done
-  per point, tests with counts, fidelity numbers, golden hashes re-recorded (and why), GPU tests added, timings, gaps.
+## Rules (all Codex jobs)
+
+- "Local Image" is GPL-3.0-or-later and **all Rust**: workspace denies `unsafe`; no new dependencies, no C/C++ or
+  `-sys` crates in the build (C only in out-of-build reference harnesses under `target/refvec/`).
+- Offline builds (`--offline`). The PC has 60 GB RAM shared with other jobs: ONE cargo build at a time in your job,
+  `CARGO_BUILD_JOBS=3`. Use `PATH=~/.cargo/bin:$PATH` and `cargo +1.98.1`. Format: `cargo +1.98.1 fmt -p <crate>`;
+  lint: `CARGO_TARGET_DIR=target/clippy cargo +1.98.1 clippy --offline -p <crate> --all-targets -- -D warnings`.
+- Run the tests of every crate you change (`cargo +1.98.1 test --offline -p <crate>`); all must pass. Your sandbox has
+  **no GPU adapter**: GPU tests print "skipped: no GPU adapter" and pass without running — still write GPU code/tests
+  and list them in your report; the coordinator runs them on the real RTX 5090.
+- UI is egui 0.36; Compositing UI tests use egui_kittest, Library/Develop uses its own `headless.rs` harness. Add tests
+  that actually click/drag the UI you change.
+- A Local Image app may be running on the desktop: don't kill it or open GUI windows. Don't touch the owner's files
+  outside this worktree (read-only access to reference data is fine).
+- Old settings/documents must still load (serde defaults). The owner does not need old edits to render identically.
+- **Do not commit.** Leave changes in the working tree. When done, write the report file named in your task: what's
+  done per point, tests with counts, GPU tests added, anything left and why.
+

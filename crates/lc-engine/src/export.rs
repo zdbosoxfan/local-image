@@ -73,6 +73,8 @@ pub enum ResizeMode {
     Height,
     /// Fit inside `value × height` pixels, whichever way round the photo is (long edge ≤ the larger).
     Dimensions,
+    /// Fit inside a `value` (width) × `height` box as given (Lightroom's "Width & Height").
+    WidthHeight,
     /// `value` = megapixels.
     Megapixels,
     /// `value` = percent of the full size.
@@ -116,6 +118,7 @@ impl Resize {
                 let (a, b) = (v, self.height as f64);
                 (a.max(b) / long).min(a.min(b) / short)
             }
+            ResizeMode::WidthHeight => (v / w).min(self.height as f64 / h),
             ResizeMode::Megapixels => (v * 1e6 / (w * h)).sqrt(),
             ResizeMode::Percent => v / 100.0,
         };
@@ -519,6 +522,10 @@ pub struct ExportOptions {
     pub start_number: u32,
     /// Created inside the destination folder (empty = none).
     pub subfolder: String,
+    /// Export each photo into the folder of its own original (Lightroom's "Same folder as original
+    /// photo") instead of the batch's destination folder; `subfolder` still applies. The usual
+    /// guard holds: an original is never written over.
+    pub same_folder: bool,
     /// When a file of the same name exists in the destination folder.
     pub conflict: Conflict,
     /// TIFF compression.
@@ -535,6 +542,25 @@ pub struct ExportOptions {
     /// Bits per channel: 8, 16 (PNG, TIFF), 32 (TIFF: float, linear) or 10 (AVIF); `None` = the
     /// format's default (TIFF 16, everything else 8). See [`ExportOptions::effective_depth`].
     pub bit_depth: Option<u8>,
+    /// JPEG chroma subsampling (`None` = 4:4:4, or 4:2:0 with a file-size limit). Not a user
+    /// setting: Save Over Original keeps the original's.
+    #[serde(skip)]
+    pub jpeg_chroma: Option<ChromaSubsampling>,
+    /// Explicit Save Over Original only: encode into the source's matrix/TRC profile.
+    /// Internal render state must never become part of a preset.
+    #[serde(skip)]
+    #[doc(hidden)]
+    pub source_encoding: Option<Box<SourceEncoding>>,
+    #[serde(skip)]
+    #[doc(hidden)]
+    pub source_metadata: Option<Box<Metadata>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[doc(hidden)]
+pub struct SourceEncoding {
+    pub space: lightcraft_codecs::SourceSpace,
+    pub profile: Vec<u8>,
 }
 
 impl Default for ExportOptions {
@@ -550,6 +576,7 @@ impl Default for ExportOptions {
             naming: "{name}".into(),
             start_number: 1,
             subfolder: String::new(),
+            same_folder: false,
             conflict: Conflict::Unique,
             tiff_compression: TiffCompression::Deflate,
             dng_compression: DngCompression::Lossless,
@@ -558,6 +585,9 @@ impl Default for ExportOptions {
             watermark: None,
             color_space: OutputSpace::Srgb,
             bit_depth: None,
+            jpeg_chroma: None,
+            source_encoding: None,
+            source_metadata: None,
         }
     }
 }
@@ -587,6 +617,7 @@ impl ExportOptions {
             naming: s("naming").map_or(d.naming, str::to_string),
             start_number: u("startNumber").map_or(d.start_number, |v| v.min(999_999) as u32),
             subfolder: s("subfolder").map_or(d.subfolder, |v| v.trim().replace(['\\', ':', '\0'], "_")),
+            same_folder: p.get("sameFolder").and_then(Value::as_bool).unwrap_or(d.same_folder),
             conflict: enm(p, "conflict").unwrap_or(d.conflict),
             tiff_compression: match s("tiffCompression").map(str::to_ascii_lowercase).as_deref() {
                 Some("none") => TiffCompression::None,
@@ -605,6 +636,9 @@ impl ExportOptions {
             .filter(|w: &Watermark| !w.text.trim().is_empty() || !w.image.trim().is_empty()),
             color_space: s("colorSpace").and_then(OutputSpace::parse).unwrap_or(d.color_space),
             bit_depth: u("bitDepth").filter(|b| matches!(b, 8 | 10 | 16 | 32)).map(|b| b as u8),
+            jpeg_chroma: None,
+            source_encoding: None,
+            source_metadata: None,
         }
     }
 
@@ -817,7 +851,7 @@ pub fn encode_with_metadata(img: &Rgba8, o: &ExportOptions, meta: Option<&Metada
     let r = match o.format {
         ExportFormat::Jpeg => {
             // 4:4:4 normally; 4:2:0 when targeting a file size (much smaller at equal visual quality).
-            let sub = if o.limit_kb.is_some() { ChromaSubsampling::S420 } else { ChromaSubsampling::S444 };
+            let sub = if o.limit_kb.is_some() { ChromaSubsampling::S420 } else { o.jpeg_chroma.unwrap_or(ChromaSubsampling::S444) };
             let jpeg = |q: u8| encode::encode_jpeg(&e, q, sub, &meta);
             match o.limit_kb {
                 Some(kb) => {
@@ -879,10 +913,60 @@ pub fn srgb8_in(space: OutputSpace, c: [u8; 3]) -> [u8; 3] {
 /// Encode a render according to `o`: its high-bit-depth samples when it has them (16-bit PNG/TIFF,
 /// 10-bit AVIF, 32-bit float linear TIFF), else its 8-bit image.
 pub fn encode_rendered(r: &lightcraft_pipeline::Rendered, o: &ExportOptions, meta: Option<&Metadata>) -> Result<Vec<u8>, String> {
+    if let Some(source) = &o.source_encoding {
+        return encode_in_source_space(r, o, source, meta);
+    }
     match &r.deep {
         Some(d) if o.effective_depth() != OutputDepth::U8 => encode_deep(d, o, meta),
         _ => encode_with_metadata(&r.image, o, meta),
     }
+}
+
+/// The render still uses the export pipeline, delivered as linear Rec.2020 floats to avoid
+/// an 8-bit/sRGB intermediate. Convert those pixels back to the original profile's primaries
+/// and per-channel curves before encoding, including nonstandard RGB matrix/TRC profiles.
+fn encode_in_source_space(
+    r: &lightcraft_pipeline::Rendered,
+    o: &ExportOptions,
+    source: &SourceEncoding,
+    meta: Option<&Metadata>,
+) -> Result<Vec<u8>, String> {
+    let deep = r.deep.as_ref().ok_or("source-profile export needs a float render")?;
+    let DeepSamples::F32(samples) = &deep.samples else { return Err("source-profile export needs linear floats".into()) };
+    let matrix = source.space.to_working().inverse().ok_or("the original's colour matrix is singular")?;
+    let curves = source.space.trc.as_ref().ok_or("the original's encoding curves are unknown")?;
+    let mut converted = Vec::with_capacity(samples.len());
+    let float = o.bit_depth == Some(32);
+    for pixel in samples.as_chunks::<3>().0 {
+        let linear = matrix.apply([pixel[0] as f64, pixel[1] as f64, pixel[2] as f64]);
+        for (i, value) in linear.into_iter().enumerate() {
+            let encoded = curves[i].from_linear(value as f32);
+            converted.push(if float { encoded } else { encoded.clamp(0.0, 1.0) });
+        }
+    }
+    let exif = meta.map(lightcraft_meta::write_exif);
+    let xmp = meta.map(|m| lightcraft_meta::write_xmp(m, None));
+    let meta = EncodeMeta { icc: Some(&source.profile), exif: exif.as_deref(), xmp: xmp.as_deref(), ppi: Some(o.ppi) };
+    let u16s;
+    let u8s;
+    let samples = if float {
+        Samples::F32(&converted)
+    } else if o.bit_depth == Some(16) {
+        u16s = converted.iter().map(|v| (v * 65535.0 + 0.5) as u16).collect::<Vec<_>>();
+        Samples::U16(&u16s)
+    } else {
+        u8s = converted.iter().map(|v| (v * 255.0 + 0.5) as u8).collect::<Vec<_>>();
+        Samples::U8(&u8s)
+    };
+    let image = EncodeImage::new(deep.width as u32, deep.height as u32, 3, samples);
+    match o.format {
+        ExportFormat::Jpeg => encode::encode_jpeg(&image, o.quality, o.jpeg_chroma.unwrap_or(ChromaSubsampling::S444), &meta),
+        ExportFormat::Png => encode::encode_png(&image, &meta),
+        ExportFormat::Tiff => encode::encode_tiff(&image, o.tiff_compression, &meta),
+        ExportFormat::Webp => encode::encode_webp_lossless(&image, &meta),
+        _ => return Err("this format cannot preserve the original colour profile".into()),
+    }
+    .map_err(|e| e.to_string())
 }
 
 /// Encode a high-bit-depth image (see [`encode_rendered`]).
@@ -1007,6 +1091,9 @@ pub struct PreparedExport {
     work: Work,
     /// The library's originals, which [`run_batch`] never writes over (shared by a batch).
     guard: std::sync::Arc<crate::originals::OriginalGuard>,
+    /// The folder of the photo's original (`None` for a generated demo photo): the destination
+    /// with [`ExportOptions::same_folder`].
+    source_dir: Option<String>,
 }
 
 struct RenderWork {
@@ -1056,10 +1143,29 @@ fn prepare_guarded(
 ) -> Result<PreparedExport, String> {
     let p = session.catalog.photo(id).ok_or("no such photo")?;
     let file_name = o.file_name_for(p, seq);
+    let source_dir = match &p.source {
+        lightcraft_catalog::Source::File { path } => std::path::Path::new(path).parent().map(|d| d.to_string_lossy().to_string()),
+        lightcraft_catalog::Source::Demo { .. } => None,
+    };
     let work = if o.format.is_rendered() {
         let (w, h) = output_size(p, o);
-        let meta = export_metadata(p, o);
-        let job = session.export_job(id, w, h, o.effective_space(), o.effective_depth())?;
+        let mut meta = export_metadata(p, o);
+        if let (Some(meta), Some(original)) = (&mut meta, &o.source_metadata) {
+            meta.fill_missing(original);
+            if let (Some(gps), Some(old)) = (&mut meta.gps, &original.gps)
+                && gps.latitude == old.latitude
+                && gps.longitude == old.longitude
+            {
+                gps.altitude = old.altitude;
+            }
+            // Orientation and dimensions describe the new, upright rendered pixels.
+            meta.orientation = Some(lightcraft_meta::Orientation::Normal);
+            meta.width = Some(w as u32);
+            meta.height = Some(h as u32);
+        }
+        let (space, depth) =
+            if o.source_encoding.is_some() { (OutputSpace::Rec2020, OutputDepth::F32Linear) } else { (o.effective_space(), o.effective_depth()) };
+        let job = session.export_job(id, w, h, space, depth)?;
         Work::Render(Box::new(RenderWork { job, meta, opts: o.clone() }))
     } else {
         let lightcraft_catalog::Source::File { path } = &p.source else {
@@ -1074,7 +1180,7 @@ fn prepare_guarded(
             size: (p.width as usize, p.height as usize),
         }
     };
-    Ok(PreparedExport { photo: id, file_name, work, guard })
+    Ok(PreparedExport { photo: id, file_name, work, guard, source_dir })
 }
 
 impl PreparedExport {
@@ -1135,6 +1241,35 @@ pub struct Destination {
     pub exact: Option<String>,
 }
 
+/// Where each of `ids` would be exported to under `o` and `to`, before any conflict policy:
+/// the folder ([`ExportOptions::same_folder`]: the photo's own; plus the subfolder) and the file
+/// name ([`ExportOptions::file_name_for`]). `None` for a photo with no folder of its own. Used to
+/// preview names and to ask about existing files before an export starts.
+pub fn planned_paths(
+    catalog: &lightcraft_catalog::Catalog,
+    ids: &[lightcraft_catalog::PhotoId],
+    o: &ExportOptions,
+    to: &Destination,
+) -> Vec<Option<String>> {
+    let join = |a: &str, b: &str| if a.is_empty() { b.to_string() } else { format!("{}/{b}", a.trim_end_matches('/')) };
+    let in_sub = |d: &str| if o.subfolder.is_empty() { d.to_string() } else { join(d, &o.subfolder) };
+    ids.iter()
+        .enumerate()
+        .map(|(i, id)| {
+            let p = catalog.photo(*id)?;
+            if let Some(exact) = to.exact.as_deref().filter(|_| ids.len() == 1) {
+                return Some(exact.to_string());
+            }
+            let dir = match (&p.source, o.same_folder) {
+                (_, false) => in_sub(&to.dir),
+                (lightcraft_catalog::Source::File { path }, true) => in_sub(&std::path::Path::new(path).parent()?.to_string_lossy()),
+                (lightcraft_catalog::Source::Demo { .. }, true) => return None,
+            };
+            Some(join(&dir, &o.file_name_for(p, i + 1)))
+        })
+        .collect()
+}
+
 /// Export `ids` in order ([`prepare_batch`] + [`run_batch`]), stopping at the first error.
 pub fn export_batch(
     session: &mut crate::Session,
@@ -1182,7 +1317,7 @@ fn sidecar_path(main: &str, ext: &str) -> String {
 /// sidecars as one: with Unique both get the same free name, with Skip the photo is skipped when
 /// either is taken. A path that is a catalogued original (or its sidecar) is refused whatever the
 /// policy. `progress(done, next file)` is called before each photo; returning false cancels the
-/// rest. Returns one JSON object per photo: `{path, width, height, bytes, sidecars}`,
+/// rest. Returns one JSON object per photo: `{path, photo, width, height, bytes, sidecars}`,
 /// `{skipped: path}` or (unless `stop_on_error`) `{photo, file, error}`.
 pub fn run_batch(
     items: Vec<PreparedExport>,
@@ -1195,7 +1330,8 @@ pub fn run_batch(
 ) -> Result<Vec<serde_json::Value>, String> {
     use serde_json::json;
     let join = |a: &str, b: &str| if a.is_empty() { b.to_string() } else { format!("{}/{b}", a.trim_end_matches('/')) };
-    let dir = if o.subfolder.is_empty() { to.dir.clone() } else { join(&to.dir, &o.subfolder) };
+    let in_sub = |d: &str| if o.subfolder.is_empty() { d.to_string() } else { join(d, &o.subfolder) };
+    let batch_dir = in_sub(&to.dir);
     let single = items.len() == 1;
     let mut taken = std::collections::HashSet::new();
     let mut out = Vec::new();
@@ -1204,6 +1340,19 @@ pub fn run_batch(
             break;
         }
         let (photo, name, guard) = (item.photo, item.file_name.clone(), item.guard.clone());
+        // the batch's folder, or (Same folder as original photo) the photo's own
+        let dir = match (o.same_folder, &item.source_dir) {
+            (false, _) => batch_dir.clone(),
+            (true, Some(d)) => in_sub(d),
+            (true, None) => {
+                let err = format!("{name}: a generated demo photo has no folder of its own; choose a specific folder");
+                if stop_on_error {
+                    return Err(err);
+                }
+                out.push(json!({"photo": photo.0, "file": name, "error": err}));
+                continue;
+            }
+        };
         let e = match item.run() {
             Ok(e) => e,
             Err(err) if stop_on_error => return Err(err),
@@ -1255,7 +1404,7 @@ pub fn run_batch(
         match written {
             Ok((path, files, sidecars)) => {
                 taken.extend(files);
-                out.push(json!({"path": path, "width": e.width, "height": e.height, "bytes": e.bytes.len(), "sidecars": sidecars}));
+                out.push(json!({"path": path, "photo": photo.0, "width": e.width, "height": e.height, "bytes": e.bytes.len(), "sidecars": sidecars}));
             }
             Err(err) if stop_on_error => return Err(err),
             Err(err) => out.push(json!({"photo": photo.0, "file": file, "error": err})),
@@ -1463,6 +1612,40 @@ mod tests {
         assert_eq!(orig.file_name_for(&named("DSC_1.NEF"), 2), "DSC_1-002.NEF");
         assert_eq!(orig.file_name_for(&named("noext"), 1), "noext-001");
         assert_eq!(ExportOptions { format: ExportFormat::Dng, ..Default::default() }.file_name_for(&named("a.cr2"), 1), "a.dng");
+    }
+
+    #[test]
+    fn source_profile_encoding_converts_pixels_and_stays_out_of_presets() {
+        let profile = icc::write_matrix_trc(&lightcraft_color::DISPLAY_P3, &lightcraft_codecs::Trc::Gamma(2.0));
+        let Some(icc::IccInfo { kind: icc::IccKind::MatrixTrc { to_xyz_d50, trc }, .. }) = icc::parse(&profile) else { panic!("matrix profile") };
+        let source = lightcraft_codecs::SourceSpace { named: None, to_xyz_d50, trc: Some(trc), origin: lightcraft_codecs::SpaceOrigin::IccMatrixTrc };
+        let linear = [0.2, 0.4, 0.1];
+        let working = source.to_working().apply(linear).map(|v| v as f32).to_vec();
+        let image = Rgba8::new(1, 1);
+        let render = lightcraft_pipeline::Rendered {
+            histogram: lightcraft_raster::Histogram::of_srgb8(&image),
+            image,
+            deep: Some(DeepImage { width: 1, height: 1, space: OutputSpace::Rec2020, samples: DeepSamples::F32(working) }),
+        };
+        let options = ExportOptions {
+            format: ExportFormat::Png,
+            bit_depth: Some(16),
+            source_encoding: Some(Box::new(SourceEncoding { space: source, profile: profile.clone() })),
+            ..Default::default()
+        };
+        let bytes = encode_rendered(&render, &options, None).unwrap();
+        let decoded = lightcraft_codecs::decode(&bytes, Default::default()).unwrap();
+        assert_eq!(decoded.icc.as_deref(), Some(profile.as_slice()));
+        for (value, expected) in decoded.image.data[0].iter().zip(linear) {
+            assert!((*value as f64 - expected).abs() < 5e-5, "{value} != {expected}");
+        }
+        let params = serde_json::to_value(&options).unwrap();
+        assert!(params.get("sourceEncoding").is_none());
+        assert!(params.get("sourceMetadata").is_none());
+        let loaded: ExportOptions = serde_json::from_value(params).unwrap();
+        assert!(loaded.source_encoding.is_none());
+        let old: ExportOptions = serde_json::from_value(json!({"format": "jpeg", "quality": 80})).unwrap();
+        assert!(!old.same_folder);
     }
 
     fn named(file_name: &str) -> lightcraft_catalog::Photo {
