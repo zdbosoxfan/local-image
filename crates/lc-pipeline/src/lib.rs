@@ -28,6 +28,7 @@ pub mod capture;
 pub mod colorcal;
 pub mod colorops;
 pub mod cull;
+pub mod detail;
 pub mod dust;
 pub mod finish;
 pub mod geometry;
@@ -177,6 +178,10 @@ pub(crate) struct Prepared {
     pub px_per_long: f64,
     /// The tone equalizer's mask (see [`toneeq`]) when the tool is on.
     pub tone_eq: Option<Arc<Plane>>,
+    /// Process 2026 sharpening: `log_l` blurred once and twice, and the blur radius (output px).
+    pub sharp: Option<(Arc<Plane>, Arc<Plane>, f32)>,
+    /// Process 2026 dehaze: the refined dark channel and the airlight (before exposure).
+    pub haze: Option<(Arc<Plane>, [f32; 3])>,
 }
 
 /// Output size for a source of `src_w × src_h` under `s`, fitting `max_w × max_h`.
@@ -271,6 +276,9 @@ impl StageCache {
             let pl = &e.planes;
             let planes = pl.log_l.iter().chain(pl.base.iter().map(|x| &x.1)).chain(pl.clarity.iter().map(|x| &x.1));
             for p in planes.chain(pl.texture.iter().map(|x| &x.1)).chain(pl.dark.iter().map(|x| &x.1)) {
+                add(Arc::as_ptr(p) as usize, size(p));
+            }
+            for p in pl.sharp.iter().flat_map(|x| [&x.1, &x.2]).chain(pl.haze.iter().map(|x| &x.0)) {
                 add(Arc::as_ptr(p) as usize, size(p));
             }
             for (_, l) in &pl.layer_nr {
@@ -370,7 +378,9 @@ pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &R
         // the negative conversion runs in this stage (only while it is on: its sliders change
         // nothing while it is off)
         format!("{:?}", negative::params(s)),
-        [d.nr_luminance, d.nr_detail, d.nr_color, d.nr_color_detail, d.nr_color_smoothness].map(f64::to_bits),
+        [d.nr_luminance, d.nr_detail, d.nr_color, d.nr_color_detail, d.nr_color_smoothness, d.nr_contrast].map(f64::to_bits),
+        // noise reduction differs by process version
+        s.v2026(),
         src_long,
         // colour calibration runs with the white balance
         format!("{:?}", colorcal::of(info, s)),
@@ -529,7 +539,7 @@ fn render_impl(src: Src<'_>, info: &SourceInfo, s: &DevelopSettings, req: &Rende
             // Without a cache the resampled buffer is ours: work on it in place.
             let mut img = if shared.is_some() { (*sampled).clone() } else { Arc::unwrap_or_clone(sampled.clone()) };
             lin_cpu(&mut img, info, &plan);
-            local::denoise(&mut img, s, src_long, w.max(h));
+            local::denoise(&mut img, s, src_long, w.max(h), info.sensor_scale);
             Arc::new(img)
         }
     };
@@ -591,6 +601,12 @@ pub fn color_range_sample(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, 
 /// The alpha plane a mask overlay shows: the one the render evaluated, or (for a hidden mask) a
 /// fresh evaluation.
 fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared) -> Option<Plane> {
+    if o == Overlay::SharpenMask {
+        let (_, b2, sigma) = prep.sharp.as_ref()?;
+        let k = detail::SharpK::new(0.0, (plan.settings.detail.sharpen_masking / 100.0) as f32, *sigma);
+        return Some(detail::sharp_mask_plane(b2, &k));
+    }
+
     if o == Overlay::ToneEqMask {
         let m = prep.tone_eq.as_ref()?;
         let t = &plan.settings.tone_eq;

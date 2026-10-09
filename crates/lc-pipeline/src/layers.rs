@@ -54,11 +54,15 @@ pub struct LocalTone {
     pub tex: f32,
     pub sharpen: f32,
     pub sharpen_mask: f32,
+    /// Process 2026 sharpening (see [`crate::detail`]): Amount / 100 and Detail (0..1), on the
+    /// photo's sharpening planes (its radius); `sharpen` above is 0 then.
+    pub sharpen_2026: f32,
+    pub sharpen_detail: f32,
 }
 
 impl LocalTone {
     fn is_neutral(&self) -> bool {
-        self.hl == 0.0 && self.sh == 0.0 && self.clar == 0.0 && self.tex == 0.0 && self.sharpen == 0.0
+        self.hl == 0.0 && self.sh == 0.0 && self.clar == 0.0 && self.tex == 0.0 && self.sharpen == 0.0 && self.sharpen_2026 == 0.0
     }
 }
 
@@ -108,13 +112,16 @@ pub fn resolve(s: &DevelopSettings, info: &SourceInfo, px_per_long: f64) -> Vec<
         let wb = t.wb.and_then(|w| crate::local::wb_change(crate::local::effective_wb(info, s), (w.temp, w.tint)));
         let gain = t.light.filter(|l| l.exposure != 0.0).map(|l| 2f32.powf(l.exposure as f32));
         let e = if effects { t.effects.unwrap_or_default() } else { Default::default() };
+        let v2026 = s.v2026();
         let local = LocalTone {
             hl: (v.light.highlights / 100.0) as f32,
             sh: (v.light.shadows / 100.0) as f32,
             clar: (e.clarity / 100.0) as f32,
             tex: (e.texture / 100.0) as f32,
-            sharpen: (v.detail.sharpen_amount / 150.0) as f32,
+            sharpen: if v2026 { 0.0 } else { (v.detail.sharpen_amount / 150.0) as f32 },
             sharpen_mask: (v.detail.sharpen_masking / 100.0) as f32,
+            sharpen_2026: if v2026 { (v.detail.sharpen_amount / 100.0) as f32 } else { 0.0 },
+            sharpen_detail: (v.detail.sharpen_detail / 100.0) as f32,
         };
         let tone = t.light.filter(|l| l.contrast != 0.0 || l.whites != 0.0 || l.blacks != 0.0).map(|l| {
             let c = |g: f64, d: f64| (g + d).clamp(-100.0, 100.0);
@@ -146,10 +153,12 @@ pub fn resolve(s: &DevelopSettings, info: &SourceInfo, px_per_long: f64) -> Vec<
     out
 }
 
-/// Which spatial planes the layers of `s` need: (edge-aware base, clarity, texture, dark channel).
-pub fn planes_needed(s: &DevelopSettings) -> (bool, bool, bool, bool) {
+/// Which spatial planes the layers of `s` need: (edge-aware base, clarity, texture, dark channel
+/// or dehaze plane, process 2026 sharpening planes).
+pub fn planes_needed(s: &DevelopSettings) -> (bool, bool, bool, bool, bool) {
     let effects = s.section_enabled("effects");
-    let (mut base, mut clarity, mut texture, mut dark) = (false, false, false, false);
+    let v2026 = s.v2026();
+    let (mut base, mut clarity, mut texture, mut dark, mut sharp) = (false, false, false, false, false);
     for m in evaluated(s) {
         let t = &m.tools;
         if let Some(l) = t.light {
@@ -161,10 +170,14 @@ pub fn planes_needed(s: &DevelopSettings) -> (bool, bool, bool, bool) {
             dark |= e.dehaze != 0.0;
         }
         if let Some(d) = t.detail {
-            texture |= d.sharpen_amount != 0.0;
+            if v2026 {
+                sharp |= d.sharpen_amount != 0.0;
+            } else {
+                texture |= d.sharpen_amount != 0.0;
+            }
         }
     }
-    (base, clarity, texture, dark)
+    (base, clarity, texture, dark, sharp)
 }
 
 /// Noise-reduction parameters of each layer that sets them: (evaluated mask index, cache key,
@@ -175,7 +188,11 @@ fn nr_layers(s: &DevelopSettings, info: &SourceInfo) -> Vec<(usize, u64, Develop
         .filter_map(|(i, m)| {
             let d = m.tools.detail.filter(|d| d.nr_luminance > 0.0 || d.nr_color > 0.0)?;
             let key = crate::hash_of([d.nr_luminance, d.nr_detail, d.nr_color, d.nr_color_detail, d.nr_color_smoothness].map(f64::to_bits));
-            Some((i, key, view(&m.tools, info, s)))
+            let mut v = view(&m.tools, info, s);
+            // the layer's noise reduction runs in the photo's process version
+            v.process = s.process;
+            let key = if s.v2026() { crate::hash_of((key, d.nr_contrast.to_bits(), 2026)) } else { key };
+            Some((i, key, v))
         })
         .collect()
 }
@@ -198,7 +215,8 @@ pub(crate) fn nr_images(
             Some((_, im)) => im.clone(),
             None => {
                 let mut c = (**img).clone();
-                crate::local::denoise(&mut c, &v, src_long, img.width.max(img.height));
+                crate::local::denoise(&mut c, &v, src_long, img.width.max(img.height), info.sensor_scale);
+
                 Arc::new(c)
             }
         };
