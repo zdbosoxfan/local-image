@@ -51,8 +51,10 @@ fn status(s: &mut Session, _: &Value) -> Result<Value> {
         spec.files().filter(|f| s.quick_seg_dir.as_ref().is_none_or(|d| !li_seg::file_installed(d, *f))).map(|f| f.file).collect()
     };
     let installed = injected || missing.is_empty();
+    let faces = super::smart_sort_people::status_value(s)?;
+    let face_count = faces["analysed"].clone();
     Ok(json!({"tagger":{"id":model,"installed":installed,"bytes":if injected {0} else {spec.download_bytes()},"missing":missing},
-        "faces":{"installed":false,"enabled":false},"analysed":{"tags":s.smart.store.len(&model),"faces":0},"total":s.catalog.photos().filter(|p| p.in_library()).count()}))
+        "faces":faces,"analysed":{"tags":s.smart.store.len(&model),"faces":face_count},"total":s.catalog.photos().filter(|p| p.in_library()).count()}))
 }
 
 fn list(s: &mut Session, _: &Value) -> Result<Value> {
@@ -98,12 +100,16 @@ fn delete(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn analyze(s: &mut Session, p: &Value) -> Result<Value> {
     if p.get("faces").and_then(Value::as_bool).unwrap_or(false) {
-        return Err(bad("smartSort.analyze", "face analysis is not available yet"));
+        s.require_faces()?;
     }
     let ids = source(s, p)?;
     let cancel = std::sync::atomic::AtomicBool::new(false);
     let result = crate::smart_sort::analyze(s, &ids, &cancel, &|_, _| {})?;
-    serde_json::to_value(result).map_err(|e| EngineError::Other(e.to_string()))
+    let mut result = serde_json::to_value(result).map_err(|e| EngineError::Other(e.to_string()))?;
+    if p.get("faces").and_then(Value::as_bool).unwrap_or(false) {
+        result["faces"] = super::smart_sort_people::analyze(s, p)?;
+    }
+    Ok(result)
 }
 
 #[derive(Deserialize)]
@@ -144,6 +150,7 @@ fn classify(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let tagger = s.smart.tagger(s.quick_seg_dir.as_deref()).map_err(EngineError::Other)?;
     s.smart.store.ensure(tagger.model_id(), tagger.dim()).map_err(EngineError::Other)?;
+    let face_model = if s.smart.prefs.faces_enabled { Some(s.smart.people.ready().map_err(EngineError::Other)?) } else { None };
     let classifier = Classifier::new(tagger.as_ref(), &s.smart.store, &preset).map_err(EngineError::Other)?;
     let mut counts: BTreeMap<String, usize> = preset.categories.iter().map(|c| (c.name.clone(), 0)).collect();
     counts.insert("Unsorted".into(), 0);
@@ -154,8 +161,14 @@ fn classify(s: &mut Session, p: &Value) -> Result<Value> {
             continue;
         }
         let key = crate::media::content_key(photo);
-        let row =
-            classifier.classify(&key, s.smart.store.get(tagger.model_id(), &key), manual.get(&id).map(Vec::as_slice)).map_err(|e| bad(ID, e))?;
+        let row = classifier
+            .classify_with_faces(
+                &key,
+                s.smart.store.get(tagger.model_id(), &key),
+                manual.get(&id).map(Vec::as_slice),
+                face_model.as_ref().and_then(|model| s.smart.people.store.get(model, &key)).map(<[_]>::len),
+            )
+            .map_err(|e| bad(ID, e))?;
         if row.assigned.is_empty() {
             *counts.entry("Unsorted".into()).or_default() += 1;
         }
@@ -209,9 +222,10 @@ fn keywords(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn plan(s: &mut Session, p: &Value) -> Result<Value> {
-    let folders: Vec<FolderDef> = serde_json::from_value(p.get("folders").cloned().ok_or_else(|| bad("smartSort.plan", "missing folders"))?)
+    let mut folders: Vec<FolderDef> = serde_json::from_value(p.get("folders").cloned().ok_or_else(|| bad("smartSort.plan", "missing folders"))?)
         .map_err(|e| bad("smartSort.plan", e.to_string()))?;
     let ids = source(s, p)?;
+    let notices = super::smart_sort_people::prepare_folders(s, &mut folders)?;
     let folders = crate::smart_sort::plan::plan_with_options(
         &s.catalog,
         &ids,
@@ -220,7 +234,7 @@ fn plan(s: &mut Session, p: &Value) -> Result<Value> {
         p.get("unsorted").and_then(Value::as_str),
     )
     .map_err(|e| bad("smartSort.plan", e))?;
-    Ok(json!({"folders":folders}))
+    Ok(json!({"folders":folders,"notices":notices}))
 }
 
 fn tag_sets(s: &mut Session, _: &Value) -> Result<Value> {
@@ -352,7 +366,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Analyse Smart Sort",
             [],
             None,
-            "{ids?, faces?: false, includeRejected?: false} → {analysed, skipped, videos, failed}",
+            "{ids?, faces?: bool, includeRejected?: false} → {analysed, skipped, videos, failed, faces?}",
             always,
             analyze
         ),
@@ -374,6 +388,6 @@ pub fn specs() -> Vec<CommandSpec> {
             always,
             keywords
         ),
-        cmd!(query "smartSort.plan","Plan Smart Sort Folders",[],None,"{folders: [{name, rules, enabled}], ids?, firstMatch?: false, unsorted?: string|null, includeRejected?: false} → {folders: [{name, ids}]}",always,plan),
+        cmd!(query "smartSort.plan","Plan Smart Sort Folders",[],None,"{folders: [FolderDef], ids?, firstMatch?: false, unsorted?: string|null, includeRejected?: false} → {folders: [{name, ids}], notices: [string]}",always,plan),
     ]
 }

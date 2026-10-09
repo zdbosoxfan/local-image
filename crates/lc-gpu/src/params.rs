@@ -77,7 +77,7 @@ const FIELDS: &[(&str, usize)] = &[
     ("OUT_Y", 3),
     ("OUT_TRC", 1),
     ("OUT_GAMMA", 1),
-    // Process 2026 tone stage (`lightcraft_pipeline::tone2`): on, hue preservation
+    // Unified tone stage (`lightcraft_pipeline::tone2`): on, hue preservation
     ("TONE_HUE", 1),
     ("TONE_LUM", 1),
     // first row of a band dispatch (the kernel runs over rows Y0.., see `render`)

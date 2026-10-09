@@ -27,6 +27,37 @@ fn sort(prompts: &[(&str, &str)], sensitivity: Sensitivity) -> SortPreset {
         ..Default::default()
     }
 }
+
+#[test]
+fn both_legacy_folder_layouts_load_and_combined_preset_roundtrips() {
+    let tags: FolderDef = serde_json::from_value(json!({
+        "name":"Tags", "custom":true, "tags":["Stage","Speakers"], "combineAll":true, "personIds":[7]
+    }))
+    .unwrap();
+    assert!(tags.custom && tags.combine_all && tags.use_rules);
+    assert!(!tags.people_enabled && !tags.everyone && !tags.people_or && !tags.unsorted);
+    let people: FolderDef = serde_json::from_value(json!({
+        "name":"People", "peopleEnabled":true, "personIds":[7,8], "everyone":true, "peopleOr":true, "useRules":false
+    }))
+    .unwrap();
+    assert!(people.people_enabled && people.everyone && people.people_or);
+    assert!(!people.use_rules && !people.custom && !people.combine_all && !people.unsorted);
+    assert!(people.tags.is_empty());
+    let preset: SortPreset = serde_json::from_value(json!({
+        "name":"Combined", "firstMatch":true, "folders":[tags], "peopleLayout":[people], "folderPattern":"{event}/{folder}"
+    }))
+    .unwrap();
+    let back: SortPreset = serde_json::from_value(serde_json::to_value(&preset).unwrap()).unwrap();
+    assert_eq!(back, preset);
+    assert!(back.first_match);
+    assert_eq!(back.folders[0].tags, ["Stage", "Speakers"]);
+    assert_eq!(back.people_layout[0].person_ids, [7, 8]);
+    let old: SortPreset = serde_json::from_value(json!({"name":"Old", "peopleLayout":[people]})).unwrap();
+    assert!(!old.first_match);
+    assert!(old.folders.is_empty() && old.folder_pattern.is_empty());
+    assert_eq!(old.people_layout, [people]);
+}
+
 fn insert(s: &mut Session, id: PhotoId, color: [u8; 4]) -> String {
     let t = s.smart.tagger.clone().unwrap();
     let key = crate::media::content_key(s.catalog.photo(id).unwrap());

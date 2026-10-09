@@ -308,6 +308,7 @@ fn people_from_named_face_regions() {
         kind,
         name: name.map(str::to_string),
         description: None,
+        auto: false,
     };
     let mut c = Catalog::new();
     let mut add = |name: &str, regions: Vec<Region>| {
@@ -376,6 +377,7 @@ fn empty_regions_are_not_serialized_and_default_when_missing() {
         kind: lightcraft_meta::RegionKind::Face,
         name: Some("A".into()),
         description: None,
+        auto: false,
     });
     let back: Meta = serde_json::from_str(&serde_json::to_string(&with).unwrap()).unwrap();
     assert_eq!(back, with);
@@ -445,4 +447,37 @@ fn random_sort_has_no_date_headers() {
     let mut c = Catalog::new();
     let ids = many(&mut c, 5);
     assert!(c.date_runs(&ids, SortKey::Random, GroupBy::Day).is_empty());
+}
+
+#[test]
+fn person_rules_use_stable_ids_any_all_names_and_negative_ops() {
+    let mut cat = Catalog::new();
+    let id = cat.alloc_photo_id();
+    let mut p = Photo::new(id, Source::Demo { scene: 1 }, "people.jpg", "JPEG", 100, 100, "2026-10-09");
+    p.meta.person_ids = vec![7, 9];
+    p.meta.regions.push(lightcraft_meta::Region {
+        rect: lightcraft_meta::Rect::UNIT,
+        kind: lightcraft_meta::RegionKind::Face,
+        name: Some("Jane Doe".into()),
+        description: None,
+        auto: false,
+    });
+    let rule = |op: &str, value: serde_json::Value| Rule::Field { field: "person".into(), op: op.into(), value };
+    assert!(rules::FIELDS.iter().any(|f| f.0 == "person"));
+    for (op, value, expected) in [
+        ("is", serde_json::json!([7, 11]), true),
+        ("allOf", serde_json::json!([7, 9]), true),
+        ("allOf", serde_json::json!([7, 11]), false),
+        ("isNot", serde_json::json!(11), true),
+        ("isNot", serde_json::json!(7), false),
+        ("is", serde_json::json!("jane doe"), true),
+        ("contains", serde_json::json!("Jane"), true),
+        ("isNot", serde_json::json!("John"), true),
+        ("isEmpty", serde_json::Value::Null, false),
+    ] {
+        assert_eq!(rule(op, value).matches(&p, &cat), expected, "{op}");
+    }
+    let old: Meta = serde_json::from_str("{}").unwrap();
+    assert!(old.person_ids.is_empty());
+    assert!(serde_json::to_value(old).unwrap().get("person_ids").is_none());
 }

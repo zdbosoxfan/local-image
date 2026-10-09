@@ -15,9 +15,14 @@ pub struct FolderDef {
     pub custom: bool,
     /// Category names used by the simple picker. Advanced rules remain authoritative.
     pub tags: Vec<String>,
-    /// Reserved stable ids for Phase 3's person picker.
     pub person_ids: Vec<u64>,
     pub combine_all: bool,
+    pub people_enabled: bool,
+    pub everyone: bool,
+    /// false: tag/rules AND people; true: tag/rules OR people.
+    pub people_or: bool,
+    /// When false, this is a pure people folder.
+    pub use_rules: bool,
 }
 impl Default for FolderDef {
     fn default() -> Self {
@@ -30,6 +35,10 @@ impl Default for FolderDef {
             tags: Vec::new(),
             person_ids: Vec::new(),
             combine_all: false,
+            people_enabled: false,
+            everyone: false,
+            people_or: false,
+            use_rules: true,
         }
     }
 }
@@ -131,7 +140,7 @@ pub fn plan_with_options(
         let name = unique_name(&folder.name)?;
         let selected = unique_ids
             .iter()
-            .filter(|id| (!first_match || !matched.contains(*id)) && cat.photo(**id).is_some_and(|p| folder.rules.matches(p, cat)))
+            .filter(|id| (!first_match || !matched.contains(*id)) && cat.photo(**id).is_some_and(|p| folder.matches(p, cat)))
             .copied()
             .collect::<Vec<_>>();
         matched.extend(selected.iter().copied());
@@ -205,4 +214,26 @@ pub fn prepare(
         }
     }
     Ok(out)
+}
+
+impl FolderDef {
+    pub fn matches(&self, photo: &lightcraft_catalog::Photo, cat: &Catalog) -> bool {
+        let tags = self.rules.matches(photo, cat);
+        if !self.people_enabled {
+            return self.use_rules && tags;
+        }
+        let people = !self.person_ids.is_empty()
+            && if self.everyone {
+                self.person_ids.iter().all(|id| photo.meta.person_ids.contains(id))
+            } else {
+                self.person_ids.iter().any(|id| photo.meta.person_ids.contains(id))
+            };
+        if !self.use_rules || self.rules.rules.is_empty() {
+            people
+        } else if self.people_or {
+            tags || people
+        } else {
+            tags && people
+        }
+    }
 }

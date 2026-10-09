@@ -132,9 +132,14 @@ excessive_precision = "allow"
 # Pixel code is unusably slow unoptimised.
 [profile.dev]
 opt-level = 1
+# Line tables only: panics and backtraces still show file:line, but builds and test binaries are several times
+# smaller and link faster (full debug info made every worktree's target/ 100–400 GB).
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
 opt-level = 2
+# Third-party crates need no debug info at all.
+debug = false
 
 [profile.release]
 lto = "thin"

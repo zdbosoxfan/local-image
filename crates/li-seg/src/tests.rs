@@ -164,11 +164,11 @@ fn object_flood_keeps_the_clicked_region_only() {
 /// One official model per function, each explained in plain language.
 #[test]
 fn one_official_model_per_function() {
-    assert_eq!(MODELS.len(), 4);
+    assert_eq!(MODELS.len(), 6);
     for g in Group::ALL {
         let m = g.official();
         assert_eq!(m.group, Some(g));
-        assert_eq!(MODELS.iter().filter(|x| x.group == Some(g)).count(), 1, "{g:?}");
+        assert_eq!(MODELS.iter().filter(|x| x.group == Some(g)).count(), if g == Group::Faces { 2 } else { 1 }, "{g:?}");
         assert!(m.about.len() > 60 && !g.about().is_empty() && !g.label().is_empty());
         assert!(!m.label.contains("MB"), "{}", m.label);
         assert!(g.in_use(Path::new("/nonexistent")).is_none());
@@ -557,4 +557,35 @@ fn tagging_requires_its_bundle_and_refuses_custom_models() {
     assert!(Group::Tagging.in_use(&dir).is_none());
     assert!(Segmenter::load(Group::Tagging.official(), &source).is_err());
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn faces_official_bundle_contains_both_pinned_models_and_no_custom_flow() {
+    let spec = Group::Faces.official();
+    assert_eq!(spec.id, "sface");
+    assert_eq!(spec.task, Task::FaceEmbed);
+    assert!(!Group::Faces.supports_custom());
+    let files: Vec<_> = spec.files().collect();
+    assert_eq!(files.len(), 2);
+    assert_eq!(spec.download_bytes(), faces::SFACE.bytes + faces::YUNET.bytes);
+    for (id, pinned) in [("yunet", faces::YUNET), ("sface", faces::SFACE)] {
+        let m = crate::spec(id).unwrap();
+        assert_eq!(m.group, Some(Group::Faces));
+        assert_eq!(m.file, pinned.file);
+        assert_eq!(m.bytes, pinned.bytes);
+        assert_eq!(m.sha256, pinned.sha256);
+        assert_eq!(m.url, pinned.url);
+    }
+    let dir = temp_models();
+    std::fs::create_dir_all(dir.join("segmentation")).unwrap();
+    std::fs::write(model_path(&dir, spec), b"partial").unwrap();
+    assert!(installed_bytes(&dir, spec).is_none());
+    assert!(Group::Faces.in_use(&dir).is_none());
+    std::fs::write(companion_path(&dir, faces::YUNET.file), b"wrong").unwrap();
+    assert!(installed_bytes(&dir, spec).is_none());
+    let removed = remove_with(&dir, spec, &|p| std::fs::remove_file(p)).unwrap();
+    assert_eq!(removed, 12);
+    assert!(!model_path(&dir, spec).exists());
+    assert!(!companion_path(&dir, faces::YUNET.file).exists());
+    std::fs::remove_dir_all(dir).unwrap();
 }

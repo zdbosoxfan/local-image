@@ -36,6 +36,8 @@ pub struct SortPreset {
     pub folders: Vec<super::FolderDef>,
     /// Reserved for Phase 2b name tokens.
     pub folder_pattern: String,
+    /// People layout stores library identities, never names. Unknown IDs are skipped on reuse.
+    pub people_layout: Vec<super::FolderDef>,
 }
 
 impl Default for SortPreset {
@@ -49,6 +51,7 @@ impl Default for SortPreset {
             first_match: false,
             folders: Vec::new(),
             folder_pattern: String::new(),
+            people_layout: Vec::new(),
         }
     }
 }
@@ -60,7 +63,7 @@ pub struct Category {
     pub prompts: Vec<String>,
     pub exemplars: Vec<String>,
     pub match_all: bool,
-    // Reserved data only in Phase 1; face inference/gating belongs to Phase 3.
+    /// Optional face-count gates, applied only when face analysis is enabled.
     pub min_faces: Option<u32>,
     pub max_faces: Option<u32>,
 }

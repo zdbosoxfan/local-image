@@ -337,6 +337,7 @@ impl Session {
         self.smart.prefs = prefs.smart_sort;
         self.smart.tag_sets = settings.read::<Vec<crate::smart_sort::tagsets::TagSet>>(files.as_mut(), "smart-sort-tagsets.json").unwrap_or_default();
         self.smart.store = crate::smart_sort::Store::new(on_disk.then_some(dir.as_path()));
+        self.smart.people = crate::smart_sort::PeopleEngine::new(on_disk.then_some(dir.as_path()));
         self.last_export = prefs.last_export;
         self.export_presets = prefs.export_presets;
         self.metadata_presets = prefs.metadata_presets;
