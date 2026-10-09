@@ -9,6 +9,7 @@ pub mod plan;
 mod presets;
 pub mod sessions;
 pub mod store;
+pub mod tokens;
 
 use crate::{RenderJob, Session};
 use lightcraft_catalog::{MediaKind, PhotoId, Source};
