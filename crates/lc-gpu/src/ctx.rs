@@ -14,6 +14,8 @@ struct Module {
 }
 
 const MODULES: &[Module] = &[
+    #[cfg(test)]
+    Module { src: include_str!("wgsl/toneeq_test.wgsl"), bindings: &[("a", false, "f32"), ("dst", true, "f32")], entries: &["teq_round_probe"] },
     Module {
         src: include_str!("wgsl/haze_select.wgsl"),
         bindings: &[("a", false, "f32"), ("b", true, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
@@ -447,6 +449,9 @@ fn module_source(m: &Module, consts: &str) -> String {
         s += &format!("@group(0) @binding({}) var<storage, {access}> {name}: array<{ty}>;\n", i + 1);
     }
     s += include_str!("wgsl/common.wgsl");
+    if m.entries.contains(&"p_deriche") || m.entries.contains(&"toneeq_lum") || m.entries.contains(&"teq_round_probe") {
+        s += include_str!("wgsl/toneeq_round.wgsl");
+    }
     if m.entries.first().is_some_and(|e| e.starts_with("p_")) {
         s += include_str!("wgsl/ucs.wgsl");
     }
@@ -926,6 +931,21 @@ mod tests {
 
 #[cfg(test)]
 mod shader_validation {
+    #[test]
+    fn toneeq_wgsl_validates_without_an_adapter() {
+        let constants = super::constants();
+        for module in super::MODULES
+            .iter()
+            .filter(|m| m.entries.contains(&"p_deriche") || m.entries.contains(&"toneeq_lum") || m.entries.contains(&"teq_round_probe"))
+        {
+            let source = super::module_source(module, &constants);
+            let parsed = wgpu::naga::front::wgsl::parse_str(&source).unwrap_or_else(|e| panic!("{}", e.emit_to_string(&source)));
+            wgpu::naga::valid::Validator::new(wgpu::naga::valid::ValidationFlags::all(), wgpu::naga::valid::Capabilities::all())
+                .validate(&parsed)
+                .unwrap_or_else(|e| panic!("entry points {:?}: {e:?}", module.entries));
+        }
+    }
+
     #[test]
     fn all_wgsl_validates_without_an_adapter() {
         let constants = super::constants();
