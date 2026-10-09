@@ -180,6 +180,8 @@ pub fn apply_to_surface(id: &str, params: &Value, surf: &Surface, canvas: Rect) 
         }
         PUPPET | PUPPET_SMART => Some(puppet_surface(surf, &puppet_params(id, params).ok()?, interp(params))),
         PERSPECTIVE | PERSPECTIVE_SMART => Some(perspective_surface(surf, &perspective_params(id, params).ok()?, interp(params))),
+        // local-image: Edit › Transform › Cage on a smart object.
+        crate::cage_cmds::CAGE => crate::cage_cmds::apply_to_surface(params, surf),
         _ => None,
     }
 }
@@ -230,9 +232,9 @@ fn check_locks(l: &Layer, group: Locks, position: bool) -> Result<()> {
 
 /// Shared driver: a smart object records `cmd` as a smart filter; a pixel layer is edited in
 /// place by `f(surface, selection)`.
-type MaskFn<'a> = Option<&'a dyn Fn(&Surface) -> Surface>;
+pub(crate) type MaskFn<'a> = Option<&'a dyn Fn(&Surface) -> Surface>;
 
-fn run_on_layer(
+pub(crate) fn run_on_layer(
     s: &mut Session,
     cmd: &str,
     label: &str,

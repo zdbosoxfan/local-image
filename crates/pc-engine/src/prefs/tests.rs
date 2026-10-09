@@ -272,3 +272,15 @@ fn gpu_backend_round_trips_and_validates() {
         assert_eq!(GpuBackend::parse(n).map(GpuBackend::name), Some(*n));
     }
 }
+
+#[test]
+fn pen_pressure_curve_pref() {
+    let mut s = session();
+    assert_eq!(s.prefs().tools.pen_pressure_curve, vec![[0.0, 0.0], [1.0, 1.0]], "linear: pressure unchanged");
+    s.execute("prefs.set", json!({"path": "tools.penPressureCurve", "value": [[0.0, 0.0], [0.3, 0.55], [1.0, 1.0]]})).unwrap();
+    assert_eq!(photocraft_paint::pressure::preset_of(&s.prefs().tools.pen_pressure_curve), Some("soft"));
+    assert!(s.execute("prefs.set", json!({"path": "tools.penPressureCurve", "value": "firm"})).is_err());
+    // Preferences saved before the option existed load with the linear curve.
+    let old: Tools = serde_json::from_value(json!({"showTooltips": false})).unwrap();
+    assert_eq!(old.pen_pressure_curve, photocraft_paint::pressure::LINEAR.to_vec());
+}

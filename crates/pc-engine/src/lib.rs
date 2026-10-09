@@ -23,6 +23,8 @@ pub mod brush_cmds;
 pub mod brush_key_cmds;
 pub mod brush_preset_cmds;
 pub mod build_info;
+// local-image: Edit › Transform › Cage.
+pub mod cage_cmds;
 mod canvas_geom;
 pub mod channel_cmds;
 pub mod color_cmds;
@@ -82,6 +84,8 @@ pub mod proof_sim;
 pub mod redeye_cmds;
 pub mod render_cmds;
 pub mod retouch_cmds;
+// local-image: Edit › Paste Special › Paste Seamless.
+pub mod seamless_cmds;
 pub mod select_extra_cmds;
 pub mod selection_cmds;
 pub mod slice_cmds;

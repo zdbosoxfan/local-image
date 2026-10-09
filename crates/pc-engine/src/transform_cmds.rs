@@ -1,6 +1,6 @@
 //! Edit › Free Transform / Transform: projective transforms of layers (and the selection).
 
-use photocraft_algo::transform::{Homography, Interp, warp_surface};
+use photocraft_algo::transform::{Homography, Interp, QuadMap, warp_surface, warp_surface_map};
 use photocraft_color::PixelFormat;
 use photocraft_doc::{Document, Layer, LayerContent, LayerId, Locks};
 use photocraft_geom::{Affine, Rect};
@@ -36,6 +36,11 @@ pub fn transform_bounds(doc: &Document, layer: &Layer) -> Rect {
 /// Warp a surface whose pixels outside the content read as `default` (masks, selections):
 /// warp the content with alpha, then flatten back onto the default value.
 pub(crate) fn warp_gray(s: &Surface, h: &Homography, interp: Interp) -> Surface {
+    warp_gray_map(s, &QuadMap::Projective(*h), interp)
+}
+
+/// local-image: [`warp_gray`] through a [`QuadMap`] (folded Distort / Perspective quads too).
+pub(crate) fn warp_gray_map(s: &Surface, h: &QuadMap, interp: Interp) -> Surface {
     let default = s.default_pixel().first().copied().unwrap_or(0.0);
     let fmt = s.format();
     let src = s.content_bounds();
@@ -48,7 +53,7 @@ pub(crate) fn warp_gray(s: &Surface, h: &Homography, interp: Interp) -> Surface 
     let mut tmp = Surface::new(with_alpha);
     let v = s.read_region(src);
     tmp.write_region(src, &v.iter().flat_map(|g| [*g, 1.0]).collect::<Vec<f32>>());
-    let w = warp_surface(&tmp, src, h, interp);
+    let w = warp_surface_map(&tmp, src, h, interp);
     // Clear the old content region, then composite the warped content over it. These are written as
     // two sparse regions rather than one dense `src ∪ warped` block: a transform that moves the
     // content far away (e.g. a huge translation) would otherwise allocate a buffer spanning both and
@@ -102,12 +107,17 @@ pub fn split_gray_selected(s: &Surface, sel: &Surface) -> Option<(Surface, Surfa
 /// [`warp_gray`] limited to a selection: only the selected values move (the vacated area reads as
 /// the default), as the selected pixels of the layer do.
 pub(crate) fn warp_gray_selected(s: &Surface, sel: &Surface, h: &Homography, interp: Interp) -> Surface {
-    let Some((lifted, mut out)) = split_gray_selected(s, sel) else { return warp_gray(s, h, interp) };
+    warp_gray_selected_map(s, sel, &QuadMap::Projective(*h), interp)
+}
+
+/// local-image: [`warp_gray_selected`] through a [`QuadMap`].
+pub(crate) fn warp_gray_selected_map(s: &Surface, sel: &Surface, h: &QuadMap, interp: Interp) -> Surface {
+    let Some((lifted, mut out)) = split_gray_selected(s, sel) else { return warp_gray_map(s, h, interp) };
     let src = lifted.content_bounds();
     if src.is_empty() {
         return out;
     }
-    let w = warp_surface(&lifted, src, h, interp);
+    let w = warp_surface_map(&lifted, src, h, interp);
     let b = w.content_bounds();
     if !b.is_empty() {
         let moved = w.read_region(b);
@@ -167,6 +177,13 @@ pub(crate) fn group_locks(doc: &Document, id: LayerId) -> Locks {
 
 /// `group` holds the locks `l` inherits from the groups around it ([`group_locks`]).
 pub(crate) fn transform_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, h: &Homography, affine: Option<Affine>, interp: Interp) -> Result<()> {
+    transform_layer_map(doc_sel, group, l, &QuadMap::Projective(*h), affine, interp)
+}
+
+/// local-image: [`transform_layer`] through a [`QuadMap`]: a folded (concave or self-crossing)
+/// Distort / Perspective quad draws as two affine triangles. Smart objects take folded quads as
+/// a warp (see [`transform`]); here they need a projective map.
+pub(crate) fn transform_layer_map(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, m: &QuadMap, affine: Option<Affine>, interp: Interp) -> Result<()> {
     // Photoshop turns the Background into a normal layer before transforming it.
     if l.locks.position && l.name == "Background" {
         l.locks.position = false;
@@ -183,7 +200,7 @@ pub(crate) fn transform_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut L
     match &mut l.content {
         LayerContent::Group(g) => {
             for c in g.children.iter_mut() {
-                transform_layer(None, locks, c, h, affine, interp)?;
+                transform_layer_map(None, locks, c, m, affine, interp)?;
             }
         }
         LayerContent::Text(t) => {
@@ -199,6 +216,9 @@ pub(crate) fn transform_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut L
             crate::vector_cmds::transform_shape(sh, &a);
         }
         LayerContent::Smart(sm) => {
+            let Some(h) = m.homography() else {
+                return Err(EngineError::Other("Distort with folded corners on a smart object inside a group needs the smart object selected by itself".into()));
+            };
             // Smart objects keep the transform and re-render from their source afterwards
             // (`refresh_text`), so repeated transforms don't degrade the pixels. Distort and
             // Perspective keep the full projective map, so the fourth corner survives re-renders.
@@ -222,22 +242,22 @@ pub(crate) fn transform_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut L
                     // Only the selected pixels move: lift them, clear them, warp and paste back.
                     Some(sel) => {
                         let (lifted, mut rest) = split_selected(surf, sel);
-                        let moved = warp_surface(&lifted, src, h, interp);
+                        let moved = warp_surface_map(&lifted, src, m, interp);
                         composite_over(&mut rest, &moved);
                         rest.prune();
                         rest
                     }
-                    None => warp_surface(surf, src, h, interp),
+                    None => warp_surface_map(surf, src, m, interp),
                 };
             }
         }
     }
-    if let Some(m) = l.mask.as_mut()
-        && m.linked
+    if let Some(mask) = l.mask.as_mut()
+        && mask.linked
     {
-        m.surface = match mask_sel {
-            Some(sel) => warp_gray_selected(&m.surface, sel, h, interp),
-            None => warp_gray(&m.surface, h, interp),
+        mask.surface = match mask_sel {
+            Some(sel) => warp_gray_selected_map(&mask.surface, sel, m, interp),
+            None => warp_gray_map(&mask.surface, m, interp),
         };
     }
     if let Some(vm) = l.vector_mask.as_mut()
@@ -354,6 +374,13 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
             [b.x0 as f64, b.y0 as f64, b.x1 as f64, b.y1 as f64]
         }
     };
+    // local-image: a concave or folded quad (a Distort corner dragged past its neighbours) draws
+    // as two affine triangles instead of turning inside out through the horizon.
+    if let Some(q) = quad_param(p)
+        && let Some(folded) = QuadMap::new(rect, q).filter(QuadMap::is_folded)
+    {
+        return transform_folded(s, p, id, rect, folded);
+    }
     let h = if let Some(q) = quad_param(p) {
         Homography::rect_to_quad(rect, q).ok_or_else(|| bad("degenerate quad"))?
     } else if let Some(m) = p.get("matrix").and_then(Value::as_array) {
@@ -407,13 +434,62 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"rect": rect}))
 }
 
+/// Free Transform with a folded quad ([`QuadMap::Folded`]): pixel layers, groups, masks,
+/// channels and the selection warp through the two triangles; a smart object takes it as a
+/// custom warp (a fine mesh fitted to the two-triangle map, which keeps it re-renderable).
+fn transform_folded(s: &mut Session, p: &Value, id: Option<LayerId>, rect: [f64; 4], m: QuadMap) -> Result<Value> {
+    let interp = Interp::parse(p.get("interpolation").and_then(Value::as_str).unwrap_or("bicubic"));
+    let st = s.active().ok_or(EngineError::NoDocument)?;
+    if let Some(LayerContent::Smart(sm)) = id.and_then(|id| st.doc.layer(id)).map(|l| &l.content) {
+        if sm.warp.is_some() {
+            return Err(EngineError::Other("Distort with folded corners can't be combined with the smart object's warp".into()));
+        }
+        const N: usize = 16;
+        let knots: Vec<f64> = (0..=N).map(|i| i as f64 / N as f64).collect();
+        let (w, h) = (rect[2] - rect[0], rect[3] - rect[1]);
+        let mesh = photocraft_geom::warp::BezierMesh::fit(
+            &|u, v| {
+                let (x, y) = m.apply(rect[0] + u * w, rect[1] + v * h);
+                [x, y]
+            },
+            knots.clone(),
+            knots,
+        );
+        let warp = photocraft_geom::warp::Warp::custom(mesh, rect);
+        let layer = id.map(|l| l.0);
+        return s.execute("edit.transform.warp", json!({"layer": layer, "rect": rect, "warp": warp, "interpolation": p.get("interpolation").cloned().unwrap_or(json!("bicubic"))}));
+    }
+    let lone = lone_target(&st.doc, id, p)?.is_some();
+    s.edit("Free Transform", |doc, _| {
+        let sel = doc.selection.clone();
+        if lone {
+            let (surf, _) = crate::channel_cmds::target_surface(doc, id, p)?;
+            *surf = match &sel {
+                Some(sel) => warp_gray_selected_map(surf, sel, &m, interp),
+                None => warp_gray_map(surf, &m, interp),
+            };
+        } else {
+            let id = id.ok_or_else(|| EngineError::Other("no active layer".into()))?;
+            let is_group = doc.layer(id).is_some_and(Layer::is_group);
+            let group = group_locks(doc, id);
+            let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
+            transform_layer_map(if is_group { None } else { sel.as_ref() }, group, l, &m, None, interp)?;
+        }
+        if let Some(sel) = &doc.selection {
+            doc.selection = Some(warp_gray_map(sel, &m, Interp::Bilinear)).filter(|s| !s.content_bounds().is_empty());
+        }
+        Ok(())
+    })?;
+    Ok(json!({"rect": rect, "folded": true}))
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     vec![CommandSpec {
         id: "edit.transform",
         label: "Free Transform",
         menu: &[],
         shortcut: None,
-        params: r##"{"layer":id?,"rect":[x0,y0,x1,y1]? (source frame; default = layer content ∩ selection),"quad":[[x,y]×4]? (where the frame's corners go, clockwise from top-left),"matrix":[a,b,c,d,e,f]? (affine alternative),"interpolation":"bicubic|bilinear|nearest"="bicubic","target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target (an unlinked mask, an alpha channel or the Quick Mask transforms alone; a linked mask moves with its layer)}"##,
+        params: r##"{"layer":id?,"rect":[x0,y0,x1,y1]? (source frame; default = layer content ∩ selection),"quad":[[x,y]×4]? (where the frame's corners go, clockwise from top-left; a concave or folded quad draws as two triangles),"matrix":[a,b,c,d,e,f]? (affine alternative),"interpolation":"bicubic|bilinear|nearest"="bicubic","target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target (an unlinked mask, an alpha channel or the Quick Mask transforms alone; a linked mask moves with its layer)}"##,
         enabled: has_layer,
         journal: true,
         run: transform,
