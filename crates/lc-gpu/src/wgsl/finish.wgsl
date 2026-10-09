@@ -31,6 +31,77 @@ fn chroma_scale(o: f32) -> f32 {
     return a + (b - a) * t;
 }
 
+// Process 2026 tone (`tone2::tone_px`): darktable sigmoid's per-channel curve with its hue and
+// energy preservation, then a camera curve's chroma scale.
+fn tone_v2(c0: vec3<f32>) -> vec3<f32> {
+    // `desaturate_negative`
+    let avg = max((c0.x + c0.y + c0.z) / 3.0, 0.0);
+    let mn = min(c0.x, min(c0.y, c0.z));
+    var f = 1.0;
+    if (mn < 0.0) {
+        f = -avg / (mn - avg);
+    }
+    var pix = array<f32, 3>(avg + f * (c0.x - avg), avg + f * (c0.y - avg), avg + f * (c0.z - avg));
+    var per = array<f32, 3>(tone_apply(pix[0]), tone_apply(pix[1]), tone_apply(pix[2]));
+    // `channel_order`
+    var lo = 2u;
+    var mid = 1u;
+    var hi = 0u;
+    if (pix[0] >= pix[1]) {
+        if (pix[1] > pix[2]) {
+            lo = 2u; mid = 1u; hi = 0u;
+        } else if (pix[2] > pix[0]) {
+            lo = 1u; mid = 0u; hi = 2u;
+        } else if (pix[2] > pix[1]) {
+            lo = 1u; mid = 2u; hi = 0u;
+        } else {
+            lo = 2u; mid = 1u; hi = 0u;
+        }
+    } else if (pix[0] >= pix[2]) {
+        lo = 2u; mid = 0u; hi = 1u;
+    } else if (pix[2] > pix[1]) {
+        lo = 0u; mid = 1u; hi = 2u;
+    } else {
+        lo = 0u; mid = 2u; hi = 1u;
+    }
+    // `preserve_hue_and_energy`
+    let hue = pf(F_TONE_HUE);
+    let chroma = pix[hi] - pix[lo];
+    var midscale = 0.0;
+    if (chroma != 0.0) {
+        midscale = (pix[mid] - pix[lo]) / chroma;
+    }
+    let full_hue_correction = per[lo] + (per[hi] - per[lo]) * midscale;
+    let naive_hue_mid = (1.0 - hue) * per[mid] + hue * full_hue_correction;
+    let per_channel_energy = per[0] + per[1] + per[2];
+    let naive_hue_energy = per[lo] + naive_hue_mid + per[hi];
+    let lo_plus_mid = pix[lo] + pix[mid];
+    var blend = 0.0;
+    if (lo_plus_mid != 0.0) {
+        blend = 2.0 * pix[lo] / lo_plus_mid;
+    }
+    let energy_target = blend * per_channel_energy + (1.0 - blend) * naive_hue_energy;
+    var out3 = array<f32, 3>(0.0, 0.0, 0.0);
+    if (naive_hue_mid <= per[mid]) {
+        let corrected_mid = ((1.0 - hue) * per[mid] + hue * (midscale * per[hi] + (1.0 - midscale) * (energy_target - per[hi]))) / (1.0 + hue * (1.0 - midscale));
+        out3[lo] = energy_target - per[hi] - corrected_mid;
+        out3[mid] = corrected_mid;
+        out3[hi] = per[hi];
+    } else {
+        let corrected_mid = ((1.0 - hue) * per[mid] + hue * (per[lo] * (1.0 - midscale) + midscale * (energy_target - per[lo]))) / (1.0 + hue * midscale);
+        out3[lo] = per[lo];
+        out3[mid] = corrected_mid;
+        out3[hi] = energy_target - per[lo] - corrected_mid;
+    }
+    var d = vec3<f32>(out3[0], out3[1], out3[2]);
+    let o = lum2020(d);
+    let k = chroma_scale(o);
+    if (k != 1.0) {
+        d = vec3<f32>(o) + (d - vec3<f32>(o)) * k;
+    }
+    return clamp(d, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
 fn encode_srgb(v: f32) -> f32 {
     let o = pu(F_SRGB_OFF);
     let f = clamp(v, 0.0, 1.0) * f32(SRGB_N);
@@ -407,20 +478,24 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     // --- tone map on luminance, highlight desaturation
-    let yl = lum2020(c);
-    let o = tone_apply(yl);
     var d = vec3<f32>(0.0);
-    if (yl > 1e-9) {
-        d = c * o / yl;
-    }
-    let k = chroma_scale(o);
-    if (k != 1.0) {
-        d = vec3<f32>(o) + (d - vec3<f32>(o)) * k;
-    }
-    let mx = max(d.x, max(d.y, d.z));
-    if (mx > 1.0) {
-        let t = clamp((mx - 1.0) / max(mx - o, 1e-6), 0.0, 1.0);
-        d = d + (o - d) * t;
+    if (pu(F_TONE_V2) != 0u) {
+        d = tone_v2(c);
+    } else {
+        let yl = lum2020(c);
+        let o = tone_apply(yl);
+        if (yl > 1e-9) {
+            d = c * o / yl;
+        }
+        let k = chroma_scale(o);
+        if (k != 1.0) {
+            d = vec3<f32>(o) + (d - vec3<f32>(o)) * k;
+        }
+        let mx = max(d.x, max(d.y, d.z));
+        if (mx > 1.0) {
+            let t = clamp((mx - 1.0) / max(mx - o, 1e-6), 0.0, 1.0);
+            d = d + (o - d) * t;
+        }
     }
 
     // --- colour

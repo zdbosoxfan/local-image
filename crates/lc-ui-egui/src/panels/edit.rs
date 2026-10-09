@@ -442,6 +442,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         control(app, ui, &d, "profile.amount", true);
         ui.add_space(6.0);
     }
+    if app.session.catalog.photo(id).is_some_and(|p| p.develops_raw()) {
+        crate::panels::process::look_row(app, ui, &d);
+    }
     divider(ui);
     // film negative conversion: first, since it changes what every section below works on
     negative_section(app, ui, &d);
@@ -506,6 +509,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     crate::panels::develop_tools::color_cal_section(app, ui, &d);
     // Lightroom Classic's Calibration panel (the cloud app hides it): last, like there.
     section(app, ui, &d, "calibration", "Calibration", |app, ui, d| {
+        crate::panels::process::process_row(app, ui, d);
         sub_title(ui, crate::i18n::tr("Shadows"));
         control(app, ui, d, "calibration.shadowsTint", true);
         for (title, k) in [("Red Primary", "red"), ("Green Primary", "green"), ("Blue Primary", "blue")] {

@@ -224,6 +224,9 @@ pub struct ImportDefaults {
     pub auto_folder: Option<String>,
     pub auto_copy: bool,
     pub auto_album: Option<String>,
+    /// The look new raw photos start with under Process 2026 (Settings → Import, "Default look
+    /// for new photos"; each photo can change it in Develop).
+    pub look: lightcraft_develop::Look,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -253,6 +256,9 @@ impl ImportDefaults {
 /// Give a freshly imported photo its default settings: the camera defaults, then the matching
 /// default preset ([`ImportDefaults::preset_for`]), remembered as the photo's import look.
 pub fn apply_import_defaults(s: &Session, p: &mut Photo) {
+    // photos added from now on use the current process version and the preferred look
+    p.process = lightcraft_develop::ProcessVersion::CURRENT;
+    p.look = s.import_defaults.look;
     // metadata defaults fill gaps only: the file's own copyright / creator win
     let d = &s.import_defaults;
     if p.meta.copyright.trim().is_empty() && !d.copyright.trim().is_empty() {
@@ -987,6 +993,8 @@ impl Session {
             p.embedded_lens = info.embedded_lens;
             p.preview_only = info.preview_only.clone();
         }
+        p.process = lightcraft_develop::ProcessVersion::CURRENT;
+        p.look = self.import_defaults.look;
         p.develop = std::sync::Arc::new(p.import_defaults());
         let edge = edge.clamp(64, crate::media::SourceLevel::Thumb.max_edge());
         let level = crate::media::SourceLevel::Thumb;

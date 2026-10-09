@@ -94,6 +94,9 @@ pub(crate) fn grain(s: &DevelopSettings, px_per_long: f64) -> Option<(f32, f32, 
 
 /// The tone map for `s` on `info`'s source with these contrast / whites / blacks.
 pub(crate) fn tone_map(s: &DevelopSettings, info: &SourceInfo, contrast: f64, whites: f64, blacks: f64) -> ToneMap {
+    if s.v2026() {
+        return crate::tone2::tone_map(s, info, contrast, whites, blacks);
+    }
     // a converted negative is already a print (display-referred): no camera / scene curve
     if crate::negative::converts(s) {
         ToneMap::display(contrast, whites, blacks)
@@ -675,6 +678,9 @@ fn dehaze_px(c: [f32; 3], dz: f32, dark: f32, air_pre: f32, air: f32) -> [f32; 3
 /// desaturation (display linear).
 #[inline]
 fn tone_px(tone: &ToneMap, c: [f32; 3]) -> [f32; 3] {
+    if let Some(v) = tone.v2() {
+        return crate::tone2::tone_px(tone, &v, c);
+    }
     let yl = luminance_2020(c);
     let o = tone.apply(yl);
     let mut d = if yl > 1e-9 { c.map(|v| v * o / yl) } else { [0.0; 3] };

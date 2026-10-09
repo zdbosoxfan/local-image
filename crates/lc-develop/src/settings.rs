@@ -11,6 +11,17 @@ pub const SCHEMA_VERSION: u32 = 1;
 pub struct DevelopSettings {
     pub version: u32,
     pub profile: Profile,
+    /// The process version: which generation of the develop engine renders the photo (see
+    /// [`ProcessVersion`]). Old JSON without the field is `Legacy`; left out of the JSON while
+    /// `Legacy`, so settings written before it existed serialize and hash as before.
+    #[serde(default, skip_serializing_if = "is_legacy_process")]
+    pub process: ProcessVersion,
+    /// The base rendition of a raw photo (Process 2026 only; [`Look`]). Left out at its default.
+    #[serde(default, skip_serializing_if = "Look::is_default")]
+    pub look: Look,
+    /// The look's base-curve variant and hue preservation (Process 2026). Left out at defaults.
+    #[serde(default, skip_serializing_if = "LookOptions::is_default")]
+    pub look_options: LookOptions,
     pub treatment: Treatment,
     pub wb: WhiteBalance,
     pub light: Light,
@@ -63,6 +74,9 @@ impl Default for DevelopSettings {
         Self {
             version: SCHEMA_VERSION,
             profile: Profile::default(),
+            process: ProcessVersion::Legacy,
+            look: Look::default(),
+            look_options: LookOptions::default(),
             treatment: Treatment::Color,
             wb: WhiteBalance::default(),
             light: Light::default(),
@@ -94,6 +108,132 @@ impl Default for DevelopSettings {
             disabled_sections: Vec::new(),
         }
     }
+}
+
+/// The process version (Lightroom's "Process"): the generation of the develop engine a photo is
+/// rendered with. `Legacy` is every photo edited before Process 2026 existed and renders exactly as
+/// it always did; `V2026` is the current engine (looks, hue-preserving tone and curves, camera
+/// colour per white, soft gamut compression, dithered 8-bit output). New photos get `V2026`; a
+/// photo keeps its version until it is updated (`develop.setProcess`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProcessVersion {
+    #[default]
+    Legacy,
+    V2026,
+}
+
+/// For `skip_serializing_if`: the process version is left out of the JSON while `Legacy`.
+pub fn is_legacy_process(p: &ProcessVersion) -> bool {
+    *p == ProcessVersion::Legacy
+}
+
+impl DevelopSettings {
+    /// Rendered with Process 2026.
+    pub fn v2026(&self) -> bool {
+        self.process == ProcessVersion::V2026
+    }
+}
+
+/// The base rendition of a scene-referred (raw) photo under Process 2026: how scene light becomes
+/// display tones before any slider. Rendered photos (JPEG, …) show as the file under every look.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Look {
+    /// A Lightroom-like rendition: bright midtones, a soft toe and a long, gentle shoulder.
+    #[default]
+    Adobe,
+    /// darktable's sigmoid: a neutral scene-referred log-logistic curve, hue preserving.
+    Sigmoid,
+    /// The camera's own rendition: a curve fitted to the file's embedded JPEG (or the maker's
+    /// base curve when the file has no usable preview).
+    Camera,
+}
+
+impl Look {
+    pub const ALL: [Look; 3] = [Look::Adobe, Look::Sigmoid, Look::Camera];
+    pub fn is_default(&self) -> bool {
+        *self == Look::default()
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Look::Adobe => "Adobe-like",
+            Look::Sigmoid => "Sigmoid",
+            Look::Camera => "Match Camera",
+        }
+    }
+    /// The JSON / command name (`adobe`, `sigmoid`, `camera`).
+    pub fn id(self) -> &'static str {
+        match self {
+            Look::Adobe => "adobe",
+            Look::Sigmoid => "sigmoid",
+            Look::Camera => "camera",
+        }
+    }
+    pub fn from_id(id: &str) -> Option<Look> {
+        Look::ALL.into_iter().find(|l| l.id().eq_ignore_ascii_case(id))
+    }
+}
+
+/// A base-curve variant under every look (like Capture One's film curves): Standard, Extra
+/// Shadow (shadows opened up for high dynamic range sensors), High Contrast, Linear (low contrast,
+/// a longer highlight roll-off).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ToneBase {
+    #[default]
+    Standard,
+    ExtraShadow,
+    HighContrast,
+    Linear,
+}
+
+impl ToneBase {
+    pub const ALL: [ToneBase; 4] = [ToneBase::Standard, ToneBase::ExtraShadow, ToneBase::HighContrast, ToneBase::Linear];
+    pub fn label(self) -> &'static str {
+        match self {
+            ToneBase::Standard => "Standard",
+            ToneBase::ExtraShadow => "Extra Shadow",
+            ToneBase::HighContrast => "High Contrast",
+            ToneBase::Linear => "Linear Response",
+        }
+    }
+}
+
+/// Options of the look (Process 2026).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LookOptions {
+    /// The base-curve variant (raw photos).
+    pub base: ToneBase,
+    /// Hue preservation 0..100 % of the tone curve: 100 keeps every hue as bright colours bleach
+    /// towards white; lower values let them drift towards the secondaries (yellow, cyan,
+    /// magenta) as a per-channel film curve does.
+    pub hue_preservation: f64,
+}
+
+impl Default for LookOptions {
+    fn default() -> Self {
+        Self { base: ToneBase::Standard, hue_preservation: 75.0 }
+    }
+}
+
+impl LookOptions {
+    pub fn is_default(&self) -> bool {
+        *self == LookOptions::default()
+    }
+}
+
+impl ProcessVersion {
+    pub const ALL: [ProcessVersion; 2] = [ProcessVersion::V2026, ProcessVersion::Legacy];
+    pub fn label(self) -> &'static str {
+        match self {
+            ProcessVersion::Legacy => "Legacy",
+            ProcessVersion::V2026 => "2026",
+        }
+    }
+    /// The process version newly added photos get.
+    pub const CURRENT: ProcessVersion = ProcessVersion::V2026;
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -220,6 +360,28 @@ pub struct ToneCurve {
     /// Refine Saturation 0..100: 100 keeps the saturation a curve produces, lower values pull it
     /// back towards the saturation before the curve (strong contrast curves oversaturate).
     pub refine_saturation: f64,
+    /// How the parametric and master curves apply under Process 2026 ([`CurveMode`]; Legacy
+    /// always applies them per RGB channel). Left out of the JSON at its default.
+    #[serde(skip_serializing_if = "CurveMode::is_default")]
+    pub mode: CurveMode,
+}
+
+/// How the master (and parametric) tone curve changes colours (Process 2026).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CurveMode {
+    /// On a luminance norm, every channel scaled by the same ratio: hue and saturation kept.
+    #[default]
+    Luminance,
+    /// On each RGB channel (encoded values): contrast also saturates and shifts hues, like a
+    /// classic per-channel curve.
+    Rgb,
+}
+
+impl CurveMode {
+    pub fn is_default(&self) -> bool {
+        *self == CurveMode::default()
+    }
 }
 
 impl Default for ToneCurve {
@@ -237,6 +399,7 @@ impl Default for ToneCurve {
             green: Vec::new(),
             blue: Vec::new(),
             refine_saturation: 100.0,
+            mode: CurveMode::default(),
         }
     }
 }

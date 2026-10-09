@@ -47,6 +47,12 @@ impl DevelopSettings {
             o.entry("lens_db").or_insert_with(|| serde_json::to_value(&self.lens_db).unwrap_or(Value::Null));
             o.entry("tone_eq").or_insert_with(|| serde_json::to_value(self.tone_eq).unwrap_or(Value::Null));
             o.entry("color_cal").or_insert_with(|| serde_json::to_value(self.color_cal).unwrap_or(Value::Null));
+            o.entry("process").or_insert_with(|| serde_json::to_value(self.process).unwrap_or(Value::Null));
+            o.entry("look").or_insert_with(|| serde_json::to_value(self.look).unwrap_or(Value::Null));
+            o.entry("look_options").or_insert_with(|| serde_json::to_value(self.look_options).unwrap_or(Value::Null));
+            if let Some(Value::Object(c)) = o.get_mut("curve") {
+                c.entry("mode").or_insert_with(|| serde_json::to_value(self.curve.mode).unwrap_or(Value::Null));
+            }
         }
         v
     }
@@ -73,11 +79,13 @@ impl DevelopSettings {
         h
     }
 
-    /// True if nothing differs from a fresh default (ignoring white balance "as shot" values).
+    /// True if nothing differs from a fresh default (ignoring white balance "as shot" values and
+    /// the process version).
     pub fn is_unedited(&self) -> bool {
         let mut a = self.clone();
         let d = DevelopSettings::default();
         a.wb = d.wb;
+        a.process = d.process;
         a == d
     }
 
@@ -212,6 +220,36 @@ mod tests {
         let mut stock = DevelopSettings::default();
         stock.negative.film = FilmStock::Slide;
         assert_eq!(DevelopSettings::from_json(&stock.to_json()).unwrap(), stock);
+    }
+
+    #[test]
+    fn process_version_and_look_default_to_legacy_and_stay_out_of_old_json() {
+        // old JSON (no field) is Legacy; Legacy and the default look are not written
+        let s = DevelopSettings::from_json(&json!({"version": 1, "light": {"exposure": 0.3}})).unwrap();
+        assert_eq!((s.process, s.look, s.curve.mode), (ProcessVersion::Legacy, Look::Adobe, CurveMode::Luminance));
+        assert!(!s.v2026());
+        let v = s.to_json();
+        assert!(v.get("process").is_none() && v.get("look").is_none() && v["curve"].get("mode").is_none());
+        assert_eq!(DevelopSettings::default().hash64(), DevelopSettings::from_json(&DevelopSettings::default().to_json()).unwrap().hash64());
+        // the full JSON names them (copy/paste groups, presets)
+        let full = s.to_json_full();
+        assert_eq!((full["process"].as_str(), full["look"].as_str(), full["curve"]["mode"].as_str()), (Some("legacy"), Some("adobe"), Some("luminance")));
+        // Process 2026 round-trips and changes the hash
+        let mut n = s.clone();
+        n.process = ProcessVersion::V2026;
+        n.look = Look::Sigmoid;
+        n.curve.mode = CurveMode::Rgb;
+        let v = n.to_json();
+        assert_eq!((v["process"].as_str(), v["look"].as_str(), v["curve"]["mode"].as_str()), (Some("v2026"), Some("sigmoid"), Some("rgb")));
+        assert_eq!(DevelopSettings::from_json(&v).unwrap(), n);
+        assert!(n.v2026() && n.hash64() != s.hash64());
+        // the process version alone doesn't make settings edited
+        let fresh = DevelopSettings { process: ProcessVersion::V2026, ..DevelopSettings::default() };
+        assert!(fresh.is_unedited());
+        // copied with the Calibration group, the look with the Profile group
+        let g = extract_groups(&n, &[SettingsGroup::Calibration, SettingsGroup::Profile]);
+        assert_eq!((g["process"].as_str(), g["look"].as_str()), (Some("v2026"), Some("sigmoid")));
+        assert_eq!(Look::from_id("Camera"), Some(Look::Camera));
     }
 
     #[test]

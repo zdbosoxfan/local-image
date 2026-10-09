@@ -91,6 +91,8 @@ impl CameraTone {
 pub struct ToneMap {
     lut: Vec<f32>,
     chroma: [f32; CHROMA_N],
+    /// Process 2026: the per-pixel tone method (`None`: Legacy's luminance ratio).
+    v2: Option<crate::tone2::V2Tone>,
 }
 
 impl ToneMap {
@@ -104,7 +106,7 @@ impl ToneMap {
                 if neutral { y } else { adjustment.apply(y) }
             })
             .collect();
-        ToneMap { lut, chroma: curve.chroma }
+        ToneMap { lut, chroma: curve.chroma, v2: None }
     }
     /// `contrast`, `whites`, `blacks` in −100..100 (Lightroom slider units).
     pub fn new(contrast: f64, whites: f64, blacks: f64) -> ToneMap {
@@ -136,7 +138,7 @@ impl ToneMap {
                 o.clamp(0.0, 1.0)
             })
             .collect();
-        ToneMap { lut, chroma: NO_CHROMA }
+        ToneMap { lut, chroma: NO_CHROMA, v2: None }
     }
 
     /// Tone map for display-referred sources: identity at neutral settings.
@@ -170,7 +172,17 @@ impl ToneMap {
                 o.clamp(0.0, 1.0)
             })
             .collect();
-        ToneMap { lut, chroma: NO_CHROMA }
+        ToneMap { lut, chroma: NO_CHROMA, v2: None }
+    }
+
+    /// A Process 2026 tone map from its table (`LUT_N` entries) and chroma curve.
+    pub(crate) fn with_v2(lut: Vec<f32>, chroma: [f32; CHROMA_N], v2: crate::tone2::V2Tone) -> ToneMap {
+        ToneMap { lut, chroma, v2: Some(v2) }
+    }
+
+    /// The Process 2026 per-pixel method (`None` for Legacy tone maps).
+    pub fn v2(&self) -> Option<crate::tone2::V2Tone> {
+        self.v2
     }
 
     /// The table (`LUT_N` entries, see [`ToneMap::apply`]).

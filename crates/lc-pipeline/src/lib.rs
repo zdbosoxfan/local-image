@@ -44,6 +44,7 @@ pub mod profiles;
 pub mod redeye;
 pub mod spots;
 pub mod tone;
+pub mod tone2;
 pub mod toneeq;
 pub mod transform;
 pub mod upright;
@@ -84,6 +85,12 @@ pub struct SourceInfo {
     pub capture_radius: Option<f32>,
     /// Capture sharpening's contrast threshold for this sensor and ISO (0..1).
     pub capture_threshold: f32,
+    /// Process 2026, Camera look: the camera's own curve (fitted to the embedded JPEG, else the
+    /// maker's base curve). Set by Process 2026 decodes only.
+    pub look_curve: Option<tone::CameraTone>,
+    /// Process 2026: a DNG profile's tone curve (`ProfileToneCurve`), used by the Adobe-like and
+    /// Camera looks in place of their own curve. Set by Process 2026 decodes only.
+    pub profile_curve: Option<tone::CameraTone>,
 }
 
 impl Default for SourceInfo {
@@ -99,6 +106,8 @@ impl Default for SourceInfo {
             sensor_scale: 1.0,
             capture_radius: None,
             capture_threshold: 0.4,
+            look_curve: None,
+            profile_curve: None,
         }
     }
 }
@@ -609,7 +618,8 @@ fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared) -> Option<Plane> 
 /// Convenience: render a before/after pair side by side is up to the UI; this renders "before"
 /// (default look, keeping the crop so framing matches).
 pub fn before_settings(s: &DevelopSettings) -> DevelopSettings {
-    let mut b = DevelopSettings { crop: s.crop, orientation: s.orientation, ..DevelopSettings::default() };
+    // (the photo's process version and look: "before" is its unedited rendition)
+    let mut b = DevelopSettings { crop: s.crop, orientation: s.orientation, process: s.process, look: s.look, ..DevelopSettings::default() };
     b.wb = lightcraft_develop::WhiteBalance { mode: lightcraft_develop::WbMode::AsShot, ..b.wb };
     b
 }

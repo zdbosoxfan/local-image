@@ -191,6 +191,10 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             let _ = app.run("library.preferences", json!({"import": {"rawPreset": v}}));
         }
     });
+    row(ui, t, crate::i18n::tr("Default look for new photos"), |ui| {
+        crate::panels::process::default_look_combo(app, ui);
+    });
+    hint(ui, t, crate::i18n::tr("New raw photos use Process 2026 with this look; each photo can change it in Develop (Profile › Look)."));
     let mut per = d.per_camera;
     row(ui, t, "", |ui| {
         if check(ui, "settings.perCamera", &mut per, "Use camera-specific defaults") {

@@ -281,6 +281,15 @@ pub struct Photo {
     /// whether the user changed anything since (see [`crate::local`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_baseline: Option<u64>,
+    /// The process version the photo's defaults use ([`Photo::camera_defaults`]): `V2026` for
+    /// photos added since Process 2026, `Legacy` (left out of the JSON) for older ones, so their
+    /// defaults, Reset and "edited" state stay what they were.
+    #[serde(default, skip_serializing_if = "lightcraft_develop::is_legacy_process")]
+    pub process: lightcraft_develop::ProcessVersion,
+    /// The look the photo's defaults use under Process 2026 (the "Default look for new photos"
+    /// preference when it was added).
+    #[serde(default, skip_serializing_if = "lightcraft_develop::Look::is_default")]
+    pub look: lightcraft_develop::Look,
 }
 
 /// What assisted culling measured on a photo.
@@ -329,6 +338,8 @@ impl Photo {
             analysis: None,
             preview_only: None,
             local_baseline: None,
+            process: lightcraft_develop::ProcessVersion::Legacy,
+            look: lightcraft_develop::Look::Adobe,
         }
     }
     /// A raw file developed from its sensor data: not a rendered image, and not a raw shown from
@@ -361,6 +372,10 @@ impl Photo {
         };
         if self.embedded_lens.is_some() {
             d.optics.lens_profile = true;
+        }
+        d.process = self.process;
+        if self.process == lightcraft_develop::ProcessVersion::V2026 {
+            d.look = self.look;
         }
         d
     }
