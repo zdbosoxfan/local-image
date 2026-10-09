@@ -232,7 +232,7 @@ pub struct Gpu {
 
 /// WGSL constants shared by every module (generated from the CPU pipeline's values).
 fn constants() -> String {
-    use lightcraft_pipeline::finish::{GRAIN_HASH, MASK_SUMS, MASK_TERMS, SRGB_LUT_N};
+    use lightcraft_pipeline::finish::{DITHER_HASH, GRAIN_HASH, MASK_SUMS, MASK_TERMS, SRGB_LUT_N};
     use lightcraft_pipeline::tone::{CHROMA_N, LUT_MAX_EV, LUT_MIN_EV, LUT_N};
     let mut s = String::new();
     let [to_lms, from_lms, to_lab, from_lab] = lightcraft_color::perceptual::oklab_matrices();
@@ -257,6 +257,9 @@ fn constants() -> String {
     s += &format!("const SHADOW_TINT_K: f32 = {:?};\n", lightcraft_pipeline::colorops::SHADOW_TINT);
     for (i, h) in GRAIN_HASH.iter().enumerate() {
         s += &format!("const GRAIN_H{i}: u32 = {h}u;\n");
+    }
+    for (i, h) in DITHER_HASH.iter().enumerate() {
+        s += &format!("const DITHER_H{i}: u32 = {h}u;\n");
     }
     for (name, idx) in crate::params::finish_fields() {
         s += &format!("const F_{name}: u32 = {idx}u;\n");
@@ -728,5 +731,19 @@ mod tests {
         // 1-D kernels over a 100 MP image and 2-D ones over 16k × 16k stay under 65535 per axis
         assert!(super::groups1(100_000_000 * 3).iter().all(|g| *g <= 65535));
         assert!(super::groups2(16384, 16384, [16, 16]).iter().all(|g| *g <= 65535));
+    }
+}
+
+#[cfg(test)]
+mod shader_validation {
+    #[test]
+    fn colour_tone_finish_wgsl_validates_without_an_adapter() {
+        let constants = super::constants();
+        let module = &super::MODULES[0];
+        let source = super::module_source(module, &constants);
+        let parsed = wgpu::naga::front::wgsl::parse_str(&source).unwrap_or_else(|e| panic!("{}", e.emit_to_string(&source)));
+        wgpu::naga::valid::Validator::new(wgpu::naga::valid::ValidationFlags::all(), wgpu::naga::valid::Capabilities::all())
+            .validate(&parsed)
+            .unwrap();
     }
 }

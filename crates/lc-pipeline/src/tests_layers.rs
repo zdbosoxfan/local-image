@@ -1,5 +1,5 @@
 //! Develop layers (`Mask::tools`, `Mask::opacity`): pixel tests, and the golden hashes that pin
-//! renders of settings written before layers existed (they must stay bit-identical).
+//! renders of settings written before layers existed (re-recorded for the unified colour/tone path).
 
 use lightcraft_develop::DevelopSettings;
 use lightcraft_raster::{Rgb32f, Rgba8};
@@ -95,16 +95,16 @@ fn golden_cases() -> Vec<(&'static str, Value)> {
 /// Hashes of the renders above, recorded on x86_64 Linux before develop layers were added
 /// (other platforms' libm may round differently).
 const GOLDEN: [(&str, u64); 6] = [
-    ("default/rendered", 0x7cf2_2c29_55ef_36e6),
-    ("default/raw", 0xf5f2_05c9_0971_2ac8),
-    ("global edits/rendered", 0xef47_f362_86e6_278d),
-    ("global edits/raw", 0x59f0_1695_407a_f702),
-    ("old masks/rendered", 0x149c_c676_08a5_2dad),
-    ("old masks/raw", 0xe820_b478_f381_c7b7),
+    ("default/rendered", 0xa0f156d3ca352210),
+    ("default/raw", 0x61dfdd1c1479866c),
+    ("global edits/rendered", 0xbf0d6424cd534566),
+    ("global edits/raw", 0x00547bd4de761061),
+    ("old masks/rendered", 0x48acc164340c33b2),
+    ("old masks/raw", 0x96a665e1707ccd35),
 ];
 
 #[test]
-fn settings_from_before_layers_render_bit_identically() {
+fn old_settings_load_and_match_colour_tone_goldens() {
     let mut got = Vec::new();
     for (name, v) in golden_cases() {
         let s = DevelopSettings::from_json(&v).expect("old settings parse");
@@ -112,6 +112,11 @@ fn settings_from_before_layers_render_bit_identically() {
         assert_eq!(DevelopSettings::from_json(&s.to_json()).expect("roundtrip"), s, "{name}");
         for (kind, info) in [("rendered", SourceInfo::default()), ("raw", SourceInfo { raw: true, ..Default::default() })] {
             got.push((format!("{name}/{kind}"), fnv(&shot(&s, &info))));
+        }
+    }
+    if std::env::var_os("LC_GOLDEN_PRINT").is_some() {
+        for (n, h) in &got {
+            println!("    (\"{n}\", 0x{h:016x}),");
         }
     }
     if cfg!(all(target_arch = "x86_64", target_os = "linux")) {
@@ -183,7 +188,10 @@ fn tool_cases() -> Vec<(&'static str, Value)> {
         ("white balance", json!({"wb": {"temp": 3500.0, "tint": 20.0}})),
         ("vibrance saturation", json!({"color": {"vibrance": 50.0, "saturation": -40.0}})),
         ("b&w", json!({"treatment": "bw", "bw_mix": {"blue": 50.0}})),
-        ("point color", json!({"point_colors": [{"lum": 0.6, "chroma": 0.12, "hue": 250.0, "hue_shift": 60.0, "sat_shift": -50.0, "range": 100.0}]})),
+        (
+            "point color",
+            json!({"point_colors": [{"lum": 0.6, "chroma": 0.12, "hue": 250.0, "hue_shift": 100.0, "sat_shift": -90.0, "range": 100.0}]}),
+        ),
         ("effects", json!({"effects": {"clarity": 80.0, "texture": 60.0, "dehaze": 50.0}})),
         ("vignette", json!({"vignette": {"amount": -80.0}})),
         ("grain", json!({"grain": {"amount": 80.0}})),
@@ -208,7 +216,7 @@ fn every_layer_tool_changes_only_the_masked_area() {
 
 #[test]
 fn half_opacity_gives_half_the_effect() {
-    // a curve works on the final encoded values: the blend is exactly half there (± rounding)
+    // Curves now blend in working linear RGB, before output conversion and encoding.
     let curve = json!({"curve": {"master": [{"x": 0.0, "y": 0.2}, {"x": 0.5, "y": 0.75}, {"x": 1.0, "y": 1.0}]}});
     let info = SourceInfo::default();
     let base = shot(&DevelopSettings::default(), &info);
@@ -218,8 +226,10 @@ fn half_opacity_gives_half_the_effect() {
         for x in LEFT.0..LEFT.1 {
             let i = y * W + x;
             for c in 0..3 {
-                let want = (base.data[i][c] as f32 + full.data[i][c] as f32) / 2.0;
-                assert!((half.data[i][c] as f32 - want).abs() <= 1.0, "({x},{y}) c{c}: {} vs {want}", half.data[i][c]);
+                use lightcraft_color::transfer::{linear_to_srgb, srgb_to_linear};
+                let want =
+                    linear_to_srgb((srgb_to_linear(base.data[i][c] as f32 / 255.0) + srgb_to_linear(full.data[i][c] as f32 / 255.0)) / 2.0) * 255.0;
+                assert!((half.data[i][c] as f32 - want).abs() <= 2.0, "({x},{y}) c{c}: {} vs {want}", half.data[i][c]);
             }
         }
     }

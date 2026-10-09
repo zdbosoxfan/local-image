@@ -768,3 +768,5 @@ mod tests_spots;
 mod tests_toolset;
 #[cfg(test)]
 mod tests_xmp;
+
+mod dcp_profiles;

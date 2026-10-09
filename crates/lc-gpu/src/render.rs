@@ -682,7 +682,7 @@ fn linear(cx: &mut Cx<'_>, sampled: &Buf, info: &SourceInfo, plan: &Plan<'_>, ho
     let (w, h) = (plan.w, plan.h);
     let n = w * h;
     let s = &*plan.settings;
-    let img = if lightcraft_pipeline::lin_needs_cpu(s) {
+    let img = if lightcraft_pipeline::lin_needs_cpu(s) || info.camera_profile.is_some() {
         // film negative conversion / defringe / spot removal: CPU
         let mut img = match host.sampled.take() {
             Some(i) => i,

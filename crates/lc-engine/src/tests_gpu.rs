@@ -64,7 +64,7 @@ struct Views {
 fn views(s: &mut Session, id: PhotoId, size: usize, stages: &Arc<StageCache>) -> Views {
     let mut job: RenderJob = s.render_job(id, size, size, false, true).expect("job").with_stages(stages.clone());
     let decoded = job.source.load_source().expect("source");
-    let info: SourceInfo = decoded.info_or(job.info);
+    let info: SourceInfo = decoded.info_or(job.info.clone());
     job.source = SourceRef::Loaded(Box::new(decoded.clone()));
     let (src, settings) = crate::enhance::for_render(&decoded.image, &job.settings, job.source_key);
     let req: RenderRequest = job.request;
@@ -76,6 +76,37 @@ fn views(s: &mut Session, id: PhotoId, size: usize, stages: &Arc<StageCache>) ->
     let view = r.rendered.as_ref().expect("view render").image.clone();
     s.accept(&r);
     Views { view, gpu, cpu, source: decoded.image }
+}
+
+#[test]
+fn new_cfa_methods_and_segmentation_render_on_the_gpu() {
+    let _gpu = gpu_state();
+    if !gpu() {
+        return;
+    }
+    let dng = crate::tests_toolset::textured_dng();
+    // CFA decoding is shared before the CPU/GPU boundary. Exercise both full decoding
+    // and the reduced-CFA preview hook through the existing GPU renderer.
+    for method in [
+        lightcraft_develop::Demosaic::Vng4,
+        lightcraft_develop::Demosaic::DualRcdVng,
+        lightcraft_develop::Demosaic::Amaze,
+        lightcraft_develop::Demosaic::DualAmazeVng,
+    ] {
+        for highlights in [lightcraft_develop::HighlightMode::Reconstruct, lightcraft_develop::HighlightMode::Segmentation] {
+            for edge in [200, usize::MAX] {
+                let opts = crate::files::RawOptions { demosaic: method, highlights, dual_threshold: 0.2, ..Default::default() };
+                let (src, info) = crate::files::load_bytes_with(&dng, edge, &opts).unwrap();
+                let src = Arc::new(src);
+                let mut settings = lightcraft_develop::DevelopSettings::default();
+                settings.light.exposure = 0.3;
+                let req = RenderRequest::fit(src.width, src.height);
+                let cpu = lightcraft_pipeline::render(&src, &info, &settings, &req).image;
+                let gpu = lightcraft_gpu::render(&src, &info, &settings, &req, None).expect("GPU renderer after shared CFA decoding").image;
+                assert_close(&format!("{method:?}/{highlights:?}/{edge}"), &cpu, &gpu);
+            }
+        }
+    }
 }
 
 #[test]
