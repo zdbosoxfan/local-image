@@ -682,12 +682,117 @@ impl StrokeRenderer {
         if let Some(d) = self.dual.as_mut() {
             d.dirty.clear();
         }
-        let bounds = self.bounds();
+        let dmg = composite_tiles(&self.ctx, &self.cov, self.dual.as_ref(), self.per_dab_color, &keys, self.bounds(), pre, target, selection, lock_transparency);
+        if all { self.bounds() } else { dmg }
+    }
+
+    /// A live preview of [`composite_union`](Self::composite_union) of this stroke and `other`
+    /// as [`finish`](Self::finish) would leave them, kept up to date incrementally: only the
+    /// tiles either stroke changed since the last call, the tiles the finishing tails touch and
+    /// those of the previous call's tail area `old_tail` (restored from `pre` first) are
+    /// recomposited, each exactly as the one-shot union composites it. Returns the changed
+    /// rectangle, the tail area to pass next time, and the finished union's bounds (what
+    /// `composite_union` on the finished strokes returns).
+    pub fn composite_union_live(
+        &mut self,
+        other: &mut Self,
+        pre: &Surface,
+        target: &mut Surface,
+        selection: Option<&Surface>,
+        lock_transparency: bool,
+        old_tail: Rect,
+    ) -> (Rect, Rect, Rect) {
+        let mut keys: HashSet<(i32, i32)> = HashSet::new();
+        if !old_tail.is_empty() {
+            target.write_region(old_tail, &pre.read_region(old_tail));
+            keys.extend(tile_keys(old_tail));
+        }
+        for r in [&mut *self, &mut *other] {
+            keys.extend(r.cov.dirty.drain());
+            if let Some(d) = r.dual.as_mut() {
+                keys.extend(d.dirty.drain());
+            }
+        }
+        let (ta, tb) = (self.tail_preview(), other.tail_preview());
+        let mut tail_keys: HashSet<(i32, i32)> = HashSet::new();
+        for t in [&ta, &tb].into_iter().flatten() {
+            tail_keys.extend(t.cov.tiles.keys().copied());
+            if let Some(d) = &t.dual {
+                tail_keys.extend(d.tiles.keys().copied());
+            }
+        }
+        keys.extend(tail_keys.iter().copied());
+        // Each stroke as finishing it would leave it: its tail's copy of a tile when the tail
+        // touches it, else the tile as it is.
+        let fa = ta.as_ref().unwrap_or(&*self);
+        let fb = tb.as_ref().unwrap_or(&*other);
+        let bounds = fa.cov.bounds.union(&fb.cov.bounds);
+        let mut sorted: Vec<(i32, i32)> = keys.into_iter().collect();
+        sorted.sort_unstable();
+        let pick = |t: &Option<StrokeRenderer>, r: &StrokeRenderer, k: &(i32, i32), dual: bool| -> Option<CovTile> {
+            fn map(x: &StrokeRenderer, dual: bool) -> Option<&CoverageMap> {
+                if dual { x.dual.as_ref() } else { Some(&x.cov) }
+            }
+            match t.as_ref().and_then(|t| map(t, dual)) {
+                Some(m) if m.tiles.contains_key(k) => m.tiles.get(k).cloned(),
+                _ => map(r, dual).and_then(|m| m.tiles.get(k).cloned()),
+            }
+        };
+        let merge = |dual: bool| -> CoverageMap {
+            let mut out = CoverageMap { nc: self.cov.nc, bounds, ..Default::default() };
+            let mut other_part = CoverageMap { nc: self.cov.nc, ..Default::default() };
+            for k in &sorted {
+                if let Some(t) = pick(&ta, &*self, k, dual) {
+                    out.tiles.insert(*k, t);
+                }
+                if let Some(t) = pick(&tb, &*other, k, dual) {
+                    other_part.tiles.insert(*k, t);
+                }
+            }
+            out.union_max(&other_part);
+            out.bounds = bounds;
+            out
+        };
+        let cov = merge(false);
+        let dual = self.dual.as_ref().map(|_| merge(true));
+        let damage = composite_tiles(&self.ctx, &cov, dual.as_ref(), self.per_dab_color, &sorted, bounds, pre, target, selection, lock_transparency);
+        let tail = tail_keys
+            .iter()
+            .map(|&(tx, ty)| Rect::new(tx * COV_TILE, ty * COV_TILE, (tx + 1) * COV_TILE, (ty + 1) * COV_TILE).intersect(&bounds))
+            .fold(Rect::EMPTY, |a, r| a.union(&r));
+        (damage.union(&old_tail), tail, bounds)
+    }
+}
+
+/// The stroke-buffer tiles over `r`.
+fn tile_keys(r: Rect) -> impl Iterator<Item = (i32, i32)> {
+    let (ty0, ty1) = (r.y0.div_euclid(COV_TILE), (r.y1 - 1).div_euclid(COV_TILE));
+    let (tx0, tx1) = (r.x0.div_euclid(COV_TILE), (r.x1 - 1).div_euclid(COV_TILE));
+    (ty0..=ty1).flat_map(move |ty| (tx0..=tx1).map(move |tx| (tx, ty)))
+}
+
+/// Composite the stroke buffer `cov` (stroke-level masks from `ctx` and `dual`) over its tiles
+/// `keys`, clipped to `bounds`, onto `target` from the pre-stroke pixels `pre`. Returns the
+/// rectangle written.
+#[allow(clippy::too_many_arguments)]
+fn composite_tiles(
+    ctx: &BrushContext,
+    cov: &CoverageMap,
+    dual: Option<&CoverageMap>,
+    per_dab_color: bool,
+    keys: &[(i32, i32)],
+    bounds: Rect,
+    pre: &Surface,
+    target: &mut Surface,
+    selection: Option<&Surface>,
+    lock_transparency: bool,
+) -> Rect {
+    {
         let fmt = target.format();
         let n = fmt.channels();
         let a_idx = alpha_index(&fmt);
         let nc = fmt.mode.color_channels();
-        let b = &self.ctx.brush;
+        let b = &ctx.brush;
         let opacity = b.opacity.clamp(0.0, 1.0);
         let mut src = [0.0f32; 8];
         from_rgba_into(&fmt, b.color, &mut src);
@@ -696,8 +801,8 @@ impl StrokeRenderer {
         }
         let mut dmg = Rect::EMPTY;
         let mut region = Vec::new();
-        for (tx, ty) in keys {
-            let Some(tile) = self.cov.tiles.get(&(tx, ty)) else { continue };
+        for &(tx, ty) in keys {
+            let Some(tile) = cov.tiles.get(&(tx, ty)) else { continue };
             let tr = Rect::new(tx * COV_TILE, ty * COV_TILE, (tx + 1) * COV_TILE, (ty + 1) * COV_TILE).intersect(&bounds);
             if tr.is_empty() {
                 continue;
@@ -713,7 +818,7 @@ impl StrokeRenderer {
                         continue;
                     }
                     let i = (y - tr.y0) as usize * w + (x - tr.x0) as usize;
-                    let m = self.ctx.stroke_mask(c, self.dual.as_ref().map(|d| d.get(x, y)), x, y);
+                    let m = ctx.stroke_mask(c, dual.map(|d| d.get(x, y)), x, y);
                     let s = sel.as_ref().map_or(1.0, |(sc, v)| v[i * sc]);
                     let mut k = (m * opacity * s).min(1.0);
                     if k <= 0.0 {
@@ -735,7 +840,7 @@ impl StrokeRenderer {
                     if lock_transparency && a_idx.is_some_and(|a| px[a] <= 0.0) {
                         continue;
                     }
-                    if self.per_dab_color && !tile.col.is_empty() {
+                    if per_dab_color && !tile.col.is_empty() {
                         let p = &tile.col[ti * nc..(ti + 1) * nc];
                         for ch in 0..nc {
                             src[ch] = p[ch] / c;
@@ -773,7 +878,7 @@ impl StrokeRenderer {
             target.write_region(tr, &region);
             dmg = dmg.union(&tr);
         }
-        if all { bounds } else { dmg }
+        dmg
     }
 }
 

@@ -559,3 +559,150 @@ fn behind_and_clear_modes() {
     s.execute("paint.stroke", json!({"points": [[50, 5], [70, 5]], "size": 4, "color": "#00ff00"})).unwrap();
     assert_eq!(rgba(&s, 60, 5), [0.0, 1.0, 0.0, 1.0]);
 }
+
+/// Every pixel of every layer, bit for bit (`f32::to_bits`), over the document.
+fn layer_bits(s: &Session) -> Vec<u32> {
+    let d = &s.active().unwrap().doc;
+    let b = d.bounds();
+    let mut out = Vec::new();
+    for (_, _, l) in d.walk() {
+        if let Some(surf) = l.surface() {
+            out.extend(surf.read_region(b).iter().map(|v| v.to_bits()));
+        }
+        if let Some(m) = &l.mask {
+            out.extend(m.surface.read_region(b).iter().map(|v| v.to_bits()));
+        }
+    }
+    out
+}
+
+/// A document with content to paint over: an opaque fill, a stroke and a soft gap.
+fn painted_session(depth: u32, selection: bool) -> Session {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 260, "height": 180, "depth": depth, "background": "white"})).unwrap();
+    s.execute("layer.new.layer", json!({})).unwrap();
+    s.execute("edit.fill", json!({"color": "#3a6090"})).unwrap();
+    s.execute("paint.stroke", json!({"points": [[10, 10], [250, 170]], "size": 30, "hardness": 0.0, "erase": true})).unwrap();
+    s.execute("tools.setColors", json!({"foreground": "#d04020", "background": "#20e060"})).unwrap();
+    if selection {
+        s.execute("select.rect", json!({"x": 30, "y": 20, "width": 180, "height": 120, "ellipse": true, "feather": 6})).unwrap();
+    }
+    s
+}
+
+#[test]
+fn committing_a_live_stroke_reuses_its_pixels_bit_for_bit() {
+    // Mouse-up hands the live stroke to the commit (`Session::prepare_live_commit`) instead of
+    // rendering the whole stroke again: the document, damage rect, history and undo must be
+    // exactly what rendering it from its points gives, for many brushes, at 8 and 16 bits.
+    let pts: Vec<[f64; 3]> = (0..320)
+        .map(|i| {
+            let t = f64::from(i) / 319.0;
+            [20.0 + 220.0 * t + (t * 31.0).sin() * 6.0, 90.0 + 60.0 * (t * 9.0).sin(), 0.25 + 0.75 * (t * 5.0).cos().abs()]
+        })
+        .collect();
+    let cases: Vec<(&str, &str, Value, bool)> = vec![
+        ("hard round", "paint.stroke", json!({"brush": {"size": 18, "hardness": 1.0, "spacing": 0.1}}), false),
+        ("soft round, smoothing, pressure", "paint.stroke", json!({"brush": {"size": 40, "hardness": 0.0, "pressureSize": true, "smoothing": {"amount": 0.45}}}), false),
+        ("spatter preset", "paint.stroke", json!({"preset": "Spatter", "zoom": 0.5}), false),
+        (
+            "scatter, dual brush, colour dynamics, wet edges, noise",
+            "paint.stroke",
+            json!({"brush": {"size": 26, "hardness": 0.4, "scattering": {"enabled": true}, "dualBrush": {"enabled": true, "size": 12}, "colorDynamics": {"enabled": true, "hueJitter": 0.3}, "wetEdges": true, "noise": true}}),
+            false,
+        ),
+        ("multiply at 50%, in a feathered selection", "paint.stroke", json!({"mode": "multiply", "opacity": 0.5, "brush": {"size": 30, "hardness": 0.7}}), true),
+        ("dissolve", "paint.stroke", json!({"mode": "dissolve", "brush": {"size": 22, "hardness": 0.2}}), false),
+        ("eraser", "paint.stroke", json!({"erase": true, "brush": {"size": 34, "hardness": 0.3, "pressureOpacity": true}}), false),
+        ("pencil", "paint.pencil", json!({"size": 7}), false),
+        ("pencil with auto erase", "paint.pencil", json!({"size": 5, "autoErase": true}), false),
+        ("layer mask", "paint.stroke", json!({"target": "mask", "brush": {"size": 28, "hardness": 0.5}}), false),
+        ("symmetry, soft round with smoothing", "paint.stroke", json!({"__symmetry": true, "brush": {"size": 36, "hardness": 0.1, "smoothing": {"amount": 0.3}}}), false),
+        ("symmetry, spatter, in a selection", "paint.stroke", json!({"__symmetry": true, "preset": "Spatter"}), true),
+        ("symmetry, pencil", "paint.pencil", json!({"__symmetry": true, "size": 4}), false),
+    ];
+    for depth in [8, 16] {
+        for (label, cmd, extra, selection) in &cases {
+            let label = format!("{label} ({depth}-bit)");
+            let (mut live_s, mut replay) = (painted_session(depth, *selection), painted_session(depth, *selection));
+            let mut extra = extra.clone();
+            let symmetric = extra.as_object_mut().and_then(|o| o.remove("__symmetry")).is_some();
+            for s in [&mut live_s, &mut replay] {
+                if extra.get("target").and_then(Value::as_str) == Some("mask") {
+                    s.execute("layer.layerMask.revealAll", json!({})).unwrap();
+                }
+                if symmetric {
+                    s.execute("path.set", json!({"name": "work", "path": {"subpaths": [{"closed": false, "knots": [[130, 0], [130, 180]]}]}})).unwrap();
+                    s.execute("paint.symmetryFromPath", json!({"name": "work"})).unwrap();
+                }
+            }
+            let before = layer_bits(&live_s);
+            let mut p = extra.clone();
+            p["points"] = json!([pts[0]]);
+            p["freehand"] = json!(true);
+            let mut live = LiveStroke::begin_with(&live_s, cmd, &p).unwrap();
+            // Pointer moves of varying sizes, like the canvas feeds them.
+            let mut i = 1;
+            let mut n = 1;
+            while i < pts.len() {
+                let end = (i + n).min(pts.len());
+                let sp: Vec<StrokePoint> = pts[i..end].iter().map(|q| StrokePoint::new(q[0], q[1], q[2] as f32)).collect();
+                live.push(&sp).unwrap();
+                i = end;
+                n = n % 5 + 1;
+            }
+            p["points"] = json!(pts);
+            p["seed"] = json!(live.seed);
+            live_s.prepare_live_commit(live);
+            let a = live_s.execute(cmd, p.clone()).unwrap();
+            assert_eq!(live_s.live_commits_reused(), 1, "{label}: the commit rendered the stroke again");
+            let b = replay.execute(cmd, p).unwrap();
+            assert_eq!(replay.live_commits_reused(), 0);
+            assert_eq!(a, b, "{label}: damage");
+            let (da, db) = (live_s.active().unwrap(), replay.active().unwrap());
+            assert_eq!(da.last_damage, db.last_damage, "{label}");
+            assert_eq!(da.history.entries(), db.history.entries(), "{label}: history");
+            let painted = layer_bits(&live_s);
+            assert_ne!(painted, before, "{label}: nothing painted");
+            assert!(painted == layer_bits(&replay), "{label}: committed pixels differ from rendering the stroke");
+            // Undo and redo are the same too.
+            live_s.execute("edit.undo", json!({})).unwrap();
+            assert!(layer_bits(&live_s) == before, "{label}: undo");
+            live_s.execute("edit.redo", json!({})).unwrap();
+            assert!(layer_bits(&live_s) == painted, "{label}: redo");
+        }
+    }
+}
+
+#[test]
+fn a_live_stroke_that_is_not_the_commit_is_not_reused() {
+    let pts = [[20.0, 20.0, 1.0], [120.0, 80.0, 1.0], [200.0, 40.0, 1.0]];
+    let p = json!({"points": [pts[0]], "size": 20});
+    let stroke = |s: &Session| {
+        let mut live = LiveStroke::begin(s, &p).unwrap();
+        live.push(&pts[1..].iter().map(|q| StrokePoint::new(q[0], q[1], 1.0)).collect::<Vec<_>>()).unwrap();
+        live
+    };
+    let commit = |seed: u64, points: &[[f64; 3]]| json!({"points": points, "size": 20, "seed": seed});
+    // Different points, a different brush, or an edit in between: rendered from the points.
+    let mut s = painted_session(8, false);
+    let live = stroke(&s);
+    let seed = live.seed;
+    s.prepare_live_commit(live);
+    s.execute("paint.stroke", commit(seed, &pts[..2])).unwrap();
+    let mut s2 = painted_session(8, false);
+    let live = stroke(&s2);
+    s2.prepare_live_commit(live);
+    s2.execute("tools.setColors", json!({"foreground": "#00ff00"})).unwrap();
+    s2.execute("paint.stroke", commit(seed, &pts)).unwrap();
+    let mut s3 = painted_session(8, false);
+    let live = stroke(&s3);
+    s3.execute("edit.fill", json!({"color": "#ffffff"})).unwrap();
+    s3.prepare_live_commit(live);
+    s3.execute("paint.stroke", commit(seed, &pts)).unwrap();
+    assert_eq!(s.live_commits_reused() + s2.live_commits_reused() + s3.live_commits_reused(), 0);
+    // The stroke the commit replays is the committed one.
+    let mut fresh = painted_session(8, false);
+    fresh.execute("paint.stroke", commit(seed, &pts[..2])).unwrap();
+    assert!(layer_bits(&s) == layer_bits(&fresh));
+}

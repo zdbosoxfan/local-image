@@ -798,10 +798,35 @@ impl Compositor {
         region: Rect,
         mut sink: impl FnMut(&mut wgpu::CommandEncoder, ChunkOut<'_>),
     ) -> Result<Stats, Unsupported> {
+        let errors = self.health.as_ref().map(DeviceHealth::errors);
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("pc_compose") });
         let stats = self.encode_inner(device, queue, &mut encoder, doc, region, &mut sink, true)?;
         queue.submit([encoder.finish()]);
+        self.check_errors(errors)?;
         Ok(stats)
+    }
+
+    /// `Err` when the device reported an error since [`DeviceHealth::errors`] was `before`: the
+    /// render's output can't be trusted (the caller redoes it on the CPU), and every cached
+    /// texture is dropped so nothing invalid is reused. The device itself stays in use unless
+    /// the error was its loss or one too many (see [`health::STRIKE_LIMIT`]).
+    pub fn check_errors(&mut self, before: Option<u64>) -> Result<(), Unsupported> {
+        let (Some(h), Some(before)) = (&self.health, before) else { return Ok(()) };
+        if h.errors() == before {
+            return Ok(());
+        }
+        let why = h.fault().map_or_else(|| format!("GPU error: {}", h.last_error().unwrap_or_default()), |f| f.to_string());
+        self.forget_all();
+        Err(Unsupported(why))
+    }
+
+    /// Drop every cached texture (layer pages, effect maps, temporaries, patterns, chunks).
+    pub fn forget_all(&mut self) {
+        self.pool.clear();
+        self.residents.clear();
+        self.fx.clear();
+        self.temps.clear();
+        self.patterns.clear();
     }
 
     /// Like [`Self::render`] but records into `encoder` without submitting.

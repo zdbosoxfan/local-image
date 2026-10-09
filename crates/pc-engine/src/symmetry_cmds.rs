@@ -11,7 +11,7 @@ use crate::{EngineError, Result, Session, commands::CommandSpec};
 const MAX_SEGMENTS: usize = 1024;
 const SAMPLES_PER_CURVE: usize = 12;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SymmetryAxis {
     pub source: String,
     pub segments: Vec<[[f64; 2]; 2]>,

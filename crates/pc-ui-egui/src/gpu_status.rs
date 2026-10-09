@@ -1,5 +1,5 @@
-//! GPU health in the shell (#243, #4): when the wgpu device is lost or reports an error, the
-//! GPU canvas is dropped and every document keeps drawing through the CPU compositor and egui
+//! GPU health in the shell (#243, #4): when the wgpu device is lost or keeps reporting errors,
+//! the GPU canvas is dropped and every document keeps drawing through the CPU compositor and egui
 //! textures for the rest of the session, with a recovery warning. Also runs the desktop app's
 //! "started" hook once the first frames have rendered (the crash-safe startup marker), and
 //! provides the Help › System Info text (including the monitor profile in use).
@@ -20,6 +20,11 @@ pub type StartedHook = Box<dyn FnOnce(&mut PhotocraftApp)>;
 
 /// Per-frame check: switch to the CPU canvas when the GPU faulted, and run the started hook.
 pub fn check(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    // A frame boundary for the error strikes: one uncaptured error is redone on the CPU, errors
+    // in several frames drop the GPU canvas (`photocraft_gpu::health`).
+    if let Some(g) = &app.gpu {
+        g.health().tick();
+    }
     if let Some(fault) = app.gpu.as_ref().and_then(|g| g.fault()) {
         fall_back(app, &fault);
         ctx.request_repaint();

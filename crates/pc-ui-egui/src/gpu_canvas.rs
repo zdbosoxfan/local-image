@@ -42,8 +42,8 @@ const FORMAT_HIGH: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// documents (a 14000² one would need 2.1 GB) use `Rgba8Unorm`, so they stay on the GPU like
 /// 8-bit ones. `PHOTOCRAFT_CANVAS_F16=0` turns the float canvas off, `=1` ignores this budget.
 pub const F16_BUDGET_PX: u64 = 100_000_000;
-const VIEW_UNIFORM_SIZE: u64 = 112;
-const VIEW_FLOATS: usize = 28;
+const VIEW_UNIFORM_SIZE: u64 = 128;
+const VIEW_FLOATS: usize = 32;
 const TILE_UNIFORM_SIZE: u64 = 16;
 
 /// Parameters for drawing one document view. Positions are in egui points.
@@ -72,6 +72,9 @@ pub struct ViewParams {
     /// before the display LUT; `None` when off. The display LUT must then leave it out
     /// (`ColorState::gpu_canvas_lut`).
     pub hdr: Option<[f32; 2]>,
+    /// View › Flip Horizontal: the document is drawn mirrored left-right about the view centre
+    /// (document x grows to the left).
+    pub flip: bool,
 }
 
 /// When high-bit documents get an `Rgba16Float` canvas texture.
@@ -87,9 +90,10 @@ enum HighPolicy {
 
 /// Uploads documents to the GPU and paints them. Cheap to clone.
 ///
-/// Once the device is lost or reports an uncaptured error (see [`GpuCanvas::fault`]), every
-/// method is a no-op or an `Err`, so nothing reaches the GPU again; the app then switches to the
-/// CPU canvas (#243).
+/// Once the device is lost or keeps reporting uncaptured errors (see [`GpuCanvas::fault`]),
+/// every method is a no-op or an `Err`, so nothing reaches the GPU again; the app then switches
+/// to the CPU canvas (#243). A single uncaptured error only makes the refresh that raised it
+/// redo its work on the CPU (see `photocraft_gpu::health`).
 #[derive(Clone)]
 pub struct GpuCanvas {
     rs: RenderState,
@@ -349,6 +353,7 @@ impl GpuCanvas {
         if let Some(f) = self.fault() {
             return Err(photocraft_gpu::Unsupported(f.to_string()));
         }
+        let errors = self.health.errors();
         let mut renderer = self.rs.renderer.write();
         let Some(res) = renderer.callback_resources.get_mut::<Resources>() else { return Err(photocraft_gpu::Unsupported("no GPU canvas".into())) };
         // A driver that couldn't build the pipelines once won't later: stay on the CPU compositor.
@@ -455,7 +460,21 @@ impl GpuCanvas {
                 #[cfg(not(target_arch = "wasm32"))]
                 self.health.wait(device, None);
             }
-        } else if fresh {
+        }
+        // An uncaptured error during the refresh (a validation error, out of memory): its output
+        // can't be trusted, so the caller redoes it on the CPU into a new texture, and the
+        // compositor drops its cached textures. The GPU stays in use unless errors repeat.
+        let errored = self.health.errors() != errors;
+        let result = match result {
+            Ok(_) if errored => {
+                comp.forget_all();
+                let why = self.fault().map_or_else(|| format!("GPU error: {}", self.health.last_error().unwrap_or_default()), |f| f.to_string());
+                log::warn!("{why}; this refresh is redone on the CPU");
+                Err(photocraft_gpu::Unsupported(why))
+            }
+            r => r,
+        };
+        if result.is_err() && (fresh || errored) {
             res.docs.remove(&key);
         }
         res.compositor = Some(comp);
@@ -1541,13 +1560,19 @@ fn filter_mode(scale: f32) -> (f32, f32) {
 
 impl CanvasCallback {
     /// Screen-pixel origin of document (0, 0) (snapped to whole pixels) and device px per doc px.
+    /// Document x maps to `origin.x + x · scale`, or `origin.x − x · scale` when flipped.
     fn placement(&self, ppp: f32) -> ([f32; 2], f32) {
         let p = &self.params;
         let scale = p.zoom * ppp;
         let c = self.rect.center();
-        let ox = (c.x * ppp - p.center[0] * scale).round();
+        let ox = if p.flip { (c.x * ppp + p.center[0] * scale).round() } else { (c.x * ppp - p.center[0] * scale).round() };
         let oy = (c.y * ppp - p.center[1] * scale).round();
         ([ox, oy], scale)
+    }
+
+    /// Screen-pixel x extent of document columns `x0..x1` (left, right).
+    fn screen_x(&self, origin: f32, scale: f32, x0: f32, x1: f32) -> (f32, f32) {
+        if self.params.flip { (origin - x1 * scale, origin - x0 * scale) } else { (origin + x0 * scale, origin + x1 * scale) }
     }
 
     fn uniforms(&self, screen: [u32; 2], ppp: f32, out_linear: bool, style: &CanvasStyle) -> [f32; VIEW_FLOATS] {
@@ -1591,6 +1616,10 @@ impl CanvasCallback {
             g[1],
             g[2],
             inv_gamma,
+            if p.flip { -1.0 } else { 1.0 },
+            0.0,
+            0.0,
+            0.0,
         ]
     }
 }
@@ -1664,8 +1693,8 @@ impl CallbackTrait for CanvasCallback {
         pass.set_bind_group(2, res.luts.get(&(self.params.doc, self.params.output)).unwrap_or(&res.identity_lut), &[]);
         for t in &doc.tiles {
             let [tx, ty, tw, th] = t.rect.map(|v| v as f32);
-            let (x0, y0) = (origin[0] + tx * scale, origin[1] + ty * scale);
-            let (x1, y1) = (x0 + tw * scale, y0 + th * scale);
+            let (x0, x1) = self.screen_x(origin[0], scale, tx, tx + tw);
+            let (y0, y1) = (origin[1] + ty * scale, origin[1] + (ty + th) * scale);
             if x1 < cx0 || y1 < cy0 || x0 > cx1 || y0 > cy1 {
                 continue;
             }
@@ -1684,6 +1713,7 @@ struct View {
     e: vec4<f32>, // checker light rgb, gamut warning opacity
     f: vec4<f32>, // checker dark rgb, 32-bit preview gain (2^exposure; 0 = off)
     g: vec4<f32>, // gamut warning rgb, 32-bit preview 1 / gamma
+    h: vec4<f32>, // x direction (1, or -1 for View › Flip Horizontal), unused
 };
 struct Tile { r: vec4<f32> }; // x, y, w, h in doc px
 
@@ -1705,8 +1735,11 @@ fn px_to_clip(p: vec2<f32>) -> vec4<f32> {
     return vec4(n.x, -n.y, 0.0, 1.0);
 }
 
-fn doc_min() -> vec2<f32> { return view.b.xy; }
-fn doc_max() -> vec2<f32> { return view.b.xy + view.b.zw * view.a.z; }
+// Document pixel coordinates -> device pixels (x mirrored about the origin when flipped).
+fn doc_to_px(d: vec2<f32>) -> vec2<f32> { return view.b.xy + vec2(d.x * view.h.x, d.y) * view.a.z; }
+fn px_to_doc(p: vec2<f32>) -> vec2<f32> { let d = (p - view.b.xy) / view.a.z; return vec2(d.x * view.h.x, d.y); }
+fn doc_min() -> vec2<f32> { return min(view.b.xy, doc_to_px(view.b.zw)); }
+fn doc_max() -> vec2<f32> { return max(view.b.xy, doc_to_px(view.b.zw)); }
 
 fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
     let lo = c / 12.92;
@@ -1762,7 +1795,7 @@ fn fs_shadow(in: VOut) -> @location(0) vec4<f32> {
 
 @vertex
 fn vs_tile(@builtin(vertex_index) vi: u32) -> VOut {
-    let p = view.b.xy + (tile.r.xy + tile.r.zw * corner(vi)) * view.a.z;
+    let p = doc_to_px(tile.r.xy + tile.r.zw * corner(vi));
     return VOut(px_to_clip(p));
 }
 
@@ -1779,7 +1812,7 @@ fn checker(p: vec2<f32>) -> vec3<f32> {
 fn fs_tile(in: VOut) -> @location(0) vec4<f32> {
     let p = in.pos.xy;
     let scale = view.a.z;
-    let d = (p - view.b.xy) / scale;       // document pixel coordinates
+    let d = px_to_doc(p);                  // document pixel coordinates
     let size = tile.r.zw;
     let t = d - tile.r.xy;                 // texel coordinates within this tile
     let mode = view.c.x;
