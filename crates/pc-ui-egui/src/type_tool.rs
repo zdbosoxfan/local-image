@@ -882,6 +882,39 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
 }
 
+/// The Contextual Task Bar's quick edits for the selected type layer: font, size and colour,
+/// bound to the layer like the Type options bar. False when no type layer is the target.
+pub fn quick_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
+    let Some((id, _)) = target(app) else { return false };
+    let Some((mut fam, color)) = app.session.active().and_then(|st| text_layer(&st.doc, LayerId(id))).map(|tl| (tl.font_family.clone(), tl.color)) else {
+        return false;
+    };
+    let t = crate::theme::Tokens::get(ui.ctx());
+    let mut size = styles_at(app).map_or(12.0, |(c, _)| c.size_pt) * shown_scale(app);
+    if font_picker(ui, &mut fam, 140.0) {
+        let st = styles(&fam).first().cloned().unwrap_or_else(|| "Regular".into());
+        apply(app, ui.ctx(), json!({"font": fam, "fontStyle": st}));
+    }
+    if crate::widgets::value_field(ui, &mut size, 1.0..=1296.0, "pt", 62.0).on_hover_text(tl!("Set the font size")).changed() {
+        let k = shown_scale(app);
+        apply(app, ui.ctx(), json!({"size": size / k}));
+    }
+    let v = color.to_rgb();
+    let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(26.0, 18.0), egui::Sense::click());
+    ui.painter().rect_filled(rect, 2.0, Color32::from_rgb(q(v[0]), q(v[1]), q(v[2])));
+    ui.painter().rect_stroke(rect, 2.0, Stroke::new(1.0, t.field_border), egui::StrokeKind::Outside);
+    let resp = resp.on_hover_text(tl!("Set the text color"));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ColorButton, true, tl!("Set the text color")));
+    crate::widgets::swatch_popup(&resp).show(|ui| {
+        let mut col = Color32::from_rgb(q(v[0]), q(v[1]), q(v[2]));
+        if egui::color_picker::color_picker_color32(ui, &mut col, egui::color_picker::Alpha::Opaque) {
+            apply(app, ui.ctx(), json!({"color": format!("#{:02x}{:02x}{:02x}", col.r(), col.g(), col.b())}));
+        }
+    });
+    true
+}
+
 /// Character and paragraph style at the target (selection start, else the layer's first run).
 fn styles_at(app: &PhotocraftApp) -> Option<(photocraft_doc::text::CharStyle, photocraft_doc::text::ParagraphStyle)> {
     let (layer, range) = target(app)?;

@@ -247,16 +247,30 @@ pub fn parse_hf_list(reg: &Registry, hf_base: &str, v: &Value, kind: Kind) -> Ve
             let id = m.get("id").or_else(|| m.get("modelId"))?.as_str()?.to_owned();
             let tags: Vec<String> =
                 m.get("tags").and_then(Value::as_array).map(|a| a.iter().filter_map(|t| t.as_str().map(str::to_owned)).collect()).unwrap_or_default();
-            let is_lora = tags.iter().any(|t| t == "lora" || t.starts_with("base_model:adapter:"));
+            let weights: Vec<&str> = m
+                .get("siblings")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|s| s.get("rfilename").and_then(Value::as_str))
+                .filter(|f| is_weights(f))
+                .collect();
+            // A LoRA repo by its tags, its name ("flux-lora-collection"), or because every weights
+            // file in it is named as a LoRA: none of those may install into a model folder.
+            let looks_lora = crate::arch::name_looks_like_lora;
+            let is_lora = tags.iter().any(|t| t == "lora" || t.starts_with("base_model:adapter:"))
+                || looks_lora(id.rsplit('/').next().unwrap_or(&id))
+                || (!weights.is_empty() && weights.iter().all(|f| looks_lora(f)));
             if (kind == Kind::Lora) != is_lora {
                 return None;
             }
+            let file_kind = if is_lora { crate::arch::FileKind::Lora } else { crate::arch::FileKind::DiffusionModel };
             let base = tags.iter().find_map(|t| t.strip_prefix("base_model:").map(|b| b.rsplit(':').next().unwrap_or(b).to_owned()));
             let family = tags
                 .iter()
                 .find_map(|t| family_for_label(reg, t))
                 .or_else(|| base.as_deref().and_then(|b| crate::arch::guess_from_name(b, crate::arch::FileKind::DiffusionModel)))
-                .or_else(|| crate::arch::guess_from_name(&id, crate::arch::FileKind::DiffusionModel))
+                .or_else(|| crate::arch::guess_from_name(&id, file_kind))
                 .filter(|f| reg.family(f).is_some());
             let card = m.get("cardData");
             let license = card
@@ -265,16 +279,12 @@ pub fn parse_hf_list(reg: &Registry, hf_base: &str, v: &Value, kind: Kind) -> Ve
                 .map(str::to_owned)
                 .or_else(|| tags.iter().find_map(|t| t.strip_prefix("license:").map(str::to_owned)))
                 .unwrap_or_default();
-            let files = m
-                .get("siblings")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(|s| s.get("rfilename").and_then(Value::as_str))
-                .filter(|f| is_weights(f))
-                .map(|f| {
+            let files = weights
+                .iter()
+                .map(|&f| {
                     let name = f.rsplit('/').next().unwrap_or(f).to_owned();
-                    let folder = if is_lora { "loras" } else { model_folder(reg, family.as_deref(), f) };
+                    // A LoRA shipped beside a model (a speed-up LoRA, say) goes to the LoRAs.
+                    let folder = if is_lora || looks_lora(f) { "loras" } else { model_folder(reg, family.as_deref(), f) };
                     CatalogFile { name, folder: folder.into(), url: format!("{}/{id}/resolve/main/{f}", hf_base.trim_end_matches('/')), ..Default::default() }
                 })
                 .collect();
@@ -1038,6 +1048,28 @@ mod tests {
         assert_eq!(loras.len(), 1);
         assert_eq!(loras[0].files[0].folder, "loras");
         assert_eq!(loras[0].family.as_deref(), Some("qwen-image"));
+    }
+
+    /// LoRA collections without the `lora` tag are LoRAs (not models installing into
+    /// `diffusion_models`), and a LoRA shipped beside a model installs into `loras`.
+    #[test]
+    fn untagged_lora_repos_and_files_go_to_the_loras() {
+        let reg = registry();
+        let list = json!([
+            {"id": "XLabs-AI/flux-lora-collection", "tags": ["text-to-image"], "siblings": [{"rfilename": "realism_lora.safetensors"}, {"rfilename": "art_lora.safetensors"}]},
+            {"id": "someone/ink-styles", "tags": [], "siblings": [{"rfilename": "sdxl/ink_lora.safetensors"}, {"rfilename": "sdxl/pencil-LoRA.safetensors"}]},
+            {"id": "someone/qwen-image-pack", "tags": ["text-to-image"],
+             "siblings": [{"rfilename": "qwen_image_bf16.safetensors"}, {"rfilename": "Qwen-Image-Lightning-8steps-lora.safetensors"}]}
+        ]);
+        let models = parse_hf_list(reg, "https://huggingface.co", &list, Kind::Model);
+        assert_eq!(models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), vec!["hf:someone/qwen-image-pack"]);
+        let pack = &models[0];
+        assert_eq!(pack.files[0].folder, "diffusion_models");
+        assert_eq!(pack.files[1].folder, "loras", "{:?}", pack.files);
+        let loras = parse_hf_list(reg, "https://huggingface.co", &list, Kind::Lora);
+        assert_eq!(loras.len(), 2);
+        assert!(loras.iter().all(|l| l.files.iter().all(|f| f.folder == "loras")));
+        assert_eq!(loras[0].family.as_deref(), Some("flux1"));
     }
 
     fn civitai() -> Value {

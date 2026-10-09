@@ -128,7 +128,18 @@ fn shared() -> &'static Arc<Shared> {
 
 /// The current engine status (cheap).
 pub fn status() -> EngineStatus {
+    #[cfg(test)]
+    if let Some(status) = TEST_STATUS.with(|s| s.borrow().clone()) {
+        return status;
+    }
     shared().status.lock().map(|s| s.clone()).unwrap_or_default()
+}
+
+// UI tests use the real mock server for commands, with deterministic readiness on their
+// own thread rather than racing the asynchronous status poller.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TEST_STATUS: std::cell::RefCell<Option<EngineStatus>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Ask the poller to check again now.
@@ -280,51 +291,309 @@ pub fn start_seg_download(spec: &'static li_seg::ModelSpec) {
     });
 }
 
-/// Local Image › Selection models: rows for the CPU segmentation models.
+/// The header of an on-device model group: "2 of 3 installed · using IS-Net".
+pub fn seg_group_summary(group: li_seg::Group, models_dir: &std::path::Path) -> String {
+    let all: Vec<_> = group.models().collect();
+    let n = all.iter().filter(|m| li_seg::model_path(models_dir, m).is_file()).count();
+    let counts = crate::i18n::fmt(tl!("{n} of {total} installed"), &[("n", &n.to_string()), ("total", &all.len().to_string())]);
+    match group.in_use(models_dir) {
+        Some(m) => format!("{counts} · {}", crate::i18n::fmt(tl!("using {name}"), &[("name", m.label)])),
+        None => counts,
+    }
+}
+
+/// A small rounded badge ("Recommended").
+fn badge(ui: &mut egui::Ui, text: &str, fill: Color32, ink: Color32) -> egui::Response {
+    let galley = ui.painter().layout_no_wrap(text.to_owned(), egui::FontId::proportional(10.5), ink);
+    let (r, resp) = ui.allocate_exact_size(vec2(galley.size().x + 12.0, 16.0), Sense::hover());
+    ui.painter().rect_filled(r, 8.0, fill);
+    ui.painter().galley(r.center() - galley.size() / 2.0, galley, ink);
+    resp
+}
+
+/// Settings › Local AI › On-device models: the CPU models (`li-seg`) in collapsible groups by
+/// what they do, each with what it's for, its size and a Download or Remove button. Models
+/// without a group are listed after the groups, one row each.
 fn seg_rows(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>) {
     let dir = photocraft_engine::seg::models_dir();
-    let active = photocraft_engine::seg::installed().map(|s| s.id);
-    for spec in li_seg::MODELS {
-        let dl = dls.get(&format!("seg:{}", spec.id));
-        let frame = egui::Frame::NONE.fill(t.field).corner_radius(t.radius).inner_margin(egui::Margin::symmetric(10, 8));
-        frame.show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.label(RichText::new(spec.label).strong());
-                    ui.label(
-                        RichText::new(crate::i18n::fmt(
-                            tl!("{size} · runs on the CPU · {licence}"),
-                            &[("size", &li_ai::download::human_bytes(spec.bytes)), ("licence", spec.licence)],
-                        ))
-                        .color(t.text_dim)
-                        .size(11.5),
-                    );
-                });
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| match dl {
-                    Some(d) if !d.finished => {
-                        if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
-                            d.ctl.cancel();
-                        }
-                        let frac = if d.total > 0 { d.done as f32 / d.total as f32 } else { 0.0 };
-                        ui.add(egui::ProgressBar::new(frac).desired_width(140.0).text(format!("{:.0}%", frac * 100.0)));
-                    }
-                    _ if li_seg::model_path(&dir, spec).is_file() => {
-                        let text = if active == Some(spec.id) { tl!("In use") } else { tl!("Installed") };
-                        ui.label(RichText::new(text).color(Color32::from_rgb(70, 190, 110)));
-                    }
-                    _ => {
-                        if widgets::secondary_button(ui, tl!("Download"), 0.0).clicked() {
-                            start_seg_download(spec);
-                        }
-                    }
-                });
-            });
-            if let Some(err) = dl.and_then(|d| d.error.as_ref()) {
-                ui.label(RichText::new(err).color(t.danger).size(11.5));
+    for group in li_seg::Group::ALL {
+        let downloading = group.models().any(|m| dls.get(&format!("seg:{}", m.id)).is_some_and(|d| !d.finished));
+        let mut head = egui::text::LayoutJob::default();
+        head.append(tl!(group.label()), 0.0, egui::TextFormat::simple(crate::theme::semibold(13.0), t.text));
+        head.append(&seg_group_summary(group, &dir), 10.0, egui::TextFormat::simple(egui::FontId::proportional(11.5), t.text_dim));
+        let in_use = group.in_use(&dir).map(|m| m.id);
+        egui::CollapsingHeader::new(head).id_salt(("seg-group", group.label())).default_open(false).open(downloading.then_some(true)).show(ui, |ui| {
+            ui.label(RichText::new(tl!(group.about())).color(t.text_faint).size(11.0));
+            ui.add_space(4.0);
+            for spec in group.models() {
+                seg_row(ui, t, dls, &dir, spec, group.recommended() == spec.id, in_use == Some(spec.id));
             }
         });
-        ui.add_space(4.0);
+    }
+    for spec in li_seg::MODELS.iter().filter(|m| m.group.is_none()) {
+        seg_row(ui, t, dls, &dir, spec, false, false);
+    }
+}
+
+/// One on-device model: name, badge, description, size and licence, and its button.
+fn seg_row(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    dls: &BTreeMap<String, Download>,
+    dir: &std::path::Path,
+    spec: &'static li_seg::ModelSpec,
+    recommended: bool,
+    in_use: bool,
+) {
+    let key = format!("seg:{}", spec.id);
+    let dl = dls.get(&key);
+    let installed = li_seg::installed_bytes(dir, spec);
+    let frame = egui::Frame::NONE.fill(t.field).corner_radius(t.radius).inner_margin(egui::Margin::symmetric(10, 8));
+    frame.show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(spec.label).strong());
+            if recommended {
+                badge(ui, tl!("Recommended"), t.accent_soft, t.accent_text);
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| match dl {
+                Some(d) if !d.finished => {
+                    if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
+                        d.ctl.cancel();
+                    }
+                    let frac = if d.total > 0 { d.done as f32 / d.total as f32 } else { 0.0 };
+                    ui.add(egui::ProgressBar::new(frac).desired_width(140.0).text(format!("{:.0}%", frac * 100.0)));
+                }
+                _ if removing(&key) => {
+                    ui.spinner();
+                }
+                _ if installed.is_some() => {
+                    if remove_button(ui) {
+                        ask_remove(spec.label.to_owned(), RemoveTarget::Seg(spec));
+                    }
+                    let text = if in_use { tl!("In use") } else { tl!("Installed") };
+                    ui.label(RichText::new(text).color(Color32::from_rgb(70, 190, 110)));
+                }
+                _ => {
+                    if widgets::secondary_button(ui, tl!("Download"), 0.0).clicked() {
+                        start_seg_download(spec);
+                    }
+                }
+            });
+        });
+        ui.label(RichText::new(tl!(spec.about)).color(t.text_dim).size(11.5));
+        ui.label(
+            RichText::new(crate::i18n::fmt(
+                tl!("{size} download · runs on the CPU · {licence}"),
+                &[("size", &li_ai::download::human_bytes(spec.bytes)), ("licence", spec.licence)],
+            ))
+            .color(t.text_faint)
+            .size(11.0),
+        );
+        if let Some(err) = dl.and_then(|d| d.error.as_ref()) {
+            ui.label(RichText::new(err).color(t.danger).size(11.5));
+        }
+    });
+    ui.add_space(4.0);
+}
+
+/// The trash button beside "Installed" / "Ready".
+fn remove_button(ui: &mut egui::Ui) -> bool {
+    let tip = if li_ai::trash::available() { tl!("Remove (moves the files to the Trash)") } else { tl!("Remove (deletes the files)") };
+    let r = crate::icons::button(ui, "trash", 22.0, false, tip);
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Remove")));
+    r.clicked()
+}
+
+// ------------------------------------------------------------------------------ removing models
+
+/// What a confirmed removal takes out.
+#[derive(Clone, Debug)]
+pub enum RemoveTarget {
+    /// An on-device CPU model.
+    Seg(&'static li_seg::ModelSpec),
+    /// Curated presets' verified files (by preset id; files other installed presets use stay).
+    Presets(Vec<String>),
+    /// One file ComfyUI lists (an installed model or LoRA), from the model folder.
+    Listed { folders: Vec<&'static str>, name: String },
+}
+
+impl RemoveTarget {
+    fn key(&self) -> String {
+        match self {
+            RemoveTarget::Seg(s) => format!("seg:{}", s.id),
+            RemoveTarget::Presets(ids) => ids.join("+"),
+            RemoveTarget::Listed { name, .. } => format!("file:{name}"),
+        }
+    }
+}
+
+/// The catalogue presets `ids` names, and every other one (those may hold shared files back).
+fn split_presets(ids: &[String]) -> (Vec<&'static catalog::Preset>, Vec<catalog::Preset>) {
+    let all = catalog::presets();
+    (all.iter().filter(|p| ids.contains(&p.id())).collect(), all.iter().filter(|p| !ids.contains(&p.id())).cloned().collect())
+}
+
+/// A removal waiting for the user's confirmation.
+#[derive(Clone, Debug)]
+pub struct RemoveAsk {
+    pub what: String,
+    /// What it frees.
+    pub bytes: u64,
+    /// Files kept because other installed models use them.
+    pub kept: Vec<String>,
+    pub target: RemoveTarget,
+}
+
+static REMOVING: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// The last removal's outcome for the status bar: (message, is an error).
+static REMOVE_NOTE: Mutex<Option<(String, bool)>> = Mutex::new(None);
+
+fn removing(key: &str) -> bool {
+    REMOVING.lock().is_ok_and(|v| v.iter().any(|k| k == key))
+}
+
+/// Puts a file out of the way: into the system Trash where there is one, else deletes it (the
+/// confirmation says which).
+pub fn dispose(path: &std::path::Path) -> std::io::Result<()> {
+    if li_ai::trash::available() { li_ai::trash::move_to_trash(path).map(|_| ()) } else { std::fs::remove_file(path) }
+}
+
+/// What removing `target` would free and keep (cheap: sizes only, no hashing).
+pub fn plan_removal(what: String, target: RemoveTarget) -> RemoveAsk {
+    let model_dir = AiSettings::load().model_dir();
+    let (bytes, kept) = match &target {
+        RemoveTarget::Seg(spec) => (li_seg::installed_bytes(&photocraft_engine::seg::models_dir(), spec).unwrap_or(0), Vec::new()),
+        RemoveTarget::Presets(ids) => {
+            let (these, others) = split_presets(ids);
+            let mut files = BTreeMap::new();
+            let mut kept = Vec::new();
+            for p in these {
+                let plan = li_ai::download::removal_plan(&model_dir, p, &others);
+                files.extend(plan.remove);
+                kept.extend(plan.shared.into_iter().filter(|n| !kept.contains(n)).collect::<Vec<_>>());
+            }
+            (files.values().sum(), kept)
+        }
+        RemoveTarget::Listed { folders, name } => {
+            (li_ai::download::listed_file(&model_dir, folders, name).and_then(|p| std::fs::metadata(p).ok()).map_or(0, |m| m.len()), Vec::new())
+        }
+    };
+    RemoveAsk { what, bytes, kept, target }
+}
+
+/// Asks to remove `target` (the confirmation shows what it frees).
+pub fn ask_remove(what: String, target: RemoveTarget) {
+    let ask = plan_removal(what, target);
+    dialogs_mut(|d| d.remove = Some(ask));
+}
+
+/// Removes in the background; the outcome goes to the status bar and the engine re-checks.
+fn remove_now(ask: RemoveAsk) {
+    let key = ask.target.key();
+    if let Ok(mut v) = REMOVING.lock() {
+        if v.contains(&key) {
+            return;
+        }
+        v.push(key.clone());
+    }
+    let lang = crate::i18n::current();
+    let _ = std::thread::Builder::new().name("model-remove".into()).spawn(move || {
+        crate::i18n::set_current(lang);
+        let model_dir = AiSettings::load().model_dir();
+        let r: anyhow::Result<(u64, Vec<String>)> = match &ask.target {
+            RemoveTarget::Seg(spec) => li_seg::remove_with(&photocraft_engine::seg::models_dir(), spec, &dispose).map(|b| (b, Vec::new())),
+            RemoveTarget::Presets(ids) => {
+                let (these, others) = split_presets(ids);
+                these.into_iter().try_fold((0u64, Vec::<String>::new()), |(freed, mut kept), p| {
+                    let r = li_ai::download::remove_preset(&model_dir, p, &others, &dispose)?;
+                    for n in r.shared.into_iter().chain(r.mismatched) {
+                        if !kept.contains(&n) {
+                            kept.push(n);
+                        }
+                    }
+                    Ok((freed + r.freed, kept))
+                })
+            }
+            RemoveTarget::Listed { folders, name } => li_ai::download::remove_listed_file(&model_dir, folders, name, &dispose).map(|b| (b, Vec::new())),
+        };
+        let note = match r {
+            Ok((freed, kept)) => {
+                let mut m = crate::i18n::fmt(tl!("Removed {name} ({size} freed)"), &[("name", &ask.what), ("size", &li_ai::download::human_bytes(freed))]);
+                if !kept.is_empty() {
+                    m = format!("{m} · {}", crate::i18n::fmt(tl!("kept {files}"), &[("files", &kept.join(", "))]));
+                }
+                (m, false)
+            }
+            Err(e) => (crate::i18n::fmt(tl!("Couldn't remove {name}: {error}"), &[("name", &ask.what), ("error", &format!("{e:#}"))]), true),
+        };
+        if let Ok(mut n) = REMOVE_NOTE.lock() {
+            *n = Some(note);
+        }
+        if let Ok(mut d) = shared().downloads.lock() {
+            d.remove(&key);
+        }
+        if let Ok(mut v) = REMOVING.lock() {
+            v.retain(|k| *k != key);
+        }
+        refresh();
+        if let Some(ctx) = shared().ctx.lock().ok().and_then(|c| c.clone()) {
+            ctx.request_repaint();
+        }
+    });
+}
+
+/// The removal confirmation (states what it frees, and whether it goes to the Trash).
+fn remove_confirm(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    if let Some((msg, err)) = REMOVE_NOTE.lock().ok().and_then(|mut n| n.take()) {
+        app.ui.status = msg;
+        app.ui.status_error = err;
+    }
+    let Some(ask) = dialogs_mut(|d| d.remove.clone()) else { return };
+    let t = Tokens::get(ctx);
+    let mut close = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    let mut go = false;
+    use widgets::{ButtonRole, DialogButton};
+    egui::Modal::new(egui::Id::new("li-remove-model")).backdrop_color(Color32::TRANSPARENT).show(ctx, |ui| {
+        ui.set_width(420.0);
+        ui.label(RichText::new(crate::i18n::fmt(tl!("Remove {name}?"), &[("name", &ask.what)])).size(15.0).strong().color(t.text));
+        ui.add_space(6.0);
+        let size = li_ai::download::human_bytes(ask.bytes);
+        let what = if ask.bytes == 0 {
+            tl!("None of its files are in the model folder.").to_owned()
+        } else if li_ai::trash::available() {
+            crate::i18n::fmt(tl!("This frees {size}. The files go to the Trash, so you can restore them from there."), &[("size", &size)])
+        } else {
+            crate::i18n::fmt(tl!("This frees {size}. The files are deleted permanently."), &[("size", &size)])
+        };
+        ui.label(RichText::new(what).color(t.text_dim));
+        if !ask.kept.is_empty() {
+            ui.label(
+                RichText::new(crate::i18n::fmt(tl!("Kept because other installed models use them: {files}"), &[("files", &ask.kept.join(", "))]))
+                    .size(11.5)
+                    .color(t.text_faint),
+            );
+        }
+        ui.add_space(10.0);
+        let label = if li_ai::trash::available() { tl!("Move to Trash") } else { tl!("Delete") };
+        let r = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            widgets::dialog_buttons(
+                ui,
+                &[DialogButton::new(ButtonRole::Default, label, 80.0).enabled(ask.bytes > 0), DialogButton::new(ButtonRole::Cancel, tl!("Cancel"), 80.0)],
+            )
+        });
+        match r.inner {
+            Some(ButtonRole::Default) => go = true,
+            Some(_) => close = true,
+            None => {}
+        }
+    });
+    if go {
+        remove_now(ask);
+        close = true;
+    }
+    if close {
+        dialogs_mut(|d| d.remove = None);
     }
 }
 
@@ -538,6 +807,76 @@ pub fn status_pill(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
 }
 
+/// The status bar's AI controls, drawn just left of [`status_pill`] (right-to-left layout):
+/// a red Stop while AI jobs run, and Eject (unload the models from GPU memory) while the
+/// engine is connected.
+pub fn status_controls(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    status_controls_with(app, ui, &status());
+}
+
+/// AI jobs running in the session (Generate, AI Remove, Enhance, …).
+pub fn ai_jobs(app: &PhotocraftApp) -> Vec<photocraft_engine::jobs::JobId> {
+    app.session.jobs().into_iter().filter(|j| j.command.starts_with("ai.")).map(|j| j.id).collect()
+}
+
+/// A small status-bar icon button with an accessible name; disabled ones are faint and inert.
+fn bar_icon(ui: &mut egui::Ui, icon: &str, tint: Color32, enabled: bool, tip: &str) -> egui::Response {
+    let t = Tokens::get(ui.ctx());
+    let sense = if enabled { Sense::click() } else { Sense::hover() };
+    let (r, resp) = ui.allocate_exact_size(vec2(20.0, 18.0), sense);
+    if enabled && resp.hovered() {
+        ui.painter().rect_filled(r, t.radius_sm, t.hover);
+    }
+    crate::icons::paint(ui, r, icon, 13.0, if enabled { tint } else { t.text_faint });
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, tip));
+    resp.on_hover_text(tip)
+}
+
+pub(crate) fn status_controls_with(app: &mut PhotocraftApp, ui: &mut egui::Ui, st: &EngineStatus) {
+    let t = Tokens::get(ui.ctx());
+    let jobs = ai_jobs(app);
+    if !jobs.is_empty() && bar_icon(ui, "circle-stop", t.danger, true, tl!("Stop generation")).clicked() {
+        stop_generation(app, &jobs);
+    }
+    let tip = if st.connected { tl!("Unload AI models from GPU memory") } else { tl!("Unload AI models from GPU memory (the AI engine is off)") };
+    if bar_icon(ui, "eject", t.text_dim, st.connected, tip).clicked() {
+        app.ui.status = tl!("Unloading AI models…").into();
+        app.ui.status_error = false;
+        let lang = crate::i18n::current();
+        let _ = std::thread::Builder::new().name("ai-unload".into()).spawn(move || {
+            crate::i18n::set_current(lang);
+            let note = match li_ai::service().client.free_memory() {
+                Ok(()) => (tl!("Models unloaded.").to_owned(), false),
+                Err(e) => (format!("{e:#}"), true),
+            };
+            if let Ok(mut n) = REMOVE_NOTE.lock() {
+                *n = Some(note);
+            }
+            refresh();
+        });
+    }
+}
+
+/// Stops AI work: cancels `jobs` and, when one of this app's prompts is what ComfyUI is
+/// executing, interrupts it (older ComfyUI versions can't cancel a single running prompt).
+pub fn stop_generation(app: &mut PhotocraftApp, jobs: &[photocraft_engine::jobs::JobId]) {
+    // Note our prompts before cancelling takes them off the list.
+    let client = li_ai::service().client;
+    let ours = li_ai::comfy::our_prompts(client.host());
+    for id in jobs {
+        crate::jobs_ui::cancel(app, *id);
+    }
+    app.ui.status = tl!("Stopped generation").into();
+    app.ui.status_error = false;
+    if !ours.is_empty() {
+        let _ = std::thread::Builder::new().name("ai-interrupt".into()).spawn(move || {
+            if let Err(e) = client.interrupt_if_running(&ours) {
+                log::warn!("interrupt: {e:#}");
+            }
+        });
+    }
+}
+
 fn short_gpu(name: &str) -> String {
     name.replace("NVIDIA ", "").replace("GeForce ", "").replace("Laptop GPU", "Laptop")
 }
@@ -554,6 +893,7 @@ struct Dialogs {
     detected: Option<Vec<li_ai::setup::Installation>>,
     settings: Option<AiSettings>,
     message: String,
+    remove: Option<RemoveAsk>,
 }
 
 fn dialogs_mut<R>(f: impl FnOnce(&mut Dialogs) -> R) -> R {
@@ -585,6 +925,7 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
     crate::generate_ui::batch_window(app, ctx);
     crate::model_browser::window(app, ctx);
+    remove_confirm(app, ctx);
 }
 
 fn window_frame(ctx: &egui::Context) -> egui::Frame {
@@ -861,11 +1202,11 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     });
                 }
                 ui.add_space(8.0);
-                widgets::section_label(ui, tl!("SELECTION MODELS (CPU)"));
+                widgets::section_label(ui, tl!("ON-DEVICE MODELS (CPU)"));
                 ui.label(
-                    RichText::new(
-                        tl!("Select Subject, Remove Background (Quick) and Object Selection clicks use the best one installed. No GPU or ComfyUI needed."),
-                    )
+                    RichText::new(tl!(
+                        "Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used."
+                    ))
                     .color(t.text_faint)
                     .size(11.0),
                 );
@@ -920,6 +1261,15 @@ fn model_row(ui: &mut egui::Ui, t: &Tokens, info: &catalog::ModelInfo, p: &catal
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let missing = li_ai::download::missing_files(&settings.model_dir(), p);
                 let state = st.presets.get(&p.id());
+                let downloading = dl.is_some_and(|d| !d.finished);
+                // Some of its files are on disk: it can be removed (shared ones stay).
+                if !downloading && missing.len() < p.files.len() {
+                    if removing(&p.id()) {
+                        ui.spinner();
+                    } else if remove_button(ui) {
+                        ask_remove(format!("{} · {}", info.label, p.label), RemoveTarget::Presets(vec![p.id()]));
+                    }
+                }
                 match (dl, state) {
                     (Some(d), _) if !d.finished => {
                         if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
@@ -1055,11 +1405,108 @@ pub fn on_job_event(app: &mut PhotocraftApp, e: &JobEvent) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use egui_kittest::kittest::{NodeT, Queryable};
+
     /// Every local CPU model Settings offers must come from a host the downloader accepts (the
     /// sky models' host was missing, so both refused to download).
     #[test]
     fn every_local_model_downloads_from_an_allowed_host() {
         let refused: Vec<_> = li_seg::MODELS.iter().filter(|m| !li_ai::download::host_allowed(m.url)).map(|m| (m.id, m.url)).collect();
         assert!(refused.is_empty(), "{refused:?}");
+    }
+
+    /// The on-device groups' headers say how many are installed and which one is used.
+    #[test]
+    fn group_headers_summarise_what_is_installed() {
+        let dir = std::env::temp_dir().join(format!("li-seg-ui-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("segmentation")).unwrap();
+        assert_eq!(seg_group_summary(li_seg::Group::Subject, &dir), "0 of 3 installed");
+        for id in ["u2netp", "isnet"] {
+            std::fs::write(li_seg::model_path(&dir, li_seg::spec(id).unwrap()), b"x").unwrap();
+        }
+        assert_eq!(seg_group_summary(li_seg::Group::Subject, &dir), "2 of 3 installed · using IS-Net general");
+        assert_eq!(seg_group_summary(li_seg::Group::Sky, &dir), "0 of 2 installed");
+        std::fs::write(li_seg::model_path(&dir, li_seg::spec("depth-midas-small").unwrap()), b"x").unwrap();
+        assert_eq!(seg_group_summary(li_seg::Group::Depth, &dir), "1 of 2 installed · using MiDaS v2.1 small");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A job that runs until cancelled.
+    fn endless(app: &mut PhotocraftApp, command: &str, gate: &Arc<std::sync::atomic::AtomicBool>) -> photocraft_engine::jobs::JobId {
+        let gate = gate.clone();
+        match app
+            .session
+            .start_job(
+                command,
+                json!({}),
+                command,
+                false,
+                move |ctx| {
+                    while !gate.load(std::sync::atomic::Ordering::Relaxed) {
+                        ctx.check()?;
+                        std::thread::sleep(Duration::from_millis(2));
+                    }
+                    Ok(())
+                },
+                |_, ()| Ok(Value::Null),
+            )
+            .unwrap()
+        {
+            photocraft_engine::jobs::Started::Job(id) => id,
+            photocraft_engine::jobs::Started::Done(v) => panic!("ran inline: {v}"),
+        }
+    }
+
+    /// The status bar's AI controls: Eject and a red Stop (shown while AI jobs run) render, and
+    /// Stop cancels the AI jobs only.
+    #[test]
+    fn stop_cancels_ai_jobs_and_the_icons_render() {
+        assert!(crate::icons::exists("eject") && crate::icons::exists("circle-stop"));
+        let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let connected = EngineStatus { checked: true, connected: true, ..Default::default() };
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(400.0, 40.0)).build_ui_state(
+            move |ui, app: &mut PhotocraftApp| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| status_controls_with(app, ui, &connected));
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(2);
+        // No AI work: Eject only.
+        assert!(h.query_by_label("Stop generation").is_none());
+        h.get_by_label("Unload AI models from GPU memory");
+        let gate = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let ai = endless(h.state_mut(), "ai.generate", &gate);
+        let other = endless(h.state_mut(), "test.slow", &gate);
+        h.run_steps(2);
+        assert_eq!(ai_jobs(h.state()), vec![ai]);
+        h.get_by_label("Stop generation").click();
+        h.run_steps(2);
+        assert!(ai_jobs(h.state()).is_empty(), "the AI job was cancelled");
+        assert!(h.state().session.job(other).is_some(), "other work keeps running");
+        assert!(h.query_by_label("Stop generation").is_none());
+        assert_eq!(h.state().ui.status, "Stopped generation");
+        // Both icons were rasterised from their SVGs.
+        for icon in ["eject", "circle-stop"] {
+            let poll = h.ctx.try_load_image(&format!("bytes://icons/{icon}.svg"), egui::SizeHint::default());
+            assert!(matches!(poll, Ok(egui::load::ImagePoll::Ready { .. })), "{icon} did not rasterise");
+        }
+        gate.store(true, std::sync::atomic::Ordering::Relaxed);
+        let _ = h.state_mut().session.wait_job(other);
+    }
+
+    /// Disconnected: Eject is shown but inert.
+    #[test]
+    fn eject_is_disabled_without_the_engine() {
+        let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let off = EngineStatus { checked: true, ..Default::default() };
+        let mut h = egui_kittest::Harness::builder()
+            .with_size(vec2(400.0, 40.0))
+            .build_ui_state(move |ui, app: &mut PhotocraftApp| status_controls_with(app, ui, &off), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(2);
+        let node = h.get_by_label("Unload AI models from GPU memory (the AI engine is off)");
+        assert!(node.accesskit_node().is_disabled());
     }
 }

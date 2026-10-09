@@ -3128,3 +3128,80 @@ ai	New	새 항목
 	Cage is not active	케이지가 활성 상태가 아닙니다
 	Could not use Cage: the layer is empty	케이지를 사용할 수 없음: 레이어가 비어 있습니다
 	Index	인덱스
+	Browse LoRAs for this model family	이 모델 계열의 LoRA 찾아보기
+	Browse LoRAs…	LoRA 찾아보기…
+	Choose another model…	다른 모델 선택…
+	Couldn't remove {name}: {error}	{name}을(를) 제거할 수 없습니다: {error}
+	Find LoRAs (styles) for the chosen model's family	선택한 모델 계열의 LoRA(스타일) 찾기
+	Kept because other installed models use them: {files}	다른 설치된 모델이 사용하므로 유지함: {files}
+	List only the official upscalers (SeedVR2)	공식 업스케일러만 표시 (SeedVR2)
+	Move to Trash	휴지통으로 이동
+	None of its files are in the model folder.	모델 폴더에 이 모델의 파일이 없습니다.
+	ON-DEVICE MODELS (CPU)	기기 내 모델 (CPU)
+	Official upscalers only	공식 업스케일러만
+	Recommended	추천
+	Remove (deletes the files)	제거 (파일을 삭제합니다)
+	Remove (moves the files to the Trash)	제거 (파일을 휴지통으로 옮깁니다)
+	Remove {name}?	{name}을(를) 제거할까요?
+	Removed {name} ({size} freed)	{name} 제거됨 ({size} 확보)
+	Stop generation	생성 중지
+	Stopped generation	생성을 중지했습니다
+	This frees {size}. The files are deleted permanently.	{size}가 확보됩니다. 파일은 영구적으로 삭제됩니다.
+	This frees {size}. The files go to the Trash, so you can restore them from there.	{size}가 확보됩니다. 파일은 휴지통으로 이동하므로 거기서 복원할 수 있습니다.
+	Unload AI models from GPU memory (the AI engine is off)	GPU 메모리에서 AI 모델 내리기 (AI 엔진이 꺼져 있음)
+	Unload AI models from GPU memory	GPU 메모리에서 AI 모델 내리기
+	Unloading AI models…	AI 모델을 내리는 중…
+	Upscale with any image model instead: enlarge, then add detail with img2img	대신 아무 이미지 모델로 업스케일: 확대한 뒤 img2img로 디테일 추가
+	kept {files}	유지함 {files}
+	using {name}	{name} 사용 중
+	{n} of {total} installed	{total}개 중 {n}개 설치됨
+	{size} download · runs on the CPU · {licence}	다운로드 {size} · CPU에서 실행 · {licence}
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	이 컴퓨터의 프로세서에서 실행되는 작은 모델입니다. ComfyUI나 GPU가 필요 없고 다운로드가 빠르며 사진이 컴퓨터 밖으로 나가지 않습니다. 그룹마다 쓰이는 도구가 다르며, 각 그룹에 설치된 가장 좋은 모델이 사용됩니다.
+	Subject & Background	피사체 및 배경
+# Selected-item context bars and live shapes
+	AI Fill	AI 채우기
+	Add a vector mask from the path	패스에서 벡터 마스크 추가
+	Bottom-left corner radius	왼쪽 아래 모서리 반경
+	Bottom-right corner radius	오른쪽 아래 모서리 반경
+	Create another variation using this layer's prompt and a new seed	이 레이어의 프롬프트와 새 시드로 다른 변형 만들기
+	Describe what to generate, or leave empty to fill from the surroundings	생성할 내용을 설명하거나 비워 두어 주변 내용으로 채우기
+	Edit Path	패스 편집
+	Edit Text	텍스트 편집
+	Edit the shape's anchors and handles	도형의 고정점과 핸들 편집
+	Edit this photo's develop settings	이 사진의 현상 설정 편집
+	Fill the path's area from the image around it	패스 영역을 주변 이미지로 채우기
+	Fill the selection from the image around it	선택 영역을 주변 이미지로 채우기
+	Generate this area again from its surroundings	주변 내용을 바탕으로 이 영역 다시 생성
+	Generate “{prompt}” again with a new seed	새 시드로 “{prompt}” 다시 생성
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	생성형 채우기: 설명에 따라 영역 다시 생성 (비워 두면 주변 내용 사용)
+	Generative Fill: regenerate the path's area from a description	생성형 채우기: 설명에 따라 패스 영역 다시 생성
+	L	길이
+	Line weight	선 두께
+	Mask out the background with AI	AI로 배경 마스크 처리
+	Number of sides	변의 수
+	Open in Develop	현상에서 열기
+	Open the Smart Object's contents	고급 개체의 내용 열기
+	Regenerate	다시 생성
+	Select the main subject with AI	AI로 주요 피사체 선택
+	Set radius of all corners	모든 모서리의 반경 설정
+	Set shape stroke width	도형 획 너비 설정
+	Set the font size	글꼴 크기 설정
+	This layer has no generation model to repeat	이 레이어에는 다시 생성할 모델이 없습니다
+	This layer has no generation settings to repeat	이 레이어에는 다시 생성할 설정이 없습니다
+	This layer's generation model is unavailable	이 레이어의 생성 모델을 사용할 수 없습니다
+	Top-left corner radius	왼쪽 위 모서리 반경
+	Top-right corner radius	오른쪽 위 모서리 반경
+	Turn the shape into pixels	도형을 픽셀로 변환
+	Variations	변형
+	Close panel	패널 닫기
+	Dock Panel	패널 도킹
+	Float Panel Group	패널 그룹 분리
+	Save and Return to Library	저장 후 라이브러리로 돌아가기
+	Added your new Develop edits as layer {name}	새 Develop 편집 내용을 {name} 레이어로 추가했습니다
+	Open the Library to save into it	라이브러리에 저장하려면 라이브러리를 여세요
+	The layers below are unchanged; hide or delete the new layer to go back.	아래 레이어는 변경되지 않았습니다. 되돌리려면 새 레이어를 숨기거나 삭제하세요.
+# Attributions page (li-attributions)
+	Attributions	저작자 표시
+	Search attributions…	저작자 표시 검색…
+	No matches.	일치하는 항목이 없습니다.
+	Show licence text	라이선스 전문 보기

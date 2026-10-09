@@ -2526,3 +2526,82 @@ ai	New	最新
 	Cage is not active	籠形未啟用
 	Could not use Cage: the layer is empty	無法使用籠形：圖層是空的
 	Index	索引
+	Browse LoRAs for this model family	瀏覽此模型系列的 LoRA
+	Browse LoRAs…	瀏覽 LoRA…
+	Choose another model…	選擇其他模型…
+	Couldn't remove {name}: {error}	無法移除 {name}：{error}
+	Find LoRAs (styles) for the chosen model's family	為所選模型的系列尋找 LoRA（風格）
+	Kept because other installed models use them: {files}	因其他已安裝的模型正在使用而保留：{files}
+	List only the official upscalers (SeedVR2)	只顯示官方放大模型（SeedVR2）
+	Move to Trash	移到垃圾桶
+	None of its files are in the model folder.	模型資料夾中沒有它的任何檔案。
+	ON-DEVICE MODELS (CPU)	本機模型（CPU）
+	Official upscalers only	僅官方放大模型
+	Recommended	推薦
+	Remove (deletes the files)	移除（刪除檔案）
+	Remove (moves the files to the Trash)	移除（將檔案移到垃圾桶）
+	Remove {name}?	移除 {name}？
+	Removed {name} ({size} freed)	已移除 {name}（釋放 {size}）
+	Stop generation	停止生成
+	Stopped generation	已停止生成
+	This frees {size}. The files are deleted permanently.	這會釋放 {size}。檔案將被永久刪除。
+	This frees {size}. The files go to the Trash, so you can restore them from there.	這會釋放 {size}。檔案會移到垃圾桶，可從那裡復原。
+	Unload AI models from GPU memory (the AI engine is off)	從 GPU 記憶體卸載 AI 模型（AI 引擎未執行）
+	Unload AI models from GPU memory	從 GPU 記憶體卸載 AI 模型
+	Unloading AI models…	正在卸載 AI 模型…
+	Upscale with any image model instead: enlarge, then add detail with img2img	改用任何影像模型放大：先放大，再以 img2img 加入細節
+	kept {files}	已保留 {files}
+	using {name}	正在使用 {name}
+	{n} of {total} installed	已安裝 {n}/{total}
+	{size} download · runs on the CPU · {licence}	下載 {size} · 在 CPU 上執行 · {licence}
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	在本機處理器上執行的小型模型：不需要 ComfyUI 或 GPU，下載快速，相片也不會離開這台電腦。每組服務不同的工具，並使用組內已安裝的最佳模型。
+	Subject & Background	主體與背景
+# Selected-item context bars and live shapes
+	AI Fill	AI 填色
+	Add a vector mask from the path	從路徑新增向量遮色片
+	Bottom-left corner radius	左下角半徑
+	Bottom-right corner radius	右下角半徑
+	Content-Aware Fill	內容感知填色
+	Corners	角落
+	Create another variation using this layer's prompt and a new seed	使用此圖層的提示詞與新種子建立另一個變化
+	Describe what to generate, or leave empty to fill from the surroundings	描述要生成的內容，或留白以依周圍內容填色
+	Edit Path	編輯路徑
+	Edit Text	編輯文字
+	Edit the shape's anchors and handles	編輯形狀的錨點與控制把手
+	Edit this photo's develop settings	編輯此照片的顯影設定
+	Fill the path's area from the image around it	依周圍影像填滿路徑區域
+	Fill the selection from the image around it	依周圍影像填滿選取範圍
+	Generate this area again from its surroundings	依周圍內容重新生成此區域
+	Generate “{prompt}” again with a new seed	使用新種子重新生成「{prompt}」
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	生成式填色：依描述重新生成區域（留白：依周圍內容）
+	Generative Fill: regenerate the path's area from a description	生成式填色：依描述重新生成路徑區域
+	L	長
+	Line weight	線條粗細
+	Mask out the background with AI	使用 AI 遮住背景
+	Number of sides	邊數
+	Open in Develop	在顯影中開啟
+	Open the Smart Object's contents	開啟智慧型物件的內容
+	Regenerate	重新生成
+	Select the main subject with AI	使用 AI 選取主體
+	Set radius of all corners	設定所有角落的半徑
+	Set shape stroke width	設定形狀筆畫寬度
+	Set the font size	設定字級
+	This layer has no generation model to repeat	此圖層沒有可重複生成的模型
+	This layer has no generation settings to repeat	此圖層沒有可重複生成的設定
+	This layer's generation model is unavailable	此圖層的生成模型無法使用
+	Top-left corner radius	左上角半徑
+	Top-right corner radius	右上角半徑
+	Turn the shape into pixels	將形狀轉換為像素
+	Variations	變化
+	Close panel	關閉面板
+	Dock Panel	停靠面板
+	Float Panel Group	浮動面板群組
+	Save and Return to Library	儲存並返回資料庫
+	Added your new Develop edits as layer {name}	已將您新的 Develop 編輯加入為圖層 {name}
+	Open the Library to save into it	請先開啟資料庫再儲存至其中
+	The layers below are unchanged; hide or delete the new layer to go back.	下方圖層未變更；如需還原，請隱藏或刪除新圖層。
+# Attributions page (li-attributions)
+	Attributions	致謝與授權
+	Search attributions…	搜尋致謝與授權…
+	No matches.	沒有符合的項目。
+	Show licence text	顯示授權全文

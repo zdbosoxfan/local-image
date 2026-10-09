@@ -2958,3 +2958,82 @@ ai	New	Baru
 	Cage is not active	Sangkar tidak aktif
 	Could not use Cage: the layer is empty	Tidak dapat memakai Sangkar: lapisan kosong
 	Index	Indeks
+	Browse LoRAs for this model family	Jelajahi LoRA untuk keluarga model ini
+	Browse LoRAs…	Jelajahi LoRA…
+	Choose another model…	Pilih model lain…
+	Couldn't remove {name}: {error}	Tidak dapat menghapus {name}: {error}
+	Find LoRAs (styles) for the chosen model's family	Cari LoRA (gaya) untuk keluarga model yang dipilih
+	Kept because other installed models use them: {files}	Disimpan karena model terpasang lain memakainya: {files}
+	List only the official upscalers (SeedVR2)	Tampilkan hanya upscaler resmi (SeedVR2)
+	Move to Trash	Pindahkan ke Tempat Sampah
+	None of its files are in the model folder.	Tidak ada berkasnya di folder model.
+	ON-DEVICE MODELS (CPU)	MODEL DI PERANGKAT (CPU)
+	Official upscalers only	Hanya upscaler resmi
+	Recommended	Disarankan
+	Remove (deletes the files)	Hapus (menghapus berkas)
+	Remove (moves the files to the Trash)	Hapus (memindahkan berkas ke Tempat Sampah)
+	Remove {name}?	Hapus {name}?
+	Removed {name} ({size} freed)	{name} dihapus ({size} dibebaskan)
+	Stop generation	Hentikan pembuatan
+	Stopped generation	Pembuatan dihentikan
+	This frees {size}. The files are deleted permanently.	Ini membebaskan {size}. Berkas dihapus secara permanen.
+	This frees {size}. The files go to the Trash, so you can restore them from there.	Ini membebaskan {size}. Berkas masuk ke Tempat Sampah, jadi Anda bisa memulihkannya dari sana.
+	Unload AI models from GPU memory (the AI engine is off)	Keluarkan model AI dari memori GPU (mesin AI mati)
+	Unload AI models from GPU memory	Keluarkan model AI dari memori GPU
+	Unloading AI models…	Mengeluarkan model AI…
+	Upscale with any image model instead: enlarge, then add detail with img2img	Perbesar dengan model gambar apa pun: perbesar, lalu tambahkan detail dengan img2img
+	kept {files}	disimpan {files}
+	using {name}	memakai {name}
+	{n} of {total} installed	{n} dari {total} terpasang
+	{size} download · runs on the CPU · {licence}	unduhan {size} · berjalan di CPU · {licence}
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	Model kecil yang berjalan di prosesor komputer ini: tanpa ComfyUI atau GPU, unduhan cepat, dan foto Anda tidak pernah meninggalkan komputer. Setiap grup melayani alat yang berbeda, dan model terbaik yang terpasang di grup itulah yang dipakai.
+	Subject & Background	Subjek & Latar Belakang
+# Selected-item context bars and live shapes
+	AI Fill	Isi dengan AI
+	Add a vector mask from the path	Tambahkan masker vektor dari jalur
+	Bottom-left corner radius	Radius sudut kiri bawah
+	Bottom-right corner radius	Radius sudut kanan bawah
+	Content-Aware Fill	Isi sesuai konten
+	Corners	Sudut
+	Create another variation using this layer's prompt and a new seed	Buat variasi lain dengan prompt lapisan ini dan seed baru
+	Describe what to generate, or leave empty to fill from the surroundings	Jelaskan yang ingin dibuat, atau kosongkan untuk mengisi dari sekitarnya
+	Edit Path	Edit jalur
+	Edit Text	Edit teks
+	Edit the shape's anchors and handles	Edit jangkar dan handel bentuk
+	Edit this photo's develop settings	Edit pengaturan pengembangan foto ini
+	Fill the path's area from the image around it	Isi area jalur dari gambar di sekitarnya
+	Fill the selection from the image around it	Isi seleksi dari gambar di sekitarnya
+	Generate this area again from its surroundings	Buat ulang area ini dari sekitarnya
+	Generate “{prompt}” again with a new seed	Buat ulang “{prompt}” dengan seed baru
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	Isi generatif: buat ulang area dari deskripsi (kosong: dari sekitarnya)
+	Generative Fill: regenerate the path's area from a description	Isi generatif: buat ulang area jalur dari deskripsi
+	L	P
+	Line weight	Ketebalan garis
+	Mask out the background with AI	Masker latar belakang dengan AI
+	Number of sides	Jumlah sisi
+	Open in Develop	Buka di Pengembangan
+	Open the Smart Object's contents	Buka isi objek pintar
+	Regenerate	Buat ulang
+	Select the main subject with AI	Pilih subjek utama dengan AI
+	Set radius of all corners	Atur radius semua sudut
+	Set shape stroke width	Atur ketebalan goresan bentuk
+	Set the font size	Atur ukuran font
+	This layer has no generation model to repeat	Lapisan ini tidak memiliki model untuk pembuatan ulang
+	This layer has no generation settings to repeat	Lapisan ini tidak memiliki pengaturan untuk pembuatan ulang
+	This layer's generation model is unavailable	Model pembuatan lapisan ini tidak tersedia
+	Top-left corner radius	Radius sudut kiri atas
+	Top-right corner radius	Radius sudut kanan atas
+	Turn the shape into pixels	Ubah bentuk menjadi piksel
+	Variations	Variasi
+	Close panel	Tutup panel
+	Dock Panel	Tambatkan panel
+	Float Panel Group	Lepaskan grup panel
+	Save and Return to Library	Simpan dan Kembali ke Pustaka
+	Added your new Develop edits as layer {name}	Hasil edit Develop baru Anda ditambahkan sebagai layer {name}
+	Open the Library to save into it	Buka Pustaka untuk menyimpan ke dalamnya
+	The layers below are unchanged; hide or delete the new layer to go back.	Layer di bawahnya tidak berubah; sembunyikan atau hapus layer baru untuk kembali.
+# Attributions page (li-attributions)
+	Attributions	Atribusi
+	Search attributions…	Cari atribusi…
+	No matches.	Tidak ada yang cocok.
+	Show licence text	Tampilkan teks lisensi

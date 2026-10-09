@@ -81,6 +81,7 @@ const LAYOUT: &[(&str, &[&str])] = &[
             "dialog.export",
             "app.exportPrevious",
             "@Export with Preset",
+            "dialog.saveOverOriginal",
             "---",
             "library.toggleAutoWriteXmp",
             "@Previews",
@@ -341,6 +342,8 @@ fn live_label(app: &LightcraftApp, id: &str, label: &str) -> String {
         "photo.delete" if n > 1 => crate::i18n::tr_format!("Delete {n} Photos", n = n),
         "photo.virtualCopy" if n > 1 => crate::i18n::tr_format!("Create {n} Virtual Copies", n = n),
         "dialog.rename" if n > 1 => crate::i18n::tr_format!("Rename {n} Photos…", n = n),
+        // a raw (or DNG) is never replaced: a JPEG is written beside it
+        "dialog.saveOverOriginal" if crate::menus::active_is_raw(app) => crate::i18n::tr("Save JPEG Beside Original…").to_string(),
         _ => label.to_string(),
     }
 }

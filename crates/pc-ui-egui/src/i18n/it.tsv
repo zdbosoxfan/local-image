@@ -2616,3 +2616,82 @@ ai	New	Nuovi
 	Cage is not active	La gabbia non è attiva
 	Could not use Cage: the layer is empty	Impossibile usare Gabbia: il livello è vuoto
 	Index	Indice
+	Browse LoRAs for this model family	Sfoglia i LoRA per questa famiglia di modelli
+	Browse LoRAs…	Sfoglia LoRA…
+	Choose another model…	Scegli un altro modello…
+	Couldn't remove {name}: {error}	Impossibile rimuovere {name}: {error}
+	Find LoRAs (styles) for the chosen model's family	Trova LoRA (stili) per la famiglia del modello scelto
+	Kept because other installed models use them: {files}	Mantenuti perché altri modelli installati li usano: {files}
+	List only the official upscalers (SeedVR2)	Mostra solo gli upscaler ufficiali (SeedVR2)
+	Move to Trash	Sposta nel cestino
+	None of its files are in the model folder.	Nessuno dei suoi file si trova nella cartella dei modelli.
+	ON-DEVICE MODELS (CPU)	MODELLI SUL DISPOSITIVO (CPU)
+	Official upscalers only	Solo upscaler ufficiali
+	Recommended	Consigliato
+	Remove (deletes the files)	Rimuovi (elimina i file)
+	Remove (moves the files to the Trash)	Rimuovi (sposta i file nel cestino)
+	Remove {name}?	Rimuovere {name}?
+	Removed {name} ({size} freed)	{name} rimosso ({size} liberati)
+	Stop generation	Interrompi la generazione
+	Stopped generation	Generazione interrotta
+	This frees {size}. The files are deleted permanently.	Libera {size}. I file vengono eliminati definitivamente.
+	This frees {size}. The files go to the Trash, so you can restore them from there.	Libera {size}. I file vanno nel cestino, da cui puoi ripristinarli.
+	Unload AI models from GPU memory (the AI engine is off)	Scarica i modelli IA dalla memoria della GPU (il motore IA è spento)
+	Unload AI models from GPU memory	Scarica i modelli IA dalla memoria della GPU
+	Unloading AI models…	Scaricamento dei modelli IA dalla memoria…
+	Upscale with any image model instead: enlarge, then add detail with img2img	Ingrandisci invece con qualsiasi modello di immagini: ingrandisci, poi aggiungi dettagli con img2img
+	kept {files}	mantenuti {files}
+	using {name}	in uso {name}
+	{n} of {total} installed	{n} di {total} installati
+	{size} download · runs on the CPU · {licence}	{size} da scaricare · funziona sulla CPU · {licence}
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	Piccoli modelli che funzionano sul processore di questo computer: niente ComfyUI né GPU, download rapidi, e le tue foto non lasciano mai il computer. Ogni gruppo alimenta strumenti diversi e viene usato il miglior modello installato del gruppo.
+	Subject & Background	Soggetto e sfondo
+# Selected-item context bars and live shapes
+	AI Fill	Riempimento IA
+	Add a vector mask from the path	Aggiungi una maschera vettoriale dal tracciato
+	Bottom-left corner radius	Raggio dell'angolo inferiore sinistro
+	Bottom-right corner radius	Raggio dell'angolo inferiore destro
+	Content-Aware Fill	Riempimento in base al contenuto
+	Corners	Angoli
+	Create another variation using this layer's prompt and a new seed	Crea un'altra variante con il prompt di questo livello e un nuovo seme
+	Describe what to generate, or leave empty to fill from the surroundings	Descrivi cosa generare o lascia vuoto per riempire dai dintorni
+	Edit Path	Modifica tracciato
+	Edit Text	Modifica testo
+	Edit the shape's anchors and handles	Modifica i punti di ancoraggio e le maniglie della forma
+	Edit this photo's develop settings	Modifica le impostazioni di sviluppo di questa foto
+	Fill the path's area from the image around it	Riempi l'area del tracciato dall'immagine circostante
+	Fill the selection from the image around it	Riempi la selezione dall'immagine circostante
+	Generate this area again from its surroundings	Rigenera quest'area dai dintorni
+	Generate “{prompt}” again with a new seed	Rigenera “{prompt}” con un nuovo seme
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	Riempimento generativo: rigenera l'area dalla descrizione (vuoto: dai dintorni)
+	Generative Fill: regenerate the path's area from a description	Riempimento generativo: rigenera l'area del tracciato da una descrizione
+	L	L
+	Line weight	Spessore della linea
+	Mask out the background with AI	Maschera lo sfondo con l'IA
+	Number of sides	Numero di lati
+	Open in Develop	Apri in Sviluppo
+	Open the Smart Object's contents	Apri il contenuto dell'oggetto avanzato
+	Regenerate	Rigenera
+	Select the main subject with AI	Seleziona il soggetto principale con l'IA
+	Set radius of all corners	Imposta il raggio di tutti gli angoli
+	Set shape stroke width	Imposta lo spessore del contorno della forma
+	Set the font size	Imposta la dimensione del carattere
+	This layer has no generation model to repeat	Questo livello non ha un modello da riutilizzare per la generazione
+	This layer has no generation settings to repeat	Questo livello non ha impostazioni da riutilizzare per la generazione
+	This layer's generation model is unavailable	Il modello di generazione di questo livello non è disponibile
+	Top-left corner radius	Raggio dell'angolo superiore sinistro
+	Top-right corner radius	Raggio dell'angolo superiore destro
+	Turn the shape into pixels	Converti la forma in pixel
+	Variations	Varianti
+	Close panel	Chiudi pannello
+	Dock Panel	Ancora pannello
+	Float Panel Group	Sgancia gruppo di pannelli
+	Save and Return to Library	Salva e torna alla libreria
+	Added your new Develop edits as layer {name}	Le nuove modifiche di Develop sono state aggiunte come livello {name}
+	Open the Library to save into it	Apri la libreria per salvare al suo interno
+	The layers below are unchanged; hide or delete the new layer to go back.	I livelli sottostanti sono invariati; nascondi o elimina il nuovo livello per tornare indietro.
+# Attributions page (li-attributions)
+	Attributions	Attribuzioni
+	Search attributions…	Cerca nelle attribuzioni…
+	No matches.	Nessun risultato.
+	Show licence text	Mostra il testo della licenza

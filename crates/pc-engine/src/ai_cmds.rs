@@ -447,21 +447,46 @@ fn select_subject(s: &mut Session, p: &Value) -> Result<Value> {
     )
 }
 
+/// What Generative Fill asks for when the prompt is left empty: Photoshop's "fill from the
+/// surroundings".
+pub const SURROUNDINGS_PROMPT: &str =
+    "Fill the masked area so it continues the surrounding image seamlessly: the same background, texture, lighting and perspective, with no new objects";
+
+/// A result to replace when regenerating. Hide it only in the sampling snapshot until the
+/// job succeeds; applying the new layer and hiding the old one is a single undo step.
+fn replacement_layer(s: &Session, p: &Value, cmd: &str) -> Result<Option<LayerId>> {
+    let Some(value) = p.get("replaceLayer") else { return Ok(None) };
+    let id = LayerId(value.as_u64().ok_or_else(|| bad(cmd, "`replaceLayer` must be a layer id"))?);
+    let l = s.active().ok_or(EngineError::NoDocument)?.doc.layer(id).ok_or(EngineError::NoLayer(id))?;
+    if !matches!(l.content, LayerContent::Raster(_)) || l.generation.is_none() {
+        return Err(bad(cmd, "`replaceLayer` must be an AI-generated pixel layer"));
+    }
+    Ok(Some(id))
+}
+
 fn generative_fill(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "ai.generativeFill";
-    let prompt = p.get("prompt").and_then(Value::as_str).unwrap_or("").trim().chars().take(4000).collect::<String>();
-    if prompt.is_empty() {
-        return Err(bad(CMD, "describe what should fill the selection (`prompt`)"));
-    }
+    let typed = p.get("prompt").and_then(Value::as_str).unwrap_or("").trim().chars().take(4000).collect::<String>();
+    // As in Photoshop, an empty prompt fills the selection from its surroundings.
+    let prompt = if typed.is_empty() { SURROUNDINGS_PROMPT.to_owned() } else { typed.clone() };
     let mut q = p.clone();
     if let Some(o) = q.as_object_mut() {
         o.remove("points");
     }
     let (bbox, size, mask) = removal_mask(s, &q, CMD)?;
-    let doc = s.active().ok_or(EngineError::NoDocument)?.doc.clone();
+    let replace = replacement_layer(s, p, CMD)?;
+    let mut doc = s.active().ok_or(EngineError::NoDocument)?.doc.clone();
+    if let Some(id) = replace {
+        Arc::make_mut(&mut doc).layer_mut(id).ok_or(EngineError::NoLayer(id))?.visible = false;
+    }
     let region = context_rect(bbox, doc.bounds());
     let (variant, seed, fmt) = (qwen_variant(p), seed(p), doc.pixel_format());
-    let name: String = format!("Fill: {}", prompt.chars().take(32).collect::<String>());
+    let name: String = if typed.is_empty() { "Generative Fill".to_owned() } else { format!("Fill: {}", typed.chars().take(32).collect::<String>()) };
+    // Kept on the layer, so the Contextual Task Bar can regenerate it.
+    let generation = json!({
+        "command": CMD, "prompt": typed, "seed": seed, "engine": variant,
+        "bounds": [bbox.x0, bbox.y0, bbox.width(), bbox.height()],
+    });
     crate::jobs::run(
         s,
         "Generative Fill",
@@ -478,6 +503,11 @@ fn generative_fill(s: &mut Session, p: &Value) -> Result<Value> {
             let id = s.edit("Generative Fill", move |doc, active| {
                 let mut l = Layer::raster(name, surf.format());
                 *crate::pixels_mut(&mut l)? = surf;
+                l.generation = Some(generation);
+                if let Some(id) = replace {
+                    doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?.visible = false;
+                    *active = Some(id);
+                }
                 Ok(add_layer_above(doc, active, l))
             })?;
             Ok(json!({ "layer": id.0 }))
@@ -493,10 +523,12 @@ fn generation_size(size: Size) -> (u32, u32) {
 }
 
 fn generate_background(s: &mut Session, p: &Value) -> Result<Value> {
+    let replace = replacement_layer(s, p, "ai.generateBackground")?;
     let prompt = p.get("prompt").and_then(Value::as_str).unwrap_or("").trim().chars().take(2000).collect::<String>();
     let doc = s.active().ok_or(EngineError::NoDocument)?.doc.clone();
     let (variant, seed, fmt, bounds) = (qwen_variant(p), seed(p), doc.pixel_format(), doc.bounds());
     let (gw, gh) = generation_size(doc.size);
+    let generation = json!({"command": "ai.generateBackground", "prompt": prompt, "seed": seed, "engine": variant});
     crate::jobs::run(
         s,
         "Generate Background",
@@ -511,6 +543,13 @@ fn generate_background(s: &mut Session, p: &Value) -> Result<Value> {
             let id = s.edit("Generate Background", move |doc, active| {
                 let mut l = Layer::raster(doc.next_layer_name("Background"), surf.format());
                 *crate::pixels_mut(&mut l)? = surf;
+                l.generation = Some(generation);
+                if let Some(old) = replace {
+                    doc.layer_mut(old).ok_or(EngineError::NoLayer(old))?.visible = false;
+                    let id = doc.insert_above(Some(old), l);
+                    *active = Some(id);
+                    return Ok(id);
+                }
                 let target = *active;
                 let id = doc.insert_above(target, l);
                 // Below the active layer: the subject stays on top.
@@ -575,6 +614,10 @@ fn place_layer(s: &mut Session, p: &Value) -> Result<Value> {
     let path = p.get("path").and_then(Value::as_str).ok_or_else(|| bad(CMD, "missing `path`"))?;
     let name = p.get("name").and_then(Value::as_str).unwrap_or("Generated").chars().take(120).collect::<String>();
     let fit = p.get("fit").and_then(Value::as_str).unwrap_or("contain").to_owned();
+    let generation = p.get("generation").filter(|g| g.is_object()).cloned().map(|mut g| {
+        g["command"] = json!("ai.generate");
+        g
+    });
     let bytes = std::fs::read(path).map_err(|e| EngineError::Other(format!("Could not read {path}: {e}")))?;
     let img = image::load_from_memory(&bytes).map_err(|e| EngineError::Other(format!("Could not decode {path}: {e}")))?.to_rgba8();
     s.edit("Place Generated Image", move |doc, active| {
@@ -596,7 +639,8 @@ fn place_layer(s: &mut Session, p: &Value) -> Result<Value> {
             img
         };
         let (x, y) = if fit == "none" { (0, 0) } else { ((dw as i32 - img.width() as i32) / 2, (dh as i32 - img.height() as i32) / 2) };
-        let l = layer_from_rgba(doc, &name, &img, x, y);
+        let mut l = layer_from_rgba(doc, &name, &img, x, y);
+        l.generation = generation;
         Ok(add_layer_above(doc, active, l))
     })
     .map(|id| json!({ "layer": id.0 }))
@@ -609,7 +653,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Place Generated Image",
             menu: &[],
             shortcut: None,
-            params: r#"{"path": file, "name"?: str, "fit"?: "none"|"contain"|"cover"}"#,
+            params: r#"{"path": file, "name"?: str, "fit"?: "none"|"contain"|"cover", "generation"?: object}"#,
             enabled: has_doc,
             run: place_layer,
             journal: true,
@@ -649,7 +693,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Generative Fill",
             menu: &[],
             shortcut: None,
-            params: r#"{"prompt": str, "engine"?: "int8"|"bf16", "seed"?: int}"#,
+            params: r#"{"prompt"?: str (empty: fill from the surroundings), "engine"?: "int8"|"bf16", "seed"?: int, "replaceLayer"?: id}"#,
             enabled: has_selection,
             run: generative_fill,
             journal: true,
@@ -659,7 +703,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Generate Background",
             menu: &[],
             shortcut: None,
-            params: r#"{"prompt"?: "the empty scene", "engine"?: "int8"|"bf16", "seed"?: int}"#,
+            params: r#"{"prompt"?: "the empty scene", "engine"?: "int8"|"bf16", "seed"?: int, "replaceLayer"?: id}"#,
             enabled: has_doc,
             run: generate_background,
             journal: true,
@@ -695,6 +739,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn placed_generated_images_keep_their_generation_settings() {
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("pc-generated-{}-{stamp}.png", std::process::id()));
+        RgbaImage::from_pixel(8, 8, image::Rgba([48, 112, 192, 255])).save(&path).unwrap();
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 20, "height": 20})).unwrap();
+        let g = json!({"model": "qwen", "prompt": "marble", "seed": 42, "variant": "int8"});
+        let r = s.execute("ai.placeLayer", json!({"path": path, "generation": g})).unwrap();
+        std::fs::remove_file(path).unwrap();
+        let id = LayerId(r["layer"].as_u64().unwrap());
+        let generation = s.active().unwrap().doc.layer(id).unwrap().generation.as_ref().unwrap();
+        assert_eq!(generation["command"], "ai.generate");
+        assert_eq!(generation["prompt"], g["prompt"]);
+        assert_eq!(generation["seed"], g["seed"]);
+        assert_eq!(generation["model"], g["model"]);
+    }
+
     /// The real flows against the mock ComfyUI: a stroke becomes an "AI Remove" layer, Remove
     /// Background puts a mask on the layer, Generative Fill adds a layer, Enhance opens a document.
     #[test]
@@ -720,10 +782,35 @@ mod tests {
         let active = d.active_layer.expect("active");
         assert!(d.doc.layer(active).expect("layer").mask.is_some());
         s.execute("select.all", json!({})).expect("select all");
-        s.execute("ai.generativeFill", json!({"prompt": "a red balloon"})).expect("fill");
-        s.execute("ai.generateBackground", json!({"prompt": "marble"})).expect("bg");
+        let r = s.execute("ai.generativeFill", json!({"prompt": "a red balloon", "seed": 7})).expect("fill");
+        // The layer keeps how it was made, for Regenerate.
+        let id = LayerId(r["layer"].as_u64().expect("layer"));
+        let g = s.active().expect("doc").doc.layer(id).expect("layer").generation.clone().expect("generation");
+        assert_eq!((g["command"].as_str(), g["prompt"].as_str(), g["seed"].as_u64()), (Some("ai.generativeFill"), Some("a red balloon"), Some(7)));
+        // An empty prompt fills from the surroundings, as in Photoshop.
+        let r = s.execute("ai.generativeFill", json!({"prompt": ""})).expect("empty prompt fills");
+        let id = LayerId(r["layer"].as_u64().expect("layer"));
+        assert_eq!(s.active().expect("doc").doc.layer(id).expect("layer").name, "Generative Fill");
+        let r = s.execute("ai.generativeFill", json!({"prompt": "", "replaceLayer": id.0, "seed": 43})).expect("regenerate fill");
+        let new = LayerId(r["layer"].as_u64().expect("layer"));
+        assert!(!s.active().unwrap().doc.layer(id).unwrap().visible);
+        assert_eq!(s.active().unwrap().doc.layer(new).unwrap().generation.as_ref().unwrap()["seed"], 43);
+        s.undo();
+        assert!(s.active().unwrap().doc.layer(id).unwrap().visible, "hide and replace are one undo step");
+        let before = s.active().unwrap().doc.clone();
+        server.fail_next();
+        assert!(s.execute("ai.generativeFill", json!({"prompt": "", "replaceLayer": id.0})).is_err());
+        assert_eq!(s.active().unwrap().doc, before, "a failed generation changes no layers");
+        let r = s.execute("ai.generateBackground", json!({"prompt": "marble"})).expect("bg");
+        let bg = LayerId(r["layer"].as_u64().expect("layer"));
+        let r = s.execute("ai.generateBackground", json!({"prompt": "marble", "replaceLayer": bg.0})).expect("regenerate background");
+        assert_eq!(s.active().unwrap().active_layer.map(|id| id.0), r["layer"].as_u64());
+        assert!(!s.active().unwrap().doc.layer(bg).unwrap().visible);
+        s.undo();
+        assert!(s.active().unwrap().doc.layer(bg).unwrap().visible);
         let before = s.documents().len();
         s.execute("ai.enhance", json!({"scale": 2.0})).expect("enhance");
         assert_eq!(s.documents().len(), before + 1);
+        li_ai::set_service_override(None);
     }
 }

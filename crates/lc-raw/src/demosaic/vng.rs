@@ -6,6 +6,7 @@
 use super::Mosaic;
 use crate::Rgb32f;
 use lightcraft_raster::par_rows;
+use rayon::prelude::*;
 
 const TERMS: [i32; 384] = [
     -2, -2, 0, -1, 1, 0x01, -2, -2, 0, 0, 2, 0x01, -2, -1, -1, 0, 1, 0x01, -2, -1, 0, -1, 1, 0x02, -2, -1, 0, 0, 1, 0x03, -2, -1, 0, 1, 2, 0x01, -2,
@@ -38,34 +39,58 @@ struct Term {
 pub(crate) fn vng(m: &Mosaic, linear_only: bool) -> Rgb32f {
     let (w, h) = (m.w, m.h);
     let mut linear = vec![[0.0f32; 4]; w * h];
+    // Precompute the interior stencil for each CFA phase. Keep the original
+    // dy/dx accumulation order and weights, including separate Bayer greens.
+    let stencils: [Vec<(isize, usize, f32)>; 4] = std::array::from_fn(|phase| {
+        let (y, x) = ((phase / 2) as isize, (phase % 2) as isize);
+        let f = color(m, y, x);
+        (-1isize..=1)
+            .flat_map(|dy| (-1isize..=1).map(move |dx| (dy, dx)))
+            .filter_map(|(dy, dx)| {
+                let c = color(m, y + dy, x + dx);
+                (c != f).then_some((dy * w as isize + dx, c, (1 << (usize::from(dy == 0) + usize::from(dx == 0))) as f32))
+            })
+            .collect()
+    });
+    let colors: [usize; 4] = std::array::from_fn(|phase| color(m, (phase / 2) as isize, (phase % 2) as isize));
+    let counts: [[f32; 4]; 4] = std::array::from_fn(|phase| {
+        let mut count = [0.0; 4];
+        for &(_, c, weight) in &stencils[phase] {
+            count[c] += weight;
+        }
+        count
+    });
     par_rows(&mut linear, w, |y, row| {
         for (x, p) in row.iter_mut().enumerate() {
-            let f = color(m, y as isize, x as isize);
-            let border = x == 0 || y == 0 || x + 1 == w || y + 1 == h;
+            let phase = (y % 2) * 2 + x % 2;
+            let f = colors[phase];
+            let i = y * w + x;
             let mut sum = [0.0; 4];
-            let mut count = [0.0; 4];
-            for dy in -1isize..=1 {
-                for dx in -1isize..=1 {
-                    let (yy, xx) = (y as isize + dy, x as isize + dx);
-                    if yy < 0 || xx < 0 || yy >= h as isize || xx >= w as isize {
-                        continue;
+            let mut count = counts[phase];
+            if x > 0 && y > 0 && x + 1 < w && y + 1 < h {
+                for &(offset, c, weight) in &stencils[phase] {
+                    sum[c] += m.data[(i as isize + offset) as usize].max(0.0) * weight;
+                }
+            } else {
+                count = [0.0; 4];
+                for yy in y.saturating_sub(1)..(y + 2).min(h) {
+                    for xx in x.saturating_sub(1)..(x + 2).min(w) {
+                        let c = colors[(yy % 2) * 2 + xx % 2];
+                        sum[c] += m.data[yy * w + xx].max(0.0);
+                        count[c] += 1.0;
                     }
-                    let c = color(m, yy, xx);
-                    if !border && c == f {
-                        continue;
-                    }
-                    let weight = if border { 1.0 } else { (1 << (usize::from(dy == 0) + usize::from(dx == 0))) as f32 };
-                    sum[c] += m.data[yy as usize * w + xx as usize].max(0.0) * weight;
-                    count[c] += weight;
                 }
             }
             for c in 0..4 {
-                p[c] = if c != f && count[c] != 0.0 { sum[c] / count[c] } else { m.data[y * w + x].max(0.0) };
+                p[c] = if c != f && count[c] != 0.0 { sum[c] / count[c] } else { m.data[i].max(0.0) };
             }
         }
     });
-    let mut result = linear.clone();
-    if !linear_only && w >= 5 && h >= 5 {
+    // The linear dual branch does not need a second four-channel image.
+    let result = if linear_only || w < 5 || h < 5 {
+        linear
+    } else {
+        let mut result = linear.clone();
         let codes: Vec<Vec<Term>> = (0..4)
             .map(|phase| {
                 let (y, x) = ((phase / 2) as isize, (phase % 2) as isize);
@@ -88,6 +113,13 @@ pub(crate) fn vng(m: &Mosaic, linear_only: bool) -> Rgb32f {
                     .collect()
             })
             .collect();
+        let neighbors: [[(isize, bool); 8]; 4] = std::array::from_fn(|phase| {
+            let (y, x) = ((phase / 2) as isize, (phase % 2) as isize);
+            std::array::from_fn(|g| {
+                let (dy, dx) = CHOOD[g];
+                (dy * w as isize + dx, color(m, y + dy, x + dx) != colors[phase] && color(m, y + 2 * dy, x + 2 * dx) == colors[phase])
+            })
+        });
         par_rows(&mut result, w, |y, row| {
             if y < 2 || y + 2 >= h {
                 return;
@@ -97,10 +129,11 @@ pub(crate) fn vng(m: &Mosaic, linear_only: bool) -> Rgb32f {
                 let mut gval = [0.0f32; 8];
                 for t in &codes[(y % 2) * 2 + x % 2] {
                     let diff = (linear[(i as isize + t.a) as usize][t.c] - linear[(i as isize + t.b) as usize][t.c]).abs() * t.weight;
-                    for (g, v) in gval.iter_mut().enumerate() {
-                        if t.grads & (1 << g) != 0 {
-                            *v += diff;
-                        }
+                    let mut grads = t.grads as u32;
+                    while grads != 0 {
+                        let g = grads.trailing_zeros() as usize;
+                        gval[g] += diff;
+                        grads &= grads - 1;
                     }
                 }
                 let gmin = gval.iter().copied().fold(f32::INFINITY, f32::min);
@@ -109,15 +142,14 @@ pub(crate) fn vng(m: &Mosaic, linear_only: bool) -> Rgb32f {
                     continue;
                 }
                 let threshold = gmin + 0.5 * gmax;
-                let c0 = color(m, y as isize, x as isize);
+                let phase = (y % 2) * 2 + x % 2;
+                let c0 = colors[phase];
                 let mut sum = [0.0; 4];
                 let mut num = 0.0;
-                for (g, &(dy, dx)) in CHOOD.iter().enumerate() {
+                for (g, &(offset, special)) in neighbors[phase].iter().enumerate() {
                     if gval[g] > threshold {
                         continue;
                     }
-                    let offset = dy * w as isize + dx;
-                    let special = color(m, y as isize + dy, x as isize + dx) != c0 && color(m, y as isize + 2 * dy, x as isize + 2 * dx) == c0;
                     for c in 0..4 {
                         sum[c] += if c == c0 && special {
                             (linear[i][c] + linear[(i as isize + 2 * offset) as usize][c]) * 0.5
@@ -132,8 +164,9 @@ pub(crate) fn vng(m: &Mosaic, linear_only: bool) -> Rgb32f {
                 }
             }
         });
-    }
-    Rgb32f { width: w, height: h, data: result.into_iter().map(|p| [p[0].max(0.0), (0.5 * (p[1] + p[3])).max(0.0), p[2].max(0.0)]).collect() }
+        result
+    };
+    Rgb32f { width: w, height: h, data: result.into_par_iter().map(|p| [p[0].max(0.0), (0.5 * (p[1] + p[3])).max(0.0), p[2].max(0.0)]).collect() }
 }
 
 /// Two passes of darktable's 3×3 median of R−G and B−G, preserving green.
@@ -142,31 +175,93 @@ pub(crate) fn color_smoothing(img: &mut Rgb32f, passes: usize) {
     if w < 3 || h < 3 {
         return;
     }
+    // Both colour differences depend only on green, which is never changed.
+    // Snapshot them together and smooth both channels in the same row pass.
+    let mut diff = vec![[0.0; 2]; w * h];
     for _ in 0..passes {
-        for c in [0, 2] {
-            let diff: Vec<f32> = img.data.iter().map(|p| p[c] - p[1]).collect();
-            par_rows(&mut img.data, w, |y, row| {
-                if y == 0 || y + 1 == h {
-                    return;
-                }
-                for x in 1..w - 1 {
-                    let mut med = [0.0; 9];
-                    for j in 0..3 {
-                        for k in 0..3 {
-                            med[j * 3 + k] = diff[(y + j - 1) * w + x + k - 1];
-                        }
+        diff.par_iter_mut().zip(&img.data).for_each(|(d, p)| *d = [p[0] - p[1], p[2] - p[1]]);
+        par_rows(&mut img.data, w, |y, row| {
+            if y == 0 || y + 1 == h {
+                return;
+            }
+            let rows = [&diff[(y - 1) * w..y * w], &diff[y * w..(y + 1) * w], &diff[(y + 1) * w..(y + 2) * w]];
+            for x in 1..w - 1 {
+                let mut med = [[0.0; 9]; 2];
+                for j in 0..3 {
+                    for (k, d) in rows[j][x - 1..x + 2].iter().enumerate() {
+                        med[0][j * 3 + k] = d[0];
+                        med[1][j * 3 + k] = d[1];
                     }
-                    med.sort_unstable_by(f32::total_cmp);
-                    row[x][c] = (med[4] + row[x][1]).max(0.0);
                 }
-            });
-        }
+                row[x][0] = (median9(med[0]) + row[x][1]).max(0.0);
+                row[x][2] = (median9(med[1]) + row[x][1]).max(0.0);
+            }
+        });
     }
+}
+
+// Fixed median-of-nine selection network. total_cmp preserves the old sort's
+// treatment of signed zero and NaNs as well as ordinary finite samples.
+#[inline]
+fn median9(p: [f32; 9]) -> f32 {
+    // Convert to total_cmp's signed integer keys once, then use branch-free
+    // integer min/max. The transform is its own inverse, including NaN payloads.
+    let mut keys = p.map(|v| {
+        let bits = v.to_bits() as i32;
+        bits ^ (((bits >> 31) as u32) >> 1) as i32
+    });
+    macro_rules! sort_pair {
+        ($a:literal, $b:literal) => {{
+            let (a, b) = (keys[$a], keys[$b]);
+            keys[$a] = a.min(b);
+            keys[$b] = a.max(b);
+        }};
+    }
+    sort_pair!(1, 2);
+    sort_pair!(4, 5);
+    sort_pair!(7, 8);
+    sort_pair!(0, 1);
+    sort_pair!(3, 4);
+    sort_pair!(6, 7);
+    sort_pair!(1, 2);
+    sort_pair!(4, 5);
+    sort_pair!(7, 8);
+    sort_pair!(0, 3);
+    sort_pair!(5, 8);
+    sort_pair!(4, 7);
+    sort_pair!(3, 6);
+    sort_pair!(1, 4);
+    sort_pair!(2, 5);
+    sort_pair!(4, 7);
+    sort_pair!(4, 2);
+    sort_pair!(6, 4);
+    sort_pair!(4, 2);
+    let bits = keys[4];
+    f32::from_bits((bits ^ (((bits >> 31) as u32) >> 1) as i32) as u32)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn median_network_matches_total_order_sort() {
+        let mut values = [-0.0, 0.0, f32::NEG_INFINITY, f32::INFINITY, -0.25, 0.75, f32::from_bits(0x7fc00001), f32::from_bits(0xffc00001), 0.75];
+        // All permutations also exercise duplicates, signed zero and NaN signs.
+        fn check(p: &mut [f32; 9], n: usize) {
+            if n == p.len() {
+                let mut sorted = *p;
+                sorted.sort_unstable_by(f32::total_cmp);
+                assert_eq!(median9(*p).to_bits(), sorted[4].to_bits());
+                return;
+            }
+            for i in n..p.len() {
+                p.swap(n, i);
+                check(p, n + 1);
+                p.swap(n, i);
+            }
+        }
+        check(&mut values, 0);
+    }
     #[test]
     fn upstream_vectors() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/vng");

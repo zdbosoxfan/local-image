@@ -1,6 +1,7 @@
-//! Modal dialogs (new album, rename, create preset, choose settings to copy, export, about, shortcuts).
+//! Modal dialogs (new album, rename, create preset, choose settings to copy, export, save over
+//! original, about, shortcuts). The Export dialog's body is [`crate::panels::export_dialog`].
 
-use lightcraft_develop::{ControlSpec, Section, SettingsGroup, Track};
+use lightcraft_develop::SettingsGroup;
 use serde_json::json;
 
 use crate::LightcraftApp;
@@ -55,7 +56,7 @@ pub(crate) fn rename_preview(
 }
 
 /// About dialog tabs: (widget id suffix, label). The credits come from `crate::credits`.
-pub const ABOUT_TABS: &[(&str, &str)] = &[("about", "About"), ("contributors", "Contributors"), ("models", "Models")];
+pub const ABOUT_TABS: &[(&str, &str)] = &[("about", "About"), ("contributors", "Contributors"), ("models", "Models"), ("attributions", "Attributions")];
 
 /// Help ▸ What's New (docs/whats-new.md).
 pub const WHATS_NEW: &str = include_str!("../../../../docs/whats-new.md");
@@ -66,11 +67,13 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
     let screen = ctx.content_rect();
     // The backdrop is an area below the dialog window (a bare `Middle` layer painter would be
     // painted after every area — i.e. over the dialog too).
-    egui::Area::new(egui::Id::new("dialog-dim")).order(egui::Order::Middle).fixed_pos(screen.min).interactable(false).show(ctx, |ui| {
+    egui::Area::new(egui::Id::new("dialog-dim")).order(egui::Order::Middle).fixed_pos(screen.min).show(ctx, |ui| {
+        ui.allocate_exact_size(screen.size(), egui::Sense::click());
         ui.painter().rect_filled(screen, 0.0, egui::Color32::from_black_alpha(140));
     });
     let mut close = false;
     let mut confirm = false;
+    let mut save_beside = false;
     let title: String = match &dlg {
         Dialog::TextPrompt { title, .. } => title.as_str(),
         Dialog::NewAlbum { folder: true, .. } => "Create Folder",
@@ -94,6 +97,8 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         Dialog::CopySettings { .. } => "Choose Edit Settings to Copy",
         Dialog::PasteSettings { .. } => "Paste Selected Settings",
         Dialog::Export { .. } => "Export",
+        Dialog::SaveOverOriginal { plan, .. } if plan["mode"] == "beside" => "Save JPEG Beside Original",
+        Dialog::SaveOverOriginal { .. } => "Save Over Original",
         Dialog::Merge { opts } => opts.title(),
         Dialog::Settings { .. } => "Settings",
         Dialog::ConfirmDelete { .. } => "Delete Photos",
@@ -103,12 +108,18 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
     }
     .to_string();
     let frame = egui::Frame::window(&ctx.global_style()).inner_margin(egui::Margin::symmetric(16, 12));
-    let shown = egui::Window::new(crate::i18n::tr(&title)).id(egui::Id::new("lightcraft-dialog"))
+    let exporting = matches!(dlg, Dialog::Export { .. });
+    let shown = egui::Window::new(crate::i18n::tr(&title)).id(egui::Id::new(if exporting { "lightcraft-export-dialog" } else { "lightcraft-dialog" }))
         .collapsible(false)
-        .resizable(false)
+        // the Export dialog is wide (presets beside the sections) and can be resized
+        .resizable(matches!(dlg, Dialog::Export { .. }))
         .frame(frame)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .default_height(if exporting { (screen.height() * 0.78).min(780.0) } else { 0.0 })
+        .min_width(if exporting { 800.0_f32.min(screen.width() - 60.0) } else { 0.0 })
         .default_width(match dlg {
+            Dialog::Export { .. } => 900.0,
+            Dialog::SaveOverOriginal { .. } => 480.0,
             Dialog::Import { .. } => 760.0,
             Dialog::SmartRules { .. } => 680.0,
             Dialog::AllMetadata { .. } => 620.0,
@@ -456,251 +467,12 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     );
                     group_checklist(ui, "pasteGroup", groups);
                 }
-                Dialog::Export { opts, full_size, resize, preset_name, limit_kb, dir } => {
-                    use lightcraft_engine::export::{Anchor as P, ExportFormat as F, MetadataPolicy as M, SharpenAmount as A, SharpenFor as S};
-                    let n = app.session.selection.ids.len().max(1);
-                    ui.label(egui::RichText::new(crate::i18n::tr_format!("{n} photo{}", if n == 1 { "" } else { "s" }, n = n)).color(t.text_dim));
-                    // Preset: load a built-in or saved set of options into the dialog
-                    field(ui, "Preset", |ui| {
-                        let mut chosen = None;
-                        let c = egui::ComboBox::from_id_salt("exportPreset").width(220.0).selected_text(crate::i18n::tr("Choose…")).show_ui(ui, |ui| {
-                            let mut builtin = true;
-                            for (p, b) in app.session.all_export_presets() {
-                                if builtin && !b {
-                                    ui.separator();
-                                }
-                                builtin = b;
-                                if ui.selectable_label(false, crate::i18n::builtin_label(&p.name, b)).clicked() {
-                                    chosen = Some(p.name);
-                                }
-                            }
-                        });
-                        crate::widgets::register(ui.ctx(), "combo:exportPreset", c.response.rect);
-                        if let Some(name) = chosen
-                            && let Ok(params) = app.session.export_params(&json!({"preset": name}))
-                        {
-                            let o = lightcraft_engine::export::ExportOptions::from_json(&params);
-                            *full_size = o.resize.is_none();
-                            *resize = o.resize.unwrap_or_default();
-                            *limit_kb = o.limit_kb.unwrap_or(0);
-                            *opts = o;
-                        }
-                    });
-                    ui.add_space(4.0);
-                    let before = opts.format;
-                    choices(
-                        ui,
-                        "Format",
-                        "exportFormat",
-                        &[(F::Jpeg, "JPEG"), (F::Png, "PNG"), (F::Tiff, "TIFF"), (F::Webp, "WebP"), (F::Avif, "AVIF"), (F::Dng, "DNG"), (F::Original, "Original files")],
-                        &mut opts.format,
-                    );
-                    if !opts.format.is_rendered() {
-                        let note = if opts.format == F::Dng {
-                            "Raw photos as DNG, with the edits embedded. Size, color and output options don't apply."
-                        } else {
-                            "The original files, unchanged, each with an XMP sidecar holding its edits."
-                        };
-                        ui.label(egui::RichText::new(note).color(t.text_dim));
+                d @ Dialog::Export { .. } => {
+                    if crate::panels::export_dialog::body(app, ui, d) {
+                        confirm = true;
                     }
-                    if opts.format != before {
-                        // each format starts at its own default depth (TIFF 16-bit, others 8-bit)
-                        opts.bit_depth = None;
-                    }
-                    let rendered = opts.format.is_rendered();
-                    let depths = lightcraft_engine::export::ExportOptions::bit_depths(opts.format);
-                    if rendered && depths.len() > 1 {
-                        let mut bd = opts.bit_depth.filter(|b| depths.iter().any(|d| d.0 == *b)).unwrap_or(depths[0].0);
-                        choices(ui, "Bit depth", "exportBitDepth", depths, &mut bd);
-                        opts.bit_depth = Some(bd);
-                    }
-                    if !rendered {
-                    } else if opts.format == F::Avif {
-                        ui.label(egui::RichText::new(crate::i18n::tr("Color space: sRGB (AVIF)")).color(t.text_dim));
-                    } else {
-                        use lightcraft_engine::export::OutputSpace as C;
-                        choices(
-                            ui,
-                            "Color space",
-                            "exportColorSpace",
-                            &[
-                                (C::Srgb, "sRGB"),
-                                (C::DisplayP3, "P3"),
-                                (C::AdobeRgb, "Adobe RGB"),
-                                (C::ProPhoto, "ProPhoto"),
-                                (C::Rec2020, "Rec.2020"),
-                            ],
-                            &mut opts.color_space,
-                        );
-                    }
-                    if matches!(opts.format, F::Jpeg | F::Avif) {
-                        let mut q = opts.quality as f64;
-                        if num(ui, &QUALITY, &mut q) {
-                            opts.quality = q as u8;
-                        }
-                    }
-                    if opts.format == F::Jpeg {
-                        let mut k = *limit_kb as f64;
-                        if num(ui, &LIMIT_KB, &mut k) {
-                            *limit_kb = k as u32;
-                        }
-                    }
-                    if rendered {
-                        export_size(ui, full_size, resize, &mut opts.ppi);
-                    }
-                    if rendered {
-                    choices(
-                        ui,
-                        "Sharpen",
-                        "exportSharpen",
-                        &[(S::None, "None"), (S::Screen, "Screen"), (S::Matte, "Matte"), (S::Glossy, "Glossy")],
-                        &mut opts.sharpen,
-                    );
-                    if opts.sharpen != S::None {
-                        choices(
-                            ui,
-                            "Amount",
-                            "exportSharpenAmount",
-                            &[(A::Low, "Low"), (A::Standard, "Standard"), (A::High, "High")],
-                            &mut opts.sharpen_amount,
-                        );
-                    }
-                    }
-                    if rendered {
-                    choices(
-                        ui,
-                        "Metadata",
-                        "exportMetadata",
-                        &[(M::All, "All"), (M::AllExceptCamera, "No camera"), (M::Copyright, "Copyright"), (M::None, "None")],
-                        &mut opts.metadata,
-                    );
-                    if !matches!(opts.metadata, M::None | M::Copyright) {
-                        ui.checkbox(&mut opts.remove_location, crate::i18n::tr("Remove location info"));
-                    }
-                    let mut wm_on = opts.watermark.is_some();
-                    if ui.checkbox(&mut wm_on, crate::i18n::tr("Watermark")).changed() {
-                        opts.watermark = wm_on.then(|| lightcraft_engine::export::Watermark { text: "© ".into(), ..Default::default() });
-                    }
-                    if let Some(wm) = &mut opts.watermark {
-                        // text, or a graphic (a logo with transparency)
-                        let mut graphic = !wm.image.is_empty() || ui.data(|d| d.get_temp::<bool>(egui::Id::new("wm-graphic"))).unwrap_or(false);
-                        let before = graphic;
-                        choices(ui, "Style", "exportWmStyle", &[(false, "Text"), (true, "Graphic")], &mut graphic);
-                        if graphic != before {
-                            ui.data_mut(|d| d.insert_temp(egui::Id::new("wm-graphic"), graphic));
-                            if !graphic {
-                                wm.image.clear();
-                            }
-                        }
-                        if graphic {
-                            field(ui, "Graphic", |ui| {
-                                trailing_button_row(ui, |ui| {
-                                    if app.services.pick_files.is_some()
-                                        && crate::widgets::text_button(ui, "exportWmChoose", crate::i18n::tr("Choose…"), false).clicked()
-                                        && let Some(f) = app.services.pick_files.as_mut().and_then(|pick| pick().into_iter().next())
-                                    {
-                                        wm.image = f;
-                                    }
-                                    ui.add(egui::TextEdit::singleline(&mut wm.image).hint_text("logo.png").desired_width(ui.available_width()));
-                                });
-                            });
-                            let mut width = wm.image_width as f64 * 100.0;
-                            if num(ui, &WM_IMAGE_WIDTH, &mut width) {
-                                wm.image_width = (width / 100.0) as f32;
-                            }
-                        } else {
-                            choices(ui, app.ui.language.tr("Text direction"), "exportWmOrientation", &[(false, app.ui.language.tr("Horizontal text")), (true, app.ui.language.tr("Vertical text"))], &mut wm.vertical);
-                            field(ui, "Text", |ui| {
-                                ui.add(egui::TextEdit::multiline(&mut wm.text).desired_rows(2).hint_text("© Your Name").desired_width(f32::INFINITY))
-                            });
-                        }
-                        choices(
-                            ui,
-                            "Position",
-                            "exportWmAnchor",
-                            &[(P::TopLeft, "↖"), (P::TopRight, "↗"), (P::Center, "•"), (P::BottomLeft, "↙"), (P::BottomRight, "↘")],
-                            &mut wm.anchor,
-                        );
-                        let mut size = wm.size as f64 * 100.0;
-                        if !graphic && num(ui, &WM_SIZE, &mut size) {
-                            wm.size = (size / 100.0) as f32;
-                        }
-                        let mut op = wm.opacity as f64 * 100.0;
-                        if num(ui, &WM_OPACITY, &mut op) {
-                            wm.opacity = (op / 100.0) as f32;
-                        }
-                        if !graphic {
-                            ui.checkbox(&mut wm.shadow, crate::i18n::tr("Shadow"));
-                        }
-                    }
-                    }
-                    ui.add_space(4.0);
-                    if opts.format == F::Tiff {
-                        use lightcraft_engine::export::TiffCompression as Z;
-                        choices(ui, "Compression", "exportTiffCompression", &[(Z::None, "None"), (Z::Lzw, "LZW"), (Z::Deflate, "ZIP")], &mut opts.tiff_compression);
-                    }
-                    if opts.format == F::Dng {
-                        use lightcraft_engine::export::DngCompression as Z;
-                        choices(ui, "Compression", "exportDngCompression", &[(Z::Lossless, "Lossless"), (Z::Deflate, "ZIP"), (Z::Uncompressed, "None")], &mut opts.dng_compression);
-                    }
-                    let naming_id = egui::Id::new("export-naming");
-                    let tags_open = field(ui, "File name", |ui| {
-                        ui.spacing_mut().item_spacing.x = 4.0;
-                        let w = (ui.available_width() - 50.0).max(80.0);
-                        ui.add(egui::TextEdit::singleline(&mut opts.naming).id(naming_id).hint_text("{name}-{seq}  ·  {date}  ·  {title}  ·  {folder}").desired_width(w));
-                        crate::import::tag_toggle(ui, "exportNaming")
-                    });
-                    if tags_open {
-                        crate::import::tag_help(ui, "exportNaming", &mut opts.naming, naming_id);
-                    }
-                    crate::import::unknown_tags_warning(ui, &opts.naming);
-                    if opts.naming.contains("{seq") {
-                        let mut v = opts.start_number as f64;
-                        if num(ui, &START_NUMBER, &mut v) {
-                            opts.start_number = v as u32;
-                        }
-                    }
-                    field(ui, "Folder", |ui| {
-                        trailing_button_row(ui, |ui| {
-                            if app.services.pick_folder.is_some()
-                                && crate::widgets::text_button(ui, "exportChooseFolder", crate::i18n::tr("Choose…"), false).clicked()
-                                && let Some(pick) = app.services.pick_folder.as_mut()
-                                && let Some(d) = pick()
-                            {
-                                *dir = d;
-                            }
-                            ui.add(egui::TextEdit::singleline(dir).desired_width(ui.available_width()));
-                        });
-                    });
-                    field(ui, "Subfolder", |ui| {
-                        ui.add(egui::TextEdit::singleline(&mut opts.subfolder).hint_text(crate::i18n::tr("none")).desired_width(f32::INFINITY))
-                    });
-                    use lightcraft_engine::export::Conflict as K;
-                    choices(
-                        ui,
-                        "If file exists",
-                        "exportConflict",
-                        &[(K::Unique, "Add number"), (K::Overwrite, "Overwrite"), (K::Skip, "Skip")],
-                        &mut opts.conflict,
-                    );
-                    ui.add_space(4.0);
-                    field(ui, "Save preset", |ui| {
-                        trailing_button_row(ui, |ui| {
-                            let named = !preset_name.trim().is_empty();
-                            if crate::widgets::text_button(ui, "exportSavePreset", crate::i18n::tr("Save"), false).clicked() && named {
-                                let params = export_dialog_params(opts, *full_size, resize, *limit_kb);
-                                match app.run("export.savePreset", json!({"name": preset_name.trim(), "params": params})) {
-                                    Ok(_) => {
-                                        app.toast(ui.ctx(), crate::i18n::tr_format!("Saved export preset “{}”", preset_name.trim()));
-                                        preset_name.clear();
-                                    }
-                                    Err(e) => app.toast(ui.ctx(), e),
-                                }
-                            }
-                            ui.add(egui::TextEdit::singleline(preset_name).hint_text(crate::i18n::tr("Preset name")).desired_width(ui.available_width()));
-                        });
-                    });
                 }
+                Dialog::SaveOverOriginal { plan, dont_ask, .. } => save_over_body(ui, plan, dont_ask),
                 Dialog::Merge { opts } => crate::merge::body(app, ui, opts),
                 Dialog::Import { opts } => crate::import::body(app, ui, opts),
                 Dialog::Settings { tab } => crate::panels::settings::body(app, ui, tab),
@@ -727,6 +499,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     match tab {
                         1 => crate::credits::contributors_ui(app, ui),
                         2 => crate::credits::models_ui(ui),
+                        3 => crate::panels::attributions::body(app, ui, crate::panels::attributions::ABOUT),
                         _ => {
                             ui.label(egui::RichText::new("Local Image").font(t.semibold(20.0)).color(t.text));
                             ui.label(crate::i18n::tr_format!("Version {} — a clean-room, pure-Rust photo library and raw developer.", env!("CARGO_PKG_VERSION")));
@@ -800,6 +573,17 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     }
                 }
                 let add_label;
+                // Save Over Original: Cancel / Save Copy Beside / Overwrite
+                if let Dialog::SaveOverOriginal { plan, .. } = &dlg
+                    && plan["mode"] == "overwrite"
+                {
+                    let r = ui.button(crate::i18n::tr("Save Copy Beside"));
+                    crate::widgets::register(ui.ctx(), "button:saveOverBeside", r.rect);
+                    if r.clicked() {
+                        save_beside = true;
+                        confirm = true;
+                    }
+                }
                 let ok = match &dlg {
                     Dialog::Import { opts } => {
                         let n = opts.selected_paths().len();
@@ -808,6 +592,13 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                         add_label.as_str()
                     }
                     Dialog::Merge { .. } => "Merge",
+                    Dialog::Export { .. } => {
+                        let n = crate::control::export_targets(app).len();
+                        add_label = format!("{} {n} {}", crate::i18n::tr("Export"), crate::i18n::tr(if n == 1 { "Photo" } else { "Photos" }));
+                        add_label.as_str()
+                    }
+                    Dialog::SaveOverOriginal { plan, .. } if plan["mode"] == "beside" => "Save JPEG Beside",
+                    Dialog::SaveOverOriginal { .. } => "Overwrite",
                     Dialog::ConfirmDelete { .. } => "Delete",
                     Dialog::SamModel { then: Some(_), .. } if sam_installed => "Continue",
                     Dialog::SamModel { .. } if sam_installed || sam_running || sam_nowhere => "",
@@ -836,23 +627,35 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         close = true;
     }
+    if confirm && let Dialog::SaveOverOriginal { beside, .. } = &mut dlg {
+        *beside = save_beside;
+    }
+    // Existing Files ▸ Ask what to do: ask before the export starts when files are in the way
+    if confirm {
+        confirm = crate::panels::export_dialog::ready_to_export(app, &mut dlg);
+    }
     if confirm {
         match confirm_dialog(app, &dlg) {
             // the import review stays open on an error (e.g. an unusable folder template), and so
             // does Export (e.g. no folder chosen) so the choices aren't lost
-            Err(e) if matches!(dlg, Dialog::Import { .. } | Dialog::Export { .. }) => app.toast(ctx, e),
+            Err(e) if matches!(dlg, Dialog::Import { .. } | Dialog::Export { .. } | Dialog::SaveOverOriginal { .. }) => app.toast_error(ctx, e),
             // the SAM 3 dialog stays open to show the download (or why it can't start)
             Err(e) if matches!(dlg, Dialog::SamModel { .. }) => {
                 if let Dialog::SamModel { error, .. } = &mut dlg {
                     *error = Some(e);
                 }
             }
+            // asked again next time
             Ok(_) if keeps_open(app, &dlg) => {
                 if let Dialog::SamModel { error, .. } = &mut dlg {
                     *error = None;
                 }
             }
-            _ => close = true,
+            Err(e) => {
+                app.toast(ctx, e);
+                close = true;
+            }
+            Ok(_) => close = true,
         }
     }
     app.ui.dialog = if close { None } else { Some(dlg) };
@@ -869,6 +672,65 @@ pub fn fmt_gap(v: f64) -> String {
         3600..86400 if v.is_multiple_of(3600) => format!("{} h", v / 3600),
         3600..86400 => format!("{} h {} min", v / 3600, v % 3600 / 60),
         _ => "1 day".into(),
+    }
+}
+
+/// File ▸ Save Over Original: what will happen, the backup, and Don't ask again.
+fn save_over_body(ui: &mut egui::Ui, plan: &serde_json::Value, dont_ask: &mut bool) {
+    let t = Tokens::get(ui.ctx());
+    let s = |k: &str| plan[k].as_str().unwrap_or_default().to_string();
+    let wrap = |ui: &mut egui::Ui, text: String, color: egui::Color32| {
+        ui.add(egui::Label::new(egui::RichText::new(text).color(color)).wrap());
+    };
+    if plan["mode"] == "overwrite" {
+        wrap(ui, format!("{} {}?", crate::i18n::tr("Replace the original file"), s("fileName")), t.text);
+        wrap(
+            ui,
+            format!(
+                "{} {} {}",
+                crate::i18n::tr("The edited photo is saved over it at full size as"),
+                s("format"),
+                crate::i18n::tr(
+                    "(same color space and bit depth, with its metadata). The edits are then part of the pixels: the photo's settings, history, versions, masks and AI removals are reset."
+                ),
+            ),
+            t.text_label,
+        );
+        wrap(
+            ui,
+            format!(
+                "{} {}. {}",
+                crate::i18n::tr("A copy of the original is kept in"),
+                s("backupDir"),
+                crate::i18n::tr("This can't be undone: the backup is the way back.")
+            ),
+            t.text_dim,
+        );
+    } else {
+        wrap(
+            ui,
+            format!("{} {}", s("fileName"), crate::i18n::tr("is a raw file (or a format Local Image can't write), so it is never replaced.")),
+            t.text,
+        );
+        wrap(
+            ui,
+            format!(
+                "{} {} {}",
+                crate::i18n::tr("A JPEG of the edited photo is saved beside it as"),
+                s("besideName"),
+                crate::i18n::tr("(or the next free name), added to the library and stacked on top of the original.")
+            ),
+            t.text_label,
+        );
+    }
+    for w in plan["warnings"].as_array().into_iter().flatten() {
+        wrap(ui, w.as_str().unwrap_or_default().to_string(), t.caution);
+    }
+    ui.add_space(2.0);
+    let r = ui.checkbox(dont_ask, crate::i18n::tr("Don't ask again"));
+    crate::widgets::register(ui.ctx(), "check:saveOverDontAsk", r.rect);
+    if *dont_ask {
+        ui.label(egui::RichText::new(crate::i18n::tr("Turn asking back on in Settings ▸ General.")).size(11.5).color(t.text_dim));
     }
 }
 
@@ -1013,11 +875,18 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
         ),
         Dialog::CopySettings { groups } => app.run("develop.copy", json!({"groups": groups})),
         Dialog::PasteSettings { groups } => app.run("develop.paste", json!({"groups": groups})),
-        Dialog::Export { opts, full_size, resize, limit_kb, dir, .. } => {
-            let mut p = export_dialog_params(opts, *full_size, resize, *limit_kb);
+        Dialog::Export { dir, .. } => {
+            let mut p = crate::panels::export_dialog::export_dialog_params(dlg);
             p["dir"] = json!(dir);
             p["background"] = json!(true);
             app.run("app.export", p)
+        }
+        Dialog::SaveOverOriginal { plan, dont_ask, beside } => {
+            let result = crate::menus::run_save_over(app, &egui::Context::default(), plan, *beside)?;
+            if *dont_ask {
+                app.ui.settings.confirm_save_over = false;
+            }
+            Ok(result)
         }
         Dialog::Merge { opts } => crate::merge::start_final(app, opts),
         Dialog::Import { opts } => crate::import::start(app, opts),
@@ -1030,21 +899,6 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
 pub fn prompt(app: &mut LightcraftApp, title: &str, hint: &str, value: &str, command: &str, params: serde_json::Value, key: &str) {
     app.ui.dialog =
         Some(Dialog::TextPrompt { title: title.into(), hint: hint.into(), value: value.into(), command: command.into(), params, key: key.into() });
-}
-
-/// The Export dialog's choices as `app.export` params (without the folder).
-fn export_dialog_params(
-    opts: &lightcraft_engine::export::ExportOptions,
-    full_size: bool,
-    resize: &lightcraft_engine::export::Resize,
-    limit_kb: u32,
-) -> serde_json::Value {
-    let o = lightcraft_engine::export::ExportOptions {
-        resize: (!full_size).then_some(*resize),
-        limit_kb: (limit_kb > 0).then_some(limit_kb),
-        ..opts.clone()
-    };
-    o.to_json()
 }
 
 // ------------------------------------------------------------------------------------------ dialog widgets
@@ -1084,95 +938,6 @@ fn group_checklist(ui: &mut egui::Ui, tag: &str, groups: &mut Vec<String>) {
 /// Width of the label column in dialogs.
 const LABEL_W: f32 = 78.0;
 
-const fn spec(id: &'static str, label: &'static str, min: f64, max: f64, default: f64, step: f64) -> ControlSpec {
-    ControlSpec { id, label, section: Section::Light, min, max, default, step, decimals: 0, track: Track::Plain }
-}
-const QUALITY: ControlSpec = spec("export.quality", "Quality", 1.0, 100.0, 90.0, 1.0);
-const LIMIT_KB: ControlSpec = spec("export.limitKb", "Limit file size (KB, 0 = off)", 0.0, 20_000.0, 0.0, 10.0);
-const SIZE_PX: ControlSpec = spec("export.sizePx", "Pixels", 16.0, 20_000.0, 2048.0, 16.0);
-const SIZE_W: ControlSpec = spec("export.sizeW", "Width (px)", 16.0, 20_000.0, 2048.0, 16.0);
-const SIZE_H: ControlSpec = spec("export.sizeH", "Height (px)", 16.0, 20_000.0, 2048.0, 16.0);
-const SIZE_MP: ControlSpec = ControlSpec { decimals: 1, ..spec("export.sizeMp", "Megapixels", 0.1, 100.0, 12.0, 0.1) };
-const SIZE_PCT: ControlSpec = spec("export.sizePercent", "Percent", 1.0, 400.0, 50.0, 1.0);
-const START_NUMBER: ControlSpec = spec("export.startNumber", "Start number", 1.0, 9999.0, 1.0, 1.0);
-const PPI: ControlSpec = spec("export.ppi", "Resolution (ppi)", 1.0, 1200.0, 240.0, 1.0);
-
-/// Image Sizing: full size, or a resize mode and its value(s), don't enlarge, ppi.
-fn export_size(ui: &mut egui::Ui, full: &mut bool, r: &mut lightcraft_engine::export::Resize, ppi: &mut u16) {
-    use lightcraft_engine::export::ResizeMode as R;
-    const MODES: [(R, &str); 7] = [
-        (R::LongEdge, "Long Edge"),
-        (R::ShortEdge, "Short Edge"),
-        (R::Width, "Width"),
-        (R::Height, "Height"),
-        (R::Dimensions, "Width × Height"),
-        (R::Megapixels, "Megapixels"),
-        (R::Percent, "Percentage"),
-    ];
-    let r_full = ui.checkbox(full, crate::i18n::tr("Full size"));
-    crate::widgets::register(ui.ctx(), "check:exportFullSize", r_full.rect);
-    if !*full {
-        field(ui, "Resize to", |ui| {
-            let cur = MODES.iter().find(|m| m.0 == r.mode).map_or("Long Edge", |m| m.1);
-            let before = r.mode;
-            let c = egui::ComboBox::from_id_salt("exportResizeMode").width(150.0).selected_text(crate::i18n::tr(cur)).show_ui(ui, |ui| {
-                for (m, l) in MODES {
-                    ui.selectable_value(&mut r.mode, m, crate::i18n::tr(l));
-                }
-            });
-            crate::widgets::register(ui.ctx(), "combo:exportResizeMode", c.response.rect);
-            if r.mode != before {
-                // a sensible value for the new unit
-                r.value = match r.mode {
-                    R::Megapixels => 12.0,
-                    R::Percent => 50.0,
-                    _ if matches!(before, R::Megapixels | R::Percent) => 2048.0,
-                    _ => r.value,
-                };
-                if r.mode == R::Dimensions && r.height == 0 {
-                    r.height = r.value as u32;
-                }
-            }
-        });
-        let mut v = r.value as f64;
-        let spec = match r.mode {
-            R::Megapixels => &SIZE_MP,
-            R::Percent => &SIZE_PCT,
-            R::Dimensions => &SIZE_W,
-            _ => &SIZE_PX,
-        };
-        if num(ui, spec, &mut v) {
-            r.value = v as f32;
-        }
-        if r.mode == R::Dimensions {
-            let mut h = r.height as f64;
-            if num(ui, &SIZE_H, &mut h) {
-                r.height = h as u32;
-            }
-        }
-        let c = ui.checkbox(&mut r.dont_enlarge, crate::i18n::tr("Don't enlarge"));
-        crate::widgets::register(ui.ctx(), "check:exportDontEnlarge", c.rect);
-    }
-    let mut p = *ppi as f64;
-    if num(ui, &PPI, &mut p) {
-        *ppi = p as u16;
-    }
-}
-const WM_IMAGE_WIDTH: ControlSpec = spec("export.watermarkImageWidth", "Width (% of photo)", 2.0, 100.0, 20.0, 1.0);
-const WM_SIZE: ControlSpec = spec("export.watermarkSize", "Size (% of short edge)", 1.0, 15.0, 3.5, 0.5);
-const WM_OPACITY: ControlSpec = spec("export.watermarkOpacity", "Opacity (%)", 5.0, 100.0, 70.0, 1.0);
-
-/// A themed slider row editing `v`; true when it changed.
-fn num(ui: &mut egui::Ui, spec: &ControlSpec, v: &mut f64) -> bool {
-    match crate::widgets::slider(ui, spec, *v, true, None).value {
-        Some(n) => {
-            *v = n;
-            true
-        }
-        None => false,
-    }
-}
-
 /// A labelled row (fixed label column).
 fn field<R>(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     let t = Tokens::get(ui.ctx());
@@ -1184,24 +949,4 @@ fn field<R>(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui) -> R
         add(ui)
     })
     .inner
-}
-
-/// The rest of a [`field`] row, laid out right to left: `add` places its trailing button(s) first,
-/// then a text field taking exactly the width that's left. (Subtracting a guessed button width
-/// instead made the auto-sized dialog grow every frame when the real button was wider, #8.)
-fn trailing_button_row(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
-    let h = ui.spacing().interact_size.y.max(24.0);
-    ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), h), egui::Layout::right_to_left(egui::Align::Center), add);
-}
-
-/// A labelled row of mutually exclusive choice buttons (ids `button:{id}-{index}`).
-fn choices<V: PartialEq + Copy>(ui: &mut egui::Ui, label: &str, id: &str, options: &[(V, &str)], value: &mut V) {
-    field(ui, label, |ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
-        for (i, (v, l)) in options.iter().enumerate() {
-            if crate::widgets::text_button(ui, &format!("{id}-{i}"), l, *value == *v).clicked() {
-                *value = *v;
-            }
-        }
-    });
 }

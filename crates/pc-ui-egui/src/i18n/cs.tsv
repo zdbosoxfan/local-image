@@ -2549,3 +2549,82 @@ ai	New	Nové
 	Cage is not active	Klec není aktivní
 	Could not use Cage: the layer is empty	Klec nelze použít: vrstva je prázdná
 	Index	Index
+	Browse LoRAs for this model family	Procházet LoRA pro tuto rodinu modelů
+	Browse LoRAs…	Procházet LoRA…
+	Choose another model…	Zvolit jiný model…
+	Couldn't remove {name}: {error}	{name} nelze odebrat: {error}
+	Find LoRAs (styles) for the chosen model's family	Najít LoRA (styly) pro rodinu zvoleného modelu
+	Kept because other installed models use them: {files}	Ponecháno, protože je používají jiné nainstalované modely: {files}
+	List only the official upscalers (SeedVR2)	Zobrazit jen oficiální zvětšovače (SeedVR2)
+	Move to Trash	Přesunout do koše
+	None of its files are in the model folder.	Žádný z jeho souborů není ve složce modelů.
+	ON-DEVICE MODELS (CPU)	MODELY V ZAŘÍZENÍ (CPU)
+	Official upscalers only	Jen oficiální zvětšovače
+	Recommended	Doporučeno
+	Remove (deletes the files)	Odebrat (smaže soubory)
+	Remove (moves the files to the Trash)	Odebrat (přesune soubory do koše)
+	Remove {name}?	Odebrat {name}?
+	Removed {name} ({size} freed)	{name} odebráno (uvolněno {size})
+	Stop generation	Zastavit generování
+	Stopped generation	Generování zastaveno
+	This frees {size}. The files are deleted permanently.	Uvolní se {size}. Soubory budou trvale smazány.
+	This frees {size}. The files go to the Trash, so you can restore them from there.	Uvolní se {size}. Soubory půjdou do koše, odkud je můžete obnovit.
+	Unload AI models from GPU memory (the AI engine is off)	Uvolnit modely AI z paměti GPU (AI engine je vypnutý)
+	Unload AI models from GPU memory	Uvolnit modely AI z paměti GPU
+	Unloading AI models…	Uvolňování modelů AI…
+	Upscale with any image model instead: enlarge, then add detail with img2img	Zvětšit raději libovolným obrazovým modelem: zvětšit a pak doplnit detaily pomocí img2img
+	kept {files}	ponecháno {files}
+	using {name}	používá se {name}
+	{n} of {total} installed	nainstalováno {n} z {total}
+	{size} download · runs on the CPU · {licence}	stažení {size} · běží na CPU · {licence}
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	Malé modely, které běží na procesoru tohoto počítače: bez ComfyUI a GPU, rychlé stažení a vaše fotky nikdy neopustí počítač. Každá skupina pohání jiné nástroje a používá se nejlepší nainstalovaný model skupiny.
+	Subject & Background	Objekt a pozadí
+# Selected-item context bars and live shapes
+	AI Fill	Výplň pomocí AI
+	Add a vector mask from the path	Přidat vektorovou masku z cesty
+	Bottom-left corner radius	Poloměr levého dolního rohu
+	Bottom-right corner radius	Poloměr pravého dolního rohu
+	Content-Aware Fill	Výplň podle obsahu
+	Corners	Rohy
+	Create another variation using this layer's prompt and a new seed	Vytvořit další variantu se zadáním této vrstvy a novým semenem
+	Describe what to generate, or leave empty to fill from the surroundings	Popište, co vygenerovat, nebo ponechte prázdné pro výplň z okolí
+	Edit Path	Upravit cestu
+	Edit Text	Upravit text
+	Edit the shape's anchors and handles	Upravit kotevní body a táhla tvaru
+	Edit this photo's develop settings	Upravit nastavení vyvolání této fotografie
+	Fill the path's area from the image around it	Vyplnit oblast cesty z okolního obrazu
+	Fill the selection from the image around it	Vyplnit výběr z okolního obrazu
+	Generate this area again from its surroundings	Znovu vygenerovat tuto oblast podle okolí
+	Generate “{prompt}” again with a new seed	Znovu vygenerovat „{prompt}“ s novým semenem
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	Generativní výplň: znovu vytvořit oblast podle popisu (prázdné: podle okolí)
+	Generative Fill: regenerate the path's area from a description	Generativní výplň: znovu vytvořit oblast cesty podle popisu
+	L	D
+	Line weight	Tloušťka čáry
+	Mask out the background with AI	Zamaskovat pozadí pomocí AI
+	Number of sides	Počet stran
+	Open in Develop	Otevřít ve Vyvolání
+	Open the Smart Object's contents	Otevřít obsah inteligentního objektu
+	Regenerate	Znovu vygenerovat
+	Select the main subject with AI	Vybrat hlavní objekt pomocí AI
+	Set radius of all corners	Nastavit poloměr všech rohů
+	Set shape stroke width	Nastavit šířku obrysu tvaru
+	Set the font size	Nastavit velikost písma
+	This layer has no generation model to repeat	Tato vrstva nemá model pro opakování generování
+	This layer has no generation settings to repeat	Tato vrstva nemá nastavení pro opakování generování
+	This layer's generation model is unavailable	Model generování této vrstvy není dostupný
+	Top-left corner radius	Poloměr levého horního rohu
+	Top-right corner radius	Poloměr pravého horního rohu
+	Turn the shape into pixels	Převést tvar na pixely
+	Variations	Varianty
+	Close panel	Zavřít panel
+	Dock Panel	Ukotvit panel
+	Float Panel Group	Uvolnit skupinu panelů
+	Save and Return to Library	Uložit a vrátit se do knihovny
+	Added your new Develop edits as layer {name}	Vaše nové úpravy Develop byly přidány jako vrstva {name}
+	Open the Library to save into it	Pro uložení do knihovny ji nejprve otevřete
+	The layers below are unchanged; hide or delete the new layer to go back.	Spodní vrstvy zůstaly beze změny; chcete-li se vrátit, novou vrstvu skryjte nebo smažte.
+# Attributions page (li-attributions)
+	Attributions	Atribuce
+	Search attributions…	Hledat v atribucích…
+	No matches.	Žádné shody.
+	Show licence text	Zobrazit text licence

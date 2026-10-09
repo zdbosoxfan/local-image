@@ -2582,3 +2582,82 @@ ai	New	Neu
 	Cage is not active	Käfig ist nicht aktiv
 	Could not use Cage: the layer is empty	Käfig nicht möglich: Die Ebene ist leer
 	Index	Index
+	Browse LoRAs for this model family	LoRAs für diese Modellfamilie durchsuchen
+	Browse LoRAs…	LoRAs durchsuchen…
+	Choose another model…	Anderes Modell wählen…
+	Couldn't remove {name}: {error}	{name} konnte nicht entfernt werden: {error}
+	Find LoRAs (styles) for the chosen model's family	LoRAs (Stile) für die Familie des gewählten Modells finden
+	Kept because other installed models use them: {files}	Behalten, weil andere installierte Modelle sie nutzen: {files}
+	List only the official upscalers (SeedVR2)	Nur die offiziellen Hochskalierer anzeigen (SeedVR2)
+	Move to Trash	In den Papierkorb
+	None of its files are in the model folder.	Keine seiner Dateien liegt im Modellordner.
+	ON-DEVICE MODELS (CPU)	MODELLE AUF DEM GERÄT (CPU)
+	Official upscalers only	Nur offizielle Hochskalierer
+	Recommended	Empfohlen
+	Remove (deletes the files)	Entfernen (löscht die Dateien)
+	Remove (moves the files to the Trash)	Entfernen (verschiebt die Dateien in den Papierkorb)
+	Remove {name}?	{name} entfernen?
+	Removed {name} ({size} freed)	{name} entfernt ({size} freigegeben)
+	Stop generation	Generierung stoppen
+	Stopped generation	Generierung gestoppt
+	This frees {size}. The files are deleted permanently.	Das gibt {size} frei. Die Dateien werden endgültig gelöscht.
+	This frees {size}. The files go to the Trash, so you can restore them from there.	Das gibt {size} frei. Die Dateien kommen in den Papierkorb und lassen sich dort wiederherstellen.
+	Unload AI models from GPU memory (the AI engine is off)	KI-Modelle aus dem GPU-Speicher entladen (die KI-Engine ist aus)
+	Unload AI models from GPU memory	KI-Modelle aus dem GPU-Speicher entladen
+	Unloading AI models…	KI-Modelle werden entladen…
+	Upscale with any image model instead: enlarge, then add detail with img2img	Stattdessen mit einem beliebigen Bildmodell hochskalieren: vergrößern, dann per img2img Details ergänzen
+	kept {files}	behalten: {files}
+	using {name}	verwendet {name}
+	{n} of {total} installed	{n} von {total} installiert
+	{size} download · runs on the CPU · {licence}	{size} Download · läuft auf der CPU · {licence}
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	Kleine Modelle, die auf dem Prozessor dieses Computers laufen: kein ComfyUI und keine GPU nötig, schnelle Downloads, und Ihre Fotos verlassen den Computer nie. Jede Gruppe versorgt andere Werkzeuge; verwendet wird jeweils das beste installierte Modell der Gruppe.
+	Subject & Background	Motiv & Hintergrund
+# Selected-item context bars and live shapes
+	AI Fill	KI-Füllung
+	Add a vector mask from the path	Vektormaske aus dem Pfad hinzufügen
+	Bottom-left corner radius	Radius der unteren linken Ecke
+	Bottom-right corner radius	Radius der unteren rechten Ecke
+	Content-Aware Fill	Inhaltsbasierte Füllung
+	Corners	Ecken
+	Create another variation using this layer's prompt and a new seed	Weitere Variation mit dem Prompt dieser Ebene und einem neuen Startwert erstellen
+	Describe what to generate, or leave empty to fill from the surroundings	Gewünschtes Ergebnis beschreiben oder für eine Füllung aus der Umgebung leer lassen
+	Edit Path	Pfad bearbeiten
+	Edit Text	Text bearbeiten
+	Edit the shape's anchors and handles	Ankerpunkte und Griffe der Form bearbeiten
+	Edit this photo's develop settings	Entwicklungseinstellungen dieses Fotos bearbeiten
+	Fill the path's area from the image around it	Pfadbereich aus dem umgebenden Bild füllen
+	Fill the selection from the image around it	Auswahl aus dem umgebenden Bild füllen
+	Generate this area again from its surroundings	Diesen Bereich erneut aus der Umgebung erzeugen
+	Generate “{prompt}” again with a new seed	„{prompt}“ mit neuem Startwert erneut erzeugen
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	Generative Füllung: Bereich aus der Beschreibung neu erzeugen (leer: aus der Umgebung)
+	Generative Fill: regenerate the path's area from a description	Generative Füllung: Pfadbereich aus einer Beschreibung neu erzeugen
+	L	L
+	Line weight	Linienstärke
+	Mask out the background with AI	Hintergrund mit KI maskieren
+	Number of sides	Anzahl der Seiten
+	Open in Develop	In Entwicklung öffnen
+	Open the Smart Object's contents	Inhalt des Smartobjekts öffnen
+	Regenerate	Erneut erzeugen
+	Select the main subject with AI	Hauptmotiv mit KI auswählen
+	Set radius of all corners	Radius aller Ecken einstellen
+	Set shape stroke width	Konturstärke der Form einstellen
+	Set the font size	Schriftgröße einstellen
+	This layer has no generation model to repeat	Diese Ebene hat kein Modell zum erneuten Erzeugen
+	This layer has no generation settings to repeat	Diese Ebene hat keine Einstellungen zum erneuten Erzeugen
+	This layer's generation model is unavailable	Das Erzeugungsmodell dieser Ebene ist nicht verfügbar
+	Top-left corner radius	Radius der oberen linken Ecke
+	Top-right corner radius	Radius der oberen rechten Ecke
+	Turn the shape into pixels	Form in Pixel umwandeln
+	Variations	Variationen
+	Close panel	Panel schließen
+	Dock Panel	Panel andocken
+	Float Panel Group	Panelgruppe lösen
+	Save and Return to Library	Sichern und zur Bibliothek zurückkehren
+	Added your new Develop edits as layer {name}	Ihre neuen Develop-Bearbeitungen wurden als Ebene {name} hinzugefügt
+	Open the Library to save into it	Öffnen Sie die Bibliothek, um darin zu sichern
+	The layers below are unchanged; hide or delete the new layer to go back.	Die darunterliegenden Ebenen sind unverändert; blenden Sie die neue Ebene aus oder löschen Sie sie, um zurückzugehen.
+# Attributions page (li-attributions)
+	Attributions	Quellennachweise
+	Search attributions…	Quellennachweise durchsuchen…
+	No matches.	Keine Treffer.
+	Show licence text	Lizenztext anzeigen

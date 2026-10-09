@@ -512,6 +512,9 @@ pub struct Layer {
     pub blend_if: BlendIf,
     /// Layer › Video Layers frame stack (None for a normal layer).
     pub video: Option<VideoData>,
+    /// local-image: how an AI command made this layer (`{"command", "prompt", "seed", …}`), so
+    /// the Contextual Task Bar can offer Regenerate. `None` for everything else.
+    pub generation: Option<serde_json::Value>,
 }
 
 impl Layer {
@@ -537,6 +540,7 @@ impl Layer {
             excluded_channels: 0,
             blend_if: BlendIf::default(),
             video: None,
+            generation: None,
         }
     }
     pub fn raster(name: impl Into<String>, format: PixelFormat) -> Self {

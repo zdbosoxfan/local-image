@@ -29,6 +29,68 @@ pub struct ModelSpec {
     pub licence: &'static str,
     /// What the model finds.
     pub task: Task,
+    /// The group Settings lists it under (what it is for); `None`: listed on its own.
+    pub group: Option<Group>,
+    /// Plain-language description: what it does, the speed / quality trade-off, when you'd want
+    /// it.
+    pub about: &'static str,
+}
+
+/// What a group of on-device models is for (Settings › Local AI lists them by group).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Group {
+    /// Salient-subject models: Select Subject, Remove Background (Quick), Object Selection.
+    Subject,
+    Sky,
+    Depth,
+}
+
+impl Group {
+    pub const ALL: [Group; 3] = [Group::Subject, Group::Sky, Group::Depth];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Group::Subject => "Subject & Background",
+            Group::Sky => "Sky",
+            Group::Depth => "Depth",
+        }
+    }
+
+    /// What the group does and where the app uses it.
+    pub fn about(self) -> &'static str {
+        match self {
+            Group::Subject => {
+                "Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks. The best one installed is used."
+            }
+            Group::Sky => "Finds the sky. Used by Select › Sky and the Library's sky masks. The best one installed is used.",
+            Group::Depth => {
+                "Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance). The best one installed is used."
+            }
+        }
+    }
+
+    /// The model to download first: the best default of the group.
+    pub fn recommended(self) -> &'static str {
+        match self {
+            Group::Subject => "isnet",
+            Group::Sky => "sky-mobileseg",
+            Group::Depth => "depth-anything-v2-small",
+        }
+    }
+
+    /// The group's models, in catalogue order.
+    pub fn models(self) -> impl Iterator<Item = &'static ModelSpec> {
+        MODELS.iter().filter(move |m| m.group == Some(self))
+    }
+
+    /// The installed model the app uses for this group, if any.
+    pub fn in_use(self, models_dir: &Path) -> Option<&'static ModelSpec> {
+        match self {
+            Group::Subject => best_installed(models_dir).map(|(s, _)| s),
+            Group::Sky => best_sky(models_dir).map(|(s, _)| s),
+            Group::Depth => best_depth(models_dir).map(|(s, _)| s),
+        }
+    }
 }
 
 /// What a model finds.
@@ -47,7 +109,7 @@ pub enum Task {
 pub const MODELS: &[ModelSpec] = &[
     ModelSpec {
         id: "u2netp",
-        label: "U²-Net small (fast, 5 MB)",
+        label: "U²-Net small",
         file: "u2netp.onnx",
         bytes: 4574861,
         sha256: "309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8",
@@ -56,10 +118,12 @@ pub const MODELS: &[ModelSpec] = &[
         isnet: false,
         licence: "Apache-2.0 (U²-Net, Qin et al. 2020)",
         task: Task::Subject,
+        group: Some(Group::Subject),
+        about: "The smallest and fastest subject finder. Good for quick selections on simple photos with one clear subject; edges are softer and less exact than IS-Net's. Used only when neither larger subject model is installed.",
     },
     ModelSpec {
         id: "u2net",
-        label: "U²-Net (176 MB)",
+        label: "U²-Net",
         file: "u2net.onnx",
         bytes: 175997641,
         sha256: "8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491",
@@ -68,10 +132,12 @@ pub const MODELS: &[ModelSpec] = &[
         isnet: false,
         licence: "Apache-2.0 (U²-Net, Qin et al. 2020)",
         task: Task::Subject,
+        group: Some(Group::Subject),
+        about: "The full-size U²-Net: steadier than the small version on busy photos, but with less detailed edges than IS-Net at a similar size. A middle option; IS-Net is usually the better download.",
     },
     ModelSpec {
         id: "isnet",
-        label: "IS-Net general (best edges, 179 MB)",
+        label: "IS-Net general",
         file: "isnet-general-use.onnx",
         bytes: 178648008,
         sha256: "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a",
@@ -80,11 +146,13 @@ pub const MODELS: &[ModelSpec] = &[
         isnet: true,
         licence: "Apache-2.0 (DIS / IS-Net, Qin et al. 2022)",
         task: Task::Subject,
+        group: Some(Group::Subject),
+        about: "Finds the subject with the finest edges (hair, fur, thin details). Slower than U²-Net small and a bigger download, but the best quality for Select Subject and Remove Background. Used first whenever it's installed.",
     },
     // Sky: PaddleSeg's PP-MobileSeg-Base trained on ADE20K (sky = class 2), ONNX opset 13.
     ModelSpec {
         id: "sky-mobileseg",
-        label: "Sky · PP-MobileSeg (24 MB)",
+        label: "PP-MobileSeg",
         file: "pp_mobileseg_base_ade20k_512.onnx",
         bytes: 23711565,
         sha256: "63c15451d3907472410de9417cabf2f121b62006d50b980fb2f774ceddaeec7a",
@@ -93,11 +161,13 @@ pub const MODELS: &[ModelSpec] = &[
         isnet: false,
         licence: "Apache-2.0 (PaddleSeg PP-MobileSeg; trained on ADE20K)",
         task: Task::Sky { classes: 150, class: 2, margin: 2.0 },
+        group: Some(Group::Sky),
+        about: "Finds the sky precisely, including around trees, buildings and the horizon. A scene-parsing model that knows 150 kinds of things, so tricky skies work well. Takes a second or two per photo.",
     },
     // Sky, tiny: a 49K-parameter UNet distilled from SkySeg (Open Images), for a quick first guess.
     ModelSpec {
         id: "sky-tiny",
-        label: "Sky · TinySkyNet (0.2 MB, quick preview)",
+        label: "TinySkyNet",
         file: "tinyskynet_skyseg_256.onnx",
         bytes: 203485,
         sha256: "bdf304a00ff84b424ed39823ae1eb003707799d62cf2725317ea8073919aba7c",
@@ -106,6 +176,8 @@ pub const MODELS: &[ModelSpec] = &[
         isnet: false,
         licence: "MIT (TinySkyNet-SkySeg)",
         task: Task::Sky { classes: 1, class: 0, margin: 0.0 },
+        group: Some(Group::Sky),
+        about: "A tiny, very fast sky finder for a quick first guess or a slow computer. Less accurate along trees and buildings. Used only when PP-MobileSeg isn't installed.",
     },
     // Depth: Depth Anything V2 Small (Yang et al. 2024; the Small weights are Apache-2.0, the
     // larger ones are not), the TorchScript ONNX export of fabio-sim/Depth-Anything-ONNX
@@ -113,7 +185,7 @@ pub const MODELS: &[ModelSpec] = &[
     // other export uses ONNX local functions, which it doesn't).
     ModelSpec {
         id: "depth-anything-v2-small",
-        label: "Depth · Depth Anything V2 Small (99 MB)",
+        label: "Depth Anything V2 Small",
         file: "depth_anything_v2_vits_dynamic.onnx",
         bytes: 99092268,
         sha256: "46c4e8eeda3a27f34701831b6a2ec7753d7b38779b215acb5633424703deed8f",
@@ -122,11 +194,13 @@ pub const MODELS: &[ModelSpec] = &[
         isnet: false,
         licence: "Apache-2.0 (Depth Anything V2 Small, Yang et al. 2024)",
         task: Task::Depth,
+        group: Some(Group::Depth),
+        about: "The more detailed and accurate depth model: clean edges between near and far, good on most photos. Takes a few seconds per photo.",
     },
     // Depth, smaller and older: MiDaS v2.1 small (Ranftl et al.), MIT, from the MiDaS release.
     ModelSpec {
         id: "depth-midas-small",
-        label: "Depth · MiDaS v2.1 small (67 MB)",
+        label: "MiDaS v2.1 small",
         file: "midas_v21_small_256.onnx",
         bytes: 66764249,
         sha256: "2d8c6cb8f415229daf1eb041024208e2608c9f98e17c81cc7c6ecb449c56fd58",
@@ -135,6 +209,8 @@ pub const MODELS: &[ModelSpec] = &[
         isnet: false,
         licence: "MIT (MiDaS v2.1 small, Ranftl et al. 2020)",
         task: Task::Depth,
+        group: Some(Group::Depth),
+        about: "An older, smaller depth model. Faster, but its depth is coarser and blurrier. Used only when Depth Anything isn't installed.",
     },
 ];
 
@@ -379,6 +455,40 @@ pub fn shared_sky(models_dir: &Path) -> Option<Segmenter> {
     cached(best_sky(models_dir)?, &SKY)
 }
 
+/// Size of the installed copy of `spec`, when it is installed.
+pub fn installed_bytes(models_dir: &Path, spec: &ModelSpec) -> Option<u64> {
+    std::fs::metadata(model_path(models_dir, spec)).ok().filter(|m| m.is_file()).map(|m| m.len())
+}
+
+/// Removes an installed model, deleting its file. See [`remove_with`].
+pub fn remove(models_dir: &Path, spec: &ModelSpec) -> Result<u64> {
+    remove_with(models_dir, spec, &|p| std::fs::remove_file(p))
+}
+
+/// Removes an installed model: `dispose` gets its file (to move it to the Trash, or delete it),
+/// and the loaded copy is forgotten so nothing keeps using it. Returns the bytes freed (0 when it
+/// wasn't installed).
+pub fn remove_with(models_dir: &Path, spec: &ModelSpec, dispose: &dyn Fn(&Path) -> std::io::Result<()>) -> Result<u64> {
+    let path = model_path(models_dir, spec);
+    let Some(bytes) = installed_bytes(models_dir, spec) else {
+        forget(spec);
+        return Ok(0);
+    };
+    dispose(&path).with_context(|| format!("Could not remove {}", path.display()))?;
+    forget(spec);
+    Ok(bytes)
+}
+
+/// Drops the process-wide loaded copy of `spec` (after it is removed).
+fn forget(spec: &ModelSpec) {
+    for slot in [&SUBJECT, &SKY, &DEPTH] {
+        let mut g = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if g.as_ref().is_some_and(|(id, _)| id == spec.id) {
+            *g = None;
+        }
+    }
+}
+
 type Slot = std::sync::Mutex<Option<(String, Segmenter)>>;
 static SUBJECT: Slot = std::sync::Mutex::new(None);
 static SKY: Slot = std::sync::Mutex::new(None);
@@ -467,6 +577,69 @@ mod tests {
             assert!(p[30 * w + 160] > 0.5, "{id}: sky {}", p[30 * w + 160]);
             assert!(p[200 * w + 160] < 0.5, "{id}: ground {}", p[200 * w + 160]);
         }
+    }
+
+    /// Settings lists the models by group with a plain-language description: every entry has one,
+    /// its group agrees with what it finds, and each group's recommended model is in it.
+    #[test]
+    fn every_model_has_a_group_and_an_explanation() {
+        for m in MODELS {
+            assert!(!m.about.trim().is_empty(), "{} has no description", m.id);
+            assert!(m.about.len() > 60, "{}: say what it does and when you'd want it", m.id);
+            // the selection models are grouped by what they find
+            let expected = if m.task == Task::Subject {
+                Some(Group::Subject)
+            } else if matches!(m.task, Task::Sky { .. }) {
+                Some(Group::Sky)
+            } else if m.task == Task::Depth {
+                Some(Group::Depth)
+            } else {
+                continue;
+            };
+            assert_eq!(m.group, expected, "{}", m.id);
+            // sizes are shown from `bytes`, so labels don't repeat (or contradict) them
+            assert!(!m.label.contains("MB"), "{}: {}", m.id, m.label);
+        }
+        for g in Group::ALL {
+            assert!(g.models().count() >= 1, "{g:?} is empty");
+            assert_eq!(spec(g.recommended()).and_then(|s| s.group), Some(g), "{g:?}");
+            assert!(!g.about().is_empty() && !g.label().is_empty());
+            assert!(g.in_use(Path::new("/nonexistent")).is_none());
+        }
+    }
+
+    fn temp_models() -> std::path::PathBuf {
+        let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!("li-seg-rm-{}-{n}", std::process::id()));
+        std::fs::create_dir_all(dir.join("segmentation")).unwrap();
+        dir
+    }
+
+    #[test]
+    fn remove_deletes_only_that_model_and_reports_the_size() {
+        let dir = temp_models();
+        let (small, isnet) = (spec("u2netp").unwrap(), spec("isnet").unwrap());
+        std::fs::write(model_path(&dir, small), vec![1u8; 1234]).unwrap();
+        std::fs::write(model_path(&dir, isnet), vec![2u8; 99]).unwrap();
+        assert_eq!(Group::Subject.in_use(&dir).map(|s| s.id), Some("isnet"));
+        assert_eq!(installed_bytes(&dir, small), Some(1234));
+        assert_eq!(remove(&dir, isnet).unwrap(), 99);
+        assert!(!model_path(&dir, isnet).exists());
+        assert!(model_path(&dir, small).exists(), "other models stay");
+        // the next best one takes over
+        assert_eq!(Group::Subject.in_use(&dir).map(|s| s.id), Some("u2netp"));
+        // removing a model that isn't installed is a no-op
+        assert_eq!(remove(&dir, isnet).unwrap(), 0);
+        // a custom disposer (the Trash) gets the file instead
+        let moved = dir.join("trashed.onnx");
+        let freed = remove_with(&dir, small, &|p| std::fs::rename(p, &moved)).unwrap();
+        assert_eq!(freed, 1234);
+        assert!(moved.exists() && best_installed(&dir).is_none());
+        // a disposer that fails leaves the model installed and says so
+        std::fs::write(model_path(&dir, small), b"x").unwrap();
+        assert!(remove_with(&dir, small, &|_| Err(std::io::Error::other("nope"))).is_err());
+        assert!(model_path(&dir, small).exists());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
