@@ -104,11 +104,13 @@ pub fn remove_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSe
         let current = engines.iter().find(|e| e.key == app.ui.remove_engine).cloned();
         ui.horizontal(|ui| {
             ui.label(tr("Engine"));
-            let r = egui::ComboBox::from_id_salt("removeAiEngine").selected_text(current.as_ref().map(|e| e.label.clone()).unwrap_or_default()).show_ui(ui, |ui| {
-                for e in &engines {
-                    ui.selectable_value(&mut app.ui.remove_engine, e.key.clone(), &e.label);
-                }
-            });
+            let r = egui::ComboBox::from_id_salt("removeAiEngine")
+                .selected_text(current.as_ref().map(|e| e.label.clone()).unwrap_or_default())
+                .show_ui(ui, |ui| {
+                    for e in &engines {
+                        ui.selectable_value(&mut app.ui.remove_engine, e.key.clone(), &e.label);
+                    }
+                });
             register(ui.ctx(), "button:removeAiEngine", r.response.rect);
         });
         if let Some(p) = current.and_then(|e| e.problem) {
@@ -147,13 +149,8 @@ pub fn remove_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSe
             });
         }
         // removals being generated
-        let running: Vec<(u64, f32, String)> = app
-            .session
-            .enhance
-            .running_for(id)
-            .filter(|j| j.kind != JobKind::Denoise)
-            .map(|j| (j.id, j.ctl.progress(), j.label.clone()))
-            .collect();
+        let running: Vec<(u64, f32, String)> =
+            app.session.enhance.running_for(id).filter(|j| j.kind != JobKind::Denoise).map(|j| (j.id, j.ctl.progress(), j.label.clone())).collect();
         for (job, frac, label) in running {
             progress(app, ui, &format!("removeJob{job}"), &label, frac, Some(job));
         }
@@ -175,7 +172,14 @@ pub fn spot_info(app: &mut LightcraftApp, ui: &mut egui::Ui, sp: &Spot) {
             ui.label(RichText::new(tr(n)).color(Tokens::get(ui.ctx()).caution).size(11.5));
         }
         if let Some(p) = &sp.patch {
-            let engine = app.session.enhance.host.as_ref().and_then(|h| h.remove_engines().into_iter().find(|e| e.key == p.engine)).map(|e| e.label).unwrap_or(p.engine.clone());
+            let engine = app
+                .session
+                .enhance
+                .host
+                .as_ref()
+                .and_then(|h| h.remove_engines().into_iter().find(|e| e.key == p.engine))
+                .map(|e| e.label)
+                .unwrap_or(p.engine.clone());
             dim(ui, &engine);
         }
         let busy = app.session.enhance.running_for(id).any(|j| matches!(j.kind, JobKind::Regenerate { .. }));

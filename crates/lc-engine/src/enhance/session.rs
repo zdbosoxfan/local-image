@@ -67,7 +67,11 @@ impl Session {
                 let patch = AiPatch { key: r.key, source: r.source, rect: r.rect, engine: r.engine, seed: r.seed, geometry: r.geometry };
                 match kind {
                     JobKind::Regenerate { spot } => {
-                        let sp = d.spots.get_mut(*spot).filter(|s| s.is_ai()).ok_or_else(|| crate::EngineError::Other("the AI removal was deleted".into()))?;
+                        let sp = d
+                            .spots
+                            .get_mut(*spot)
+                            .filter(|s| s.is_ai())
+                            .ok_or_else(|| crate::EngineError::Other("the AI removal was deleted".into()))?;
                         sp.patch = Some(patch);
                     }
                     _ => {
@@ -137,14 +141,23 @@ pub fn patch_state(s: &Session, id: PhotoId, spot: &Spot) -> PatchState {
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum DenoiseState {
     /// Not for this photo (`why`).
-    Unavailable { why: String },
+    Unavailable {
+        why: String,
+    },
     /// The model isn't installed (`download`: its download, when one ran).
-    NoModel { download: Option<super::Download> },
+    NoModel {
+        download: Option<super::Download>,
+    },
     /// Ready to run.
     Ready,
-    Running { progress: f32, job: u64 },
+    Running {
+        progress: f32,
+        job: u64,
+    },
     /// The result is in use.
-    Done { amount: f64 },
+    Done {
+        amount: f64,
+    },
     /// The settings refer to a result the store doesn't have: run it again.
     Missing,
 }

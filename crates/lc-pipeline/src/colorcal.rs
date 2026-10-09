@@ -233,6 +233,44 @@ fn gamut_map(xyz: [f32; 3], compression: f32, clip: bool) -> [f32; 3] {
     [x * y / yy, y, (1.0 - x - yy) * y / yy]
 }
 
+/// The colour calibration `s` asks for on a source with `info`, or `None` when it is off.
+pub fn of(info: &crate::SourceInfo, s: &lightcraft_develop::DevelopSettings) -> Option<ColorCal> {
+    use lightcraft_develop::{Adaptation, Illuminant};
+    let c = &s.color_cal;
+    if !c.enabled || !s.section_enabled("colorCal") {
+        return None;
+    }
+    let xy = match c.illuminant {
+        Illuminant::WhiteBalance => {
+            let (t, tint) = crate::local::effective_wb(info, s);
+            lightcraft_color::cct::temp_tint_to_xy(t, tint)
+        }
+        Illuminant::A => Standard::A.xy(),
+        Illuminant::D50 => Standard::D50.xy(),
+        Illuminant::D55 => Standard::D55.xy(),
+        Illuminant::D65 => Standard::D65.xy(),
+        Illuminant::D75 => Standard::D75.xy(),
+        Illuminant::F2 => Standard::F2.xy(),
+        Illuminant::F7 => Standard::F7.xy(),
+        Illuminant::F11 => Standard::F11.xy(),
+        Illuminant::Custom => Xy::new(c.x.clamp(0.05, 0.75), c.y.clamp(0.05, 0.75)),
+    };
+    let cat = match c.adaptation {
+        Adaptation::Cat16 => Cat::Cat16,
+        Adaptation::Bradford => Cat::LinearBradford,
+        Adaptation::FullBradford => Cat::FullBradford,
+        Adaptation::Xyz => Cat::Xyz,
+    };
+    Some(ColorCal::new(cat, xy, c.gamut.clamp(0.0, 12.0), c.clip))
+}
+
+/// Whether the colour calibration of `s` needs per-pixel work (non-linear Bradford, gamut
+/// compression, clipping): it then runs in the CPU part of the scene-linear stage.
+pub fn needs_cpu(s: &lightcraft_develop::DevelopSettings) -> bool {
+    let c = &s.color_cal;
+    c.enabled && s.section_enabled("colorCal") && (c.gamut > 0.0 || c.clip || c.adaptation == lightcraft_develop::Adaptation::FullBradford)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -214,6 +214,8 @@ pub struct FinishParams {
     pub px_per_long: f64,
     /// Develop layers that change something (CPU only: the GPU path declines them).
     pub layers: Vec<crate::layers::LayerK>,
+    /// The tone equalizer's curve and mask compensation (CPU only: the GPU path declines it).
+    pub tone_eq: Option<(crate::toneeq::Curve, crate::toneeq::MaskAdjust)>,
 }
 
 impl FinishParams {
@@ -244,6 +246,7 @@ impl FinishParams {
             shadow_tint: if calibration { (s.calibration.shadows_tint / 100.0) as f32 } else { 0.0 },
             tone: tone_map(s, info, s.light.contrast, s.light.whites, s.light.blacks),
             layers: crate::layers::resolve(s, info, px_per_long),
+            tone_eq: crate::toneeq::of(s),
             lut: crate::lut::get(&s.profile.id).map(|l| (l, (s.profile.amount / 100.0).clamp(0.0, 2.0) as f32)),
             ops: ColorOps::new(s),
             curves: curve_luts(&s.curve),
@@ -467,8 +470,18 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
                 }
             }
 
+            // --- tone equalizer: exposure by luminance zone (its mask is pre-exposure, see `toneeq`)
+            let mut teq = false;
+            if let (Some((curve, adj)), Some(m)) = (&fp.tone_eq, &p.tone_eq) {
+                let g = curve.gain(adj.zone_ev(m.data[i], ev));
+                if g != 1.0 {
+                    c = c.map(|v| v * g);
+                    teq = true;
+                }
+            }
+
             // --- local tone in log luminance
-            let l1 = if dz != 0.0 || l_exp != 0.0 || layer_scene { log_lum(c) } else { l0 };
+            let l1 = if dz != 0.0 || l_exp != 0.0 || layer_scene || teq { log_lum(c) } else { l0 };
             let shift = l1 - l0;
             let base = p.base.data[i] + ev + shift;
             let mut delta = 0.0f32;

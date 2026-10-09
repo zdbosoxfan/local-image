@@ -102,7 +102,14 @@ impl Session {
     }
 }
 
-fn run(src: &crate::media::SourceRef, denoiser: &DenoiseFn, ctl: &JobCtl, source: String, model: String, to: Option<&std::path::Path>) -> Result<Outcome, String> {
+fn run(
+    src: &crate::media::SourceRef,
+    denoiser: &DenoiseFn,
+    ctl: &JobCtl,
+    source: String,
+    model: String,
+    to: Option<&std::path::Path>,
+) -> Result<Outcome, String> {
     ctl.set(0.01, "Loading the photo");
     let img = src.load()?;
     ctl.check()?;

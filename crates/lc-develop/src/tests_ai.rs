@@ -31,7 +31,14 @@ fn ai() -> DevelopSettings {
         points: vec![lightcraft_geom::Point::new(0.5, 0.5)],
         polygon: vec![],
         mask: Some(3),
-        patch: Some(AiPatch { key: "ab".repeat(16), source: "cd".repeat(16), rect: [0.4, 0.4, 0.6, 0.6], engine: "klein".into(), seed: 42, geometry: "g".into() }),
+        patch: Some(AiPatch {
+            key: "ab".repeat(16),
+            source: "cd".repeat(16),
+            rect: [0.4, 0.4, 0.6, 0.6],
+            engine: "klein".into(),
+            seed: 42,
+            geometry: "g".into(),
+        }),
         ..Default::default()
     });
     s.enhance.denoise = 60.0;

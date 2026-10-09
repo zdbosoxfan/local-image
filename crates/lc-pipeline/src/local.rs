@@ -34,6 +34,9 @@ pub fn white_balance(img: &mut Rgb32f, info: &SourceInfo, s: &DevelopSettings) {
 /// The white-balance matrix (linear Rec.2020, luminance-preserving) for the settings, or `None`
 /// when the as-shot white is kept.
 pub fn wb_matrix_for(info: &SourceInfo, s: &DevelopSettings) -> Option<[[f32; 3]; 3]> {
+    if let Some(cc) = crate::colorcal::of(info, s) {
+        return Some(colorcal_matrix(info, &cc));
+    }
     let (t, tint) = effective_wb(info, s);
     if (t - info.as_shot_temp).abs() < 1e-6 && (tint - info.as_shot_tint).abs() < 1e-6 {
         return None;
@@ -45,6 +48,18 @@ pub fn wb_matrix_for(info: &SourceInfo, s: &DevelopSettings) -> Option<[[f32; 3]
     let g = m.apply([1.0, 1.0, 1.0]);
     let y = g[0] * 0.2627 + g[1] * 0.6780 + g[2] * 0.0593;
     Some(m.mul(&lightcraft_color::Mat3::diag(1.0 / y, 1.0 / y, 1.0 / y)).to_f32())
+}
+
+/// With colour calibration: undo the as-shot white balance, then (when it is linear) the
+/// calibration's adaptation; the per-pixel part of a non-linear calibration follows in
+/// [`white_balance`]. Neutral luminance is kept.
+fn colorcal_matrix(info: &SourceInfo, cc: &crate::colorcal::ColorCal) -> [[f32; 3]; 3] {
+    let shot = wb_matrix(&REC2020, temp_tint_to_xy(info.as_shot_temp, info.as_shot_tint));
+    let undo = shot.inverse().unwrap_or(lightcraft_color::Mat3::IDENTITY);
+    let m = if cc.is_linear() { lightcraft_color::Mat3(cc.matrix.map(|r| r.map(f64::from))).mul(&undo) } else { undo };
+    let g = m.apply([1.0, 1.0, 1.0]);
+    let y = g[0] * 0.2627 + g[1] * 0.6780 + g[2] * 0.0593;
+    m.mul(&lightcraft_color::Mat3::diag(1.0 / y, 1.0 / y, 1.0 / y)).to_f32()
 }
 
 /// The white-balance change from white `from` to white `to` (temperature K, tint), as
@@ -63,6 +78,8 @@ pub fn wb_change(from: (f64, f64), to: (f64, f64)) -> Option<[[f32; 3]; 3]> {
 
 fn wb_gain(img: &mut Rgb32f, info: &SourceInfo, s: &DevelopSettings, gain: f32) {
     let m = wb_matrix_for(info, s);
+    // a non-linear colour calibration: its per-pixel part after the matrix
+    let cc = crate::colorcal::of(info, s).filter(|c| !c.is_linear());
     let w = img.width;
     for_rows(&mut img.data, w, |_, row| {
         for p in row.iter_mut() {
@@ -73,6 +90,9 @@ fn wb_gain(img: &mut Rgb32f, info: &SourceInfo, s: &DevelopSettings, gain: f32) 
                     m[1][0] * c[0] + m[1][1] * c[1] + m[1][2] * c[2],
                     m[2][0] * c[0] + m[2][1] * c[1] + m[2][2] * c[2],
                 ];
+            }
+            if let Some(cc) = &cc {
+                c = cc.apply(c);
             }
             *p = [(c[0] * gain).max(0.0), (c[1] * gain).max(0.0), (c[2] * gain).max(0.0)];
         }
@@ -236,6 +256,9 @@ pub(crate) struct Planes {
     /// Develop layers' noise reduction: the image denoised again with a layer's settings, by
     /// their key (see [`crate::layers::nr_images`]).
     pub layer_nr: Vec<(u64, Arc<Rgb32f>)>,
+    /// The tone equalizer's mask (pre-exposure zones, see [`crate::toneeq::mask_plane`]) by the
+    /// key of its radius and epsilon.
+    pub tone_eq: Option<(u64, Arc<Plane>)>,
 }
 
 /// Reuse `slot` if it was computed at `sigma`, else compute and store it.
@@ -365,7 +388,19 @@ pub(crate) fn prepare(
     let ev = s.light.exposure as f32;
     let masks = timed("masks", || masks::evaluate(&s.masks, frame, img.width, img.height, &img, &log_l, ev));
     let layer_nr = timed("layer nr", || crate::layers::nr_images(&img, s, info, src_long, &mut planes.layer_nr));
-    Prepared { img, log_l, base, clarity_blur, texture_blur, dark, chroma_blur, air, masks, layer_nr, px_per_long }
+    let tone_eq = crate::toneeq::mask_wanted(s).then(|| {
+        let (sg, eps) = crate::toneeq::mask_sigma_eps(s, px_per_long);
+        let k = (u64::from(sg.to_bits()) << 32) | u64::from(eps.to_bits());
+        match &planes.tone_eq {
+            Some((kk, p)) if *kk == k => p.clone(),
+            _ => {
+                let p = Arc::new(timed("tone eq mask", || crate::toneeq::mask_plane(&img, sg, eps)));
+                planes.tone_eq = Some((k, p.clone()));
+                p
+            }
+        }
+    });
+    Prepared { img, log_l, base, clarity_blur, texture_blur, dark, chroma_blur, air, masks, layer_nr, px_per_long, tone_eq }
 }
 
 /// The airlight is estimated from every `AIRLIGHT_STEP`-th value of the dark channel.

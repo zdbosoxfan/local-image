@@ -11,7 +11,8 @@
 //! dimensionless scales), so a 400 px preview and a full-size export are warped identically.
 //!
 //! Also here: automatic lateral chromatic aberration estimation ([`estimate_lateral_ca`]) and [`defringe`].
-//! Profile corrections use only lens data embedded in DNG files (`WarpRectilinear` / `FixVignetteRadial`).
+//! Profile corrections use lens data embedded in DNG files (`WarpRectilinear` / `FixVignetteRadial`), or the
+//! lens database's correction ([`crate::lensdb`]) when the settings turn it on.
 
 use std::sync::Mutex;
 
@@ -49,6 +50,12 @@ pub struct Warp {
     pub lens: Option<EmbeddedLens>,
     pub lens_dist: f64,
     pub lens_vig: f64,
+    /// Lens database correction (in this oriented frame) and its strengths (1 = as calibrated):
+    /// distortion, TCA, vignetting. Replaces the embedded correction when both exist.
+    pub lensdb: Option<crate::lensdb::LensMap>,
+    pub lensdb_dist: f64,
+    pub lensdb_tca: f64,
+    pub lensdb_vig: f64,
 }
 
 impl Warp {
@@ -65,7 +72,31 @@ impl Warp {
             lens: None,
             lens_dist: 0.0,
             lens_vig: 0.0,
+            lensdb: None,
+            lensdb_dist: 0.0,
+            lensdb_tca: 0.0,
+            lensdb_vig: 0.0,
         }
+    }
+
+    /// Use the lens database correction `c` (relative to the EXIF-oriented source of
+    /// `src_w × src_h`, shown with orientation `o`) with the settings' strengths; it replaces the
+    /// embedded correction.
+    pub fn set_lensdb(&mut self, c: &crate::lensdb::LensCorrection, o: Orientation, src_w: f64, src_h: f64, s: &DevelopSettings) {
+        let l = &s.lens_db;
+        if !l.enabled || !s.section_enabled("optics") || c.is_identity() {
+            return;
+        }
+        let mut m = c.on(src_w, src_h);
+        let (cx, cy) = o.map(m.cx, m.cy, src_w, src_h);
+        (m.cx, m.cy) = (cx, cy);
+        self.lensdb = Some(m);
+        self.lensdb_dist = (l.distortion / 100.0).clamp(0.0, 2.0);
+        self.lensdb_tca = (l.tca / 100.0).clamp(0.0, 2.0);
+        self.lensdb_vig = (l.vignetting / 100.0).clamp(0.0, 2.0);
+        self.lens = None;
+        self.lens_dist = 0.0;
+        self.lens_vig = 0.0;
     }
 
     /// The lens part of the warp from the settings (optics section) and optional embedded lens data.
@@ -103,6 +134,7 @@ impl Warp {
             || self.k1 != 0.0
             || self.ca.iter().any(|c| *c != 0.0)
             || (self.lens_dist != 0.0 && self.lens.is_some_and(|l| l.warp.is_some()))
+            || self.lensdb.is_some_and(|m| (self.lensdb_dist != 0.0 && m.c.distortion != crate::lensdb::Distortion::None) || (self.lensdb_tca != 0.0 && m.c.per_channel()))
     }
 
     /// Whether the colour planes are sampled at different positions.
@@ -110,10 +142,13 @@ impl Warp {
         self.ca[0] != self.ca[1]
             || self.ca[1] != self.ca[2]
             || (self.lens_dist != 0.0 && self.lens.and_then(|l| l.warp).is_some_and(|w| w.planes[0] != w.planes[1] || w.planes[1] != w.planes[2]))
+            || (self.lensdb_tca != 0.0 && self.lensdb.is_some_and(|m| m.c.per_channel()))
     }
 
     pub fn has_gain(&self) -> bool {
-        self.vig_stops != 0.0 || (self.lens_vig != 0.0 && self.lens.is_some_and(|l| l.vignette.is_some()))
+        self.vig_stops != 0.0
+            || (self.lens_vig != 0.0 && self.lens.is_some_and(|l| l.vignette.is_some()))
+            || (self.lensdb_vig != 0.0 && self.lensdb.is_some_and(|m| m.c.vignetting.is_some()))
     }
 
     pub fn is_identity(&self) -> bool {
@@ -169,6 +204,9 @@ impl Warp {
             let (sx, sy) = embedded_warp_real(&wp, qx, qy, ch, self.w, self.h);
             (qx, qy) = (qx + (sx - qx) * self.lens_dist, qy + (sy - qy) * self.lens_dist);
         }
+        if let Some(m) = &self.lensdb {
+            (qx, qy) = m.to_source_real(qx, qy, ch, self.lensdb_dist, self.lensdb_tca);
+        }
         let k = self.ca[ch];
         if k != 0.0 {
             (qx, qy) = ((qx - c.x) * (1.0 + k) + c.x, (qy - c.y) * (1.0 + k) + c.y);
@@ -193,6 +231,11 @@ impl Warp {
             && let Some(v) = self.lens.and_then(|l| l.vignette)
         {
             g *= 1.0 + (embedded_vignette_gain(&v, src, self.w, self.h) - 1.0) * self.lens_vig;
+        }
+        if self.lensdb_vig != 0.0
+            && let Some(m) = &self.lensdb
+        {
+            g *= m.gain(src.x, src.y, self.lensdb_vig);
         }
         g as f32
     }

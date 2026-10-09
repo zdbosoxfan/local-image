@@ -303,6 +303,14 @@ pub fn render(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &R
             record_fallback("develop layer tools render on the CPU".into());
             return None;
         }
+        // the tone equalizer has no kernel yet: CPU
+        if lightcraft_pipeline::tools_need_cpu(s, req) {
+            record_fallback("the tone equalizer renders on the CPU".into());
+            return None;
+        }
+        // capture sharpening works on the source before anything else (both renderers)
+        let pre = lightcraft_pipeline::presource(src, info, s, stages);
+        let src = pre.as_ref().unwrap_or(src);
         let gpu = device()?;
         let ext = stages.map(|c| c.extension::<GpuStages>());
         let fault = take_fault();

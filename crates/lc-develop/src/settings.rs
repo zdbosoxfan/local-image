@@ -892,10 +892,15 @@ pub enum MaskShape {
         lo_feather: f64,
         hi_feather: f64,
     },
+    /// Distance range (0 = nearest … 1 = farthest in the photo), with a feathered edge. `seg`
+    /// holds the depth model's distance map (local-image `li-seg` depth; the logit of the
+    /// distance); without it the range selects nothing.
     DepthRange {
         lo: f64,
         hi: f64,
         feather: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seg: Option<crate::SegMask>,
     },
     /// AI / automatic selections. `seg` holds the quick segmentation model's result (local-image:
     /// `li-seg`, computed when the mask is added); without it a classical estimate is used.

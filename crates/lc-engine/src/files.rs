@@ -292,7 +292,7 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize) -> Result<
         let relative = crate::camera_preview::file_local_look(raw.format) && t.matrix_is_fallback;
         let camera_tone = camera_look.as_ref().map(|p| p.tone).or_else(|| raw.color.profile.tone_curve.as_ref().and_then(dng_tone_curve));
         let (temp, tint) = if relative { (6500.0, 0.0) } else { (temp.round(), tint.round()) };
-        return Ok((img, SourceInfo { raw: true, as_shot_temp: temp, as_shot_tint: tint, lens, relative_wb: relative, camera_tone }));
+        return Ok((img, SourceInfo { raw: true, as_shot_temp: temp, as_shot_tint: tint, lens, relative_wb: relative, camera_tone, ..Default::default() }));
     }
     let d = lightcraft_codecs::decode(&bytes, lightcraft_codecs::DecodeOptions::fit(max_edge as u32, max_edge as u32)).map_err(|e| e.to_string())?;
     drop(bytes);

@@ -33,6 +33,9 @@ pub enum Overlay {
     /// The evaluated alpha of mask `id` (a [`lightcraft_develop::Mask`] id), drawn as `view` in
     /// `color` at `opacity` (0..100; the colour views only).
     Mask { id: u16, view: MaskView, color: [u8; 3], opacity: u8 },
+    /// The tone equalizer's mask: each pixel's luminance zone as a grey level (−8 EV black …
+    /// 0 EV white).
+    ToneEqMask,
 }
 
 /// How [`Overlay::Mask`] draws the mask.
@@ -114,6 +117,7 @@ impl Overlay {
             Overlay::PointColorRange(i) => (1, i as f64),
             Overlay::Spots(t) => (2, t as f64),
             Overlay::Mask { id, view, color, opacity } => (3, pack_mask(id, view, color, opacity) as f64),
+            Overlay::ToneEqMask => (4, 0.0),
         }
     }
 
@@ -123,6 +127,7 @@ impl Overlay {
             1 => Overlay::PointColorRange(v as u8),
             2 => Overlay::Spots(v.clamp(0.0, 100.0) as u8),
             3 if v.is_finite() && v >= 0.0 => unpack_mask(v as u64),
+            4 => Overlay::ToneEqMask,
             _ => Overlay::None,
         }
     }
@@ -134,6 +139,7 @@ impl Overlay {
             Overlay::PointColorRange(i) => 0x1000 + i as u64,
             Overlay::Spots(t) => 0x2000 + t as u64,
             Overlay::Mask { id, view, color, opacity } => 3 << 60 | pack_mask(id, view, color, opacity),
+            Overlay::ToneEqMask => 0x4000,
         }
     }
 
@@ -172,6 +178,18 @@ pub fn apply(img: &mut Rgba8, o: Overlay, plan: &Plan<'_>, mask: Option<&Plane>)
         Overlay::Mask { view, color, opacity, .. } => {
             if let Some(a) = mask.filter(|a| (a.width, a.height) == (img.width, img.height)) {
                 mask_view(img, a, view, color, opacity);
+            }
+        }
+        // `mask` holds the zones as grey levels (see `crate::toneeq::preview_grey`)
+        Overlay::ToneEqMask => {
+            if let Some(a) = mask.filter(|a| (a.width, a.height) == (img.width, img.height)) {
+                let w = img.width;
+                for_rows(&mut img.data, w, |y, row| {
+                    for (x, px) in row.iter_mut().enumerate() {
+                        let v = (a.data[y * w + x].clamp(0.0, 1.0) * 255.0).round() as u8;
+                        *px = [v, v, v, 255];
+                    }
+                });
             }
         }
     }

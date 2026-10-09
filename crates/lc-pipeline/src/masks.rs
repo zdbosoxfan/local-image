@@ -194,7 +194,19 @@ pub fn shape_alpha(shape: &MaskShape, frame: &Frame, w: usize, h: usize, img: &R
             s.data.iter_mut().for_each(|v| *v = 1.0 - *v);
             out = s;
         }
-        MaskShape::DepthRange { .. } | MaskShape::Landscape { .. } => {}
+        MaskShape::DepthRange { lo, hi, feather, seg } => {
+            // the stored distance map, then a feathered band of it
+            if seg.is_some() {
+                sample_seg(seg.as_ref(), &[], 1.0, frame, w, h, &mut out);
+                let (lo, hi) = (lo.min(*hi) as f32, lo.max(*hi) as f32);
+                let f = (*feather as f32).max(1e-3);
+                for v in &mut out.data {
+                    let d = *v;
+                    *v = smooth(lo - f, lo, d) * (1.0 - smooth(hi, hi + f, d));
+                }
+            }
+        }
+        MaskShape::Landscape { .. } => {}
     }
     out
 }

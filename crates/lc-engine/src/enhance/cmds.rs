@@ -79,7 +79,8 @@ fn regenerate(s: &mut Session, p: &Value) -> Result<Value> {
     let i = p.get("index").and_then(Value::as_u64).map(|v| v as usize).or(s.active_spot).ok_or_else(|| bad(C, "no spot selected (give `index`)"))?;
     let d = s.develop_of(id).unwrap_or_default();
     let sp = d.spots.get(i).filter(|sp| sp.mode == SpotMode::Ai).ok_or_else(|| bad(C, "not an AI removal"))?;
-    let stroke = AiStroke { points: sp.points.clone(), polygon: sp.polygon.clone(), size: sp.size, feather: sp.feather, opacity: sp.opacity, mask: sp.mask };
+    let stroke =
+        AiStroke { points: sp.points.clone(), polygon: sp.polygon.clone(), size: sp.size, feather: sp.feather, opacity: sp.opacity, mask: sp.mask };
     let engine = str_param(p, "engine").map(str::to_owned).or_else(|| sp.patch.as_ref().map(|x| x.engine.clone()));
     let wait = bool_or(p, "wait", false);
     let seed = p.get("seed").and_then(Value::as_u64);
@@ -129,7 +130,9 @@ fn status(s: &mut Session, p: &Value) -> Result<Value> {
         .map(|(i, sp)| json!({"index": i, "state": patch_state(s, id, sp), "engine": sp.patch.as_ref().map(|x| x.engine.clone())}))
         .collect();
     let engines = s.enhance.host.as_ref().map(|h| h.remove_engines()).unwrap_or_default();
-    Ok(json!({"denoise": denoise_state(s, id), "spots": spots, "engines": engines, "jobs": s.enhance.running_for(id).map(|j| j.json()).collect::<Vec<_>>()}))
+    Ok(
+        json!({"denoise": denoise_state(s, id), "spots": spots, "engines": engines, "jobs": s.enhance.running_for(id).map(|j| j.json()).collect::<Vec<_>>()}),
+    )
 }
 
 fn download(s: &mut Session, p: &Value) -> Result<Value> {

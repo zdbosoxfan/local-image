@@ -395,7 +395,14 @@ mod tests {
         let spot = |key: &str| Spot {
             mode: SpotMode::Ai,
             points: vec![Point::new(0.5, 0.5)],
-            patch: Some(AiPatch { key: key.into(), source: String::new(), rect: [0.25, 0.25, 0.75, 0.75], engine: "test".into(), seed: 1, geometry: String::new() }),
+            patch: Some(AiPatch {
+                key: key.into(),
+                source: String::new(),
+                rect: [0.25, 0.25, 0.75, 0.75],
+                engine: "test".into(),
+                seed: 1,
+                geometry: String::new(),
+            }),
             ..Default::default()
         };
         let missing = DevelopSettings { spots: vec![spot("patches-test-render-missing")], ..Default::default() };

@@ -40,11 +40,27 @@ impl Frame {
 
     /// Like [`Frame::new`], with the source's embedded lens corrections (relative to the EXIF-oriented source).
     pub fn with_lens(src_w: usize, src_h: usize, s: &DevelopSettings, apply_crop: bool, lens: Option<&EmbeddedLens>) -> Frame {
+        Frame::with_lenses(src_w, src_h, s, apply_crop, lens, None)
+    }
+
+    /// Like [`Frame::with_lens`], with the lens database's correction too (used instead of the
+    /// embedded one when the settings turn it on).
+    pub fn with_lenses(
+        src_w: usize,
+        src_h: usize,
+        s: &DevelopSettings,
+        apply_crop: bool,
+        lens: Option<&EmbeddedLens>,
+        lensdb: Option<&crate::lensdb::LensCorrection>,
+    ) -> Frame {
         let orient = s.orientation;
         let (ow, oh) = if orient.swaps_axes() { (src_h as f64, src_w as f64) } else { (src_w as f64, src_h as f64) };
         let crop = if apply_crop { s.crop.geometry } else { CropGeometry::default() };
         let lens = lens.map(|l| reorient_lens(l, orient, src_w as f64, src_h as f64));
         let mut warp = Warp::from_settings(ow, oh, s, lens.as_ref());
+        if let Some(c) = lensdb {
+            warp.set_lensdb(c, orient, src_w as f64, src_h as f64, s);
+        }
         let persp = perspective(s, ow, oh);
         if persp != Homography::IDENTITY
             && let Some(inv) = persp.inverse()
@@ -95,6 +111,11 @@ impl Frame {
         let t = lo.max(0.02);
         let r = self.crop.rect;
         self.crop.rect = Rect::from_center(r.center(), r.width() * t, r.height() * t);
+    }
+
+    /// Whether the GPU's geometry kernel can sample this frame (it has no lens database models).
+    pub fn gpu_samplable(&self) -> bool {
+        self.warp.as_ref().is_none_or(|w| w.lensdb.is_none())
     }
 
     /// Add automatically estimated lateral CA (`[α_R, α_B]`, see [`crate::optics::estimate_lateral_ca`]).

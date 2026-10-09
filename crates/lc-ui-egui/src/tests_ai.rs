@@ -72,7 +72,11 @@ fn ai_remove_by_brush_and_lasso() {
         assert!(w["result"].as_array().unwrap().iter().any(|x| x["id"] == id), "{id} in {w}");
     }
     // brush a removal: it runs in the background and lands as one AI spot, selected
-    let r = h.request("ui.pointer", json!({"events": [{"kind": "down", "x": 0.5, "y": 0.5}, {"kind": "drag", "x": 0.52, "y": 0.5}, {"kind": "up", "x": 0.52, "y": 0.5}]}), T);
+    let r = h.request(
+        "ui.pointer",
+        json!({"events": [{"kind": "down", "x": 0.5, "y": 0.5}, {"kind": "drag", "x": 0.52, "y": 0.5}, {"kind": "up", "x": 0.52, "y": 0.5}]}),
+        T,
+    );
     assert_eq!(r["ok"], true, "{r}");
     assert!(h.step_until(JOB, |h| spots(h).len() == 1), "the removal arrives");
     let sp = spots(&h)[0].clone();

@@ -150,6 +150,38 @@ pub fn preview_grey(zone_ev: f32) -> f32 {
     ((zone_ev.clamp(MIN_EV, MAX_EV) - MIN_EV).round() / (MAX_EV - MIN_EV)).clamp(0.0, 1.0)
 }
 
+/// Whether the tone equalizer of `s` changes anything.
+pub fn active(s: &lightcraft_develop::DevelopSettings) -> bool {
+    let t = &s.tone_eq;
+    t.enabled && s.section_enabled("toneEq") && t.zones().iter().any(|z| *z != 0.0)
+}
+
+/// Whether the tool is on (its mask is computed, e.g. for the mask preview, even while every
+/// zone is 0).
+pub fn mask_wanted(s: &lightcraft_develop::DevelopSettings) -> bool {
+    s.tone_eq.enabled && s.section_enabled("toneEq")
+}
+
+/// The fitted curve and mask compensation of `s` (`None` when the tool changes nothing).
+pub fn of(s: &lightcraft_develop::DevelopSettings) -> Option<(Curve, MaskAdjust)> {
+    if !active(s) {
+        return None;
+    }
+    let t = &s.tone_eq;
+    let curve = Curve::new(&t.zones(), smoothing_sigma(t.smoothing.clamp(-2.33, 1.67)))?;
+    Some((curve, MaskAdjust { exposure: t.mask_exposure as f32, contrast: t.mask_contrast as f32 }))
+}
+
+/// The mask's guided-filter radius (Gaussian σ, output px) and edge epsilon (EV²) for `s` at
+/// `px_per_long` output pixels per long edge: the mask size is a diameter in % of the long edge;
+/// Mask Edges 50 is the highlights/shadows base's epsilon, each 25 more halves it.
+pub fn mask_sigma_eps(s: &lightcraft_develop::DevelopSettings, px_per_long: f64) -> (f32, f32) {
+    let t = &s.tone_eq;
+    let sigma = (t.size.clamp(0.1, 50.0) / 100.0 * px_per_long / 4.0) as f32;
+    let eps = crate::local::BASE_EPS * 2f32.powf(((50.0 - t.refine.clamp(0.0, 100.0)) / 25.0) as f32);
+    (sigma.max(0.5), eps)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

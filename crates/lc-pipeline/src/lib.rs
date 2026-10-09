@@ -175,6 +175,8 @@ pub(crate) struct Prepared {
     pub layer_nr: Vec<(usize, Arc<Rgb32f>)>,
     /// Output pixels per unit of the source long edge.
     pub px_per_long: f64,
+    /// The tone equalizer's mask (see [`toneeq`]) when the tool is on.
+    pub tone_eq: Option<Arc<Plane>>,
 }
 
 /// Output size for a source of `src_w × src_h` under `s`, fitting `max_w × max_h`.
@@ -190,7 +192,7 @@ pub fn native_output_size(src_w: usize, src_h: usize, s: &DevelopSettings) -> (f
 
 /// The geometric frame `render` uses for `src` (lens data, automatic CA estimate included).
 pub fn frame_for(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, apply_crop: bool) -> geometry::Frame {
-    let mut frame = geometry::Frame::with_lens(src.width, src.height, s, apply_crop, info.lens.as_ref());
+    let mut frame = geometry::Frame::with_lenses(src.width, src.height, s, apply_crop, info.lens.as_ref(), info.lens_db.as_ref());
     if s.optics.remove_ca && s.section_enabled("optics") {
         frame.add_lateral_ca(optics::estimate_lateral_ca(src));
     }
@@ -210,11 +212,13 @@ pub struct StageCache {
     capacity: usize,
     /// Another renderer's per-view state (the GPU renderer keeps its device-resident stages here).
     ext: Mutex<Option<Arc<dyn Any + Send + Sync>>>,
+    /// The capture-sharpened source of the last render: (source, parameters key, result).
+    pre: Mutex<Option<(Arc<Rgb32f>, u64, Arc<Rgb32f>)>>,
 }
 
 impl Default for StageCache {
     fn default() -> Self {
-        StageCache { entries: Mutex::new(Vec::new()), capacity: 2, ext: Mutex::new(None) }
+        StageCache { entries: Mutex::new(Vec::new()), capacity: 2, ext: Mutex::new(None), pre: Mutex::new(None) }
     }
 }
 
@@ -223,6 +227,7 @@ impl StageCache {
     pub fn clear(&self) {
         self.lock().clear();
         *self.ext.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        *self.pre.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 
     /// Per-view state of type `T` kept alongside this cache (created on first use). Lets another
@@ -271,6 +276,9 @@ impl StageCache {
             for (_, l) in &pl.layer_nr {
                 add(Arc::as_ptr(l) as usize, size(l));
             }
+        }
+        if let Some((_, _, out)) = self.pre.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            total += size(out);
         }
         total
     }
@@ -364,6 +372,8 @@ pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &R
         format!("{:?}", negative::params(s)),
         [d.nr_luminance, d.nr_detail, d.nr_color, d.nr_color_detail, d.nr_color_smoothness].map(f64::to_bits),
         src_long,
+        // colour calibration runs with the white balance
+        format!("{:?}", colorcal::of(info, s)),
     ));
     Plan { settings, frame, w, h, px_per_long, src_long, geo, lin_key, eyes }
 }
@@ -373,7 +383,13 @@ pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &R
 pub fn lin_needs_cpu(s: &DevelopSettings) -> bool {
     let o = &s.optics;
     let defringe = s.section_enabled("optics") && (o.defringe_purple_amount > 0.0 || o.defringe_green_amount > 0.0);
-    defringe || !s.spots.is_empty() || negative::converts(s)
+    defringe || !s.spots.is_empty() || negative::converts(s) || colorcal::needs_cpu(s)
+}
+
+/// Whether the settings use a tool the GPU renderer has no kernel for (the tone equalizer): the
+/// whole render then runs on the CPU (like [`layers_need_cpu`]).
+pub fn tools_need_cpu(s: &DevelopSettings, req: &RenderRequest) -> bool {
+    toneeq::active(s) || req.overlay == Overlay::ToneEqMask
 }
 
 /// Whether develop layers need work only the CPU does: any visible mask holding layer tools
@@ -401,6 +417,55 @@ pub fn lin_cpu(img: &mut Rgb32f, info: &SourceInfo, p: &Plan<'_>) {
     redeye::apply(img, &p.eyes);
 }
 
+/// Capture sharpening of a source with `info` under `s` (see [`capture`]): `None` when it is off,
+/// the source isn't raw, or the blur at this source's scale is too small to matter.
+pub fn capture_params(info: &SourceInfo, s: &DevelopSettings) -> Option<capture::CaptureParams> {
+    let c = &s.raw.capture;
+    if !c.enabled || !info.raw || !s.section_enabled("raw") {
+        return None;
+    }
+    let radius = if c.radius > 0.0 { c.radius as f32 } else { info.capture_radius.unwrap_or(CAPTURE_DEFAULT_RADIUS) };
+    let sigma = radius / info.sensor_scale.max(1e-3);
+    if sigma <= 0.25 {
+        return None;
+    }
+    Some(capture::CaptureParams {
+        sigma,
+        threshold: if c.threshold > 0.0 { (c.threshold / 100.0) as f32 } else { info.capture_threshold },
+        corner_boost: (c.corner_boost / 100.0) as f32,
+        center: 0.0,
+        iterations: capture::iterations_of(c.iterations.clamp(1.0, 25.0) as u32),
+        clip: None,
+    })
+}
+
+/// The radius darktable falls back to when the raw data can't tell.
+const CAPTURE_DEFAULT_RADIUS: f32 = 0.5;
+
+/// The capture-sharpened source (`None`: nothing to sharpen; render `src`), reused from `cache`
+/// while the source and the parameters are unchanged. Both renderers call it first.
+pub fn presource(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, cache: Option<&StageCache>) -> Option<Arc<Rgb32f>> {
+    capture_params(info, s).map(|p| presource_with(src, &p, cache))
+}
+
+fn presource_with(src: &Arc<Rgb32f>, p: &capture::CaptureParams, cache: Option<&StageCache>) -> Arc<Rgb32f> {
+    let key = hash_of(format!("{p:?}"));
+    if let Some(c) = cache
+        && let Some((s0, k, out)) = c.pre.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+        && Arc::ptr_eq(s0, src)
+        && *k == key
+    {
+        return out.clone();
+    }
+    let mut img = (**src).clone();
+    timed("capture sharpening", || capture::sharpen(&mut img, p));
+    let out = Arc::new(img);
+    if let Some(c) = cache {
+        *c.pre.lock().unwrap_or_else(|e| e.into_inner()) = Some((src.clone(), key, out.clone()));
+    }
+    out
+}
+
 /// Render `src` with settings `s`.
 pub fn render(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest) -> Rendered {
     render_impl(Src::Borrowed(src), info, s, req, None)
@@ -426,6 +491,19 @@ fn render_impl(src: Src<'_>, info: &SourceInfo, s: &DevelopSettings, req: &Rende
         }
     };
     let mut t = profiling().then(std::time::Instant::now);
+    // capture sharpening works on the source itself (sensor-scale blur), before everything else
+    let pre: Option<Arc<Rgb32f>> = capture_params(info, s).map(|p| match &src {
+        Src::Shared(a) => presource_with(a, &p, cache),
+        Src::Borrowed(r) => {
+            let mut img = (*r).clone();
+            capture::sharpen(&mut img, &p);
+            Arc::new(img)
+        }
+    });
+    let src = match &pre {
+        Some(a) => Src::Shared(a),
+        None => src,
+    };
     let src_img: &Rgb32f = match &src {
         Src::Borrowed(r) => r,
         Src::Shared(a) => a,
@@ -513,6 +591,13 @@ pub fn color_range_sample(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, 
 /// The alpha plane a mask overlay shows: the one the render evaluated, or (for a hidden mask) a
 /// fresh evaluation.
 fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared) -> Option<Plane> {
+    if o == Overlay::ToneEqMask {
+        let m = prep.tone_eq.as_ref()?;
+        let t = &plan.settings.tone_eq;
+        let adj = toneeq::MaskAdjust { exposure: t.mask_exposure as f32, contrast: t.mask_contrast as f32 };
+        let ev = plan.settings.light.exposure as f32;
+        return Some(m.map(|v| toneeq::preview_grey(adj.zone_ev(v, ev))));
+    }
     let m = o.mask(&plan.settings)?;
     if let Some(e) = prep.masks.iter().find(|e| e.id == m.id) {
         return Some(e.alpha.clone());

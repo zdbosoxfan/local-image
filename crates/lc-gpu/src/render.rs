@@ -550,7 +550,8 @@ pub fn render(
     // 1. geometry (on the CPU when the source exceeds the device's buffer limit)
     let sampled = match &cached {
         Some(e) => e.sampled.clone(),
-        None if gpu.fits(src.data.len() * 3) => {
+        // (the lens database's models have no GPU kernel: such frames are sampled on the CPU)
+        None if gpu.fits(src.data.len() * 3) && plan.frame.gpu_samplable() => {
             let upload = || gpu.upload(rgb_words(src));
             let src_buf = match stages {
                 Some(c) => c.source(src, upload),

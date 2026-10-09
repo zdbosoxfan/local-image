@@ -1,6 +1,6 @@
-//! local-image: quick **Subject**, **Background** and **Sky** masks from small segmentation models
+//! local-image: quick **Subject**, **Background**, **Sky** and **Depth** masks from small models
 //! that run on the CPU with no AI server (`li-seg`: U²-Net / IS-Net for the subject, PP-MobileSeg /
-//! TinySkyNet for the sky). The model looks at the photo as developed, uncropped and without masks
+//! TinySkyNet for the sky, Depth Anything V2 Small / MiDaS small for depth). The model looks at the photo as developed, uncropped and without masks
 //! (as SAM 3 does for Object masks), once, when the mask is added; the result is stored in the
 //! mask as a [`SegMask`] (resolution-independent logits), so renders and exports never run the
 //! model and the mask stays put when the photo is cropped later. Without a model the mask keeps
@@ -20,20 +20,36 @@ impl Session {
     /// Fills a Subject / Background / Sky shape's segmentation from the quick models when one is
     /// installed (other shapes, or no model: unchanged). Returns whether it did.
     pub fn quick_segment(&mut self, id: PhotoId, shape: &mut MaskShape) -> bool {
-        let sky = match shape {
-            MaskShape::Subject { seg: None } | MaskShape::Background { seg: None } => false,
-            MaskShape::Sky { seg: None } => true,
+        #[derive(PartialEq)]
+        enum K {
+            Subject,
+            Sky,
+            Depth,
+        }
+        let kind = match shape {
+            MaskShape::Subject { seg: None } | MaskShape::Background { seg: None } => K::Subject,
+            MaskShape::Sky { seg: None } => K::Sky,
+            MaskShape::DepthRange { seg: None, .. } => K::Depth,
             _ => return false,
         };
+        let sky = kind == K::Sky;
         let Some(dir) = self.quick_seg_dir.clone() else { return false };
-        let Some(model) = (if sky { li_seg::shared_sky(&dir) } else { li_seg::shared(&dir) }) else { return false };
+        let model = match kind {
+            K::Subject => li_seg::shared(&dir),
+            K::Sky => li_seg::shared_sky(&dir),
+            K::Depth => li_seg::shared_depth(&dir),
+        };
+        let Some(model) = model else { return false };
         let Some((_, settings)) = self.segment_key(id) else { return false };
         let Some(job) = self.preview_job(id, INPUT_EDGE, INPUT_EDGE, false, &settings) else { return false };
         let Ok(r) = job.run().rendered else { return false };
         let img = r.image;
         let (w, h) = (img.width, img.height);
         let rgba: Vec<u8> = img.data.iter().flatten().copied().collect();
-        let prob = if sky {
+        let prob = if kind == K::Depth {
+            // stored as distance (0 = nearest), the scale the depth range reads
+            model.predict_depth(&rgba, w, h).ok().map(|near| near.iter().map(|n| 1.0 - n).collect())
+        } else if sky {
             model.predict_sky(&rgba, w, h).ok()
         } else {
             // No clear subject: an empty subject (a full background).
@@ -43,7 +59,9 @@ impl Session {
         let invert = matches!(shape, MaskShape::Background { .. });
         let seg = Some(to_segmask(&prob, w, h, invert));
         match shape {
-            MaskShape::Subject { seg: s } | MaskShape::Background { seg: s } | MaskShape::Sky { seg: s } => *s = seg,
+            MaskShape::Subject { seg: s } | MaskShape::Background { seg: s } | MaskShape::Sky { seg: s } | MaskShape::DepthRange { seg: s, .. } => {
+                *s = seg
+            }
             _ => {}
         }
         true

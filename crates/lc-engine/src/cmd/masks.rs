@@ -25,6 +25,13 @@ fn shape_from(kind: &str, p: &Value, c: &str) -> Result<MaskShape> {
         "sky" => MaskShape::Sky { seg: None },
         "subject" => MaskShape::Subject { seg: None },
         "background" => MaskShape::Background { seg: None },
+        // local-image: near (0) … far (1) band of the depth model's distance map (`quick_segment`)
+        "depth" | "depthRange" => MaskShape::DepthRange {
+            lo: f64_or(p, "lo", 0.0),
+            hi: f64_or(p, "hi", 0.45),
+            feather: f64_or(p, "feather", 0.15),
+            seg: None,
+        },
         "luminanceRange" => MaskShape::LuminanceRange {
             lo: f64_or(p, "lo", 0.6),
             hi: f64_or(p, "hi", 1.0),
@@ -165,7 +172,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Create New Mask",
             [],
             None,
-            "{kind: brush|linear|radial|sky|subject|background|luminanceRange|colorRange|object|prompt, ...shape params (start/end, center/rx/ry/angle/feather, lo/hi…; object: points/exclude [[x,y],…]; prompt: text; object/prompt: seg? a stored segmentation, no model needed), name?} — AI kinds need the SAM 3 model; in the app a prompt returns {pending} and the mask appears when found",
+            "{kind: brush|linear|radial|sky|subject|background|depth|luminanceRange|colorRange|object|prompt, ...shape params (start/end, center/rx/ry/angle/feather, lo/hi…; object: points/exclude [[x,y],…]; prompt: text; object/prompt: seg? a stored segmentation, no model needed), name?} — AI kinds need the SAM 3 model; in the app a prompt returns {pending} and the mask appears when found",
             has_active,
             |s, p| {
                 let kind = str_param(p, "kind").unwrap_or("radial").to_string();
