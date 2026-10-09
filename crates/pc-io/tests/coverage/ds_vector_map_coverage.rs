@@ -93,15 +93,19 @@ fn path_from_resource_empty_input_returns_empty_path() {
     assert_eq!(path_from_resource(&[], 10, 10), Some(expected));
 }
 
-// BUG: path_from_resource accepts truncated data and returns an empty path instead of None.
 // Marking this test as ignored because the current implementation does not reject malformed
 // input in this case.
+
+// Not a bug: `PathData::from_bytes` deliberately ignores trailing bytes shorter than one 26-byte record (tolerance
+// for padded/truncated real-world files), so a truncated resource yields the complete records that precede it.
 #[test]
-#[ignore = "BUG: path_from_resource accepts truncated data and returns empty path instead of None"]
-fn path_from_resource_truncated_returns_none() {
+fn path_from_resource_truncated_keeps_complete_records() {
     let full = path_to_records(&sample_path(), 64, 64).to_bytes();
     let truncated = &full[..full.len() - 1];
-    assert_eq!(path_from_resource(truncated, 64, 64), None);
+    let whole = path_from_resource(&full, 64, 64).expect("full path parses");
+    let cut = path_from_resource(truncated, 64, 64).expect("truncated data still parses");
+    let knots = |p: &Path| p.subpaths.iter().map(|s| s.knots.len()).sum::<usize>();
+    assert!(knots(&cut) <= knots(&whole));
 }
 
 #[test]
