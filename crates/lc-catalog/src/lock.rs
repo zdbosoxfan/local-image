@@ -131,10 +131,18 @@ impl LibraryLock {
 
 impl Drop for LibraryLock {
     /// Remove the owner note while still holding the lock (so it can't delete the next holder's),
-    /// then the file handle closes and the OS releases the lock.
+    /// then explicitly unlock and close the file handle.
+    ///
+    /// `flock` locks are attached to the open file description, so an inherited copy of this
+    /// descriptor (e.g. a child process forked while the lock is held) keeps the lock alive until
+    /// it execs/closes. An explicit `unlock` here clears the lock on the shared description before
+    /// close, so a concurrent drop/re-acquire can't race a forking child.
     fn drop(&mut self) {
         if self.held {
             let _ = std::fs::remove_file(self.dir.join(OWNER));
+            if let Some(file) = &self._file {
+                let _ = file.unlock();
+            }
         }
     }
 }
