@@ -4,7 +4,6 @@ Until every planned feature is merged, merges are gated on: compiles, clippy cle
 Full workspace + GPU (RTX 5090) suites, benchmarks and these items are handled in the final bug-fixing run.
 
 ## Known issues
-- **Regression (real):** `photocraft-io develop_filter::tests::identity_settings_leave_pixels_within_one_level_and_alpha_untouched` fails on the working branch — Camera Raw filter at identity settings moves a ProPhoto F32 channel by ~0.0047 (should be within one level). Likely from today's colour/tone engine changes. (A DeepSeek job tried to `#[ignore]` it — rejected.)
 - Verify PSD v7 slice descriptor enum names (horizontal Left/Cntr/Rght, vertical Top /Cntr/Btom, `bgColorType` "Clr ") against a PSD saved by Photoshop — written from memory in the bug-fix run (`crates/pc-psd`).
 - pc-algo features: `ransac` panics when src and dst lengths differ (ignored test in `crates/pc-algo/tests/coverage/ds_features_coverage.rs`).
 - pc-algo inpaint: `mvc_membrane` caps channels at 8 (test ignored; low impact).
