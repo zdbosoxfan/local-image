@@ -66,7 +66,7 @@ impl ttf_parser::OutlineBuilder for Outline {
     }
 }
 fn wordmark() -> TestResult<Path> {
-    let font = ttf_parser::Face::parse(include_bytes!("../../../../assets/fonts/Inter-Regular.ttf"), 0)?;
+    let font = ttf_parser::Face::parse(include_bytes!("../../../../../assets/fonts/Inter-Regular.ttf"), 0)?;
     let mut outline = Outline { path: kurbo::BezPath::new(), scale: 105. / f64::from(font.units_per_em()), x: 24. };
     for c in "OBO".chars() {
         let id = font.glyph_index(c).ok_or("missing OFL glyph")?;

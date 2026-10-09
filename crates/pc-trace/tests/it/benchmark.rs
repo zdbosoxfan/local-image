@@ -1,4 +1,4 @@
-mod common;
+use crate::common;
 use common::*;
 use pc_trace::{Fitter, Image, Params, Preset, trace};
 use std::{path::PathBuf, time::Instant};

@@ -1,5 +1,5 @@
 //! Coordinator-only CLI harness. No external tracer runs in normal tests.
-mod common;
+use crate::common;
 use common::*;
 use pc_trace::{Params, Preset};
 use std::{

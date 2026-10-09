@@ -1,4 +1,4 @@
-mod common;
+use crate::common;
 use common::*;
 use image::RgbImage;
 use pc_trace::{Fitter, Image, Params, Preset, trace};
