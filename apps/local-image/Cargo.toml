@@ -33,6 +33,10 @@ lightcraft-engine = { workspace = true }
 lightcraft-catalog = { workspace = true }
 lightcraft-raster = { workspace = true }
 lightcraft-codecs = { workspace = true }
+# Develop's AI Remove / AI Denoise services (develop_ai.rs).
+li-ai = { workspace = true }
+li-seg = { workspace = true }
+image = { workspace = true }
 # Pen tablet pressure/tilt on macOS and X11 (the workspace's one isolated unsafe helper crate).
 photocraft-tablet = { workspace = true }
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "wayland", "x11", "persistence"] }
