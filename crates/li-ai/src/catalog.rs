@@ -328,7 +328,11 @@ pub fn catalog() -> &'static Catalog {
         if let Some(existing) = s.snapshot {
             return existing;
         }
-        s.snapshot = Some(c);
+        // An inventory scan may have replaced the installed models while this was building; caching it then would
+        // hide them until the next invalidation, so only a catalogue built from the current list is kept.
+        if s.installed == installed {
+            s.snapshot = Some(c);
+        }
     }
     c
 }

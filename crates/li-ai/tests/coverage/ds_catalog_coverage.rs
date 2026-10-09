@@ -86,8 +86,13 @@ fn generators_exclude_tool_models_and_have_correct_flags() {
     assert!(all.contains(&ModelId::KleinRemove));
 }
 
+/// Serialises the tests that replace the installed models (which rebuilds the shared catalogue) with the one that
+/// expects the catalogue to stay the same between two reads.
+static CATALOG_STATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn catalog_snapshot_is_deterministic_and_self_consistent() {
+    let _state = CATALOG_STATE.lock().unwrap_or_else(|e| e.into_inner());
     let c1 = current_catalog();
     let c2 = current_catalog();
     assert!(std::ptr::eq(c1, c2));
@@ -187,6 +192,7 @@ fn availability_reports_missing_required_choice() {
 
 #[test]
 fn availability_installed_preset_reports_missing_nodes() {
+    let _state = CATALOG_STATE.lock().unwrap_or_else(|e| e.into_inner());
     // `availability` looks the preset's model up in the *live* catalogue (`ModelId::try_info`), which is
     // where an installed model's family pipeline (and so its required nodes) lives. A preset from a
     // throwaway `catalog::build` is not in it, so it has no model info and nothing to check; the real
