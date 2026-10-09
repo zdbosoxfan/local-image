@@ -159,11 +159,9 @@ fn zero_height_does_not_panic() {
     assert_eq!(&bytes[bytes.len() - 2..], &[0xFF, 0xD9]);
 }
 
-// BUG: encode panics on width=0 because chunks_mut(0) is called internally.
+// Width 0 must also produce an empty codestream rather than panic (`chunks_mut(0)` used to panic).
 #[test]
-#[ignore = "BUG: encode panics on width=0 due to chunks_mut(0)"]
 fn zero_width_panics_bug() {
-    // This test documents the known panic and is ignored until fixed.
     let bytes = jpeg_par::encode(&[], 0, 0, 1, 90, ChromaSubsampling::S444, &[]);
     assert_eq!(&bytes[..2], &[0xFF, 0xD8]);
     assert_eq!(&bytes[bytes.len() - 2..], &[0xFF, 0xD9]);
