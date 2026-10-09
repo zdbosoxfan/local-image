@@ -6,6 +6,7 @@ mod ds_files_coverage;
 mod ds_import_coverage;
 mod ds_lens_db_coverage;
 mod ds_library_coverage;
+mod ds_media_coverage;
 mod ds_memory_coverage;
 mod ds_merge_coverage;
 mod ds_preset_import_coverage;
