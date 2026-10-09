@@ -108,9 +108,10 @@ mod tests {
         let ctx = egui::Context::default();
         let mut obj = Map::new();
         obj.insert("penPressureCurve".into(), json!(pressure::SOFT));
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
             assert!(!editor(ui, &mut obj, "penPressureCurve"));
         });
+        out.textures_delta.clear();
         assert_eq!(read(&obj, "penPressureCurve"), pressure::SOFT.to_vec());
     }
 }
