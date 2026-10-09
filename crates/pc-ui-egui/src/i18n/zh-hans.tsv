@@ -2636,7 +2636,7 @@ ai	New	最新
 	Search attributions…	搜索致谢与许可…
 	No matches.	没有匹配项。
 	Show licence text	显示许可证全文
-	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	找出照片的主体。用于选择 › 主体、移除背景（快速）、对象选择工具的点击模式，以及图库的主体和背景蒙版。
+	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	找出照片的主体。用于选择 › 主体、移除背景（快速）、对象选择工具的单击模式，以及图库的主体和背景蒙版。
 	Finds the sky. Used by Select › Sky and the Library's sky masks.	找出天空。用于选择 › 天空和图库的天空蒙版。
 	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	估计照片各部分的远近。用于图库的深度蒙版（例如压暗或模糊背景，或按距离选择前景）。
 	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	以最精细的边缘找出主体（头发、毛发、细小细节）。选择主体和移除背景的最佳质量；每张照片约需一两秒。

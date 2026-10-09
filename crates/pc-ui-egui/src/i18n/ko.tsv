@@ -3207,7 +3207,7 @@ ai	New	새 항목
 	Show licence text	라이선스 전문 보기
 	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	사진의 주요 피사체를 찾습니다. 선택 › 피사체, 배경 제거(빠르게), 개체 선택 도구의 클릭 모드, 라이브러리의 피사체·배경 마스크에서 사용됩니다.
 	Finds the sky. Used by Select › Sky and the Library's sky masks.	하늘을 찾습니다. 선택 › 하늘과 라이브러리의 하늘 마스크에서 사용됩니다.
-	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	사진의 각 부분이 얼마나 멀리 있는지 추정합니다. 라이브러리의 깊이 마스크에서 사용됩니다(예: 배경을 어둡게 하거나 흐리게 하거나, 거리로 전경을 고를 때).
+	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	사진의 각 부분이 얼마나 멀리 있는지 추정합니다. 라이브러리의 깊이 마스크에서 사용됩니다(예: 배경을 어둡게 하거나 흐리게 하거나, 거리에 따라 전경을 선택할 때).
 	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	머리카락, 털, 가는 디테일까지 가장 섬세한 가장자리로 피사체를 찾습니다. 피사체 선택과 배경 제거에 가장 좋은 품질이며 사진당 1~2초 걸립니다.
 	Clean edges between near and far, good on most photos. Takes a few seconds per photo.	가까운 곳과 먼 곳의 경계가 깔끔하며 대부분의 사진에 적합합니다. 사진당 몇 초 걸립니다.
 	Custom: {name}	사용자 지정: {name}
@@ -3220,7 +3220,7 @@ ai	New	새 항목
 	IS-Net style	IS-Net 방식
 	U²-Net / ImageNet style	U²-Net / ImageNet 방식
 	Sky class:	하늘 클래스:
-	Only used when the model gives one map per class (ADE20K: 2).	모델이 클래스마다 지도 하나를 출력할 때만 사용됩니다(ADE20K: 2).
+	Only used when the model gives one map per class (ADE20K: 2).	모델이 클래스마다 맵 하나를 출력할 때만 사용됩니다(ADE20K: 2).
 	Testing the model…	모델 테스트 중…
 	Choose an ONNX file…	ONNX 파일 선택…
 	That model can't be used: {error}	이 모델은 사용할 수 없습니다: {error}
