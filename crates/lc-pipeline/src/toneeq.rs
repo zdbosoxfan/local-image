@@ -70,6 +70,10 @@ fn least_squares(a: &[[f64; 8]; ZONES], y: &[f64; ZONES]) -> Option<[f64; 8]> {
 }
 
 impl Curve {
+    /// Shared correction table for native renderers (the CPU uses the same interpolation).
+    pub fn lut(&self) -> &[f32] {
+        &self.lut
+    }
     /// The curve through `zones` (EV changes, clamped to ±2) with Gaussians of `sigma` EV.
     /// `None` when every zone is 0 (nothing to do) or the fit is unstable.
     pub fn new(zones: &[f64; ZONES], sigma: f32) -> Option<Curve> {
