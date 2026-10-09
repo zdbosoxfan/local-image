@@ -78,10 +78,4 @@ impl AiHost for DevelopAi {
         let alpha = li_ai::imaging::clean_selection_mask(&mask);
         Ok(RemoveResult { rgb: out.pixels().map(|p| p.0).collect(), alpha: alpha.pixels().map(|p| p.0[0]).collect() })
     }
-
-
-
-
-
-
 }

@@ -1,6 +1,7 @@
 //! Local segmentation on the CPU: salient-object models (U²-Net, U²-Net-P, IS-Net) and sky models
 //! (PP-MobileSeg ADE20K, TinySkyNet) in ONNX form, run with `tract` (pure Rust, no GPU, no external
-//! runtime). Powers Select › Subject and Sky, Remove Background (Quick), the Object Selection
+//! runtime). Smart Sort also uses paired CLIP image/text embeddings through [`Clip`], with
+//! bundle installation and model lifetime shared by the on-device manager. Powers Select › Subject and Sky, Remove Background (Quick), the Object Selection
 //! tool's click mode, and the Library's Subject / Sky / Background masks — small, quick models
 //! that need no AI server.
 //!
@@ -9,11 +10,24 @@
 //! image's peak value then ImageNet mean/std (U²-Net) or mean 0.5 / std 1 (IS-Net), the first
 //! output map, min–max stretch, bilinear upscale.
 
+pub mod bpe;
+pub mod clip;
+pub use clip::{Clip, Crops, shared_clip};
+
 use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use tract_onnx::prelude::*;
+
+/// Another file required by a multi-file model (weights or tokenizer data).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Companion {
+    pub file: &'static str,
+    pub url: &'static str,
+    pub bytes: u64,
+    pub sha256: &'static str,
+}
 
 /// A downloadable model: (file name, bytes, sha256, url, input size, label).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -21,6 +35,7 @@ pub struct ModelSpec {
     pub id: &'static str,
     pub label: &'static str,
     pub file: &'static str,
+    pub companions: &'static [Companion],
     pub bytes: u64,
     pub sha256: &'static str,
     pub url: &'static str,
@@ -43,16 +58,18 @@ pub enum Group {
     Subject,
     Sky,
     Depth,
+    Tagging,
 }
 
 impl Group {
-    pub const ALL: [Group; 3] = [Group::Subject, Group::Sky, Group::Depth];
+    pub const ALL: [Group; 4] = [Group::Subject, Group::Sky, Group::Depth, Group::Tagging];
 
     pub fn label(self) -> &'static str {
         match self {
             Group::Subject => "Subject & Background",
             Group::Sky => "Sky",
             Group::Depth => "Depth",
+            Group::Tagging => "Smart Sort (scenes)",
         }
     }
 
@@ -63,6 +80,9 @@ impl Group {
                 "Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks. The best one installed is used."
             }
             Group::Sky => "Finds the sky. Used by Select › Sky and the Library's sky masks. The best one installed is used.",
+            Group::Tagging => {
+                "Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer."
+            }
             Group::Depth => {
                 "Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance). The best one installed is used."
             }
@@ -75,6 +95,7 @@ impl Group {
             Group::Subject => "isnet",
             Group::Sky => "sky-mobileseg",
             Group::Depth => "depth-anything-v2-small",
+            Group::Tagging => "clip-b32-laion",
         }
     }
 
@@ -89,6 +110,7 @@ impl Group {
             Group::Subject => best_installed(models_dir).map(|(s, _)| s),
             Group::Sky => best_sky(models_dir).map(|(s, _)| s),
             Group::Depth => best_depth(models_dir).map(|(s, _)| s),
+            Group::Tagging => spec(self.recommended()).filter(|s| installed_bytes(models_dir, s).is_some()),
         }
     }
 }
@@ -104,6 +126,8 @@ pub enum Task {
     /// Monocular relative depth (Depth Anything V2, MiDaS): one map of relative inverse depth
     /// (larger = nearer), ImageNet-normalised input.
     Depth,
+    /// Paired image/text embedding models; kept separate from mask inference.
+    ImageText,
 }
 
 pub const MODELS: &[ModelSpec] = &[
@@ -111,6 +135,7 @@ pub const MODELS: &[ModelSpec] = &[
         id: "u2netp",
         label: "U²-Net small",
         file: "u2netp.onnx",
+        companions: &[],
         bytes: 4574861,
         sha256: "309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8",
         url: "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx",
@@ -125,6 +150,7 @@ pub const MODELS: &[ModelSpec] = &[
         id: "u2net",
         label: "U²-Net",
         file: "u2net.onnx",
+        companions: &[],
         bytes: 175997641,
         sha256: "8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491",
         url: "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx",
@@ -139,6 +165,7 @@ pub const MODELS: &[ModelSpec] = &[
         id: "isnet",
         label: "IS-Net general",
         file: "isnet-general-use.onnx",
+        companions: &[],
         bytes: 178648008,
         sha256: "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a",
         url: "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx",
@@ -154,6 +181,7 @@ pub const MODELS: &[ModelSpec] = &[
         id: "sky-mobileseg",
         label: "PP-MobileSeg",
         file: "pp_mobileseg_base_ade20k_512.onnx",
+        companions: &[],
         bytes: 23711565,
         sha256: "63c15451d3907472410de9417cabf2f121b62006d50b980fb2f774ceddaeec7a",
         url: "https://raw.githubusercontent.com/kisakutanaka/SkySegmentation/4f1715a9517e065d2867a724b4dc6aad914f0aca/models/pp_mobileseg_base_ade20k_512.onnx",
@@ -169,6 +197,7 @@ pub const MODELS: &[ModelSpec] = &[
         id: "sky-tiny",
         label: "TinySkyNet",
         file: "tinyskynet_skyseg_256.onnx",
+        companions: &[],
         bytes: 203485,
         sha256: "bdf304a00ff84b424ed39823ae1eb003707799d62cf2725317ea8073919aba7c",
         url: "https://raw.githubusercontent.com/kisakutanaka/SkySegmentation/4f1715a9517e065d2867a724b4dc6aad914f0aca/models/tinyskynet_skyseg_256.onnx",
@@ -187,6 +216,7 @@ pub const MODELS: &[ModelSpec] = &[
         id: "depth-anything-v2-small",
         label: "Depth Anything V2 Small",
         file: "depth_anything_v2_vits_dynamic.onnx",
+        companions: &[],
         bytes: 99092268,
         sha256: "46c4e8eeda3a27f34701831b6a2ec7753d7b38779b215acb5633424703deed8f",
         url: "https://github.com/fabio-sim/Depth-Anything-ONNX/releases/download/v2.0.0/depth_anything_v2_vits_dynamic.onnx",
@@ -202,6 +232,7 @@ pub const MODELS: &[ModelSpec] = &[
         id: "depth-midas-small",
         label: "MiDaS v2.1 small",
         file: "midas_v21_small_256.onnx",
+        companions: &[],
         bytes: 66764249,
         sha256: "2d8c6cb8f415229daf1eb041024208e2608c9f98e17c81cc7c6ecb449c56fd58",
         url: "https://github.com/isl-org/MiDaS/releases/download/v2_1/model-small.onnx",
@@ -211,6 +242,40 @@ pub const MODELS: &[ModelSpec] = &[
         task: Task::Depth,
         group: Some(Group::Depth),
         about: "An older, smaller depth model. Faster, but its depth is coarser and blurrier. Used only when Depth Anything isn't installed.",
+    },
+    ModelSpec {
+        id: "clip-b32-laion",
+        label: "CLIP ViT-B-32 LAION",
+        file: "clip-vit-b32-laion2b-visual.onnx",
+        url: "https://huggingface.co/immich-app/ViT-B-32__laion2b-s34b-b79k/resolve/19a057a0fb927cf239541300e74237cd56c7ffe2/visual/model.onnx",
+        companions: &[
+            Companion {
+                file: "clip-vit-b32-laion2b-textual.onnx",
+                url: "https://huggingface.co/immich-app/ViT-B-32__laion2b-s34b-b79k/resolve/19a057a0fb927cf239541300e74237cd56c7ffe2/textual/model.onnx",
+                bytes: 254193396,
+                sha256: "48c25be37b352398f2533c9426dab6f9340535e14e46f884cc894236a5060722",
+            },
+            Companion {
+                file: "clip-vocab.json",
+                url: "https://huggingface.co/immich-app/ViT-B-32__laion2b-s34b-b79k/resolve/19a057a0fb927cf239541300e74237cd56c7ffe2/textual/vocab.json",
+                bytes: 862328,
+                sha256: "5047b556ce86ccaf6aa22b3ffccfc52d391ea4accdab9c2f2407da5b742d4363",
+            },
+            Companion {
+                file: "clip-merges.txt",
+                url: "https://huggingface.co/immich-app/ViT-B-32__laion2b-s34b-b79k/resolve/19a057a0fb927cf239541300e74237cd56c7ffe2/textual/merges.txt",
+                bytes: 524619,
+                sha256: "9fd691f7c8039210e0fced15865466c65820d09b63988b0174bfe25de299051a",
+            },
+        ],
+        bytes: 351613724,
+        sha256: "b9ce24b91a8c62ef8d40ea786051709c93140104cbf2b6b4a2cc270df3838f9c",
+        size: 224,
+        isnet: false,
+        licence: "MIT (LAION CLIP weights; Immich ONNX export; OpenAI tokenizer)",
+        task: Task::ImageText,
+        group: Some(Group::Tagging),
+        about: "Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.",
     },
 ];
 
@@ -235,6 +300,9 @@ impl std::fmt::Debug for Segmenter {
 
 impl Segmenter {
     pub fn load(spec: &ModelSpec, path: &Path) -> Result<Self> {
+        if spec.task == Task::ImageText {
+            bail!("use Clip to load an image/text model");
+        }
         let s = spec.size;
         // the dynamic-shape depth export declares symbolic intermediate shapes that conflict
         // with the fixed input: let tract infer them
@@ -422,7 +490,22 @@ pub fn object_at(prob: &[f32], w: usize, h: usize, cx: usize, cy: usize) -> Opti
 
 /// Where segmentation models live: `<models>/segmentation/<file>`.
 pub fn model_path(models_dir: &Path, spec: &ModelSpec) -> std::path::PathBuf {
-    models_dir.join("segmentation").join(spec.file)
+    companion_path(models_dir, spec.file)
+}
+
+pub fn companion_path(models_dir: &Path, file: &str) -> std::path::PathBuf {
+    models_dir.join("segmentation").join(file)
+}
+
+impl ModelSpec {
+    /// Main weights first, then all companion files, in download order.
+    pub fn files(&self) -> impl Iterator<Item = Companion> + '_ {
+        std::iter::once(Companion { file: self.file, url: self.url, bytes: self.bytes, sha256: self.sha256 }).chain(self.companions.iter().copied())
+    }
+
+    pub fn download_bytes(&self) -> u64 {
+        self.files().map(|f| f.bytes).sum()
+    }
 }
 
 /// The best installed subject model (IS-Net, then U²-Net, then U²-Net-P).
@@ -455,9 +538,56 @@ pub fn shared_sky(models_dir: &Path) -> Option<Segmenter> {
     cached(best_sky(models_dir)?, &SKY)
 }
 
+type FileStamp = (std::path::PathBuf, u64, Option<std::time::SystemTime>, &'static str);
+static VERIFIED_FILES: std::sync::Mutex<Vec<(FileStamp, bool)>> = std::sync::Mutex::new(Vec::new());
+
+fn verified_file(stamp: FileStamp) -> bool {
+    use sha2::{Digest, Sha256};
+    let mut cache = VERIFIED_FILES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((_, valid)) = cache.iter().find(|(s, _)| *s == stamp) {
+        return *valid;
+    }
+    let valid = if stamp.3.is_empty() {
+        true
+    } else {
+        std::fs::File::open(&stamp.0).is_ok_and(|mut f| {
+            let mut digest = Sha256::new();
+            std::io::copy(&mut f, &mut digest).is_ok() && format!("{:x}", digest.finalize()) == stamp.3
+        })
+    };
+    // Only keep the current metadata of each file, avoiding growth after repeated reinstalls.
+    cache.retain(|(s, _)| s.0 != stamp.0);
+    cache.push((stamp, valid));
+    valid
+}
+
+/// Verified files from an interrupted bundle download can be retained on retry. Metadata
+/// invalidates the checksum cache when a file changes, so Settings need not hash weights per frame.
+pub fn file_installed(models_dir: &Path, file: Companion) -> bool {
+    let path = companion_path(models_dir, file.file);
+    let Ok(m) = std::fs::metadata(&path) else {
+        return false;
+    };
+    m.is_file() && m.len() == file.bytes && verified_file((path, m.len(), m.modified().ok(), file.sha256))
+}
+
 /// Size of the installed copy of `spec`, when it is installed.
 pub fn installed_bytes(models_dir: &Path, spec: &ModelSpec) -> Option<u64> {
-    std::fs::metadata(model_path(models_dir, spec)).ok().filter(|m| m.is_file()).map(|m| m.len())
+    let mut total = 0;
+    let mut stamp = Vec::new();
+    for file in spec.files() {
+        let path = companion_path(models_dir, file.file);
+        let m = std::fs::metadata(&path).ok()?;
+        if !m.is_file() || (!spec.companions.is_empty() && m.len() != file.bytes) {
+            return None;
+        }
+        total += m.len();
+        stamp.push((path, m.len(), m.modified().ok(), file.sha256));
+    }
+    if !spec.companions.is_empty() && !stamp.into_iter().all(verified_file) {
+        return None;
+    }
+    Some(total)
 }
 
 /// Removes an installed model, deleting its file. See [`remove_with`].
@@ -469,18 +599,29 @@ pub fn remove(models_dir: &Path, spec: &ModelSpec) -> Result<u64> {
 /// and the loaded copy is forgotten so nothing keeps using it. Returns the bytes freed (0 when it
 /// wasn't installed).
 pub fn remove_with(models_dir: &Path, spec: &ModelSpec, dispose: &dyn Fn(&Path) -> std::io::Result<()>) -> Result<u64> {
-    let path = model_path(models_dir, spec);
-    let Some(bytes) = installed_bytes(models_dir, spec) else {
-        forget(spec);
-        return Ok(0);
-    };
-    dispose(&path).with_context(|| format!("Could not remove {}", path.display()))?;
     forget(spec);
+    let mut bytes = 0;
+    // Also remove a partially installed bundle, so failed downloads can be cleaned up.
+    for file in spec.files() {
+        let path = companion_path(models_dir, file.file);
+        match std::fs::metadata(&path) {
+            Ok(m) if m.is_file() => {
+                dispose(&path).with_context(|| format!("Could not remove {}", path.display()))?;
+                bytes += m.len();
+            }
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
     Ok(bytes)
 }
 
 /// Drops the process-wide loaded copy of `spec` (after it is removed).
 fn forget(spec: &ModelSpec) {
+    if spec.task == Task::ImageText {
+        clip::forget();
+    }
     for slot in [&SUBJECT, &SKY, &DEPTH] {
         let mut g = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if g.as_ref().is_some_and(|(id, _)| id == spec.id) {
@@ -591,6 +732,8 @@ mod tests {
                 Some(Group::Subject)
             } else if matches!(m.task, Task::Sky { .. }) {
                 Some(Group::Sky)
+            } else if m.task == Task::ImageText {
+                Some(Group::Tagging)
             } else if m.task == Task::Depth {
                 Some(Group::Depth)
             } else {
@@ -613,6 +756,43 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("li-seg-rm-{}-{n}", std::process::id()));
         std::fs::create_dir_all(dir.join("segmentation")).unwrap();
         dir
+    }
+
+    #[test]
+    fn companions_install_and_remove_as_one_bundle() {
+        let dir = temp_models();
+        let mut bundle = *spec("clip-b32-laion").unwrap();
+        bundle.bytes = 2;
+        bundle.sha256 = "";
+        bundle.companions = &[Companion { file: "tiny-text", url: "https://huggingface.co/tiny", bytes: 3, sha256: "" }];
+        std::fs::write(model_path(&dir, &bundle), b"xx").unwrap();
+        assert_eq!(installed_bytes(&dir, &bundle), None);
+        std::fs::write(companion_path(&dir, "tiny-text"), b"x").unwrap();
+        assert_eq!(installed_bytes(&dir, &bundle), None, "partial companion");
+        std::fs::write(companion_path(&dir, "tiny-text"), b"xxx").unwrap();
+        assert_eq!(installed_bytes(&dir, &bundle), Some(5));
+        assert_eq!(bundle.download_bytes(), 5);
+        assert_eq!(remove(&dir, &bundle).unwrap(), 5);
+        assert!(!model_path(&dir, &bundle).exists());
+        assert!(!companion_path(&dir, "tiny-text").exists());
+        std::fs::write(model_path(&dir, &bundle), b"x").unwrap();
+        assert_eq!(remove(&dir, &bundle).unwrap(), 1, "remove partial bundle too");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn wrong_bundle_hash_is_not_installed() {
+        let dir = temp_models();
+        let mut bundle = *spec("clip-b32-laion").unwrap();
+        bundle.bytes = 2;
+        bundle.sha256 = "incorrect";
+        bundle.companions = &[Companion { file: "tiny-vocab", url: "", bytes: 1, sha256: "" }];
+        std::fs::write(model_path(&dir, &bundle), b"xx").unwrap();
+        std::fs::write(companion_path(&dir, "tiny-vocab"), b"x").unwrap();
+        assert_eq!(installed_bytes(&dir, &bundle), None);
+        // Invalid bundles can still be removed in full.
+        assert_eq!(remove(&dir, &bundle).unwrap(), 3);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

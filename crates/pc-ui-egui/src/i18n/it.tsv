@@ -2695,3 +2695,6 @@ ai	New	Nuovi
 	Search attributions…	Cerca nelle attribuzioni…
 	No matches.	Nessun risultato.
 	Show licence text	Mostra il testo della licenza
+	Smart Sort (scenes)	Ordinamento intelligente (scene)
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	Riconosce il contenuto delle foto (relatori, pubblico, dettagli…) per inserirle nella cartella giusta. Funziona sulla CPU; le foto restano su questo computer.
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	Riconosce le scene dalle tue descrizioni. Un modello locale veloce per relatori, pubblico, dettagli e altre categorie scelte da te. Il download include il modello di testo e il tokenizer.

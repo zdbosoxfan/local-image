@@ -2611,3 +2611,6 @@ ai	New	新着
 	Search attributions…	帰属表示を検索…
 	No matches.	一致する項目はありません。
 	Show licence text	ライセンス全文を表示
+	Smart Sort (scenes)	スマート分類（シーン）
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	写真の内容（講演者、聴衆、細部など）を認識し、適切なフォルダーに分類します。CPUで動作し、写真はこのコンピューターから送信されません。
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	入力した説明からシーンを認識します。講演者、聴衆、細部など、選択したカテゴリーを素早く分類するローカルモデルです。ダウンロードにはテキストモデルとトークナイザーも含まれます。

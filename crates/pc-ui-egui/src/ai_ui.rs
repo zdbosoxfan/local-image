@@ -268,17 +268,14 @@ pub fn start_seg_download(spec: &'static li_seg::ModelSpec) {
         if d.get(&key).is_some_and(|x| !x.finished) {
             return;
         }
-        d.insert(key.clone(), Download { total: spec.bytes, file: spec.file.to_owned(), ctl: ctl.clone(), ..Default::default() });
+        d.insert(key.clone(), Download { total: spec.download_bytes(), file: spec.file.to_owned(), ctl: ctl.clone(), ..Default::default() });
     }
     let _ = std::thread::Builder::new().name("seg-download".into()).spawn(move || {
-        let dest = li_seg::model_path(&photocraft_engine::seg::models_dir(), spec);
-        let file = dest;
-        let k2 = key.clone();
-        let r = li_ai::download::download_file(spec.url, &file, spec.bytes, spec.sha256, &ctl, &|n| {
+        let r = download_seg_files(spec, &photocraft_engine::seg::models_dir(), &ctl, &|done| {
             if let Ok(mut d) = shared().downloads.lock()
-                && let Some(x) = d.get_mut(&k2)
+                && let Some(x) = d.get_mut(&key)
             {
-                x.done = n;
+                x.done = done;
             }
         });
         if let Ok(mut d) = shared().downloads.lock()
@@ -291,10 +288,50 @@ pub fn start_seg_download(spec: &'static li_seg::ModelSpec) {
     });
 }
 
+/// Fetch a bundle in order, with one cumulative progress counter. Kept separate from the
+/// thread so tests can verify sequencing and cancellation without any network.
+fn download_seg_files(spec: &li_seg::ModelSpec, dir: &std::path::Path, ctl: &JobControl, progress: &dyn Fn(u64)) -> anyhow::Result<()> {
+    download_seg_files_with(spec, dir, ctl, progress, &|file, path, on_bytes| {
+        li_ai::download::download_file(file.url, path, file.bytes, file.sha256, ctl, on_bytes)
+    })
+}
+
+fn download_seg_files_with(
+    spec: &li_seg::ModelSpec,
+    dir: &std::path::Path,
+    ctl: &JobControl,
+    progress: &dyn Fn(u64),
+    fetch: &dyn Fn(li_seg::Companion, &std::path::Path, &dyn Fn(u64)) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    download_seg_with(spec, &|file, offset| {
+        if ctl.is_cancelled() {
+            anyhow::bail!("download cancelled");
+        }
+        let path = li_seg::companion_path(dir, file.file);
+        if li_seg::file_installed(dir, file) {
+            progress(offset + file.bytes);
+            return Ok(());
+        }
+        if path.is_file() {
+            std::fs::remove_file(&path)?;
+        }
+        fetch(file, &path, &|n| progress(offset + n))
+    })
+}
+
+fn download_seg_with(spec: &li_seg::ModelSpec, download: &dyn Fn(li_seg::Companion, u64) -> anyhow::Result<()>) -> anyhow::Result<()> {
+    let mut done = 0;
+    for file in spec.files() {
+        download(file, done)?;
+        done += file.bytes;
+    }
+    Ok(())
+}
+
 /// The header of an on-device model group: "2 of 3 installed · using IS-Net".
 pub fn seg_group_summary(group: li_seg::Group, models_dir: &std::path::Path) -> String {
     let all: Vec<_> = group.models().collect();
-    let n = all.iter().filter(|m| li_seg::model_path(models_dir, m).is_file()).count();
+    let n = all.iter().filter(|m| li_seg::installed_bytes(models_dir, m).is_some()).count();
     let counts = crate::i18n::fmt(tl!("{n} of {total} installed"), &[("n", &n.to_string()), ("total", &all.len().to_string())]);
     match group.in_use(models_dir) {
         Some(m) => format!("{counts} · {}", crate::i18n::fmt(tl!("using {name}"), &[("name", m.label)])),
@@ -385,7 +422,7 @@ fn seg_row(
         ui.label(
             RichText::new(crate::i18n::fmt(
                 tl!("{size} download · runs on the CPU · {licence}"),
-                &[("size", &li_ai::download::human_bytes(spec.bytes)), ("licence", spec.licence)],
+                &[("size", &li_ai::download::human_bytes(spec.download_bytes())), ("licence", spec.licence)],
             ))
             .color(t.text_faint)
             .size(11.0),
@@ -1412,7 +1449,8 @@ mod tests {
     /// sky models' host was missing, so both refused to download).
     #[test]
     fn every_local_model_downloads_from_an_allowed_host() {
-        let refused: Vec<_> = li_seg::MODELS.iter().filter(|m| !li_ai::download::host_allowed(m.url)).map(|m| (m.id, m.url)).collect();
+        let refused: Vec<_> =
+            li_seg::MODELS.iter().flat_map(|m| m.files()).filter(|f| !li_ai::download::host_allowed(f.url)).map(|f| (f.file, f.url)).collect();
         assert!(refused.is_empty(), "{refused:?}");
     }
 
@@ -1430,6 +1468,83 @@ mod tests {
         std::fs::write(li_seg::model_path(&dir, li_seg::spec("depth-midas-small").unwrap()), b"x").unwrap();
         assert_eq!(seg_group_summary(li_seg::Group::Depth, &dir), "1 of 2 installed · using MiDaS v2.1 small");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn bundle_download_progress_is_cumulative_and_stops_on_failure() {
+        let spec = li_seg::spec("clip-b32-laion").unwrap();
+        let calls = std::cell::RefCell::new(Vec::new());
+        download_seg_with(spec, &|file, offset| {
+            calls.borrow_mut().push((file.file, offset, offset + file.bytes));
+            Ok(())
+        })
+        .unwrap();
+        let calls = calls.into_inner();
+        assert_eq!(calls.len(), 4);
+        assert_eq!(calls[0].1, 0);
+        for pair in calls.windows(2) {
+            assert_eq!(pair[0].2, pair[1].1);
+        }
+        assert_eq!(calls.last().unwrap().2, spec.download_bytes());
+        let count = std::cell::Cell::new(0);
+        assert!(
+            download_seg_with(spec, &|_, _| {
+                count.set(count.get() + 1);
+                if count.get() == 2 {
+                    anyhow::bail!("cancelled");
+                }
+                Ok(())
+            })
+            .is_err()
+        );
+        assert_eq!(count.get(), 2);
+    }
+
+    #[test]
+    fn bundle_download_retry_keeps_verified_files_and_repairs_invalid_ones() {
+        let dir = std::env::temp_dir().join(format!("smart-sort-download-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("segmentation")).unwrap();
+        let mut spec = *li_seg::spec("clip-b32-laion").unwrap();
+        spec.bytes = 1;
+        spec.sha256 = "";
+        spec.companions =
+            &[li_seg::Companion { file: "test-text", url: "", bytes: 2, sha256: "" }, li_seg::Companion { file: "test-vocab", url: "", bytes: 3, sha256: "" }];
+        std::fs::write(li_seg::model_path(&dir, &spec), b"x").unwrap();
+        std::fs::write(li_seg::companion_path(&dir, "test-text"), b"x").unwrap();
+        let fetched = std::cell::RefCell::new(Vec::new());
+        let progress = std::cell::Cell::new(0);
+        let ctl = JobControl::new();
+        download_seg_files_with(&spec, &dir, &ctl, &|n| progress.set(n), &|file, path, on_bytes| {
+            fetched.borrow_mut().push(file.file);
+            assert!(!path.exists());
+            std::fs::write(path, vec![b'x'; file.bytes as usize])?;
+            on_bytes(file.bytes);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(fetched.into_inner(), ["test-text", "test-vocab"]);
+        assert_eq!(progress.get(), 6);
+        ctl.cancel();
+        assert!(download_seg_files_with(&spec, &dir, &ctl, &|_| {}, &|_, _, _| panic!("must not fetch after cancel")).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Open the actual manager group without downloading any weights or opening a GUI window.
+    #[test]
+    fn smart_sort_group_can_be_opened_in_the_model_manager() {
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(800.0, 700.0)).build_ui(|ui| {
+            // Harness construction renders once before setup_context installs app fonts.
+            if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("semibold".into()))) {
+                let t = Tokens::get(ui.ctx());
+                seg_rows(ui, &t, &BTreeMap::new());
+            }
+        });
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(2);
+        assert!(h.query_by_label("CLIP ViT-B-32 LAION").is_none());
+        h.get_by_label_contains("Smart Sort (scenes)").click();
+        h.run_steps(5);
+        assert!(h.query_by_label("CLIP ViT-B-32 LAION").is_some());
     }
 
     /// A job that runs until cancelled.

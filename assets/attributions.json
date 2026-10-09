@@ -18,6 +18,15 @@
       "intro": "Algorithms re-implemented in Rust from other projects (docs/PORTS.md). No C, C++ or Python from them is compiled or shipped.",
       "entries": [
         {
+          "name": "Local Image / LightCraft",
+          "used_for": "The CLIP byte-pair-encoding tokenizer (lower-cased, </w> word ends), padded to the configurable context CLIP text encoders take (77 tokens for Smart Sort).",
+          "upstream": "crates/lc-segment/src/tokenizer.rs (Apache-2.0 tokenizer port from Hugging Face Transformers)",
+          "commit": "c18d18cf613422fe08d31001e1f803cf8ef7dd68",
+          "ours": "crates/li-seg/src/bpe.rs",
+          "licence": "Apache-2.0",
+          "url": "https://github.com/zdbosoxfan/local-image/blob/c18d18cf613422fe08d31001e1f803cf8ef7dd68/crates/lc-segment/src/tokenizer.rs"
+        },
+        {
           "name": "darktable",
           "used_for": "darktable src/iop/denoiseprofile.c (wavelets, Y0U0V0, new VST), src/common/eaw.c (eaw_dn_decompose, accumulate) and src/common/math.h (fast_mexp2f), at 733bd69f32cac7ff5e41025115942772add1f088.",
           "upstream": "src/iop/denoiseprofile.c",
@@ -574,6 +583,13 @@
             "licenses/model-system-NOTICE.md"
           ],
           "url": "https://github.com/isl-org/MiDaS"
+        },
+        {
+          "name": "CLIP ViT-B-32 LAION",
+          "author": "LAION CLIP weights; Immich ONNX export; OpenAI tokenizer",
+          "used_for": "Smart Sort: sorting photos into folders by what they show.",
+          "licence": "MIT",
+          "url": "https://huggingface.co/immich-app/ViT-B-32__laion2b-s34b-b79k"
         },
         {
           "name": "SAM 3 (Segment Anything 3)",

@@ -3780,6 +3780,7 @@ dependencies = [
  "log",
  "miniz_oxide 0.8.9",
  "rayon",
+ "serde_json",
  "sha2",
  "tract-onnx",
 ]

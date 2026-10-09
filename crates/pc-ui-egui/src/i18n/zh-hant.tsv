@@ -2605,3 +2605,6 @@ ai	New	最新
 	Search attributions…	搜尋致謝與授權…
 	No matches.	沒有符合的項目。
 	Show licence text	顯示授權全文
+	Smart Sort (scenes)	智慧分類（場景）
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	辨識照片內容（演講者、觀眾、細節等），將照片放入合適的資料夾。在 CPU 上執行；照片始終保留在此電腦上。
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	根據您的描述辨識場景。快速的本機模型可辨識演講者、觀眾、細節及其他自選類別。下載包含文字模型和分詞器。

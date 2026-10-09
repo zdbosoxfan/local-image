@@ -2962,3 +2962,6 @@ ai	New	Новые
 	Search attributions…	Поиск атрибуций…
 	No matches.	Совпадений нет.
 	Show licence text	Показать текст лицензии
+	Smart Sort (scenes)	Умная сортировка (сцены)
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	Распознаёт содержимое фото (докладчиков, аудиторию, детали…), чтобы поместить его в нужную папку. Работает на CPU; фотографии не покидают этот компьютер.
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	Распознаёт сцены по вашим описаниям. Быстрая локальная модель для докладчиков, аудитории, деталей и других выбранных категорий. Загрузка включает текстовую модель и токенизатор.

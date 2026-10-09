@@ -356,6 +356,7 @@ fn li_seg_entries(root: &Path) -> Result<Vec<Entry>> {
                 "Subject" => "Subject masks: Select Subject and Remove Background.",
                 "Sky" => "Sky masks: Select Sky.",
                 "Depth" => "Depth masks in Develop.",
+                "ImageText" => "Smart Sort: sorting photos into folders by what they show.",
                 "Denoise" => "AI Denoise in Develop.",
                 _ => "Masks and image analysis.",
             };
@@ -371,7 +372,18 @@ fn li_seg_entries(root: &Path) -> Result<Vec<Entry>> {
             });
         }
     };
+    let mut in_companions = false;
     for line in body.lines() {
+        if line.trim_start().starts_with("companions: &[") && !line.trim().ends_with("&[],") {
+            in_companions = true;
+            continue;
+        }
+        if in_companions {
+            if line.trim() == "]," {
+                in_companions = false;
+            }
+            continue;
+        }
         if line.trim_start().starts_with("ModelSpec {") {
             flush(&mut cur, &mut out);
             cur = Some(Default::default());
@@ -950,6 +962,16 @@ mod tests {
             let url = e.url.as_deref().unwrap_or("");
             assert!(!url.ends_with(".onnx") && !url.ends_with(".dtmodel"), "{}: {url}", e.name);
         }
+    }
+
+    #[test]
+    fn clip_bundle_is_attributed_once_with_its_tagging_purpose() {
+        let entries = li_seg_entries(&root()).unwrap();
+        let clip: Vec<_> = entries.iter().filter(|e| e.name == "CLIP ViT-B-32 LAION").collect();
+        assert_eq!(clip.len(), 1);
+        assert_eq!(clip[0].licence, "MIT");
+        assert_eq!(clip[0].used_for.as_deref(), Some("Smart Sort: sorting photos into folders by what they show."));
+        assert_eq!(clip[0].url.as_deref(), Some("https://huggingface.co/immich-app/ViT-B-32__laion2b-s34b-b79k"));
     }
 
     /// The crate graph leaves out dev-only and xtask-only crates and keeps the GUI stack.

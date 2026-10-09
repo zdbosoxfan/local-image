@@ -3205,3 +3205,6 @@ ai	New	새 항목
 	Search attributions…	저작자 표시 검색…
 	No matches.	일치하는 항목이 없습니다.
 	Show licence text	라이선스 전문 보기
+	Smart Sort (scenes)	스마트 분류 (장면)
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	사진의 내용(발표자, 청중, 세부 사항 등)을 인식하여 알맞은 폴더에 넣습니다. CPU에서 실행되며 사진은 이 컴퓨터 밖으로 전송되지 않습니다.
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	입력한 설명으로 장면을 인식합니다. 발표자, 청중, 세부 사항 및 선택한 다른 범주를 위한 빠른 로컬 모델입니다. 다운로드에는 텍스트 모델과 토크나이저가 포함됩니다.
