@@ -5,7 +5,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::LightcraftApp;
-use crate::state::{BeforeAfter, Dialog, RightPanel, ViewMode, Zoom};
+use crate::state::{BeforeAfter, Dialog, RightPanel, SpotOverlay, ViewMode, Zoom};
 
 /// (id, label, shortcut, menu path)
 pub type UiCommand = (&'static str, &'static str, Option<&'static str>, &'static str);
@@ -667,9 +667,23 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             Ok(Value::Null)
         }
         "panel.remove" => {
-            panel(app, &ctx, RightPanel::Remove, "Remove");
-            if app.ui.right == RightPanel::Remove && app.ui.tool.is_empty() {
-                app.ui.tool = "remove".into();
+            if app.ui.right == RightPanel::Remove {
+                // H while the Remove tool is active: toggle the spot overlay (Lightroom behaviour)
+                match app.ui.remove_overlay {
+                    SpotOverlay::Never => {
+                        app.ui.remove_overlay = app.ui.remove_overlay_remembered.unwrap_or(SpotOverlay::Auto);
+                        app.ui.remove_overlay_remembered = None;
+                    }
+                    overlay => {
+                        app.ui.remove_overlay_remembered = Some(overlay);
+                        app.ui.remove_overlay = SpotOverlay::Never;
+                    }
+                }
+            } else {
+                panel(app, &ctx, RightPanel::Remove, "Remove");
+                if app.ui.right == RightPanel::Remove && app.ui.tool.is_empty() {
+                    app.ui.tool = "remove".into();
+                }
             }
             Ok(Value::Null)
         }

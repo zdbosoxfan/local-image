@@ -371,6 +371,8 @@ pub struct UiState {
     pub remove_draft: Option<RemoveDraft>,
     /// Remove tool: when spots' pins and outlines show.
     pub remove_overlay: SpotOverlay,
+    /// The overlay value to restore when toggling back from Never (last non-Never value).
+    pub remove_overlay_remembered: Option<SpotOverlay>,
     /// Selected Point Color sample.
     pub point_color: usize,
     /// Point Color "Visualize range": the selected sample's range in colour, the rest grey.
@@ -656,6 +658,7 @@ impl Default for UiState {
             remove_lasso: false,
             remove_draft: None,
             remove_overlay: SpotOverlay::Auto,
+            remove_overlay_remembered: None,
             point_color: 0,
             point_color_visualize: false,
             point_color_mask: None,

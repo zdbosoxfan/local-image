@@ -6,7 +6,7 @@ use lightcraft_develop::MaskShape;
 use serde_json::json;
 
 use crate::headless::Headless;
-use crate::state::RightPanel;
+use crate::state::{RightPanel, SpotOverlay};
 use crate::{LightcraftApp, Services};
 
 const T: Duration = Duration::from_secs(20);
@@ -181,6 +181,32 @@ fn remove_spots_by_pointer_and_keyboard() {
     assert_eq!(h.app.session.visible_cloned().len(), photos);
     h.request("ui.key", json!({"key": "delete"}), T);
     assert_eq!(spots(&h).len(), 1, "nothing selected: nothing deleted");
+    h.settle(SETTLE);
+}
+
+#[test]
+fn h_toggles_remove_overlay_when_panel_active() {
+    let mut h = detail("panel.remove");
+    assert_eq!(h.app.ui.right, RightPanel::Remove);
+    assert_eq!(h.app.ui.remove_overlay, SpotOverlay::Auto, "first H opens Remove with overlay Auto");
+    // H again: Never
+    exec(&mut h, "panel.remove", json!({}));
+    assert_eq!(h.app.ui.remove_overlay, SpotOverlay::Never);
+    assert_eq!(h.app.ui.right, RightPanel::Remove, "panel stays open");
+    // H again: Auto (restored)
+    exec(&mut h, "panel.remove", json!({}));
+    assert_eq!(h.app.ui.remove_overlay, SpotOverlay::Auto);
+    assert_eq!(h.app.ui.right, RightPanel::Remove);
+    // choose Always via the setting
+    let r = h.request("ui.set", json!({"removeOverlay": "always"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(h.app.ui.remove_overlay, SpotOverlay::Always);
+    // H -> Never (remembers Always)
+    exec(&mut h, "panel.remove", json!({}));
+    assert_eq!(h.app.ui.remove_overlay, SpotOverlay::Never);
+    // H -> Always
+    exec(&mut h, "panel.remove", json!({}));
+    assert_eq!(h.app.ui.remove_overlay, SpotOverlay::Always);
     h.settle(SETTLE);
 }
 
