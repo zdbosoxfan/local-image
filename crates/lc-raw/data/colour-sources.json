@@ -1,0 +1,16 @@
+{
+  "rawler": {
+    "release": "v0.8.0",
+    "upstream_tree": "ae01bcb2d0f8a74f9dfbb9f7b5c7e315c8e668b7",
+    "camera_tomls_sha256": "6c6bd88a84ca1d81272f4ffb7bfd56f61a2920071298ea9c776bdc2ef0e14067",
+    "files": 738,
+    "hash_scheme": "sorted paths relative to rawler/data/cameras, NUL, file bytes"
+  },
+  "rawtherapee": {
+    "commit": "5f486d3678b34c74ba0c63571c17babe20935019",
+    "camconst_sha256": "1bc59b7325a6fa0faddf7e388ec92ad123bd9fb61bffcc689dd8b0edf219fa58"
+  },
+  "darktable": {
+    "commit": "733bd69f32cac7ff5e41025115942772add1f088"
+  }
+}

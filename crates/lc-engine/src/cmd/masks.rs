@@ -799,7 +799,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Add Remove Spot",
             [],
             None,
-            "{mode?: remove|heal|clone|ai, points: [[x,y],…], size?: fraction of long edge, feather?, opacity?, source?: [dx,dy] (default: the best match nearby)} — selects the new spot; returns {index}. mode ai (generative removal, background job; one undo step when ready): points or polygon: [[x,y],…] or mask: layer id, engine?, seed?, wait? → {job}",
+            "{mode?: remove|heal|clone|ai, points: [[x,y],…], size?: fraction of long edge, feather?, opacity?, source?: [dx,dy] (default: the best match nearby)} — selects the new spot; returns {index}. mode ai (generative removal, background job; one undo step when ready): points and/or polygon: [[x,y],…] (several lassos: one outline, filled non-zero) or mask: layer id, engine? (\"local\": content-aware heal on this computer, no AI engine needed), seed?, wait? → {job}",
             has_active,
             |s, p| {
                 let mode: SpotMode =
@@ -1018,10 +1018,23 @@ fn spots_edit(s: &mut Session, c: &str, label: &str, f: impl FnOnce(&mut Vec<Spo
     s.set_develop(id, d, label)
 }
 
-/// An automatic source for `spot` on photo `id` (a small proxy of the photo, framed by `d`).
+/// An automatic source for `spot` on photo `id` (a small proxy of the photo, framed by `d`). The
+/// proxy shows the photo's AI removals and heals (`d`'s patches made from this photo), so a source
+/// is never picked from what one of them removed.
 fn pick_source(s: &mut Session, id: crate::PhotoId, d: &lightcraft_develop::DevelopSettings, spot: &Spot, avoid: Option<Point>) -> Option<Point> {
     let src = s.source_now(id, crate::media::SourceLevel::Thumb).ok()?;
     let info = s.source_info(id);
+    let hash = s.catalog.photo(id).map(|p| crate::enhance::source_hash(p));
+    let foreign = |sp: &Spot| sp.patch.as_ref().is_some_and(|p| hash.as_deref() != Some(p.source.as_str()));
+    let own;
+    let d = if d.spots.iter().any(foreign) {
+        let mut c = d.clone();
+        c.spots.retain(|sp| !foreign(sp));
+        own = c;
+        &own
+    } else {
+        d
+    };
     lightcraft_pipeline::spots::pick_source(&src, &info, d, spot, avoid)
 }
 

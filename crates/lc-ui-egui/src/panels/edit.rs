@@ -82,6 +82,13 @@ pub(crate) fn control_t(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopS
     let v = controls::get(d, id).unwrap_or(spec.default);
     let out = slider(ui, spec, v, enabled, None);
     apply_slider_out(app, spec, out, |app, v| target.set(app, json!({id: v})));
+    if id == "detail.sharpenMasking" && matches!(target, Target::Global) {
+        let preview = app.ui.dragging_control.as_deref() == Some(id) && ui.input(|i| i.modifiers.alt);
+        if app.ui.sharpen_mask_preview != preview {
+            app.ui.sharpen_mask_preview = preview;
+            ui.ctx().request_repaint();
+        }
+    }
 }
 
 /// The tool sections a develop layer can hold too: Light (and the tone curve), Color (white
@@ -269,10 +276,6 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
         {
             control_t(app, ui, d, c, true, target);
         }
-        // local-image: AI Denoise (the photo's, not a layer's)
-        if matches!(target, Target::Global) {
-            super::enhance::denoise_section(app, ui, d);
-        }
         ui.add_space(8.0);
     });
 }
@@ -441,6 +444,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     if d.profile.id != "lc.color" {
         control(app, ui, &d, "profile.amount", true);
         ui.add_space(6.0);
+    }
+    if app.session.catalog.photo(id).is_some_and(|p| p.develops_raw()) {
+        crate::panels::process::look_row(app, ui, &d);
     }
     divider(ui);
     // film negative conversion: first, since it changes what every section below works on
@@ -1024,6 +1030,14 @@ fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Dev
             })
             .collect();
         p.add(egui::Shape::line(pts, Stroke::new(2.0, Color32::from_gray(220))));
+        ui.horizontal(|ui| {
+            let mut mode = d.curve.mode;
+            ui.selectable_value(&mut mode, lightcraft_develop::CurveMode::Luminance, crate::i18n::tr("Luminance"));
+            ui.selectable_value(&mut mode, lightcraft_develop::CurveMode::Rgb, "RGB");
+            if mode != d.curve.mode {
+                let _ = target.merge(app, json!({"curve":{"mode":mode}}), "Curve Mode");
+            }
+        });
         curve_footer(app, ui, d, target);
         for c in ["curve.highlights", "curve.lights", "curve.darks", "curve.shadows"] {
             control_t(app, ui, d, c, true, target);

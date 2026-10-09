@@ -183,7 +183,7 @@ pub fn cache_key() -> u64 {
             h.str(model).str(json);
         }
         h.finish().0 as u64
-    })
+    }) ^ crate::dcp_profiles::cache_key()
 }
 
 /// Per camera model: the photos read and their pooled colour pairs.

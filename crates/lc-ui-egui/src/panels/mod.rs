@@ -20,6 +20,7 @@ pub mod masking;
 pub mod notices;
 pub mod people;
 pub mod presets;
+pub mod process;
 pub mod profiles;
 pub mod right;
 pub mod rules_editor;

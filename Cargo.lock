@@ -3913,6 +3913,8 @@ dependencies = [
  "lightcraft-segment",
  "log",
  "miniz_oxide 0.8.9",
+ "photocraft-algo",
+ "photocraft-raster",
  "rayon",
  "serde",
  "serde_json",
