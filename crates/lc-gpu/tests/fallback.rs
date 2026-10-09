@@ -124,3 +124,21 @@ fn develop_layer_tools_fall_back_to_the_cpu() {
     s.masks[0].opacity = 50.0;
     assert!(!lightcraft_pipeline::layers_need_cpu(&s));
 }
+
+/// A render request far beyond any device (a fit into `usize::MAX`: `w × h × 3` overflows) is
+/// refused up front as over the limit, not wrapped into a small size that dispatches forever.
+#[test]
+fn absurd_render_sizes_are_refused() {
+    if !lightcraft_gpu::available() {
+        eprintln!("skipped: no GPU adapter ({:?})", lightcraft_gpu::unavailable_reason());
+        return;
+    }
+    let src = Arc::new(lightcraft_scenes::demo_library()[0].render(320, 240));
+    let info = SourceInfo { raw: true, ..Default::default() };
+    for (w, h) in [(usize::MAX, usize::MAX), (1 << 33, 1 << 33)] {
+        assert!(lightcraft_gpu::render(&src, &info, &DevelopSettings::default(), &RenderRequest::fit(w, h), None).is_none());
+        let why = lightcraft_gpu::last_fallback().unwrap_or_default();
+        assert!(why.contains("limit"), "{why}");
+    }
+    assert!(lightcraft_gpu::available(), "a refused size is no device failure");
+}

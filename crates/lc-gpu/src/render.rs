@@ -529,18 +529,17 @@ pub fn render(
     };
     let plan = lightcraft_pipeline::plan(src, info, s, req);
     let (w, h) = (plan.w, plan.h);
-    let n = w * h;
     let _limit = match fault {
         Some(crate::Fault::Limit(bytes)) => Some(crate::ctx::LimitOverride::new(bytes)),
         _ => None,
     };
-    if !gpu.fits(n * 3) {
-        fail(
-            FailKind::Limit,
-            format!("{w}×{h} needs {} MiB buffers, over the device's {} MiB storage-buffer limit", (n * 12).div_ceil(1 << 20), gpu.limit() >> 20),
-        );
+    // checked: an absurd request (e.g. a fit into `usize::MAX`) must not wrap into a size that
+    // passes the check and then dispatches bands forever
+    let Some(n) = w.checked_mul(h).filter(|n| n.checked_mul(12).is_some() && gpu.fits(n * 3)) else {
+        let mib = (w as u128).saturating_mul(h as u128).saturating_mul(12).div_ceil(1 << 20);
+        fail(FailKind::Limit, format!("{w}×{h} needs {mib} MiB buffers, over the device's {} MiB storage-buffer limit", gpu.limit() >> 20));
         return None;
-    }
+    };
     let s = &*plan.settings;
     let cached = stages.and_then(|c| c.get(src, plan.geo));
     let mut host = Host::default();
