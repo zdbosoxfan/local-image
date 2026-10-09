@@ -138,7 +138,6 @@ fn motion_constant_image_stays_constant() {
 }
 
 #[test]
-#[ignore = "BUG: global radial blur ignores extent and samples outside bounds as transparent"]
 fn radial_constant_image_stays_constant() {
     let (w, h) = (15, 15);
     let c = [0.75, 0.25, 0.55, 1.0];
@@ -150,6 +149,75 @@ fn radial_constant_image_stays_constant() {
         let got = read_region(&out, bounds(w, h));
         for px in got.as_chunks::<4>().0 {
             assert_approx_eq(px, &c, 1e-6);
+        }
+    }
+}
+
+fn const_rgba(w: i32, h: i32, c: [f32; 4]) -> Surface {
+    let data: Vec<f32> = (0..w * h).flat_map(|_| c).collect();
+    rgba_surface(w, h, SampleType::F32, &data)
+}
+
+#[test]
+fn radial_constant_image_any_centre_size_and_amount() {
+    let c = [0.2, 0.6, 0.9, 1.0];
+    for (w, h) in [(1, 1), (2, 3), (7, 5), (15, 15), (33, 20)] {
+        let s = const_rgba(w, h, c);
+        for method in [RadialMethod::Spin, RadialMethod::Zoom] {
+            for (cx, cy) in [(0.5, 0.5), (0.0, 0.0), (1.0, 1.0), (0.1, 0.9), (-1.0, 0.5), (2.5, -0.7)] {
+                for amount in [1.0, 40.0, 100.0] {
+                    let p = FilterParams::RadialBlur { amount, method, center_x: cx, center_y: cy };
+                    let out = apply_in(&s, &p, bounds(w, h), bounds(w, h), None, bounds(w, h));
+                    for px in read_region(&out, bounds(w, h)).as_chunks::<4>().0 {
+                        assert!(px.iter().all(|v| v.is_finite()));
+                        assert_approx_eq(px, &c, 1e-5);
+                    }
+                    // The plain (no extent) entry point also repeats the bounds edge.
+                    let out = apply(&s, &p, bounds(w, h), bounds(w, h), None);
+                    for px in read_region(&out, bounds(w, h)).as_chunks::<4>().0 {
+                        assert_approx_eq(px, &c, 1e-5);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn radial_keeps_interior_transparency() {
+    // Left half opaque, right half fully transparent: the transparent half stays mostly
+    // transparent far from the seam, and the opaque half stays opaque far from the seam.
+    let (w, h) = (40, 20);
+    let mut data = Vec::new();
+    for _y in 0..h {
+        for x in 0..w {
+            data.extend_from_slice(&if x < w / 2 { [0.5, 0.5, 0.5, 1.0] } else { [0.0, 0.0, 0.0, 0.0] });
+        }
+    }
+    let s = rgba_surface(w, h, SampleType::F32, &data);
+    for method in [RadialMethod::Spin, RadialMethod::Zoom] {
+        let p = FilterParams::RadialBlur { amount: 10.0, method, center_x: 0.5, center_y: 0.5 };
+        let out = apply_in(&s, &p, bounds(w, h), bounds(w, h), None, bounds(w, h));
+        let got = read_region(&out, bounds(w, h));
+        assert!(got.iter().all(|v| v.is_finite()));
+        let at = |x: i32, y: i32| got[((y * w + x) * 4) as usize + 3];
+        assert!(at(30, 10) < 0.05, "transparent side picked up alpha: {}", at(30, 10));
+        assert!(at(5, 10) > 0.95, "opaque side lost alpha: {}", at(5, 10));
+        assert!(at(0, 0) > 0.9 && at(0, h - 1) > 0.9, "opaque corners faded");
+    }
+}
+
+#[test]
+fn motion_constant_image_stays_constant_at_edges() {
+    let c = [0.3, 0.4, 0.5, 1.0];
+    for (w, h) in [(1, 1), (3, 4), (15, 15)] {
+        let s = const_rgba(w, h, c);
+        for angle in [0.0, 45.0, 90.0, 135.0] {
+            let p = FilterParams::MotionBlur { angle, distance: 20.0 };
+            let out = apply_in(&s, &p, bounds(w, h), bounds(w, h), None, bounds(w, h));
+            for px in read_region(&out, bounds(w, h)).as_chunks::<4>().0 {
+                assert_approx_eq(px, &c, 1e-5);
+            }
         }
     }
 }
