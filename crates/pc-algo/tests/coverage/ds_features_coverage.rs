@@ -289,7 +289,6 @@ fn register_translation_alignment() {
 // This currently panics because ransac does not validate that source and
 // destination slices have the same length before indexing them.
 #[test]
-#[ignore = "BUG: ransac panics when src and dst lengths differ"]
 fn ransac_mismatched_lengths_does_not_panic() {
     let src = vec![[0.0, 0.0], [1.0, 1.0]];
     let dst = vec![[0.0, 0.0]];

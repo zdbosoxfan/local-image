@@ -422,16 +422,21 @@ pub fn mvc_membrane(w: usize, h: usize, mask: &[bool], diff: &[f32], ch: usize) 
 /// `colour` of the `n` channels per pixel (alpha and any further channels are kept from `src`).
 /// Outside the mask the result is `src`. Values are not clamped.
 pub fn seamless_blend(w: usize, h: usize, n: usize, colour: usize, src: &[f32], dst: &[f32], mask: &[bool]) -> Vec<f32> {
+    let pixels = w.saturating_mul(h);
+    let required = pixels.saturating_mul(n);
+    if src.len() < required || dst.len() < required || mask.len() < pixels {
+        return Vec::new();
+    }
     let colour = colour.min(n).min(8);
-    let mut diff = vec![0.0f32; w * h * colour];
-    for i in 0..w * h {
+    let mut diff = vec![0.0f32; pixels * colour];
+    for i in 0..pixels {
         for c in 0..colour {
             diff[i * colour + c] = dst[i * n + c] - src[i * n + c];
         }
     }
     let mem = mvc_membrane(w, h, mask, &diff, colour);
     let mut out = src.to_vec();
-    for i in 0..w * h {
+    for i in 0..pixels {
         if mask[i] {
             for c in 0..colour {
                 out[i * n + c] += mem[i * colour + c];
