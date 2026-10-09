@@ -277,6 +277,18 @@ impl Host {
     }
 }
 
+/// Brings the editor's document saved at `path` forward; `false` when none is open.
+fn focus_open_document(editor: &mut PhotocraftApp, path: &str) -> bool {
+    let same = |p: &str| p == path || std::fs::canonicalize(p).ok().zip(std::fs::canonicalize(path).ok()).is_some_and(|(a, b)| a == b);
+    match editor.session.documents().iter().position(|d| d.path.as_deref().is_some_and(same)) {
+        Some(i) => {
+            editor.session.set_active(i);
+            true
+        }
+        None => false,
+    }
+}
+
 /// Library shows the grid (or wherever browsing was); Develop shows the active photo with the
 /// develop tools (choosing the first photo when none is active).
 fn set_library_view(lib: &mut LightcraftApp, develop: bool) {
@@ -322,7 +334,9 @@ impl eframe::App for Host {
         }
         let opened: Vec<String> = std::mem::take(&mut *self.opens.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         if !opened.is_empty() {
-            self.editor.open_paths(&opened);
+            // a document already open (Open in Compositing twice) comes forward instead
+            let fresh: Vec<String> = opened.into_iter().filter(|p| !focus_open_document(&mut self.editor, p)).collect();
+            self.editor.open_paths(&fresh);
             self.switch(ctx, Module::Compositing);
         }
         if let Some(m) = self.editor.switch_module.take() {
@@ -656,6 +670,24 @@ fn services(opens: Opens) -> Services {
         })),
         backup_library: None,
         restore_library: None,
-        doc_layers: None,
+        doc_layers: Some(Arc::new(crate::doc_layers::load)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn opening_a_document_twice_brings_it_forward() {
+        let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), photocraft_ui_egui::Services::default());
+        let doc = |n: &str| photocraft_doc::Document::new(n, photocraft_doc::Size::new(4, 4), photocraft_color::ColorMode::Rgb, photocraft_color::SampleType::U8);
+        editor.session.open_document(doc("a"), Some("/photos/a.psd".into()));
+        editor.session.open_document(doc("b"), Some("/photos/b.psd".into()));
+        assert_eq!(editor.session.active_index(), Some(1));
+        assert!(focus_open_document(&mut editor, "/photos/a.psd"));
+        assert_eq!(editor.session.active_index(), Some(0));
+        assert!(!focus_open_document(&mut editor, "/photos/c.psd"));
+        assert_eq!(editor.session.active_index(), Some(0));
     }
 }

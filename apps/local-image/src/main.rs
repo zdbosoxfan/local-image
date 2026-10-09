@@ -30,6 +30,7 @@ mod cursor;
 #[cfg(target_os = "linux")]
 mod desktop_install;
 mod develop_ai;
+mod doc_layers;
 mod gpu_startup;
 mod library_host;
 #[cfg(target_os = "macos")]
