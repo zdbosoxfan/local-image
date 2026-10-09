@@ -235,8 +235,17 @@ fn composite(mode: i32, b: vec4<f32>, s: vec4<f32>, opacity: f32) -> vec4<f32> {
         let m = srgb_to_lab(b.rgb) * (ab * (1.0 - as_) / ao) + srgb_to_lab(s.rgb) * (as_ / ao);
         return vec4(lab_to_srgb(m), ao);
     }
-    let bl = blend_rgb(mode, b.rgb, s.rgb);
     let ao = as_ + ab * (1.0 - as_);
+    if (mode == M_NORMAL) {
+        // psblend::composite's Normal fast path, term for term: the general formula below is
+        // equal in exact arithmetic but rounds differently, and an ulp in the backdrop can
+        // flip an adjustment layer's rounding to the document's 8-bit levels.
+        if (ao <= 0.0) { return vec4(0.0); }
+        let kb = ab * (1.0 - as_);
+        let inv = 1.0 / ao;
+        return vec4((kb * b.rgb + as_ * s.rgb) * inv, ao);
+    }
+    let bl = blend_rgb(mode, b.rgb, s.rgb);
     if (ao <= 0.0) { return vec4(0.0); }
     let rgb = ((1.0 - as_) * ab * b.rgb + (1.0 - ab) * as_ * s.rgb + as_ * ab * bl) / ao;
     return vec4(rgb, ao);
@@ -721,7 +730,12 @@ fn fs_lerp(in: VOut) -> @location(0) vec4<f32> {
     let a = textureLoad(tex_a, p, 0);
     let b = textureLoad(tex_b, p, 0);
     if ((op.flags & F_QUANT) != 0u) {
-        return floor(a * op.p0.x + 0.5) / op.p0.x;
+        // compose::quantize divides by the step count, correctly rounded; GPU division may be
+        // off by an ulp (255 / 255 came back as 0.99999994), so one residual step corrects it.
+        let q = vec4(op.p0.x);
+        let n = floor(a * q + 0.5);
+        let y = n / q;
+        return y + fma(-y, q, n) / q;
     }
     if ((op.flags & F_CHANNELS) != 0u) {
         return a + (b - a) * op.p0;
