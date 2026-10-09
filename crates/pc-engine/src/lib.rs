@@ -328,6 +328,10 @@ pub struct Session {
     pub authorize: Option<fn(&str, &serde_json::Value) -> Result<()>>,
     /// Background jobs (see [`jobs`]).
     jobs: jobs::Jobs,
+    /// A finished live stroke for the next `paint.stroke` / `paint.pencil` (see
+    /// [`Session::prepare_live_commit`]), and how many commits reused one.
+    live_commit: Option<brush_cmds::LiveStroke>,
+    live_commits_reused: u64,
 }
 
 /// Move item `i` of `v` to position `to`, clamped to the end. Returns where it went; `None` when
@@ -345,6 +349,27 @@ pub fn move_item<T>(v: &mut Vec<T>, i: usize, to: usize) -> Option<usize> {
 impl Session {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Hand the live stroke the canvas showed while it was drawn to the `paint.stroke` /
+    /// `paint.pencil` that commits it: when that command's document, target, brush, params and
+    /// points are exactly the ones the live stroke rendered, it takes the live stroke's pixels
+    /// instead of rendering the whole stroke again (the pixels are the same: a stroke renders
+    /// identically however its points are chunked). Anything else and the command renders as
+    /// usual. History, the journal and the damage rect are the same either way.
+    pub fn prepare_live_commit(&mut self, live: brush_cmds::LiveStroke) {
+        self.live_commit = Some(live);
+    }
+
+    /// Drop a live stroke [`Session::prepare_live_commit`] handed over that no command took.
+    pub fn discard_live_commit(&mut self) {
+        self.live_commit = None;
+    }
+
+    /// Stroke commits that reused their live stroke's pixels (see
+    /// [`Session::prepare_live_commit`]).
+    pub fn live_commits_reused(&self) -> u64 {
+        self.live_commits_reused
     }
 
     pub fn documents(&self) -> &[DocState] {

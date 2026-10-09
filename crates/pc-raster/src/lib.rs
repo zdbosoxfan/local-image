@@ -12,6 +12,12 @@ pub use interrupt::{Cancelled, Interrupt};
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+fn next_revision() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
 
 use photocraft_color::{ColorMode, PixelFormat, SampleType, read_sample, write_sample};
 use photocraft_geom::{Rect, TILE_SIZE, TileCoord};
@@ -41,11 +47,18 @@ impl Tile {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Surface {
     format: PixelFormat,
     default_pixel: Box<[u8]>,
     tiles: BTreeMap<TileCoord, Arc<Tile>>,
+    revision: AtomicU64,
+}
+
+impl Clone for Surface {
+    fn clone(&self) -> Self {
+        Self { format: self.format, default_pixel: self.default_pixel.clone(), tiles: self.tiles.clone(), revision: AtomicU64::new(self.revision()) }
+    }
 }
 
 impl PartialEq for Surface {
@@ -57,7 +70,12 @@ impl PartialEq for Surface {
 impl Surface {
     /// Transparent/zero surface.
     pub fn new(format: PixelFormat) -> Self {
-        Self { format, default_pixel: vec![0u8; format.bytes_per_pixel()].into_boxed_slice(), tiles: BTreeMap::new() }
+        Self {
+            format,
+            default_pixel: vec![0u8; format.bytes_per_pixel()].into_boxed_slice(),
+            tiles: BTreeMap::new(),
+            revision: AtomicU64::new(next_revision()),
+        }
     }
 
     /// Surface whose untouched pixels read as `pixel` (normalised channel values).
@@ -65,6 +83,21 @@ impl Surface {
         let mut s = Self::new(format);
         encode_pixel(&format, pixel, &mut s.default_pixel);
         s
+    }
+
+    /// Process-local identity of this pixel state. Clones share it until either is mutated.
+    /// It is not persisted and does not participate in pixel equality.
+    pub fn revision(&self) -> u64 {
+        let revision = self.revision.load(Ordering::Relaxed);
+        if revision != 0 {
+            return revision;
+        }
+        // Mutations only mark dirty; mint an ID lazily, so per-pixel writers do not contend
+        // on a process-wide atomic for every sample. Surface remains Send + Sync.
+        match self.revision.compare_exchange(0, next_revision(), Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => self.revision.load(Ordering::Relaxed),
+            Err(current) => current,
+        }
     }
 
     pub fn format(&self) -> PixelFormat {
@@ -88,6 +121,7 @@ impl Surface {
 
     /// Mutable access to a tile, allocating it (filled with the default pixel) or un-sharing it.
     pub fn tile_mut(&mut self, c: TileCoord) -> &mut Tile {
+        *self.revision.get_mut() = 0;
         let fmt = self.format;
         let dp = self.default_pixel.clone();
         let arc = self.tiles.entry(c).or_insert_with(|| Arc::new(Tile::filled(&fmt, &dp)));
@@ -140,6 +174,7 @@ impl Surface {
 
     /// Drop tiles that are entirely the default pixel.
     pub fn prune(&mut self) {
+        *self.revision.get_mut() = 0;
         let dp = self.default_pixel.clone();
         let bpp = dp.len();
         self.tiles.retain(|_, t| t.data.chunks_exact(bpp).any(|px| px != &*dp));
@@ -402,6 +437,7 @@ impl Surface {
     /// pixel), so they can be edited elsewhere, e.g. in parallel: `Arc::unwrap_or_clone` copies a
     /// tile only if an undo snapshot still shares it. Give them back with [`Surface::put_tiles`].
     pub fn take_tiles(&mut self, r: Rect) -> Vec<(TileCoord, Arc<Tile>)> {
+        *self.revision.get_mut() = 0;
         let fmt = self.format;
         let mut blank: Option<Arc<Tile>> = None;
         r.tiles()
@@ -414,6 +450,7 @@ impl Surface {
 
     /// Put tiles back (see [`Surface::take_tiles`]); each replaces the tile at its coordinate.
     pub fn put_tiles(&mut self, tiles: impl IntoIterator<Item = (TileCoord, Arc<Tile>)>) {
+        *self.revision.get_mut() = 0;
         for (c, t) in tiles {
             self.tiles.insert(c, t);
         }
@@ -827,5 +864,30 @@ mod tests {
         s.fill_rect(Rect::new(0, 0, 2000, 1500), &[1.0]);
         s.fill_rect(Rect::new(-700, 4000, -699, 4001), &[0.5]);
         assert_eq!(s.content_bounds(), Rect::new(-700, 0, 2000, 4001));
+    }
+}
+
+#[cfg(test)]
+mod revision_tests {
+    use super::*;
+
+    #[test]
+    fn revision_tracks_every_mutation_and_snapshot() {
+        let mut s = Surface::new(PixelFormat::RGBA8);
+        let before = s.clone();
+        assert_eq!(s.revision(), before.revision());
+        s.tile_mut(TileCoord { tx: 0, ty: 0 }).bytes_mut()[0] = 42;
+        assert_ne!(s.revision(), before.revision());
+        let rev = s.revision();
+        let tiles = s.take_tiles(Rect::new(0, 0, 1, 1));
+        assert_ne!(rev, s.revision());
+        let rev = s.revision();
+        s.put_tiles(tiles);
+        assert_ne!(rev, s.revision());
+        let rev = s.revision();
+        s.prune();
+        assert_ne!(rev, s.revision());
+        assert_eq!(before, Surface::new(PixelFormat::RGBA8));
+        assert_ne!(before.revision(), Surface::new(PixelFormat::RGBA8).revision());
     }
 }

@@ -35,6 +35,7 @@ pub mod bounds;
 mod fx;
 pub mod health;
 pub mod plan;
+pub mod plan_cache;
 
 use std::collections::HashMap;
 use std::num::NonZeroU64;
@@ -381,6 +382,11 @@ fn texture_group(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, views: &
 /// GPU compositor. Create once per device; call [`Compositor::render`] per refresh.
 pub struct Compositor {
     kit: Kit,
+    plans: std::sync::Mutex<HashMap<DocId, plan_cache::PlanCache>>,
+    uniforms: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
+    uniform_cursor: usize,
+    texture_groups: HashMap<Vec<wgpu::TextureView>, wgpu::BindGroup>,
+    luts: HashMap<usize, (Arc<Vec<[f32; 4096]>>, (wgpu::Texture, wgpu::TextureView))>,
     pool: Vec<(wgpu::Texture, wgpu::TextureView)>,
     residents: HashMap<ResKey, Resident>,
     fx: HashMap<FxKey, FxEntry>,
@@ -587,6 +593,11 @@ impl Compositor {
             pool: Vec::new(),
             residents: HashMap::new(),
             fx: HashMap::new(),
+            plans: Default::default(),
+            uniforms: Vec::new(),
+            uniform_cursor: 0,
+            texture_groups: HashMap::new(),
+            luts: HashMap::new(),
             temps: Vec::new(),
             patterns: HashMap::new(),
             max_dim: 0,
@@ -617,6 +628,8 @@ impl Compositor {
     /// adapter. Drops every cached texture.
     pub fn set_texture_limit(&mut self, max: u32) {
         let tile = TILE_SIZE as u32;
+        self.plans = Default::default();
+        self.texture_groups.clear();
         self.max_dim = max.min(self.device_max).max(tile);
         let mut page = tile;
         while page * 2 <= self.max_dim.min(PAGE) {
@@ -624,6 +637,9 @@ impl Compositor {
         }
         self.page = page;
         self.chunk = CHUNK.min(page);
+        self.texture_groups.clear();
+        self.uniforms.clear();
+        self.luts.clear();
         self.pool.clear();
         self.residents.clear();
         self.fx.clear();
@@ -656,7 +672,7 @@ impl Compositor {
     /// Bytes of the layer pages a render of `region` needs resident (each layer and mask
     /// surface's tiles within the region's page cells, in their texture format).
     pub fn working_set(&self, doc: &Document, region: Rect) -> u64 {
-        let Ok(plan) = plan(doc) else { return 0 };
+        let Ok(plan) = self.cached_plan(doc) else { return 0 };
         let grid = tile_grid(doc.bounds());
         let cells = grid_rects(region.intersect(&doc.bounds()), self.page)
             .into_iter()
@@ -696,8 +712,19 @@ impl Compositor {
     /// limit are fine: surfaces are stored in page-sized textures and effect maps of regions
     /// larger than the limit are built per page cell.
     pub fn supports(&self, doc: &Document) -> Result<(), Unsupported> {
-        let p = plan(doc)?;
-        self.check_fx(doc, &p)
+        self.cached_plan(doc).map(|_| ())
+    }
+
+    /// Number of structure changes that rebuilt the cached pass list (profiling/tests).
+    pub fn plan_builds(&self) -> u64 {
+        self.plans.lock().unwrap_or_else(std::sync::PoisonError::into_inner).values().map(|p| p.builds).sum()
+    }
+
+    fn cached_plan<'a>(&self, doc: &'a Document) -> Result<Plan<'a>, Unsupported> {
+        let space = photocraft_compose::cmyk_space(doc);
+        photocraft_color::convert::with_cmyk_space(space.as_ref(), || {
+            self.plans.lock().unwrap_or_else(std::sync::PoisonError::into_inner).entry(doc.id).or_default().get(doc, |p| self.check_fx(doc, p))
+        })
     }
 
     /// Whether the maps of an effect region are built per page cell (it exceeds the limit).
@@ -764,6 +791,8 @@ impl Compositor {
 
     /// Drop GPU textures of a closed document.
     pub fn forget_doc(&mut self, doc: DocId) {
+        self.plans.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&doc);
+        self.texture_groups.clear();
         self.residents.retain(|_, r| r.doc != doc);
         self.fx.retain(|_, e| e.doc != doc);
     }
@@ -798,10 +827,53 @@ impl Compositor {
         region: Rect,
         mut sink: impl FnMut(&mut wgpu::CommandEncoder, ChunkOut<'_>),
     ) -> Result<Stats, Unsupported> {
+        self.render_with_finish(device, queue, doc, region, &mut sink, |_| {})
+    }
+
+    /// Render and append a final pass (e.g. canvas mip generation) before the final submit.
+    pub fn render_with_finish(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        doc: &Document,
+        region: Rect,
+        mut sink: impl FnMut(&mut wgpu::CommandEncoder, ChunkOut<'_>),
+        finish: impl FnOnce(&mut wgpu::CommandEncoder),
+    ) -> Result<Stats, Unsupported> {
+        self.uniform_cursor = 0;
+        let errors = self.health.as_ref().map(DeviceHealth::errors);
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("pc_compose") });
         let stats = self.encode_inner(device, queue, &mut encoder, doc, region, &mut sink, true)?;
+        finish(&mut encoder);
         queue.submit([encoder.finish()]);
+        self.check_errors(errors)?;
         Ok(stats)
+    }
+
+    /// `Err` when the device reported an error since [`DeviceHealth::errors`] was `before`: the
+    /// render's output can't be trusted (the caller redoes it on the CPU), and every cached
+    /// texture is dropped so nothing invalid is reused. The device itself stays in use unless
+    /// the error was its loss or one too many (see [`health::STRIKE_LIMIT`]).
+    pub fn check_errors(&mut self, before: Option<u64>) -> Result<(), Unsupported> {
+        let (Some(h), Some(before)) = (&self.health, before) else { return Ok(()) };
+        if h.errors() == before {
+            return Ok(());
+        }
+        let why = h.fault().map_or_else(|| format!("GPU error: {}", h.last_error().unwrap_or_default()), |f| f.to_string());
+        self.forget_all();
+        Err(Unsupported(why))
+    }
+
+    /// Drop every cached texture (layer pages, effect maps, temporaries, patterns, chunks).
+    pub fn forget_all(&mut self) {
+        self.texture_groups.clear();
+        self.uniforms.clear();
+        self.luts.clear();
+        self.pool.clear();
+        self.residents.clear();
+        self.fx.clear();
+        self.temps.clear();
+        self.patterns.clear();
     }
 
     /// Like [`Self::render`] but records into `encoder` without submitting.
@@ -850,8 +922,7 @@ impl Compositor {
     ) -> Result<Stats, Unsupported> {
         let canvas = doc.bounds();
         let region = region.intersect(&canvas);
-        let plan = plan(doc)?;
-        self.check_fx(doc, &plan)?;
+        let plan = self.cached_plan(doc)?;
         let mut stats = Stats { passes: plan.passes.len(), slots: plan.slots, ..Default::default() };
         if region.is_empty() {
             return Ok(stats);
@@ -911,7 +982,7 @@ impl Compositor {
             let chunks = grid_rects(part, self.chunk);
             stats.chunks += chunks.len();
             work += part.width() as u64 * part.height() as u64 * plan.passes.len() as u64;
-            self.run_cell(device, queue, encoder, doc.id, &plan, &paged, cell, &fr, &chunks, &mut stats, sink);
+            self.run_cell(device, queue, encoder, doc.id, &plan, &paged, cell, &fr, &chunks, &mut stats, sink, flush);
             let (evicted, bytes) = self.evict();
             stats.evicted += evicted;
             freed += bytes;
@@ -947,7 +1018,8 @@ impl Compositor {
         // Evict this document's textures whose layers are gone (hidden layers stay resident so
         // toggling visibility costs no upload).
         let frame = self.frame;
-        let live: std::collections::HashSet<LayerId> = doc.walk().into_iter().map(|(_, _, l)| l.id).collect();
+        let live =
+            self.plans.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&doc.id).and_then(plan_cache::PlanCache::layer_ids).unwrap_or_default();
         self.residents.retain(|(id, _, _), r| r.doc != doc.id || r.last_used == frame || live.contains(id));
         self.fx.retain(|(id, _), e| e.doc != doc.id || e.last_used == frame || live.contains(id));
         stats.evicted += self.evict().0;
@@ -998,6 +1070,9 @@ impl Compositor {
                 }
             }
         }
+        if n > 0 {
+            self.texture_groups.clear();
+        }
         (n, freed)
     }
 
@@ -1010,7 +1085,18 @@ impl Compositor {
             .iter()
             .map(|p| (p.tex.as_ref().map_or(Rect::EMPTY, |t| area(t.surface.get())), p.mask.as_ref().map_or(Rect::EMPTY, |m| area(m.surface.get()))))
             .collect();
-        let luts = plan.passes.iter().map(|p| p.lut.as_ref().map(|rows| lut_texture(device, queue, rows))).collect();
+        if self.luts.len() > 256 {
+            self.luts.clear();
+        }
+        let luts = plan
+            .passes
+            .iter()
+            .map(|p| {
+                p.lut
+                    .as_ref()
+                    .map(|rows| self.luts.entry(Arc::as_ptr(rows) as usize).or_insert_with(|| (rows.clone(), lut_texture(device, queue, rows))).1.clone())
+            })
+            .collect();
         let patterns = plan.passes.iter().map(|p| p.pattern.map(|pat| self.pattern_view(device, queue, pat))).collect();
         FrameRes { areas, luts, patterns }
     }
@@ -1081,6 +1167,7 @@ impl Compositor {
         chunks: &[Rect],
         stats: &mut Stats,
         sink: &mut dyn FnMut(&mut wgpu::CommandEncoder, ChunkOut<'_>),
+        pool_uniforms: bool,
     ) {
         if chunks.is_empty() {
             return;
@@ -1120,14 +1207,37 @@ impl Compositor {
             let off = (op_base + i as u64 * STRIDE) as usize;
             data[off..][..w.len()].copy_from_slice(&w);
         }
-        let ubuf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("pc_compose_uniforms"),
-            size: data.len() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        queue.write_buffer(&ubuf, 0, &data);
-        let bg0 = uniform_group(device, &self.kit.bgl0, &ubuf);
+        let make = || {
+            let b = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("pc_compose_uniforms"),
+                size: (data.len() as u64).next_power_of_two(),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            let group = uniform_group(device, &self.kit.bgl0, &b);
+            (b, group)
+        };
+        let fresh;
+        let (ubuf, bg0) = if pool_uniforms {
+            let index = self.uniform_cursor;
+            self.uniform_cursor += 1;
+            if index == self.uniforms.len() {
+                self.uniforms.push(make());
+            } else if self.uniforms[index].0.size() < data.len() as u64 {
+                self.uniforms[index] = make();
+            }
+            &self.uniforms[index]
+        } else {
+            // Public encode() leaves submission to its caller. Its buffers must stay distinct
+            // even if render() resets the frame pool before that encoder is submitted.
+            fresh = make();
+            &fresh
+        };
+        queue.write_buffer(ubuf, 0, &data);
+
+        if self.texture_groups.len() > 1024 {
+            self.texture_groups.clear();
+        }
 
         // Per-pass texture bind groups (chunk-independent: pool slots are reused per chunk).
         let dummy = &self.kit.dummy;
@@ -1145,7 +1255,10 @@ impl Compositor {
             let lv = fr.luts.get(i).and_then(Option::as_ref).map_or(dummy, |(_, v)| v);
             let map = bound.maps[i].as_ref().map_or(dummy, |(v, _)| v);
             let pat = fr.patterns.get(i).and_then(Option::as_ref).unwrap_or(dummy);
-            bg1.push(Some(texture_group(device, &self.kit.bgl1, &[slot(p.a), slot(p.b), tv, mv, lv, slot(p.c), map, pat])));
+            let views = [slot(p.a), slot(p.b), tv, mv, lv, slot(p.c), map, pat];
+            let key = views.iter().map(|v| (*v).clone()).collect();
+            let bg = self.texture_groups.entry(key).or_insert_with(|| texture_group(device, &self.kit.bgl1, &views));
+            bg1.push(Some(bg.clone()));
         }
 
         for (ci, c) in chunks.iter().enumerate() {
@@ -1208,7 +1321,7 @@ impl Compositor {
                 }
                 pass.set_pipeline(&self.kit.pipelines[&(p.kernel, self.acc_format)]);
                 pass.set_scissor_rect(scissor.x0 as u32, scissor.y0 as u32, scissor.width(), scissor.height());
-                pass.set_bind_group(0, &bg0, &[(ci as u64 * STRIDE) as u32, (op_base + i as u64 * STRIDE) as u32]);
+                pass.set_bind_group(0, bg0, &[(ci as u64 * STRIDE) as u32, (op_base + i as u64 * STRIDE) as u32]);
                 pass.set_bind_group(1, bg1[i].as_ref(), &[]);
                 pass.draw(0..3, 0..1);
             }

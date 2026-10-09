@@ -185,20 +185,36 @@ pub(crate) struct LiveStroke {
     key: u64,
     /// Damage of each step (step 0 = the document before the stroke).
     damage: Vec<DRect>,
+    /// Includes restored preview tails, even if they lie outside the current stroke bounds.
+    damage_bounds: DRect,
+    steps: u64,
+    first_step: u64,
     /// Drag points rendered so far.
     fed: usize,
 }
 
 impl LiveStroke {
     fn display_key(&self) -> u64 {
-        self.key + self.damage.len() as u64
+        self.key + self.steps
     }
 
     /// What changed since the canvas showed preview `key` (0 = the document before the stroke).
     fn since(&self, key: u64) -> Option<DRect> {
-        let seen = if key == 0 { 0 } else { usize::try_from(key.checked_sub(self.key)?).ok()? };
-        Some(self.damage.get(seen..)?.iter().fold(DRect::EMPTY, |a, r| a.union(r)))
+        let seen = if key == 0 { 0 } else { key.checked_sub(self.key)? };
+        if seen > self.steps {
+            return None;
+        }
+        if seen < self.first_step {
+            return Some(self.damage_bounds);
+        }
+        damage_since_step(self.key + self.first_step, &self.damage, key.max(self.key + self.first_step))
     }
+}
+
+/// [`LiveStroke::since`] for a stroke whose first preview key is `first` and step damage `damage`.
+fn damage_since_step(first: u64, damage: &[DRect], key: u64) -> Option<DRect> {
+    let seen = if key == 0 { 0 } else { usize::try_from(key.checked_sub(first)?).ok()? };
+    Some(damage.get(seen..)?.iter().fold(DRect::EMPTY, |a, r| a.union(r)))
 }
 
 /// The live stroke on document `idx`, while it is current.
@@ -314,8 +330,19 @@ fn begin_live_stroke(app: &PhotocraftApp) -> Option<LiveStroke> {
     let p = stroke_params(app, d.tool, d.erase, &timed_points(app, d));
     let stroke = photocraft_engine::brush_cmds::LiveStroke::begin_with(&app.session, stroke_command(d.tool), &p).ok()?;
     let n = STROKES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) & 0xff_ffff;
-    let damage = vec![stroke.bounds()];
-    Some(LiveStroke { stroke, doc: st.doc.id, revision: st.revision, key: (1 << 44) | (n << 20), damage, fed: d.points.len() })
+    let damage_bounds = stroke.bounds();
+    let damage = vec![damage_bounds];
+    Some(LiveStroke {
+        stroke,
+        doc: st.doc.id,
+        revision: st.revision,
+        key: (1 << 44) | (n << 20),
+        damage,
+        damage_bounds,
+        steps: 1,
+        first_step: 0,
+        fed: d.points.len(),
+    })
 }
 
 /// Render the drag points the live stroke hasn't seen yet, with the pen pressure, tilt and
@@ -346,7 +373,15 @@ fn feed_live_stroke(app: &mut PhotocraftApp) {
     }
     l.fed = d.points.len();
     match l.stroke.push(&pts) {
-        Ok(r) => l.damage.push(r),
+        Ok(r) => {
+            l.steps += 1;
+            l.damage_bounds = l.damage_bounds.union(&r);
+            if l.damage.len() == 128 {
+                l.damage.drain(..64);
+                l.first_step += 64;
+            }
+            l.damage.push(r);
+        }
         Err(_) => app.live_stroke = None,
     }
 }
@@ -618,7 +653,13 @@ pub fn navigator_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usiz
     }
     // Keyed by the document snapshot, not its revision: selecting a layer changes no pixels.
     let (snapshot, id) = app.session.documents().get(idx).map(|st| (std::sync::Arc::downgrade(&st.doc), st.doc.id))?;
-    let (doc, preview_key) = display_doc(app, idx);
+    let navigator_key = egui::Id::new(("navigator", id.0));
+    if app.drag.is_some()
+        && let Some((_, _, t)) = ctx.data(|d| d.get_temp::<(std::sync::Weak<Document>, u64, egui::TextureHandle)>(navigator_key))
+    {
+        return Some(t.id());
+    }
+    let (doc, preview_key) = if app.live_stroke.is_some() { (app.session.documents().get(idx)?.doc.clone(), 0) } else { display_doc(app, idx) };
     let (display, display_key) = canvas_display(app, &doc, None);
     let preview_key = preview_key ^ display_key;
     let key = egui::Id::new(("navigator", id.0));
@@ -645,6 +686,22 @@ pub fn navigator_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usiz
         ctx.request_repaint_after(std::time::Duration::from_millis(NAVIGATOR_SETTLE_MS as u64));
         return Some(t.id());
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    if cached.is_none() && doc.size.area() > NAVIGATOR_SYNC_PIXELS {
+        let tex = ctx.load_texture(format!("navigator-{}", id.0), egui::ColorImage::new([1, 1], vec![egui::Color32::TRANSPARENT]), TextureOptions::LINEAR);
+        ctx.data_mut(|d| d.insert_temp(key, (std::sync::Weak::<Document>::new(), u64::MAX, tex.clone())));
+        return Some(navigator_in_background(app, ctx, id, (snapshot, preview_key), doc, display, tex));
+    }
+    // A large document's thumbnail is a full CPU composite (100+ ms at 24 MP with effects): it
+    // renders on a worker thread while the panel keeps the previous image, so a brush stroke's
+    // commit doesn't stall the UI. Small documents render here.
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some((_, _, t)) = &cached
+        && doc.size.area() > NAVIGATOR_SYNC_PIXELS
+    {
+        let t = t.clone();
+        return Some(navigator_in_background(app, ctx, id, (snapshot, preview_key), doc, display, t));
+    }
     let t0 = crate::gpu_canvas::now_ms();
     let image = display_image(display.as_deref(), &photocraft_compose::thumbnail_buffer(&doc, NAVIGATOR_SIDE));
     let tex = match cached {
@@ -659,6 +716,62 @@ pub fn navigator_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usiz
     Some(tex.id())
 }
 
+/// Documents up to this many pixels render their Navigator image on the UI thread.
+#[cfg(not(target_arch = "wasm32"))]
+const NAVIGATOR_SYNC_PIXELS: u64 = 4 << 20;
+
+/// A Navigator image rendering on a worker thread: what it shows (document snapshot, preview
+/// key), its result once done, and when it started (ms).
+#[cfg(not(target_arch = "wasm32"))]
+type NavigatorJob = (std::sync::Weak<Document>, u64, std::sync::Arc<std::sync::Mutex<Option<egui::ColorImage>>>, f64);
+
+/// [`navigator_texture`] for a large document: show `tex` (the last image) while the current
+/// one renders on a worker thread (one at a time per document), then swap it in.
+#[cfg(not(target_arch = "wasm32"))]
+fn navigator_in_background(
+    app: &mut PhotocraftApp,
+    ctx: &egui::Context,
+    id: photocraft_doc::DocId,
+    want: (std::sync::Weak<Document>, u64),
+    doc: std::sync::Arc<Document>,
+    display: Option<std::sync::Arc<photocraft_engine::display_color::CanvasDisplay>>,
+    mut tex: egui::TextureHandle,
+) -> egui::TextureId {
+    let (key, job_key) = (egui::Id::new(("navigator", id.0)), egui::Id::new(("navigator-job", id.0)));
+    let job: Option<NavigatorJob> = ctx.data(|d| d.get_temp(job_key));
+    if let Some((snapshot, preview_key, slot, t0)) = job {
+        let done = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+        let Some(image) = done else {
+            // Still rendering (perhaps an older state: the newest starts when it's done).
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+            return tex.id();
+        };
+        app.perf.span("navigator", crate::gpu_canvas::now_ms() - t0);
+        let current = snapshot.ptr_eq(&want.0) && preview_key == want.1;
+        ctx.data_mut(|d| {
+            d.remove::<NavigatorJob>(job_key);
+            if current {
+                tex.set(image, TextureOptions::LINEAR);
+                d.insert_temp(key, (snapshot, preview_key, tex.clone()));
+            }
+        });
+        if current {
+            return tex.id();
+        }
+    }
+    let slot = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let out = slot.clone();
+    let spawned = std::thread::Builder::new().name("navigator".into()).spawn(move || {
+        let image = display_image(display.as_deref(), &photocraft_compose::thumbnail_buffer(&doc, NAVIGATOR_SIDE));
+        *out.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(image);
+    });
+    if spawned.is_ok() {
+        ctx.data_mut(|d| d.insert_temp(job_key, (want.0, want.1, slot, crate::gpu_canvas::now_ms())));
+        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+    }
+    tex.id()
+}
+
 /// Make sure the canvas texture for document `idx` on `display` is current; returns (texture
 /// id, scale).
 pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, display: Option<u32>) -> Option<(egui::TextureId, f32)> {
@@ -668,8 +781,8 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
         (st.revision, st.last_damage.map(|r| if r.is_empty() { r } else { r.inflate(effect_reach(&st.doc.layers)) }), st.doc.id)
     };
     let (mut doc, mut preview_key) = display_doc(app, idx);
-    // A flipped view draws a GPU machine's canvas through here: an adjustment dialog's preview of
-    // a large document (taken by the GPU path) would cost a full-size CPU composite per change.
+    // An adjustment dialog's preview of a large document (drawn by the GPU path on a GPU machine)
+    // would cost a full-size CPU composite per change here: show the document instead.
     if crate::adjust_preview::shown_key(app) == Some(preview_key)
         && let Some(st) = app.session.documents().get(idx)
         && crate::proxy::factor(&st.doc) > 1
@@ -857,6 +970,7 @@ fn ensure_gpu(app: &mut PhotocraftApp, idx: usize, visible: DRect) -> bool {
     app.perf.record(r.kind, r.px, r.composite_ms, r.upload_ms);
     if r.kind.starts_with("gpu") {
         app.perf.gpu_uploads = r.uploads;
+        app.perf.gpu_fallback = None;
     } else {
         app.perf.gpu_fallback = r.fallback;
     }
@@ -1659,9 +1773,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     let img_rect = xf.doc_rect(doc.bounds());
     // Live adjustment previews on big documents use a downsampled proxy (see proxy.rs).
     let mut on_gpu = false;
-    // A flipped view draws through the CPU path (the GPU canvas shader has no mirroring).
+    // A flipped view mirrors in the GPU canvas shader (`ViewParams::flip`).
     if app.gpu.is_some()
-        && !flip
         && let Some((k, key)) = ensure_adjust_proxy(app, idx, view.zoom * ctx.pixels_per_point())
             .or_else(|| ensure_filter_preview(app, idx))
             .or_else(|| ensure_proxy_preview(app, idx))
@@ -1681,9 +1794,10 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             display: sync_display_lut(app, &doc, key, output),
             output: output.unwrap_or(0),
             hdr: hdr_preview(app, &doc),
+            flip,
         };
         crate::gpu_canvas::GpuCanvas::paint(&painter, rect, params);
-    } else if !flip && ensure_gpu(app, idx, visible_doc_rect(&xf)) {
+    } else if ensure_gpu(app, idx, visible_doc_rect(&xf)) {
         on_gpu = true;
         app.perf.gpu = true;
         // Shadow, checkerboard, document and pixel grid in one custom shader (gpu_canvas.rs).
@@ -1701,6 +1815,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             display: sync_display_lut(app, &doc, doc.id.0, output),
             output: output.unwrap_or(0),
             hdr: hdr_preview(app, &doc),
+            flip,
         };
         crate::gpu_canvas::GpuCanvas::paint(&painter, rect, params);
     } else {
@@ -2912,16 +3027,20 @@ pub(crate) fn finish_gesture(app: &mut PhotocraftApp, d: Drag) {
         Tool::Brush | Tool::Pencil | Tool::Eraser => {
             let live = app.live_stroke.take();
             let mut p = stroke_params(app, d.tool, d.erase, &timed_points(app, &d));
-            if let Some(l) = &live {
+            // The commit takes the live stroke's pixels when it is the same stroke, instead of
+            // rendering it all again at mouse-up (`Session::prepare_live_commit`).
+            let shown = live.map(|l| {
                 p["seed"] = json!(l.stroke.seed);
-            }
+                app.session.prepare_live_commit(l.stroke);
+                (l.doc, l.key, l.steps)
+            });
             // The canvas already shows the stroke: let the commit's damage rect refresh it rather
             // than recompositing the whole document.
-            if app.run(stroke_command(d.tool), p).is_ok()
-                && let Some(l) = live
-            {
+            let committed = app.run(stroke_command(d.tool), p).is_ok();
+            app.session.discard_live_commit();
+            if committed && let Some((doc, first, steps)) = shown {
                 // Raw preview key 0 = the document itself (its colour display folded in).
-                shown_as_document(app, l.doc, |k| l.since(k).is_some());
+                shown_as_document(app, doc, |k| k == 0 || (first..=first + steps).contains(&k));
             }
         }
         Tool::RectMarquee | Tool::EllipseMarquee => {
@@ -3382,6 +3501,32 @@ mod tests {
         let doc = app.session.documents()[0].doc.clone();
         assert!(app.live_stroke.is_none() && display_doc(&mut app, 0).1 == 0);
         assert_eq!((alpha(&doc, 40, 30), alpha(&doc, 40, 38)), (alpha(&shown, 40, 30), alpha(&shown, 40, 38)), "commit matches the preview");
+    }
+
+    #[test]
+    fn long_brush_drag_bounds_damage_and_reuses_the_commit() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width": 512, "height": 64, "background": "transparent"})).unwrap();
+        app.run("tools.setBrush", json!({"size": 4, "hardness": 1.0, "smoothing": {"amount": 0.0}})).unwrap();
+        app.ui.tool = Tool::Brush;
+        let m = egui::Modifiers::NONE;
+        tool_event(&mut app, ToolEvent::Down { x: 10.0, y: 32.0, pressure: 1.0 }, m);
+        let first = app.live_stroke.as_ref().unwrap().display_key();
+        let mut damage = app.live_stroke.as_ref().unwrap().damage_bounds;
+        for i in 1..400 {
+            tool_event(&mut app, ToolEvent::Move { x: 10.0 + i as f64, y: 32.0, pressure: 1.0 }, m);
+            let live = app.live_stroke.as_ref().unwrap();
+            assert!(live.damage.len() <= 128);
+            damage = damage.union(live.damage.last().unwrap());
+        }
+        let live = app.live_stroke.as_ref().unwrap();
+        assert!(live.since(first).unwrap().contains(200, 32), "old views catch up to the whole stroke");
+        assert!(live.since(first).unwrap().contains_rect(&damage));
+        assert_eq!(live.since(live.display_key()), Some(DRect::EMPTY));
+        let shown = live.stroke.doc.layers[0].surface().unwrap().clone();
+        tool_event(&mut app, ToolEvent::Up { x: 409.0, y: 32.0 }, m);
+        assert_eq!(app.session.live_commits_reused(), 1);
+        assert_eq!(&shown, app.session.active().unwrap().doc.layers[0].surface().unwrap());
     }
 
     #[test]

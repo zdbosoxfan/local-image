@@ -185,7 +185,7 @@ pub struct Pass<'a> {
     /// Extra shader flags (`F_KNOCKOUT`, …).
     pub flags: u32,
     /// 4096-entry LUT rows (Levels / Curves / Gradient map / gradient stops).
-    pub lut: Option<Vec<[f32; 4096]>>,
+    pub lut: Option<std::sync::Arc<Vec<[f32; 4096]>>>,
     pub gradient: bool,
     /// Effect map sampled by `FxPaint`.
     pub map: Option<MapRef>,
@@ -825,7 +825,7 @@ impl<'a> Planner<'a> {
                         row[k] = v[ch];
                     }
                 }
-                p.lut = Some(rows);
+                p.lut = Some(std::sync::Arc::new(rows));
             }
             // Pattern fills fall back to the CPU compositor (see `check`).
             Fill::Pattern { .. } => {}
@@ -883,7 +883,7 @@ impl<'a> Planner<'a> {
         let (kind, params, lut) = adjustment_program(adj, self.cx.transfer, self.cx.depth);
         p.adjust_kind = kind;
         p.params = params;
-        p.lut = lut;
+        p.lut = lut.map(std::sync::Arc::new);
         Ok(self.emit(p))
     }
 
@@ -1280,13 +1280,13 @@ impl<'a> Planner<'a> {
                 p.params[2][0] = offset.0;
                 p.params[2][1] = offset.1;
                 p.params[2][2] = 1.0;
-                p.lut = Some(gradient_rows(g));
+                p.lut = Some(std::sync::Arc::new(gradient_rows(g)));
             }
             Paint::GlowGradient(g, gain) => {
                 // effects::paint_glow: the gradient at 1 - strength, opaque from 1 / gain.
                 p.params[0][0] = *gain;
                 p.params[2][2] = 4.0;
-                p.lut = Some(gradient_rows(g));
+                p.lut = Some(std::sync::Arc::new(gradient_rows(g)));
             }
             Paint::Pattern(pat, pl) => {
                 p.params[2][2] = 2.0;

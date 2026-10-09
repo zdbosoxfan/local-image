@@ -165,3 +165,44 @@ fn system_info_lists_the_graphics_state() {
     let v = gpu_status::system_info_json(&app);
     assert_eq!(v["gpu"]["adapter"], "Test GPU");
 }
+
+#[test]
+fn single_validation_error_retries_on_cpu_and_recovers_gpu() {
+    let _gpu = gpu_lock();
+    let Some(rs) = render_state() else { return };
+    let g = GpuCanvas::new(&rs);
+    let d = doc();
+    let key = d.id.0;
+    assert_eq!(g.refresh(key, &d, None, None).kind, "gpu-full");
+    g.health()
+        .uncaptured(&eframe::wgpu::Error::Validation { source: Box::new(std::io::Error::other("test")), description: "injected validation error".into() });
+    assert!(g.fault().is_none());
+    assert!(g.recover_transient_errors());
+    let retried = g.refresh(key, &d, None, None);
+    assert_eq!(retried.kind, "full");
+    assert!(retried.fallback.as_deref().unwrap().contains("retrying this frame on the CPU"));
+    assert!(g.fault().is_none());
+    assert_eq!(g.refresh(key, &d, None, None).kind, "gpu-full");
+    assert!(!g.recover_transient_errors());
+    let (_, _, pixels) = g.read_texels(key).unwrap();
+    assert!((pixels[0][0] - 0.2).abs() < 1.0 / 255.0);
+}
+
+#[test]
+fn validation_errors_in_three_frames_disable_the_canvas() {
+    let _gpu = gpu_lock();
+    let Some(rs) = render_state() else { return };
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    app.set_wgpu(rs);
+    app.run("file.new", json!({"width": 32, "height": 32})).unwrap();
+    let health = app.gpu_health().unwrap().clone();
+    for frame in 0..3 {
+        health
+            .uncaptured(&eframe::wgpu::Error::Validation { source: Box::new(std::io::Error::other("test")), description: "injected validation error".into() });
+        app.frame = frame;
+        app.check_gpu(&egui::Context::default());
+        assert_eq!(app.gpu_active(), frame < 2);
+    }
+    assert_eq!(app.session.documents().len(), 1);
+    assert_eq!(app.ui.status, gpu_status::ERROR_MESSAGE);
+}
