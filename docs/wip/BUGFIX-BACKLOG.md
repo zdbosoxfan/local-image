@@ -4,6 +4,9 @@ Until every planned feature is merged, merges are gated on: compiles, clippy cle
 Full workspace + GPU (RTX 5090) suites, benchmarks and these items are handled in the final bug-fixing run.
 
 ## Known issues
+- Develop GPU tone equalizer: `tone_equalizer_extremes_masks_tiny_odd_and_cached_edits_match` and
+  `native_toneeq_5090_extreme_fixture_matches` still fail on the RTX 5090 (a few pixels, max ~25 LSB on a 641×427
+  extreme+mask case); dehaze speed fixed (338 ms at 24 MP). Typical edit 257–423 ms under heavy load — re-bench idle.
 - pc-algo HDR: `mtb_offset` reports a nonzero offset for identical images on ties; HDR merge panics on empty input
   (tests in `crates/pc-algo/tests/panorama_hdr_coverage.rs`, ignored) — a Sonnet fix may already be merged; re-check.
 - pc-algo inpaint: `mvc_membrane` caps channels at 8 (test ignored; low impact).
