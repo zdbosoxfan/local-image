@@ -37,7 +37,6 @@ fn display_at_picks_largest_overlap() {
 }
 
 #[test]
-#[ignore = "BUG: display_at does not handle NaN rect coordinates"]
 fn display_at_nan_rect_returns_none() {
     let d = sample_display(1, 0.0, 0.0, 100.0, 100.0, None);
     assert_eq!(display_at(&[d], [f64::NAN, 0.0, 10.0, 10.0]), None);
