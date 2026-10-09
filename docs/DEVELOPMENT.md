@@ -102,5 +102,9 @@ Packaging is Rust too (`xtask/`, run through the `cargo xtask` alias):
   (`portable.txt` keeps settings in `LocalImageData\` beside the exe). Both are signed when
   `WINDOWS_CERTIFICATE` or the Azure Trusted Signing variables are set (`cargo xtask sign`).
 * `cargo xtask check-icons` checks the MSI's shortcut icons (ICE50) without building.
+* `cargo xtask deps-pure` fails if a crate that compiles C (`ring`, `openssl-sys`, `aws-lc-sys`,
+  `cmake`, `bindgen`, or `cc` from any crate outside the short known-leftover list in xtask) is in the dependency graph (all platforms); it also runs
+  as an xtask unit test. HTTPS uses rustls + `rustls-rustcrypto` (set per agent in
+  `crates/li-ai/src/tls.rs`), and blake3 uses its `pure` feature.
 
 The version comes from `[workspace.package] version` in the root `Cargo.toml`.

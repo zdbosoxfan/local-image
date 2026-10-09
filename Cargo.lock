@@ -3753,6 +3753,7 @@ dependencies = [
  "log",
  "rand 0.9.5",
  "rayon",
+ "rustls-rustcrypto",
  "serde",
  "serde_json",
  "sha2",
@@ -6621,7 +6622,6 @@ checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
 dependencies = [
  "log",
  "once_cell",
- "ring",
  "rustls-pki-types",
  "rustls-webpki 0.103.15",
  "subtle",
@@ -9083,6 +9083,7 @@ dependencies = [
  "flate2",
  "hex",
  "quick-xml 0.38.4",
+ "rustls-rustcrypto",
  "serde",
  "serde_json",
  "sha2",
