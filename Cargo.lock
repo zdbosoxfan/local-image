@@ -4159,6 +4159,7 @@ dependencies = [
  "lightcraft-catalog",
  "lightcraft-codecs",
  "lightcraft-engine",
+ "lightcraft-gpu",
  "lightcraft-raster",
  "lightcraft-ui-egui",
  "log",

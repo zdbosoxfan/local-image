@@ -659,6 +659,9 @@ impl eframe::App for Host {
                 eprintln!("local-image: saving the library failed: {e}");
             }
         }
+        if !lightcraft_gpu::quiesce(std::time::Duration::from_secs(3)) {
+            eprintln!("local-image: GPU work still running at exit");
+        }
     }
 }
 
