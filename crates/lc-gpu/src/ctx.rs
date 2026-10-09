@@ -733,3 +733,17 @@ mod tests {
         assert!(super::groups2(16384, 16384, [16, 16]).iter().all(|g| *g <= 65535));
     }
 }
+
+#[cfg(test)]
+mod shader_validation {
+    #[test]
+    fn colour_tone_finish_wgsl_validates_without_an_adapter() {
+        let constants = super::constants();
+        let module = &super::MODULES[0];
+        let source = super::module_source(module, &constants);
+        let parsed = wgpu::naga::front::wgsl::parse_str(&source).unwrap_or_else(|e| panic!("{}", e.emit_to_string(&source)));
+        wgpu::naga::valid::Validator::new(wgpu::naga::valid::ValidationFlags::all(), wgpu::naga::valid::Capabilities::all())
+            .validate(&parsed)
+            .unwrap();
+    }
+}

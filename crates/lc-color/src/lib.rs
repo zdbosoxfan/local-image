@@ -239,3 +239,5 @@ mod tests {
 }
 
 pub mod camera;
+
+pub mod profile;

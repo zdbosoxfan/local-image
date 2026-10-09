@@ -189,12 +189,13 @@ pub fn specs() -> Vec<CommandSpec> {
             "Set Look",
             [],
             None,
-            "{look: adobe|sigmoid|camera, ids?} — the base rendition of raw photos under Process 2026 (Adobe-like, darktable sigmoid, match the camera JPEG)",
+            "{look: adobe|sigmoid|camera, ids?} — the base rendition of raw photos (Adobe-like, darktable sigmoid, match the camera JPEG)",
             has_active,
             |s, p| {
                 const C: &str = "develop.look";
                 let name = str_param(p, "look").ok_or_else(|| bad(C, "missing look"))?;
-                let look = lightcraft_develop::Look::from_id(name).ok_or_else(|| bad(C, format!("unknown look `{name}` (adobe, sigmoid, camera)")))?;
+                let look =
+                    lightcraft_develop::Look::from_id(name).ok_or_else(|| bad(C, format!("unknown look `{name}` (adobe, sigmoid, camera)")))?;
                 if p.get("ids").is_some() {
                     let ids = s.targets(p);
                     let ops: Vec<Op> = ids

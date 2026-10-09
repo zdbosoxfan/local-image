@@ -1,13 +1,13 @@
 //! DNG chapter 6 camera model for re-evaluating calibration at each chosen white.
 //! Matches lc-raw's DNG model; inverse-CCT interpolation, ForwardMatrix, AB and CC.
-use crate::{Mat3, Xy, SRGB, REC2020, D50, D65, cct, bradford};
+use crate::{D50, D65, Mat3, REC2020, SRGB, Xy, bradford, cct};
 #[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CameraColor {
-    pub illuminant: [u16;2],
-    pub color_matrix: [Option<Mat3>;2],
-    pub forward_matrix: [Option<Mat3>;2],
-    pub camera_calibration: [Option<Mat3>;2],
-    pub analog_balance: Option<[f64;3]>,
+    pub illuminant: [u16; 2],
+    pub color_matrix: [Option<Mat3>; 2],
+    pub forward_matrix: [Option<Mat3>; 2],
+    pub camera_calibration: [Option<Mat3>; 2],
+    pub analog_balance: Option<[f64; 3]>,
 }
 /// Correlated colour temperature (K) of an Exif `LightSource` / DNG `CalibrationIlluminant` code.
 pub fn illuminant_temperature(code: u16) -> Option<f64> {
@@ -137,23 +137,75 @@ pub fn camera_to_xyz_d50(color: &CameraColor, white: Xy) -> Mat3 {
     bradford(white, D50).mul(&cam_to_xyz)
 }
 
-
 /// Raw camera values to Rec.2020, including chosen-white WB. Gain normalization follows
 /// the decoder's white-balanced matrix (mean of transformed white).
 pub fn to_working(color: &CameraColor, xy: Xy) -> Mat3 {
     let wb = wb_multipliers(color, xy);
-    let total = REC2020.from_xyz().mul(&bradford(D50,D65)).mul(&camera_to_xyz_d50(color,xy));
-    let white = total.apply(wb.map(|v| 1.0/v));
-    let k = (white[0]+white[1]+white[2])/3.0;
-    if k.abs()>1e-12 { Mat3(total.0.map(|r| r.map(|v| v/k))) } else { total }
+    let total = REC2020.from_xyz().mul(&bradford(D50, D65)).mul(&camera_to_xyz_d50(color, xy));
+    let white = total.apply(wb.map(|v| 1.0 / v));
+    let k = (white[0] + white[1] + white[2]) / 3.0;
+    if k.abs() > 1e-12 { Mat3(total.0.map(|r| r.map(|v| v / k))) } else { total }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CameraWhite {
     pub color: CameraColor,
     /// Undo the exact decoder matrix, WB and optional file-local correction.
     pub undo: Mat3,
 }
 impl CameraWhite {
-    pub fn change(&self, xy: Xy) -> Mat3 { to_working(&self.color,xy).mul(&self.undo) }
+    pub fn change(&self, xy: Xy) -> Mat3 {
+        to_working(&self.color, xy).mul(&self.undo)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn color() -> CameraColor {
+        CameraColor {
+            illuminant: [17, 21],
+            color_matrix: [
+                Some(Mat3([[0.9, 0.2, -0.15], [-0.3, 1.25, 0.08], [0.02, -0.12, 0.85]])),
+                Some(Mat3([[0.7, 0.3, -0.1], [-0.35, 1.3, 0.1], [0.05, -0.2, 1.]])),
+            ],
+            ..Default::default()
+        }
+    }
+    #[test]
+    fn inverse_cct_matches_rawtherapee_reference() {
+        for row in include_str!("../tests/fixtures/illuminants.csv").lines() {
+            let v: Vec<f64> = row.split(',').map(|v| v.parse().unwrap()).collect();
+            let white = cct::temp_tint_to_xy(v[0], 0.0);
+            let g = illuminant_weight(&color(), white);
+            assert!((g - v[1]).abs() < 1e-6, "{} K weight {g} vs {}", v[0], v[1]);
+            let got = xyz_to_camera(&color(), white);
+            for i in 0..3 {
+                for j in 0..3 {
+                    assert!((got.0[i][j] - v[2 + 3 * i + j]).abs() < 1e-6);
+                }
+            }
+        }
+    }
+    #[test]
+    fn matrix_is_rederived_and_forward_matrix_is_supported() {
+        let mut color = color();
+        let shot = cct::temp_tint_to_xy(5500., 0.);
+        let total = to_working(&color, shot);
+        let camera = CameraWhite { color, undo: total.inverse().unwrap() };
+        let id = camera.change(shot);
+        for i in 0..3 {
+            for j in 0..3 {
+                assert!((id.0[i][j] - if i == j { 1. } else { 0. }).abs() < 1e-9);
+            }
+        }
+        assert_ne!(camera.change(cct::temp_tint_to_xy(3200., 0.)), camera.change(cct::temp_tint_to_xy(9000., 0.)));
+        color.forward_matrix = [Some(Mat3::IDENTITY), Some(Mat3::IDENTITY)];
+        for t in [2856., 4500., 6504.] {
+            let xy = cct::temp_tint_to_xy(t, 0.);
+            let n = camera_neutral(&color, xy);
+            let xyz = camera_to_xyz_d50(&color, xy).apply(n);
+            assert!((xyz[0] - xyz[1]).abs() < 1e-9 && (xyz[1] - xyz[2]).abs() < 1e-9);
+        }
+    }
 }

@@ -54,7 +54,15 @@ pub(crate) fn curve_luts(c: &ToneCurve) -> Option<CurveTables> {
     }
     let per = [&c.red, &c.green, &c.blue];
     Some(CurveTables {
-        tables: std::array::from_fn(|i| if i == 0 { base.clone() } else if chans[i-1] { MonotoneCurve::new(&to_pts(per[i-1])).to_lut(N) } else { Lut1::identity(N) }),
+        tables: std::array::from_fn(|i| {
+            if i == 0 {
+                base.clone()
+            } else if chans[i - 1] {
+                MonotoneCurve::new(&to_pts(per[i - 1])).to_lut(N)
+            } else {
+                Lut1::identity(N)
+            }
+        }),
         luminance: c.mode == lightcraft_develop::CurveMode::Luminance,
     })
 }
@@ -83,27 +91,31 @@ impl CurveTables {
         let y = luminance_2020(d).clamp(0.0, 1.0);
         let mx = d[0].max(d[1]).max(d[2]);
         if mx > 1.0 {
-            let k = (1.0-y) / (mx-y).max(1e-9);
-            d = d.map(|x| y + (x-y)*k);
+            let k = (1.0 - y) / (mx - y).max(1e-9);
+            d = d.map(|x| y + (x - y) * k);
         }
-        std::array::from_fn(|i| srgb_to_linear(self.tables[i+1].eval(linear_to_srgb(d[i].max(0.0)))))
+        std::array::from_fn(|i| srgb_to_linear(self.tables[i + 1].eval(linear_to_srgb(d[i].max(0.0)))))
     }
 }
 
 /// Soft compression of channel distances from the achromatic axis (threshold 0.8,
-/// asymptotic distance 1.3, power 1.2), followed by the final gamut containment map.
+/// input distance 1.3 maps to 1.0, power 1.2), followed by final gamut containment.
 pub fn soft_gamut(r: [f32; 3]) -> [f32; 3] {
     let a = r[0].max(r[1]).max(r[2]);
-    if a <= 1e-9 { return r; }
+    if a <= 1e-9 {
+        return r;
+    }
     let threshold = 0.8f32;
     let power = 1.2f32;
-    let scale = (1.3f32-threshold) / (((1.0-threshold)/(1.3-threshold)).powf(-power)-1.0).powf(1.0/power);
+    let scale = (1.3f32 - threshold) / (((1.0 - threshold) / (1.3 - threshold)).powf(-power) - 1.0).powf(1.0 / power);
     r.map(|x| {
-        let distance = (a-x)/a;
-        if distance <= threshold { x } else {
-            let u = (distance-threshold)/scale;
-            let compressed = threshold + scale*u/(1.0+u.powf(power)).powf(1.0/power);
-            a * (1.0-compressed)
+        let distance = (a - x) / a;
+        if distance <= threshold {
+            x
+        } else {
+            let u = (distance - threshold) / scale;
+            let compressed = threshold + scale * u / (1.0 + u.powf(power)).powf(1.0 / power);
+            a * (1.0 - compressed)
         }
     })
 }
@@ -113,12 +125,15 @@ pub const DITHER_HASH: [u32; 3] = [0x7feb_352d, 0x846c_a68b, 0x9e37_79b9];
 
 pub fn dither8(v: f32, x: usize, y: usize, _channel: usize) -> u8 {
     let mut h = (x as u32).wrapping_mul(DITHER_HASH[2]) ^ (y as u32).wrapping_mul(DITHER_HASH[0]);
-    h ^= h >> 16; h = h.wrapping_mul(DITHER_HASH[0]);
-    h ^= h >> 15; h = h.wrapping_mul(DITHER_HASH[1]); h ^= h >> 16;
+    h ^= h >> 16;
+    h = h.wrapping_mul(DITHER_HASH[0]);
+    h ^= h >> 15;
+    h = h.wrapping_mul(DITHER_HASH[1]);
+    h ^= h >> 16;
     let noise = (h & 65535) as f32 / 65536.0 - (h >> 16) as f32 / 65536.0;
-    let q = v.clamp(0.0, 1.0)*255.0;
-    let fade = q.min(255.0-q).clamp(0.0, 1.0);
-    (q + noise*fade + 0.5).clamp(0.0, 255.0) as u8
+    let q = v.clamp(0.0, 1.0) * 255.0;
+    let fade = q.min(255.0 - q).clamp(0.0, 1.0);
+    (q + noise * fade + 0.5).clamp(0.0, 255.0) as u8
 }
 
 /// Vignette (post-crop) parameters.
@@ -647,11 +662,15 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
                 }
             }
 
-            if let Some(l) = curves { d = l.apply(d, fp.refine_sat); }
+            if let Some(l) = curves {
+                d = l.apply(d, fp.refine_sat);
+            }
             for l in &fp.layers {
                 if let Some((lut, refine)) = &l.curves {
                     let a = p.masks[l.mask].alpha.data[i];
-                    if a > 0.0 { d = mix3(d, lut.apply(d, *refine), a); }
+                    if a > 0.0 {
+                        d = mix3(d, lut.apply(d, *refine), a);
+                    }
                 }
             }
 
@@ -661,15 +680,18 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
             let mut r = match &fp.proof {
                 Some(pp) => {
                     let q0 = mul3(&pp.to_proof, d);
-                    let (q, t) = gamut_map(q0, pp.luma);
+                    let (_, t) = gamut_map(q0, pp.luma);
+                    let q = gamut_map(if fp.soft_gamut { soft_gamut(q0) } else { q0 }, pp.luma).0;
                     if pp.dest_warning && out_of_gamut(q0, t) {
                         warn = Some(crate::output::PROOF_DEST_WARNING);
                     }
-                    mul3(&pp.proof_to_out, q)
+                    if pp.to_proof == *to_out { q } else { mul3(&pp.proof_to_out, q) }
                 }
                 None => mul3(to_out, d),
             };
-            if fp.soft_gamut { r = soft_gamut(r); }
+            if fp.soft_gamut && fp.proof.is_none() {
+                r = soft_gamut(r);
+            }
             let (mapped, t) = gamut_map(r, *out_luma);
             if fp.proof.is_some_and(|pp| pp.display_warning) && warn.is_none() && out_of_gamut(r, t) {
                 warn = Some(crate::output::PROOF_DISPLAY_WARNING);
@@ -712,6 +734,12 @@ fn dehaze_px(c: [f32; 3], dz: f32, dark: f32, air_pre: f32, air: f32) -> [f32; 3
     let d = (dark / air_pre).clamp(0.0, 1.0);
     if dz > 0.0 {
         let t = (1.0 - 0.95 * dz.min(1.0) * d).max(0.12);
+        // A tiny mask-alpha residue can select this branch with no representable
+        // veil removal. Keep negative scene channels for tone/gamut handling,
+        // just as when dehaze is not selected at all (GPU: `finish.wgsl`).
+        if t == 1.0 {
+            return c;
+        }
         c.map(|v| ((v - air * (1.0 - t)) / t).max(0.0))
     } else {
         let k = (-dz).min(1.0) * 0.7 * (0.35 + 0.65 * d);
@@ -887,12 +915,6 @@ fn encode_srgb(lut: &[f32; SRGB_LUT_N + 1], v: f32) -> f32 {
     lut[i] + (lut[i + 1] - lut[i]) * t
 }
 
-#[inline]
-fn enc(v: f32) -> u8 {
-    // `v` is already sRGB-encoded; round to 8 bits.
-    (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -924,5 +946,139 @@ mod tests {
         assert!(worst < 2e-5, "{worst}");
         assert_eq!(encode_srgb(lut, -1.0), 0.0);
         assert!((encode_srgb(lut, 2.0) - 1.0).abs() < 1e-6);
+    }
+}
+
+#[cfg(test)]
+mod colour_tone_tests {
+    use super::*;
+
+    #[test]
+    fn dehaze_unit_transmission_preserves_negative_scene_channels() {
+        // Sky's blurred alpha can have tiny signed residues outside its support. Once
+        // transmission rounds to 1, dehaze must be an identity even on negative
+        // resampling/profile channels, which the tone stage desaturates later.
+        for c in [[-0.004_114_710_3, 0.001_321_920_3, 0.004_300_609_7], [-0.1, 0.2, 0.3], [1.0, -0.2, 0.1]] {
+            for dz in [0.0, f32::MIN_POSITIVE, 1e-14, 1e-8, f32::EPSILON / 4.0] {
+                assert_eq!(dehaze_px(c, dz, 1.0, 1.0, 1.0), c, "{c:?}, strength {dz}");
+            }
+            assert_eq!(dehaze_px(c, 0.4, 0.0, 1.0, 1.0), c);
+        }
+        // Actual veil removal still follows the existing dehaze formula.
+        let c = [-0.1, 0.2, 0.3];
+        let t = 1.0 - 0.95 * 0.4 * 0.5;
+        assert_eq!(dehaze_px(c, 0.4, 0.5, 1.0, 1.0), c.map(|v| ((v - (1.0 - t)) / t).max(0.0)));
+    }
+
+    #[test]
+    fn cpu_shape_roundoff_does_not_clip_unselected_scene_channels() {
+        use lightcraft_develop::{LocalAdjustments, Mask, MaskComponent, MaskOp, MaskShape};
+        use std::sync::Arc;
+
+        // The resampled scene and masked adjustments from GPU equivalence's
+        // "masks (cpu shapes, ops, amount)" failure. A small log-luminance change
+        // models CPU/GPU rounding before the CPU-evaluated Sky/Background shapes.
+        let src = lightcraft_scenes::demo_library()[0].render(960, 640);
+        let info = SourceInfo { raw: true, ..Default::default() };
+        let s = DevelopSettings {
+            masks: vec![
+                Mask {
+                    components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape: MaskShape::Sky { seg: None } }],
+                    adjust: LocalAdjustments { exposure: -0.5, dehaze: 40.0, amount: 70.0, ..Default::default() },
+                    ..Default::default()
+                },
+                Mask {
+                    components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: true, shape: MaskShape::Background { seg: None } }],
+                    adjust: LocalAdjustments { saturation: -60.0, ..Default::default() },
+                    invert: true,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let req = crate::RenderRequest::fit(720, 720);
+        let plan = crate::plan(&src, &info, &s, &req);
+        let img = Arc::new(plan.frame.sample(&src, plan.w, plan.h));
+        assert!(img.data.iter().any(|c| c.iter().any(|v| *v < 0.0)), "fixture must include negative resampling channels");
+        let mut prep = crate::local::prepare(
+            img.clone(),
+            &s,
+            &info,
+            &plan.frame,
+            plan.px_per_long,
+            plan.src_long,
+            req.quality,
+            &mut crate::local::Planes::default(),
+        );
+        let reference = finish(&prep, &s, &plan.frame, &info, req.space, None);
+        let alpha = prep.masks[0].alpha.clone();
+        for delta in [-1e-6, 1e-6] {
+            let log_l = prep.log_l.map(|v| v + delta);
+            prep.masks = crate::masks::evaluate(&s.masks, &plan.frame, plan.w, plan.h, &img, &log_l, 0.0);
+            assert!(
+                alpha
+                    .data
+                    .iter()
+                    .zip(&prep.masks[0].alpha.data)
+                    .zip(&img.data)
+                    .any(|((a, b), c)| { (*a > 0.0) != (*b > 0.0) && a.abs().max(b.abs()) < 1e-8 && c.iter().any(|v| *v < 0.0) }),
+                "fixture must flip tiny alpha residues on negative scene colours"
+            );
+            let actual = finish(&prep, &s, &plan.frame, &info, req.space, None);
+            let max = reference.data.iter().zip(&actual.data).flat_map(|(a, b)| (0..3).map(move |k| a[k].abs_diff(b[k]))).max().unwrap();
+            assert!(max <= 1, "mask log-luminance perturbation {delta}: {max} LSB");
+        }
+    }
+
+    #[test]
+    fn dither_is_deterministic_neutral_unbiased_and_keeps_endpoints() {
+        let mut sum = 0u64;
+        let mut lo = 255u8;
+        let mut hi = 0u8;
+        for y in 0..128 {
+            for x in 0..128 {
+                assert_eq!(dither8(0., x, y, 0), 0);
+                assert_eq!(dither8(1., x, y, 0), 255);
+                let v = dither8(0.501, x, y, 0);
+                assert_eq!(v, dither8(0.501, x, y, 1));
+                assert_eq!(v, dither8(0.501, x, y, 2));
+                assert_eq!(v, dither8(0.501, x, y, 0));
+                sum += u64::from(v);
+                lo = lo.min(v);
+                hi = hi.max(v);
+            }
+        }
+        assert!((sum as f64 / 16384. - 0.501 * 255.).abs() < 0.02);
+        assert!(hi > lo && hi - lo <= 2, "TPDF quantization support: {lo}..{hi}");
+    }
+    #[test]
+    fn soft_gamut_is_identity_interior_monotone_and_continuous() {
+        assert_eq!(soft_gamut([0.3; 3]), [0.3; 3]);
+        assert_eq!(soft_gamut([0.5, 0.2, 0.3]), [0.5, 0.2, 0.3]);
+        let mut previous = 1.0f32;
+        for i in 0..3000 {
+            let d = i as f32 / 1000.;
+            let mapped = soft_gamut([1., 1. - d, 0.8]);
+            assert!(mapped.iter().all(|v| v.is_finite()));
+            assert!(mapped[1] <= previous + 1e-6);
+            assert!((mapped[1] - previous).abs() < 0.0011);
+            previous = mapped[1];
+        }
+        let e = 1e-5;
+        assert!((soft_gamut([1., 0.2 - e, 0.8])[1] - soft_gamut([1., 0.2 + e, 0.8])[1]).abs() < 3e-5);
+    }
+    #[test]
+    fn luminance_master_keeps_channel_ratios_and_rgb_mode_refines_saturation() {
+        use lightcraft_geom::Point;
+        let mut curve = ToneCurve { master: vec![Point::new(0., 0.), Point::new(0.4, 0.5), Point::new(1., 1.)], ..Default::default() };
+        let c = [0.16, 0.08, 0.04];
+        let t = curve_luts(&curve).unwrap();
+        let a = t.apply(c, 1.);
+        assert!((a[0] / a[1] - c[0] / c[1]).abs() < 1e-5);
+        assert!((a[1] / a[2] - c[1] / c[2]).abs() < 1e-5);
+        assert_eq!(t.apply(c, 0.), a, "luminance curve already preserves chroma");
+        curve.mode = lightcraft_develop::CurveMode::Rgb;
+        let t = curve_luts(&curve).unwrap();
+        assert_ne!(t.apply(c, 0.), t.apply(c, 1.));
     }
 }

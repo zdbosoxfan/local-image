@@ -125,7 +125,11 @@ pub fn probe_bytes(name: &str, bytes: &[u8]) -> Result<ProbeInfo, String> {
             }
             Err(e) => return Err(e.to_string()),
         };
-        lightcraft_raw::camera_matrices::fill(&mut raw.color, raw.metadata.make.as_deref().unwrap_or_default(), raw.metadata.model.as_deref().unwrap_or_default());
+        lightcraft_raw::camera_matrices::fill(
+            &mut raw.color,
+            raw.metadata.make.as_deref().unwrap_or_default(),
+            raw.metadata.model.as_deref().unwrap_or_default(),
+        );
         let (mut w, mut h) = (raw.crop.width.max(1) as u32, raw.crop.height.max(1) as u32);
         if w <= 1 || h <= 1 {
             (w, h) = (raw.active_area.width as u32, raw.active_area.height as u32);
@@ -178,6 +182,7 @@ pub fn probe_bytes(name: &str, bytes: &[u8]) -> Result<ProbeInfo, String> {
         captured,
         meta,
         as_shot_wb: None,
+        measured_wb: false,
         content_hash,
         embedded_lens: None,
         xmp: None,
@@ -298,7 +303,11 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
             Err(e) => return Err(e.to_string()),
         };
         crate::dcp_profiles::apply(&mut raw);
-        lightcraft_raw::camera_matrices::fill(&mut raw.color, raw.metadata.make.as_deref().unwrap_or_default(), raw.metadata.model.as_deref().unwrap_or_default());
+        lightcraft_raw::camera_matrices::fill(
+            &mut raw.color,
+            raw.metadata.make.as_deref().unwrap_or_default(),
+            raw.metadata.model.as_deref().unwrap_or_default(),
+        );
         let xy = lightcraft_raw::color::as_shot_white_xy(&raw);
         let t = lightcraft_raw::color::camera_transform(&raw, xy);
         let camera_look = crate::camera_preview::fit_preview(&raw, &bytes, &t);
@@ -342,7 +351,6 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
         let gain = 2f32.powf(t.baseline_exposure as f32);
         let wb = t.wb;
         // A DNG's own profile look (hue/saturation map, look table), DNG spec chapter 6.
-        let tables = lightcraft_raw::profile::ProfileTables::new(&raw.color.profile, lightcraft_raw::color::illuminant_weight(&raw.color, xy));
         img.map_in_place(|p| {
             let c = [p[0] * wb[0], p[1] * wb[1], p[2] * wb[2]];
             let rgb = [
@@ -350,12 +358,9 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
                 m[1][0] * c[0] + m[1][1] * c[1] + m[1][2] * c[2],
                 m[2][0] * c[0] + m[2][1] * c[1] + m[2][2] * c[2],
             ];
-            let rgb = match &tables {
-                Some(tables) => tables.apply(rgb, gain),
-                None => rgb.map(|v| v * gain),
-            };
+            let rgb = rgb.map(|v| v * gain);
             // after the baseline exposure, as when it was fitted
-            hue_sat.as_ref().map_or(rgb, |h| h.apply(rgb)).map(|v| v.max(0.0))
+            hue_sat.as_ref().map_or(rgb, |h| h.apply(rgb))
         });
         stages.push(("colour", t0.elapsed()));
         let img = fit(&img, max_edge, max_edge, Filter::Box);
@@ -388,12 +393,31 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
                 lens,
                 relative_wb: relative,
                 camera_tone,
-                look_curve: camera_look.as_ref().map(|p| p.tone).or_else(|| lightcraft_pipeline::basecurves::camera(raw.metadata.make.as_deref().unwrap_or_default(), raw.metadata.model.as_deref().unwrap_or_default())),
+                look_curve: camera_look.as_ref().map(|p| p.tone).or_else(|| {
+                    lightcraft_pipeline::basecurves::camera(
+                        raw.metadata.make.as_deref().unwrap_or_default(),
+                        raw.metadata.model.as_deref().unwrap_or_default(),
+                    )
+                }),
                 profile_curve: raw.color.profile.tone_curve.as_ref().and_then(dng_tone_curve),
-                camera_color: if t.matrix_is_fallback { None } else {
-                    let color = lightcraft_color::camera::CameraColor { illuminant: raw.color.illuminant, color_matrix: raw.color.color_matrix, forward_matrix: raw.color.forward_matrix, camera_calibration: raw.color.camera_calibration, analog_balance: raw.color.analog_balance };
-                    let total = lightcraft_color::Mat3(m.map(|r| r.map(f64::from))).mul(&lightcraft_color::Mat3::diag(wb[0] as f64,wb[1] as f64,wb[2] as f64));
-                    total.inverse().map(|undo| lightcraft_color::camera::CameraWhite { color,undo })
+                camera_profile: (!raw.color.profile.is_empty()).then(|| Arc::new(raw.color.profile.clone())),
+                baseline_gain: gain,
+                camera_color: if t.matrix_is_fallback {
+                    None
+                } else {
+                    let color = lightcraft_color::camera::CameraColor {
+                        illuminant: raw.color.illuminant,
+                        color_matrix: raw.color.color_matrix,
+                        forward_matrix: raw.color.forward_matrix,
+                        camera_calibration: raw.color.camera_calibration,
+                        analog_balance: raw.color.analog_balance,
+                    };
+                    let total = lightcraft_color::Mat3(m.map(|r| r.map(f64::from))).mul(&lightcraft_color::Mat3::diag(
+                        wb[0] as f64,
+                        wb[1] as f64,
+                        wb[2] as f64,
+                    ));
+                    total.inverse().map(|undo| lightcraft_color::camera::CameraWhite { color, undo })
                 },
                 lens_db: None,
                 sensor_scale,
@@ -559,7 +583,8 @@ mod tests {
         raw.color.profile =
             ProfileLook { hue_sat_map: [Some(grey), None], look_table: None, tone_curve: ToneCurve::from_tag(&[0.0, 0.0, 0.18, 0.3, 1.0, 1.0]) };
         let with = lightcraft_raw::write_dng(&raw, &Default::default()).unwrap();
-        let (after, info) = load_bytes(&with, 64).unwrap();
+        let (mut after, info) = load_bytes(&with, 64).unwrap();
+        lightcraft_pipeline::local::white_balance(&mut after, &info, &Default::default());
         assert!(sat(&after) < 1e-3, "saturation {} → {}", sat(&before), sat(&after));
         // a saturation-only map keeps brightness roughly (HSV value is kept in ProPhoto RGB)
         let mean = |img: &Rgb32f| img.data.iter().map(|p| p[0].max(p[1]).max(p[2])).sum::<f32>() / img.data.len() as f32;
@@ -571,7 +596,8 @@ mod tests {
             look_table: Some(HsvTable { hue_divisions: 1, sat_divisions: 2, val_divisions: 1, data: vec![[0.0, 1.0, 0.5]; 2], srgb_value: false }),
             ..Default::default()
         };
-        let (dim, _) = load_bytes(&lightcraft_raw::write_dng(&raw, &Default::default()).unwrap(), 64).unwrap();
+        let (mut dim, info) = load_bytes(&lightcraft_raw::write_dng(&raw, &Default::default()).unwrap(), 64).unwrap();
+        lightcraft_pipeline::local::white_balance(&mut dim, &info, &Default::default());
         assert!((mean(&dim) / mean(&before) - 0.5).abs() < 0.02, "{} vs {}", mean(&dim), mean(&before));
     }
 

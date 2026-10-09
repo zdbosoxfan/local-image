@@ -63,7 +63,8 @@ use lightcraft_raster::{Histogram, Plane, Rgb32f, Rgba8, par_rows};
 pub use tone::ToneMap;
 
 /// Facts about the source the settings are interpreted against.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct SourceInfo {
     /// Lens corrections embedded in the file (DNG opcodes), relative to the EXIF-oriented source.
     pub lens: Option<lightcraft_develop::EmbeddedLens>,
@@ -75,9 +76,14 @@ pub struct SourceInfo {
     /// No measured camera illuminant: WB adjustments are relative to the camera's rendered look.
     pub relative_wb: bool,
     pub camera_color: Option<lightcraft_color::camera::CameraWhite>,
+    /// DNG/DCP tables evaluated after WB for the chosen illuminant (CPU stage inside GPU renders).
+    pub camera_profile: Option<Arc<lightcraft_color::profile::ProfileLook>>,
+    /// Baseline exposure already present in the decoded source, undone before the base table.
+    pub baseline_gain: f32,
     pub camera_tone: Option<tone::CameraTone>,
     /// The lens database's correction for the photo's lens (set by the engine when the settings
     /// ask for it; relative to the EXIF-oriented source).
+    #[serde(skip)]
     pub lens_db: Option<lensdb::LensCorrection>,
     /// Sensor pixels per source pixel (a binned or downscaled raw preview is > 1), for tools
     /// sized in sensor pixels (capture sharpening).
@@ -86,11 +92,11 @@ pub struct SourceInfo {
     pub capture_radius: Option<f32>,
     /// Capture sharpening's contrast threshold for this sensor and ISO (0..1).
     pub capture_threshold: f32,
-    /// Process 2026, Camera look: the camera's own curve (fitted to the embedded JPEG, else the
-    /// maker's base curve). Set by Process 2026 decodes only.
+    /// Camera look: the camera's own curve (fitted to the embedded JPEG, else the
+    /// maker's base curve). Set by raw decodes.
     pub look_curve: Option<tone::CameraTone>,
-    /// Process 2026: a DNG profile's tone curve (`ProfileToneCurve`), used by the Adobe-like and
-    /// Camera looks in place of their own curve. Set by Process 2026 decodes only.
+    /// A DNG profile's tone curve (`ProfileToneCurve`), available as a Camera fallback.
+    /// Soft Film always keeps its own curve. Set by raw decodes.
     pub profile_curve: Option<tone::CameraTone>,
 }
 
@@ -103,6 +109,8 @@ impl Default for SourceInfo {
             lens: None,
             relative_wb: false,
             camera_color: None,
+            camera_profile: None,
+            baseline_gain: 1.0,
             camera_tone: None,
             lens_db: None,
             sensor_scale: 1.0,
@@ -385,6 +393,9 @@ pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &R
         src_long,
         // colour calibration runs with the white balance
         format!("{:?}", colorcal::of(info, s)),
+        format!("{:?}", info.camera_color),
+        info.camera_profile.as_ref().map(|p| p.hash64()),
+        info.baseline_gain.to_bits(),
     ));
     Plan { settings, frame, w, h, px_per_long, src_long, geo, lin_key, eyes }
 }
@@ -662,5 +673,5 @@ mod tests_local;
 #[cfg(test)]
 mod tests_toolset;
 
-pub mod basecurves;
 mod base_curve_data;
+pub mod basecurves;

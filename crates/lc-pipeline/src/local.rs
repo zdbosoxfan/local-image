@@ -42,9 +42,9 @@ pub fn wb_matrix_for(info: &SourceInfo, s: &DevelopSettings) -> Option<[[f32; 3]
         return None;
     }
     let m = match info.camera_color {
-        Some(camera) => camera.change(temp_tint_to_xy(t,tint)),
+        Some(camera) => camera.change(temp_tint_to_xy(t, tint)),
         None => {
-            let set = wb_matrix(&REC2020, temp_tint_to_xy(t,tint));
+            let set = wb_matrix(&REC2020, temp_tint_to_xy(t, tint));
             let shot = wb_matrix(&REC2020, temp_tint_to_xy(info.as_shot_temp, info.as_shot_tint));
             set.mul(&shot.inverse().unwrap_or(lightcraft_color::Mat3::IDENTITY))
         }
@@ -85,6 +85,12 @@ fn wb_gain(img: &mut Rgb32f, info: &SourceInfo, s: &DevelopSettings, gain: f32) 
     let m = wb_matrix_for(info, s);
     // a non-linear colour calibration: its per-pixel part after the matrix
     let cc = crate::colorcal::of(info, s).filter(|c| !c.is_linear());
+    let tables = info.camera_profile.as_ref().and_then(|profile| {
+        let (t, tint) = effective_wb(info, s);
+        let g = info.camera_color.map_or(1.0, |camera| lightcraft_color::camera::illuminant_weight(&camera.color, temp_tint_to_xy(t, tint)));
+        lightcraft_color::profile::ProfileTables::new(profile, g)
+    });
+    let baseline = info.baseline_gain.max(1e-9);
     let w = img.width;
     for_rows(&mut img.data, w, |_, row| {
         for p in row.iter_mut() {
@@ -96,10 +102,13 @@ fn wb_gain(img: &mut Rgb32f, info: &SourceInfo, s: &DevelopSettings, gain: f32) 
                     m[2][0] * c[0] + m[2][1] * c[1] + m[2][2] * c[2],
                 ];
             }
+            if let Some(tables) = &tables {
+                c = tables.apply(c.map(|v| v / baseline), baseline);
+            }
             if let Some(cc) = &cc {
                 c = cc.apply(c);
             }
-            *p = [(c[0] * gain).max(0.0), (c[1] * gain).max(0.0), (c[2] * gain).max(0.0)];
+            *p = c.map(|v| v * gain);
         }
     });
 }

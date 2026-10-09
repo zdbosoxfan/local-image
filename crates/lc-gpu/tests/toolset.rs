@@ -373,7 +373,7 @@ fn capture_sharpening_matches() {
     let small = scene(3, 450, 300);
     let mut s = DevelopSettings::default();
     capture(&mut s, 1.2, 0.0, 10.0);
-    check("capture, binned preview", &small, &SourceInfo { sensor_scale: 2.0, ..info }, &s, &RenderRequest::fit(450, 450));
+    check("capture, binned preview", &small, &SourceInfo { sensor_scale: 2.0, ..info.clone() }, &s, &RenderRequest::fit(450, 450));
     // not for rendered sources
     check("capture on a rendered source", &src, &SourceInfo::default(), &s, &req);
 }
@@ -675,42 +675,42 @@ fn bench_toolset_24mp() {
         s.detail.sharpen_amount = 40.0;
     };
     let cases: Vec<(&str, SourceInfo, DevelopSettings)> = vec![
-        ("typical edit", info, DevelopSettings::default()),
-        ("lens profile (db)", SourceInfo { lens_db: Some(barrel()), ..info }, {
+        ("typical edit", info.clone(), DevelopSettings::default()),
+        ("lens profile (db)", SourceInfo { lens_db: Some(barrel()), ..info.clone() }, {
             let mut s = DevelopSettings::default();
             lens_on(&mut s, 100.0);
             s
         }),
-        ("tone equalizer", info, {
+        ("tone equalizer", info.clone(), {
             let mut s = DevelopSettings::default();
             s.tone_eq.enabled = true;
             s.tone_eq.ev6 = 1.0;
             s
         }),
-        ("colour cal linear", info, cal(Adaptation::Cat16, Illuminant::A, 0.0, false)),
-        ("colour cal gamut + clip", info, cal(Adaptation::Cat16, Illuminant::A, 1.0, true)),
-        ("colour cal non-linear Bradford", info, cal(Adaptation::FullBradford, Illuminant::A, 0.0, false)),
-        ("capture sharpening", info, {
+        ("colour cal linear", info.clone(), cal(Adaptation::Cat16, Illuminant::A, 0.0, false)),
+        ("colour cal gamut + clip", info.clone(), cal(Adaptation::Cat16, Illuminant::A, 1.0, true)),
+        ("colour cal non-linear Bradford", info.clone(), cal(Adaptation::FullBradford, Illuminant::A, 0.0, false)),
+        ("capture sharpening", info.clone(), {
             let mut s = DevelopSettings::default();
             capture(&mut s, 0.0, 0.0, 8.0);
             s
         }),
         (
             "depth mask",
-            info,
+            info.clone(),
             DevelopSettings {
                 masks: vec![depth_mask(0.0, 0.4, 0.1, LocalAdjustments { exposure: 0.5, ..Default::default() })],
                 ..Default::default()
             },
         ),
-        ("film look", info, {
+        ("film look", info.clone(), {
             let mut s = DevelopSettings::default();
             s.profile.id = "lc.filmsim.cinema-negative".into();
             s.profile.amount = 100.0;
             s
         }),
-        ("ai patch", info, DevelopSettings { spots: vec![ai_spot("lc-gpu-bench-patch", [0.3, 0.3, 0.6, 0.6], 100.0)], ..Default::default() }),
-        ("layer tools (curve on a mask)", info, {
+        ("ai patch", info.clone(), DevelopSettings { spots: vec![ai_spot("lc-gpu-bench-patch", [0.3, 0.3, 0.6, 0.6], 100.0)], ..Default::default() }),
+        ("layer tools (curve on a mask)", info.clone(), {
             let mut s = DevelopSettings { masks: vec![depth_mask(0.0, 0.4, 0.1, LocalAdjustments::default())], ..Default::default() };
             s.masks[0].tools.curve = Some(lightcraft_develop::ToneCurve { darks: 40.0, ..Default::default() });
             s
@@ -752,4 +752,55 @@ fn bench_toolset_24mp() {
         eprintln!("{name:<34} {gpu_col:>10} {:>10}  {path}", format!("{cpu_ms:.0} ms"));
     }
     lightcraft_pipeline::patches::forget("lc-gpu-bench-patch");
+}
+
+#[test]
+fn dual_illuminant_wb_and_dcp_inside_gpu_render() {
+    if !gpu() {
+        return;
+    }
+    use lightcraft_color::{
+        Mat3,
+        camera::{CameraColor, CameraWhite},
+        profile::{HsvTable, ProfileLook},
+    };
+    use lightcraft_develop::WbMode;
+    let src = scene(2, 192, 128);
+    let color = CameraColor {
+        illuminant: [17, 21],
+        color_matrix: [
+            Some(Mat3([[0.9, 0.2, -0.15], [-0.3, 1.25, 0.08], [0.02, -0.12, 0.85]])),
+            Some(Mat3([[0.7, 0.3, -0.1], [-0.35, 1.3, 0.1], [0.05, -0.2, 1.0]])),
+        ],
+        ..Default::default()
+    };
+    let total = lightcraft_color::camera::to_working(&color, lightcraft_color::cct::temp_tint_to_xy(5200., 4.));
+    let mut info = SourceInfo { camera_color: Some(CameraWhite { color, undo: total.inverse().unwrap() }), ..raw() };
+    let mut a = HsvTable { hue_divisions: 4, sat_divisions: 3, val_divisions: 2, srgb_value: true, data: vec![[0., 1., 1.]; 24] };
+    for (i, node) in a.data.iter_mut().enumerate() {
+        *node = [(i % 3) as f32 * 5., 0.9 + (i % 4) as f32 * 0.05, 0.95];
+    }
+    let mut b = a.clone();
+    for node in &mut b.data {
+        node[0] *= -1.;
+        node[1] *= 0.95;
+    }
+    let stages = StageCache::default();
+    let req = RenderRequest::fit(192, 128);
+    for use_profile in [false, true] {
+        info.camera_profile = use_profile
+            .then(|| Arc::new(ProfileLook { hue_sat_map: [Some(a.clone()), Some(b.clone())], look_table: Some(a.clone()), tone_curve: None }));
+        for temp in [2856., 4500., 6504., 9000.] {
+            for tint in [-15., 0., 25.] {
+                let mut s = DevelopSettings::default();
+                s.wb.mode = WbMode::Custom;
+                s.wb.temp = temp;
+                s.wb.tint = tint;
+                check(&format!("dual WB {temp}/{tint} DCP {use_profile}"), &src, &info, &s, &req);
+                let cached = gpu_render(&src, &info, &s, &req, Some(&stages));
+                let fresh = gpu_render(&src, &info, &s, &req, None);
+                assert_eq!(cached.data, fresh.data, "WB/profile cache invalidation");
+            }
+        }
+    }
 }

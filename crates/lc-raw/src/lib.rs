@@ -636,3 +636,6 @@ mod tests {
 pub mod camera_matrices;
 pub mod dcp;
 mod dcp_bundled;
+
+#[cfg(test)]
+mod tests_camera_matrices;

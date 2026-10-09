@@ -62,7 +62,7 @@ impl SettingsHashes {
 }
 
 /// Bump when the pipeline's output changes, to invalidate cached thumbnails.
-pub const RENDER_CACHE_VERSION: u64 = 12;
+pub const RENDER_CACHE_VERSION: u64 = 13;
 
 /// Thumbnails render at one of these long edges (so window/cell size changes reuse the cache).
 pub const THUMB_SIZES: [usize; 4] = [128, 256, 384, 512];
@@ -136,7 +136,11 @@ impl DecodedSource {
     /// with any stored camera tone curve. The lens database's correction always comes from
     /// `header` (it follows the settings, not the file).
     pub fn info_or(&self, header: SourceInfo) -> SourceInfo {
-        let mut i = self.info.unwrap_or(SourceInfo { camera_tone: self.camera_tone.or(header.camera_tone), look_curve: self.camera_tone.or(header.look_curve), ..header });
+        let mut i = self.info.clone().unwrap_or(SourceInfo {
+            camera_tone: self.camera_tone.or(header.camera_tone),
+            look_curve: self.camera_tone.or(header.look_curve),
+            ..header
+        });
         i.lens_db = header.lens_db;
         i
     }
@@ -598,7 +602,7 @@ impl RenderJob {
         let was_loaded = matches!(self.source, SourceRef::Loaded(_));
         match self.source.load_source() {
             Ok(source) => {
-                let info = source.info_or(self.info);
+                let info = source.info_or(self.info.clone());
                 // local-image: the AI Denoise result in place of the source, AI patches of other
                 // photos left out (see `enhance::for_render`)
                 let (src, settings) = crate::enhance::for_render(&source.image, &self.settings, self.source_key);
@@ -1091,9 +1095,13 @@ mod thumbnail_hash_tests {
             // Independent original formula: never asks the new hash cache for expected values.
             let settings = p.develop.hash64();
             let content = Hasher128::new().str(&content_key(&p)).finish().0 as u64;
-            let expected =
-                settings ^ ((b as u64) << 40) ^ ((b as u64) << 20) ^ 1 ^ p.id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ content.rotate_left(17)
-            ^ crate::dcp_profiles::cache_key();
+            let expected = settings
+                ^ ((b as u64) << 40)
+                ^ ((b as u64) << 20)
+                ^ 1
+                ^ p.id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15)
+                ^ content.rotate_left(17)
+                ^ crate::dcp_profiles::cache_key();
             let disk = Hasher128::new()
                 .str(&content_key(&p))
                 .u64(settings)
@@ -1182,20 +1190,21 @@ mod tests {
         let mut s = crate::Session::with_demo();
         let id = s.active().unwrap();
         let mut job = s.render_job(id, 64, 64, false, true).unwrap();
+        let loaded_info = info.clone();
         job.source = SourceRef::File {
             path: "synthetic.arw".into(),
             max_edge: 64,
             loader: Some(Arc::new(move |_, _| {
                 let mut image = Rgb32f::new(64, 64);
                 image.data.fill([0.1; 3]);
-                Ok((image, info))
+                Ok((image, loaded_info.clone()))
             })),
             fallback: None,
         };
         job.info = SourceInfo::default(); // Header facts cannot override decoder facts.
         job.settings = Arc::new(DevelopSettings::default());
         let r = job.clone().run();
-        assert_eq!(r.loaded.as_ref().unwrap().info, Some(info));
+        assert_eq!(r.loaded.as_ref().unwrap().info, Some(info.clone()));
         let expected = lightcraft_pipeline::render(&r.loaded.as_ref().unwrap().image, &info, &job.settings, &job.request);
         assert_eq!(r.rendered.as_ref().unwrap().image.data, expected.image.data);
         s.accept(&r);

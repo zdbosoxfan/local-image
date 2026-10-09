@@ -14,7 +14,7 @@ pub struct DevelopSettings {
     /// The base rendition of a raw photo ([`Look`]). Left out at its default.
     #[serde(default, skip_serializing_if = "Look::is_default")]
     pub look: Look,
-    /// The look's base-curve variant and hue preservation (Process 2026). Left out at defaults.
+    /// The look's base-curve variant and hue preservation. Left out at defaults.
     #[serde(default, skip_serializing_if = "LookOptions::is_default")]
     pub look_options: LookOptions,
     pub treatment: Treatment,
@@ -145,8 +145,8 @@ impl Look {
 }
 
 /// A base-curve variant under every look (like Capture One's film curves): Standard, Extra
-/// Shadow (shadows opened up for high dynamic range sensors), High Contrast, Linear (low contrast,
-/// a longer highlight roll-off).
+/// Shadow (shadows opened up for high dynamic range sensors), High Contrast, Linear (scene-linear to 80% display luminance,
+/// then a smooth output shoulder).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ToneBase {
@@ -192,7 +192,6 @@ impl LookOptions {
         *self == LookOptions::default()
     }
 }
-
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -318,13 +317,12 @@ pub struct ToneCurve {
     /// Refine Saturation 0..100: 100 keeps the saturation a curve produces, lower values pull it
     /// back towards the saturation before the curve (strong contrast curves oversaturate).
     pub refine_saturation: f64,
-    /// How the parametric and master curves apply ([`CurveMode`]; Legacy
-    /// always applies them per RGB channel). Left out of the JSON at its default.
+    /// How the parametric and master curves apply ([`CurveMode`]). Left out of the JSON at its default.
     #[serde(skip_serializing_if = "CurveMode::is_default")]
     pub mode: CurveMode,
 }
 
-/// How the master (and parametric) tone curve changes colours (Process 2026).
+/// How the master (and parametric) tone curve changes colours.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CurveMode {

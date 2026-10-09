@@ -5,7 +5,7 @@ use serde_json::json;
 
 use crate::LightcraftApp;
 use crate::theme::Tokens;
-use crate::widgets::{register};
+use crate::widgets::register;
 
 /// The Look picker (Soft Film · Sigmoid · Camera) for a raw photo.
 pub fn look_row(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
@@ -26,18 +26,19 @@ pub fn look_row(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings)
                 let _ = app.run("develop.look", json!({"look": l.id()}));
             }
         });
-        let mut base=d.look_options.base;
-        egui::ComboBox::from_id_salt("lookBase").selected_text(base.label()).show_ui(ui,|ui| {
-            for b in lightcraft_develop::ToneBase::ALL { ui.selectable_value(&mut base,b,b.label()); }
+        let mut base = d.look_options.base;
+        egui::ComboBox::from_id_salt("lookBase").selected_text(base.label()).show_ui(ui, |ui| {
+            for b in lightcraft_develop::ToneBase::ALL {
+                ui.selectable_value(&mut base, b, b.label());
+            }
         });
-        if base!=d.look_options.base {
-            let _=app.run("develop.merge",json!({"settings":{"look_options":{"base":base}},"label":"Base Curve"}));
+        if base != d.look_options.base {
+            let _ = app.run("develop.merge", json!({"settings":{"look_options":{"base":base}},"label":"Base Curve"}));
         }
-        let mut hue=d.look_options.hue_preservation;
-        if ui.add(egui::Slider::new(&mut hue,0.0..=100.0).text(crate::i18n::tr("Hue Preservation"))).changed() {
-            let _=app.run("develop.merge",json!({"settings":{"look_options":{"hue_preservation":hue}},"label":"Hue Preservation"}));
+        let mut hue = d.look_options.hue_preservation;
+        if ui.add(egui::Slider::new(&mut hue, 0.0..=100.0).text(crate::i18n::tr("Hue Preservation"))).changed() {
+            let _ = app.run("develop.merge", json!({"settings":{"look_options":{"hue_preservation":hue}},"label":"Hue Preservation"}));
         }
-
     });
 }
 

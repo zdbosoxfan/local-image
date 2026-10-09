@@ -161,7 +161,9 @@ fn denoise_through_the_commands() {
     s.execute("develop.set", &json!({"control": "enhance.denoise", "value": 100})).unwrap();
     let full = centre(&mut s);
     let grey = |c: [u8; 4]| (c[0] as i32 - c[2] as i32).abs();
-    assert!(grey(full) <= grey(half) && grey(half) <= grey(before) + 1, "{before:?} {half:?} {full:?}");
+    // A nonlinear tone curve can increase display chroma of the mixed source. The full
+    // replacement must be neutral, and the partial amount must keep some source colour.
+    assert!(grey(full) <= 1 && grey(half) > grey(full), "{before:?} {half:?} {full:?}");
     // the result gone: the photo renders from its own pixels and Develop offers to run it again
     crate::enhance::store::delete(crate::enhance::store::Kind::Denoise, &r.key.to_string());
     crate::enhance::store::delete(crate::enhance::store::Kind::Denoise, &crate::enhance::denoise::preview_key(&r.key.to_string()));

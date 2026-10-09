@@ -224,7 +224,7 @@ pub struct ImportDefaults {
     pub auto_folder: Option<String>,
     pub auto_copy: bool,
     pub auto_album: Option<String>,
-    /// The look new raw photos start with under Process 2026 (Settings → Import, "Default look
+    /// The look new raw photos start with (Settings → Import, "Default look
     /// for new photos"; each photo can change it in Develop).
     pub look: lightcraft_develop::Look,
     /// Read user camera profiles without copying them into the library.
@@ -992,7 +992,7 @@ impl Session {
         p.kind = c.kind;
         if let Some(info) = self.import_probes.get(&c.path) {
             p.as_shot_wb = info.as_shot_wb;
-                p.measured_wb = info.measured_wb;
+            p.measured_wb = info.measured_wb;
             p.embedded_lens = info.embedded_lens;
             p.preview_only = info.preview_only.clone();
         }

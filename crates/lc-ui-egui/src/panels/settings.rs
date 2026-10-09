@@ -196,17 +196,23 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     });
     hint(ui, t, crate::i18n::tr("New raw photos use this look; each photo can change it in Develop (Profile › Look)."));
     row(ui, t, crate::i18n::tr("Camera profiles folder"), |ui| {
-        let mut folder=d.camera_profiles_folder.clone();
-        let response=ui.text_edit_singleline(&mut folder);
-        if response.lost_focus() && folder!=d.camera_profiles_folder {
-            let _=app.run("library.preferences",json!({"import":{"cameraProfilesFolder":folder}}));
+        let edit_id = ui.id().with("cameraProfilesFolderEdit");
+        let mut folder = ui.data(|data| data.get_temp::<String>(edit_id)).unwrap_or_else(|| d.camera_profiles_folder.clone());
+        let response = ui.text_edit_singleline(&mut folder);
+        ui.data_mut(|data| data.insert_temp(edit_id, folder.clone()));
+        if response.lost_focus() && folder != d.camera_profiles_folder {
+            let _ = app.run("library.preferences", json!({"import":{"cameraProfilesFolder":folder}}));
+            ui.data_mut(|data| data.remove::<String>(edit_id));
         }
-        if app.services.pick_folder.is_some() && ui.button(crate::i18n::tr("Choose…")).clicked()
-            && let Some(folder)=app.services.pick_folder.as_mut().and_then(|f|f()) {
-            let _=app.run("library.preferences",json!({"import":{"cameraProfilesFolder":folder}}));
+        if app.services.pick_folder.is_some()
+            && ui.button(crate::i18n::tr("Choose…")).clicked()
+            && let Some(folder) = app.services.pick_folder.as_mut().and_then(|f| f())
+        {
+            let _ = app.run("library.preferences", json!({"import":{"cameraProfilesFolder":folder}}));
+            ui.data_mut(|data| data.remove::<String>(edit_id));
         }
     });
-    hint(ui,t,crate::i18n::tr("Read DCP profiles for matching cameras from this folder."));
+    hint(ui, t, crate::i18n::tr("Read DCP profiles for matching cameras from this folder."));
     let mut per = d.per_camera;
     row(ui, t, "", |ui| {
         if check(ui, "settings.perCamera", &mut per, "Use camera-specific defaults") {

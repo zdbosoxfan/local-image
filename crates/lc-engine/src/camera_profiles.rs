@@ -172,7 +172,7 @@ pub fn cache_key() -> u64 {
                 let meta = e.metadata().ok()?;
                 let modified = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
                 Some((e.file_name().to_string_lossy().into_owned(), meta.len(), modified))
-            }) ^ crate::dcp_profiles::cache_key()
+            })
             .collect();
         files.sort();
         let mut h = lightcraft_preview::Hasher128::new();

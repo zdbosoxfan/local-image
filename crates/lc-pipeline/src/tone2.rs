@@ -1,7 +1,7 @@
 //! global tone: the looks and the hue-preserving tone stage.
 //!
 //! Every look is a base curve from scene luminance to display-linear luminance, sampled into the
-//! same log-spaced table as the Legacy tone map ([`ToneMap`]), so the CPU and the GPU evaluate it
+//! same log-spaced table as the tone map ([`ToneMap`]), so the CPU and the GPU evaluate it
 //! identically:
 //!
 //! * **Adobe-like** ([`adobe`]): our own parametric filmic curve, calibrated to a Lightroom-like
@@ -20,12 +20,14 @@
 //! sources keep their own tones (identity at neutral) and get the same sliders as gentle curves in
 //! a perceptual domain ([`display_tone`]).
 //!
-//! The per-pixel stage ([`tone_px`]) is darktable sigmoid's per-channel method: the curve on each
+//! Sigmoid and Soft Film use darktable sigmoid's per-channel method ([`tone_px`]): the curve on each
 //! channel, then the middle channel corrected towards the input's hue with the channels' sum kept
 //! (`_preserve_hue_and_energy`), blended by the photo's Hue Preservation. Bright saturated colours
 //! then bleach smoothly towards white as their brightest channel reaches the shoulder — no hard
 //! knee, nothing clipped — and 100 % keeps hues exactly (the DNG/Lightroom "hue-preserving RGB tone
-//! curve" idea). darktable's ratio mode with its hyperbolic gamut compression is [`compress`].
+//! curve" idea). Camera maps a luminance norm and scales chroma by the fitted curve; Hue
+//! Preservation blends toward the per-channel result while holding output luminance. All looks
+//! contain residual gamut excursions smoothly. darktable's ratio mode is [`compress`].
 
 use crate::tone::{CHROMA_N, CameraTone, GREY, LUT_MAX_EV, LUT_MIN_EV, LUT_N, ToneMap};
 
@@ -40,6 +42,8 @@ pub struct ToneMethod {
     /// Hue preservation 0..1 (darktable sigmoid's "preserve hue"): 1 keeps every hue, 0 is the
     /// plain per-channel curve (bright colours shift towards the secondaries, like film).
     pub hue: f32,
+    /// Camera fits map a luminance norm; sigmoid and Soft Film use per-channel mapping.
+    pub luminance: bool,
 }
 
 /// darktable sigmoid's curve parameters (`dt_iop_sigmoid_data_t`), computed from its user
@@ -176,6 +180,8 @@ pub fn adobe(y: f32) -> f32 {
 }
 
 /// A look's base curve.
+// Built once per tone LUT; keeping the 32 camera knots inline avoids a heap allocation.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BaseCurve {
     Adobe,
@@ -217,8 +223,8 @@ pub fn base_shape(base: lightcraft_develop::ToneBase) -> (f32, f64, f64) {
         // the shadows opened up (modern high dynamic range sensors)
         B::ExtraShadow => (1.0, 0.0, 45.0),
         B::HighContrast => (1.18, 10.0, -20.0),
-        // low contrast, a longer highlight roll-off
-        B::Linear => (0.82, -25.0, 15.0),
+        // Identity scene response; the output shoulder is applied in `ToneMap::scene`.
+        B::Linear => (1.0, 0.0, 0.0),
     }
 }
 
@@ -244,7 +250,9 @@ pub fn scene_ev(ev: f32, contrast: f64, whites: f64, blacks: f64) -> f32 {
 /// Contrast, Whites and Blacks as monotone curves in a gamma-2.2 perceptual domain. Endpoints
 /// stay put except what Whites + pushes past white (a short soft shoulder) and Blacks − crushes.
 pub fn display_tone(y: f32, contrast: f64, whites: f64, blacks: f64) -> f32 {
-    if contrast == 0.0 && whites == 0.0 && blacks == 0.0 { return y.clamp(0.0, 1.0); }
+    if contrast == 0.0 && whites == 0.0 && blacks == 0.0 {
+        return y.clamp(0.0, 1.0);
+    }
     let c = (contrast / 100.0) as f32;
     let w = (whites / 100.0) as f32;
     let b = (blacks / 100.0) as f32;
@@ -269,9 +277,9 @@ pub fn display_tone(y: f32, contrast: f64, whites: f64, blacks: f64) -> f32 {
         p += b * 0.48 * p * (1.0 - p.min(1.0)).powi(3);
     }
     let mut o = p.max(0.0).powf(2.2);
-    // short soft shoulder: slope 1 at 0.95, reaching 1.0 at 1.05
+    // short soft shoulder: slope 1 at 0.95, asymptotically approaching 1.0
     if o > 0.95 {
-        o = 0.95 + 0.05 * (1.0 - (-(o - 0.95)/0.05).exp());
+        o = 0.95 + 0.05 * (1.0 - (-(o - 0.95) / 0.05).exp());
     }
     o.clamp(0.0, 1.0)
 }
@@ -295,33 +303,38 @@ impl ToneMap {
         let lut: Vec<f32> = (0..LUT_N)
             .map(|i| {
                 let ev = scene_ev(scene_ev(ev_at(i) * k, 0.0, w0, b0), contrast, whites, blacks);
-                base.eval(GREY * ev.exp2()).clamp(0.0, 1.0)
+                let y = GREY * ev.exp2();
+                if shape == lightcraft_develop::ToneBase::Linear {
+                    // Linear scene response up to 80%, with a C1 output shoulder.
+                    if y <= 0.8 { y } else { 0.8 + 0.2 * (1.0 - (-(y - 0.8) / 0.2).exp()) }
+                } else {
+                    base.eval(y).clamp(0.0, 1.0)
+                }
             })
             .collect();
         let chroma = match base {
             BaseCurve::Camera(c) => *c.chroma(),
             _ => [1.0; CHROMA_N],
         };
-        ToneMap::from_tables(lut, chroma, ToneMethod { hue: hue.clamp(0.0, 1.0) })
+        ToneMap::from_tables(lut, chroma, ToneMethod { hue: hue.clamp(0.0, 1.0), luminance: matches!(base, BaseCurve::Camera(_)) })
     }
 
     /// global tone map of a rendered source (or a converted negative): [`display_tone`].
     pub fn rendered(hue: f32, contrast: f64, whites: f64, blacks: f64) -> ToneMap {
         let lut: Vec<f32> = (0..LUT_N).map(|i| display_tone(GREY * ev_at(i).exp2(), contrast, whites, blacks)).collect();
-        ToneMap::from_tables(lut, [1.0; CHROMA_N], ToneMethod { hue: hue.clamp(0.0, 1.0) })
+        ToneMap::from_tables(lut, [1.0; CHROMA_N], ToneMethod { hue: hue.clamp(0.0, 1.0), luminance: false })
     }
 }
 
 /// The base curve of look `look` on a source with `info` (global): the Camera look uses the
-/// camera's curve (fitted to its JPEG, else the maker's), else the DNG profile's; the Adobe-like
-/// look a DNG profile's tone curve when the file has one (that is the profile's own rendition),
-/// else its own curve.
+/// camera's curve (fitted to its JPEG, else the maker's), else the DNG profile's.
+/// The Soft Film look always uses our independently fitted curve.
 pub fn base_curve(look: lightcraft_develop::Look, info: &crate::SourceInfo) -> BaseCurve {
     use lightcraft_develop::Look;
     match look {
         Look::Sigmoid => BaseCurve::Sigmoid(Sigmoid::default_curve()),
-        Look::Camera => info.look_curve.or(info.profile_curve).map_or(BaseCurve::Adobe, BaseCurve::Camera),
-        Look::Adobe => info.profile_curve.map_or(BaseCurve::Adobe, BaseCurve::Camera),
+        Look::Camera => info.look_curve.or(info.camera_tone).or(info.profile_curve).map_or(BaseCurve::Adobe, BaseCurve::Camera),
+        Look::Adobe => BaseCurve::Adobe,
     }
 }
 
@@ -340,6 +353,21 @@ pub fn tone_map(s: &lightcraft_develop::DevelopSettings, info: &crate::SourceInf
 pub fn tone_px(tone: &ToneMap, v: &ToneMethod, c: [f32; 3]) -> [f32; 3] {
     // negative channels (out-of-gamut scene colours) desaturated to zero (darktable sigmoid)
     let c = desaturate_negative(c);
+    if v.luminance {
+        let y = lightcraft_color::luminance_2020(c);
+        if y <= 0.0 {
+            return [0.0; 3];
+        }
+        let o = tone.apply(y);
+        let k = tone.chroma_scale(o);
+        let per = c.map(|x| tone.apply(x));
+        let py = lightcraft_color::luminance_2020(per).max(1e-9);
+        let d = std::array::from_fn(|i| {
+            let q = v.hue * c[i] * o / y + (1.0 - v.hue) * per[i] * o / py;
+            o + (q - o) * k
+        });
+        return crate::finish::gamut_map(d, [0.2627, 0.6780, 0.0593]).0;
+    }
     let per = c.map(|x| tone.apply(x));
     let (lo, mid, hi) = channel_order(c);
     let mut d = preserve_hue_and_energy(c, per, lo, mid, hi, v.hue);
@@ -349,7 +377,7 @@ pub fn tone_px(tone: &ToneMap, v: &ToneMethod, c: [f32; 3]) -> [f32; 3] {
     if k != 1.0 {
         d = d.map(|x| o + (x - o) * k);
     }
-    d.map(|x| x.clamp(0.0, 1.0))
+    crate::finish::gamut_map(d, [0.2627, 0.6780, 0.0593]).0
 }
 
 /// darktable sigmoid's `_desaturate_negative_values`.
@@ -404,7 +432,8 @@ pub fn preserve_hue_and_energy(pix: [f32; 3], per: [f32; 3], lo: usize, mid: usi
         out[mid] = corrected_mid;
         out[hi] = per[hi];
     } else {
-        let corrected_mid = ((1.0 - hue) * per[mid] + hue * (per[lo] * (1.0 - midscale) + midscale * (energy_target - per[lo]))) / (1.0 + hue * midscale);
+        let corrected_mid =
+            ((1.0 - hue) * per[mid] + hue * (per[lo] * (1.0 - midscale) + midscale * (energy_target - per[lo]))) / (1.0 + hue * midscale);
         out[lo] = per[lo];
         out[mid] = corrected_mid;
         out[hi] = energy_target - per[lo] - corrected_mid;
@@ -538,7 +567,9 @@ mod tests {
         let at = |shape: ToneBase, y: f32| ToneMap::scene(&BaseCurve::Adobe, shape, 1.0, 0.0, 0.0, 0.0).apply(y);
         assert!(at(ToneBase::ExtraShadow, 0.01) > at(ToneBase::Standard, 0.01));
         assert!(at(ToneBase::HighContrast, 0.02) < at(ToneBase::Standard, 0.02) && at(ToneBase::HighContrast, 0.7) > at(ToneBase::Standard, 0.7));
-        assert!(at(ToneBase::Linear, 2.0) < at(ToneBase::Standard, 2.0));
+        assert!((at(ToneBase::Linear, 0.18) - 0.18).abs() < 1e-5);
+        assert!((at(ToneBase::Linear, 0.5) - 0.5).abs() < 1e-5);
+        assert!(at(ToneBase::Linear, 1.0) < 1.0);
         // and the same directions on a rendered source
         let at = |c: f64, w: f64, b: f64, y: f32| ToneMap::rendered(1.0, c, w, b).apply(y);
         assert!(at(60.0, 0.0, 0.0, 0.03) < at(0.0, 0.0, 0.0, 0.03) && at(60.0, 0.0, 0.0, 0.7) > at(0.0, 0.0, 0.0, 0.7));
@@ -641,5 +672,30 @@ mod tests {
         // past white: pulled inside
         let out = compress([1.4, 0.8, 0.5], 0.85, 1.0, 0.0);
         assert!(out.iter().all(|x| *x <= 1.0 && *x >= 0.0), "{out:?}");
+    }
+}
+
+#[cfg(test)]
+mod reference_vectors {
+    use super::*;
+    #[test]
+    fn extracted_darktable_functions_match() {
+        let mut worst = 0.0f32;
+        for row in include_str!("../tests/fixtures/sigmoid.csv").lines() {
+            let (kind, row) = row.split_once(',').unwrap();
+            let v: Vec<f32> = row.split(',').map(|v| v.parse().unwrap()).collect();
+            if kind == "curve" {
+                worst = worst.max((Sigmoid::new(v[0], v[1], v[2], v[3]).eval(v[4]) - v[5]).abs());
+            } else {
+                let c = desaturate_negative([v[0], v[1], v[2]]);
+                let per = c.map(|x| Sigmoid::default_curve().eval(x));
+                let (lo, mid, hi) = channel_order(c);
+                let out = preserve_hue_and_energy(c, per, lo, mid, hi, v[3]);
+                for i in 0..3 {
+                    worst = worst.max((out[i] - v[4 + i]).abs());
+                }
+            }
+        }
+        assert!(worst < 2e-6, "darktable C absolute error: {worst}");
     }
 }

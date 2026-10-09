@@ -75,6 +75,7 @@ const FIELDS: &[(&str, usize)] = &[
     ("OUT_GAMMA", 1),
     // Process 2026 tone stage (`lightcraft_pipeline::tone2`): on, hue preservation
     ("TONE_HUE", 1),
+    ("TONE_LUM", 1),
     // first row of a band dispatch (the kernel runs over rows Y0.., see `render`)
     ("Y0", 1),
 ];
@@ -232,6 +233,7 @@ pub fn finish_block(fp: &FinishParams, masks: &[[f32; MASK_TERMS]], present: &Pr
     }
     p.f("SHADOW_TINT", fp.shadow_tint);
     p.f("TONE_HUE", fp.tone.method().hue);
+    p.b("TONE_LUM", fp.tone.method().luminance);
     p.fs("OUT_M", fp.to_out.as_flattened());
     p.fs("OUT_Y", &fp.out_luma);
     let (trc, gamma) = fp.out_trc.code();

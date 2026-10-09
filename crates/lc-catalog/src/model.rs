@@ -283,7 +283,7 @@ pub struct Photo {
     /// whether the user changed anything since (see [`crate::local`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_baseline: Option<u64>,
-    /// The look the photo's defaults use under Process 2026 (the "Default look for new photos"
+    /// The look the photo's defaults use (the "Default look for new photos"
     /// preference when it was added).
     #[serde(default, skip_serializing_if = "lightcraft_develop::Look::is_default")]
     pub look: lightcraft_develop::Look,

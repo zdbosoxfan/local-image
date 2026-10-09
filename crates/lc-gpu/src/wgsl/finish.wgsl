@@ -33,6 +33,17 @@ fn chroma_scale(o: f32) -> f32 {
 
 // Process 2026 tone (`tone2::tone_px`): darktable sigmoid's per-channel curve with its hue and
 // energy preservation, then a camera curve's chroma scale.
+fn gamut(r: vec3<f32>, weights: vec3<f32>) -> vec3<f32> {
+    let yy = clamp(dot(weights, r), 0.0, 1.0);
+    var t = 1.0;
+    for (var i=0u; i<3u; i++) {
+        if (r[i] < 0.0) { t = min(t, yy/max(yy-r[i],1e-9)); }
+        else if (r[i] > 1.0) { t = min(t, (1.0-yy)/max(r[i]-yy,1e-9)); }
+    }
+    if (t < 1.0) { return yy+(r-yy)*t; }
+    return r;
+}
+
 fn tone_v2(c0: vec3<f32>) -> vec3<f32> {
     // `desaturate_negative`
     let avg = max((c0.x + c0.y + c0.z) / 3.0, 0.0);
@@ -42,6 +53,18 @@ fn tone_v2(c0: vec3<f32>) -> vec3<f32> {
         f = -avg / (mn - avg);
     }
     var pix = array<f32, 3>(avg + f * (c0.x - avg), avg + f * (c0.y - avg), avg + f * (c0.z - avg));
+    if (pu(F_TONE_LUM) != 0u) {
+        let c = vec3<f32>(pix[0],pix[1],pix[2]);
+        let yy = lum2020(c);
+        if (yy <= 0.0) { return vec3<f32>(0.0); }
+        let o = tone_apply(yy);
+        let k = chroma_scale(o);
+        let per=vec3<f32>(tone_apply(c.x),tone_apply(c.y),tone_apply(c.z));
+        let py=max(lum2020(per),1e-9);
+        let hue=pf(F_TONE_HUE);
+        let q=hue*c*o/yy+(1.0-hue)*per*o/py;
+        return gamut(o+(q-o)*k,vec3<f32>(0.2627,0.6780,0.0593));
+    }
     var per = array<f32, 3>(tone_apply(pix[0]), tone_apply(pix[1]), tone_apply(pix[2]));
     // `channel_order`
     var lo = 2u;
@@ -99,7 +122,7 @@ fn tone_v2(c0: vec3<f32>) -> vec3<f32> {
     if (k != 1.0) {
         d = vec3<f32>(o) + (d - vec3<f32>(o)) * k;
     }
-    return clamp(d, vec3<f32>(0.0), vec3<f32>(1.0));
+    return gamut(d, vec3<f32>(0.2627, 0.6780, 0.0593));
 }
 
 fn encode_srgb(v: f32) -> f32 {
@@ -452,7 +475,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let air = pf(F_AIR);
         if (dz > 0.0) {
             let t = max(1.0 - 0.95 * min(dz, 1.0) * d, 0.12);
-            c = max((c - air * (1.0 - t)) / t, vec3<f32>(0.0));
+            // Match `dehaze_px`: tiny signed alpha residues must not turn unit
+            // transmission into clipping of negative scene channels.
+            if (t < 1.0) {
+                c = max((c - air * (1.0 - t)) / t, vec3<f32>(0.0));
+            }
         } else {
             let k = min(-dz, 1.0) * 0.7 * (0.35 + 0.65 * d);
             c = c + (air * 0.9 - c) * k;

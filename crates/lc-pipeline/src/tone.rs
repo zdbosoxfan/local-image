@@ -43,9 +43,11 @@ impl<'de> serde::Deserialize<'de> for CameraTone {
         }
         let w = Wire::deserialize(d)?;
         let mut tone = Self::new(w.knots).ok_or_else(|| serde::de::Error::custom("invalid camera tone curve"))?;
-        if let Some(index)=w.preset {
-            if crate::basecurves::points(index).is_none() { return Err(serde::de::Error::custom("invalid camera preset")); }
-            tone.preset=Some(index);
+        if let Some(index) = w.preset {
+            if crate::basecurves::points(index).is_none() {
+                return Err(serde::de::Error::custom("invalid camera preset"));
+            }
+            tone.preset = Some(index);
         }
         match w.chroma {
             Some(c) => tone.with_chroma(c).ok_or_else(|| serde::de::Error::custom("invalid camera chroma curve")),
@@ -69,8 +71,11 @@ impl CameraTone {
     /// Exact upstream spline, retaining all original preset knots rather than resampling them.
     pub fn from_preset(index: usize) -> Option<Self> {
         crate::basecurves::points(index)?;
-        let knots=std::array::from_fn(|i| { let x=(i+1) as f32/32.0; [x, x*0.99] });
-        Some(Self { knots, chroma: NO_CHROMA, preset:Some(index) })
+        let knots = std::array::from_fn(|i| {
+            let x = (i + 1) as f32 / 32.0;
+            [x, x * 0.99]
+        });
+        Some(Self { knots, chroma: NO_CHROMA, preset: Some(index) })
     }
 
     /// The curve with chroma scales at display luminance 0, 1/7 … 1 (each finite, 0..=4).
@@ -86,7 +91,9 @@ impl CameraTone {
         if !y.is_finite() || y <= 0.0 {
             return 0.0;
         }
-        if let Some(index)=self.preset { return crate::basecurves::eval(index,y); }
+        if let Some(index) = self.preset {
+            return crate::basecurves::eval(index, y);
+        }
         let mut previous = [0.0, 0.0];
         for p in self.knots {
             if y <= p[0] {
