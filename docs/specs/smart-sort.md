@@ -608,3 +608,19 @@ Add `Task::ImageText` variant data `{family: Clip|Siglip}`; SentencePiece-Unigra
      `smartSort:peopleFolders`.
    - Tests: default rows = categories; unticking a row skips it in the plan; a custom folder with tags {A,B} contains
      photos assigned A or B; AND/OR with people (Phase 3, mock faces); preset round trip of the layout.
+8. **People finder = face bubbles + per-folder people toggle** (owner, 2026-10-09; refines items 6–7):
+   - The People panel shows every detected person as a **round face bubble** (best-quality crop of their clearest face),
+     **sorted by how many photos they appear in, most first**, with the photo count as a badge. Each bubble has an
+     inline name field ("Add name") and merges/splits via drag-onto-bubble and "Not the same person".
+   - Each folder row in the Folders section has a **"People" toggle**. When a folder's People toggle is on, the face
+     bubbles show a checkbox for that folder: ticking (or clicking) a bubble puts that person in the folder. Selecting a
+     folder highlights which bubbles are in it. Examples: folder "Jane Doe" → People on → click Jane's bubble;
+     folder "Afternoon speakers" → People on → click three speakers' bubbles (the folder holds photos of any of them).
+   - Tag folders keep working independently: the automatic "Speakers" tag folder still collects everyone photographed
+     speaking, alongside the people folders.
+   - A bubble can be in several folders. Unnamed bubbles can be selected too (folder rule stores the person id; the
+     export uses the folder's name, not the person's name, so naming is optional).
+   - Bubbles load lazily (top 60 first, "Show all") and update live as analysis progresses.
+   - This replaces the separate cluster-card UI of §5.11/item 6; "Find This Person…" from a photo remains as a way to
+     create/locate a bubble.
+   - Automation ids: `smartSort:bubble:<personId>`, `smartSort:bubbleName:<personId>`, `smartSort:folderPeople:<index>`.
