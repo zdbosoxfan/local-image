@@ -668,7 +668,8 @@ fn merge_to_hdr(s: &mut Session, p: &Value) -> Result<Value> {
             ghost_base,
             response: None,
         },
-    );
+    )
+    .map_err(|e| bad(cmd, e))?;
     let mode = p.get("mode").and_then(|v| v.as_str().map(str::to_string).or_else(|| v.as_u64().map(|n| n.to_string()))).unwrap_or_else(|| "32".into());
     let (depth, mut px) = match mode.as_str() {
         "32" => (SampleType::F32, merged.px.clone()),
