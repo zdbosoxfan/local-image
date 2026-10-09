@@ -32,6 +32,8 @@ mod ctx;
 #[cfg(not(target_arch = "wasm32"))]
 mod params;
 #[cfg(not(target_arch = "wasm32"))]
+mod primary;
+#[cfg(not(target_arch = "wasm32"))]
 mod render;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -292,6 +294,18 @@ pub fn stage_bytes(stages: &StageCache) -> usize {
 /// Render `src` with `s` on the GPU, reusing the device-resident stages kept with `stages` (the
 /// view's CPU stage cache). `None`: render on the CPU instead.
 pub fn render(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: Option<&StageCache>) -> Option<Rendered> {
+    render_hs_candidate(src, info, s, req, stages, lightcraft_pipeline::primary::DEFAULT_HS_METHOD)
+}
+
+/// Internal owner-review/testing entry point; the choice is not persisted or exposed in UI.
+pub fn render_hs_candidate(
+    src: &Arc<Rgb32f>,
+    info: &SourceInfo,
+    s: &DevelopSettings,
+    req: &RenderRequest,
+    stages: Option<&StageCache>,
+    method: lightcraft_pipeline::primary::HsMethod,
+) -> Option<Rendered> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         // the kernel writes 8-bit output: high-bit-depth exports (and soft proofs) render on the CPU
@@ -301,11 +315,6 @@ pub fn render(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &R
         // develop layer tools (curves, colour, … on a mask) have no kernels yet: CPU
         if lightcraft_pipeline::layers_need_cpu(s) {
             record_fallback("develop layer tools render on the CPU".into());
-            return None;
-        }
-        // the tone equalizer has no kernel yet: CPU
-        if lightcraft_pipeline::tools_need_cpu(s, req) {
-            record_fallback("the tone equalizer renders on the CPU".into());
             return None;
         }
         // capture sharpening works on the source before anything else (both renderers)
@@ -318,7 +327,7 @@ pub fn render(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &R
         let (r, scoped) = {
             let _scope = ctx::RenderScope::new(gpu);
             let errors = ctx::ErrorScopes::push(gpu);
-            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| render::render(gpu, src, info, s, req, ext.as_deref(), fault)));
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| render::render(gpu, src, info, s, req, ext.as_deref(), fault, method)));
             (r, errors.pop())
         };
         // An error the device raised explains the readback failures that follow it; a buffer
@@ -371,7 +380,7 @@ pub fn render(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &R
     }
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = (src, info, s, req, stages);
+        let _ = (src, info, s, req, stages, method);
         None
     }
 }

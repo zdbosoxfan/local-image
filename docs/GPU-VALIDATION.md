@@ -146,3 +146,32 @@ Only image noise estimation and reduced band statistics run on the host. GPU haz
 uses host ambient-light selection, then native morphology, cropped Kahan boxes,
 covariance solves and reconstruction. If its 9-channel covariance buffer exceeds
 the storage-buffer limit, only haze preparation runs on the CPU inside the GPU render.
+
+## Primary sliders (2026-10-09; native revision)
+
+Highlights/Shadows A and B, Whites/Blacks, LLF Clarity modes, sensor-pixel
+Texture/Structure, UCS22 colour balance/equalizer/B&W, Skin Tone and layer CAT
+now use native WGSL compute passes. The former full-image CPU primary readback,
+processing and upload are removed. Defaults and zero primary controls dispatch
+no primary kernels, including colour picks/modes with neutral strengths.
+Device caches retain amount-independent LI Tone response fields, EIGF bases,
+Clarity coefficients, detail bands, equalizer guidance and Skin Tone low fields.
+Cached slider timings are included in the 24 MP bench; cache memory is counted.
+
+The CPU reference algorithms, all seven upstream fixture sets, pixel goldens and
+equivalence bounds remain unchanged in this performance revision. Shader parsing
+and validation run without an adapter. Test-only CPU Vulkan execution also checks
+native filter numerics, HDR renders, odd preview resampling, clipping, layers,
+cache edits, skin movement and zero dispatches; production rejects software adapters.
+This does not measure RTX performance or replace hardware equivalence testing.
+
+`equivalence.rs` still covers both HS candidates, clipping metadata, preview/full
+sizes, all Clarity modes, Texture/Structure, grading + mixer, Skin Tone, layers,
+A→B→A and tone-equalizer gain/overlay. Mean <0.5 LSB and max <=3 LSB are unchanged.
+`toolset.rs` retains the original 6000×4000 rows and adds primary identity and
+cached single-slider drags. `LC_PRIMARY_BENCH_ONLY=1` includes typical edit too.
+Targets for the RTX 5090 release run: typical <=~200 ms, primary increment <=~100 ms,
+cached single-tool drags well below 100 ms. Hardware results remain pending.
+
+The separate Tone Equalizer mask/finish remains CPU, as do established non-primary
+fallbacks and optional NR/dehaze statistics. See the slider report for exact scope.

@@ -801,6 +801,23 @@ fn general_interaction(
         }
         return;
     }
+    if app.ui.tool == "skinTone" {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+        if resp.clicked()
+            && let Some(q) = resp.interact_pointer_pos()
+        {
+            let n = map.norm(q);
+            let mut args = json!({"x":n.x,"y":n.y});
+            if let Some(id) = app.ui.point_color_mask {
+                args["mask"] = json!(id);
+            }
+            if let Err(e) = app.run("skinTone.pick", args) {
+                app.toast(ui.ctx(), e);
+            }
+            app.ui.tool.clear();
+        }
+        return;
+    }
     if app.ui.tool == "pointColor" {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         if resp.clicked()

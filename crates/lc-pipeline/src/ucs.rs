@@ -1,4 +1,4 @@
-//! Perceptual colour spaces of the V2026 colour tools: Filmlight Yrg (Kirk 2019, through CIE 2006
+//! Perceptual colour spaces of the Develop colour tools: Filmlight Yrg (Kirk 2019, through CIE 2006
 //! LMS) and darktable UCS 22 (Aurélien Pierre: lightness L*, colourfulness, JCH / HSB / HCB), with
 //! the gamut boundary of the working space (linear Rec.2020, D65) as colourfulness by hue.
 //!
@@ -82,7 +82,7 @@ pub fn yrg_to_lms(yrg: [f32; 3]) -> [f32; 3] {
 pub fn yrg_to_ych(yrg: [f32; 3]) -> [f32; 4] {
     let r = yrg[1] - YRG_WHITE[0];
     let g = yrg[2] - YRG_WHITE[1];
-    let c = g.hypot(r);
+    let c = (g * g + r * r).sqrt();
     let (co, si) = if c != 0.0 { (r / c, g / c) } else { (1.0, 0.0) };
     [yrg[0], c, co, si]
 }
@@ -312,8 +312,11 @@ pub fn lookup_gamut(lut: &[f32], hue: f32) -> f32 {
 /// fits Rec.2020.
 #[inline]
 pub fn gamut_map_hsb(hsb: &mut [f32; 3], l_white: f32) {
+    gamut_map_hsb_with(hsb, l_white, gamut_lut());
+}
+pub fn gamut_map_hsb_with(hsb: &mut [f32; 3], l_white: f32, gamut: &[f32; 512]) {
     let jch = hsb_to_jch(*hsb);
-    let max_m2 = lookup_gamut(gamut_lut(), jch[2]);
+    let max_m2 = lookup_gamut(gamut, jch[2]);
     let max_c = 15.932_994 * (jch[0] * l_white).max(0.0).powf(0.652_399_75) * max_m2.powf(0.600_755_7) / l_white;
     let b = jch_to_hsb([jch[0], max_c, jch[2]]);
     hsb[1] = soft_clip(hsb[1], 0.8 * b[1], b[1]);

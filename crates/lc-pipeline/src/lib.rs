@@ -4,22 +4,24 @@
 //! (full size or a proxy), plus [`DevelopSettings`]. Output: a display-encoded sRGB image at the
 //! requested size, and its histogram.
 //!
-//! Stage order (see `docs/pipeline.md`):
+//! Stage order:
 //! 1. geometry — user orientation, lens corrections (distortion, CA, vignetting), perspective, crop +
 //!    straighten, flips; one resample at output resolution; then defringe
-//! 2. scene-linear — white balance, film negative conversion ([`negative`]), exposure, dehaze,
-//!    local tone (highlights/shadows), texture, clarity, local adjustments (masks)
-//! 3. tone map — contrast / whites / blacks filmic curve on luminance, highlight desaturation
-//! 4. colour — vibrance, saturation, colour mixer, colour grading, B&W (OkLCh)
-//! 5. display — gamut map to the output space (sRGB unless [`RenderRequest::space`] says otherwise), encode, tone curves (parametric + point), vignette, grain
+//! 2. white balance/camera calibration, reconstruction input, retouching and noise reduction
+//! 3. primary scene tools (`primary`): exposed log-EV Highlights/Shadows/Whites/Blacks,
+//!    local-Laplacian Clarity, EIGF Texture/Structure, UCS22 colour tools and Skin Tone;
+//!    stage blends for global and layer settings, with a fixed geometric tone proxy
+//! 4. established scene/finish tools: dehaze, local exposure, faithful EIGF tone equalizer,
+//!    contrast tone map, curves and Point Color (OkLCh), vignette, grain and sharpening
+//! 5. display: output gamut mapping and transfer encoding (sRGB by default)
 //!
 //! Spatial parameters are specified relative to the image's long edge, so a 400 px preview and a
 //! 60 MP export look alike.
 //!
-//! Exposure is a gain, so the spatial stages run on the un-exposed image and the per-pixel stage
-//! applies it (filters on log luminance are shift-equivariant: identical result). With
-//! [`render_cached`] each stage's output is reused while its inputs are unchanged ([`StageCache`]):
-//! dragging a tone, colour or exposure slider re-runs only the per-pixel stage.
+//! The primary stage temporarily exposes its input for perceptual tone/colour calculations,
+//! then removes that gain so the established finish applies exposure once. With
+//! [`render_cached`] each stage's output is reused while its inputs are unchanged ([`StageCache`]);
+//! primary edits reuse geometry and WB/NR, and finish-only edits reuse the primary result.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
@@ -27,23 +29,29 @@
 mod test_vectors;
 
 pub mod auto;
+pub mod balance;
 pub mod capture;
 pub mod colorcal;
+pub mod colorequal;
 pub mod colorops;
 pub mod cull;
 pub mod detail;
 pub mod dust;
+pub mod eigf;
 pub mod finish;
 pub mod geometry;
 pub mod layers;
 pub mod lensdb;
+pub mod llf;
 pub mod local;
 pub mod lut;
 pub mod masks;
+pub mod metrics;
 pub mod negative;
 pub mod optics;
 pub mod output;
 pub mod patches;
+pub mod primary;
 pub mod profiles;
 pub mod redeye;
 pub mod spots;
@@ -51,6 +59,7 @@ pub mod tone;
 pub mod tone2;
 pub mod toneeq;
 pub mod transform;
+pub mod ucs;
 pub mod upright;
 pub mod visualize;
 
@@ -66,10 +75,61 @@ use lightcraft_raster::{Histogram, Plane, Rgb32f, Rgba8, par_rows};
 
 pub use tone::ToneMap;
 
+/// A sensor-space confidence plane, in EXIF-oriented source coordinates.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ClipConfidence {
+    pub width: usize,
+    pub height: usize,
+    #[serde(serialize_with = "serialize_clip_runs", deserialize_with = "deserialize_clip_runs")]
+    pub data: Vec<f32>,
+}
+// Lossless runs keep the mostly-unclipped sensor plane small in smart-preview headers.
+fn serialize_clip_runs<S: serde::Serializer>(data: &[f32], serializer: S) -> Result<S::Ok, S::Error> {
+    use serde::Serialize;
+    let mut runs: Vec<(usize, f32)> = Vec::new();
+    for &v in data {
+        if let Some((n, prev)) = runs.last_mut()
+            && prev.to_bits() == v.to_bits()
+        {
+            *n += 1;
+        } else {
+            runs.push((1, v));
+        }
+    }
+    runs.serialize(serializer)
+}
+fn deserialize_clip_runs<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<f32>, D::Error> {
+    use serde::Deserialize;
+    #[derive(serde::Deserialize)]
+    #[serde(untagged)]
+    enum Data {
+        Runs(Vec<(usize, f32)>),
+        Plain(Vec<f32>),
+    }
+    match Data::deserialize(deserializer)? {
+        Data::Plain(v) => Ok(v),
+        Data::Runs(runs) => {
+            let size = runs
+                .iter()
+                .try_fold(0usize, |n, (k, _)| n.checked_add(*k))
+                .filter(|n| *n <= 100_000_000)
+                .ok_or_else(|| serde::de::Error::custom("clip-confidence plane is too large"))?;
+            let mut data = Vec::with_capacity(size);
+            for (n, v) in runs {
+                data.extend(std::iter::repeat_n(v, n));
+            }
+            Ok(data)
+        }
+    }
+}
+
 /// Facts about the source the settings are interpreted against.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct SourceInfo {
+    /// Sensor fraction of clipped channels, before reconstruction and camera conversion.
+    pub clip_confidence: Option<Arc<ClipConfidence>>,
+    pub raw_clip_level: Option<f32>,
     /// Lens corrections embedded in the file (DNG opcodes), relative to the EXIF-oriented source.
     pub lens: Option<lightcraft_develop::EmbeddedLens>,
     /// Raw sources use absolute Kelvin white balance; rendered sources use a relative scale around
@@ -108,6 +168,8 @@ impl Default for SourceInfo {
     fn default() -> Self {
         Self {
             raw: false,
+            clip_confidence: None,
+            raw_clip_level: None,
             as_shot_temp: 6500.0,
             as_shot_tint: 0.0,
             lens: None,
@@ -293,6 +355,9 @@ impl StageCache {
             if let Some((_, l)) = &e.lin {
                 add(Arc::as_ptr(l) as usize, size(l));
             }
+            if let Some((_, p)) = &e.primary {
+                add(Arc::as_ptr(p) as usize, size(p));
+            }
             let pl = &e.planes;
             let planes = pl.log_l.iter().chain(pl.base.iter().map(|x| &x.1)).chain(pl.clarity.iter().map(|x| &x.1));
             for p in planes.chain(pl.texture.iter().map(|x| &x.1)) {
@@ -348,6 +413,7 @@ struct CacheEntry {
     sampled: Arc<Rgb32f>,
     lin: Option<(u64, Arc<Rgb32f>)>,
     planes: local::Planes,
+    primary: primary::Cached,
 }
 
 fn hash_of(parts: impl std::hash::Hash) -> u64 {
@@ -420,17 +486,10 @@ pub fn lin_needs_cpu(s: &DevelopSettings) -> bool {
     defringe || !s.spots.is_empty() || negative::converts(s) || colorcal::needs_cpu(s)
 }
 
-/// Whether the settings use a tool the GPU renderer has no kernel for (the tone equalizer): the
-/// whole render then runs on the CPU (like [`layers_need_cpu`]).
-pub fn tools_need_cpu(s: &DevelopSettings, req: &RenderRequest) -> bool {
-    toneeq::active(s) || req.overlay == Overlay::ToneEqMask
-}
-
-/// Whether develop layers need work only the CPU does: any visible mask holding layer tools
-/// (`Mask::tools`; see [`layers`]). Masks with only the quick local sliders and an opacity render
-/// on the GPU.
+/// Whether the remaining develop layer tools require the CPU renderer (`layers`).
+/// New primary tools have native scene-stage kernels inside the GPU render.
 pub fn layers_need_cpu(s: &DevelopSettings) -> bool {
-    layers::active(s)
+    layers::active(&primary::remaining(s))
 }
 
 /// The white-balanced, negative-converted, defringed, retouched image (before noise reduction):
@@ -502,13 +561,18 @@ fn presource_with(src: &Arc<Rgb32f>, p: &capture::CaptureParams, cache: Option<&
 
 /// Render `src` with settings `s`.
 pub fn render(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest) -> Rendered {
-    render_impl(Src::Borrowed(src), info, s, req, None)
+    render_impl(Src::Borrowed(src), info, s, req, None, primary::DEFAULT_HS_METHOD)
 }
 
 /// [`render`], reusing (and refreshing) the intermediate results in `cache`. The output is
 /// identical to [`render`]'s.
 pub fn render_cached(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, cache: &StageCache) -> Rendered {
-    render_impl(Src::Shared(src), info, s, req, Some(cache))
+    render_impl(Src::Shared(src), info, s, req, Some(cache), primary::DEFAULT_HS_METHOD)
+}
+
+/// Internal evaluation harness entry point; never persisted in photo settings.
+pub fn render_hs_candidate(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, method: primary::HsMethod) -> Rendered {
+    render_impl(Src::Borrowed(src), info, s, req, None, method)
 }
 
 enum Src<'a> {
@@ -516,7 +580,14 @@ enum Src<'a> {
     Shared(&'a Arc<Rgb32f>),
 }
 
-fn render_impl(src: Src<'_>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, cache: Option<&StageCache>) -> Rendered {
+fn render_impl(
+    src: Src<'_>,
+    info: &SourceInfo,
+    s: &DevelopSettings,
+    req: &RenderRequest,
+    cache: Option<&StageCache>,
+    hs_method: primary::HsMethod,
+) -> Rendered {
     // `Instant::now()` panics on wasm32-unknown-unknown: only read the clock when profiling.
     let lap = |what: &str, t: &mut Option<std::time::Instant>| {
         if let Some(t) = t {
@@ -542,8 +613,9 @@ fn render_impl(src: Src<'_>, info: &SourceInfo, s: &DevelopSettings, req: &Rende
         Src::Borrowed(r) => r,
         Src::Shared(a) => a,
     };
-    let plan = plan(src_img, info, s, req);
-    let Plan { ref frame, w, h, px_per_long, src_long, geo, lin_key, .. } = plan;
+    let mut plan = plan(src_img, info, s, req);
+    let Plan { w, h, px_per_long, src_long, geo, lin_key, .. } = plan;
+    let frame = plan.frame.clone();
     let s = &*plan.settings;
 
     let shared = match (&src, cache) {
@@ -568,29 +640,57 @@ fn render_impl(src: Src<'_>, info: &SourceInfo, s: &DevelopSettings, req: &Rende
         }
     };
     lap("wb/spots/nr", &mut t);
-    let mut planes = match cached.map(|e| e.planes) {
-        Some(p) if p.key == lin_key => p,
-        _ => local::Planes { key: lin_key, ..Default::default() },
+    let primary_key = primary::key_for(&plan, info, hs_method);
+    let primary = if primary::active(&plan.settings) {
+        match cached.as_ref().and_then(|e| e.primary.clone()).filter(|(key, _)| *key == primary_key) {
+            Some(p) => Some(p),
+            None => {
+                let proxy = if primary::needs_proxy(&plan.settings) { primary::proxy_for(src_img, info, &plan) } else { Rgb32f::new(0, 0) };
+                Some((primary_key, Arc::new(primary::process(&lin, &proxy, info, &plan, hs_method))))
+            }
+        }
+    } else {
+        None
     };
-    let prep = local::prepare(lin.clone(), s, info, frame, px_per_long, src_long, req.quality, &mut planes);
+    let prepared_lin = primary.as_ref().map_or_else(|| lin.clone(), |p| p.1.clone());
+    if primary.is_some() {
+        plan.settings = Cow::Owned(primary::remaining(&plan.settings));
+    }
+    let s = &*plan.settings;
+    let planes_key = if primary.is_some() { primary_key } else { lin_key };
+    let mut planes = match cached.map(|e| e.planes) {
+        Some(p) if p.key == planes_key => p,
+        _ => local::Planes { key: planes_key, ..Default::default() },
+    };
+    let prep = local::prepare(prepared_lin, s, info, &frame, px_per_long, src_long, req.quality, &mut planes);
     lap("prepare", &mut t);
     if let Some((a, c)) = shared {
-        c.put(CacheEntry { src: a.clone(), geo, sampled, lin: Some((lin_key, lin)), planes });
+        c.put(CacheEntry { src: a.clone(), geo, sampled, lin: Some((lin_key, lin)), planes, primary });
     }
+    finish_prepared(&prep, &plan, info, req)
+}
+
+/// A CPU finish stage inside the GPU renderer, for the faithful EIGF tone equalizer.
+/// Geometry, white balance, and noise reduction have already run on the device.
+pub fn finish_scene_stage(img: Arc<Rgb32f>, plan: &Plan<'_>, info: &SourceInfo, req: &RenderRequest) -> Rendered {
+    let prep = local::prepare(img, &plan.settings, info, &plan.frame, plan.px_per_long, plan.src_long, req.quality, &mut local::Planes::default());
+    finish_prepared(&prep, plan, info, req)
+}
+
+fn finish_prepared(prep: &Prepared, plan: &Plan<'_>, info: &SourceInfo, req: &RenderRequest) -> Rendered {
+    let s = &*plan.settings;
+    let frame = &plan.frame;
     if req.depth != OutputDepth::U8 {
-        let deep = finish::finish_deep(&prep, s, frame, info, req.space, req.depth, req.proof);
+        let deep = finish::finish_deep(prep, s, frame, info, req.space, req.depth, req.proof);
         let image = deep.to_rgba8();
         let histogram = Histogram::of_srgb8(&image);
-        lap("finish (deep)", &mut t);
         return Rendered { image, histogram, deep: Some(deep) };
     }
-    let image = finish::finish(&prep, s, frame, info, req.space, req.proof);
-    lap("finish", &mut t);
+    let image = finish::finish(prep, s, frame, info, req.space, req.proof);
     let histogram = Histogram::of_srgb8(&image);
-    lap("histogram", &mut t);
     let mut image = image;
-    let mask = overlay_alpha(req.overlay, &plan, &prep);
-    visualize::apply(&mut image, req.overlay, &plan, mask.as_ref());
+    let mask = overlay_alpha(req.overlay, plan, prep);
+    visualize::apply(&mut image, req.overlay, plan, mask.as_ref());
     Rendered { image, histogram, deep: None }
 }
 
@@ -607,12 +707,13 @@ pub fn color_range_sample(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, 
         return None;
     }
     let gain = (s.light.exposure as f32).exp2();
+    let tone = tone2::tone_map(s, info, s.light.contrast, 0., 0.);
     let mut acc = [0f64; 3];
     let mut n = 0.0;
     for y in (cy - 1).max(0)..=(cy + 1).min(plan.h as i64 - 1) {
         for x in (cx - 1).max(0)..=(cx + 1).min(plan.w as i64 - 1) {
             let c = img.data[y as usize * plan.w + x as usize].map(|v| v * gain);
-            let lab = lightcraft_color::perceptual::oklab_from_2020(masks::tonemap_for_select(c));
+            let lab = lightcraft_color::perceptual::oklab_from_2020(tone2::tone_px(&tone, &tone.method(), c));
             for k in 0..3 {
                 acc[k] += lab[k] as f64;
             }
@@ -620,6 +721,47 @@ pub fn color_range_sample(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, 
         }
     }
     Some(acc.map(|v| v / n))
+}
+
+/// Scene-linear UCS22 reference sampled before Skin Tone, averaged over 3×3 pixels.
+pub fn skin_reference_sample(
+    src: &Rgb32f,
+    info: &SourceInfo,
+    s: &DevelopSettings,
+    req: &RenderRequest,
+    p: lightcraft_geom::Point,
+) -> Option<[f64; 3]> {
+    let mut settings = s.clone();
+    settings.skin_tone = Default::default();
+    for m in &mut settings.masks {
+        m.tools.skin_tone = None;
+    }
+    let plan = plan(src, info, &settings, req);
+    let mut img = plan.frame.sample(src, plan.w, plan.h);
+    lin_cpu(&mut img, info, &plan);
+    if primary::active(&plan.settings) {
+        let proxy = if primary::needs_proxy(&plan.settings) { primary::proxy_for(src, info, &plan) } else { Rgb32f::new(0, 0) };
+        img = primary::process(&img, &proxy, info, &plan, primary::DEFAULT_HS_METHOD);
+    }
+    let q = plan.frame.norm_to_out(plan.w, plan.h).apply(p);
+    if q.x < 0. || q.y < 0. || q.x >= plan.w as f64 || q.y >= plan.h as f64 {
+        return None;
+    }
+    let (cx, cy) = (q.x.floor() as usize, q.y.floor() as usize);
+    let mut rgb = [0.0f32; 3];
+    let mut n = 0.;
+    for y in cy.saturating_sub(1)..=(cy + 1).min(plan.h - 1) {
+        for x in cx.saturating_sub(1)..=(cx + 1).min(plan.w - 1) {
+            let c = img.get(x, y);
+            for k in 0..3 {
+                rgb[k] += c[k];
+            }
+            n += 1.;
+        }
+    }
+    let g = (settings.light.exposure as f32).exp2();
+    let c = ucs::xyy_to_jch(ucs::xyz_to_xyy(ucs::mul(&ucs::mats().rgb_to_xyz, rgb.map(|v| v * g / n))), ucs::y_to_l_star(1.));
+    Some([c[0] as f64, c[1] as f64, c[2].to_degrees().rem_euclid(360.) as f64])
 }
 
 /// The alpha plane a mask overlay shows: the one the render evaluated, or (for a hidden mask) a
@@ -635,10 +777,7 @@ fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared) -> Option<Plane> 
 
     if o == Overlay::ToneEqMask {
         let m = prep.tone_eq.as_ref()?;
-        let t = &plan.settings.tone_eq;
-        let adj = toneeq::MaskAdjust { exposure: t.mask_exposure as f32, contrast: t.mask_contrast as f32 };
-        let ev = plan.settings.light.exposure as f32;
-        return Some(m.map(|v| toneeq::preview_grey(adj.zone_ev(v, ev))));
+        return Some(m.map(toneeq::preview_grey));
     }
     let m = o.mask(&plan.settings)?;
     if let Some(e) = prep.masks.iter().find(|e| e.id == m.id) {
@@ -657,7 +796,7 @@ pub fn before_settings(s: &DevelopSettings) -> DevelopSettings {
     b
 }
 
-pub(crate) fn is_bw(s: &DevelopSettings) -> bool {
+pub fn is_bw(s: &DevelopSettings) -> bool {
     s.treatment == Treatment::Bw || s.profile.id == "lc.mono" || s.profile.id.starts_with("lc.bw.")
 }
 
@@ -694,6 +833,8 @@ mod tests_geometry;
 mod tests_layers;
 #[cfg(test)]
 mod tests_local;
+#[cfg(test)]
+mod tests_sliders;
 #[cfg(test)]
 mod tests_toolset;
 

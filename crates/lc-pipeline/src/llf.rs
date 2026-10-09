@@ -18,7 +18,8 @@
 //!   value across edges, blended by a Gaussian of `x − γ`; with it the coarsest level is remapped
 //!   like the others (upstream copies the input's), so the curve moves the global level too.
 //!
-//! The WGSL kernels (`lightcraft-gpu` `pyr.wgsl`) evaluate the same formulas in the same order.
+//! CPU reference; native Clarity kernels are in lc-gpu/wgsl/primary.wgsl. Unused SIMD
+//! overread lanes are clamped.
 
 use lightcraft_raster::Plane;
 
@@ -115,7 +116,10 @@ pub fn gauss_reduce(input: &[f32], wd: usize, ht: usize) -> Vec<f32> {
         for_rows(inner, cw, |jj, out| {
             let j = jj + 1;
             let base0 = 2 * (j - 1) * wd;
-            let col_v = |c: usize| conv_vert([input[base0 + c], input[base0 + wd + c], input[base0 + 2 * wd + c], input[base0 + 3 * wd + c], input[base0 + 4 * wd + c]]);
+            let col_v = |c: usize| {
+                let c = c.min(wd - 1);
+                conv_vert([input[base0 + c], input[base0 + wd + c], input[base0 + 2 * wd + c], input[base0 + 3 * wd + c], input[base0 + 4 * wd + c]])
+            };
             let mut b = 0usize;
             let mut left = [col_v(0), col_v(1), col_v(2), col_v(3)];
             let mut col = 0usize;
@@ -245,7 +249,7 @@ pub struct Params {
 /// Number of pyramid levels darktable uses for a `wd × ht` image.
 pub fn num_levels(wd: usize, ht: usize) -> usize {
     let m = wd.min(ht).max(1);
-    (usize::BITS - m.leading_zeros()) as usize
+    ((usize::BITS - 1 - m.leading_zeros()) as usize).max(1)
 }
 
 /// darktable's `local_laplacian_internal` (regular mode) on a one-channel plane in 0..1 with its
@@ -260,7 +264,7 @@ pub fn local_laplacian(input: &Plane, sigma: f32, shadows: f32, highlights: f32,
 /// [`local_laplacian`] with the extensions of [`Params`].
 pub fn local_laplacian_with(input: &Plane, p: &Params) -> Plane {
     let (wd, ht) = (input.width, input.height);
-    if wd <= 1 || ht <= 1 {
+    if wd < 4 || ht < 4 {
         return input.clone();
     }
     let nl = num_levels(wd, ht).min(30);

@@ -34,6 +34,7 @@ pub enum Section {
     LensDb,
     ToneEq,
     ColorCal,
+    SkinTone,
 }
 
 impl Section {
@@ -60,6 +61,7 @@ impl Section {
             Section::LensDb => "Lens Profile",
             Section::ToneEq => "Tone Equalizer",
             Section::ColorCal => "Color Calibration",
+            Section::SkinTone => "Skin Tone",
         }
     }
 }
@@ -207,6 +209,12 @@ controls! {
     "grading.global.lum" => grading.global.lum, "Global Luminance", Grading, -100, 100, 0, 1, 0, Centered;
     "grading.blending" => grading.blending, "Blending", Grading, 0, 100, 50, 1, 0, Plain;
     "grading.balance" => grading.balance, "Balance", Grading, -100, 100, 0, 1, 0, Centered;
+    "skinTone.uniformity" => skin_tone.uniformity, "Uniformity", SkinTone, 0, 100, 0, 1, 0, Plain;
+    "skinTone.lightness" => skin_tone.lightness, "Lightness Uniformity", SkinTone, 0, 100, 0, 1, 0, Plain;
+    "skinTone.hueRange" => skin_tone.hue_range, "Hue Range", SkinTone, 5, 90, 30, 1, 0, Plain;
+    "skinTone.chromaRange" => skin_tone.chroma_range, "Chroma Range", SkinTone, 1, 100, 50, 1, 0, Plain;
+    "skinTone.lightnessRange" => skin_tone.lightness_range, "Lightness Range", SkinTone, 1, 100, 50, 1, 0, Plain;
+    "effects.structure" => effects.structure, "Structure", Effects, -100, 100, 0, 1, 0, Centered;
     "effects.texture" => effects.texture, "Texture", Effects, -100, 100, 0, 1, 0, Centered;
     "effects.clarity" => effects.clarity, "Clarity", Effects, -100, 100, 0, 1, 0, Centered;
     "effects.dehaze" => effects.dehaze, "Dehaze", Effects, -100, 100, 0, 1, 0, Centered;

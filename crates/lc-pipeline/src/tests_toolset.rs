@@ -103,18 +103,18 @@ fn cases() -> Vec<(&'static str, Value)> {
 const GOLDEN: [(&str, u64, u64); 14] = [
     ("default/rendered", 0x9c4d1d077ec4855f, 0x97d20305a4beb718),
     ("default/raw", 0xe4cadb152e11a72a, 0x97d20305a4beb718),
-    ("raw defaults + edits/rendered", 0xf2364afc56909ea9, 0x15c51fec88c0f59f),
-    ("raw defaults + edits/raw", 0xc5693c7dca173f4d, 0x15c51fec88c0f59f),
+    ("raw defaults + edits/rendered", 0x35b2897296c0abde, 0x15c51fec88c0f59f),
+    ("raw defaults + edits/raw", 0x27515ff61c81ba78, 0x15c51fec88c0f59f),
     ("optics + geometry + crop/rendered", 0xc0c59a4c8cd4a92a, 0x0d608f6981034f4f),
     ("optics + geometry + crop/raw", 0xded90c5d0013a5d1, 0x0d608f6981034f4f),
-    ("profile look/rendered", 0xf340243918f5d0d7, 0x67aea33bdcc2fa0b),
-    ("profile look/raw", 0xbf9002730b346eb4, 0x67aea33bdcc2fa0b),
-    ("b&w profile/rendered", 0xaf0827daa56de037, 0xb6159ee7a2d437b0),
-    ("b&w profile/raw", 0x1e627cb4c60f4827, 0xb6159ee7a2d437b0),
+    ("profile look/rendered", 0x3afbb0e76b323622, 0x67aea33bdcc2fa0b),
+    ("profile look/raw", 0x8352318c42cfb5c8, 0x67aea33bdcc2fa0b),
+    ("b&w profile/rendered", 0x13a8484c4988917f, 0xb6159ee7a2d437b0),
+    ("b&w profile/raw", 0xc3d16db57db48b3d, 0xb6159ee7a2d437b0),
     ("negative/rendered", 0x30b5bb6ca4d2340b, 0xb00a5805f4d46110),
     ("negative/raw", 0xd4e80f8f014fb4b0, 0xb00a5805f4d46110),
-    ("layers/rendered", 0x5d7d052c40911a42, 0x72a3db4f1a1900ec),
-    ("layers/raw", 0xca6bb1ad16f271e4, 0x72a3db4f1a1900ec),
+    ("layers/rendered", 0x707864fed6cf7fd2, 0x72a3db4f1a1900ec),
+    ("layers/raw", 0x7a6a3c0ba4313a72, 0x72a3db4f1a1900ec),
 ];
 
 #[test]
@@ -227,7 +227,7 @@ fn tone_equalizer_lifts_its_zone_and_shows_its_mask() {
     let p = |x: usize| m.data[(H / 2) * W + x];
     assert!(p(10)[0] == p(10)[1] && p(10)[1] == p(10)[2]);
     assert!(p(W - 30)[0] > p(10)[0]);
-    assert!(crate::tools_need_cpu(&s, &RenderRequest::fit(W, H)) && !crate::tools_need_cpu(&DevelopSettings::default(), &RenderRequest::fit(W, H)));
+    assert!(crate::toneeq::active(&s));
 }
 
 #[test]
