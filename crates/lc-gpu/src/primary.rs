@@ -81,6 +81,10 @@ fn bounds(cx: &mut Cx<'_>, a: &Buf, n: usize, nc: usize, lo: f32, hi: f32) -> Bu
 }
 /// Faithful Deriche kernel, channel clamps stay on the GPU when reduced from moments.
 fn deriche(cx: &mut Cx<'_>, a: &Buf, w: usize, h: usize, nc: usize, sigma: f32, limit: Option<&Buf>, bound: f32) -> Buf {
+    deriche_rounding(cx, a, w, h, nc, sigma, limit, bound, false)
+}
+#[allow(clippy::too_many_arguments)]
+fn deriche_rounding(cx: &mut Cx<'_>, a: &Buf, w: usize, h: usize, nc: usize, sigma: f32, limit: Option<&Buf>, bound: f32, exact: bool) -> Buf {
     let alpha = 1.695 / sigma.max(0.01);
     let em = (-alpha).exp();
     let em2 = (-2. * alpha).exp();
@@ -95,6 +99,7 @@ fn deriche(cx: &mut Cx<'_>, a: &Buf, w: usize, h: usize, nc: usize, sigma: f32, 
     let coefficients = [a0, a1, a2, a3, b1, b2, cp, cn].map(f);
     let mut p = vec![w as u32, h as u32, nc as u32, 0];
     p.extend(coefficients);
+    p.push(exact as u32);
     let mut params = vec![(w * nc) as u32];
     params.extend_from_slice(&p);
     let tmp = cx.gpu.buffer(w * h * nc);
@@ -118,10 +123,15 @@ fn transpose(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize) -> Buf {
     out
 }
 fn interpolate(cx: &mut Cx<'_>, a: &Buf, dim: (usize, usize), out: (usize, usize), nc: usize) -> Buf {
-    if dim == out {
+    interpolate_rounding(cx, a, dim, out, nc, false)
+}
+fn interpolate_rounding(cx: &mut Cx<'_>, a: &Buf, dim: (usize, usize), out: (usize, usize), nc: usize, exact: bool) -> Buf {
+    // The reference still computes corner weights at equal dimensions; the
+    // rounded divide/multiply can put a coordinate just beside its integer.
+    if dim == out && !exact {
         return cx.copy(a);
     }
-    one(cx, "p_interp", out.0 * out.1, &[dim.0 as u32, dim.1 as u32, out.0 as u32, out.1 as u32, nc as u32], a, out.0 * out.1 * nc)
+    one(cx, "p_interp", out.0 * out.1, &[dim.0 as u32, dim.1 as u32, out.0 as u32, out.1 as u32, nc as u32, exact as u32], a, out.0 * out.1 * nc)
 }
 fn extract(cx: &mut Cx<'_>, a: &Buf, n: usize, nc: usize, channels: usize, off: usize) -> Buf {
     one(cx, "p_extract", n, &[nc as u32, channels as u32, off as u32], a, n * channels)
@@ -160,8 +170,11 @@ pub(crate) fn eigf_with_geometric(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn toneeq_eigf(cx: &mut Cx<'_>, lin: &Buf, lum: &Buf, w: usize, h: usize, sigma: f32, eps: f32, gain: f32, slope: f32) -> Buf {
-    let reference = std::env::var_os("LC_TONEEQ_TRACE").map(|_| {
+    let reference = trace_enabled().then(|| {
         let rgb = cx.read_rgb(lin, w, h);
+        let words = crate::render::rgb_words(&rgb);
+        trace_difference("linear RGB input", words, words, w, 3);
+        eprintln!("toneeq compensation gain={gain:.9e} [{:08x}] slope={slope:.9e} [{:08x}]", gain.to_bits(), slope.to_bits());
         let cpu = rgb.map(|c| {
             let n = (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt() * gain;
             ((n - 0.0625) * slope + 0.0625).max(2f32.powi(-16))
@@ -173,7 +186,21 @@ pub(crate) fn toneeq_eigf(cx: &mut Cx<'_>, lin: &Buf, lum: &Buf, w: usize, h: us
     eigf_impl(cx, lum, w, h, sigma, eps, 2, 1.0, true, reference)
 }
 
+fn trace_enabled() -> bool {
+    #[cfg(test)]
+    if trace::enabled() {
+        return true;
+    }
+    std::env::var_os("LC_TONEEQ_TRACE").is_some()
+}
+
+#[cfg(test)]
+#[path = "toneeq_trace.rs"]
+pub(crate) mod trace;
+
 fn trace_difference(label: &str, cpu: &[f32], gpu: &[f32], w: usize, nc: usize) {
+    #[cfg(test)]
+    trace::record(label, cpu, gpu, w, nc);
     let mut worst = Vec::new();
     let mut changed = 0usize;
     for (i, (&p, &q)) in cpu.iter().zip(gpu).enumerate() {
@@ -214,21 +241,28 @@ fn eigf_impl(
     let dn = dim.0 * dim.1;
     let nc = if quant == 0. { 2 } else { 4 };
     let quant_words = quantization_words(quant);
+    // Integer-rounded operations are confined to tone-equalizer guidance.
+    let exact = quant == 1.0;
     let mut out = cx.copy(input);
     for iteration in 0..iterations {
-        let ds = interpolate(cx, &out, (w, h), dim, 1);
+        let actual_input: Option<Vec<f32>> = reference.as_ref().map(|cpu| {
+            let actual = cx.read(&out, w * h);
+            trace_difference(&format!("iteration {} input", iteration + 1), &cpu.data, &actual, w, 1);
+            actual
+        });
+        let ds = interpolate_rounding(cx, &out, (w, h), dim, 1, exact);
         let mask = (quant != 0.).then(|| one(cx, "p_quant", w * h, &quant_words, &out, w * h));
-        let guide = interpolate(cx, mask.as_ref().unwrap_or(&out), (w, h), dim, 1);
-        let moments = run(cx, "p_moments", dn, &[nc as u32], [Some(&guide), Some(&ds), None, None, None], dn * nc);
+        let guide = interpolate_rounding(cx, mask.as_ref().unwrap_or(&out), (w, h), dim, 1, exact);
+        let moments = run(cx, "p_moments", dn, &[nc as u32, exact as u32], [Some(&guide), Some(&ds), None, None, None], dn * nc);
         let limit = bounds(cx, &moments, dn, nc, 1e7, 0.);
-        let av = deriche(cx, &moments, dim.0, dim.1, nc, (sigma / scale).max(1.), Some(&limit), f32::MAX);
-        let av = one(cx, "p_variance", dn, &[nc as u32], &av, dn * nc);
-        let av = interpolate(cx, &av, dim, (w, h), nc);
+        let gaussian = deriche_rounding(cx, &moments, dim.0, dim.1, nc, (sigma / scale).max(1.), Some(&limit), f32::MAX, exact);
+        let av = one(cx, "p_variance", dn, &[nc as u32, exact as u32], &gaussian, dn * nc);
+        let av = interpolate_rounding(cx, &av, dim, (w, h), nc, exact);
         out = run(
             cx,
             "p_eigf_apply",
             w * h,
-            &[nc as u32, f(eps), (geometric && iteration + 1 == iterations) as u32],
+            &[nc as u32, f(eps), (geometric && iteration + 1 == iterations) as u32, exact as u32],
             [Some(&out), Some(&av), mask.as_ref(), None, None],
             w * h,
         );
@@ -237,6 +271,23 @@ fn eigf_impl(
             eprintln!("toneeq EIGF iteration {}: {}x{}, downsample {}x{}, sigma={sigma}, eps={eps}", iteration + 1, w, h, dim.0, dim.1);
             let ds_cpu = eigf::interpolate(&cpu.data, w, h, dim.0, dim.1, 1);
             let mask_cpu: Vec<_> = cpu.data.iter().map(|v| v.log2().floor().exp2().clamp(2f32.powi(-14), 4.0)).collect();
+            let mask_gpu: Vec<f32> = cx.read(mask.as_ref().unwrap_or(input), w * h);
+            if let Some(actual_input) = &actual_input {
+                for (i, (p, q)) in mask_cpu.iter().zip(&mask_gpu).enumerate().filter(|(_, (p, q))| p != q).take(32) {
+                    let v = cpu.data[i];
+                    let actual = actual_input[i];
+                    let cpu_on_gpu = actual.log2().floor().exp2().clamp(2f32.powi(-14), 4.0);
+                    eprintln!(
+                        "  bin ({}, {}) CPU input={v:.9e} [{:08x}] log2={:.9e}, GPU input={actual:.9e} [{:08x}] CPU log2(GPU input)={:.9e}, CPU bin={p:.9e} GPU bin={q:.9e} CPU bin(GPU input)={cpu_on_gpu:.9e}",
+                        i % w,
+                        i / w,
+                        v.to_bits(),
+                        v.log2(),
+                        actual.to_bits(),
+                        actual.log2()
+                    );
+                }
+            }
             let guide_cpu = eigf::interpolate(&mask_cpu, w, h, dim.0, dim.1, 1);
             let moments_cpu: Vec<_> = guide_cpu.iter().zip(&ds_cpu).flat_map(|(&g, &m)| [g, g * g, m, m * g]).collect();
             let mut min = [1e7f32; 4];
@@ -248,6 +299,7 @@ fn eigf_impl(
                 }
             }
             let mut avg = eigf::gaussian(&moments_cpu, dim.0, dim.1, 4, (sigma / scale).max(1.0), &min, &max);
+            let gaussian_cpu = avg.clone();
             for pix in avg.as_chunks_mut::<4>().0 {
                 pix[1] -= pix[0] * pix[0];
                 pix[3] -= pix[0] * pix[2];
@@ -263,11 +315,12 @@ fn eigf_impl(
                 ("quantized guidance", &mask_cpu, mask.as_ref().unwrap_or(input), w * h, w, 1),
                 ("resampled guidance", &guide_cpu, &guide, dn, dim.0, 1),
                 ("moments", &moments_cpu, &moments, dn * 4, dim.0, 4),
+                ("Gaussian moments", &gaussian_cpu, &gaussian, dn * 4, dim.0, 4),
                 ("variance/covariance", &avg, &av, w * h * 4, w, 4),
                 ("filtered", &result.data, &out, w * h, w, 1),
             ] {
                 let actual: Vec<f32> = cx.read(buffer, count);
-                trace_difference(label, expected, &actual, width, channels);
+                trace_difference(&format!("iteration {} {label}", iteration + 1), expected, &actual, width, channels);
             }
             *cpu = result;
         }
@@ -516,7 +569,7 @@ fn skin(cx: &mut Cx<'_>, img: &Buf, s: &DevelopSettings, w: usize, h: usize, ppl
     let low = cache.get(format!("{scope}/skin-low"), ik, || {
         let guide = extract(cx, &extra, n, 2, 1, 0);
         let sigma = (ppl as f32 * 0.0075).max(1.);
-        let moments = one(cx, "p_moments", n, &[2], &guide, n * 2);
+        let moments = one(cx, "p_moments", n, &[2, 0], &guide, n * 2);
         let means = deriche(cx, &moments, w, h, 2, sigma, None, f32::MAX);
         let all = cx.gpu.buffer(n * 3);
         for ch in 0..3 {
@@ -823,6 +876,91 @@ pub(crate) mod tests {
     use super::*;
     use lightcraft_pipeline::{RenderRequest, primary};
     use lightcraft_raster::{Plane, Rgb32f};
+    #[test]
+    fn native_toneeq_eigf_matches_cpu_float_words() {
+        let Some(g) = crate::test_device().or_else(device) else { return };
+        let _scope = crate::ctx::RenderScope::new(g);
+        let (w, h) = (71, 47);
+        let rgb = Rgb32f::from_fn(w, h, |x, y| {
+            let v = 0.0003 * 1.02f32.powf(x as f32 * 320.0 / w as f32) * (1.0 + 0.06 * (y as f32 * 0.7).sin());
+            [v, v * 0.7, v * 0.4]
+        });
+        let mut cx = Cx::new(g);
+        let lin = g.upload(crate::render::rgb_words(&rgb));
+        for (sigma, eps, gain, slope) in [(0.5, 1.4, 0.25, 0.5), (20.125, 0.0875, 4.0, 2.0), (1.7, 0.35, 1.0, 1.0)] {
+            let lum = g.buffer(w * h);
+            crate::render::map(&mut cx, "toneeq_lum", w * h, &[f(gain), f(slope)], [Some(&lin), None, None], &lum);
+            let cpu_lum = rgb.map(|c| {
+                let n = (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt() * gain;
+                ((n - 0.0625) * slope + 0.0625).max(2f32.powi(-16))
+            });
+            let actual: Vec<f32> = cx.read(&lum, w * h);
+            assert_eq!(actual.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), cpu_lum.data.iter().map(|v| v.to_bits()).collect::<Vec<_>>());
+            let out = toneeq_eigf(&mut cx, &lin, &lum, w, h, sigma, eps, gain, slope);
+            let mut p = lightcraft_pipeline::eigf::Params::new(sigma, eps);
+            p.quantization = 1.0;
+            p.geometric = true;
+            let expected = lightcraft_pipeline::eigf::filter(&cpu_lum, p);
+            let actual: Vec<f32> = cx.read(&out, w * h);
+            for (i, (p, q)) in expected.data.iter().zip(&actual).enumerate() {
+                assert_eq!(p.to_bits(), q.to_bits(), "sigma={sigma}, pixel ({}, {}): CPU={p:e}, GPU={q:e}", i % w, i / w);
+            }
+        }
+    }
+
+    #[test]
+    fn native_toneeq_rounding_preserves_bin_boundaries() {
+        // A rounded product followed by subtraction lands exactly at -5 EV.
+        // Its FMA is four floats lower and selects the -6 EV guidance bin.
+        let x = f32::from_bits(1.03125f32.to_bits() + 2);
+        let y = f32::from_bits(1.0f32.to_bits() - 4);
+        let separate = x * y - 1.0;
+        let fused = x.mul_add(y, -1.0);
+        assert_eq!(separate, 0.03125);
+        assert_ne!(separate.log2().floor(), fused.log2().floor());
+        let Some(g) = crate::test_device().or_else(device) else { return };
+        let _scope = crate::ctx::RenderScope::new(g);
+        let mut triples = vec![[x, y, -1.0], [0.0, -0.0, 0.0], [-0.0, -0.0, -0.0], [1.0, -1.0, 0.0]];
+        for bits in [1, 2, 3, 0x007fffff, 0x00800000, 0x00800001, 0x7f7fffff] {
+            let v = f32::from_bits(bits);
+            triples.extend([[v, 0.5, 0.0], [-v, 2.0, 0.0], [v, -v, 0.0]]);
+        }
+        // Cancellation, both signs and widely separated exponents. Products
+        // stay normal so the driver's permitted subnormal flush is irrelevant.
+        for ev in -30..=30 {
+            let v = 2f32.powi(ev);
+            for offset in -8..=8 {
+                let u = f32::from_bits((v.to_bits() as i64 + offset) as u32);
+                triples.extend([[v, -u, 0.0625], [-v, u, -0.0625], [u, 0.5, -v * 0.5]]);
+            }
+        }
+        let mut seed = 17u32;
+        for _ in 0..8192 {
+            triples.push(std::array::from_fn(|_| {
+                seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                let exponent = 97 + ((seed >> 23) % 61);
+                f32::from_bits((seed & 0x807fffff) | (exponent << 23))
+            }));
+        }
+        // Exercise gradual underflow, overflow, and large exponent differences.
+        for _ in 0..4096 {
+            triples.push(std::array::from_fn(|_| {
+                seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                let exponent = (seed >> 23) % 255;
+                f32::from_bits((seed & 0x807fffff) | (exponent << 23))
+            }));
+        }
+        let mut cx = Cx::new(g);
+        let input = g.upload(triples.as_flattened());
+        let out = g.buffer(triples.len() * 5);
+        cx.run("teq_round_probe", &[triples.len() as u32], &[Some(&input), Some(&out)], groups1(triples.len()));
+        let actual: Vec<f32> = cx.read(&out, triples.len() * 5);
+        for ([x, y, z], q) in triples.iter().zip(actual.as_chunks::<5>().0) {
+            let expected = [x + y, x * y + z, x * y, if *y == 0.0 { 0.0 } else { x / y }, x.abs().sqrt()];
+            assert_eq!(q.map(f32::to_bits), expected.map(f32::to_bits), "operands {x:?} {y:?} {z:?}");
+        }
+    }
+
     #[test]
     fn native_power_bin_boundaries_match_cpu_rounded_log() {
         let Some(g) = crate::test_device().or_else(device) else { return };

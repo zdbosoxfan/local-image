@@ -210,7 +210,8 @@ fn xguided_refine(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workg
 @compute @workgroup_size(256)
 fn toneeq_lum(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {
     let i=lin_index(g,nw);if(i>=pu(0u)){return;}let v=rgb_a(i);
-    dst[i]=max((sqrt(v.x*v.x+v.y*v.y+v.z*v.z)*pf(1u)-0.0625)*pf(2u)+0.0625,0.0000152587890625);
+    let norm=teq_mul(teq_sqrt(teq_add(teq_add(teq_mul(v.x,v.x),teq_mul(v.y,v.y)),teq_mul(v.z,v.z))),pf(1u));
+    dst[i]=max(teq_add(teq_mul(teq_add(norm,-0.0625),pf(2u)),0.0625),0.0000152587890625);
 }
 @compute @workgroup_size(256)
 fn toneeq_log(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {

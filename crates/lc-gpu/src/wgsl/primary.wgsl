@@ -27,9 +27,16 @@ fn p_lum(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng
 // Exact upstream corner-aligned interpolation, including repeated last-pixel weights.
 fn interp_a(i: u32,ch: u32) -> f32 {
     let w=pu(1u); let h=pu(2u); let ow=pu(3u); let oh=pu(4u); let nc=pu(5u);
-    let fx=f32(i%ow)/f32(ow)*f32(w); let fy=f32(i/ow)/f32(oh)*f32(h);
-    let x0=min(u32(floor(fx)),w-1u); let x1=min(x0+1u,w-1u); let dx=f32(x1)-fx;
-    let y0=min(u32(floor(fy)),h-1u); let y1=min(y0+1u,h-1u); let dy=f32(y1)-fy;
+    var fx=f32(i%ow)/f32(ow)*f32(w); var fy=f32(i/ow)/f32(oh)*f32(h);
+    if(pu(6u)!=0u){fx=teq_mul(teq_div(f32(i%ow),f32(ow)),f32(w));fy=teq_mul(teq_div(f32(i/ow),f32(oh)),f32(h));}
+    let x0=min(u32(floor(fx)),w-1u); let x1=min(x0+1u,w-1u); var dx=f32(x1)-fx;
+    let y0=min(u32(floor(fy)),h-1u); let y1=min(y0+1u,h-1u); var dy=f32(y1)-fy;
+    if(pu(6u)!=0u){
+        dx=teq_add(f32(x1),-fx);dy=teq_add(f32(y1),-fy);
+        let bottom=teq_add(teq_mul(a[(y1*w+x0)*nc+ch],dx),teq_mul(a[(y1*w+x1)*nc+ch],teq_add(1.0,-dx)));
+        let top=teq_add(teq_mul(a[(y0*w+x0)*nc+ch],dx),teq_mul(a[(y0*w+x1)*nc+ch],teq_add(1.0,-dx)));
+        return teq_add(teq_mul(teq_add(1.0,-dy),bottom),teq_mul(dy,top));
+    }
     return (1.0-dy)*(a[(y1*w+x0)*nc+ch]*dx+a[(y1*w+x1)*nc+ch]*(1.0-dx))
         +dy*(a[(y0*w+x0)*nc+ch]*dx+a[(y0*w+x1)*nc+ch]*(1.0-dx));
 }
@@ -43,12 +50,14 @@ fn p_deriche(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups
     let k=g.x+g.y*ng.x*64u; if(k>=pu(0u)) {return;} let w=pu(1u); let h=pu(2u); let nc=pu(3u); let hor=pu(4u)!=0u;
     let line=k/nc; let ch=k%nc; let len=select(h,w,hor); let stride=select(w*nc,nc,hor); let off=select(line*nc,line*w*nc,hor)+ch;
     let lo=b[ch]; let hi=b[4u+ch]; let a0=pf(5u); let a1=pf(6u); let a2=pf(7u); let a3=pf(8u); let b1=pf(9u); let b2=pf(10u);
-    var xp=clamp(a[off],lo,hi); var yp=xp*pf(11u); var yb=yp;
-    for(var j=0u;j<len;j++) {let ix=off+j*stride; let xc=clamp(a[ix],lo,hi); let yc=a0*xc+a1*xp-b1*yp-b2*yb;
+    var xp=clamp(a[off],lo,hi); var yp=xp*pf(11u);if(pu(13u)!=0u){yp=teq_mul(xp,pf(11u));} var yb=yp;
+    for(var j=0u;j<len;j++) {let ix=off+j*stride; let xc=clamp(a[ix],lo,hi); var yc=a0*xc+a1*xp-b1*yp-b2*yb;
+        if(pu(13u)!=0u){yc=teq_add(teq_add(teq_add(teq_mul(a0,xc),teq_mul(a1,xp)),-teq_mul(b1,yp)),-teq_mul(b2,yb));}
         out[ix]=yc; xp=xc; yb=yp; yp=yc;}
-    var xn=clamp(a[off+(len-1u)*stride],lo,hi); var xa=xn; var yn=xn*pf(12u); var ya=yn;
-    for(var j=i32(len)-1;j>=0;j--) {let ix=off+u32(j)*stride; let xc=clamp(a[ix],lo,hi); let yc=a2*xn+a3*xa-b1*yn-b2*ya;
-        out[ix]=out[ix]+yc; xa=xn; xn=xc; ya=yn; yn=yc;}
+    var xn=clamp(a[off+(len-1u)*stride],lo,hi); var xa=xn; var yn=xn*pf(12u);if(pu(13u)!=0u){yn=teq_mul(xn,pf(12u));} var ya=yn;
+    for(var j=i32(len)-1;j>=0;j--) {let ix=off+u32(j)*stride; let xc=clamp(a[ix],lo,hi); var yc=a2*xn+a3*xa-b1*yn-b2*ya;
+        if(pu(13u)!=0u){yc=teq_add(teq_add(teq_add(teq_mul(a2,xn),teq_mul(a3,xa)),-teq_mul(b1,yn)),-teq_mul(b2,ya));out[ix]=teq_add(out[ix],yc);}
+        else{out[ix]=out[ix]+yc;} xa=xn; xn=xc; ya=yn; yn=yc;}
 }
 var<workgroup> reduce_lo: array<vec4<f32>,256>;
 var<workgroup> reduce_hi: array<vec4<f32>,256>;
@@ -81,18 +90,30 @@ fn p_quant(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) 
 fn p_moments(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
     let i=lin_index(g,ng); if(i>=pu(0u)) {return;} let nc=pu(1u); let v=a[i]; out[nc*i]=v; out[nc*i+1u]=v*v;
     if(nc==4u) {out[nc*i+2u]=b[i]; out[nc*i+3u]=b[i]*v;}
+    if(pu(2u)!=0u){out[nc*i+1u]=teq_mul(v,v);out[nc*i+3u]=teq_mul(b[i],v);}
 }
 @compute @workgroup_size(256)
 fn p_variance(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
     let i=lin_index(g,ng); if(i>=pu(0u)) {return;} let nc=pu(1u); let m=a[nc*i]; out[nc*i]=m; out[nc*i+1u]=a[nc*i+1u]-m*m;
     if(nc==4u) {out[nc*i+2u]=a[nc*i+2u]; out[nc*i+3u]=a[nc*i+3u]-m*a[nc*i+2u];}
+    if(pu(2u)!=0u){out[nc*i+1u]=teq_add(a[nc*i+1u],-teq_mul(m,m));out[nc*i+3u]=teq_add(a[nc*i+3u],-teq_mul(m,a[nc*i+2u]));}
 }
 @compute @workgroup_size(256)
 fn p_eigf_apply(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
-    let i=lin_index(g,ng); if(i>=pu(0u)) {return;} let nc=pu(1u); let v=a[i]; let m=b[nc*i]; let norm=max(m*v,1e-6); let vr=b[nc*i+1u]/norm;
+    let i=lin_index(g,ng); if(i>=pu(0u)) {return;} let nc=pu(1u); let v=a[i]; let m=b[nc*i];
+    if(pu(4u)!=0u){
+        let norm=max(teq_mul(m,v),1e-6);let vr=teq_div(b[nc*i+1u],norm);
+        let nm=max(teq_mul(b[nc*i+2u],c[i]),1e-6);
+        let cov=teq_div(b[nc*i+3u],teq_sqrt(teq_mul(norm,nm)));
+        let aa=teq_div(cov,teq_add(vr,pf(2u)));let bb=teq_add(b[nc*i+2u],-teq_mul(aa,m));
+        let q=max(teq_add(teq_mul(v,aa),bb),0.0000152587890625);
+        out[i]=q;if(pu(3u)!=0u){out[i]=teq_sqrt(teq_mul(v,q));}return;
+    }
+    let norm=max(m*v,1e-6); let vr=b[nc*i+1u]/norm;
     var aa=vr/(vr+pf(2u)); var bb=m-aa*m;
     if(nc==4u) {let nm=max(b[nc*i+2u]*c[i],1e-6); aa=(b[nc*i+3u]/sqrt(norm*nm))/(vr+pf(2u)); bb=b[nc*i+2u]-aa*m;}
-    let q=max(v*aa+bb,0.0000152587890625); out[i]=select(q,sqrt(v*q),pu(3u)!=0u);
+    let q=max(v*aa+bb,0.0000152587890625);
+    out[i]=select(q,sqrt(v*q),pu(3u)!=0u);
 }
 @compute @workgroup_size(256)
 fn p_cross_pre(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
