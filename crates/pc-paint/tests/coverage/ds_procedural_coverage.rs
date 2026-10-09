@@ -65,9 +65,7 @@ fn pattern_noise_seam_is_small() {
     assert!(seam < 0.08, "Left/right seam too large: {}", seam);
 }
 
-// BUG: u32::MAX seed causes u64 overflow in salt multiplication inside pattern()
 #[test]
-#[ignore = "BUG: seed multiplication overflows u64 for large seeds"]
 fn pattern_extreme_seed_does_not_panic() {
     for style in [PatternStyle::Noise, PatternStyle::Paper, PatternStyle::Canvas, PatternStyle::Dots] {
         let p = procedural::pattern(style, 32, u32::MAX);
