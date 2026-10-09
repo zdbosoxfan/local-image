@@ -120,12 +120,50 @@ White Balance picker, curve presets / targeted adjustment on layers.
 * Coming back from Library Develop to compositing needs no warning in the live case: the develop *is* a smart filter/Develop layer that stays editable in the Layers panel. Only the "merge visible" choice gets the note "Your develop settings apply to a merged copy; changes to the layers below won't show until you merge again."
 * **Layer viewer in the Library:** for a layered document in Develop, a collapsible Layers list (visibility, which layer develop targets, open in Editor). Hidden for single-layer photos.
 
-### 3.5 Camera Raw Filter parity (Filter menu, Photoshop-style)
+### 3.5 Camera Raw Filter parity (Filter menu, Photoshop-style) — *shipped*
 
-* **Filter › Camera Raw Filter…** opens the same Develop workspace on the active layer: all non-raw-only tools, develop layers with AI masks, AI Remove, presets.
-* On a smart object it is a **smart filter** `develop.lightcraft` (re-editable, maskable, opacity/blend like other smart filters); on a plain layer it asks "Convert to Smart Object to keep it editable?" (default yes) or applies destructively.
-* On a Develop layer it edits the layer's own settings (scene-referred, every tool).
-* Optionally later: cheap per-pixel develop adjustment layers (Light, Color & Vibrance) like Photoshop 2026, for live tweaks over a stack.
+* **Filter › Camera Raw Filter…** (⇧⌘A) is `filter.develop`: the Library's engine
+  (`lc-pipeline::render`, `SourceInfo::default()`) on the layer. `photocraft_io::develop_filter`
+  converts the layer from the document's profile (matrix/TRC analytically — sRGB, Adobe RGB,
+  ProPhoto, Display P3, linear; others through the CMS) to linear Rec.2020, develops at full size
+  and converts back; **alpha is copied unchanged**, 8/16/32-bit and Grayscale work. Colours
+  outside Rec.2020 (saturated ProPhoto) or above white keep the part outside it, so unchanged
+  settings change nothing (identity is skipped outright; the full path is within 1/255).
+* **Tools a filter can't use are off** (`develop_filter::sanitize`): crop, Geometry/Upright,
+  orientation, lens profile, camera calibration, Enhance (AI Denoise, Raw Details, Super
+  Resolution). The Negative conversion, masks, point colour, spots, red eye, manual optics,
+  profiles and presets stay.
+* **Plain layer → smart filter**: the menu asks "Convert to Smart Object to keep it editable?"
+  (default Convert; Apply Destructively edits the pixels inside the selection). On a smart object
+  it is a re-editable smart filter `SmartFilter{command:"filter.develop", params: DevelopSettings
+  JSON}` (the selection becomes the filter mask; blend/opacity like other smart filters);
+  `filter.develop {…, index}` replaces a filter's settings. Convert + filter is one history step.
+  On a Develop layer it goes to Develop on its photo (every tool, raw data).
+* **The editing UI is the real Develop module.** Compositing hands the host a request (the
+  layer's pixels in linear Rec.2020, the settings, a name); the host opens them as an *ephemeral
+  photo* (`lc-engine/src/ephemeral.rs`: a temporary 16-bit Rec.2020 TIFF in
+  `<config>/cache/camera-raw`, in memory only — never journaled, snapshotted or given a sidecar,
+  deleted when the session ends and at startup), shows Develop with the banner "Camera Raw
+  Filter · ‹layer› — Cancel / OK" (↩ / Esc), hides the Library's chrome and Library-only
+  shortcuts, and hides the Calibration panel, Crop and the lens-profile switch. OK hands the
+  settings back and runs `filter.develop` (one history step); Cancel, or the module switch,
+  changes nothing. The old `filter.cameraRaw` (the earlier, simpler engine) keeps working for
+  existing documents; without the Library (`LOCAL_IMAGE_NO_LIBRARY`) its dialog edits a
+  `filter.develop` instead (its controls mapped onto the settings, previews from the same engine).
+* **PSD**: a `filter.develop` is written as Photoshop's Camera Raw Filter (the settings Camera Raw
+  understands, patched into Photoshop's own descriptor when the filter came from Photoshop), plus,
+  when the settings hold more (masks, profiles, B&W, point colour…), the full settings in a
+  private `localImage` key of the filter item, which Photoshop ignores and our importer reads
+  back (unless Photoshop changed the descriptor since: its values then apply over ours). Photoshop
+  Camera Raw filters open as `filter.develop`; our own `filter.cameraRaw` ones stay what they were.
+* **Composite → Develop**: switching from Compositing to Develop on a document with no Develop
+  layer asks **Develop the composite (live)** (`develop.composite {mode:"live"}`: the visible
+  layers grouped into a smart object, contents still editable, with the filter), **Merge visible to
+  a new layer and develop** (`mode:"stamp"`), or **Just switch**; "Don't ask again" is kept in the
+  preferences (`develop.compositeChoice`). Coming back needs no warning.
+* Optionally later: cheap per-pixel develop adjustment layers (Light, Color & Vibrance) like
+  Photoshop 2026, for live tweaks over a stack; a cache of the developed smart filter (each
+  refresh renders the full pipeline on the CPU).
 
 ## 4. Toolset additions (from darktable / RawTherapee / ART / vkdt)
 
@@ -151,7 +189,7 @@ All ports keep their copyright notices under `licenses/`. RapidRAW (AGPL-3.0) is
 ## 5. Plan
 
 1. **Develop layer** — `SmartObject.develop`, raw/JPEG source decoded through `lc-pipeline` with the layer's settings; Library → Editor opens a Develop-layer document (linked), metadata carried; double-click opens Develop on the layer; saves to `.pcraft`/PSD; stacked back into the Library. *Retires the TIFF path for our own editor.*
-2. **One engine for Camera Raw Filter** — `develop.lightcraft` smart filter, the Develop workspace in the Editor, capability flags; composite → develop (live smart object / merge visible / flatten).
+2. **One engine for Camera Raw Filter** — `filter.develop` smart filter, edited in the Develop module through a host session; composite → develop (live smart object / merge visible). *(Shipped, §3.5.)*
 3. **Develop layers** — `DevelopSettings.layers`, migration from masks, per-stage blending, layer UI.
 4. **AI in develop** — unified segmentation service; AI Remove with the patch store; AI Denoise.
 5. **Toolset upgrades** — the P2/P3 table.

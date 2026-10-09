@@ -258,7 +258,13 @@ the PhotoCraft Pro theme (one dark window, no extra chrome).
 10. **Round trip PSD** → save with AI layers → reopen → layers and masks intact.
 11. **Get a new model** → Generate › model picker › Browse Models… → Trending or a family → card →
     Install → licence and files → accept → progress → Installed → it is in the picker, ready.
-12. **Bring your own workflow** → Generate › model picker › Import Workflow… → a ComfyUI workflow
+12. **Camera Raw Filter on a layer** → Filter › Camera Raw Filter… (⇧⌘A) → "Convert to Smart
+    Object to keep it editable?" (Convert) → the Develop module opens on the layer with a
+    "Camera Raw Filter · ‹layer› — Cancel / OK" banner (every non-raw tool, masks, presets) → OK
+    (↩) → one history step, a re-editable `filter.develop` smart filter; double-click it to edit
+    again. Compositing → Develop on a layered document asks: develop the composite (live), a
+    merged copy, or just switch (see DEVELOP-DESIGN §3.5).
+13. **Bring your own workflow** → Generate › model picker › Import Workflow… → a ComfyUI workflow
     with `li:` titles (or an official template) → it is a model with the fields it marks.
 
 ## 7. Architecture

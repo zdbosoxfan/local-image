@@ -412,6 +412,7 @@ pub struct StrokeRenderer {
     all_dabs: Option<Vec<Dab>>,
     /// local-image: continuous coverage (soft round brushes, see [`crate::continuous`]).
     cont: Option<Continuous>,
+    table: Table,
 }
 
 /// Continuous-coverage state: the user's spacing (the density), the tip hardness, the last dab
@@ -423,6 +424,9 @@ struct Continuous {
     prev: Option<Dab>,
     capped: bool,
 }
+
+/// The line-integral table of the last constant segment (rebuilt when the dab changes).
+type Table = Option<crate::continuous::LineTable>;
 
 impl StrokeRenderer {
     /// Composite the union of this stroke and a mirrored pass as one stroke. This keeps
@@ -459,6 +463,7 @@ impl StrokeRenderer {
             dual_buf: Vec::new(),
             all_dabs: None,
             cont,
+            table: None,
         }
     }
 
@@ -502,7 +507,7 @@ impl StrokeRenderer {
                 let (rect, ceil) = match c.prev {
                     // The stroke's first dab: its start cap (half a dab).
                     None => (crate::continuous::end_cap(d, c.hardness, &mut self.scratch), d.opacity),
-                    Some(p) => (crate::continuous::segment(&p, d, c.hardness, c.spacing, &mut self.scratch), 0.5 * (p.opacity + d.opacity)),
+                    Some(p) => (crate::continuous::segment(&p, d, c.hardness, c.spacing, &mut self.table, &mut self.scratch), 0.5 * (p.opacity + d.opacity)),
                 };
                 self.cov.accumulate(rect, &self.scratch, ceil, false, None);
                 self.cov.bounds = self.cov.bounds.union(&self.ctx.dab_rect(d, false));
@@ -610,6 +615,7 @@ impl StrokeRenderer {
             dual_buf: duals,
             all_dabs: None,
             cont: self.cont,
+            table: self.table.clone(),
         };
         t.raster_pending();
         t.end_cap();
