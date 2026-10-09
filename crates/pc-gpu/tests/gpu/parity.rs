@@ -11,7 +11,7 @@ const TOL: f32 = 1.0 / 255.0;
 
 /// Concurrent wgpu instances in one process segfault on some drivers (RADV), so the GPU tests
 /// take this lock and hold it until their device is dropped.
-static GPU_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+use crate::GPU_LOCK;
 
 struct Gpu {
     device: wgpu::Device,
