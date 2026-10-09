@@ -1204,6 +1204,27 @@
           "url": "https://github.com/oyvindln/adler2"
         },
         {
+          "name": "aead",
+          "version": "0.5.2",
+          "used_for": "Traits for Authenticated Encryption with Associated Data (AEAD) algorithms, such as AES-GCM as ChaCha20Poly1305, which provide a high-level API",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/RustCrypto/traits"
+        },
+        {
+          "name": "aes",
+          "version": "0.8.4",
+          "used_for": "Pure Rust implementation of the Advanced Encryption Standard (a.k.a. Rijndael)",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/RustCrypto/block-ciphers"
+        },
+        {
+          "name": "aes-gcm",
+          "version": "0.10.3",
+          "used_for": "Pure Rust implementation of the AES-GCM (Galois/Counter Mode) Authenticated Encryption with Associated Data (AEAD) Cipher with optional architecture-specific hardware acceleration",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/AEADs"
+        },
+        {
           "name": "ahash",
           "version": "0.8.12",
           "used_for": "A non-cryptographic hash function using AES-NI for high performance",
@@ -1484,6 +1505,13 @@
           "url": "https://github.com/kornelski/avif-serialize"
         },
         {
+          "name": "base16ct",
+          "version": "0.2.0",
+          "used_for": "Pure Rust implementation of Base16 a.k.a hexadecimal (RFC 4648) which avoids any usages of data-dependent branches/LUTs and thereby provides portable \"best effort\" constant-time operation and embedded-friendly no_std support",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/formats/tree/master/base16ct"
+        },
+        {
           "name": "base64",
           "version": "0.22.1",
           "used_for": "encodes and decodes base64 as bytes or utf8",
@@ -1496,6 +1524,13 @@
           "used_for": "encodes and decodes base64 as bytes or utf8",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/marshallpierce/rust-base64"
+        },
+        {
+          "name": "base64ct",
+          "version": "1.8.3",
+          "used_for": "Pure Rust implementation of Base64 (RFC 4648) which avoids any usages of data-dependent branches/LUTs and thereby provides portable \"best effort\" constant-time operation and embedded-friendly no_std support",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/formats"
         },
         {
           "name": "bit-set",
@@ -1736,6 +1771,20 @@
           "url": "https://github.com/RustCrypto/stream-ciphers"
         },
         {
+          "name": "chacha20",
+          "version": "0.9.1",
+          "used_for": "The ChaCha20 stream cipher (RFC 8439) implemented in pure Rust using traits from the RustCrypto `cipher` crate, with optional architecture-specific hardware acceleration (AVX2, SSE2). Additionally provides the ChaCha8, ChaCha12, XChaCha20, XChaCha12 and XChaCha8 stream ciphers, and also optional rand_core-compatible RNGs based on those ciphers.",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/stream-ciphers"
+        },
+        {
+          "name": "chacha20poly1305",
+          "version": "0.10.1",
+          "used_for": "Pure Rust implementation of the ChaCha20Poly1305 Authenticated Encryption with Additional Data Cipher (RFC 8439) with optional architecture-specific hardware acceleration. Also contains implementations of the XChaCha20Poly1305 extended nonce variant of ChaCha20Poly1305, and the reduced-round ChaCha8Poly1305 and ChaCha12Poly1305 lightweight variants.",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/AEADs/tree/master/chacha20poly1305"
+        },
+        {
           "name": "chrono",
           "version": "0.4.45",
           "used_for": "Date and time library for Rust",
@@ -1748,6 +1797,13 @@
           "used_for": "Encoder and decoder for HTTP chunked transfer coding (RFC 7230 § 4.1)",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/frewsxcv/rust-chunked-transfer"
+        },
+        {
+          "name": "cipher",
+          "version": "0.4.4",
+          "used_for": "Traits for describing block ciphers and stream ciphers",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/RustCrypto/traits"
         },
         {
           "name": "clipboard-win",
@@ -1904,6 +1960,13 @@
           "url": "https://github.com/eira-fransham/crunchy"
         },
         {
+          "name": "crypto-bigint",
+          "version": "0.5.5",
+          "used_for": "Pure Rust implementation of a big integer library which has been designed from the ground-up for use in cryptographic applications. Provides constant-time, no_std-friendly implementations of modern formulas using const generics.",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/crypto-bigint"
+        },
+        {
           "name": "crypto-common",
           "version": "0.1.7",
           "used_for": "Common cryptographic traits",
@@ -1911,11 +1974,32 @@
           "url": "https://github.com/RustCrypto/traits"
         },
         {
+          "name": "ctr",
+          "version": "0.9.2",
+          "used_for": "CTR block modes of operation",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/RustCrypto/block-modes"
+        },
+        {
           "name": "cursor-icon",
           "version": "1.2.0",
           "used_for": "Cross platform cursor icon type",
           "licence": "MIT OR Apache-2.0 OR Zlib",
           "url": "https://github.com/rust-windowing/cursor-icon"
+        },
+        {
+          "name": "curve25519-dalek",
+          "version": "4.1.3",
+          "used_for": "A pure-Rust implementation of group operations on ristretto255 and Curve25519",
+          "licence": "BSD-3-Clause",
+          "url": "https://github.com/dalek-cryptography/curve25519-dalek/tree/main/curve25519-dalek"
+        },
+        {
+          "name": "curve25519-dalek-derive",
+          "version": "0.1.1",
+          "used_for": "curve25519-dalek Derives",
+          "licence": "MIT/Apache-2.0",
+          "url": "https://github.com/dalek-cryptography/curve25519-dalek"
         },
         {
           "name": "darling",
@@ -1951,6 +2035,13 @@
           "used_for": "Processing of data: URL according to WHATWG’s Fetch Standard",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/servo/rust-url"
+        },
+        {
+          "name": "der",
+          "version": "0.7.10",
+          "used_for": "Pure Rust embedded-friendly implementation of the Distinguished Encoding Rules (DER) for Abstract Syntax Notation One (ASN.1) as described in ITU X.690 with full support for heapless no_std targets",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/formats/tree/master/der"
         },
         {
           "name": "deranged",
@@ -2058,11 +2149,32 @@
           "url": "https://github.com/dtolnay/dyn-hash"
         },
         {
+          "name": "ecdsa",
+          "version": "0.16.9",
+          "used_for": "Pure Rust implementation of the Elliptic Curve Digital Signature Algorithm (ECDSA) as specified in FIPS 186-4 (Digital Signature Standard), providing RFC6979 deterministic signatures as well as support for added entropy",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/signatures/tree/master/ecdsa"
+        },
+        {
           "name": "ecolor",
           "version": "0.36.2",
           "used_for": "Color structs and color conversion utilities",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/emilk/egui"
+        },
+        {
+          "name": "ed25519",
+          "version": "2.2.3",
+          "used_for": "Edwards Digital Signature Algorithm (EdDSA) over Curve25519 (as specified in RFC 8032) support library providing signature type definitions and PKCS#8 private key decoding/encoding support",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/signatures/tree/master/ed25519"
+        },
+        {
+          "name": "ed25519-dalek",
+          "version": "2.2.0",
+          "used_for": "Fast and efficient ed25519 EdDSA key generations, signing, and verification in pure Rust.",
+          "licence": "BSD-3-Clause",
+          "url": "https://github.com/dalek-cryptography/curve25519-dalek/tree/main/ed25519-dalek"
         },
         {
           "name": "eframe",
@@ -2112,6 +2224,13 @@
           "used_for": "The enum `Either` with variants `Left` and `Right` is a general purpose sum type with two cases.",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/rayon-rs/either"
+        },
+        {
+          "name": "elliptic-curve",
+          "version": "0.13.8",
+          "used_for": "General purpose Elliptic Curve Cryptography (ECC) support, including types and traits for representing various elliptic curve forms, scalars, points, and public/secret keys composed thereof.",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/traits/tree/master/elliptic-curve"
         },
         {
           "name": "emath",
@@ -2280,6 +2399,20 @@
           "used_for": "Safer and easier SIMD",
           "licence": "Apache-2.0 OR MIT",
           "url": "https://github.com/linebender/fearless_simd"
+        },
+        {
+          "name": "ff",
+          "version": "0.13.1",
+          "used_for": "Library for building and interfacing with finite fields",
+          "licence": "MIT/Apache-2.0",
+          "url": "https://github.com/zkcrypto/ff"
+        },
+        {
+          "name": "fiat-crypto",
+          "version": "0.2.9",
+          "used_for": "Fiat-crypto generated Rust",
+          "licence": "MIT OR Apache-2.0 OR BSD-1-Clause",
+          "url": "https://github.com/mit-plv/fiat-crypto"
         },
         {
           "name": "filetime",
@@ -2499,6 +2632,13 @@
           "url": "https://github.com/rust-random/getrandom"
         },
         {
+          "name": "ghash",
+          "version": "0.5.1",
+          "used_for": "Universal hash over GF(2^128) useful for constructing a Message Authentication Code (MAC), as in the AES-GCM authenticated encryption cipher.",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/universal-hashes"
+        },
+        {
           "name": "gif",
           "version": "0.14.2",
           "used_for": "GIF de- and encoder",
@@ -2569,6 +2709,13 @@
           "url": "https://github.com/Traverse-Research/gpu-allocator"
         },
         {
+          "name": "group",
+          "version": "0.13.0",
+          "used_for": "Elliptic curve group traits and utilities",
+          "licence": "MIT/Apache-2.0",
+          "url": "https://github.com/zkcrypto/group"
+        },
+        {
           "name": "guillotiere",
           "version": "0.7.0",
           "used_for": "A dynamic 2D texture atlas allocator with fast deallocation.",
@@ -2630,6 +2777,20 @@
           "used_for": "Encoding and decoding data into/from hexadecimal representation.",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/KokaKiwi/rust-hex"
+        },
+        {
+          "name": "hkdf",
+          "version": "0.12.4",
+          "used_for": "HMAC-based Extract-and-Expand Key Derivation Function (HKDF)",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/RustCrypto/KDFs/"
+        },
+        {
+          "name": "hmac",
+          "version": "0.12.1",
+          "used_for": "Generic implementation of Hash-based Message Authentication Code (HMAC)",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/RustCrypto/MACs"
         },
         {
           "name": "http",
@@ -2798,6 +2959,13 @@
           "used_for": "A hash table with consistent order and fast iteration.",
           "licence": "Apache-2.0 OR MIT",
           "url": "https://github.com/indexmap-rs/indexmap"
+        },
+        {
+          "name": "inout",
+          "version": "0.1.4",
+          "used_for": "Custom reference types for code generic over in-place and buffer-to-buffer modes of operation.",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/RustCrypto/utils"
         },
         {
           "name": "interpolate_name",
@@ -3381,6 +3549,13 @@
           "url": "https://github.com/rust-num/num-bigint"
         },
         {
+          "name": "num-bigint-dig",
+          "version": "0.8.6",
+          "used_for": "Big integer implementation for Rust",
+          "licence": "MIT/Apache-2.0",
+          "url": "https://github.com/dignifiedquire/num-bigint"
+        },
+        {
           "name": "num-complex",
           "version": "0.4.6",
           "used_for": "Complex numbers implementation for Rust",
@@ -3407,6 +3582,13 @@
           "used_for": "Integer traits and functions",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/rust-num/num-integer"
+        },
+        {
+          "name": "num-iter",
+          "version": "0.1.46",
+          "used_for": "External iterators for generic mathematics",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/rust-num/num-iter"
         },
         {
           "name": "num-rational",
@@ -3626,6 +3808,13 @@
           "url": "https://github.com/matklad/once_cell"
         },
         {
+          "name": "opaque-debug",
+          "version": "0.3.1",
+          "used_for": "Macro for opaque Debug trait implementation",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/RustCrypto/utils"
+        },
+        {
           "name": "open",
           "version": "5.4.4",
           "used_for": "Open a path or URL using the program configured on the system",
@@ -3673,6 +3862,20 @@
           "used_for": "ttf-parser plus support for owned data",
           "licence": "Apache-2.0",
           "url": "https://github.com/alexheretic/owned-ttf-parser"
+        },
+        {
+          "name": "p256",
+          "version": "0.13.2",
+          "used_for": "Pure Rust implementation of the NIST P-256 (a.k.a. secp256r1, prime256v1) elliptic curve as defined in SP 800-186, with support for ECDH, ECDSA signing/verification, and general purpose curve arithmetic",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/elliptic-curves/tree/master/p256"
+        },
+        {
+          "name": "p384",
+          "version": "0.13.1",
+          "used_for": "Pure Rust implementation of the NIST P-384 (a.k.a. secp384r1) elliptic curve as defined in SP 800-186 with support for ECDH, ECDSA signing/verification, and general purpose curve arithmetic support.",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/elliptic-curves/tree/master/p384"
         },
         {
           "name": "parking",
@@ -3736,6 +3939,13 @@
           "used_for": "Macros for all your token pasting needs. Successor of paste.",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/as1100k/pastey"
+        },
+        {
+          "name": "pem-rfc7468",
+          "version": "0.7.0",
+          "used_for": "PEM Encoding (RFC 7468) for PKIX, PKCS, and CMS Structures, implementing a strict subset of the original Privacy-Enhanced Mail encoding intended specifically for use with cryptographic keys, certificates, and other messages. Provides a no_std-friendly, constant-time implementation suitable for use with cryptographic private keys.",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/formats/tree/master/pem-rfc7468"
         },
         {
           "name": "peniko",
@@ -3822,6 +4032,27 @@
           "url": "https://github.com/smol-rs/piper"
         },
         {
+          "name": "pkcs1",
+          "version": "0.7.5",
+          "used_for": "Pure Rust implementation of Public-Key Cryptography Standards (PKCS) #1: RSA Cryptography Specifications Version 2.2 (RFC 8017)",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/formats/tree/master/pkcs1"
+        },
+        {
+          "name": "pkcs5",
+          "version": "0.7.1",
+          "used_for": "Pure Rust implementation of Public-Key Cryptography Standards (PKCS) #5: Password-Based Cryptography Specification Version 2.1 (RFC 8018)",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/formats/tree/master/pkcs5"
+        },
+        {
+          "name": "pkcs8",
+          "version": "0.10.2",
+          "used_for": "Pure Rust implementation of Public-Key Cryptography Standards (PKCS) #8: Private-Key Information Syntax Specification (RFC 5208), with additional support for PKCS#8v2 asymmetric key packages (RFC 5958)",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/formats/tree/master/pkcs8"
+        },
+        {
           "name": "pkg-config",
           "version": "0.3.34",
           "used_for": "A library to run the pkg-config system tool at build time in order to be used in Cargo build scripts.",
@@ -3871,11 +4102,25 @@
           "url": "https://github.com/zesterer/pollster"
         },
         {
+          "name": "poly1305",
+          "version": "0.8.0",
+          "used_for": "The Poly1305 universal hash function and message authentication code",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/universal-hashes"
+        },
+        {
           "name": "polycool",
           "version": "0.4.0",
           "used_for": "Polynomial root-finding",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/linebender/kurbo"
+        },
+        {
+          "name": "polyval",
+          "version": "0.6.2",
+          "used_for": "POLYVAL is a GHASH-like universal hash over GF(2^128) useful for constructing a Message Authentication Code (MAC)",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/universal-hashes"
         },
         {
           "name": "portable-atomic",
@@ -3925,6 +4170,13 @@
           "used_for": "Fast standalone primality testing.",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/huonw/primal"
+        },
+        {
+          "name": "primeorder",
+          "version": "0.13.6",
+          "used_for": "Pure Rust implementation of complete addition formulas for prime order elliptic curves (Renes-Costello-Batina 2015). Generic over field elements and curve equation coefficients",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/elliptic-curves/tree/master/primeorder"
         },
         {
           "name": "proc-macro-crate",
@@ -4047,8 +4299,22 @@
         },
         {
           "name": "rand",
+          "version": "0.8.8",
+          "used_for": "Random number generators and other randomness functionality.",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/rust-random/rand"
+        },
+        {
+          "name": "rand",
           "version": "0.9.5",
           "used_for": "Random number generators and other randomness functionality.",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/rust-random/rand"
+        },
+        {
+          "name": "rand_chacha",
+          "version": "0.3.1",
+          "used_for": "ChaCha random number generator",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/rust-random/rand"
         },
@@ -4065,6 +4331,13 @@
           "used_for": "Core random number generation traits and tools for implementation.",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/rust-random/rand_core"
+        },
+        {
+          "name": "rand_core",
+          "version": "0.6.4",
+          "used_for": "Core random number generator traits and tools for implementation.",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/rust-random/rand"
         },
         {
           "name": "rand_core",
@@ -4242,6 +4515,13 @@
           "url": "https://github.com/linebender/resvg"
         },
         {
+          "name": "rfc6979",
+          "version": "0.4.0",
+          "used_for": "Pure Rust implementation of RFC6979: Deterministic Usage of the Digital Signature Algorithm (DSA) and Elliptic Curve Digital Signature Algorithm (ECDSA)",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/signatures/tree/master/rfc6979"
+        },
+        {
           "name": "rfd",
           "version": "0.17.2",
           "used_for": "Rusty File Dialog",
@@ -4289,6 +4569,13 @@
           "used_for": "Represent an XML as a read-only tree.",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/RazrFalcon/roxmltree"
+        },
+        {
+          "name": "rsa",
+          "version": "0.9.10",
+          "used_for": "Pure Rust RSA implementation",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/RustCrypto/RSA"
         },
         {
           "name": "rustc-hash",
@@ -4354,6 +4641,20 @@
           "url": "https://github.com/rustls/pki-types"
         },
         {
+          "name": "rustls-rustcrypto",
+          "version": "0.0.2-alpha",
+          "used_for": "Pure Rust cryptography provider for the Rustls TLS library using algorithm implementations from the RustCrypto organization",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/RustCrypto/rustls-rustcrypto"
+        },
+        {
+          "name": "rustls-webpki",
+          "version": "0.102.8",
+          "used_for": "Web PKI X.509 Certificate Verification.",
+          "licence": "ISC",
+          "url": "https://github.com/rustls/webpki"
+        },
+        {
           "name": "rustls-webpki",
           "version": "0.103.15",
           "used_for": "Web PKI X.509 Certificate Verification.",
@@ -4408,6 +4709,13 @@
           "used_for": "A RAII scope guard that will run a given closure when it goes out of scope, even if the code between panics (assuming unwinding panic). Defines the macros `defer!`, `defer_on_unwind!`, `defer_on_success!` as shorthands for guards with one of the implemented strategies.",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/bluss/scopeguard"
+        },
+        {
+          "name": "sec1",
+          "version": "0.7.3",
+          "used_for": "Pure Rust implementation of SEC1: Elliptic Curve Cryptography encoding formats including ASN.1 DER-serialized private keys as well as the Elliptic-Curve-Point-to-Octet-String encoding",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/formats/tree/master/sec1"
         },
         {
           "name": "self_cell",
@@ -4499,6 +4807,13 @@
           "used_for": "Backend crate for signal-hook",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/vorner/signal-hook"
+        },
+        {
+          "name": "signature",
+          "version": "2.2.0",
+          "used_for": "Traits for cryptographic signature algorithms (e.g. ECDSA, Ed25519)",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/traits/tree/master/signature"
         },
         {
           "name": "simd-adler32",
@@ -4618,6 +4933,13 @@
           "used_for": "Rust definition of SPIR-V structs and enums",
           "licence": "Apache-2.0",
           "url": "https://github.com/gfx-rs/rspirv"
+        },
+        {
+          "name": "spki",
+          "version": "0.7.3",
+          "used_for": "X.509 Subject Public Key Info (RFC5280) describing public keys as well as their associated AlgorithmIdentifiers (i.e. OIDs)",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/formats/tree/master/spki"
         },
         {
           "name": "stable_deref_trait",
@@ -5052,6 +5374,13 @@
           "used_for": "Determine displayed width of `char` and `str` types according to Unicode Standard Annex #11 rules.",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/unicode-rs/unicode-width"
+        },
+        {
+          "name": "universal-hash",
+          "version": "0.5.1",
+          "used_for": "Traits which describe the functionality of universal hash functions (UHFs)",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/RustCrypto/traits"
         },
         {
           "name": "untrusted",
@@ -5717,6 +6046,13 @@
           "used_for": "Rust bindings to X11",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/psychon/x11rb"
+        },
+        {
+          "name": "x25519-dalek",
+          "version": "2.0.1",
+          "used_for": "X25519 elliptic curve Diffie-Hellman key exchange in pure-Rust, using curve25519-dalek.",
+          "licence": "BSD-3-Clause",
+          "url": "https://github.com/dalek-cryptography/curve25519-dalek/tree/main/x25519-dalek"
         },
         {
           "name": "xattr",
