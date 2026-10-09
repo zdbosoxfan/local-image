@@ -3279,3 +3279,7 @@ ai	New	Baru
 	{alt}-click a marker to remove it.	{alt}-click a marker to remove it.
 	{alt}-drag an endpoint to measure an angle.	{alt}-drag an endpoint to measure an angle.
 	Hold {key} with any other tool to pan temporarily.	Hold {key} with any other tool to pan temporarily.
+	Set Tolerance and Contiguous in the options bar.	Atur Toleransi dan Bersebelahan di bilah opsi.
+	Choose Erase or Restore in the options bar, then paint to refine the mask.	Pilih Hapus atau Pulihkan di bilah opsi, lalu lukis untuk menyempurnakan mask.
+	Tool Set Name	Nama set alat
+	You can also drag with the middle mouse button to pan.	Anda juga dapat menyeret dengan tombol tengah mouse untuk menggeser tampilan.

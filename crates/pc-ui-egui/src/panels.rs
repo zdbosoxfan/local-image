@@ -59,16 +59,18 @@ fn slot_tool(ui: &egui::Ui, current: Tool, slot: &[Tool], key: egui::Id) -> Tool
 /// for a tool the set leaves out, and the toolbar then shows it in its usual place.
 pub fn visible_sections(app: &PhotocraftApp) -> Vec<Vec<(usize, Vec<Tool>)>> {
     let set = app.session.prefs().toolbar.active();
-    let rank = |tool: &Tool| set.tools.iter().position(|n| Tool::from_name(n) == Some(*tool)).unwrap_or(usize::MAX);
+    let ranks: std::collections::HashMap<Tool, usize> =
+        set.tools.iter().enumerate().filter_map(|(i, name)| Tool::from_name(name).map(|tool| (tool, i))).collect();
+    let rank = |tool: &Tool| ranks.get(tool).copied().unwrap_or(usize::MAX);
     let current = app.ui.tool;
     let mut index = 0usize;
     let mut ordered = Vec::new();
     for (section_index, section) in TOOL_SECTIONS.iter().enumerate() {
         for slot in *section {
             let mut kept: Vec<Tool> = slot.iter().copied().filter(|t| rank(t) != usize::MAX || *t == current).collect();
-            kept.sort_by_key(&rank);
+            kept.sort_by_key(rank);
             if !kept.is_empty() {
-                let first = kept.iter().map(&rank).min().unwrap_or(usize::MAX);
+                let first = kept.iter().map(rank).min().unwrap_or(usize::MAX);
                 ordered.push((first, section_index, index, kept));
             }
             index += 1;

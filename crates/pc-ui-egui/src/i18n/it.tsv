@@ -2938,3 +2938,7 @@ ai	New	Nuovi
 	{alt}-click a marker to remove it.	{alt}-click a marker to remove it.
 	{alt}-drag an endpoint to measure an angle.	{alt}-drag an endpoint to measure an angle.
 	Hold {key} with any other tool to pan temporarily.	Hold {key} with any other tool to pan temporarily.
+	Set Tolerance and Contiguous in the options bar.	Imposta Tolleranza e Contiguo nella barra delle opzioni.
+	Choose Erase or Restore in the options bar, then paint to refine the mask.	Scegli Cancella o Ripristina nella barra delle opzioni, poi dipingi per rifinire la maschera.
+	Tool Set Name	Nome del set di strumenti
+	You can also drag with the middle mouse button to pan.	Puoi anche trascinare con il pulsante centrale del mouse per spostare la vista.

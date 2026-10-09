@@ -79,11 +79,11 @@ fn create_rename_and_delete_a_custom_set_in_the_dialog() {
     assert!(!active(&h).tools.iter().any(|t| t == "RectMarquee"));
     h.get_by_label("Rename").click();
     h.run_steps(2);
-    let edit = h.get_by_role(egui::accesskit::Role::TextInput);
+    let edit = h.get_by_role_and_label(egui::accesskit::Role::TextInput, "Tool Set Name");
     edit.focus();
     h.run_steps(1);
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
-    h.get_by_role(egui::accesskit::Role::TextInput).type_text("Faces");
+    h.get_by_role_and_label(egui::accesskit::Role::TextInput, "Tool Set Name").type_text("Faces");
     h.run_steps(2);
     h.get_by_label("Save Name").click();
     h.run_steps(3);

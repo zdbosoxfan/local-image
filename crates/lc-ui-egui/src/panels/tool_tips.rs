@@ -269,6 +269,8 @@ impl StripTool {
         .contains(&self)
         {
             &[MaskObject, MaskPrompt, MaskSubject, MaskSky, MaskBackground, MaskDepth, MaskBrush, MaskLinear, MaskRadial, MaskLuminance, MaskColor]
+        } else if [RedEye, PetEye].contains(&self) {
+            &[RedEye, PetEye]
         } else {
             &[]
         }
@@ -321,8 +323,12 @@ pub fn entry(tool: StripTool) -> Entry {
             blurb: "Applies adjustments to just part of the photo.",
             how: &["Choose a mask type, then edit the mask it makes.", "Use + and − on a mask to add to it or subtract from it."],
         },
-        StripTool::RedEye | StripTool::PetEye => Entry {
+        StripTool::RedEye => Entry {
             blurb: "Fixes red pupils in flash photos.",
+            how: &["Drag over an eye; the pupil inside is found automatically.", "Adjust Pupil Size and Darken to refine the correction."],
+        },
+        StripTool::PetEye => Entry {
+            blurb: "Corrects flash-lit pupils in animal photos.",
             how: &["Drag over an eye; the pupil inside is found automatically.", "Adjust Pupil Size and Darken to refine the correction."],
         },
         StripTool::Versions => Entry {
@@ -517,12 +523,8 @@ fn draw(ui: &egui::Ui, resp: &Response, tool: StripTool) {
     if let Some(group) = &group {
         text.push_str(&format!("\n{group}"));
     }
-    ui.ctx().data_mut(|d| {
-        d.insert_temp(
-            Id::new("lc-tool-tip-shown"),
-            Shown { frame: ui.ctx().cumulative_pass_nr(), tool: tool.id().into(), text, bounds: egui::Rect::NOTHING },
-        )
-    });
+    let frame = ui.ctx().cumulative_pass_nr();
+    ui.ctx().data_mut(|d| d.insert_temp(Id::new("lc-tool-tip-shown"), Shown { frame, tool: tool.id().into(), text, bounds: egui::Rect::NOTHING }));
     let area = Area::new(Id::new("lc-tool-tip-area"))
         .order(Order::Tooltip)
         .interactable(false)

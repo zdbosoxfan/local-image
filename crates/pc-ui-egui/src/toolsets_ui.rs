@@ -164,7 +164,8 @@ pub fn tab(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value
             });
             if renaming && !builtin {
                 ui.horizontal(|ui| {
-                    ui.add(egui::TextEdit::singleline(&mut rename_to).desired_width(110.0).id_salt("toolset-rename"));
+                    let label = ui.label(tl!("Tool Set Name"));
+                    ui.add(egui::TextEdit::singleline(&mut rename_to).desired_width(110.0).id_salt("toolset-rename")).labelled_by(label.id);
                     if ui.button(tl!("Save Name")).clicked() && act(app, "toolset.rename", json!({"id": active.id, "newName": rename_to})) {
                         renaming = false;
                     }
@@ -193,7 +194,9 @@ pub fn tab(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value
                     let mut tools: Vec<String> = active.tools.clone();
                     let mut changed = false;
                     let mut ordered = Tool::ALL.to_vec();
-                    ordered.sort_by_key(|tool| active.tools.iter().position(|n| Tool::from_name(n) == Some(*tool)).unwrap_or(usize::MAX));
+                    let ranks: std::collections::HashMap<Tool, usize> =
+                        active.tools.iter().enumerate().filter_map(|(i, name)| Tool::from_name(name).map(|tool| (tool, i))).collect();
+                    ordered.sort_by_key(|tool| ranks.get(tool).copied().unwrap_or(usize::MAX));
                     let mut reorder = None;
                     for tool in ordered {
                         let name = format!("{tool:?}");

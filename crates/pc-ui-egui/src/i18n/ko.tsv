@@ -3447,3 +3447,7 @@ ai	New	새 항목
 	{alt}-click a marker to remove it.	{alt}-click a marker to remove it.
 	{alt}-drag an endpoint to measure an angle.	{alt}-drag an endpoint to measure an angle.
 	Hold {key} with any other tool to pan temporarily.	Hold {key} with any other tool to pan temporarily.
+	Set Tolerance and Contiguous in the options bar.	옵션 막대에서 허용치와 인접을 설정하세요.
+	Choose Erase or Restore in the options bar, then paint to refine the mask.	옵션 막대에서 지우기 또는 복원을 선택한 다음 칠하여 마스크를 다듬으세요.
+	Tool Set Name	도구 세트 이름
+	You can also drag with the middle mouse button to pan.	마우스 가운데 버튼으로 드래그하여 화면을 이동할 수도 있습니다.

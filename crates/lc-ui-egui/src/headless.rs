@@ -2144,27 +2144,31 @@ mod tests {
         assert!(!h.app.session.develop_of(h.app.session.active().unwrap()).unwrap().masks.is_empty());
         assert!(shown(&h.view.ctx).is_none(), "no tip remains after a canvas drag");
         h.request("ui.clickWidget", json!({"id": "icon:edit"}), t);
-        h.request("ui.hoverWidget", json!({"id": "icon:wbPicker"}), t);
+        assert_eq!(h.request("ui.clickWidget", json!({"id": "section:light"}), t)["ok"], true);
+        assert_eq!(h.request("ui.clickWidget", json!({"id": "section:color"}), t)["ok"], true);
+        assert_eq!(h.request("ui.hoverWidget", json!({"id": "icon:wbPicker"}), t)["ok"], true);
         assert!(h.step_until(t, |h| shown(&h.view.ctx).is_some_and(|s| s.tool == "wbPicker")));
         assert!(shown(&h.view.ctx).unwrap().text.starts_with("White Balance Selector (W)"));
     }
 
     #[test]
     fn strip_tool_tips_simple_renders_name_and_key_and_settings_round_trip() {
-        use crate::panels::tool_tips::ToolTipMode;
+        use crate::panels::tool_tips::{StripTool, ToolTipMode};
         let mut h = demo([1400.0, 900.0]);
         let t = Duration::from_secs(10);
+        h.request("ui.set", json!({"view": "detail"}), t);
         h.app.ui.settings.tool_tips = ToolTipMode::Simple;
-        h.request("ui.hoverWidget", json!({"id": "icon:activity"}), t);
+        h.request("ui.hoverWidget", json!({"id": "icon:crop"}), t);
+        let label = format!("Crop & Rotate ({})", StripTool::Crop.shortcut().unwrap());
         for _ in 0..100 {
             h.step();
         }
-        assert!(h.view.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.job.text == "History & Activity")));
+        assert!(h.view.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.job.text == label)));
         h.app.ui.settings.tool_tips = ToolTipMode::Off;
         for _ in 0..4 {
             h.step();
         }
-        assert!(!h.view.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.job.text == "History & Activity")));
+        assert!(!h.view.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.job.text == label)));
         for mode in [ToolTipMode::Rich, ToolTipMode::Simple, ToolTipMode::Off] {
             let settings = crate::state::AppSettings { tool_tips: mode, ..Default::default() };
             let back: crate::state::AppSettings = serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();

@@ -181,7 +181,10 @@ pub fn entry(tool: Tool) -> Entry {
         Tool::HistoryBrush => e(tl!("Paints back the document’s opening state."), &[tl!("Drag to paint; hold {shift} to keep a straight line.")]),
         Tool::Eraser => e(tl!("Erases pixels as you drag."), &[tl!("Drag to erase; hold {shift} to keep a straight line.")]),
         Tool::BackgroundEraser => e(tl!("Erases the background colour under the brush, keeping edges."), &[tl!("Drag along the edge of the subject.")]),
-        Tool::MagicEraser => e(tl!("Erases all pixels of a similar colour with one click."), &[tl!("Click the colour to erase.")]),
+        Tool::MagicEraser => e(
+            tl!("Erases all pixels of a similar colour with one click."),
+            &[tl!("Click the colour to erase."), tl!("Set Tolerance and Contiguous in the options bar.")],
+        ),
         Tool::Gradient => e(
             tl!("Fills with a blend between colours."),
             &[
@@ -245,7 +248,14 @@ pub fn entry(tool: Tool) -> Entry {
             tl!("Draws a shape chosen from the shape library."),
             &[tl!("Drag to draw; {shift} keeps equal width and height."), tl!("Hold {alt} to draw from the centre.")],
         ),
-        Tool::Hand => e(tl!("Pans the view around the image."), &[tl!("Drag to move the image."), tl!("Hold Space with any other tool to pan temporarily.")]),
+        Tool::Hand => e(
+            tl!("Pans the view around the image."),
+            &[
+                tl!("Drag to move the image."),
+                tl!("Hold Space with any other tool to pan temporarily."),
+                tl!("You can also drag with the middle mouse button to pan."),
+            ],
+        ),
         Tool::Zoom => e(
             tl!("Magnifies or reduces the view."),
             &[tl!("Click to zoom in, {alt}-click to zoom out."), tl!("Drag right to zoom in and left to zoom out, or drag a box when Scrubby Zoom is off.")],
@@ -258,7 +268,7 @@ pub fn entry(tool: Tool) -> Entry {
             tl!("Cuts out the subject with the local AI model."),
             &[
                 tl!("Use Remove Background in the options bar to make the mask."),
-                tl!("Then paint to erase or restore parts of it; Swap Colors switches modes."),
+                tl!("Choose Erase or Restore in the options bar, then paint to refine the mask."),
             ],
         ),
     };
@@ -300,7 +310,7 @@ pub fn spec(session: &photocraft_engine::Session, tool: Tool, group: &[Tool]) ->
         if let Some(key) = key {
             entry.how[1] = crate::i18n::fmt(tl!("Hold {key} with any other tool to pan temporarily."), &[("key", &crate::shortcuts::pretty(key))]);
         } else {
-            entry.how.pop();
+            entry.how.remove(1);
         }
     }
     Spec {
@@ -591,6 +601,11 @@ mod tests {
             assert!(entry.blurb.len() > 10, "{t:?}");
             assert!((2..=4).contains(&entry.how.len()), "{t:?}");
         }
+        for t in CameraRawTool::ALL {
+            let entry = t.entry();
+            assert!(entry.blurb.len() > 10, "{t:?}");
+            assert!((2..=4).contains(&entry.how.len()), "{t:?}");
+        }
         for t in Tool::ALL {
             let en = entry(t);
             assert!(en.blurb.len() > 10, "{t:?} has no description");
@@ -688,6 +703,24 @@ mod tests {
         h.key_press(egui::Key::B);
         h.run_steps(2);
         assert_eq!(h.state().ui.tool, Tool::Move, "removed binding does not fire its default");
+    }
+
+    #[test]
+    fn tool_tips_hand_usage_respects_remapped_and_unbound_temporary_keys() {
+        let mut h = harness();
+        h.state_mut().run("edit.keyboardShortcuts", json!({"set": {"tools.temporary.hand": "F6"}})).unwrap();
+        h.run_steps(2);
+        h.get_by_label("Hand Tool").hover();
+        settle(&mut h);
+        let tip = shown(&h.ctx).unwrap();
+        assert_eq!(tip.key.as_deref(), Some("H"));
+        assert!(tip.text.contains("Hold F6 with any other tool to pan temporarily."));
+        h.state_mut().run("edit.keyboardShortcuts", json!({"set": {"tools.temporary.hand": ""}})).unwrap();
+        h.run_steps(3);
+        let tip = shown(&h.ctx).unwrap();
+        assert!(!tip.text.contains("Hold F6") && !tip.text.contains("Hold Space"));
+        h.get_by_label("Drag to move the image.");
+        h.get_by_label("You can also drag with the middle mouse button to pan.");
     }
 
     #[test]
