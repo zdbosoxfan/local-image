@@ -26,6 +26,7 @@ pub mod fonts;
 pub mod guard;
 pub mod import;
 mod import_move;
+pub mod lens_db;
 pub mod library;
 pub mod media;
 pub mod memory;
@@ -549,6 +550,13 @@ impl Session {
             for k in ["spots", "red_eye", "version"] {
                 o.remove(k);
             }
+            // (nor an AI Denoise result: it was made from this photo's pixels)
+            if let Some(Value::Object(e)) = o.get_mut("enhance") {
+                e.remove("ai");
+                if e.is_empty() {
+                    o.remove("enhance");
+                }
+            }
             if o.is_empty() {
                 return Vec::new();
             }
@@ -725,6 +733,8 @@ mod tests;
 #[cfg(test)]
 mod tests_color;
 #[cfg(test)]
+mod tests_enhance;
+#[cfg(test)]
 mod tests_export;
 #[cfg(test)]
 mod tests_forget_local;
@@ -752,5 +762,7 @@ mod tests_segment;
 mod tests_settings_files;
 #[cfg(test)]
 mod tests_spots;
+#[cfg(test)]
+mod tests_toolset;
 #[cfg(test)]
 mod tests_xmp;

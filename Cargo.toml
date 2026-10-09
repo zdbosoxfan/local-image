@@ -37,6 +37,8 @@ jpeg-decoder = { version = "0.3", default-features = false }
 jpeg-encoder = { version = "0.7", default-features = false, features = ["std"] }
 js-sys = { version = "0.3" }
 jxl-oxide = { version = "0.12", default-features = false }
+# lens profile database (LGPL-3.0-or-later; bundled lensfun database CC-BY-SA 3.0)
+lensfun = { version = "=0.7.0" }
 li-ai = { path = "crates/li-ai" }
 li-seg = { path = "crates/li-seg" }
 libc = { version = "0.2" }

@@ -684,7 +684,7 @@ mod tests {
         assert!(p.contains_key("crs:IncrementalTemperature") && !p.contains_key("crs:Temperature"));
         let back = apply_partial(&DevelopSettings::default(), &to_partial(&p, Some(false)), 1.0);
         assert!((back.wb.temp - 5150.0).abs() < 1.0, "{}", back.wb.temp);
-        assert_eq!(DevelopSettings { wb: s.wb.clone(), ..back }, s);
+        assert_eq!(DevelopSettings { wb: s.wb, ..back }, s);
         // B&W and a named white balance
         let mut bw = DevelopSettings { treatment: lightcraft_develop::Treatment::Bw, ..DevelopSettings::default() };
         bw.bw_mix.blue = -35.0;

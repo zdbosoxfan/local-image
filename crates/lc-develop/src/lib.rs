@@ -10,11 +10,13 @@ pub mod controls;
 pub mod presets;
 pub mod segmask;
 pub mod settings;
+pub mod tools;
 
 pub use controls::{CONTROLS, ControlSpec, Section, Track};
 pub use presets::{Preset, SettingsGroup, apply_partial, extract_groups};
 pub use segmask::SegMask;
 pub use settings::*;
+pub use tools::*;
 
 use serde_json::Value;
 
@@ -35,12 +37,16 @@ impl DevelopSettings {
     }
 
     /// [`Self::to_json`] including the sections it leaves out while they are at their defaults
-    /// (`negative`), for code that compares or copies settings key by key (copy/paste groups,
+    /// (`negative`, `raw`, `lens_db`, `tone_eq`, `color_cal`), for code that compares or copies settings key by key (copy/paste groups,
     /// preset amounts, Auto Sync deltas).
     pub fn to_json_full(&self) -> Value {
         let mut v = self.to_json();
         if let Some(o) = v.as_object_mut() {
             o.entry("negative").or_insert_with(|| serde_json::to_value(self.negative).unwrap_or(Value::Null));
+            o.entry("raw").or_insert_with(|| serde_json::to_value(self.raw).unwrap_or(Value::Null));
+            o.entry("lens_db").or_insert_with(|| serde_json::to_value(&self.lens_db).unwrap_or(Value::Null));
+            o.entry("tone_eq").or_insert_with(|| serde_json::to_value(self.tone_eq).unwrap_or(Value::Null));
+            o.entry("color_cal").or_insert_with(|| serde_json::to_value(self.color_cal).unwrap_or(Value::Null));
         }
         v
     }
@@ -99,6 +105,15 @@ impl DevelopSettings {
             Section::Color => self.wb.mode = WbMode::AsShot,
             // the film stock too; whether the conversion is on stays as it was
             Section::Negative => self.negative = Negative { enabled: self.negative.enabled, ..Negative::default() },
+            // the tools' other settings too; whether they are on stays as it was
+            Section::Raw => {
+                let on = self.raw.capture.enabled;
+                self.raw = RawProcessing::default();
+                self.raw.capture.enabled = on;
+            }
+            Section::LensDb => self.lens_db = LensDb { enabled: self.lens_db.enabled, ..LensDb::default() },
+            Section::ToneEq => self.tone_eq = ToneEq { enabled: self.tone_eq.enabled, ..ToneEq::default() },
+            Section::ColorCal => self.color_cal = ColorCal { enabled: self.color_cal.enabled, ..ColorCal::default() },
             _ => {}
         }
     }
@@ -108,6 +123,9 @@ impl DevelopSettings {
         self.masks.iter().map(|m| m.id).max().map_or(1, |m| m + 1)
     }
 }
+
+#[cfg(test)]
+mod tests_ai;
 
 #[cfg(test)]
 mod tests {
@@ -194,6 +212,48 @@ mod tests {
         let mut stock = DevelopSettings::default();
         stock.negative.film = FilmStock::Slide;
         assert_eq!(DevelopSettings::from_json(&stock.to_json()).unwrap(), stock);
+    }
+
+    #[test]
+    fn toolset_sections_default_off_and_left_out_of_old_json() {
+        let old = json!({"version": 1, "light": {"exposure": 0.3}, "optics": {"lens_profile": true}, "disabled_sections": []});
+        let s = DevelopSettings::from_json(&old).unwrap();
+        assert_eq!((s.raw, s.tone_eq, s.color_cal), (RawProcessing::default(), ToneEq::default(), ColorCal::default()));
+        assert_eq!(s.lens_db, LensDb::default());
+        assert!(!s.raw.capture.enabled && !s.tone_eq.enabled && !s.color_cal.enabled && !s.lens_db.enabled);
+        let v = s.to_json();
+        for k in ["raw", "lens_db", "tone_eq", "color_cal"] {
+            assert!(v.get(k).is_none(), "{k} written for old settings");
+            assert!(s.to_json_full().get(k).is_some(), "{k} in the full JSON");
+        }
+        // partial sections fill in from the defaults, round-trip, and change the hash
+        let s = DevelopSettings::from_json(&json!({
+            "raw": {"demosaic": "rcd", "highlights": "opposed", "capture": {"enabled": true}},
+            "lens_db": {"enabled": true, "lens": {"maker": "Canon", "model": "EF 50mm f/1.8"}},
+            "tone_eq": {"enabled": true, "ev4": 0.5},
+            "color_cal": {"enabled": true, "illuminant": "a", "adaptation": "bradford"}
+        }))
+        .unwrap();
+        assert_eq!((s.raw.demosaic, s.raw.highlights, s.raw.capture.iterations), (Demosaic::Rcd, HighlightMode::Opposed, 8.0));
+        assert_eq!(s.tone_eq.zones()[4], 0.5);
+        assert_eq!((s.color_cal.illuminant, s.color_cal.adaptation, s.color_cal.gamut), (Illuminant::A, Adaptation::Bradford, 1.0));
+        assert_eq!(DevelopSettings::from_json(&s.to_json()).unwrap(), s);
+        assert_ne!(s.hash64(), DevelopSettings::default().hash64());
+        // controls, copy groups, reset
+        let mut c = s.clone();
+        assert!(controls::set(&mut c, "toneEq.ev8", 5.0));
+        assert_eq!(c.tone_eq.ev8, 2.0, "clamped");
+        assert!(controls::set(&mut c, "raw.captureRadius", 0.8) && controls::set(&mut c, "lensDb.vignetting", 50.0));
+        let copied = apply_partial(&DevelopSettings::default(), &extract_groups(&c, &SettingsGroup::default_copy()), 1.0);
+        assert_eq!((copied.raw, copied.tone_eq, copied.color_cal), (c.raw, c.tone_eq, c.color_cal));
+        assert_eq!(copied.lens_db, c.lens_db);
+        c.reset_section(Section::ToneEq);
+        assert_eq!(c.tone_eq, ToneEq { enabled: true, ..Default::default() });
+        c.reset_section(Section::Raw);
+        assert!(c.raw.capture.enabled && c.raw.demosaic == Demosaic::Auto);
+        // pasting a photo without them turns them off
+        let off = apply_partial(&c, &extract_groups(&DevelopSettings::default(), &SettingsGroup::default_copy()), 1.0);
+        assert_eq!((off.raw, off.tone_eq.enabled, off.color_cal.enabled, off.lens_db.enabled), (RawProcessing::default(), false, false, false));
     }
 
     #[test]

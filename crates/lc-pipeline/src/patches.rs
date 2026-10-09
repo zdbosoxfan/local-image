@@ -163,6 +163,18 @@ pub fn apply(img: &mut Rgb32f, placements: &[Placement<'_>], frame: &Frame) {
     }
 }
 
+/// Composite the patches of the AI spots among `spots` (other spots are `spots::apply`'s).
+pub fn apply_spots(img: &mut Rgb32f, spots: &[lightcraft_develop::Spot], frame: &Frame) {
+    let placements: Vec<Placement<'_>> = spots
+        .iter()
+        .filter(|s| s.is_ai())
+        .filter_map(|s| s.patch.as_ref().map(|p| Placement { key: &p.key, rect: p.rect, opacity: (s.opacity / 100.0).clamp(0.0, 1.0) as f32 }))
+        .collect();
+    if !placements.is_empty() {
+        apply(img, &placements, frame);
+    }
+}
+
 /// Composite one patch raster (see [`apply`]).
 pub fn composite(img: &mut Rgb32f, patch: &PatchPixels, rect: [f64; 4], opacity: f32, frame: &Frame) {
     let (w, h) = (img.width, img.height);
@@ -369,6 +381,35 @@ mod tests {
         assert!(lookup("patches-test-from-source").is_some());
         forget("patches-test-mem");
         assert!(lookup("patches-test-missing").is_none());
+    }
+
+    /// Through the whole pipeline: an AI spot shows its patch; one whose patch is missing (or
+    /// any photo without AI spots) renders exactly as before.
+    #[test]
+    fn ai_spots_render_their_patch_and_nothing_else() {
+        use lightcraft_develop::{AiPatch, Spot, SpotMode};
+        let src = Rgb32f::from_fn(120, 80, |x, y| [0.1 + x as f32 * 0.002, 0.2, 0.1 + y as f32 * 0.002]);
+        let info = SourceInfo::default();
+        let req = crate::RenderRequest::fit(120, 80);
+        let plain = crate::render(&src, &info, &DevelopSettings::default(), &req).image;
+        let spot = |key: &str| Spot {
+            mode: SpotMode::Ai,
+            points: vec![Point::new(0.5, 0.5)],
+            patch: Some(AiPatch { key: key.into(), source: String::new(), rect: [0.25, 0.25, 0.75, 0.75], engine: "test".into(), seed: 1, geometry: String::new() }),
+            ..Default::default()
+        };
+        let missing = DevelopSettings { spots: vec![spot("patches-test-render-missing")], ..Default::default() };
+        assert_eq!(crate::render(&src, &info, &missing, &req).image.data, plain.data, "bit-identical without the patch");
+        insert("patches-test-render", Arc::new(solid(10, 10, [0.9, 0.05, 0.05, 1.0])));
+        let with = DevelopSettings { spots: vec![spot("patches-test-render")], ..Default::default() };
+        let img = crate::render(&src, &info, &with, &req).image;
+        let (c, o) = (img.get(60, 40), plain.get(60, 40));
+        assert!(c[0] > o[0] + 40 && c[1] + 40 < o[1], "{c:?} vs {o:?}");
+        assert_eq!(img.get(5, 5), plain.get(5, 5), "outside the patch nothing changes");
+        let half = DevelopSettings { spots: vec![Spot { opacity: 50.0, ..spot("patches-test-render") }], ..Default::default() };
+        let h = crate::render(&src, &info, &half, &req).image.get(60, 40);
+        assert!(h[0] > o[0] && h[0] < c[0], "{h:?}");
+        forget("patches-test-render");
     }
 
     #[test]

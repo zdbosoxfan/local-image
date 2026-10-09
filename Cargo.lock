@@ -3730,6 +3730,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a79a3332a6609480d7d0c9eab957bca6b455b91bb84e66d19f5ff66294b85b8"
 
 [[package]]
+name = "lensfun"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe52f943cdba39214e90c8ff14c10cebc0f597dcbbbcdab15a68902fc8392bd8"
+dependencies = [
+ "flate2",
+ "regex",
+ "roxmltree",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "li-ai"
 version = "2.0.0-alpha.1"
 dependencies = [
@@ -3873,6 +3885,7 @@ name = "lightcraft-engine"
 version = "2.0.0-alpha.1"
 dependencies = [
  "ab_glyph",
+ "lensfun",
  "li-seg",
  "libc",
  "lightcraft-catalog",

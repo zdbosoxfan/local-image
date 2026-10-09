@@ -8,6 +8,7 @@ pub mod detail;
 pub mod dialogs;
 pub mod doc_layers;
 pub mod edit;
+pub mod enhance;
 pub mod filterbar;
 pub mod grid;
 pub mod host_session;

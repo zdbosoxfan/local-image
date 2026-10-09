@@ -101,7 +101,7 @@ impl SettingsGroup {
             SettingsGroup::Profile => &["profile"],
             SettingsGroup::Treatment => &["treatment"],
             SettingsGroup::WhiteBalance => &["wb"],
-            SettingsGroup::Light => &["light"],
+            SettingsGroup::Light => &["light", "tone_eq"],
             SettingsGroup::ToneCurve => &["curve"],
             SettingsGroup::Color => &["color"],
             SettingsGroup::ColorMixer => &["mixer", "bw_mix", "point_colors"],
@@ -109,15 +109,15 @@ impl SettingsGroup {
             SettingsGroup::Effects => &["effects"],
             SettingsGroup::Vignette => &["vignette"],
             SettingsGroup::Grain => &["grain"],
-            SettingsGroup::Detail => &["detail", "enhance"],
-            SettingsGroup::Optics => &["optics"],
+            SettingsGroup::Detail => &["detail", "enhance", "raw"],
+            SettingsGroup::Optics => &["optics", "lens_db"],
             SettingsGroup::Geometry => &["geometry"],
             SettingsGroup::Crop => &["crop", "orientation"],
             SettingsGroup::Masks => &["masks"],
             SettingsGroup::Spots => &["spots"],
             SettingsGroup::RedEye => &["red_eye"],
             SettingsGroup::LensBlur => &["lens_blur"],
-            SettingsGroup::Calibration => &["calibration"],
+            SettingsGroup::Calibration => &["calibration", "color_cal"],
             SettingsGroup::Negative => &["negative"],
         }
     }
@@ -136,7 +136,19 @@ pub fn extract_groups(s: &DevelopSettings, groups: &[SettingsGroup]) -> Value {
             }
         }
     }
+    strip_photo_bound(&mut out);
     Value::Object(out)
+}
+
+/// local-image: drop what belongs to one photo's pixels — AI removals and the AI Denoise result
+/// (generated from that photo) — from settings copied to others (copy/paste, sync, presets).
+pub fn strip_photo_bound(out: &mut Map<String, Value>) {
+    if let Some(Value::Array(spots)) = out.get_mut("spots") {
+        spots.retain(|s| s.get("mode").and_then(Value::as_str) != Some("ai"));
+    }
+    if let Some(Value::Object(e)) = out.get_mut("enhance") {
+        e.remove("ai");
+    }
 }
 
 /// Recursively merge `patch` into `base` (objects merge; everything else replaces).

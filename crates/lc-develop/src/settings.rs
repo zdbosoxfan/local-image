@@ -41,6 +41,19 @@ pub struct DevelopSettings {
     /// unchanged; [`DevelopSettings::to_json_full`] includes it.
     #[serde(skip_serializing_if = "Negative::is_default")]
     pub negative: Negative,
+    /// Raw processing: demosaic, highlight reconstruction, capture sharpening ([`crate::tools`];
+    /// like the sections below, left out of the JSON at its defaults).
+    #[serde(skip_serializing_if = "crate::tools::RawProcessing::is_default")]
+    pub raw: crate::tools::RawProcessing,
+    /// Lens profile corrections from the lens database.
+    #[serde(skip_serializing_if = "crate::tools::LensDb::is_default")]
+    pub lens_db: crate::tools::LensDb,
+    /// Tone equalizer.
+    #[serde(skip_serializing_if = "crate::tools::ToneEq::is_default")]
+    pub tone_eq: crate::tools::ToneEq,
+    /// Colour calibration (chromatic adaptation, gamut compression).
+    #[serde(skip_serializing_if = "crate::tools::ColorCal::is_default")]
+    pub color_cal: crate::tools::ColorCal,
     /// Section on/off toggles (the "eye" buttons on panel headers): section id → enabled.
     pub disabled_sections: Vec<String>,
 }
@@ -74,6 +87,10 @@ impl Default for DevelopSettings {
             enhance: Enhance::default(),
             calibration: Calibration::default(),
             negative: Negative::default(),
+            raw: Default::default(),
+            lens_db: Default::default(),
+            tone_eq: Default::default(),
+            color_cal: Default::default(),
             disabled_sections: Vec::new(),
         }
     }
@@ -1200,6 +1217,8 @@ pub enum SpotMode {
     Remove,
     Heal,
     Clone,
+    /// local-image: generative AI removal (the repaired pixels are a stored patch, [`AiPatch`]).
+    Ai,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1214,12 +1233,96 @@ pub struct Spot {
     pub opacity: f64,
     /// Source offset (normalized) from the target; None = auto (content-aware remove).
     pub source_offset: Option<Point>,
+    /// local-image: a lasso outline (normalized, closed) instead of brushed `points` (AI spots).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub polygon: Vec<Point>,
+    /// local-image: the develop layer (mask id) whose area an AI spot removed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mask: Option<u32>,
+    /// local-image: an AI spot's generated pixels (`None` on other spots). These three fields are
+    /// left out of the JSON when empty, so older settings serialize and hash as before.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch: Option<AiPatch>,
 }
 
 impl Default for Spot {
     fn default() -> Self {
-        Self { mode: SpotMode::Remove, points: Vec::new(), size: 0.02, feather: 50.0, opacity: 100.0, source_offset: None }
+        Self {
+            mode: SpotMode::Remove,
+            points: Vec::new(),
+            size: 0.02,
+            feather: 50.0,
+            opacity: 100.0,
+            source_offset: None,
+            polygon: Vec::new(),
+            mask: None,
+            patch: None,
+        }
     }
+}
+
+impl Spot {
+    /// An AI removal (generated pixels), as opposed to Remove / Heal / Clone.
+    pub fn is_ai(&self) -> bool {
+        self.mode == SpotMode::Ai
+    }
+}
+
+/// The stored pixels of an AI removal: a patch in the library's AI store (local-image
+/// `lightcraft_engine::enhance`), composited by the pipeline at the retouching stage.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiPatch {
+    /// Store key (content address of the inputs).
+    pub key: String,
+    /// Content hash of the photo it was made from: a patch never applies to another photo.
+    pub source: String,
+    /// Where the patch goes: `[x0, y0, x1, y1]`, normalized coordinates (as spots).
+    pub rect: [f64; 4],
+    /// The AI engine (`klein`, `qwen-int8`, …) and seed that made it.
+    pub engine: String,
+    pub seed: u64,
+    /// The photo's geometry (orientation, lens, perspective) when it was made; another one means
+    /// the patch may not line up (Develop offers Regenerate).
+    pub geometry: String,
+}
+
+/// A 128-bit content key, written as 32 hex digits.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct AiKey(pub u128);
+
+impl std::fmt::Display for AiKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:032x}", self.0)
+    }
+}
+
+impl AiKey {
+    pub fn parse(s: &str) -> Option<AiKey> {
+        (s.len() == 32).then(|| u128::from_str_radix(s, 16).ok().map(AiKey)).flatten()
+    }
+}
+
+impl Serialize for AiKey {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for AiKey {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        AiKey::parse(&s).ok_or_else(|| serde::de::Error::custom("expected 32 hex digits"))
+    }
+}
+
+/// A photo's AI Denoise result in the library's AI store (local-image).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DenoiseRef {
+    /// Store key of the result.
+    pub key: AiKey,
+    /// Content hash of the photo it was made from (never applied to another photo).
+    pub source: AiKey,
 }
 
 /// A red eye / pet eye correction: the user's ellipse (centre normalized, radii as fractions of
@@ -1257,7 +1360,11 @@ pub struct LensBlur {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Enhance {
+    /// AI Denoise amount 0..100 (how much of the denoised result is used).
     pub denoise: f64,
     pub raw_details: bool,
     pub super_resolution: bool,
+    /// local-image: the AI Denoise result (`None` until Denoise ran; left out of the JSON then).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ai: Option<DenoiseRef>,
 }

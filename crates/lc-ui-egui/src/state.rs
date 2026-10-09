@@ -328,6 +328,10 @@ pub struct UiState {
     pub remove_size: f32,
     pub remove_feather: f32,
     pub remove_opacity: f32,
+    /// Remove tool, AI mode: the AI engine (`""`: the first ready one) and whether dragging draws
+    /// a lasso instead of a brush stroke.
+    pub remove_engine: String,
+    pub remove_lasso: bool,
     /// Selected Point Color sample.
     pub point_color: usize,
     /// Point Color "Visualize range": the selected sample's range in colour, the rest grey.
@@ -608,6 +612,8 @@ impl Default for UiState {
             remove_size: 0.02,
             remove_feather: 50.0,
             remove_opacity: 100.0,
+            remove_engine: String::new(),
+            remove_lasso: false,
             point_color: 0,
             point_color_visualize: false,
             point_color_mask: None,

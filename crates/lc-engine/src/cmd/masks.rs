@@ -781,6 +781,7 @@ pub fn specs() -> Vec<CommandSpec> {
                         feather: base.feather,
                         opacity: 100.0,
                         source_offset: None,
+                        ..Default::default()
                     };
                     spot.source_offset = pick_source(s, id, &dd, &spot, None);
                     dd.spots.push(spot);
@@ -794,11 +795,15 @@ pub fn specs() -> Vec<CommandSpec> {
             "Add Remove Spot",
             [],
             None,
-            "{mode?: remove|heal|clone, points: [[x,y],…], size?: fraction of long edge, feather?, opacity?, source?: [dx,dy] (default: the best match nearby)} — selects the new spot; returns {index}",
+            "{mode?: remove|heal|clone|ai, points: [[x,y],…], size?: fraction of long edge, feather?, opacity?, source?: [dx,dy] (default: the best match nearby)} — selects the new spot; returns {index}. mode ai (generative removal, background job; one undo step when ready): points or polygon: [[x,y],…] or mask: layer id, engine?, seed?, wait? → {job}",
             has_active,
             |s, p| {
                 let mode: SpotMode =
                     serde_json::from_value(p.get("mode").cloned().unwrap_or(json!("remove"))).map_err(|e| bad("spot.add", e.to_string()))?;
+                if mode == SpotMode::Ai {
+                    // local-image: generative removal, a background job (`enhance`)
+                    return crate::enhance::cmds::add_ai(s, p);
+                }
                 let pts: Vec<Point> = p
                     .get("points")
                     .and_then(Value::as_array)
@@ -815,6 +820,7 @@ pub fn specs() -> Vec<CommandSpec> {
                     feather: f64_or(p, "feather", d.feather).clamp(0.0, 100.0),
                     opacity: f64_or(p, "opacity", d.opacity).clamp(0.0, 100.0),
                     source_offset: point(p, "source"),
+                    ..Default::default()
                 };
                 let id = s.active().ok_or_else(|| bad("spot.add", "no active photo"))?;
                 let mut dd = (*s.develop_of(id).unwrap_or_default()).clone();
@@ -848,6 +854,7 @@ pub fn specs() -> Vec<CommandSpec> {
             |s, p| {
                 let c = "spot.update";
                 let i = spot_index(s, p, c)?;
+                crate::enhance::cmds::check_ai_update(s, i, p, c)?;
                 let mode: Option<SpotMode> = match p.get("mode") {
                     Some(m) => Some(serde_json::from_value(m.clone()).map_err(|e| bad(c, e.to_string()))?),
                     None => None,
@@ -892,6 +899,7 @@ pub fn specs() -> Vec<CommandSpec> {
             |s, p| {
                 let c = "spot.refreshSource";
                 let i = spot_index(s, p, c)?;
+                crate::enhance::cmds::check_ai_update(s, i, p, c)?;
                 let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
                 let dd = (*s.develop_of(id).unwrap_or_default()).clone();
                 let spot = dd.spots[i].clone();

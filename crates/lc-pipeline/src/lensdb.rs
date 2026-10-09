@@ -21,6 +21,8 @@
 //! continuous coordinates) and normalises by `hypot(36, 24) / crop / hypot(w, h) / focal`, so a
 //! correction is the same at any resolution.
 
+use lightcraft_geom::Real;
+
 /// Distortion model, rescaled to the image (lensfun's `rescale_distortion`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Distortion {
@@ -113,40 +115,41 @@ impl LensMap {
     /// (0 = R, 1 = G, 2 = B), with the distortion scaled by `dist` and the TCA by `tca`
     /// (1 = as calibrated, 0 = none).
     pub fn to_source(&self, x: f64, y: f64, ch: usize, dist: f64, tca: f64) -> (f64, f64) {
+        self.to_source_real(x, y, ch, dist, tca)
+    }
+
+    /// [`Self::to_source`] for any [`Real`] (interval bounds of a block of pixels).
+    pub fn to_source_real<T: Real>(&self, x: T, y: T, ch: usize, dist: f64, tca: f64) -> (T, T) {
         let (u, v) = ((x - self.cx) * self.ns, (y - self.cy) * self.ns);
         let ru2 = u * u + v * v;
         let f = match self.c.distortion {
-            Distortion::None => 1.0,
-            Distortion::Poly3 { k1 } => 1.0 + k1 * ru2,
-            Distortion::Poly5 { k1, k2 } => 1.0 + k1 * ru2 + k2 * ru2 * ru2,
+            Distortion::None => None,
+            Distortion::Poly3 { k1 } => Some(ru2 * (k1 * dist) + 1.0),
+            Distortion::Poly5 { k1, k2 } => Some(ru2 * (k1 * dist) + ru2 * ru2 * (k2 * dist) + 1.0),
             Distortion::Ptlens { a, b, c } => {
-                let r = ru2.sqrt();
-                a * ru2 * r + b * ru2 + c * r + 1.0
+                let r = ru2.sqrt_nonneg();
+                Some(ru2 * r * (a * dist) + ru2 * (b * dist) + r * (c * dist) + 1.0)
             }
         };
-        let f = 1.0 + (f - 1.0) * dist;
-        let (du, dv) = (u * f, v * f);
-        let k = if ch == 1 {
-            1.0
-        } else {
-            let s = match self.c.tca {
-                Tca::None => 1.0,
-                Tca::Linear { kr, kb } => {
-                    if ch == 0 {
-                        kr
-                    } else {
-                        kb
-                    }
-                }
-                Tca::Poly3 { red, blue } => {
-                    let [v0, c, b] = if ch == 0 { red } else { blue };
-                    let r2 = du * du + dv * dv;
-                    if c == 0.0 { b * r2 + v0 } else { b * r2 + c * r2.sqrt() + v0 }
-                }
-            };
-            1.0 + (s - 1.0) * tca
+        let (du, dv) = match f {
+            Some(f) => (u * f, v * f),
+            None => (u, v),
         };
-        (du * k / self.ns + self.cx, dv * k / self.ns + self.cy)
+        let (du, dv) = match (self.c.tca, ch) {
+            (_, 1) | (Tca::None, _) => (du, dv),
+            (Tca::Linear { kr, kb }, ch) => {
+                let s = 1.0 + ((if ch == 0 { kr } else { kb }) - 1.0) * tca;
+                (du * s, dv * s)
+            }
+            (Tca::Poly3 { red, blue }, ch) => {
+                let [v0, c, b] = if ch == 0 { red } else { blue };
+                let r2 = du * du + dv * dv;
+                let s = if c == 0.0 { r2 * b + v0 } else { r2 * b + r2.sqrt_nonneg() * c + v0 };
+                let s = (s - 1.0) * tca + 1.0;
+                (du * s, dv * s)
+            }
+        };
+        (du / self.ns + self.cx, dv / self.ns + self.cy)
     }
 
     /// Vignetting correction gain (≥ 1 for a lens that darkens its corners) at source position

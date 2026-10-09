@@ -62,11 +62,7 @@ pub fn summarize(doc: &Document) -> DocLayers {
                 shown.visible = true;
                 single.layers = vec![shown];
                 let img = photocraft_compose::thumbnail(&single, THUMB);
-                lightcraft_raster::Rgba8 {
-                    width: img.width as usize,
-                    height: img.height as usize,
-                    data: img.pixels.as_chunks::<4>().0.to_vec(),
-                }
+                lightcraft_raster::Rgba8 { width: img.width as usize, height: img.height as usize, data: img.pixels.as_chunks::<4>().0.to_vec() }
             });
             DocLayer {
                 name: l.name.clone(),

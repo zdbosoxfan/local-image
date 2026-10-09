@@ -21,11 +21,17 @@ pub trait Real:
 {
     /// `if |v| < tiny { tiny } else { v }`: the guard of a denominator against zero ([`crate::Homography::apply`]).
     fn clamp_tiny(self, tiny: f64) -> Self;
+    /// Square root of a value known to be non-negative (a sum of squares): negative inputs count
+    /// as 0.
+    fn sqrt_nonneg(self) -> Self;
 }
 
 impl Real for f64 {
     fn clamp_tiny(self, tiny: f64) -> f64 {
         if self.abs() < tiny { tiny } else { self }
+    }
+    fn sqrt_nonneg(self) -> f64 {
+        self.max(0.0).sqrt()
     }
 }
 
@@ -165,6 +171,13 @@ impl Real for Interval {
     fn clamp_tiny(self, tiny: f64) -> Interval {
         if self.lo >= tiny || self.hi <= -tiny { self } else { Interval::UNDECIDED }
     }
+    /// Monotonic: the bounds' roots moved outward (the lower one not below 0).
+    fn sqrt_nonneg(self) -> Interval {
+        if !self.is_decided() || !self.hi.is_finite() {
+            return Interval::UNDECIDED;
+        }
+        Interval::new(self.lo.max(0.0).sqrt().next_down().max(0.0), self.hi.max(0.0).sqrt().next_up())
+    }
 }
 
 #[cfg(test)]
@@ -201,6 +214,8 @@ mod tests {
             prop_assert!(k == 0.0 || contains(ia / k, a / k));
             let c = ib.clamp_tiny(1.0);
             prop_assert!(!c.is_decided() || contains(c, b.clamp_tiny(1.0)));
+            let r = ia.sqrt_nonneg();
+            prop_assert!(!r.is_decided() || contains(r, a.sqrt_nonneg()));
         }
     }
 

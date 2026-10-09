@@ -29,6 +29,11 @@ pub enum Section {
     PointColor,
     RedEye,
     Negative,
+    /// Raw processing (demosaic, highlights, capture sharpening).
+    Raw,
+    LensDb,
+    ToneEq,
+    ColorCal,
 }
 
 impl Section {
@@ -51,6 +56,10 @@ impl Section {
             Section::PointColor => "Point Color",
             Section::RedEye => "Red Eye",
             Section::Negative => "Negative",
+            Section::Raw => "Raw Processing",
+            Section::LensDb => "Lens Profile",
+            Section::ToneEq => "Tone Equalizer",
+            Section::ColorCal => "Color Calibration",
         }
     }
 }
@@ -219,6 +228,7 @@ controls! {
     "detail.nrColor" => detail.nr_color, "Color Noise Reduction", Detail, 0, 100, 0, 1, 0, Plain;
     "detail.nrColorDetail" => detail.nr_color_detail, "Detail", Detail, 0, 100, 50, 1, 0, Plain;
     "detail.nrColorSmoothness" => detail.nr_color_smoothness, "Smoothness", Detail, 0, 100, 50, 1, 0, Plain;
+    "enhance.denoise" => enhance.denoise, "Amount", Detail, 0, 100, 0, 1, 0, Plain;
     "optics.distortion" => optics.distortion, "Distortion", Optics, -100, 100, 0, 1, 0, Centered;
     "optics.vignetting" => optics.vignetting, "Vignetting", Optics, -100, 100, 0, 1, 0, Centered;
     "optics.vignettingMidpoint" => optics.vignetting_midpoint, "Midpoint", Optics, 0, 100, 50, 1, 0, Plain;
@@ -261,6 +271,31 @@ controls! {
     "negative.wbHighR" => negative.wb_high.r, "Highlights Red", Negative, 0.25, 2, 1, 0.001, 3, Gradient { from: "#30c0c0", to: "#e04040" };
     "negative.wbHighG" => negative.wb_high.g, "Highlights Green", Negative, 0.25, 2, 1, 0.001, 3, Gradient { from: "#c040c0", to: "#40c040" };
     "negative.wbHighB" => negative.wb_high.b, "Highlights Blue", Negative, 0.25, 2, 1, 0.001, 3, Gradient { from: "#d0c030", to: "#4060e0" };
+    "raw.dualThreshold" => raw.dual_threshold, "Dual Threshold", Raw, 0, 100, 20, 1, 0, Plain;
+    "raw.captureRadius" => raw.capture.radius, "Radius", Raw, 0, 1.5, 0, 0.01, 2, Plain;
+    "raw.captureThreshold" => raw.capture.threshold, "Contrast Threshold", Raw, 0, 100, 0, 1, 0, Plain;
+    "raw.captureCornerBoost" => raw.capture.corner_boost, "Corner Boost", Raw, 0, 150, 0, 1, 0, Plain;
+    "raw.captureIterations" => raw.capture.iterations, "Iterations", Raw, 1, 25, 8, 1, 0, Plain;
+    "lensDb.distortion" => lens_db.distortion, "Distortion", LensDb, 0, 200, 100, 1, 0, Plain;
+    "lensDb.tca" => lens_db.tca, "Chromatic Aberration", LensDb, 0, 200, 100, 1, 0, Plain;
+    "lensDb.vignetting" => lens_db.vignetting, "Vignetting", LensDb, 0, 200, 100, 1, 0, Plain;
+    "toneEq.ev8" => tone_eq.ev8, "−8 EV", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "toneEq.ev7" => tone_eq.ev7, "−7 EV", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "toneEq.ev6" => tone_eq.ev6, "−6 EV", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "toneEq.ev5" => tone_eq.ev5, "−5 EV", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "toneEq.ev4" => tone_eq.ev4, "−4 EV", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "toneEq.ev3" => tone_eq.ev3, "−3 EV", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "toneEq.ev2" => tone_eq.ev2, "−2 EV", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "toneEq.ev1" => tone_eq.ev1, "−1 EV", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "toneEq.ev0" => tone_eq.ev0, "0 EV", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "toneEq.smoothing" => tone_eq.smoothing, "Curve Smoothing", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "toneEq.size" => tone_eq.size, "Mask Size", ToneEq, 0.1, 50, 5, 0.1, 1, Plain;
+    "toneEq.refine" => tone_eq.refine, "Mask Edges", ToneEq, 0, 100, 50, 1, 0, Plain;
+    "toneEq.maskExposure" => tone_eq.mask_exposure, "Mask Exposure", ToneEq, -4, 4, 0, 0.01, 2, Centered;
+    "toneEq.maskContrast" => tone_eq.mask_contrast, "Mask Contrast", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "colorCal.x" => color_cal.x, "Illuminant x", ColorCal, 0.2, 0.55, 0.3127, 0.0001, 4, Plain;
+    "colorCal.y" => color_cal.y, "Illuminant y", ColorCal, 0.2, 0.5, 0.329, 0.0001, 4, Plain;
+    "colorCal.gamut" => color_cal.gamut, "Gamut Compression", ColorCal, 0, 5, 1, 0.01, 2, Plain;
     "crop.angle" => crop.geometry.angle, "Straighten", Geometry, -45, 45, 0, 0.01, 2, Centered;
 }
 

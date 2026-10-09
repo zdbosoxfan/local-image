@@ -25,6 +25,7 @@
 
 pub mod auto;
 pub mod capture;
+pub mod colorcal;
 pub mod colorops;
 pub mod cull;
 pub mod dust;
@@ -38,10 +39,12 @@ pub mod masks;
 pub mod negative;
 pub mod optics;
 pub mod output;
+pub mod patches;
 pub mod profiles;
 pub mod redeye;
 pub mod spots;
 pub mod tone;
+pub mod toneeq;
 pub mod transform;
 pub mod upright;
 pub mod visualize;
@@ -71,11 +74,32 @@ pub struct SourceInfo {
     /// No measured camera illuminant: WB adjustments are relative to the camera's rendered look.
     pub relative_wb: bool,
     pub camera_tone: Option<tone::CameraTone>,
+    /// The lens database's correction for the photo's lens (set by the engine when the settings
+    /// ask for it; relative to the EXIF-oriented source).
+    pub lens_db: Option<lensdb::LensCorrection>,
+    /// Sensor pixels per source pixel (a binned or downscaled raw preview is > 1), for tools
+    /// sized in sensor pixels (capture sharpening).
+    pub sensor_scale: f32,
+    /// Capture sharpening radius measured from the raw data (sensor pixels), when it was asked for.
+    pub capture_radius: Option<f32>,
+    /// Capture sharpening's contrast threshold for this sensor and ISO (0..1).
+    pub capture_threshold: f32,
 }
 
 impl Default for SourceInfo {
     fn default() -> Self {
-        Self { raw: false, as_shot_temp: 6500.0, as_shot_tint: 0.0, lens: None, relative_wb: false, camera_tone: None }
+        Self {
+            raw: false,
+            as_shot_temp: 6500.0,
+            as_shot_tint: 0.0,
+            lens: None,
+            relative_wb: false,
+            camera_tone: None,
+            lens_db: None,
+            sensor_scale: 1.0,
+            capture_radius: None,
+            capture_threshold: 0.4,
+        }
     }
 }
 
@@ -368,6 +392,8 @@ pub fn layers_need_cpu(s: &DevelopSettings) -> bool {
 /// the positive image.
 pub fn lin_cpu(img: &mut Rgb32f, info: &SourceInfo, p: &Plan<'_>) {
     let s = &*p.settings;
+    // AI removals first: their patches are in the source's own light (before white balance)
+    patches::apply_spots(img, &s.spots, &p.frame);
     local::white_balance(img, info, s);
     negative::apply(img, s);
     optics::defringe(img, s, p.px_per_long / optics::DEFRINGE_REF_LONG);
@@ -536,3 +562,5 @@ mod tests_geometry;
 mod tests_layers;
 #[cfg(test)]
 mod tests_local;
+#[cfg(test)]
+mod tests_toolset;

@@ -183,7 +183,12 @@ impl std::fmt::Debug for Segmenter {
 impl Segmenter {
     pub fn load(spec: &ModelSpec, path: &Path) -> Result<Self> {
         let s = spec.size;
+        // the dynamic-shape depth export declares symbolic intermediate shapes that conflict
+        // with the fixed input: let tract infer them
+        let depth = spec.task == Task::Depth;
         let plan = tract_onnx::onnx()
+            .with_ignore_value_info(depth)
+            .with_ignore_output_shapes(depth)
             .model_for_path(path)
             .with_context(|| format!("Could not read the segmentation model {}", path.display()))?
             .with_input_fact(0, InferenceFact::dt_shape(f32::datum_type(), tvec!(1, 3, s, s)))?

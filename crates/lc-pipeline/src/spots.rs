@@ -113,7 +113,8 @@ pub fn apply(img: &mut Rgb32f, spots: &[Spot], frame: &Frame, ppl: f64) {
     }
     let (w, h) = (img.width, img.height);
     let to_out = frame.norm_to_out(w, h);
-    for spot in spots {
+    // (AI removals are composited from their stored patches: `crate::patches`)
+    for spot in spots.iter().filter(|s| !s.is_ai()) {
         let r = (spot.size * ppl).max(1.0) as f32;
         let pts: Vec<(f32, f32)> = spot
             .points

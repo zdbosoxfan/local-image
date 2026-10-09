@@ -681,7 +681,8 @@ mod tests {
     #[test]
     fn opening_a_document_twice_brings_it_forward() {
         let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), photocraft_ui_egui::Services::default());
-        let doc = |n: &str| photocraft_doc::Document::new(n, photocraft_doc::Size::new(4, 4), photocraft_color::ColorMode::Rgb, photocraft_color::SampleType::U8);
+        let doc =
+            |n: &str| photocraft_doc::Document::new(n, photocraft_doc::Size::new(4, 4), photocraft_color::ColorMode::Rgb, photocraft_color::SampleType::U8);
         editor.session.open_document(doc("a"), Some("/photos/a.psd".into()));
         editor.session.open_document(doc("b"), Some("/photos/b.psd".into()));
         assert_eq!(editor.session.active_index(), Some(1));

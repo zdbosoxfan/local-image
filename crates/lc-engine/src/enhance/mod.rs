@@ -15,8 +15,13 @@
 //! Both are slow, so they run as background [`Job`]s with progress and cancel; the session picks
 //! up finished jobs and applies them as one undo step each.
 
+pub(crate) mod cmds;
 pub mod denoise;
+pub mod remove;
+pub mod session;
 pub mod store;
+
+pub use session::{DenoiseState, PatchState, Polled, denoise_state, for_render, patch_state};
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -319,11 +324,12 @@ impl Enhance {
     }
 }
 
-/// Serializes the tests that switch the process-wide store's folder.
-#[cfg(test)]
-pub(crate) fn tests_lock() -> std::sync::MutexGuard<'static, ()> {
-    static L: Mutex<()> = Mutex::new(());
-    L.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+impl crate::Session {
+    /// Where this session's AI results are kept: its library's `Patches` folder, `None` without
+    /// a library on disk (results then stay in memory).
+    pub fn ai_store_root(&self) -> Option<std::path::PathBuf> {
+        self.library.as_ref().filter(|l| l.on_disk).map(|l| store::root_for_library(&l.dir))
+    }
 }
 
 #[cfg(test)]

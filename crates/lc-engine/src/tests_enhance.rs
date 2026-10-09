@@ -1,0 +1,174 @@
+//! local-image: AI Remove and AI Denoise through the commands, with a mock AI engine and a stand-in
+//! denoiser — one undo step per result, copies leave them behind, foreign or missing results never
+//! render, and the photo renders as before without them.
+
+use std::sync::Arc;
+
+use serde_json::json;
+
+use crate::Session;
+use crate::enhance::{AiHost, DenoiseState, Download, JobCtl, PatchState, RemoveEngine, RemoveRequest, RemoveResult, denoise_state, patch_state};
+
+/// Paints the masked area magenta.
+struct Mock;
+
+impl AiHost for Mock {
+    fn remove_engines(&self) -> Vec<RemoveEngine> {
+        vec![
+            RemoveEngine { key: "mock".into(), label: "Mock".into(), problem: None },
+            RemoveEngine { key: "off".into(), label: "Off".into(), problem: Some("The AI engine (ComfyUI) is not running.".into()) },
+        ]
+    }
+    fn remove(&self, req: &RemoveRequest, ctl: &JobCtl) -> Result<RemoveResult, String> {
+        ctl.set(0.5, "Sampling");
+        let rgb = req.rgb.iter().zip(&req.mask).map(|(c, m)| if *m > 127 { [250, 0, 250] } else { *c }).collect();
+        Ok(RemoveResult { rgb, alpha: req.mask.iter().map(|m| if *m > 127 { 255 } else { 0 }).collect() })
+    }
+    fn start_model_download(&self, _: &str) -> Result<(), String> {
+        Err("not in tests".into())
+    }
+    fn model_download(&self, _: &str) -> Option<Download> {
+        None
+    }
+    fn cancel_model_download(&self, _: &str) {}
+}
+
+fn session() -> Session {
+    let mut s = Session::with_demo();
+    s.enhance.host = Some(Arc::new(Mock));
+    s
+}
+
+fn spots(s: &Session) -> Vec<lightcraft_develop::Spot> {
+    s.develop_of(s.active().unwrap()).unwrap().spots.clone()
+}
+
+fn centre(s: &mut Session) -> [u8; 4] {
+    let id = s.active().unwrap();
+    let r = s.render_now(id, 160, 160).unwrap();
+    r.image.get(r.image.width / 2, r.image.height / 2)
+}
+
+fn magenta(c: [u8; 4]) -> bool {
+    c[0] as i32 > c[1] as i32 + 60 && c[2] as i32 > c[1] as i32 + 60
+}
+
+#[test]
+fn ai_remove_is_one_undo_step_and_regenerates() {
+    let mut s = session();
+    let before = centre(&mut s);
+    assert!(!magenta(before));
+    let r = s.execute("spot.add", &json!({"mode": "ai", "points": [[0.5, 0.5]], "size": 0.05, "engine": "mock", "seed": 7, "wait": true})).unwrap();
+    assert_eq!(r["done"], true);
+    let sp = spots(&s);
+    assert_eq!(sp.len(), 1);
+    assert!(sp[0].is_ai());
+    let patch = sp[0].patch.clone().expect("a patch");
+    assert_eq!((patch.engine.as_str(), patch.seed), ("mock", 7));
+    assert_eq!(s.active_spot, Some(0));
+    assert_eq!(patch_state(&s, s.active().unwrap(), &sp[0]), PatchState::Ok);
+    assert!(magenta(centre(&mut s)), "the patch renders");
+    assert_eq!(s.undo.last().map(|u| u.label.as_str()), Some("AI Remove"));
+    // it can't be moved, only faded, regenerated or deleted
+    assert!(s.execute("spot.update", &json!({"move": [0.1, 0.0]})).is_err());
+    assert!(s.execute("spot.refreshSource", &json!({})).is_err());
+    s.execute("spot.update", &json!({"opacity": 40})).unwrap();
+    assert_eq!(spots(&s)[0].opacity, 40.0);
+    s.execute("spot.regenerate", &json!({"seed": 8, "wait": true})).unwrap();
+    let sp = spots(&s);
+    assert_eq!(sp.len(), 1);
+    assert_eq!(sp[0].patch.as_ref().unwrap().seed, 8);
+    assert_ne!(sp[0].patch.as_ref().unwrap().key, patch.key);
+    // undo: back to the first patch, then to no spot (and the photo as before)
+    s.execute("edit.undo", &json!({})).unwrap();
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(spots(&s)[0].patch.as_ref().unwrap().key, patch.key);
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert!(spots(&s).is_empty());
+    assert_eq!(centre(&mut s), before);
+    s.execute("edit.redo", &json!({})).unwrap();
+    assert!(magenta(centre(&mut s)));
+}
+
+#[test]
+fn lassos_jobs_and_engines() {
+    let mut s = session();
+    // a lasso, in the background
+    let r = s.execute("spot.add", &json!({"mode": "ai", "polygon": [[0.4, 0.4], [0.6, 0.4], [0.6, 0.6], [0.4, 0.6]], "engine": "mock"})).unwrap();
+    let job = r["job"].as_u64().unwrap();
+    assert!(s.execute("enhance.jobs", &json!({})).unwrap()["jobs"].as_array().unwrap().iter().any(|j| j["id"] == job));
+    while s.enhance.busy() {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let p = s.enhance_poll();
+    assert!(p.changed && p.errors.is_empty(), "{p:?}");
+    assert_eq!(spots(&s)[0].polygon.len(), 4);
+    // an engine that isn't ready says why; no engine at all, likewise
+    let e = s.execute("spot.add", &json!({"mode": "ai", "points": [[0.2, 0.2]], "engine": "off", "wait": true})).unwrap_err();
+    assert!(e.to_string().contains("not running"), "{e}");
+    s.enhance.host = None;
+    assert!(s.execute("spot.add", &json!({"mode": "ai", "points": [[0.2, 0.2]], "wait": true})).is_err());
+    let st = s.execute("enhance.status", &json!({})).unwrap();
+    assert_eq!(st["spots"][0]["state"], "ok");
+}
+
+#[test]
+fn copies_and_other_photos_never_get_ai_results() {
+    let mut s = session();
+    s.execute("spot.add", &json!({"mode": "ai", "points": [[0.5, 0.5]], "size": 0.05, "engine": "mock", "wait": true})).unwrap();
+    s.execute("spot.add", &json!({"mode": "heal", "points": [[0.2, 0.2]]})).unwrap();
+    let a = s.active().unwrap();
+    let ids = s.visible_cloned();
+    let b = *ids.iter().find(|x| **x != a).unwrap();
+    s.execute("develop.copy", &json!({"groups": ["spots"]})).unwrap();
+    s.execute("library.select", &json!({"ids": [b.0]})).unwrap();
+    s.execute("develop.paste", &json!({})).unwrap();
+    let pasted = s.develop_of(b).unwrap();
+    assert_eq!(pasted.spots.len(), 1, "the heal spot only");
+    assert!(!pasted.spots[0].is_ai());
+    // settings carried over by hand: the patch belongs to another photo and isn't rendered
+    let mut d = (*s.develop_of(b).unwrap()).clone();
+    d.spots.clear();
+    s.set_develop(b, d.clone(), "test").unwrap();
+    let clean = centre(&mut s);
+    d.spots = s.develop_of(a).unwrap().spots.iter().filter(|x| x.is_ai()).cloned().collect();
+    s.set_develop(b, d, "test").unwrap();
+    assert_eq!(patch_state(&s, b, &s.develop_of(b).unwrap().spots[0]), PatchState::Foreign);
+    assert_eq!(centre(&mut s), clean, "rendered as without the AI spot");
+}
+
+#[test]
+fn denoise_through_the_commands() {
+    let mut s = session();
+    // (the last raw demo photo: `enhance::denoise`'s own tests use the first, with the same
+    // stand-in model, so the stored results differ)
+    let id = s.visible_cloned().into_iter().rev().find(|id| crate::enhance::denoise::can_denoise(&s, *id).is_ok()).unwrap();
+    s.execute("library.select", &json!({"ids": [id.0]})).unwrap();
+    assert!(matches!(denoise_state(&s, id), DenoiseState::NoModel { .. }));
+    assert!(s.execute("enhance.denoise", &json!({"wait": true})).is_err(), "no model");
+    // a stand-in: everything becomes mid grey
+    s.enhance.denoiser = Some(Arc::new(|px, _, _, _| Ok(vec![[0.18, 0.18, 0.18]; px.len()])));
+    assert_eq!(denoise_state(&s, id), DenoiseState::Ready);
+    let before = centre(&mut s);
+    s.execute("enhance.denoise", &json!({"wait": true})).unwrap();
+    let d = s.develop_of(id).unwrap();
+    let r = d.enhance.ai.expect("the result is referenced");
+    assert_eq!(d.enhance.denoise, crate::enhance::session::DEFAULT_AMOUNT);
+    assert_eq!(s.undo.last().map(|u| u.label.as_str()), Some("AI Denoise"));
+    assert_eq!(denoise_state(&s, id), DenoiseState::Done { amount: 60.0 });
+    let half = centre(&mut s);
+    assert_ne!(half, before);
+    s.execute("develop.set", &json!({"control": "enhance.denoise", "value": 100})).unwrap();
+    let full = centre(&mut s);
+    let grey = |c: [u8; 4]| (c[0] as i32 - c[2] as i32).abs();
+    assert!(grey(full) <= grey(half) && grey(half) <= grey(before) + 1, "{before:?} {half:?} {full:?}");
+    // the result gone: the photo renders from its own pixels and Develop offers to run it again
+    crate::enhance::store::delete(crate::enhance::store::Kind::Denoise, &r.key.to_string());
+    crate::enhance::store::delete(crate::enhance::store::Kind::Denoise, &crate::enhance::denoise::preview_key(&r.key.to_string()));
+    assert_eq!(denoise_state(&s, id), DenoiseState::Missing);
+    s.execute("develop.set", &json!({"control": "enhance.denoise", "value": 60})).unwrap();
+    assert_eq!(centre(&mut s), before);
+    // copies keep the amount, not the result
+    let c = lightcraft_develop::extract_groups(&s.develop_of(id).unwrap(), &[lightcraft_develop::SettingsGroup::Detail]);
+    assert!(c["enhance"].get("ai").is_none());
+}

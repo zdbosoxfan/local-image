@@ -420,6 +420,14 @@ pub const PROFILES: &[ProfileInfo] = &[
     ProfileInfo { id: "lc.muted.bleached", name: "Bleached", group: "Muted" },
     ProfileInfo { id: "lc.muted.pastel-haze", name: "Pastel Haze", group: "Muted" },
     ProfileInfo { id: "lc.muted.quiet-green", name: "Quiet Green", group: "Muted" },
+    ProfileInfo { id: "lc.filmsim.vivid-slide", name: "Vivid Slide", group: "Film Simulation" },
+    ProfileInfo { id: "lc.filmsim.natural-slide", name: "Natural Slide", group: "Film Simulation" },
+    ProfileInfo { id: "lc.filmsim.portrait-negative", name: "Portrait Negative", group: "Film Simulation" },
+    ProfileInfo { id: "lc.filmsim.consumer-negative", name: "Consumer Negative", group: "Film Simulation" },
+    ProfileInfo { id: "lc.filmsim.cinema-negative", name: "Cinema Negative", group: "Film Simulation" },
+    ProfileInfo { id: "lc.filmsim.instant", name: "Instant Film", group: "Film Simulation" },
+    ProfileInfo { id: "lc.filmsim.classic-bw", name: "Classic B&W Film", group: "Film Simulation" },
+    ProfileInfo { id: "lc.filmsim.high-speed-bw", name: "High-Speed B&W Film", group: "Film Simulation" },
     ProfileInfo { id: "lc.bw.mono-rich", name: "Mono Rich", group: "B&W" },
     ProfileInfo { id: "lc.bw.red-filter", name: "Mono Red Filter", group: "B&W" },
     ProfileInfo { id: "lc.bw.soft", name: "Mono Soft", group: "B&W" },
@@ -513,7 +521,7 @@ mod tests {
             assert!(p.id == "lc.color" || looks.contains(&p.id), "{} has no look", p.id);
         }
         assert!(PROFILES.len() >= 22);
-        assert_eq!(profile_groups(), ["Basic", "Film", "Cinematic", "Muted", "B&W"]);
+        assert_eq!(profile_groups(), ["Basic", "Film", "Cinematic", "Muted", "Film Simulation", "B&W"]);
     }
 
     #[test]

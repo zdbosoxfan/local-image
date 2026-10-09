@@ -5,7 +5,8 @@
 //! offsets (contrast, saturation, colour mixer, B&W mix…), colour-grading wheels (added as colour
 //! vectors to the user's wheels) and point-curve fades (black/white output levels composed after
 //! the user's point curves). The CPU pipeline and the GPU path both render [`effective`]
-//! settings, so a profile needs no kernel of its own. No look adds grain.
+//! settings, so a profile needs no kernel of its own. No look adds grain. The Film Simulation
+//! looks are our own parametric approximations of film behaviour (generic names, no LUTs).
 
 use std::borrow::Cow;
 
@@ -179,6 +180,87 @@ pub fn effective(s: &DevelopSettings) -> Cow<'_, DevelopSettings> {
             add(&mut e.mixer.aqua.sat, -15.0);
             fade(&mut e.curve.master, 0.04, 1.0, k);
         }
+        // ---- Film Simulation: parametric film looks (no LUTs): each stock's colour response as
+        // a primaries matrix (calibration hue/saturation), its characteristic curve as contrast,
+        // toe/shoulder and channel fades, its dye balance as grading wheels.
+        "lc.filmsim.vivid-slide" => {
+            add(&mut e.light.contrast, 22.0);
+            add(&mut e.light.blacks, -10.0);
+            add(&mut e.color.saturation, 18.0);
+            add(&mut e.calibration.red_sat, 12.0);
+            add(&mut e.calibration.green_hue, -6.0);
+            add(&mut e.calibration.blue_sat, 18.0);
+            add(&mut e.curve.shadows, -8.0);
+            add(&mut e.curve.highlights, -6.0);
+            wheel(&mut e.grading.shadows, 260.0, 10.0, 0.0, k);
+        }
+        "lc.filmsim.natural-slide" => {
+            add(&mut e.light.contrast, 12.0);
+            add(&mut e.color.vibrance, 10.0);
+            add(&mut e.calibration.green_hue, -4.0);
+            add(&mut e.calibration.blue_sat, 8.0);
+            add(&mut e.curve.highlights, -4.0);
+            wheel(&mut e.grading.highlights, 50.0, 5.0, 0.0, k);
+        }
+        "lc.filmsim.portrait-negative" => {
+            add(&mut e.light.contrast, -12.0);
+            add(&mut e.light.highlights, -15.0);
+            add(&mut e.color.saturation, -8.0);
+            add(&mut e.mixer.orange.sat, -6.0);
+            add(&mut e.mixer.orange.lum, 6.0);
+            add(&mut e.calibration.red_hue, 6.0);
+            add(&mut e.calibration.green_sat, -6.0);
+            fade(&mut e.curve.master, 0.025, 0.98, k);
+            wheel(&mut e.grading.highlights, 40.0, 8.0, 0.0, k);
+            wheel(&mut e.grading.shadows, 200.0, 5.0, 0.0, k);
+        }
+        "lc.filmsim.consumer-negative" => {
+            add(&mut e.light.contrast, 8.0);
+            add(&mut e.color.saturation, 10.0);
+            add(&mut e.calibration.green_hue, -8.0);
+            add(&mut e.calibration.red_sat, 8.0);
+            fade(&mut e.curve.blue, 0.03, 0.96, k);
+            wheel(&mut e.grading.shadows, 150.0, 8.0, 0.0, k);
+            wheel(&mut e.grading.highlights, 45.0, 12.0, 0.0, k);
+        }
+        "lc.filmsim.cinema-negative" => {
+            add(&mut e.light.contrast, -16.0);
+            add(&mut e.light.highlights, -22.0);
+            add(&mut e.light.shadows, 10.0);
+            add(&mut e.color.saturation, -12.0);
+            add(&mut e.calibration.red_hue, -5.0);
+            add(&mut e.calibration.blue_hue, 6.0);
+            fade(&mut e.curve.master, 0.03, 0.97, k);
+            wheel(&mut e.grading.shadows, 190.0, 12.0, 0.0, k);
+            wheel(&mut e.grading.highlights, 35.0, 8.0, 0.0, k);
+        }
+        "lc.filmsim.instant" => {
+            add(&mut e.light.contrast, -6.0);
+            add(&mut e.color.saturation, -14.0);
+            add(&mut e.calibration.green_sat, -10.0);
+            add(&mut e.curve.lights, 6.0);
+            fade(&mut e.curve.master, 0.08, 0.94, k);
+            fade(&mut e.curve.red, 0.0, 0.97, k);
+            wheel(&mut e.grading.shadows, 185.0, 16.0, 0.0, k);
+            wheel(&mut e.grading.highlights, 50.0, 14.0, 0.0, k);
+        }
+        "lc.filmsim.classic-bw" => {
+            e.treatment = Treatment::Bw;
+            add(&mut e.light.contrast, 14.0);
+            add(&mut e.curve.darks, -6.0);
+            add(&mut e.bw_mix.red, 15.0);
+            add(&mut e.bw_mix.yellow, 10.0);
+            add(&mut e.bw_mix.blue, -10.0);
+        }
+        "lc.filmsim.high-speed-bw" => {
+            e.treatment = Treatment::Bw;
+            add(&mut e.light.contrast, 24.0);
+            add(&mut e.light.blacks, -8.0);
+            add(&mut e.effects.clarity, 6.0);
+            add(&mut e.bw_mix.orange, 8.0);
+            add(&mut e.bw_mix.green, -6.0);
+            fade(&mut e.curve.master, 0.02, 1.0, k);
+        }
         // ---- B&W
         "lc.bw.mono-rich" => {
             e.treatment = Treatment::Bw;
@@ -236,6 +318,14 @@ pub const LOOK_IDS: &[&str] = &[
     "lc.muted.bleached",
     "lc.muted.pastel-haze",
     "lc.muted.quiet-green",
+    "lc.filmsim.vivid-slide",
+    "lc.filmsim.natural-slide",
+    "lc.filmsim.portrait-negative",
+    "lc.filmsim.consumer-negative",
+    "lc.filmsim.cinema-negative",
+    "lc.filmsim.instant",
+    "lc.filmsim.classic-bw",
+    "lc.filmsim.high-speed-bw",
     "lc.bw.mono-rich",
     "lc.bw.red-filter",
     "lc.bw.soft",

@@ -1346,7 +1346,13 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
         for q in &s.points {
             p.circle_stroke(map.screen(*q), r, Stroke::new(if sel { 1.5 } else { 1.0 }, col));
         }
-        let Some(&t) = s.points.first() else { continue };
+        // local-image: a lassoed AI removal's outline
+        if s.polygon.len() >= 3 {
+            let mut pts: Vec<Pos2> = s.polygon.iter().map(|q| map.screen(*q)).collect();
+            pts.push(pts[0]);
+            p.add(egui::Shape::line(pts, Stroke::new(if sel { 1.5 } else { 1.0 }, col)));
+        }
+        let Some(t) = spot_anchor(s) else { continue };
         let tq = map.screen(t);
         if let Some(o) = s.source_offset.filter(|_| sel) {
             let sq = map.screen(Point::new(t.x + o.x, t.y + o.y));
@@ -1394,7 +1400,9 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
         app.gesture = Some(Gesture::SpotMove { spot, source });
     }
     if let Some(Gesture::SpotMove { spot, source }) = app.gesture.clone() {
+        // (an AI removal stays where its pixels were generated: dragging it only selects it)
         if resp.dragged()
+            && !d.spots.get(spot).is_some_and(|s| s.is_ai())
             && let Some(q) = resp.interact_pointer_pos()
         {
             let (n, n0) = (map.norm(q), map.norm(q - resp.drag_delta()));
@@ -1424,9 +1432,32 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
             _ => app.gesture = Some(Gesture::Spot { points: vec![n] }),
         }
     }
+    let lasso = app.ui.tool == "ai" && app.ui.remove_lasso;
     if let Some(Gesture::Spot { points }) = &app.gesture {
-        for q in points {
-            p.circle_filled(map.screen(*q), r, Color32::from_white_alpha(60));
+        if lasso {
+            let pts: Vec<Pos2> = points.iter().map(|q| map.screen(*q)).collect();
+            p.add(egui::Shape::line(pts, Stroke::new(1.5, Color32::WHITE)));
+        } else {
+            for q in points {
+                p.circle_filled(map.screen(*q), r, Color32::from_white_alpha(60));
+            }
+        }
+    }
+    // AI removals being generated: their strokes, until the result arrives
+    if let Some(id) = app.session.active() {
+        for j in app.session.enhance.running_for(id) {
+            if let lightcraft_engine::enhance::JobKind::Remove { stroke } = &j.kind {
+                let col = Color32::from_rgba_unmultiplied(120, 170, 255, 70);
+                let rr = (stroke.size * long) as f32;
+                for q in &stroke.points {
+                    p.circle_filled(map.screen(*q), rr, col);
+                }
+                if stroke.polygon.len() >= 3 {
+                    let mut pts: Vec<Pos2> = stroke.polygon.iter().map(|q| map.screen(*q)).collect();
+                    pts.push(pts[0]);
+                    p.add(egui::Shape::line(pts, Stroke::new(2.0, Color32::from_rgb(120, 170, 255))));
+                }
+            }
         }
     }
     if (resp.drag_stopped() || resp.clicked())
@@ -1435,14 +1466,39 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
         let mode = match app.ui.tool.as_str() {
             "heal" => "heal",
             "clone" => "clone",
+            "ai" => "ai",
             _ => "remove",
         };
         let pts: Vec<[f64; 2]> = points.iter().map(|q| [q.x, q.y]).collect();
-        let _ = app.run(
-            "spot.add",
-            json!({"mode": mode, "points": pts, "size": app.ui.remove_size, "feather": app.ui.remove_feather, "opacity": app.ui.remove_opacity}),
-        );
+        let mut params =
+            json!({"mode": mode, "points": pts, "size": app.ui.remove_size, "feather": app.ui.remove_feather, "opacity": app.ui.remove_opacity});
+        if mode == "ai" {
+            if !app.ui.remove_engine.is_empty() {
+                params["engine"] = json!(app.ui.remove_engine);
+            }
+            if lasso {
+                params["polygon"] = params["points"].take();
+            }
+        }
+        if let Err(e) = app.run("spot.add", params)
+            && mode == "ai"
+        {
+            app.toast_error(ui.ctx(), e);
+        }
     }
+}
+
+/// Where a spot's pin goes: its first point, else (a lassoed or layer-area AI removal) the middle
+/// of its outline or of its patch.
+fn spot_anchor(s: &lightcraft_develop::Spot) -> Option<Point> {
+    if let Some(p) = s.points.first() {
+        return Some(*p);
+    }
+    if !s.polygon.is_empty() {
+        let n = s.polygon.len() as f64;
+        return Some(Point::new(s.polygon.iter().map(|p| p.x).sum::<f64>() / n, s.polygon.iter().map(|p| p.y).sum::<f64>() / n));
+    }
+    s.patch.as_ref().map(|p| Point::new((p.rect[0] + p.rect[2]) / 2.0, (p.rect[1] + p.rect[3]) / 2.0))
 }
 
 // ------------------------------------------------------------------------ red eye

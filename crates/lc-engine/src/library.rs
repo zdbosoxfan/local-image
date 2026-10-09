@@ -370,6 +370,9 @@ impl Session {
         if on_disk {
             self.media.attach_disk_cache(&dir.join("thumbs"), self.cache_bytes());
         }
+        // local-image: AI Remove patches and AI Denoise results live beside the catalog
+        crate::enhance::store::set_root(on_disk.then(|| crate::enhance::store::root_for_library(&dir)));
+        crate::enhance::remove::install();
         let view_written = self.view_json();
         self.library = Some(Library {
             dir,

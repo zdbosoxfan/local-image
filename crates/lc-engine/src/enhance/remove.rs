@@ -113,7 +113,9 @@ impl Session {
             None => None,
         };
         let seed = seed.unwrap_or_else(|| new_seed(id.0 ^ self.enhance.jobs().len() as u64));
+        install();
         let job = Prepared {
+            to: self.ai_store_root(),
             src: self.media.source_ref(&p, SourceLevel::Full),
             header: crate::media::source_info(&p),
             settings,
@@ -136,6 +138,8 @@ const NO_HOST: &str = "AI Remove needs the AI engine. Set it up in Compositing â
 
 /// Everything the worker needs, detached from the session.
 struct Prepared {
+    /// Where the patch is kept (the library's `Patches` folder; `None`: in memory).
+    to: Option<std::path::PathBuf>,
     src: crate::media::SourceRef,
     header: lightcraft_pipeline::SourceInfo,
     settings: Arc<DevelopSettings>,
@@ -180,8 +184,8 @@ impl Prepared {
             Some(m) => mask_coverage(m, &frame, &img, &info, s),
             None => stroke_coverage(&self.stroke, &frame, w, h),
         };
-        let Some(bbox) = bbox(&coverage, w, h) else { return Err("Paint over what you want to remove first.".into()) };
-        let region = context(bbox, w, h);
+        let Some(area) = bbox(&coverage, w, h) else { return Err("Paint over what you want to remove first.".into()) };
+        let region = context(area, w, h);
         let (rw, rh) = (region.width(), region.height());
         let pixels: Vec<[f32; 3]> = (0..rw * rh).map(|i| img.get(region.x0 + i % rw, region.y0 + i / rw)).collect();
         let view = AiView::new(&pixels, &info, s);
@@ -215,7 +219,7 @@ impl Prepared {
         let geometry = geometry_tag(s);
         let key = patch_key(&self.source, &self.stroke, &self.engine, self.seed, &geometry);
         let raster = store::Raster { width: pw, height: ph, channels: 4, data };
-        store::put(Kind::Remove, &key, &raster)?;
+        store::put(Kind::Remove, &key, &raster, self.to.as_deref())?;
         let pixels = PatchPixels { width: pw, height: ph, data: raster.data.chunks_exact(4).map(|p| [p[0], p[1], p[2], p[3]]).collect() };
         lightcraft_pipeline::patches::insert(&key, Arc::new(pixels));
         let to_norm = frame.out_to_norm(w, h);

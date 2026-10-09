@@ -139,11 +139,11 @@ fn with_state<R>(f: impl FnOnce(&mut State) -> R) -> R {
 }
 
 /// The library's `Patches` folder (`None`: results stay in memory). Set when a library opens.
+///
+/// Renders read from it; writes go where the writing session's library is (see [`put`]), so
+/// sessions without a library (the demo, tests) keep theirs in memory whatever is open.
 pub fn set_root(dir: Option<PathBuf>) {
-    with_state(|s| {
-        s.root = dir;
-        s.mem.clear();
-    });
+    with_state(|s| s.root = dir);
     *EXISTS.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
@@ -164,14 +164,14 @@ fn note_exists(kind: Kind, key: &str, yes: bool) {
     EXISTS.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).insert((kind, key.to_owned()), yes);
 }
 
-/// Store `r` under `key` (on disk with a library, else in memory).
-pub fn put(kind: Kind, key: &str, r: &Raster) -> Result<(), String> {
-    put_samples(kind, key, r.width, r.height, r.channels, &r.data)
+/// Store `r` under `key`: in the `Patches` folder `to` (a library's), else in memory.
+pub fn put(kind: Kind, key: &str, r: &Raster, to: Option<&Path>) -> Result<(), String> {
+    put_samples(kind, key, r.width, r.height, r.channels, &r.data, to)
 }
 
-/// Store an RGB image under `key`.
-pub fn put_rgb(kind: Kind, key: &str, img: &Rgb32f) -> Result<(), String> {
-    put_samples(kind, key, img.width, img.height, 3, img.data.as_flattened())
+/// Store an RGB image under `key` (see [`put`]).
+pub fn put_rgb(kind: Kind, key: &str, img: &Rgb32f, to: Option<&Path>) -> Result<(), String> {
+    put_samples(kind, key, img.width, img.height, 3, img.data.as_flattened(), to)
 }
 
 /// The RGB image stored under `key` (an RGBA one loses its alpha).
@@ -181,11 +181,11 @@ pub fn get_rgb(kind: Kind, key: &str) -> Option<Rgb32f> {
     Some(Rgb32f { width: r.width, height: r.height, data })
 }
 
-fn put_samples(kind: Kind, key: &str, width: usize, height: usize, channels: usize, data: &[f32]) -> Result<(), String> {
+fn put_samples(kind: Kind, key: &str, width: usize, height: usize, channels: usize, data: &[f32], to: Option<&Path>) -> Result<(), String> {
     if !valid_key(key) {
         return Err(format!("invalid key `{key}`"));
     }
-    match root() {
+    match to {
         #[cfg(not(target_arch = "wasm32"))]
         Some(root) => {
             let p = path(&root, kind, key);
@@ -204,7 +204,15 @@ fn put_samples(kind: Kind, key: &str, width: usize, height: usize, channels: usi
     Ok(())
 }
 
-/// The result stored under `key`, if any.
+/// The result stored in the `Patches` folder `root` under `key`.
+pub fn get_at(kind: Kind, key: &str, root: &Path) -> Option<Raster> {
+    if !valid_key(key) {
+        return None;
+    }
+    std::fs::read(path(root, kind, key)).ok().and_then(|b| decode(&b).ok())
+}
+
+/// The result stored under `key` (in memory, or in the open library's folder), if any.
 pub fn get(kind: Kind, key: &str) -> Option<Arc<Raster>> {
     if !valid_key(key) {
         return None;
@@ -287,31 +295,25 @@ mod tests {
         assert!(!valid_key("../../etc/passwd") && !valid_key("ABC"));
     }
 
-    /// One test drives the process-wide store through memory and disk (tests run in parallel,
-    /// so the root is switched only here).
     #[test]
-    fn results_are_kept_in_memory_and_on_disk() {
-        let _g = crate::enhance::tests_lock();
-        set_root(None);
-        let key = key_of(&["store-test"]);
+    fn results_are_kept_in_memory_or_in_a_library_folder() {
+        let key = key_of(&["store-test", &std::process::id().to_string()]);
         assert!(!exists(Kind::Remove, &key) && get(Kind::Remove, &key).is_none());
-        put(Kind::Remove, &key, &raster(4)).unwrap();
+        put(Kind::Remove, &key, &raster(4), None).unwrap();
         assert!(exists(Kind::Remove, &key));
         assert!(!exists(Kind::Denoise, &key), "kinds are separate");
         assert_eq!(get(Kind::Remove, &key).unwrap().width, 37);
-        // with a library folder: files, read back after a "restart" (root set again)
-        let dir = std::env::temp_dir().join(format!("lc-enhance-store-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        set_root(Some(dir.clone()));
-        assert!(!exists(Kind::Remove, &key), "memory results belong to the in-memory session");
-        put(Kind::Remove, &key, &raster(4)).unwrap();
-        assert!(dir.join("remove").join(format!("{key}.lip")).is_file());
-        set_root(Some(dir.clone()));
-        let back = get(Kind::Remove, &key).unwrap();
-        assert_eq!((back.width, back.channels), (37, 4));
         delete(Kind::Remove, &key);
         assert!(!exists(Kind::Remove, &key) && get(Kind::Remove, &key).is_none());
-        set_root(None);
+        // a library's folder: a file, read back as it was
+        let dir = std::env::temp_dir().join(format!("lc-enhance-store-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let key2 = key_of(&["store-test-disk"]);
+        put(Kind::Denoise, &key2, &raster(3), Some(&dir)).unwrap();
+        assert!(dir.join("denoise").join(format!("{key2}.lip")).is_file());
+        let back = get_at(Kind::Denoise, &key2, &dir).unwrap();
+        assert_eq!((back.width, back.channels), (37, 3));
+        assert!(put(Kind::Remove, "../../x", &raster(4), Some(&dir)).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

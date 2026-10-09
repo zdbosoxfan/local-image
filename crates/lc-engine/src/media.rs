@@ -550,12 +550,14 @@ impl RenderJob {
         let was_loaded = matches!(self.source, SourceRef::Loaded(_));
         match self.source.load_source() {
             Ok(source) => {
-                let src = &source.image;
                 let info = source.info_or(self.info);
+                // local-image: the AI Denoise result in place of the source, AI patches of other
+                // photos left out (see `enhance::for_render`)
+                let (src, settings) = crate::enhance::for_render(&source.image, &self.settings, self.source_key);
                 // Thumbnails (many small jobs side by side) stay on the CPU; views and exports use
                 // the GPU when there is one.
                 let gpu = self.cache.is_none();
-                let rendered = develop(src, &info, &self.settings, &self.request, self.stages.as_deref(), gpu);
+                let rendered = develop(&src, &info, &settings, &self.request, self.stages.as_deref(), gpu);
                 if let Some((cache, key)) = &self.cache {
                     cache.put_at(self.cache_generation, *key, Arc::new(rendered.image.clone()));
                 }

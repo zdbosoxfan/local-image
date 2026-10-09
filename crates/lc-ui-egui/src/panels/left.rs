@@ -377,7 +377,13 @@ fn fs_running_counter(ctx: &egui::Context) -> std::sync::Arc<std::sync::atomic::
 /// A file-system answer for `path` (`f(path)`), kept per `kind` and path and refreshed on a worker
 /// thread at most every `every` seconds: a folder on a sleeping NAS, a dropped share or a
 /// spinning-up drive never blocks a frame. `None` until the first answer arrives.
-pub(crate) fn fs_cached<T: Clone + Send + 'static>(ui: &egui::Ui, kind: &'static str, path: &str, every: f64, f: impl Fn(&str) -> T + Send + 'static) -> Option<T> {
+pub(crate) fn fs_cached<T: Clone + Send + 'static>(
+    ui: &egui::Ui,
+    kind: &'static str,
+    path: &str,
+    every: f64,
+    f: impl Fn(&str) -> T + Send + 'static,
+) -> Option<T> {
     struct Entry<T> {
         value: Option<T>,
         at: Option<f64>,

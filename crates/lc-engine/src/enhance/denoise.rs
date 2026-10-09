@@ -96,12 +96,13 @@ impl Session {
         let p = self.catalog.photo(id).ok_or("no such photo")?.clone();
         let source = source_hash(&p);
         let src = self.media.source_ref(&p, SourceLevel::Full);
-        let work: super::Work = Box::new(move |ctl| run(&src, &denoiser, ctl, source, model));
+        let to = self.ai_store_root();
+        let work: super::Work = Box::new(move |ctl| run(&src, &denoiser, ctl, source, model, to.as_deref()));
         Ok(self.enhance.spawn(id, JobKind::Denoise, "AI Denoise", wait, work))
     }
 }
 
-fn run(src: &crate::media::SourceRef, denoiser: &DenoiseFn, ctl: &JobCtl, source: String, model: String) -> Result<Outcome, String> {
+fn run(src: &crate::media::SourceRef, denoiser: &DenoiseFn, ctl: &JobCtl, source: String, model: String, to: Option<&std::path::Path>) -> Result<Outcome, String> {
     ctl.set(0.01, "Loading the photo");
     let img = src.load()?;
     ctl.check()?;
@@ -120,10 +121,10 @@ fn run(src: &crate::media::SourceRef, denoiser: &DenoiseFn, ctl: &JobCtl, source
     ctl.set(0.92, "Saving");
     let key = result_key(&source, &model);
     let full = Rgb32f { width: w, height: h, data: out };
-    store::put_rgb(Kind::Denoise, &key, &full)?;
+    store::put_rgb(Kind::Denoise, &key, &full, to)?;
     let (pw, ph) = fit(w, h, PREVIEW_EDGE);
     if (pw, ph) != (w, h) {
-        store::put_rgb(Kind::Denoise, &preview_key(&key), &resize(&full, pw, ph, Filter::Mitchell))?;
+        store::put_rgb(Kind::Denoise, &preview_key(&key), &resize(&full, pw, ph, Filter::Mitchell), to)?;
     }
     forget_levels(&key);
     ctl.set(1.0, "Done");
@@ -234,8 +235,6 @@ mod tests {
 
     #[test]
     fn denoise_runs_stores_and_mixes_by_amount() {
-        let _g = super::super::tests_lock();
-        store::set_root(None);
         let mut s = Session::with_demo();
         let id = demo_raw(&mut s);
         assert!(s.denoiser().is_err(), "no model installed");
@@ -272,8 +271,6 @@ mod tests {
 
     #[test]
     fn denoise_is_refused_where_it_cannot_run_and_can_be_cancelled() {
-        let _g = super::super::tests_lock();
-        store::set_root(None);
         let mut s = Session::with_demo();
         let id = demo_raw(&mut s);
         let slow: DenoiseFn = Arc::new(|px, _, _, progress| {

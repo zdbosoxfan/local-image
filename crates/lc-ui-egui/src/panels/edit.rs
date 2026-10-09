@@ -269,6 +269,10 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
         {
             control_t(app, ui, d, c, true, target);
         }
+        // local-image: AI Denoise (the photo's, not a layer's)
+        if matches!(target, Target::Global) {
+            super::enhance::denoise_section(app, ui, d);
+        }
         ui.add_space(8.0);
     });
 }

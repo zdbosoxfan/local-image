@@ -266,38 +266,38 @@ mod tests {
         })
     }
 
-    pub(super) fn chart_pub(w: usize, h: usize) -> Rgb32f {
-        chart(w, h)
-    }
-    pub(super) fn err_pub(a: &Rgb32f, b: &Rgb32f) -> f32 {
-        err(a, b)
-    }
-
     fn blur(img: &Rgb32f, sigma: f32) -> Rgb32f {
         lightcraft_raster::blur::gaussian(img, sigma)
     }
 
-    fn err(a: &Rgb32f, b: &Rgb32f) -> f32 {
-        let (w, h) = (a.width, a.height);
-        let mut s = 0.0;
-        for y in 8..h - 8 {
-            for x in 8..w - 8 {
-                s += (a.get(x, y)[1] - b.get(x, y)[1]).abs();
-            }
-        }
-        s
+    /// A vertical step edge (0.12 → 0.6) at x = 40 blurred by an exact Gaussian of σ px.
+    fn soft_edge(w: usize, h: usize, sigma: f32) -> Rgb32f {
+        let erf = |x: f32| {
+            let t = 1.0 / (1.0 + 0.327_591_1 * x.abs());
+            let y = 1.0 - (((((1.061_405_4 * t - 1.453_152_1) * t) + 1.421_413_7) * t - 0.284_496_74) * t + 0.254_829_6) * t * (-x * x).exp();
+            if x >= 0.0 { y } else { -y }
+        };
+        Rgb32f::from_fn(w, h, |x, _| {
+            let t = 0.5 * (1.0 + erf((x as f32 + 0.5 - 40.0) / (sigma * std::f32::consts::SQRT_2)));
+            let v = 0.12 + 0.48 * t;
+            [v * 0.9, v, v * 1.1]
+        })
     }
 
     #[test]
     fn deconvolution_restores_edges() {
-        let sharp = chart(128, 96);
-        let soft = blur(&sharp, 1.0);
+        let soft = soft_edge(96, 48, 1.0);
         let mut out = soft.clone();
         sharpen(&mut out, &CaptureParams { sigma: 1.0, threshold: 0.2, iterations: 20, ..Default::default() });
-        let (before, after) = (err(&soft, &sharp), err(&out, &sharp));
-        assert!(after < before * 0.8, "before {before} after {after}");
+        let slope = |img: &Rgb32f| (30..50).map(|x| img.get(x + 1, 24)[1] - img.get(x, 24)[1]).fold(0.0f32, f32::max);
+        let (before, after) = (slope(&soft), slope(&out));
+        assert!(after > before * 1.3, "steepest step {before} → {after}");
+        // bounded overshoot, and far from the edge nothing changes
+        let row: Vec<f32> = (0..96).map(|x| out.get(x, 24)[1]).collect();
+        assert!(row.iter().all(|v| (0.12 - 0.05..=0.6 + 0.07).contains(v)), "{row:?}");
+        assert!((out.get(80, 24)[1] - soft.get(80, 24)[1]).abs() < 1e-4);
         // colour follows the luminance: ratios kept
-        let p = out.get(60, 40);
+        let p = out.get(40, 24);
         assert!((p[0] / p[1] - 0.9).abs() < 1e-3 && (p[2] / p[1] - 1.1).abs() < 1e-3, "{p:?}");
         assert!(out.data.iter().all(|p| p.iter().all(|v| v.is_finite() && *v >= 0.0)));
     }
@@ -350,30 +350,5 @@ mod tests {
         assert_eq!(idx[50 * 200 + 100], 50);
         assert!(idx[10 * 200 + 10] > 50);
         assert_eq!(idx[0], 0);
-    }
-}
-#[cfg(test)]
-mod dbg_tests {
-    use super::*;
-    #[test]
-    fn dbg_capture() {
-        let sharp = super::tests::chart_pub(128, 96);
-        let soft = lightcraft_raster::blur::gaussian(&sharp, 1.0);
-        let (bm, _) = blend_mask(&soft, &CaptureParams { threshold: 0.2, ..Default::default() });
-        eprintln!("blend mean {}", bm.data.iter().sum::<f32>() / bm.data.len() as f32);
-        for it in [1, 2, 5, 10, 20] {
-            for s in [0.6f32, 0.8, 1.0] {
-                let mut out = soft.clone();
-                sharpen(&mut out, &CaptureParams { sigma: s, threshold: 0.2, iterations: it, ..Default::default() });
-                eprintln!("it {it} σ {s}: {}", super::tests::err_pub(&out, &sharp));
-            }
-        }
-        eprintln!("soft {}", super::tests::err_pub(&soft, &sharp));
-        let row: Vec<String> = (60..80).map(|x| format!("{:.3}", soft.get(x, 80)[1])).collect();
-        eprintln!("{}", row.join(" "));
-        let mut out = soft.clone();
-        sharpen(&mut out, &CaptureParams { sigma: 1.0, threshold: 0.2, iterations: 20, ..Default::default() });
-        let row: Vec<String> = (60..80).map(|x| format!("{:.3}", out.get(x, 80)[1])).collect();
-        eprintln!("{}", row.join(" "));
     }
 }

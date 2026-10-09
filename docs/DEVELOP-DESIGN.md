@@ -120,6 +120,28 @@ White Balance picker, curve presets / targeted adjustment on layers.
 * Coming back from Library Develop to compositing needs no warning in the live case: the develop *is* a smart filter/Develop layer that stays editable in the Layers panel. Only the "merge visible" choice gets the note "Your develop settings apply to a merged copy; changes to the layers below won't show until you merge again."
 * **Layer viewer in the Library:** for a layered document in Develop, a collapsible Layers list (visibility, which layer develop targets, open in Editor). Hidden for single-layer photos.
 
+**Built (October 2026, #31):**
+* **PSD:** a Develop layer is written as a smart object with its source embedded (as other smart
+  objects are), and our record `{"command":"developLayer","settings","photo"}` under the private
+  `localImage` key of its placed-layer descriptor (`soLD`), which the importer reads first
+  (`pc-io/src/develop_layer_map.rs`). For Photoshop: a **raw** source carries its Camera Raw
+  settings as the embedded file's open descriptor (a `crs:` XMP packet, `XMPMetadataAsUTF8`;
+  unverified against a Photoshop-made raw smart object, kept behind `open_descriptor`), one
+  embedded file per settings version; any **other** source gets a stand-in Camera Raw Filter at the
+  bottom of its smart-filter stack (the subset Camera Raw understands), marked with our record and
+  turned back into the Develop layer on import (Photoshop's edits to it apply over our settings). A
+  PSD with only `crs:` settings (or Camera Raw descriptor keys) beside the embedded file opens as a
+  Develop layer following no photo. The `crs:` mapping is the Library's sidecar one
+  (`lc-engine/src/crs.rs`: one field table, `to_partial` reads, `from_settings` + `packet` write).
+* **Layers list:** Develop (Edit panel) and Library (Info) show a read-only Layers section for
+  PSD/PSB, layered TIFF and `.pcraft` photos with more than one layer or a Develop layer:
+  thumbnail, name, visibility, blend mode, opacity, Develop layers with the photo they follow
+  (click: go to it), the note that Develop edits the merged image, and **Open in Compositing**
+  (the host's editor via `Services.open_with`; an already open document comes forward; back in
+  Develop the existing Composite → Develop prompt applies). The host reads the layers
+  (`apps/local-image/src/doc_layers.rs`, `Services.doc_layers`), so `lc-*` crates never depend
+  on `pc-*`; they are read on a worker thread once per file version.
+
 ### 3.5 Camera Raw Filter parity (Filter menu, Photoshop-style) — *shipped*
 
 * **Filter › Camera Raw Filter…** (⇧⌘A) is `filter.develop`: the Library's engine
