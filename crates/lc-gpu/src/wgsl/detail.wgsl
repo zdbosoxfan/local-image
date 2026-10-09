@@ -9,21 +9,26 @@ fn matrix_at(offset:u32,v:vec3<f32>)->vec3<f32> {
         pf(offset+3u)*v.x+pf(offset+4u)*v.y+pf(offset+5u)*v.z,
         pf(offset+6u)*v.x+pf(offset+7u)*v.y+pf(offset+8u)*v.z);
 }
-// P: n,a,b,p,bias,wb,matrix9.
+// b: device-resolved VST metadata (a,b,p,bias,wb,to9,from9).
+fn vst_matrix(offset:u32,v:vec3<f32>)->vec3<f32> {
+    return vec3<f32>(b[offset]*v.x+b[offset+1u]*v.y+b[offset+2u]*v.z,
+        b[offset+3u]*v.x+b[offset+4u]*v.y+b[offset+5u]*v.z,
+        b[offset+6u]*v.x+b[offset+7u]*v.y+b[offset+8u]*v.z);
+}
 @compute @workgroup_size(256)
 fn nr_forward(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {
     let i=lin_index(g,nw);if(i>=pu(0u)){return;}
-    let rgb=drgb(i);let expn=1.0-pf(3u)*0.5;let scale=2.0/((2.0-pf(3u))*sqrt(pf(1u)));
-    let v=vec3<f32>(dpow(rgb.x+pf(2u),expn),dpow(rgb.y+pf(2u),expn),dpow(rgb.z+pf(2u),expn))*scale;
-    dput(i,matrix_at(6u,v));
+    let rgb=drgb(i);let expn=1.0-b[2u]*0.5;let scale=2.0/((2.0-b[2u])*sqrt(b[0u]));
+    let v=vec3<f32>(dpow(rgb.x+b[1u],expn),dpow(rgb.y+b[1u],expn),dpow(rgb.z+b[1u],expn))*scale;
+    dput(i,vst_matrix(5u,v));
 }
 @compute @workgroup_size(256)
 fn nr_backward(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {
     let i=lin_index(g,nw);if(i>=pu(0u)){return;}
-    let v=max(matrix_at(6u,drgb(i)),vec3<f32>(0.0));
-    let z=(v+sqrt(max(v*v+pf(4u)*pf(5u),vec3<f32>(0.0))))*(sqrt(pf(1u))*(2.0-pf(3u))*0.25);
-    let e=1.0/(1.0-pf(3u)*0.5);
-    dput(i,vec3<f32>(dpow(z.x,e),dpow(z.y,e),dpow(z.z,e))-pf(2u));
+    let v=max(vst_matrix(14u,drgb(i)),vec3<f32>(0.0));
+    let z=(v+sqrt(max(v*v+b[3u]*b[4u],vec3<f32>(0.0))))*(sqrt(b[0u])*(2.0-b[2u])*0.25);
+    let e=1.0/(1.0-b[2u]*0.5);
+    dput(i,vec3<f32>(dpow(z.x,e),dpow(z.y,e),dpow(z.z,e))-b[1u]);
 }
 fn dmexp(x:f32)->f32 {
     let i1=f32(0x3f800000u);let i2=f32(0x3f000000u);let k=i1+x*(i2-i1);
@@ -60,7 +65,7 @@ fn nr_sum(@builtin(global_invocation_id) g:vec3<u32>,@builtin(local_invocation_i
 @compute @workgroup_size(256)
 fn nr_synthesize(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {
     let i=lin_index(g,nw);if(i>=pu(0u)){return;}
-    let d=vec3<f32>(b[i*3u],b[i*3u+1u],b[i*3u+2u]);let t=vec3<f32>(pf(1u),pf(2u),pf(3u));
+    let d=vec3<f32>(b[i*3u],b[i*3u+1u],b[i*3u+2u]);let t=vec3<f32>(c[0],c[1],c[2]);
     dput(i,drgb(i)+min(d+t,vec3<f32>(0.0))+max(d-t,vec3<f32>(0.0)));
 }
 @compute @workgroup_size(256)
@@ -113,7 +118,7 @@ fn haze_apply(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups
 @compute @workgroup_size(256)
 fn haze_dark(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {
     let i=lin_index(g,nw);if(i>=pu(0u)){return;}
-    let v=drgb(i)*vec3<f32>(pf(1u),pf(2u),pf(3u));dst[i]=min(min(v.x,v.y),v.z);
+    var v=drgb(i);if(pu(1u)!=0u){v/=max(vec3<f32>(b[0],b[1],b[2]),vec3<f32>(1e-6));}dst[i]=min(min(v.x,v.y),v.z);
 }
 // a b2, P:n,w,h,mask threshold,edge factor
 @compute @workgroup_size(256)

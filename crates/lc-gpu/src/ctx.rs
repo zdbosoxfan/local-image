@@ -15,6 +15,26 @@ struct Module {
 
 const MODULES: &[Module] = &[
     Module {
+        src: include_str!("wgsl/haze_select.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", true, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
+        entries: &["haze_quick_select"],
+    },
+    Module {
+        src: include_str!("wgsl/haze_stats.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
+        entries: &["haze_count", "haze_prefix", "haze_bright_fill", "haze_air_sum", "haze_air_reduce", "haze_air_finish"],
+    },
+    Module {
+        src: include_str!("wgsl/linear.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
+        entries: &["colour_cal", "patch_apply", "patch_shrink"],
+    },
+    Module {
+        src: include_str!("wgsl/nr_stats.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
+        entries: &["nr_samples", "nr_median", "nr_vst", "nr_reduce", "nr_thresholds"],
+    },
+    Module {
         src: include_str!("wgsl/primary.wgsl"),
         bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("d", false, "f32"), ("e", false, "f32"), ("out", true, "f32")],
         entries: &[
@@ -118,6 +138,9 @@ const MODULES: &[Module] = &[
         src: include_str!("wgsl/map.wgsl"),
         bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
         entries: &[
+            "toneeq_lum",
+            "toneeq_log",
+            "toneeq_preview",
             "log_lum_k",
             "guided_pre",
             "guided_ab",

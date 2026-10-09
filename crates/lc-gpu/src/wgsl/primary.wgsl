@@ -87,7 +87,7 @@ fn p_eigf_apply(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgro
     let i=lin_index(g,ng); if(i>=pu(0u)) {return;} let nc=pu(1u); let v=a[i]; let m=b[nc*i]; let norm=max(m*v,1e-6); let vr=b[nc*i+1u]/norm;
     var aa=vr/(vr+pf(2u)); var bb=m-aa*m;
     if(nc==4u) {let nm=max(b[nc*i+2u]*c[i],1e-6); aa=(b[nc*i+3u]/sqrt(norm*nm))/(vr+pf(2u)); bb=b[nc*i+2u]-aa*m;}
-    out[i]=max(v*aa+bb,0.0000152587890625);
+    let q=max(v*aa+bb,0.0000152587890625); out[i]=select(q,sqrt(v*q),pu(3u)!=0u);
 }
 @compute @workgroup_size(256)
 fn p_cross_pre(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {

@@ -127,13 +127,27 @@ fn extract(cx: &mut Cx<'_>, a: &Buf, n: usize, nc: usize, channels: usize, off: 
     one(cx, "p_extract", n, &[nc as u32, channels as u32, off as u32], a, n * channels)
 }
 fn eigf(cx: &mut Cx<'_>, input: &Buf, w: usize, h: usize, sigma: f32, eps: f32, iterations: usize, quant: f32) -> Buf {
+    eigf_with_geometric(cx, input, w, h, sigma, eps, iterations, quant, false)
+}
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn eigf_with_geometric(
+    cx: &mut Cx<'_>,
+    input: &Buf,
+    w: usize,
+    h: usize,
+    sigma: f32,
+    eps: f32,
+    iterations: usize,
+    quant: f32,
+    geometric: bool,
+) -> Buf {
     let scale = sigma.clamp(1., 4.);
     let dim = ((w as f32 / scale) as usize, (h as f32 / scale) as usize);
     let dim = (dim.0.max(1), dim.1.max(1));
     let dn = dim.0 * dim.1;
     let nc = if quant == 0. { 2 } else { 4 };
     let mut out = cx.copy(input);
-    for _ in 0..iterations {
+    for iteration in 0..iterations {
         let ds = interpolate(cx, &out, (w, h), dim, 1);
         let mask = (quant != 0.).then(|| one(cx, "p_quant", w * h, &[f(quant)], &out, w * h));
         let guide = interpolate(cx, mask.as_ref().unwrap_or(&out), (w, h), dim, 1);
@@ -142,7 +156,14 @@ fn eigf(cx: &mut Cx<'_>, input: &Buf, w: usize, h: usize, sigma: f32, eps: f32, 
         let av = deriche(cx, &moments, dim.0, dim.1, nc, (sigma / scale).max(1.), Some(&limit), f32::MAX);
         let av = one(cx, "p_variance", dn, &[nc as u32], &av, dn * nc);
         let av = interpolate(cx, &av, dim, (w, h), nc);
-        out = run(cx, "p_eigf_apply", w * h, &[nc as u32, f(eps)], [Some(&out), Some(&av), mask.as_ref(), None, None], w * h);
+        out = run(
+            cx,
+            "p_eigf_apply",
+            w * h,
+            &[nc as u32, f(eps), (geometric && iteration + 1 == iterations) as u32],
+            [Some(&out), Some(&av), mask.as_ref(), None, None],
+            w * h,
+        );
     }
     out
 }
@@ -691,11 +712,11 @@ pub(crate) fn clip_plane(cx: &mut Cx<'_>, rgb: &Buf, n: usize) -> Buf {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use lightcraft_pipeline::{RenderRequest, primary};
     use lightcraft_raster::{Plane, Rgb32f};
-    fn device() -> Option<&'static crate::ctx::Gpu> {
+    pub(crate) fn device() -> Option<&'static crate::ctx::Gpu> {
         static DEVICE: std::sync::OnceLock<Result<crate::ctx::Gpu, String>> = std::sync::OnceLock::new();
         match DEVICE.get_or_init(crate::ctx::Gpu::numerical_test_device) {
             Ok(g) => Some(g),
