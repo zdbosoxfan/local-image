@@ -25,7 +25,7 @@ fn tone_apply(y: f32) -> f32 {
     if (ev < TONE_MIN_EV) {
         return v * (y / (GREY * TONE_MIN_GAIN));
     }
-    return v;
+    return min(v, 1.0);
 }
 
 // The camera chroma curve follows the tone LUT in `aux` (`ToneMap::chroma_scale`).
