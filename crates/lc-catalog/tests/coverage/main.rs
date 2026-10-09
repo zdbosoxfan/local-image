@@ -2,3 +2,4 @@
 
 mod ds_local_coverage;
 mod ds_journal_coverage;
+mod keywords_dates_query_coverage;
