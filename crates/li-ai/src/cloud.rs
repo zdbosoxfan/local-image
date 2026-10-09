@@ -282,6 +282,7 @@ pub fn host_allowed(url: &str) -> bool {
 
 fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
+        .tls_config(crate::tls::config())
         .timeout_connect(Some(Duration::from_secs(20)))
         .timeout_global(Some(Duration::from_secs(300)))
         .max_redirects(0)

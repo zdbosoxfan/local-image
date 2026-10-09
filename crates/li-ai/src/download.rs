@@ -64,6 +64,7 @@ pub fn host_allowed(url: &str) -> bool {
 
 fn download_agent(timeout_body: Duration) -> ureq::Agent {
     ureq::Agent::config_builder()
+        .tls_config(crate::tls::config())
         .timeout_connect(Some(Duration::from_secs(20)))
         .timeout_recv_body(Some(timeout_body))
         .max_redirects(0)
