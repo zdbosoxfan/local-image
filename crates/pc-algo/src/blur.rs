@@ -325,7 +325,7 @@ fn average_samples(src: &Image, out: Rect, ctx: &Ctx, mut offsets: impl FnMut(f3
                 *a = 0.0;
             }
             for &(sx, sy) in &pts {
-                src.sample(sx, sy, Edge::Transparent, src.rect, ctx.alpha, &mut tmp);
+                src.sample(sx, sy, Edge::Repeat, src.rect, ctx.alpha, &mut tmp);
                 // Accumulate premultiplied.
                 let a = if ctx.alpha { tmp[n - 1] } else { 1.0 };
                 for c in 0..n {
