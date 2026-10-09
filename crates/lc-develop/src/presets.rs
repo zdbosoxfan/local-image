@@ -200,8 +200,26 @@ pub fn apply_partial(s: &DevelopSettings, partial: &Value, amount: f64) -> Devel
     let base = s.to_json_full();
     let patch = if (amount - 1.0).abs() < 1e-9 { partial.clone() } else { scale_patch(&base, partial, amount) };
     let mut out = s.merged(&patch).unwrap_or_else(|_| s.clone());
+    if partial.get("spots").is_some() {
+        keep_ai_spots(s, &mut out);
+    }
     clamp_controls(&mut out);
     out
+}
+
+/// local-image: pasted, synced or preset spots replace the photo's Remove / Heal / Clone spots,
+/// never its AI removals (generated from its own pixels, they can't be pasted back). The photo's
+/// AI spots come first, then the incoming spots; incoming AI spots the photo already has (its own
+/// settings read back, e.g. from its sidecar) aren't doubled.
+fn keep_ai_spots(target: &DevelopSettings, out: &mut DevelopSettings) {
+    let mut spots: Vec<crate::Spot> = target.spots.iter().filter(|x| x.is_ai()).cloned().collect();
+    if spots.is_empty() {
+        return;
+    }
+    let key = |x: &crate::Spot| x.patch.as_ref().map(|p| p.key.clone());
+    let have: Vec<Option<String>> = spots.iter().map(key).collect();
+    spots.extend(out.spots.drain(..).filter(|x| !x.is_ai() || !have.contains(&key(x))));
+    out.spots = spots;
 }
 
 /// [`apply_partial`] at 100 %, failing (instead of keeping `s`) when the patch doesn't fit the

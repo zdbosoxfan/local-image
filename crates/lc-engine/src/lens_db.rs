@@ -173,7 +173,7 @@ pub fn correction(q: &Query) -> Option<LensCorrection> {
 
 fn resolve(q: &Query) -> Option<LensCorrection> {
     let db = database()?;
-    if !(q.focal > 0.0) {
+    if q.focal.is_nan() || q.focal <= 0.0 {
         return None;
     }
     let camera = match &q.camera {

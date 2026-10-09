@@ -76,3 +76,29 @@ fn copies_leave_photo_bound_ai_results_behind() {
     assert_eq!(pasted.enhance.ai, other.enhance.ai);
     assert_eq!(pasted.enhance.denoise, 60.0);
 }
+
+/// Pasting, syncing or applying a preset with the Remove group keeps the target photo's own AI
+/// removals and replaces only its Remove / Heal / Clone spots.
+#[test]
+fn pasted_spots_keep_the_targets_ai_removals() {
+    let target = ai(); // a heal spot and an AI spot
+    let clone = Spot { mode: SpotMode::Clone, points: vec![lightcraft_geom::Point::new(0.8, 0.8)], ..Default::default() };
+    let source = DevelopSettings { spots: vec![clone], ..Default::default() };
+    let clip = extract_groups(&source, &[SettingsGroup::Spots]);
+    let pasted = crate::apply_partial(&target, &clip, 1.0);
+    assert_eq!(pasted.spots.len(), 2, "{:?}", pasted.spots);
+    assert_eq!(pasted.spots[0], target.spots[1], "the AI removal stays as it was");
+    assert_eq!(pasted.spots[1].mode, SpotMode::Clone, "the heal spot is replaced by the pasted clone spot");
+    // a preset holding spots, at a partial amount, likewise
+    let preset = crate::Preset { id: "p".into(), name: "P".into(), group: "G".into(), settings: clip.clone(), favorite: false, builtin: false };
+    let applied = preset.apply(&target, 0.7);
+    assert!(applied.spots.iter().filter(|x| x.is_ai()).count() == 1 && applied.spots.iter().any(|x| x.mode == SpotMode::Clone));
+    // pasting "no spots" clears the others but not the AI removal
+    let none = extract_groups(&DevelopSettings::default(), &[SettingsGroup::Spots]);
+    assert_eq!(crate::apply_partial(&target, &none, 1.0).spots, vec![target.spots[1].clone()]);
+    // the photo's own settings read back (with its AI spot): not doubled
+    let own = json!({"spots": target.to_json()["spots"]});
+    assert_eq!(crate::apply_partial(&target, &own, 1.0).spots.iter().filter(|x| x.is_ai()).count(), 1);
+    // settings without a spots key leave every spot alone
+    assert_eq!(crate::apply_partial(&target, &json!({"light": {"exposure": 1.0}}), 1.0).spots, target.spots);
+}

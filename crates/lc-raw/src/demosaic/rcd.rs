@@ -120,10 +120,26 @@ impl Tile {
             while c < N - 4 {
                 let i = r * N + c;
                 let ci = cfa[i];
-                let n_grad = EPS + (cfa[i - w1] - cfa[i + w1]).abs() + (ci - cfa[i - w2]).abs() + (cfa[i - w1] - cfa[i - w3]).abs() + (cfa[i - w2] - cfa[i - w4]).abs();
-                let s_grad = EPS + (cfa[i + w1] - cfa[i - w1]).abs() + (ci - cfa[i + w2]).abs() + (cfa[i + w1] - cfa[i + w3]).abs() + (cfa[i + w2] - cfa[i + w4]).abs();
-                let w_grad = EPS + (cfa[i - 1] - cfa[i + 1]).abs() + (ci - cfa[i - 2]).abs() + (cfa[i - 1] - cfa[i - 3]).abs() + (cfa[i - 2] - cfa[i - 4]).abs();
-                let e_grad = EPS + (cfa[i + 1] - cfa[i - 1]).abs() + (ci - cfa[i + 2]).abs() + (cfa[i + 1] - cfa[i + 3]).abs() + (cfa[i + 2] - cfa[i + 4]).abs();
+                let n_grad = EPS
+                    + (cfa[i - w1] - cfa[i + w1]).abs()
+                    + (ci - cfa[i - w2]).abs()
+                    + (cfa[i - w1] - cfa[i - w3]).abs()
+                    + (cfa[i - w2] - cfa[i - w4]).abs();
+                let s_grad = EPS
+                    + (cfa[i + w1] - cfa[i - w1]).abs()
+                    + (ci - cfa[i + w2]).abs()
+                    + (cfa[i + w1] - cfa[i + w3]).abs()
+                    + (cfa[i + w2] - cfa[i + w4]).abs();
+                let w_grad = EPS
+                    + (cfa[i - 1] - cfa[i + 1]).abs()
+                    + (ci - cfa[i - 2]).abs()
+                    + (cfa[i - 1] - cfa[i - 3]).abs()
+                    + (cfa[i - 2] - cfa[i - 4]).abs();
+                let e_grad = EPS
+                    + (cfa[i + 1] - cfa[i - 1]).abs()
+                    + (ci - cfa[i + 2]).abs()
+                    + (cfa[i + 1] - cfa[i + 3]).abs()
+                    + (cfa[i + 2] - cfa[i + 4]).abs();
                 let lpf = &self.lpf;
                 let l = lpf[i];
                 let n_est = cfa[i - w1] * (l + l) / (EPS + l + lpf[i - w2]);
@@ -140,10 +156,12 @@ impl Tile {
         for r in 3..N - 3 {
             for c in 3..N - 3 {
                 let i = r * N + c;
-                self.phpf[i] =
-                    sq((cfa[i - w3 - 3] - cfa[i - w1 - 1] - cfa[i + w1 + 1] + cfa[i + w3 + 3]) - 3.0 * (cfa[i - w2 - 2] + cfa[i + w2 + 2]) + 6.0 * cfa[i]);
-                self.qhpf[i] =
-                    sq((cfa[i - w3 + 3] - cfa[i - w1 + 1] - cfa[i + w1 - 1] + cfa[i + w3 - 3]) - 3.0 * (cfa[i - w2 + 2] + cfa[i + w2 - 2]) + 6.0 * cfa[i]);
+                self.phpf[i] = sq((cfa[i - w3 - 3] - cfa[i - w1 - 1] - cfa[i + w1 + 1] + cfa[i + w3 + 3])
+                    - 3.0 * (cfa[i - w2 - 2] + cfa[i + w2 + 2])
+                    + 6.0 * cfa[i]);
+                self.qhpf[i] = sq((cfa[i - w3 + 3] - cfa[i - w1 + 1] - cfa[i + w1 - 1] + cfa[i + w3 - 3])
+                    - 3.0 * (cfa[i - w2 + 2] + cfa[i + w2 - 2])
+                    + 6.0 * cfa[i]);
             }
         }
         // Step 4.1: P/Q diagonal discrimination at red and blue sites

@@ -27,6 +27,8 @@ pub mod theme;
 pub mod widgets;
 
 #[cfg(test)]
+mod tests_ai;
+#[cfg(test)]
 mod tests_curve;
 #[cfg(test)]
 mod tests_doc_layers;
@@ -34,8 +36,6 @@ mod tests_doc_layers;
 mod tests_grid;
 #[cfg(test)]
 mod tests_library_problem;
-#[cfg(test)]
-mod tests_ai;
 #[cfg(test)]
 mod tests_masking;
 #[cfg(test)]

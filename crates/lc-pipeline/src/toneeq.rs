@@ -73,11 +73,12 @@ impl Curve {
     /// The curve through `zones` (EV changes, clamped to ±2) with Gaussians of `sigma` EV.
     /// `None` when every zone is 0 (nothing to do) or the fit is unstable.
     pub fn new(zones: &[f64; ZONES], sigma: f32) -> Option<Curve> {
-        if zones.iter().all(|z| *z == 0.0) || !(sigma > 0.0) {
+        if zones.iter().all(|z| *z == 0.0) || sigma.is_nan() || sigma <= 0.0 {
             return None;
         }
         let denom = 2.0 * (sigma as f64).powi(2);
-        let a: [[f64; 8]; ZONES] = std::array::from_fn(|i| std::array::from_fn(|j| (-((CENTERS_ZONES[i] - CENTERS_OPS[j]) as f64).powi(2) / denom).exp()));
+        let a: [[f64; 8]; ZONES] =
+            std::array::from_fn(|i| std::array::from_fn(|j| (-((CENTERS_ZONES[i] - CENTERS_OPS[j]) as f64).powi(2) / denom).exp()));
         let y: [f64; ZONES] = std::array::from_fn(|i| zones[i].clamp(-2.0, 2.0).exp2());
         let x = least_squares(&a, &y)?;
         let factors = x.map(|v| v as f32);

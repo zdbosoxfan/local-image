@@ -92,7 +92,12 @@ pub struct RawProcessing {
 
 impl Default for RawProcessing {
     fn default() -> Self {
-        RawProcessing { demosaic: Demosaic::Auto, dual_threshold: 20.0, highlights: HighlightMode::Reconstruct, capture: CaptureSharpening::default() }
+        RawProcessing {
+            demosaic: Demosaic::Auto,
+            dual_threshold: 20.0,
+            highlights: HighlightMode::Reconstruct,
+            capture: CaptureSharpening::default(),
+        }
     }
 }
 

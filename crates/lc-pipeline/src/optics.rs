@@ -134,7 +134,9 @@ impl Warp {
             || self.k1 != 0.0
             || self.ca.iter().any(|c| *c != 0.0)
             || (self.lens_dist != 0.0 && self.lens.is_some_and(|l| l.warp.is_some()))
-            || self.lensdb.is_some_and(|m| (self.lensdb_dist != 0.0 && m.c.distortion != crate::lensdb::Distortion::None) || (self.lensdb_tca != 0.0 && m.c.per_channel()))
+            || self.lensdb.is_some_and(|m| {
+                (self.lensdb_dist != 0.0 && m.c.distortion != crate::lensdb::Distortion::None) || (self.lensdb_tca != 0.0 && m.c.per_channel())
+            })
     }
 
     /// Whether the colour planes are sampled at different positions.

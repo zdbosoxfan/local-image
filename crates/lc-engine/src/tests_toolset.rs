@@ -144,11 +144,7 @@ fn sources_are_cached_per_raw_options() {
 fn lens_database_corrections_follow_the_settings() {
     let db = crate::lens_db::database().unwrap();
     // a fully calibrated lens and a camera for it
-    let lens = db
-        .lenses
-        .iter()
-        .find(|l| l.calib_distortion.len() > 1 && l.calib_vignetting.len() > 2 && !l.calib_tca.is_empty())
-        .unwrap();
+    let lens = db.lenses.iter().find(|l| l.calib_distortion.len() > 1 && l.calib_vignetting.len() > 2 && !l.calib_tca.is_empty()).unwrap();
     let cam = db.cameras.iter().find(|c| lens.mounts.contains(&c.mount)).unwrap();
     let mut p = lightcraft_catalog::Photo::new(
         lightcraft_catalog::PhotoId(1),

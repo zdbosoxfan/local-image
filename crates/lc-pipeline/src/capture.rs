@@ -119,7 +119,16 @@ fn sigma_index(w: usize, h: usize, p: &CaptureParams) -> Vec<u8> {
 }
 
 /// `out[i] = op(out[i], blur(in)[i])` where `blend[i] > 0`, with each pixel's own kernel.
-fn blur_with(input: &[f32], out: &mut [f32], blend: &[f32], kernels: &[[f32; 25]], idx: &[u8], w: usize, h: usize, op: impl Fn(f32, f32, usize) -> f32 + Sync) {
+fn blur_with(
+    input: &[f32],
+    out: &mut [f32],
+    blend: &[f32],
+    kernels: &[[f32; 25]],
+    idx: &[u8],
+    w: usize,
+    h: usize,
+    op: impl Fn(f32, f32, usize) -> f32 + Sync,
+) {
     let small = (SMALL / SIGMA_STEP) as u8;
     par_rows(out, w, |row, out_row| {
         for (col, o) in out_row.iter_mut().enumerate() {

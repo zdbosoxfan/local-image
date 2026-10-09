@@ -70,7 +70,16 @@ fn tool(
 }
 
 /// A row of choices (segmented), merged as `{key: {field: value}}`.
-fn choice(app: &mut LightcraftApp, ui: &mut egui::Ui, id: &str, label: &str, items: &[(&str, &str)], active: Option<usize>, per_row: usize, set: impl Fn(&str) -> Value) {
+fn choice(
+    app: &mut LightcraftApp,
+    ui: &mut egui::Ui,
+    id: &str,
+    label: &str,
+    items: &[(&str, &str)],
+    active: Option<usize>,
+    per_row: usize,
+    set: impl Fn(&str) -> Value,
+) {
     let t = Tokens::get(ui.ctx());
     let mut chosen = None;
     pad(ui, |ui| {
@@ -136,13 +145,22 @@ pub fn raw_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettin
         control(app, ui, d, "raw.dualThreshold", true);
     }
     pad(ui, |ui| {
-        ui.label(egui::RichText::new(crate::i18n::tr("Visible at 1:1 and in exports; previews are binned from the sensor.")).size(11.0).color(t.text_dim));
+        ui.label(
+            egui::RichText::new(crate::i18n::tr("Visible at 1:1 and in exports; previews are binned from the sensor.")).size(11.0).color(t.text_dim),
+        );
     });
     let modes: Vec<(&str, String)> = HighlightMode::ALL.iter().map(|m| (m.label(), key_of(*m))).collect();
     let items: Vec<(&str, &str)> = modes.iter().map(|(l, k)| (*l, k.as_str())).collect();
-    choice(app, ui, "rawHighlights", "Highlight Reconstruction", &items, HighlightMode::ALL.iter().position(|m| *m == r.highlights), 3, |k| {
-        json!({"raw": {"highlights": k}})
-    });
+    choice(
+        app,
+        ui,
+        "rawHighlights",
+        "Highlight Reconstruction",
+        &items,
+        HighlightMode::ALL.iter().position(|m| *m == r.highlights),
+        3,
+        |k| json!({"raw": {"highlights": k}}),
+    );
     sub_title(ui, "Capture Sharpening");
     pad(ui, |ui| {
         let mut on = r.capture.enabled;
@@ -157,7 +175,11 @@ pub fn raw_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettin
             control(app, ui, d, c, true);
         }
         pad(ui, |ui| {
-            ui.label(egui::RichText::new(crate::i18n::tr("Radius and Contrast Threshold 0: measured from the raw data and the ISO.")).size(11.0).color(t.text_dim));
+            ui.label(
+                egui::RichText::new(crate::i18n::tr("Radius and Contrast Threshold 0: measured from the raw data and the ISO."))
+                    .size(11.0)
+                    .color(t.text_dim),
+            );
         });
     }
     ui.add_space(8.0);
@@ -208,9 +230,11 @@ pub fn lens_db_rows(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: 
         }
         if !found {
             ui.label(
-                egui::RichText::new(crate::i18n::tr("No profile for this lens and focal length: choose the lens, or check the photo's focal length."))
-                    .size(11.0)
-                    .color(t.text_dim),
+                egui::RichText::new(crate::i18n::tr(
+                    "No profile for this lens and focal length: choose the lens, or check the photo's focal length.",
+                ))
+                .size(11.0)
+                .color(t.text_dim),
             );
         }
     });
@@ -253,9 +277,16 @@ pub fn color_cal_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &Develop
         let t = Tokens::get(ui.ctx());
         let cats: Vec<(&str, String)> = Adaptation::ALL.iter().map(|a| (a.label(), key_of(*a))).collect();
         let items: Vec<(&str, &str)> = cats.iter().map(|(l, k)| (*l, k.as_str())).collect();
-        choice(app, ui, "colorCalCat", "Adaptation", &items, Adaptation::ALL.iter().position(|a| *a == cc.adaptation), 2, |k| {
-            json!({"color_cal": {"adaptation": k}})
-        });
+        choice(
+            app,
+            ui,
+            "colorCalCat",
+            "Adaptation",
+            &items,
+            Adaptation::ALL.iter().position(|a| *a == cc.adaptation),
+            2,
+            |k| json!({"color_cal": {"adaptation": k}}),
+        );
         pad(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(crate::i18n::tr("Illuminant")).font(t.font(13.0)).color(t.text_dim));

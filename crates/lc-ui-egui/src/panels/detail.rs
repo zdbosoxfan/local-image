@@ -163,7 +163,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let right = if fullscreen { RightPanel::None } else { app.ui.right };
     let crop_tool = right == RightPanel::Crop;
     let lens_db = lightcraft_engine::lens_db::for_photo(&photo, &d);
-    let frame = Frame::with_lenses(photo.width.max(1) as usize, photo.height.max(1) as usize, &d, !crop_tool, photo.embedded_lens.as_ref(), lens_db.as_ref());
+    let frame =
+        Frame::with_lenses(photo.width.max(1) as usize, photo.height.max(1) as usize, &d, !crop_tool, photo.embedded_lens.as_ref(), lens_db.as_ref());
     let aspect = frame.aspect() as f32;
     let ppp = ui.ctx().pixels_per_point();
     let area = canvas.shrink(if fullscreen {
