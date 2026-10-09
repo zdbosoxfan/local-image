@@ -1164,6 +1164,9 @@ impl eframe::App for PhotocraftApp {
             canvas::document_area(self, ui);
         });
         panels::properties_window(self, &ctx);
+        if chrome {
+            panels::floating_panels(self, &ctx);
+        }
         brush_panel::window(self, &ctx);
         preset_panels::windows(self, &ctx);
         // local-image: Local AI window and the AI prompt dialogs.

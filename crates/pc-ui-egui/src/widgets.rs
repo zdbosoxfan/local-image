@@ -51,6 +51,8 @@ pub struct CardResponse {
     pub tabs: Vec<(usize, Rect)>,
     /// The » overflow button, when some tabs didn't fit.
     pub chevron: Option<Rect>,
+    /// A tab started being dragged this frame (the dock tears it off).
+    pub tab_drag_started: Option<usize>,
 }
 
 /// [`card`] that can be collapsed to its tab strip and reports strip and menu interactions.
@@ -81,7 +83,14 @@ pub fn card_ex(ui: &mut Ui, id: &str, tabs: &[&str], selected: &mut usize, colla
                 ui.add_space(6.0);
                 body(ui, *selected);
             }
-            CardResponse { strip, menu, tab_double_clicked: tabs_out.double_clicked, tabs: tabs_out.tabs, chevron: tabs_out.chevron }
+            CardResponse {
+                strip,
+                menu,
+                tab_double_clicked: tabs_out.double_clicked,
+                tabs: tabs_out.tabs,
+                chevron: tabs_out.chevron,
+                tab_drag_started: tabs_out.drag_started,
+            }
         })
         .inner;
     ui.add_space(6.0);
@@ -119,7 +128,14 @@ fn pro_panel(ui: &mut Ui, id: &str, tabs: &[&str], selected: &mut usize, collaps
             });
     }
     ui.add_space(2.0);
-    CardResponse { strip: strip_resp, menu: mresp, tab_double_clicked: tabs_out.double_clicked, tabs: tabs_out.tabs, chevron: tabs_out.chevron }
+    CardResponse {
+        strip: strip_resp,
+        menu: mresp,
+        tab_double_clicked: tabs_out.double_clicked,
+        tabs: tabs_out.tabs,
+        chevron: tabs_out.chevron,
+        tab_drag_started: tabs_out.drag_started,
+    }
 }
 
 pub fn pill_tab(ui: &mut Ui, label: &str, selected: bool) -> Response {
