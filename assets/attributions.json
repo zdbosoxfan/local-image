@@ -521,20 +521,6 @@
       "intro": "Downloaded only when you ask for them, never shipped with Local Image. Each model keeps its own licence.",
       "entries": [
         {
-          "name": "U²-Net small",
-          "author": "U²-Net, Qin et al. 2020",
-          "used_for": "Subject masks: Select Subject and Remove Background.",
-          "licence": "Apache-2.0",
-          "url": "https://github.com/danielgatis/rembg"
-        },
-        {
-          "name": "U²-Net",
-          "author": "U²-Net, Qin et al. 2020",
-          "used_for": "Subject masks: Select Subject and Remove Background.",
-          "licence": "Apache-2.0",
-          "url": "https://github.com/danielgatis/rembg"
-        },
-        {
           "name": "IS-Net general",
           "author": "DIS / IS-Net, Qin et al. 2022",
           "used_for": "Subject masks: Select Subject and Remove Background.",
@@ -549,13 +535,6 @@
           "url": "https://github.com/kisakutanaka/SkySegmentation"
         },
         {
-          "name": "TinySkyNet",
-          "author": "TinySkyNet-SkySeg",
-          "used_for": "Sky masks: Select Sky.",
-          "licence": "MIT",
-          "url": "https://github.com/kisakutanaka/SkySegmentation"
-        },
-        {
           "name": "Depth Anything V2 Small",
           "author": "Depth Anything V2 Small, Yang et al. 2024",
           "used_for": "Depth masks in Develop.",
@@ -564,16 +543,6 @@
             "licenses/model-system-NOTICE.md"
           ],
           "url": "https://github.com/fabio-sim/Depth-Anything-ONNX"
-        },
-        {
-          "name": "MiDaS v2.1 small",
-          "author": "MiDaS v2.1 small, Ranftl et al. 2020",
-          "used_for": "Depth masks in Develop.",
-          "licence": "MIT",
-          "licence_files": [
-            "licenses/model-system-NOTICE.md"
-          ],
-          "url": "https://github.com/isl-org/MiDaS"
         },
         {
           "name": "SAM 3 (Segment Anything 3)",
@@ -847,8 +816,9 @@
         {
           "name": "accesskit_macos",
           "version": "0.26.3",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/accesskit_macos"
+          "used_for": "AccessKit UI accessibility infrastructure: macOS adapter",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/AccessKit/accesskit"
         },
         {
           "name": "accesskit_unix",
@@ -860,8 +830,9 @@
         {
           "name": "accesskit_windows",
           "version": "0.32.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/accesskit_windows"
+          "used_for": "AccessKit UI accessibility infrastructure: Windows adapter",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/AccessKit/accesskit"
         },
         {
           "name": "accesskit_winit",
@@ -936,20 +907,23 @@
         {
           "name": "android-activity",
           "version": "0.6.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/android-activity"
+          "used_for": "Glue for building Rust applications on Android with NativeActivity or GameActivity",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/rust-mobile/android-activity"
         },
         {
           "name": "android-properties",
           "version": "0.2.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/android-properties"
+          "used_for": "Rust-based Android properties wrapper",
+          "licence": "MIT",
+          "url": "https://github.com/miklelappo/android-properties"
         },
         {
           "name": "android_system_properties",
           "version": "0.1.6",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/android_system_properties"
+          "used_for": "Minimal Android system properties wrapper",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/nical/android_system_properties"
         },
         {
           "name": "anyhow",
@@ -968,8 +942,9 @@
         {
           "name": "arbitrary",
           "version": "1.4.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/arbitrary"
+          "used_for": "The trait for generating structured data from unstructured data",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/rust-fuzz/arbitrary/"
         },
         {
           "name": "arboard",
@@ -1240,14 +1215,16 @@
         {
           "name": "block2",
           "version": "0.5.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/block2"
+          "used_for": "Apple's C language extension of blocks",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "block2",
           "version": "0.6.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/block2"
+          "used_for": "Apple's C language extension of blocks",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "blocking",
@@ -1392,8 +1369,9 @@
         {
           "name": "cgl",
           "version": "0.3.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/cgl"
+          "used_for": "Rust bindings for CGL on Mac",
+          "licence": "MIT / Apache-2.0",
+          "url": "https://github.com/servo/cgl-rs"
         },
         {
           "name": "chacha20",
@@ -1419,8 +1397,9 @@
         {
           "name": "clipboard-win",
           "version": "5.4.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/clipboard-win"
+          "used_for": "Provides simple way to interact with Windows clipboard.",
+          "licence": "BSL-1.0",
+          "url": "https://github.com/DoumanAsh/clipboard-win"
         },
         {
           "name": "codespan-reporting",
@@ -1446,8 +1425,9 @@
         {
           "name": "combine",
           "version": "4.6.8",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/combine"
+          "used_for": "Fast parser combinators on arbitrary streams with zero-copy support.",
+          "licence": "MIT",
+          "url": "https://github.com/Marwes/combine"
         },
         {
           "name": "concurrent-queue",
@@ -1459,8 +1439,9 @@
         {
           "name": "const-oid",
           "version": "0.9.6",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/const-oid"
+          "used_for": "Const-friendly implementation of the ISO/IEC Object Identifier (OID) standard as defined in ITU X.660, with support for BER/DER encoding/decoding as well as heapless no_std (i.e. embedded) support",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/formats/tree/master/const-oid"
         },
         {
           "name": "constant_time_eq",
@@ -1486,26 +1467,30 @@
         {
           "name": "core-foundation",
           "version": "0.9.4",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/core-foundation"
+          "used_for": "Bindings to Core Foundation for macOS",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/servo/core-foundation-rs"
         },
         {
           "name": "core-foundation-sys",
           "version": "0.8.7",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/core-foundation-sys"
+          "used_for": "Bindings to Core Foundation for macOS",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/servo/core-foundation-rs"
         },
         {
           "name": "core-graphics",
           "version": "0.23.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/core-graphics"
+          "used_for": "Bindings to Core Graphics for macOS",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/servo/core-foundation-rs"
         },
         {
           "name": "core-graphics-types",
           "version": "0.1.3",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/core-graphics-types"
+          "used_for": "Bindings for some fundamental Core Graphics types",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/servo/core-foundation-rs"
         },
         {
           "name": "cpufeatures",
@@ -1531,8 +1516,9 @@
         {
           "name": "crossbeam-channel",
           "version": "0.5.17",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/crossbeam-channel"
+          "used_for": "Multi-producer multi-consumer channels for message passing",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/crossbeam-rs/crossbeam"
         },
         {
           "name": "crossbeam-deque",
@@ -1558,8 +1544,9 @@
         {
           "name": "crunchy",
           "version": "0.2.4",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/crunchy"
+          "used_for": "Crunchy unroller: deterministically unroll constant loops",
+          "licence": "MIT",
+          "url": "https://github.com/eira-fransham/crunchy"
         },
         {
           "name": "crypto-common",
@@ -1648,14 +1635,16 @@
         {
           "name": "dispatch",
           "version": "0.2.0",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/dispatch"
+          "used_for": "Rust wrapper for Apple's Grand Central Dispatch.",
+          "licence": "MIT",
+          "url": "http://github.com/SSheldon/rust-dispatch"
         },
         {
           "name": "dispatch2",
           "version": "0.3.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/dispatch2"
+          "used_for": "Bindings and wrappers for Apple's Grand Central Dispatch (GCD)",
+          "licence": "Zlib OR Apache-2.0 OR MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "displaydoc",
@@ -1870,8 +1859,9 @@
         {
           "name": "error-code",
           "version": "3.4.0",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/error-code"
+          "used_for": "Error code",
+          "licence": "BSL-1.0",
+          "url": "https://github.com/DoumanAsh/error-code"
         },
         {
           "name": "euclid",
@@ -1981,8 +1971,9 @@
         {
           "name": "fmv-macos-events",
           "version": "0.1.0",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/fmv-macos-events"
+          "used_for": "Main-thread macOS Apple event adapter for FastMarkdownViewer",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/Quetzalcohuatl/fastmarkdownviewer"
         },
         {
           "name": "foldhash",
@@ -2015,20 +2006,23 @@
         {
           "name": "foreign-types",
           "version": "0.5.0",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/foreign-types"
+          "used_for": "A framework for Rust wrappers over C APIs",
+          "licence": "MIT/Apache-2.0",
+          "url": "https://github.com/sfackler/foreign-types"
         },
         {
           "name": "foreign-types-macros",
           "version": "0.2.4",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/foreign-types-macros"
+          "used_for": "An internal crate used by foreign-types",
+          "licence": "MIT/Apache-2.0",
+          "url": "https://github.com/sfackler/foreign-types"
         },
         {
           "name": "foreign-types-shared",
           "version": "0.3.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/foreign-types-shared"
+          "used_for": "An internal crate used by foreign-types",
+          "licence": "MIT/Apache-2.0",
+          "url": "https://github.com/sfackler/foreign-types"
         },
         {
           "name": "form_urlencoded",
@@ -2208,8 +2202,9 @@
         {
           "name": "glutin_wgl_sys",
           "version": "0.6.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/glutin_wgl_sys"
+          "used_for": "The wgl bindings for glutin",
+          "licence": "Apache-2.0",
+          "url": "https://github.com/rust-windowing/glutin"
         },
         {
           "name": "gpu-allocator",
@@ -2263,14 +2258,16 @@
         {
           "name": "heic-rs",
           "version": "0.1.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/heic-rs"
+          "used_for": "Pure-Rust HEIC/HEIF image decoder: no C, no unsafe, no_std-friendly, wasm-ready",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/tbraun96/heic-rs"
         },
         {
           "name": "hermit-abi",
           "version": "0.5.3",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/hermit-abi"
+          "used_for": "Hermit system calls definitions.",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/hermit-os/hermit-rs"
         },
         {
           "name": "hex",
@@ -2310,8 +2307,9 @@
         {
           "name": "iana-time-zone-haiku",
           "version": "0.1.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/iana-time-zone-haiku"
+          "used_for": "iana-time-zone support crate for Haiku OS",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/strawlab/iana-time-zone"
         },
         {
           "name": "icu_collections",
@@ -2449,8 +2447,9 @@
         {
           "name": "interpolate_name",
           "version": "0.2.4",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/interpolate_name"
+          "used_for": "Simple procedural macro attribute for repetitive tests",
+          "licence": "MIT",
+          "url": "https://github.com/lu-zero/interpolate_name"
         },
         {
           "name": "inventory",
@@ -2525,32 +2524,37 @@
         {
           "name": "jni",
           "version": "0.22.4",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/jni"
+          "used_for": "Rust bindings to the JNI",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/jni-rs/jni-rs"
         },
         {
           "name": "jni-macros",
           "version": "0.22.4",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/jni-macros"
+          "used_for": "Procedural macros for the jni crate",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/jni-rs/jni-rs"
         },
         {
           "name": "jni-sys",
           "version": "0.3.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/jni-sys"
+          "used_for": "Rust definitions corresponding to jni.h",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/jni-rs/jni-sys"
         },
         {
           "name": "jni-sys",
           "version": "0.4.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/jni-sys"
+          "used_for": "Rust definitions corresponding to jni.h",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/jni-rs/jni-sys"
         },
         {
           "name": "jni-sys-macros",
           "version": "0.4.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/jni-sys-macros"
+          "used_for": "Macros for jni-sys crate",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/jni-rs/jni-sys"
         },
         {
           "name": "jobserver",
@@ -2583,8 +2587,9 @@
         {
           "name": "js-sys",
           "version": "0.3.106",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/js-sys"
+          "used_for": "Bindings for all JS global objects and functions in all JS environments like Node.js and browsers, built on `#[wasm_bindgen]` using the `wasm-bindgen` crate.",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/js-sys"
         },
         {
           "name": "jxl-bitstream",
@@ -2680,8 +2685,9 @@
         {
           "name": "keyboard-types",
           "version": "0.8.3",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/keyboard-types"
+          "used_for": "Contains types to define keyboard related events.",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/rust-windowing/keyboard-types"
         },
         {
           "name": "khronos-egl",
@@ -2742,8 +2748,9 @@
         {
           "name": "libfuzzer-sys",
           "version": "0.4.13",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/libfuzzer-sys"
+          "used_for": "A wrapper around LLVM's libFuzzer runtime.",
+          "licence": "(MIT OR Apache-2.0) AND NCSA",
+          "url": "https://github.com/rust-fuzz/libfuzzer"
         },
         {
           "name": "libloading",
@@ -2762,8 +2769,9 @@
         {
           "name": "libredox",
           "version": "0.1.25",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/libredox"
+          "used_for": "Redox stable ABI",
+          "licence": "MIT",
+          "url": "https://gitlab.redox-os.org/redox-os/libredox.git"
         },
         {
           "name": "linebender_resource_handle",
@@ -2873,8 +2881,9 @@
         {
           "name": "memoffset",
           "version": "0.9.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/memoffset"
+          "used_for": "offset_of functionality for Rust structs.",
+          "licence": "MIT",
+          "url": "https://github.com/Gilnaa/memoffset"
         },
         {
           "name": "minijinja",
@@ -2921,8 +2930,9 @@
         {
           "name": "muda",
           "version": "0.21.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/muda"
+          "used_for": "Menu Utilities for Desktop Applications",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/tauri-apps/muda"
         },
         {
           "name": "naga",
@@ -2948,20 +2958,23 @@
         {
           "name": "ndk",
           "version": "0.9.0",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/ndk"
+          "used_for": "Safe Rust bindings to the Android NDK",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/rust-mobile/ndk"
         },
         {
           "name": "ndk-context",
           "version": "0.1.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/ndk-context"
+          "used_for": "Handles for accessing Android APIs",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/rust-windowing/android-ndk-rs"
         },
         {
           "name": "ndk-sys",
           "version": "0.6.0+11769913",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/ndk-sys"
+          "used_for": "FFI bindings for the Android NDK",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/rust-mobile/ndk"
         },
         {
           "name": "new_debug_unreachable",
@@ -3057,170 +3070,198 @@
         {
           "name": "num_enum",
           "version": "0.7.6",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/num_enum"
+          "used_for": "Procedural macros to make inter-operation between primitives and enums easier.",
+          "licence": "BSD-3-Clause OR MIT OR Apache-2.0",
+          "url": "https://github.com/illicitonion/num_enum"
         },
         {
           "name": "num_enum_derive",
           "version": "0.7.6",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/num_enum_derive"
+          "used_for": "Internal implementation details for ::num_enum (Procedural macros to make inter-operation between primitives and enums easier)",
+          "licence": "BSD-3-Clause OR MIT OR Apache-2.0",
+          "url": "https://github.com/illicitonion/num_enum"
         },
         {
           "name": "objc-sys",
           "version": "0.3.5",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc-sys"
+          "used_for": "Raw bindings to the Objective-C runtime and ABI",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2",
           "version": "0.5.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2"
+          "used_for": "Objective-C interface and runtime bindings",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2",
           "version": "0.6.4",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2"
+          "used_for": "Objective-C interface and runtime bindings",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-app-kit",
           "version": "0.2.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-app-kit"
+          "used_for": "Bindings to the AppKit framework",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-app-kit",
           "version": "0.3.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-app-kit"
+          "used_for": "Bindings to the AppKit framework",
+          "licence": "Zlib OR Apache-2.0 OR MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-cloud-kit",
           "version": "0.2.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-cloud-kit"
+          "used_for": "Bindings to the CloudKit framework",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-contacts",
           "version": "0.2.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-contacts"
+          "used_for": "Bindings to the Contacts framework",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-core-data",
           "version": "0.2.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-core-data"
+          "used_for": "Bindings to the CoreData framework",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-core-foundation",
           "version": "0.3.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-core-foundation"
+          "used_for": "Bindings to the CoreFoundation framework",
+          "licence": "Zlib OR Apache-2.0 OR MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-core-graphics",
           "version": "0.3.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-core-graphics"
+          "used_for": "Bindings to the CoreGraphics framework",
+          "licence": "Zlib OR Apache-2.0 OR MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-core-image",
           "version": "0.2.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-core-image"
+          "used_for": "Bindings to the CoreImage framework",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-core-location",
           "version": "0.2.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-core-location"
+          "used_for": "Bindings to the CoreLocation framework",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-encode",
           "version": "4.1.0",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-encode"
+          "used_for": "Objective-C type-encoding representation and parsing",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-foundation",
           "version": "0.2.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-foundation"
+          "used_for": "Bindings to the Foundation framework",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-foundation",
           "version": "0.3.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-foundation"
+          "used_for": "Bindings to the Foundation framework",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-io-surface",
           "version": "0.3.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-io-surface"
+          "used_for": "Bindings to the IOSurface framework",
+          "licence": "Zlib OR Apache-2.0 OR MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-link-presentation",
           "version": "0.2.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-link-presentation"
+          "used_for": "Bindings to the LinkPresentation framework",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-metal",
           "version": "0.2.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-metal"
+          "used_for": "Bindings to the Metal framework",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-metal",
           "version": "0.3.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-metal"
+          "used_for": "Bindings to the Metal framework",
+          "licence": "Zlib OR Apache-2.0 OR MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-quartz-core",
           "version": "0.2.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-quartz-core"
+          "used_for": "Bindings to the QuartzCore/CoreAnimation framework",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-quartz-core",
           "version": "0.3.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-quartz-core"
+          "used_for": "Bindings to the QuartzCore/CoreAnimation framework",
+          "licence": "Zlib OR Apache-2.0 OR MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-symbols",
           "version": "0.2.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-symbols"
+          "used_for": "Bindings to the Symbols framework",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-ui-kit",
           "version": "0.2.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-ui-kit"
+          "used_for": "Bindings to the UIKit framework",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-ui-kit",
           "version": "0.3.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-ui-kit"
+          "used_for": "Bindings to the UIKit framework",
+          "licence": "Zlib OR Apache-2.0 OR MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-uniform-type-identifiers",
           "version": "0.2.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-uniform-type-identifiers"
+          "used_for": "Bindings to the UniformTypeIdentifiers framework",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "objc2-user-notifications",
           "version": "0.2.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/objc2-user-notifications"
+          "used_for": "Bindings to the UserNotifications framework",
+          "licence": "MIT",
+          "url": "https://github.com/madsmtm/objc2"
         },
         {
           "name": "once_cell",
@@ -3246,8 +3287,9 @@
         {
           "name": "orbclient",
           "version": "0.3.55",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/orbclient"
+          "used_for": "The Orbital Client Library",
+          "licence": "MIT",
+          "url": "https://gitlab.redox-os.org/redox-os/orbclient"
         },
         {
           "name": "ordered-float",
@@ -3399,14 +3441,16 @@
         {
           "name": "pin-project",
           "version": "1.1.13",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/pin-project"
+          "used_for": "A crate for safe and ergonomic pin-projection.",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/taiki-e/pin-project"
         },
         {
           "name": "pin-project-internal",
           "version": "1.1.13",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/pin-project-internal"
+          "used_for": "Implementation detail of the `pin-project` crate.",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/taiki-e/pin-project"
         },
         {
           "name": "pin-project-lite",
@@ -3432,8 +3476,9 @@
         {
           "name": "plain",
           "version": "0.2.3",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/plain"
+          "used_for": "A small Rust library that allows users to reinterpret data of certain types safely.",
+          "licence": "MIT/Apache-2.0",
+          "url": "https://github.com/randomites/plain"
         },
         {
           "name": "png",
@@ -3480,14 +3525,16 @@
         {
           "name": "portable-atomic",
           "version": "1.15.0",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/portable-atomic"
+          "used_for": "Portable atomic types including support for 128-bit atomics, atomic float, etc.",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/taiki-e/portable-atomic"
         },
         {
           "name": "portable-atomic-util",
           "version": "0.2.8",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/portable-atomic-util"
+          "used_for": "Synchronization primitives built with portable-atomic.",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/taiki-e/portable-atomic-util"
         },
         {
           "name": "potential_utf",
@@ -3625,14 +3672,16 @@
         {
           "name": "r-efi",
           "version": "5.3.0",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/r-efi"
+          "used_for": "UEFI Reference Specification Protocol Constants and Definitions",
+          "licence": "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
+          "url": "https://github.com/r-efi/r-efi"
         },
         {
           "name": "r-efi",
           "version": "6.0.0",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/r-efi"
+          "used_for": "UEFI Reference Specification Protocol Constants and Definitions",
+          "licence": "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
+          "url": "https://github.com/r-efi/r-efi"
         },
         {
           "name": "rand",
@@ -3686,8 +3735,9 @@
         {
           "name": "range-alloc",
           "version": "0.1.5",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/range-alloc"
+          "used_for": "Generic range allocator",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/gfx-rs/range-alloc"
         },
         {
           "name": "rav1e",
@@ -3720,8 +3770,9 @@
         {
           "name": "raw-window-metal",
           "version": "1.1.0",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/raw-window-metal"
+          "used_for": "Interop library between Metal and raw-window-handle",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/rust-windowing/raw-window-metal"
         },
         {
           "name": "rawpointer",
@@ -3761,26 +3812,30 @@
         {
           "name": "redox_syscall",
           "version": "0.4.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/redox_syscall"
+          "used_for": "A Rust library to access raw Redox system calls",
+          "licence": "MIT",
+          "url": "https://gitlab.redox-os.org/redox-os/syscall"
         },
         {
           "name": "redox_syscall",
           "version": "0.5.18",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/redox_syscall"
+          "used_for": "A Rust library to access raw Redox system calls",
+          "licence": "MIT",
+          "url": "https://gitlab.redox-os.org/redox-os/syscall"
         },
         {
           "name": "redox_syscall",
           "version": "0.9.4",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/redox_syscall"
+          "used_for": "A Rust library to access raw Redox system calls",
+          "licence": "MIT",
+          "url": "https://gitlab.redox-os.org/redox-os/kernel"
         },
         {
           "name": "redox_users",
           "version": "0.5.3",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/redox_users"
+          "used_for": "A Rust library to access Redox users and groups functionality",
+          "licence": "MIT",
+          "url": "https://gitlab.redox-os.org/redox-os/users"
         },
         {
           "name": "ref-cast",
@@ -3897,8 +3952,9 @@
         {
           "name": "rustc_version",
           "version": "0.4.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/rustc_version"
+          "used_for": "A library for querying the version of a installed rustc compiler",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/djc/rustc-version-rs"
         },
         {
           "name": "rustfft",
@@ -4099,8 +4155,9 @@
         {
           "name": "simd_cesu8",
           "version": "1.2.0",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/simd_cesu8"
+          "used_for": "An extremely fast, SIMD accelerated, encoding and decoding library for CESU-8 and Modified UTF-8.",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/seancroach/simd_cesu8"
         },
         {
           "name": "simd_helpers",
@@ -4112,8 +4169,9 @@
         {
           "name": "simdutf8",
           "version": "0.1.5",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/simdutf8"
+          "used_for": "SIMD-accelerated UTF-8 validation.",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/rusticstuff/simdutf8"
         },
         {
           "name": "simplecss",
@@ -4146,8 +4204,9 @@
         {
           "name": "slotmap",
           "version": "1.1.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/slotmap"
+          "used_for": "Slotmap data structure",
+          "licence": "Zlib",
+          "url": "https://github.com/orlp/slotmap"
         },
         {
           "name": "smallvec",
@@ -4418,8 +4477,9 @@
         {
           "name": "tokio-stream",
           "version": "0.1.19",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/tokio-stream"
+          "used_for": "Utilities to work with `Stream` and `tokio`.",
+          "licence": "MIT",
+          "url": "https://github.com/tokio-rs/tokio"
         },
         {
           "name": "tokio-util",
@@ -4606,8 +4666,9 @@
         {
           "name": "uds_windows",
           "version": "1.2.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/uds_windows"
+          "used_for": "Unix Domain Sockets for Windows!",
+          "licence": "MIT",
+          "url": "https://github.com/haraldh/rust_uds_windows"
         },
         {
           "name": "unicode-general-category",
@@ -4738,14 +4799,16 @@
         {
           "name": "wasi",
           "version": "0.11.1+wasi-snapshot-preview1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/wasi"
+          "used_for": "Experimental WASI API bindings for Rust",
+          "licence": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+          "url": "https://github.com/bytecodealliance/wasi"
         },
         {
           "name": "wasip2",
           "version": "1.0.4+wasi-0.2.12",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/wasip2"
+          "used_for": "WASIp2 API bindings for Rust",
+          "licence": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+          "url": "https://github.com/bytecodealliance/wasi-rs"
         },
         {
           "name": "wasm-bindgen",
@@ -4757,8 +4820,9 @@
         {
           "name": "wasm-bindgen-futures",
           "version": "0.4.79",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/wasm-bindgen-futures"
+          "used_for": "Bridging the gap between Rust Futures and JavaScript Promises",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/futures"
         },
         {
           "name": "wasm-bindgen-macro",
@@ -4896,8 +4960,9 @@
         {
           "name": "web-sys",
           "version": "0.3.106",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/web-sys"
+          "used_for": "Bindings for all Web APIs, a procedurally generated crate from WebIDL",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/web-sys"
         },
         {
           "name": "web-time",
@@ -4937,20 +5002,23 @@
         {
           "name": "wgpu-core-deps-apple",
           "version": "30.0.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/wgpu-core-deps-apple"
+          "used_for": "Feature unification helper crate for Apple platforms",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/gfx-rs/wgpu"
         },
         {
           "name": "wgpu-core-deps-emscripten",
           "version": "30.0.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/wgpu-core-deps-emscripten"
+          "used_for": "Feature unification helper crate for the Emscripten platform",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/gfx-rs/wgpu"
         },
         {
           "name": "wgpu-core-deps-wasm",
           "version": "30.0.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/wgpu-core-deps-wasm"
+          "used_for": "Feature unification helper crate for the WebAssembly platform",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/gfx-rs/wgpu"
         },
         {
           "name": "wgpu-core-deps-windows-linux-android",
@@ -4983,206 +5051,240 @@
         {
           "name": "winapi-util",
           "version": "0.1.11",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/winapi-util"
+          "used_for": "A dumping ground for high level safe wrappers over windows-sys.",
+          "licence": "Unlicense OR MIT",
+          "url": "https://github.com/BurntSushi/winapi-util"
         },
         {
           "name": "windows",
           "version": "0.62.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows"
+          "used_for": "Rust for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows-collections",
           "version": "0.3.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows-collections"
+          "used_for": "Windows collection types",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows-core",
           "version": "0.62.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows-core"
+          "used_for": "Core type support for COM and Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows-future",
           "version": "0.3.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows-future"
+          "used_for": "Windows async types",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows-implement",
           "version": "0.60.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows-implement"
+          "used_for": "The implement macro for the Windows crates",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows-interface",
           "version": "0.59.3",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows-interface"
+          "used_for": "The interface macro for the Windows crates",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows-link",
           "version": "0.2.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows-link"
+          "used_for": "Linking for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows-numerics",
           "version": "0.3.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows-numerics"
+          "used_for": "Windows numeric types",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows-result",
           "version": "0.4.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows-result"
+          "used_for": "Windows error handling",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows-strings",
           "version": "0.5.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows-strings"
+          "used_for": "Windows string types",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows-sys",
           "version": "0.52.0",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows-sys"
+          "used_for": "Rust for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows-sys",
           "version": "0.59.0",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows-sys"
+          "used_for": "Rust for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows-sys",
           "version": "0.60.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows-sys"
+          "used_for": "Rust for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows-sys",
           "version": "0.61.2",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows-sys"
+          "used_for": "Rust for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows-targets",
           "version": "0.52.6",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows-targets"
+          "used_for": "Import libs for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows-targets",
           "version": "0.53.5",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows-targets"
+          "used_for": "Import libs for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows-threading",
           "version": "0.2.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows-threading"
+          "used_for": "Windows threading",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows_aarch64_gnullvm",
           "version": "0.52.6",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows_aarch64_gnullvm"
+          "used_for": "Import lib for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows_aarch64_gnullvm",
           "version": "0.53.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows_aarch64_gnullvm"
+          "used_for": "Import lib for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows_aarch64_msvc",
           "version": "0.52.6",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows_aarch64_msvc"
+          "used_for": "Import lib for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows_aarch64_msvc",
           "version": "0.53.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows_aarch64_msvc"
+          "used_for": "Import lib for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows_i686_gnu",
           "version": "0.52.6",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows_i686_gnu"
+          "used_for": "Import lib for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows_i686_gnu",
           "version": "0.53.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows_i686_gnu"
+          "used_for": "Import lib for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows_i686_gnullvm",
           "version": "0.52.6",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows_i686_gnullvm"
+          "used_for": "Import lib for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows_i686_gnullvm",
           "version": "0.53.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows_i686_gnullvm"
+          "used_for": "Import lib for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows_i686_msvc",
           "version": "0.52.6",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows_i686_msvc"
+          "used_for": "Import lib for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows_i686_msvc",
           "version": "0.53.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows_i686_msvc"
+          "used_for": "Import lib for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows_x86_64_gnu",
           "version": "0.52.6",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows_x86_64_gnu"
+          "used_for": "Import lib for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows_x86_64_gnu",
           "version": "0.53.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows_x86_64_gnu"
+          "used_for": "Import lib for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows_x86_64_gnullvm",
           "version": "0.52.6",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows_x86_64_gnullvm"
+          "used_for": "Import lib for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows_x86_64_gnullvm",
           "version": "0.53.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows_x86_64_gnullvm"
+          "used_for": "Import lib for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows_x86_64_msvc",
           "version": "0.52.6",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows_x86_64_msvc"
+          "used_for": "Import lib for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "windows_x86_64_msvc",
           "version": "0.53.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/windows_x86_64_msvc"
+          "used_for": "Import lib for Windows",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/microsoft/windows-rs"
         },
         {
           "name": "winit",
@@ -5208,20 +5310,23 @@
         {
           "name": "winsafe",
           "version": "0.0.29",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/winsafe"
+          "used_for": "Windows API and GUI in safe, idiomatic Rust.",
+          "licence": "MIT",
+          "url": "https://github.com/rodrigocfd/winsafe"
         },
         {
           "name": "winx",
           "version": "0.36.4",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/winx"
+          "used_for": "Windows API helper library",
+          "licence": "Apache-2.0 WITH LLVM-exception",
+          "url": "https://github.com/sunfishcode/winx"
         },
         {
           "name": "wit-bindgen",
           "version": "0.57.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/wit-bindgen"
+          "used_for": "Rust bindings generator and runtime support for WIT and the component model. Used when compiling Rust programs to the component model.",
+          "licence": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+          "url": "https://github.com/bytecodealliance/wit-bindgen"
         },
         {
           "name": "wl-clipboard-rs",
@@ -5408,8 +5513,9 @@
         {
           "name": "zeroize_derive",
           "version": "1.5.0",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/zeroize_derive"
+          "used_for": "Custom derive support for zeroize",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/utils"
         },
         {
           "name": "zerotrie",

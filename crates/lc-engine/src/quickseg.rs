@@ -1,6 +1,6 @@
 //! local-image: quick **Subject**, **Background**, **Sky** and **Depth** masks from small models
-//! that run on the CPU with no AI server (`li-seg`: U²-Net / IS-Net for the subject, PP-MobileSeg /
-//! TinySkyNet for the sky, Depth Anything V2 Small / MiDaS small for depth). The model looks at the photo as developed, uncropped and without masks
+//! that run on the CPU with no AI server (`li-seg`: IS-Net for the subject, PP-MobileSeg for the sky,
+//! Depth Anything V2 Small for depth, or a custom model for any of them). The model looks at the photo as developed, uncropped and without masks
 //! (as SAM 3 does for Object masks), once, when the mask is added; the result is stored in the
 //! mask as a [`SegMask`] (resolution-independent logits), so renders and exports never run the
 //! model and the mask stays put when the photo is cropped later. Without a model the mask keeps

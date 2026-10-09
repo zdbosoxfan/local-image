@@ -1,19 +1,21 @@
-//! Local segmentation on the CPU: salient-object models (U²-Net, U²-Net-P, IS-Net) and sky models
-//! (PP-MobileSeg ADE20K, TinySkyNet) in ONNX form, run with `tract` (pure Rust, no GPU, no external
-//! runtime). Powers Select › Subject and Sky, Remove Background (Quick), the Object Selection
-//! tool's click mode, and the Library's Subject / Sky / Background masks — small, quick models
-//! that need no AI server.
+//! Local segmentation on the CPU: one small ONNX model per function (IS-Net for the subject,
+//! PP-MobileSeg for the sky, Depth Anything V2 Small for depth), run with `tract` (pure Rust, no
+//! GPU, no external runtime), or a custom `.onnx` file the user picks for a function. Powers
+//! Select › Subject and Sky, Remove Background (Quick), the Object Selection tool's click mode,
+//! and the Library's Subject / Sky / Background / Depth masks — small, quick models that need no
+//! AI server.
 //!
 //! Pre- and post-processing follow the rembg conventions the models were trained for (and
 //! OmaPhoto's port of Compositor): premultiplied resize to the model size, normalisation by the
-//! image's peak value then ImageNet mean/std (U²-Net) or mean 0.5 / std 1 (IS-Net), the first
-//! output map, min–max stretch, bilinear upscale.
+//! image's peak value then mean 0.5 / std 1 (IS-Net) or ImageNet mean/std (U²-Net style), the
+//! first output map, min–max stretch, bilinear upscale.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use tract_onnx::prelude::*;
+use tract_onnx::tract_hir::infer::Factoid;
 
 /// A downloadable model: (file name, bytes, sha256, url, input size, label).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -29,17 +31,16 @@ pub struct ModelSpec {
     pub licence: &'static str,
     /// What the model finds.
     pub task: Task,
-    /// The group Settings lists it under (what it is for); `None`: listed on its own.
+    /// The function Settings lists it under; `None`: listed on its own.
     pub group: Option<Group>,
-    /// Plain-language description: what it does, the speed / quality trade-off, when you'd want
-    /// it.
+    /// Plain-language description: what it does, the speed / quality trade-off.
     pub about: &'static str,
 }
 
-/// What a group of on-device models is for (Settings › Local AI lists them by group).
+/// A function the on-device models serve (Settings › Local AI lists one row per function).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Group {
-    /// Salient-subject models: Select Subject, Remove Background (Quick), Object Selection.
+    /// The salient subject: Select Subject, Remove Background (Quick), Object Selection.
     Subject,
     Sky,
     Depth,
@@ -56,39 +57,86 @@ impl Group {
         }
     }
 
-    /// What the group does and where the app uses it.
+    /// A short stable key (custom-model file names, the custom-model list).
+    pub fn key(self) -> &'static str {
+        match self {
+            Group::Subject => "subject",
+            Group::Sky => "sky",
+            Group::Depth => "depth",
+        }
+    }
+
+    /// What the function does and where the app uses it.
     pub fn about(self) -> &'static str {
         match self {
             Group::Subject => {
-                "Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks. The best one installed is used."
+                "Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks."
             }
-            Group::Sky => "Finds the sky. Used by Select › Sky and the Library's sky masks. The best one installed is used.",
+            Group::Sky => "Finds the sky. Used by Select › Sky and the Library's sky masks.",
             Group::Depth => {
-                "Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance). The best one installed is used."
+                "Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance)."
             }
         }
     }
 
-    /// The model to download first: the best default of the group.
-    pub fn recommended(self) -> &'static str {
-        match self {
+    /// The official model of this function.
+    pub fn official(self) -> &'static ModelSpec {
+        let id = match self {
             Group::Subject => "isnet",
             Group::Sky => "sky-mobileseg",
             Group::Depth => "depth-anything-v2-small",
+        };
+        MODELS.iter().find(|m| m.id == id).expect("the official model is in MODELS")
+    }
+
+    /// The model the app uses for this function: the custom one when set, else the official one
+    /// when it is installed.
+    pub fn in_use(self, models_dir: &Path) -> Option<InUse> {
+        active(self, models_dir).map(|a| a.in_use)
+    }
+}
+
+/// Which model serves a function right now.
+#[derive(Clone, Debug, PartialEq)]
+pub enum InUse {
+    Official(&'static ModelSpec),
+    Custom(Custom),
+}
+
+/// How a subject model wants its input normalised.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Norm {
+    /// IS-Net style: mean 0.5, std 1.
+    IsNet,
+    /// U²-Net / ImageNet style: ImageNet mean and std.
+    ImageNet,
+}
+
+impl Norm {
+    pub const ALL: [Norm; 2] = [Norm::IsNet, Norm::ImageNet];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Norm::IsNet => "IS-Net style",
+            Norm::ImageNet => "U²-Net / ImageNet style",
         }
     }
 
-    /// The group's models, in catalogue order.
-    pub fn models(self) -> impl Iterator<Item = &'static ModelSpec> {
-        MODELS.iter().filter(move |m| m.group == Some(self))
+    fn key(self) -> &'static str {
+        match self {
+            Norm::IsNet => "isnet",
+            Norm::ImageNet => "imagenet",
+        }
     }
 
-    /// The installed model the app uses for this group, if any.
-    pub fn in_use(self, models_dir: &Path) -> Option<&'static ModelSpec> {
+    fn from_key(k: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|n| n.key() == k)
+    }
+
+    fn mean_std(self) -> ([f32; 3], [f32; 3]) {
         match self {
-            Group::Subject => best_installed(models_dir).map(|(s, _)| s),
-            Group::Sky => best_sky(models_dir).map(|(s, _)| s),
-            Group::Depth => best_depth(models_dir).map(|(s, _)| s),
+            Norm::IsNet => ([0.5; 3], [1.0; 3]),
+            Norm::ImageNet => ([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         }
     }
 }
@@ -96,45 +144,17 @@ impl Group {
 /// What a model finds.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Task {
-    /// The salient subject (U²-Net family): one foreground map.
+    /// The salient subject: one foreground map.
     Subject,
     /// The sky. `classes` = 1: one logit map (sigmoid); otherwise ADE20K-style class logits where
     /// `class` is the sky and `margin` how far it must lead every other class.
     Sky { classes: usize, class: usize, margin: f32 },
-    /// Monocular relative depth (Depth Anything V2, MiDaS): one map of relative inverse depth
+    /// Monocular relative depth (Depth Anything V2): one map of relative inverse depth
     /// (larger = nearer), ImageNet-normalised input.
     Depth,
 }
 
 pub const MODELS: &[ModelSpec] = &[
-    ModelSpec {
-        id: "u2netp",
-        label: "U²-Net small",
-        file: "u2netp.onnx",
-        bytes: 4574861,
-        sha256: "309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8",
-        url: "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx",
-        size: 320,
-        isnet: false,
-        licence: "Apache-2.0 (U²-Net, Qin et al. 2020)",
-        task: Task::Subject,
-        group: Some(Group::Subject),
-        about: "The smallest and fastest subject finder. Good for quick selections on simple photos with one clear subject; edges are softer and less exact than IS-Net's. Used only when neither larger subject model is installed.",
-    },
-    ModelSpec {
-        id: "u2net",
-        label: "U²-Net",
-        file: "u2net.onnx",
-        bytes: 175997641,
-        sha256: "8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491",
-        url: "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx",
-        size: 320,
-        isnet: false,
-        licence: "Apache-2.0 (U²-Net, Qin et al. 2020)",
-        task: Task::Subject,
-        group: Some(Group::Subject),
-        about: "The full-size U²-Net: steadier than the small version on busy photos, but with less detailed edges than IS-Net at a similar size. A middle option; IS-Net is usually the better download.",
-    },
     ModelSpec {
         id: "isnet",
         label: "IS-Net general",
@@ -147,7 +167,7 @@ pub const MODELS: &[ModelSpec] = &[
         licence: "Apache-2.0 (DIS / IS-Net, Qin et al. 2022)",
         task: Task::Subject,
         group: Some(Group::Subject),
-        about: "Finds the subject with the finest edges (hair, fur, thin details). Slower than U²-Net small and a bigger download, but the best quality for Select Subject and Remove Background. Used first whenever it's installed.",
+        about: "Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.",
     },
     // Sky: PaddleSeg's PP-MobileSeg-Base trained on ADE20K (sky = class 2), ONNX opset 13.
     ModelSpec {
@@ -163,21 +183,6 @@ pub const MODELS: &[ModelSpec] = &[
         task: Task::Sky { classes: 150, class: 2, margin: 2.0 },
         group: Some(Group::Sky),
         about: "Finds the sky precisely, including around trees, buildings and the horizon. A scene-parsing model that knows 150 kinds of things, so tricky skies work well. Takes a second or two per photo.",
-    },
-    // Sky, tiny: a 49K-parameter UNet distilled from SkySeg (Open Images), for a quick first guess.
-    ModelSpec {
-        id: "sky-tiny",
-        label: "TinySkyNet",
-        file: "tinyskynet_skyseg_256.onnx",
-        bytes: 203485,
-        sha256: "bdf304a00ff84b424ed39823ae1eb003707799d62cf2725317ea8073919aba7c",
-        url: "https://raw.githubusercontent.com/kisakutanaka/SkySegmentation/4f1715a9517e065d2867a724b4dc6aad914f0aca/models/tinyskynet_skyseg_256.onnx",
-        size: 256,
-        isnet: false,
-        licence: "MIT (TinySkyNet-SkySeg)",
-        task: Task::Sky { classes: 1, class: 0, margin: 0.0 },
-        group: Some(Group::Sky),
-        about: "A tiny, very fast sky finder for a quick first guess or a slow computer. Less accurate along trees and buildings. Used only when PP-MobileSeg isn't installed.",
     },
     // Depth: Depth Anything V2 Small (Yang et al. 2024; the Small weights are Apache-2.0, the
     // larger ones are not), the TorchScript ONNX export of fabio-sim/Depth-Anything-ONNX
@@ -195,23 +200,17 @@ pub const MODELS: &[ModelSpec] = &[
         licence: "Apache-2.0 (Depth Anything V2 Small, Yang et al. 2024)",
         task: Task::Depth,
         group: Some(Group::Depth),
-        about: "The more detailed and accurate depth model: clean edges between near and far, good on most photos. Takes a few seconds per photo.",
+        about: "Clean edges between near and far, good on most photos. Takes a few seconds per photo.",
     },
-    // Depth, smaller and older: MiDaS v2.1 small (Ranftl et al.), MIT, from the MiDaS release.
-    ModelSpec {
-        id: "depth-midas-small",
-        label: "MiDaS v2.1 small",
-        file: "midas_v21_small_256.onnx",
-        bytes: 66764249,
-        sha256: "2d8c6cb8f415229daf1eb041024208e2608c9f98e17c81cc7c6ecb449c56fd58",
-        url: "https://github.com/isl-org/MiDaS/releases/download/v2_1/model-small.onnx",
-        size: 256,
-        isnet: false,
-        licence: "MIT (MiDaS v2.1 small, Ranftl et al. 2020)",
-        task: Task::Depth,
-        group: Some(Group::Depth),
-        about: "An older, smaller depth model. Faster, but its depth is coarser and blurrier. Used only when Depth Anything isn't installed.",
-    },
+];
+
+/// Files of models the app used to offer (U²-Net small and full, TinySkyNet, MiDaS small): no
+/// longer used, left on disk until the user removes them. (file name, label)
+pub const LEGACY: &[(&str, &str)] = &[
+    ("u2netp.onnx", "U²-Net small"),
+    ("u2net.onnx", "U²-Net"),
+    ("tinyskynet_skyseg_256.onnx", "TinySkyNet"),
+    ("midas_v21_small_256.onnx", "MiDaS v2.1 small"),
 ];
 
 pub fn spec(id: &str) -> Option<&'static ModelSpec> {
@@ -220,25 +219,52 @@ pub fn spec(id: &str) -> Option<&'static ModelSpec> {
 
 type Runner = dyn Fn(Tensor) -> TractResult<TVec<TValue>> + Send + Sync;
 
+/// How to run a model: official or custom.
+#[derive(Clone, Debug)]
+struct Config {
+    id: String,
+    size: usize,
+    norm: Norm,
+    task: Task,
+}
+
+impl Config {
+    fn of_spec(spec: &ModelSpec) -> Self {
+        Self { id: spec.id.to_owned(), size: spec.size, norm: if spec.isnet { Norm::IsNet } else { Norm::ImageNet }, task: spec.task }
+    }
+}
+
 /// A loaded model, ready to run (cheap to clone).
 #[derive(Clone)]
 pub struct Segmenter {
-    spec: ModelSpec,
+    cfg: Config,
     run: Arc<Runner>,
 }
 
 impl std::fmt::Debug for Segmenter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Segmenter").field("model", &self.spec.id).finish()
+        f.debug_struct("Segmenter").field("model", &self.cfg.id).finish()
+    }
+}
+
+/// The map's height and width when it is a single map: `[n, 1, h, w]`, `[n, h, w]` or `[h, w]`.
+fn single_map(shape: &[usize]) -> Option<(usize, usize)> {
+    match shape {
+        [_, 1, h, w] | [_, h, w] | [h, w] => Some((*h, *w)),
+        _ => None,
     }
 }
 
 impl Segmenter {
     pub fn load(spec: &ModelSpec, path: &Path) -> Result<Self> {
-        let s = spec.size;
+        Self::load_cfg(Config::of_spec(spec), path)
+    }
+
+    fn load_cfg(cfg: Config, path: &Path) -> Result<Self> {
+        let s = cfg.size;
         // the dynamic-shape depth export declares symbolic intermediate shapes that conflict
         // with the fixed input: let tract infer them
-        let depth = spec.task == Task::Depth;
+        let depth = cfg.task == Task::Depth;
         let plan = tract_onnx::onnx()
             .with_ignore_value_info(depth)
             .with_ignore_output_shapes(depth)
@@ -247,51 +273,59 @@ impl Segmenter {
             .with_input_fact(0, InferenceFact::dt_shape(f32::datum_type(), tvec!(1, 3, s, s)))?
             .into_optimized()?
             .into_runnable()?;
-        Ok(Self { spec: *spec, run: Arc::new(move |t: Tensor| plan.run(tvec!(t.into()))) })
+        Ok(Self { cfg, run: Arc::new(move |t: Tensor| plan.run(tvec!(t.into()))) })
     }
 
-    pub fn spec(&self) -> &ModelSpec {
-        &self.spec
+    /// The model's id (an official id, or `custom:<file>`).
+    pub fn id(&self) -> &str {
+        &self.cfg.id
+    }
+
+    /// The shape of the model's first output for a blank input.
+    fn output_shape(&self) -> Result<Vec<usize>> {
+        let s = self.cfg.size;
+        let out = (self.run)(tract_ndarray::Array4::<f32>::zeros((1, 3, s, s)).into())?;
+        Ok(out[0].shape().to_vec())
+    }
+
+    /// The model input for an RGBA8 image: premultiplied resize to the model size, normalised.
+    fn input(&self, rgba: &[u8], w: usize, h: usize, peak_scaled: bool) -> Result<tract_ndarray::Array4<f32>> {
+        if rgba.len() != w * h * 4 || w == 0 || h == 0 {
+            bail!("image buffer size mismatch");
+        }
+        let s = self.cfg.size;
+        let small = resize_premultiplied(rgba, w, h, s, s);
+        let peak = if peak_scaled { small.iter().flat_map(|p| [p[0], p[1], p[2]]).fold(1e-6f32, f32::max) } else { 1.0 };
+        let (mean, std) = self.cfg.norm.mean_std();
+        Ok(tract_ndarray::Array4::from_shape_fn((1, 3, s, s), |(_, c, y, x)| (small[y * s + x][c] / peak - mean[c]) / std[c]))
     }
 
     /// Foreground probability (0–1) for an RGBA8 image, at the image's size. `None` when the model
     /// sees no clear subject.
     pub fn predict(&self, rgba: &[u8], w: usize, h: usize) -> Result<Option<Vec<f32>>> {
-        if rgba.len() != w * h * 4 || w == 0 || h == 0 {
-            bail!("image buffer size mismatch");
-        }
-        let s = self.spec.size;
-        let small = resize_premultiplied(rgba, w, h, s, s);
-        let peak = small.iter().flat_map(|p| [p[0], p[1], p[2]]).fold(1e-6f32, f32::max);
-        let (mean, std) = if self.spec.isnet { ([0.5f32; 3], [1.0f32; 3]) } else { ([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]) };
-        let input = tract_ndarray::Array4::from_shape_fn((1, 3, s, s), |(_, c, y, x)| (small[y * s + x][c] / peak - mean[c]) / std[c]);
+        let input = self.input(rgba, w, h, true)?;
         let out = (self.run)(input.into())?;
         let map = out[0].to_plain_array_view::<f32>()?;
+        let Some((oh, ow)) = single_map(map.shape()) else { bail!("The model's output {:?} isn't a single map", map.shape()) };
         let vals: Vec<f32> = map.iter().copied().collect();
-        if vals.len() < s * s {
+        if vals.len() < oh * ow || oh * ow == 0 {
             bail!("unexpected model output");
         }
-        let vals = &vals[..s * s];
+        let vals = &vals[..oh * ow];
         let (lo, hi) = vals.iter().fold((f32::MAX, f32::MIN), |(a, b), v| (a.min(*v), b.max(*v)));
         if hi < 0.5 {
             return Ok(None);
         }
         let span = (hi - lo).max(1e-6);
         let norm: Vec<f32> = vals.iter().map(|v| (v - lo) / span).collect();
-        Ok(Some(upscale(&norm, s, s, w, h)))
+        Ok(Some(upscale(&norm, ow, oh, w, h)))
     }
 
     /// Sky probability (0–1) for an RGBA8 image, at the image's size (a sky model). Raw
     /// probabilities, not stretched: a photo without sky stays near zero.
     pub fn predict_sky(&self, rgba: &[u8], w: usize, h: usize) -> Result<Vec<f32>> {
-        let Task::Sky { classes, class, margin } = self.spec.task else { bail!("not a sky model") };
-        if rgba.len() != w * h * 4 || w == 0 || h == 0 {
-            bail!("image buffer size mismatch");
-        }
-        let s = self.spec.size;
-        let small = resize_premultiplied(rgba, w, h, s, s);
-        let (mean, std) = ([0.485f32, 0.456, 0.406], [0.229f32, 0.224, 0.225]);
-        let input = tract_ndarray::Array4::from_shape_fn((1, 3, s, s), |(_, c, y, x)| (small[y * s + x][c] - mean[c]) / std[c]);
+        let Task::Sky { classes, class, margin } = self.cfg.task else { bail!("not a sky model") };
+        let input = self.input(rgba, w, h, false)?;
         let out = (self.run)(input.into())?;
         let map = out[0].to_plain_array_view::<f32>()?;
         let shape = map.shape().to_vec();
@@ -320,23 +354,13 @@ impl Segmenter {
     /// image's size (a depth model). The model sees the photo squeezed to its square input; its
     /// relative inverse depth is min–max stretched (it has no absolute scale).
     pub fn predict_depth(&self, rgba: &[u8], w: usize, h: usize) -> Result<Vec<f32>> {
-        if self.spec.task != Task::Depth {
+        if self.cfg.task != Task::Depth {
             bail!("not a depth model");
         }
-        if rgba.len() != w * h * 4 || w == 0 || h == 0 {
-            bail!("image buffer size mismatch");
-        }
-        let s = self.spec.size;
-        let small = resize_premultiplied(rgba, w, h, s, s);
-        let (mean, std) = ([0.485f32, 0.456, 0.406], [0.229f32, 0.224, 0.225]);
-        let input = tract_ndarray::Array4::from_shape_fn((1, 3, s, s), |(_, c, y, x)| (small[y * s + x][c] - mean[c]) / std[c]);
+        let input = self.input(rgba, w, h, false)?;
         let out = (self.run)(input.into())?;
         let map = out[0].to_plain_array_view::<f32>()?;
-        let shape = map.shape().to_vec();
-        let (oh, ow) = match shape.as_slice() {
-            [_, oh, ow] | [_, 1, oh, ow] => (*oh, *ow),
-            other => bail!("unexpected depth model output {other:?}"),
-        };
+        let Some((oh, ow)) = single_map(map.shape()) else { bail!("unexpected depth model output {:?}", map.shape()) };
         let vals: Vec<f32> = map.iter().copied().collect();
         let vals = &vals[..oh * ow];
         let (lo, hi) = vals.iter().filter(|v| v.is_finite()).fold((f32::MAX, f32::MIN), |(a, b), v| (a.min(*v), b.max(*v)));
@@ -425,34 +449,294 @@ pub fn model_path(models_dir: &Path, spec: &ModelSpec) -> std::path::PathBuf {
     models_dir.join("segmentation").join(spec.file)
 }
 
-/// The best installed subject model (IS-Net, then U²-Net, then U²-Net-P).
-pub fn best_installed(models_dir: &Path) -> Option<(&'static ModelSpec, std::path::PathBuf)> {
-    ["isnet", "u2net", "u2netp"].iter().filter_map(|id| spec(id)).map(|s| (s, model_path(models_dir, s))).find(|(_, p)| p.is_file())
+// ------------------------------------------------------------------------------ custom models
+
+/// A model the user picked for a function (an `.onnx` file copied into
+/// `<models>/segmentation/custom/`), used instead of the official one.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Custom {
+    pub group: Group,
+    /// The copy's file name inside the custom folder.
+    pub file: String,
+    /// The picked file's name, for display.
+    pub name: String,
+    /// The square input size the model runs at.
+    pub size: usize,
+    /// Subject models: how the input is normalised.
+    pub norm: Norm,
+    /// Sky models: the number of output channels (1: a sigmoid map; otherwise class logits).
+    pub classes: usize,
+    /// Sky models with class logits: the sky's class index.
+    pub class: usize,
 }
 
-/// The best installed sky model (PP-MobileSeg, then TinySkyNet).
-pub fn best_sky(models_dir: &Path) -> Option<(&'static ModelSpec, std::path::PathBuf)> {
-    ["sky-mobileseg", "sky-tiny"].iter().filter_map(|id| spec(id)).map(|s| (s, model_path(models_dir, s))).find(|(_, p)| p.is_file())
+impl Custom {
+    /// Where the copy lives.
+    pub fn path(&self, models_dir: &Path) -> PathBuf {
+        custom_dir(models_dir).join(&self.file)
+    }
+
+    fn config(&self) -> Config {
+        let task = match self.group {
+            Group::Subject => Task::Subject,
+            Group::Sky => Task::Sky { classes: self.classes, class: self.class, margin: if self.classes == 1 { 0.0 } else { 2.0 } },
+            Group::Depth => Task::Depth,
+        };
+        Config { id: format!("custom:{}", self.file), size: self.size, norm: self.norm, task }
+    }
 }
 
-/// The best installed depth model (Depth Anything V2 Small, then MiDaS small).
-pub fn best_depth(models_dir: &Path) -> Option<(&'static ModelSpec, std::path::PathBuf)> {
-    ["depth-anything-v2-small", "depth-midas-small"].iter().filter_map(|id| spec(id)).map(|s| (s, model_path(models_dir, s))).find(|(_, p)| p.is_file())
+/// What the user chose besides the file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CustomOptions {
+    /// Subject models: the input normalisation.
+    pub norm: Norm,
+    /// Sky models with class logits: the sky's class index (ADE20K: 2).
+    pub sky_class: usize,
+}
+
+impl Default for CustomOptions {
+    fn default() -> Self {
+        Self { norm: Norm::IsNet, sky_class: 2 }
+    }
+}
+
+/// `<models>/segmentation/custom/`.
+pub fn custom_dir(models_dir: &Path) -> PathBuf {
+    models_dir.join("segmentation").join("custom")
+}
+
+fn custom_list(models_dir: &Path) -> PathBuf {
+    custom_dir(models_dir).join("custom.txt")
+}
+
+/// The custom model set for `group`, when its file is still there.
+pub fn custom(models_dir: &Path, group: Group) -> Option<Custom> {
+    read_customs(models_dir).into_iter().find(|c| c.group == group).filter(|c| c.path(models_dir).is_file())
+}
+
+/// One line per function: `key TAB file TAB name TAB size TAB norm TAB classes TAB class`.
+fn read_customs(models_dir: &Path) -> Vec<Custom> {
+    let Ok(text) = std::fs::read_to_string(custom_list(models_dir)) else { return Vec::new() };
+    text.lines()
+        .filter_map(|line| {
+            let f: Vec<&str> = line.split('\t').collect();
+            let [key, file, name, size, norm, classes, class] = f.as_slice() else { return None };
+            Some(Custom {
+                group: Group::ALL.into_iter().find(|g| g.key() == *key)?,
+                file: (*file).to_owned(),
+                name: (*name).to_owned(),
+                size: size.parse().ok().filter(|s| *s > 0)?,
+                norm: Norm::from_key(norm)?,
+                classes: classes.parse().ok().filter(|c| *c > 0)?,
+                class: class.parse().ok()?,
+            })
+        })
+        .collect()
+}
+
+fn write_customs(models_dir: &Path, customs: &[Custom]) -> Result<()> {
+    let text: String =
+        customs.iter().map(|c| format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\n", c.group.key(), c.file, c.name, c.size, c.norm.key(), c.classes, c.class)).collect();
+    let path = custom_list(models_dir);
+    if text.is_empty() {
+        let _ = std::fs::remove_file(&path);
+        return Ok(());
+    }
+    std::fs::create_dir_all(custom_dir(models_dir))?;
+    std::fs::write(&path, text).with_context(|| format!("Could not save {}", path.display()))
+}
+
+/// A file name that is safe inside the custom folder.
+fn safe_name(name: &str) -> String {
+    let s: String = name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '.' | '-' | '_' | ' ') { c } else { '_' }).collect();
+    s.trim_matches('.').to_owned()
+}
+
+/// The model's square input size when the file fixes it (`None` when it is dynamic).
+pub fn input_size(path: &Path) -> Result<Option<usize>> {
+    let model = tract_onnx::onnx().model_for_path(path).with_context(|| format!("Could not read {} as an ONNX model", path.display()))?;
+    let fact = model.input_fact(0).context("The model has no input")?;
+    let dim = |i: usize| fact.shape.dim(i).and_then(|d| d.concretize()).and_then(|d| d.to_i64().ok());
+    if fact.shape.rank().concretize().is_some_and(|r| r != 4) {
+        bail!("The model's input must be an image (batch × 3 × height × width)");
+    }
+    if let Some(c) = dim(1)
+        && c != 3
+    {
+        bail!("The model's input has {c} channels; an RGB image (3) is needed");
+    }
+    match (dim(2), dim(3)) {
+        (Some(h), Some(w)) if h == w && h > 0 => Ok(Some(h as usize)),
+        (Some(h), Some(w)) => bail!("The model's input is {h}×{w}; a square input (or a flexible size) is needed"),
+        _ => Ok(None),
+    }
+}
+
+/// A small synthetic photo to test a model on: a sky-blue gradient over a green ground, with a
+/// red block in the middle.
+fn synthetic(w: usize, h: usize) -> Vec<u8> {
+    let mut img = vec![255u8; w * h * 4];
+    for y in 0..h {
+        for x in 0..w {
+            let i = (y * w + x) * 4;
+            let c = if x > w / 3 && x < 2 * w / 3 && y > h / 2 && y < h * 9 / 10 {
+                [200, 40, 40]
+            } else if y < h / 2 {
+                [90, 150, 230]
+            } else {
+                [70, 120, 60]
+            };
+            img[i..i + 3].copy_from_slice(&c);
+        }
+    }
+    img
+}
+
+/// Checks that `path` can serve `group` as configured by `custom` (loads it and runs it once on a
+/// synthetic image). Errors say what doesn't fit.
+fn validate(custom: &Custom, path: &Path) -> Result<()> {
+    let seg = Segmenter::load_cfg(custom.config(), path)?;
+    let (w, h) = (96, 64);
+    let img = synthetic(w, h);
+    match custom.group {
+        Group::Subject => {
+            seg.predict(&img, w, h).context("Not a subject model: it must output one foreground map")?;
+        }
+        Group::Sky => {
+            seg.predict_sky(&img, w, h).context("Not a sky model")?;
+        }
+        Group::Depth => {
+            seg.predict_depth(&img, w, h).context("Not a depth model: it must output one depth map")?;
+        }
+    }
+    Ok(())
+}
+
+/// Adds the `.onnx` file at `src` as the custom model of `group`: reads its input size (the
+/// official model's size when it is flexible), tests it on a synthetic image, copies it into the
+/// custom folder and remembers it. A custom model already set is replaced; `dispose` puts its old
+/// file away (the Trash). Nothing changes when the model doesn't fit.
+pub fn add_custom(models_dir: &Path, group: Group, src: &Path, opts: CustomOptions, dispose: &dyn Fn(&Path) -> std::io::Result<()>) -> Result<Custom> {
+    if !src.is_file() {
+        bail!("{} isn't a file", src.display());
+    }
+    let name = src.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    if !name.to_lowercase().ends_with(".onnx") {
+        bail!("Choose an ONNX model (a file ending in .onnx)");
+    }
+    let size = input_size(src)?.unwrap_or(group.official().size);
+    let mut c = Custom { group, file: format!("{}-{}", group.key(), safe_name(&name)), name, size, norm: opts.norm, classes: 1, class: 0 };
+    if group == Group::Sky {
+        // a sky model gives one sigmoid map, or one logit map per class
+        let probe = Segmenter::load_cfg(Config { task: Task::Sky { classes: 1, class: 0, margin: 0.0 }, ..c.config() }, src)?;
+        let shape = probe.output_shape()?;
+        let classes = match shape.as_slice() {
+            [_, ch, _, _] if *ch >= 1 => *ch,
+            other => bail!("Not a sky model: its output {other:?} should be 1 map or one map per class"),
+        };
+        if classes > 1 && opts.sky_class >= classes {
+            bail!("The sky class {} is out of range: this model has {classes} classes (0 to {})", opts.sky_class, classes - 1);
+        }
+        c.classes = classes;
+        c.class = if classes > 1 { opts.sky_class } else { 0 };
+    }
+    validate(&c, src)?;
+    std::fs::create_dir_all(custom_dir(models_dir))?;
+    let mut all = read_customs(models_dir);
+    let old = all.iter().find(|o| o.group == group).cloned();
+    let dest = c.path(models_dir);
+    if src != dest {
+        std::fs::copy(src, &dest).with_context(|| format!("Could not copy the model into {}", dest.display()))?;
+    }
+    if let Some(old) = old
+        && old.file != c.file
+    {
+        let _ = dispose(&old.path(models_dir));
+    }
+    all.retain(|o| o.group != group);
+    all.push(c.clone());
+    write_customs(models_dir, &all)?;
+    forget_group(group);
+    Ok(c)
+}
+
+/// Goes back to the official model of `group`: forgets the custom one and `dispose`s of its copy
+/// (the Trash). Returns the bytes of the file that was put away (0 when there was none).
+pub fn clear_custom(models_dir: &Path, group: Group, dispose: &dyn Fn(&Path) -> std::io::Result<()>) -> Result<u64> {
+    let mut all = read_customs(models_dir);
+    let Some(old) = all.iter().find(|o| o.group == group).cloned() else { return Ok(0) };
+    let path = old.path(models_dir);
+    let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    if path.is_file() {
+        dispose(&path).with_context(|| format!("Could not remove {}", path.display()))?;
+    }
+    all.retain(|o| o.group != group);
+    write_customs(models_dir, &all)?;
+    forget_group(group);
+    Ok(bytes)
+}
+
+// -------------------------------------------------------------------------------- old models
+
+/// Files of the models the app no longer offers that are still on disk, with their sizes.
+pub fn legacy_installed(models_dir: &Path) -> Vec<(PathBuf, u64)> {
+    LEGACY
+        .iter()
+        .map(|(file, _)| models_dir.join("segmentation").join(file))
+        .filter_map(|p| std::fs::metadata(&p).ok().filter(|m| m.is_file()).map(|m| (p, m.len())))
+        .collect()
+}
+
+/// Puts the old models' files away with `dispose` (the Trash). Returns the bytes freed.
+pub fn remove_legacy_with(models_dir: &Path, dispose: &dyn Fn(&Path) -> std::io::Result<()>) -> Result<u64> {
+    let mut freed = 0;
+    for (p, bytes) in legacy_installed(models_dir) {
+        dispose(&p).with_context(|| format!("Could not remove {}", p.display()))?;
+        freed += bytes;
+    }
+    Ok(freed)
+}
+
+// ------------------------------------------------------------------------- which model runs
+
+struct Active {
+    /// Cache key: changes when the model or its settings do.
+    key: String,
+    path: PathBuf,
+    cfg: Config,
+    in_use: InUse,
+}
+
+fn active(group: Group, models_dir: &Path) -> Option<Active> {
+    if let Some(c) = custom(models_dir, group) {
+        let len = std::fs::metadata(c.path(models_dir)).map(|m| m.len()).unwrap_or(0);
+        let key = format!("custom:{}:{}:{}:{}:{}:{len}", c.file, c.size, c.norm.key(), c.classes, c.class);
+        return Some(Active { key, path: c.path(models_dir), cfg: c.config(), in_use: InUse::Custom(c) });
+    }
+    let spec = group.official();
+    let path = model_path(models_dir, spec);
+    path.is_file().then(|| Active { key: spec.id.to_owned(), path, cfg: Config::of_spec(spec), in_use: InUse::Official(spec) })
+}
+
+/// Whether a model is ready for `group` (a custom one, or the installed official one).
+pub fn available(group: Group, models_dir: &Path) -> bool {
+    active(group, models_dir).is_some()
 }
 
 /// A process-wide cache of the loaded depth model.
 pub fn shared_depth(models_dir: &Path) -> Option<Segmenter> {
-    cached(best_depth(models_dir)?, &DEPTH)
+    cached(active(Group::Depth, models_dir)?, &DEPTH)
 }
 
 /// A process-wide cache of the loaded subject model (loading takes a moment).
 pub fn shared(models_dir: &Path) -> Option<Segmenter> {
-    cached(best_installed(models_dir)?, &SUBJECT)
+    cached(active(Group::Subject, models_dir)?, &SUBJECT)
 }
 
 /// A process-wide cache of the loaded sky model.
 pub fn shared_sky(models_dir: &Path) -> Option<Segmenter> {
-    cached(best_sky(models_dir)?, &SKY)
+    cached(active(Group::Sky, models_dir)?, &SKY)
 }
 
 /// Size of the installed copy of `spec`, when it is installed.
@@ -483,10 +767,16 @@ pub fn remove_with(models_dir: &Path, spec: &ModelSpec, dispose: &dyn Fn(&Path) 
 fn forget(spec: &ModelSpec) {
     for slot in [&SUBJECT, &SKY, &DEPTH] {
         let mut g = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if g.as_ref().is_some_and(|(id, _)| id == spec.id) {
+        if g.as_ref().is_some_and(|(key, _)| key == spec.id) {
             *g = None;
         }
     }
+}
+
+/// Drops the loaded copy of whatever serves `group`.
+fn forget_group(group: Group) {
+    let mut g = slot(group).lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    *g = None;
 }
 
 type Slot = std::sync::Mutex<Option<(String, Segmenter)>>;
@@ -494,220 +784,25 @@ static SUBJECT: Slot = std::sync::Mutex::new(None);
 static SKY: Slot = std::sync::Mutex::new(None);
 static DEPTH: Slot = std::sync::Mutex::new(None);
 
-fn cached((spec, path): (&'static ModelSpec, std::path::PathBuf), slot: &Slot) -> Option<Segmenter> {
+fn slot(group: Group) -> &'static Slot {
+    match group {
+        Group::Subject => &SUBJECT,
+        Group::Sky => &SKY,
+        Group::Depth => &DEPTH,
+    }
+}
+
+fn cached(a: Active, slot: &Slot) -> Option<Segmenter> {
     let mut g = slot.lock().ok()?;
-    if let Some((id, s)) = g.as_ref()
-        && id == spec.id
+    if let Some((key, s)) = g.as_ref()
+        && *key == a.key
     {
         return Some(s.clone());
     }
-    let s = Segmenter::load(spec, &path).ok()?;
-    *g = Some((spec.id.to_owned(), s.clone()));
+    let s = Segmenter::load_cfg(a.cfg, &a.path).ok()?;
+    *g = Some((a.key, s.clone()));
     Some(s)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn object_flood_keeps_the_clicked_region_only() {
-        let (w, h) = (10, 4);
-        let mut p = vec![0.0f32; w * h];
-        for y in 0..4 {
-            p[y * w + 1] = 1.0;
-            p[y * w + 2] = 0.9;
-            p[y * w + 7] = 1.0;
-        }
-        let o = object_at(&p, w, h, 1, 1).unwrap();
-        assert!(o[1] > 0.0 && o[2] > 0.0 && o[7] == 0.0);
-        assert!(object_at(&p, w, h, 5, 1).is_none());
-    }
-
-    /// Runs the small model on a synthetic subject when it's available (downloaded by CI or the
-    /// developer to `LI_SEG_TEST_MODELS`).
-    #[test]
-    fn small_model_finds_a_centred_subject() {
-        let Some(dir) = std::env::var_os("LI_SEG_TEST_MODELS") else { return };
-        let spec = spec("u2netp").unwrap();
-        let path = Path::new(&dir).join(spec.file);
-        if !path.is_file() {
-            return;
-        }
-        let seg = Segmenter::load(spec, &path).unwrap();
-        let (w, h) = (256, 192);
-        let mut img = vec![0u8; w * h * 4];
-        for y in 0..h {
-            for x in 0..w {
-                let i = (y * w + x) * 4;
-                let inside = ((x as f32 - 128.0) / 60.0).powi(2) + ((y as f32 - 96.0) / 70.0).powi(2) < 1.0;
-                let c = if inside { [220, 60, 40] } else { [70 + (x % 9) as u8, 120, 160] };
-                img[i..i + 3].copy_from_slice(&c);
-                img[i + 3] = 255;
-            }
-        }
-        let p = seg.predict(&img, w, h).unwrap().expect("a subject");
-        assert!(p[96 * w + 128] > 0.5, "centre {}", p[96 * w + 128]);
-        assert!(p[5 * w + 5] < 0.5, "corner {}", p[5 * w + 5]);
-    }
-
-    /// The sky model on a synthetic landscape when available (`LI_SEG_TEST_MODELS` holding the
-    /// PP-MobileSeg or TinySkyNet file).
-    #[test]
-    fn sky_model_finds_the_sky() {
-        let Some(dir) = std::env::var_os("LI_SEG_TEST_MODELS") else { return };
-        for id in ["sky-mobileseg", "sky-tiny"] {
-            let spec = spec(id).unwrap();
-            let path = Path::new(&dir).join(spec.file);
-            if !path.is_file() {
-                continue;
-            }
-            let seg = Segmenter::load(spec, &path).unwrap();
-            let (w, h) = (320, 240);
-            let mut img = vec![0u8; w * h * 4];
-            for y in 0..h {
-                for x in 0..w {
-                    let i = (y * w + x) * 4;
-                    let c = if y < 110 { [90 + (y / 3) as u8, 150 + (y / 4) as u8, 230] } else { [70 + (x % 13) as u8, 110 + (y % 7) as u8, 50] };
-                    img[i..i + 3].copy_from_slice(&c);
-                    img[i + 3] = 255;
-                }
-            }
-            let p = seg.predict_sky(&img, w, h).unwrap();
-            assert!(p[30 * w + 160] > 0.5, "{id}: sky {}", p[30 * w + 160]);
-            assert!(p[200 * w + 160] < 0.5, "{id}: ground {}", p[200 * w + 160]);
-        }
-    }
-
-    /// Settings lists the models by group with a plain-language description: every entry has one,
-    /// its group agrees with what it finds, and each group's recommended model is in it.
-    #[test]
-    fn every_model_has_a_group_and_an_explanation() {
-        for m in MODELS {
-            assert!(!m.about.trim().is_empty(), "{} has no description", m.id);
-            assert!(m.about.len() > 60, "{}: say what it does and when you'd want it", m.id);
-            // the selection models are grouped by what they find
-            let expected = if m.task == Task::Subject {
-                Some(Group::Subject)
-            } else if matches!(m.task, Task::Sky { .. }) {
-                Some(Group::Sky)
-            } else if m.task == Task::Depth {
-                Some(Group::Depth)
-            } else {
-                continue;
-            };
-            assert_eq!(m.group, expected, "{}", m.id);
-            // sizes are shown from `bytes`, so labels don't repeat (or contradict) them
-            assert!(!m.label.contains("MB"), "{}: {}", m.id, m.label);
-        }
-        for g in Group::ALL {
-            assert!(g.models().count() >= 1, "{g:?} is empty");
-            assert_eq!(spec(g.recommended()).and_then(|s| s.group), Some(g), "{g:?}");
-            assert!(!g.about().is_empty() && !g.label().is_empty());
-            assert!(g.in_use(Path::new("/nonexistent")).is_none());
-        }
-    }
-
-    fn temp_models() -> std::path::PathBuf {
-        let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-        let dir = std::env::temp_dir().join(format!("li-seg-rm-{}-{n}", std::process::id()));
-        std::fs::create_dir_all(dir.join("segmentation")).unwrap();
-        dir
-    }
-
-    #[test]
-    fn remove_deletes_only_that_model_and_reports_the_size() {
-        let dir = temp_models();
-        let (small, isnet) = (spec("u2netp").unwrap(), spec("isnet").unwrap());
-        std::fs::write(model_path(&dir, small), vec![1u8; 1234]).unwrap();
-        std::fs::write(model_path(&dir, isnet), vec![2u8; 99]).unwrap();
-        assert_eq!(Group::Subject.in_use(&dir).map(|s| s.id), Some("isnet"));
-        assert_eq!(installed_bytes(&dir, small), Some(1234));
-        assert_eq!(remove(&dir, isnet).unwrap(), 99);
-        assert!(!model_path(&dir, isnet).exists());
-        assert!(model_path(&dir, small).exists(), "other models stay");
-        // the next best one takes over
-        assert_eq!(Group::Subject.in_use(&dir).map(|s| s.id), Some("u2netp"));
-        // removing a model that isn't installed is a no-op
-        assert_eq!(remove(&dir, isnet).unwrap(), 0);
-        // a custom disposer (the Trash) gets the file instead
-        let moved = dir.join("trashed.onnx");
-        let freed = remove_with(&dir, small, &|p| std::fs::rename(p, &moved)).unwrap();
-        assert_eq!(freed, 1234);
-        assert!(moved.exists() && best_installed(&dir).is_none());
-        // a disposer that fails leaves the model installed and says so
-        std::fs::write(model_path(&dir, small), b"x").unwrap();
-        assert!(remove_with(&dir, small, &|_| Err(std::io::Error::other("nope"))).is_err());
-        assert!(model_path(&dir, small).exists());
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn subject_and_sky_models_are_told_apart() {
-        assert!(MODELS.iter().filter(|m| matches!(m.task, Task::Sky { .. })).count() >= 2);
-        assert!(best_installed(Path::new("/nonexistent")).is_none() && best_sky(Path::new("/nonexistent")).is_none());
-        assert!(best_depth(Path::new("/nonexistent")).is_none());
-        // the subject / sky choosers never pick a depth model
-        for id in ["depth-anything-v2-small", "depth-midas-small"] {
-            assert_eq!(spec(id).map(|s| s.task), Some(Task::Depth), "{id}");
-        }
-    }
-
-    /// A photo-like scene with depth cues: a checkered ground plane receding to the horizon
-    /// (in perspective) under a plain sky, and a box standing on the near ground.
-    fn ground_scene(w: usize, h: usize) -> Vec<u8> {
-        let horizon = h as f32 * 0.4;
-        let mut img = vec![0u8; w * h * 4];
-        for y in 0..h {
-            for x in 0..w {
-                let i = (y * w + x) * 4;
-                let c = if (y as f32) < horizon {
-                    [150 + (y * 60 / h) as u8, 185, 235]
-                } else {
-                    // ground point at distance z ∝ 1 / (y − horizon)
-                    let dy = (y as f32 - horizon + 0.5).max(0.5);
-                    let z = 40.0 / dy;
-                    let gx = (x as f32 - w as f32 / 2.0) * z / 40.0;
-                    let check = ((gx.floor() as i64 + (z * 2.0).floor() as i64) & 1) == 0;
-                    let fog = (z / 4.0).min(1.0);
-                    let base = if check { [120.0, 100.0, 70.0] } else { [70.0, 60.0, 45.0] };
-                    std::array::from_fn(|k| (base[k] * (1.0 - fog) + [150.0, 175.0, 210.0][k] * fog) as u8)
-                };
-                let in_box = x > w * 2 / 5 && x < w * 3 / 5 && y > h * 3 / 5 && y < h * 9 / 10;
-                let c = if in_box { [200, 40, 40] } else { c };
-                img[i..i + 3].copy_from_slice(&c);
-                img[i + 3] = 255;
-            }
-        }
-        img
-    }
-
-    /// The depth models run under tract and see the near ground as nearer than the horizon
-    /// (`LI_SEG_TEST_MODELS` holding the Depth Anything V2 Small and/or MiDaS small file).
-    #[test]
-    fn depth_models_find_the_near_ground() {
-        let Some(dir) = std::env::var_os("LI_SEG_TEST_MODELS") else { return };
-        for id in ["depth-anything-v2-small", "depth-midas-small"] {
-            let spec = spec(id).unwrap();
-            let path = Path::new(&dir).join(spec.file);
-            if !path.is_file() {
-                continue;
-            }
-            let t = std::time::Instant::now();
-            let seg = Segmenter::load(spec, &path).unwrap();
-            let loaded = t.elapsed();
-            let (w, h) = (384, 288);
-            let img = ground_scene(w, h);
-            let t = std::time::Instant::now();
-            let d = seg.predict_depth(&img, w, h).unwrap();
-            eprintln!("{id}: load {loaded:?}, predict {:?}", t.elapsed());
-            assert_eq!(d.len(), w * h);
-            assert!(d.iter().all(|v| (0.0..=1.0).contains(v)));
-            let at = |x: usize, y: usize| d[y * w + x];
-            let (near, far) = (at(w / 8, h - 6), at(w / 8, (h as f32 * 0.42) as usize));
-            assert!(near > far + 0.2, "{id}: near ground {near}, horizon {far}");
-            assert!(at(w / 2, h * 3 / 4) > far, "{id}: the box is nearer than the horizon");
-            assert!(seg.predict(&img, w, h).is_ok() || seg.predict_sky(&img, w, h).is_err());
-        }
-    }
-}
+mod tests;

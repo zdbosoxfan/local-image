@@ -3037,3 +3037,28 @@ ai	New	Baru
 	Search attributions…	Cari atribusi…
 	No matches.	Tidak ada yang cocok.
 	Show licence text	Tampilkan teks lisensi
+	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Menemukan subjek utama foto. Dipakai oleh Pilih › Subjek, Hapus Latar Belakang (Cepat), mode klik alat Pilihan Objek, serta mask Subjek dan Latar Belakang di Pustaka.
+	Finds the sky. Used by Select › Sky and the Library's sky masks.	Menemukan langit. Dipakai oleh Pilih › Langit dan mask langit di Pustaka.
+	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Memperkirakan seberapa jauh setiap bagian foto. Dipakai oleh mask kedalaman di Pustaka (misalnya untuk menggelapkan atau mengaburkan latar belakang, atau memilih latar depan berdasarkan jarak).
+	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	Menemukan subjek dengan tepi paling halus (rambut, bulu, detail tipis). Kualitas terbaik untuk Pilih Subjek dan Hapus Latar Belakang; butuh satu-dua detik per foto.
+	Clean edges between near and far, good on most photos. Takes a few seconds per photo.	Tepi bersih antara dekat dan jauh, bagus untuk sebagian besar foto. Butuh beberapa detik per foto.
+	Custom: {name}	Kustom: {name}
+	Use official model	Pakai model resmi
+	Your own model, run on the CPU instead of the official one.	Model Anda sendiri, dijalankan di prosesor menggantikan model resmi.
+	{name} · {size} download · runs on the CPU · {licence}	{name} · unduhan {size} · berjalan di prosesor · {licence}
+	Custom model…	Model kustom…
+	Pick any .onnx model that does this. It is copied into the models folder and used instead of the official one.	Pilih model .onnx apa pun untuk fungsi ini. Model disalin ke folder model dan dipakai menggantikan model resmi.
+	Input style:	Gaya input:
+	IS-Net style	Gaya IS-Net
+	U²-Net / ImageNet style	Gaya U²-Net / ImageNet
+	Sky class:	Kelas langit:
+	Only used when the model gives one map per class (ADE20K: 2).	Hanya dipakai jika model menghasilkan satu peta per kelas (ADE20K: 2).
+	Testing the model…	Menguji model…
+	Choose an ONNX file…	Pilih berkas ONNX…
+	That model can't be used: {error}	Model itu tidak dapat dipakai: {error}
+	Choose an ONNX model	Pilih model ONNX
+	ONNX model	Model ONNX
+	Remove old models ({size})	Hapus model lama ({size})
+	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	Memindahkan model yang tidak lagi dipakai aplikasi (U²-Net, TinySkyNet, MiDaS) ke Tempat Sampah.
+	the old models	model lama
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	Model kecil yang berjalan di prosesor komputer ini: tanpa ComfyUI atau GPU, unduhan cepat, dan foto Anda tidak pernah meninggalkan komputer. Setiap fungsi punya satu model yang direkomendasikan; Anda bisa memakai model ONNX sendiri.
