@@ -1,11 +1,11 @@
-//! Commands of AI Remove and AI Denoise. `spot.add {mode: "ai", …}` (in `cmd/masks.rs`) comes
+//! Commands of AI Remove. `spot.add {mode: "ai", …}` (in `cmd/masks.rs`) comes
 //! here too.
 
 use lightcraft_develop::SpotMode;
 use lightcraft_geom::Point;
 use serde_json::{Value, json};
 
-use super::session::{denoise_state, patch_state};
+use super::session::patch_state;
 use super::{AiStroke, CANCELLED};
 use crate::cmd::{CommandSpec, always, bad, bool_or, cmd, f64_or, has_active, str_param};
 use crate::{Result, Session};
@@ -88,25 +88,6 @@ fn regenerate(s: &mut Session, p: &Value) -> Result<Value> {
     if wait { finish_inline(s, C, &job) } else { Ok(json!({"job": job.id})) }
 }
 
-fn denoise(s: &mut Session, p: &Value) -> Result<Value> {
-    const C: &str = "enhance.denoise";
-    let id = match p.get("id").and_then(Value::as_u64) {
-        Some(i) => lightcraft_catalog::PhotoId(i),
-        None => s.active().ok_or_else(|| bad(C, "no active photo"))?,
-    };
-    if let Some(a) = p.get("amount").and_then(Value::as_f64) {
-        // the amount the result is used with (applied when it is ready)
-        let mut d = (*s.develop_of(id).ok_or_else(|| bad(C, "no such photo"))?).clone();
-        if d.enhance.ai.is_none() {
-            d.enhance.denoise = a.clamp(1.0, 100.0);
-            s.set_develop(id, d, "AI Denoise Amount")?;
-        }
-    }
-    let wait = bool_or(p, "wait", false);
-    let job = s.start_denoise(id, wait).map_err(|e| other(C, e))?;
-    if wait { finish_inline(s, C, &job) } else { Ok(json!({"job": job.id})) }
-}
-
 fn jobs(s: &mut Session, _: &Value) -> Result<Value> {
     Ok(json!({"jobs": s.enhance.jobs().iter().map(|j| j.json()).collect::<Vec<_>>()}))
 }
@@ -130,24 +111,7 @@ fn status(s: &mut Session, p: &Value) -> Result<Value> {
         .map(|(i, sp)| json!({"index": i, "state": patch_state(s, id, sp), "engine": sp.patch.as_ref().map(|x| x.engine.clone())}))
         .collect();
     let engines = s.enhance.host.as_ref().map(|h| h.remove_engines()).unwrap_or_default();
-    Ok(
-        json!({"denoise": denoise_state(s, id), "spots": spots, "engines": engines, "jobs": s.enhance.running_for(id).map(|j| j.json()).collect::<Vec<_>>()}),
-    )
-}
-
-fn download(s: &mut Session, p: &Value) -> Result<Value> {
-    const C: &str = "enhance.downloadModel";
-    let host = s.enhance.host.clone().ok_or_else(|| bad(C, "model downloads aren't available here"))?;
-    let id = li_seg::denoise::DENOISE_ID;
-    if bool_or(p, "cancel", false) {
-        host.cancel_model_download(id);
-        return Ok(json!({"cancelled": true}));
-    }
-    if s.quick_seg_dir.as_ref().is_some_and(|d| li_seg::denoise::installed(d).is_some()) {
-        return Ok(json!({"started": false, "installed": true}));
-    }
-    host.start_model_download(id).map_err(|e| other(C, e))?;
-    Ok(json!({"started": true}))
+    Ok(json!({"spots": spots, "engines": engines, "jobs": s.enhance.running_for(id).map(|j| j.json()).collect::<Vec<_>>()}))
 }
 
 pub(crate) fn specs() -> Vec<CommandSpec> {
@@ -161,15 +125,6 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             has_active,
             regenerate
         ),
-        cmd!(
-            "enhance.denoise",
-            "AI Denoise",
-            [],
-            None,
-            "{id? (the active photo), amount?: 1..100, wait?} — AI Denoise (raw photos; the RawNIND model, on the CPU, in the background; one undo step when it is ready) → {job}",
-            has_active,
-            denoise
-        ),
         cmd!(query "enhance.jobs", "AI Jobs", [], None, "{} → {jobs: [{id, photo, job, label, progress, message, running}]}", always, jobs),
         cmd!("enhance.cancel", "Cancel AI Job", [], None, "{job? (every job when omitted)} → {cancelled}", always, cancel),
         cmd!(
@@ -177,10 +132,9 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             "AI Status",
             [],
             None,
-            "{id? (the active photo)} → {denoise: {state, …}, spots: [{index, state: ok|stale|missing|foreign, engine}], engines, jobs}",
+            "{id? (the active photo)} → {spots: [{index, state: ok|stale|missing|foreign, engine}], engines, jobs}",
             has_active,
             status
         ),
-        cmd!("enhance.downloadModel", "Download the AI Denoise Model", [], None, "{cancel?} → {started}", always, download),
     ]
 }

@@ -215,7 +215,7 @@ pub struct Session {
     pub forget_local_days: u32,
     /// local-image: the Camera Raw Filter's temporary photo (see [`ephemeral`]).
     pub(crate) ephemeral: Option<ephemeral::Ephemeral>,
-    /// local-image: AI Remove / AI Denoise — the host's AI services and the running jobs (see
+    /// local-image: AI Remove — the host's AI services and the running jobs (see
     /// [`enhance`]).
     pub enhance: enhance::Enhance,
 }
@@ -550,7 +550,7 @@ impl Session {
             for k in ["spots", "red_eye", "version"] {
                 o.remove(k);
             }
-            // (nor an AI Denoise result: it was made from this photo's pixels)
+            // Stored patches are bound to their source photo.
             if let Some(Value::Object(e)) = o.get_mut("enhance") {
                 e.remove("ai");
                 if e.is_empty() {
@@ -768,3 +768,5 @@ mod tests_spots;
 mod tests_toolset;
 #[cfg(test)]
 mod tests_xmp;
+
+mod dcp_profiles;

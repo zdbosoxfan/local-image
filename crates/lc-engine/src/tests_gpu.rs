@@ -1,6 +1,6 @@
 //! The toolset upgrades through the engine's own render path on the GPU (`media::develop` via a
 //! view's [`RenderJob`] with its stage cache), against the CPU pipeline: raw options decoded again
-//! when switched, lens profiles from the real lens database, AI Remove patches and AI Denoise
+//! when switched, lens profiles from the real lens database, AI Remove patches
 //! results (both put in place before the renderers split). Same bounds as `lightcraft-gpu`'s
 //! equivalence tests (mean |Δ| < 0.5 LSB, max |Δ| ≤ 3 LSB). Skips when no GPU adapter exists.
 
@@ -64,7 +64,7 @@ struct Views {
 fn views(s: &mut Session, id: PhotoId, size: usize, stages: &Arc<StageCache>) -> Views {
     let mut job: RenderJob = s.render_job(id, size, size, false, true).expect("job").with_stages(stages.clone());
     let decoded = job.source.load_source().expect("source");
-    let info: SourceInfo = decoded.info_or(job.info);
+    let info: SourceInfo = decoded.info_or(job.info.clone());
     job.source = SourceRef::Loaded(Box::new(decoded.clone()));
     let (src, settings) = crate::enhance::for_render(&decoded.image, &job.settings, job.source_key);
     let req: RenderRequest = job.request;
@@ -76,6 +76,37 @@ fn views(s: &mut Session, id: PhotoId, size: usize, stages: &Arc<StageCache>) ->
     let view = r.rendered.as_ref().expect("view render").image.clone();
     s.accept(&r);
     Views { view, gpu, cpu, source: decoded.image }
+}
+
+#[test]
+fn new_cfa_methods_and_segmentation_render_on_the_gpu() {
+    let _gpu = gpu_state();
+    if !gpu() {
+        return;
+    }
+    let dng = crate::tests_toolset::textured_dng();
+    // CFA decoding is shared before the CPU/GPU boundary. Exercise both full decoding
+    // and the reduced-CFA preview hook through the existing GPU renderer.
+    for method in [
+        lightcraft_develop::Demosaic::Vng4,
+        lightcraft_develop::Demosaic::DualRcdVng,
+        lightcraft_develop::Demosaic::Amaze,
+        lightcraft_develop::Demosaic::DualAmazeVng,
+    ] {
+        for highlights in [lightcraft_develop::HighlightMode::Reconstruct, lightcraft_develop::HighlightMode::Segmentation] {
+            for edge in [200, usize::MAX] {
+                let opts = crate::files::RawOptions { demosaic: method, highlights, dual_threshold: 0.2, ..Default::default() };
+                let (src, info) = crate::files::load_bytes_with(&dng, edge, &opts).unwrap();
+                let src = Arc::new(src);
+                let mut settings = lightcraft_develop::DevelopSettings::default();
+                settings.light.exposure = 0.3;
+                let req = RenderRequest::fit(src.width, src.height);
+                let cpu = lightcraft_pipeline::render(&src, &info, &settings, &req).image;
+                let gpu = lightcraft_gpu::render(&src, &info, &settings, &req, None).expect("GPU renderer after shared CFA decoding").image;
+                assert_close(&format!("{method:?}/{highlights:?}/{edge}"), &cpu, &gpu);
+            }
+        }
+    }
 }
 
 #[test]
@@ -180,27 +211,17 @@ impl crate::enhance::AiHost for Mock {
         let rgb = req.rgb.iter().zip(&req.mask).map(|(c, m)| if *m > 127 { [250, 0, 250] } else { *c }).collect();
         Ok(crate::enhance::RemoveResult { rgb, alpha: req.mask.iter().map(|m| if *m > 127 { 255 } else { 0 }).collect() })
     }
-    fn start_model_download(&self, _: &str) -> Result<(), String> {
-        Err("not in tests".into())
-    }
-    fn model_download(&self, _: &str) -> Option<crate::enhance::Download> {
-        None
-    }
-    fn cancel_model_download(&self, _: &str) {}
 }
 
 #[test]
-fn ai_remove_and_denoise_are_in_the_gpu_render() {
+fn ai_remove_is_in_the_gpu_render() {
     let _gpu = gpu_state();
     if !gpu() {
         return;
     }
     let mut s = Session::with_demo();
     s.enhance.host = Some(Arc::new(Mock));
-    // (a raw demo photo that `enhance::denoise`'s and `tests_enhance`' tests don't use, so the
-    // stand-in's stored result is this test's own)
-    let ids: Vec<_> = s.visible_cloned().into_iter().filter(|id| crate::enhance::denoise::can_denoise(&s, *id).is_ok()).collect();
-    let id = ids[ids.len() / 2];
+    let id = s.visible_cloned()[0];
     s.execute("library.select", &json!({"ids": [id.0]})).unwrap();
     let stages = Arc::new(StageCache::default());
     let plain = views(&mut s, id, 480, &stages);
@@ -221,19 +242,4 @@ fn ai_remove_and_denoise_are_in_the_gpu_render() {
     s.execute("edit.undo", &json!({})).unwrap();
     let v = views(&mut s, id, 480, &stages);
     assert_eq!(v.view, plain.view, "undone: the photo as before");
-
-    // AI Denoise: a stand-in result (mid grey) mixed into the source by the amount
-    s.enhance.denoiser = Some(Arc::new(|px, _, _, _| Ok(vec![[0.18, 0.18, 0.18]; px.len()])));
-    s.execute("enhance.denoise", &json!({"wait": true})).unwrap();
-    let mut prev = plain.view.clone();
-    for amount in [60.0, 100.0, 20.0] {
-        s.execute("develop.set", &json!({"control": "enhance.denoise", "value": amount})).unwrap();
-        let v = views(&mut s, id, 480, &stages);
-        assert_eq!(v.view, v.gpu, "{amount}%: the view renders the mixed source");
-        assert_close(&format!("ai denoise {amount}%"), &v.cpu, &v.gpu);
-        assert_ne!(v.view, prev, "{amount}%: the amount changes the render");
-        prev = v.view;
-    }
-    s.execute("develop.set", &json!({"control": "enhance.denoise", "value": 0})).unwrap();
-    assert_eq!(views(&mut s, id, 480, &stages).view, plain.view, "amount 0: as before");
 }

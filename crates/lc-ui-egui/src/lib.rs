@@ -716,6 +716,8 @@ impl LightcraftApp {
         self.issue_screenshots(ctx);
         if self.fonts_ready {
             panels::host_session::keys(self, ctx);
+            // (Enter / Esc apply or drop the Remove tool's AI draft before they mean Done / Back)
+            panels::detail::remove_draft_keys(self, ctx);
             shortcuts::handle(self, ctx);
         }
         #[cfg(not(target_arch = "wasm32"))]

@@ -1,27 +1,12 @@
-//! local-image: AI in Develop — **AI Remove** (Lightroom's Remove tool with generative AI) and
-//! **AI Denoise** (Lightroom's Denoise), both non-destructive.
-//!
-//! * Generated pixels are stored, not baked: [`store`] keeps them beside the catalog under content
-//!   keys, and the develop settings refer to them (an AI spot's patch, the photo's Denoise result),
-//!   so undo, history, versions and copies of the settings work as for any other edit.
-//! * AI Remove asks the host for the inpainting ([`AiHost`]): the app passes in Compositing's AI
-//!   Remove engines (FLUX.2 Klein, Qwen through ComfyUI), so `lc-*` crates depend on neither
-//!   ComfyUI nor the editor. The patch is composited by `lightcraft_pipeline::patches` at the
-//!   retouching stage.
-//! * AI Denoise runs the RawNIND UtNet2 model on the CPU (`li_seg::denoise`, pure Rust); its
-//!   result replaces the photo's demosaiced source when rendering ([`denoise`]), blended by the
-//!   Denoise amount.
-//!
-//! Both are slow, so they run as background [`Job`]s with progress and cancel; the session picks
-//! up finished jobs and applies them as one undo step each.
+//! AI Remove in Develop: stored patches, undoable background jobs, progress and cancellation.
+//! The host supplies the inpainting engines; retouching composites patches in scene-linear RGB.
 
 pub(crate) mod cmds;
-pub mod denoise;
 pub mod remove;
 pub mod session;
 pub mod store;
 
-pub use session::{DenoiseState, PatchState, Polled, denoise_state, for_render, patch_state};
+pub use session::{PatchState, Polled, for_render, patch_state};
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -63,28 +48,12 @@ pub struct RemoveResult {
     pub alpha: Vec<u8>,
 }
 
-/// A model download the host runs.
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Download {
-    pub running: bool,
-    pub done: u64,
-    pub total: u64,
-    pub error: Option<String>,
-}
-
 /// AI services the app provides to Develop. Everything here may be called from worker threads.
 pub trait AiHost: Send + Sync {
     /// The AI Remove engines, in menu order.
     fn remove_engines(&self) -> Vec<RemoveEngine>;
     /// Repair the masked area (blocking; poll `ctl` for cancellation and report progress on it).
     fn remove(&self, req: &RemoveRequest, ctl: &JobCtl) -> Result<RemoveResult, String>;
-    /// Start downloading a local model (`li_seg::MODELS` id, e.g. the AI Denoise model) into
-    /// the models folder the session uses ([`crate::Session::quick_seg_dir`]).
-    fn start_model_download(&self, id: &str) -> Result<(), String>;
-    /// The last or running download of model `id`.
-    fn model_download(&self, id: &str) -> Option<Download>;
-    fn cancel_model_download(&self, id: &str);
 }
 
 // ------------------------------------------------------------------------------ jobs
@@ -170,7 +139,6 @@ pub struct RemoveDone {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
     Remove(RemoveDone),
-    Denoise(denoise::DenoiseDone),
 }
 
 /// What a job does.
@@ -178,14 +146,9 @@ pub enum Outcome {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum JobKind {
     /// A new AI removal (its stroke, for the canvas to show while it runs).
-    Remove {
-        stroke: AiStroke,
-    },
+    Remove { stroke: AiStroke },
     /// A new variation of AI spot `spot`.
-    Regenerate {
-        spot: usize,
-    },
-    Denoise,
+    Regenerate { spot: usize },
 }
 
 /// A background AI job.
@@ -228,14 +191,12 @@ impl Job {
 /// The work of a job, run on a worker thread.
 pub type Work = Box<dyn FnOnce(&JobCtl) -> Result<Outcome, String> + Send>;
 
-/// The session's AI state: the host's services, a denoiser override, the jobs.
+/// The session's AI state: the host's services and jobs.
 #[derive(Default)]
 pub struct Enhance {
     /// Set by the app (Compositing's AI engines and model downloads). `None`: AI Remove is
     /// unavailable (CLI, web, tests without a mock).
     pub host: Option<Arc<dyn AiHost>>,
-    /// Runs AI Denoise instead of the installed model (tests, tools).
-    pub denoiser: Option<denoise::DenoiseFn>,
     jobs: Vec<Arc<Job>>,
     next: u64,
 }
@@ -332,12 +293,25 @@ impl crate::Session {
     }
 }
 
+/// The content hash a photo's AI patches are keyed by.
+pub fn source_hash(p: &lightcraft_catalog::Photo) -> String {
+    lightcraft_preview::Hasher128::new().str(&crate::media::content_key(p)).finish().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn done() -> Outcome {
-        Outcome::Denoise(denoise::DenoiseDone { key: "k".into(), source: "s".into(), model: "m".into() })
+        Outcome::Remove(RemoveDone {
+            stroke: AiStroke { points: vec![], polygon: vec![], size: 0.01, feather: 50.0, opacity: 100.0, mask: None },
+            key: "k".into(),
+            source: "s".into(),
+            rect: [0.0; 4],
+            engine: "m".into(),
+            seed: 1,
+            geometry: "g".into(),
+        })
     }
 
     #[test]
@@ -345,8 +319,8 @@ mod tests {
         let mut e = Enhance::default();
         let j = e.spawn(
             PhotoId(7),
-            JobKind::Denoise,
-            "AI Denoise",
+            JobKind::Regenerate { spot: 0 },
+            "Regenerate",
             true,
             Box::new(|ctl| {
                 ctl.set(0.5, "half");
@@ -355,7 +329,7 @@ mod tests {
         );
         assert!(j.finished());
         assert_eq!((j.ctl.progress(), j.ctl.message()), (0.5, "half".to_string()));
-        assert_eq!(j.json()["job"]["kind"], "denoise");
+        assert_eq!(j.json()["job"]["kind"], "regenerate");
         let got = e.take_finished();
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].1, Ok(done()));
@@ -367,7 +341,7 @@ mod tests {
         let mut e = Enhance::default();
         let j = e.spawn(
             PhotoId(1),
-            JobKind::Denoise,
+            JobKind::Regenerate { spot: 0 },
             "x",
             false,
             Box::new(|ctl| {
@@ -382,7 +356,7 @@ mod tests {
         while !j.finished() {
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
-        let p = e.spawn(PhotoId(2), JobKind::Denoise, "y", true, Box::new(|_| panic!("boom")));
+        let p = e.spawn(PhotoId(2), JobKind::Regenerate { spot: 0 }, "y", true, Box::new(|_| panic!("boom")));
         assert!(p.finished());
         let got = e.take_finished();
         assert_eq!(got[0].1, Err(CANCELLED.to_string()));
