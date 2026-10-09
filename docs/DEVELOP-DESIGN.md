@@ -190,7 +190,7 @@ All ports keep their copyright notices under `licenses/`. RapidRAW (AGPL-3.0) is
 
 1. **Develop layer** — `SmartObject.develop`, raw/JPEG source decoded through `lc-pipeline` with the layer's settings; Library → Editor opens a Develop-layer document (linked), metadata carried; double-click opens Develop on the layer; saves to `.pcraft`/PSD; stacked back into the Library. *Retires the TIFF path for our own editor.*
 2. **One engine for Camera Raw Filter** — `filter.develop` smart filter, edited in the Develop module through a host session; composite → develop (live smart object / merge visible). *(Shipped, §3.5.)*
-3. **Develop layers** — `DevelopSettings.layers`, migration from masks, per-stage blending, layer UI.
+3. **Develop layers** — `DevelopSettings.layers`, migration from masks, per-stage blending, layer UI. *(Built on the masks, §3.2.)*
 4. **AI in develop** — unified segmentation service; AI Remove with the patch store; AI Denoise.
 5. **Toolset upgrades** — the P2/P3 table.
 

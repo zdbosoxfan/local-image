@@ -82,6 +82,8 @@ mod camera_raw_detail_ui;
 mod camera_raw_preview_ui;
 mod camera_raw_scope_ui;
 pub mod camera_raw_ui;
+// local-image: Edit › Transform › Cage on the canvas.
+pub mod cage_ui;
 pub mod canvas;
 pub mod canvas_tool_menu;
 pub mod channel_view;
@@ -158,6 +160,8 @@ pub mod plugin_ui;
 pub mod point_curve;
 pub mod prefs_ui;
 pub mod preset_files_ui;
+// local-image: Preferences › Tools › Pen pressure curve.
+pub mod pressure_curve_ui;
 pub mod preset_panels;
 pub mod props_layout;
 pub mod proxy;
@@ -711,7 +715,7 @@ impl PhotocraftApp {
         }
         let t0 = gpu_canvas::now_ms();
         // The OS clipboard is read only on an explicit paste, never in the background (privacy, CPU).
-        if matches!(id, "edit.paste" | "edit.pasteSpecial.pasteInPlace" | "file.newFromClipboard") {
+        if matches!(id, "edit.paste" | "edit.pasteSpecial.pasteInPlace" | "edit.pasteSpecial.pasteSeamless" | "file.newFromClipboard") {
             if !clip_read {
                 self.import_os_clipboard();
             }

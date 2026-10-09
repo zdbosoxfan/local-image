@@ -94,11 +94,25 @@ pub struct Stylus {
     lifted: bool,
     /// Tilt X, tilt Y, rotation of each point of the current drag (parallel to its points).
     pub(crate) stroke: Vec<[f32; 3]>,
+    /// local-image: Preferences › Tools › Pen pressure curve, applied to every pen sample, and
+    /// the points it was built from.
+    curve: photocraft_engine::paint::pressure::PressureCurve,
+    curve_src: Vec<[f32; 2]>,
 }
 
 impl Default for Stylus {
     fn default() -> Self {
-        Self { feed: StylusFeed::default(), use_pressure: true, end: None, tool_before_eraser: None, touch: None, lifted: false, stroke: Vec::new() }
+        Self {
+            feed: StylusFeed::default(),
+            use_pressure: true,
+            end: None,
+            tool_before_eraser: None,
+            touch: None,
+            lifted: false,
+            stroke: Vec::new(),
+            curve: Default::default(),
+            curve_src: photocraft_engine::paint::pressure::LINEAR.to_vec(),
+        }
     }
 }
 
@@ -122,13 +136,22 @@ impl Stylus {
         }
     }
 
+    /// The pen pressure curve (Preferences › Tools): rebuilt only when the points change.
+    pub fn set_pressure_curve(&mut self, points: &[[f32; 2]]) {
+        if self.curve_src != points {
+            self.curve = photocraft_engine::paint::pressure::PressureCurve::new(points);
+            self.curve_src = points.to_vec();
+        }
+    }
+
     /// The current pen sample, `None` for a mouse (and for any pen while Use Tablet Pressure is
-    /// off).
+    /// off). Its pressure has been through the pen pressure curve.
     pub fn sample(&self) -> Option<PenSample> {
         if !self.use_pressure {
             return None;
         }
-        self.feed.get().or(self.touch.map(|pressure| PenSample { pressure, ..Default::default() }))
+        let s = self.feed.get().or(self.touch.map(|pressure| PenSample { pressure, ..Default::default() }))?;
+        Some(PenSample { pressure: self.curve.map(s.pressure), ..s })
     }
 
     /// Did the pen just flip to its eraser end (`Some(true)`) or back to its tip (`Some(false)`)?
@@ -232,6 +255,23 @@ mod tests {
         assert_eq!(s.pressure(), 0.4);
         s.update(&[]);
         assert_eq!(s.pressure(), 1.0);
+    }
+
+    #[test]
+    fn the_pressure_curve_shapes_pen_pressure_but_not_the_mouse() {
+        use photocraft_engine::paint::pressure::{FIRM, LINEAR, SOFT};
+        let mut s = Stylus::default();
+        s.feed.set(Some(PenSample { pressure: 0.3, ..Default::default() }));
+        assert_eq!(s.pressure(), 0.3, "linear by default");
+        s.set_pressure_curve(SOFT);
+        assert!((s.pressure() - 0.55).abs() < 0.01, "{}", s.pressure());
+        s.set_pressure_curve(FIRM);
+        assert!(s.pressure() < 0.3);
+        s.set_pressure_curve(LINEAR);
+        assert_eq!(s.pressure(), 0.3);
+        s.set_pressure_curve(SOFT);
+        s.feed.set(None);
+        assert_eq!(s.pressure(), 1.0, "a mouse stays at full pressure");
     }
 
     #[test]

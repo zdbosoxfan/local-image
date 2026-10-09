@@ -1101,7 +1101,22 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
         draw_warp(painter, xf, t, w, pv, guide);
         return;
     }
-    if let Some(h) = Homography::rect_to_quad([0.0, 0.0, 1.0, 1.0], t.quad) {
+    let qmap = photocraft_algo::transform::QuadMap::new([0.0, 0.0, 1.0, 1.0], t.quad);
+    if let Some(m) = qmap.filter(|m| m.is_folded()) {
+        // local-image: a concave or folded quad previews as the two affine triangles the
+        // engine draws (see `QuadMap`), the second over the first.
+        let (tex, uv) = pv.texture.pick(painter.ctx(), xf.zoom * painter.ctx().pixels_per_point(), quad_scale(t), t.interpolation == "nearest");
+        let mut mesh = egui::Mesh::with_texture(tex);
+        let tint = Color32::from_white_alpha((pv.opacity.clamp(0.0, 1.0) * 255.0) as u8);
+        for (src, dst) in m.pieces() {
+            let base = mesh.vertices.len() as u32;
+            for (s, d) in src.iter().zip(dst) {
+                mesh.vertices.push(egui::epaint::Vertex { pos: xf.to_screen(d[0] as f32, d[1] as f32), uv: pos2(s[0] as f32 * uv[0], s[1] as f32 * uv[1]), color: tint });
+            }
+            mesh.add_triangle(base, base + 1, base + 2);
+        }
+        painter.add(mesh);
+    } else if let Some(h) = qmap.and_then(|m| m.homography().copied()) {
         // A 24×24 grid keeps perspective previews straight.
         let n = 24;
         let (tex, uv) = pv.texture.pick(painter.ctx(), xf.zoom * painter.ctx().pixels_per_point(), quad_scale(t), t.interpolation == "nearest");
@@ -1904,6 +1919,26 @@ mod tests {
         // Free Transform from the menu switches the live box back.
         crate::menus::invoke(&mut app, &ctx, "edit.freeTransform", json!({})).unwrap();
         assert_eq!(app.ui.transform.as_ref().unwrap().mode, TransformMode::Free);
+    }
+
+    #[test]
+    fn distort_past_a_neighbour_previews_and_commits_two_triangles() {
+        let mut app = app_with_square(64, photocraft_geom::Rect::new(8, 8, 24, 24));
+        app.ui.extras.snap = false;
+        let ctx = egui::Context::default();
+        crate::menus::invoke(&mut app, &ctx, "edit.transform.distort", json!({})).unwrap();
+        let q0 = app.ui.transform.as_ref().unwrap().quad;
+        // Drag the bottom-right corner inside the box: a concave quad.
+        press_drag(&mut app, q0[2], [14.0, 14.0], egui::Modifiers::NONE);
+        let q = app.ui.transform.as_ref().unwrap().quad;
+        assert!(!photocraft_algo::transform::quad_is_convex(&q));
+        commit(&mut app);
+        let st = app.session.active().unwrap();
+        let surf = st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap();
+        assert!(surf.pixel(10, 10)[3] > 0.9, "the top-left keeps its pixels");
+        assert!(surf.pixel(21, 21)[3] < 0.1, "the dent is empty");
+        let b = surf.content_bounds();
+        assert!(b.x1 <= 27 && b.y1 <= 27, "no ghost outside the quad: {b:?}");
     }
 
     #[test]

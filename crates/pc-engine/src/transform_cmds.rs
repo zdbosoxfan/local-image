@@ -519,6 +519,39 @@ mod tests {
     }
 
     #[test]
+    fn concave_distort_draws_two_triangles_and_undoes() {
+        let mut s = session();
+        // The 20×10 red box with its bottom-right corner dragged inside: a concave quad.
+        let quad = json!([[10, 10], [30, 10], [18, 14], [10, 20]]);
+        let r = s.execute("edit.transform", json!({"quad": quad})).unwrap();
+        assert_eq!(r["folded"], json!(true));
+        let b = active_bounds(&s);
+        // Only the anti-aliased edge (a sharp corner's filter reach) leaves the quad's box.
+        assert!(b.x0 >= 7 && b.y0 >= 7 && b.x1 <= 33 && b.y1 <= 23, "nothing far outside the quad: {b:?}");
+        let st = s.active().unwrap();
+        let surf = st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap();
+        assert!(surf.pixel(13, 12)[3] > 0.9, "inside the quad");
+        assert!(surf.pixel(26, 18)[3] < 0.1, "outside the dent");
+        assert!(s.undo());
+        assert_eq!(active_bounds(&s), Rect::new(10, 10, 30, 20));
+        // A bow-tie still draws.
+        s.execute("edit.transform", json!({"quad": [[10, 10], [30, 20], [30, 10], [10, 20]]})).unwrap();
+        assert!(!active_bounds(&s).is_empty());
+    }
+
+    #[test]
+    fn folded_distort_on_a_smart_object_becomes_a_warp() {
+        let mut s = session();
+        s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        s.execute("edit.transform", json!({"quad": [[10, 10], [30, 10], [18, 14], [10, 20]]})).unwrap();
+        let st = s.active().unwrap();
+        let LayerContent::Smart(sm) = &st.doc.layer(st.active_layer.unwrap()).unwrap().content else { panic!("smart object expected") };
+        assert!(sm.warp.is_some(), "kept as a re-renderable warp");
+        let c = sm.cache.as_ref().unwrap();
+        assert!(c.pixel(13, 12)[3] > 0.8 && c.pixel(26, 18)[3] < 0.2, "{:?} {:?}", c.pixel(13, 12), c.pixel(26, 18));
+    }
+
+    #[test]
     fn scale_via_quad_and_undo() {
         let mut s = session();
         s.execute("edit.transform", json!({"quad": [[10, 10], [50, 10], [50, 30], [10, 30]]})).unwrap();

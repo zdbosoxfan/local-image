@@ -23,6 +23,9 @@ pub fn finish_stroke(app: &mut PhotocraftApp, tool: Tool, points: &[[f64; 3]], m
         Tool::MixerBrush => ("paint.mixerBrush", json!({})),
         Tool::Healing | Tool::CloneStamp => {
             let mut p = json!({"aligned": o.clone_aligned, "sampleLayer": o.clone_sample});
+            if tool == Tool::CloneStamp && o.clone_seamless {
+                p["seamless"] = json!(true);
+            }
             // The Clone Source panel's active slot (set by ⌥-click) drives the stroke: the engine
             // keeps the aligned pairing and applies the slot's scale/rotation/flip.
             let slot = app.session.presets.clone.active().source.is_some();
@@ -58,7 +61,7 @@ pub fn finish_stroke(app: &mut PhotocraftApp, tool: Tool, points: &[[f64; 3]], m
             let mode = if mods.alt { "subtract" } else { "add" };
             let xy: Vec<[f64; 2]> = points.iter().map(|q| [q[0], q[1]]).collect();
             let _ = app
-                .run("select.quick", json!({"points": xy, "size": size, "mode": mode, "enhanceEdge": o.enhance_edge, "sampleAllLayers": o.sample_all_layers}));
+                .run("select.quick", json!({"points": xy, "size": size, "mode": mode, "enhanceEdge": o.enhance_edge, "sampleAllLayers": o.sample_all_layers, "subjectAssist": o.quick_subject_assist}));
             return true;
         }
         _ => return false,
@@ -211,6 +214,21 @@ fn opt(ui: &mut egui::Ui, text: &str) {
     ui.label(egui::RichText::new(tl!(&text)).color(t.text_dim).size(12.0));
 }
 
+/// local-image: is a selection model installed? Looked up at most every few seconds (it reads
+/// the AI settings and the model folder).
+fn seg_installed(ui: &egui::Ui) -> bool {
+    let id = egui::Id::new("quick-selection-model-installed");
+    let now = ui.input(|i| i.time);
+    match ui.data(|d| d.get_temp::<(f64, bool)>(id)) {
+        Some((t, v)) if now - t < 5.0 && now >= t => v,
+        _ => {
+            let v = photocraft_engine::seg::installed().is_some();
+            ui.data_mut(|d| d.insert_temp(id, (now, v)));
+            v
+        }
+    }
+}
+
 fn pct(ui: &mut egui::Ui, label: &str, v: &mut f32) {
     opt(ui, label);
     crate::widgets::value_field(ui, v, 1.0..=100.0, "%", 58.0);
@@ -272,6 +290,10 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
                 ("all".to_string(), tl!("All Layers")),
             ];
             crate::widgets::dropdown(ui, "clone-sample", &mut o.clone_sample, &opts, 130.0);
+            if tool == Tool::CloneStamp {
+                crate::widgets::checkbox(ui, &mut o.clone_seamless, tl!("Seamless"))
+                    .on_hover_text(tl!("Blend the cloned pixels into their surroundings"));
+            }
             if app.ui.clone_source.is_none() {
                 crate::widgets::vline(ui, 22.0);
                 opt(ui, &crate::i18n::fmt(tl!("{key}-click to set the source"), &[("key", &crate::shortcuts::pretty("Alt"))]));
@@ -304,6 +326,10 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
         Tool::QuickSelection => {
             crate::widgets::checkbox(ui, &mut o.sample_all_layers, tl!("Sample All Layers"));
             crate::widgets::checkbox(ui, &mut o.enhance_edge, tl!("Enhance Edge"));
+            if seg_installed(ui) {
+                crate::widgets::checkbox(ui, &mut o.quick_subject_assist, tl!("Subject Assist"))
+                    .on_hover_text(tl!("Guide the selection with the installed selection model"));
+            }
             opt(ui, &crate::i18n::fmt(tl!("{key} to subtract"), &[("key", &crate::shortcuts::pretty("Alt"))]));
             crate::widgets::vline(ui, 22.0);
             if crate::widgets::secondary_button(ui, tl!("Select Subject"), 0.0).clicked() {

@@ -446,6 +446,8 @@ pub struct ToolOptions {
     pub clone_aligned: bool,
     /// current | currentAndBelow | all
     pub clone_sample: String,
+    /// local-image: Clone Stamp › Seamless (the clone blends into its surroundings).
+    pub clone_seamless: bool,
     /// Spot Healing: contentAware | createTexture | proximityMatch
     pub spot_type: String,
     /// Patch: source (repair the selection) | destination (repair where it is dragged).
@@ -467,6 +469,8 @@ pub struct ToolOptions {
     pub finger_painting: bool,
     /// Quick Selection enhance edge.
     pub enhance_edge: bool,
+    /// local-image: Quick Selection › Subject Assist (the installed selection model as a prior).
+    pub quick_subject_assist: bool,
     /// Pen: "path" (work path) or "shape" (shape layer).
     pub vector_mode: String,
     /// Shape tools: fill with the foreground colour, stroke width (0 = none), rectangle corner
@@ -563,6 +567,7 @@ impl Default for ToolOptions {
             type_align: "left".into(),
             clone_aligned: true,
             clone_sample: "current".into(),
+            clone_seamless: false,
             spot_type: "contentAware".into(),
             patch_mode: "source".into(),
             cam_mode: "move".into(),
@@ -577,6 +582,7 @@ impl Default for ToolOptions {
             protect_detail: true,
             finger_painting: false,
             enhance_edge: false,
+            quick_subject_assist: true,
             vector_mode: "path".into(),
             shape_fill: true,
             stroke_width: 0.0,

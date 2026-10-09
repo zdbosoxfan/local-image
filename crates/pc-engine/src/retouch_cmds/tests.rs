@@ -940,3 +940,27 @@ fn content_aware_move_on_a_transparent_layer_leaves_no_fringe() {
     assert!(worst.0 < 0.05, "fringe at {:?}: {:?}", worst.1, worst.2);
     assert!(is_object(rgba(&s, 136, 48)), "the disc moved");
 }
+
+#[test]
+fn seamless_clone_stamp_takes_the_colour_around_the_stroke() {
+    // Left half dark, right half bright, both with the same fine texture: cloning dark onto bright
+    // copies the texture; Seamless matches it to the bright surroundings.
+    let tex = |x: i32, y: i32| ((x * 7 + y * 13) % 5) as f32 * 0.02;
+    let mut s = session(120, 60, 16, "rgb");
+    paint_layer(&mut s, |x, y| {
+        let base = if x < 60 { 0.2 } else { 0.7 };
+        [base + tex(x, y), base + tex(x, y), base + tex(x, y), 1.0]
+    });
+    let p = json!({"points": [[85, 30], [95, 30]], "source": [25, 30], "size": 12, "hardness": 100});
+    s.execute("paint.cloneStamp", p.clone()).unwrap();
+    assert!(rgba(&s, 90, 30)[0] < 0.4, "plain clone copies the dark colour");
+    assert!(s.undo());
+    let mut q = p;
+    q["seamless"] = json!(true);
+    s.execute("paint.cloneStamp", q).unwrap();
+    for (x, y) in [(90, 30), (88, 28), (93, 32)] {
+        let got = rgba(&s, x, y)[0];
+        let want = 0.7 + tex(x - 60, y);
+        assert!((got - want).abs() < 0.04, "({x},{y}) {got} vs {want}");
+    }
+}
