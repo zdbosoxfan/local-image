@@ -11,6 +11,8 @@ pub const SCHEMA_VERSION: u32 = 1;
 pub struct DevelopSettings {
     pub version: u32,
     pub profile: Profile,
+    #[serde(default, skip_serializing_if = "is_legacy_process")]
+    pub process: ProcessVersion,
     pub treatment: Treatment,
     pub wb: WhiteBalance,
     pub light: Light,
@@ -63,6 +65,7 @@ impl Default for DevelopSettings {
         Self {
             version: SCHEMA_VERSION,
             profile: Profile::default(),
+            process: ProcessVersion::default(),
             treatment: Treatment::Color,
             wb: WhiteBalance::default(),
             light: Light::default(),
@@ -93,6 +96,27 @@ impl Default for DevelopSettings {
             color_cal: Default::default(),
             disabled_sections: Vec::new(),
         }
+    }
+}
+
+/// The processing engine version: which algorithms render the primary Develop sliders.
+/// [`ProcessVersion::Legacy`] is what settings written before 2026 render with (bit-identical);
+/// [`ProcessVersion::V2026`] uses the darktable-grade tools (see `docs/DEVELOP-DESIGN.md` §4.2).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProcessVersion {
+    #[default]
+    Legacy,
+    V2026,
+}
+
+pub fn is_legacy_process(p: &ProcessVersion) -> bool {
+    *p == ProcessVersion::Legacy
+}
+
+impl DevelopSettings {
+    pub fn v2026(&self) -> bool {
+        self.process == ProcessVersion::V2026
     }
 }
 
