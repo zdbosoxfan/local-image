@@ -344,6 +344,7 @@ impl Session {
         self.keyword_set = prefs.keyword_set;
         self.recent_keywords = prefs.recent_keywords;
         self.import_defaults = prefs.import;
+        crate::dcp_profiles::configure(&self.import_defaults.camera_profiles_folder);
         self.cache_mb = prefs.cache_mb;
         self.forget_local_days = prefs.forget_local_days.unwrap_or(lightcraft_catalog::DEFAULT_FORGET_DAYS);
         self.smart_previews_dir = prefs.smart_previews_dir.filter(|_| on_disk).map(PathBuf::from);
@@ -370,7 +371,7 @@ impl Session {
         if on_disk {
             self.media.attach_disk_cache(&dir.join("thumbs"), self.cache_bytes());
         }
-        // local-image: AI Remove patches and AI Denoise results live beside the catalog
+        // local-image: AI Remove patches live beside the catalog
         crate::enhance::store::set_root(on_disk.then(|| crate::enhance::store::root_for_library(&dir)));
         crate::enhance::remove::install();
         let view_written = self.view_json();

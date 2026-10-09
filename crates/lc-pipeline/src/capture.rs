@@ -361,3 +361,23 @@ mod tests {
         assert_eq!(idx[0], 0);
     }
 }
+
+#[cfg(test)]
+mod refvec_tests {
+    use super::*;
+    #[test]
+    fn upstream_rl_vectors() {
+        let (w, h) = (64, 64);
+        let input: Vec<_> = (0..w * h).map(|i| 0.1 + 0.7 * crate::test_vectors::noise(i)).collect();
+        let mut est = input.clone();
+        let mut ratio = vec![1.0; w * h];
+        let blend: Vec<_> = (0..w * h).map(|i| if i % 29 != 0 { 1.0 } else { 0.0 }).collect();
+        let idx: Vec<u8> = (0..w * h).map(|i| [30, 70, 150][i % 3]).collect();
+        let kernels: Vec<_> = (0..256).map(|i| kernel(i as f32 * SIGMA_STEP)).collect();
+        for _ in 0..8 {
+            blur_with(&est, &mut ratio, &blend, &kernels, &idx, w, h, |_, v, i| input[i] / v.max(YMIN));
+            blur_with(&ratio, &mut est, &blend, &kernels, &idx, w, h, |o, v, _| o * v);
+        }
+        crate::test_vectors::compare("capture-rl/estimate.f32", &est, 3e-6);
+    }
+}

@@ -1,5 +1,6 @@
 //! Clip-aware highlight handling on demosaiced camera RGB (before white balance, white level = 1.0).
 //!
+//! - [`segmentation`]: full segmentation/recovery on normalized CFA before demosaic.
 //! - [`clip_neutral`]: white-balance-aware clipping so that sensor-clipped areas render neutral instead of
 //!   magenta/cyan (each channel limited to the smallest white-balanced clip level).
 //! - [`reconstruct`]: where only some channels are clipped, rebuild them from the unclipped channels using the
@@ -9,7 +10,10 @@
 //!   cube-root mean of the two other channels plus a chrominance offset measured around clipped areas.
 
 mod opposed;
+mod segbased;
+mod segmentation;
 pub use opposed::opposed;
+pub use segbased::{Recovery, SegmentationOptions, segmentation};
 
 use lightcraft_raster::Rgb32f;
 use rayon::prelude::*;

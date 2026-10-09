@@ -560,7 +560,7 @@ fn open_library_app(opens: Opens, prefs_writer: &mut PrefsWriter) -> LightcraftA
     lightcraft_engine::ephemeral::clear_dir(&camera_raw_dir());
     // Quick Subject / Background / Sky masks share the models Compositing's selections use.
     session.quick_seg_dir = Some(photocraft_engine::seg::models_dir());
-    // AI Remove / AI Denoise: Compositing's AI engines and model downloads.
+    // AI Remove: Compositing's AI engines.
     session.enhance.host = Some(crate::develop_ai::DevelopAi::shared());
     let mut app = LightcraftApp::new(session, services(opens));
     if let Some(ui) = prefs {

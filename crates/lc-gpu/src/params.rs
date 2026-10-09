@@ -17,17 +17,23 @@ const FIELDS: &[(&str, usize)] = &[
     ("SRGB_OFF", 1),
     ("CURVE_OFF", 1),
     ("CURVES", 1),
+    ("CURVE_LUM", 1),
+    ("SOFT_GAMUT", 1),
     ("GAIN", 1),
     ("EV", 1),
-    ("AIR", 1),
-    ("AIR_PRE", 1),
+    ("AIR_RGB", 3),
+    ("HAZE_DISTANCE", 1),
     ("HL", 1),
     ("SH", 1),
     ("CLAR", 1),
     ("TEX", 1),
     ("DEHAZE", 1),
-    ("SHARPEN", 1),
-    ("SHARPEN_MASK", 1),
+    ("SHARP_A", 1),
+    ("SHARP_D", 1),
+    ("SHARP_HALO", 1),
+    ("SHARP_T", 1),
+    ("SHARP_EK", 1),
+    ("HAS_SHARP", 1),
     ("HAS_CLAR", 1),
     ("HAS_TEX", 1),
     ("HAS_DARK", 1),
@@ -71,6 +77,9 @@ const FIELDS: &[(&str, usize)] = &[
     ("OUT_Y", 3),
     ("OUT_TRC", 1),
     ("OUT_GAMMA", 1),
+    // Process 2026 tone stage (`lightcraft_pipeline::tone2`): on, hue preservation
+    ("TONE_HUE", 1),
+    ("TONE_LUM", 1),
     // first row of a band dispatch (the kernel runs over rows Y0.., see `render`)
     ("Y0", 1),
 ];
@@ -132,6 +141,7 @@ pub struct Present {
     pub clarity: bool,
     pub texture: bool,
     pub dark: bool,
+    pub sharp: bool,
     /// The blurred chromaticity follows the mask planes in the `masks` buffer.
     pub chroma: bool,
 }
@@ -145,7 +155,7 @@ pub fn finish_block(fp: &FinishParams, masks: &[[f32; MASK_TERMS]], present: &Pr
     aux.extend_from_slice(&srgb_lut()[..]);
     let curve_off = aux.len();
     if let Some(c) = &fp.curves {
-        for l in c {
+        for l in &c.tables {
             assert_eq!(l.v.len(), CURVE_N as usize);
             aux.extend_from_slice(&l.v);
         }
@@ -163,18 +173,25 @@ pub fn finish_block(fp: &FinishParams, masks: &[[f32; MASK_TERMS]], present: &Pr
     p.u("SRGB_OFF", srgb_off as u32);
     p.u("CURVE_OFF", curve_off as u32);
     p.b("CURVES", fp.curves.is_some());
+    p.b("CURVE_LUM", fp.curves.as_ref().is_some_and(|c| c.luminance));
+    p.b("SOFT_GAMUT", fp.soft_gamut);
     p.f("REFINE_SAT", fp.refine_sat);
     p.f("GAIN", fp.gain);
     p.f("EV", fp.ev);
-    p.f("AIR", fp.air);
-    p.f("AIR_PRE", fp.air_pre);
+    p.fs("AIR_RGB", &fp.haze_air.map(|v| v * fp.gain));
+    p.f("HAZE_DISTANCE", fp.haze_distance);
     p.f("HL", fp.hl);
     p.f("SH", fp.sh);
     p.f("CLAR", fp.clar);
     p.f("TEX", fp.tex);
     p.f("DEHAZE", fp.dehaze);
-    p.f("SHARPEN", fp.sharpen);
-    p.f("SHARPEN_MASK", fp.sharpen_mask);
+    let k = lightcraft_pipeline::detail::SharpK::new(fp.sharp_detail, fp.sharp_masking, fp.sharp_sigma);
+    p.f("SHARP_A", fp.sharp_amount);
+    p.f("SHARP_D", k.detail);
+    p.f("SHARP_HALO", k.halo);
+    p.f("SHARP_T", k.mask_t);
+    p.f("SHARP_EK", k.edge_k);
+    p.b("HAS_SHARP", present.sharp);
     p.b("HAS_CLAR", present.clarity);
     p.b("HAS_TEX", present.texture);
     p.b("HAS_DARK", present.dark);
@@ -225,6 +242,8 @@ pub fn finish_block(fp: &FinishParams, masks: &[[f32; MASK_TERMS]], present: &Pr
         p.fs("CALIB_M", m.as_flattened());
     }
     p.f("SHADOW_TINT", fp.shadow_tint);
+    p.f("TONE_HUE", fp.tone.method().hue);
+    p.b("TONE_LUM", fp.tone.method().luminance);
     p.fs("OUT_M", fp.to_out.as_flattened());
     p.fs("OUT_Y", &fp.out_luma);
     let (trc, gamma) = fp.out_trc.code();

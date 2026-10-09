@@ -1,11 +1,6 @@
-//! The content-addressed store of AI results beside the catalog: AI Remove patches and AI Denoise
-//! results, so generated pixels are kept (re-editable, undoable) without TIFF copies of photos.
-//!
-//! ```text
-//! <library>/Patches/remove/<key>.lip       one removal's patch (linear RGBA)
-//! <library>/Patches/denoise/<key>.lip      a denoised photo at full size (linear RGB)
-//! <library>/Patches/denoise/<key>-2560.lip the same, at most 2560 px long (previews)
-//! ```
+//! The content-addressed store of AI Remove patches beside the catalog.
+//! Generated pixels stay re-editable and undoable without TIFF copies of photos.
+//! `<library>/Patches/remove/<key>.lip` stores a removal's linear RGBA patch.
 //!
 //! Keys are 32 hex digits naming the inputs (source photo content, stroke / model, engine, seed),
 //! so a key always names the same pixels. Files are written durably (an AI result can't always be
@@ -27,14 +22,12 @@ use lightcraft_raster::Rgb32f;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Kind {
     Remove,
-    Denoise,
 }
 
 impl Kind {
     fn dir(self) -> &'static str {
         match self {
             Kind::Remove => "remove",
-            Kind::Denoise => "denoise",
         }
     }
 }
@@ -303,7 +296,6 @@ mod tests {
         assert!(!exists(Kind::Remove, &key) && get(Kind::Remove, &key).is_none());
         put(Kind::Remove, &key, &raster(4), None).unwrap();
         assert!(exists(Kind::Remove, &key));
-        assert!(!exists(Kind::Denoise, &key), "kinds are separate");
         assert_eq!(get(Kind::Remove, &key).unwrap().width, 37);
         delete(Kind::Remove, &key);
         assert!(!exists(Kind::Remove, &key) && get(Kind::Remove, &key).is_none());
@@ -311,9 +303,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("lc-enhance-store-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let key2 = key_of(&["store-test-disk"]);
-        put(Kind::Denoise, &key2, &raster(3), Some(&dir)).unwrap();
-        assert!(dir.join("denoise").join(format!("{key2}.lip")).is_file());
-        let back = get_at(Kind::Denoise, &key2, &dir).unwrap();
+        put(Kind::Remove, &key2, &raster(3), Some(&dir)).unwrap();
+        assert!(dir.join("remove").join(format!("{key2}.lip")).is_file());
+        let back = get_at(Kind::Remove, &key2, &dir).unwrap();
         assert_eq!((back.width, back.channels), (37, 3));
         assert!(put(Kind::Remove, "../../x", &raster(4), Some(&dir)).is_err());
         let _ = std::fs::remove_dir_all(&dir);

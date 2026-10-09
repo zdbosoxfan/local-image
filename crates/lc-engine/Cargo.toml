@@ -33,6 +33,10 @@ thiserror = { workspace = true }
 log = { workspace = true }
 ab_glyph = { workspace = true }
 lightcraft-segment = { workspace = true, optional = true }
+# Content-aware healing in Develop: Compositing's Spot Healing (PatchMatch completion + Poisson
+# seamless blending). Pure Rust; the photocraft-* crates never depend on lightcraft-*.
+photocraft-algo = { workspace = true }
+photocraft-raster = { workspace = true }
 
 [features]
 # AI masks with SAM 3 (Object / Describe). Off for the web and CLI builds.

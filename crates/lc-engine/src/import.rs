@@ -224,6 +224,11 @@ pub struct ImportDefaults {
     pub auto_folder: Option<String>,
     pub auto_copy: bool,
     pub auto_album: Option<String>,
+    /// The look new raw photos start with (Settings → Import, "Default look
+    /// for new photos"; each photo can change it in Develop).
+    pub look: lightcraft_develop::Look,
+    /// Read user camera profiles without copying them into the library.
+    pub camera_profiles_folder: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -253,6 +258,8 @@ impl ImportDefaults {
 /// Give a freshly imported photo its default settings: the camera defaults, then the matching
 /// default preset ([`ImportDefaults::preset_for`]), remembered as the photo's import look.
 pub fn apply_import_defaults(s: &Session, p: &mut Photo) {
+    // photos added from now on use the preferred look
+    p.look = s.import_defaults.look;
     // metadata defaults fill gaps only: the file's own copyright / creator win
     let d = &s.import_defaults;
     if p.meta.copyright.trim().is_empty() && !d.copyright.trim().is_empty() {
@@ -873,6 +880,7 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
                 p.captured = info.captured;
                 p.meta = info.meta;
                 p.as_shot_wb = info.as_shot_wb;
+                p.measured_wb = info.measured_wb;
                 p.content_hash = info.content_hash;
                 p.embedded_lens = info.embedded_lens;
                 p.preview_only = info.preview_only.clone();
@@ -984,9 +992,11 @@ impl Session {
         p.kind = c.kind;
         if let Some(info) = self.import_probes.get(&c.path) {
             p.as_shot_wb = info.as_shot_wb;
+            p.measured_wb = info.measured_wb;
             p.embedded_lens = info.embedded_lens;
             p.preview_only = info.preview_only.clone();
         }
+        p.look = self.import_defaults.look;
         p.develop = std::sync::Arc::new(p.import_defaults());
         let edge = edge.clamp(64, crate::media::SourceLevel::Thumb.max_edge());
         let level = crate::media::SourceLevel::Thumb;

@@ -238,3 +238,39 @@ mod tests {
         assert_eq!(preview_grey(-4.2), 0.5);
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod refvec_tests {
+    use super::*;
+    #[test]
+    fn upstream_solve_and_correction_vectors() {
+        let bytes = std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/toneeq/solve.f64")).unwrap();
+        let values: Vec<_> = bytes.as_chunks::<8>().0.iter().map(|b| f64::from_le_bytes(*b)).collect();
+        assert_eq!(values.len(), 3 * (72 + 9 + 8));
+        let mut correction = Vec::new();
+        for (mode, chunk) in values.as_chunks::<89>().0.iter().enumerate() {
+            let a: [[f64; 8]; 9] = std::array::from_fn(|r| std::array::from_fn(|c| chunk[r * 8 + c]));
+            let y: [f64; 9] = chunk[72..81].try_into().unwrap();
+            let x = least_squares(&a, &y).unwrap();
+            let max = x.iter().zip(&chunk[81..]).map(|(a, b)| (a - b).abs()).fold(0.0f64, f64::max);
+            eprintln!("toneeq solve {mode}: max abs {max:.12}");
+            assert!(max < 2e-8);
+            let sigma = [0.7, std::f32::consts::SQRT_2, 2.0][mode];
+            let curve = Curve { factors: x.map(|v| v as f32), sigma, lut: Vec::new() };
+            for i in 0..=512 {
+                correction.push(curve.exact(-8.0 + i as f32 / 64.0));
+            }
+        }
+        crate::test_vectors::compare("toneeq/gain.f32", &correction, 2e-6);
+        // Also measure full curve construction with our higher-precision interpolation matrix.
+        let expected = crate::test_vectors::read("toneeq/gain.f32");
+        let zones = [0.2, -0.1, 0.3, 0.5, 0.8, 0.4, -0.3, -0.2, 0.1];
+        for (mode, sigma) in [0.7, std::f32::consts::SQRT_2, 2.0].into_iter().enumerate() {
+            let curve = Curve::new(&zones, sigma).unwrap();
+            let max = (0..=512).map(|i| (curve.gain(-8.0 + i as f32 / 64.0) - expected[mode * 513 + i]).abs()).fold(0.0f32, f32::max);
+            eprintln!("toneeq full curve {mode}: max abs {max:.9}");
+            assert!(max < 6e-5);
+        }
+    }
+}

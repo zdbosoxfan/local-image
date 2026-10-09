@@ -12,8 +12,6 @@
 use std::path::Path;
 use std::sync::Arc;
 
-pub mod denoise;
-
 use anyhow::{Context, Result, bail};
 use tract_onnx::prelude::*;
 
@@ -106,9 +104,6 @@ pub enum Task {
     /// Monocular relative depth (Depth Anything V2, MiDaS): one map of relative inverse depth
     /// (larger = nearer), ImageNet-normalised input.
     Depth,
-    /// AI Denoise ([`denoise`]): the download is a model package (a zip); `inner` is the model's
-    /// path in it, with its own size and SHA-256 (checked when it is unpacked).
-    Denoise { inner: &'static str, inner_bytes: u64, inner_sha256: &'static str },
 }
 
 pub const MODELS: &[ModelSpec] = &[
@@ -216,26 +211,6 @@ pub const MODELS: &[ModelSpec] = &[
         task: Task::Depth,
         group: Some(Group::Depth),
         about: "An older, smaller depth model. Faster, but its depth is coarser and blurrier. Used only when Depth Anything isn't installed.",
-    },
-    // AI Denoise: darktable-ai's RawNIND UtNet2 package (release-5.6.0, GPL-3.0); its linear
-    // Rec.2020 variant is unpacked from it (`denoise::install_package`).
-    ModelSpec {
-        id: denoise::DENOISE_ID,
-        label: "RawNIND UtNet2",
-        file: "rawdenoise-nind-linear.onnx",
-        bytes: 57700134,
-        sha256: "d71b5f1e727c85a359e6f74dca9e2016c9d8fc3e2f7ac3e9b347d80ceca969af",
-        url: "https://github.com/darktable-org/darktable-ai/releases/download/release-5.6.0/rawdenoise-nind.dtmodel",
-        size: denoise::TILE,
-        isnet: false,
-        licence: "GPL-3.0 (RawNIND UtNet2, Brummer & De Vleeschouwer 2025; darktable-ai)",
-        task: Task::Denoise {
-            inner: "rawdenoise-nind/model_linear.onnx",
-            inner_bytes: 31053823,
-            inner_sha256: "df957efadcc152c007d5d3b0917bdff9e41c0d4a0efe56584ef30b36393cd181",
-        },
-        group: None,
-        about: "Removes noise from high-ISO raw photos with a network trained on real camera noise, keeping detail that classic noise reduction smooths away. Works tile by tile, so large photos take a while. The download is a package; only the 31 MB model inside it stays installed.",
     },
 ];
 
@@ -511,9 +486,6 @@ fn forget(spec: &ModelSpec) {
         if g.as_ref().is_some_and(|(id, _)| id == spec.id) {
             *g = None;
         }
-    }
-    if matches!(spec.task, Task::Denoise { .. }) {
-        denoise::forget();
     }
 }
 
