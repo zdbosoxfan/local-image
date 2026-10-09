@@ -194,7 +194,19 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     row(ui, t, crate::i18n::tr("Default look for new photos"), |ui| {
         crate::panels::process::default_look_combo(app, ui);
     });
-    hint(ui, t, crate::i18n::tr("New raw photos use Process 2026 with this look; each photo can change it in Develop (Profile › Look)."));
+    hint(ui, t, crate::i18n::tr("New raw photos use this look; each photo can change it in Develop (Profile › Look)."));
+    row(ui, t, crate::i18n::tr("Camera profiles folder"), |ui| {
+        let mut folder=d.camera_profiles_folder.clone();
+        let response=ui.text_edit_singleline(&mut folder);
+        if response.lost_focus() && folder!=d.camera_profiles_folder {
+            let _=app.run("library.preferences",json!({"import":{"cameraProfilesFolder":folder}}));
+        }
+        if app.services.pick_folder.is_some() && ui.button(crate::i18n::tr("Choose…")).clicked()
+            && let Some(folder)=app.services.pick_folder.as_mut().and_then(|f|f()) {
+            let _=app.run("library.preferences",json!({"import":{"cameraProfilesFolder":folder}}));
+        }
+    });
+    hint(ui,t,crate::i18n::tr("Read DCP profiles for matching cameras from this folder."));
     let mut per = d.per_camera;
     row(ui, t, "", |ui| {
         if check(ui, "settings.perCamera", &mut per, "Use camera-specific defaults") {

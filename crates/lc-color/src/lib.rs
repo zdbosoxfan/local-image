@@ -237,3 +237,5 @@ mod tests {
         assert_eq!(Rgb8::from_hex("xyz"), None);
     }
 }
+
+pub mod camera;

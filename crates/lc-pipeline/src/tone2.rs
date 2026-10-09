@@ -1,4 +1,4 @@
-//! Process 2026 tone: the looks and the hue-preserving tone stage.
+//! global tone: the looks and the hue-preserving tone stage.
 //!
 //! Every look is a base curve from scene luminance to display-linear luminance, sampled into the
 //! same log-spaced table as the Legacy tone map ([`ToneMap`]), so the CPU and the GPU evaluate it
@@ -11,7 +11,7 @@
 //!   GPL-3.0-or-later, see `docs/PORTS.md`), at its defaults (contrast 1.5, skew 0, display
 //!   black 0.0152 %, white 100 %), with darktable's scene-referred default exposure of +0.7 EV.
 //! * **Camera** ([`BaseCurve::Camera`]): a curve fitted to the file's embedded JPEG, or a maker's
-//!   base curve (`crate::basecurves`) when the file has no usable preview.
+//!   base curve (`the engine's base-curves module`) when the file has no usable preview.
 //!
 //! For scene-referred (raw) sources Contrast, Whites and Blacks reshape the scene's log exposure
 //! before the base curve ([`scene_ev`]): contrast scales the slope about grey (for the sigmoid this
@@ -34,9 +34,9 @@ pub const SIGMOID_GREY: f32 = 0.1845;
 /// darktable's scene-referred default exposure (+0.7 EV), which its sigmoid is designed around.
 pub const SIGMOID_EXPOSURE: f32 = 0.7;
 
-/// How the tone stage of a Process 2026 render works (carried by its [`ToneMap`]).
+/// How the tone stage of a global render works (carried by its [`ToneMap`]).
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct V2Tone {
+pub struct ToneMethod {
     /// Hue preservation 0..1 (darktable sigmoid's "preserve hue"): 1 keeps every hue, 0 is the
     /// plain per-channel curve (bright colours shift towards the secondaries, like film).
     pub hue: f32,
@@ -141,7 +141,7 @@ impl AdobeLike {
         } else {
             // slope `slope` at grey easing to `toe_slope` deep in the shadows
             let k = self.toe_width;
-            self.toe_slope * x + (self.slope - self.toe_slope) * k * (1.0 - (x / k).exp())
+            self.toe_slope * x + (self.slope - self.toe_slope) * k * ((x / k).exp() - 1.0)
         }
     }
 
@@ -201,7 +201,7 @@ fn ramp(x: f32, k: f32) -> f32 {
     if x <= 0.0 { 0.0 } else { x * x / (x + k) }
 }
 
-/// Contrast as a log slope about grey (Legacy's mapping of the slider).
+/// Contrast as a log slope about grey (the original mapping of the slider).
 pub fn contrast_slope(contrast: f64) -> f32 {
     let c = (contrast / 100.0) as f32;
     if c >= 0.0 { 1.0 + 0.55 * c } else { 1.0 + 0.4 * c }
@@ -244,6 +244,7 @@ pub fn scene_ev(ev: f32, contrast: f64, whites: f64, blacks: f64) -> f32 {
 /// Contrast, Whites and Blacks as monotone curves in a gamma-2.2 perceptual domain. Endpoints
 /// stay put except what Whites + pushes past white (a short soft shoulder) and Blacks − crushes.
 pub fn display_tone(y: f32, contrast: f64, whites: f64, blacks: f64) -> f32 {
+    if contrast == 0.0 && whites == 0.0 && blacks == 0.0 { return y.clamp(0.0, 1.0); }
     let c = (contrast / 100.0) as f32;
     let w = (whites / 100.0) as f32;
     let b = (blacks / 100.0) as f32;
@@ -270,8 +271,7 @@ pub fn display_tone(y: f32, contrast: f64, whites: f64, blacks: f64) -> f32 {
     let mut o = p.max(0.0).powf(2.2);
     // short soft shoulder: slope 1 at 0.95, reaching 1.0 at 1.05
     if o > 0.95 {
-        let d = (o - 0.95).min(0.1);
-        o = 0.95 + d - d * d / 0.2;
+        o = 0.95 + 0.05 * (1.0 - (-(o - 0.95)/0.05).exp());
     }
     o.clamp(0.0, 1.0)
 }
@@ -288,9 +288,9 @@ fn ev_at(i: usize) -> f32 {
 }
 
 impl ToneMap {
-    /// Process 2026 tone map of a scene-referred source: `base` after the sliders' reshaping of
+    /// global tone map of a scene-referred source: `base` after the sliders' reshaping of
     /// the scene exposure ([`scene_ev`]), the variant `shape` ([`base_shape`]) first.
-    pub fn v2_scene(base: &BaseCurve, shape: lightcraft_develop::ToneBase, hue: f32, contrast: f64, whites: f64, blacks: f64) -> ToneMap {
+    pub fn scene(base: &BaseCurve, shape: lightcraft_develop::ToneBase, hue: f32, contrast: f64, whites: f64, blacks: f64) -> ToneMap {
         let (k, w0, b0) = base_shape(shape);
         let lut: Vec<f32> = (0..LUT_N)
             .map(|i| {
@@ -302,17 +302,17 @@ impl ToneMap {
             BaseCurve::Camera(c) => *c.chroma(),
             _ => [1.0; CHROMA_N],
         };
-        ToneMap::with_v2(lut, chroma, V2Tone { hue: hue.clamp(0.0, 1.0) })
+        ToneMap::from_tables(lut, chroma, ToneMethod { hue: hue.clamp(0.0, 1.0) })
     }
 
-    /// Process 2026 tone map of a rendered source (or a converted negative): [`display_tone`].
-    pub fn v2_display(hue: f32, contrast: f64, whites: f64, blacks: f64) -> ToneMap {
+    /// global tone map of a rendered source (or a converted negative): [`display_tone`].
+    pub fn rendered(hue: f32, contrast: f64, whites: f64, blacks: f64) -> ToneMap {
         let lut: Vec<f32> = (0..LUT_N).map(|i| display_tone(GREY * ev_at(i).exp2(), contrast, whites, blacks)).collect();
-        ToneMap::with_v2(lut, [1.0; CHROMA_N], V2Tone { hue: hue.clamp(0.0, 1.0) })
+        ToneMap::from_tables(lut, [1.0; CHROMA_N], ToneMethod { hue: hue.clamp(0.0, 1.0) })
     }
 }
 
-/// The base curve of look `look` on a source with `info` (Process 2026): the Camera look uses the
+/// The base curve of look `look` on a source with `info` (global): the Camera look uses the
 /// camera's curve (fitted to its JPEG, else the maker's), else the DNG profile's; the Adobe-like
 /// look a DNG profile's tone curve when the file has one (that is the profile's own rendition),
 /// else its own curve.
@@ -325,19 +325,19 @@ pub fn base_curve(look: lightcraft_develop::Look, info: &crate::SourceInfo) -> B
     }
 }
 
-/// The Process 2026 tone map for `s` on `info`'s source with these contrast / whites / blacks.
+/// The global tone map for `s` on `info`'s source with these contrast / whites / blacks.
 pub fn tone_map(s: &lightcraft_develop::DevelopSettings, info: &crate::SourceInfo, contrast: f64, whites: f64, blacks: f64) -> ToneMap {
     let hue = (s.look_options.hue_preservation / 100.0) as f32;
     // a converted negative is already a print, a rendered file already has its tones
     if crate::negative::converts(s) || !info.raw {
-        return ToneMap::v2_display(hue, contrast, whites, blacks);
+        return ToneMap::rendered(hue, contrast, whites, blacks);
     }
-    ToneMap::v2_scene(&base_curve(s.look, info), s.look_options.base, hue, contrast, whites, blacks)
+    ToneMap::scene(&base_curve(s.look, info), s.look_options.base, hue, contrast, whites, blacks)
 }
 
-/// Process 2026 tone of scene-linear `c` (see the module docs); display linear out, in 0..1.
+/// global tone of scene-linear `c` (see the module docs); display linear out, in 0..1.
 #[inline]
-pub fn tone_px(tone: &ToneMap, v: &V2Tone, c: [f32; 3]) -> [f32; 3] {
+pub fn tone_px(tone: &ToneMap, v: &ToneMethod, c: [f32; 3]) -> [f32; 3] {
     // negative channels (out-of-gamut scene colours) desaturated to zero (darktable sigmoid)
     let c = desaturate_negative(c);
     let per = c.map(|x| tone.apply(x));
@@ -450,7 +450,7 @@ mod tests {
     }
 
     fn scene(base: &BaseCurve, c: f64, w: f64, b: f64) -> ToneMap {
-        ToneMap::v2_scene(base, ToneBase::Standard, 1.0, c, w, b)
+        ToneMap::scene(base, ToneBase::Standard, 1.0, c, w, b)
     }
 
     #[test]
@@ -471,7 +471,7 @@ mod tests {
         for (name, base) in looks() {
             for shape in ToneBase::ALL {
                 for (c, w, b) in [(0.0, 0.0, 0.0), (100.0, 100.0, -100.0), (-100.0, -100.0, 100.0), (50.0, -40.0, 30.0)] {
-                    let t = ToneMap::v2_scene(&base, shape, 1.0, c, w, b);
+                    let t = ToneMap::scene(&base, shape, 1.0, c, w, b);
                     assert!(t.apply(0.0) == 0.0, "{name}: black");
                     let mut prev = -1.0;
                     for i in 0..3000 {
@@ -535,12 +535,12 @@ mod tests {
             assert!((at(0.0, 0.0, 100.0, 1.0) - at(0.0, 0.0, 0.0, 1.0)).abs() < 1e-5, "{name} blacks in the highlights");
         }
         // the base-curve variants
-        let at = |shape: ToneBase, y: f32| ToneMap::v2_scene(&BaseCurve::Adobe, shape, 1.0, 0.0, 0.0, 0.0).apply(y);
+        let at = |shape: ToneBase, y: f32| ToneMap::scene(&BaseCurve::Adobe, shape, 1.0, 0.0, 0.0, 0.0).apply(y);
         assert!(at(ToneBase::ExtraShadow, 0.01) > at(ToneBase::Standard, 0.01));
         assert!(at(ToneBase::HighContrast, 0.02) < at(ToneBase::Standard, 0.02) && at(ToneBase::HighContrast, 0.7) > at(ToneBase::Standard, 0.7));
         assert!(at(ToneBase::Linear, 2.0) < at(ToneBase::Standard, 2.0));
         // and the same directions on a rendered source
-        let at = |c: f64, w: f64, b: f64, y: f32| ToneMap::v2_display(1.0, c, w, b).apply(y);
+        let at = |c: f64, w: f64, b: f64, y: f32| ToneMap::rendered(1.0, c, w, b).apply(y);
         assert!(at(60.0, 0.0, 0.0, 0.03) < at(0.0, 0.0, 0.0, 0.03) && at(60.0, 0.0, 0.0, 0.7) > at(0.0, 0.0, 0.0, 0.7));
         assert!(at(0.0, 60.0, 0.0, 0.8) > 0.8 && at(0.0, -60.0, 0.0, 0.8) < 0.8);
         assert!(at(0.0, 0.0, 60.0, 0.01) > 0.01 && at(0.0, 0.0, -60.0, 0.01) < 0.01);
@@ -548,18 +548,18 @@ mod tests {
 
     #[test]
     fn rendered_sources_are_identity_at_neutral() {
-        let t = ToneMap::v2_display(0.75, 0.0, 0.0, 0.0);
+        let t = ToneMap::rendered(0.75, 0.0, 0.0, 0.0);
         for i in 1..=95 {
             let y = i as f32 / 100.0;
             assert!((t.apply(y) - y).abs() < 2e-3, "{y} -> {}", t.apply(y));
         }
-        let v = t.v2().unwrap();
+        let v = t.method();
         for c in [[0.6, 0.3, 0.1], [0.05, 0.4, 0.9], [0.9, 0.9, 0.85]] {
             let d = tone_px(&t, &v, c);
             assert!((0..3).all(|k| (d[k] - c[k]).abs() < 3e-3), "{c:?} → {d:?}");
         }
         for (c, w, b) in [(100.0, 100.0, -100.0), (-100.0, -100.0, 100.0), (60.0, -40.0, 30.0)] {
-            let t = ToneMap::v2_display(1.0, c, w, b);
+            let t = ToneMap::rendered(1.0, c, w, b);
             let mut prev = -1.0;
             for i in 0..1000 {
                 let o = t.apply(i as f32 / 500.0);
@@ -578,7 +578,7 @@ mod tests {
     fn full_hue_preservation_keeps_hue_and_bleaches_towards_white() {
         for (name, base) in looks() {
             let t = scene(&base, 0.0, 0.0, 0.0);
-            let v = t.v2().unwrap();
+            let v = t.method();
             assert_eq!(v.hue, 1.0);
             // saturated ramps (orange, green, blue): RGB hue (the middle channel's place between
             // min and max) kept, saturation never rising near white, everything in range
@@ -622,10 +622,10 @@ mod tests {
 
     #[test]
     fn lower_hue_preservation_lets_bright_reds_drift_towards_yellow() {
-        let full = ToneMap::v2_scene(&BaseCurve::Adobe, ToneBase::Standard, 1.0, 0.0, 0.0, 0.0);
-        let none = ToneMap::v2_scene(&BaseCurve::Adobe, ToneBase::Standard, 0.0, 0.0, 0.0, 0.0);
+        let full = ToneMap::scene(&BaseCurve::Adobe, ToneBase::Standard, 1.0, 0.0, 0.0, 0.0);
+        let none = ToneMap::scene(&BaseCurve::Adobe, ToneBase::Standard, 0.0, 0.0, 0.0, 0.0);
         let c = [3.0, 0.6, 0.1];
-        let (a, b) = (tone_px(&full, &full.v2().unwrap(), c), tone_px(&none, &none.v2().unwrap(), c));
+        let (a, b) = (tone_px(&full, &full.method(), c), tone_px(&none, &none.method(), c));
         // the per-channel curve lifts the middle (green) channel relative to red
         assert!(b[1] / b[0] > a[1] / a[0], "{a:?} {b:?}");
         assert!((hue(a) - hue(b)).abs() > 0.01);

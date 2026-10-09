@@ -117,7 +117,7 @@ impl SettingsGroup {
             SettingsGroup::Spots => &["spots"],
             SettingsGroup::RedEye => &["red_eye"],
             SettingsGroup::LensBlur => &["lens_blur"],
-            SettingsGroup::Calibration => &["calibration", "color_cal", "process"],
+            SettingsGroup::Calibration => &["calibration", "color_cal"],
             SettingsGroup::Negative => &["negative"],
         }
     }

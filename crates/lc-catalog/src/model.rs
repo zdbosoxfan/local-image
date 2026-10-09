@@ -249,6 +249,8 @@ pub struct Photo {
     /// Raw files: the camera's as-shot white balance (Kelvin, tint).
     #[serde(default)]
     pub as_shot_wb: Option<(f64, f64)>,
+    #[serde(default)]
+    pub measured_wb: bool,
     /// Hash of the file's bytes (hex), for duplicate detection and preview-cache keys.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_hash: Option<String>,
@@ -281,11 +283,6 @@ pub struct Photo {
     /// whether the user changed anything since (see [`crate::local`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_baseline: Option<u64>,
-    /// The process version the photo's defaults use ([`Photo::camera_defaults`]): `V2026` for
-    /// photos added since Process 2026, `Legacy` (left out of the JSON) for older ones, so their
-    /// defaults, Reset and "edited" state stay what they were.
-    #[serde(default, skip_serializing_if = "lightcraft_develop::is_legacy_process")]
-    pub process: lightcraft_develop::ProcessVersion,
     /// The look the photo's defaults use under Process 2026 (the "Default look for new photos"
     /// preference when it was added).
     #[serde(default, skip_serializing_if = "lightcraft_develop::Look::is_default")]
@@ -330,6 +327,7 @@ impl Photo {
             local: false,
             duration: None,
             as_shot_wb: None,
+            measured_wb: false,
             content_hash: None,
             embedded_lens: None,
             copy_of: None,
@@ -338,7 +336,6 @@ impl Photo {
             analysis: None,
             preview_only: None,
             local_baseline: None,
-            process: lightcraft_develop::ProcessVersion::Legacy,
             look: lightcraft_develop::Look::Adobe,
         }
     }
@@ -352,7 +349,7 @@ impl Photo {
     /// photographs (the engine's `camera_preview::file_local_look` covers the same formats; RWL and
     /// RAW are Leica's and the oldest Panasonic bodies' names for RW2 files).
     pub fn relative_wb(&self) -> bool {
-        self.develops_raw() && ["ARW", "NEF", "NRW", "RW2", "RWL", "RAW"].iter().any(|f| self.format.eq_ignore_ascii_case(f))
+        self.develops_raw() && !self.measured_wb && ["ARW", "NEF", "NRW", "RW2", "RWL", "RAW"].iter().any(|f| self.format.eq_ignore_ascii_case(f))
     }
     /// The develop settings import gave this photo: [`Photo::camera_defaults`], or the user's
     /// default preset applied on top of them ([`Photo::import_look`]).
@@ -373,10 +370,7 @@ impl Photo {
         if self.embedded_lens.is_some() {
             d.optics.lens_profile = true;
         }
-        d.process = self.process;
-        if self.process == lightcraft_develop::ProcessVersion::V2026 {
-            d.look = self.look;
-        }
+        d.look = self.look;
         d
     }
     /// In the library: not deleted and not only browsed (Local).

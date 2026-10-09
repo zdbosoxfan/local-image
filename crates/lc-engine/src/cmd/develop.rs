@@ -164,7 +164,7 @@ pub fn specs() -> Vec<CommandSpec> {
             let ops = ids
                 .iter()
                 .filter_map(|id| s.develop_of(*id).map(|d| (*id, d)))
-                .filter_map(|(id, d)| {
+                .filter_map(|(id, _d)| {
                     // back to the photo's import defaults when a default preset gave it its look
                     let look = s.catalog.photo(id).and_then(|p| p.import_look.clone());
                     let mut fresh = match look {
@@ -177,51 +177,13 @@ pub fn specs() -> Vec<CommandSpec> {
                             }
                         }
                     };
-                    // Reset keeps the photo's process version (as Lightroom does) and, under
-                    // Process 2026, goes back to the look the photo started with
-                    fresh.process = d.process;
-                    if fresh.v2026() {
-                        fresh.look = s.catalog.photo(id).map(|p| p.look).unwrap_or_default();
-                    }
+                    fresh.look = s.catalog.photo(id).map(|p| p.look).unwrap_or_default();
                     s.develop_op(id, fresh, "Reset")
                 })
                 .collect();
             s.commit("Reset", Op::Batch { ops })?;
             ok()
         }),
-        cmd!(
-            "develop.setProcess",
-            "Set Process Version",
-            ["Photo"],
-            None,
-            "{process: \"v2026\"|\"legacy\", ids?} — the develop engine generation the photos render with (Lightroom's Process; \"Update to Process 2026\" on the selection) → {changed}. One undo step.",
-            has_selection,
-            |s, p| {
-                const C: &str = "develop.setProcess";
-                let pv: lightcraft_develop::ProcessVersion =
-                    serde_json::from_value(p.get("process").cloned().unwrap_or(json!("v2026"))).map_err(|e| bad(C, format!("process: {e}")))?;
-                let ids = s.targets(p);
-                if ids.is_empty() {
-                    return Err(bad(C, "no photos"));
-                }
-                let label = format!("Process {}", pv.label());
-                let ops: Vec<Op> = ids
-                    .iter()
-                    .filter_map(|id| s.develop_of(*id).map(|d| (*id, d)))
-                    .filter(|(_, d)| d.process != pv)
-                    .filter_map(|(id, d)| {
-                        let mut d = (*d).clone();
-                        d.process = pv;
-                        s.develop_op(id, d, &label)
-                    })
-                    .collect();
-                let changed = ops.len();
-                if changed > 0 {
-                    s.commit(&label, Op::Batch { ops })?;
-                }
-                Ok(json!({"changed": changed}))
-            }
-        ),
         cmd!(
             "develop.look",
             "Set Look",

@@ -26,6 +26,8 @@ const NO_CHROMA: [f32; CHROMA_N] = [1.0; CHROMA_N];
 pub struct CameraTone {
     knots: [[f32; 2]; 32],
     chroma: [f32; CHROMA_N],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    preset: Option<usize>,
 }
 
 impl<'de> serde::Deserialize<'de> for CameraTone {
@@ -36,9 +38,15 @@ impl<'de> serde::Deserialize<'de> for CameraTone {
             // absent in smart previews written before the chroma curve existed
             #[serde(default)]
             chroma: Option<[f32; CHROMA_N]>,
+            #[serde(default)]
+            preset: Option<usize>,
         }
         let w = Wire::deserialize(d)?;
-        let tone = Self::new(w.knots).ok_or_else(|| serde::de::Error::custom("invalid camera tone curve"))?;
+        let mut tone = Self::new(w.knots).ok_or_else(|| serde::de::Error::custom("invalid camera tone curve"))?;
+        if let Some(index)=w.preset {
+            if crate::basecurves::points(index).is_none() { return Err(serde::de::Error::custom("invalid camera preset")); }
+            tone.preset=Some(index);
+        }
         match w.chroma {
             Some(c) => tone.with_chroma(c).ok_or_else(|| serde::de::Error::custom("invalid camera chroma curve")),
             None => Ok(tone),
@@ -55,7 +63,14 @@ impl CameraTone {
             }
             previous = p;
         }
-        Some(Self { knots, chroma: NO_CHROMA })
+        Some(Self { knots, chroma: NO_CHROMA, preset: None })
+    }
+
+    /// Exact upstream spline, retaining all original preset knots rather than resampling them.
+    pub fn from_preset(index: usize) -> Option<Self> {
+        crate::basecurves::points(index)?;
+        let knots=std::array::from_fn(|i| { let x=(i+1) as f32/32.0; [x, x*0.99] });
+        Some(Self { knots, chroma: NO_CHROMA, preset:Some(index) })
     }
 
     /// The curve with chroma scales at display luminance 0, 1/7 … 1 (each finite, 0..=4).
@@ -71,6 +86,7 @@ impl CameraTone {
         if !y.is_finite() || y <= 0.0 {
             return 0.0;
         }
+        if let Some(index)=self.preset { return crate::basecurves::eval(index,y); }
         let mut previous = [0.0, 0.0];
         for p in self.knots {
             if y <= p[0] {
@@ -91,98 +107,28 @@ impl CameraTone {
 pub struct ToneMap {
     lut: Vec<f32>,
     chroma: [f32; CHROMA_N],
-    /// Process 2026: the per-pixel tone method (`None`: Legacy's luminance ratio).
-    v2: Option<crate::tone2::V2Tone>,
+    method: crate::tone2::ToneMethod,
 }
 
 impl ToneMap {
     pub fn camera(curve: &CameraTone, contrast: f64, whites: f64, blacks: f64) -> ToneMap {
-        let adjustment = Self::display(contrast, whites, blacks);
-        let neutral = contrast == 0.0 && whites == 0.0 && blacks == 0.0;
-        let lut = (0..LUT_N)
-            .map(|i| {
-                let ev = LUT_MIN_EV + (LUT_MAX_EV - LUT_MIN_EV) * i as f32 / (LUT_N - 1) as f32;
-                let y = curve.apply(GREY * 2f32.powf(ev));
-                if neutral { y } else { adjustment.apply(y) }
-            })
-            .collect();
-        ToneMap { lut, chroma: curve.chroma, v2: None }
+        Self::scene(&crate::tone2::BaseCurve::Camera(*curve), lightcraft_develop::ToneBase::Standard, 0.75, contrast, whites, blacks)
     }
-    /// `contrast`, `whites`, `blacks` in −100..100 (Lightroom slider units).
+
     pub fn new(contrast: f64, whites: f64, blacks: f64) -> ToneMap {
-        let c = (contrast / 100.0) as f32;
-        let slope = if c >= 0.0 { 1.0 + 0.55 * c } else { 1.0 + 0.4 * c };
-        // White point: scene luminance (after contrast) that maps to display 1.0.
-        let white_ev = 2.9 - 1.6 * (whites as f32 / 100.0);
-        let wl = GREY * 2f32.powf(white_ev);
-        let pre = 1.0 + GREY / wl; // keep grey near grey
-        let b = (blacks / 100.0) as f32;
-        let lut = (0..LUT_N)
-            .map(|i| {
-                let ev = LUT_MIN_EV + (LUT_MAX_EV - LUT_MIN_EV) * i as f32 / (LUT_N - 1) as f32;
-                let y = GREY * 2f32.powf(ev * slope) * pre;
-                // extended Reinhard with white point wl: y(1 + y/wl²)/(1 + y)
-                let mut o = y * (1.0 + y / (wl * wl)) / (1.0 + y);
-                o = o.min(1.0);
-                // Toe: blacks < 0 crushes, > 0 lifts.
-                if b < 0.0 {
-                    // Smooth max(0, o − k) (a soft knee), renormalized so 1 stays 1.
-                    let k = -b * 0.035;
-                    let e = 0.004;
-                    let soft = |v: f32| ((v - k) + ((v - k) * (v - k) + e * e).sqrt()) * 0.5;
-                    o = (soft(o) - soft(0.0)) / (soft(1.0) - soft(0.0));
-                } else if b > 0.0 {
-                    let k = b * 0.03;
-                    o = k + (1.0 - k) * o;
-                }
-                o.clamp(0.0, 1.0)
-            })
-            .collect();
-        ToneMap { lut, chroma: NO_CHROMA, v2: None }
+        Self::scene(&crate::tone2::BaseCurve::Adobe, lightcraft_develop::ToneBase::Standard, 0.75, contrast, whites, blacks)
     }
 
-    /// Tone map for display-referred sources: identity at neutral settings.
     pub fn display(contrast: f64, whites: f64, blacks: f64) -> ToneMap {
-        let c = (contrast / 100.0) as f32;
-        let w = (whites / 100.0) as f32;
-        let b = (blacks / 100.0) as f32;
-        let m = GREY.powf(1.0 / 2.2);
-        let lut = (0..LUT_N)
-            .map(|i| {
-                let ev = LUT_MIN_EV + (LUT_MAX_EV - LUT_MIN_EV) * i as f32 / (LUT_N - 1) as f32;
-                let y = GREY * 2f32.powf(ev);
-                let mut p = y.powf(1.0 / 2.2);
-                if p <= 1.0 {
-                    // S-curve anchored at 0, grey and 1
-                    p += c * 0.35 * (p - m) * (1.0 - (2.0 * p - 1.0).powi(2));
-                    // whites: lift/lower the upper tones; blacks: the lower tones
-                    let up = smooth(0.45, 1.0, p);
-                    p += w * 0.12 * up * (1.0 - p * 0.5);
-                    let lo = 1.0 - smooth(0.0, 0.45, p);
-                    p += b * 0.07 * lo * (p * 2.0).min(1.0);
-                } else {
-                    p += w * 0.12 * 0.5;
-                }
-                let mut o = p.max(0.0).powf(2.2);
-                // short shoulder: slope 1 at 0.95, reaching 1.0 at 1.05
-                if o > 0.95 {
-                    let d = (o - 0.95).min(0.1);
-                    o = 0.95 + d - d * d / 0.2;
-                }
-                o.clamp(0.0, 1.0)
-            })
-            .collect();
-        ToneMap { lut, chroma: NO_CHROMA, v2: None }
+        Self::rendered(0.75, contrast, whites, blacks)
     }
 
-    /// A Process 2026 tone map from its table (`LUT_N` entries) and chroma curve.
-    pub(crate) fn with_v2(lut: Vec<f32>, chroma: [f32; CHROMA_N], v2: crate::tone2::V2Tone) -> ToneMap {
-        ToneMap { lut, chroma, v2: Some(v2) }
+    pub(crate) fn from_tables(lut: Vec<f32>, chroma: [f32; CHROMA_N], method: crate::tone2::ToneMethod) -> ToneMap {
+        ToneMap { lut, chroma, method }
     }
 
-    /// The Process 2026 per-pixel method (`None` for Legacy tone maps).
-    pub fn v2(&self) -> Option<crate::tone2::V2Tone> {
-        self.v2
+    pub fn method(&self) -> crate::tone2::ToneMethod {
+        self.method
     }
 
     /// The table (`LUT_N` entries, see [`ToneMap::apply`]).
@@ -221,11 +167,6 @@ impl ToneMap {
         let v = self.lut[i] + (self.lut[i + 1] - self.lut[i]) * t;
         if ev < LUT_MIN_EV { v * (y / (GREY * 2f32.powf(LUT_MIN_EV))) } else { v }
     }
-}
-
-fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
-    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
 }
 
 #[cfg(test)]
@@ -327,8 +268,8 @@ mod tests {
     fn grey_stays_near_grey_and_highlights_roll_off() {
         let t = ToneMap::new(0.0, 0.0, 0.0);
         let g = t.apply(0.18);
-        assert!((0.15..0.24).contains(&g), "{g}");
-        assert!(t.apply(1.0) < 0.95 && t.apply(1.0) > 0.6);
+        assert!((0.27..0.31).contains(&g), "{g}");
+        assert!(t.apply(1.0) < 0.97 && t.apply(1.0) > 0.6);
         assert!(t.apply(8.0) > 0.97);
     }
 

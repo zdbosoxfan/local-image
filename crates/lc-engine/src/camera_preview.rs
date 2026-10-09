@@ -35,14 +35,11 @@ pub(crate) fn file_local_look(format: RawFormat) -> bool {
 }
 
 pub(crate) fn fit_preview(raw: &RawImage, bytes: &[u8], transform: &CameraTransform) -> Option<CameraLook> {
-    if !transform.matrix_is_fallback || !file_local_look(raw.format) {
-        return None;
-    }
     let (sensor, reference) = proxies(raw, bytes, transform, PROXY)?;
     // A camera profile pooled from many photos knows colours this photo shows too little of;
     // only the tone and chroma curves are fitted per photo (DRO and picture styles vary).
     let profile = raw.metadata.model.as_deref().and_then(crate::camera_profiles::get);
-    let colour = profile.as_ref().and_then(|p| Some((p.matrix().mul(&transform.matrix.inverse()?), p.hue_sat.clone())));
+    let colour = if !transform.matrix_is_fallback { Some((Mat3::IDENTITY, None)) } else { profile.as_ref().and_then(|p| Some((p.matrix().mul(&transform.matrix.inverse()?), p.hue_sat.clone()))) };
     let look = fit_pairs_with(&sensor, &reference, colour)?;
     if lightcraft_pipeline::profiling() {
         eprintln!(

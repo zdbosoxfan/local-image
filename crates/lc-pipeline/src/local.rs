@@ -41,9 +41,14 @@ pub fn wb_matrix_for(info: &SourceInfo, s: &DevelopSettings) -> Option<[[f32; 3]
     if (t - info.as_shot_temp).abs() < 1e-6 && (tint - info.as_shot_tint).abs() < 1e-6 {
         return None;
     }
-    let set = wb_matrix(&REC2020, temp_tint_to_xy(t, tint));
-    let shot = wb_matrix(&REC2020, temp_tint_to_xy(info.as_shot_temp, info.as_shot_tint));
-    let m = set.mul(&shot.inverse().unwrap_or(lightcraft_color::Mat3::IDENTITY));
+    let m = match info.camera_color {
+        Some(camera) => camera.change(temp_tint_to_xy(t,tint)),
+        None => {
+            let set = wb_matrix(&REC2020, temp_tint_to_xy(t,tint));
+            let shot = wb_matrix(&REC2020, temp_tint_to_xy(info.as_shot_temp, info.as_shot_tint));
+            set.mul(&shot.inverse().unwrap_or(lightcraft_color::Mat3::IDENTITY))
+        }
+    };
     // Normalize so neutral luminance is preserved (WB shouldn't change exposure).
     let g = m.apply([1.0, 1.0, 1.0]);
     let y = g[0] * 0.2627 + g[1] * 0.6780 + g[2] * 0.0593;

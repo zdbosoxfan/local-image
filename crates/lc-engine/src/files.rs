@@ -103,7 +103,7 @@ pub fn probe_bytes(name: &str, bytes: &[u8]) -> Result<ProbeInfo, String> {
     let m = lightcraft_meta::extract(bytes);
     let (meta, captured) = meta_of(&m);
     if lightcraft_raw::probe(bytes).is_some() {
-        let raw = match lightcraft_raw::probe_info(bytes) {
+        let mut raw = match lightcraft_raw::probe_info(bytes) {
             Ok(r) => r,
             Err(lightcraft_raw::RawError::Unsupported(why)) => {
                 // a raw variant we can't decode yet: describe it from its embedded preview
@@ -125,6 +125,7 @@ pub fn probe_bytes(name: &str, bytes: &[u8]) -> Result<ProbeInfo, String> {
             }
             Err(e) => return Err(e.to_string()),
         };
+        lightcraft_raw::camera_matrices::fill(&mut raw.color, raw.metadata.make.as_deref().unwrap_or_default(), raw.metadata.model.as_deref().unwrap_or_default());
         let (mut w, mut h) = (raw.crop.width.max(1) as u32, raw.crop.height.max(1) as u32);
         if w <= 1 || h <= 1 {
             (w, h) = (raw.active_area.width as u32, raw.active_area.height as u32);
@@ -139,6 +140,7 @@ pub fn probe_bytes(name: &str, bytes: &[u8]) -> Result<ProbeInfo, String> {
         let embedded_lens = embedded_lens(&raw);
         return Ok(ProbeInfo {
             embedded_lens,
+            measured_wb: !relative,
             width: w,
             height: h,
             format: ext_upper(name),
@@ -295,6 +297,8 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
             }
             Err(e) => return Err(e.to_string()),
         };
+        crate::dcp_profiles::apply(&mut raw);
+        lightcraft_raw::camera_matrices::fill(&mut raw.color, raw.metadata.make.as_deref().unwrap_or_default(), raw.metadata.model.as_deref().unwrap_or_default());
         let xy = lightcraft_raw::color::as_shot_white_xy(&raw);
         let t = lightcraft_raw::color::camera_transform(&raw, xy);
         let camera_look = crate::camera_preview::fit_preview(&raw, &bytes, &t);
@@ -384,6 +388,13 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
                 lens,
                 relative_wb: relative,
                 camera_tone,
+                look_curve: camera_look.as_ref().map(|p| p.tone).or_else(|| lightcraft_pipeline::basecurves::camera(raw.metadata.make.as_deref().unwrap_or_default(), raw.metadata.model.as_deref().unwrap_or_default())),
+                profile_curve: raw.color.profile.tone_curve.as_ref().and_then(dng_tone_curve),
+                camera_color: if t.matrix_is_fallback { None } else {
+                    let color = lightcraft_color::camera::CameraColor { illuminant: raw.color.illuminant, color_matrix: raw.color.color_matrix, forward_matrix: raw.color.forward_matrix, camera_calibration: raw.color.camera_calibration, analog_balance: raw.color.analog_balance };
+                    let total = lightcraft_color::Mat3(m.map(|r| r.map(f64::from))).mul(&lightcraft_color::Mat3::diag(wb[0] as f64,wb[1] as f64,wb[2] as f64));
+                    total.inverse().map(|undo| lightcraft_color::camera::CameraWhite { color,undo })
+                },
                 lens_db: None,
                 sensor_scale,
                 capture_radius,

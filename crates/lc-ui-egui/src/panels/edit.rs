@@ -509,7 +509,6 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     crate::panels::develop_tools::color_cal_section(app, ui, &d);
     // Lightroom Classic's Calibration panel (the cloud app hides it): last, like there.
     section(app, ui, &d, "calibration", "Calibration", |app, ui, d| {
-        crate::panels::process::process_row(app, ui, d);
         sub_title(ui, crate::i18n::tr("Shadows"));
         control(app, ui, d, "calibration.shadowsTint", true);
         for (title, k) in [("Red Primary", "red"), ("Green Primary", "green"), ("Blue Primary", "blue")] {
@@ -1028,7 +1027,13 @@ fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Dev
             })
             .collect();
         p.add(egui::Shape::line(pts, Stroke::new(2.0, Color32::from_gray(220))));
-        curve_footer(app, ui, d, target);
+        ui.horizontal(|ui| {
+        let mut mode=d.curve.mode;
+        ui.selectable_value(&mut mode,lightcraft_develop::CurveMode::Luminance,crate::i18n::tr("Luminance"));
+        ui.selectable_value(&mut mode,lightcraft_develop::CurveMode::Rgb,"RGB");
+        if mode!=d.curve.mode { let _=target.merge(app,json!({"curve":{"mode":mode}}),"Curve Mode"); }
+    });
+    curve_footer(app, ui, d, target);
         for c in ["curve.highlights", "curve.lights", "curve.darks", "curve.shadows"] {
             control_t(app, ui, d, c, true, target);
         }

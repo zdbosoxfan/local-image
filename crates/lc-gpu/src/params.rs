@@ -17,6 +17,8 @@ const FIELDS: &[(&str, usize)] = &[
     ("SRGB_OFF", 1),
     ("CURVE_OFF", 1),
     ("CURVES", 1),
+    ("CURVE_LUM", 1),
+    ("SOFT_GAMUT", 1),
     ("GAIN", 1),
     ("EV", 1),
     ("AIR", 1),
@@ -72,7 +74,6 @@ const FIELDS: &[(&str, usize)] = &[
     ("OUT_TRC", 1),
     ("OUT_GAMMA", 1),
     // Process 2026 tone stage (`lightcraft_pipeline::tone2`): on, hue preservation
-    ("TONE_V2", 1),
     ("TONE_HUE", 1),
     // first row of a band dispatch (the kernel runs over rows Y0.., see `render`)
     ("Y0", 1),
@@ -148,7 +149,7 @@ pub fn finish_block(fp: &FinishParams, masks: &[[f32; MASK_TERMS]], present: &Pr
     aux.extend_from_slice(&srgb_lut()[..]);
     let curve_off = aux.len();
     if let Some(c) = &fp.curves {
-        for l in c {
+        for l in &c.tables {
             assert_eq!(l.v.len(), CURVE_N as usize);
             aux.extend_from_slice(&l.v);
         }
@@ -166,6 +167,8 @@ pub fn finish_block(fp: &FinishParams, masks: &[[f32; MASK_TERMS]], present: &Pr
     p.u("SRGB_OFF", srgb_off as u32);
     p.u("CURVE_OFF", curve_off as u32);
     p.b("CURVES", fp.curves.is_some());
+    p.b("CURVE_LUM", fp.curves.as_ref().is_some_and(|c| c.luminance));
+    p.b("SOFT_GAMUT", fp.soft_gamut);
     p.f("REFINE_SAT", fp.refine_sat);
     p.f("GAIN", fp.gain);
     p.f("EV", fp.ev);
@@ -228,10 +231,7 @@ pub fn finish_block(fp: &FinishParams, masks: &[[f32; MASK_TERMS]], present: &Pr
         p.fs("CALIB_M", m.as_flattened());
     }
     p.f("SHADOW_TINT", fp.shadow_tint);
-    if let Some(v) = fp.tone.v2() {
-        p.b("TONE_V2", true);
-        p.f("TONE_HUE", v.hue);
-    }
+    p.f("TONE_HUE", fp.tone.method().hue);
     p.fs("OUT_M", fp.to_out.as_flattened());
     p.fs("OUT_Y", &fp.out_luma);
     let (trc, gamma) = fp.out_trc.code();

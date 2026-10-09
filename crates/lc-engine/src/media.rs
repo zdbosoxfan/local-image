@@ -62,7 +62,7 @@ impl SettingsHashes {
 }
 
 /// Bump when the pipeline's output changes, to invalidate cached thumbnails.
-pub const RENDER_CACHE_VERSION: u64 = 11;
+pub const RENDER_CACHE_VERSION: u64 = 12;
 
 /// Thumbnails render at one of these long edges (so window/cell size changes reuse the cache).
 pub const THUMB_SIZES: [usize; 4] = [128, 256, 384, 512];
@@ -136,7 +136,7 @@ impl DecodedSource {
     /// with any stored camera tone curve. The lens database's correction always comes from
     /// `header` (it follows the settings, not the file).
     pub fn info_or(&self, header: SourceInfo) -> SourceInfo {
-        let mut i = self.info.unwrap_or(SourceInfo { camera_tone: self.camera_tone.or(header.camera_tone), ..header });
+        let mut i = self.info.unwrap_or(SourceInfo { camera_tone: self.camera_tone.or(header.camera_tone), look_curve: self.camera_tone.or(header.look_curve), ..header });
         i.lens_db = header.lens_db;
         i
     }
@@ -795,7 +795,8 @@ impl crate::Session {
             ^ (apply_crop as u64)
             ^ (level as u64) << 60
             ^ id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15)
-            ^ content.rotate_left(17);
+            ^ content.rotate_left(17)
+            ^ crate::dcp_profiles::cache_key();
         let cache = thumb_bucket.map(|b| {
             let k = Hasher128::new()
                 .str(&content_key)
@@ -1054,6 +1055,7 @@ pub struct ProbeInfo {
     pub captured: Option<String>,
     pub meta: lightcraft_catalog::Meta,
     pub as_shot_wb: Option<(f64, f64)>,
+    pub measured_wb: bool,
     /// Hash of the file's bytes (hex), for duplicate detection. When it is a 32-digit
     /// [`lightcraft_preview::hash_bytes`] of the whole file (as the native probe computes it),
     /// Import → Copy verifies each copy against it instead of reading the source again.
@@ -1090,7 +1092,8 @@ mod thumbnail_hash_tests {
             let settings = p.develop.hash64();
             let content = Hasher128::new().str(&content_key(&p)).finish().0 as u64;
             let expected =
-                settings ^ ((b as u64) << 40) ^ ((b as u64) << 20) ^ 1 ^ p.id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ content.rotate_left(17);
+                settings ^ ((b as u64) << 40) ^ ((b as u64) << 20) ^ 1 ^ p.id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ content.rotate_left(17)
+            ^ crate::dcp_profiles::cache_key();
             let disk = Hasher128::new()
                 .str(&content_key(&p))
                 .u64(settings)

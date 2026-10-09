@@ -40,6 +40,11 @@ fn prefs(s: &mut Session, p: &Value) -> Result<Value> {
         if let Some(v) = i.get("otherPreset") {
             d.other_preset = preset_ref(s, v)?;
         }
+        if let Some(v) = i.get("cameraProfilesFolder").and_then(Value::as_str) {
+            d.camera_profiles_folder=v.trim().to_string();
+            crate::dcp_profiles::configure(&d.camera_profiles_folder);
+            s.media.clear_sources();
+        }
         if let Some(v) = i.get("look") {
             let id = v.as_str().unwrap_or_default();
             d.look = lightcraft_develop::Look::from_id(id).ok_or_else(|| bad(ID, format!("unknown look `{id}` (adobe, sigmoid, camera)")))?;
@@ -111,7 +116,7 @@ pub fn specs() -> Vec<CommandSpec> {
         "Library Preferences",
         [],
         None,
-        "{import?: {rawPreset?: presetId|\"default\", otherPreset?: presetId|\"default\", perCamera?: bool, cameras?: [{camera: \"Make Model\", preset: presetId|null}], copyright?: text, creator?: text (given to imported photos without one), look?: adobe|sigmoid|camera (Process 2026 look of new photos)}, camera?: {camera, preset?, remove?: bool}, cacheMb?: n (0 = default), forgetLocalDays?: n (forget untouched Local photos of folders not browsed for n days; 0 = never)} — develop defaults applied on import (raws / other images / per camera) and the thumbnail cache size, saved with the library → {xmp, import, cacheMb, forgetLocalDays, persistent}",
+        "{import?: {rawPreset?: presetId|\"default\", otherPreset?: presetId|\"default\", perCamera?: bool, cameras?: [{camera: \"Make Model\", preset: presetId|null}], copyright?: text, creator?: text (given to imported photos without one), look?: adobe|sigmoid|camera (look of new photos)}, camera?: {camera, preset?, remove?: bool}, cacheMb?: n (0 = default), forgetLocalDays?: n (forget untouched Local photos of folders not browsed for n days; 0 = never)} — develop defaults applied on import (raws / other images / per camera) and the thumbnail cache size, saved with the library → {xmp, import, cacheMb, forgetLocalDays, persistent}",
         always,
         prefs
     )]

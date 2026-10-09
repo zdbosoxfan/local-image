@@ -1,18 +1,14 @@
-//! Process version and look controls (Process 2026): the Look picker under the profile, the
-//! Process picker heading the Calibration section, and "Update to Process 2026".
+//! Per-photo looks and default look preferences.
 
-use lightcraft_develop::{DevelopSettings, Look, ProcessVersion};
+use lightcraft_develop::{DevelopSettings, Look};
 use serde_json::json;
 
 use crate::LightcraftApp;
 use crate::theme::Tokens;
-use crate::widgets::{register, text_button};
+use crate::widgets::{register};
 
-/// The Look picker (Adobe-like · Sigmoid · Match Camera) for a raw photo under Process 2026.
+/// The Look picker (Soft Film · Sigmoid · Camera) for a raw photo.
 pub fn look_row(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
-    if !d.v2026() {
-        return;
-    }
     let t = Tokens::get(ui.ctx());
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 0, bottom: 12 }).show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -30,54 +26,28 @@ pub fn look_row(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings)
                 let _ = app.run("develop.look", json!({"look": l.id()}));
             }
         });
+        let mut base=d.look_options.base;
+        egui::ComboBox::from_id_salt("lookBase").selected_text(base.label()).show_ui(ui,|ui| {
+            for b in lightcraft_develop::ToneBase::ALL { ui.selectable_value(&mut base,b,b.label()); }
+        });
+        if base!=d.look_options.base {
+            let _=app.run("develop.merge",json!({"settings":{"look_options":{"base":base}},"label":"Base Curve"}));
+        }
+        let mut hue=d.look_options.hue_preservation;
+        if ui.add(egui::Slider::new(&mut hue,0.0..=100.0).text(crate::i18n::tr("Hue Preservation"))).changed() {
+            let _=app.run("develop.merge",json!({"settings":{"look_options":{"hue_preservation":hue}},"label":"Hue Preservation"}));
+        }
+
     });
 }
 
 /// What each look does (tooltips, the Settings hint).
 pub fn look_hint(l: Look) -> &'static str {
     match l {
-        Look::Adobe => "Bright midtones, a soft toe and a long highlight shoulder (Lightroom-like)",
+        Look::Adobe => "Bright midtones, a soft toe and a long highlight shoulder",
         Look::Sigmoid => "darktable's neutral scene-referred sigmoid curve, hue preserving",
         Look::Camera => "Matches the camera's own JPEG (or a maker-style curve when the file has no preview)",
     }
-}
-
-/// The Process row at the top of the Calibration section: 2026 / Legacy, and "Update to
-/// Process 2026" for a photo still on Legacy.
-pub fn process_row(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
-    let t = Tokens::get(ui.ctx());
-    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 4, bottom: 6 }).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(crate::i18n::tr("Process")).font(t.font(13.0)).color(t.text_dim));
-            let mut pick = None;
-            let r = egui::ComboBox::from_id_salt("developProcess").width(110.0).selected_text(crate::i18n::tr(d.process.label())).show_ui(ui, |ui| {
-                for pv in ProcessVersion::ALL {
-                    if ui.selectable_label(d.process == pv, crate::i18n::tr(pv.label())).clicked() {
-                        pick = Some(pv);
-                    }
-                }
-            });
-            register(ui.ctx(), "combo:developProcess", r.response.rect);
-            if let Some(pv) = pick.filter(|pv| *pv != d.process) {
-                set_process(app, pv, false);
-            }
-        });
-        if !d.v2026() {
-            ui.add_space(4.0);
-            ui.label(egui::RichText::new(crate::i18n::tr("This photo renders with the Legacy process. Process 2026 adds looks, hue-preserving tone and curves, camera colour per white balance and smoother gamut mapping.")).size(11.0).color(t.text_dim));
-            ui.add_space(2.0);
-            if text_button(ui, "updateProcess", "Update to Process 2026", false).clicked() {
-                set_process(app, ProcessVersion::V2026, true);
-            }
-        }
-    });
-}
-
-/// Set the process version of the active photo, or (`selection`) of every selected photo.
-pub fn set_process(app: &mut LightcraftApp, pv: ProcessVersion, selection: bool) {
-    let process = serde_json::to_value(pv).unwrap_or(json!("v2026"));
-    let p = if selection { json!({"process": process}) } else { json!({"process": process, "ids": app.session.active().map(|i| vec![i.0]).unwrap_or_default()}) };
-    let _ = app.run("develop.setProcess", p);
 }
 
 /// Settings → Import: the look new raw photos start with.

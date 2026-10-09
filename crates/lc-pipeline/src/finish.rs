@@ -21,7 +21,7 @@ fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
 }
 
 /// Parametric region curve (encoded domain) composed with the master point curve.
-pub(crate) fn curve_luts(c: &ToneCurve) -> Option<[Lut1; 3]> {
+pub(crate) fn curve_luts(c: &ToneCurve) -> Option<CurveTables> {
     let parametric = c.highlights != 0.0 || c.lights != 0.0 || c.darks != 0.0 || c.shadows != 0.0;
     let master = !ToneCurve::point_curve_is_identity(&c.master);
     let chans = [&c.red, &c.green, &c.blue].map(|p| !ToneCurve::point_curve_is_identity(p));
@@ -53,7 +53,72 @@ pub(crate) fn curve_luts(c: &ToneCurve) -> Option<[Lut1; 3]> {
         base = MonotoneCurve::new(&to_pts(&c.master)).to_lut(N).compose(&base);
     }
     let per = [&c.red, &c.green, &c.blue];
-    Some(std::array::from_fn(|i| if chans[i] { MonotoneCurve::new(&to_pts(per[i])).to_lut(N).compose(&base) } else { base.clone() }))
+    Some(CurveTables {
+        tables: std::array::from_fn(|i| if i == 0 { base.clone() } else if chans[i-1] { MonotoneCurve::new(&to_pts(per[i-1])).to_lut(N) } else { Lut1::identity(N) }),
+        luminance: c.mode == lightcraft_develop::CurveMode::Luminance,
+    })
+}
+
+/// Master/parametric table followed by three independent channel tables, in working RGB.
+pub struct CurveTables {
+    pub tables: [Lut1; 4],
+    pub luminance: bool,
+}
+
+impl CurveTables {
+    /// Linear Rec.2020 in/out. The master uses encoded luminance or encoded RGB; channel
+    /// curves follow it. Keeping this before the output conversion makes export spaces agree.
+    pub fn apply(&self, c: [f32; 3], refine: f32) -> [f32; 3] {
+        use lightcraft_color::transfer::srgb_to_linear;
+        let mut d = if self.luminance {
+            let y = luminance_2020(c).max(0.0);
+            let z = srgb_to_linear(self.tables[0].eval(linear_to_srgb(y)));
+            if y > 1e-9 { c.map(|x| x * z / y) } else { [z; 3] }
+        } else {
+            let e = c.map(linear_to_srgb);
+            let q = e.map(|x| self.tables[0].eval(x));
+            refine_saturation(e, q, refine).map(srgb_to_linear)
+        };
+        // Smooth hue-preserving path to white when a luminance lift exceeds the RGB cube.
+        let y = luminance_2020(d).clamp(0.0, 1.0);
+        let mx = d[0].max(d[1]).max(d[2]);
+        if mx > 1.0 {
+            let k = (1.0-y) / (mx-y).max(1e-9);
+            d = d.map(|x| y + (x-y)*k);
+        }
+        std::array::from_fn(|i| srgb_to_linear(self.tables[i+1].eval(linear_to_srgb(d[i].max(0.0)))))
+    }
+}
+
+/// Soft compression of channel distances from the achromatic axis (threshold 0.8,
+/// asymptotic distance 1.3, power 1.2), followed by the final gamut containment map.
+pub fn soft_gamut(r: [f32; 3]) -> [f32; 3] {
+    let a = r[0].max(r[1]).max(r[2]);
+    if a <= 1e-9 { return r; }
+    let threshold = 0.8f32;
+    let power = 1.2f32;
+    let scale = (1.3f32-threshold) / (((1.0-threshold)/(1.3-threshold)).powf(-power)-1.0).powf(1.0/power);
+    r.map(|x| {
+        let distance = (a-x)/a;
+        if distance <= threshold { x } else {
+            let u = (distance-threshold)/scale;
+            let compressed = threshold + scale*u/(1.0+u.powf(power)).powf(1.0/power);
+            a * (1.0-compressed)
+        }
+    })
+}
+
+/// Position-hashed TPDF noise shared with WGSL; exactly representable 16-bit fractions.
+pub const DITHER_HASH: [u32; 3] = [0x7feb_352d, 0x846c_a68b, 0x9e37_79b9];
+
+pub fn dither8(v: f32, x: usize, y: usize, _channel: usize) -> u8 {
+    let mut h = (x as u32).wrapping_mul(DITHER_HASH[2]) ^ (y as u32).wrapping_mul(DITHER_HASH[0]);
+    h ^= h >> 16; h = h.wrapping_mul(DITHER_HASH[0]);
+    h ^= h >> 15; h = h.wrapping_mul(DITHER_HASH[1]); h ^= h >> 16;
+    let noise = (h & 65535) as f32 / 65536.0 - (h >> 16) as f32 / 65536.0;
+    let q = v.clamp(0.0, 1.0)*255.0;
+    let fade = q.min(255.0-q).clamp(0.0, 1.0);
+    (q + noise*fade + 0.5).clamp(0.0, 255.0) as u8
 }
 
 /// Vignette (post-crop) parameters.
@@ -94,19 +159,7 @@ pub(crate) fn grain(s: &DevelopSettings, px_per_long: f64) -> Option<(f32, f32, 
 
 /// The tone map for `s` on `info`'s source with these contrast / whites / blacks.
 pub(crate) fn tone_map(s: &DevelopSettings, info: &SourceInfo, contrast: f64, whites: f64, blacks: f64) -> ToneMap {
-    if s.v2026() {
-        return crate::tone2::tone_map(s, info, contrast, whites, blacks);
-    }
-    // a converted negative is already a print (display-referred): no camera / scene curve
-    if crate::negative::converts(s) {
-        ToneMap::display(contrast, whites, blacks)
-    } else if let Some(curve) = info.camera_tone.as_ref().filter(|_| info.raw) {
-        ToneMap::camera(curve, contrast, whites, blacks)
-    } else if info.raw {
-        ToneMap::new(contrast, whites, blacks)
-    } else {
-        ToneMap::display(contrast, whites, blacks)
-    }
+    crate::tone2::tone_map(s, info, contrast, whites, blacks)
 }
 
 /// Hash constants of [`grain_noise`] (shared with the GPU kernel).
@@ -183,9 +236,10 @@ pub struct FinishParams {
     pub calib: Option<[[f32; 3]; 3]>,
     pub shadow_tint: f32,
     /// Tone curves (parametric ∘ point, per channel) on encoded values, 1024 entries each.
-    pub curves: Option<[Lut1; 3]>,
+    pub curves: Option<CurveTables>,
     /// Refine Saturation as 0..1 (1 = the curves' own saturation).
     pub refine_sat: f32,
+    pub soft_gamut: bool,
     pub vig: Option<Vig>,
     /// Linear Rec.2020 → linear output RGB, the output's luminance weights (gamut mapping) and its
     /// encoding curve (see [`crate::output`]).
@@ -253,6 +307,7 @@ impl FinishParams {
             lut: crate::lut::get(&s.profile.id).map(|l| (l, (s.profile.amount / 100.0).clamp(0.0, 2.0) as f32)),
             ops: ColorOps::new(s),
             curves: curve_luts(&s.curve),
+            soft_gamut: info.raw,
             refine_sat: (s.curve.refine_saturation / 100.0).clamp(0.0, 1.0) as f32,
             vig: if effects { vignette(s) } else { None },
             to_out: space.from_working(),
@@ -286,12 +341,12 @@ pub(crate) fn finish(p: &Prepared, s: &DevelopSettings, frame: &Frame, info: &So
     let mut fp = FinishParams::new(s, frame, info, w, h, p.px_per_long, p.air, space);
     fp.proof = proof.map(|pr| pr.params(space));
     let trc = fp.out_trc;
-    let data = finish_with(p, &fp, false, |e| match trc {
-        OutputTrc::Srgb => [enc(e[0]), enc(e[1]), enc(e[2]), 255],
-        t => {
-            let x = e.map(|v| enc(t.encode(lightcraft_color::transfer::srgb_to_linear(v.clamp(0.0, 1.0)))));
-            [x[0], x[1], x[2], 255]
-        }
+    let data = finish_with(p, &fp, false, |e, x, y| {
+        let e = match trc {
+            OutputTrc::Srgb => e,
+            t => e.map(|v| t.encode(lightcraft_color::transfer::srgb_to_linear(v.clamp(0.0, 1.0)))),
+        };
+        [dither8(e[0], x, y, 0), dither8(e[1], x, y, 1), dither8(e[2], x, y, 2), 255]
     });
     Rgba8 { width: w, height: h, data }
 }
@@ -314,12 +369,12 @@ pub(crate) fn finish_deep(
     let trc = fp.out_trc;
     let samples = match depth {
         OutputDepth::F32Linear => {
-            let v = finish_with(p, &fp, true, |e| e.map(|v| srgb_to_linear(v.clamp(0.0, 1.0))));
+            let v = finish_with(p, &fp, true, |e, _, _| e.map(|v| srgb_to_linear(v.clamp(0.0, 1.0))));
             DeepSamples::F32(v.into_flattened())
         }
         _ => {
             let q = |v: f32| (v.clamp(0.0, 1.0) * 65535.0 + 0.5) as u16;
-            let v = finish_with(p, &fp, true, |e| match trc {
+            let v = finish_with(p, &fp, true, |e, _, _| match trc {
                 OutputTrc::Srgb => e.map(q),
                 t => e.map(|v| q(t.encode(srgb_to_linear(v.clamp(0.0, 1.0))))),
             });
@@ -336,7 +391,7 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
     p: &Prepared,
     fp: &FinishParams,
     exact: bool,
-    store: impl Fn([f32; 3]) -> T + Sync + Send,
+    store: impl Fn([f32; 3], usize, usize) -> T + Sync + Send,
 ) -> Vec<T> {
     let (w, h) = (p.img.width, p.img.height);
     let p_lut = fp.lut.clone();
@@ -592,6 +647,14 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
                 }
             }
 
+            if let Some(l) = curves { d = l.apply(d, fp.refine_sat); }
+            for l in &fp.layers {
+                if let Some((lut, refine)) = &l.curves {
+                    let a = p.masks[l.mask].alpha.data[i];
+                    if a > 0.0 { d = mix3(d, lut.apply(d, *refine), a); }
+                }
+            }
+
             // --- gamut map to the output space (desaturate towards luminance until in range);
             // soft proofing maps into the proof space first and shows that in the output space
             let mut warn = None;
@@ -606,6 +669,7 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
                 }
                 None => mul3(to_out, d),
             };
+            if fp.soft_gamut { r = soft_gamut(r); }
             let (mapped, t) = gamut_map(r, *out_luma);
             if fp.proof.is_some_and(|pp| pp.display_warning) && warn.is_none() && out_of_gamut(r, t) {
                 warn = Some(crate::output::PROOF_DISPLAY_WARNING);
@@ -614,25 +678,6 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
 
             // --- encode, curves, grain
             let mut e = if exact { r.map(|v| linear_to_srgb(v.clamp(0.0, 1.0))) } else { r.map(|v| encode_srgb(srgb, v)) };
-            if let Some(l) = curves {
-                let e0 = e;
-                e = [l[0].eval(e[0]), l[1].eval(e[1]), l[2].eval(e[2])];
-                if fp.refine_sat < 1.0 {
-                    e = refine_saturation(e0, e, fp.refine_sat);
-                }
-            }
-            for l in &fp.layers {
-                if let Some((lut, refine)) = &l.curves {
-                    let a = p.masks[l.mask].alpha.data[i];
-                    if a > 0.0 {
-                        let mut q = [lut[0].eval(e[0]), lut[1].eval(e[1]), lut[2].eval(e[2])];
-                        if *refine < 1.0 {
-                            q = refine_saturation(e, q, *refine);
-                        }
-                        e = mix3(e, q, a);
-                    }
-                }
-            }
             let n_at = || out_to_norm.apply(Point::new(x as f64 + 0.5, y as f64 + 0.5));
             if let Some(g) = *grain {
                 e = grain_px(e, g, n_at(), fp, long);
@@ -652,7 +697,7 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
                 }
                 None => e,
             };
-            *px = store(warn.unwrap_or(e));
+            *px = store(warn.unwrap_or(e), x, y);
         }
     });
     out
@@ -678,22 +723,7 @@ fn dehaze_px(c: [f32; 3], dz: f32, dark: f32, air_pre: f32, air: f32) -> [f32; 3
 /// desaturation (display linear).
 #[inline]
 fn tone_px(tone: &ToneMap, c: [f32; 3]) -> [f32; 3] {
-    if let Some(v) = tone.v2() {
-        return crate::tone2::tone_px(tone, &v, c);
-    }
-    let yl = luminance_2020(c);
-    let o = tone.apply(yl);
-    let mut d = if yl > 1e-9 { c.map(|v| v * o / yl) } else { [0.0; 3] };
-    let k = tone.chroma_scale(o);
-    if k != 1.0 {
-        d = d.map(|v| o + (v - o) * k);
-    }
-    let mx = d[0].max(d[1]).max(d[2]);
-    if mx > 1.0 {
-        let t = ((mx - 1.0) / (mx - o).max(1e-6)).clamp(0.0, 1.0);
-        d = d.map(|v| v + (o - v) * t);
-    }
-    d
+    crate::tone2::tone_px(tone, &tone.method(), c)
 }
 
 /// The post-crop vignette at output pixel (x, y) of a `w × h` render on display-linear `d`.

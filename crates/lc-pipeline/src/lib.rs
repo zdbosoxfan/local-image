@@ -74,6 +74,7 @@ pub struct SourceInfo {
     pub as_shot_tint: f64,
     /// No measured camera illuminant: WB adjustments are relative to the camera's rendered look.
     pub relative_wb: bool,
+    pub camera_color: Option<lightcraft_color::camera::CameraWhite>,
     pub camera_tone: Option<tone::CameraTone>,
     /// The lens database's correction for the photo's lens (set by the engine when the settings
     /// ask for it; relative to the EXIF-oriented source).
@@ -101,6 +102,7 @@ impl Default for SourceInfo {
             as_shot_tint: 0.0,
             lens: None,
             relative_wb: false,
+            camera_color: None,
             camera_tone: None,
             lens_db: None,
             sensor_scale: 1.0,
@@ -618,8 +620,8 @@ fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared) -> Option<Plane> 
 /// Convenience: render a before/after pair side by side is up to the UI; this renders "before"
 /// (default look, keeping the crop so framing matches).
 pub fn before_settings(s: &DevelopSettings) -> DevelopSettings {
-    // (the photo's process version and look: "before" is its unedited rendition)
-    let mut b = DevelopSettings { crop: s.crop, orientation: s.orientation, process: s.process, look: s.look, ..DevelopSettings::default() };
+    // (the photo's look: "before" is its unedited rendition)
+    let mut b = DevelopSettings { crop: s.crop, orientation: s.orientation, look: s.look, ..DevelopSettings::default() };
     b.wb = lightcraft_develop::WhiteBalance { mode: lightcraft_develop::WbMode::AsShot, ..b.wb };
     b
 }
@@ -659,3 +661,6 @@ mod tests_layers;
 mod tests_local;
 #[cfg(test)]
 mod tests_toolset;
+
+pub mod basecurves;
+mod base_curve_data;

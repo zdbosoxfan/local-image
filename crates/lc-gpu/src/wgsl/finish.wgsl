@@ -299,8 +299,61 @@ fn grain_noise(x: f32, y: f32, seed: u32) -> f32 {
     return a + (b - a) * v;
 }
 
-fn enc8(v: f32) -> u32 {
-    return u32(clamp(v, 0.0, 1.0) * 255.0 + 0.5);
+fn enc8(v: f32, x: u32, y: u32, channel: u32) -> u32 {
+    var h = x * DITHER_H2 ^ y * DITHER_H0;
+    h = h ^ (h >> 16u); h = h * DITHER_H0;
+    h = h ^ (h >> 15u); h = h * DITHER_H1; h = h ^ (h >> 16u);
+    let noise = f32(h & 65535u) / 65536.0 - f32(h >> 16u) / 65536.0;
+    let q = clamp(v, 0.0, 1.0) * 255.0;
+    let fade = clamp(min(q, 255.0-q), 0.0, 1.0);
+    return u32(clamp(q+noise*fade+0.5, 0.0, 255.0));
+}
+
+fn soft_gamut(r: vec3<f32>) -> vec3<f32> {
+    let a = max(r.x, max(r.y, r.z));
+    if (a <= 1e-9) { return r; }
+    let threshold = 0.8;
+    let power = 1.2;
+    let scale = (1.3-threshold) / pow(pow((1.0-threshold)/(1.3-threshold), -power)-1.0, 1.0/power);
+    var result = r;
+    for (var i=0u; i<3u; i++) {
+        let distance = (a-r[i])/a;
+        if (distance > threshold) {
+            let u = (distance-threshold)/scale;
+            let compressed = threshold+scale*u/pow(1.0+pow(u,power), 1.0/power);
+            result[i] = a*(1.0-compressed);
+        }
+    }
+    return result;
+}
+
+fn linear_to_srgb(v: f32) -> f32 {
+    if (v <= 0.0031308) { return v*12.92; }
+    return 1.055*pow(v,1.0/2.4)-0.055;
+}
+fn srgb_to_linear(v: f32) -> f32 {
+    if (v <= 0.04045) { return v/12.92; }
+    return pow((v+0.055)/1.055,2.4);
+}
+
+fn curve_working(c: vec3<f32>) -> vec3<f32> {
+    var d = c;
+    if (pu(F_CURVE_LUM) != 0u) {
+        let yy = max(lum2020(c),0.0);
+        let z = srgb_to_linear(curve(0u, linear_to_srgb(yy)));
+        d = vec3<f32>(z);
+        if (yy > 1e-9) { d = c*z/yy; }
+    } else {
+        let e = vec3<f32>(linear_to_srgb(c.x),linear_to_srgb(c.y),linear_to_srgb(c.z));
+        let q = vec3<f32>(curve(0u,e.x),curve(0u,e.y),curve(0u,e.z));
+        let v = refine_saturation(e,q,pf(F_REFINE_SAT));
+        d = vec3<f32>(srgb_to_linear(v.x),srgb_to_linear(v.y),srgb_to_linear(v.z));
+    }
+    let yy = clamp(lum2020(d),0.0,1.0);
+    let mx = max(d.x,max(d.y,d.z));
+    if (mx > 1.0) { d = yy+(d-yy)*(1.0-yy)/max(mx-yy,1e-9); }
+    d = vec3<f32>(linear_to_srgb(max(d.x,0.0)),linear_to_srgb(max(d.y,0.0)),linear_to_srgb(max(d.z,0.0)));
+    return vec3<f32>(srgb_to_linear(curve(1u,d.x)),srgb_to_linear(curve(2u,d.y)),srgb_to_linear(curve(3u,d.z)));
 }
 
 // sRGB-curve-encoded value → the output space's own curve (`OutputTrc`: 0 sRGB, 1 gamma, 2 Rec.709).
@@ -479,24 +532,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // --- tone map on luminance, highlight desaturation
     var d = vec3<f32>(0.0);
-    if (pu(F_TONE_V2) != 0u) {
-        d = tone_v2(c);
-    } else {
-        let yl = lum2020(c);
-        let o = tone_apply(yl);
-        if (yl > 1e-9) {
-            d = c * o / yl;
-        }
-        let k = chroma_scale(o);
-        if (k != 1.0) {
-            d = vec3<f32>(o) + (d - vec3<f32>(o)) * k;
-        }
-        let mx = max(d.x, max(d.y, d.z));
-        if (mx > 1.0) {
-            let t = clamp((mx - 1.0) / max(mx - o, 1e-6), 0.0, 1.0);
-            d = d + (o - d) * t;
-        }
-    }
+    d = tone_v2(c);
 
     // --- colour
     d = color_ops(d, lt[11], lt[12]);
@@ -541,6 +577,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
     }
 
+    if (pu(F_CURVES) != 0u) { d = curve_working(d); }
+
     // --- gamut map to the output space (desaturate towards luminance until in range)
     let om = array<vec3<f32>, 3>(
         vec3<f32>(pf(F_OUT_M), pf(F_OUT_M + 1u), pf(F_OUT_M + 2u)),
@@ -548,6 +586,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         vec3<f32>(pf(F_OUT_M + 6u), pf(F_OUT_M + 7u), pf(F_OUT_M + 8u)),
     );
     var r = mul3(om, d);
+    if (pu(F_SOFT_GAMUT) != 0u) { r = soft_gamut(r); }
     let yy = clamp(pf(F_OUT_Y) * r.x + pf(F_OUT_Y + 1u) * r.y + pf(F_OUT_Y + 2u) * r.z, 0.0, 1.0);
     var tg = 1.0;
     for (var k = 0u; k < 3u; k++) {
@@ -564,14 +603,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // --- encode, curves, grain
     var e = vec3<f32>(encode_srgb(r.x), encode_srgb(r.y), encode_srgb(r.z));
-    if (pu(F_CURVES) != 0u) {
-        let e0 = e;
-        e = vec3<f32>(curve(0u, e.x), curve(1u, e.y), curve(2u, e.z));
-        let rs = pf(F_REFINE_SAT);
-        if (rs < 1.0) {
-            e = refine_saturation(e0, e, rs);
-        }
-    }
     if (pu(F_GRAIN) != 0u) {
         let px = f32(x) + 0.5;
         let py = f32(y) + 0.5;
@@ -587,5 +618,5 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         e = e + k;
     }
     e = vec3<f32>(out_encode(e.x), out_encode(e.y), out_encode(e.z));
-    out[i] = enc8(e.x) | (enc8(e.y) << 8u) | (enc8(e.z) << 16u) | (255u << 24u);
+    out[i] = enc8(e.x, x, y, 0u) | (enc8(e.y, x, y, 1u) << 8u) | (enc8(e.z, x, y, 2u) << 16u) | (255u << 24u);
 }
