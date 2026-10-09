@@ -70,7 +70,12 @@ fn p_bounds_join(@builtin(global_invocation_id) g: vec3<u32>,@builtin(local_invo
 }
 @compute @workgroup_size(256)
 fn p_quant(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
-    let i=lin_index(g,ng); if(i>=pu(0u)) {return;} out[i]=clamp(exp2(floor(log2(a[i])/pf(1u))*pf(1u)),0.00006103515625,4.0);
+    let i=lin_index(g,ng); if(i>=pu(0u)) {return;}
+    if(pf(1u)==1.0){
+        let bits=bitcast<u32>(max(a[i],0.0));var lo=0u;var hi=17u;
+        while(lo<hi){let mid=(lo+hi)/2u;if(bits>=pu(2u+mid)){lo=mid+1u;}else{hi=mid;}}
+        let exponent=max(lo,1u)+112u;out[i]=bitcast<f32>(exponent<<23u);
+    }else{out[i]=clamp(exp2(floor(log2(a[i])/pf(1u))*pf(1u)),0.00006103515625,4.0);}
 }
 @compute @workgroup_size(256)
 fn p_moments(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {

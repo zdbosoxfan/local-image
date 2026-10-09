@@ -1109,15 +1109,10 @@ fn prepare(cx: &mut Cx<'_>, lin: &Buf, plan: &Plan<'_>, req: &RenderRequest, pla
             return b.clone();
         }
         let lum = cx.gpu.buffer(n);
-        map(
-            cx,
-            "toneeq_lum",
-            n,
-            &[((s.light.exposure + s.tone_eq.mask_exposure) as f32).exp2().to_bits(), (s.tone_eq.mask_contrast as f32).exp2().to_bits()],
-            [Some(lin), None, None],
-            &lum,
-        );
-        let filtered = crate::primary::eigf_with_geometric(cx, &lum, w, h, sigma, eps, 2, 1.0, true);
+        let gain = ((s.light.exposure + s.tone_eq.mask_exposure) as f32).exp2();
+        let slope = (s.tone_eq.mask_contrast as f32).exp2();
+        map(cx, "toneeq_lum", n, &[gain.to_bits(), slope.to_bits()], [Some(lin), None, None], &lum);
+        let filtered = crate::primary::toneeq_eigf(cx, lin, &lum, w, h, sigma, eps, gain, slope);
         let log = cx.gpu.buffer(n);
         map(cx, "toneeq_log", n, &[], [Some(&filtered), None, None], &log);
         let log = Arc::new(log);
@@ -1398,16 +1393,13 @@ fn box_mean(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize, r: usize)
     cx.run("mean_box", &[w as u32, h as u32, nc as u32, r as u32, 1], &[Some(&tmp), Some(&out)], groups1(w * nc));
     out
 }
-fn guided_rgb(cx: &mut Cx<'_>, guide: &Buf, input: &Buf, w: usize, h: usize, r: usize) -> Buf {
+fn guided_rgb(cx: &mut Cx<'_>, guide: &Buf, guide_stats: &Buf, input: &Buf, w: usize, h: usize, r: usize) -> Buf {
     let n = w * h;
-    let mean = cx.gpu.buffer(n * 4);
-    let var = cx.gpu.buffer(n * 9);
-    map(cx, "haze_moments", n, &[0], [Some(guide), Some(input), None], &mean);
-    map(cx, "haze_moments", n, &[1], [Some(guide), Some(input), None], &var);
-    let mean = box_mean(cx, &mean, w, h, 4, r);
-    let var = box_mean(cx, &var, w, h, 9, r);
+    let input_stats = cx.gpu.buffer(n * 4);
+    map(cx, "haze_input_moments", n, &[], [Some(guide), Some(input), None], &input_stats);
+    let input_stats = box_mean(cx, &input_stats, w, h, 4, r);
     let coeff = cx.gpu.buffer(n * 4);
-    map(cx, "haze_solve", n, &[lightcraft_pipeline::detail::haze::HAZE_EPS.to_bits()], [Some(&mean), Some(&var), None], &coeff);
+    map(cx, "haze_solve_shared", n, &[lightcraft_pipeline::detail::haze::HAZE_EPS.to_bits()], [Some(guide_stats), Some(&input_stats), None], &coeff);
     let coeff = box_mean(cx, &coeff, w, h, 4, r);
     let out = cx.gpu.buffer(n);
     map(cx, "haze_apply", n, &[], [Some(guide), Some(&coeff), None], &out);
@@ -1452,8 +1444,11 @@ fn haze_planes(cx: &mut Cx<'_>, lin: &Buf, w: usize, h: usize, scale: f32) -> (A
     let positive = extrema(cx, &low, w, h, w1, true);
     let high = extrema(cx, &raw, w, h, w1, true);
     let negative = extrema(cx, &high, w, h, w1, false);
-    let positive = guided_rgb(cx, lin, &positive, w, h, w2);
-    let negative = guided_rgb(cx, lin, &negative, w, h, w2);
+    let guide_stats = cx.gpu.buffer(n * 9);
+    map(cx, "haze_guide_moments", n, &[], [Some(lin), None, None], &guide_stats);
+    let guide_stats = box_mean(cx, &guide_stats, w, h, 9, w2);
+    let positive = guided_rgb(cx, lin, &guide_stats, &positive, w, h, w2);
+    let negative = guided_rgb(cx, lin, &guide_stats, &negative, w, h, w2);
     let buf = cx.gpu.buffer(n * 2);
     cx.copy_into(&positive, &buf, 0);
     cx.copy_into(&negative, &buf, n);
@@ -1471,26 +1466,73 @@ fn reduce_haze(cx: &mut Cx<'_>, mut sums: Buf, mut count: usize, nc: usize, name
     sums
 }
 fn haze_quantile(cx: &mut Cx<'_>, dark: &Buf, img: &Buf, n: usize, phase: u32, criterion: &Buf) -> Buf {
-    let out = cx.gpu.buffer(1);
     if phase == 0 {
         let scratch = cx.copy(dark);
-        map(cx, "haze_quick_select", 1, &[n as u32, 0], [None, Some(&scratch), None], &out);
+        haze_select(cx, &scratch, n, phase, criterion)
     } else {
         let groups = groups1(n);
         let count = (groups[0] * groups[1]) as usize;
-        let sums = cx.gpu.buffer(count);
+        let sums = cx.gpu.buffer(count * 2);
         // Brightness compaction uses read-only input bindings; selection owns its scratch.
         map(cx, "haze_count", n, &[], [Some(dark), None, Some(criterion)], &sums);
-        let prefix = cx.gpu.buffer(count + 1);
-        map(cx, "haze_prefix", 1, &[count as u32], [Some(&sums), None, None], &prefix);
-        let criteria = cx.gpu.buffer(count + 2);
+        let prefix = haze_scan(cx, &sums, count);
+        let criteria = cx.gpu.buffer(1 + prefix.len);
         cx.copy_into(criterion, &criteria, 0);
         cx.copy_into(&prefix, &criteria, 1);
         let scratch = cx.gpu.buffer(n);
         map(cx, "haze_bright_fill", n, &[], [Some(dark), Some(img), Some(&criteria)], &scratch);
-        let total = cx.slice(&prefix, count, 1);
-        map(cx, "haze_quick_select", 1, &[0, 1], [None, Some(&scratch), Some(&total)], &out);
+        let total = cx.slice(&prefix, count * 2, 1);
+        haze_select(cx, &scratch, n, phase, &total)
     }
+}
+
+// Hierarchical exclusive vec2<u32> scan. Counts are bit-preserved in storage words.
+// Every level stays on device; even a 24 MP selection has no scalar readback/wait.
+fn haze_scan(cx: &mut Cx<'_>, counts: &Buf, n: usize) -> Buf {
+    let groups = groups1(n);
+    let ng = (groups[0] * groups[1]) as usize;
+    let scanned = cx.gpu.buffer(2 * (n + ng));
+    map(cx, "haze_scan_blocks", n, &[], [Some(counts), None, None], &scanned);
+    if ng == 1 {
+        return scanned;
+    }
+    let totals = cx.slice(&scanned, 2 * n, 2 * ng);
+    let group_prefix = haze_scan(cx, &totals, ng);
+    let out = cx.gpu.buffer(2 * (n + 1));
+    map(cx, "haze_scan_add", n + 1, &[n as u32, ng as u32], [Some(&scanned), Some(&group_prefix), None], &out);
+    out
+}
+
+fn haze_select(cx: &mut Cx<'_>, scratch: &Buf, n: usize, phase: u32, total: &Buf) -> Buf {
+    let out = cx.gpu.buffer(1);
+    if n <= 65536 {
+        map(cx, "haze_quick_select", 1, &[n as u32, phase, 0], [None, Some(scratch), Some(total)], &out);
+        return out;
+    }
+    let mut state = cx.gpu.buffer(16);
+    map(cx, "haze_select_init", 1, &[n as u32, phase], [None, Some(scratch), Some(total)], &state);
+    let groups = groups1(n);
+    let ng = (groups[0] * groups[1]) as usize;
+    let counts = cx.gpu.buffer(2 * ng);
+    let lists = cx.gpu.buffer(2 * n);
+    let unused = cx.gpu.buffer(1);
+    // Eight exact parallel partitions reduce typical full-size intervals by orders
+    // of magnitude. The remaining reference selector has no iteration cap: unusual
+    // pivot distributions still produce the exact result, rather than an estimate.
+    for _ in 0..8 {
+        let prepared = cx.gpu.buffer(16);
+        map(cx, "haze_select_prepare", 1, &[], [Some(&state), Some(scratch), None], &prepared);
+        map(cx, "haze_partition_count", n, &[], [Some(scratch), Some(&prepared), None], &counts);
+        let prefix = haze_scan(cx, &counts, ng);
+        map(cx, "haze_partition_fill", n, &[], [Some(scratch), Some(&prepared), Some(&prefix)], &lists);
+        let split = cx.gpu.buffer(16);
+        map(cx, "haze_partition_split", 1, &[ng as u32, n as u32], [Some(&lists), Some(&prepared), Some(&prefix)], &split);
+        map(cx, "haze_select_swap", n, &[n as u32], [Some(&split), Some(scratch), Some(&lists)], &unused);
+        let next = cx.gpu.buffer(16);
+        map(cx, "haze_select_commit", 1, &[], [Some(&split), Some(scratch), None], &next);
+        state = next;
+    }
+    map(cx, "haze_quick_select", 1, &[0, 0, 1], [Some(&state), Some(scratch), None], &out);
     out
 }
 

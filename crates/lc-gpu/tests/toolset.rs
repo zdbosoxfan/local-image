@@ -62,6 +62,23 @@ fn check(name: &str, src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, 
     let gpu = gpu_render(src, info, s, req, None);
     let (mean, max) = diff(&cpu, &gpu);
     eprintln!("{name:<44} {}x{}  mean {mean:.4}  max {max}", cpu.width, cpu.height);
+    if max > MAX_LSB {
+        let mut pixels: Vec<_> = cpu
+            .data
+            .iter()
+            .zip(&gpu.data)
+            .enumerate()
+            .filter_map(|(i, (p, q))| {
+                let d = (0..3).map(|c| p[c].abs_diff(q[c])).max().unwrap_or(0);
+                (d > MAX_LSB).then_some((d, i, p, q))
+            })
+            .collect();
+        pixels.sort_unstable_by_key(|(d, i, _, _)| (std::cmp::Reverse(*d), *i));
+        eprintln!("settings: tone_eq={:?}, request={req:?}", s.tone_eq);
+        for (d, i, p, q) in pixels.iter().take(32) {
+            eprintln!("pixel ({}, {}) CPU={p:?} GPU={q:?} max={d}", i % cpu.width, i / cpu.width);
+        }
+    }
     assert!(mean < MEAN_LSB && max <= MAX_LSB, "{name}: mean {mean:.4} LSB, max {max} LSB");
     gpu
 }
@@ -1031,6 +1048,9 @@ fn bench_toolset_24mp() {
     eprintln!("{:<34} {:>10} {:>10}  renderer", "24 MP (6000×4000), full size", "GPU path", "CPU only");
     let mut primary_baseline = None;
     for (name, info, mut s) in cases {
+        if std::env::var("LC_TOOLSET_BENCH_ROW").is_ok_and(|row| row != name) {
+            continue;
+        }
         if std::env::var_os("LC_DETAIL_BENCH_ONLY").is_some() && !name.starts_with("detail ") {
             continue;
         }

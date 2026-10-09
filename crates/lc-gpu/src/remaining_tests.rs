@@ -23,6 +23,11 @@ fn compare(g: &Gpu, src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, r
         }
     }
     let mean = sum as f64 / (cpu.data.len() * 3) as f64;
+    if max > 3 {
+        for (i, (p, q)) in cpu.data.iter().zip(&image.data).enumerate().filter(|(_, (p, q))| (0..3).any(|c| p[c].abs_diff(q[c]) > 3)).take(32) {
+            eprintln!("pixel ({}, {}) CPU={p:?} GPU={q:?}", i % cpu.width, i / cpu.width);
+        }
+    }
     assert!(mean < 0.5 && max <= 3, "{}x{}: mean={mean}, max={max}", cpu.width, cpu.height);
     image
 }
@@ -83,6 +88,143 @@ fn native_toneeq_filter_extremes_and_cached_overlay_match() {
         original.masks.push(m);
         assert_eq!(first, compare(g, &src, &info, &original, &req, &stages));
     }
+}
+
+#[test]
+fn native_toneeq_5090_extreme_fixture_matches() {
+    let Some(g) = crate::test_device().or_else(device) else { return };
+    let _scope = crate::ctx::RenderScope::new(g);
+    let (w, h) = (641, 427);
+    let src = Arc::new(Rgb32f::from_fn(w, h, |x, y| {
+        let v = 0.0003 * 1.02f32.powf(x as f32 * 320.0 / w as f32) * (1.0 + 0.06 * (y as f32 * 0.7).sin());
+        [v, v * 0.7, v * 0.4]
+    }));
+    let side = 96;
+    let logits: Vec<_> = (0..side * side)
+        .map(|i| {
+            let (x, y) = ((i % side) as f32 + 0.5, (i / side) as f32 + 0.5);
+            let mut d = x / side as f32;
+            let r = ((x - side as f32 * 0.55).powi(2) + (y - side as f32 * 0.5).powi(2)).sqrt() / side as f32;
+            if r < 0.15 {
+                d *= 0.3;
+            }
+            let d = d.clamp(0.01, 0.99);
+            (d / (1.0 - d)).ln()
+        })
+        .collect();
+    let info = SourceInfo { raw: true, as_shot_temp: 5200.0, as_shot_tint: 4.0, ..Default::default() };
+    let mut s = DevelopSettings::default();
+    s.tone_eq.enabled = true;
+    s.tone_eq.ev8 = -2.0;
+    s.tone_eq.ev4 = 2.0;
+    s.tone_eq.ev0 = -2.0;
+    let mut m = mask();
+    m.opacity = 100.0;
+    m.components[0].shape =
+        MaskShape::DepthRange { lo: 0.0, hi: 0.7, feather: 0.1, seg: Some(lightcraft_develop::SegMask::from_logits(side, &logits)) };
+    m.adjust = lightcraft_develop::LocalAdjustments { exposure: 0.6, contrast: 20.0, ..Default::default() };
+    s.masks.push(m);
+    let cache = GpuStages::default();
+    for (size, edges, smoothing, exposure, contrast) in [(0.1, 0.0, -2.33, -2.0, -1.0), (50.0, 100.0, 1.67, 2.0, 1.0), (0.1, 0.0, -2.33, -2.0, -1.0)]
+    {
+        s.tone_eq.size = size;
+        s.tone_eq.refine = edges;
+        s.tone_eq.smoothing = smoothing;
+        s.tone_eq.mask_exposure = exposure;
+        s.tone_eq.mask_contrast = contrast;
+        for edge in [w, w / 2] {
+            compare(g, &src, &info, &s, &RenderRequest::fit(edge, edge), &cache);
+        }
+    }
+}
+
+// Independent scalar reference, including upstream's order-sensitive pivot swap.
+fn reference_select(mut v: Vec<f32>) -> f32 {
+    if v.is_empty() {
+        return 0.0;
+    }
+    let nth = ((v.len() as f32 * 0.95) as usize).min(v.len() - 1);
+    let (mut first, mut last) = (0, v.len());
+    while last > first + 1 {
+        let pivot = last - 1;
+        if v[first] >= v[pivot] {
+            v.swap(first, pivot);
+        }
+        if v[first] >= v[nth] {
+            v.swap(first, nth);
+        }
+        if v[pivot] >= v[nth] {
+            v.swap(pivot, nth);
+        }
+        let val = v[pivot];
+        let (mut a, mut b) = (first, last);
+        loop {
+            a += 1;
+            while a < b && v[a] < val {
+                a += 1;
+            }
+            b -= 1;
+            while a < b && v[b] > val {
+                b -= 1;
+            }
+            if a >= b {
+                break;
+            }
+            v.swap(a, b);
+        }
+        v.swap(pivot, a);
+        if nth == a {
+            break;
+        }
+        if nth < a {
+            last = a;
+        } else {
+            first = a + 1;
+        }
+    }
+    v[nth]
+}
+
+#[test]
+fn native_parallel_haze_partitions_preserve_reference_order_and_ties() {
+    let Some(g) = crate::test_device().or_else(device) else { return };
+    let _scope = crate::ctx::RenderScope::new(g);
+    let mut cx = Cx::new(g);
+    let errors = crate::ctx::ErrorScopes::push(g);
+    for n in [65537, 71003, 132097] {
+        for mode in 0..5 {
+            let v: Vec<f32> = (0..n)
+                .map(|i| match mode {
+                    0 => i as f32,
+                    1 => (n - i) as f32,
+                    2 => (i / 113) as f32,
+                    3 => 0.125,
+                    _ => ((i as u32).wrapping_mul(1664525).wrapping_add(1013904223) % 7919) as f32 - 3000.0,
+                })
+                .collect();
+            let expected = reference_select(v.clone());
+            let scratch = g.upload(&v);
+            let zero = cx.zeroed(1);
+            let out = haze_select(&mut cx, &scratch, n, 0, &zero);
+            let actual: Vec<f32> = cx.read(&out, 1);
+            assert_eq!(actual[0].to_bits(), expected.to_bits(), "n={n} mode={mode}: {} vs {expected}", actual[0]);
+        }
+    }
+    // Brightness compaction can produce far fewer values than the allocated source
+    // length, including none. Poison unused storage to expose an interval/rank leak.
+    let n = 71003;
+    for count in [0, 1, 17, 997, 64999, 65537, n] {
+        let mut v: Vec<f32> = (0..count).map(|i| ((i as u32).wrapping_mul(1664525) % 4093) as f32).collect();
+        let expected = reference_select(v.clone());
+        v.resize(n, f32::NAN);
+        let scratch = g.upload(&v);
+        let total = g.upload(&[f32::from_bits(count as u32)]);
+        let out = haze_select(&mut cx, &scratch, n, 1, &total);
+        let actual: Vec<f32> = cx.read(&out, 1);
+        assert_eq!(actual[0].to_bits(), expected.to_bits(), "brightness count={count}: {} vs {expected}", actual[0]);
+    }
+    assert!(errors.pop().is_none());
+    assert!(crate::ctx::take_failure().is_none());
 }
 
 #[test]

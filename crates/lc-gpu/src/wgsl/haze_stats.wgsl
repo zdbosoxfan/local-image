@@ -7,17 +7,15 @@ fn haze_count(@builtin(global_invocation_id) g:vec3<u32>,@builtin(local_invocati
     let i=lin_index(g,nw);var count=0u;if(i<pu(0u)){count=u32(a[source_index(i,pu(0u))]>=c[0]);}
     sums[lid]=count;workgroupBarrier();
     for(var step=128u;step>0u;step/=2u){if(lid<step){sums[lid]+=sums[lid+step];}workgroupBarrier();}
-    if(lid==0u){dst[wg.y*nw.x+wg.x]=bitcast<f32>(sums[0]);}
+    if(lid==0u){let j=2u*(wg.y*nw.x+wg.x);dst[j]=bitcast<f32>(sums[0]);dst[j+1u]=0.0;}
 }
-@compute @workgroup_size(1)
-fn haze_prefix(){var total=0u;for(var i=0u;i<pu(1u);i++){dst[i]=bitcast<f32>(total);total+=bitcast<u32>(a[i]);}dst[pu(1u)]=bitcast<f32>(total);}
 @compute @workgroup_size(256)
 fn haze_bright_fill(@builtin(global_invocation_id) g:vec3<u32>,@builtin(local_invocation_index) lid:u32,@builtin(workgroup_id) wg:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>){
     let i=lin_index(g,nw);var selected=0u;var index=0u;
     if(i<pu(0u)){index=source_index(i,pu(0u));selected=u32(a[index]>=c[0]);}
     sums[lid]=selected;workgroupBarrier();
     for(var step=1u;step<256u;step*=2u){var prev=0u;if(lid>=step){prev=sums[lid-step];}workgroupBarrier();sums[lid]+=prev;workgroupBarrier();}
-    if(selected!=0u){let off=bitcast<u32>(c[1u+wg.y*nw.x+wg.x])+sums[lid]-1u;dst[off]=b[3u*index]+b[3u*index+1u]+b[3u*index+2u];}
+    if(selected!=0u){let off=bitcast<u32>(c[1u+2u*(wg.y*nw.x+wg.x)])+sums[lid]-1u;dst[off]=b[3u*index]+b[3u*index+1u]+b[3u*index+2u];}
 }
 var<workgroup> air_sums:array<vec4<f32>,256>;
 @compute @workgroup_size(256)

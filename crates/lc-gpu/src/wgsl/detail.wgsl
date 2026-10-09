@@ -93,22 +93,39 @@ fn haze_moments(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgrou
         for(var k=0u;k<9u;k++){dst[i*9u+k]=values[k];}}
 }
 // a mean4,b moments9; P:n,eps.
-@compute @workgroup_size(256)
-fn haze_solve(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {
-    let i=lin_index(g,nw);if(i>=pu(0u)){return;}
-    let inp=a[i*4u];let r=a[i*4u+1u];let gg=a[i*4u+2u];let blue=a[i*4u+3u];let base=i*9u;let eps=pf(1u);
-    let rr=b[base+3u]-r*r+eps;let rg=b[base+4u]-r*gg;let rb=b[base+5u]-r*blue;
-    let g2=b[base+6u]-gg*gg+eps;let gb=b[base+7u]-gg*blue;let bb=b[base+8u]-blue*blue+eps;
+fn haze_coeff(inp:f32,r:f32,gg:f32,blue:f32,v:array<f32,9>,eps:f32)->vec4<f32> {
+    let rr=v[3]-r*r+eps;let rg=v[4]-r*gg;let rb=v[5]-r*blue;
+    let g2=v[6]-gg*gg+eps;let gb=v[7]-gg*blue;let bb=v[8]-blue*blue+eps;
     let det=rr*(g2*bb-gb*gb)-rg*(rg*bb-rb*gb)+rb*(rg*gb-rb*g2);
     var ar=0.0;var ag=0.0;var ab=0.0;var b0=inp;
     if(abs(det)>4.0*1.1920928955078125e-7) {
-        let cr=b[base]-r*inp;let cg=b[base+1u]-gg*inp;let cb=b[base+2u]-blue*inp;
+        let cr=v[0]-r*inp;let cg=v[1]-gg*inp;let cb=v[2]-blue*inp;
         ar=(cr*(g2*bb-gb*gb)-rg*(cg*bb-cb*gb)+rb*(cg*gb-cb*g2))/det;
         ag=(rr*(cg*bb-cb*gb)-cr*(rg*bb-rb*gb)+rb*(rg*cb-rb*cg))/det;
         ab=(rr*(g2*cb-gb*cg)-rg*(rg*cb-rb*cg)+cr*(rg*gb-rb*g2))/det;
         b0=inp-ar*r-ag*gg-ab*blue;
     }
-    dst[i*4u]=ar;dst[i*4u+1u]=ag;dst[i*4u+2u]=ab;dst[i*4u+3u]=b0;
+    return vec4<f32>(ar,ag,ab,b0);
+}
+@compute @workgroup_size(256)
+fn haze_solve(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {
+    let i=lin_index(g,nw);if(i>=pu(0u)){return;}var v:array<f32,9>;for(var k=0u;k<9u;k++){v[k]=b[i*9u+k];}
+    let q=haze_coeff(a[i*4u],a[i*4u+1u],a[i*4u+2u],a[i*4u+3u],v,pf(1u));for(var k=0u;k<4u;k++){dst[i*4u+k]=q[k];}
+}
+// RGB guide means/covariances are shared by both transmission signs.
+@compute @workgroup_size(256)
+fn haze_guide_moments(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {
+    let i=lin_index(g,nw);if(i>=pu(0u)){return;}let v=drgb(i);
+    let q=array<f32,9>(v.x,v.y,v.z,v.x*v.x,v.x*v.y,v.x*v.z,v.y*v.y,v.y*v.z,v.z*v.z);for(var k=0u;k<9u;k++){dst[i*9u+k]=q[k];}
+}
+@compute @workgroup_size(256)
+fn haze_input_moments(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {
+    let i=lin_index(g,nw);if(i>=pu(0u)){return;}let v=drgb(i);let p=b[i];let q=vec4<f32>(p,v*p);for(var k=0u;k<4u;k++){dst[i*4u+k]=q[k];}
+}
+@compute @workgroup_size(256)
+fn haze_solve_shared(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {
+    let i=lin_index(g,nw);if(i>=pu(0u)){return;}var v:array<f32,9>;for(var k=0u;k<3u;k++){v[k]=b[i*4u+k+1u];}for(var k=3u;k<9u;k++){v[k]=a[i*9u+k];}
+    let q=haze_coeff(b[i*4u],a[i*9u],a[i*9u+1u],a[i*9u+2u],v,pf(1u));for(var k=0u;k<4u;k++){dst[i*4u+k]=q[k];}
 }
 @compute @workgroup_size(256)
 fn haze_apply(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {

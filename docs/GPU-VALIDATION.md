@@ -310,8 +310,8 @@ sample the same cell-centred grid, sigmoid and feathered band through the frame 
 
 Dehaze airlight/depth statistics also stay on device so its benchmark row has no host
 statistics stage. Its brightness samples retain the reference's reverse-first-half
-ordering; device scratch uses the same order-sensitive median-of-three quick selection.
-This selection is serial on device and needs RTX timing, especially at full size; other
+ordering; device scratch preserves the same order-sensitive median-of-three selection.
+The 5090 follow-up below replaces full-image scalar selection with parallel partitions;
 haze preparation and reductions remain parallel and the prepared fields are cached.
 
 `last_cpu_stages()` now reports the host stages actually executed on the current thread.
@@ -331,3 +331,20 @@ Production rejects software adapters. No RTX latency or hardware-equivalence cla
 made here; the coordinator must rerun `bench_toolset_24mp` and the device integration
 suites on the RTX 5090 (typical-edit target ≤~200 ms). Exact commands and results are in
 [`CODEX-REPORT-gpu-toneeq.md`](wip/CODEX-REPORT-gpu-toneeq.md).
+
+### 5090 follow-up: tone guidance precision and dehaze selection
+
+The coordinator's `cad2cc4` run (NVIDIA 615.71.09/Vulkan) found one extreme-tone
+outlier test (max 25 LSB) and a 3354 ms dehaze regression. All benchmark rows were
+GPU; typical edit was 257 ms under heavy machine load. The follow-up replaces
+`floor(log2(value))` tone guidance with integer selection against CPU-rounded
+power-bin boundaries. A controlled three-ULP shader-log precision probe reproduced
+the 25-LSB failure at (333, 52); the fixed software path has no bin discrepancy.
+
+Dehaze now uses stable parallel Hoare partitions and hierarchical prefix scans,
+preserving the reference's tie/order behavior before a small remaining selection.
+The RGB guide statistics are shared between both haze signs, reducing moment/box
+filter channels from 26 to 17. Normal renders have no statistics readbacks.
+Production-first regression tests and opt-in intermediate tracing were added.
+Updated RTX timings, including the ≤300 ms dehaze target, require coordinator
+validation; the detailed reproduction, tests and commands are in the report above.
