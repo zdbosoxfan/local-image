@@ -372,3 +372,31 @@ fn exports_are_atomic_without_a_sync() {
     assert!(syncs_on_this_thread() > before, "the durable writer syncs");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn parallel_export_wave_keeps_selection_order_and_encoded_bytes() {
+    let mut s = Session::with_demo();
+    let id = s.active().unwrap();
+    let ids = vec![id; 8];
+    let o = ExportOptions::from_json(&json!({"format": "jpeg", "width": 64, "naming": "event-{seq}"}));
+    let expected: Vec<_> = (1..=8).map(|seq| crate::export::export_photo(&mut s, id, &o, seq).unwrap()).collect();
+    let items = crate::export::prepare_batch(&mut s, &ids, &o).unwrap();
+    let mut written = Vec::new();
+    let mut write = |path: &str, bytes: &[u8]| {
+        written.push((path.to_string(), bytes.to_vec()));
+        Ok(())
+    };
+    let result = crate::export::run_batch(items, &o, &crate::export::Destination::default(), &mut write, &|_| false, true, &mut |_, _| true).unwrap();
+    assert_eq!(result.len(), 8);
+    for (actual, expected) in written.iter().zip(expected) {
+        assert_eq!(actual.0, expected.file_name);
+        let normalize = |mut bytes: Vec<u8>| {
+            // ICC profiles record their creation clock at header bytes 24..36. Two calls
+            // seconds apart already differ on the serial baseline; compare everything else.
+            let at = bytes.windows(13).position(|b| b == b"ICC_PROFILE\0\x01").unwrap() + 14 + 24;
+            bytes[at..at + 12].fill(0);
+            bytes
+        };
+        assert!(normalize(actual.1.clone()) == normalize(expected.bytes), "parallelism changed encoded output beyond the ICC creation timestamp");
+    }
+}

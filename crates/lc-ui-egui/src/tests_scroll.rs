@@ -115,3 +115,48 @@ fn filmstrip_wheel_scrolls_and_keeps_its_position() {
     let cell = widget(&h, &format!("film:{second}"));
     assert!(cell.left() >= 0.0 && cell.right() <= 1200.0, "the new active photo is in view ({cell:?})");
 }
+
+#[test]
+fn clicking_prefetched_neighbours_reuses_decoded_sources_at_event_scale() {
+    use crate::state::ViewMode;
+    use lightcraft_catalog::{Op, Photo, PhotoId, Source};
+    use std::sync::{Arc, Mutex};
+    let loads = Arc::new(Mutex::new(std::collections::HashMap::<String, usize>::new()));
+    let counter = loads.clone();
+    let mut session = lightcraft_engine::Session::new();
+    session.media.file_loader = Some(Arc::new(move |path, _| {
+        *counter.lock().unwrap().entry(path.to_string()).or_default() += 1;
+        Ok((lightcraft_raster::Rgb32f::filled(96, 64, [0.15, 0.25, 0.35]), Default::default()))
+    }));
+    for i in 1..=2000 {
+        let p = Photo::new(
+            PhotoId(i),
+            Source::File { path: format!("/event-scale-test/{i}.jpg") },
+            &format!("{i}.jpg"),
+            "JPEG",
+            6000,
+            4000,
+            "2026-01-01",
+        );
+        session.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+    }
+    let ids = session.visible_cloned();
+    session.selection.active = Some(ids[2]);
+    session.selection.ids = vec![ids[2]];
+    let mut h = Headless::new(LightcraftApp::new(session, Services { png: None, ..Default::default() }), [1400.0, 900.0], 1.0);
+    h.app.ui.view = ViewMode::Detail;
+    assert!(h.settle(SETTLE));
+    let next = ids[3];
+    assert!(h.app.session.media.get(next, lightcraft_engine::SourceLevel::Preview).is_some(), "next neighbour was not prefetched");
+    let path = format!("/event-scale-test/{}.jpg", next.0);
+    let before = loads.lock().unwrap().get(&path).copied().unwrap();
+    let r = h.request("ui.click", json!({"id":format!("film:{}",next.0)}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert!(h.settle(SETTLE));
+    assert_eq!(h.app.session.active(), Some(next));
+    assert_eq!(loads.lock().unwrap().get(&path).copied(), Some(before), "clicking a prefetched photo decoded it again");
+    let r = h.request("ui.click", json!({"id":format!("film:{}",ids[2].0)}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert!(h.settle(SETTLE));
+    assert_eq!(h.app.session.active(), Some(ids[2]));
+}
