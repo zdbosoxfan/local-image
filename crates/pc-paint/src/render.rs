@@ -445,7 +445,7 @@ impl StrokeRenderer {
         let nc = if per_dab_color { fmt.map_or(0, |f| f.mode.color_channels()) } else { 0 };
         // Soft round brushes integrate their coverage along segments between dabs placed at a
         // fixed internal spacing; the user's spacing sets the density.
-        let cont = brush.continuous_coverage().then(|| Continuous { spacing: brush.spacing, hardness: brush.hardness, prev: None, capped: false });
+        let cont = brush.continuous_coverage().then_some(Continuous { spacing: brush.spacing, hardness: brush.hardness, prev: None, capped: false });
         let generator = match cont {
             Some(_) => DabGenerator::new(&BrushSettings { spacing: crate::continuous::SEGMENT_SPACING, ..brush.clone() }, zoom),
             None => DabGenerator::new(brush, zoom),

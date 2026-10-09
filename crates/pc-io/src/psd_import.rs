@@ -638,6 +638,8 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &photocraft_raster::Interrupt) 
     } else if layered {
         let tree = file.layer_tree();
         doc.layers = cx.build(&tree, 0);
+        // local-image: smart objects that are Develop layers get their develop link back
+        crate::develop_layer_map::resolve(&mut doc);
         // Layer › Link Layers: resource 1026 holds one group id per layer record (0 = unlinked).
         if let Some(Ok(photocraft_psd::resources::ResourceData::LayerGroupInfo(groups))) =
             file.resources.iter().find(|r| r.id == ids::LAYER_GROUP_INFO).and_then(photocraft_psd::resources::ImageResource::parsed)

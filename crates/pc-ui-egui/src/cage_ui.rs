@@ -456,7 +456,10 @@ mod tests {
     fn draw_close_drag_and_commit() {
         let ctx = egui::Context::default();
         let mut app = app();
-        crate::distort_ui::menu(&mut app, &ctx, "edit.transform.cage", &json!({})).unwrap().unwrap();
+        // Edit › Transform › Cage starts the interactive mode.
+        assert!(crate::menus::is_enabled(&app, "edit.transform.cage"));
+        crate::menus::invoke(&mut app, &ctx, "edit.transform.cage", json!({})).unwrap();
+        assert!(app.distort.cage.is_some());
         let ev = |app: &mut PhotocraftApp, e| crate::distort_ui::pointer(app, e, egui::Modifiers::NONE);
         for p in [[30.0, 20.0], [60.0, 20.0], [60.0, 50.0], [30.0, 50.0]] {
             ev(&mut app, ToolEvent::Down { x: p[0], y: p[1], pressure: 1.0 });

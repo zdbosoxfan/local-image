@@ -506,7 +506,8 @@ impl BrushSettings {
             && !self.color_dynamics.enabled
             && !self.scattering.enabled
             && !self.build_up
-            && (!sd.enabled || (smooth(&sd.size) && !sd.angle.is_active() && !sd.roundness.is_active() && !sd.flip_x_jitter && !sd.flip_y_jitter && !sd.brush_projection))
+            && (!sd.enabled
+                || (smooth(&sd.size) && !sd.angle.is_active() && !sd.roundness.is_active() && !sd.flip_x_jitter && !sd.flip_y_jitter && !sd.brush_projection))
             && (!tr.enabled || (smooth(&tr.opacity) && smooth(&tr.flow)))
     }
 

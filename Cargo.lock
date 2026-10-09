@@ -3756,6 +3756,10 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "anyhow",
  "image",
+ "log",
+ "miniz_oxide 0.8.9",
+ "rayon",
+ "sha2",
  "tract-onnx",
 ]
 

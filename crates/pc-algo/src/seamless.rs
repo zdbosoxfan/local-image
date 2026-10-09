@@ -260,7 +260,11 @@ fn inside_distance(mask: &[bool], w: usize, h: usize) -> Vec<f32> {
             if d[i] == 0.0 {
                 continue;
             }
-            let v = d[i].min(at(&d, x - 1, y) + 1.0).min(at(&d, x, y - 1) + 1.0).min(at(&d, x - 1, y - 1) + 1.4142).min(at(&d, x + 1, y - 1) + 1.4142);
+            let v = d[i]
+                .min(at(&d, x - 1, y) + 1.0)
+                .min(at(&d, x, y - 1) + 1.0)
+                .min(at(&d, x - 1, y - 1) + std::f32::consts::SQRT_2)
+                .min(at(&d, x + 1, y - 1) + std::f32::consts::SQRT_2);
             d[i] = v;
         }
     }
@@ -270,7 +274,11 @@ fn inside_distance(mask: &[bool], w: usize, h: usize) -> Vec<f32> {
             if d[i] == 0.0 {
                 continue;
             }
-            let v = d[i].min(at(&d, x + 1, y) + 1.0).min(at(&d, x, y + 1) + 1.0).min(at(&d, x + 1, y + 1) + 1.4142).min(at(&d, x - 1, y + 1) + 1.4142);
+            let v = d[i]
+                .min(at(&d, x + 1, y) + 1.0)
+                .min(at(&d, x, y + 1) + 1.0)
+                .min(at(&d, x + 1, y + 1) + std::f32::consts::SQRT_2)
+                .min(at(&d, x - 1, y + 1) + std::f32::consts::SQRT_2);
             d[i] = v;
         }
     }
@@ -446,10 +454,12 @@ mod tests {
         let (w, h) = (120, 90);
         let mask = disc(w, h, 60.0, 45.0, 35.0);
         // Textured target; the patch is the same texture shifted by a constant colour offset.
-        let dst: Vec<f32> = (0..w * h).flat_map(|i| {
-            let (x, y) = ((i % w) as f32, (i / w) as f32);
-            [0.3 + 0.1 * (x * 0.3).sin(), 0.5 + 0.05 * (y * 0.2).cos(), 0.2, 1.0]
-        }).collect();
+        let dst: Vec<f32> = (0..w * h)
+            .flat_map(|i| {
+                let (x, y) = ((i % w) as f32, (i / w) as f32);
+                [0.3 + 0.1 * (x * 0.3).sin(), 0.5 + 0.05 * (y * 0.2).cos(), 0.2, 1.0]
+            })
+            .collect();
         let src: Vec<f32> = dst.chunks_exact(4).flat_map(|p| [p[0] + 0.25, p[1] - 0.2, p[2] + 0.1, 1.0]).collect();
         let out = seamless_blend(w, h, 4, 3, &src, &dst, &mask);
         let mut worst = 0.0f32;
@@ -484,10 +494,12 @@ mod tests {
     #[test]
     fn separate_parts_use_their_own_borders() {
         let (w, h) = (80, 40);
-        let mask: Vec<bool> = (0..w * h).map(|i| {
-            let (x, y) = (i % w, i / w);
-            (5..30).contains(&x) && (5..35).contains(&y) || (45..75).contains(&x) && (5..35).contains(&y)
-        }).collect();
+        let mask: Vec<bool> = (0..w * h)
+            .map(|i| {
+                let (x, y) = (i % w, i / w);
+                (5..30).contains(&x) && (5..35).contains(&y) || (45..75).contains(&x) && (5..35).contains(&y)
+            })
+            .collect();
         let diff: Vec<f32> = (0..w * h).map(|i| if i % w < 40 { 1.0 } else { -1.0 }).collect();
         let m = mvc_membrane(w, h, &mask, &diff, 1);
         assert!((m[20 * w + 17] - 1.0).abs() < 1e-5 && (m[20 * w + 60] + 1.0).abs() < 1e-5);

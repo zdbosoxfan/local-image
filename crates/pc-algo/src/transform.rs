@@ -273,12 +273,7 @@ pub fn warp_surface_map(src: &Surface, src_rect: Rect, m: &QuadMap, interp: Inte
     };
     // The area to map: the content (plus a filter margin) and the frame.
     let r = src_rect.inflate(2);
-    let area = [
-        f64::from(r.x0).min(rect[0]),
-        f64::from(r.y0).min(rect[1]),
-        f64::from(r.x1).max(rect[2]),
-        f64::from(r.y1).max(rect[3]),
-    ];
+    let area = [f64::from(r.x0).min(rect[0]), f64::from(r.y0).min(rect[1]), f64::from(r.x1).max(rect[2]), f64::from(r.y1).max(rect[3])];
     let boxp = vec![[area[0], area[1]], [area[2], area[1]], [area[2], area[3]], [area[0], area[3]]];
     let mut verts: Vec<([f64; 2], [f64; 2])> = Vec::new();
     let mut tris: Vec<[usize; 3]> = Vec::new();
@@ -584,7 +579,8 @@ mod tests {
             for x in -2..44 {
                 let a = o.pixel(x, y)[3];
                 let c = [f64::from(x) + 0.5, f64::from(y) + 0.5];
-                let deep = poly_contains(&dart, c) && [[-1.5, 0.0], [1.5, 0.0], [0.0, -1.5], [0.0, 1.5]].iter().all(|d| poly_contains(&dart, [c[0] + d[0], c[1] + d[1]]));
+                let deep = poly_contains(&dart, c)
+                    && [[-1.5, 0.0], [1.5, 0.0], [0.0, -1.5], [0.0, 1.5]].iter().all(|d| poly_contains(&dart, [c[0] + d[0], c[1] + d[1]]));
                 let near = [[-1.5, 0.0], [1.5, 0.0], [0.0, -1.5], [0.0, 1.5], [0.0, 0.0]].iter().any(|d| poly_contains(&dart, [c[0] + d[0], c[1] + d[1]]));
                 if deep {
                     assert!(a > 0.99, "hole at ({x},{y}): {a}");
@@ -601,9 +597,14 @@ mod tests {
         let h = Homography::rect_to_quad([0.0, 0.0, 40.0, 40.0], dart).unwrap();
         let bad = warp_surface(&s, s.content_bounds(), &h, Interp::Bicubic);
         let ghost = (0..40).flat_map(|y| (0..40).map(move |x| (x, y))).any(|(x, y)| {
-            bad.pixel(x, y)[3] > 0.5 && ![[-1.5, 0.0], [1.5, 0.0], [0.0, -1.5], [0.0, 1.5], [0.0, 0.0]].iter().any(|d| poly_contains(&dart, [f64::from(x) + 0.5 + d[0], f64::from(y) + 0.5 + d[1]]))
+            bad.pixel(x, y)[3] > 0.5
+                && ![[-1.5, 0.0], [1.5, 0.0], [0.0, -1.5], [0.0, 1.5], [0.0, 0.0]]
+                    .iter()
+                    .any(|d| poly_contains(&dart, [f64::from(x) + 0.5 + d[0], f64::from(y) + 0.5 + d[1]]))
         });
-        let hole = (0..40).flat_map(|y| (0..40).map(move |x| (x, y))).any(|(x, y)| bad.pixel(x, y)[3] < 0.5 && poly_contains(&dart, [f64::from(x) + 0.5, f64::from(y) + 0.5]));
+        let hole = (0..40)
+            .flat_map(|y| (0..40).map(move |x| (x, y)))
+            .any(|(x, y)| bad.pixel(x, y)[3] < 0.5 && poly_contains(&dart, [f64::from(x) + 0.5, f64::from(y) + 0.5]));
         assert!(ghost || hole, "the homography should misrender this quad");
     }
 

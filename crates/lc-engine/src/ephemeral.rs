@@ -87,7 +87,7 @@ impl Session {
             photo: id,
             file,
             selection: std::mem::replace(&mut self.selection, Selection::single(id)),
-            source: self.source.clone(),
+            source: self.source,
             previous_active: self.previous_active,
             active_mask: self.active_mask.take(),
             active_spot: self.active_spot.take(),

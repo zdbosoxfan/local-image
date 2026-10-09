@@ -243,12 +243,8 @@ fn highlight_blobs(img: &RgbImage, seeds: &[bool]) -> Option<Highlights> {
     let fs = subsample(&fs, 20_000);
     let fg = Gmm::fit(&fs, (fs.len() / 40).clamp(1, 4), QREG)?;
     // Only chromatic clusters: on a grey object a highlight is just a brighter grey.
-    let means: Vec<[f32; 3]> = fg
-        .comps
-        .iter()
-        .map(|c| c.mean)
-        .filter(|m| m.iter().copied().fold(f32::MIN, f32::max) - m.iter().copied().fold(f32::MAX, f32::min) >= 0.15)
-        .collect();
+    let means: Vec<[f32; 3]> =
+        fg.comps.iter().map(|c| c.mean).filter(|m| m.iter().copied().fold(f32::MIN, f32::max) - m.iter().copied().fold(f32::MAX, f32::min) >= 0.15).collect();
     if means.is_empty() {
         return None;
     }
@@ -261,7 +257,12 @@ fn highlight_blobs(img: &RgbImage, seeds: &[bool]) -> Option<Highlights> {
         .px
         .iter()
         .map(|p| {
-            means.iter().enumerate().map(|(i, m)| (dichromatic(*p, *m), i)).min_by(|x, y| x.0.2.total_cmp(&y.0.2)).map_or((0.0, 0.0, f32::MAX, 0), |((a, b, r), i)| (a, b, r, i))
+            means
+                .iter()
+                .enumerate()
+                .map(|(i, m)| (dichromatic(*p, *m), i))
+                .min_by(|x, y| x.0.2.total_cmp(&y.0.2))
+                .map_or((0.0, 0.0, f32::MAX, 0), |((a, b, r), i)| (a, b, r, i))
         })
         .collect();
     let fit: Vec<Option<(f32, usize)>> = fits.iter().map(|&(a, b, r, i)| (b >= SPEC_B && r <= SPEC_RESID).then_some((a, i))).collect();

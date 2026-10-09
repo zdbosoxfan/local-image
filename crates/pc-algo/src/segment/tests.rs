@@ -550,7 +550,14 @@ fn quick_select_follows_a_learned_prior_where_colour_cannot_tell() {
     let plain = quick::quick_select(&s, canvas, &[(30.0, 50.0)], 8.0, quick::WORK_PX).unwrap();
     assert!(plain.at(140, 50) >= 0.5, "no prior: everything is alike");
     let left = quick::quick_select_with(&s, canvas, &[(30.0, 50.0)], 8.0, quick::WORK_PX, Some(prior)).unwrap();
-    assert!(left.at(40, 20) >= 0.5 && left.at(140, 50) < 0.5 && left.at(90, 50) < 0.5, "{} {} {} {:?}", left.at(40, 20), left.at(140, 50), left.at(90, 50), left.bbox);
+    assert!(
+        left.at(40, 20) >= 0.5 && left.at(140, 50) < 0.5 && left.at(90, 50) < 0.5,
+        "{} {} {} {:?}",
+        left.at(40, 20),
+        left.at(140, 50),
+        left.at(90, 50),
+        left.bbox
+    );
     let right = quick::quick_select_with(&s, canvas, &[(130.0, 50.0)], 8.0, quick::WORK_PX, Some(prior)).unwrap();
     assert!(right.at(150, 20) >= 0.5 && right.at(20, 50) < 0.5);
 }

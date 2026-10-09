@@ -22,7 +22,10 @@ pub const MAX_POINTS: usize = 16;
 /// The preset `points` equal, if any.
 pub fn preset_of(points: &[[f32; 2]]) -> Option<&'static str> {
     let p = sanitize(points);
-    PRESETS.iter().find(|(_, q)| p.len() == q.len() && p.iter().zip(q.iter()).all(|(a, b)| (a[0] - b[0]).abs() < 1e-4 && (a[1] - b[1]).abs() < 1e-4)).map(|(id, _)| *id)
+    PRESETS
+        .iter()
+        .find(|(_, q)| p.len() == q.len() && p.iter().zip(q.iter()).all(|(a, b)| (a[0] - b[0]).abs() < 1e-4 && (a[1] - b[1]).abs() < 1e-4))
+        .map(|(id, _)| *id)
 }
 
 /// A usable curve from any input: finite points clamped to `0..=1`, sorted by input, inputs at

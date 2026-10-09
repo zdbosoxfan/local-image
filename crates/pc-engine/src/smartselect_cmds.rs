@@ -395,6 +395,19 @@ mod tests {
     }
 
     #[test]
+    fn quick_selection_subject_assist_is_optional() {
+        // Without an installed model the assist changes nothing; turning it off is accepted.
+        let mut on = two_regions(8);
+        on.execute("select.quick", json!({"points": [[20, 50], [35, 50]], "size": 8})).unwrap();
+        let mut off = two_regions(8);
+        off.execute("select.quick", json!({"points": [[20, 50], [35, 50]], "size": 8, "subjectAssist": false})).unwrap();
+        if crate::seg::installed().is_none() {
+            assert_eq!(on.active().unwrap().doc.selection, off.active().unwrap().doc.selection);
+        }
+        assert!(cov(&off, 30, 50) > 0.5 && cov(&off, 100, 50) < 0.5);
+    }
+
+    #[test]
     fn quick_selection_add_subtract_undo() {
         for depth in [8, 16] {
             let mut s = two_regions(depth);

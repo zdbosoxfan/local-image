@@ -90,6 +90,9 @@ struct SmartOut {
     prune_ok: bool,
     /// Files to embed.
     add: Vec<crate::linked::LinkedFile>,
+    /// local-image: open descriptors of files to embed, by uuid (a Develop layer's Camera Raw
+    /// settings for its raw source).
+    opens: std::collections::HashMap<String, photocraft_psd::descriptor::Descriptor>,
     /// Sources converted so far, by content hash (`Err` = can't be embedded).
     converted: std::collections::HashMap<[u8; 32], Result<Source, String>>,
     /// Embedded documents decoded while converting them, by uuid (for the filter caches).
@@ -141,7 +144,7 @@ impl SmartOut {
             if LINK_KEYS.contains(&&key) {
                 let add: &[crate::linked::LinkedFile] = if !added && &key == b"lnk2" { &self.add } else { &[] };
                 added |= &key == b"lnk2";
-                match crate::linked::rebuild_block(&data, &keep, add) {
+                match crate::linked::rebuild_block_with(&data, &keep, add, &|u| self.opens.get(u).cloned()) {
                     None => out.push((sig, key, data)),
                     Some(d) if d.is_empty() => {}
                     Some(d) => out.push((sig, key, Arc::new(d))),
@@ -168,7 +171,7 @@ impl SmartOut {
             }
         }
         if !added && !self.add.is_empty() {
-            let data: Vec<u8> = self.add.iter().flat_map(crate::linked::encode_linked_file).collect();
+            let data: Vec<u8> = self.add.iter().flat_map(|f| crate::linked::encode_linked_file_with(f, self.opens.get(&f.uuid))).collect();
             out.push((*b"8BIM", *b"lnk2", Arc::new(data)));
         }
         if !fx_placed && !self.new_fx.is_empty() {
@@ -529,7 +532,14 @@ impl Ex {
     /// the same). Without a source that can be embedded the layer is written as pixels.
     fn smart_blocks(&mut self, l: &Layer, sm: &photocraft_doc::SmartObject, template: Option<crate::smart_map::Placed>, raw: &mut Vec<([u8; 4], Vec<u8>)>) {
         use crate::smart_map::{FilterStack, PlacedSpec, filter_fx, plld_bytes, sold_bytes, uuid_from};
-        let src = match self.smart_source(sm, template.as_ref()) {
+        // local-image: a Develop layer (see `develop_layer_map`): a raw source carries the Camera
+        // Raw settings; any other gets a stand-in Camera Raw Filter under its own filters
+        let develop = sm.develop.as_ref();
+        let src = match develop {
+            Some(link) => self.develop_source(sm, link, template.as_ref()),
+            None => self.smart_source(sm, template.as_ref()).map(|s| (s, false)),
+        };
+        let (src, raw_develop) = match src {
             Ok(s) => s,
             Err(e) => {
                 raw.retain(|(k, _)| !matches!(k, b"SoLd" | b"PlLd" | b"SoLE"));
@@ -538,14 +548,20 @@ impl Ex {
             }
         };
         self.smart.used.insert(src.uuid.clone());
+        let mut filters = sm.smart_filters.clone();
+        if let Some(link) = develop.filter(|_| !raw_develop) {
+            filters.insert(0, crate::develop_layer_map::stand_in_filter(link));
+        }
         let stack = FilterStack {
-            enabled: sm.filters_enabled,
-            filters: sm.smart_filters.clone(),
+            // the stand-in filter alone is never switched off
+            enabled: sm.filters_enabled || (develop.is_some() && !raw_develop && sm.smart_filters.is_empty()),
+            filters,
             mask_enabled: sm.filter_mask.as_ref().is_none_or(|m| m.enabled),
             mask_linked: sm.filter_mask.as_ref().is_some_and(|m| m.linked),
         };
         let same_source = template.as_ref().filter(|t| t.idnt == src.uuid);
         if let (Some(t), Some(data)) = (same_source, sm.psd_raw.as_ref())
+            && crate::develop_layer_map::link_from_sold(&t.descriptor).as_ref() == develop
             && self.placed_unchanged(t, data, sm, &stack)
         {
             let keys: &[&[u8; 4]] = if raw.iter().any(|(k, _)| k == b"SoLd") { &[b"SoLd"] } else { &[b"SoLE", b"SoLd"] };
@@ -562,7 +578,11 @@ impl Ex {
             Some(t) if !t.placed.is_empty() => t.placed.clone(),
             _ => uuid_from(format!("{}:{}", src.uuid, l.id.0).as_bytes()),
         };
-        let size = same_source.and_then(|t| crate::smart_map::stored_size(&t.descriptor)).unwrap_or(src.size);
+        let size = match develop {
+            // the developed render's size (crop, orientation, lens corrections change it)
+            Some(_) => size_from_layer(sm),
+            None => same_source.and_then(|t| crate::smart_map::stored_size(&t.descriptor)).unwrap_or(src.size),
+        };
         let size = if size.0 > 0.0 && size.1 > 0.0 { size } else { size_from_layer(sm) };
         let mut warnings = Vec::new();
         let fx = (!stack.filters.is_empty()).then(|| filter_fx(&stack, &l.name, &mut warnings));
@@ -576,7 +596,7 @@ impl Ex {
             warp: sm.warp.as_ref(),
             filter_fx: fx,
         };
-        let sold = sold_bytes(same_source.map(|t| &t.descriptor), &spec, &mut warnings);
+        let sold = crate::develop_layer_map::sold_with_record(sold_bytes(same_source.map(|t| &t.descriptor), &spec, &mut warnings), develop);
         let plld = plld_bytes(&spec, &mut warnings);
         warnings.dedup();
         let key = if same_source.is_some() && raw.iter().any(|(k, _)| k == b"SoLE") && !raw.iter().any(|(k, _)| k == b"SoLd") { *b"SoLE" } else { *b"SoLd" };
@@ -657,6 +677,47 @@ impl Ex {
             }
             SmartSource::Embedded { file_name, bytes } => self.embed(file_name, bytes),
         }
+    }
+
+    /// local-image: the embedded file of a Develop layer, and whether it is raw. A raw source is
+    /// embedded once per settings version, with its Camera Raw settings as the file's open
+    /// parameters (`develop_layer_map::open_descriptor`); any other source is embedded like any
+    /// smart object's (the develop then goes in a stand-in Camera Raw Filter).
+    fn develop_source(
+        &mut self,
+        sm: &photocraft_doc::SmartObject,
+        link: &photocraft_doc::DevelopLink,
+        template: Option<&crate::smart_map::Placed>,
+    ) -> Result<(Source, bool), String> {
+        use photocraft_doc::SmartSource;
+        let file = match &sm.source {
+            SmartSource::Embedded { file_name, bytes } => Some((file_name.clone(), bytes.to_vec(), false)),
+            SmartSource::Linked { path } if self.smart.known.contains(path) || template.is_some_and(|t| t.idnt == *path) => {
+                let meta = photocraft_doc::Metadata { psd_global_blocks: self.smart.globals.clone(), ..Default::default() };
+                crate::linked::find_linked_file(&meta, path).map(|f| (f.file_name, f.bytes, false))
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            SmartSource::Linked { path } => {
+                std::fs::read(path).ok().map(|b| (path.rsplit(['/', '\\']).next().unwrap_or(path).to_string(), b, true))
+            }
+            #[cfg(target_arch = "wasm32")]
+            SmartSource::Linked { .. } => None,
+        };
+        let Some((name, bytes, from_disk)) = file.filter(|(_, b, _)| crate::develop_layer_map::is_raw_source(b)) else {
+            return self.smart_source(sm, template).map(|s| (s, false));
+        };
+        let settings = serde_json::to_vec(&link.settings).map_err(|e| e.to_string())?;
+        let seed = [*blake3::hash(&bytes).as_bytes(), *blake3::hash(&settings).as_bytes()].concat();
+        let uuid = crate::smart_map::uuid_from(&seed);
+        if !self.smart.known.contains(&uuid) && !self.smart.add.iter().any(|f| f.uuid == uuid) {
+            let open = crate::develop_layer_map::open_descriptor(link).ok_or("its develop settings can't be read")?;
+            if from_disk {
+                self.warnings.push(format!("the linked smart object {name} was embedded (PSD export keeps no external links)"));
+            }
+            self.smart.opens.insert(uuid.clone(), open);
+            self.smart.add.push(crate::linked::LinkedFile { uuid: uuid.clone(), file_name: name, bytes });
+        }
+        Ok((Source { uuid, size: size_from_layer(sm), dpi: f64::from(self.dpi) }, true))
     }
 
     /// The composite of the source `uuid` (an embedded file of this export or of the imported

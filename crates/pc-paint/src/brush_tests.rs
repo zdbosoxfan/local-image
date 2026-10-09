@@ -930,7 +930,10 @@ fn soft_round_brushes_take_the_continuous_path_and_others_stamp() {
         assert!(!StrokeRenderer::new(&b, None, 1.0).is_continuous());
     }
     // Pen pressure on size or flow stays continuous.
-    let p = BrushSettings { shape_dynamics: ShapeDynamics { enabled: true, size: Dynamic::controlled(Control::PenPressure), ..Default::default() }, ..soft(0.1, 0.5) };
+    let p = BrushSettings {
+        shape_dynamics: ShapeDynamics { enabled: true, size: Dynamic::controlled(Control::PenPressure), ..Default::default() },
+        ..soft(0.1, 0.5)
+    };
     assert!(p.continuous_coverage());
     // Hard brushes render exactly as before (the stamp path).
     let h = BrushSettings { hardness: 1.0, ..soft(0.05, 0.3) };
@@ -978,7 +981,8 @@ fn continuous_click_is_one_dab_and_chunking_is_invariant() {
         }
     }
     // Feeding the stroke in chunks gives the same coverage as one push.
-    let pts: Vec<StrokePoint> = (0..50).map(|i| StrokePoint::new(30.0 + i as f64 * 5.0, 60.0 + (i as f64 * 0.2).sin() * 20.0, 0.4 + 0.6 * (i as f64 / 49.0) as f32)).collect();
+    let pts: Vec<StrokePoint> =
+        (0..50).map(|i| StrokePoint::new(30.0 + i as f64 * 5.0, 60.0 + (i as f64 * 0.2).sin() * 20.0, 0.4 + 0.6 * (i as f64 / 49.0) as f32)).collect();
     let pb = BrushSettings { shape_dynamics: ShapeDynamics { enabled: true, size: Dynamic::controlled(Control::PenPressure), ..Default::default() }, ..b };
     let mut one = StrokeRenderer::new(&pb, None, 1.0);
     one.push(&pts);

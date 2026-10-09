@@ -431,6 +431,29 @@ mod tests {
     }
 
     #[test]
+    fn seamless_and_subject_assist_reach_their_commands() {
+        let last = |app: &PhotocraftApp, id: &str| app.session.journal.iter().rev().find(|(c, _)| c == id).map(|(_, p)| p.clone()).unwrap();
+        for on in [false, true] {
+            let mut app = app();
+            stripes(&mut app, 4, "pixels");
+            app.ui.clone_source = Some([20.0, 10.0]);
+            app.ui.tool_options.clone_seamless = on;
+            drag(&mut app, Tool::CloneStamp);
+            assert_eq!(last(&app, "paint.cloneStamp").get("seamless").and_then(serde_json::Value::as_bool).unwrap_or(false), on);
+            app.ui.tool_options.quick_subject_assist = on;
+            drag(&mut app, Tool::QuickSelection);
+            assert_eq!(last(&app, "select.quick")["subjectAssist"], json!(on));
+        }
+        // Healing never takes the Clone Stamp's option.
+        let mut app = app();
+        stripes(&mut app, 4, "pixels");
+        app.ui.clone_source = Some([20.0, 10.0]);
+        app.ui.tool_options.clone_seamless = true;
+        drag(&mut app, Tool::Healing);
+        assert!(last(&app, "paint.healingBrush").get("seamless").is_none());
+    }
+
+    #[test]
     fn mixer_brush_is_selectable_and_paints_only_inside_the_selection_via_control() {
         use crate::control::{ControlRequest, Outcome, handle};
 
