@@ -385,9 +385,14 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         s.previews = Some(s.build_previews(&ctx));
     }
     if s.closed {
-        ui.label(tl!("Coordinates:"));
         let before = s.coords;
-        crate::widgets::dropdown(ui, "cage-coords", &mut s.coords, &[(CageCoords::Green, tl!("Green")), (CageCoords::MeanValue, tl!("Mean Value"))], 110.0);
+        crate::widgets::dropdown(
+            ui,
+            "cage-coords",
+            &mut s.coords,
+            &[(CageCoords::Green, tl!("Green Coordinates")), (CageCoords::MeanValue, tl!("Mean Value Coordinates"))],
+            190.0,
+        );
         if s.coords != before {
             s.rebuild_map();
         }
