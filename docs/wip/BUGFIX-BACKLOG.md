@@ -19,3 +19,22 @@ Full workspace + GPU (RTX 5090) suites, benchmarks and these items are handled i
 - Flaky/unknown: occasional NVIDIA shader-compiler hang (`banded_full_size_render_matches`), crashes logged in
   `libnvidia-glcore` from test processes.
 - Coverage tests from the DeepSeek dispatcher: any `#[ignore = "BUG: …"]` they add is a backlog item.
+
+## Suspected bugs from DeepSeek coverage tests (verify first; each is an `#[ignore = "BUG: …"]` test)
+- text contains with empty value should not match everything, but current code matches all — `crates/lc-catalog/tests/coverage/ds_rules_coverage.rs`
+- encode panics on width=0 due to chunks_mut(0) — `crates/lc-codecs/tests/coverage/ds_jpeg_par_coverage.rs`
+- RawProcessing accepts malformed JSON array — `crates/lc-develop/tests/coverage/ds_tools_coverage.rs`
+- read_lmp accepts NaN and produces 'NaN' string in settings — `crates/lc-engine/tests/coverage/ds_preset_luminar_coverage.rs`
+- parse_sidecar accepts arbitrary non-XMP input — `crates/lc-engine/tests/coverage/ds_sidecar_coverage.rs`
+- dl(0, level) panics for level > 0 due to unsigned subtraction underflow — `crates/lc-pipeline/tests/coverage/ds_llf_coverage.rs`
+- curve_at panics on empty LUT — `crates/lc-pipeline/tests/coverage/ds_llf_coverage.rs`
+- num_levels(0,0) panics due to integer underflow — `crates/lc-pipeline/tests/coverage/ds_llf_coverage.rs`
+- installed model built with default ModelDef loses required nodes, so availability incorrectly reports available with empty ObjectInfo — `crates/li-ai/tests/coverage/ds_catalog_coverage.rs`
+- ransac panics when src and dst lengths differ — `crates/pc-algo/tests/coverage/ds_features_coverage.rs`
+- subsample max=0 panics due to div_ceil(0) — `crates/pc-algo/tests/coverage/ds_segment_coverage.rs`
+- display_at does not handle NaN rect coordinates — `crates/pc-engine/tests/coverage/ds_display_color_coverage.rs`
+- path_from_resource accepts truncated data and returns empty path instead of None — `crates/pc-io/tests/coverage/ds_vector_map_coverage.rs`
+- seed multiplication overflows u64 for large seeds — `crates/pc-paint/tests/coverage/ds_procedural_coverage.rs`
+- v6 origin=1 with layer_id=None roundtrips as Some(0) — `crates/pc-psd/tests/coverage/ds_slices_coverage.rs`
+- v7 descriptor does not preserve horizontal/vertical align and color — `crates/pc-psd/tests/coverage/ds_slices_coverage.rs`
+- utf16_to_byte_lengths returns 2 bytes for an ASCII character — `crates/pc-text/tests/coverage/ds_psd_styles_coverage.rs`
