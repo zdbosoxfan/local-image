@@ -373,11 +373,12 @@ fn megapixels_from_dimensions() {
 }
 
 #[test]
-#[ignore = "BUG: text contains with empty value should not match everything, but current code matches all"]
 fn text_contains_empty_value_matches_everything() {
+    // Lightroom Classic ignores an empty text criterion (a half-typed rule or filter restricts nothing),
+    // so "contains <empty>" matches every photo. (filePath is deliberately stricter; see rules.rs.)
     let mut p = photo();
     p.meta.title = "Test".to_string();
     let cat = Catalog::new();
     let rule = rs(json!({"rules":[{"field":"title","op":"contains","value":""}]}));
-    assert!(!rule.matches(&p, &cat));
+    assert!(rule.matches(&p, &cat));
 }

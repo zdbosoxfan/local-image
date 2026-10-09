@@ -186,23 +186,25 @@ fn availability_reports_missing_required_choice() {
 }
 
 #[test]
-#[ignore = "BUG: installed model built with default ModelDef loses required nodes, so availability incorrectly reports available with empty ObjectInfo"]
 fn availability_installed_preset_reports_missing_nodes() {
-    let reg = li_ai::family::registry();
+    // `availability` looks the preset's model up in the *live* catalogue (`ModelId::try_info`), which is
+    // where an installed model's family pipeline (and so its required nodes) lives. A preset from a
+    // throwaway `catalog::build` is not in it, so it has no model info and nothing to check; the real
+    // flow registers installed models with `set_installed` first, as done here.
     let im = InstalledModel {
-        key: "test-installed".into(),
+        key: "test-installed-missing-nodes".into(),
         family: "sdxl".into(),
         label: "Test Installed".into(),
         files: [(Role::Checkpoint, "test.safetensors".to_owned())].into(),
     };
-    let cat = catalog::build(reg, &[im]);
-    let inst_preset = cat.presets.iter().find(|p| p.installed).expect("installed preset");
+    catalog::set_installed(vec![im]);
+    let inst_preset = presets().iter().find(|p| p.installed && p.model.key() == "test-installed-missing-nodes").expect("installed preset");
     let empty = ObjectInfo(json!({}));
     let a = availability(inst_preset, &empty);
-    // BUG: Should be !a.available but currently a.available is true.
+    catalog::set_installed(Vec::new());
     assert!(!a.available);
-    assert!(a.reason.contains("Update ComfyUI"));
-    assert!(a.reason.contains("missing the nodes"));
+    assert!(a.reason.contains("Update ComfyUI"), "{a:?}");
+    assert!(a.reason.contains("missing the nodes"), "{a:?}");
 }
 
 #[test]
