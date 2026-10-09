@@ -336,6 +336,7 @@ impl Session {
         self.xmp = prefs.xmp;
         self.smart.prefs = prefs.smart_sort;
         self.smart.store = crate::smart_sort::Store::new(on_disk.then_some(dir.as_path()));
+        self.smart.people = crate::smart_sort::PeopleEngine::new(on_disk.then_some(dir.as_path()));
         self.last_export = prefs.last_export;
         self.export_presets = prefs.export_presets;
         self.metadata_presets = prefs.metadata_presets;
