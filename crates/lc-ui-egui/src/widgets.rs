@@ -385,7 +385,8 @@ pub fn icon_button(ui: &mut Ui, id: &str, icon: Icon, size: egui::Vec2, active: 
 }
 
 pub fn tool_button(ui: &mut Ui, id: &str, icon: Icon, size: egui::Vec2, active: bool, enabled: bool, tooltip: &str) -> Response {
-    let name = crate::icons::tool_name(id.strip_prefix("removeMode-").unwrap_or(id));
+    let tool = id.strip_prefix("removeMode-").unwrap_or(id);
+    let name = crate::icons::tool_name(if tool.starts_with("tat-") { "target" } else { tool });
     icon_button_inner(ui, id, icon, name, size, active, enabled, tooltip)
 }
 

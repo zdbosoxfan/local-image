@@ -2651,6 +2651,163 @@ ai	New	新着
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	空（スカイ）のクラス番号 {class} は範囲外です：このモデルには {classes} クラスあります（0〜{max}）
 	{path} isn't a file	{path} はファイルではありません
 	Custom models are not supported for this function	この機能ではカスタムモデルを使用できません
+	Moves the selected layers or the selection.	選択したレイヤーまたは選択範囲を移動します。
+	Drag to move; hold {shift} to keep to one axis.	ドラッグで移動。{shift}を押しながらで軸を固定します。
+	{alt}-drag to move a copy.	{alt}を押しながらドラッグでコピーを移動します。
+	{cmd}-click picks the layer under the pointer (it switches Auto-Select for that click).	{cmd}を押しながらクリックでポインターの下のレイヤーを選択します（そのクリックでは自動選択に切り替わります）。
+	Arrow keys nudge by 1 pixel, {shift}+arrow by 10.	矢印キーで1ピクセル移動、{shift}+矢印で10ピクセル移動します。
+	Selects a rectangular area.	長方形の領域を選択します。
+	Drag to select; {shift}-drag adds to the selection, {alt}-drag subtracts.	ドラッグで選択。{shift}を押しながらドラッグで選択範囲に追加、{alt}を押しながらドラッグで削除します。
+	Hold {shift} and {alt} together to intersect.	{shift}と{alt}を同時に押しながらで交差させます。
+	Selects an oval or circular area.	楕円形または円形の領域を選択します。
+	Selects by drawing a freehand outline.	フリーハンドで輪郭を描いて選択します。
+	Drag to draw; release to close the outline.	ドラッグで描画し、離すと輪郭を閉じます。
+	Hold {alt} while drawing for straight segments; let go to go freehand again.	描画中に{alt}を押すと直線セグメントになります。離すと再びフリーハンドに戻ります。
+	Hold {shift} before you start to add, {alt} to subtract.	開始前に{shift}を押すと追加、{alt}を押すと削除になります。
+	Selects with a straight-sided outline.	直線で構成された輪郭で選択します。
+	Click to place each corner.	クリックして各頂点を配置します。
+	Click the first point, or double-click, to close the shape.	最初の点をクリックするか、ダブルクリックで図形を閉じます。
+	Hold {shift} for the first click to add, {alt} to subtract.	最初のクリックで{shift}を押すと追加、{alt}を押すと削除になります。
+	Selects by following the edge of an object.	オブジェクトのエッジに沿って選択します。
+	Click to start, then move along the edge; click to fasten a point.	クリックして開始し、エッジに沿って移動します。クリックでポイントを固定します。
+	{alt}-click adds a straight segment; drag for freehand.	{alt}を押しながらクリックで直線セグメントを追加。ドラッグでフリーハンドになります。
+	Double-click, or click the first point, to close the outline.	ダブルクリックするか、最初の点をクリックして輪郭を閉じます。
+	Selects an object with the local AI model.	ローカルAIモデルでオブジェクトを選択します。
+	Click an object, or drag a box around it.	オブジェクトをクリックするか、その周りをドラッグしてボックスを描きます。
+	{shift} adds to the selection, {alt} subtracts.	{shift}で選択範囲に追加、{alt}で削除します。
+	Paints a selection that grows out to the edges.	エッジまで広がる選択範囲をペイントします。
+	Drag over the area you want.	選択したい領域をドラッグします。
+	Hold {alt} while dragging to subtract.	ドラッグ中に{alt}を押すと削除になります。
+	Selects pixels of a similar colour with one click.	クリックで類似した色のピクセルを選択します。
+	Click a colour; Tolerance and Contiguous are in the options bar.	色をクリックします。許容量と連続はオプションバーにあります。
+	{shift}-click adds, {alt}-click subtracts, {shift}+{alt}-click intersects.	{shift}を押しながらクリックで追加、{alt}を押しながらクリックで削除、{shift}+{alt}を押しながらクリックで交差します。
+	Trims the image to a rectangle.	画像を長方形にトリミングします。
+	Drag to draw the crop, then drag the handles to adjust.	ドラッグして切り抜き範囲を描き、ハンドルをドラッグして調整します。
+	Hold {shift} to keep the ratio and {alt} to resize from the centre.	{shift}を押しながらで縦横比を維持、{alt}を押しながらで中心からサイズ変更します。
+	Press Enter to apply, Esc to cancel.	Enterで適用、Escでキャンセルします。
+	Crops to a four-cornered shape and straightens it, as for a photographed page or building.	撮影したページや建物のように、四隅を持つ形状に切り抜き、まっすぐに補正します。
+	Divides the image into slices for web export.	Web書き出し用に画像をスライスに分割します。
+	Selects and adjusts existing slices.	既存のスライスを選択して調整します。
+	Samples a colour from the image.	画像から色をサンプリングします。
+	Click to set the foreground colour.	クリックで描画色を設定します。
+	{alt}-click sets the background colour.	{alt}を押しながらクリックで背景色を設定します。
+	Measures distances and angles on the image.	画像上の距離と角度を測定します。
+	Adds a text note to the document.	ドキュメントにテキストメモを追加します。
+	Counts items in the image by clicking on each.	それぞれをクリックして画像内の項目をカウントします。
+	Removes a blemish by blending in the pixels around it.	周囲のピクセルをブレンドして傷を除去します。
+	Paint over the spot.	スポットをペイントします。
+	Hold {shift} for a straight line from the last stroke.	前回のストロークから直線にするには{shift}を押します。
+	Repairs an area using sampled pixels, matching light and texture.	サンプリングしたピクセルを使用して、光とテクスチャを合わせながら領域を修復します。
+	{alt}-click to set the source point.	{alt}を押しながらクリックでソースポイントを設定します。
+	Then paint over the area to repair.	その後、修復する領域をペイントします。
+	Repairs a selected area from another area.	選択した領域を別の領域から修復します。
+	Draw around the flaw, then drag the selection onto clean pixels.	傷の周囲を描き、選択範囲をきれいなピクセルへドラッグします。
+	Drag from inside an existing selection to move it.	既存の選択範囲の内側からドラッグして移動します。
+	Moves a selected object and fills the gap it leaves.	選択したオブジェクトを移動し、残った隙間を塗りつぶします。
+	Draw around the object, then drag the selection to its new place.	オブジェクトの周囲を描き、選択範囲を新しい場所へドラッグします。
+	Removes red from the pupils in flash photos.	フラッシュ写真の瞳孔の赤目を除去します。
+	Click on the red pupil.	赤い瞳孔をクリックします。
+	Paints soft or hard strokes in the foreground colour.	描画色でソフトまたはハードなストロークをペイントします。
+	Drag to paint; hold {shift} to keep a straight line.	ドラッグでペイント。{shift}を押しながらで直線を維持します。
+	{shift}-click draws a line from the end of the last stroke.	{shift}を押しながらクリックで前回のストロークの終点から直線を描きます。
+	Hold {alt} to pick a colour from the image.	{alt}を押しながらで画像から色を採取します。
+	Paints hard-edged strokes.	エッジの硬いストロークをペイントします。
+	Paints with colours that mix with the canvas, like wet paint.	ウェットペイントのようにキャンバスと混ざり合う色でペイントします。
+	Paints with pixels copied from another part of the image.	画像の別の部分からコピーしたピクセルでペイントします。
+	Then paint where you want the copy.	その後、コピーしたい場所をペイントします。
+	Paints back an earlier state of the image.	画像の以前の状態をペイントで戻します。
+	Erases pixels as you drag.	ドラッグするとピクセルを消去します。
+	Drag to erase; hold {shift} to keep a straight line.	ドラッグで消去。{shift}を押しながらで直線を維持します。
+	Erases the background colour under the brush, keeping edges.	ブラシの下の背景色を消去し、エッジを保持します。
+	Drag along the edge of the subject.	被写体のエッジに沿ってドラッグします。
+	Erases all pixels of a similar colour with one click.	クリックで類似した色のピクセルをすべて消去します。
+	Click the colour to erase.	消去する色をクリックします。
+	Fills with a blend between colours.	色の間のブレンドで塗りつぶします。
+	Drag from where the blend starts to where it ends.	ブレンドの開始点から終了点までドラッグします。
+	Hold {shift} to snap the angle to 45 degrees.	{shift}を押しながらで角度を45度にスナップします。
+	Fills an area of similar colour with the foreground colour.	類似した色の領域を描画色で塗りつぶします。
+	Click inside the area to fill.	塗りつぶす領域内をクリックします。
+	Softens the pixels you paint over.	ペイントしたピクセルをぼかします。
+	Drag to blur; hold {shift} to keep a straight line.	ドラッグでぼかし。{shift}を押しながらで直線を維持します。
+	Sharpens the pixels you paint over.	ペイントしたピクセルをシャープにします。
+	Drag to sharpen; hold {shift} to keep a straight line.	ドラッグでシャープ。{shift}を押しながらで直線を維持します。
+	Smears pixels in the direction you drag, like wet paint.	ウェットペイントのようにドラッグ方向にピクセルを伸ばします。
+	Drag to smudge; hold {shift} to keep a straight line.	ドラッグで指先効果。{shift}を押しながらで直線を維持します。
+	Lightens the areas you paint over.	ペイントした領域を明るくします。
+	Drag to lighten; hold {shift} to keep a straight line.	ドラッグで明るく。{shift}を押しながらで直線を維持します。
+	Darkens the areas you paint over.	ペイントした領域を暗くします。
+	Drag to darken; hold {shift} to keep a straight line.	ドラッグで暗く。{shift}を押しながらで直線を維持します。
+	Raises or lowers the colour saturation where you paint.	ペイントした場所の彩度を上げ下げします。
+	Drag to change saturation; hold {shift} to keep a straight line.	ドラッグで彩度を変更。{shift}を押しながらで直線を維持します。
+	Draws precise paths and shapes with anchor points.	アンカーポイントを使用して正確なパスとシェイプを描画します。
+	Click to add points; {alt} on an anchor turns it into a corner or smooth point.	クリックでポイントを追加。アンカー上で{alt}を押すとコーナーポイントまたはスムーズポイントに変換します。
+	Selects and moves whole paths.	パス全体を選択して移動します。
+	Selects and edits individual anchor points and handles.	個々のアンカーポイントとハンドルを選択して編集します。
+	Click an anchor or handle; drag a box to select several.	アンカーまたはハンドルをクリック。ボックスをドラッグして複数選択します。
+	{shift}-click toggles an anchor in the selection.	{shift}を押しながらクリックで選択範囲内のアンカーを切り替えます。
+	{alt}-drag a handle to move it on its own.	{alt}を押しながらハンドルをドラッグすると、そのハンドルのみ移動します。
+	Adds text to the image.	画像にテキストを追加します。
+	Click to type a line of text.	クリックして1行のテキストを入力します。
+	Drag to make a box for paragraph text.	ドラッグして段落テキスト用のボックスを作成します。
+	Adds text that runs top to bottom.	上から下へ流れるテキストを追加します。
+	Draws rectangles as editable shape layers.	編集可能なシェイプレイヤーとして長方形を描画します。
+	Draws ellipses and circles as editable shape layers.	編集可能なシェイプレイヤーとして楕円と円を描画します。
+	Draws triangles as editable shape layers.	編集可能なシェイプレイヤーとして三角形を描画します。
+	Draws polygons with any number of sides.	任意の辺数を持つ多角形を描画します。
+	Draws straight lines as editable shape layers.	編集可能なシェイプレイヤーとして直線を描画します。
+	Draws a shape chosen from the shape library.	シェイプライブラリから選択したシェイプを描画します。
+	Pans the view around the image.	画像の表示をパンします。
+	Drag to move the image.	ドラッグして画像を移動します。
+	Hold Space with any other tool to pan temporarily.	他のツール使用中にSpaceを押すと一時的にパンできます。
+	Magnifies or reduces the view.	表示を拡大または縮小します。
+	Click to zoom in, {alt}-click to zoom out.	クリックでズームイン、{alt}を押しながらクリックでズームアウトします。
+	Drag right to zoom in and left to zoom out, or drag a box when Scrubby Zoom is off.	右にドラッグでズームイン、左にドラッグでズームアウト。スクラブズームがオフの場合はボックスをドラッグします。
+	Removes distractions with the local AI model.	ローカルAIモデルで邪魔なものを除去します。
+	Paint over what you want gone.	除去したいものをペイントします。
+	When you let go, the repair lands on its own layer.	離すと修復結果が独自のレイヤーに配置されます。
+	Cuts out the subject with the local AI model.	ローカルAIモデルで被写体を切り抜きます。
+	Use Remove Background in the options bar to make the mask.	オプションバーの「背景を削除」を使用してマスクを作成します。
+	Then paint to erase or restore parts of it; X swaps the two.	その後、ペイントして一部を消去または復元します。Xで2つを切り替えます。
+	Pushes pixels forward as you drag.	ドラッグするとピクセルを前方に押し出します。
+	Drag across the area to push it along.	領域をドラッグして押し出します。
+	Undoes warping where you paint.	ペイントした場所のワープを元に戻します。
+	Paint over a distorted area to restore it; hold still to keep restoring.	ゆがんだ部分をペイントして復元します。静止したままにすると復元が続きます。
+	Smooths out the distortion where you paint.	ペイントする部分のゆがみを滑らかにします。
+	Paint over an area; hold still to keep smoothing.	領域をペイントしてスムーズにします。静止したままにするとスムーズが続きます。
+	Spins pixels clockwise.	ピクセルを時計回りに回転させます。
+	Click or hold still to keep twirling.	クリックまたは静止したままにするとツイールが続きます。
+	Spins pixels counterclockwise.	ピクセルを反時計回りに回転させます。
+	Pulls pixels in toward the centre of the brush.	ピクセルをブラシの中心に向かって引き寄せます。
+	Click or hold still to keep pinching.	クリックまたは静止したままにするとつまみ続けます。
+	Pushes pixels out from the centre of the brush.	ピクセルをブラシの中心から外側へ押し出します。
+	Click or hold still to keep swelling.	クリックまたは静止したままにすると膨張し続けます。
+	Shifts pixels sideways as you drag.	ドラッグするとピクセルが横方向に移動します。
+	Drag to move pixels to the left of your direction.	ドラッグして、ドラッグ方向の左側へピクセルを移動させます。
+	Protects areas from being warped.	ゆがみから領域を保護します。
+	Paint over the areas to protect.	保護する領域をペイントします。
+	Removes protection from frozen areas.	凍結領域の保護を解除します。
+	Paint over the frozen areas to release them.	凍結領域をペイントして解除します。
+	Freezes an area you outline.	輪郭を描いた領域を凍結します。
+	Drag to freeze an outlined area.	ドラッグして輪郭を描いた領域を凍結します。
+	{alt}-drag to thaw it.	{alt}＋ドラッグで解凍します。
+	Changes the whole image at once.	画像全体を一度に変更します。
+	Also in this group:	このグループ内のその他:
+	How to use	使い方
+	All Tools	すべてのツール
+	Photographer	フォトグラファー
+	Retouching	レタッチ
+	Tool Set	ツールセット
+	Tool Sets	ツールセット
+	built-in	内蔵
+	My Tools	マイツール
+	Duplicate	複製
+	Reset to All Tools	すべてのツールにリセット
+	Built-in sets can't be changed. Save a copy to choose your own tools.	内蔵セットは変更できません。コピーを保存して独自のツールを選択してください。
+	Save as New Set	新規セットとして保存
+	Tick the tools this set shows.	このセットに表示するツールをチェックしてください。
+	Tool tips	ツールヒント
+	Rich (name, shortcut and how to use)	リッチ（名前、ショートカット、使い方）
+	Simple (name and shortcut)	シンプル（名前とショートカット）
 	Tool icons	ツールアイコン
 	Colour (default)	カラー（既定）
 
@@ -2659,3 +2816,47 @@ ai	New	新着
 	Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library.	顔を検出し、複数の写真で同じ人物を認識します。Smart Sortで有効にするまで無効です。顔データはライブラリ内に保存されます。
 	Finds faces and their landmarks, ready to recognise the same person in other photos. Runs locally on the CPU.	顔と特徴点を検出し、他の写真で同じ人物を認識するために使います。ローカルのCPUで動作します。
 	Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.	Smart Sort用に顔を検出し、同じ人物の写真をまとめます。両方の顔モデルを含み、CPUで動作し、顔データはライブラリ内に保存されます。
+
+# Tool tip and tool set completion (English fallback).
+	Cancel Rename	Cancel Rename
+	Choose Move or Extend in the options bar.	Choose Move or Extend in the options bar.
+	Choose the active shape, work path or targeted vector mask.	Choose the active shape, work path or targeted vector mask.
+	Click a slice to select it.	Click a slice to select it.
+	Click each item to add a numbered marker.	Click each item to add a numbered marker.
+	Click the first point to close, Enter to finish an open path.	Click the first point to close, Enter to finish an open path.
+	Click the image to add a sampler, then drag its marker to move it.	Click the image to add a sampler, then drag its marker to move it.
+	Click to add a note and edit its text in the Notes panel.	Click to add a note and edit its text in the Notes panel.
+	Click to add corners; drag to create smooth handles.	Click to add corners; drag to create smooth handles.
+	Click to switch between Fit and 100%; {alt}-click zooms out.	Click to switch between Fit and 100%; {alt}-click zooms out.
+	Color Sampler Tool	Color Sampler Tool
+	Double-click the image or tool button to fit the image.	Double-click the image or tool button to fit the image.
+	Double-click the tool button to fit the image.	Double-click the tool button to fit the image.
+	Drag a frame, then drag its four corners onto the subject.	Drag a frame, then drag its four corners onto the subject.
+	Drag a note marker to move it.	Drag a note marker to move it.
+	Drag a rectangle to create a slice.	Drag a rectangle to create a slice.
+	Drag between the endpoints.	Drag between the endpoints.
+	Drag between two points to measure.	Drag between two points to measure.
+	Drag right to zoom in and left to zoom out; {cmd}-drag draws a zoom box.	Drag right to zoom in and left to zoom out; {cmd}-drag draws a zoom box.
+	Drag the selected slice to move it.	Drag the selected slice to move it.
+	Drag to draw; {shift} keeps equal width and height.	Drag to draw; {shift} keeps equal width and height.
+	Drag to move its whole path.	Drag to move its whole path.
+	Drag to move the image; hold Space to pan with another tool.	Drag to move the image; hold Space to pan with another tool.
+	Hold {alt} to draw from the centre.	Hold {alt} to draw from the centre.
+	Magnifies or reduces the Camera Raw preview.	Magnifies or reduces the Camera Raw preview.
+	Paints back the document’s opening state.	Paints back the document’s opening state.
+	Pans the Camera Raw preview.	Pans the Camera Raw preview.
+	Places colour readouts on the Camera Raw preview.	Places colour readouts on the Camera Raw preview.
+	Save Name	Save Name
+	Set Pupil Size and Darken Amount in the options bar.	Set Pupil Size and Darken Amount in the options bar.
+	Set Size and Pressure in Brush Tool Options.	Set Size and Pressure in Brush Tool Options.
+	Set the brush size in the options bar before painting.	Set the brush size in the options bar before painting.
+	Then paint to erase or restore parts of it; Swap Colors switches modes.	Then paint to erase or restore parts of it; Swap Colors switches modes.
+	Up	Up
+	Use Slice Select to move an existing slice.	Use Slice Select to move an existing slice.
+	{alt}-click a marker to remove it.	{alt}-click a marker to remove it.
+	{alt}-drag an endpoint to measure an angle.	{alt}-drag an endpoint to measure an angle.
+	Hold {key} with any other tool to pan temporarily.	Hold {key} with any other tool to pan temporarily.
+	Set Tolerance and Contiguous in the options bar.	オプションバーで許容値と隣接を設定します。
+	Choose Erase or Restore in the options bar, then paint to refine the mask.	オプションバーで消去または復元を選び、ペイントしてマスクを調整します。
+	Tool Set Name	ツールセット名
+	You can also drag with the middle mouse button to pan.	マウスの中央ボタンでドラッグして表示を移動することもできます。

@@ -3002,6 +3002,162 @@ ai	New	Новые
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Класс неба {class} вне диапазона: модель имеет {classes} классов (от 0 до {max})
 	{path} isn't a file	{path} не является файлом
 	Custom models are not supported for this function	Пользовательские модели не поддерживаются для этой функции
+	Moves the selected layers or the selection.	Перемещает выделенные слои или выделение.
+	Drag to move; hold {shift} to keep to one axis.	Перетащите для перемещения; удерживайте {shift}, чтобы двигаться по одной оси.
+	{alt}-drag to move a copy.	{alt}+перетаскивание для перемещения копии.
+	{cmd}-click picks the layer under the pointer (it switches Auto-Select for that click).	{cmd}+щелчок выбирает слой под указателем (включает автовыбор для этого щелчка).
+	Arrow keys nudge by 1 pixel, {shift}+arrow by 10.	Клавиши со стрелками сдвигают на 1 пиксель, {shift}+стрелка — на 10.
+	Selects a rectangular area.	Выделяет прямоугольную область.
+	Drag to select; {shift}-drag adds to the selection, {alt}-drag subtracts.	Перетащите для выделения; {shift}+перетаскивание добавляет к выделению, {alt}+перетаскивание вычитает.
+	Hold {shift} and {alt} together to intersect.	Удерживайте {shift} и {alt} вместе для пересечения.
+	Selects an oval or circular area.	Выделяет овальную или круглую область.
+	Selects by drawing a freehand outline.	Выделяет область, рисуя произвольный контур.
+	Drag to draw; release to close the outline.	Перетащите для рисования; отпустите, чтобы замкнуть контур.
+	Hold {alt} while drawing for straight segments; let go to go freehand again.	Удерживайте {alt} при рисовании для прямых сегментов; отпустите, чтобы снова рисовать от руки.
+	Hold {shift} before you start to add, {alt} to subtract.	Удерживайте {shift} перед началом, чтобы добавить, {alt} — чтобы вычесть.
+	Selects with a straight-sided outline.	Выделяет область прямолинейным контуром.
+	Click to place each corner.	Щелкайте, чтобы задать каждый угол.
+	Click the first point, or double-click, to close the shape.	Щелкните первую точку или дважды щелкните, чтобы замкнуть фигуру.
+	Hold {shift} for the first click to add, {alt} to subtract.	Удерживайте {shift} при первом щелчке, чтобы добавить, {alt} — чтобы вычесть.
+	Selects by following the edge of an object.	Выделяет вдоль края объекта.
+	Click to start, then move along the edge; click to fasten a point.	Щелкните, чтобы начать, затем ведите вдоль края; щелкните, чтобы закрепить точку.
+	{alt}-click adds a straight segment; drag for freehand.	{alt}+щелчок добавляет прямой сегмент; перетаскивание — от руки.
+	Double-click, or click the first point, to close the outline.	Дважды щелкните или щелкните первую точку, чтобы замкнуть контур.
+	Selects an object with the local AI model.	Выделяет объект с помощью локальной ИИ-модели.
+	Click an object, or drag a box around it.	Щелкните объект или перетащите вокруг него рамку.
+	{shift} adds to the selection, {alt} subtracts.	{shift} добавляет к выделению, {alt} вычитает.
+	Paints a selection that grows out to the edges.	Рисует выделение, которое растет к краям.
+	Drag over the area you want.	Перетащите по нужной области.
+	Hold {alt} while dragging to subtract.	Удерживайте {alt} при перетаскивании, чтобы вычесть.
+	Selects pixels of a similar colour with one click.	Выделяет пиксели похожего цвета одним щелчком.
+	Click a colour; Tolerance and Contiguous are in the options bar.	Щелкните цвет; параметры «Допуск» и «Смежные пиксели» находятся на панели параметров.
+	{shift}-click adds, {alt}-click subtracts, {shift}+{alt}-click intersects.	{shift}+щелчок добавляет, {alt}+щелчок вычитает, {shift}+{alt}+щелчок пересекает.
+	Trims the image to a rectangle.	Кадрирует изображение до прямоугольника.
+	Drag to draw the crop, then drag the handles to adjust.	Перетащите, чтобы нарисовать рамку кадрирования, затем перетащите маркеры для настройки.
+	Hold {shift} to keep the ratio and {alt} to resize from the centre.	Удерживайте {shift}, чтобы сохранить пропорции, и {alt}, чтобы изменять размер от центра.
+	Press Enter to apply, Esc to cancel.	Нажмите Enter для применения, Esc — для отмены.
+	Crops to a four-cornered shape and straightens it, as for a photographed page or building.	Кадрирует по четырехугольной форме и выпрямляет, как для сфотографированной страницы или здания.
+	Divides the image into slices for web export.	Разделяет изображение на фрагменты для веб-экспорта.
+	Selects and adjusts existing slices.	Выделяет и настраивает существующие фрагменты.
+	Samples a colour from the image.	Берет пробу цвета с изображения.
+	Click to set the foreground colour.	Щелкните, чтобы задать цвет переднего плана.
+	{alt}-click sets the background colour.	{alt}+щелчок задает цвет фона.
+	Measures distances and angles on the image.	Измеряет расстояния и углы на изображении.
+	Adds a text note to the document.	Добавляет текстовую заметку в документ.
+	Counts items in the image by clicking on each.	Подсчитывает объекты на изображении щелчком по каждому.
+	Removes a blemish by blending in the pixels around it.	Удаляет дефект, смешивая окружающие пиксели.
+	Paint over the spot.	Закрасьте пятно.
+	Hold {shift} for a straight line from the last stroke.	Удерживайте {shift} для прямой линии от последнего штриха.
+	Repairs an area using sampled pixels, matching light and texture.	Восстанавливает область с помощью выбранных пикселей, согласовывая свет и текстуру.
+	{alt}-click to set the source point.	{alt}+щелчок, чтобы задать исходную точку.
+	Then paint over the area to repair.	Затем закрасьте область для восстановления.
+	Repairs a selected area from another area.	Восстанавливает выделенную область из другой области.
+	Draw around the flaw, then drag the selection onto clean pixels.	Обведите дефект, затем перетащите выделение на чистые пиксели.
+	Drag from inside an existing selection to move it.	Перетащите изнутри существующего выделения, чтобы переместить его.
+	Moves a selected object and fills the gap it leaves.	Перемещает выделенный объект и заполняет образовавшуюся пустоту.
+	Draw around the object, then drag the selection to its new place.	Обведите объект, затем перетащите выделение на новое место.
+	Removes red from the pupils in flash photos.	Удаляет красный цвет со зрачков на фотографиях со вспышкой.
+	Click on the red pupil.	Щелкните по красному зрачку.
+	Paints soft or hard strokes in the foreground colour.	Рисует мягкие или жесткие штрихи цветом переднего плана.
+	Drag to paint; hold {shift} to keep a straight line.	Перетащите для рисования; удерживайте {shift}, чтобы сохранять прямую линию.
+	{shift}-click draws a line from the end of the last stroke.	{shift}+щелчок проводит линию от конца последнего штриха.
+	Hold {alt} to pick a colour from the image.	Удерживайте {alt}, чтобы выбрать цвет из изображения.
+	Paints hard-edged strokes.	Рисует штрихи с четкими краями.
+	Paints with colours that mix with the canvas, like wet paint.	Рисует цветами, которые смешиваются с холстом, как мокрая краска.
+	Paints with pixels copied from another part of the image.	Рисует пикселями, скопированными из другой части изображения.
+	Then paint where you want the copy.	Затем рисуйте там, где нужна копия.
+	Paints back an earlier state of the image.	Восстанавливает предыдущее состояние изображения кистью.
+	Erases pixels as you drag.	Стирает пиксели при перетаскивании.
+	Drag to erase; hold {shift} to keep a straight line.	Перетащите для стирания; удерживайте {shift}, чтобы сохранять прямую линию.
+	Erases the background colour under the brush, keeping edges.	Стирает цвет фона под кистью, сохраняя края.
+	Drag along the edge of the subject.	Перетащите вдоль края объекта.
+	Erases all pixels of a similar colour with one click.	Стирает все пиксели похожего цвета одним щелчком.
+	Click the colour to erase.	Щелкните цвет, чтобы стереть.
+	Fills with a blend between colours.	Заливает переходом между цветами.
+	Drag from where the blend starts to where it ends.	Перетащите от начала перехода к его концу.
+	Hold {shift} to snap the angle to 45 degrees.	Удерживайте {shift}, чтобы привязать угол к 45 градусам.
+	Fills an area of similar colour with the foreground colour.	Заливает область похожего цвета цветом переднего плана.
+	Click inside the area to fill.	Щелкните внутри области, чтобы залить.
+	Softens the pixels you paint over.	Смягчает пиксели, по которым вы рисуете.
+	Drag to blur; hold {shift} to keep a straight line.	Перетащите для размытия; удерживайте {shift}, чтобы сохранять прямую линию.
+	Sharpens the pixels you paint over.	Повышает резкость пикселей, по которым вы рисуете.
+	Drag to sharpen; hold {shift} to keep a straight line.	Перетащите для повышения резкости; удерживайте {shift}, чтобы сохранять прямую линию.
+	Smears pixels in the direction you drag, like wet paint.	Размазывает пиксели в направлении перетаскивания, как мокрая краска.
+	Drag to smudge; hold {shift} to keep a straight line.	Перетащите для размазывания; удерживайте {shift}, чтобы сохранять прямую линию.
+	Lightens the areas you paint over.	Осветляет области, по которым вы рисуете.
+	Drag to lighten; hold {shift} to keep a straight line.	Перетащите для осветления; удерживайте {shift}, чтобы сохранять прямую линию.
+	Darkens the areas you paint over.	Затемняет области, по которым вы рисуете.
+	Drag to darken; hold {shift} to keep a straight line.	Перетащите для затемнения; удерживайте {shift}, чтобы сохранять прямую линию.
+	Raises or lowers the colour saturation where you paint.	Повышает или понижает насыщенность цвета там, где вы рисуете.
+	Drag to change saturation; hold {shift} to keep a straight line.	Перетащите для изменения насыщенности; удерживайте {shift}, чтобы сохранять прямую линию.
+	Draws precise paths and shapes with anchor points.	Рисует точные контуры и фигуры с опорными точками.
+	Click to add points; {alt} on an anchor turns it into a corner or smooth point.	Щелкните, чтобы добавить точки; {alt} на опорной точке превращает ее в угловую или сглаженную точку.
+	Selects and moves whole paths.	Выделяет и перемещает контуры целиком.
+	Selects and edits individual anchor points and handles.	Выделяет и редактирует отдельные опорные точки и маркеры.
+	Click an anchor or handle; drag a box to select several.	Щелкните опорную точку или маркер; перетащите рамку, чтобы выделить несколько.
+	{shift}-click toggles an anchor in the selection.	{shift}+щелчок переключает опорную точку в выделении.
+	{alt}-drag a handle to move it on its own.	{alt}+перетаскивание маркера перемещает его отдельно.
+	Adds text to the image.	Добавляет текст на изображение.
+	Click to type a line of text.	Щелкните, чтобы ввести строку текста.
+	Drag to make a box for paragraph text.	Перетащите, чтобы создать рамку для текста абзаца.
+	Adds text that runs top to bottom.	Добавляет текст, идущий сверху вниз.
+	Draws rectangles as editable shape layers.	Рисует прямоугольники как редактируемые слои-фигуры.
+	Draws ellipses and circles as editable shape layers.	Рисует эллипсы и круги как редактируемые слои-фигуры.
+	Draws triangles as editable shape layers.	Рисует треугольники как редактируемые слои-фигуры.
+	Draws polygons with any number of sides.	Рисует многоугольники с любым числом сторон.
+	Draws straight lines as editable shape layers.	Рисует прямые линии как редактируемые слои-фигуры.
+	Draws a shape chosen from the shape library.	Рисует фигуру, выбранную из библиотеки фигур.
+	Pans the view around the image.	Перемещает вид по изображению.
+	Drag to move the image.	Перетащите, чтобы переместить изображение.
+	Hold Space with any other tool to pan temporarily.	Удерживайте Пробел с любым другим инструментом для временного панорамирования.
+	Magnifies or reduces the view.	Увеличивает или уменьшает масштаб изображения.
+	Click to zoom in, {alt}-click to zoom out.	Щелкните для увеличения, {alt}+щелчок — для уменьшения.
+	Drag right to zoom in and left to zoom out, or drag a box when Scrubby Zoom is off.	Перетащите вправо для увеличения и влево для уменьшения, или перетащите рамку, если выключен «Быстрый зум».
+	Removes distractions with the local AI model.	Удаляет отвлекающие элементы с помощью локальной ИИ-модели.
+	Paint over what you want gone.	Закрасьте то, что хотите удалить.
+	When you let go, the repair lands on its own layer.	При отпускании исправление появляется на отдельном слое.
+	Cuts out the subject with the local AI model.	Вырезает объект с помощью локальной ИИ-модели.
+	Use Remove Background in the options bar to make the mask.	Используйте «Удалить фон» на панели параметров, чтобы создать маску.
+	Then paint to erase or restore parts of it; X swaps the two.	Затем рисуйте, чтобы стереть или восстановить части; X меняет их местами.
+	Pushes pixels forward as you drag.	Сдвигает пиксели вперед при перетаскивании.
+	Drag across the area to push it along.	Перетащите по области, чтобы сдвинуть ее.
+	Undoes warping where you paint.	Отменяет деформацию там, где вы рисуете.
+	Paint over a distorted area to restore it; hold still to keep restoring.	Закрасьте искажённую область, чтобы восстановить её; удерживайте курсор неподвижно для продолжения восстановления.
+	Smooths out the distortion where you paint.	Сглаживает искажения в местах закрашивания.
+	Paint over an area; hold still to keep smoothing.	Закрасьте область; удерживайте курсор неподвижно для продолжения сглаживания.
+	Spins pixels clockwise.	Поворачивает пиксели по часовой стрелке.
+	Click or hold still to keep twirling.	Щёлкните или удерживайте курсор неподвижно, чтобы продолжать вращение.
+	Spins pixels counterclockwise.	Поворачивает пиксели против часовой стрелки.
+	Pulls pixels in toward the centre of the brush.	Стягивает пиксели к центру кисти.
+	Click or hold still to keep pinching.	Щёлкните или удерживайте курсор неподвижно для продолжения сжатия.
+	Pushes pixels out from the centre of the brush.	Выталкивает пиксели от центра кисти.
+	Click or hold still to keep swelling.	Щёлкните или удерживайте курсор неподвижно, чтобы продолжить раздувание.
+	Shifts pixels sideways as you drag.	Смещает пиксели в сторону при перетаскивании.
+	Drag to move pixels to the left of your direction.	Перетащите, чтобы сдвинуть пиксели влево от направления движения.
+	Protects areas from being warped.	Защищает области от деформации.
+	Paint over the areas to protect.	Закрасьте области, которые нужно защитить.
+	Removes protection from frozen areas.	Снимает защиту с замороженных областей.
+	Paint over the frozen areas to release them.	Закрасьте замороженные области, чтобы разморозить их.
+	Freezes an area you outline.	Замораживает область, которую вы обводите.
+	Drag to freeze an outlined area.	Перетащите, чтобы заморозить очерченную область.
+	{alt}-drag to thaw it.	{alt}-перетащите, чтобы разморозить её.
+	Changes the whole image at once.	Изменяет всё изображение сразу.
+	Also in this group:	Также в этой группе:
+	How to use	Как использовать
+	All Tools	Все инструменты
+	Photographer	Фотограф
+	Retouching	Ретушь
+	Tool Set	Набор инструментов
+	Tool Sets	Наборы инструментов
+	built-in	Встроенные
+	My Tools	Мои инструменты
+	Reset to All Tools	Сбросить до всех инструментов
+	Built-in sets can't be changed. Save a copy to choose your own tools.	Встроенные наборы нельзя изменить. Сохраните копию, чтобы выбрать свои инструменты.
+	Save as New Set	Сохранить как новый набор
+	Tick the tools this set shows.	Отметьте инструменты, которые будут видны в этом наборе.
+	Tool tips	Подсказки инструментов
+	Rich (name, shortcut and how to use)	Подробные (название, сочетание клавиш и применение)
+	Simple (name and shortcut)	Простые (название и сочетание клавиш)
 	Tool icons	Значки инструментов
 	Colour (default)	Цветные (по умолчанию)
 
@@ -3010,3 +3166,48 @@ ai	New	Новые
 	Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library.	Находит лица и узнаёт одного человека на разных фотографиях. Выключено до включения в Smart Sort. Данные лиц остаются в вашей библиотеке.
 	Finds faces and their landmarks, ready to recognise the same person in other photos. Runs locally on the CPU.	Находит лица и их ключевые точки для распознавания одного человека на других фотографиях. Работает локально на процессоре.
 	Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.	Находит лица и группирует фотографии одного человека для Smart Sort. Включает обе модели; работает на процессоре и хранит данные лиц в вашей библиотеке.
+
+# Tool tip and tool set completion (English fallback).
+	Cancel Rename	Cancel Rename
+	Choose Move or Extend in the options bar.	Choose Move or Extend in the options bar.
+	Choose the active shape, work path or targeted vector mask.	Choose the active shape, work path or targeted vector mask.
+	Click a slice to select it.	Click a slice to select it.
+	Click each item to add a numbered marker.	Click each item to add a numbered marker.
+	Click the first point to close, Enter to finish an open path.	Click the first point to close, Enter to finish an open path.
+	Click the image to add a sampler, then drag its marker to move it.	Click the image to add a sampler, then drag its marker to move it.
+	Click to add a note and edit its text in the Notes panel.	Click to add a note and edit its text in the Notes panel.
+	Click to add corners; drag to create smooth handles.	Click to add corners; drag to create smooth handles.
+	Click to switch between Fit and 100%; {alt}-click zooms out.	Click to switch between Fit and 100%; {alt}-click zooms out.
+	Color Sampler Tool	Color Sampler Tool
+	Double-click the image or tool button to fit the image.	Double-click the image or tool button to fit the image.
+	Double-click the tool button to fit the image.	Double-click the tool button to fit the image.
+	Down	Down
+	Drag a frame, then drag its four corners onto the subject.	Drag a frame, then drag its four corners onto the subject.
+	Drag a note marker to move it.	Drag a note marker to move it.
+	Drag a rectangle to create a slice.	Drag a rectangle to create a slice.
+	Drag between the endpoints.	Drag between the endpoints.
+	Drag between two points to measure.	Drag between two points to measure.
+	Drag right to zoom in and left to zoom out; {cmd}-drag draws a zoom box.	Drag right to zoom in and left to zoom out; {cmd}-drag draws a zoom box.
+	Drag the selected slice to move it.	Drag the selected slice to move it.
+	Drag to draw; {shift} keeps equal width and height.	Drag to draw; {shift} keeps equal width and height.
+	Drag to move its whole path.	Drag to move its whole path.
+	Drag to move the image; hold Space to pan with another tool.	Drag to move the image; hold Space to pan with another tool.
+	Hold {alt} to draw from the centre.	Hold {alt} to draw from the centre.
+	Magnifies or reduces the Camera Raw preview.	Magnifies or reduces the Camera Raw preview.
+	Paints back the document’s opening state.	Paints back the document’s opening state.
+	Pans the Camera Raw preview.	Pans the Camera Raw preview.
+	Places colour readouts on the Camera Raw preview.	Places colour readouts on the Camera Raw preview.
+	Save Name	Save Name
+	Set Pupil Size and Darken Amount in the options bar.	Set Pupil Size and Darken Amount in the options bar.
+	Set Size and Pressure in Brush Tool Options.	Set Size and Pressure in Brush Tool Options.
+	Set the brush size in the options bar before painting.	Set the brush size in the options bar before painting.
+	Then paint to erase or restore parts of it; Swap Colors switches modes.	Then paint to erase or restore parts of it; Swap Colors switches modes.
+	Up	Up
+	Use Slice Select to move an existing slice.	Use Slice Select to move an existing slice.
+	{alt}-click a marker to remove it.	{alt}-click a marker to remove it.
+	{alt}-drag an endpoint to measure an angle.	{alt}-drag an endpoint to measure an angle.
+	Hold {key} with any other tool to pan temporarily.	Hold {key} with any other tool to pan temporarily.
+	Set Tolerance and Contiguous in the options bar.	Настройте Допуск и Смежные пиксели на панели параметров.
+	Choose Erase or Restore in the options bar, then paint to refine the mask.	Выберите Стереть или Восстановить на панели параметров, затем рисуйте для уточнения маски.
+	Tool Set Name	Название набора инструментов
+	You can also drag with the middle mouse button to pan.	Также можно перемещать вид, перетаскивая средней кнопкой мыши.

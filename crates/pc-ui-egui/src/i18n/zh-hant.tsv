@@ -2645,6 +2645,163 @@ ai	New	最新
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	天空類別 {class} 超出範圍：此模型具有 {classes} 個類別（0 到 {max}）
 	{path} isn't a file	{path} 不是檔案
 	Custom models are not supported for this function	此功能不支援自訂模型
+	Moves the selected layers or the selection.	移動選取的圖層或選取範圍。
+	Drag to move; hold {shift} to keep to one axis.	拖曳以移動；按住 {shift} 可保持在單一軸向上。
+	{alt}-drag to move a copy.	{alt}+拖曳可移動拷貝。
+	{cmd}-click picks the layer under the pointer (it switches Auto-Select for that click).	{cmd}+按一下可選取指標下方的圖層 (該次按一下會切換「自動選取」)。
+	Arrow keys nudge by 1 pixel, {shift}+arrow by 10.	方向鍵可微調 1 像素，{shift}+方向鍵為 10 像素。
+	Selects a rectangular area.	選取矩形區域。
+	Drag to select; {shift}-drag adds to the selection, {alt}-drag subtracts.	拖曳以選取；{shift}+拖曳可加入選取範圍，{alt}+拖曳可從選取範圍減去。
+	Hold {shift} and {alt} together to intersect.	同時按住 {shift} 和 {alt} 可選取交集。
+	Selects an oval or circular area.	選取橢圓形或圓形區域。
+	Selects by drawing a freehand outline.	以繪製手繪外框的方式選取。
+	Drag to draw; release to close the outline.	拖曳以繪製；放開滑鼠即可封閉外框。
+	Hold {alt} while drawing for straight segments; let go to go freehand again.	繪製時按住 {alt} 可繪製直線線段；放開後恢復手繪。
+	Hold {shift} before you start to add, {alt} to subtract.	開始前按住 {shift} 可加入，按住 {alt} 可減去。
+	Selects with a straight-sided outline.	以直線外框選取。
+	Click to place each corner.	按一下以放置每個角落。
+	Click the first point, or double-click, to close the shape.	按一下第一個點或按兩下即可封閉形狀。
+	Hold {shift} for the first click to add, {alt} to subtract.	第一次按一下時按住 {shift} 可加入，按住 {alt} 可減去。
+	Selects by following the edge of an object.	沿著物件邊緣選取。
+	Click to start, then move along the edge; click to fasten a point.	按一下以開始，然後沿著邊緣移動；按一下可固定一個點。
+	{alt}-click adds a straight segment; drag for freehand.	{alt}+按一下可加入直線線段；拖曳則為手繪。
+	Double-click, or click the first point, to close the outline.	按兩下或按一下第一個點即可封閉外框。
+	Selects an object with the local AI model.	使用本機 AI 模型選取物件。
+	Click an object, or drag a box around it.	按一下物件，或在物件周圍拖曳方框。
+	{shift} adds to the selection, {alt} subtracts.	{shift} 可加入選取範圍，{alt} 可從選取範圍減去。
+	Paints a selection that grows out to the edges.	繪製會向外擴展至邊緣的選取範圍。
+	Drag over the area you want.	在想要的區域上拖曳。
+	Hold {alt} while dragging to subtract.	拖曳時按住 {alt} 可減去。
+	Selects pixels of a similar colour with one click.	按一下即可選取相似顏色的像素。
+	Click a colour; Tolerance and Contiguous are in the options bar.	按一下顏色；「容許度」和「相鄰」位於選項列中。
+	{shift}-click adds, {alt}-click subtracts, {shift}+{alt}-click intersects.	{shift}+按一下可加入，{alt}+按一下可減去，{shift}+{alt}+按一下可選取交集。
+	Trims the image to a rectangle.	將影像裁切為矩形。
+	Drag to draw the crop, then drag the handles to adjust.	拖曳以繪製裁切，然後拖曳控點進行調整。
+	Hold {shift} to keep the ratio and {alt} to resize from the centre.	按住 {shift} 可保持比例，按住 {alt} 可從中心調整大小。
+	Press Enter to apply, Esc to cancel.	按 Enter 套用，按 Esc 取消。
+	Crops to a four-cornered shape and straightens it, as for a photographed page or building.	裁切為四角形並將其拉直，適用於拍攝的頁面或建築物。
+	Divides the image into slices for web export.	將影像分割為切片以供網頁轉存。
+	Selects and adjusts existing slices.	選取並調整現有的切片。
+	Samples a colour from the image.	從影像中取樣顏色。
+	Click to set the foreground colour.	按一下以設定前景色。
+	{alt}-click sets the background colour.	{alt}+按一下可設定背景色。
+	Measures distances and angles on the image.	測量影像上的距離和角度。
+	Adds a text note to the document.	在文件上加入文字註解。
+	Counts items in the image by clicking on each.	按一下每個項目即可在影像中計數。
+	Removes a blemish by blending in the pixels around it.	以混合周圍像素的方式移除污點。
+	Paint over the spot.	在污點上塗繪。
+	Hold {shift} for a straight line from the last stroke.	按住 {shift} 可從上次筆畫繪製直線。
+	Repairs an area using sampled pixels, matching light and texture.	使用取樣的像素修復區域，並符合光線和紋理。
+	{alt}-click to set the source point.	{alt}+按一下可設定來源點。
+	Then paint over the area to repair.	然後在要修復的區域上塗繪。
+	Repairs a selected area from another area.	使用另一個區域修復選取區域。
+	Draw around the flaw, then drag the selection onto clean pixels.	在瑕疵周圍繪製，然後將選取範圍拖曳到乾淨的像素上。
+	Drag from inside an existing selection to move it.	從現有選取範圍內部拖曳可移動它。
+	Moves a selected object and fills the gap it leaves.	移動選取的物件並填滿其留下的空隙。
+	Draw around the object, then drag the selection to its new place.	在物件周圍繪製，然後將選取範圍拖曳到新位置。
+	Removes red from the pupils in flash photos.	移除閃光燈相片中瞳孔的紅眼。
+	Click on the red pupil.	按一下紅色瞳孔。
+	Paints soft or hard strokes in the foreground colour.	以前景色繪製柔邊或硬邊筆畫。
+	Drag to paint; hold {shift} to keep a straight line.	拖曳以塗繪；按住 {shift} 可保持直線。
+	{shift}-click draws a line from the end of the last stroke.	{shift}+按一下可從上次筆畫的終點繪製直線。
+	Hold {alt} to pick a colour from the image.	按住 {alt} 可從影像挑選顏色。
+	Paints hard-edged strokes.	繪製硬邊筆畫。
+	Paints with colours that mix with the canvas, like wet paint.	使用會與畫布混合的顏色塗繪，如同濕油漆。
+	Paints with pixels copied from another part of the image.	使用從影像另一部分複製的像素塗繪。
+	Then paint where you want the copy.	然後在想要複製的位置塗繪。
+	Paints back an earlier state of the image.	塗回影像較早的狀態。
+	Erases pixels as you drag.	拖曳時擦除像素。
+	Drag to erase; hold {shift} to keep a straight line.	拖曳以擦除；按住 {shift} 可保持直線。
+	Erases the background colour under the brush, keeping edges.	擦除筆刷下的背景色，並保留邊緣。
+	Drag along the edge of the subject.	沿主體邊緣拖曳。
+	Erases all pixels of a similar colour with one click.	按一下可擦除所有相似顏色的像素。
+	Click the colour to erase.	按一下要擦除的顏色。
+	Fills with a blend between colours.	以色彩之間的漸層填滿。
+	Drag from where the blend starts to where it ends.	從漸層起點拖曳到終點。
+	Hold {shift} to snap the angle to 45 degrees.	按住 {shift} 可將角度貼齊至 45 度。
+	Fills an area of similar colour with the foreground colour.	以前景色填滿相似顏色的區域。
+	Click inside the area to fill.	在區域內按一下即可填滿。
+	Softens the pixels you paint over.	柔化塗繪過的像素。
+	Drag to blur; hold {shift} to keep a straight line.	拖曳以模糊；按住 {shift} 可保持直線。
+	Sharpens the pixels you paint over.	銳利化塗繪過的像素。
+	Drag to sharpen; hold {shift} to keep a straight line.	拖曳以銳利化；按住 {shift} 可保持直線。
+	Smears pixels in the direction you drag, like wet paint.	沿拖曳方向塗抹像素，如同濕油漆。
+	Drag to smudge; hold {shift} to keep a straight line.	拖曳以塗抹；按住 {shift} 可保持直線。
+	Lightens the areas you paint over.	加亮塗繪過的區域。
+	Drag to lighten; hold {shift} to keep a straight line.	拖曳以加亮；按住 {shift} 可保持直線。
+	Darkens the areas you paint over.	加深塗繪過的區域。
+	Drag to darken; hold {shift} to keep a straight line.	拖曳以加深；按住 {shift} 可保持直線。
+	Raises or lowers the colour saturation where you paint.	提高或降低塗繪位置的色彩飽和度。
+	Drag to change saturation; hold {shift} to keep a straight line.	拖曳以變更飽和度；按住 {shift} 可保持直線。
+	Draws precise paths and shapes with anchor points.	使用錨點繪製精確路徑和形狀。
+	Click to add points; {alt} on an anchor turns it into a corner or smooth point.	按一下可新增錨點；在錨點上按 {alt} 可將其轉換為轉角或平滑點。
+	Selects and moves whole paths.	選取並移動整個路徑。
+	Selects and edits individual anchor points and handles.	選取並編輯個別錨點和控點。
+	Click an anchor or handle; drag a box to select several.	按一下錨點或控點；拖曳方框可選取數個。
+	{shift}-click toggles an anchor in the selection.	{shift}+按一下可切換選取範圍中的錨點。
+	{alt}-drag a handle to move it on its own.	{alt}+拖曳控點可單獨移動它。
+	Adds text to the image.	在影像上加入文字。
+	Click to type a line of text.	按一下即可輸入一行文字。
+	Drag to make a box for paragraph text.	拖曳以建立段落文字方框。
+	Adds text that runs top to bottom.	加入由上而下的文字。
+	Draws rectangles as editable shape layers.	繪製矩形作為可編輯的形狀圖層。
+	Draws ellipses and circles as editable shape layers.	繪製橢圓形和圓形作為可編輯的形狀圖層。
+	Draws triangles as editable shape layers.	繪製三角形作為可編輯的形狀圖層。
+	Draws polygons with any number of sides.	繪製任意邊數的多邊形。
+	Draws straight lines as editable shape layers.	繪製直線作為可編輯的形狀圖層。
+	Draws a shape chosen from the shape library.	繪製從形狀資料庫選擇的形狀。
+	Pans the view around the image.	平移影像四周的檢視。
+	Drag to move the image.	拖曳以移動影像。
+	Hold Space with any other tool to pan temporarily.	按住空白鍵並搭配其他工具可暫時平移。
+	Magnifies or reduces the view.	放大或縮小檢視。
+	Click to zoom in, {alt}-click to zoom out.	按一下可放大，{alt}+按一下可縮小。
+	Drag right to zoom in and left to zoom out, or drag a box when Scrubby Zoom is off.	向右拖曳可放大、向左拖曳可縮小；若關閉「拖曳縮放」，則拖曳方框。
+	Removes distractions with the local AI model.	使用本機 AI 模型移除干擾物。
+	Paint over what you want gone.	在想要移除的內容上塗繪。
+	When you let go, the repair lands on its own layer.	放開滑鼠後，修復會落在自己的圖層上。
+	Cuts out the subject with the local AI model.	使用本機 AI 模型剪下主體。
+	Use Remove Background in the options bar to make the mask.	使用選項列中的「移除背景」來建立遮色片。
+	Then paint to erase or restore parts of it; X swaps the two.	然後塗繪以擦除或還原其部分；按 X 可切換兩者。
+	Pushes pixels forward as you drag.	拖曳時向前推擠像素。
+	Drag across the area to push it along.	拖曳穿過區域以推擠它。
+	Undoes warping where you paint.	在塗繪位置復原彎曲。
+	Paint over a distorted area to restore it; hold still to keep restoring.	在扭曲區域上塗繪以將其還原；按住不放可持續還原。
+	Smooths out the distortion where you paint.	在塗繪處撫平扭曲。
+	Paint over an area; hold still to keep smoothing.	在區域上塗繪；按住不放可持續撫平。
+	Spins pixels clockwise.	順時針旋轉像素。
+	Click or hold still to keep twirling.	按一下或按住不動以持續扭轉。
+	Spins pixels counterclockwise.	逆時針旋轉像素。
+	Pulls pixels in toward the centre of the brush.	將像素朝筆刷中心拉近。
+	Click or hold still to keep pinching.	按一下或按住不動以持續縮攏。
+	Pushes pixels out from the centre of the brush.	將像素從筆刷中心向外推。
+	Click or hold still to keep swelling.	按一下或按住不動以持續膨脹。
+	Shifts pixels sideways as you drag.	拖曳時將像素往側邊移動。
+	Drag to move pixels to the left of your direction.	拖曳可將像素移向拖曳方向的左側。
+	Protects areas from being warped.	保護區域以免受到扭曲。
+	Paint over the areas to protect.	在區域上塗繪以保護該區域。
+	Removes protection from frozen areas.	解除凍結區域的保護。
+	Paint over the frozen areas to release them.	在凍結區域上塗繪以將其解凍。
+	Freezes an area you outline.	凍結您圈選的區域。
+	Drag to freeze an outlined area.	拖曳以凍結圈選的區域。
+	{alt}-drag to thaw it.	{alt}-拖曳以將其解凍。
+	Changes the whole image at once.	一次變更整個影像。
+	Also in this group:	此群組中還有：
+	How to use	使用方式
+	All Tools	所有工具
+	Photographer	攝影師
+	Retouching	修飾
+	Tool Set	工具集
+	Tool Sets	工具集
+	built-in	內建
+	My Tools	我的工具
+	Duplicate	複製
+	Reset to All Tools	重設為所有工具
+	Built-in sets can't be changed. Save a copy to choose your own tools.	內建工具集無法變更。請儲存副本以選擇您自己的工具。
+	Save as New Set	儲存為新工具集
+	Tick the tools this set shows.	勾選此工具集要顯示的工具。
+	Tool tips	工具提示
+	Rich (name, shortcut and how to use)	豐富（名稱、快速鍵和使用方式）
+	Simple (name and shortcut)	簡單（名稱和快速鍵）
 	Tool icons	工具圖示
 	Colour (default)	彩色（預設）
 
@@ -2653,3 +2810,47 @@ ai	New	最新
 	Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library.	尋找人臉並辨識不同照片中的同一個人。在 Smart Sort 中啟用前預設關閉。人臉資料保存在圖庫中。
 	Finds faces and their landmarks, ready to recognise the same person in other photos. Runs locally on the CPU.	尋找人臉及其特徵點，以辨識其他照片中的同一個人。在本機 CPU 上執行。
 	Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.	為 Smart Sort 尋找人臉並將同一個人的照片分組。包含兩個人臉模型；在 CPU 上執行，人臉資料保存在圖庫中。
+
+# Tool tip and tool set completion (English fallback).
+	Cancel Rename	Cancel Rename
+	Choose Move or Extend in the options bar.	Choose Move or Extend in the options bar.
+	Choose the active shape, work path or targeted vector mask.	Choose the active shape, work path or targeted vector mask.
+	Click a slice to select it.	Click a slice to select it.
+	Click each item to add a numbered marker.	Click each item to add a numbered marker.
+	Click the first point to close, Enter to finish an open path.	Click the first point to close, Enter to finish an open path.
+	Click the image to add a sampler, then drag its marker to move it.	Click the image to add a sampler, then drag its marker to move it.
+	Click to add a note and edit its text in the Notes panel.	Click to add a note and edit its text in the Notes panel.
+	Click to add corners; drag to create smooth handles.	Click to add corners; drag to create smooth handles.
+	Click to switch between Fit and 100%; {alt}-click zooms out.	Click to switch between Fit and 100%; {alt}-click zooms out.
+	Color Sampler Tool	Color Sampler Tool
+	Double-click the image or tool button to fit the image.	Double-click the image or tool button to fit the image.
+	Double-click the tool button to fit the image.	Double-click the tool button to fit the image.
+	Drag a frame, then drag its four corners onto the subject.	Drag a frame, then drag its four corners onto the subject.
+	Drag a note marker to move it.	Drag a note marker to move it.
+	Drag a rectangle to create a slice.	Drag a rectangle to create a slice.
+	Drag between the endpoints.	Drag between the endpoints.
+	Drag between two points to measure.	Drag between two points to measure.
+	Drag right to zoom in and left to zoom out; {cmd}-drag draws a zoom box.	Drag right to zoom in and left to zoom out; {cmd}-drag draws a zoom box.
+	Drag the selected slice to move it.	Drag the selected slice to move it.
+	Drag to draw; {shift} keeps equal width and height.	Drag to draw; {shift} keeps equal width and height.
+	Drag to move its whole path.	Drag to move its whole path.
+	Drag to move the image; hold Space to pan with another tool.	Drag to move the image; hold Space to pan with another tool.
+	Hold {alt} to draw from the centre.	Hold {alt} to draw from the centre.
+	Magnifies or reduces the Camera Raw preview.	Magnifies or reduces the Camera Raw preview.
+	Paints back the document’s opening state.	Paints back the document’s opening state.
+	Pans the Camera Raw preview.	Pans the Camera Raw preview.
+	Places colour readouts on the Camera Raw preview.	Places colour readouts on the Camera Raw preview.
+	Save Name	Save Name
+	Set Pupil Size and Darken Amount in the options bar.	Set Pupil Size and Darken Amount in the options bar.
+	Set Size and Pressure in Brush Tool Options.	Set Size and Pressure in Brush Tool Options.
+	Set the brush size in the options bar before painting.	Set the brush size in the options bar before painting.
+	Then paint to erase or restore parts of it; Swap Colors switches modes.	Then paint to erase or restore parts of it; Swap Colors switches modes.
+	Up	Up
+	Use Slice Select to move an existing slice.	Use Slice Select to move an existing slice.
+	{alt}-click a marker to remove it.	{alt}-click a marker to remove it.
+	{alt}-drag an endpoint to measure an angle.	{alt}-drag an endpoint to measure an angle.
+	Hold {key} with any other tool to pan temporarily.	Hold {key} with any other tool to pan temporarily.
+	Set Tolerance and Contiguous in the options bar.	在選項列中設定容差和連續。
+	Choose Erase or Restore in the options bar, then paint to refine the mask.	在選項列中選擇擦除或還原，然後塗抹以精修遮色片。
+	Tool Set Name	工具組名稱
+	You can also drag with the middle mouse button to pan.	也可以按住滑鼠中鍵拖曳來平移檢視。

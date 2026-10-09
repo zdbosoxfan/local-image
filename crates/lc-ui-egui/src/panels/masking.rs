@@ -95,6 +95,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             for (i, (kind, label, icon)) in tiles.iter().enumerate() {
                 let (r, resp) = ui.allocate_exact_size(vec2(tile, 52.0), Sense::click());
                 register(ui.ctx(), format!("maskNew:{kind}"), r);
+                if let Some(tool) = super::tool_tips::StripTool::mask_kind(kind) {
+                    super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, tool);
+                }
                 ui.painter().rect_filled(r, 4.0, if resp.hovered() { t.hover } else { t.inset });
                 crate::icons::paint_tool(
                     ui,
@@ -704,10 +707,9 @@ fn range_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, comp: usize, shape
                         .size(11.5),
                 );
                 let picking = app.ui.tool == "colorRange";
-                if text_button(ui, &format!("colorPick{comp}"), crate::i18n::tr("Pick"), picking)
-                    .on_hover_text(crate::i18n::tr("Click the photo to pick a colour; ⇧-click adds more (up to 5)"))
-                    .clicked()
-                {
+                let resp = text_button(ui, &format!("colorPick{comp}"), crate::i18n::tr("Pick"), picking);
+                super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::MaskColor);
+                if resp.clicked() {
                     app.ui.tool = if picking { String::new() } else { "colorRange".into() };
                 }
             });

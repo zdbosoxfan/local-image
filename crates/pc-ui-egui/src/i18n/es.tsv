@@ -2733,6 +2733,163 @@ ai	New	Nuevos
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	La clase de cielo {class} está fuera de rango: este modelo tiene {classes} clases (0 a {max})
 	{path} isn't a file	{path} no es un archivo
 	Custom models are not supported for this function	Esta función no admite modelos personalizados
+	Moves the selected layers or the selection.	Mueve las capas seleccionadas o la selección.
+	Drag to move; hold {shift} to keep to one axis.	Arrastra para mover; mantén {shift} para limitar a un eje.
+	{alt}-drag to move a copy.	Arrastra con {alt} para mover una copia.
+	{cmd}-click picks the layer under the pointer (it switches Auto-Select for that click).	{cmd}-clic selecciona la capa bajo el puntero (cambia a Selección automática para ese clic).
+	Arrow keys nudge by 1 pixel, {shift}+arrow by 10.	Las teclas de flecha desplazan 1 píxel; {shift}+flecha, 10.
+	Selects a rectangular area.	Selecciona un área rectangular.
+	Drag to select; {shift}-drag adds to the selection, {alt}-drag subtracts.	Arrastra para seleccionar; {shift}-arrastra añade a la selección, {alt}-arrastra resta.
+	Hold {shift} and {alt} together to intersect.	Mantén {shift} y {alt} a la vez para intersecar.
+	Selects an oval or circular area.	Selecciona un área oval o circular.
+	Selects by drawing a freehand outline.	Selecciona dibujando un contorno a mano alzada.
+	Drag to draw; release to close the outline.	Arrastra para dibujar; suelta para cerrar el contorno.
+	Hold {alt} while drawing for straight segments; let go to go freehand again.	Mantén {alt} mientras dibujas para segmentos rectos; suelta para volver a mano alzada.
+	Hold {shift} before you start to add, {alt} to subtract.	Mantén {shift} antes de empezar para añadir, {alt} para restar.
+	Selects with a straight-sided outline.	Selecciona con un contorno de lados rectos.
+	Click to place each corner.	Haz clic para colocar cada esquina.
+	Click the first point, or double-click, to close the shape.	Haz clic en el primer punto, o doble clic, para cerrar la forma.
+	Hold {shift} for the first click to add, {alt} to subtract.	Mantén {shift} en el primer clic para añadir, {alt} para restar.
+	Selects by following the edge of an object.	Selecciona siguiendo el borde de un objeto.
+	Click to start, then move along the edge; click to fasten a point.	Haz clic para empezar, luego muévete por el borde; haz clic para fijar un punto.
+	{alt}-click adds a straight segment; drag for freehand.	{alt}-clic añade un segmento recto; arrastra para mano alzada.
+	Double-click, or click the first point, to close the outline.	Doble clic, o clic en el primer punto, para cerrar el contorno.
+	Selects an object with the local AI model.	Selecciona un objeto con el modelo de IA local.
+	Click an object, or drag a box around it.	Haz clic en un objeto o arrastra un cuadro a su alrededor.
+	{shift} adds to the selection, {alt} subtracts.	{shift} añade a la selección, {alt} resta.
+	Paints a selection that grows out to the edges.	Pinta una selección que crece hasta los bordes.
+	Drag over the area you want.	Arrastra sobre el área que desees.
+	Hold {alt} while dragging to subtract.	Mantén {alt} mientras arrastras para restar.
+	Selects pixels of a similar colour with one click.	Selecciona píxeles de un color similar con un clic.
+	Click a colour; Tolerance and Contiguous are in the options bar.	Haz clic en un color; Tolerancia y Contiguo están en la barra de opciones.
+	{shift}-click adds, {alt}-click subtracts, {shift}+{alt}-click intersects.	{shift}-clic añade, {alt}-clic resta, {shift}+{alt}-clic interseca.
+	Trims the image to a rectangle.	Recorta la imagen a un rectángulo.
+	Drag to draw the crop, then drag the handles to adjust.	Arrastra para dibujar el recorte y luego arrastra los controladores para ajustar.
+	Hold {shift} to keep the ratio and {alt} to resize from the centre.	Mantén {shift} para mantener la proporción y {alt} para cambiar el tamaño desde el centro.
+	Press Enter to apply, Esc to cancel.	Pulsa Intro para aplicar, Esc para cancelar.
+	Crops to a four-cornered shape and straightens it, as for a photographed page or building.	Recorta a una forma de cuatro esquinas y la endereza, como para una página o edificio fotografiados.
+	Divides the image into slices for web export.	Divide la imagen en sectores para exportar a web.
+	Selects and adjusts existing slices.	Selecciona y ajusta los sectores existentes.
+	Samples a colour from the image.	Muestra un color de la imagen.
+	Click to set the foreground colour.	Haz clic para definir el color frontal.
+	{alt}-click sets the background colour.	{alt}-clic define el color de fondo.
+	Measures distances and angles on the image.	Mide distancias y ángulos en la imagen.
+	Adds a text note to the document.	Añade una nota de texto al documento.
+	Counts items in the image by clicking on each.	Cuenta elementos de la imagen haciendo clic en cada uno.
+	Removes a blemish by blending in the pixels around it.	Elimina una imperfección fusionando los píxeles de alrededor.
+	Paint over the spot.	Pinta sobre la mancha.
+	Hold {shift} for a straight line from the last stroke.	Mantén {shift} para una línea recta desde el último trazo.
+	Repairs an area using sampled pixels, matching light and texture.	Repara un área usando píxeles muestreados, igualando luz y textura.
+	{alt}-click to set the source point.	{alt}-clic para definir el punto de origen.
+	Then paint over the area to repair.	Luego pinta sobre el área a reparar.
+	Repairs a selected area from another area.	Repara un área seleccionada a partir de otra área.
+	Draw around the flaw, then drag the selection onto clean pixels.	Dibuja alrededor del defecto y arrastra la selección sobre píxeles limpios.
+	Drag from inside an existing selection to move it.	Arrastra desde dentro de una selección existente para moverla.
+	Moves a selected object and fills the gap it leaves.	Mueve un objeto seleccionado y rellena el hueco que deja.
+	Draw around the object, then drag the selection to its new place.	Dibuja alrededor del objeto y arrastra la selección a su nueva ubicación.
+	Removes red from the pupils in flash photos.	Elimina el rojo de las pupilas en fotos con flash.
+	Click on the red pupil.	Haz clic en la pupila roja.
+	Paints soft or hard strokes in the foreground colour.	Pinta trazos suaves o duros con el color frontal.
+	Drag to paint; hold {shift} to keep a straight line.	Arrastra para pintar; mantén {shift} para mantener una línea recta.
+	{shift}-click draws a line from the end of the last stroke.	{shift}-clic dibuja una línea desde el final del último trazo.
+	Hold {alt} to pick a colour from the image.	Mantén {alt} para elegir un color de la imagen.
+	Paints hard-edged strokes.	Pinta trazos de bordes duros.
+	Paints with colours that mix with the canvas, like wet paint.	Pinta con colores que se mezclan con el lienzo, como pintura húmeda.
+	Paints with pixels copied from another part of the image.	Pinta con píxeles copiados de otra parte de la imagen.
+	Then paint where you want the copy.	Luego pinta donde quieras la copia.
+	Paints back an earlier state of the image.	Pinta un estado anterior de la imagen.
+	Erases pixels as you drag.	Borra píxeles al arrastrar.
+	Drag to erase; hold {shift} to keep a straight line.	Arrastra para borrar; mantén {shift} para mantener una línea recta.
+	Erases the background colour under the brush, keeping edges.	Borra el color de fondo bajo el pincel, conservando los bordes.
+	Drag along the edge of the subject.	Arrastra por el borde del sujeto.
+	Erases all pixels of a similar colour with one click.	Borra todos los píxeles de un color similar con un clic.
+	Click the colour to erase.	Haz clic en el color a borrar.
+	Fills with a blend between colours.	Rellena con una mezcla entre colores.
+	Drag from where the blend starts to where it ends.	Arrastra desde donde empieza la mezcla hasta donde termina.
+	Hold {shift} to snap the angle to 45 degrees.	Mantén {shift} para fijar el ángulo a 45 grados.
+	Fills an area of similar colour with the foreground colour.	Rellena un área de color similar con el color frontal.
+	Click inside the area to fill.	Haz clic dentro del área para rellenar.
+	Softens the pixels you paint over.	Suaviza los píxeles sobre los que pintas.
+	Drag to blur; hold {shift} to keep a straight line.	Arrastra para desenfocar; mantén {shift} para mantener una línea recta.
+	Sharpens the pixels you paint over.	Enfoca los píxeles sobre los que pintas.
+	Drag to sharpen; hold {shift} to keep a straight line.	Arrastra para enfocar; mantén {shift} para mantener una línea recta.
+	Smears pixels in the direction you drag, like wet paint.	Emborega los píxeles en la dirección en que arrastras, como pintura húmeda.
+	Drag to smudge; hold {shift} to keep a straight line.	Arrastra para emboregar; mantén {shift} para mantener una línea recta.
+	Lightens the areas you paint over.	Aclara las áreas sobre las que pintas.
+	Drag to lighten; hold {shift} to keep a straight line.	Arrastra para aclarar; mantén {shift} para mantener una línea recta.
+	Darkens the areas you paint over.	Oscurece las áreas sobre las que pintas.
+	Drag to darken; hold {shift} to keep a straight line.	Arrastra para oscurecer; mantén {shift} para mantener una línea recta.
+	Raises or lowers the colour saturation where you paint.	Aumenta o reduce la saturación de color donde pintas.
+	Drag to change saturation; hold {shift} to keep a straight line.	Arrastra para cambiar la saturación; mantén {shift} para mantener una línea recta.
+	Draws precise paths and shapes with anchor points.	Dibuja trazados y formas precisos con puntos de ancla.
+	Click to add points; {alt} on an anchor turns it into a corner or smooth point.	Haz clic para añadir puntos; {alt} en un punto de ancla lo convierte en un punto de esquina o suave.
+	Selects and moves whole paths.	Selecciona y mueve trazados completos.
+	Selects and edits individual anchor points and handles.	Selecciona y edita puntos de ancla y tiradores individuales.
+	Click an anchor or handle; drag a box to select several.	Haz clic en un punto de ancla o tirador; arrastra un cuadro para seleccionar varios.
+	{shift}-click toggles an anchor in the selection.	{shift}-clic alterna un punto de ancla en la selección.
+	{alt}-drag a handle to move it on its own.	{alt}-arrastra un tirador para moverlo por separado.
+	Adds text to the image.	Añade texto a la imagen.
+	Click to type a line of text.	Haz clic para escribir una línea de texto.
+	Drag to make a box for paragraph text.	Arrastra para crear un cuadro de texto de párrafo.
+	Adds text that runs top to bottom.	Añade texto que va de arriba a abajo.
+	Draws rectangles as editable shape layers.	Dibuja rectángulos como capas de forma editables.
+	Draws ellipses and circles as editable shape layers.	Dibuja elipses y círculos como capas de forma editables.
+	Draws triangles as editable shape layers.	Dibuja triángulos como capas de forma editables.
+	Draws polygons with any number of sides.	Dibuja polígonos con cualquier número de lados.
+	Draws straight lines as editable shape layers.	Dibuja líneas rectas como capas de forma editables.
+	Draws a shape chosen from the shape library.	Dibuja una forma elegida de la biblioteca de formas.
+	Pans the view around the image.	Desplaza la vista alrededor de la imagen.
+	Drag to move the image.	Arrastra para mover la imagen.
+	Hold Space with any other tool to pan temporarily.	Mantén Espacio con cualquier otra herramienta para desplazarse temporalmente.
+	Magnifies or reduces the view.	Aumenta o reduce el zoom de la vista.
+	Click to zoom in, {alt}-click to zoom out.	Haz clic para acercar, {alt}-clic para alejar.
+	Drag right to zoom in and left to zoom out, or drag a box when Scrubby Zoom is off.	Arrastra a la derecha para acercar y a la izquierda para alejar, o arrastra un cuadro cuando Zoom de arrastre está desactivado.
+	Removes distractions with the local AI model.	Elimina distracciones con el modelo de IA local.
+	Paint over what you want gone.	Pinta sobre lo que quieras eliminar.
+	When you let go, the repair lands on its own layer.	Al soltar, la reparación se coloca en su propia capa.
+	Cuts out the subject with the local AI model.	Recorta el sujeto con el modelo de IA local.
+	Use Remove Background in the options bar to make the mask.	Usa Quitar fondo en la barra de opciones para crear la máscara.
+	Then paint to erase or restore parts of it; X swaps the two.	Luego pinta para borrar o restaurar partes; X alterna entre ambas.
+	Pushes pixels forward as you drag.	Empuja los píxeles hacia delante al arrastrar.
+	Drag across the area to push it along.	Arrastra por el área para empujarla.
+	Undoes warping where you paint.	Deshace la deformación donde pintas.
+	Paint over a distorted area to restore it; hold still to keep restoring.	Pinte sobre un área distorsionada para restaurarla; manténgalo quieto para seguir restaurando.
+	Smooths out the distortion where you paint.	Suaviza la distorsión donde pinta.
+	Paint over an area; hold still to keep smoothing.	Pinte sobre un área; manténgalo quieto para seguir suavizando.
+	Spins pixels clockwise.	Gira los píxeles en sentido horario.
+	Click or hold still to keep twirling.	Haga clic o manténgalo quieto para seguir girando.
+	Spins pixels counterclockwise.	Gira los píxeles en sentido antihorario.
+	Pulls pixels in toward the centre of the brush.	Atrae los píxeles hacia el centro del pincel.
+	Click or hold still to keep pinching.	Haga clic o manténgalo quieto para seguir frunciendo.
+	Pushes pixels out from the centre of the brush.	Aleja los píxeles del centro del pincel.
+	Click or hold still to keep swelling.	Haga clic o manténgalo quieto para seguir inflando.
+	Shifts pixels sideways as you drag.	Desplaza los píxeles lateralmente al arrastrar.
+	Drag to move pixels to the left of your direction.	Arrastre para desplazar los píxeles a la izquierda de la dirección.
+	Protects areas from being warped.	Protege áreas para que no se deformen.
+	Paint over the areas to protect.	Pinte sobre las áreas para protegerlas.
+	Removes protection from frozen areas.	Elimina la protección de las áreas congeladas.
+	Paint over the frozen areas to release them.	Pinte sobre las áreas congeladas para descongelarlas.
+	Freezes an area you outline.	Congela un área que delimite.
+	Drag to freeze an outlined area.	Arrastre para congelar un área delimitada.
+	{alt}-drag to thaw it.	{alt}-arrastre para descongelarla.
+	Changes the whole image at once.	Cambia toda la imagen a la vez.
+	Also in this group:	También en este grupo:
+	How to use	Cómo usar
+	All Tools	Todas las herramientas
+	Photographer	Fotógrafo
+	Retouching	Retoque
+	Tool Set	Conjunto de herramientas
+	Tool Sets	Conjuntos de herramientas
+	built-in	integrado
+	My Tools	Mis herramientas
+	Duplicate	Duplicar
+	Reset to All Tools	Restablecer a Todas las herramientas
+	Built-in sets can't be changed. Save a copy to choose your own tools.	Los conjuntos integrados no se pueden modificar. Guarde una copia para elegir sus propias herramientas.
+	Save as New Set	Guardar como conjunto nuevo
+	Tick the tools this set shows.	Marque las herramientas que se muestran en este conjunto.
+	Tool tips	Información de herramientas
+	Rich (name, shortcut and how to use)	Detallada (nombre, atajo y cómo usar)
+	Simple (name and shortcut)	Simple (nombre y atajo)
 	Tool icons	Iconos de herramientas
 	Colour (default)	Color (predeterminado)
 
@@ -2741,3 +2898,47 @@ ai	New	Nuevos
 	Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library.	Encuentra rostros y reconoce a la misma persona en varias fotos. Desactivado hasta que lo active en Smart Sort. Los datos faciales permanecen en su biblioteca.
 	Finds faces and their landmarks, ready to recognise the same person in other photos. Runs locally on the CPU.	Encuentra rostros y sus puntos de referencia para reconocer a la misma persona en otras fotos. Se ejecuta localmente en la CPU.
 	Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.	Encuentra rostros y agrupa fotos de la misma persona para Smart Sort. Incluye ambos modelos faciales; se ejecuta en la CPU y guarda los datos en su biblioteca.
+
+# Tool tip and tool set completion (English fallback).
+	Cancel Rename	Cancel Rename
+	Choose Move or Extend in the options bar.	Choose Move or Extend in the options bar.
+	Choose the active shape, work path or targeted vector mask.	Choose the active shape, work path or targeted vector mask.
+	Click a slice to select it.	Click a slice to select it.
+	Click each item to add a numbered marker.	Click each item to add a numbered marker.
+	Click the first point to close, Enter to finish an open path.	Click the first point to close, Enter to finish an open path.
+	Click the image to add a sampler, then drag its marker to move it.	Click the image to add a sampler, then drag its marker to move it.
+	Click to add a note and edit its text in the Notes panel.	Click to add a note and edit its text in the Notes panel.
+	Click to add corners; drag to create smooth handles.	Click to add corners; drag to create smooth handles.
+	Click to switch between Fit and 100%; {alt}-click zooms out.	Click to switch between Fit and 100%; {alt}-click zooms out.
+	Color Sampler Tool	Color Sampler Tool
+	Double-click the image or tool button to fit the image.	Double-click the image or tool button to fit the image.
+	Double-click the tool button to fit the image.	Double-click the tool button to fit the image.
+	Drag a frame, then drag its four corners onto the subject.	Drag a frame, then drag its four corners onto the subject.
+	Drag a note marker to move it.	Drag a note marker to move it.
+	Drag a rectangle to create a slice.	Drag a rectangle to create a slice.
+	Drag between the endpoints.	Drag between the endpoints.
+	Drag between two points to measure.	Drag between two points to measure.
+	Drag right to zoom in and left to zoom out; {cmd}-drag draws a zoom box.	Drag right to zoom in and left to zoom out; {cmd}-drag draws a zoom box.
+	Drag the selected slice to move it.	Drag the selected slice to move it.
+	Drag to draw; {shift} keeps equal width and height.	Drag to draw; {shift} keeps equal width and height.
+	Drag to move its whole path.	Drag to move its whole path.
+	Drag to move the image; hold Space to pan with another tool.	Drag to move the image; hold Space to pan with another tool.
+	Hold {alt} to draw from the centre.	Hold {alt} to draw from the centre.
+	Magnifies or reduces the Camera Raw preview.	Magnifies or reduces the Camera Raw preview.
+	Paints back the document’s opening state.	Paints back the document’s opening state.
+	Pans the Camera Raw preview.	Pans the Camera Raw preview.
+	Places colour readouts on the Camera Raw preview.	Places colour readouts on the Camera Raw preview.
+	Save Name	Save Name
+	Set Pupil Size and Darken Amount in the options bar.	Set Pupil Size and Darken Amount in the options bar.
+	Set Size and Pressure in Brush Tool Options.	Set Size and Pressure in Brush Tool Options.
+	Set the brush size in the options bar before painting.	Set the brush size in the options bar before painting.
+	Then paint to erase or restore parts of it; Swap Colors switches modes.	Then paint to erase or restore parts of it; Swap Colors switches modes.
+	Up	Up
+	Use Slice Select to move an existing slice.	Use Slice Select to move an existing slice.
+	{alt}-click a marker to remove it.	{alt}-click a marker to remove it.
+	{alt}-drag an endpoint to measure an angle.	{alt}-drag an endpoint to measure an angle.
+	Hold {key} with any other tool to pan temporarily.	Hold {key} with any other tool to pan temporarily.
+	Set Tolerance and Contiguous in the options bar.	Ajusta Tolerancia y Contiguo en la barra de opciones.
+	Choose Erase or Restore in the options bar, then paint to refine the mask.	Elige Borrar o Restaurar en la barra de opciones y pinta para perfeccionar la máscara.
+	Tool Set Name	Nombre del conjunto de herramientas
+	You can also drag with the middle mouse button to pan.	También puedes arrastrar con el botón central del ratón para desplazar la vista.

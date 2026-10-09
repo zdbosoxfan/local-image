@@ -2074,4 +2074,134 @@ mod tests {
         let r = h.request("ui.screenshot", json!({"headless": true}), SETTLE);
         assert_eq!(r["result"]["width"], 640, "{r}");
     }
+
+    /// Tool-strip hover tips: Rich shows the name, shortcut (from the command table), a sentence
+    /// and how-to lines after a short delay and straight away on the next tool; Simple and Off
+    /// show no rich tip; the Settings row switches them and old settings files still load.
+    #[test]
+    fn strip_tool_tips_rich_simple_and_off() {
+        use crate::panels::tool_tips::{StripTool, ToolTipMode, shown};
+        let mut h = demo([1400.0, 900.0]);
+        let t = Duration::from_secs(10);
+        h.request("ui.set", json!({"view": "detail"}), t);
+        h.settle(SETTLE);
+        assert_eq!(h.app.ui.settings.tool_tips, ToolTipMode::Rich, "rich is the default");
+        h.request("ui.hoverWidget", json!({"id": "icon:crop"}), t);
+        assert!(shown(&h.view.ctx).is_none(), "no tip before the delay");
+        assert!(h.step_until(SETTLE, |h| shown(&h.view.ctx).is_some()), "the tip opens");
+        let tip = shown(&h.view.ctx).unwrap();
+        assert_eq!(tip.tool, "crop");
+        assert!(tip.bounds.width() <= crate::panels::tool_tips::MAX_WIDTH + 2.0, "{:?}", tip.bounds);
+        let key = StripTool::Crop.shortcut().expect("Crop has a shortcut");
+        assert!(tip.text.starts_with(&format!("Crop & Rotate ({key})")), "{}", tip.text);
+        assert!(tip.text.contains("drag along the horizon"), "{}", tip.text);
+        // moving to another tool shows its tip at once (within a couple of frames)
+        h.request("ui.hoverWidget", json!({"id": "icon:masking"}), t);
+        h.step();
+        h.step();
+        assert_eq!(shown(&h.view.ctx).map(|s| s.tool).as_deref(), Some("masking"));
+        // the Settings row
+        h.request("ui.key", json!({"key": ",", "cmd": true}), t);
+        h.request("ui.clickWidget", json!({"id": "button:settingsTab-interface"}), t);
+        h.request("ui.clickWidget", json!({"id": "button:settingsToolTips-1"}), t);
+        assert_eq!(h.app.ui.settings.tool_tips, ToolTipMode::Simple);
+        h.request("ui.clickWidget", json!({"id": "button:settingsToolTips-2"}), t);
+        assert_eq!(h.app.ui.settings.tool_tips, ToolTipMode::Off);
+        h.request("ui.key", json!({"key": "Escape"}), t);
+        for mode in [ToolTipMode::Simple, ToolTipMode::Off] {
+            h.app.ui.settings.tool_tips = mode;
+            h.request("ui.hoverWidget", json!({"id": "icon:activity"}), t);
+            for _ in 0..60 {
+                h.step();
+            }
+            assert!(shown(&h.view.ctx).is_none(), "{mode:?} shows no rich tip");
+            h.request("ui.move", json!({"x": 5, "y": 500}), t);
+        }
+        // an old settings file (no toolTips) loads with the default
+        let old: crate::state::AppSettings = serde_json::from_str(r#"{"confirmDelete": true}"#).unwrap();
+        assert_eq!(old.tool_tips, ToolTipMode::Rich);
+        assert!(old.confirm_delete);
+    }
+    #[test]
+    fn develop_tool_tips_cover_mask_tiles_brush_modifiers_and_wb_picker() {
+        use crate::panels::tool_tips::{StripTool, shown};
+        let mut h = demo([1400.0, 900.0]);
+        let t = Duration::from_secs(10);
+        h.request("ui.set", json!({"view": "detail"}), t);
+        h.request("ui.clickWidget", json!({"id": "icon:masking"}), t);
+        h.request("ui.hoverWidget", json!({"id": "maskNew:brush"}), t);
+        assert!(h.step_until(t, |h| shown(&h.view.ctx).is_some_and(|s| s.tool == "brush")));
+        let tip = shown(&h.view.ctx).unwrap();
+        assert!(tip.text.contains(&format!("Brush ({})", StripTool::MaskBrush.shortcut().unwrap())));
+        assert!(tip.text.contains("switch between adding and erasing"));
+        assert!(tip.text.contains("Also in this group:"));
+        h.request("ui.clickWidget", json!({"id": "maskNew:brush"}), t);
+        let canvas = h.app.canvas_rect.unwrap();
+        h.request(
+            "ui.drag",
+            json!({"x": canvas.center().x, "y": canvas.center().y, "toX": canvas.center().x + 40.0, "toY": canvas.center().y + 30.0}),
+            t,
+        );
+        assert!(!h.app.session.develop_of(h.app.session.active().unwrap()).unwrap().masks.is_empty());
+        assert!(shown(&h.view.ctx).is_none(), "no tip remains after a canvas drag");
+        h.request("ui.clickWidget", json!({"id": "icon:edit"}), t);
+        assert_eq!(h.request("ui.clickWidget", json!({"id": "section:light"}), t)["ok"], true);
+        assert_eq!(h.request("ui.clickWidget", json!({"id": "section:color"}), t)["ok"], true);
+        assert_eq!(h.request("ui.hoverWidget", json!({"id": "icon:wbPicker"}), t)["ok"], true);
+        assert!(h.step_until(t, |h| shown(&h.view.ctx).is_some_and(|s| s.tool == "wbPicker")));
+        assert!(shown(&h.view.ctx).unwrap().text.starts_with("White Balance Selector (W)"));
+    }
+
+    #[test]
+    fn strip_tool_tips_icon_pixels_follow_colour_preference_and_keep_text() {
+        use crate::panels::tool_tips::{ICON, ToolTipMode, shown};
+        let mut h = demo([1400.0, 900.0]);
+        let timeout = Duration::from_secs(10);
+        h.request("ui.set", json!({"view": "detail"}), timeout);
+        h.request("ui.hoverWidget", json!({"id": "icon:crop"}), timeout);
+        assert!(h.step_until(timeout, |h| shown(&h.view.ctx).is_some()));
+        h.settle(Duration::from_millis(250));
+        let tip = shown(&h.view.ctx).unwrap();
+        let slot = egui::Rect::from_min_size(tip.bounds.min + egui::vec2(10.0, 10.0), egui::vec2(ICON, ICON));
+        let colour = crate::tool_icon_tests::saturation(&h.paint(), slot, 1.0);
+        assert!(colour > 20, "the rich tip has a colour icon: {colour}");
+        h.request("ui.key", json!({"key": ",", "cmd": true}), timeout);
+        h.request("ui.clickWidget", json!({"id": "button:settingsTab-interface"}), timeout);
+        assert_eq!(h.request("ui.clickWidget", json!({"id": "button:settingsToolIcons-1"}), timeout)["ok"], true);
+        assert!(!h.app.ui.settings.color_tool_icons);
+        assert_eq!(h.app.ui.settings.tool_tips, ToolTipMode::Rich);
+        h.request("ui.key", json!({"key": "Escape"}), timeout);
+        h.request("ui.hoverWidget", json!({"id": "icon:crop"}), timeout);
+        assert!(h.step_until(timeout, |h| shown(&h.view.ctx).is_some()));
+        h.settle(Duration::from_millis(250));
+        let mono_tip = shown(&h.view.ctx).unwrap();
+        assert_eq!(mono_tip.text, tip.text);
+        let slot = egui::Rect::from_min_size(mono_tip.bounds.min + egui::vec2(10.0, 10.0), egui::vec2(ICON, ICON));
+        assert_eq!(crate::tool_icon_tests::saturation(&h.paint(), slot, 1.0), 0, "the rich tip respects Monochrome");
+    }
+
+    #[test]
+    fn strip_tool_tips_simple_renders_name_and_key_and_settings_round_trip() {
+        use crate::panels::tool_tips::{StripTool, ToolTipMode};
+        let mut h = demo([1400.0, 900.0]);
+        let t = Duration::from_secs(10);
+        h.request("ui.set", json!({"view": "detail"}), t);
+        h.app.ui.settings.tool_tips = ToolTipMode::Simple;
+        h.request("ui.hoverWidget", json!({"id": "icon:crop"}), t);
+        let label = format!("Crop & Rotate ({})", StripTool::Crop.shortcut().unwrap());
+        for _ in 0..100 {
+            h.step();
+        }
+        assert!(h.view.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.job.text == label)));
+        h.app.ui.settings.tool_tips = ToolTipMode::Off;
+        for _ in 0..4 {
+            h.step();
+        }
+        assert!(!h.view.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.job.text == label)));
+        for mode in [ToolTipMode::Rich, ToolTipMode::Simple, ToolTipMode::Off] {
+            let settings = crate::state::AppSettings { tool_tips: mode, ..Default::default() };
+            let back: crate::state::AppSettings = serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+            assert_eq!(back.tool_tips, mode);
+        }
+    }
 }

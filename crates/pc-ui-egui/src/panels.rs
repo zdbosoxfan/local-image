@@ -53,12 +53,54 @@ fn slot_tool(ui: &egui::Ui, current: Tool, slot: &[Tool], key: egui::Id) -> Tool
     ui.data(|d| d.get_temp::<Tool>(key)).filter(|t| slot.contains(t)).unwrap_or(slot[0])
 }
 
+/// The toolbar's sections for the active tool set: each slot keeps the tools the set lists
+/// (with its index in [`TOOL_SECTIONS`], which keys the slot's memory), slots and sections left
+/// empty are dropped. The active tool is always shown, whatever the set says: its shortcut works
+/// for a tool the set leaves out, and the toolbar then shows it in its usual place.
+pub fn visible_sections(app: &PhotocraftApp) -> Vec<Vec<(usize, Vec<Tool>)>> {
+    let set = app.session.prefs().toolbar.active();
+    let ranks: std::collections::HashMap<Tool, usize> =
+        set.tools.iter().enumerate().filter_map(|(i, name)| Tool::from_name(name).map(|tool| (tool, i))).collect();
+    let rank = |tool: &Tool| ranks.get(tool).copied().unwrap_or(usize::MAX);
+    let current = app.ui.tool;
+    let mut index = 0usize;
+    let mut ordered = Vec::new();
+    for (section_index, section) in TOOL_SECTIONS.iter().enumerate() {
+        for slot in *section {
+            let mut kept: Vec<Tool> = slot.iter().copied().filter(|t| rank(t) != usize::MAX || *t == current).collect();
+            kept.sort_by_key(rank);
+            if !kept.is_empty() {
+                let first = kept.iter().map(rank).min().unwrap_or(usize::MAX);
+                ordered.push((first, section_index, index, kept));
+            }
+            index += 1;
+        }
+    }
+    // Order applies to slots and to the tools in each flyout. Stable canonical ids keep the
+    // last-used tool attached to its group when a set is reordered or switched.
+    ordered.sort_by_key(|(rank, _, index, _)| (*rank, *index));
+    let mut out: Vec<Vec<(usize, Vec<Tool>)>> = Vec::new();
+    let mut previous = None;
+    for (_, section, index, kept) in ordered {
+        if previous == Some(section)
+            && let Some(group) = out.last_mut()
+        {
+            group.push((index, kept));
+        } else {
+            out.push(vec![(index, kept)]);
+        }
+        previous = Some(section);
+    }
+    out
+}
+
 pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let (w1, bx, m) = if t.pro { (40.0, 30.0, 5i8) } else { (50.0, 36.0, 7i8) };
     // Photoshop switches to a double-column toolbar only when one column doesn't fit.
-    let slots: usize = TOOL_SECTIONS.iter().map(|g| g.len()).sum();
-    let double = toolbar_needs_double(slots, TOOL_SECTIONS.len(), bx, t.pro, ui.available_rect_before_wrap().height());
+    let sections = visible_sections(app);
+    let slots: usize = sections.iter().map(|g| g.len()).sum();
+    let double = toolbar_needs_double(slots + 1, sections.len(), bx, t.pro, ui.available_rect_before_wrap().height());
     let w = if double { w1 + bx + 2.0 } else { w1 };
     egui::Panel::left("toolbar").resizable(false).exact_size(w).frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(m, 8))).show(
         ui,
@@ -71,6 +113,9 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 icons::paint(ui, cr, "chevrons-right", 11.0, t.text_faint);
                 ui.add_space(4.0);
             }
+            // Tool set switcher (Window › Tool Set).
+            crate::toolsets_ui::switcher(app, ui, if t.pro { bx } else { bx * 0.8 });
+            ui.add_space(4.0);
             // Subtle violet wash at the bottom of the toolbar.
             let full = ui.max_rect();
             if !t.bevel && !t.pro && t.dark() {
@@ -92,8 +137,12 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             if ui.input(|i| i.pointer.any_pressed()) {
                 ui.data_mut(|d| d.remove::<egui::Id>(held_id));
             }
-            let mut slot_index = 0usize;
-            for (si, section) in TOOL_SECTIONS.iter().enumerate() {
+            if let Some((key, _)) = ui.data(|d| d.get_temp::<(egui::Id, Rect)>(flyout_id))
+                && !sections.iter().flatten().any(|(index, slot)| slot.len() > 1 && egui::Id::new(("tool-slot", *index)) == key)
+            {
+                ui.data_mut(|d| d.remove::<(egui::Id, Rect)>(flyout_id));
+            }
+            for (si, section) in sections.iter().enumerate() {
                 // Photoshop 2026 draws one uninterrupted column (no group dividers).
                 if si > 0 && !t.pro {
                     ui.add_space(4.0);
@@ -101,16 +150,17 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     ui.painter().line_segment([r.left_center() + vec2(8.0, 0.0), r.right_center() - vec2(8.0, 0.0)], Stroke::new(1.0, t.separator));
                     ui.add_space(4.0);
                 }
-                let rows: Vec<&[&[Tool]]> = if double { section.chunks(2).collect() } else { section.chunks(1).collect() };
+                let rows: Vec<&[(usize, Vec<Tool>)]> = if double { section.chunks(2).collect() } else { section.chunks(1).collect() };
                 for row in rows {
                     ui.horizontal(|ui| {
-                        for slot in row.iter() {
-                            let key = egui::Id::new(("tool-slot", slot_index));
-                            slot_index += 1;
+                        for (slot_index, slot) in row.iter() {
+                            let key = egui::Id::new(("tool-slot", *slot_index));
+                            let slot: &[Tool] = slot;
                             let tool = slot_tool(ui, app.ui.tool, slot, key);
                             let sel = slot.contains(&app.ui.tool);
-                            let tip = if tool.key() == '\0' { tl!(tool.label()).to_string() } else { format!("{}  ({})", tl!(tool.label()), tool.key()) };
-                            let resp = icons::tool_button(ui, icons::tool_icon_name(tool), bx, sel, &tip);
+                            let resp = icons::tool_button(ui, icons::tool_icon_name(tool), bx, sel, "");
+                            let flyout_open = ui.data(|d| d.get_temp::<(egui::Id, Rect)>(flyout_id)).is_some();
+                            crate::tool_tips::attach(&app.session, ui, &resp, tool, slot, flyout_open);
                             if slot.len() > 1 {
                                 let r = resp.rect;
                                 let tri = vec![r.right_bottom() + vec2(-2.0, -2.0), r.right_bottom() + vec2(-6.0, -2.0), r.right_bottom() + vec2(-2.0, -6.0)];
@@ -180,11 +230,12 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                                     egui::FontId::proportional(12.5),
                                                     t.text,
                                                 );
-                                                if item.key() != '\0' {
+                                                crate::tool_tips::attach(&app.session, ui, &ir, item, slot, true);
+                                                if let Some(key) = crate::tool_tips::shortcut(&app.session, item) {
                                                     ui.painter().text(
                                                         pos2(r.right() - 8.0, r.center().y),
                                                         Align2::RIGHT_CENTER,
-                                                        item.key().to_string(),
+                                                        key,
                                                         egui::FontId::proportional(12.0),
                                                         t.text_dim,
                                                     );
@@ -536,10 +587,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     widgets::vline(ui, 22.0);
                 }
                 // The tool's icon opens the Tool Presets panel (Photoshop's tool preset picker).
-                if icons::tool_button(ui, icons::tool_icon_name(app.ui.tool), if t.pro { 26.0 } else { 28.0 }, !t.pro, tl!(app.ui.tool.label()))
-                    .on_hover_text(tl!("Tool presets"))
-                    .clicked()
-                {
+                if icons::tool_button(ui, icons::tool_icon_name(app.ui.tool), if t.pro { 26.0 } else { 28.0 }, !t.pro, tl!("Tool presets")).clicked() {
                     let ctx = ui.ctx().clone();
                     let _ = crate::menus::invoke(app, &ctx, "window.panel.toolPresets", json!({}));
                 }
@@ -3105,49 +3153,29 @@ mod swatch_type_tests {
 mod type_flyout_tests {
     use super::*;
 
-    fn frame(app: &mut PhotocraftApp, ctx: &egui::Context, time: f64, events: Vec<egui::Event>) {
-        let mut out = ctx.run_ui(
-            egui::RawInput { time: Some(time), events, screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(1200.0, 1800.0))), ..Default::default() },
-            |ui| toolbar(app, ui),
-        );
-        out.textures_delta.clear();
-    }
+    use egui_kittest::{Harness, kittest::Queryable};
 
     #[test]
     fn long_press_type_button_selects_vertical_without_selecting_on_release() {
-        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         let initial = app.ui.tool;
-        let ctx = egui::Context::default();
-        PhotocraftApp::setup_context(&ctx, crate::theme::ThemeKind::ALL[0]);
-        frame(&mut app, &ctx, 0.0, vec![]);
-        frame(&mut app, &ctx, 0.1, vec![]);
+        let mut h = Harness::builder().with_size(vec2(1200.0, 1800.0)).with_step_dt(0.1).build_ui_state(|ui, app: &mut PhotocraftApp| toolbar(app, ui), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        h.run_steps(2);
         let index = TOOL_SECTIONS.iter().flat_map(|section| section.iter()).position(|slot| slot.contains(&Tool::Type)).unwrap();
-        let bx = if Tokens::get(&ctx).pro { 30.0 } else { 36.0 };
-        let mut buttons: Vec<Rect> = ctx.viewport(|v| {
-            v.prev_pass
-                .widgets
-                .layers()
-                .flat_map(|(_, w)| w.iter())
-                .filter(|w| w.rect.size() == Vec2::splat(bx) && w.sense.senses_click())
-                .map(|w| w.rect)
-                .collect()
-        });
-        buttons.sort_by(|a, b| a.top().total_cmp(&b.top()));
-        let at = buttons[index].center();
+        let at = h.get_by_role_and_label(egui::accesskit::Role::Button, "Horizontal Type Tool").rect().center();
         let pointer = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
-        frame(&mut app, &ctx, 1.0, vec![egui::Event::PointerMoved(at), pointer(at, true)]);
-        frame(&mut app, &ctx, 1.36, vec![]);
-        assert_eq!(ctx.data(|d| d.get_temp::<(egui::Id, Rect)>(egui::Id::new("tool-flyout"))).map(|(id, _)| id), Some(egui::Id::new(("tool-slot", index))));
-        frame(&mut app, &ctx, 1.4, vec![pointer(at, false)]);
-        frame(&mut app, &ctx, 1.45, vec![]);
-        assert_eq!(app.ui.tool, initial);
-        let key = egui::Id::new(("tool-slot", index));
-        let menu = ctx.memory(|m| m.area_rect(key.with("flyout"))).unwrap();
-        let row = egui::pos2(menu.left() + 65.0, menu.top() + 39.0 + 8.0);
-        frame(&mut app, &ctx, 2.0, vec![egui::Event::PointerMoved(row), pointer(row, true)]);
-        frame(&mut app, &ctx, 2.05, vec![pointer(row, false)]);
-        assert_eq!(app.ui.tool, Tool::VerticalType);
-        assert!(ctx.data(|d| d.get_temp::<(egui::Id, Rect)>(egui::Id::new("tool-flyout"))).is_none());
+        h.event(egui::Event::PointerMoved(at));
+        h.event(pointer(at, true));
+        h.run_steps(5);
+        assert_eq!(h.ctx.data(|d| d.get_temp::<(egui::Id, Rect)>(egui::Id::new("tool-flyout"))).map(|(id, _)| id), Some(egui::Id::new(("tool-slot", index))));
+        h.event(pointer(at, false));
+        h.run_steps(2);
+        assert_eq!(h.state().ui.tool, initial);
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Vertical Type Tool").click();
+        h.run_steps(2);
+        assert_eq!(h.state().ui.tool, Tool::VerticalType);
+        assert!(h.ctx.data(|d| d.get_temp::<(egui::Id, Rect)>(egui::Id::new("tool-flyout"))).is_none());
     }
 }
 

@@ -62,7 +62,7 @@ fn all_develop_tools_panels_and_mask_variants_have_icons() {
     }
 }
 
-fn saturation(image: &egui::ColorImage, rect: Rect, scale: f32) -> usize {
+pub(super) fn saturation(image: &egui::ColorImage, rect: Rect, scale: f32) -> usize {
     let min = rect.min * scale;
     let max = rect.max * scale;
     (min.y.max(0.0) as usize..(max.y as usize).min(image.size[1]))

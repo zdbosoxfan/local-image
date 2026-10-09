@@ -192,7 +192,10 @@ fn menus_and_toolbar_customisation_persist() {
     assert!(s.prefs().menus.hidden.is_empty() && s.prefs().menus.colors.is_empty());
     s.execute("edit.toolbar", json!({"hidden": ["Sponge"]})).unwrap();
     let back: Preferences = serde_json::from_str(&s.prefs_to_json()).unwrap();
-    assert_eq!(back.toolbar.hidden, vec!["Sponge".to_string()]);
+    // Hiding a tool edits a custom copy of the active (built-in) set.
+    let set = back.toolbar.active();
+    assert_eq!(set.name, "My Tools");
+    assert!(!set.tools.iter().any(|t| t == "Sponge") && set.tools.iter().any(|t| t == "Dodge"));
 }
 
 #[test]

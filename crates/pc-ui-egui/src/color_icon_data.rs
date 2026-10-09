@@ -129,4 +129,9 @@ pub static DEVELOP_TOOL_ICONS: &[(&str, &str)] = &[
     ("prompt", "prompt-mask"),
     ("people", "people-mask"),
     ("landscape", "landscape-mask"),
+    ("wbPicker", "pipette"),
+    ("removePixels", "remove"),
+    ("target", "circle-dot"),
+    ("petEye", "red-eye"),
+    ("negDmin", "pipette"),
 ];

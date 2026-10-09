@@ -29,6 +29,7 @@ pub mod rules_editor;
 pub mod second;
 pub mod settings;
 pub mod strip;
+pub mod tool_tips;
 pub mod topbar;
 
 use egui::{Align2, Rect, pos2, vec2};

@@ -529,6 +529,16 @@ fn smart_previews(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
 // ---------------------------------------------------------------------------------- Interface
 
 fn interface_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
+    heading(ui, t, crate::i18n::tr("Tools"));
+    row(ui, t, crate::i18n::tr("Tool tips"), |ui| {
+        use crate::panels::tool_tips::ToolTipMode as M;
+        choices(
+            ui,
+            "settingsToolTips",
+            &[(M::Rich, crate::i18n::tr("Rich")), (M::Simple, crate::i18n::tr("Simple (name and shortcut)")), (M::Off, crate::i18n::tr("Off"))],
+            &mut app.ui.settings.tool_tips,
+        );
+    });
     row(ui, t, "Tool icons", |ui| {
         choices(ui, "settingsToolIcons", &[(true, "Colour (default)"), (false, "Monochrome")], &mut app.ui.settings.color_tool_icons);
     });

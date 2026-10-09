@@ -504,21 +504,12 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::CloseBracket)) {
         d.opts.size = (d.opts.size * 1.1).min(15000.0);
     }
-    let tools = [
-        (egui::Key::W, LiquifyTool::ForwardWarp),
-        (egui::Key::R, LiquifyTool::Reconstruct),
-        (egui::Key::E, LiquifyTool::Smooth),
-        (egui::Key::C, LiquifyTool::TwirlCw),
-        (egui::Key::S, LiquifyTool::Pucker),
-        (egui::Key::B, LiquifyTool::Bloat),
-        (egui::Key::O, LiquifyTool::PushLeft),
-        (egui::Key::F, LiquifyTool::Freeze),
-        (egui::Key::D, LiquifyTool::Thaw),
-        (egui::Key::L, LiquifyTool::LassoMask),
-    ];
-    for (k, t) in tools {
-        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, k)) {
-            d.opts.tool = t;
+    for tool in LiquifyTool::ALL {
+        let sc = crate::shortcuts::local_tool_shortcut(&app.session, &shortcut_id(tool), shortcut(tool));
+        if let Some(sc) = sc.as_deref().and_then(crate::shortcuts::parse)
+            && crate::shortcuts::consume(ctx, &sc)
+        {
+            d.opts.tool = tool;
         }
     }
 }
@@ -543,7 +534,11 @@ pub(crate) fn tool_icon_name(t: LiquifyTool) -> &'static str {
     }
 }
 
-fn shortcut(t: LiquifyTool) -> &'static str {
+pub(crate) fn shortcut_id(tool: LiquifyTool) -> String {
+    format!("tools.liquify.{tool:?}")
+}
+
+pub(crate) fn shortcut(t: LiquifyTool) -> &'static str {
     match t {
         LiquifyTool::ForwardWarp => "W",
         LiquifyTool::Reconstruct => "R",
@@ -608,12 +603,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let mut strip = ui.new_child(egui::UiBuilder::new().max_rect(left.shrink2(vec2(6.0, 8.0))));
         strip.spacing_mut().item_spacing.y = 4.0;
         for tool in LiquifyTool::ALL {
-            let tip = match tool {
-                // The lasso works on the same freeze mask as Freeze/Thaw.
-                LiquifyTool::LassoMask => tl!("Freeze Lasso: drag to freeze an area, Alt-drag to thaw it (L)").to_string(),
-                _ => format!("{} ({})", tl!(tool.label()), shortcut(tool)),
-            };
-            if crate::icons::tool_button(&mut strip, tool_icon_name(tool), 34.0, d.opts.tool == tool, &tip).clicked() {
+            let resp = crate::icons::tool_button(&mut strip, tool_icon_name(tool), 34.0, d.opts.tool == tool, "");
+            crate::tool_tips::attach_liquify(&app.session, &strip, &resp, tool, shortcut(tool), tool_icon_name(tool));
+            if resp.clicked() {
                 d.opts.tool = tool;
             }
             if matches!(tool, LiquifyTool::Smooth | LiquifyTool::PushLeft | LiquifyTool::Thaw) {

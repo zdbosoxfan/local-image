@@ -3245,6 +3245,162 @@ ai	New	새 항목
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	하늘 클래스 {class} 값이 범위를 벗어났습니다. 이 모델은 {classes}개의 클래스(0~{max})를 가집니다
 	{path} isn't a file	{path}은(는) 파일이 아닙니다
 	Custom models are not supported for this function	이 기능에서는 사용자 지정 모델을 지원하지 않습니다
+	Moves the selected layers or the selection.	선택한 레이어 또는 선택 영역을 이동합니다.
+	Drag to move; hold {shift} to keep to one axis.	드래그하여 이동합니다. {shift} 키를 누르면 한 축으로 고정합니다.
+	{alt}-drag to move a copy.	{alt}-드래그하면 복사본을 이동합니다.
+	{cmd}-click picks the layer under the pointer (it switches Auto-Select for that click).	{cmd}-클릭하면 포인터 아래의 레이어를 선택합니다(해당 클릭에 대해 자동 선택을 켭니다).
+	Arrow keys nudge by 1 pixel, {shift}+arrow by 10.	화살표 키는 1픽셀씩 이동하고, {shift}+화살표는 10픽셀씩 이동합니다.
+	Selects a rectangular area.	사각형 선택 영역을 선택합니다.
+	Drag to select; {shift}-drag adds to the selection, {alt}-drag subtracts.	드래그하여 선택하고, {shift}-드래그는 선택 영역에 추가, {alt}-드래그는 선택 영역에서 뺍니다.
+	Hold {shift} and {alt} together to intersect.	교차하려면 {shift}와 {alt}를 동시에 누릅니다.
+	Selects an oval or circular area.	타원형 또는 원형 선택 영역을 선택합니다.
+	Selects by drawing a freehand outline.	자유 곡선 윤곽을 그려 선택합니다.
+	Drag to draw; release to close the outline.	드래그하여 그리고, 놓으면 윤곽을 닫습니다.
+	Hold {alt} while drawing for straight segments; let go to go freehand again.	직선 세그먼트를 그리려면 {alt} 키를 누른 채 그리고, 놓으면 다시 자유 곡선으로 돌아갑니다.
+	Hold {shift} before you start to add, {alt} to subtract.	시작하기 전에 {shift} 키를 누르면 추가, {alt} 키를 누르면 뺍니다.
+	Selects with a straight-sided outline.	직선 모서리 윤곽으로 선택합니다.
+	Click to place each corner.	각 모서리를 클릭하여 배치합니다.
+	Click the first point, or double-click, to close the shape.	모양을 닫으려면 첫 번째 점을 클릭하거나 더블 클릭합니다.
+	Hold {shift} for the first click to add, {alt} to subtract.	첫 클릭 시 {shift} 키를 누르면 추가, {alt} 키를 누르면 뺍니다.
+	Selects by following the edge of an object.	개체의 가장자리를 따라 선택합니다.
+	Click to start, then move along the edge; click to fasten a point.	클릭하여 시작한 다음 가장자리를 따라 이동하고, 클릭하여 점을 고정합니다.
+	{alt}-click adds a straight segment; drag for freehand.	{alt}-클릭하면 직선 세그먼트를 추가하고, 드래그하면 자유 곡선을 그립니다.
+	Double-click, or click the first point, to close the outline.	윤곽을 닫으려면 더블 클릭하거나 첫 번째 점을 클릭합니다.
+	Selects an object with the local AI model.	로컬 AI 모델로 개체를 선택합니다.
+	Click an object, or drag a box around it.	개체를 클릭하거나 개체 주위로 상자를 드래그합니다.
+	{shift} adds to the selection, {alt} subtracts.	{shift} 키는 선택 영역에 추가하고, {alt} 키는 선택 영역에서 뺍니다.
+	Paints a selection that grows out to the edges.	가장자리까지 자라나는 선택 영역을 칠합니다.
+	Drag over the area you want.	원하는 영역 위로 드래그합니다.
+	Hold {alt} while dragging to subtract.	빼려면 {alt} 키를 누른 채 드래그합니다.
+	Selects pixels of a similar colour with one click.	클릭 한 번으로 비슷한 색상의 픽셀을 선택합니다.
+	Click a colour; Tolerance and Contiguous are in the options bar.	색상을 클릭합니다. 허용치와 연속은 옵션 막대에 있습니다.
+	{shift}-click adds, {alt}-click subtracts, {shift}+{alt}-click intersects.	{shift}-클릭은 추가, {alt}-클릭은 빼기, {shift}+{alt}-클릭은 교차합니다.
+	Trims the image to a rectangle.	이미지를 사각형으로 자릅니다.
+	Drag to draw the crop, then drag the handles to adjust.	자르기 영역을 드래그하여 그린 다음 핸들을 드래그하여 조정합니다.
+	Hold {shift} to keep the ratio and {alt} to resize from the centre.	비율을 유지하려면 {shift} 키를, 중앙에서 크기를 조정하려면 {alt} 키를 누릅니다.
+	Press Enter to apply, Esc to cancel.	적용하려면 Enter, 취소하려면 Esc를 누릅니다.
+	Crops to a four-cornered shape and straightens it, as for a photographed page or building.	사진 페이지나 건물처럼 네 모서리 모양으로 자르고 기울기를 보정합니다.
+	Divides the image into slices for web export.	웹 내보내기를 위해 이미지를 분할 영역으로 나눕니다.
+	Selects and adjusts existing slices.	기존 분할 영역을 선택하고 조정합니다.
+	Samples a colour from the image.	이미지에서 색상을 샘플링합니다.
+	Click to set the foreground colour.	클릭하여 전경색을 설정합니다.
+	{alt}-click sets the background colour.	{alt}-클릭하면 배경색을 설정합니다.
+	Measures distances and angles on the image.	이미지에서 거리와 각도를 측정합니다.
+	Adds a text note to the document.	문서에 텍스트 메모를 추가합니다.
+	Counts items in the image by clicking on each.	각 항목을 클릭하여 이미지에서 항목 수를 셉니다.
+	Removes a blemish by blending in the pixels around it.	주변 픽셀을 혼합하여 잡티를 제거합니다.
+	Paint over the spot.	해당 부분을 칠합니다.
+	Hold {shift} for a straight line from the last stroke.	마지막 획에서 직선을 그리려면 {shift} 키를 누릅니다.
+	Repairs an area using sampled pixels, matching light and texture.	샘플링된 픽셀을 사용하여 조명과 질감을 일치시켜 영역을 복구합니다.
+	{alt}-click to set the source point.	소스 지점을 설정하려면 {alt}-클릭합니다.
+	Then paint over the area to repair.	그런 다음 복구할 영역을 칠합니다.
+	Repairs a selected area from another area.	다른 영역에서 선택 영역을 복구합니다.
+	Draw around the flaw, then drag the selection onto clean pixels.	결함 주위를 그린 다음 선택 영역을 깨끗한 픽셀로 드래그합니다.
+	Drag from inside an existing selection to move it.	기존 선택 영역 내부에서 드래그하여 이동합니다.
+	Moves a selected object and fills the gap it leaves.	선택한 개체를 이동하고 남은 빈 공간을 채웁니다.
+	Draw around the object, then drag the selection to its new place.	개체 주위를 그린 다음 선택 영역을 새 위치로 드래그합니다.
+	Removes red from the pupils in flash photos.	플래시 사진에서 동공의 적목을 제거합니다.
+	Click on the red pupil.	적목 현상이 있는 동공을 클릭합니다.
+	Paints soft or hard strokes in the foreground colour.	전경색으로 부드럽거나 단단한 획을 칠합니다.
+	Drag to paint; hold {shift} to keep a straight line.	드래그하여 칠하고, {shift} 키를 누르면 직선을 유지합니다.
+	{shift}-click draws a line from the end of the last stroke.	{shift}-클릭하면 마지막 획의 끝에서 선을 그립니다.
+	Hold {alt} to pick a colour from the image.	{alt} 키를 누르면 이미지에서 색상을 선택합니다.
+	Paints hard-edged strokes.	단단한 가장자리 획을 칠합니다.
+	Paints with colours that mix with the canvas, like wet paint.	젖은 페인트처럼 캔버스와 혼합되는 색상으로 칠합니다.
+	Paints with pixels copied from another part of the image.	이미지의 다른 부분에서 복사한 픽셀로 칠합니다.
+	Then paint where you want the copy.	그런 다음 복사본을 원하는 위치에 칠합니다.
+	Paints back an earlier state of the image.	이미지의 이전 상태를 다시 칠합니다.
+	Erases pixels as you drag.	드래그하면 픽셀을 지웁니다.
+	Drag to erase; hold {shift} to keep a straight line.	드래그하여 지우고, {shift} 키를 누르면 직선을 유지합니다.
+	Erases the background colour under the brush, keeping edges.	브러시 아래의 배경색을 지우고 가장자리를 유지합니다.
+	Drag along the edge of the subject.	피사체의 가장자리를 따라 드래그합니다.
+	Erases all pixels of a similar colour with one click.	클릭 한 번으로 비슷한 색상의 모든 픽셀을 지웁니다.
+	Click the colour to erase.	지울 색상을 클릭합니다.
+	Fills with a blend between colours.	색상 간 혼합으로 채웁니다.
+	Drag from where the blend starts to where it ends.	혼합이 시작되는 위치에서 끝나는 위치로 드래그합니다.
+	Hold {shift} to snap the angle to 45 degrees.	각도를 45도로 스냅하려면 {shift} 키를 누릅니다.
+	Fills an area of similar colour with the foreground colour.	비슷한 색상의 영역을 전경색으로 채웁니다.
+	Click inside the area to fill.	채울 영역 내부를 클릭합니다.
+	Softens the pixels you paint over.	칠하는 픽셀을 부드럽게 합니다.
+	Drag to blur; hold {shift} to keep a straight line.	드래그하여 흐리게 하고, {shift} 키를 누르면 직선을 유지합니다.
+	Sharpens the pixels you paint over.	칠하는 픽셀을 선명하게 합니다.
+	Drag to sharpen; hold {shift} to keep a straight line.	드래그하여 선명하게 하고, {shift} 키를 누르면 직선을 유지합니다.
+	Smears pixels in the direction you drag, like wet paint.	젖은 페인트처럼 드래그하는 방향으로 픽셀을 번지게 합니다.
+	Drag to smudge; hold {shift} to keep a straight line.	드래그하여 번지게 하고, {shift} 키를 누르면 직선을 유지합니다.
+	Lightens the areas you paint over.	칠하는 영역을 밝게 합니다.
+	Drag to lighten; hold {shift} to keep a straight line.	드래그하여 밝게 하고, {shift} 키를 누르면 직선을 유지합니다.
+	Darkens the areas you paint over.	칠하는 영역을 어둡게 합니다.
+	Drag to darken; hold {shift} to keep a straight line.	드래그하여 어둡게 하고, {shift} 키를 누르면 직선을 유지합니다.
+	Raises or lowers the colour saturation where you paint.	칠하는 위치의 색상 채도를 높이거나 낮춥니다.
+	Drag to change saturation; hold {shift} to keep a straight line.	드래그하여 채도를 변경하고, {shift} 키를 누르면 직선을 유지합니다.
+	Draws precise paths and shapes with anchor points.	앵커 포인트로 정밀한 패스와 모양을 그립니다.
+	Click to add points; {alt} on an anchor turns it into a corner or smooth point.	점을 추가하려면 클릭합니다. 앵커에서 {alt} 키를 누르면 코너 점 또는 매끄러운 점으로 변환됩니다.
+	Selects and moves whole paths.	전체 패스를 선택하고 이동합니다.
+	Selects and edits individual anchor points and handles.	개별 앵커 포인트와 핸들을 선택하고 편집합니다.
+	Click an anchor or handle; drag a box to select several.	앵커 또는 핸들을 클릭하거나 상자를 드래그하여 여러 개를 선택합니다.
+	{shift}-click toggles an anchor in the selection.	{shift}-클릭하면 선택 영역에서 앵커를 토글합니다.
+	{alt}-drag a handle to move it on its own.	핸들을 개별적으로 이동하려면 {alt} 키를 누른 채 드래그합니다.
+	Adds text to the image.	이미지에 텍스트를 추가합니다.
+	Click to type a line of text.	클릭하여 텍스트 줄을 입력합니다.
+	Drag to make a box for paragraph text.	드래그하여 단락 텍스트 상자를 만듭니다.
+	Adds text that runs top to bottom.	위에서 아래로 이어지는 텍스트를 추가합니다.
+	Draws rectangles as editable shape layers.	편집 가능한 모양 레이어로 사각형을 그립니다.
+	Draws ellipses and circles as editable shape layers.	편집 가능한 모양 레이어로 타원과 원을 그립니다.
+	Draws triangles as editable shape layers.	편집 가능한 모양 레이어로 삼각형을 그립니다.
+	Draws polygons with any number of sides.	원하는 수의 변을 가진 다각형을 그립니다.
+	Draws straight lines as editable shape layers.	편집 가능한 모양 레이어로 직선을 그립니다.
+	Draws a shape chosen from the shape library.	모양 라이브러리에서 선택한 모양을 그립니다.
+	Pans the view around the image.	이미지 주위에서 화면을 이동합니다.
+	Drag to move the image.	드래그하여 이미지를 이동합니다.
+	Hold Space with any other tool to pan temporarily.	다른 도구를 사용하는 동안 Space 키를 누르면 일시적으로 화면을 이동할 수 있습니다.
+	Magnifies or reduces the view.	뷰를 확대하거나 축소합니다.
+	Click to zoom in, {alt}-click to zoom out.	확대하려면 클릭하고, 축소하려면 {alt}-클릭합니다.
+	Drag right to zoom in and left to zoom out, or drag a box when Scrubby Zoom is off.	오른쪽으로 드래그하면 확대, 왼쪽으로 드래그하면 축소합니다. 스크러비 확대가 꺼져 있으면 상자를 드래그합니다.
+	Removes distractions with the local AI model.	로컬 AI 모델로 방해 요소를 제거합니다.
+	Paint over what you want gone.	없애고 싶은 부분을 칠합니다.
+	When you let go, the repair lands on its own layer.	손을 떼면 복구 결과가 별도 레이어에 배치됩니다.
+	Cuts out the subject with the local AI model.	로컬 AI 모델로 피사체를 잘라냅니다.
+	Use Remove Background in the options bar to make the mask.	마스크를 만들려면 옵션 막대에서 배경 제거를 사용합니다.
+	Then paint to erase or restore parts of it; X swaps the two.	그런 다음 칠하여 부분을 지우거나 복원합니다. X 키로 두 가지를 전환합니다.
+	Pushes pixels forward as you drag.	드래그하면 픽셀을 앞으로 밀어냅니다.
+	Drag across the area to push it along.	영역을 가로질러 드래그하여 밀어냅니다.
+	Undoes warping where you paint.	칠하는 부분의 왜곡을 실행 취소합니다.
+	Paint over a distorted area to restore it; hold still to keep restoring.	왜곡된 영역을 칠하여 복원합니다. 가만히 있으면 계속 복원됩니다.
+	Smooths out the distortion where you paint.	칠하는 곳의 왜곡을 부드럽게 합니다.
+	Paint over an area; hold still to keep smoothing.	영역을 칠하고 가만히 있으면 계속 부드럽게 합니다.
+	Spins pixels clockwise.	픽셀을 시계 방향으로 회전합니다.
+	Click or hold still to keep twirling.	클릭하거나 가만히 있으면 계속 돌립니다.
+	Spins pixels counterclockwise.	픽셀을 시계 반대 방향으로 회전합니다.
+	Pulls pixels in toward the centre of the brush.	픽셀을 브러시 중심으로 당깁니다.
+	Click or hold still to keep pinching.	클릭하거나 가만히 있으면 계속 오므립니다.
+	Pushes pixels out from the centre of the brush.	픽셀을 브러시 중심에서 바깥으로 밀어냅니다.
+	Click or hold still to keep swelling.	클릭하거나 가만히 있으면 계속 부풀립니다.
+	Shifts pixels sideways as you drag.	드래그하면 픽셀이 옆으로 이동합니다.
+	Drag to move pixels to the left of your direction.	드래그하여 이동 방향의 왼쪽으로 픽셀을 이동합니다.
+	Protects areas from being warped.	영역이 왜곡되지 않도록 보호합니다.
+	Paint over the areas to protect.	보호할 영역을 칠합니다.
+	Removes protection from frozen areas.	고정된 영역에서 보호를 제거합니다.
+	Paint over the frozen areas to release them.	고정된 영역을 칠하여 해제합니다.
+	Freezes an area you outline.	윤곽을 그린 영역을 고정합니다.
+	Drag to freeze an outlined area.	드래그하여 윤곽을 그린 영역을 고정합니다.
+	{alt}-drag to thaw it.	{alt}-드래그하여 해동합니다.
+	Changes the whole image at once.	전체 이미지를 한 번에 변경합니다.
+	Also in this group:	이 그룹에도 있음:
+	How to use	사용 방법
+	All Tools	모든 도구
+	Photographer	사진작가
+	Retouching	리터칭
+	Tool Set	도구 세트
+	Tool Sets	도구 세트
+	built-in	내장
+	My Tools	내 도구
+	Reset to All Tools	모든 도구로 재설정
+	Built-in sets can't be changed. Save a copy to choose your own tools.	내장 세트는 변경할 수 없습니다. 사본을 저장하여 원하는 도구를 선택하십시오.
+	Save as New Set	새 세트로 저장
+	Tick the tools this set shows.	이 세트에 표시할 도구를 선택하십시오.
+	Tool tips	도구 팁
+	Rich (name, shortcut and how to use)	자세히 (이름, 단축키 및 사용 방법)
+	Simple (name and shortcut)	간단히 (이름 및 단축키)
 	Tool icons	도구 아이콘
 	Colour (default)	컬러(기본값)
 
@@ -3253,3 +3409,47 @@ ai	New	새 항목
 	Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library.	얼굴을 찾고 여러 사진에서 같은 사람을 인식합니다. Smart Sort에서 켤 때까지 꺼져 있습니다. 얼굴 데이터는 라이브러리에 보관됩니다.
 	Finds faces and their landmarks, ready to recognise the same person in other photos. Runs locally on the CPU.	얼굴과 특징점을 찾아 다른 사진에서 같은 사람을 인식할 수 있게 합니다. 로컬 CPU에서 실행됩니다.
 	Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.	Smart Sort에서 얼굴을 찾고 같은 사람의 사진을 묶습니다. 두 얼굴 모델을 모두 포함하며 CPU에서 실행되고 얼굴 데이터는 라이브러리에 보관됩니다.
+
+# Tool tip and tool set completion (English fallback).
+	Cancel Rename	Cancel Rename
+	Choose Move or Extend in the options bar.	Choose Move or Extend in the options bar.
+	Choose the active shape, work path or targeted vector mask.	Choose the active shape, work path or targeted vector mask.
+	Click a slice to select it.	Click a slice to select it.
+	Click each item to add a numbered marker.	Click each item to add a numbered marker.
+	Click the first point to close, Enter to finish an open path.	Click the first point to close, Enter to finish an open path.
+	Click the image to add a sampler, then drag its marker to move it.	Click the image to add a sampler, then drag its marker to move it.
+	Click to add a note and edit its text in the Notes panel.	Click to add a note and edit its text in the Notes panel.
+	Click to add corners; drag to create smooth handles.	Click to add corners; drag to create smooth handles.
+	Click to switch between Fit and 100%; {alt}-click zooms out.	Click to switch between Fit and 100%; {alt}-click zooms out.
+	Color Sampler Tool	Color Sampler Tool
+	Double-click the image or tool button to fit the image.	Double-click the image or tool button to fit the image.
+	Double-click the tool button to fit the image.	Double-click the tool button to fit the image.
+	Drag a frame, then drag its four corners onto the subject.	Drag a frame, then drag its four corners onto the subject.
+	Drag a note marker to move it.	Drag a note marker to move it.
+	Drag a rectangle to create a slice.	Drag a rectangle to create a slice.
+	Drag between the endpoints.	Drag between the endpoints.
+	Drag between two points to measure.	Drag between two points to measure.
+	Drag right to zoom in and left to zoom out; {cmd}-drag draws a zoom box.	Drag right to zoom in and left to zoom out; {cmd}-drag draws a zoom box.
+	Drag the selected slice to move it.	Drag the selected slice to move it.
+	Drag to draw; {shift} keeps equal width and height.	Drag to draw; {shift} keeps equal width and height.
+	Drag to move its whole path.	Drag to move its whole path.
+	Drag to move the image; hold Space to pan with another tool.	Drag to move the image; hold Space to pan with another tool.
+	Hold {alt} to draw from the centre.	Hold {alt} to draw from the centre.
+	Magnifies or reduces the Camera Raw preview.	Magnifies or reduces the Camera Raw preview.
+	Paints back the document’s opening state.	Paints back the document’s opening state.
+	Pans the Camera Raw preview.	Pans the Camera Raw preview.
+	Places colour readouts on the Camera Raw preview.	Places colour readouts on the Camera Raw preview.
+	Save Name	Save Name
+	Set Pupil Size and Darken Amount in the options bar.	Set Pupil Size and Darken Amount in the options bar.
+	Set Size and Pressure in Brush Tool Options.	Set Size and Pressure in Brush Tool Options.
+	Set the brush size in the options bar before painting.	Set the brush size in the options bar before painting.
+	Then paint to erase or restore parts of it; Swap Colors switches modes.	Then paint to erase or restore parts of it; Swap Colors switches modes.
+	Up	Up
+	Use Slice Select to move an existing slice.	Use Slice Select to move an existing slice.
+	{alt}-click a marker to remove it.	{alt}-click a marker to remove it.
+	{alt}-drag an endpoint to measure an angle.	{alt}-drag an endpoint to measure an angle.
+	Hold {key} with any other tool to pan temporarily.	Hold {key} with any other tool to pan temporarily.
+	Set Tolerance and Contiguous in the options bar.	옵션 막대에서 허용치와 인접을 설정하세요.
+	Choose Erase or Restore in the options bar, then paint to refine the mask.	옵션 막대에서 지우기 또는 복원을 선택한 다음 칠하여 마스크를 다듬으세요.
+	Tool Set Name	도구 세트 이름
+	You can also drag with the middle mouse button to pan.	마우스 가운데 버튼으로 드래그하여 화면을 이동할 수도 있습니다.

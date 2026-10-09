@@ -648,7 +648,8 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let mut preview = ui.new_child(egui::UiBuilder::new().max_rect(view));
         preview.set_clip_rect(view.intersect(ui.clip_rect()));
         preview.painter().rect_filled(view, 0.0, t.canvas);
-        let (r, response, panning, zoom_box) = super::camera_raw_preview_ui::interact(&mut preview, navigation, view, size, &mut scope.sampler_tool);
+        let (r, response, panning, zoom_box) =
+            super::camera_raw_preview_ui::interact(&app.session, &mut preview, navigation, view, size, &mut scope.sampler_tool);
         let tex = if d.show_before { d.before_tex.as_ref() } else { d.tex.as_ref() };
         if let Some(tex) = tex {
             // Never tile a checker across the offscreen extent of a highly zoomed image.
@@ -668,7 +669,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let toolbar = ERect::from_min_max(pos2(preview_body.left() + 16.0, view.bottom() + 8.0), preview_body.right_bottom() - vec2(16.0, 4.0));
         let mut nav_ui = ui.new_child(egui::UiBuilder::new().max_rect(toolbar).layout(egui::Layout::left_to_right(egui::Align::Center)));
         nav_ui.set_clip_rect(preview_body.intersect(ui.clip_rect()));
-        super::camera_raw_preview_ui::toolbar(&mut nav_ui, navigation, view, size, &mut scope.sampler_tool);
+        super::camera_raw_preview_ui::toolbar(&app.session, &mut nav_ui, navigation, view, size, &mut scope.sampler_tool);
         if d.detail.pending() {
             nav_ui.spinner();
         }
@@ -787,7 +788,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             });
         });
         super::camera_raw_scope_ui::floating(ctx, d, scope, right);
-        super::camera_raw_scope_ui::shortcuts(ctx, scope);
+        super::camera_raw_scope_ui::shortcuts(&app.session, ctx, scope);
         d.dirty |= dirty;
         if d.dirty {
             ctx.request_repaint();

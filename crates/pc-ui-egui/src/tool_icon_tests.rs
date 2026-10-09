@@ -8,7 +8,7 @@ use crate::{PhotocraftApp, color_icon_data, color_icons, icons, state::Tool};
 
 #[allow(dead_code)] // Reuse Develop's CPU painter for these windowless pixel checks.
 #[path = "../../lc-ui-egui/src/softpaint.rs"]
-mod cpu;
+pub(super) mod cpu;
 
 #[test]
 fn every_tool_and_group_member_has_a_distinct_colour_icon_and_none_are_unused() {
@@ -71,14 +71,17 @@ fn liquify_tool_strip_and_global_action_icons_are_clickable_in_both_modes() {
             app
         });
         h.run_steps(4);
-        for (label, tool) in [("Smooth (E)", L::Smooth), ("Forward Warp (W)", L::ForwardWarp), ("Freeze Mask (F)", L::Freeze), ("Thaw Mask (D)", L::Thaw)] {
-            h.get_by_label(label).click();
+        for tool in [L::Smooth, L::ForwardWarp, L::Freeze, L::Thaw] {
+            let label = tool.label();
+            h.get_by_role_and_label(egui::accesskit::Role::Button, label).click();
             h.run_steps(3);
             assert_eq!(h.state().distort.liquify.as_ref().unwrap().opts.tool, tool, "{mode}: {label}");
         }
         for (label, tool) in [("Mask All", L::FreezeAll), ("Invert All", L::InvertFreeze), ("None", L::ThawAll), ("Reconstruct", L::ReconstructAll)] {
             // Click the new 20 px image immediately before the existing text button.
-            let at = h.get_by_label(label).rect().left_center() - vec2(18.0, 0.0);
+            // Reconstruct also names a strip tool; the wider text button is the global action.
+            let action = h.get_all_by_label(label).max_by(|a, b| a.rect().width().total_cmp(&b.rect().width())).unwrap();
+            let at = action.rect().left_center() - vec2(18.0, 0.0);
             h.hover_at(at);
             h.step();
             for pressed in [true, false] {
@@ -133,7 +136,7 @@ fn clicking_preferences_switches_the_real_toolbar_pixels_and_saves() {
         app
     });
     h.run_steps(3);
-    h.get_by_label("Brush Tool  (B)").click();
+    h.get_by_role_and_label(egui::accesskit::Role::Button, "Brush Tool").click();
     h.run_steps(3);
     assert_eq!(h.state().ui.tool, Tool::Brush);
     let colour = toolbar_pixels(h.state_mut(), 1.0);
