@@ -2647,3 +2647,42 @@ ai	New	Nuovi
 	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	Piccoli modelli che funzionano sul processore di questo computer: niente ComfyUI né GPU, download rapidi, e le tue foto non lasciano mai il computer. Ogni gruppo alimenta strumenti diversi e viene usato il miglior modello installato del gruppo.
 	Subject & Background	Soggetto e sfondo
 # Selected-item context bars and live shapes
+	AI Fill	Riempimento IA
+	Add a vector mask from the path	Aggiungi una maschera vettoriale dal tracciato
+	Bottom-left corner radius	Raggio dell'angolo inferiore sinistro
+	Bottom-right corner radius	Raggio dell'angolo inferiore destro
+	Content-Aware Fill	Riempimento in base al contenuto
+	Corners	Angoli
+	Create another variation using this layer's prompt and a new seed	Crea un'altra variante con il prompt di questo livello e un nuovo seme
+	Describe what to generate, or leave empty to fill from the surroundings	Descrivi cosa generare o lascia vuoto per riempire dai dintorni
+	Edit Path	Modifica tracciato
+	Edit Text	Modifica testo
+	Edit the shape's anchors and handles	Modifica i punti di ancoraggio e le maniglie della forma
+	Edit this photo's develop settings	Modifica le impostazioni di sviluppo di questa foto
+	Fill the path's area from the image around it	Riempi l'area del tracciato dall'immagine circostante
+	Fill the selection from the image around it	Riempi la selezione dall'immagine circostante
+	Generate this area again from its surroundings	Rigenera quest'area dai dintorni
+	Generate “{prompt}” again with a new seed	Rigenera “{prompt}” con un nuovo seme
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	Riempimento generativo: rigenera l'area dalla descrizione (vuoto: dai dintorni)
+	Generative Fill: regenerate the path's area from a description	Riempimento generativo: rigenera l'area del tracciato da una descrizione
+	L	L
+	Line weight	Spessore della linea
+	Mask out the background with AI	Maschera lo sfondo con l'IA
+	Number of sides	Numero di lati
+	Open in Develop	Apri in Sviluppo
+	Open the Smart Object's contents	Apri il contenuto dell'oggetto avanzato
+	Regenerate	Rigenera
+	Select the main subject with AI	Seleziona il soggetto principale con l'IA
+	Set radius of all corners	Imposta il raggio di tutti gli angoli
+	Set shape stroke width	Imposta lo spessore del contorno della forma
+	Set the font size	Imposta la dimensione del carattere
+	This layer has no generation model to repeat	Questo livello non ha un modello da riutilizzare per la generazione
+	This layer has no generation settings to repeat	Questo livello non ha impostazioni da riutilizzare per la generazione
+	This layer's generation model is unavailable	Il modello di generazione di questo livello non è disponibile
+	Top-left corner radius	Raggio dell'angolo superiore sinistro
+	Top-right corner radius	Raggio dell'angolo superiore destro
+	Turn the shape into pixels	Converti la forma in pixel
+	Variations	Varianti
+	Close panel	Chiudi pannello
+	Dock Panel	Ancora pannello
+	Float Panel Group	Sgancia gruppo di pannelli

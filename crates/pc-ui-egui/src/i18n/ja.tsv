@@ -2563,3 +2563,42 @@ ai	New	新着
 	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	このコンピューターのプロセッサーで動く小さなモデルです。ComfyUI や GPU は不要で、ダウンロードも小さく、写真がコンピューターの外に出ることはありません。グループごとに使われるツールが異なり、各グループでインストール済みの最良のモデルが使われます。
 	Subject & Background	被写体と背景
 # Selected-item context bars and live shapes
+	AI Fill	AI 塗りつぶし
+	Add a vector mask from the path	パスからベクトルマスクを追加
+	Bottom-left corner radius	左下の角の半径
+	Bottom-right corner radius	右下の角の半径
+	Content-Aware Fill	コンテンツに応じた塗りつぶし
+	Corners	角
+	Create another variation using this layer's prompt and a new seed	このレイヤーのプロンプトと新しいシードで別のバリエーションを作成
+	Describe what to generate, or leave empty to fill from the surroundings	生成する内容を入力、または空欄で周囲から塗りつぶし
+	Edit Path	パスを編集
+	Edit Text	テキストを編集
+	Edit the shape's anchors and handles	シェイプのアンカーとハンドルを編集
+	Edit this photo's develop settings	この写真の現像設定を編集
+	Fill the path's area from the image around it	パスの領域を周囲の画像から塗りつぶす
+	Fill the selection from the image around it	選択範囲を周囲の画像から塗りつぶす
+	Generate this area again from its surroundings	周囲に合わせてこの領域を再生成
+	Generate “{prompt}” again with a new seed	新しいシードで「{prompt}」を再生成
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	生成塗りつぶし：説明に合わせて領域を再生成（空欄：周囲から生成）
+	Generative Fill: regenerate the path's area from a description	生成塗りつぶし：説明に合わせてパスの領域を再生成
+	L	長さ
+	Line weight	線の太さ
+	Mask out the background with AI	AI で背景をマスク
+	Number of sides	辺の数
+	Open in Develop	現像で開く
+	Open the Smart Object's contents	スマートオブジェクトの内容を開く
+	Regenerate	再生成
+	Select the main subject with AI	AI で主な被写体を選択
+	Set radius of all corners	すべての角の半径を設定
+	Set shape stroke width	シェイプの線幅を設定
+	Set the font size	フォントサイズを設定
+	This layer has no generation model to repeat	このレイヤーには再生成するモデルがありません
+	This layer has no generation settings to repeat	このレイヤーには再生成する設定がありません
+	This layer's generation model is unavailable	このレイヤーの生成モデルは利用できません
+	Top-left corner radius	左上の角の半径
+	Top-right corner radius	右上の角の半径
+	Turn the shape into pixels	シェイプをピクセルに変換
+	Variations	バリエーション
+	Close panel	パネルを閉じる
+	Dock Panel	パネルをドッキング
+	Float Panel Group	パネルグループをフローティング

@@ -2645,3 +2645,42 @@ ai	New	Nuevos
 	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	Modelos pequeños que se ejecutan en el procesador de este equipo: sin ComfyUI ni GPU, descargas rápidas y sus fotos nunca salen del equipo. Cada grupo sirve a herramientas distintas, y se usa el mejor modelo instalado de cada grupo.
 	Subject & Background	Sujeto y fondo
 # Selected-item context bars and live shapes
+	AI Fill	Relleno con IA
+	Add a vector mask from the path	Añadir una máscara vectorial desde el trazado
+	Bottom-left corner radius	Radio de la esquina inferior izquierda
+	Bottom-right corner radius	Radio de la esquina inferior derecha
+	Content-Aware Fill	Relleno según el contenido
+	Corners	Esquinas
+	Create another variation using this layer's prompt and a new seed	Crear otra variación con el texto de esta capa y una nueva semilla
+	Describe what to generate, or leave empty to fill from the surroundings	Describe qué generar o deja vacío para rellenar con el entorno
+	Edit Path	Editar trazado
+	Edit Text	Editar texto
+	Edit the shape's anchors and handles	Editar los puntos de ancla y controles de la forma
+	Edit this photo's develop settings	Editar los ajustes de revelado de esta foto
+	Fill the path's area from the image around it	Rellenar el área del trazado con la imagen circundante
+	Fill the selection from the image around it	Rellenar la selección con la imagen circundante
+	Generate this area again from its surroundings	Generar esta área de nuevo a partir del entorno
+	Generate “{prompt}” again with a new seed	Generar «{prompt}» de nuevo con una nueva semilla
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	Relleno generativo: regenerar el área según tu descripción (vacío: según el entorno)
+	Generative Fill: regenerate the path's area from a description	Relleno generativo: regenerar el área del trazado según una descripción
+	L	L
+	Line weight	Grosor de línea
+	Mask out the background with AI	Ocultar el fondo con una máscara de IA
+	Number of sides	Número de lados
+	Open in Develop	Abrir en Revelar
+	Open the Smart Object's contents	Abrir el contenido del objeto inteligente
+	Regenerate	Regenerar
+	Select the main subject with AI	Seleccionar el sujeto principal con IA
+	Set radius of all corners	Establecer el radio de todas las esquinas
+	Set shape stroke width	Establecer el grosor del trazo de la forma
+	Set the font size	Establecer el tamaño de fuente
+	This layer has no generation model to repeat	Esta capa no tiene un modelo de generación que repetir
+	This layer has no generation settings to repeat	Esta capa no tiene ajustes de generación que repetir
+	This layer's generation model is unavailable	El modelo de generación de esta capa no está disponible
+	Top-left corner radius	Radio de la esquina superior izquierda
+	Top-right corner radius	Radio de la esquina superior derecha
+	Turn the shape into pixels	Convertir la forma en píxeles
+	Variations	Variaciones
+	Close panel	Cerrar panel
+	Dock Panel	Acoplar panel
+	Float Panel Group	Desacoplar grupo de paneles
