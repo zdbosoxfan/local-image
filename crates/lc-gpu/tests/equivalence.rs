@@ -809,3 +809,129 @@ fn working_curves_gamut_and_dither() {
     assert_eq!(a.data, b.data, "deterministic position dither");
     assert_eq!(a.get(0, 0), cpu.get(0, 0));
 }
+
+#[test]
+fn primary_scene_stages_clip_clarity_colour_skin_and_layers() {
+    if !gpu() {
+        return;
+    }
+    let src = Arc::new(Rgb32f::from_fn(193, 127, |x, y| {
+        let l = if x < 90 { 0.018 } else { 3. };
+        [l * (1. + 0.08 * (y as f32 * 0.13).sin()), l * 0.65, l * 0.38]
+    }));
+    let info = SourceInfo {
+        raw: true,
+        raw_clip_level: Some(0.99),
+        clip_confidence: Some(Arc::new(lightcraft_pipeline::ClipConfidence {
+            width: 193,
+            height: 127,
+            data: (0..193 * 127).map(|i| if i % 193 > 180 { 1. } else { 0. }).collect(),
+        })),
+        ..Default::default()
+    };
+    let mut s = DevelopSettings::default();
+    for value in [-100., -50., 50., 100.] {
+        s.light.highlights = value;
+        s.light.shadows = -value;
+        for edge in [193, 97] {
+            check("primary tone/clipping", &src, &info, &s, &RenderRequest::fit(edge, edge));
+        }
+    }
+    s.light = Default::default();
+    s.effects.clarity = 60.;
+    s.effects.texture = 80.;
+    s.effects.structure = 80.;
+    for mode in [lightcraft_develop::ClarityMode::Natural, lightcraft_develop::ClarityMode::Punch, lightcraft_develop::ClarityMode::Neutral] {
+        s.effects.clarity_mode = mode;
+        check("clarity modes/texture/structure", &src, &info, &s, &RenderRequest::fit(193, 127));
+    }
+    s.effects = Default::default();
+    s.color.vibrance = 70.;
+    s.color.saturation = 40.;
+    s.mixer.orange.hue = 30.;
+    s.mixer.blue.sat = -60.;
+    s.grading.shadows = Wheel { hue: 210., sat: 30., lum: 15. };
+    check("UCS grading/equalizer", &src, &info, &s, &RenderRequest::fit(193, 127));
+    s = DevelopSettings::default();
+    s.skin_tone.reference = lightcraft_pipeline::skin_reference_sample(&src, &info, &s, &RenderRequest::fit(193, 127), Point::new(0.2, 0.5));
+    s.skin_tone.uniformity = 80.;
+    s.skin_tone.lightness = 25.;
+    check("UCS skin uniformity", &src, &info, &s, &RenderRequest::fit(193, 127));
+    s.masks.push(Mask {
+        components: vec![MaskComponent {
+            name: None,
+            op: MaskOp::Add,
+            invert: false,
+            shape: MaskShape::Linear { start: Point::new(0., 0.), end: Point::new(1., 0.) },
+        }],
+        tools: lightcraft_develop::LayerTools {
+            skin_tone: Some(s.skin_tone),
+            effects: Some(lightcraft_develop::Effects { clarity: 30., structure: 70., ..Default::default() }),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    check("primary layer tools", &src, &info, &s, &RenderRequest::fit(193, 127));
+    let cache = StageCache::default();
+    for value in [10., 70., -40., 10.] {
+        s.light.highlights = value;
+        let cached = lightcraft_gpu::render(&src, &info, &s, &RenderRequest::fit(193, 127), Some(&cache)).unwrap();
+        let fresh = lightcraft_gpu::render(&src, &info, &s, &RenderRequest::fit(193, 127), None).unwrap();
+        assert_eq!(cached.image, fresh.image);
+    }
+}
+
+#[test]
+fn eigf_tone_equalizer_requests_cpu_render_including_mask_preview() {
+    let src = Arc::new(Rgb32f::from_fn(129, 91, |x, y| {
+        let v = 0.002 * 1.045f32.powi(x as i32) * (1. + 0.05 * (y as f32 * 0.4).sin());
+        [v, v * 0.7, v * 0.5]
+    }));
+    let info = SourceInfo::default();
+    let mut s = DevelopSettings::default();
+    s.tone_eq.enabled = true;
+    s.tone_eq.ev4 = 0.7;
+    s.tone_eq.mask_contrast = 0.3;
+    s.light.exposure = 0.4;
+    let req = RenderRequest::fit(129, 91);
+    assert!(lightcraft_pipeline::tools_need_cpu(&s, &req));
+    assert!(lightcraft_gpu::render(&src, &info, &s, &req, None).is_none());
+    let mut req = RenderRequest::fit(73, 73);
+    req.overlay = lightcraft_pipeline::Overlay::ToneEqMask;
+    assert!(lightcraft_pipeline::tools_need_cpu(&s, &req));
+    assert!(lightcraft_gpu::render(&src, &info, &s, &req, None).is_none());
+}
+
+#[test]
+fn both_hs_candidates_match_cpu_and_do_not_share_cached_gains() {
+    if !gpu() {
+        return;
+    }
+    let src = Arc::new(Rgb32f::from_fn(127, 93, |x, y| {
+        let v = if x < 63 { 0.025 } else { 3. };
+        [v * (1. + 0.03 * (y as f32).sin()), v * 0.7, v * 0.4]
+    }));
+    let info = SourceInfo::default();
+    let mut s = DevelopSettings::default();
+    s.light.highlights = -100.;
+    s.light.shadows = 70.;
+    let req = RenderRequest::fit(87, 87);
+    let cache = StageCache::default();
+    for method in
+        [lightcraft_pipeline::primary::HsMethod::LiTone, lightcraft_pipeline::primary::HsMethod::Eigf, lightcraft_pipeline::primary::HsMethod::LiTone]
+    {
+        let a = lightcraft_pipeline::render_hs_candidate(&src, &info, &s, &req, method).image;
+        let b = lightcraft_gpu::render_hs_candidate(&src, &info, &s, &req, Some(&cache), method).unwrap().image;
+        let mut sum = 0u64;
+        let mut max = 0u8;
+        for (a, b) in a.data.iter().zip(&b.data) {
+            for c in 0..3 {
+                let d = a[c].abs_diff(b[c]);
+                sum += d as u64;
+                max = max.max(d);
+            }
+        }
+        let mean = sum as f64 / (a.len() * 3) as f64;
+        assert!(mean < 0.5 && max <= 3, "{method:?}: mean {mean} max {max}");
+    }
+}

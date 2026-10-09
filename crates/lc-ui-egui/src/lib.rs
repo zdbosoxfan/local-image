@@ -20,6 +20,7 @@ pub mod merge;
 pub mod panels;
 pub mod render;
 pub mod shortcuts;
+pub mod smart_sort_keys;
 pub mod softpaint;
 pub mod state;
 pub mod tasks;

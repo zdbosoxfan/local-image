@@ -1,7 +1,9 @@
 //! Smart Sort's model boundary and prepared inputs. Catalog commands never expose tract types;
 //! mocks and future model families implement the same small embedding interface.
 
+pub mod bursts;
 pub mod classify;
+pub mod examples;
 pub mod faces_store;
 pub mod people;
 pub use people::{FaceTagger, PeopleEngine};
@@ -9,7 +11,9 @@ pub use people::{FaceTagger, PeopleEngine};
 pub mod mock;
 pub mod plan;
 mod presets;
+pub mod sessions;
 pub mod store;
+pub mod tokens;
 
 use crate::{RenderJob, Session};
 use lightcraft_catalog::{MediaKind, PhotoId, Source};

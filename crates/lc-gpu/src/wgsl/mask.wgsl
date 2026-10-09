@@ -66,7 +66,8 @@ fn shape(@builtin(global_invocation_id) g: vec3<u32>) {
         let tol = pf(10u);
         let gain = pf(11u);
         let c = vec3<f32>(img[3u * i], img[3u * i + 1u], img[3u * i + 2u]) * gain;
-        let lab = oklab(c / (1.0 + c));
+        var lab = oklab(c / (1.0 + c));
+        if (pu(13u) != 0u) { lab = vec3<f32>(img[3u*i],img[3u*i+1u],img[3u*i+2u]); }
         var best = 3.402823e38;
         for (var k = 0u; k < pu(12u); k++) {
             let s = vec3<f32>(aux[3u * k], aux[3u * k + 1u], aux[3u * k + 2u]);
