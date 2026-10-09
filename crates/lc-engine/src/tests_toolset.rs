@@ -66,7 +66,7 @@ pub(crate) fn hash_img(img: &Rgb32f) -> u64 {
 
 /// Loader output hashes at a binned preview size, a bilinear thumbnail size and full size
 /// (AHD), recorded on x86_64 Linux before the raw options existed.
-const GOLDEN: [(usize, u64); 3] = [(200, 0), (500, 0), (usize::MAX, 0)];
+const GOLDEN: [(usize, u64); 3] = [(200, 0xa0de_2a87_4e35_4a66), (500, 0x1cc8_83f3_9dae_2c30), (usize::MAX, 0x96a3_63c6_ffd0_f874)];
 
 #[test]
 fn default_raw_loading_is_bit_identical() {

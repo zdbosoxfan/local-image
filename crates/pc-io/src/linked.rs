@@ -10,7 +10,7 @@
 //! versioned descriptor), then for `liFD` the raw file bytes.
 
 use photocraft_doc::Metadata;
-use photocraft_psd::descriptor::{Descriptor, VersionedDescriptor};
+use photocraft_psd::descriptor::VersionedDescriptor;
 
 /// An embedded file found in a linked-layer block.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -48,8 +48,8 @@ impl<'a> Rd<'a> {
     }
 }
 
-/// Parses one item and its open descriptor; `None` for malformed data or non-`liFD` items.
-fn parse_item_open(item: &[u8]) -> Option<(LinkedFile, Option<Descriptor>)> {
+/// Parses one item; `None` for malformed data or non-`liFD` items.
+fn parse_item(item: &[u8]) -> Option<LinkedFile> {
     let mut r = Rd { d: item, p: 0 };
     let kind = r.take(4)?;
     let _version = r.u32()?;
@@ -58,22 +58,15 @@ fn parse_item_open(item: &[u8]) -> Option<(LinkedFile, Option<Descriptor>)> {
     let file_name = r.unicode()?;
     r.take(8)?; // file type + creator
     let len = usize::try_from(r.u64()?).ok()?;
-    let mut open = None;
     if r.u8()? != 0 {
-        let (d, used) = VersionedDescriptor::parse_prefix(item.get(r.p..)?).ok()?;
+        let (_, used) = VersionedDescriptor::parse_prefix(item.get(r.p..)?).ok()?;
         r.p += used;
-        open = Some(d.descriptor);
     }
     if kind != b"liFD" {
         return None;
     }
     let bytes = r.take(len)?.to_vec();
-    Some((LinkedFile { uuid, file_name, bytes }, open))
-}
-
-/// Parses one item; `None` for malformed data or non-`liFD` items.
-fn parse_item(item: &[u8]) -> Option<LinkedFile> {
-    parse_item_open(item).map(|(f, _)| f)
+    Some(LinkedFile { uuid, file_name, bytes })
 }
 
 /// Every embedded (`liFD`) file in one linked-layer block's data.
@@ -101,27 +94,6 @@ pub fn find_linked_file(meta: &Metadata, uuid: &str) -> Option<LinkedFile> {
         .find(|f| f.uuid == uuid)
 }
 
-/// The open descriptor stored with the embedded file for smart-object `uuid` (Photoshop keeps
-/// the parameters the file was opened with there), if any.
-pub fn find_open_descriptor(meta: &Metadata, uuid: &str) -> Option<Descriptor> {
-    if uuid.is_empty() {
-        return None;
-    }
-    meta.psd_global_blocks.iter().filter(|(_, k, _)| matches!(k, b"lnk2" | b"lnk3" | b"lnkD")).find_map(|(_, _, d)| {
-        let mut r = Rd { d, p: 0 };
-        while let Some(len) = r.u64() {
-            let item = r.take(usize::try_from(len).ok()?)?;
-            r.p = r.p.next_multiple_of(4);
-            if let Some((f, open)) = parse_item_open(item)
-                && f.uuid == uuid
-            {
-                return open;
-            }
-        }
-        None
-    })
-}
-
 /// The four-character file type Photoshop records for an embedded file, from its contents.
 pub fn file_type(bytes: &[u8]) -> [u8; 4] {
     match bytes {
@@ -138,11 +110,6 @@ pub fn file_type(bytes: &[u8]) -> [u8; 4] {
 /// Encodes one `liFD` item (version 7: no open descriptor, empty child document id, no
 /// modification time, unlocked), length-prefixed and padded to 4 bytes.
 pub fn encode_linked_file(f: &LinkedFile) -> Vec<u8> {
-    encode_linked_file_with(f, None)
-}
-
-/// [`encode_linked_file`] with an open descriptor (the parameters to open the file with).
-pub fn encode_linked_file_with(f: &LinkedFile, open: Option<&Descriptor>) -> Vec<u8> {
     let mut item = Vec::new();
     item.extend_from_slice(b"liFD");
     item.extend_from_slice(&7u32.to_be_bytes());
@@ -158,13 +125,7 @@ pub fn encode_linked_file_with(f: &LinkedFile, open: Option<&Descriptor>) -> Vec
     item.extend_from_slice(&file_type(&f.bytes));
     item.extend_from_slice(b"8BIM");
     item.extend_from_slice(&(f.bytes.len() as u64).to_be_bytes());
-    match open {
-        Some(d) => {
-            item.push(1);
-            item.extend(VersionedDescriptor::new(d.clone()).to_bytes());
-        }
-        None => item.push(0),
-    }
+    item.push(0);
     item.extend_from_slice(&f.bytes);
     item.extend_from_slice(&0u32.to_be_bytes()); // child document id (version 5)
     item.extend_from_slice(&0f64.to_be_bytes()); // asset modification time (version 6)
@@ -205,11 +166,6 @@ fn split_items(data: &[u8]) -> Vec<(Option<String>, &[u8])> {
 /// Rewrites a linked-layer block: keeps the items `keep` accepts (and anything unreadable), then
 /// appends `add`. `None` when nothing would change.
 pub fn rebuild_block(data: &[u8], keep: &dyn Fn(&str) -> bool, add: &[LinkedFile]) -> Option<Vec<u8>> {
-    rebuild_block_with(data, keep, add, &|_| None)
-}
-
-/// [`rebuild_block`], the added files written with the open descriptor `open` gives for their uuid.
-pub fn rebuild_block_with(data: &[u8], keep: &dyn Fn(&str) -> bool, add: &[LinkedFile], open: &dyn Fn(&str) -> Option<Descriptor>) -> Option<Vec<u8>> {
     let items = split_items(data);
     let dropped = items.iter().any(|(u, _)| u.as_deref().is_some_and(|u| !keep(u)));
     if !dropped && add.is_empty() {
@@ -222,7 +178,7 @@ pub fn rebuild_block_with(data: &[u8], keep: &dyn Fn(&str) -> bool, add: &[Linke
         }
     }
     for f in add {
-        out.extend(encode_linked_file_with(f, open(&f.uuid).as_ref()));
+        out.extend(encode_linked_file(f));
     }
     Some(out)
 }
@@ -270,22 +226,6 @@ mod tests {
         bad.extend([0, 0, 0, 0, 0, 0, 1, 0, 9]);
         let out = rebuild_block(&bad, &|_| true, std::slice::from_ref(&c)).unwrap();
         assert!(out.starts_with(&bad));
-    }
-
-    #[test]
-    fn open_descriptors_round_trip() {
-        use photocraft_psd::descriptor::{UnicodeString, Value};
-        let a = LinkedFile { uuid: "a".into(), file_name: "a.dng".into(), bytes: vec![1, 2, 3, 4, 5] };
-        let b = LinkedFile { uuid: "b".into(), file_name: "b.png".into(), bytes: vec![6; 7] };
-        let open = Descriptor::new("null").with("XMPMetadataAsUTF8", Value::Text(UnicodeString::new_nul("<x/>")));
-        let out = rebuild_block_with(&[], &|_| true, &[a.clone(), b.clone()], &|u| (u == "a").then(|| open.clone())).unwrap();
-        photocraft_psd::TaggedBlock::new(*b"lnk2", out.clone()).check_structure().unwrap();
-        assert_eq!(parse_linked_files(&out), vec![a, b]);
-        let mut meta = Metadata::default();
-        meta.psd_global_blocks.push((*b"8BIM", *b"lnk2", Arc::new(out)));
-        assert_eq!(find_open_descriptor(&meta, "a"), Some(open));
-        assert_eq!(find_open_descriptor(&meta, "b"), None);
-        assert_eq!(find_open_descriptor(&meta, "c"), None);
     }
 
     #[test]

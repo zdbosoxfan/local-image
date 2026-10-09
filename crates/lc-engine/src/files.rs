@@ -9,6 +9,7 @@ use lightcraft_color::cct::xy_to_temp_tint;
 use lightcraft_geom::Orientation;
 use lightcraft_pipeline::SourceInfo;
 use lightcraft_raster::Rgb32f;
+use lightcraft_preview::Hasher128;
 use lightcraft_raster::resample::{Filter, fit};
 
 use crate::media::{FileLoader, FileProbe, PreviewLoader, ProbeInfo};
@@ -199,22 +200,92 @@ pub fn bin_factor(raw: &lightcraft_raw::RawImage, max_edge: usize) -> Option<usi
     [8usize, 6, 4, 3, 2].into_iter().find(|&k| raw.can_bin(k) && (long / k >= need || (k == 3 && !raw.can_bin(2) && long / k >= need3)))
 }
 
+/// How a raw file is decoded: the photo's Raw Processing settings that change decoding
+/// (demosaic, highlight reconstruction, measuring the capture-sharpening radius). The default
+/// decodes exactly as before those settings existed.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct RawOptions {
+    pub demosaic: lightcraft_develop::Demosaic,
+    /// Dual demosaic threshold 0..1 (0 unless the method is dual).
+    pub dual_threshold: f32,
+    pub highlights: lightcraft_develop::HighlightMode,
+    /// Measure the capture-sharpening radius from the mosaic ([`SourceInfo::capture_radius`]).
+    pub capture_radius: bool,
+}
+
+impl RawOptions {
+    /// The options `s` asks for (the defaults while the Raw section is switched off).
+    pub fn of(s: &lightcraft_develop::DevelopSettings) -> RawOptions {
+        use lightcraft_develop::Demosaic;
+        let r = &s.raw;
+        if !s.section_enabled("raw") {
+            return RawOptions::default();
+        }
+        RawOptions {
+            demosaic: r.demosaic,
+            dual_threshold: if r.demosaic == Demosaic::DualRcd { (r.dual_threshold / 100.0).clamp(0.0, 1.0) as f32 } else { 0.0 },
+            highlights: r.highlights,
+            capture_radius: r.capture.enabled && r.capture.radius <= 0.0,
+        }
+    }
+
+    pub fn is_default(&self) -> bool {
+        *self == RawOptions::default()
+    }
+
+    /// Identifies decoded sources made with these options (0 for the defaults).
+    pub fn key(&self) -> u64 {
+        if self.is_default() {
+            return 0;
+        }
+        let k = Hasher128::new().str(&format!("{self:?}")).finish();
+        (k.0 as u64) | 1
+    }
+
+    /// The demosaic method for a source of at most `max_edge` pixels (thumbnails stay bilinear).
+    fn method(&self, max_edge: usize) -> lightcraft_raw::Method {
+        use lightcraft_develop::Demosaic as D;
+        use lightcraft_raw::Method as M;
+        if max_edge <= 600 {
+            return M::Bilinear;
+        }
+        match self.demosaic {
+            D::Auto | D::Ahd => M::Ahd,
+            D::Rcd => M::Rcd,
+            D::DualRcd => M::DualRcd,
+            D::Ppg => M::Ppg,
+            D::Bilinear => M::Bilinear,
+        }
+    }
+}
+
 /// Decode a file into a linear Rec.2020 image no larger than `max_edge`, oriented.
 ///
 /// Runs on a rayon worker: its many short parallel loops then start on the worker's own queue
 /// instead of each one waking the pool from outside and waiting for it (which costs more than the
 /// loops themselves when the machine is busy).
 pub fn load_bytes(bytes: &[u8], max_edge: usize) -> Result<(Rgb32f, SourceInfo), String> {
-    rayon::scope(|_| load_bytes_now(std::borrow::Cow::Borrowed(bytes), max_edge))
+    load_bytes_with(bytes, max_edge, &RawOptions::default())
+}
+
+/// [`load_bytes`] decoding a raw file with `opts`.
+pub fn load_bytes_with(bytes: &[u8], max_edge: usize, opts: &RawOptions) -> Result<(Rgb32f, SourceInfo), String> {
+    rayon::scope(|_| load_bytes_now(std::borrow::Cow::Borrowed(bytes), max_edge, opts))
 }
 
 /// [`load_bytes`] taking the file's bytes: a raw file's bytes are freed as soon as it is decoded
 /// (less memory held while it is developed).
 pub fn load_vec(bytes: Vec<u8>, max_edge: usize) -> Result<(Rgb32f, SourceInfo), String> {
-    rayon::scope(move |_| load_bytes_now(std::borrow::Cow::Owned(bytes), max_edge))
+    load_vec_with(bytes, max_edge, &RawOptions::default())
 }
 
-fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize) -> Result<(Rgb32f, SourceInfo), String> {
+/// [`load_vec`] decoding a raw file with `opts`.
+pub fn load_vec_with(bytes: Vec<u8>, max_edge: usize, opts: &RawOptions) -> Result<(Rgb32f, SourceInfo), String> {
+    let opts = *opts;
+    rayon::scope(move |_| load_bytes_now(std::borrow::Cow::Owned(bytes), max_edge, &opts))
+}
+
+fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &RawOptions) -> Result<(Rgb32f, SourceInfo), String> {
     if lightcraft_raw::probe(&bytes).is_some() {
         let mut raw = match lightcraft_raw::decode(&bytes) {
             Ok(r) => r,
@@ -234,6 +305,13 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize) -> Result<
         // Previews and thumbnails bin the mosaic straight to (about) the size they need; only
         // larger levels (exports, 1:1) demosaic the whole sensor.
         let t0 = web_time::Instant::now();
+        // capture sharpening: the sensor's blur, measured on the mosaic when asked for
+        let capture_radius = if opts.capture_radius { raw.normalized().ok().map(|n| lightcraft_raw::capture::capture_radius(&n)) } else { None };
+        let capture_threshold = lightcraft_pipeline::capture::default_threshold(raw.white_at(0), raw.metadata.iso);
+        let sensor_long = {
+            let c = raw.crop.clipped(raw.active_area.width, raw.active_area.height);
+            if c.width > 1 && c.height > 1 { c.width.max(c.height) } else { raw.active_area.width.max(raw.active_area.height) }
+        };
         let binned = match bin_factor(&raw, max_edge) {
             Some(k) => raw.develop_binned(k, HIGHLIGHT_CLIP).map_err(|e| e.to_string())?,
             None => None,
@@ -241,15 +319,19 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize) -> Result<
         let mut img = match binned {
             Some(img) => img,
             None => {
-                let method = if max_edge <= 600 { lightcraft_raw::Method::Bilinear } else { lightcraft_raw::Method::Ahd };
-                raw.develop(method).map_err(|e| e.to_string())?
+                let dopts = lightcraft_raw::DemosaicOptions { dual_threshold: opts.dual_threshold, ..Default::default() };
+                raw.develop_with(opts.method(max_edge), &dopts).map_err(|e| e.to_string())?
             }
         };
         // the samples aren't needed any more (the colour model below reads only the tags)
         raw.data = lightcraft_raw::RawData::U16(Vec::new());
         let mut stages = vec![("develop", t0.elapsed())];
         stages.push(("transform", t0.elapsed()));
-        lightcraft_raw::highlight::reconstruct(&mut img, t.wb, HIGHLIGHT_CLIP);
+        match opts.highlights {
+            lightcraft_develop::HighlightMode::Reconstruct => drop(lightcraft_raw::highlight::reconstruct(&mut img, t.wb, HIGHLIGHT_CLIP)),
+            lightcraft_develop::HighlightMode::Opposed => drop(lightcraft_raw::highlight::opposed(&mut img, t.wb, HIGHLIGHT_CLIP)),
+            lightcraft_develop::HighlightMode::Clip => lightcraft_raw::highlight::clip_neutral(&mut img, t.wb, HIGHLIGHT_CLIP),
+        }
         stages.push(("highlights", t0.elapsed()));
         let m = camera_look.as_ref().map(|p| p.matrix.mul(&t.matrix)).unwrap_or(t.matrix).to_f32();
         let hue_sat = camera_look.as_ref().and_then(|p| p.hue_sat.as_ref()).and_then(crate::camera_preview::HueSat::new);
@@ -273,6 +355,7 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize) -> Result<
         });
         stages.push(("colour", t0.elapsed()));
         let img = fit(&img, max_edge, max_edge, Filter::Box);
+        let sensor_scale = (sensor_long as f32 / img.width.max(img.height).max(1) as f32).max(1.0);
         stages.push(("fit", t0.elapsed()));
         let img = img.into_oriented(raw.orientation);
         stages.push(("orient", t0.elapsed()));
@@ -292,7 +375,12 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize) -> Result<
         let relative = crate::camera_preview::file_local_look(raw.format) && t.matrix_is_fallback;
         let camera_tone = camera_look.as_ref().map(|p| p.tone).or_else(|| raw.color.profile.tone_curve.as_ref().and_then(dng_tone_curve));
         let (temp, tint) = if relative { (6500.0, 0.0) } else { (temp.round(), tint.round()) };
-        return Ok((img, SourceInfo { raw: true, as_shot_temp: temp, as_shot_tint: tint, lens, relative_wb: relative, camera_tone, ..Default::default() }));
+        return Ok((img, SourceInfo { raw: true, as_shot_temp: temp, as_shot_tint: tint, lens, relative_wb: relative, camera_tone,
+            lens_db: None,
+            sensor_scale,
+            capture_radius,
+            capture_threshold,
+        }));
     }
     let d = lightcraft_codecs::decode(&bytes, lightcraft_codecs::DecodeOptions::fit(max_edge as u32, max_edge as u32)).map_err(|e| e.to_string())?;
     drop(bytes);

@@ -35,22 +35,6 @@ use crate::blocks::{enum_of, get_desc, num};
 #[path = "camera_raw_map.rs"]
 mod camera_raw;
 
-/// local-image: the private key our own records go under (Camera Raw filter items, and the
-/// placed-layer descriptor of a Develop layer; see `develop_layer_map`).
-pub(crate) const LOCAL_IMAGE_KEY: &str = camera_raw::PRIVATE_KEY;
-
-/// local-image: develop settings from a Camera Raw settings descriptor that isn't inside a
-/// filter item (a Camera Raw smart object's open parameters): the keys the Camera Raw Filter
-/// mapping verifies, over the defaults. `None` when it isn't one we can read.
-pub(crate) fn camera_raw_descriptor_settings(d: &Descriptor) -> Option<crate::develop_filter::DevelopSettings> {
-    let mut fltr = d.clone();
-    fltr.class_id = Id::new(camera_raw::CLASS);
-    let item = Descriptor::new("filterFX").with("Fltr", Value::Descriptor(fltr)).with("filterID", Value::Integer(2783));
-    let legacy = camera_raw::import_params(&item)?;
-    let cr: photocraft_algo::camera_raw::CameraRaw = serde_json::from_value(legacy).ok()?;
-    Some(crate::develop_filter::from_camera_raw(&cr, &crate::develop_filter::DevelopSettings::default()))
-}
-
 /// Command id of a Photoshop smart filter PhotoCraft does not implement. Its params hold the
 /// filter's name, Photoshop filter id and descriptor (`psd`, hex); it renders as a pass-through.
 pub const UNSUPPORTED_FILTER: &str = "psd.unsupportedFilter";
@@ -381,11 +365,11 @@ fn develop_import(item: &Descriptor, legacy: J) -> (&'static str, J) {
     if let (Some(m), Some(Some(t))) = (params.as_object_mut(), legacy.as_object().map(|o| o.get(camera_raw::TEMPLATE_KEY))) {
         m.insert(camera_raw::TEMPLATE_KEY.into(), t.clone());
     }
-    // local-image: a Develop layer written as this filter (its source isn't raw): the link rides
-    // along for `develop_layer_map::resolve`, which turns the filter back into the layer's link
-    if let (Some(r), Some(m)) = (record.as_ref().filter(|r| crate::develop_layer_map::is_record(r)), params.as_object_mut()) {
+    // local-image: a Develop layer's filter (see `develop_layer_filter`): the link rides along
+    // for `resolve_develop_layers`, which turns the filter back into the layer's link
+    if let (Some(r), Some(m)) = (record.as_ref().filter(|r| r.get("command").and_then(J::as_str) == Some(DEVELOP_LAYER_RECORD)), params.as_object_mut()) {
         let link_settings = if untouched { r.get("settings").cloned().unwrap_or(J::Null) } else { serde_json::to_value(&settings).unwrap_or(J::Null) };
-        m.insert(crate::develop_layer_map::MARKER.into(), json!({"settings": link_settings, "photo": r.get("photo")}));
+        m.insert(DEVELOP_LAYER_MARKER.into(), json!({"settings": link_settings, "photo": r.get("photo")}));
     }
     (dev::COMMAND, params)
 }
@@ -424,10 +408,9 @@ fn develop_export(f: &SmartFilter) -> Result<Descriptor, String> {
         .or_else(|_| camera_raw::export_item(&params(&cr, None)).map(|d| (d, &cr)))
         .or_else(|_| camera_raw::export_item(&params(&plain, None)).map(|d| (d, &plain)))
         .or_else(|_| camera_raw::export_item(&params(&neutral, None)).map(|d| (d, &neutral)))?;
-    // local-image: a Develop layer written as this filter: our full link, always
-    if let Some(link) = f.params.get(crate::develop_layer_map::MARKER) {
-        let mut record = crate::develop_layer_map::record_json(link.get("settings").cloned().unwrap_or(J::Null), link.get("photo").and_then(J::as_u64));
-        record["fltr"] = json!(fltr_hash(&d));
+    // local-image: a Develop layer's filter: our full link, always
+    if let Some(link) = f.params.get(DEVELOP_LAYER_MARKER) {
+        let record = json!({"command": DEVELOP_LAYER_RECORD, "settings": link.get("settings"), "photo": link.get("photo"), "fltr": fltr_hash(&d)});
         set(&mut d, camera_raw::PRIVATE_KEY, Value::Text(UnicodeString::new_nul(&record.to_string())));
         return Ok(d);
     }
@@ -437,6 +420,47 @@ fn develop_export(f: &SmartFilter) -> Result<Descriptor, String> {
         set(&mut d, camera_raw::PRIVATE_KEY, Value::Text(UnicodeString::new_nul(&record.to_string())));
     }
     Ok(d)
+}
+
+// ---------- local-image: Develop layers ----------
+//
+// A Develop layer (a smart object with a `develop` link) is written to PSD as the smart object it
+// is, with its develop as a Camera Raw Filter at the bottom of its smart-filter stack (what
+// Photoshop shows), marked with our private record `{"command": "developLayer", "settings",
+// "photo"}` in the filter item. On import the marked filter is taken out of the stack and becomes
+// the layer's link again (Photoshop's edits to the filter apply over our settings).
+
+/// `command` of a Develop layer's private record.
+pub const DEVELOP_LAYER_RECORD: &str = "developLayer";
+/// Params key of the Camera Raw Filter that carries a Develop layer's link
+/// (`{"settings", "photo"}`); develop-settings parsing ignores `__` keys.
+pub const DEVELOP_LAYER_MARKER: &str = "__developLayer";
+
+/// The Camera Raw Filter a Develop layer is written as.
+pub fn develop_layer_filter(link: &photocraft_doc::DevelopLink) -> SmartFilter {
+    let mut params = if link.settings.is_object() { link.settings.clone() } else { json!({}) };
+    if let Some(m) = params.as_object_mut() {
+        m.insert(DEVELOP_LAYER_MARKER.into(), json!({"settings": link.settings, "photo": link.photo}));
+    }
+    SmartFilter { command: crate::develop_filter::COMMAND.into(), params, blend: BlendMode::Normal, opacity: 1.0, visible: true }
+}
+
+/// Imported smart objects whose stack holds a Develop layer's filter become Develop layers again.
+pub(crate) fn resolve_develop_layers(doc: &mut photocraft_doc::Document) {
+    let ids: Vec<photocraft_doc::LayerId> = doc
+        .walk()
+        .into_iter()
+        .filter(|(_, _, l)| matches!(&l.content, photocraft_doc::LayerContent::Smart(sm) if sm.develop.is_none()))
+        .map(|(_, _, l)| l.id)
+        .collect();
+    for id in ids {
+        let Some(photocraft_doc::LayerContent::Smart(sm)) = doc.layer_mut(id).map(|l| &mut l.content) else { continue };
+        let Some(i) = sm.smart_filters.iter().position(|f| f.command == crate::develop_filter::COMMAND && f.params.get(DEVELOP_LAYER_MARKER).is_some()) else { continue };
+        let f = sm.smart_filters.remove(i);
+        let m = f.params.get(DEVELOP_LAYER_MARKER);
+        let settings = m.and_then(|m| m.get("settings")).cloned().unwrap_or_else(|| json!({}));
+        sm.develop = Some(photocraft_doc::DevelopLink { settings, photo: m.and_then(|m| m.get("photo")).and_then(J::as_u64) });
+    }
 }
 
 // ---------- writing ----------

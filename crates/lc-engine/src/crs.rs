@@ -21,113 +21,6 @@ pub type Props = BTreeMap<String, Vec<String>>;
 /// Band names as they appear in `crs:` field names, in our mixer order.
 const CRS_BANDS: [&str; 8] = ["Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"];
 
-/// One-to-one numeric fields: `crs:` name (without the prefix) → path in the develop settings'
-/// JSON. The one table both directions use ([`to_partial`] reads, [`from_settings`] writes).
-const NUMERIC: &[(&str, &str)] = &[
-    // Light (process version 2012+ names)
-    ("Exposure2012", "light.exposure"),
-    ("Contrast2012", "light.contrast"),
-    ("Highlights2012", "light.highlights"),
-    ("Shadows2012", "light.shadows"),
-    ("Whites2012", "light.whites"),
-    ("Blacks2012", "light.blacks"),
-    // Presence
-    ("Texture", "effects.texture"),
-    ("Clarity2012", "effects.clarity"),
-    ("Dehaze", "effects.dehaze"),
-    ("Vibrance", "color.vibrance"),
-    ("Saturation", "color.saturation"),
-    // Tone curve regions
-    ("ParametricShadows", "curve.shadows"),
-    ("ParametricDarks", "curve.darks"),
-    ("ParametricLights", "curve.lights"),
-    ("ParametricHighlights", "curve.highlights"),
-    ("ParametricShadowSplit", "curve.split_shadows"),
-    ("ParametricMidtoneSplit", "curve.split_mid"),
-    ("ParametricHighlightSplit", "curve.split_highlights"),
-    ("CurveRefineSaturation", "curve.refine_saturation"),
-    // Color grading (split toning fields are shared with the older split-toning panel)
-    ("SplitToningShadowHue", "grading.shadows.hue"),
-    ("SplitToningShadowSaturation", "grading.shadows.sat"),
-    ("ColorGradeShadowLum", "grading.shadows.lum"),
-    ("SplitToningHighlightHue", "grading.highlights.hue"),
-    ("SplitToningHighlightSaturation", "grading.highlights.sat"),
-    ("ColorGradeHighlightLum", "grading.highlights.lum"),
-    ("ColorGradeMidtoneHue", "grading.midtones.hue"),
-    ("ColorGradeMidtoneSat", "grading.midtones.sat"),
-    ("ColorGradeMidtoneLum", "grading.midtones.lum"),
-    ("ColorGradeGlobalHue", "grading.global.hue"),
-    ("ColorGradeGlobalSat", "grading.global.sat"),
-    ("ColorGradeGlobalLum", "grading.global.lum"),
-    ("ColorGradeBlending", "grading.blending"),
-    ("SplitToningBalance", "grading.balance"),
-    // Detail
-    ("Sharpness", "detail.sharpen_amount"),
-    ("SharpenRadius", "detail.sharpen_radius"),
-    ("SharpenDetail", "detail.sharpen_detail"),
-    ("SharpenEdgeMasking", "detail.sharpen_masking"),
-    ("LuminanceSmoothing", "detail.nr_luminance"),
-    ("LuminanceNoiseReductionDetail", "detail.nr_detail"),
-    ("LuminanceNoiseReductionContrast", "detail.nr_contrast"),
-    ("ColorNoiseReduction", "detail.nr_color"),
-    ("ColorNoiseReductionDetail", "detail.nr_color_detail"),
-    ("ColorNoiseReductionSmoothness", "detail.nr_color_smoothness"),
-    // Effects: post-crop vignette + grain
-    ("PostCropVignetteAmount", "vignette.amount"),
-    ("PostCropVignetteMidpoint", "vignette.midpoint"),
-    ("PostCropVignetteRoundness", "vignette.roundness"),
-    ("PostCropVignetteFeather", "vignette.feather"),
-    ("PostCropVignetteHighlightContrast", "vignette.highlights"),
-    ("GrainAmount", "grain.amount"),
-    ("GrainSize", "grain.size"),
-    ("GrainFrequency", "grain.roughness"),
-    // Optics (manual corrections)
-    ("LensManualDistortionAmount", "optics.distortion"),
-    ("VignetteAmount", "optics.vignetting"),
-    ("VignetteMidpoint", "optics.vignetting_midpoint"),
-    ("DefringePurpleAmount", "optics.defringe_purple_amount"),
-    ("DefringePurpleHueLo", "optics.defringe_purple_hue_lo"),
-    ("DefringePurpleHueHi", "optics.defringe_purple_hue_hi"),
-    ("DefringeGreenAmount", "optics.defringe_green_amount"),
-    ("DefringeGreenHueLo", "optics.defringe_green_hue_lo"),
-    ("DefringeGreenHueHi", "optics.defringe_green_hue_hi"),
-    // Calibration
-    ("ShadowTint", "calibration.shadows_tint"),
-    ("RedHue", "calibration.red_hue"),
-    ("RedSaturation", "calibration.red_sat"),
-    ("GreenHue", "calibration.green_hue"),
-    ("GreenSaturation", "calibration.green_sat"),
-    ("BlueHue", "calibration.blue_hue"),
-    ("BlueSaturation", "calibration.blue_sat"),
-    // Geometry
-    ("PerspectiveVertical", "geometry.vertical"),
-    ("PerspectiveHorizontal", "geometry.horizontal"),
-    ("PerspectiveRotate", "geometry.rotate"),
-    ("PerspectiveScale", "geometry.scale"),
-    ("PerspectiveAspect", "geometry.aspect"),
-    ("PerspectiveX", "geometry.offset_x"),
-    ("PerspectiveY", "geometry.offset_y"),
-];
-
-/// The HSL mixer's fields, per band (`HueAdjustmentRed` → `mixer.red.hue`, …).
-fn band_fields() -> Vec<(String, String)> {
-    MIXER_BANDS
-        .iter()
-        .zip(CRS_BANDS)
-        .flat_map(|(band, crs)| {
-            [
-                (format!("HueAdjustment{crs}"), format!("mixer.{band}.hue")),
-                (format!("SaturationAdjustment{crs}"), format!("mixer.{band}.sat")),
-                (format!("LuminanceAdjustment{crs}"), format!("mixer.{band}.lum")),
-            ]
-        })
-        .collect()
-}
-
-/// Point curves: `crs:` name → channel of `curve`.
-const POINT_CURVES: [(&str, &str); 4] =
-    [("ToneCurvePV2012", "master"), ("ToneCurvePV2012Red", "red"), ("ToneCurvePV2012Green", "green"), ("ToneCurvePV2012Blue", "blue")];
-
 /// `crs:` fields that describe the packet rather than an adjustment.
 const NON_ADJUSTMENT: &[&str] = &[
     "crs:Version",
@@ -245,14 +138,13 @@ pub fn to_partial(props: &Props, raw: Option<bool>) -> Value {
             put(o, path, json!(v));
         }
     };
-    // ---- every one-to-one numeric field (Light, Presence, tone curve regions, grading, detail,
-    // effects, manual optics, calibration, geometry): the table the writer uses too
-    for (crs, path) in NUMERIC {
-        n(o, crs, path);
-    }
-    for (crs, path) in band_fields() {
-        n(o, &crs, &path);
-    }
+    // ---- Light (process version 2012+ names)
+    n(o, "Exposure2012", "light.exposure");
+    n(o, "Contrast2012", "light.contrast");
+    n(o, "Highlights2012", "light.highlights");
+    n(o, "Shadows2012", "light.shadows");
+    n(o, "Whites2012", "light.whites");
+    n(o, "Blacks2012", "light.blacks");
     // older process versions (most `.lrtemplate` presets): approximate the 2012 sliders from the
     // earlier ones, relative to their defaults (contrast 25, blacks 5, brightness 50)
     let has = |o: &Value, path: &str| path.split('.').try_fold(o, |v, k| v.get(k)).is_some();
@@ -273,7 +165,13 @@ pub fn to_partial(props: &Props, raw: Option<bool>) -> Value {
     old(o, "FillLight", "light.shadows", &|v| v);
     old(o, "Shadows", "light.blacks", &|v| -(v - 5.0) * 4.0);
     old(o, "Brightness", "light.whites", &|v| (v - 50.0) * 0.6);
+    // ---- Presence
+    n(o, "Texture", "effects.texture");
+    n(o, "Clarity2012", "effects.clarity");
     old(o, "Clarity", "effects.clarity", &|v| v);
+    n(o, "Dehaze", "effects.dehaze");
+    n(o, "Vibrance", "color.vibrance");
+    n(o, "Saturation", "color.saturation");
 
     // ---- White balance
     let mode = first(props, "crs:WhiteBalance").map(|m| match m.to_ascii_lowercase().replace(' ', "").as_str() {
@@ -314,23 +212,69 @@ pub fn to_partial(props: &Props, raw: Option<bool>) -> Value {
         put(o, "treatment", json!(if bw { "bw" } else { "color" }));
     }
     for (band, crs) in MIXER_BANDS.iter().zip(CRS_BANDS) {
+        n(o, &format!("HueAdjustment{crs}"), &format!("mixer.{band}.hue"));
+        n(o, &format!("SaturationAdjustment{crs}"), &format!("mixer.{band}.sat"));
+        n(o, &format!("LuminanceAdjustment{crs}"), &format!("mixer.{band}.lum"));
         n(o, &format!("GrayMixer{crs}"), &format!("bw_mix.{band}"));
     }
 
-    // ---- Tone curve: point curves (the parametric regions are in `NUMERIC`)
+    // ---- Tone curve: parametric regions + point curves
+    n(o, "ParametricShadows", "curve.shadows");
+    n(o, "ParametricDarks", "curve.darks");
+    n(o, "ParametricLights", "curve.lights");
+    n(o, "ParametricHighlights", "curve.highlights");
+    n(o, "ParametricShadowSplit", "curve.split_shadows");
+    n(o, "ParametricMidtoneSplit", "curve.split_mid");
+    n(o, "ParametricHighlightSplit", "curve.split_highlights");
+    n(o, "CurveRefineSaturation", "curve.refine_saturation");
     if let Some(c) = curve(props, "crs:ToneCurve").filter(|c| c.as_array().is_some_and(|a| !a.is_empty())) {
         // the older single curve, used when no 2012 curve is present
         if !props.contains_key("crs:ToneCurvePV2012") {
             put(o, "curve.master", c);
         }
     }
-    for (crs, ch) in POINT_CURVES {
+    for (crs, ch) in
+        [("ToneCurvePV2012", "master"), ("ToneCurvePV2012Red", "red"), ("ToneCurvePV2012Green", "green"), ("ToneCurvePV2012Blue", "blue")]
+    {
         if let Some(c) = curve(props, &format!("crs:{crs}")) {
             put(o, &format!("curve.{ch}"), c);
         }
     }
 
-    // ---- Effects: the post-crop vignette style
+    // ---- Color grading (split toning fields are shared with the older split-toning panel)
+    n(o, "SplitToningShadowHue", "grading.shadows.hue");
+    n(o, "SplitToningShadowSaturation", "grading.shadows.sat");
+    n(o, "ColorGradeShadowLum", "grading.shadows.lum");
+    n(o, "SplitToningHighlightHue", "grading.highlights.hue");
+    n(o, "SplitToningHighlightSaturation", "grading.highlights.sat");
+    n(o, "ColorGradeHighlightLum", "grading.highlights.lum");
+    n(o, "ColorGradeMidtoneHue", "grading.midtones.hue");
+    n(o, "ColorGradeMidtoneSat", "grading.midtones.sat");
+    n(o, "ColorGradeMidtoneLum", "grading.midtones.lum");
+    n(o, "ColorGradeGlobalHue", "grading.global.hue");
+    n(o, "ColorGradeGlobalSat", "grading.global.sat");
+    n(o, "ColorGradeGlobalLum", "grading.global.lum");
+    n(o, "ColorGradeBlending", "grading.blending");
+    n(o, "SplitToningBalance", "grading.balance");
+
+    // ---- Detail
+    n(o, "Sharpness", "detail.sharpen_amount");
+    n(o, "SharpenRadius", "detail.sharpen_radius");
+    n(o, "SharpenDetail", "detail.sharpen_detail");
+    n(o, "SharpenEdgeMasking", "detail.sharpen_masking");
+    n(o, "LuminanceSmoothing", "detail.nr_luminance");
+    n(o, "LuminanceNoiseReductionDetail", "detail.nr_detail");
+    n(o, "LuminanceNoiseReductionContrast", "detail.nr_contrast");
+    n(o, "ColorNoiseReduction", "detail.nr_color");
+    n(o, "ColorNoiseReductionDetail", "detail.nr_color_detail");
+    n(o, "ColorNoiseReductionSmoothness", "detail.nr_color_smoothness");
+
+    // ---- Effects: post-crop vignette + grain
+    n(o, "PostCropVignetteAmount", "vignette.amount");
+    n(o, "PostCropVignetteMidpoint", "vignette.midpoint");
+    n(o, "PostCropVignetteRoundness", "vignette.roundness");
+    n(o, "PostCropVignetteFeather", "vignette.feather");
+    n(o, "PostCropVignetteHighlightContrast", "vignette.highlights");
     if let Some(st) = num(props, "crs:PostCropVignetteStyle") {
         let style = match st as i64 {
             2 => "colorPriority",
@@ -339,6 +283,9 @@ pub fn to_partial(props: &Props, raw: Option<bool>) -> Value {
         };
         put(o, "vignette.style", json!(style));
     }
+    n(o, "GrainAmount", "grain.amount");
+    n(o, "GrainSize", "grain.size");
+    n(o, "GrainFrequency", "grain.roughness");
 
     // ---- Optics (manual corrections; lens profiles are ours, only the switch carries over)
     if let Some(b) = boolean(props, "crs:LensProfileEnable") {
@@ -347,8 +294,33 @@ pub fn to_partial(props: &Props, raw: Option<bool>) -> Value {
     if let Some(b) = boolean(props, "crs:AutoLateralCA") {
         put(o, "optics.remove_ca", json!(b));
     }
+    n(o, "LensManualDistortionAmount", "optics.distortion");
+    n(o, "VignetteAmount", "optics.vignetting");
+    n(o, "VignetteMidpoint", "optics.vignetting_midpoint");
+    n(o, "DefringePurpleAmount", "optics.defringe_purple_amount");
+    n(o, "DefringePurpleHueLo", "optics.defringe_purple_hue_lo");
+    n(o, "DefringePurpleHueHi", "optics.defringe_purple_hue_hi");
+    n(o, "DefringeGreenAmount", "optics.defringe_green_amount");
+    n(o, "DefringeGreenHueLo", "optics.defringe_green_hue_lo");
+    n(o, "DefringeGreenHueHi", "optics.defringe_green_hue_hi");
 
-    // ---- Geometry: Upright (the perspective sliders are in `NUMERIC`)
+    // ---- Calibration
+    n(o, "ShadowTint", "calibration.shadows_tint");
+    n(o, "RedHue", "calibration.red_hue");
+    n(o, "RedSaturation", "calibration.red_sat");
+    n(o, "GreenHue", "calibration.green_hue");
+    n(o, "GreenSaturation", "calibration.green_sat");
+    n(o, "BlueHue", "calibration.blue_hue");
+    n(o, "BlueSaturation", "calibration.blue_sat");
+
+    // ---- Geometry
+    n(o, "PerspectiveVertical", "geometry.vertical");
+    n(o, "PerspectiveHorizontal", "geometry.horizontal");
+    n(o, "PerspectiveRotate", "geometry.rotate");
+    n(o, "PerspectiveScale", "geometry.scale");
+    n(o, "PerspectiveAspect", "geometry.aspect");
+    n(o, "PerspectiveX", "geometry.offset_x");
+    n(o, "PerspectiveY", "geometry.offset_y");
     if let Some(u) = num(props, "crs:PerspectiveUpright") {
         let mode = match u as i64 {
             1 => "auto",
@@ -378,135 +350,6 @@ pub fn to_partial(props: &Props, raw: Option<bool>) -> Value {
         None => {}
     }
     out
-}
-
-/// Kelvin → relative temperature for rendered files (the inverse of [`rel_to_kelvin`]).
-pub fn kelvin_to_rel(k: f64) -> f64 {
-    ((1e6 / 6500.0 - 1e6 / k.max(1.0)) / 0.8).clamp(-100.0, 100.0)
-}
-
-/// A number the way `crs:` fields hold it: integers bare, others with up to four decimals.
-fn fmt_num(v: f64) -> String {
-    if (v - v.round()).abs() < 1e-9 {
-        format!("{}", v.round() as i64)
-    } else {
-        format!("{v:.4}").trim_end_matches('0').trim_end_matches('.').to_string()
-    }
-}
-
-/// Our develop settings → `crs:` fields, the inverse of [`to_partial`] for what both sides have
-/// (Light, Presence, white balance, tone curves, HSL, B&W, grading, detail, effects, manual
-/// optics, calibration, Upright, crop): a Camera Raw settings block other applications read.
-/// `raw`: absolute Kelvin white balance (raw files) or the relative `Incremental*` one (rendered
-/// files). Masks, profiles, point colour and our own tools have no field here.
-pub fn from_settings(s: &lightcraft_develop::DevelopSettings, raw: bool) -> Props {
-    use lightcraft_develop::{Treatment, Upright, VignetteStyle, WbMode};
-    let mut out = Props::new();
-    let mut set = |k: &str, v: String| {
-        out.insert(format!("crs:{k}"), vec![v]);
-    };
-    set("Version", "15.0".into());
-    set("ProcessVersion", "11.0".into());
-    let v = serde_json::to_value(s).unwrap_or_default();
-    let at = |path: &str| path.split('.').try_fold(&v, |v, k| v.get(k));
-    for (crs, path) in NUMERIC {
-        if let Some(x) = at(path).and_then(Value::as_f64) {
-            set(crs, fmt_num(x));
-        }
-    }
-    for (crs, path) in band_fields() {
-        if let Some(x) = at(&path).and_then(Value::as_f64) {
-            set(&crs, fmt_num(x));
-        }
-    }
-    let mode = match s.wb.mode {
-        WbMode::AsShot => "As Shot",
-        WbMode::Auto => "Auto",
-        WbMode::Daylight => "Daylight",
-        WbMode::Cloudy => "Cloudy",
-        WbMode::Shade => "Shade",
-        WbMode::Tungsten => "Tungsten",
-        WbMode::Fluorescent => "Fluorescent",
-        WbMode::Flash => "Flash",
-        WbMode::Custom => "Custom",
-    };
-    set("WhiteBalance", mode.into());
-    if s.wb.mode == WbMode::Custom {
-        if raw {
-            set("Temperature", fmt_num(s.wb.temp.round()));
-            set("Tint", fmt_num(s.wb.tint));
-        } else {
-            set("IncrementalTemperature", fmt_num(kelvin_to_rel(s.wb.temp)));
-            set("IncrementalTint", fmt_num(s.wb.tint));
-        }
-    }
-    set("ConvertToGrayscale", if s.treatment == Treatment::Bw { "True" } else { "False" }.into());
-    for (band, crs) in MIXER_BANDS.iter().zip(CRS_BANDS) {
-        if let Some(x) = at(&format!("bw_mix.{band}")).and_then(Value::as_f64) {
-            set(&format!("GrayMixer{crs}"), fmt_num(x));
-        }
-    }
-    let style = match s.vignette.style {
-        VignetteStyle::HighlightPriority => 1,
-        VignetteStyle::ColorPriority => 2,
-        VignetteStyle::PaintOverlay => 3,
-    };
-    set("PostCropVignetteStyle", style.to_string());
-    set("LensProfileEnable", if s.optics.lens_profile { "1" } else { "0" }.into());
-    set("AutoLateralCA", if s.optics.remove_ca { "1" } else { "0" }.into());
-    let upright = match s.geometry.upright {
-        Upright::Off => 0,
-        Upright::Auto => 1,
-        Upright::Level => 2,
-        Upright::Vertical => 3,
-        Upright::Full => 4,
-        Upright::Guided => 5,
-    };
-    set("PerspectiveUpright", upright.to_string());
-    let g = &s.crop.geometry;
-    let full = g.is_identity();
-    set("HasCrop", if full { "False" } else { "True" }.into());
-    if !full {
-        for (k, x) in [("Left", g.rect.x0), ("Top", g.rect.y0), ("Right", g.rect.x1), ("Bottom", g.rect.y1), ("Angle", g.angle)] {
-            set(&format!("Crop{k}"), fmt_num(x));
-        }
-    }
-    for (crs, ch) in POINT_CURVES {
-        let pts: Vec<String> = at(&format!("curve.{ch}"))
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter_map(|p| Some(format!("{}, {}", (p.get("x")?.as_f64()? * 255.0).round(), (p.get("y")?.as_f64()? * 255.0).round())))
-                    .collect()
-            })
-            .unwrap_or_default();
-        let pts = if pts.len() < 2 { vec!["0, 0".to_string(), "255, 255".to_string()] } else { pts };
-        out.insert(format!("crs:{crs}"), pts);
-    }
-    out
-}
-
-/// An XMP packet holding the `crs:` fields of `props` (point curves as `rdf:Seq`), readable by
-/// [`lightcraft_meta::parse_xmp`] and other applications.
-pub fn packet(props: &Props) -> String {
-    let esc = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;");
-    let (mut attrs, mut elems) = (String::new(), String::new());
-    for (k, vals) in props {
-        let Some(name) = k.strip_prefix("crs:") else { continue };
-        if name.starts_with("ToneCurve") {
-            elems.push_str(&format!("   <crs:{name}>\n    <rdf:Seq>\n"));
-            for v in vals {
-                elems.push_str(&format!("     <rdf:li>{}</rdf:li>\n", esc(v)));
-            }
-            elems.push_str(&format!("    </rdf:Seq>\n   </crs:{name}>\n"));
-        } else if let Some(v) = vals.first() {
-            attrs.push_str(&format!("\n    crs:{name}=\"{}\"", esc(v)));
-        }
-    }
-    format!(
-        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  <rdf:Description rdf:about=\"\"\n    xmlns:crs=\"{}\"{attrs}>\n{elems}  </rdf:Description>\n </rdf:RDF>\n</x:xmpmeta>\n",
-        lightcraft_meta::CRS_NS
-    )
 }
 
 /// [`to_partial`], plus the adjustments in the packet it could not carry over (field names
@@ -639,61 +482,6 @@ mod tests {
         );
         let c = s.crop.geometry;
         assert_eq!((c.rect.x0, c.rect.y0, c.rect.x1, c.rect.y1, c.angle), (0.05, 0.1, 0.8, 0.9, 1.5));
-    }
-
-    /// Settings with every field the writer carries set away from its default.
-    fn edited() -> DevelopSettings {
-        let mut s = DevelopSettings::default();
-        s.light.exposure = 0.65;
-        (s.light.contrast, s.light.highlights, s.light.shadows, s.light.whites, s.light.blacks) = (-14.0, -58.0, 41.0, 9.0, -17.0);
-        (s.effects.texture, s.effects.clarity, s.effects.dehaze) = (6.0, 11.0, 4.0);
-        (s.color.vibrance, s.color.saturation) = (19.0, -3.0);
-        s.mixer.orange.hue = -7.0;
-        s.mixer.blue.sat = -22.0;
-        s.mixer.aqua.lum = 13.0;
-        (s.curve.shadows, s.curve.highlights, s.curve.split_mid) = (5.0, -8.0, 55.0);
-        let p = |x: f64, y: f64| lightcraft_geom::Point::new(x / 255.0, y / 255.0);
-        s.curve.master = vec![p(0.0, 0.0), p(64.0, 52.0), p(192.0, 205.0), p(255.0, 255.0)];
-        s.curve.blue = vec![p(0.0, 10.0), p(255.0, 240.0)];
-        (s.grading.shadows.hue, s.grading.shadows.sat, s.grading.balance) = (210.0, 14.0, 20.0);
-        (s.detail.sharpen_amount, s.detail.sharpen_radius) = (55.0, 1.2);
-        s.vignette.amount = -21.0;
-        s.vignette.style = VignetteStyle::ColorPriority;
-        (s.grain.amount, s.grain.size) = (15.0, 30.0);
-        s.geometry.upright = Upright::Level;
-        s.geometry.vertical = -10.0;
-        s.optics.remove_ca = true;
-        s.calibration.red_hue = 12.0;
-        s.crop.geometry = lightcraft_geom::CropGeometry { rect: lightcraft_geom::Rect::new(0.05, 0.1, 0.8, 0.9), angle: 1.5 };
-        s
-    }
-
-    #[test]
-    fn written_fields_read_back_as_the_same_settings() {
-        let mut s = edited();
-        s.wb.mode = WbMode::Custom;
-        (s.wb.temp, s.wb.tint) = (5150.0, 12.0);
-        // through the packet text, as another application would read it
-        let props = |s: &DevelopSettings, raw: bool| lightcraft_meta::parse_xmp(&packet(&from_settings(s, raw))).unwrap().properties;
-        let p = props(&s, true);
-        assert!(has_adjustments(&p));
-        let back = apply_partial(&DevelopSettings::default(), &to_partial(&p, Some(true)), 1.0);
-        assert_eq!(back, s, "raw: every written field round-trips");
-        // rendered files: the relative white balance
-        let p = props(&s, false);
-        assert!(p.contains_key("crs:IncrementalTemperature") && !p.contains_key("crs:Temperature"));
-        let back = apply_partial(&DevelopSettings::default(), &to_partial(&p, Some(false)), 1.0);
-        assert!((back.wb.temp - 5150.0).abs() < 1.0, "{}", back.wb.temp);
-        assert_eq!(DevelopSettings { wb: s.wb, ..back }, s);
-        // B&W and a named white balance
-        let mut bw = DevelopSettings { treatment: lightcraft_develop::Treatment::Bw, ..DevelopSettings::default() };
-        bw.bw_mix.blue = -35.0;
-        bw.wb.mode = WbMode::Daylight;
-        let back = apply_partial(&DevelopSettings::default(), &to_partial(&props(&bw, true), Some(true)), 1.0);
-        assert_eq!(back, bw);
-        // defaults stay defaults (no crop, straight curves)
-        let d = DevelopSettings::default();
-        assert_eq!(apply_partial(&d, &to_partial(&props(&d, true), Some(true)), 1.0), d);
     }
 
     #[test]
