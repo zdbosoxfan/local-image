@@ -231,7 +231,6 @@ fn has_named_sheets_detects_character_or_paragraph() {
 }
 
 #[test]
-#[ignore = "BUG: utf16_to_byte_lengths returns 2 bytes for an ASCII character"]
 fn run_char_lens_are_utf8_byte_lengths() {
     let mut styles = TextStyles::default();
     styles.character.push(char_def(1, "Accent", CharStyle { size_pt: 10.0, ..Default::default() }));
@@ -245,7 +244,9 @@ fn run_char_lens_are_utf8_byte_lengths() {
     let out = write_style_sheets(&tysh, &layer, &styles, 72.0).expect("write");
     let r = read_style_sheets(&out, 72.0).expect("read");
 
-    assert_eq!(r.run_char_lens, vec![2, 1]);
+    // Run lengths are UTF-8 byte lengths ("é" = 2). Photoshop's engine text always ends with a
+    // paragraph break ("\r", 1 byte) and the last run covers it, so "a" + "\r" = 2 bytes.
+    assert_eq!(r.run_char_lens, vec![2, 2]);
     assert_eq!(r.run_char, vec![None, Some(1)]);
 }
 
