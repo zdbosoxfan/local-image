@@ -6,7 +6,7 @@
 //! resources, layer info in an `Lr32` global block with an empty classic layer info, channel
 //! compression codes valid for 32-bit data, and a raw big-endian float merged image.
 
-mod common;
+use crate::common;
 
 use common::Features;
 use photocraft_color::{ColorMode, SampleType};

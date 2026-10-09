@@ -3,7 +3,7 @@
 //! to even, a layer info body not padded to 4 and, in PSB, `cinf`/`lnkE` read and written
 //! with 4-byte lengths; psd-tools rejected or misaligned all of them.
 
-mod common;
+use crate::common;
 
 use photocraft_io::*;
 use photocraft_psd::descriptor::{Descriptor, VersionedDescriptor};

@@ -44,7 +44,7 @@
 //! asserts import + flatten return (Ok or Err) without panicking.
 #![cfg(feature = "corpus")]
 
-mod common;
+use crate::common;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};

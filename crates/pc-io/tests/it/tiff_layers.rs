@@ -2,7 +2,7 @@
 //! trips in every mode and depth, equivalence with the PSD path, the flat fall-backs, files
 //! written by an independent implementation (psdtags, both byte orders), and malformed input.
 
-mod common;
+use crate::common;
 
 use common::*;
 use photocraft_color::{ColorMode, SampleType};

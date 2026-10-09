@@ -10,7 +10,7 @@
 //! ones dropped).
 #![cfg(feature = "corpus")]
 
-mod common;
+use crate::common;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

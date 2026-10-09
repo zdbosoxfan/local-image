@@ -1,7 +1,7 @@
 //! ICC profiles through import/export: byte-exact PSD round trips with real profiles, PNG/JPEG
 //! embedding and extraction, colour-managed CMYK → RGB for formats without CMYK.
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 

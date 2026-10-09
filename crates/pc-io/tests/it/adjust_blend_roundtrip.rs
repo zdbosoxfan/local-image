@@ -4,7 +4,7 @@
 //! document flattens to the same composite (within 1/255) in every case, so nothing a user made
 //! in PhotoCraft silently disappears or changes when Photoshop opens the file.
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 

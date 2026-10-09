@@ -1,6 +1,6 @@
 //! Document → PSD → Document round trips.
 
-mod common;
+use crate::common;
 
 use common::*;
 use photocraft_color::{ColorMode, SampleType};

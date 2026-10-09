@@ -10,7 +10,7 @@
 //!
 //! Fonts: the bundled Inter (deterministic), so our render is the "Photoshop" render here.
 
-mod common;
+use crate::common;
 
 use photocraft_color::{ColorMode, SampleType};
 use photocraft_doc::text::TextShape;

@@ -1,7 +1,7 @@
 //! Composite oracle: the merged image stored in a PSD must match our
 //! compositor's rendering of the imported document.
 
-mod common;
+use crate::common;
 
 use common::*;
 use photocraft_color::{BlendMode, ColorMode, SampleType};

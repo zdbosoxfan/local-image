@@ -1,6 +1,6 @@
 //! Flat formats through photocraft-codecs, and export warnings.
 
-mod common;
+use crate::common;
 
 use common::*;
 use photocraft_color::{ColorMode, SampleType};
