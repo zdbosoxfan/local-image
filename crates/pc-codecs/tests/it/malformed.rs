@@ -1,6 +1,6 @@
 //! Malformed input must produce errors, never panics or huge allocations.
 
-mod common;
+use crate::common;
 use common::*;
 use photocraft_codecs::*;
 use proptest::prelude::*;

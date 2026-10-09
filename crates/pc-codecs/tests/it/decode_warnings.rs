@@ -1,7 +1,7 @@
 //! Decode warnings: a file that holds more than was decoded (#523: animations, multi-page
 //! TIFF) or less than it should (#518: truncated JPEG) says so; complete single images don't.
 
-mod common;
+use crate::common;
 use common::*;
 use photocraft_codecs::*;
 

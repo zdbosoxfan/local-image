@@ -1,6 +1,6 @@
 //! ICC / EXIF / XMP / DPI / text preservation, per format, per caps.
 
-mod common;
+use crate::common;
 use common::*;
 use photocraft_codecs::*;
 

@@ -1,7 +1,7 @@
 //! Format-specific behaviour: Adam7 PNG, JPEG colour models, oracle
 //! cross-checks against the `image` crate, and the optional PngSuite corpus.
 
-mod common;
+use crate::common;
 use common::*;
 use photocraft_codecs::*;
 

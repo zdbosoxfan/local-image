@@ -2,7 +2,7 @@
 //! Lossless formats must reproduce the (planned) conversion of the input
 //! exactly; lossy formats must stay above a PSNR threshold.
 
-mod common;
+use crate::common;
 use common::*;
 use photocraft_codecs::*;
 

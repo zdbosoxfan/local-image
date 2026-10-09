@@ -4,7 +4,7 @@
 //! offsets past the end, absurd sizes) that must give `Ok` or a clean `Err`, never a panic.
 //! Every file here is hand-built by `common::tiffgen`.
 
-mod common;
+use crate::common;
 use common::Rng;
 use common::tiffgen::*;
 use photocraft_codecs::*;

@@ -1,6 +1,6 @@
 //! `fidelity_warnings` cases, and consistency with what `encode` does.
 
-mod common;
+use crate::common;
 use FidelityWarning as W;
 use common::*;
 use photocraft_codecs::*;

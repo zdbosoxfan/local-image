@@ -1,7 +1,7 @@
 //! EXIF / TIFF orientation (#285): files are opened upright, and every export
 //! writes Orientation = 1 so the upright pixels are never rotated twice.
 
-mod common;
+use crate::common;
 use common::*;
 use photocraft_codecs::*;
 use proptest::prelude::{any, prop_assert, prop_assert_eq, proptest};

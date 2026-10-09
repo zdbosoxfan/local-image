@@ -3,7 +3,7 @@
 //! smaller than lossless on photographic content; alpha and metadata travel in the container;
 //! odd sizes and the limits behave.
 
-mod common;
+use crate::common;
 use common::*;
 use photocraft_codecs::*;
 

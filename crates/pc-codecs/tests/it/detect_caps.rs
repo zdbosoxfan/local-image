@@ -1,7 +1,7 @@
 //! Magic-number detection, extensions, and the capability table
 //! (including the symmetric read/write guarantee).
 
-mod common;
+use crate::common;
 use common::*;
 use photocraft_codecs::*;
 

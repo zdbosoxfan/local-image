@@ -8,7 +8,7 @@
 
 #![cfg(all(feature = "corpus", feature = "heif"))]
 
-mod common;
+use crate::common;
 use common::*;
 use photocraft_codecs::*;
 use std::sync::LazyLock;

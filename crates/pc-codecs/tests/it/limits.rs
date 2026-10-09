@@ -1,6 +1,6 @@
 //! Decompression-bomb guards.
 
-mod common;
+use crate::common;
 use common::*;
 use photocraft_codecs::*;
 

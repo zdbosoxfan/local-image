@@ -2,7 +2,7 @@
 //! `Metadata` as opaque bytes: written when present, read from either byte order and from
 //! BigTIFF, and never a panic or an allocation on malformed input.
 
-mod common;
+use crate::common;
 use common::*;
 use photocraft_codecs::*;
 
