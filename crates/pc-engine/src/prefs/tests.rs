@@ -284,3 +284,17 @@ fn pen_pressure_curve_pref() {
     let old: Tools = serde_json::from_value(json!({"showTooltips": false})).unwrap();
     assert_eq!(old.pen_pressure_curve, photocraft_paint::pressure::LINEAR.to_vec());
 }
+
+#[test]
+fn tool_icon_preferences_default_validate_and_round_trip() {
+    let old: Preferences = serde_json::from_value(json!({"interface": {"theme": "studio"}})).unwrap();
+    assert_eq!(old.interface.tool_icons, "colour");
+    let mut s = session();
+    s.execute("prefs.set", json!({"path": "interface.toolIcons", "value": "monochrome"})).unwrap();
+    assert!(s.execute("prefs.set", json!({"path": "interface.toolIcons", "value": "invalid"})).is_err());
+    let mut restored = Session::new();
+    restored.load_prefs_json(&s.prefs_to_json()).unwrap();
+    assert_eq!(restored.prefs().interface.tool_icons, "monochrome");
+    restored.execute("prefs.reset", json!({"path": "interface.toolIcons"})).unwrap();
+    assert_eq!(restored.prefs().interface.tool_icons, "colour");
+}

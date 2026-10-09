@@ -3245,6 +3245,8 @@ ai	New	새 항목
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	하늘 클래스 {class} 값이 범위를 벗어났습니다. 이 모델은 {classes}개의 클래스(0~{max})를 가집니다
 	{path} isn't a file	{path}은(는) 파일이 아닙니다
 	Custom models are not supported for this function	이 기능에서는 사용자 지정 모델을 지원하지 않습니다
+	Tool icons	도구 아이콘
+	Colour (default)	컬러(기본값)
 
 # Smart Sort face model bundle
 	Faces	얼굴

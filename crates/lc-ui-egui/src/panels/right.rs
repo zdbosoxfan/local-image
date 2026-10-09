@@ -63,6 +63,7 @@ fn padded(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
 }
 
 fn crop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
+    let t = Tokens::get(ui.ctx());
     let d = app.session.develop_of(id).unwrap_or_default();
     header(ui, "Crop");
     padded(ui, |ui| {
@@ -123,6 +124,8 @@ fn crop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     padded(ui, |ui| {
         ui.horizontal(|ui| {
             let on = app.ui.tool == "straighten";
+            let (icon_rect, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
+            crate::icons::paint_tool(ui, icon_rect, "straighten", Icon::Rotate, t.icon, true);
             if text_button(ui, "straightenTool", crate::i18n::tr("Straighten Tool"), on)
                 .on_hover_text(crate::i18n::tr("Drag along the horizon; double-click for Auto"))
                 .clicked()
@@ -192,6 +195,8 @@ fn crop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             }
             if guided {
                 let drawing = app.ui.tool == "guidedUpright";
+                let (icon_rect, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
+                crate::icons::paint_tool(ui, icon_rect, "guided-upright", Icon::Crop, t.icon, true);
                 if text_button(ui, "uprightDraw", crate::i18n::tr("Draw Guides"), drawing).clicked() {
                     app.ui.tool = if drawing { String::new() } else { "guidedUpright".into() };
                 }
@@ -229,7 +234,27 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     padded(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             for (label, tool) in [("AI", "ai"), ("Remove", "remove"), ("Heal", "heal"), ("Clone", "clone")] {
-                if text_button(ui, &format!("removeMode-{tool}"), label, app.ui.tool == tool).clicked() {
+                let fallback = match tool {
+                    "heal" => Icon::Brush,
+                    "clone" => Icon::Presets,
+                    _ => Icon::Eraser,
+                };
+                let response = ui
+                    .vertical(|ui| {
+                        let icon = crate::widgets::tool_button(
+                            ui,
+                            &format!("removeMode-{tool}"),
+                            fallback,
+                            vec2(32.0, 28.0),
+                            app.ui.tool == tool,
+                            true,
+                            label,
+                        );
+                        let text = text_button(ui, &format!("removeMode-{tool}"), label, app.ui.tool == tool);
+                        icon.clicked() || text.clicked()
+                    })
+                    .inner;
+                if response {
                     app.ui.tool = tool.into();
                     // a new brush: the spot selected before is no longer what the sliders edit
                     if app.session.active_spot.is_some() {

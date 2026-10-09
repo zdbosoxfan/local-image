@@ -2651,6 +2651,8 @@ ai	New	新着
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	空（スカイ）のクラス番号 {class} は範囲外です：このモデルには {classes} クラスあります（0〜{max}）
 	{path} isn't a file	{path} はファイルではありません
 	Custom models are not supported for this function	この機能ではカスタムモデルを使用できません
+	Tool icons	ツールアイコン
+	Colour (default)	カラー（既定）
 
 # Smart Sort face model bundle
 	Faces	顔

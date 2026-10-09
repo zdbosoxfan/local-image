@@ -866,7 +866,7 @@ pub fn tool_presets_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             } else if resp.hovered() {
                 ui.painter().rect_filled(r, 0.0, t.hover.gamma_multiply(0.5));
             }
-            let icon = Tool::from_name(tool).map(crate::icons::tool_icon).unwrap_or("settings");
+            let icon = Tool::from_name(tool).map(crate::icons::tool_icon_name).unwrap_or("settings");
             crate::icons::paint(ui, Rect::from_center_size(pos2(r.left() + 14.0, r.center().y), vec2(16.0, 16.0)), icon, 13.0, t.icon);
             ui.painter().text(pos2(r.left() + 30.0, r.center().y), Align2::LEFT_CENTER, name, FontId::proportional(11.5), t.text);
             if resp.clicked() {

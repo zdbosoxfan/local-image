@@ -2676,6 +2676,8 @@ ai	New	最新
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	天空类别 {class} 超出范围：此模型有 {classes} 个类别（0 到 {max}）
 	{path} isn't a file	{path} 不是文件
 	Custom models are not supported for this function	此功能不支持自定义模型
+	Tool icons	工具图标
+	Colour (default)	彩色（默认）
 
 # Smart Sort face model bundle
 	Faces	人脸

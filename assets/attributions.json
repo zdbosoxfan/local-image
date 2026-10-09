@@ -992,6 +992,16 @@
       "title": "Assets",
       "entries": [
         {
+          "name": "Glossy Duotone tool icons",
+          "author": "Local Image contributors",
+          "used_for": "Original full-colour Compositing and Develop tools (assets/icons/color) and their contact sheet (docs/design/tool-icons.png). Hand-drawn SVG; style direction explored with OpenAI image generation. Added 2026-10-09.",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "LICENSE",
+            "assets/ATTRIBUTION-lightcraft.md"
+          ]
+        },
+        {
           "name": "Inter",
           "version": "4.001",
           "author": "The Inter Project Authors (Rasmus Andersson)",

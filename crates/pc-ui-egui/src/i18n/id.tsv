@@ -3077,6 +3077,8 @@ ai	New	Baru
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Kelas langit {class} di luar rentang: model ini memiliki {classes} kelas (0 hingga {max})
 	{path} isn't a file	{path} bukan file
 	Custom models are not supported for this function	Model kustom tidak didukung untuk fungsi ini
+	Tool icons	Ikon alat
+	Colour (default)	Warna (default)
 
 # Smart Sort face model bundle
 	Faces	Wajah

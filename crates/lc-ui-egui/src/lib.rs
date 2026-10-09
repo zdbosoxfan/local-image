@@ -6,6 +6,10 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+#[path = "../../pc-ui-egui/src/color_icon_data.rs"]
+mod color_icon_data;
+#[path = "../../pc-ui-egui/src/color_icons.rs"]
+mod color_icons;
 pub mod control;
 pub mod credits;
 pub mod export_task;
@@ -26,6 +30,8 @@ pub mod softpaint;
 pub mod state;
 pub mod tasks;
 pub mod theme;
+#[cfg(test)]
+mod tool_icon_tests;
 pub mod widgets;
 
 #[cfg(test)]
@@ -836,6 +842,7 @@ impl LightcraftApp {
 
     /// Lay out the whole window.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        crate::color_icons::set_enabled(ui.ctx(), self.ui.settings.color_tool_icons);
         i18n::set_language(self.ui.language);
         let ctx = ui.ctx().clone();
         if !self.fonts_ready {

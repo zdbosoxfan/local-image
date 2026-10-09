@@ -2733,6 +2733,8 @@ ai	New	Nuevos
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	La clase de cielo {class} está fuera de rango: este modelo tiene {classes} clases (0 a {max})
 	{path} isn't a file	{path} no es un archivo
 	Custom models are not supported for this function	Esta función no admite modelos personalizados
+	Tool icons	Iconos de herramientas
+	Colour (default)	Color (predeterminado)
 
 # Smart Sort face model bundle
 	Faces	Rostros

@@ -18,6 +18,10 @@
 //!     for every algorithm ported from another project (docs/PORTS.md), the upstream commits that
 //!     touched its source file since the commit it was ported from — what to review and re-port.
 //!     Clones go to target/upstream/ (blob-less); --offline skips fetching.
+//! cargo xtask assets
+//!     audit asset attribution rows and referenced licence files.
+//! cargo xtask tool-icons
+//!     render docs/design/tool-icons.png with resvg at 24/48 px on dark/light backgrounds.
 //! cargo xtask attributions [--fetch]
 //!     regenerate assets/attributions.json (Settings › Attributions) from
 //!     assets/attributions-curated.json, docs/PORTS.md, the AI model tables and Cargo.lock.
@@ -36,6 +40,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
+mod assets;
 mod attributions;
 
 fn root() -> PathBuf {
@@ -439,6 +444,8 @@ const USAGE: &str = "usage: cargo xtask <task>
   check-icons [file.wxs]
   deps-pure
   upstream-check [--offline]
+  assets
+  tool-icons
   attributions [--fetch]
   sign <files…>";
 
@@ -455,6 +462,22 @@ fn main() -> Result<()> {
         Some("check-icons") => check_icons(&args.get(1).map(PathBuf::from).unwrap_or_else(|| root().join("packaging").join("windows").join("local-image.wxs"))),
         Some("deps-pure") => deps_pure(),
         Some("upstream-check") => upstream_check(flag("--offline")),
+        Some("assets") => assets::run(&root()),
+        Some("tool-icons") => run(
+            "render tool icon contact sheet",
+            Command::new("cargo").current_dir(root()).env("CARGO_BUILD_JOBS", "3").args([
+                "+1.98.1",
+                "test",
+                "--offline",
+                "--lib",
+                "-p",
+                "photocraft-ui-egui",
+                "write_tool_icon_contact_sheet",
+                "--",
+                "--ignored",
+                "--nocapture",
+            ]),
+        ),
         Some("attributions") => attributions::run(&root(), flag("--fetch")),
         Some("sign") if args.len() > 1 => sign(&args[1..].iter().map(PathBuf::from).collect::<Vec<_>>()),
         _ => {

@@ -164,6 +164,8 @@ impl InfoOverlay {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AppSettings {
+    /// Colour tool silhouettes; defaults on when loading older UI settings.
+    pub color_tool_icons: bool,
     /// Library opened at launch when no `--library` is given (empty = the default location).
     pub library_path: String,
     pub startup_view: StartupView,
@@ -190,6 +192,7 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         AppSettings {
+            color_tool_icons: true,
             library_path: String::new(),
             startup_view: StartupView::Last,
             confirm_delete: false,

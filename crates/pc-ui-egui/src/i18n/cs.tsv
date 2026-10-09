@@ -2668,6 +2668,8 @@ ai	New	Nové
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Třída oblohy {class} je mimo rozsah: tento model má {classes} tříd (0 až {max})
 	{path} isn't a file	{path} není soubor
 	Custom models are not supported for this function	Vlastní modely nejsou pro tuto funkci podporovány
+	Tool icons	Ikony nástrojů
+	Colour (default)	Barevné (výchozí)
 
 # Smart Sort face model bundle
 	Faces	Tváře

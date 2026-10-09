@@ -200,6 +200,8 @@ impl Default for General {
 #[serde(default, rename_all = "camelCase")]
 pub struct Interface {
     pub theme: Theme,
+    /// Original colour tools, or the existing theme-tinted monochrome glyphs.
+    pub tool_icons: String,
     /// Pasteboard colour in standard screen mode (`canvasCustomColor` when "custom").
     pub canvas_color: CanvasColor,
     pub canvas_custom_color: String,
@@ -234,6 +236,7 @@ impl Default for Interface {
     fn default() -> Self {
         Self {
             theme: Theme::ProMedium,
+            tool_icons: "colour".into(),
             canvas_color: CanvasColor::Default,
             canvas_custom_color: "#282828".into(),
             canvas_border: CanvasBorder::DropShadow,
@@ -887,6 +890,7 @@ pub fn choices(path: &str) -> Option<&'static [&'static str]> {
         "general.colorPicker" => ColorPicker::NAMES,
         "general.imageInterpolation" => Interpolation::NAMES,
         "interface.theme" => Theme::NAMES,
+        "interface.toolIcons" => &["colour", "monochrome"],
         "interface.saveAndNextSavesTo" => &["editedFolder", "original", "saveAs"],
         "interface.canvasColor" => CanvasColor::NAMES,
         "interface.canvasBorder" => CanvasBorder::NAMES,
