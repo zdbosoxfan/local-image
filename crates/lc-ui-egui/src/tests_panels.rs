@@ -199,3 +199,39 @@ fn sidebar_sections_collapse_and_remember_it() {
     click(&mut h, "icon:albumNew");
     assert!(!h.app.ui.sidebar_section_collapsed("albums"), "the plus does not fold Albums");
 }
+
+#[test]
+fn primary_controls_drag_modes_and_skin_pick_are_real_interactions() {
+    let mut h = demo([1400., 1800.], json!({"view":"detail","right":"edit","leftPanel":false}));
+    // Open the sections through the persisted UI state; interact with the actual rendered controls.
+    if !h.app.ui.section_open("effects") {
+        h.app.ui.toggle_section("effects");
+    }
+    if !h.app.ui.section_open("color") {
+        h.app.ui.toggle_section("color");
+    }
+    h.step();
+    let r = h.request("ui.clickWidget", json!({"id":"button:clarityMode-punch"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    let id = h.app.session.active().unwrap();
+    assert_eq!(h.app.session.develop_of(id).unwrap().effects.clarity_mode, lightcraft_develop::ClarityMode::Punch);
+    let r = widget(&h, "slider:effects.structure");
+    let result = h.request("ui.drag", json!({"x":r.center().x,"y":r.center().y,"toX":r.right()-4.,"toY":r.center().y,"steps":6}), T);
+    assert_eq!(result["ok"], true, "{result}");
+    h.step();
+    assert!(h.app.session.develop_of(id).unwrap().effects.structure > 20.);
+    let r = h.request("ui.clickWidget", json!({"id":"flyout:skinTone"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    let r = h.request("ui.clickWidget", json!({"id":"button:skinTonePick"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    assert_eq!(h.app.ui.tool, "skinTone");
+    // Picking uses the image widget, with the same click path as a real user.
+    let photo = h.app.widgets.iter().find(|(id, _)| id == "canvas:image").map(|(_, r)| *r).unwrap();
+    let r = h.request("ui.click", json!({"x":photo.center().x,"y":photo.center().y}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    assert!(h.app.session.develop_of(id).unwrap().skin_tone.reference.is_some());
+}

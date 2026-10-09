@@ -18,6 +18,42 @@
       "intro": "Algorithms re-implemented in Rust from other projects (docs/PORTS.md). No C, C++ or Python from them is compiled or shipped.",
       "entries": [
         {
+          "name": "vkdt",
+          "used_for": "Primary Develop tools.",
+          "upstream": "src/pipe/modules/llap/reduce.comp, assemble.comp",
+          "commit": "afc34256fb22bcaf6dcf6503d19d5f9a6f477af5",
+          "ours": "crates/lc-pipeline/src/primary.rs, crates/lc-gpu/src/wgsl/primary.wgsl",
+          "licence": "BSD-2-Clause",
+          "licence_files": [
+            "licenses/vkdt-NOTICE.md"
+          ],
+          "url": "https://github.com/hanatos/vkdt/blob/afc34256fb22bcaf6dcf6503d19d5f9a6f477af5/src/pipe/modules/llap/reduce.comp"
+        },
+        {
+          "name": "OpenCV",
+          "used_for": "Opt-in face inference on the CPU, with no process-wide state or persistence.",
+          "upstream": "modules/objdetect/src/face_detect.cpp",
+          "commit": "52100328d82d0502534323e9524a701baa3a1e2a",
+          "ours": "crates/li-seg/src/faces.rs",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/opencv-NOTICE.md"
+          ],
+          "url": "https://github.com/opencv/opencv/blob/52100328d82d0502534323e9524a701baa3a1e2a/modules/objdetect/src/face_detect.cpp"
+        },
+        {
+          "name": "OpenCV",
+          "used_for": "Resize directly from the borrowed input: a 24 MP source never needs an RGB8 copy merely to produce the detector's small tensor.",
+          "upstream": "modules/objdetect/src/face_recognize.cpp",
+          "commit": "13c571a801ad5c67a752e5cd58a8a7e7725f99d2",
+          "ours": "crates/li-seg/src/faces/geometry.rs",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/opencv-NOTICE.md"
+          ],
+          "url": "https://github.com/opencv/opencv/blob/13c571a801ad5c67a752e5cd58a8a7e7725f99d2/modules/objdetect/src/face_recognize.cpp"
+        },
+        {
           "name": "Local Image / LightCraft",
           "used_for": "The CLIP byte-pair-encoding tokenizer (lower-cased, </w> word ends), padded to the configurable context CLIP text encoders take (77 tokens for Smart Sort).",
           "upstream": "crates/lc-segment/src/tokenizer.rs (Apache-2.0 tokenizer port from Hugging Face Transformers)",
@@ -435,6 +471,279 @@
           "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtdata/dcpprofiles/"
         },
         {
+          "name": "visioncortex",
+          "used_for": "Hierarchical colour region clustering for image tracing.",
+          "upstream": "src/color_clusters/builder.rs",
+          "commit": "0062088c89645aac76c00e066deb7e8f53980dd7",
+          "ours": "crates/pc-trace/src/vc/color_clusters/builder.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/visioncortex-LICENSE-APACHE",
+            "licenses/visioncortex-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/visioncortex/blob/0062088c89645aac76c00e066deb7e8f53980dd7/src/color_clusters/builder.rs"
+        },
+        {
+          "name": "visioncortex",
+          "used_for": "Stacked colour-region masks and adjacency for image tracing.",
+          "upstream": "src/color_clusters/cluster.rs",
+          "commit": "0062088c89645aac76c00e066deb7e8f53980dd7",
+          "ours": "crates/pc-trace/src/vc/color_clusters/cluster.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/visioncortex-LICENSE-APACHE",
+            "licenses/visioncortex-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/visioncortex/blob/0062088c89645aac76c00e066deb7e8f53980dd7/src/color_clusters/cluster.rs"
+        },
+        {
+          "name": "visioncortex",
+          "used_for": "Compact region storage for image tracing.",
+          "upstream": "src/color_clusters/container.rs",
+          "commit": "0062088c89645aac76c00e066deb7e8f53980dd7",
+          "ours": "crates/pc-trace/src/vc/color_clusters/container.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/visioncortex-LICENSE-APACHE",
+            "licenses/visioncortex-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/visioncortex/blob/0062088c89645aac76c00e066deb7e8f53980dd7/src/color_clusters/container.rs"
+        },
+        {
+          "name": "visioncortex",
+          "used_for": "Colour clustering, speckle absorption and layering for image tracing.",
+          "upstream": "src/color_clusters/runner.rs",
+          "commit": "0062088c89645aac76c00e066deb7e8f53980dd7",
+          "ours": "crates/pc-trace/src/vc/color_clusters/runner.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/visioncortex-LICENSE-APACHE",
+            "licenses/visioncortex-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/visioncortex/blob/0062088c89645aac76c00e066deb7e8f53980dd7/src/color_clusters/runner.rs"
+        },
+        {
+          "name": "visioncortex",
+          "used_for": "Colour accumulators for hierarchical image tracing.",
+          "upstream": "src/color.rs",
+          "commit": "0062088c89645aac76c00e066deb7e8f53980dd7",
+          "ours": "crates/pc-trace/src/vc/color.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/visioncortex-LICENSE-APACHE",
+            "licenses/visioncortex-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/visioncortex/blob/0062088c89645aac76c00e066deb7e8f53980dd7/src/color.rs"
+        },
+        {
+          "name": "visioncortex",
+          "used_for": "Region bounds for hierarchical image tracing.",
+          "upstream": "src/bound.rs",
+          "commit": "0062088c89645aac76c00e066deb7e8f53980dd7",
+          "ours": "crates/pc-trace/src/vc/bound.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/visioncortex-LICENSE-APACHE",
+            "licenses/visioncortex-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/visioncortex/blob/0062088c89645aac76c00e066deb7e8f53980dd7/src/bound.rs"
+        },
+        {
+          "name": "vtracer",
+          "used_for": "Fixed and Bradley–Roth adaptive thresholding for binary image tracing.",
+          "upstream": "crates/vtracer/src/frontend/binary.rs",
+          "commit": "928ed0a6f654408e28fb741b6133d4c456bd0160",
+          "ours": "crates/pc-trace/src/frontend/binary.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vtracer-LICENSE-APACHE",
+            "licenses/vtracer-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/vtracer/blob/928ed0a6f654408e28fb741b6133d4c456bd0160/crates/vtracer/src/frontend/binary.rs"
+        },
+        {
+          "name": "vtracer",
+          "used_for": "Hierarchical stacked colour image tracing.",
+          "upstream": "crates/vtracer/src/frontend/color_cluster.rs",
+          "commit": "928ed0a6f654408e28fb741b6133d4c456bd0160",
+          "ours": "crates/pc-trace/src/frontend/color_cluster.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vtracer-LICENSE-APACHE",
+            "licenses/vtracer-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/vtracer/blob/928ed0a6f654408e28fb741b6133d4c456bd0160/crates/vtracer/src/frontend/color_cluster.rs"
+        },
+        {
+          "name": "vtracer",
+          "used_for": "Deterministic alpha/background keying for image tracing.",
+          "upstream": "crates/vtracer/src/frontend/keying.rs",
+          "commit": "928ed0a6f654408e28fb741b6133d4c456bd0160",
+          "ours": "crates/pc-trace/src/frontend/keying.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vtracer-LICENSE-APACHE",
+            "licenses/vtracer-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/vtracer/blob/928ed0a6f654408e28fb741b6133d4c456bd0160/crates/vtracer/src/frontend/keying.rs"
+        },
+        {
+          "name": "vtracer",
+          "used_for": "Edge-aware hierarchical watershed regions for photo image tracing.",
+          "upstream": "crates/vtracer/src/frontend/watershed.rs",
+          "commit": "928ed0a6f654408e28fb741b6133d4c456bd0160",
+          "ours": "crates/pc-trace/src/frontend/watershed.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vtracer-LICENSE-APACHE",
+            "licenses/vtracer-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/vtracer/blob/928ed0a6f654408e28fb741b6133d4c456bd0160/crates/vtracer/src/frontend/watershed.rs"
+        },
+        {
+          "name": "vtracer",
+          "used_for": "Oklab palette distance for image tracing.",
+          "upstream": "crates/vtracer/src/colorfit/oklab.rs",
+          "commit": "928ed0a6f654408e28fb741b6133d4c456bd0160",
+          "ours": "crates/pc-trace/src/colorfit/oklab.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vtracer-LICENSE-APACHE",
+            "licenses/vtracer-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/vtracer/blob/928ed0a6f654408e28fb741b6133d4c456bd0160/crates/vtracer/src/colorfit/oklab.rs"
+        },
+        {
+          "name": "vtracer",
+          "used_for": "Area-weighted palette quantisation for image tracing.",
+          "upstream": "crates/vtracer/src/colorfit/quantize.rs",
+          "commit": "928ed0a6f654408e28fb741b6133d4c456bd0160",
+          "ours": "crates/pc-trace/src/colorfit/quantize.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vtracer-LICENSE-APACHE",
+            "licenses/vtracer-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/vtracer/blob/928ed0a6f654408e28fb741b6133d4c456bd0160/crates/vtracer/src/colorfit/quantize.rs"
+        },
+        {
+          "name": "vtracer",
+          "used_for": "Document-palette snapping for image tracing.",
+          "upstream": "crates/vtracer/src/colorfit/palette.rs",
+          "commit": "928ed0a6f654408e28fb741b6133d4c456bd0160",
+          "ours": "crates/pc-trace/src/colorfit/palette.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vtracer-LICENSE-APACHE",
+            "licenses/vtracer-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/vtracer/blob/928ed0a6f654408e28fb741b6133d4c456bd0160/crates/vtracer/src/colorfit/palette.rs"
+        },
+        {
+          "name": "vtracer",
+          "used_for": "Stacked colour regions for image tracing.",
+          "upstream": "crates/vtracer/src/ir/region.rs",
+          "commit": "928ed0a6f654408e28fb741b6133d4c456bd0160",
+          "ours": "crates/pc-trace/src/ir.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vtracer-LICENSE-APACHE",
+            "licenses/vtracer-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/vtracer/blob/928ed0a6f654408e28fb741b6133d4c456bd0160/crates/vtracer/src/ir/region.rs"
+        },
+        {
+          "name": "vtracer",
+          "used_for": "Independent vector-quality metrics.",
+          "upstream": "crates/vtracer-bench/src/lib.rs",
+          "commit": "928ed0a6f654408e28fb741b6133d4c456bd0160",
+          "ours": "crates/pc-testkit/src/vector/mod.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vtracer-LICENSE-APACHE",
+            "licenses/vtracer-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/vtracer/blob/928ed0a6f654408e28fb741b6133d4c456bd0160/crates/vtracer-bench/src/lib.rs"
+        },
+        {
+          "name": "visioncortex",
+          "used_for": "Vtracer/visioncortex spline pipeline: staircase removal, polygon reduction, four-point subdivision preserving corners, then optimal kurbo cubic refitting.",
+          "upstream": "src/path/simplify.rs",
+          "commit": "0062088c89645aac76c00e066deb7e8f53980dd7",
+          "ours": "crates/pc-trace/src/spline.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/visioncortex-LICENSE-APACHE",
+            "licenses/visioncortex-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/visioncortex/blob/0062088c89645aac76c00e066deb7e8f53980dd7/src/path/simplify.rs"
+        },
+        {
+          "name": "visioncortex",
+          "used_for": "Vtracer/visioncortex spline pipeline: staircase removal, polygon reduction, four-point subdivision preserving corners, then optimal kurbo cubic refitting.",
+          "upstream": "src/path/smooth.rs",
+          "commit": "0062088c89645aac76c00e066deb7e8f53980dd7",
+          "ours": "crates/pc-trace/src/spline.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/visioncortex-LICENSE-APACHE",
+            "licenses/visioncortex-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/visioncortex/blob/0062088c89645aac76c00e066deb7e8f53980dd7/src/path/smooth.rs"
+        },
+        {
+          "name": "visioncortex",
+          "used_for": "Vtracer/visioncortex spline pipeline: staircase removal, polygon reduction, four-point subdivision preserving corners, then optimal kurbo cubic refitting.",
+          "upstream": "src/path/spline.rs",
+          "commit": "0062088c89645aac76c00e066deb7e8f53980dd7",
+          "ours": "crates/pc-trace/src/spline.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/visioncortex-LICENSE-APACHE",
+            "licenses/visioncortex-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/visioncortex/blob/0062088c89645aac76c00e066deb7e8f53980dd7/src/path/spline.rs"
+        },
+        {
+          "name": "vtracer",
+          "used_for": "Vtracer/visioncortex spline pipeline: staircase removal, polygon reduction, four-point subdivision preserving corners, then optimal kurbo cubic refitting.",
+          "upstream": "crates/vtracer/src/simplify.rs",
+          "commit": "928ed0a6f654408e28fb741b6133d4c456bd0160",
+          "ours": "crates/pc-trace/src/spline.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vtracer-LICENSE-APACHE",
+            "licenses/vtracer-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/vtracer/blob/928ed0a6f654408e28fb741b6133d4c456bd0160/crates/vtracer/src/simplify.rs"
+        },
+        {
+          "name": "potrace",
+          "version": "potrace-1.16.tar.gz; sha256",
+          "used_for": "Ported from Potrace 1.16 © Peter Selinger: optimal polygon, vertex adjustment, alphamax corner analysis, and area/tangency constrained opticurve.",
+          "upstream": "src/trace.c",
+          "commit": "be8248a17dedd6ccbaab2fcc45835bb0502d062e40fbded3bc56028ce5eb7acc",
+          "ours": "crates/pc-trace/src/potrace.rs",
+          "licence": "GPL-2.0-or-later",
+          "licence_files": [
+            "licenses/potrace-COPYING",
+            "licenses/potrace-NOTICE.md"
+          ],
+          "url": "https://potrace.sourceforge.net/"
+        },
+        {
+          "name": "vkdt",
+          "author": "Johannes Hanika",
+          "used_for": "The local-Laplacian reduce/assemble stencils and sampled construction in LI Tone, with Local Image's exposure remapping and rectangular pyramid extensions.",
+          "commit": "afc34256fb22bcaf6dcf6503d19d5f9a6f477af5",
+          "ours": "crates/lc-pipeline/src/primary.rs, crates/lc-gpu/src/wgsl/primary.wgsl",
+          "licence": "BSD-2-Clause",
+          "licence_files": [
+            "licenses/vkdt-NOTICE.md"
+          ],
+          "url": "https://github.com/hanatos/vkdt"
+        },
+        {
           "name": "Hugging Face Transformers (SAM 3)",
           "author": "The HuggingFace Team and Meta Platforms, Inc.",
           "used_for": "The SAM 3 model code behind Develop's object masks, ported from Python/PyTorch to Rust on candle (crates/lc-segment).",
@@ -559,6 +868,26 @@
           "used_for": "Smart Sort: sorting photos into folders by what they show.",
           "licence": "MIT",
           "url": "https://huggingface.co/immich-app/ViT-B-32__laion2b-s34b-b79k"
+        },
+        {
+          "name": "YuNet",
+          "author": "YuNet, Shiqi Yu / OpenCV Zoo",
+          "used_for": "Smart Sort: finding faces and recognising people (opt-in).",
+          "licence": "MIT",
+          "licence_files": [
+            "licenses/opencv-NOTICE.md"
+          ],
+          "url": "https://huggingface.co/opencv/face_detection_yunet"
+        },
+        {
+          "name": "YuNet + SFace",
+          "author": "SFace, OpenCV Zoo",
+          "used_for": "Smart Sort: finding faces and recognising people (opt-in).",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/opencv-NOTICE.md"
+          ],
+          "url": "https://huggingface.co/opencv/face_recognition_sface"
         },
         {
           "name": "SAM 3 (Segment Anything 3)",

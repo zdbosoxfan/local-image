@@ -7,9 +7,9 @@
 //! Ported from darktable's `src/iop/toneequal.c` (`build_interpolation_matrix`, `pseudo_solve`
 //! of `gaussian_elimination.h`, `compute_correction_lut`, `pixel_correction`; the Euclidean-norm
 //! luminance of `src/common/luminance_mask.h`; GPL-3.0-or-later, Aurélien Pierre), see
-//! `docs/PORTS.md`. Differences: the mask is this pipeline's fast guided filter of the *log*
-//! luminance (darktable: guided filter or EIGF of the linear luminance), its exposure and contrast
-//! compensation work in log space about −4 EV, and the correction table is interpolated.
+//! `docs/PORTS.md`. The mask uses the upstream linear-luminance EIGF, with quantized
+//! guidance and geometric blending; exposure/contrast compensation precede filtering.
+//! The correction table is interpolated for continuous slider response.
 
 use lightcraft_raster::{Plane, Rgb32f};
 
@@ -70,6 +70,10 @@ fn least_squares(a: &[[f64; 8]; ZONES], y: &[f64; ZONES]) -> Option<[f64; 8]> {
 }
 
 impl Curve {
+    /// Shared correction table for native renderers (the CPU uses the same interpolation).
+    pub fn lut(&self) -> &[f32] {
+        &self.lut
+    }
     /// The curve through `zones` (EV changes, clamped to ±2) with Gaussians of `sigma` EV.
     /// `None` when every zone is 0 (nothing to do) or the fit is unstable.
     pub fn new(zones: &[f64; ZONES], sigma: f32) -> Option<Curve> {
@@ -121,11 +125,22 @@ pub fn log_norm(c: [f32; 3]) -> f32 {
 /// The (pre-exposure) mask of `img`: [`log_norm`] smoothed by the fast guided filter with
 /// Gaussian windows of `sigma` px and edge epsilon `eps` (EV²).
 pub fn mask_plane(img: &Rgb32f, sigma: f32, eps: f32) -> Plane {
-    let l = Plane { width: img.width, height: img.height, data: img.data.iter().map(|c| log_norm(*c)).collect() };
-    if sigma < 0.5 {
-        return l;
-    }
-    crate::local::guided_fast(&l, sigma, eps)
+    mask_plane_adjusted(img, sigma, eps, 0.0, 0.0)
+}
+
+/// Upstream linear luminance_mask contrast/exposure, followed by faithful EIGF.
+pub fn mask_plane_adjusted(img: &Rgb32f, sigma: f32, eps: f32, exposure: f32, contrast: f32) -> Plane {
+    let gain = exposure.exp2();
+    let slope = contrast.exp2();
+    let lum = img.map(|c| {
+        let n = (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt() * gain;
+        ((n - 2f32.powi(-4)) * slope + 2f32.powi(-4)).max(2f32.powi(-16))
+    });
+    let mut p = crate::eigf::Params::new(sigma, eps);
+    p.iterations = 2;
+    p.quantization = 1.0;
+    p.geometric = true;
+    crate::eigf::filter(&lum, p).map(|v| v.max(2f32.powi(-16)).log2())
 }
 
 /// Exposure and contrast compensation of the mask (both EV; darktable's "mask exposure /
@@ -170,7 +185,7 @@ pub fn of(s: &lightcraft_develop::DevelopSettings) -> Option<(Curve, MaskAdjust)
     }
     let t = &s.tone_eq;
     let curve = Curve::new(&t.zones(), smoothing_sigma(t.smoothing.clamp(-2.33, 1.67)))?;
-    Some((curve, MaskAdjust { exposure: t.mask_exposure as f32, contrast: t.mask_contrast as f32 }))
+    Some((curve, MaskAdjust { exposure: -s.light.exposure as f32, contrast: 0.0 }))
 }
 
 /// The mask's guided-filter radius (Gaussian σ, output px) and edge epsilon (EV²) for `s` at
@@ -227,8 +242,10 @@ mod tests {
         let m = mask_plane(&img, 6.0, 0.1);
         let (dark, bright) = (m.get(20, 20), m.get(100, 20));
         assert!(bright - dark > 4.0, "{dark} {bright}");
-        // texture smoothed: neighbours read nearly the same zone
-        assert!((m.get(20, 20) - m.get(21, 20)).abs() < 0.1);
+        // Geometric EIGF deliberately retains some fine contrast; attenuation is measured
+        // against the input instead of requiring the old log filter's near-flat result.
+        let original = (0.0125f32 / 0.0075).log2();
+        assert!((m.get(20, 20) - m.get(21, 20)).abs() < original * 0.75);
         let a = MaskAdjust { exposure: 1.0, contrast: 0.0 };
         assert_eq!(a.zone_ev(-5.0, 0.5), -3.5);
         let b = MaskAdjust { exposure: 0.0, contrast: 1.0 };

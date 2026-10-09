@@ -62,7 +62,7 @@ impl SettingsHashes {
 }
 
 /// Bump when the pipeline's output changes, to invalidate cached thumbnails.
-pub const RENDER_CACHE_VERSION: u64 = 14;
+pub const RENDER_CACHE_VERSION: u64 = 15;
 
 /// Thumbnails render at one of these long edges (so window/cell size changes reuse the cache).
 pub const THUMB_SIZES: [usize; 4] = [128, 256, 384, 512];
@@ -651,10 +651,6 @@ pub fn develop(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &
     if gpu
         && !lightcraft_pipeline::lut::is_lut_profile(&s.profile.id)
         && !s.masks.iter().any(|m| m.visible && m.refine > 0.0)
-        // develop layer tools have no GPU kernels yet
-        && !lightcraft_pipeline::layers_need_cpu(s)
-        // nor the tone equalizer
-        && !lightcraft_pipeline::tools_need_cpu(s, req)
         && req.proof.is_none()
         && let Some(r) = lightcraft_gpu::render(src, info, s, req, stages)
     {

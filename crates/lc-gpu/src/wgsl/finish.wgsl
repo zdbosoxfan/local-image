@@ -1,3 +1,13 @@
+// A layer selects a packed FinishParams block. The ordinary render reads P directly.
+var<private> parameter_offset:u32;
+var<private> layer_sharp1:u32;
+var<private> layer_sharp2:u32;
+fn fu(i:u32)->u32 {if(parameter_offset==0u){return P[i];}return bitcast<u32>(aux[parameter_offset+i]);}
+fn ff(i:u32)->f32 {return bitcast<f32>(fu(i));}
+fn descriptor(layer:u32,field:u32)->u32 {return bitcast<u32>(aux[P[F_LAYER_OFF]+layer*6u+field]);}
+fn alpha_at(layer:u32,i:u32,n:u32)->f32 {return masks[descriptor(layer,0u)*n+i];}
+fn layer_context(layer:u32){parameter_offset=descriptor(layer,1u);layer_sharp1=descriptor(layer,4u);layer_sharp2=descriptor(layer,5u);}
+fn clear_context(){parameter_offset=0u;layer_sharp1=0u;layer_sharp2=0u;}
 // The per-pixel stage: a straight port of `lightcraft_pipeline::finish` (keep in step with it).
 // Bindings: img (rgb, pre-exposure), log_l, base, clar, tex, dark, masks (NMASK planes, then the
 // blurred chromaticity when HAS_CHROMA), aux
@@ -11,7 +21,7 @@ fn tone_apply(y: f32) -> f32 {
     let f = clamp((ev - TONE_MIN_EV) / (TONE_MAX_EV - TONE_MIN_EV), 0.0, 1.0) * f32(TONE_N - 1u);
     let i = min(u32(f), TONE_N - 2u);
     let t = f - f32(i);
-    let v = aux[i] + (aux[i + 1u] - aux[i]) * t;
+    let v = aux[fu(F_TONE_OFF)+i] + (aux[fu(F_TONE_OFF)+i + 1u] - aux[fu(F_TONE_OFF)+i]) * t;
     if (ev < TONE_MIN_EV) {
         return v * (y / (GREY * TONE_MIN_GAIN));
     }
@@ -23,15 +33,15 @@ fn chroma_scale(o: f32) -> f32 {
     let f = clamp(o, 0.0, 1.0) * f32(CHROMA_N - 1u);
     let i = min(u32(f), CHROMA_N - 2u);
     let t = f - f32(i);
-    let a = aux[TONE_N + i];
-    let b = aux[TONE_N + i + 1u];
+    let a = aux[fu(F_TONE_OFF)+TONE_N + i];
+    let b = aux[fu(F_TONE_OFF)+TONE_N + i + 1u];
     if (a == b) {
         return a;
     }
     return a + (b - a) * t;
 }
 
-// Process 2026 tone (`tone2::tone_px`): darktable sigmoid's per-channel curve with its hue and
+// Unified tone (`tone2::tone_px`): darktable sigmoid's per-channel curve with its hue and
 // energy preservation, then a camera curve's chroma scale.
 fn gamut(r: vec3<f32>, weights: vec3<f32>) -> vec3<f32> {
     let yy = clamp(dot(weights, r), 0.0, 1.0);
@@ -53,7 +63,7 @@ fn tone_v2(c0: vec3<f32>) -> vec3<f32> {
         f = -avg / (mn - avg);
     }
     var pix = array<f32, 3>(avg + f * (c0.x - avg), avg + f * (c0.y - avg), avg + f * (c0.z - avg));
-    if (pu(F_TONE_LUM) != 0u) {
+    if (fu(F_TONE_LUM) != 0u) {
         let c = vec3<f32>(pix[0],pix[1],pix[2]);
         let yy = lum2020(c);
         if (yy <= 0.0) { return vec3<f32>(0.0); }
@@ -61,7 +71,7 @@ fn tone_v2(c0: vec3<f32>) -> vec3<f32> {
         let k = chroma_scale(o);
         let per=vec3<f32>(tone_apply(c.x),tone_apply(c.y),tone_apply(c.z));
         let py=max(lum2020(per),1e-9);
-        let hue=pf(F_TONE_HUE);
+        let hue=ff(F_TONE_HUE);
         let q=hue*c*o/yy+(1.0-hue)*per*o/py;
         return gamut(o+(q-o)*k,vec3<f32>(0.2627,0.6780,0.0593));
     }
@@ -88,7 +98,7 @@ fn tone_v2(c0: vec3<f32>) -> vec3<f32> {
         lo = 0u; mid = 2u; hi = 1u;
     }
     // `preserve_hue_and_energy`
-    let hue = pf(F_TONE_HUE);
+    let hue = ff(F_TONE_HUE);
     let chroma = pix[hi] - pix[lo];
     var midscale = 0.0;
     if (chroma != 0.0) {
@@ -126,7 +136,7 @@ fn tone_v2(c0: vec3<f32>) -> vec3<f32> {
 }
 
 fn encode_srgb(v: f32) -> f32 {
-    let o = pu(F_SRGB_OFF);
+    let o = fu(F_SRGB_OFF);
     let f = clamp(v, 0.0, 1.0) * f32(SRGB_N);
     let i = min(u32(f), SRGB_N - 1u);
     let t = f - f32(i);
@@ -134,7 +144,7 @@ fn encode_srgb(v: f32) -> f32 {
 }
 
 fn curve(ch: u32, x: f32) -> f32 {
-    let o = pu(F_CURVE_OFF) + ch * CURVE_N;
+    let o = fu(F_CURVE_OFF) + ch * CURVE_N;
     let f = clamp(x, 0.0, 1.0) * f32(CURVE_N - 1u);
     let i = min(u32(f), CURVE_N - 2u);
     let t = f - f32(i);
@@ -144,8 +154,8 @@ fn curve(ch: u32, x: f32) -> f32 {
 fn band_weights(h: f32) -> array<f32, 8> {
     var w: array<f32, 8>;
     for (var i = 0u; i < 8u; i++) {
-        let a = pf(F_BANDH + i);
-        let b = pf(F_BANDH + (i + 1u) % 8u);
+        let a = ff(F_BANDH + i);
+        let b = ff(F_BANDH + (i + 1u) % 8u);
         let span = rem_euclid(wrap_angle(b - a), TAU);
         let d = rem_euclid(wrap_angle(h - a), TAU);
         if (d <= span) {
@@ -162,13 +172,13 @@ fn band_weights(h: f32) -> array<f32, 8> {
 // `PointK::apply` for Point Color sample `k` (OkLCh in, OkLCh out).
 fn point_color(k: u32, lch: vec3<f32>) -> vec3<f32> {
     let o = F_PC + k * POINT_WORDS;
-    let sl = pf(o);
-    let sc = pf(o + 1u);
-    let sh = pf(o + 2u);
-    let var_k = pf(o + 6u);
-    let wh_ = pf(o + 7u);
-    let wc_ = pf(o + 8u);
-    let wl_ = pf(o + 9u);
+    let sl = ff(o);
+    let sc = ff(o + 1u);
+    let sh = ff(o + 2u);
+    let var_k = ff(o + 6u);
+    let wh_ = ff(o + 7u);
+    let wc_ = ff(o + 8u);
+    let wl_ = ff(o + 9u);
     var l = lch.x;
     var c = lch.y;
     var h = lch.z;
@@ -185,80 +195,80 @@ fn point_color(k: u32, lch: vec3<f32>) -> vec3<f32> {
     if (w <= 0.0) {
         return lch;
     }
-    h += w * (var_k * wrap_angle(h - sh) + pf(o + 3u));
+    h += w * (var_k * wrap_angle(h - sh) + ff(o + 3u));
     c += w * var_k * (c - sc);
-    c = max(c * (1.0 + w * pf(o + 4u)), 0.0);
-    l += w * (var_k * (l - sl) + pf(o + 5u));
+    c = max(c * (1.0 + w * ff(o + 4u)), 0.0);
+    l += w * (var_k * (l - sl) + ff(o + 5u));
     return vec3<f32>(l, c, h);
 }
 
 // `ColorOps::apply`.
 fn color_ops(rgb: vec3<f32>, local_sat: f32, local_hue: f32) -> vec3<f32> {
-    if (pu(F_OPS_IDENTITY) != 0u && local_sat == 0.0 && local_hue == 0.0) {
+    if (fu(F_OPS_IDENTITY) != 0u && local_sat == 0.0 && local_hue == 0.0) {
         return rgb;
     }
     let lab0 = oklab(rgb);
     var l = lab0.x;
     var c = sqrt(lab0.y * lab0.y + lab0.z * lab0.z);
     var h = atan2(lab0.z, lab0.y);
-    if (pu(F_MIXER) != 0u) {
+    if (fu(F_MIXER) != 0u) {
         let w = band_weights(h);
         var dh = 0.0;
         var ds = 0.0;
         var dl = 0.0;
         for (var i = 0u; i < 8u; i++) {
-            dh += w[i] * pf(F_MIX_HUE + i);
-            ds += w[i] * pf(F_MIX_SAT + i);
-            dl += w[i] * pf(F_MIX_LUM + i);
+            dh += w[i] * ff(F_MIX_HUE + i);
+            ds += w[i] * ff(F_MIX_SAT + i);
+            dl += w[i] * ff(F_MIX_LUM + i);
         }
         let chroma_w = min(c / 0.12, 1.0);
         h += dh * chroma_w;
         c *= max(1.0 + ds, 0.0);
         l += dl * chroma_w * sqrt(max(l, 0.05));
     }
-    for (var k = 0u; k < pu(F_NPC); k++) {
+    for (var k = 0u; k < fu(F_NPC); k++) {
         let r = point_color(k, vec3<f32>(l, c, h));
         l = r.x;
         c = r.y;
         h = r.z;
     }
-    let vib = pf(F_VIBRANCE);
+    let vib = ff(F_VIBRANCE);
     if (vib != 0.0) {
         let low = 1.0 - clamp(c / 0.22, 0.0, 1.0);
         var skin = 1.0;
         if (vib > 0.0) {
-            let q = wrap_angle(h - pf(F_SKIN)) / 0.35;
+            let q = wrap_angle(h - ff(F_SKIN)) / 0.35;
             skin = 1.0 - 0.6 * exp(-(q * q));
         }
         c *= max(1.0 + vib * low * low * skin * 1.2, 0.0);
     }
-    let sat = pf(F_SATURATION);
+    let sat = ff(F_SATURATION);
     if (sat != 0.0 || local_sat != 0.0) {
         c *= max(1.0 + sat + local_sat, 0.0);
     }
     h += local_hue;
-    if (pu(F_BW) != 0u) {
+    if (fu(F_BW) != 0u) {
         let w = band_weights(h);
         var mix = 0.0;
         for (var i = 0u; i < 8u; i++) {
-            mix += w[i] * pf(F_BW_MIX + i);
+            mix += w[i] * ff(F_BW_MIX + i);
         }
         l = max(l + mix * min(c / 0.2, 1.0) * 0.25, 0.0);
         c = 0.0;
     }
     var lab = vec3<f32>(l, c * cos(h), c * sin(h));
-    if (pu(F_GRADING) != 0u) {
-        let m = 0.5 - pf(F_BALANCE) * 0.25;
-        let width = 0.15 + pf(F_BLENDING) * 0.5;
+    if (fu(F_GRADING) != 0u) {
+        let m = 0.5 - ff(F_BALANCE) * 0.25;
+        let width = 0.15 + ff(F_BLENDING) * 0.5;
         let ws = 1.0 - sstep(m - width, m + width * 0.25, lab.x);
         let wh = sstep(m - width * 0.25, m + width, lab.x);
         let wm = max(1.0 - ws - wh, 0.0);
         let wts = array<f32, 4>(ws, wm, wh, 1.0);
         for (var k = 0u; k < 4u; k++) {
             let wt = wts[k];
-            lab.y += pf(F_WHEELS + 3u * k) * wt;
-            lab.z += pf(F_WHEELS + 3u * k + 1u) * wt;
-            lab.x += pf(F_WHEELS + 3u * k + 2u) * wt;
+            lab.y += ff(F_WHEELS + 3u * k) * wt;
+            lab.z += ff(F_WHEELS + 3u * k + 1u) * wt;
+            lab.x += ff(F_WHEELS + 3u * k + 2u) * wt;
         }
     }
     return oklab_inv(lab);
@@ -267,15 +277,15 @@ fn color_ops(rgb: vec3<f32>, local_sat: f32, local_hue: f32) -> vec3<f32> {
 // `colorops::calibrate`: primaries matrix, then the shadows tint (luminance kept).
 fn calibrate(c0: vec3<f32>) -> vec3<f32> {
     var c = c0;
-    if (pu(F_CALIB) != 0u) {
+    if (fu(F_CALIB) != 0u) {
         let m = array<vec3<f32>, 3>(
-            vec3<f32>(pf(F_CALIB_M), pf(F_CALIB_M + 1u), pf(F_CALIB_M + 2u)),
-            vec3<f32>(pf(F_CALIB_M + 3u), pf(F_CALIB_M + 4u), pf(F_CALIB_M + 5u)),
-            vec3<f32>(pf(F_CALIB_M + 6u), pf(F_CALIB_M + 7u), pf(F_CALIB_M + 8u)),
+            vec3<f32>(ff(F_CALIB_M), ff(F_CALIB_M + 1u), ff(F_CALIB_M + 2u)),
+            vec3<f32>(ff(F_CALIB_M + 3u), ff(F_CALIB_M + 4u), ff(F_CALIB_M + 5u)),
+            vec3<f32>(ff(F_CALIB_M + 6u), ff(F_CALIB_M + 7u), ff(F_CALIB_M + 8u)),
         );
         c = max(mul3(m, c), vec3<f32>(0.0));
     }
-    let st = pf(F_SHADOW_TINT);
+    let st = ff(F_SHADOW_TINT);
     if (st != 0.0) {
         let y0 = lum2020(c);
         let w = 1.0 - sstep(-5.0, -0.5, log2(max(y0, 1e-7) / 0.18));
@@ -361,7 +371,7 @@ fn srgb_to_linear(v: f32) -> f32 {
 
 fn curve_working(c: vec3<f32>) -> vec3<f32> {
     var d = c;
-    if (pu(F_CURVE_LUM) != 0u) {
+    if (fu(F_CURVE_LUM) != 0u) {
         let yy = max(lum2020(c),0.0);
         let z = srgb_to_linear(curve(0u, linear_to_srgb(yy)));
         d = vec3<f32>(z);
@@ -369,7 +379,7 @@ fn curve_working(c: vec3<f32>) -> vec3<f32> {
     } else {
         let e = vec3<f32>(linear_to_srgb(c.x),linear_to_srgb(c.y),linear_to_srgb(c.z));
         let q = vec3<f32>(curve(0u,e.x),curve(0u,e.y),curve(0u,e.z));
-        let v = refine_saturation(e,q,pf(F_REFINE_SAT));
+        let v = refine_saturation(e,q,ff(F_REFINE_SAT));
         d = vec3<f32>(srgb_to_linear(v.x),srgb_to_linear(v.y),srgb_to_linear(v.z));
     }
     let yy = clamp(lum2020(d),0.0,1.0);
@@ -381,7 +391,7 @@ fn curve_working(c: vec3<f32>) -> vec3<f32> {
 
 // sRGB-curve-encoded value → the output space's own curve (`OutputTrc`: 0 sRGB, 1 gamma, 2 Rec.709).
 fn out_encode(v: f32) -> f32 {
-    let kind = pu(F_OUT_TRC);
+    let kind = fu(F_OUT_TRC);
     if (kind == 0u) {
         return v;
     }
@@ -391,7 +401,7 @@ fn out_encode(v: f32) -> f32 {
         l = pow((e + 0.055) / 1.055, 2.4);
     }
     if (kind == 1u) {
-        return pow(l, 1.0 / pf(F_OUT_GAMMA));
+        return pow(l, 1.0 / ff(F_OUT_GAMMA));
     }
     if (l < 0.018) {
         return l * 4.5;
@@ -401,18 +411,23 @@ fn out_encode(v: f32) -> f32 {
 
 @compute @workgroup_size(16, 16)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let w = pu(F_W);
-    let h = pu(F_H);
+    let w = fu(F_W);
+    let h = fu(F_H);
     let x = gid.x;
-    let y = gid.y + pu(F_Y0);
+    let y = gid.y + fu(F_Y0);
     if (x >= w || y >= h) {
         return;
     }
     let i = y * w + x;
     let n = w * h;
-    let gain = pf(F_GAIN);
-    let ev = pf(F_EV);
-    var c = vec3<f32>(img[3u * i], img[3u * i + 1u], img[3u * i + 2u]);
+    let gain = ff(F_GAIN);
+    let ev = ff(F_EV);
+    var raw=vec3<f32>(img[3u*i],img[3u*i+1u],img[3u*i+2u]);
+    for(var layer=0u;layer<P[F_NLAYER];layer++){
+        let alpha=alpha_at(layer,i,n);let offset=descriptor(layer,3u);
+        if(alpha>0.0 && offset!=0xffffffffu){let j=offset+3u*i;let q=vec3<f32>(masks[j],masks[j+1u],masks[j+2u]);raw=raw+(q-raw)*alpha;}
+    }
+    var c=raw;
     if (gain != 1.0) {
         c = c * gain;
     }
@@ -424,13 +439,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var tint_on = false;
     var tint_dir = vec2<f32>(0.0, 0.0);
     var tint_amt = 0.0;
-    let nm = pu(F_NMASK);
+    let nm = fu(F_NMASK);
     for (var m = 0u; m < nm; m++) {
         let a = masks[m * n + i];
         if (a <= 0.0) {
             continue;
         }
-        let t = pu(F_MASK_OFF) + m * MASK_TERMS;
+        let t = fu(F_MASK_OFF) + m * MASK_TERMS;
         for (var k = 0u; k < MASK_SUMS; k++) {
             lt[k] += a * aux[t + k];
         }
@@ -447,8 +462,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // --- local Moiré (and the colour part of Noise): chromaticity towards its blur
     let mt = clamp(lt[15] + 0.5 * max(l_noise, 0.0), -1.0, 1.0);
-    if (mt != 0.0 && pu(F_HAS_CHROMA) != 0u) {
-        let raw = vec3<f32>(img[3u * i], img[3u * i + 1u], img[3u * i + 2u]);
+    if (mt != 0.0 && fu(F_HAS_CHROMA) != 0u) {
         let y = lum2020(c);
         let ch0 = raw / max(lum2020(raw), 1e-6);
         let o = nm * n + 3u * i;
@@ -457,7 +471,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
     // --- local Defringe: desaturate purple / green fringes along edges
     let df = clamp(lt[16], 0.0, 1.0);
-    if (df > 0.0 && pu(F_HAS_TEX) != 0u) {
+    if (df > 0.0 && fu(F_HAS_TEX) != 0u) {
         let yd = max(lum2020(c), 1e-6);
         let purple = (min(c.x, c.z) - c.y) / yd;
         let green = (c.y - max(c.x, c.z)) / yd;
@@ -469,16 +483,26 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     // --- dehaze (scene linear)
-    let dz = pf(F_DEHAZE) + lt[10];
-    if (dz != 0.0 && pu(F_HAS_DARK) != 0u) {
+    let dz = ff(F_DEHAZE) + lt[10];
+    if (dz != 0.0 && fu(F_HAS_DARK) != 0u) {
         let strength=clamp(dz,-1.0,1.0);
         let at=i+select(0u,w*h,strength<0.0);
-        let d=dark[at];let air=vec3<f32>(pf(F_AIR_RGB),pf(F_AIR_RGB+1u),pf(F_AIR_RGB+2u));
-        let tmin=clamp(exp(-abs(strength)*pf(F_HAZE_DISTANCE)),1.0/1024.0,1.0);
+        let d=dark[at];let air=haze_air();
+        let tmin=clamp(exp(-abs(strength)*haze_distance()),1.0/1024.0,1.0);
         let t=max(1.0-strength*d,tmin);
         if(t!=1.0) {c=(c-air)/t+air;}
     }
 
+    var layer_scene=false;
+    for(var layer=0u;layer<P[F_NLAYER];layer++){
+        let alpha=alpha_at(layer,i,n);
+        if(alpha>0.0 && (descriptor(layer,2u)&1u)!=0u){
+            layer_scene=true;layer_context(layer);let strength=clamp(ff(F_DEHAZE),-1.0,1.0);clear_context();
+            if(strength!=0.0 && fu(F_HAS_DARK)!=0u){let dd=dark[i+select(0u,n,strength<0.0)];
+                let air=haze_air();let t=max(1.0-strength*dd,clamp(exp(-abs(strength)*haze_distance()),1.0/1024.0,1.0));
+                var q=c;if(t!=1.0){q=(c-air)/t+air;}c=c+(q-c)*alpha;}
+        }
+    }
     // --- local exposure / temp / tint
     if (l_exp != 0.0) {
         c = c * exp2(l_exp);
@@ -490,16 +514,31 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         c = c * y0 / y1;
     }
 
+    for(var layer=0u;layer<P[F_NLAYER];layer++){
+        let alpha=alpha_at(layer,i,n);
+        if(alpha>0.0 && (descriptor(layer,2u)&1u)!=0u){layer_context(layer);var q=c;
+            if(fu(F_LAYER_WB)!=0u){let mat=array<vec3<f32>,3>(vec3<f32>(ff(F_LAYER_M),ff(F_LAYER_M+1u),ff(F_LAYER_M+2u)),vec3<f32>(ff(F_LAYER_M+3u),ff(F_LAYER_M+4u),ff(F_LAYER_M+5u)),vec3<f32>(ff(F_LAYER_M+6u),ff(F_LAYER_M+7u),ff(F_LAYER_M+8u)));
+                q=max(mul3(mat,q),vec3<f32>(0.0));}
+            q*=ff(F_LAYER_GAIN);clear_context();c=c+(q-c)*alpha;}
+    }
+    var teq = false;
+    if(fu(F_TEQ)!=0u) {
+        let zone=masks[fu(F_TEQ_PLANE)+i];
+        let t=(clamp(zone,-8.0,0.0)+8.0)*256.0;
+        let j=min(u32(t),2047u);let off=fu(F_TEQ_OFF);
+        let gg=aux[off+j]+(aux[off+j+1u]-aux[off+j])*(t-f32(j));
+        if(gg!=1.0){c*=gg;teq=true;}
+    }
     // --- local tone in log luminance
     var l1 = l0;
-    if (dz != 0.0 || l_exp != 0.0) {
+    if (dz != 0.0 || l_exp != 0.0 || teq || layer_scene) {
         l1 = log_lum(c);
     }
     let shift = l1 - l0;
     let base = base_p[i] + ev + shift;
     var delta = 0.0;
-    let hh = pf(F_HL) + lt[4];
-    let ss = pf(F_SH) + lt[5];
+    let hh = ff(F_HL) + lt[4];
+    let ss = ff(F_SH) + lt[5];
     if (hh != 0.0 || ss != 0.0) {
         let ws = 1.0 - sstep(-4.8, 0.3, base);
         let wh = sstep(-1.0, 2.8, base);
@@ -514,45 +553,21 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (lt[3] != 0.0) {
         delta += lt[3] * 0.14 * clamp(l1, -6.0, 4.0);
     }
-    let cl = pf(F_CLAR) + lt[9];
-    if (cl != 0.0 && pu(F_HAS_CLAR) != 0u) {
+    let cl = ff(F_CLAR) + lt[9];
+    if (cl != 0.0 && fu(F_HAS_CLAR) != 0u) {
         let det = clamp(l_pre - clar[i], -2.5, 2.5);
         let q = base / 3.2;
         let mid = exp(-(q * q));
         delta += cl * 0.85 * det * (0.35 + 0.65 * mid);
     }
-    let tx = pf(F_TEX) + lt[8];
-    if (tx != 0.0 && pu(F_HAS_TEX) != 0u) {
+    let tx = ff(F_TEX) + lt[8];
+    if (tx != 0.0 && fu(F_HAS_TEX) != 0u) {
         let det=l_pre-tex[i];let tame=1.0-0.6*sstep(0.4,1.6,abs(det));
         delta+=tx*1.1*clamp(det,-1.0,1.0)*tame;
     }
-    let amount=pf(F_SHARP_A)+lt[13]*0.9;
-    if(amount!=0.0 && pu(F_HAS_SHARP)!=0u) {
-        let n=w*h;let h1=l_pre-tex[n+i];
-        if(amount<0.0) {delta+=max(amount,-1.0)*h1;}
-        else {
-            let hb=tex[n+i]-tex[2u*n+i];let detail=h1+pf(F_SHARP_D)*(h1-hb);
-            var mn=l_pre;var mx=l_pre;
-            for(var yy=max(i32(y)-1,0);yy<=min(i32(y)+1,i32(h)-1);yy++) {
-                for(var xx=max(i32(x)-1,0);xx<=min(i32(x)+1,i32(w)-1);xx++) {
-                    let v=log_l[u32(yy)*w+u32(xx)];mn=min(mn,v);mx=max(mx,v);
-                }
-            }
-            var v=l_pre+amount*detail;
-            if(v>mx){v=mx+(v-mx)*pf(F_SHARP_HALO);}else if(v<mn){v=mn+(v-mn)*pf(F_SHARP_HALO);}
-            var mask=1.0;
-            if(pf(F_SHARP_T)>0.0) {
-                let xl=u32(max(i32(x)-1,0));let xr=min(x+1u,w-1u);
-                let yu=u32(max(i32(y)-1,0));let yd=min(y+1u,h-1u);
-                let gx=(tex[2u*n+y*w+xr]-tex[2u*n+y*w+xl])*0.5;
-                let gy=(tex[2u*n+yd*w+x]-tex[2u*n+yu*w+x])*0.5;
-                mask=sstep(0.5*pf(F_SHARP_T),pf(F_SHARP_T),sqrt(gx*gx+gy*gy)*pf(F_SHARP_EK));
-            }
-            delta+=(v-l_pre)*mask;
-        }
-    }
+    delta+=sharp_delta(ff(F_SHARP_A)+lt[13]*0.9,l_pre,x,y);
     // local Noise: smooth (or, negative, boost) small-amplitude detail, keep edges
-    if (l_noise != 0.0 && pu(F_HAS_TEX) != 0u) {
+    if (l_noise != 0.0 && fu(F_HAS_TEX) != 0u) {
         let det = l_pre - tex[i];
         delta -= clamp(l_noise, -1.0, 1.0) * 0.9 * det * (1.0 - sstep(0.1, 0.5, abs(det)));
     }
@@ -560,8 +575,16 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         c = c * exp2(delta);
     }
 
+    for(var layer=0u;layer<P[F_NLAYER];layer++){
+        let alpha=alpha_at(layer,i,n);
+        if(alpha>0.0 && (descriptor(layer,2u)&2u)!=0u){layer_context(layer);var dl=0.0;
+            let hh=ff(F_HL);let ss=ff(F_SH);let ws=1.0-sstep(-4.8,0.3,base);let wh=sstep(-1.0,2.8,base);dl+=ss*1.7*ws*sqrt(ws)+hh*1.7*wh;
+            if(ff(F_CLAR)!=0.0 && fu(F_HAS_CLAR)!=0u){let det=clamp(l_pre-clar[i],-2.5,2.5);let mid=exp(-pow(base/3.2,2.0));dl+=ff(F_CLAR)*0.85*det*(0.35+0.65*mid);}
+            if(ff(F_TEX)!=0.0 && fu(F_HAS_TEX)!=0u){let det=l_pre-tex[i];dl+=ff(F_TEX)*1.1*clamp(det,-1.0,1.0)*(1.0-0.6*sstep(0.4,1.6,abs(det)));}
+            dl+=sharp_delta(ff(F_SHARP_A),l_pre,x,y);clear_context();if(dl!=0.0){c=c+(c*exp2(dl)-c)*alpha;}}
+    }
     // --- calibration (scene linear, before the tone map)
-    if (pu(F_CALIB) != 0u || pf(F_SHADOW_TINT) != 0.0) {
+    if (fu(F_CALIB) != 0u || ff(F_SHADOW_TINT) != 0.0) {
         c = calibrate(c);
     }
 
@@ -569,6 +592,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var d = vec3<f32>(0.0);
     d = tone_v2(c);
 
+    for(var layer=0u;layer<P[F_NLAYER];layer++){
+        let alpha=alpha_at(layer,i,n);if(alpha>0.0 && (descriptor(layer,2u)&4u)!=0u){layer_context(layer);let q=tone_v2(c);clear_context();d=d+(q-d)*alpha;}
+    }
     // --- colour
     d = color_ops(d, lt[11], lt[12]);
     if (tint_on) {
@@ -576,53 +602,29 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         d = oklab_inv(vec3<f32>(lab.x, lab.y + tint_dir.x * 0.08 * tint_amt, lab.z + tint_dir.y * 0.08 * tint_amt));
     }
 
-    // --- vignette (display linear, post-crop)
-    if (pu(F_VIG) != 0u) {
-        let fw = f32(w);
-        let fh = f32(h);
-        let aspect = fw / fh;
-        let amount = pf(F_VIG_AMOUNT);
-        let mixa = pf(F_VIG_ASPECT_MIX);
-        let power = pf(F_VIG_POWER);
-        let u = (f32(x) + 0.5) / fw * 2.0 - 1.0;
-        let vv = (f32(y) + 0.5) / fh * 2.0 - 1.0;
-        let sx = 1.0 + (aspect - 1.0) * mixa;
-        let sy = 1.0 + (1.0 / aspect - 1.0) * mixa;
-        let ax = abs(u * max(sx, 1.0) / max(sx, sy));
-        let ay = abs(vv * max(sy, 1.0) / max(sx, sy));
-        let dist = pow(pow(ax, power) + pow(ay, power), 1.0 / power);
-        let start = pf(F_VIG_START);
-        let t = sstep(start, start + pf(F_VIG_WIDTH), dist);
-        if (t > 0.0) {
-            let lum = clamp(lum2020(d), 0.0, 1.0);
-            if (amount < 0.0) {
-                var f = 1.0 + amount * t;
-                let style = pu(F_VIG_STYLE);
-                if (style == 1u) {
-                    f += (1.0 - f) * pf(F_VIG_HL) * sstep(0.4, 1.0, lum);
-                }
-                if (style == 2u) {
-                    d = d * (1.0 - (-amount) * t) + 0.0;
-                } else {
-                    d = d * f;
-                }
-            } else {
-                d = d + (1.0 - d) * amount * t * 0.85;
-            }
-        }
+    for(var layer=0u;layer<P[F_NLAYER];layer++){
+        let alpha=alpha_at(layer,i,n);if(alpha>0.0 && (descriptor(layer,2u)&8u)!=0u){layer_context(layer);let q=color_ops(d,0.0,0.0);clear_context();d=d+(q-d)*alpha;}
+    }
+    d = apply_vignette(d,x,y);
+    for(var layer=0u;layer<P[F_NLAYER];layer++){
+        let alpha=alpha_at(layer,i,n);
+        if(alpha>0.0 && (descriptor(layer,2u)&16u)!=0u){layer_context(layer);let q=apply_vignette(d,x,y);clear_context();d=d+(q-d)*alpha;}
     }
 
-    if (pu(F_CURVES) != 0u) { d = curve_working(d); }
+    if (fu(F_CURVES) != 0u) { d = curve_working(d); }
+    for(var layer=0u;layer<P[F_NLAYER];layer++){
+        let alpha=alpha_at(layer,i,n);if(alpha>0.0 && (descriptor(layer,2u)&32u)!=0u){layer_context(layer);let q=curve_working(d);clear_context();d=d+(q-d)*alpha;}
+    }
 
     // --- gamut map to the output space (desaturate towards luminance until in range)
     let om = array<vec3<f32>, 3>(
-        vec3<f32>(pf(F_OUT_M), pf(F_OUT_M + 1u), pf(F_OUT_M + 2u)),
-        vec3<f32>(pf(F_OUT_M + 3u), pf(F_OUT_M + 4u), pf(F_OUT_M + 5u)),
-        vec3<f32>(pf(F_OUT_M + 6u), pf(F_OUT_M + 7u), pf(F_OUT_M + 8u)),
+        vec3<f32>(ff(F_OUT_M), ff(F_OUT_M + 1u), ff(F_OUT_M + 2u)),
+        vec3<f32>(ff(F_OUT_M + 3u), ff(F_OUT_M + 4u), ff(F_OUT_M + 5u)),
+        vec3<f32>(ff(F_OUT_M + 6u), ff(F_OUT_M + 7u), ff(F_OUT_M + 8u)),
     );
     var r = mul3(om, d);
-    if (pu(F_SOFT_GAMUT) != 0u) { r = soft_gamut(r); }
-    let yy = clamp(pf(F_OUT_Y) * r.x + pf(F_OUT_Y + 1u) * r.y + pf(F_OUT_Y + 2u) * r.z, 0.0, 1.0);
+    if (fu(F_SOFT_GAMUT) != 0u) { r = soft_gamut(r); }
+    let yy = clamp(ff(F_OUT_Y) * r.x + ff(F_OUT_Y + 1u) * r.y + ff(F_OUT_Y + 2u) * r.z, 0.0, 1.0);
     var tg = 1.0;
     for (var k = 0u; k < 3u; k++) {
         let cc = r[k];
@@ -638,20 +640,112 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // --- encode, curves, grain
     var e = vec3<f32>(encode_srgb(r.x), encode_srgb(r.y), encode_srgb(r.z));
-    if (pu(F_GRAIN) != 0u) {
-        let px = f32(x) + 0.5;
-        let py = f32(y) + 0.5;
-        let gx = pf(F_GRAIN_AFF) * px + pf(F_GRAIN_AFF + 2u) * py + pf(F_GRAIN_AFF + 4u);
-        let gy = pf(F_GRAIN_AFF + 1u) * px + pf(F_GRAIN_AFF + 3u) * py + pf(F_GRAIN_AFF + 5u);
-        let sc = pf(F_GRAIN_SC);
-        let rough = pf(F_GRAIN_ROUGH);
-        let seed = pu(F_GRAIN_SEED);
-        var g = grain_noise(gx * sc, gy * sc, seed);
-        g = g * (1.0 - rough * 0.5) + grain_noise(gx * sc * 2.3, gy * sc * 2.3, seed ^ 0x55u) * rough * 0.7;
-        let lum = 0.2126 * e.x + 0.7152 * e.y + 0.0722 * e.z;
-        let k = pf(F_GRAIN_AMT) * g * (0.35 + 2.6 * lum * (1.0 - lum));
-        e = e + k;
+    e = apply_grain(e,x,y);
+    for(var layer=0u;layer<P[F_NLAYER];layer++){
+        let alpha=alpha_at(layer,i,n);
+        if(alpha>0.0 && (descriptor(layer,2u)&64u)!=0u){layer_context(layer);let q=apply_grain(e,x,y);clear_context();e=e+(q-e)*alpha;}
     }
     e = vec3<f32>(out_encode(e.x), out_encode(e.y), out_encode(e.z));
     out[i] = enc8(e.x, x, y, 0u) | (enc8(e.y, x, y, 1u) << 8u) | (enc8(e.z, x, y, 2u) << 16u) | (255u << 24u);
 }
+
+// Scene-linear colour selection uses the photo's complete tone map, before primary edits.
+@compute @workgroup_size(16,16)
+fn select_colour(@builtin(global_invocation_id) g: vec3<u32>) {
+    let w=fu(F_W); if(g.x>=w || g.y>=fu(F_H)) {return;} let i=g.y*w+g.x;
+    let c=vec3<f32>(img[3u*i],img[3u*i+1u],img[3u*i+2u])*ff(F_GAIN);
+    let lab=oklab(tone_v2(c)); out[3u*i]=bitcast<u32>(lab.x);out[3u*i+1u]=bitcast<u32>(lab.y);out[3u*i+2u]=bitcast<u32>(lab.z);
+}
+
+fn apply_vignette(c0:vec3<f32>,x:u32,y:u32)->vec3<f32>{
+    var d=c0;let w=fu(F_W);let h=fu(F_H);
+    // --- vignette (display linear, post-crop)
+    if (fu(F_VIG) != 0u) {
+        let fw = f32(w);
+        let fh = f32(h);
+        let aspect = fw / fh;
+        let amount = ff(F_VIG_AMOUNT);
+        let mixa = ff(F_VIG_ASPECT_MIX);
+        let power = ff(F_VIG_POWER);
+        let u = (f32(x) + 0.5) / fw * 2.0 - 1.0;
+        let vv = (f32(y) + 0.5) / fh * 2.0 - 1.0;
+        let sx = 1.0 + (aspect - 1.0) * mixa;
+        let sy = 1.0 + (1.0 / aspect - 1.0) * mixa;
+        let ax = abs(u * max(sx, 1.0) / max(sx, sy));
+        let ay = abs(vv * max(sy, 1.0) / max(sx, sy));
+        let dist = pow(pow(ax, power) + pow(ay, power), 1.0 / power);
+        let start = ff(F_VIG_START);
+        let t = sstep(start, start + ff(F_VIG_WIDTH), dist);
+        if (t > 0.0) {
+            let lum = clamp(lum2020(d), 0.0, 1.0);
+            if (amount < 0.0) {
+                var f = 1.0 + amount * t;
+                let style = fu(F_VIG_STYLE);
+                if (style == 1u) {
+                    f += (1.0 - f) * ff(F_VIG_HL) * sstep(0.4, 1.0, lum);
+                }
+                if (style == 2u) {
+                    d = d * (1.0 - (-amount) * t) + 0.0;
+                } else {
+                    d = d * f;
+                }
+            } else {
+                d = d + (1.0 - d) * amount * t * 0.85;
+            }
+        }
+    }
+
+    return d;
+}
+
+fn apply_grain(c0:vec3<f32>,x:u32,y:u32)->vec3<f32>{var e=c0;
+    if (fu(F_GRAIN) != 0u) {
+        let px = f32(x) + 0.5;
+        let py = f32(y) + 0.5;
+        let gx = ff(F_GRAIN_AFF) * px + ff(F_GRAIN_AFF + 2u) * py + ff(F_GRAIN_AFF + 4u);
+        let gy = ff(F_GRAIN_AFF + 1u) * px + ff(F_GRAIN_AFF + 3u) * py + ff(F_GRAIN_AFF + 5u);
+        let sc = ff(F_GRAIN_SC);
+        let rough = ff(F_GRAIN_ROUGH);
+        let seed = fu(F_GRAIN_SEED);
+        var g = grain_noise(gx * sc, gy * sc, seed);
+        g = g * (1.0 - rough * 0.5) + grain_noise(gx * sc * 2.3, gy * sc * 2.3, seed ^ 0x55u) * rough * 0.7;
+        let lum = 0.2126 * e.x + 0.7152 * e.y + 0.0722 * e.z;
+        let k = ff(F_GRAIN_AMT) * g * (0.35 + 2.6 * lum * (1.0 - lum));
+        e = e + k;
+    }
+    return e;
+}
+
+fn sharp_b1(i:u32,n:u32)->f32 {if(layer_sharp2!=0u){return masks[layer_sharp1+i];}return tex[n+i];}
+fn sharp_b2(i:u32,n:u32)->f32 {if(layer_sharp2!=0u){return masks[layer_sharp2+i];}return tex[2u*n+i];}
+fn sharp_delta(amount:f32,l_pre:f32,x:u32,y:u32)->f32 {
+    let w=fu(F_W);let h=fu(F_H);let i=y*w+x;let n=w*h;var delta=0.0;
+    if(amount!=0.0 && (select(fu(F_HAS_SHARP)!=0u,layer_sharp2!=0u,parameter_offset!=0u))) {
+        let n=w*h;let h1=l_pre-sharp_b1(i,n);
+        if(amount<0.0) {delta+=max(amount,-1.0)*h1;}
+        else {
+            let hb=sharp_b1(i,n)-sharp_b2(i,n);let detail=h1+ff(F_SHARP_D)*(h1-hb);
+            var mn=l_pre;var mx=l_pre;
+            for(var yy=max(i32(y)-1,0);yy<=min(i32(y)+1,i32(h)-1);yy++) {
+                for(var xx=max(i32(x)-1,0);xx<=min(i32(x)+1,i32(w)-1);xx++) {
+                    let v=log_l[u32(yy)*w+u32(xx)];mn=min(mn,v);mx=max(mx,v);
+                }
+            }
+            var v=l_pre+amount*detail;
+            if(v>mx){v=mx+(v-mx)*ff(F_SHARP_HALO);}else if(v<mn){v=mn+(v-mn)*ff(F_SHARP_HALO);}
+            var mask=1.0;
+            if(ff(F_SHARP_T)>0.0) {
+                let xl=u32(max(i32(x)-1,0));let xr=min(x+1u,w-1u);
+                let yu=u32(max(i32(y)-1,0));let yd=min(y+1u,h-1u);
+                let gx=(sharp_b2(y*w+xr,n)-sharp_b2(y*w+xl,n))*0.5;
+                let gy=(sharp_b2(yd*w+x,n)-sharp_b2(yu*w+x,n))*0.5;
+                mask=sstep(0.5*ff(F_SHARP_T),ff(F_SHARP_T),sqrt(gx*gx+gy*gy)*ff(F_SHARP_EK));
+            }
+            delta+=(v-l_pre)*mask;
+        }
+    }
+    return delta;
+}
+
+fn haze_air()->vec3<f32>{let o=P[F_AIR_PLANE];return vec3<f32>(masks[o],masks[o+1u],masks[o+2u])*bitcast<f32>(P[F_GAIN]);}
+fn haze_distance()->f32{return masks[P[F_AIR_PLANE]+3u];}

@@ -131,7 +131,7 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
         used_only,
         "color",
         "Color",
-        &["wb", "color", "mixer", "point_colors", "treatment", "bw_mix", "grading"],
+        &["wb", "color", "mixer", "point_colors", "treatment", "bw_mix", "grading", "skin_tone"],
         |app, ui, d| {
             if target.is_layer() {
                 // a layer can turn its area black & white
@@ -219,6 +219,32 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
                     point_color(app, ui, d, target);
                 }
             }
+            if shows("skin_tone") && !crate::is_bw(d) {
+                let key = target.key("skinTone");
+                let open = app.ui.flyout_open(&key);
+                if flyout_row(ui, &key, "Skin Tone", Icon::Picker, open).clicked() {
+                    app.ui.toggle_flyout(&key);
+                }
+                if open {
+                    let picking = app.ui.tool == "skinTone";
+                    if text_button(ui, &target.key("skinTonePick"), "Pick Skin Reference", picking).clicked() {
+                        app.ui.tool = if picking { String::new() } else { "skinTone".into() };
+                        app.ui.point_color_mask = match target {
+                            Target::Global => None,
+                            Target::Layer(id) => Some(id),
+                        };
+                    }
+                    for c in ["skinTone.uniformity", "skinTone.lightness", "skinTone.hueRange", "skinTone.chromaRange", "skinTone.lightnessRange"] {
+                        control_t(app, ui, d, c, d.skin_tone.reference.is_some(), target);
+                    }
+                    let mut protect = d.skin_tone.protect_lips;
+                    let r = ui.checkbox(&mut protect, "Protect Lips");
+                    register(ui.ctx(), target.key("skinProtectLips"), r.rect);
+                    if r.changed() {
+                        let _ = target.merge(app, json!({"skin_tone":{"protect_lips":protect}}), "Skin Tone");
+                    }
+                }
+            }
             if shows("grading") {
                 let open = app.ui.flyout_open(&target.key("grading"));
                 if flyout_row(ui, &target.key("grading"), crate::i18n::tr("Color Grading"), Icon::Presets, open).clicked() {
@@ -233,8 +259,22 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
     );
     tool_section(app, ui, d, target, tl, used_only, "effects", "Effects", &["effects", "vignette", "grain"], |app, ui, d| {
         if shows("effects") {
-            for c in ["effects.texture", "effects.clarity", "effects.dehaze"] {
+            for c in ["effects.structure", "effects.texture", "effects.clarity", "effects.dehaze"] {
                 control_t(app, ui, d, c, true, target);
+            }
+        }
+        if shows("effects") {
+            use lightcraft_develop::ClarityMode;
+            let modes = [ClarityMode::Natural, ClarityMode::Punch, ClarityMode::Neutral];
+            let selected = modes.iter().position(|m| *m == d.effects.clarity_mode);
+            if let Some(i) = crate::widgets::segmented(
+                ui,
+                &target.key("clarityMode"),
+                &[("Natural", "natural"), ("Punch", "punch"), ("Neutral", "neutral")],
+                selected,
+                3,
+            ) {
+                let _ = target.merge(app, json!({"effects":{"clarity_mode":modes[i]}}), "Clarity Mode");
             }
         }
         if shows("vignette") {

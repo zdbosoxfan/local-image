@@ -15,6 +15,93 @@ struct Module {
 
 const MODULES: &[Module] = &[
     Module {
+        src: include_str!("wgsl/haze_select.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", true, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
+        entries: &["haze_quick_select", "haze_select_init", "haze_select_prepare", "haze_select_swap", "haze_select_commit"],
+    },
+    Module {
+        src: include_str!("wgsl/haze_partition.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
+        entries: &["haze_partition_count", "haze_scan_blocks", "haze_scan_add", "haze_partition_fill", "haze_partition_split"],
+    },
+    Module {
+        src: include_str!("wgsl/haze_stats.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
+        entries: &["haze_count", "haze_bright_fill", "haze_air_sum", "haze_air_reduce", "haze_air_finish"],
+    },
+    Module {
+        src: include_str!("wgsl/linear.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
+        entries: &["colour_cal", "patch_apply", "patch_shrink"],
+    },
+    Module {
+        src: include_str!("wgsl/nr_stats.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
+        entries: &["nr_samples", "nr_median", "nr_vst", "nr_reduce", "nr_thresholds"],
+    },
+    Module {
+        src: include_str!("wgsl/primary.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("d", false, "f32"), ("e", false, "f32"), ("out", true, "f32")],
+        entries: &[
+            "p_skin_moments",
+            "p_skin_low",
+            "p_transpose",
+            "p_clip",
+            "p_scale",
+            "p_log",
+            "p_biased",
+            "p_lum",
+            "p_interp",
+            "p_deriche",
+            "p_bounds",
+            "p_bounds_join",
+            "p_quant",
+            "p_moments",
+            "p_variance",
+            "p_eigf_apply",
+            "p_cross_pre",
+            "p_cross_apply",
+            "p_gain_ab",
+            "p_up_gain",
+            "p_gain_apply",
+            "p_band",
+            "p_eigf_gain",
+            "p_ll_reduce",
+            "p_ll_remap",
+            "p_ll_acc",
+            "p_ll_assemble",
+            "p_ll_gain",
+            "p_ll_mix",
+            "p_dt_pad",
+            "p_dt_remap",
+            "p_dt_reduce",
+            "p_dt_acc",
+            "p_dt_assemble",
+            "p_dt_top",
+            "p_dt_crop",
+            "p_detail_apply",
+            "p_mix",
+        ],
+    },
+    Module {
+        src: include_str!("wgsl/primary_colour.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("d", false, "f32"), ("e", false, "f32"), ("out", true, "f32")],
+        entries: &[
+            "p_balance",
+            "p_equal_pre",
+            "p_uv_cov",
+            "p_uv_ab",
+            "p_extract",
+            "p_uv_apply",
+            "p_equal_uv",
+            "p_equal_hsb",
+            "p_equal_corr",
+            "p_equal_finish",
+            "p_skin_pre",
+            "p_skin_finish",
+        ],
+    },
+    Module {
         src: include_str!("wgsl/capture.wgsl"),
         bindings: &[
             ("img", false, "f32"),
@@ -40,7 +127,7 @@ const MODULES: &[Module] = &[
             ("aux", false, "f32"),
             ("out", true, "u32"),
         ],
-        entries: &["main"],
+        entries: &["main", "select_colour"],
     },
     Module {
         src: include_str!("wgsl/blur.wgsl"),
@@ -56,6 +143,9 @@ const MODULES: &[Module] = &[
         src: include_str!("wgsl/map.wgsl"),
         bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
         entries: &[
+            "toneeq_lum",
+            "toneeq_log",
+            "toneeq_preview",
             "log_lum_k",
             "guided_pre",
             "guided_ab",
@@ -67,6 +157,7 @@ const MODULES: &[Module] = &[
             "xguided_pre",
             "xguided_ab",
             "xguided_apply",
+            "xguided_refine",
         ],
     },
     Module {
@@ -83,6 +174,9 @@ const MODULES: &[Module] = &[
             "nr_join",
             "haze_moments",
             "haze_solve",
+            "haze_guide_moments",
+            "haze_input_moments",
+            "haze_solve_shared",
             "haze_apply",
             "haze_dark",
             "sharp_preview",
@@ -309,6 +403,19 @@ fn constants() -> String {
         "const TONE_MIN_EV: f32 = {LUT_MIN_EV:?};\nconst TONE_MAX_EV: f32 = {LUT_MAX_EV:?};\nconst TONE_N: u32 = {LUT_N}u;\nconst CHROMA_N: u32 = {CHROMA_N}u;\n"
     );
     s += &format!("const TONE_MIN_GAIN: f32 = {:?};\n", 2f32.powf(LUT_MIN_EV));
+    use lightcraft_pipeline::ucs;
+    for (name, m) in [
+        ("UCS_RGB_XYZ", ucs::mats().rgb_to_xyz),
+        ("UCS_XYZ_RGB", ucs::mats().xyz_to_rgb),
+        ("UCS_RGB_LMS", ucs::mats().rgb_to_lms),
+        ("UCS_LMS_RGB", ucs::mats().lms_to_rgb),
+        ("UCS_LMS_XYZ", ucs::LMS_TO_XYZ),
+        ("UCS_LMS_GRADING", ucs::LMS_TO_GRADING),
+        ("UCS_GRADING_LMS", ucs::GRADING_TO_LMS),
+    ] {
+        let rows: Vec<String> = m.iter().map(|r| format!("vec3<f32>({:?}, {:?}, {:?})", r[0], r[1], r[2])).collect();
+        s += &format!("const {name} = array<vec3<f32>, 3>({});\n", rows.join(", "));
+    }
     let b = lightcraft_pipeline::geometry::BLANK;
     s += &format!("const BLANK_R: f32 = {:?};\nconst BLANK_G: f32 = {:?};\nconst BLANK_B: f32 = {:?};\n", b[0], b[1], b[2]);
     s += &format!(
@@ -340,6 +447,9 @@ fn module_source(m: &Module, consts: &str) -> String {
         s += &format!("@group(0) @binding({}) var<storage, {access}> {name}: array<{ty}>;\n", i + 1);
     }
     s += include_str!("wgsl/common.wgsl");
+    if m.entries.first().is_some_and(|e| e.starts_with("p_")) {
+        s += include_str!("wgsl/ucs.wgsl");
+    }
     s += m.src;
     s
 }
@@ -347,16 +457,31 @@ fn module_source(m: &Module, consts: &str) -> String {
 impl Gpu {
     /// Create a device on the best available adapter (no software fallback), or why there is none.
     pub fn new(backends: wgpu::Backends) -> Result<Gpu, String> {
+        Self::new_inner(backends, false)
+    }
+
+    /// CPU Vulkan is useful only for numerical kernel tests; never enabled by a renderer.
+    #[cfg(test)]
+    pub(crate) fn numerical_test_device() -> Result<Gpu, String> {
+        // Share the production test device's initialization lock: the combined
+        // suite also creates that device and mutates crash-marker configuration.
+        let _init = crate::TEST_INIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        Self::new_inner(wgpu::Backends::VULKAN, true)
+    }
+
+    fn new_inner(backends: wgpu::Backends, software_test: bool) -> Result<Gpu, String> {
         let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
         // only these drivers are loaded (`crate::backend`: never Vulkan on Windows unless asked)
         desc.backends = backends;
         let instance = wgpu::Instance::new(desc);
-        let adapter = pollster::block_on(
-            instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() }),
-        )
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            force_fallback_adapter: software_test,
+            ..Default::default()
+        }))
         .map_err(|e| format!("no GPU adapter among {backends:?} ({e})"))?;
         let info = adapter.get_info();
-        if info.device_type == wgpu::DeviceType::Cpu {
+        if info.device_type == wgpu::DeviceType::Cpu && !software_test {
             log::info!("gpu: only a software adapter ({}), using the CPU pipeline", info.name);
             return Err(format!("software adapter ({}) skipped: the CPU pipeline is faster", info.name));
         }

@@ -34,7 +34,7 @@ New GPU ↔ CPU equivalence coverage (`lightcraft-gpu/tests/toolset.rs`, bounds 
   straighten, flips, orientations, perspective + constrain crop, manual CA, edits and a mask;
   strength changes on a cached view. The original RTX run resampled geometry on the CPU;
   the native GPU warp now evaluates these models (RTX rerun described below).
-- **Tone equalizer**: `render` returns `None` with the reason; the Show Mask overlay
+- **Tone equalizer (historical initial run)**: `render` returned `None` with the reason; the Show Mask overlay
   (`Overlay::ToneEqMask`) falls back too, even with every zone at 0, and draws a grey mask that
   follows the image; with the section off the GPU renders again.
 - **Colour calibration**: CAT16 / linear Bradford / XYZ × six illuminants with gamut 0 and clip off
@@ -109,14 +109,11 @@ On the real ARWs (18.7 MP output) the previous CPU capture stage took 1.4–3.5 
 (radius measured from the raw). Capture now runs on the device; these historical timings do
 not measure the native GPU implementation.
 
-### Candidates for native WGSL kernels (not built)
+### Remaining stages now ported
 
-- **Tone equalizer** — a whole-render CPU fallback (~0.8 s at 24 MP) for a guided filter on log
-  luminance and a per-pixel gain: the guided filter kernels exist (`guided_fast`), only the zone
-  curve is new.
-- **Develop layer tools** — a whole-render CPU fallback whenever a mask carries tools; the per-stage
-  blends mirror kernels that exist for the global tools, but it is the largest port.
-- Non-linear colour calibration and depth-mask evaluation cost ~0.2 s each; low priority.
+The October 9 remaining-stage revision below replaces the historical tone-equalizer,
+layer-tools, calibration, depth and NR-statistics CPU paths. These older RTX timings
+and test results are retained as the baseline; they do not measure the new kernels.
 
 ## Needs a human eye
 
@@ -145,10 +142,39 @@ skips device execution; all WGSL modules are parsed and validated by Naga regard
 The ignored `bench_toolset_24mp` includes independent sharpening, wavelet NR and
 Dehaze rows. `LC_DETAIL_BENCH_ONLY=1` selects them; CPU rows run without an adapter.
 GPU NR executes VST, EAW, reduction, soft-threshold synthesis and recombination.
-Only image noise estimation and reduced band statistics run on the host. GPU haze
-uses host ambient-light selection, then native morphology, cropped Kahan boxes,
+In that earlier revision, image noise estimation and reduced band statistics ran on the host; the remaining-stage revision below removes those readbacks. The earlier GPU haze revision used host ambient-light selection, then native morphology, cropped Kahan boxes,
 covariance solves and reconstruction. If its 9-channel covariance buffer exceeds
 the storage-buffer limit, only haze preparation runs on the CPU inside the GPU render.
+
+## Primary sliders (2026-10-09; native revision)
+
+Highlights/Shadows A and B, Whites/Blacks, LLF Clarity modes, sensor-pixel
+Texture/Structure, UCS22 colour balance/equalizer/B&W, Skin Tone and layer CAT
+now use native WGSL compute passes. The former full-image CPU primary readback,
+processing and upload are removed. Defaults and zero primary controls dispatch
+no primary kernels, including colour picks/modes with neutral strengths.
+Device caches retain amount-independent LI Tone response fields, EIGF bases,
+Clarity coefficients, detail bands, equalizer guidance and Skin Tone low fields.
+Cached slider timings are included in the 24 MP bench; cache memory is counted.
+
+The CPU reference algorithms, all seven upstream fixture sets, pixel goldens and
+equivalence bounds remain unchanged in this performance revision. Shader parsing
+and validation run without an adapter. Test-only CPU Vulkan execution also checks
+native filter numerics, HDR renders, odd preview resampling, clipping, layers,
+cache edits, skin movement and zero dispatches; production rejects software adapters.
+This does not measure RTX performance or replace hardware equivalence testing.
+
+`equivalence.rs` still covers both HS candidates, clipping metadata, preview/full
+sizes, all Clarity modes, Texture/Structure, grading + mixer, Skin Tone, layers,
+A→B→A and the tone-equalizer overlay (now native; see below). Mean <0.5 LSB and max <=3 LSB are unchanged.
+`toolset.rs` retains the original 6000×4000 rows and adds primary identity and
+cached single-slider drags. `LC_PRIMARY_BENCH_ONLY=1` includes typical edit too.
+Targets for the RTX 5090 release run: typical <=~200 ms, primary increment <=~100 ms,
+cached single-tool drags well below 100 ms. Hardware results remain pending.
+
+The slider revision left the separate Tone Equalizer, layer finish tools and NR/dehaze
+statistics on the CPU. The remaining-stage revision below ports these stages. See the
+slider report for the earlier scope.
 
 ## Native capture sharpening (2026-10-09; RTX validation pending)
 
@@ -253,3 +279,72 @@ no device test skipped; every lens comparison within mean < 0.5 LSB, max ≤ 1 L
 | lens 200% | 260.7 ms | 51.0 ms | 5.6 ms |
 
 Full-render toolset bench (24 MP): lens profile (db) 276 ms on the GPU path vs 2894 ms CPU (was 315 ms hybrid).
+
+## Remaining Develop stages (2026-10-09; RTX validation pending)
+
+Tone Equalizer now computes compensated Euclidean luminance, two quantized linear
+EIGF iterations and the final geometric blend on device, reusing the primary
+Deriche/interpolation/bounds kernels. Its log mask is cached independently of zone
+gain changes. The reference correction LUT is uploaded as metadata and interpolated
+at the original finish-stage position, including local exposure and layer scene
+changes. Show Mask uses a native posterization kernel and the existing overlay draw.
+
+Layer tools now blend at the CPU reference's separate stages: layer NR before exposure;
+dehaze/WB/exposure before local tone; radius-specific sharpening; layer contrast tone;
+Point Color; vignette; working-space/channel curves and saturation refinement; encoded
+grain. The existing primary layer kernels continue to handle their earlier tools.
+The engine no longer declines layers just because they contain finish tools.
+
+Wavelet NR's 4×4 image tiles, 2×2 high-pass samples, finite guards and quantile ranks
+are evaluated on device. Exact radix selection yields each pooled median; a small device sort selects the
+lower tile quartile. VST parameters and per-band BayesShrink thresholds remain on
+device, with recursive sum reductions replacing image and band-statistic readbacks.
+The CPU retains its original f64 accumulation; GPU reductions use f32 trees, covered
+by the unchanged output tolerance.
+
+Nonlinear Bradford, gamut compression and clipping now follow WB in a native kernel
+using the reference's resolved matrices and constants. AI patches upload stored RGBA,
+minify with premultiplied integer averaging where required, sample and blend on device
+before WB. Missing patches remain no-ops. Depth masks upload decoded stored logits and
+sample the same cell-centred grid, sigmoid and feathered band through the frame transform.
+
+Dehaze airlight/depth statistics also stay on device so its benchmark row has no host
+statistics stage. Its brightness samples retain the reference's reverse-first-half
+ordering; device scratch preserves the same order-sensitive median-of-three selection.
+The 5090 follow-up below replaces full-image scalar selection with parallel partitions;
+haze preparation and reductions remain parallel and the prepared fields are cached.
+
+`last_cpu_stages()` now reports the host stages actually executed on the current thread.
+The toolset benchmark uses this diagnostic rather than classifying settings from obsolete
+fallback predicates. Device-limit geometry/haze preparation, camera profiles, negative
+conversion, defringe, non-AI spots, unsupported mask shapes and hidden-mask overlays retain
+correct, explicitly reported host paths. Allocation/device failure, U16/F32 output and proof
+fallbacks remain intact. The five requested ordinary cases have complete device paths.
+
+New comparisons cover tiny and odd sizes, HDR/negative/zero calibration input, extreme
+Tone Equalizer settings, masks, neutral overlay, compensation/zone/cache changes, layer
+order/opacity/inversion, independent layer NR/sharpening radii, curves/grain/vignettes,
+patch minification and depth geometry. A 2053×2049 comparison crosses finish row bands.
+All final-image comparisons retain mean <0.5 LSB and max ≤3 LSB. Naga validates every
+module without hardware; test-only CPU Vulkan additionally exercises the new numerics.
+Production rejects software adapters. No RTX latency or hardware-equivalence claim is
+made here; the coordinator must rerun `bench_toolset_24mp` and the device integration
+suites on the RTX 5090 (typical-edit target ≤~200 ms). Exact commands and results are in
+[`CODEX-REPORT-gpu-toneeq.md`](wip/CODEX-REPORT-gpu-toneeq.md).
+
+### 5090 follow-up: tone guidance precision and dehaze selection
+
+The coordinator's `cad2cc4` run (NVIDIA 615.71.09/Vulkan) found one extreme-tone
+outlier test (max 25 LSB) and a 3354 ms dehaze regression. All benchmark rows were
+GPU; typical edit was 257 ms under heavy machine load. The follow-up replaces
+`floor(log2(value))` tone guidance with integer selection against CPU-rounded
+power-bin boundaries. A controlled three-ULP shader-log precision probe reproduced
+the 25-LSB failure at (333, 52); the fixed software path has no bin discrepancy.
+
+Dehaze now uses stable parallel Hoare partitions and hierarchical prefix scans,
+preserving the reference's tie/order behavior before a small remaining selection.
+The RGB guide statistics are shared between both haze signs, reducing moment/box
+filter channels from 26 to 17. Normal renders have no statistics readbacks.
+Production-first regression tests and opt-in intermediate tracing were added.
+Updated RTX timings, including the ≤300 ms dehaze target, require coordinator
+validation; the detailed reproduction, tests and commands are in the report above.

@@ -97,10 +97,10 @@ fn golden_cases() -> Vec<(&'static str, Value)> {
 const GOLDEN: [(&str, u64); 6] = [
     ("default/rendered", 0xa0f156d3ca352210),
     ("default/raw", 0x61dfdd1c1479866c),
-    ("global edits/rendered", 0xde4f12b360deb639),
-    ("global edits/raw", 0x57ebbae81d3c021a),
-    ("old masks/rendered", 0xf6cacf8f24c584fe),
-    ("old masks/raw", 0x2db505da57c14063),
+    ("global edits/rendered", 0xed30a70ce89869f7),
+    ("global edits/raw", 0xa184c372831bc0e3),
+    ("old masks/rendered", 0xfb0b81c2819f95f1),
+    ("old masks/raw", 0x9b24de949a7b4566),
 ];
 
 #[test]
@@ -312,6 +312,6 @@ fn cached_renders_with_layers_match_uncached() {
         let b = render(&src, &info, &s, &req).image;
         assert_eq!(a.data, b.data, "pass {k}");
     }
-    assert!(crate::layers_need_cpu(&s));
+    assert!(!crate::layers_need_cpu(&s));
     assert!(!crate::layers_need_cpu(&left_layer(json!({}), 50.0)));
 }

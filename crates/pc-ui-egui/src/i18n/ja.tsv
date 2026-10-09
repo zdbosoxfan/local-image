@@ -2653,3 +2653,9 @@ ai	New	新着
 	Custom models are not supported for this function	この機能ではカスタムモデルを使用できません
 	Tool icons	ツールアイコン
 	Colour (default)	カラー（既定）
+
+# Smart Sort face model bundle
+	Faces	顔
+	Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library.	顔を検出し、複数の写真で同じ人物を認識します。Smart Sortで有効にするまで無効です。顔データはライブラリ内に保存されます。
+	Finds faces and their landmarks, ready to recognise the same person in other photos. Runs locally on the CPU.	顔と特徴点を検出し、他の写真で同じ人物を認識するために使います。ローカルのCPUで動作します。
+	Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.	Smart Sort用に顔を検出し、同じ人物の写真をまとめます。両方の顔モデルを含み、CPUで動作し、顔データはライブラリ内に保存されます。
