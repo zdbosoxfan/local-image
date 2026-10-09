@@ -1,0 +1,145 @@
+{
+  "schema": 1,
+  "version": 1,
+  "id": "ernie",
+  "label": "ERNIE-Image",
+  "group": "ERNIE",
+  "description": "Baidu's ERNIE-Image: posters, typography and graphic layouts.",
+  "pipeline": {
+    "loader": "unet",
+    "clip": {
+      "node": "CLIPLoader",
+      "type": "flux2",
+      "skip": -1
+    },
+    "vae": "file",
+    "encode": "clip_text",
+    "latent": "EmptyFlux2LatentImage",
+    "sampler": "ksampler",
+    "sampler_name": "euler",
+    "scheduler": "simple",
+    "reference": "none",
+    "inpaint": "noise_mask",
+    "differential": true,
+    "required_choices": [
+      [
+        "CLIPLoader",
+        "type",
+        "flux2"
+      ]
+    ]
+  },
+  "sizes": {
+    "native": 1024,
+    "multiple": 16,
+    "min": 256,
+    "max": 2048
+  },
+  "sampling": {
+    "steps": {
+      "default": 50,
+      "min": 1,
+      "max": 100
+    },
+    "cfg": {
+      "default": 4,
+      "min": 1,
+      "max": 10
+    },
+    "denoise": 0.6
+  },
+  "capabilities": {
+    "create": true,
+    "edit": false,
+    "references": 0,
+    "inpaint": true,
+    "transparent": false,
+    "negative_prompt": true
+  },
+  "lora": {
+    "loader": "",
+    "compatible": [],
+    "max": 0
+  },
+  "components": [
+    {
+      "role": "clip",
+      "names": [
+        "ministral-3-3b.safetensors"
+      ],
+      "patterns": [
+        "ministral-3-3b"
+      ]
+    },
+    {
+      "role": "vae",
+      "names": [
+        "flux2-vae.safetensors"
+      ],
+      "patterns": [
+        "flux2-vae"
+      ]
+    }
+  ],
+  "vram_gb": 24,
+  "license": "Apache 2.0",
+  "license_url": "https://huggingface.co/baidu/ERNIE-Image",
+  "civitai_base_models": [],
+  "hf_tags": [
+    "ernie-image"
+  ],
+  "models": [
+    {
+      "key": "ernie-image",
+      "label": "ERNIE-Image Base",
+      "short": "ERNIE",
+      "best_for": "Posters, typography and graphic layouts",
+      "description": "A text-to-image model tuned for legible lettering and layout.",
+      "notes": "No model guarantees exact text; check lettering before using a result.",
+      "presets": [
+        {
+          "variant": "bf16",
+          "label": "Base BF16",
+          "files": [
+            {
+              "role": "unet",
+              "folder": "diffusion_models",
+              "name": "ernie-image.safetensors",
+              "bytes": 16067025480,
+              "sha256": "94a35abaa0899cccc34d2e37310abf74a0a714256526117bba782c7eb4eb91c7",
+              "url": "https://huggingface.co/Comfy-Org/ERNIE-Image/resolve/82fe29a5cd056f8b1deebc50570f125bcd4f4bea/split_files/diffusion_models/ernie-image.safetensors",
+              "compatible": []
+            },
+            {
+              "role": "clip",
+              "folder": "text_encoders",
+              "name": "ministral-3-3b.safetensors",
+              "bytes": 7717637511,
+              "sha256": "49a750a128863854eac7d85e1a277a7b44bf6ec3646405b84686dfeeca3708ca",
+              "url": "https://huggingface.co/Comfy-Org/ERNIE-Image/resolve/82fe29a5cd056f8b1deebc50570f125bcd4f4bea/split_files/text_encoders/ministral-3-3b.safetensors",
+              "compatible": []
+            },
+            {
+              "role": "vae",
+              "folder": "vae",
+              "name": "flux2-vae.safetensors",
+              "bytes": 336213556,
+              "sha256": "d64f3a68e1cc4f9f4e29b6e0da38a0204fe9a49f2d4053f0ec1fa1ca02f9c4b5",
+              "url": "https://huggingface.co/Comfy-Org/ERNIE-Image/resolve/82fe29a5cd056f8b1deebc50570f125bcd4f4bea/split_files/vae/flux2-vae.safetensors",
+              "compatible": [
+                [
+                  336213556,
+                  "d64f3a68e1cc4f9f4e29b6e0da38a0204fe9a49f2d4053f0ec1fa1ca02f9c4b5"
+                ],
+                [
+                  336211292,
+                  "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

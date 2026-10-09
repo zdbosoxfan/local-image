@@ -1,0 +1,121 @@
+{
+  "schema": 1,
+  "version": 1,
+  "id": "flux1",
+  "label": "FLUX.1",
+  "group": "FLUX",
+  "description": "Black Forest Labs' FLUX.1 dev and schnell (12B): detailed, coherent images; the largest LoRA ecosystem after SDXL.",
+  "pipeline": {
+    "loader": "unet",
+    "clip": {
+      "node": "DualCLIPLoader",
+      "type": "flux",
+      "skip": -1
+    },
+    "vae": "file",
+    "encode": "clip_text",
+    "flux_guidance": 3.5,
+    "zero_negative": true,
+    "latent": "EmptySD3LatentImage",
+    "sampler": "ksampler",
+    "sampler_name": "euler",
+    "scheduler": "simple",
+    "reference": "redux",
+    "inpaint": "noise_mask",
+    "differential": true,
+    "required_choices": [
+      [
+        "DualCLIPLoader",
+        "type",
+        "flux"
+      ]
+    ]
+  },
+  "sizes": {
+    "native": 1024,
+    "multiple": 16,
+    "min": 512,
+    "max": 2048
+  },
+  "sampling": {
+    "steps": {
+      "default": 20,
+      "min": 1,
+      "max": 60
+    },
+    "cfg": {
+      "default": 1,
+      "min": 1,
+      "max": 1
+    },
+    "denoise": 0.65
+  },
+  "capabilities": {
+    "create": true,
+    "edit": false,
+    "references": 0,
+    "inpaint": true,
+    "transparent": false,
+    "negative_prompt": false
+  },
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "compatible": [
+      "flux1",
+      "flux1-kontext",
+      "flux1-fill"
+    ],
+    "max": 4
+  },
+  "components": [
+    {
+      "role": "clip",
+      "names": [
+        "clip_l.safetensors"
+      ],
+      "patterns": [
+        "clip_l"
+      ],
+      "source": "hf:comfyanonymous/flux_text_encoders/clip_l.safetensors"
+    },
+    {
+      "role": "clip2",
+      "names": [
+        "t5xxl_fp8_e4m3fn_scaled.safetensors",
+        "t5xxl_fp8_e4m3fn.safetensors",
+        "t5xxl_fp16.safetensors"
+      ],
+      "patterns": [
+        "t5xxl",
+        "t5-v1_1-xxl"
+      ],
+      "source": "hf:comfyanonymous/flux_text_encoders/t5xxl_fp8_e4m3fn_scaled.safetensors"
+    },
+    {
+      "role": "vae",
+      "names": [
+        "ae.safetensors",
+        "flux_vae.safetensors"
+      ],
+      "patterns": [
+        "ae.safetensors",
+        "flux_vae",
+        "flux-vae"
+      ],
+      "source": "hf:Comfy-Org/Lumina_Image_2.0_Repackaged/split_files/vae/ae.safetensors"
+    }
+  ],
+  "vram_gb": 16,
+  "license": "FLUX.1 [dev] Non-Commercial License (schnell: Apache 2.0)",
+  "license_url": "https://huggingface.co/black-forest-labs/FLUX.1-dev/blob/main/LICENSE.md",
+  "civitai_base_models": [
+    "Flux.1 D",
+    "Flux.1 S",
+    "Flux.1 Krea"
+  ],
+  "hf_tags": [
+    "flux",
+    "base_model:black-forest-labs/FLUX.1-dev"
+  ],
+  "models": []
+}

@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "families": {
+    "sd15": 1,
+    "sdxl": 1,
+    "pony": 1,
+    "illustrious": 1,
+    "sd35": 1,
+    "flux1": 1,
+    "flux1-kontext": 1,
+    "flux1-fill": 1,
+    "flux2": 1,
+    "flux2-klein": 1,
+    "qwen-image": 1,
+    "qwen-edit": 1,
+    "qwen-image-21": 1,
+    "z-image": 1,
+    "ernie": 1,
+    "hidream": 1,
+    "seedvr2": 1
+  }
+}

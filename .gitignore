@@ -21,3 +21,6 @@ WebView2-Probe/
 
 # User-created editable projects
 *.lremove
+
+# Rust build output
+/target/

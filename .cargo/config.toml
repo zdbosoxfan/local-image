@@ -1,0 +1,4 @@
+[alias]
+# Build tasks in Rust: `cargo xtask package linux`, `cargo xtask package windows --arch x64`,
+# `cargo xtask check-icons`, `cargo xtask sign <files>` (see xtask/src/main.rs).
+xtask = "run --quiet --package xtask --"

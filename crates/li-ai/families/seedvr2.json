@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "version": 1,
+  "id": "seedvr2",
+  "kind": "upscaler",
+  "label": "SeedVR2",
+  "group": "Upscalers",
+  "description": "ByteDance SeedVR2: one-step restoration upscaling up to 4K.",
+  "pipeline": {
+    "loader": "unet",
+    "clip": {
+      "node": "",
+      "skip": -1
+    },
+    "vae": "file",
+    "encode": "clip_text",
+    "latent": "none",
+    "sampler": "seed_vr2",
+    "sampler_name": "euler",
+    "scheduler": "simple"
+  },
+  "sampling": {
+    "steps": {
+      "default": 1,
+      "min": 1,
+      "max": 1
+    },
+    "cfg": {
+      "default": 1,
+      "min": 1,
+      "max": 1
+    },
+    "denoise": 1.0
+  },
+  "capabilities": {
+    "create": false,
+    "edit": false,
+    "references": 1,
+    "inpaint": false,
+    "transparent": false,
+    "negative_prompt": false,
+    "upscale": true
+  },
+  "lora": {
+    "loader": "",
+    "compatible": [],
+    "max": 0
+  },
+  "vram_gb": 32,
+  "license": "Apache 2.0",
+  "license_url": "https://huggingface.co/ByteDance-Seed/SeedVR2-7B",
+  "models": [
+    {
+      "key": "seedvr2",
+      "label": "SeedVR2 7B",
+      "short": "SeedVR2",
+      "best_for": "Photo enhancement and upscaling up to 4K",
+      "description": "One-step restoration upscaler. Keeps the source's alpha channel.",
+      "notes": "Very large targets are slow; 4K needs about 32 GB of GPU memory.",
+      "tool": true,
+      "presets": [
+        {
+          "variant": "fp16",
+          "label": "7B FP16",
+          "files": [
+            {
+              "role": "unet",
+              "folder": "diffusion_models",
+              "name": "seedvr2_7b_fp16.safetensors",
+              "bytes": 16480583960,
+              "sha256": "2742ca6fee63bc5cc1773f426dd4b07b78cad27f51c9ea5cd42b035e6b592252",
+              "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/df48879708206a403d2a61acd55578c2e80fd233/split_files/diffusion_models/seedvr2_7b_fp16.safetensors",
+              "compatible": []
+            },
+            {
+              "role": "vae",
+              "folder": "vae",
+              "name": "seedvr2_ema_vae_fp16.safetensors",
+              "bytes": 501324814,
+              "sha256": "20678548f420d98d26f11442d3528f8b8c94e57ee046ef93dbb7633da8612ca1",
+              "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/df48879708206a403d2a61acd55578c2e80fd233/split_files/vae/seedvr2_ema_vae_fp16.safetensors",
+              "compatible": []
+            }
+          ],
+          "required_nodes": [
+            "SeedVR2Preprocess",
+            "VAEEncodeTiled",
+            "SeedVR2Conditioning",
+            "VAEDecodeTiled",
+            "SeedVR2PostProcessing",
+            "SaveImage",
+            "LoadImage"
+          ]
+        }
+      ]
+    }
+  ]
+}

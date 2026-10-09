@@ -1,0 +1,701 @@
+//! The LightCraft develop pipeline (CPU reference implementation).
+//!
+//! Input: a scene-referred, linear Rec.2020 source image (already EXIF-oriented) at any resolution
+//! (full size or a proxy), plus [`DevelopSettings`]. Output: a display-encoded sRGB image at the
+//! requested size, and its histogram.
+//!
+//! Stage order (see `docs/pipeline.md`):
+//! 1. geometry — user orientation, lens corrections (distortion, CA, vignetting), perspective, crop +
+//!    straighten, flips; one resample at output resolution; then defringe
+//! 2. scene-linear — white balance, film negative conversion ([`negative`]), exposure, dehaze,
+//!    local tone (highlights/shadows), texture, clarity, local adjustments (masks)
+//! 3. tone map — contrast / whites / blacks filmic curve on luminance, highlight desaturation
+//! 4. colour — vibrance, saturation, colour mixer, colour grading, B&W (OkLCh)
+//! 5. display — gamut map to the output space (sRGB unless [`RenderRequest::space`] says otherwise), encode, tone curves (parametric + point), vignette, grain
+//!
+//! Spatial parameters are specified relative to the image's long edge, so a 400 px preview and a
+//! 60 MP export look alike.
+//!
+//! Exposure is a gain, so the spatial stages run on the un-exposed image and the per-pixel stage
+//! applies it (filters on log luminance are shift-equivariant: identical result). With
+//! [`render_cached`] each stage's output is reused while its inputs are unchanged ([`StageCache`]):
+//! dragging a tone, colour or exposure slider re-runs only the per-pixel stage.
+#![forbid(unsafe_code)]
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
+
+#[cfg(test)]
+mod test_vectors;
+
+pub mod auto;
+pub mod capture;
+pub mod colorcal;
+pub mod colorops;
+pub mod cull;
+pub mod detail;
+pub mod dust;
+pub mod finish;
+pub mod geometry;
+pub mod layers;
+pub mod lensdb;
+pub mod local;
+pub mod lut;
+pub mod masks;
+pub mod negative;
+pub mod optics;
+pub mod output;
+pub mod patches;
+pub mod profiles;
+pub mod redeye;
+pub mod spots;
+pub mod tone;
+pub mod tone2;
+pub mod toneeq;
+pub mod transform;
+pub mod upright;
+pub mod visualize;
+
+pub use output::{DeepImage, DeepSamples, OutputDepth, OutputSpace, OutputTrc, Proof};
+pub use visualize::{MaskView, Overlay};
+
+use lightcraft_develop::{DevelopSettings, Treatment};
+use std::any::Any;
+use std::borrow::Cow;
+use std::sync::{Arc, Mutex};
+
+use lightcraft_raster::{Histogram, Plane, Rgb32f, Rgba8, par_rows};
+
+pub use tone::ToneMap;
+
+/// Facts about the source the settings are interpreted against.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct SourceInfo {
+    /// Lens corrections embedded in the file (DNG opcodes), relative to the EXIF-oriented source.
+    pub lens: Option<lightcraft_develop::EmbeddedLens>,
+    /// Raw sources use absolute Kelvin white balance; rendered sources use a relative scale around
+    /// their as-shot white.
+    pub raw: bool,
+    pub as_shot_temp: f64,
+    pub as_shot_tint: f64,
+    /// No measured camera illuminant: WB adjustments are relative to the camera's rendered look.
+    pub relative_wb: bool,
+    pub camera_color: Option<lightcraft_color::camera::CameraWhite>,
+    /// DNG/DCP tables evaluated after WB for the chosen illuminant (CPU stage inside GPU renders).
+    pub camera_profile: Option<Arc<lightcraft_color::profile::ProfileLook>>,
+    /// Baseline exposure already present in the decoded source, undone before the base table.
+    pub baseline_gain: f32,
+    pub camera_tone: Option<tone::CameraTone>,
+    /// The lens database's correction for the photo's lens (set by the engine when the settings
+    /// ask for it; relative to the EXIF-oriented source).
+    #[serde(skip)]
+    pub lens_db: Option<lensdb::LensCorrection>,
+    /// Sensor pixels per source pixel (a binned or downscaled raw preview is > 1), for tools
+    /// sized in sensor pixels (capture sharpening).
+    pub sensor_scale: f32,
+    /// Capture sharpening radius measured from the raw data (sensor pixels), when it was asked for.
+    pub capture_radius: Option<f32>,
+    /// Capture sharpening's contrast threshold for this sensor and ISO (0..1).
+    pub capture_threshold: f32,
+    /// Camera look: the camera's own curve (fitted to the embedded JPEG, else the
+    /// maker's base curve). Set by raw decodes.
+    pub look_curve: Option<tone::CameraTone>,
+    /// A DNG profile's tone curve (`ProfileToneCurve`), available as a Camera fallback.
+    /// Soft Film always keeps its own curve. Set by raw decodes.
+    pub profile_curve: Option<tone::CameraTone>,
+}
+
+impl Default for SourceInfo {
+    fn default() -> Self {
+        Self {
+            raw: false,
+            as_shot_temp: 6500.0,
+            as_shot_tint: 0.0,
+            lens: None,
+            relative_wb: false,
+            camera_color: None,
+            camera_profile: None,
+            baseline_gain: 1.0,
+            camera_tone: None,
+            lens_db: None,
+            sensor_scale: 1.0,
+            capture_radius: None,
+            capture_threshold: 0.4,
+            look_curve: None,
+            profile_curve: None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Quality {
+    /// Interactive drags: skips the most expensive refinements.
+    Draft,
+    #[default]
+    Full,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct RenderRequest {
+    /// Output must fit in `max_w × max_h` (aspect preserved).
+    pub max_w: usize,
+    pub max_h: usize,
+    pub quality: Quality,
+    /// Show the crop frame's content only (true) or the whole uncropped image (crop tool active).
+    pub apply_crop: bool,
+    /// A diagnostic view drawn over the result (e.g. Point Color's "visualize range").
+    pub overlay: Overlay,
+    /// Colour space of the result (exports; previews stay sRGB).
+    pub space: OutputSpace,
+    /// Sample format: 8-bit only, or also a 16-bit / linear float [`Rendered::deep`] (exports).
+    pub depth: OutputDepth,
+    /// Soft proofing (CPU only; see [`Proof`]).
+    pub proof: Option<Proof>,
+}
+
+impl RenderRequest {
+    pub fn fit(max_w: usize, max_h: usize) -> Self {
+        Self {
+            max_w,
+            max_h,
+            quality: Quality::Full,
+            apply_crop: true,
+            overlay: Overlay::None,
+            space: OutputSpace::Srgb,
+            depth: OutputDepth::U8,
+            proof: None,
+        }
+    }
+}
+
+pub struct Rendered {
+    /// The result, 8-bit (for deep renders: `deep` reduced to 8 bits, display-encoded).
+    pub image: Rgba8,
+    pub histogram: Histogram,
+    /// The high-bit-depth result when [`RenderRequest::depth`] asks for one.
+    pub deep: Option<DeepImage>,
+}
+
+/// Everything the per-pixel stage needs, precomputed at output resolution.
+///
+/// The image and planes are computed *before exposure* (so they can be reused while exposure is
+/// dragged): the per-pixel stage multiplies the image by `gain` and shifts log planes by `ev`.
+/// Spatial filters on log luminance are shift-equivariant, so this equals filtering after exposure.
+pub(crate) struct Prepared {
+    pub img: Arc<Rgb32f>,
+    /// Log2 luminance relative to middle grey (before exposure: add `ev`).
+    pub log_l: Arc<Plane>,
+    pub base: Arc<Plane>,
+    pub clarity_blur: Option<Arc<Plane>>,
+    pub texture_blur: Option<Arc<Plane>>,
+    /// Blurred chromaticity (`rgb / Y`) for local Moiré / Noise.
+    pub chroma_blur: Option<Arc<Rgb32f>>,
+    pub masks: Vec<masks::Evaluated>,
+    /// Develop layers' noise reduction: (evaluated mask index, the image denoised again with the
+    /// layer's settings), see [`layers`].
+    pub layer_nr: Vec<(usize, Arc<Rgb32f>)>,
+    /// Output pixels per unit of the source long edge.
+    pub px_per_long: f64,
+    /// The tone equalizer's mask (see [`toneeq`]) when the tool is on.
+    pub tone_eq: Option<Arc<Plane>>,
+    /// sharpening: `log_l` blurred once and twice, and the blur radius (output px).
+    pub sharp: Option<(Arc<Plane>, Arc<Plane>, f32)>,
+    pub layer_sharp: Vec<(usize, Arc<Plane>, Arc<Plane>, f32)>,
+    /// dehaze: the refined dark channel and the airlight (before exposure).
+    pub haze: Option<Arc<detail::Haze>>,
+}
+
+/// Output size for a source of `src_w × src_h` under `s`, fitting `max_w × max_h`.
+pub fn output_size(src_w: usize, src_h: usize, s: &DevelopSettings, req: &RenderRequest) -> (usize, usize) {
+    geometry::Frame::new(src_w, src_h, s, req.apply_crop).fit(req.max_w, req.max_h)
+}
+
+/// Size of the cropped output of a `src_w × src_h` source under `s` at the source's own resolution
+/// (what a full-size export produces).
+pub fn native_output_size(src_w: usize, src_h: usize, s: &DevelopSettings) -> (f64, f64) {
+    geometry::Frame::new(src_w, src_h, s, true).native_size()
+}
+
+/// The geometric frame `render` uses for `src` (lens data, automatic CA estimate included).
+pub fn frame_for(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, apply_crop: bool) -> geometry::Frame {
+    let mut frame = geometry::Frame::with_lenses(src.width, src.height, s, apply_crop, info.lens.as_ref(), info.lens_db.as_ref());
+    if s.optics.remove_ca && s.section_enabled("optics") {
+        frame.add_lateral_ca(optics::estimate_lateral_ca(src));
+    }
+    frame
+}
+
+/// Intermediate results of recent renders of one view, reused by [`render_cached`].
+///
+/// Each stage is keyed by exactly the inputs it depends on: the resampled source by the source
+/// buffer, framing and output size; the white-balanced, retouched, denoised image by those plus
+/// white balance, spots and noise reduction; each spatial plane by that plus its own radius. So a
+/// tone or colour slider drag (or exposure) re-runs only the per-pixel stage, a clarity drag skips
+/// resampling and noise reduction, and so on. Holds the last few output sizes (a draft-size and a
+/// full-size render of the same view both stay warm).
+pub struct StageCache {
+    entries: Mutex<Vec<CacheEntry>>,
+    capacity: usize,
+    /// Another renderer's per-view state (the GPU renderer keeps its device-resident stages here).
+    ext: Mutex<Option<Arc<dyn Any + Send + Sync>>>,
+    /// The capture-sharpened source of the last render: (source, parameters key, result).
+    pre: Mutex<Option<(Arc<Rgb32f>, u64, Arc<Rgb32f>)>>,
+}
+
+impl Default for StageCache {
+    fn default() -> Self {
+        StageCache { entries: Mutex::new(Vec::new()), capacity: 2, ext: Mutex::new(None), pre: Mutex::new(None) }
+    }
+}
+
+impl StageCache {
+    /// Drop everything (e.g. when memory is needed).
+    pub fn clear(&self) {
+        self.lock().clear();
+        *self.ext.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        *self.pre.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    /// Per-view state of type `T` kept alongside this cache (created on first use). Lets another
+    /// renderer of the same view (e.g. `lightcraft-gpu`) keep its own stage cache with this one.
+    pub fn extension<T: Any + Send + Sync + Default>(&self) -> Arc<T> {
+        let mut g = self.ext.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(e) = g.as_ref()
+            && let Ok(t) = e.clone().downcast::<T>()
+        {
+            return t;
+        }
+        let t = Arc::new(T::default());
+        *g = Some(t.clone());
+        t
+    }
+
+    /// The per-view state of type `T` if there is one (unlike [`Self::extension`], never creates it).
+    pub fn peek_extension<T: Any + Send + Sync>(&self) -> Option<Arc<T>> {
+        self.ext.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|e| e.clone().downcast::<T>().ok())
+    }
+
+    /// Bytes of the intermediate images held (each buffer counted once; the sources they were
+    /// made from belong to their owner and are not counted).
+    pub fn bytes(&self) -> usize {
+        fn size<T>(i: &lightcraft_raster::Image<T>) -> usize {
+            i.data.len() * std::mem::size_of::<T>()
+        }
+        let mut seen: Vec<usize> = Vec::new();
+        let mut total = 0;
+        let mut add = |p: usize, n: usize| {
+            if !seen.contains(&p) {
+                seen.push(p);
+                total += n;
+            }
+        };
+        for e in self.lock().iter() {
+            add(Arc::as_ptr(&e.sampled) as usize, size(&e.sampled));
+            if let Some((_, l)) = &e.lin {
+                add(Arc::as_ptr(l) as usize, size(l));
+            }
+            let pl = &e.planes;
+            let planes = pl.log_l.iter().chain(pl.base.iter().map(|x| &x.1)).chain(pl.clarity.iter().map(|x| &x.1));
+            for p in planes.chain(pl.texture.iter().map(|x| &x.1)) {
+                add(Arc::as_ptr(p) as usize, size(p));
+            }
+            for p in pl.sharp.iter().flat_map(|x| [&x.1, &x.2]).chain(pl.layer_sharp.iter().flat_map(|x| [&x.1, &x.2])) {
+                add(Arc::as_ptr(p) as usize, size(p));
+            }
+            if let Some(h) = &pl.haze {
+                add(Arc::as_ptr(h) as usize, (h.positive.data.len() + h.negative.data.len()) * 4);
+            }
+            for (_, l) in &pl.layer_nr {
+                add(Arc::as_ptr(l) as usize, size(l));
+            }
+        }
+        if let Some((_, _, out)) = self.pre.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            total += size(out);
+        }
+        total
+    }
+
+    /// Number of cached output sizes.
+    pub fn len(&self) -> usize {
+        self.lock().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Vec<CacheEntry>> {
+        self.entries.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn get(&self, src: &Arc<Rgb32f>, geo: u64) -> Option<CacheEntry> {
+        self.lock().iter().find(|e| e.geo == geo && Arc::ptr_eq(&e.src, src)).cloned()
+    }
+
+    fn put(&self, e: CacheEntry) {
+        let mut v = self.lock();
+        v.retain(|o| !(o.geo == e.geo && Arc::ptr_eq(&o.src, &e.src)));
+        v.push(e);
+        while v.len() > self.capacity {
+            v.remove(0);
+        }
+    }
+}
+
+#[derive(Clone)]
+struct CacheEntry {
+    src: Arc<Rgb32f>,
+    geo: u64,
+    sampled: Arc<Rgb32f>,
+    lin: Option<(u64, Arc<Rgb32f>)>,
+    planes: local::Planes,
+}
+
+fn hash_of(parts: impl std::hash::Hash) -> u64 {
+    use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
+    BuildHasherDefault::<DefaultHasher>::default().hash_one(parts)
+}
+
+/// What a render resolves to before any pixel work: the effective settings (profile and Upright
+/// applied), the geometric frame, the output size and the stage-cache keys. Shared by the CPU
+/// renderer and the GPU renderer (`lightcraft-gpu`), so both key their caches identically.
+pub struct Plan<'a> {
+    pub settings: Cow<'a, DevelopSettings>,
+    pub frame: geometry::Frame,
+    pub w: usize,
+    pub h: usize,
+    /// Output pixels per unit of the oriented source's long edge.
+    pub px_per_long: f64,
+    /// Long edge of the source buffer (px).
+    pub src_long: usize,
+    /// Key of the resampled source (together with the source buffer's identity).
+    pub geo: u64,
+    /// Key of the white-balanced, retouched, denoised image (and of the planes computed from it).
+    pub lin_key: u64,
+    /// Red eye / pet eye corrections with their detected pupils, in output pixels.
+    pub eyes: Vec<redeye::EyeK>,
+}
+
+/// Resolve `s` against `src` for `req` (see [`Plan`]).
+pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &RenderRequest) -> Plan<'a> {
+    let mut settings: Cow<'a, DevelopSettings> = match profiles::effective(s) {
+        Cow::Borrowed(b) => upright::resolve(src, info, b),
+        Cow::Owned(o) => Cow::Owned(upright::resolve(src, info, &o).into_owned()),
+    };
+    visualize::adjust_settings(req.overlay, &mut settings);
+    let s = &*settings;
+    let frame = frame_for(src, info, s, req.apply_crop);
+    let (w, h) = frame.fit(req.max_w, req.max_h);
+    let px_per_long = frame.px_per_long(w);
+    let src_long = src.width.max(src.height);
+    let geo = hash_of((format!("{frame:?}"), w, h));
+    let (wb_t, wb_tint) = local::effective_wb(info, s);
+    let eyes = redeye::resolve(src, &s.red_eye, s.orientation, &frame, w, h, px_per_long);
+    let d = &s.detail;
+    let lin_key = hash_of((
+        geo,
+        [wb_t, wb_tint, info.as_shot_temp, info.as_shot_tint].map(f64::to_bits),
+        format!("{:?}", s.spots),
+        format!("{eyes:?}"),
+        // defringe runs in this stage
+        format!("{:?}", s.optics),
+        // the negative conversion runs in this stage (only while it is on: its sliders change
+        // nothing while it is off)
+        format!("{:?}", negative::params(s)),
+        [d.nr_luminance, d.nr_detail, d.nr_color, d.nr_color_detail, d.nr_color_smoothness, d.nr_contrast].map(f64::to_bits),
+        (src_long, s.section_enabled("detail")),
+        // colour calibration runs with the white balance
+        format!("{:?}", colorcal::of(info, s)),
+        format!("{:?}", info.camera_color),
+        info.camera_profile.as_ref().map(|p| p.hash64()),
+        (info.baseline_gain.to_bits(), info.sensor_scale.to_bits()),
+    ));
+    Plan { settings, frame, w, h, px_per_long, src_long, geo, lin_key, eyes }
+}
+
+/// Whether the scene-linear stage needs work only the CPU does (film negative conversion,
+/// defringe, spot removal).
+pub fn lin_needs_cpu(s: &DevelopSettings) -> bool {
+    let o = &s.optics;
+    let defringe = s.section_enabled("optics") && (o.defringe_purple_amount > 0.0 || o.defringe_green_amount > 0.0);
+    defringe || !s.spots.is_empty() || negative::converts(s) || colorcal::needs_cpu(s)
+}
+
+/// Whether the settings use a tool the GPU renderer has no kernel for (the tone equalizer): the
+/// whole render then runs on the CPU (like [`layers_need_cpu`]).
+pub fn tools_need_cpu(s: &DevelopSettings, req: &RenderRequest) -> bool {
+    toneeq::active(s) || req.overlay == Overlay::ToneEqMask
+}
+
+/// Whether develop layers need work only the CPU does: any visible mask holding layer tools
+/// (`Mask::tools`; see [`layers`]). Masks with only the quick local sliders and an opacity render
+/// on the GPU.
+pub fn layers_need_cpu(s: &DevelopSettings) -> bool {
+    layers::active(s)
+}
+
+/// The white-balanced, negative-converted, defringed, retouched image (before noise reduction):
+/// the CPU part of the scene-linear stage, in place.
+///
+/// The negative conversion comes right after white balance: like darktable's negadoctor it reads
+/// the scan's scene-linear transmittance (white-balanced, in the working space), and everything
+/// after it (defringe's purple/green hues, retouching, noise reduction, tone and colour) has to see
+/// the positive image.
+pub fn lin_cpu(img: &mut Rgb32f, info: &SourceInfo, p: &Plan<'_>) {
+    let s = &*p.settings;
+    // AI removals first: their patches are in the source's own light (before white balance)
+    patches::apply_spots(img, &s.spots, &p.frame);
+    local::white_balance(img, info, s);
+    negative::apply(img, s);
+    optics::defringe(img, s, p.px_per_long / optics::DEFRINGE_REF_LONG);
+    spots::apply(img, &s.spots, &p.frame, p.px_per_long);
+    redeye::apply(img, &p.eyes);
+}
+
+/// Capture sharpening of a source with `info` under `s` (see [`capture`]): `None` when it is off,
+/// the source isn't raw, or the blur at this source's scale is too small to matter.
+pub fn capture_params(info: &SourceInfo, s: &DevelopSettings) -> Option<capture::CaptureParams> {
+    let c = &s.raw.capture;
+    if !c.enabled || !info.raw || !s.section_enabled("raw") {
+        return None;
+    }
+    let radius = if c.radius > 0.0 { c.radius as f32 } else { info.capture_radius.unwrap_or(CAPTURE_DEFAULT_RADIUS) };
+    let sigma = radius / info.sensor_scale.max(1e-3);
+    if sigma <= 0.25 {
+        return None;
+    }
+    Some(capture::CaptureParams {
+        sigma,
+        threshold: if c.threshold > 0.0 { (c.threshold / 100.0) as f32 } else { info.capture_threshold },
+        corner_boost: (c.corner_boost / 100.0) as f32,
+        center: 0.0,
+        iterations: capture::iterations_of(c.iterations.clamp(1.0, 25.0) as u32),
+        clip: None,
+    })
+}
+
+/// The radius darktable falls back to when the raw data can't tell.
+const CAPTURE_DEFAULT_RADIUS: f32 = 0.5;
+
+/// The capture-sharpened source (`None`: nothing to sharpen; render `src`), reused from `cache`
+/// while the source and the parameters are unchanged. Both renderers call it first.
+pub fn presource(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, cache: Option<&StageCache>) -> Option<Arc<Rgb32f>> {
+    capture_params(info, s).map(|p| presource_with(src, &p, cache))
+}
+
+fn presource_with(src: &Arc<Rgb32f>, p: &capture::CaptureParams, cache: Option<&StageCache>) -> Arc<Rgb32f> {
+    let key = hash_of(format!("{p:?}"));
+    if let Some(c) = cache
+        && let Some((s0, k, out)) = c.pre.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+        && Arc::ptr_eq(s0, src)
+        && *k == key
+    {
+        return out.clone();
+    }
+    let mut img = (**src).clone();
+    timed("capture sharpening", || capture::sharpen(&mut img, p));
+    let out = Arc::new(img);
+    if let Some(c) = cache {
+        *c.pre.lock().unwrap_or_else(|e| e.into_inner()) = Some((src.clone(), key, out.clone()));
+    }
+    out
+}
+
+/// Render `src` with settings `s`.
+pub fn render(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest) -> Rendered {
+    render_impl(Src::Borrowed(src), info, s, req, None)
+}
+
+/// [`render`], reusing (and refreshing) the intermediate results in `cache`. The output is
+/// identical to [`render`]'s.
+pub fn render_cached(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, cache: &StageCache) -> Rendered {
+    render_impl(Src::Shared(src), info, s, req, Some(cache))
+}
+
+enum Src<'a> {
+    Borrowed(&'a Rgb32f),
+    Shared(&'a Arc<Rgb32f>),
+}
+
+fn render_impl(src: Src<'_>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, cache: Option<&StageCache>) -> Rendered {
+    // `Instant::now()` panics on wasm32-unknown-unknown: only read the clock when profiling.
+    let lap = |what: &str, t: &mut Option<std::time::Instant>| {
+        if let Some(t) = t {
+            eprintln!("  {what}: {:.1} ms", t.elapsed().as_secs_f64() * 1e3);
+            *t = std::time::Instant::now();
+        }
+    };
+    let mut t = profiling().then(std::time::Instant::now);
+    // capture sharpening works on the source itself (sensor-scale blur), before everything else
+    let pre: Option<Arc<Rgb32f>> = capture_params(info, s).map(|p| match &src {
+        Src::Shared(a) => presource_with(a, &p, cache),
+        Src::Borrowed(r) => {
+            let mut img = (*r).clone();
+            capture::sharpen(&mut img, &p);
+            Arc::new(img)
+        }
+    });
+    let src = match &pre {
+        Some(a) => Src::Shared(a),
+        None => src,
+    };
+    let src_img: &Rgb32f = match &src {
+        Src::Borrowed(r) => r,
+        Src::Shared(a) => a,
+    };
+    let plan = plan(src_img, info, s, req);
+    let Plan { ref frame, w, h, px_per_long, src_long, geo, lin_key, .. } = plan;
+    let s = &*plan.settings;
+
+    let shared = match (&src, cache) {
+        (Src::Shared(a), Some(c)) => Some((*a, c)),
+        _ => None,
+    };
+    let cached = shared.and_then(|(a, c)| c.get(a, geo));
+    let sampled = match &cached {
+        Some(e) => e.sampled.clone(),
+        None => Arc::new(frame.sample(src_img, w, h)),
+    };
+    lap("sample", &mut t);
+
+    let lin = match cached.as_ref().and_then(|e| e.lin.clone()).filter(|(k, _)| *k == lin_key) {
+        Some((_, img)) => img,
+        None => {
+            // Without a cache the resampled buffer is ours: work on it in place.
+            let mut img = if shared.is_some() { (*sampled).clone() } else { Arc::unwrap_or_clone(sampled.clone()) };
+            lin_cpu(&mut img, info, &plan);
+            local::denoise(&mut img, s, src_long, px_per_long, info.sensor_scale);
+            Arc::new(img)
+        }
+    };
+    lap("wb/spots/nr", &mut t);
+    let mut planes = match cached.map(|e| e.planes) {
+        Some(p) if p.key == lin_key => p,
+        _ => local::Planes { key: lin_key, ..Default::default() },
+    };
+    let prep = local::prepare(lin.clone(), s, info, frame, px_per_long, src_long, req.quality, &mut planes);
+    lap("prepare", &mut t);
+    if let Some((a, c)) = shared {
+        c.put(CacheEntry { src: a.clone(), geo, sampled, lin: Some((lin_key, lin)), planes });
+    }
+    if req.depth != OutputDepth::U8 {
+        let deep = finish::finish_deep(&prep, s, frame, info, req.space, req.depth, req.proof);
+        let image = deep.to_rgba8();
+        let histogram = Histogram::of_srgb8(&image);
+        lap("finish (deep)", &mut t);
+        return Rendered { image, histogram, deep: Some(deep) };
+    }
+    let image = finish::finish(&prep, s, frame, info, req.space, req.proof);
+    lap("finish", &mut t);
+    let histogram = Histogram::of_srgb8(&image);
+    lap("histogram", &mut t);
+    let mut image = image;
+    let mask = overlay_alpha(req.overlay, &plan, &prep);
+    visualize::apply(&mut image, req.overlay, &plan, mask.as_ref());
+    Rendered { image, histogram, deep: None }
+}
+
+/// The colour a colour-range mask would sample at normalized image point `p` (OkLab of the
+/// exposed scene colours, as [`MaskShape::ColorRange`](lightcraft_develop::MaskShape) compares
+/// them), averaged over 3 × 3 pixels of a render fitting `req`. `None` outside the image.
+pub fn color_range_sample(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, p: lightcraft_geom::Point) -> Option<[f64; 3]> {
+    let plan = plan(src, info, s, req);
+    let mut img = plan.frame.sample(src, plan.w, plan.h);
+    lin_cpu(&mut img, info, &plan);
+    let o = plan.frame.norm_to_out(plan.w, plan.h).apply(p);
+    let (cx, cy) = (o.x.floor() as i64, o.y.floor() as i64);
+    if cx < 0 || cy < 0 || cx >= plan.w as i64 || cy >= plan.h as i64 {
+        return None;
+    }
+    let gain = (s.light.exposure as f32).exp2();
+    let mut acc = [0f64; 3];
+    let mut n = 0.0;
+    for y in (cy - 1).max(0)..=(cy + 1).min(plan.h as i64 - 1) {
+        for x in (cx - 1).max(0)..=(cx + 1).min(plan.w as i64 - 1) {
+            let c = img.data[y as usize * plan.w + x as usize].map(|v| v * gain);
+            let lab = lightcraft_color::perceptual::oklab_from_2020(masks::tonemap_for_select(c));
+            for k in 0..3 {
+                acc[k] += lab[k] as f64;
+            }
+            n += 1.0;
+        }
+    }
+    Some(acc.map(|v| v / n))
+}
+
+/// The alpha plane a mask overlay shows: the one the render evaluated, or (for a hidden mask) a
+/// fresh evaluation.
+fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared) -> Option<Plane> {
+    if o == Overlay::SharpenMask {
+        // At very small preview scales the Gaussian is effectively identity, but
+        // Alt Masking still shows the edge mask rather than the photograph.
+        let (b2, sigma) = prep.sharp.as_ref().map_or((&prep.log_l, 0.0), |(_, b2, sg)| (b2, *sg));
+        let k = detail::SharpK::new(0.0, (plan.settings.detail.sharpen_masking / 100.0) as f32, sigma);
+        return Some(detail::sharp_mask_plane(b2, &k));
+    }
+
+    if o == Overlay::ToneEqMask {
+        let m = prep.tone_eq.as_ref()?;
+        let t = &plan.settings.tone_eq;
+        let adj = toneeq::MaskAdjust { exposure: t.mask_exposure as f32, contrast: t.mask_contrast as f32 };
+        let ev = plan.settings.light.exposure as f32;
+        return Some(m.map(|v| toneeq::preview_grey(adj.zone_ev(v, ev))));
+    }
+    let m = o.mask(&plan.settings)?;
+    if let Some(e) = prep.masks.iter().find(|e| e.id == m.id) {
+        return Some(e.alpha.clone());
+    }
+    let ev = plan.settings.light.exposure as f32;
+    Some(masks::evaluate_one(m, &plan.frame, plan.w, plan.h, &prep.img, &prep.log_l, ev))
+}
+
+/// Convenience: render a before/after pair side by side is up to the UI; this renders "before"
+/// (default look, keeping the crop so framing matches).
+pub fn before_settings(s: &DevelopSettings) -> DevelopSettings {
+    // (the photo's look: "before" is its unedited rendition)
+    let mut b = DevelopSettings { crop: s.crop, orientation: s.orientation, look: s.look, ..DevelopSettings::default() };
+    b.wb = lightcraft_develop::WhiteBalance { mode: lightcraft_develop::WbMode::AsShot, ..b.wb };
+    b
+}
+
+pub(crate) fn is_bw(s: &DevelopSettings) -> bool {
+    s.treatment == Treatment::Bw || s.profile.id == "lc.mono" || s.profile.id.starts_with("lc.bw.")
+}
+
+/// `LIGHTCRAFT_PROFILE` is set: print per-stage timings to stderr.
+pub fn profiling() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("LIGHTCRAFT_PROFILE").is_some())
+}
+
+/// Run `f`, printing its duration under `LIGHTCRAFT_PROFILE`.
+pub(crate) fn timed<R>(what: &str, f: impl FnOnce() -> R) -> R {
+    if !profiling() {
+        return f();
+    }
+    let t = std::time::Instant::now();
+    let r = f();
+    eprintln!("    {what}: {:.1} ms", t.elapsed().as_secs_f64() * 1e3);
+    r
+}
+
+pub(crate) fn for_rows<T: Send>(data: &mut [T], w: usize, f: impl Fn(usize, &mut [T]) + Sync + Send) {
+    par_rows(data, w, f)
+}
+
+#[cfg(test)]
+mod tests;
+#[cfg(test)]
+mod tests_detail;
+#[cfg(test)]
+mod tests_detail_refvec;
+#[cfg(test)]
+mod tests_geometry;
+#[cfg(test)]
+mod tests_layers;
+#[cfg(test)]
+mod tests_local;
+#[cfg(test)]
+mod tests_toolset;
+
+mod base_curve_data;
+pub mod basecurves;

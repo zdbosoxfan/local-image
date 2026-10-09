@@ -1,0 +1,110 @@
+{
+  "schema": 1,
+  "version": 1,
+  "id": "sd35",
+  "label": "Stable Diffusion 3.5",
+  "group": "Stable Diffusion",
+  "description": "SD 3.5 Large and Medium (MMDiT): good prompt following and typography, three text encoders.",
+  "pipeline": {
+    "loader": "checkpoint",
+    "clip": {
+      "node": "TripleCLIPLoader",
+      "skip": -1
+    },
+    "vae": "checkpoint",
+    "encode": "clip_text",
+    "model_sampling": {
+      "node": "ModelSamplingSD3",
+      "shift": 3.0
+    },
+    "latent": "EmptySD3LatentImage",
+    "sampler": "ksampler",
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "sgm_uniform",
+    "reference": "none",
+    "inpaint": "noise_mask",
+    "differential": true
+  },
+  "sizes": {
+    "native": 1024,
+    "multiple": 16,
+    "min": 512,
+    "max": 2048
+  },
+  "sampling": {
+    "steps": {
+      "default": 30,
+      "min": 1,
+      "max": 100
+    },
+    "cfg": {
+      "default": 4.5,
+      "min": 1,
+      "max": 15
+    },
+    "denoise": 0.6
+  },
+  "capabilities": {
+    "create": true,
+    "edit": false,
+    "references": 0,
+    "inpaint": true,
+    "transparent": false,
+    "negative_prompt": true
+  },
+  "lora": {
+    "loader": "LoraLoader",
+    "compatible": [
+      "sd35"
+    ],
+    "max": 3
+  },
+  "components": [
+    {
+      "role": "clip",
+      "names": [
+        "clip_l.safetensors"
+      ],
+      "patterns": [
+        "clip_l"
+      ],
+      "source": "hf:Comfy-Org/stable-diffusion-3.5-fp8/text_encoders/clip_l.safetensors"
+    },
+    {
+      "role": "clip2",
+      "names": [
+        "clip_g.safetensors"
+      ],
+      "patterns": [
+        "clip_g"
+      ],
+      "source": "hf:Comfy-Org/stable-diffusion-3.5-fp8/text_encoders/clip_g.safetensors"
+    },
+    {
+      "role": "clip3",
+      "names": [
+        "t5xxl_fp8_e4m3fn_scaled.safetensors",
+        "t5xxl_fp16.safetensors",
+        "t5xxl_fp8_e4m3fn.safetensors"
+      ],
+      "patterns": [
+        "t5xxl"
+      ],
+      "source": "hf:Comfy-Org/stable-diffusion-3.5-fp8/text_encoders/t5xxl_fp8_e4m3fn_scaled.safetensors"
+    }
+  ],
+  "vram_gb": 16,
+  "license": "Stability AI Community License",
+  "license_url": "https://huggingface.co/stabilityai/stable-diffusion-3.5-large/blob/main/LICENSE.md",
+  "civitai_base_models": [
+    "SD 3.5",
+    "SD 3.5 Large",
+    "SD 3.5 Medium",
+    "SD 3.5 Large Turbo"
+  ],
+  "hf_tags": [
+    "sd3",
+    "sd3.5"
+  ],
+  "models": []
+}

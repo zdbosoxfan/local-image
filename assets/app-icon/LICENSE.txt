@@ -1,0 +1,3 @@
+Local Image app icon (local-image-1024.png, local-image.ico and hicolor/): original artwork for
+Local Image, licensed under the GNU General Public License, version 3 or later, like the rest of
+Local Image.

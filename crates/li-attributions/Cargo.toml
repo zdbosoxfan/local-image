@@ -1,0 +1,18 @@
+[package]
+name = "li-attributions"
+description = "The Attributions page (Settings, Preferences, About): what Local Image uses from other projects, with their licences"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+egui = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[build-dependencies]
+serde_json = { workspace = true }

@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "version": 1,
+  "id": "flux1-fill",
+  "base": "flux1",
+  "label": "FLUX.1 Fill",
+  "group": "FLUX",
+  "description": "FLUX.1 Fill dev: an inpainting model; regenerates masked areas so they blend seamlessly.",
+  "pipeline": {
+    "flux_guidance": 30.0,
+    "reference": "none",
+    "inpaint": "model_conditioning"
+  },
+  "sampling": {
+    "steps": {
+      "default": 20,
+      "min": 1,
+      "max": 60
+    },
+    "cfg": {
+      "default": 1,
+      "min": 1,
+      "max": 1
+    },
+    "denoise": 1.0
+  },
+  "capabilities": {
+    "create": false,
+    "edit": false,
+    "references": 0,
+    "inpaint": true,
+    "transparent": false,
+    "negative_prompt": false
+  },
+  "civitai_base_models": [],
+  "hf_tags": [
+    "flux-fill"
+  ],
+  "models": []
+}
