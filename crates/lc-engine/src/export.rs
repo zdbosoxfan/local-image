@@ -1088,6 +1088,8 @@ pub fn export_photo(session: &mut crate::Session, id: lightcraft_catalog::PhotoI
 pub struct PreparedExport {
     pub photo: lightcraft_catalog::PhotoId,
     pub file_name: String,
+    /// Relative folder within a batch destination (Smart Sort). Validated before rendering.
+    pub subfolder: Option<String>,
     work: Work,
     /// The library's originals, which [`run_batch`] never writes over (shared by a batch).
     guard: std::sync::Arc<crate::originals::OriginalGuard>,
@@ -1134,7 +1136,7 @@ pub fn prepare_batch(session: &mut crate::Session, ids: &[lightcraft_catalog::Ph
     ids.iter().enumerate().map(|(i, id)| prepare_guarded(session, *id, o, i + 1, guard.clone())).collect()
 }
 
-fn prepare_guarded(
+pub(crate) fn prepare_guarded(
     session: &mut crate::Session,
     id: lightcraft_catalog::PhotoId,
     o: &ExportOptions,
@@ -1180,7 +1182,7 @@ fn prepare_guarded(
             size: (p.width as usize, p.height as usize),
         }
     };
-    Ok(PreparedExport { photo: id, file_name, work, guard, source_dir })
+    Ok(PreparedExport { photo: id, file_name, subfolder: None, work, guard, source_dir })
 }
 
 impl PreparedExport {
@@ -1341,7 +1343,8 @@ pub fn run_batch(
         }
         let (photo, name, guard) = (item.photo, item.file_name.clone(), item.guard.clone());
         // the batch's folder, or (Same folder as original photo) the photo's own
-        let dir = match (o.same_folder, &item.source_dir) {
+        let has_subfolder = item.subfolder.is_some();
+        let mut dir = match (o.same_folder && !has_subfolder, &item.source_dir) {
             (false, _) => batch_dir.clone(),
             (true, Some(d)) => in_sub(d),
             (true, None) => {
@@ -1353,6 +1356,10 @@ pub fn run_batch(
                 continue;
             }
         };
+        if let Some(sub) = &item.subfolder {
+            let sub = crate::smart_sort::plan::sanitize(sub)?;
+            dir = join(&dir, &sub);
+        }
         let e = match item.run() {
             Ok(e) => e,
             Err(err) if stop_on_error => return Err(err),
@@ -1363,7 +1370,7 @@ pub fn run_batch(
         };
         // the exported file and its sidecars
         let group = |main: &str| std::iter::once(main.to_string()).chain(e.sidecars.iter().map(|(x, _)| sidecar_path(main, x))).collect::<Vec<_>>();
-        let path = match to.exact.as_deref().filter(|_| single) {
+        let path = match to.exact.as_deref().filter(|_| single && !has_subfolder) {
             Some(p) => Ok(p.to_string()),
             None => {
                 let path = join(&dir, &e.file_name);

@@ -455,6 +455,9 @@ impl Dialog {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Dialog {
+    SmartSort {
+        state: Box<crate::panels::smart_sort::SmartSortDialog>,
+    },
     NewAlbum {
         name: String,
         folder: bool,

@@ -61,6 +61,7 @@ fn opt_in_default_and_command_registry_privacy() {
     assert_eq!(status["faces"]["enabled"], false);
     assert_eq!(status["analysed"]["faces"], 0);
     assert!(s.execute("smartSort.facesAnalyze", &json!({})).is_err());
+    assert!(s.execute("smartSort.analyze", &json!({"ids":[],"faces":true})).is_err());
     assert!(s.execute("smartSort.facesInPhoto", &json!({"photo":1})).is_err());
     assert_eq!(s.smart.people.store.len("mock-faces"), 0);
     let commands = serde_json::to_value(s.commands()).unwrap().to_string();
@@ -80,11 +81,119 @@ fn opt_in_default_and_command_registry_privacy() {
         assert!(commands.contains(&format!("smartSort.{id}")));
     }
     run(&mut s, "smartSort.facesEnable", json!({"enabled":true}));
+    s.smart.tagger = Some(Arc::new(MockTagger));
+    let analysed = run(&mut s, "smartSort.analyze", json!({"ids":[],"faces":true}));
+    assert_eq!(analysed["analysed"], 0);
+    assert_eq!(analysed["faces"]["analysed"], 0);
     let a = add(&mut s, &[[255, 0, 0]]);
     let r = run(&mut s, "smartSort.facesInPhoto", json!({"photo":a}));
     assert_eq!(r["faces"].as_array().unwrap().len(), 1);
     assert!(!r.to_string().contains("embedding"));
     assert!(!r.to_string().contains("centroid"));
+}
+
+#[test]
+fn combined_analysis_requires_opt_in_and_caches_both_models() {
+    let mut s = session();
+    s.smart.tagger = Some(Arc::new(MockTagger));
+    let mut ids = Vec::new();
+    for n in 0..2 {
+        let id = s.catalog.alloc_photo_id();
+        let mut p = Photo::new(id, Source::File { path: format!("/nonexistent/combined-{n}.arw") }, "face.arw", "RAW", 1600, 1000, "2026-10-09");
+        p.kind = MediaKind::Raw;
+        p.develop = Arc::new(p.camera_defaults());
+        p.content_hash = Some(format!("combined-{n}"));
+        s.commit("raw", Op::AddPhoto { photo: Box::new(p) }).unwrap();
+        ids.push(id);
+    }
+    s.media.preview_loader = Some(Arc::new(|_, _| Some(image(&[[255, 0, 0]]))));
+    let params = json!({"ids":[ids[0],ids[1],ids[0]],"faces":true});
+    assert!(s.execute("smartSort.analyze", &params).is_err());
+    assert_eq!(s.smart.store.len("mock-tags"), 0);
+    assert_eq!(s.smart.people.store.len("mock-faces"), 0);
+    run(&mut s, "smartSort.facesEnable", json!({"enabled":true}));
+    let r = run(&mut s, "smartSort.analyze", params.clone());
+    assert_eq!(r["analysed"], 2);
+    assert_eq!(r["faces"]["analysed"], 2);
+    assert_eq!(r["failed"], json!([]));
+    assert_eq!(r["faces"]["failed"], json!([]));
+    for id in &ids {
+        let key = crate::media::content_key(s.catalog.photo(*id).unwrap());
+        assert!(s.smart.store.get("mock-tags", &key).is_some());
+        assert_eq!(s.smart.people.store.get("mock-faces", &key).unwrap().len(), 1);
+    }
+    let r = run(&mut s, "smartSort.analyze", params);
+    assert_eq!(r["analysed"], 0);
+    assert_eq!(r["skipped"], 2);
+    assert_eq!(r["faces"]["analysed"], 0);
+    assert_eq!(r["faces"]["skipped"], 2);
+}
+
+#[test]
+fn inactive_people_conditions_allow_tag_planning_after_opt_out() {
+    use crate::smart_sort::{FolderDef, plan};
+    let mut s = session();
+    let id = add(&mut s, &[[255, 0, 0]]);
+    let mut meta = s.catalog.photo(id).unwrap().meta.clone();
+    meta.keywords = vec!["Smart Sort|Stage".into()];
+    s.commit("tag", Op::SetMeta { id, meta: Box::new(meta) }).unwrap();
+    run(&mut s, "smartSort.facesEnable", json!({"enabled":false}));
+    let tagged = FolderDef { name: "Stage".into(), rules: plan::tag_rules("Smart Sort", &["Stage".into()], false), ..Default::default() };
+    let stale = FolderDef {
+        name: "Saved people".into(),
+        people_enabled: true,
+        person_ids: vec![999],
+        rules: RuleSet { rules: vec![Rule::Field { field: "person".into(), op: "is".into(), value: json!(999) }], ..Default::default() },
+        ..Default::default()
+    };
+    for inactive in [
+        FolderDef { enabled: false, ..stale.clone() },
+        FolderDef { unsorted: true, ..stale.clone() },
+        FolderDef { people_enabled: false, use_rules: false, ..stale.clone() },
+    ] {
+        let r = run(&mut s, "smartSort.plan", json!({"folders":[tagged,inactive],"ids":[id]}));
+        assert_eq!(r["folders"][0]["ids"], json!([id]));
+        assert_eq!(r["notices"], json!([]));
+        assert!(s.smart.people.tagger.is_none());
+    }
+    assert!(s.execute("smartSort.plan", &json!({"folders":[tagged,stale],"ids":[id]})).is_err());
+}
+
+#[test]
+fn advanced_person_rules_resolve_nested_ids_and_report_unknowns() {
+    use crate::smart_sort::FolderDef;
+    let mut s = session();
+    let jane = add(&mut s, &[[255, 0, 0]]);
+    let john = add(&mut s, &[[0, 255, 0]]);
+    let neither = add(&mut s, &[]);
+    let a = pick(&mut s, jane, "Jane");
+    let b = pick(&mut s, john, "John");
+    run(&mut s, "smartSort.mergePeople", json!({"ids":[a,b]}));
+    let folder = FolderDef {
+        name: "Advanced".into(),
+        // Phase 2a reserved this field without enabling the people picker.
+        person_ids: vec![777],
+        rules: RuleSet {
+            rules: vec![Rule::Group {
+                group: RuleSet {
+                    rules: vec![Rule::Field { field: "person".into(), op: "anyOf".into(), value: json!([b, 999, b]) }],
+                    ..Default::default()
+                },
+            }],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let r = run(&mut s, "smartSort.plan", json!({"folders":[folder],"ids":[jane,john,neither],"unsorted":"Other"}));
+    assert_eq!(r["folders"][0]["ids"], json!([jane, john]));
+    assert_eq!(r["folders"][1]["ids"], json!([neither]));
+    assert_eq!(r["notices"], json!(["Skipped unknown or ignored person 999"]));
+    let inactive_rules = RuleSet { rules: vec![Rule::Field { field: "person".into(), op: "is".into(), value: json!(999) }], ..Default::default() };
+    let people_only =
+        FolderDef { name: "People".into(), people_enabled: true, person_ids: vec![b], use_rules: false, rules: inactive_rules, ..Default::default() };
+    let r = run(&mut s, "smartSort.plan", json!({"folders":[people_only],"ids":[jane,john,neither]}));
+    assert_eq!(r["folders"][0]["ids"], json!([jane, john]));
+    assert_eq!(r["notices"], json!([]));
 }
 
 #[test]
@@ -320,6 +429,55 @@ fn people_folders_any_everyone_tag_and_or_toggle_and_unknown_notice() {
     run(&mut s, "smartSort.peopleIgnore", json!({"person":a}));
     let r = run(&mut s, "smartSort.personFolder", json!({"person":a,"enabled":true}));
     assert!(r["folders"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn mixed_tag_people_layout_resolves_ids_overlap_and_unsorted() {
+    use crate::smart_sort::{FolderDef, plan};
+    let mut s = session();
+    let jane = add(&mut s, &[[255, 0, 0]]);
+    let john = add(&mut s, &[[0, 255, 0]]);
+    let both = add(&mut s, &[[255, 0, 0], [0, 255, 0]]);
+    let neither = add(&mut s, &[]);
+    let a = pick(&mut s, jane, "Jane");
+    let b = pick(&mut s, john, "John");
+    for id in [jane, both] {
+        let mut meta = s.catalog.photo(id).unwrap().meta.clone();
+        meta.keywords = vec!["Smart Sort|Stage".into(), "Smart Sort|Speakers".into()];
+        s.commit("tags", Op::SetMeta { id, meta: Box::new(meta) }).unwrap();
+    }
+    let tags = vec!["Stage".into(), "Speakers".into()];
+    let tagged = FolderDef {
+        name: "Tagged Jane".into(),
+        custom: true,
+        tags: tags.clone(),
+        combine_all: true,
+        rules: plan::tag_rules("Smart Sort", &tags, true),
+        people_enabled: true,
+        person_ids: vec![a],
+        ..Default::default()
+    };
+    let people = FolderDef { name: "People".into(), people_enabled: true, person_ids: vec![a, b], use_rules: false, ..Default::default() };
+    let unknown = FolderDef { name: "Unknown".into(), person_ids: vec![999], ..people.clone() };
+    // Unsorted is evaluated after every enabled condition, regardless of row order.
+    let folders = vec![FolderDef { name: "Unsorted".into(), unsorted: true, ..Default::default() }, tagged, people, unknown];
+    let ids = [jane, john, both, neither, both];
+    let r = run(&mut s, "smartSort.plan", json!({"folders":folders,"ids":ids}));
+    assert_eq!(r["folders"][0]["ids"], json!([jane, both]));
+    assert_eq!(r["folders"][1]["ids"], json!([jane, john, both]));
+    assert_eq!(r["folders"][2]["ids"], json!([]));
+    assert_eq!(r["folders"][3]["ids"], json!([neither]));
+    assert_eq!(r["notices"], json!(["Skipped unknown or ignored person 999"]));
+    let r = run(&mut s, "smartSort.plan", json!({"folders":folders,"ids":ids,"firstMatch":true}));
+    assert_eq!(r["folders"][0]["ids"], json!([jane, both]));
+    assert_eq!(r["folders"][1]["ids"], json!([john]));
+    assert_eq!(r["folders"][3]["ids"], json!([neither]));
+    run(&mut s, "smartSort.mergePeople", json!({"ids":[a,b]}));
+    let old_id = FolderDef { name: "Merged person".into(), people_enabled: true, person_ids: vec![b], use_rules: false, ..Default::default() };
+    let r = run(&mut s, "smartSort.plan", json!({"folders":[old_id],"ids":ids,"firstMatch":true,"unsorted":"Other"}));
+    assert_eq!(r["folders"][0]["ids"], json!([jane, john, both]));
+    assert_eq!(r["folders"][1]["ids"], json!([neither]));
+    assert_eq!(r["notices"], json!([]));
 }
 
 #[test]

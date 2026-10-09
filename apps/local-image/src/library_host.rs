@@ -804,6 +804,23 @@ fn open_library_app(opens: Opens, prefs_writer: &mut PrefsWriter) -> LightcraftA
 
 fn services(opens: Opens) -> Services {
     Services {
+        download_models: Some(Box::new(|id, cancel| {
+            let spec = li_seg::spec(id).ok_or("unknown model")?;
+            if cancel {
+                if let Some(dl) = photocraft_ui_egui::ai_ui::downloads().get(&format!("seg:{id}")) {
+                    dl.ctl.cancel();
+                }
+            } else {
+                photocraft_ui_egui::ai_ui::start_seg_download(spec);
+            }
+            Ok(())
+        })),
+        model_download_status: Some(Box::new(|id| {
+            photocraft_ui_egui::ai_ui::downloads()
+                .get(&format!("seg:{id}"))
+                .map(|dl| lightcraft_ui_egui::ModelDownloadStatus { running: !dl.finished, done: dl.done, total: dl.total, error: dl.error.clone() })
+                .unwrap_or_default()
+        })),
         pick_folder: Some(Box::new(|| rfd::FileDialog::new().set_title("Choose a Library Folder").pick_folder().map(|p| p.to_string_lossy().to_string()))),
         open_with: Some(Box::new(move |path: &str, app: &str| {
             let app = app.trim();

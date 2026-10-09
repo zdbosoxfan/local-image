@@ -13,6 +13,7 @@ pub mod plan;
 mod presets;
 pub mod sessions;
 pub mod store;
+pub mod tagsets;
 pub mod tokens;
 
 use crate::{RenderJob, Session};
@@ -54,11 +55,47 @@ impl Tagger for ClipTagger {
     }
 }
 
+/// Text directions are reused while the dialog is open. Sensitivity changes and corrections
+/// need only the cached image/text vectors, rather than repeating dozens of text-model runs.
+pub struct CachedTagger {
+    inner: Arc<dyn Tagger>,
+    text: std::sync::Mutex<std::collections::BTreeMap<String, Vec<f32>>>,
+}
+impl CachedTagger {
+    pub fn new(inner: Arc<dyn Tagger>) -> Self {
+        Self { inner, text: Default::default() }
+    }
+}
+impl Tagger for CachedTagger {
+    fn model_id(&self) -> &str {
+        self.inner.model_id()
+    }
+    fn dim(&self) -> usize {
+        self.inner.dim()
+    }
+    fn embed_image(&self, img: &Rgba8) -> Result<Vec<f32>, String> {
+        self.inner.embed_image(img)
+    }
+    fn embed_text(&self, text: &str) -> Result<Vec<f32>, String> {
+        if let Some(v) = self.text.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(text).cloned() {
+            return Ok(v);
+        }
+        let vector = self.inner.embed_text(text)?;
+        let mut cache = self.text.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if cache.len() >= 4096 {
+            cache.clear();
+        }
+        cache.insert(text.to_string(), vector.clone());
+        Ok(vector)
+    }
+}
+
 #[derive(Default)]
 pub struct SmartSort {
     pub tagger: Option<Arc<dyn Tagger>>,
     pub store: Store,
     pub prefs: SmartSortPrefs,
+    pub tag_sets: Vec<tagsets::TagSet>,
     pub people: PeopleEngine,
 }
 
@@ -67,7 +104,7 @@ impl SmartSort {
         if self.tagger.is_none() {
             let dir = models_dir.ok_or("Smart Sort model folder is not configured")?;
             let model = li_seg::shared_clip(dir).ok_or("Smart Sort needs its complete, verified CLIP model bundle")?;
-            self.tagger = Some(Arc::new(ClipTagger { model, crops: li_seg::Crops::Three }));
+            self.tagger = Some(Arc::new(CachedTagger::new(Arc::new(ClipTagger { model, crops: li_seg::Crops::Three }))));
         }
         self.tagger.clone().ok_or("Smart Sort model unavailable".into())
     }
@@ -204,4 +241,26 @@ pub fn analyze(s: &mut Session, ids: &[PhotoId], cancel: &std::sync::atomic::Ato
     s.smart.store.save().map_err(|e| crate::EngineError::Other(format!("Smart Sort cache save: {e}")))?;
     result.cancelled = cancel.load(Ordering::Relaxed);
     Ok(result)
+}
+
+/// Run prepared jobs without borrowing a Session. The UI applies each result and periodically
+/// flushes the cache, preserving completed work even when the dialog is cancelled.
+pub fn run_inputs(
+    inputs: Vec<InputJob>,
+    tagger: Arc<dyn Tagger>,
+    cancel: &std::sync::atomic::AtomicBool,
+    result: &(dyn Fn(PhotoId, String, Result<Vec<f32>, String>) + Send + Sync),
+) -> Result<(), String> {
+    use rayon::prelude::*;
+    let threads = std::thread::available_parallelism().map_or(1, |n| (n.get() / 2).max(1));
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().map_err(|e| e.to_string())?;
+    pool.install(|| {
+        inputs.into_par_iter().for_each(|input| {
+            if !cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                let (id, key) = (input.id, input.key.clone());
+                result(id, key, input.run().and_then(|img| tagger.embed_image(&img)));
+            }
+        })
+    });
+    Ok(())
 }

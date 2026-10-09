@@ -1,4 +1,4 @@
-//! The Phase 1 command surface shared by CLI, automation and future UI. Long analysis is
+//! Commands shared by CLI, automation and the Smart Sort dialog. Long analysis is
 //! synchronous here; prepared input jobs and cancellation are also available to workers.
 
 use super::{CommandSpec, always, bad, cmd};
@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
-fn source(s: &mut Session, p: &Value) -> Result<Vec<PhotoId>> {
+pub(crate) fn source(s: &mut Session, p: &Value) -> Result<Vec<PhotoId>> {
     let ids = if let Some(ids) = p.get("ids") {
         serde_json::from_value::<Vec<PhotoId>>(ids.clone()).map_err(|e| bad("smartSort", e.to_string()))?
     } else if s.selection.ids.len() > 1 {
@@ -73,6 +73,7 @@ fn save(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(name) = p.get("name").and_then(Value::as_str) {
         preset.name = name.trim().into();
     }
+    preset.name = preset.name.trim().to_string();
     preset.validate().map_err(|e| bad(ID, e))?;
     if builtin_presets().iter().any(|b| b.name.eq_ignore_ascii_case(&preset.name)) {
         return Err(bad(ID, "choose a name other than a built-in preset"));
@@ -225,12 +226,137 @@ fn plan(s: &mut Session, p: &Value) -> Result<Value> {
         .map_err(|e| bad("smartSort.plan", e.to_string()))?;
     let ids = source(s, p)?;
     let notices = super::smart_sort_people::prepare_folders(s, &mut folders)?;
-    let folders = crate::smart_sort::plan::plan(&s.catalog, &ids, &folders).map_err(|e| bad("smartSort.plan", e))?;
+    let folders = crate::smart_sort::plan::plan_with_options(
+        &s.catalog,
+        &ids,
+        &folders,
+        p.get("firstMatch").and_then(Value::as_bool).unwrap_or(false),
+        p.get("unsorted").and_then(Value::as_str),
+    )
+    .map_err(|e| bad("smartSort.plan", e))?;
     Ok(json!({"folders":folders,"notices":notices}))
+}
+
+fn tag_sets(s: &mut Session, _: &Value) -> Result<Value> {
+    Ok(Value::Array(
+        crate::smart_sort::tagsets::builtins()
+            .into_iter()
+            .map(|set| json!({"name":set.name,"tags":set.tags,"builtin":true}))
+            .chain(s.smart.tag_sets.iter().map(|set| json!({"name":set.name,"tags":set.tags,"builtin":false})))
+            .collect(),
+    ))
+}
+fn set_name(p: &Value, key: &str) -> Result<String> {
+    p.get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| bad("smartSort.tagSets", "missing tag set name"))
+}
+fn check_set_name(name: &str) -> Result<()> {
+    if crate::smart_sort::tagsets::builtins().iter().any(|t| t.name.eq_ignore_ascii_case(name)) {
+        return Err(bad("smartSort.tagSets", "choose a name other than a built-in tag set"));
+    }
+    Ok(())
+}
+fn save_tag_set(s: &mut Session, p: &Value) -> Result<Value> {
+    let name = set_name(p, "name")?;
+    check_set_name(&name)?;
+    let tags: Vec<String> =
+        serde_json::from_value(p.get("tags").cloned().unwrap_or(Value::Null)).map_err(|e| bad("smartSort.saveTagSet", e.to_string()))?;
+    let mut cleaned = Vec::new();
+    for tag in tags {
+        let tag = tag.trim().to_string();
+        if !tag.is_empty() && !cleaned.contains(&tag) {
+            cleaned.push(tag);
+        }
+    }
+    let set = crate::smart_sort::tagsets::TagSet { name, tags: cleaned };
+    let old = s.smart.tag_sets.clone();
+    if let Some(existing) = s.smart.tag_sets.iter_mut().find(|t| t.name.eq_ignore_ascii_case(&set.name)) {
+        *existing = set;
+    } else {
+        s.smart.tag_sets.push(set);
+    }
+    if let Err(e) = s.save_smart_tag_sets() {
+        s.smart.tag_sets = old;
+        return Err(e);
+    }
+    tag_sets(s, &Value::Null)
+}
+fn delete_tag_set(s: &mut Session, p: &Value) -> Result<Value> {
+    let name = set_name(p, "name")?;
+    let old = s.smart.tag_sets.clone();
+    s.smart.tag_sets.retain(|t| !t.name.eq_ignore_ascii_case(&name));
+    if old.len() == s.smart.tag_sets.len() {
+        return Err(bad("smartSort.deleteTagSet", "unknown user tag set"));
+    }
+    if let Err(e) = s.save_smart_tag_sets() {
+        s.smart.tag_sets = old;
+        return Err(e);
+    }
+    tag_sets(s, &Value::Null)
+}
+fn rename_tag_set(s: &mut Session, p: &Value) -> Result<Value> {
+    let name = set_name(p, "name")?;
+    let to = set_name(p, "to")?;
+    check_set_name(&to)?;
+    if s.smart.tag_sets.iter().any(|t| !t.name.eq_ignore_ascii_case(&name) && t.name.eq_ignore_ascii_case(&to)) {
+        return Err(bad("smartSort.renameTagSet", "duplicate tag set name"));
+    }
+    let old = s.smart.tag_sets.clone();
+    let set = s
+        .smart
+        .tag_sets
+        .iter_mut()
+        .find(|t| t.name.eq_ignore_ascii_case(&name))
+        .ok_or_else(|| bad("smartSort.renameTagSet", "unknown user tag set"))?;
+    set.name = to;
+    if let Err(e) = s.save_smart_tag_sets() {
+        s.smart.tag_sets = old;
+        return Err(e);
+    }
+    tag_sets(s, &Value::Null)
+}
+fn export(s: &mut Session, p: &Value) -> Result<Value> {
+    let result = plan(s, p)?;
+    let folders: Vec<crate::smart_sort::plan::Folder> =
+        serde_json::from_value(result["folders"].clone()).map_err(|e| bad("smartSort.export", e.to_string()))?;
+    let dir = p.get("dir").and_then(Value::as_str).ok_or_else(|| bad("smartSort.export", "missing destination"))?;
+    let params = s.export_params(p).map_err(EngineError::Other)?;
+    let mut opts = crate::export::ExportOptions::from_json(&params);
+    opts.same_folder = false;
+    opts.subfolder.clear();
+    let items = crate::smart_sort::plan::prepare(s, &folders, &opts, dir).map_err(EngineError::Other)?;
+    let files = crate::export::run_batch(
+        items,
+        &opts,
+        &crate::export::Destination { dir: dir.into(), exact: None },
+        &mut crate::export::write_file,
+        &|p| std::path::Path::new(p).exists(),
+        false,
+        &mut |_, _| true,
+    )
+    .map_err(EngineError::Other)?;
+    Ok(Value::Array(files))
 }
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
+        cmd!(query "smartSort.tagSets", "Smart Sort Tag Sets", [], None, "{} → [{name, tags, builtin}]", always, tag_sets),
+        cmd!("smartSort.saveTagSet", "Save Tag Set", [], None, "{name, tags}", always, save_tag_set),
+        cmd!("smartSort.renameTagSet", "Rename Tag Set", [], None, "{name, to}", always, rename_tag_set),
+        cmd!("smartSort.deleteTagSet", "Delete Tag Set", [], None, "{name}", always, delete_tag_set),
+        cmd!(
+            "smartSort.export",
+            "Export Smart Sort",
+            [],
+            None,
+            "{dir, folders, ids?, firstMatch?, unsorted?, preset? | export params}",
+            always,
+            export
+        ),
         cmd!(query "smartSort.status","Smart Sort Status",[],None,"{} → {tagger, faces, analysed, total}",always,status),
         cmd!(query "smartSort.presets","Smart Sort Presets",[],None,"{} → [{name, builtin, preset}]",always,list),
         cmd!("smartSort.savePreset", "Save Smart Sort Preset", [], None, "{name?, preset: SortPreset}", always, save),
@@ -240,7 +366,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Analyse Smart Sort",
             [],
             None,
-            "{ids?, faces?: false, includeRejected?: false} → {analysed, skipped, videos, failed}",
+            "{ids?, faces?: bool, includeRejected?: false} → {analysed, skipped, videos, failed, faces?}",
             always,
             analyze
         ),
@@ -262,6 +388,6 @@ pub fn specs() -> Vec<CommandSpec> {
             always,
             keywords
         ),
-        cmd!(query "smartSort.plan","Plan Smart Sort Folders",[],None,"{folders: [{name, rules, enabled}], ids?, includeRejected?: false} → {folders: [{name, ids}]} (keywords only, overlap included)",always,plan),
+        cmd!(query "smartSort.plan","Plan Smart Sort Folders",[],None,"{folders: [FolderDef], ids?, firstMatch?: false, unsorted?: string|null, includeRejected?: false} → {folders: [{name, ids}], notices: [string]}",always,plan),
     ]
 }
