@@ -259,6 +259,10 @@ pub fn encode(
     sub: ChromaSubsampling,
     app_segments: &[(u8, Vec<u8>)],
 ) -> Vec<u8> {
+    // Degenerate images cannot be represented as JPEG; emit an empty codestream instead of panicking on chunks_mut(0).
+    if width == 0 || height == 0 {
+        return vec![0xFF, 0xD8, 0xFF, 0xD9];
+    }
     let gray = channels == 1;
     let (hs, vs) = match (gray, sub) {
         (true, _) | (false, ChromaSubsampling::S444) => (1usize, 1usize),
