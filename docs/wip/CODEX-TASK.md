@@ -1,42 +1,28 @@
-# Codex task: Save Over Original + Lightroom-style Export dialog (item 2)
+# Codex task: faster raw decoding (AMaZE, segmentation highlights, VNG4/dual) — bit-identical
 
-Worktree of "Local Image" (Library/Develop UI: crates/lc-ui-egui; engine: crates/lc-engine). A previous builder was
-stopped mid-work; its changes are in the last WIP commit ("Save Over Original and Lightroom-style Export dialog") —
-continue from it (new files `crates/lc-engine/src/cmd/save_over.rs`, `tests_save_over.rs`,
-`crates/lc-ui-egui/src/panels/export_dialog.rs`).
+Worktree of "Local Image" (raw decode: crates/lc-raw; engine loader: crates/lc-engine files.rs). Read
+`docs/wip/CODEX-REPORT-raw.md`: the new faithful ports are correct (reference vectors from darktable/RawTherapee in
+`crates/lc-raw/tests/fixtures/`) but slow at 24 MP on a Ryzen 7 9800X3D (8 cores/16 threads):
+AMaZE 1288 ms (scalar across tiles), dual AMaZE 1860 ms, full VNG4 353 ms, RCD + VNG-linear + medians 634 ms,
+segmentation-based highlights 1067 ms (full CFA). For comparison RCD is 57 ms.
 
-## A. "I want my 'save over original' function back for if I remove some junk from a photo and just want to save it
-over the original quickly."
+## Work
 
-The old 0.7.x app had it (`git show dd46a73:backend/frontend/editor.js` ~158-159, 1177-1240: Overwrite kept the original
-format, asked first with Cancel / Save Unique / Overwrite + "don't ask again"). lc-engine forbids writing over originals
-(`originals.rs` OriginalGuard; test `export_never_overwrites_an_original` must keep passing for normal exports).
-Implement `photo.saveOverOriginal` + Library/Develop File menu "Save Over Original…" (free shortcut) + confirm dialog
-(Cancel / Save Copy Beside / Overwrite, "Don't ask again" in prefs): full-size render through the export path in the
-original's format (JPEG ~95, PNG/TIFF/WebP at source bit depth) with the original's metadata and colour space; atomic
-write (temp + rename) bypassing the guard only on this explicit path; keep a backup of the original in the library's
-data folder (say so in the dialog); then reset the photo's develop settings, drop spots/AI patches referencing the old
-pixels, and `photo.reload`. Raw/DNG originals: the action becomes "Save JPEG Beside Original" (Conflict::Unique),
-imported and stacked with the raw (same import + `stack.group` as `edit_external` in cmd/convert.rs). Engine tests.
+1. Parallelise and optimise these without changing a single output value: AMaZE tiles in parallel with rayon (already a
+   dependency) — each tile has its own scratch buffers and writes a disjoint region (upstream overlaps tiles: keep its
+   exact tile/overlap layout and only parallelise what is independent); VNG4 / dual low branch / median passes by rows or
+   tiles; segmentation: the expensive per-segment / per-pixel stages (distance transform rows/columns, candidate
+   evaluation, smoothing) where results are order-independent. Avoid per-pixel allocation, bounds-check-heavy inner loops
+   (use slices/chunks), and redundant full-image passes.
+2. **Bit-identical:** every existing fixture/reference-vector test and lc-engine decode golden must pass unchanged; add
+   tests that compare the parallel result against a single-threaded run (e.g. a rayon pool of 1 thread) bit-for-bit on
+   several sizes/CFA phases, including tile-seam and border cases.
+3. Report before/after 24 MP timings with the existing `crates/lc-raw/examples/quality.rs --timings` (release, 8 rayon
+   workers) for every method touched.
 
-## B. "The export menu from Develop has bad UI; it should more closely match Adobe Lightroom or Capture One export
-menus. Replace it with a real one; darktable's export module is a reference."
+Tests: `cargo +1.98.1 test --offline -p lightcraft-raw -p lightcraft-engine`.
 
-Rebuild in the **Lightroom Classic Export dialog** layout: wide resizable modal, preset list on the left (built-in +
-User Presets; Add / Remove / Update), collapsible sections on the right in Lightroom's order — Export Location (Specific
-folder / Same folder as original; Choose…; subfolder; Add to This Catalog [+ Add to Stack]; Existing Files:
-Ask / New name / Overwrite / Skip), File Naming (template + live example filename + start number), File Settings
-(format, quality, limit size, colour space, bit depth, compression), Image Sizing (W&H / Dimensions / Long / Short edge /
-Megapixels / Percentage, Don't Enlarge, ppi), Output Sharpening (Screen / Matte / Glossy; Low / Standard / High),
-Metadata (All / All except camera / Copyright only / None; Remove Location), Watermarking (all 9 anchors, inset, colour),
-Post-Processing (Do nothing / Show in file manager / Open in other application…). Collapsed headers show a one-line
-summary. Bottom bar "Export N photos" / Cancel. Engine additions only where cheap: same-folder destination, add to
-catalog/stack, show in folder. Keep `ExportOptions` serde-compatible so saved presets / `last_export` load. Update
-`headless.rs` export tests and add tests for presets, same-folder destination and the filename preview.
-
-Tests: `cargo +1.98.1 test --offline -p lightcraft-engine -p lightcraft-ui-egui`.
-
-Report file: `docs/wip/CODEX-REPORT-export.md`.
+Report file: `docs/wip/CODEX-REPORT-raw-speed.md`.
 
 ## Rules (all Codex jobs)
 
