@@ -314,6 +314,166 @@ fn dissolve_noise(d: vec2<i32>) -> f32 {
     return f32(h & 0xffffu) / 65536.0;
 }
 
+// BEGIN Blend If integer arithmetic
+// CPU f32 round-to-nearest-even, for nonnegative finite colors. WGSL float arithmetic can
+// contract and has driver-dependent accuracy; an ULP must not flip an unsplit slider.
+// Keep the 24-bit significands in integers, including guard/round/sticky bits. Float32
+// source uploads contain the CPU's decoded sample bits, with no UNORM normalization.
+fn bi_mask(n: u32) -> u32 {
+    if (n >= 32u) { return 0xffffffffu; }
+    return (1u << n) - 1u;
+}
+
+fn bi_round64(v: vec2<u32>, shift: u32) -> u32 {
+    if (shift > 64u) { return 0u; }
+    var whole: u32;
+    var guard: u32;
+    var sticky: bool;
+    if (shift < 32u) {
+        whole = (v.x >> shift) | (v.y << (32u - shift));
+        guard = (v.x >> (shift - 1u)) & 1u;
+        sticky = (v.x & bi_mask(shift - 1u)) != 0u;
+    } else if (shift == 32u) {
+        whole = v.y;
+        guard = v.x >> 31u;
+        sticky = (v.x & 0x7fffffffu) != 0u;
+    } else {
+        whole = select(v.y >> (shift - 32u), 0u, shift == 64u);
+        guard = (v.y >> (shift - 33u)) & 1u;
+        sticky = v.x != 0u || (v.y & bi_mask(shift - 33u)) != 0u;
+    }
+    return whole + select(0u, 1u, guard != 0u && (sticky || (whole & 1u) != 0u));
+}
+
+// Mantissa and biased exponent (a subnormal's exponent can become negative).
+fn bi_parts(bits: u32) -> vec2<i32> {
+    var m = bits & 0x7fffffu;
+    var e = i32(bits >> 23u);
+    if (e != 0) { m |= 0x800000u; }
+    else {
+        let shift = countLeadingZeros(m) - 8u;
+        m <<= shift;
+        e = 1 - i32(shift);
+    }
+    return vec2(i32(m), e);
+}
+
+fn bi_mul(a: u32, b: u32) -> u32 {
+    if (a == 0u || b == 0u) { return 0u; }
+    let ap = bi_parts(a);
+    let bp = bi_parts(b);
+    let am = u32(ap.x);
+    let bm = u32(bp.x);
+    // 24 x 24 -> 48 bits, using base-4096 digits (no 64-bit shader feature required).
+    let p0 = (am & 4095u) * (bm & 4095u);
+    let p1 = (am >> 12u) * (bm & 4095u) + (am & 4095u) * (bm >> 12u) + (p0 >> 12u);
+    let p2 = (am >> 12u) * (bm >> 12u) + (p1 >> 12u);
+    let product = vec2((p0 & 4095u) | ((p1 & 4095u) << 12u) | (p2 << 24u), p2 >> 8u);
+    let extra = select(0u, 1u, (product.y & 0x8000u) != 0u);
+    var e = ap.y + bp.y - 127 + i32(extra);
+    if (e <= 0) { return bi_round64(product, 23u + extra + u32(1 - e)); }
+    var m = bi_round64(product, 23u + extra);
+    if (m >= 0x1000000u) { m >>= 1u; e += 1; }
+    return (u32(e) << 23u) | (m & 0x7fffffu);
+}
+
+fn bi_jam(v: u32, shift: u32) -> u32 {
+    if (shift >= 32u) { return select(0u, 1u, v != 0u); }
+    return (v >> shift) | select(0u, 1u, (v & bi_mask(shift)) != 0u);
+}
+
+fn bi_pack(mantissa: u32, exponent: u32) -> u32 {
+    var m = (mantissa >> 3u) + select(0u, 1u, (mantissa & 7u) > 4u || ((mantissa & 7u) == 4u && (mantissa & 8u) != 0u));
+    var e = exponent;
+    if (m >= 0x1000000u) { m >>= 1u; e += 1u; }
+    if (e == 1u && m < 0x800000u) { return m; }
+    return (e << 23u) | (m & 0x7fffffu);
+}
+
+// Addition, or a-b for a>=b. Zero/subnormal exponents use the same integer scale.
+fn bi_add_sub(a: u32, b: u32, subtract: bool) -> u32 {
+    let hi = max(a, b);
+    let lo = min(a, b);
+    var e = max(1u, hi >> 23u);
+    let d = e - max(1u, lo >> 23u);
+    let hm = ((hi & 0x7fffffu) | select(0u, 0x800000u, hi >= 0x800000u)) << 3u;
+    let lm = bi_jam(((lo & 0x7fffffu) | select(0u, 0x800000u, lo >= 0x800000u)) << 3u, d);
+    var m = hm + lm;
+    if (subtract) { m = hm - lm; }
+    if (m == 0u) { return 0u; }
+    if (m >= 0x8000000u) { m = bi_jam(m, 1u); e += 1u; }
+    else if (m < 0x4000000u) {
+        let shift = min(countLeadingZeros(m) - 5u, e - 1u);
+        m <<= shift;
+        e -= shift;
+    }
+    return bi_pack(m, e);
+}
+
+fn bi_unit(v: f32) -> u32 {
+    let bits = bitcast<u32>(v);
+    if ((bits & 0x80000000u) != 0u) { return 0u; }
+    return min(bits, 0x3f800000u);
+}
+
+// CPU order: round each clamped channel *255, then three luma products and two additions.
+fn bi_values(rgb: vec3<f32>) -> vec4<u32> {
+    let r = bi_mul(bi_unit(rgb.r), 0x437f0000u);
+    let g = bi_mul(bi_unit(rgb.g), 0x437f0000u);
+    let b = bi_mul(bi_unit(rgb.b), 0x437f0000u);
+    let gray = bi_add_sub(bi_add_sub(bi_mul(r, 0x3e991687u), bi_mul(g, 0x3f1645a2u), false), bi_mul(b, 0x3de978d5u), false);
+    return vec4(gray, r, g, b);
+}
+// END Blend If integer arithmetic
+
+// Ordered positive-float bit comparisons decide hard sliders and split-ramp endpoints.
+// Only a split ramp's continuous interior uses floating division; it cannot flip inclusion.
+fn blend_ramp(lo: f32, hi: f32, bits: u32) -> f32 {
+    if (hi <= lo) { return select(0.0, 1.0, bits >= bitcast<u32>(lo)); }
+    if (bits <= bitcast<u32>(lo)) { return 0.0; }
+    if (bits >= bitcast<u32>(hi)) { return 1.0; }
+    return clamp((bitcast<f32>(bits) - lo) / (hi - lo), 0.0, 1.0);
+}
+
+fn blend_range(i: i32, bits: u32) -> f32 {
+    let black_lo = lut_at(i);
+    let black_hi = lut_at(i + 1);
+    let white_lo = lut_at(i + 2);
+    let white_hi = lut_at(i + 3);
+    // Mirror with CPU-rounded subtraction, including the very close floats it rounds onto
+    // a white threshold. Integer slider subtraction is exact (all values fit in 8 bits).
+    let mirrored = bi_add_sub(0x437f0000u, bits, true);
+    return blend_ramp(black_lo, black_hi, bits) * blend_ramp(255.0 - white_hi, 255.0 - white_lo, mirrored);
+}
+
+@fragment
+fn fs_blend_if(in: VOut) -> @location(0) vec4<f32> {
+    let p = local(in.pos);
+    let before = textureLoad(tex_a, p, 0);
+    let after = textureLoad(tex_b, p, 0);
+    var own = textureLoad(tex_c, p, 0);
+    if (op.kind == 1) { own = after; }
+    var k = 1.0;
+    for (var side = 0; side < 2; side++) {
+        var px = own;
+        if (side == 1) { px = before; }
+        // Adjustment results are tested even when transparent; absent content/backdrop is not.
+        if (px.a <= 0.0 && !(side == 0 && op.kind == 1)) { continue; }
+        let v = bi_values(px.rgb);
+        if (op.p0.x > 2.0) {
+            k *= blend_range(side * 16, v.x);
+            k *= blend_range(side * 16 + 4, v.y);
+            k *= blend_range(side * 16 + 8, v.z);
+            k *= blend_range(side * 16 + 12, v.w);
+        } else {
+            k *= blend_range(side * 16, v.y) * blend_range(side * 16 + 4, v.y);
+        }
+    }
+    if (k >= 1.0) { return after; }
+    let mixed = mix_premul(before, after, k);
+    return vec4(clamp(mixed.rgb, vec3(0.0), vec3(1.0)), mixed.a);
+}
+
 // ---- adjustments (compose::adjust) ----------------------------------------------------------
 
 fn srgb_to_linear(v: f32) -> f32 {
@@ -377,6 +537,80 @@ var<private> adj_px: vec2<i32>;
 
 fn lut_at(i: i32) -> f32 {
     return textureLoad(lut_tex, vec2(i % 4096, i / 4096), 0).r;
+}
+
+// CMS eval_fast tables: ICC channel order (first input slowest), tetrahedral interpolation
+// in three dimensions, linear along C for four inputs, then the accurate output shapers.
+fn cms_node(i: i32, outputs: i32) -> vec4<f32> {
+    var v = vec4(lut_at(i), lut_at(i + 1), lut_at(i + 2), 0.0);
+    if (outputs == 4) { v.w = lut_at(i + 3); }
+    return v;
+}
+
+fn cms_tetra(base: i32, s: vec3<i32>, f: vec3<f32>, outputs: i32) -> vec4<f32> {
+    var order = vec3(0, 1, 2);
+    if (f.x >= f.y) {
+        if (f.y >= f.z) { order = vec3(0, 1, 2); }
+        else if (f.x >= f.z) { order = vec3(0, 2, 1); }
+        else { order = vec3(2, 0, 1); }
+    } else {
+        if (f.x >= f.z) { order = vec3(1, 0, 2); }
+        else if (f.y >= f.z) { order = vec3(1, 2, 0); }
+        else { order = vec3(2, 1, 0); }
+    }
+    let v0 = cms_node(base, outputs);
+    let v1 = cms_node(base + s[order.x], outputs);
+    let v2 = cms_node(base + s[order.x] + s[order.y], outputs);
+    let v3 = cms_node(base + s.x + s.y + s.z, outputs);
+    return v0 + (v1 - v0) * f[order.x] + (v2 - v1) * f[order.y] + (v3 - v2) * f[order.z];
+}
+
+fn cms_grid(c: vec4<f32>, four: bool) -> vec4<f32> {
+    let n = i32(select(op.p0.x, op.p0.y, four));
+    let outputs = select(4, 3, four);
+    let start = i32(select(op.p0.z, op.p0.w, four));
+    let pos = clamp(c, vec4(0.0), vec4(1.0)) * f32(n - 1);
+    let ix = min(vec4<i32>(pos), vec4(n - 2));
+    let f = pos - vec4<f32>(ix);
+    let s = vec3(n * n * outputs, n * outputs, outputs);
+    var v: vec4<f32>;
+    if (four) {
+        let base = start + ix.x * n * s.x + ix.y * s.x + ix.z * s.y + ix.w * s.z;
+        let lo = cms_tetra(base, s, f.yzw, outputs);
+        v = lo;
+        if (f.x > 0.0) { v = lo + (cms_tetra(base + n * s.x, s, f.yzw, outputs) - lo) * f.x; }
+    } else {
+        v = cms_tetra(start + ix.x * s.x + ix.y * s.y + ix.z * s.z, s, f.xyz, outputs);
+    }
+    let post = i32(select(op.p1.x, op.p1.y, four));
+    if (post > 0) {
+        for (var ch = 0; ch < outputs; ch++) {
+            let u = sqrt(sqrt(clamp(v[ch], 0.0, 1.0))) * 4095.0;
+            let i = min(i32(u), 4094);
+            let a = lut_at(post + ch * 4096 + i);
+            v[ch] = a + (lut_at(post + ch * 4096 + i + 1) - a) * (u - f32(i));
+        }
+    }
+    return v;
+}
+
+fn native_tone(c: vec3<f32>, cmyk: bool) -> vec3<f32> {
+    if (cmyk) {
+        let ink = cms_grid(vec4(c, 0.0), false);
+        let b = 1.0 - ink;
+        let changed = 1.0 - vec4(lut(0, b.x), lut(1, b.y), lut(2, b.z), lut(3, b.w));
+        if (all(changed == ink)) { return c; }
+        let before = cms_grid(ink, true).rgb;
+        let after = cms_grid(changed, true).rgb;
+        return clamp(c + after - before, vec3(0.0), vec3(1.0));
+    }
+    let lab = srgb_to_lab(c);
+    let n = vec3(lab.x / 100.0, (lab.y + 128.0) / 255.0, (lab.z + 128.0) / 255.0);
+    let changed = vec3(lut(0, n.x), lut(1, n.y), lut(2, n.z));
+    if (all(changed == n)) { return c; }
+    let before = lab_to_srgb(vec3(n.x * 100.0, n.y * 255.0 - 128.0, n.z * 255.0 - 128.0));
+    let after = lab_to_srgb(vec3(changed.x * 100.0, changed.y * 255.0 - 128.0, changed.z * 255.0 - 128.0));
+    return clamp(c + after - before, vec3(0.0), vec3(1.0));
 }
 
 fn lut3(n: i32, r: i32, g: i32, b: i32) -> vec3<f32> {
@@ -499,6 +733,8 @@ fn adjust(c: vec3<f32>) -> vec3<f32> {
         }
         case 6: { return vec3(exposure(c.r, p0), exposure(c.g, p0), exposure(c.b, p0)); }  // Exposure
         case 7: { return vec3(lut(0, c.r), lut(1, c.g), lut(2, c.b)); }        // Levels / Curves
+        case 17: { return native_tone(c, false); }                          // Lab Levels / Curves
+        case 18: { return native_tone(c, true); }                           // CMYK Levels / Curves
         case 8: {                                                              // Hue/Saturation
             let hsl = rgb_to_hsl(c);
             var hh: f32;
@@ -1024,11 +1260,8 @@ fn fs_mblur(in: VOut) -> @location(0) vec4<f32> {
         c = p.y;
     }
     var acc = 0.0;
-    for (var k = 0; k <= 2 * r; k++) {
-        let i = c + k - r;
-        if (i >= 0 && i < n) {
-            acc += textureLoad(tex_a, p + step * (k - r), 0).r * textureLoad(lut_tex, vec2(k, 0), 0).r;
-        }
+    for (var k = max(0, r - c); k <= min(2 * r, r + n - 1 - c); k++) {
+        acc += textureLoad(tex_a, p + step * (k - r), 0).r * lut_at(k);
     }
     return mout(acc);
 }
@@ -1052,6 +1285,11 @@ fn fs_mfinish(in: VOut) -> @location(0) vec4<f32> {
     if (op.p0.x > 0.5) { v = abs(v - textureLoad(tex_b, p, 0).r); }
     if (op.p0.y > 0.5) { v = 1.0 - v; }
     if (op.p0.z > 0.5) { v = lut(0, v); }
+    // effects::noise: the fixed seed and document-coordinate hash are identical to Dissolve.
+    // Apply after the contour and before the inner effect's shape gate; leave zero alone.
+    if (op.p1.x > 0.0 && textureLoad(mask_tex, p, 0).r > 0.0) {
+        v = clamp(v + (dissolve_noise(doc_px(p)) - 0.5) * 2.0 * op.p1.x, 0.0, 1.0);
+    }
     if (op.p0.w > 0.5) { v = v * textureLoad(layer_tex, p, 0).r; }
     return mout(v);
 }

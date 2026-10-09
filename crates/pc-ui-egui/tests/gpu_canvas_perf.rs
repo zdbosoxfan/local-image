@@ -278,6 +278,25 @@ fn bench_gpu_canvas_24mp() {
     }
     row("CPU compositor: same dab rect", &v);
 
+    // Same 24 MP canvas with all three formerly unsupported features together.
+    let featured = former_fallback_document(d.clone());
+    assert!(g.supports(&featured));
+    let mut cpu = Vec::new();
+    let mut gpu = Vec::new();
+    for _ in 0..3 {
+        let t = Instant::now();
+        std::hint::black_box(photocraft_compose::render(&featured, featured.bounds()));
+        cpu.push(ms(t));
+        let t = Instant::now();
+        let refreshed = g.refresh(key, &featured, None, None);
+        wait(&g);
+        gpu.push(ms(t));
+        assert_eq!(refreshed.kind, "gpu-full", "{:?}", refreshed.fallback);
+        assert!(refreshed.fallback.is_none());
+    }
+    row("Blend If + noisy glow + Lab: CPU full", &cpu);
+    row("Blend If + noisy glow + Lab: GPU full", &gpu);
+
     // Live brush stroke (engine, UI thread): begin, pointer moves, commit.
     let brush = json!({"size": 60.0, "hardness": 0.6, "spacing": 0.15});
     exec(&mut s, "tools.setBrush", brush);
@@ -471,4 +490,94 @@ fn full_refresh_over_residency_budget_keeps_gpu_compositing() {
     assert_eq!(r.kind, "gpu-full", "{:?}", r.fallback);
     let (_, _, pixels) = g.read_texels(d.id.0).unwrap();
     assert!(max_error(d, &pixels) <= 3.0 / 255.0);
+}
+
+/// The three formerly unsupported features on the realistic editing document.
+fn former_fallback_document(mut doc: Document) -> Document {
+    use photocraft_doc::adjust::{CurvePoint, ToneSpace};
+    use photocraft_doc::{Adjustment, BlendRange, FxCommon, FxPaint, Glow, GlowSource, GlowTechnique, LayerContent};
+    let textured = doc.layers.iter_mut().find(|l| l.name == "Texture").expect("texture");
+    textured.blend_if.set(0, [BlendRange { black: [0, 55], white: [210, 255] }, BlendRange { black: [15, 65], white: [200, 245] }]);
+    let text = doc.layers.iter_mut().find(|l| l.name == "Golden hour" || matches!(l.content, LayerContent::Text(_))).expect("type layer");
+    text.effects.items.push(Effect::OuterGlow(Glow {
+        common: FxCommon::new(BlendMode::Screen, 0.65),
+        paint: FxPaint::Color(Color::rgb(1.0, 0.6, 0.15)),
+        technique: GlowTechnique::Softer,
+        source: GlowSource::Edge,
+        spread: 0.15,
+        size: doc.size.height as f32 / 200.0,
+        contour: Default::default(),
+        range: 0.7,
+        jitter: 0.0,
+        noise: 0.35,
+        anti_alias: false,
+    }));
+    let curve = vec![CurvePoint { input: 0.0, output: 0.0 }, CurvePoint { input: 0.45, output: 0.55 }, CurvePoint { input: 1.0, output: 1.0 }];
+    doc.layers.push(Layer::new(
+        "Lab lightness curve",
+        LayerContent::Adjustment(Adjustment::Curves { master: vec![], per_channel: [curve, vec![], vec![]], space: ToneSpace::Lab, black: vec![] }),
+    ));
+    doc
+}
+
+#[test]
+fn former_fallbacks_use_tiled_gpu_canvas_and_damage() {
+    let _gpu = gpu_lock();
+    let Some(rs) = render_state() else { return };
+    let g = GpuCanvas::new(&rs);
+    let (s, paint, _) = realistic(2300, 240);
+    let mut doc = former_fallback_document((*s.active().unwrap().doc).clone());
+    assert!(g.supports(&doc));
+    for damage in [None, Some(Rect::new(2010, 100, 2070, 160))] {
+        if let Some(r) = damage {
+            doc.layer_mut(paint).unwrap().surface_mut().unwrap().fill_rect(r, &[0.8, 0.1, 0.3, 0.7]);
+        }
+        let refresh = g.refresh(doc.id.0, &doc, damage, None);
+        assert!(refresh.kind.starts_with("gpu-"), "{:?}", refresh.fallback);
+        assert!(refresh.fallback.is_none());
+        let (_, _, out) = g.read_texels(doc.id.0).expect("readback");
+        assert!(max_error(&doc, &out) <= 3.0 / 255.0);
+    }
+}
+
+#[test]
+fn native_cmyk_adjustment_uses_embedded_profile_on_gpu_canvas() {
+    use photocraft_doc::adjust::{CurvePoint, ToneSpace};
+    use photocraft_doc::{Adjustment, LayerContent};
+    let _gpu = gpu_lock();
+    let Some(rs) = render_state() else { return };
+    let g = GpuCanvas::new(&rs);
+    let mut doc = Document::new("embedded CMYK", Size::new(40, 30), ColorMode::Cmyk, SampleType::U16);
+    let profile = photocraft_cms::synth::cmyk_profile(&photocraft_cms::synth::CmykParams {
+        description: "Uncoated parity".into(),
+        tvi: [0.26, 0.26, 0.26, 0.3],
+        grid_a2b: 5,
+        grid_b2a: 9,
+        ..Default::default()
+    });
+    doc.icc_profile = Some(profile.to_bytes());
+    let mut raster = Layer::raster("ink", doc.pixel_format());
+    for x in 0..40 {
+        raster.surface_mut().unwrap().fill_rect(Rect::new(x, 0, x + 1, 30), &[x as f32 / 40.0, 0.4, 0.2, 0.1, 1.0]);
+    }
+    let curve = vec![CurvePoint { input: 0.0, output: 0.0 }, CurvePoint { input: 0.4, output: 0.55 }, CurvePoint { input: 1.0, output: 1.0 }];
+    doc.layers = vec![
+        raster,
+        Layer::new(
+            "ink curve",
+            LayerContent::Adjustment(Adjustment::Curves {
+                master: curve.clone(),
+                per_channel: [curve.clone(), vec![], vec![]],
+                space: ToneSpace::Cmyk,
+                black: curve,
+            }),
+        ),
+    ];
+    for profile in [doc.icc_profile.clone(), None] {
+        doc.icc_profile = profile;
+        let refresh = g.refresh(doc.id.0, &doc, None, None);
+        assert_eq!(refresh.kind, "gpu-full", "{:?}", refresh.fallback);
+        let (_, _, out) = g.read_texels(doc.id.0).expect("readback");
+        assert!(max_error(&doc, &out) <= 3.0 / 255.0);
+    }
 }
