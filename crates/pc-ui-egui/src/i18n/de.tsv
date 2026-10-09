@@ -63,7 +63,7 @@
 	Automate	Automatisieren
 	Batch…	Stapelverarbeitung…
 	Create Droplet…	Droplet erstellen…
-	Crop and Straighten Photos	Fotos freistellen und ausrichten
+	Crop and Straighten Photos	Fotos freistellen und gerade ausrichten
 	Contact Sheet II…	Kontaktabzug II…
 	Conditional Mode Change…	Bedingter Moduswechsel…
 	Fit Image…	Bild einpassen…
@@ -133,7 +133,7 @@
 	Define Custom Shape…	Benutzerdefinierte Form festlegen…
 	Purge	Entleeren
 	Clipboard	Zwischenablage
-	Histories	Protokolle
+	Histories	Verlauf
 	Video Cache	Video-Cache
 	All	Alle
 	Presets	Vorgaben
@@ -151,7 +151,7 @@
 	Interface…	Benutzeroberfläche…
 	Workspace…	Arbeitsbereich…
 	Tools…	Werkzeuge…
-	History Log…	Protokolldatei…
+	History Log…	Verlaufsprotokoll…
 	File Handling…	Dateiverarbeitung…
 	Export…	Exportieren…
 	Performance…	Leistung…
@@ -211,23 +211,23 @@
 	Shadows/Highlights…	Tiefen/Lichter…
 	HDR Toning…	HDR-Tonung…
 	Desaturate	Entsättigen
-	Match Color…	Farbabgleich…
+	Match Color…	Farbe angleichen…
 	Replace Color…	Farbe ersetzen…
 	Equalize	Angleichen
 	Auto Tone	Automatische Tonwertkorrektur
 	Auto Contrast	Automatischer Kontrast
 	Auto Color	Automatische Farbe
 	Image Size…	Bildgröße…
-	Canvas Size…	Zeichenflächengröße…
+	Canvas Size…	Arbeitsfläche…
 	Image Rotation	Bildrotation
-	Flip Canvas Horizontal	Zeichenfläche horizontal spiegeln
-	Flip Canvas Vertical	Zeichenfläche vertikal spiegeln
+	Flip Canvas Horizontal	Arbeitsfläche horizontal spiegeln
+	Flip Canvas Vertical	Arbeitsfläche vertikal spiegeln
 	Crop	Freistellen
 	Trim…	Beschneiden…
 	Reveal All	Alles anzeigen
 	Duplicate…	Duplizieren…
-	Apply Image…	Bild anwenden…
-	Calculations…	Berechnungen…
+	Apply Image…	Bildberechnung…
+	Calculations…	Kanalberechnung…
 	Variables	Variablen
 	Define…	Definieren…
 	Data Sets…	Datensätze…
@@ -267,7 +267,7 @@
 	Rename Layer	Ebene umbenennen
 	Create Layer	Ebene erstellen
 	Layer Style	Ebenenstil
-	Blending Options…	Fusionsoptionen…
+	Blending Options…	Fülloptionen…
 	Bevel & Emboss…	Abgeflachte Kante & Relief…
 	Use Global Light	Globales Licht verwenden
 	Inner Shadow…	Innerer Schatten…
@@ -295,7 +295,7 @@
 	Pattern…	Muster…
 	Layer Mask	Ebenenmaske
 	Vector Mask	Vektormaske
-	Reveal Selection	Auswahl anzeigen
+	Reveal Selection	Auswahl einblenden
 	Hide Selection	Auswahl ausblenden
 	Hide All	Alles ausblenden
 	From Transparency	Aus Transparenz
@@ -357,8 +357,8 @@
 	Select Linked Layers	Verknüpfte Ebenen auswählen
 	Merge Layers	Ebenen zusammenfügen
 	Merge Down	Nach unten zusammenfügen
-	Merge Visible	Sichtbare zusammenfügen
-	Stamp Visible	Sichtbare Ebenen stempeln
+	Merge Visible	Sichtbare auf eine Ebene reduzieren
+	Stamp Visible	Sichtbare auf eine Ebene stempeln
 	Select Layer Above	Ebene darüber auswählen
 	Select Layer Below	Ebene darunter auswählen
 	Select Top Layer	Oberste Ebene auswählen
@@ -366,14 +366,14 @@
 	Add Layer Above to Selection	Ebene darüber zur Auswahl hinzufügen
 	Add Layer Below to Selection	Ebene darunter zur Auswahl hinzufügen
 	Stamp Down	Nach unten stempeln
-	Flatten Image	Bild auf eine Ebene reduzieren
+	Flatten Image	Auf eine Ebene reduzieren
 	Matting	Mattierung
 	Color Decontaminate…	Farbreinigung…
 	Remove Black Matte	Schwarze Mattierung entfernen
 	Remove White Matte	Weiße Mattierung entfernen
 	Defringe…	Randstörungen entfernen…
 	Group Layers	Ebenen gruppieren
-	Ungroup Layers	Ebenengruppe auflösen
+	Ungroup Layers	Gruppierung aufheben
 	Hide Layers	Ebenen ausblenden
 	Arrange	Anordnen
 	Bring to Front	In den Vordergrund
@@ -455,7 +455,7 @@
 	Medium	Mittel
 	Large	Groß
 	Extra Large	Extra groß
-	Huge	Extrem groß
+	Huge	Riesig
 	Load Default Type Styles	Standard-Textformate laden
 	Save Default Type Styles	Standard-Textformate speichern
 	Deselect	Auswahl aufheben
@@ -484,8 +484,8 @@
 	Camera Raw Filter…	Camera-Raw-Filter…
 	Liquify…	Verflüssigen…
 	Vanishing Point…	Fluchtpunkt…
-	Blur	Weichzeichnen
-	Blur Gallery	Weichzeichnen-Galerie
+	Blur	Weichzeichnungsfilter
+	Blur Gallery	Weichzeichnungsgalerie
 	Field Blur…	Feldweichzeichner…
 	Iris Blur…	Irisweichzeichner…
 	Tilt-Shift…	Tilt-Shift…
@@ -494,15 +494,15 @@
 	Blur More	Stärker weichzeichnen
 	Box Blur…	Boxweichzeichner…
 	Gaussian Blur…	Gaußscher Weichzeichner…
-	Lens Blur…	Objektivweichzeichner…
+	Lens Blur…	Objektivunschärfe…
 	Motion Blur…	Bewegungsunschärfe…
-	Radial Blur…	Radiale Unschärfe…
+	Radial Blur…	Radialer Weichzeichner…
 	Shape Blur…	Formweichzeichner…
 	Smart Blur…	Intelligenter Weichzeichner…
-	Surface Blur…	Oberflächenweichzeichner…
+	Surface Blur…	Oberflächenunschärfe…
 	Average	Durchschnitt
 	Displace…	Verschieben…
-	Pinch…	Durchdrücken…
+	Pinch…	Durchstoßen…
 	Polar Coordinates…	Polarkoordinaten…
 	Ripple…	Kräuseln…
 	Shear…	Scherung…
@@ -510,13 +510,13 @@
 	Twirl…	Strudel…
 	Wave…	Wellen…
 	ZigZag…	Zickzack…
-	Noise	Rauschen
+	Noise	Rauschfilter
 	Add Noise…	Rauschen hinzufügen…
-	Despeckle	Flecken entfernen
+	Despeckle	Störungen entfernen
 	Dust & Scratches…	Staub und Kratzer…
 	Median…	Median…
 	Reduce Noise…	Rauschen reduzieren…
-	Pixelate	Pixelieren
+	Pixelate	Vergröberungsfilter
 	Color Halftone…	Farbraster…
 	Crystallize…	Kristallisieren…
 	Facet	Facetten
@@ -540,7 +540,7 @@
 	Smart Sharpen…	Intelligent scharfzeichnen…
 	Unsharp Mask…	Unscharf maskieren…
 	High Pass…	Hochpass…
-	Stylize	Stilisieren
+	Stylize	Stilisierungsfilter
 	Diffuse…	Diffusion…
 	Emboss…	Relief…
 	Extrude…	Extrudieren…
@@ -553,7 +553,7 @@
 	Video	Video
 	De-Interlace…	De-Interlace…
 	NTSC Colors	NTSC-Farben
-	Other	Weitere
+	Other	Sonstige
 	Maximum…	Maximum…
 	Minimum…	Minimum…
 	Offset…	Versatz…
@@ -615,7 +615,7 @@
 	Pixel Art Preview	Pixel-Art-Vorschau
 	Pattern Preview	Muster-Vorschau
 	Brush Preview	Pinsel-Vorschau
-	Mesh	Gitternetz
+	Mesh	Netz
 	Edit Pins	Pins bearbeiten
 	Document Bounds	Dokumentgrenzen
 	Show Extras Options…	Extras-Optionen anzeigen…
@@ -624,8 +624,8 @@
 	Snap To	Einrasten auf
 	Lock Guides	Hilfslinien sperren
 	Clear Guides	Hilfslinien löschen
-	Clear Selected Artboard Guides	Hilfslinien des ausgewählten Zeichenbereichs löschen
-	Clear Canvas Guides	Zeichenflächen-Hilfslinien löschen
+	Clear Selected Artboard Guides	Hilfslinien der ausgewählten Zeichenfläche löschen
+	Clear Canvas Guides	Leinwand-Hilfslinien löschen
 	New Guide…	Neue Hilfslinie…
 	Lock Slices	Slices sperren
 	Clear Slices	Slices löschen
@@ -705,11 +705,11 @@
 	Motion	Bewegung
 	Notes…	Notizen…
 	Other…	Weitere…
-	Remove Warp Split	Verkrümmungsteilung entfernen
+	Remove Warp Split	Verformungsteilung entfernen
 	Shape	Form
-	Split Warp Crosswise	Verkrümmung quer teilen
-	Split Warp Horizontally	Verkrümmung horizontal teilen
-	Split Warp Vertically	Verkrümmung vertikal teilen
+	Split Warp Crosswise	Verformung quer teilen
+	Split Warp Horizontally	Verformung horizontal teilen
+	Split Warp Vertically	Verformung vertikal teilen
 	Statistics…	Statistiken…
 @plural	{n} item|{n} items	{n} Element|{n} Elemente
 	Auto	Automatisch
@@ -742,7 +742,7 @@
 	Align left edges	Linke Kanten ausrichten
 	Align right edges	Rechte Kanten ausrichten
 	Aligned	Ausgerichtet
-	All Caps	Großbuchstaben
+	All Caps	Versalien
 	All Slices	Alle Slices
 	All User Slices	Alle Benutzer-Slices
 	All shortcuts reset to Photoshop defaults.	Alle Kurzbefehle wurden auf die Photoshop-Standards zurückgesetzt.
@@ -754,7 +754,7 @@
 	Angle	Winkel
 	Angle Gradient	Winkelverlauf
 	Angle Jitter	Winkelschwankung
-	Answer the unsaved-changes prompt first	Beantworte zuerst den Dialog zu ungespeicherten Änderungen
+	Answer the unsaved-changes prompt first	Beantworten Sie zuerst die Meldung zu ungespeicherten Änderungen
 	Anti-alias	Kantenglättung
 	Appearance	Erscheinungsbild
 	Appearance (Layer Style)	Erscheinungsbild (Ebenenstil)
@@ -762,8 +762,8 @@
 	Apply Per Tip	Pro Pinselspitze anwenden
 	Apply next selected layer comp	Nächste ausgewählte Ebenenkomposition anwenden
 	Apply previous selected layer comp	Vorherige ausgewählte Ebenenkomposition anwenden
-	Artboard	Zeichenbereich
-	Artboard Background Color	Hintergrundfarbe des Zeichenbereichs
+	Artboard	Zeichenfläche
+	Artboard Background Color	Hintergrundfarbe der Zeichenfläche
 	Assign working space	Arbeitsfarbraum zuweisen
 	Author:	Autor:
 	Auto Hide	Automatisch ausblenden
@@ -773,12 +773,12 @@
 	Automatically straighten near-vertical line segments	Fast vertikale Liniensegmente automatisch begradigen
 	Background	Hintergrund
 	Background Color	Hintergrundfarbe
-	Background Contents	Hintergrundinhalte
+	Background Contents	Hintergrundinhalt
 	Balance	Balance
 	Baseline	Grundlinie
 	Baseline shift	Grundlinienverschiebung
 	Basic	Grundeinstellungen
-	Before (Y)	Davor (Y)
+	Before (Y)	Vorher (Y)
 	Begin recording	Aufnahme starten
 	Bend:	Biegung:
 	Bicubic	Bikubisch
@@ -786,11 +786,11 @@
 	Bilinear	Bilinear
 	Black	Schwarz
 	Black & White	Schwarzweiß
-	Black Point Compensation	Tiefpunktkompensation
+	Black Point Compensation	Schwarzpunktkompensation
 	Black, White	Schwarz, Weiß
 	Blacks	Schwarz
-	Blending	Fusionieren
-	Blending Options	Fusionsoptionen
+	Blending	Mischen
+	Blending Options	Fülloptionen
 	Blue	Blau
 	Blue, Red, Yellow	Blau, Rot, Gelb
 	Both	Beide
@@ -810,14 +810,14 @@
 	Cancel any current edits (Esc)	Aktuelle Bearbeitungen abbrechen (Esc)
 	Cancel current crop operation  (Esc)	Aktuelle Freistellung abbrechen  (Esc)
 	Cancel transform (Esc)	Transformation abbrechen (Esc)
-	Cancel warp (Esc)	Verkrümmung abbrechen (Esc)
-	Canvas	Zeichenfläche
-	Canvas extension color:	Farbe der Zeichenflächenerweiterung:
+	Cancel warp (Esc)	Verformen abbrechen (Esc)
+	Canvas	Arbeitsfläche
+	Canvas extension color:	Farbe der Arbeitsflächenerweiterung:
 	Capture	Erfassen
 	Capture the visibility, position and style of every layer with + below, then switch between versions.	Erfasse Sichtbarkeit, Position und Stil jeder Ebene mit + unten, und wechsle dann zwischen Versionen.
-	Catch-up on Stroke End	Auf Strichende aufholen
+	Catch-up on Stroke End	Am Strich-Ende aufholen
 	Center	Mitte
-	Center Crop Marks	Mittige Beschnittmarken
+	Center Crop Marks	Mittige Schnittmarken
 	Center text	Text zentrieren
 	Change	Ändern
 	Change All	Alle ändern
@@ -848,7 +848,7 @@
 	Color & Swatches	Farbe & Farbfelder
 	Color Balance	Farbbalance
 	Color Detail	Farbdetails
-	Color Grading	Color Grading
+	Color Grading	Farbabstufung
 	Color Lookup	Farblookup
 	Color Management	Farbverwaltung
 	Color Mixer	Farbmischer
@@ -858,12 +858,12 @@
 	Color:	Farbe:
 	Colorize	Färben
 	Colors	Farben
-	Commit Perspective Warp ({key})	Perspektivische Verkrümmung übernehmen ({key})
-	Commit Puppet Warp ({key})	Marionetten-Verkrümmung übernehmen ({key})
+	Commit Perspective Warp ({key})	Perspektivisch verformen übernehmen ({key})
+	Commit Puppet Warp ({key})	Puppet-Warp übernehmen ({key})
 	Commit any current edits ({key})	Aktuelle Bearbeitungen übernehmen ({key})
 	Commit current crop operation  ({key})	Aktuelle Freistellung übernehmen  ({key})
 	Commit transform ({key})	Transformation übernehmen ({key})
-	Commit warp ({key})	Verkrümmung übernehmen ({key})
+	Commit warp ({key})	Verformen übernehmen ({key})
 	Constant	Konstant
 	Constrain proportions	Proportionen beibehalten
 	Contact Sheet II	Kontaktabzug II
@@ -877,7 +877,7 @@
 	Copper	Kupfer
 	Copyright	Urheberrecht
 	Copyright and Contact Info	Urheberrecht und Kontaktinfo
-	Corner Crop Marks	Eck-Beschnittmarken
+	Corner Crop Marks	Eck-Schnittmarken
 	Corner radius	Eckenradius
 	Correction	Korrektur
 	Count Jitter	Anzahl-Schwankung
@@ -898,7 +898,7 @@
 	Create new layer comp	Neue Ebenenkomposition erstellen
 	Create new pattern from the selection	Neues Muster aus der Auswahl erstellen
 	Create new shape from the current path	Neue Form aus dem aktuellen Pfad erstellen
-	Create new snapshot	Neuen Snapshot erstellen
+	Create new snapshot	Neuen Schnappschuss erstellen
 	Create new style (from the selected type)	Neuen Stil erstellen (aus dem ausgewählten Text)
 	Create new style from the selected layer	Neuen Stil aus der ausgewählten Ebene erstellen
 	Create new tool preset	Neue Werkzeugvorgabe erstellen
@@ -922,7 +922,7 @@
 	Default printer	Standarddrucker
 	Default restored.	Standard wiederhergestellt.
 	Define	Definieren
-	Define at least one variable first.	Definiere zuerst mindestens eine Variable.
+	Define at least one variable first.	Definieren Sie zuerst mindestens eine Variable.
 	Dehaze	Dunst entfernen
 	Delete Cropped Pixels	Beschnittene Pixel löschen
 	Delete Group	Gruppe löschen
@@ -931,7 +931,7 @@
 	Delete Shortcut	Kurzbefehl löschen
 	Delete Timeline	Zeitleiste löschen
 	Delete Tool Preset	Werkzeugvorgabe löschen
-	Delete count group	Zählergruppe löschen
+	Delete count group	Zählgruppe löschen
 	Delete current channel	Aktuellen Kanal löschen
 	Delete current state	Aktuellen Status löschen
 	Delete effect layer	Effektebene löschen
@@ -948,7 +948,7 @@
 	Description	Beschreibung
 	Deselect All	Gesamtauswahl aufheben
 	Detail	Details
-	Diamond Gradient	Rautenverlauf
+	Diamond Gradient	Diamant
 	Difference	Differenz
 	Diffusion	Diffusion
 	Discard the embedded profile (don't color manage)	Eingebettetes Profil verwerfen (keine Farbverwaltung)
@@ -958,30 +958,30 @@
 	Display P3	Display P3
 	Display Text	Text anzeigen
 	Dither	Dithering
-	Divide…	Unterteilen…
+	Divide…	Dividieren…
 	Document	Dokument
 	Don't Save	Nicht speichern
 	No	Nein
 	Yes	Ja
 	Done	Fertig
 	Dots	Punkte
-	Drag a rectangle around the object	Ziehe ein Rechteck um das Objekt
-	Drag on the image to add a constraint; Shift for horizontal/vertical; right-click to delete.	Ziehe auf dem Bild, um eine Zwangsbedingung hinzuzufügen; Shift für horizontal/vertikal; Rechtsklick löscht.
+	Drag a rectangle around the object	Ziehen Sie ein Rechteck um das Objekt
+	Drag on the image to add a constraint; Shift for horizontal/vertical; right-click to delete.	Ziehen Sie auf dem Bild, um eine Zwangsbedingung hinzuzufügen; Shift für horizontal/vertikal; Rechtsklick löscht.
 	Drag to move the active shape's path or the Work Path	Ziehen, um den Pfad der aktiven Form oder den Arbeitspfad zu verschieben
 	Click: select anchor · Drag: move anchor, handle or segment · {shift}-click: add · {alt}-click: whole subpath	Klick: Ankerpunkt auswählen · Ziehen: Ankerpunkt, Griff oder Segment verschieben · {shift}-Klick: hinzufügen · {alt}-Klick: ganzer Teilpfad
-	Draw with the Pen tool (P) or make a work path from a selection.	Zeichne mit dem Stift-Werkzeug (P) oder erzeuge einen Arbeitspfad aus einer Auswahl.
-	Drop an image or PSD anywhere to open it.	Ziehe ein Bild oder PSD an eine beliebige Stelle, um es zu öffnen.
+	Draw with the Pen tool (P) or make a work path from a selection.	Zeichnen Sie mit dem Stift-Werkzeug (P) oder erzeugen Sie einen Arbeitspfad aus einer Auswahl.
+	Drop an image or PSD anywhere to open it.	Ziehen Sie ein Bild oder PSD an eine beliebige Stelle, um es zu öffnen.
 	Native file drag-and-drop is unavailable	Natives Ziehen und Ablegen von Dateien ist nicht verfügbar
-	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= local-image`.	Natives Ziehen und Ablegen von Dateien wird unter Wayland noch nicht unterstützt. Nutze Datei › Öffnen oder starte Local Image unter XWayland mit `WAYLAND_DISPLAY= local-image`.
+	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= local-image`.	Natives Ziehen und Ablegen von Dateien wird unter Wayland noch nicht unterstützt. Nutzen Sie Datei › Öffnen oder starten Sie Local Image unter XWayland mit `WAYLAND_DISPLAY= local-image`.
 	Duplicate Layers…	Ebenen duplizieren…
 	Duplicate style	Stil duplizieren
 	Edit Toolbar…	Werkzeugleiste bearbeiten…
-	Use File › Open to open an image.	Nutze Datei › Öffnen, um ein Bild zu öffnen.
+	Use File › Open to open an image.	Nutzen Sie Datei › Öffnen, um ein Bild zu öffnen.
 	Edit in Quick Mask Mode  (Q)	Im Schnellmaskenmodus bearbeiten  (Q)
 	Edit in Standard Mode  (Q)	Im Standardmodus bearbeiten  (Q)
 	Effects	Effekte
 	Embed Color Profile	Farbprofil einbetten
-	Embedded Profile Mismatch	Eingebettetes Profil passt nicht
+	Embedded Profile Mismatch	Eingebettetes Profil stimmt nicht überein
 	Enable airbrush-style build-up effects	Airbrush-artige Aufbaueffekte aktivieren
 	Enhance Edge	Kante verstärken
 	Entire Font	Gesamte Schriftart
@@ -1004,7 +1004,7 @@
 	Filter for adjustment layers	Filter für Anpassungsebenen
 	Filter for pixel layers	Filter für Pixelebenen
 	Filter for shape layers	Filter für Formebenen
-	Filter for smart objects	Filter für Smart-Objekte
+	Filter for smart objects	Filter für Smartobjekte
 	Filter for type layers	Filter für Textebenen
 	Filter:	Filter:
 	Finger Painting	Fingermalerei
@@ -1081,7 +1081,7 @@
 	Invert All	Alle invertieren
 	Invert has no settings.	Invertieren hat keine Einstellungen.
 	Italic	Kursiv
-	Join us on Discord	Tritt uns auf Discord bei
+	Join us on Discord	Treten Sie unserem Discord bei
 	Justify all	Alles im Blocksatz
 	Justify last centered	Letzte Zeile zentriert
 	Justify last left	Letzte Zeile links
@@ -1184,11 +1184,11 @@
 	Offset	Versatz
 	Only Web Colors	Nur Webfarben
 	Opacity	Deckkraft
-	Opacity Jitter	Deckkraftschwankung
+	Opacity Jitter	Deckkraftstreuung
 	Opacity:	Deckkraft:
-	Open a document to define variables.	Öffne ein Dokument, um Variablen zu definieren.
-	Open a document to select a colour range.	Öffne ein Dokument, um einen Farbbereich auszuwählen.
-	Open a document to use the timeline.	Öffne ein Dokument, um die Zeitleiste zu nutzen.
+	Open a document to define variables.	Öffnen Sie ein Dokument, um Variablen zu definieren.
+	Open a document to select a colour range.	Öffnen Sie ein Dokument, um einen Farbbereich auszuwählen.
+	Open a document to use the timeline.	Öffnen Sie ein Dokument, um die Zeitleiste zu nutzen.
 	Optical	Optisch
 	Optimized	Optimiert
 	Option-click to define a source point to clone from	Options-Klick definiert eine Klonquelle
@@ -1213,10 +1213,10 @@
 	Pattern Size	Mustergröße
 	Pause	Pause
 	Percent	Prozent
-	Perceptual	Wahrnehmung
+	Perceptual	Perzeptiv
 	Perspective Warp is not active	Perspektivische Verkrümmung ist nicht aktiv
-	Perspective Warp: draw planes along the image's perspective, then switch to Warp	Perspektivische Verkrümmung: zeichne Flächen entlang der Bildperspektive, wechsle dann zu Verkrümmen
-	Photo Filter	Foto-Filter
+	Perspective Warp: draw planes along the image's perspective, then switch to Warp	Perspektivische Verformung: zeichne Flächen entlang der Bildperspektive, wechsle dann zu Verformen
+	Photo Filter	Fotofilter
 	Local Image	Local Image
 	Local Image Manages Colors	Local Image verwaltet die Farben
 	Local Image — an open-source, native image editor written in Rust.	Local Image — ein nativer Open-Source-Bildeditor, geschrieben in Rust.
@@ -1230,7 +1230,7 @@
 	Portrait	Hochformat
 	Position	Position
 	Position and Size	Position und Größe
-	Posterize	Posterisieren
+	Posterize	Tontrennung
 	Preserve Details	Details erhalten
 	Preserve Luminosity	Luminanz erhalten
 	Preset	Vorgabe
@@ -1241,7 +1241,7 @@
 	Pressure	Druck
 	Pressure for Opacity	Druck für Deckkraft
 	Pressure for Size	Druck für Größe
-	Prevent auto-nesting in and out of Artboards and Frames	Automatisches Einbetten in und aus Zeichenbereichen und Rahmen verhindern
+	Prevent auto-nesting in and out of Artboards and Frames	Automatisches Verschachteln in und aus Zeichenflächen und Rahmen verhindern
 	Preview	Vorschau
 	Previous frame	Vorheriger Frame
 	Previous note	Vorherige Notiz
@@ -1257,7 +1257,7 @@
 	Protect Tones	Farbtöne schützen
 	Proximity Match	Umgebungsabgleich
 	Pulled String Mode	Fadenmodus
-	Puppet Warp is not active	Marionetten-Verkrümmung ist nicht aktiv
+	Puppet Warp is not active	Puppet Warp ist nicht aktiv
 	Purity	Reinheit
 	Quality	Qualität
 	Quick Actions	Schnellaktionen
@@ -1304,8 +1304,8 @@
 	Rotate:	Drehen:
 	Rotation	Drehung
 	Roughness	Rauheit
-	Roundness	Rundung
-	Roundness Jitter	Rundungsschwankung
+	Roundness	Rundheit
+	Roundness Jitter	Rundheitsschwankung
 	Rulers & Grids	Lineale & Raster
 	Sample All Layers	Alle Ebenen einbeziehen
 	Sample:	Probe:
@@ -1321,7 +1321,7 @@
 	Save…	Speichern…
 	Scale to Fit Media	Auf Medienformat skalieren
 	Scatter	Streuung
-	Scratch disks	Auslagerungsfestplatten
+	Scratch disks	Arbeitsvolumes
 	Search	Suchen
 	Search commands	Befehle suchen
 	Search commands, tools and panels…	Befehle, Werkzeuge und Bedienfelder suchen…
@@ -1389,7 +1389,7 @@
 	Suggestions:	Vorschläge:
 	Swap colours (X)	Farben tauschen (X)
 	Swaps height and width	Tauscht Höhe und Breite
-	Switch between free transform and warp modes	Zwischen freier Transformation und Verkrümmen wechseln
+	Switch between free transform and warp modes	Zwischen freier Transformation und Verformen wechseln
 	Switch theme	Design wechseln
 	Temperature	Temperatur
 	Tetrahedral	Tetraedrisch
@@ -1433,7 +1433,7 @@
 	Violet, Orange	Violett, Orange
 	Visibility	Sichtbarkeit
 	Visible	Sichtbar
-	Warp:	Verkrümmung:
+	Warp:	Verformen:
 	Web Snap	Web-Anpassung
 	Weight	Strichstärke
 	Weight:	Strichstärke:
@@ -1455,7 +1455,7 @@
 	name	Name
 	new	neu
 	{name} options	{name} Optionen
-	↑↓ navigate   {key} run   esc close	↑↓ Navigieren   {key} Ausführen   Esc Schließen
+	↑↓ navigate   {key} run   esc close	↑↓ Navigieren   {key} Ausführen   esc Schließen
 	Version {version}	Version {version}
 	New Document	Neues Dokument
 	Error	Fehler
@@ -1469,7 +1469,7 @@
 	ArtCraft	ArtCraft
 	Background Eraser Tool	Hintergrund-Radiergummi-Werkzeug
 	Bevel & Emboss	Abgeflachte Kante & Relief
-	Blend Mode	Fusionsmodus
+	Blend Mode	Füllmethode
 	Blues	Blautöne
 	Blur Tool	Weichzeichner-Werkzeug
 	Bold	Fett
@@ -1493,10 +1493,10 @@
 	Conform	Anpassen
 	Content-Aware Fill needs a selection on a pixel layer	Inhaltsbasiertes Füllen braucht eine Auswahl auf einer Pixelebene
 	Could not transform: the layer is empty	Transformieren nicht möglich: Die Ebene ist leer
-	Could not use Perspective Warp: the layer is empty	Perspektivische Verkrümmung nicht möglich: Die Ebene ist leer
-	Could not use Puppet Warp: no opaque pixels	Marionetten-Verkrümmung nicht möglich: keine deckenden Pixel
-	Could not use Puppet Warp: the layer is empty	Marionetten-Verkrümmung nicht möglich: Die Ebene ist leer
-	Crop Tool	Freistellen-Werkzeug
+	Could not use Perspective Warp: the layer is empty	Perspektivisches Verformen nicht möglich: Die Ebene ist leer
+	Could not use Puppet Warp: no opaque pixels	Puppet Warp nicht möglich: keine deckenden Pixel
+	Could not use Puppet Warp: the layer is empty	Puppet Warp nicht möglich: Die Ebene ist leer
+	Crop Tool	Freistellungswerkzeug
 	Crosswise	Quer
 	Current Tool	Aktuelles Werkzeug
 	Custom Shape Tool	Werkzeug für benutzerdefinierte Formen
@@ -1540,7 +1540,7 @@
 	Hand Tool	Hand-Werkzeug
 	Hard	Hart
 	Hard Mix	Hart mischen
-	Healing Brush Tool	Korrektur-Pinsel-Werkzeug
+	Healing Brush Tool	Reparaturpinsel-Werkzeug
 	Highlights from:	Lichter von:
 	History Brush Tool	Protokollpinsel-Werkzeug
 	Horizontal Type Tool	Horizontales Text-Werkzeug
@@ -1569,7 +1569,7 @@
 	Link with Layer	Mit Ebene verknüpfen
 	Lorem Ipsum	Lorem Ipsum
 	Magentas	Magentatöne
-	Magic Eraser Tool	Magischer-Radiergummi-Werkzeug
+	Magic Eraser Tool	Magischer Radiergummi-Werkzeug
 	Magic Wand Tool	Zauberstab-Werkzeug
 	Marquee	Auswahlrahmen
 	Mean:	Mittelwert:
@@ -1599,7 +1599,7 @@
 	Pattern Overlay	Musterüberlagerung
 	Pen Pressure	Stiftdruck
 	Pen Tilt	Stiftneigung
-	Pen Tool	Stift-Werkzeug
+	Pen Tool	Zeichenstift-Werkzeug
 	Photo	Foto
 	Local Image website	Local Image-Website
 	Picas	Pica
@@ -1633,7 +1633,7 @@
 	Satin	Satin
 	Save Pixel Aspect Ratio	Pixel-Seitenverhältnis speichern
 	Scattering	Streuung
-	Scratch Sizes	Auslagerungsgröße
+	Scratch Sizes	Arbeitsspeichergröße
 	Select Data Points	Datenpunkte auswählen
 	Selection	Auswahl
 	SemiBold	Halbfett
@@ -1650,7 +1650,7 @@
 	Source	Quelle
 	Source: set	Quelle: gesetzt
 	Sponge Tool	Schwamm-Werkzeug
-	Spot Healing Brush Tool	Punktkorrektur-Pinsel-Werkzeug
+	Spot Healing Brush Tool	Bereichsreparatur-Pinsel-Werkzeug
 	Spread	Spreizung
 	Square, 12 x 12	Quadrat, 12 x 12
 	Square, 5 x 5	Quadrat, 5 x 5
@@ -1676,12 +1676,12 @@
 	Yellows	Gelbtöne
 	Zoom Tool	Zoom-Werkzeug
 	{name} Properties	{name}-Eigenschaften
-	Revert “{name}” to the last saved version? Your changes will be lost.	„{name}“ auf die zuletzt gespeicherte Version zurücksetzen? Deine Änderungen gehen verloren.
-	Do you want to save the changes you made to “{name}” before quitting?	Möchtest du die an „{name}“ vorgenommenen Änderungen vor dem Beenden speichern?
-	Do you want to save the changes you made to “{name}” before closing?	Möchtest du die an „{name}“ vorgenommenen Änderungen vor dem Schließen speichern?
+	Revert “{name}” to the last saved version? Your changes will be lost.	„{name}“ auf die zuletzt gespeicherte Version zurücksetzen? Ihre Änderungen gehen verloren.
+	Do you want to save the changes you made to “{name}” before quitting?	Möchten Sie die an „{name}“ vorgenommenen Änderungen vor dem Beenden speichern?
+	Do you want to save the changes you made to “{name}” before closing?	Möchten Sie die an „{name}“ vorgenommenen Änderungen vor dem Schließen speichern?
 	Doc: {flat}/{layered}	Dok: {flat}/{layered}
-	Scratch: {size}	Auslagerung: {size}
-	Untagged {mode}	Nicht getaggtes {mode}-Profil
+	Scratch: {size}	Arbeitsvolume: {size}
+	Untagged {mode}	Nicht getaggtes {mode}
 	Invalid {mode} profile	Ungültiges {mode}-Profil
 	Unnamed {mode} profile	Unbenanntes {mode}-Profil
 	{w} px x {h} px ({ppi} ppi)	{w} px x {h} px ({ppi} ppi)
@@ -1695,13 +1695,13 @@
 @plural	{n} Layer|{n} Layers	{n} Ebene|{n} Ebenen
 @plural	{n} layer|{n} layers	{n} Ebene|{n} Ebenen
 @plural	Group · {n} layer|Group · {n} layers	Gruppe · {n} Ebene|Gruppe · {n} Ebenen
-	Additional plugins folder	Zusätzlicher Plug-in-Ordner
+	Additional plugins folder	Zusätzlicher Zusatzmodule-Ordner
 	Adobe	Adobe
 	Adobe rgb	Adobe RGB
 	Allow agent control	Agentensteuerung erlauben
 	Allow scripts to connect	Skriptverbindungen erlauben
 	Always	Immer
-	Always create smart objects when placing	Beim Platzieren immer Smart-Objekte erstellen
+	Always create smart objects when placing	Beim Platzieren immer Smartobjekte erstellen
 	Animated zoom	Animierter Zoom
 	Apply auto tone	Automatische Tonwertkorrektur anwenden
 	Ask	Nachfragen
@@ -1737,7 +1737,7 @@
 	Dashed lines	Gestrichelte Linien
 	Destination	Ziel
 	Detailed	Detailliert
-	Disks	Festplatten
+	Disks	Datenträger
 	Display p3	Display P3
 	Double click layer mask launches select and mask	Doppelklick auf Ebenenmaske öffnet Auswählen und maskieren
 	Drop shadow	Schlagschatten
@@ -1771,7 +1771,7 @@
 	Guide style	Hilfslinienstil
 	Guides, Grid & Slices	Hilfslinien, Raster & Slices
 	Gutter	Steg
-	History Log	Protokolldatei
+	History Log	Verlaufsprotokoll
 	History states	Protokollschritte
 	Ignore exif profile tag	EXIF-Profil-Tag ignorieren
 	Image interpolation	Bildinterpolation
@@ -1782,7 +1782,7 @@
 	Jpg	JPG
 	Language	Sprache
 	Large tabs	Große Registerkarten
-	Legacy compositing	Legacy-Kompositierung
+	Legacy compositing	Legacy-Compositing
 	Light gray	Hellgrau
 	Line	Linie
 	Lines	Linien
@@ -1796,7 +1796,7 @@
 	Nearest neighbor	Nächster Nachbar
 	Never	Nie
 	Normal tip	Normale Spitze
-	Open as smart object	Als Smart-Objekt öffnen
+	Open as smart object	Als Smartobjekt öffnen
 	Open documents as tabs	Dokumente als Registerkarten öffnen
 	Overscroll	Überscrollen
 	Performance	Leistung
@@ -1807,7 +1807,7 @@
 	Print resolution	Druckauflösung
 	Pro	Pro
 	Pro medium	Pro mittel
-	Pro photo	Pro Foto
+	Pro photo	ProPhoto
 	Quick export format	Schnellexport-Format
 	Quick export location	Schnellexport-Ziel
 	Recent file count	Anzahl zuletzt geöffneter Dateien
@@ -1819,12 +1819,12 @@
 	Rotate view with trackpad	Ansicht mit Trackpad drehen
 	Same folder	Gleicher Ordner
 	Save in background	Im Hintergrund speichern
-	Scratch Disks	Auslagerungsfestplatten
+	Scratch Disks	Arbeitsvolumes
 	Screen	Bildschirm
 	Screen resolution	Bildschirmauflösung
 	Scrubby slider acceleration	Ziehregler-Beschleunigung
 	Sessions only	Nur Sitzungen
-	Sharpen for	Scharfzeichnen für
+	Sharpen for	Schärfen für
 	Show channels in color	Kanäle in Farbe anzeigen
 	Show crosshair in brush tip	Fadenkreuz in der Pinselspitze anzeigen
 	Show extension panels	Erweiterungsbedienfelder anzeigen
@@ -1926,7 +1926,7 @@
 	Type Layer	Textebene
 	Shape Layer	Formebene
 	Group Layer	Gruppenebene
-	Fill Layer	Füllebene
+	Fill Layer	Füllungsebene
 	Smart Object Layer	Smart-Objekt-Ebene
 	Create Warped Text	Verkrümmten Text erstellen
 	Rasterize Smart Object	Smart-Objekt rasterisieren
@@ -1987,18 +1987,18 @@
 	Use tablet pressure	Tablettdruck verwenden
 	Vulkan	Vulkan
 	Alt-click to define a source point to clone from	Alt-Klick legt einen Quellpunkt zum Klonen fest
-	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Kein Pfad für eine Auswahl vorhanden: zeichne einen mit dem Stift-Werkzeug oder wähle einen im Pfade-Bedienfeld.
+	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Es ist kein Pfad zum Erstellen einer Auswahl vorhanden: Zeichnen Sie einen mit dem Zeichenstift-Werkzeug oder wählen Sie einen im Pfade-Bedienfeld aus.
 	Cancel opening	Öffnen abbrechen
 	Cancelled opening {name}	Öffnen von {name} abgebrochen
 	Cancelled {label}	{label} abgebrochen
 	Esc to cancel	Esc zum Abbrechen
-	Opening {name}	Öffne {name}
-	Opening {name}…	Öffne {name}…
+	Opening {name}	Öffnen von {name}
+	Opening {name}…	Öffnen von {name}…
 	Opening…	Öffnen…
 	Reading…	Lesen…
-	Working…	Arbeite…
+	Working…	Arbeiten…
 	Color Range	Farbbereich
-	Adaptive Wide Angle	Adaptiver Weitwinkel
+	Adaptive Wide Angle	Adaptives Weitwinkel
 	Chalk & Charcoal	Kreide & Kohle
 	Charcoal	Kohle
 	Chrome	Chrom
@@ -2065,8 +2065,8 @@
 	Arc	Bogen
 	Arch	Gewölbe
 	Bulge	Ausbauchung
-	Shell Lower	Schale unten
-	Shell Upper	Schale oben
+	Shell Lower	Untere Muschel
+	Shell Upper	Obere Muschel
 	Flag	Flagge
 	Fish	Fisch
 	Wave	Welle
@@ -2086,9 +2086,9 @@
 	CPU / Compatibility	CPU / Kompatibilität
 	Automatic uses GPU acceleration when available and falls back to CPU rendering on errors.	Automatisch nutzt GPU-Beschleunigung, wenn verfügbar, und fällt bei Fehlern auf CPU-Rendering zurück.
 	Switched to CPU rendering	Auf CPU-Rendering umgeschaltet
-	GPU acceleration could not continue. Your documents are unchanged.	GPU-Beschleunigung konnte nicht fortgesetzt werden. Deine Dokumente sind unverändert.
-	Local Image is using the CPU image compositor. The window may still use your graphics adapter.	Local Image nutzt den CPU-Bildkompositor. Das Fenster kann weiterhin deinen Grafikadapter verwenden.
-	Retry GPU requires a restart. Save your work first.	GPU erneut versuchen erfordert einen Neustart. Speichere zuerst deine Arbeit.
+	GPU acceleration could not continue. Your documents are unchanged.	GPU-Beschleunigung konnte nicht fortgesetzt werden. Ihre Dokumente sind unverändert.
+	Local Image is using the CPU image compositor. The window may still use your graphics adapter.	Local Image nutzt den CPU-Bildkompositor. Das Fenster kann weiterhin Ihren Grafikadapter verwenden.
+	Retry GPU requires a restart. Save your work first.	GPU erneut versuchen erfordert einen Neustart. Speichern Sie zuerst Ihre Arbeit.
 	Keep Using CPU	CPU weiter verwenden
 	Retry GPU	GPU erneut versuchen
 	Advanced	Erweitert
@@ -2102,10 +2102,10 @@
 	Camera Raw Filter ({layer})	Camera-Raw-Filter ({layer})
 	Edit Type	Text bearbeiten
 	Grid:	Raster:
-	Highlight Clipping Warning (O)	Lichter-Abschneidewarnung (O)
+	Highlight Clipping Warning (O)	Lichter-Beschneidungswarnung (O)
 	Lasso around an area, then drag the selection	Lasso um einen Bereich ziehen, dann die Auswahl verschieben
 	Patch:	Korrektur:
-	Shadow Clipping Warning (U)	Tiefen-Abschneidewarnung (U)
+	Shadow Clipping Warning (U)	Tiefen-Beschneidungswarnung (U)
 	Show Lab Color Readouts	Lab-Farbwerte anzeigen
 	Show Red at 3 o'clock	Rote Markierung bei 3 Uhr anzeigen
 	Show Selected Region	Ausgewählten Bereich anzeigen
@@ -2124,7 +2124,7 @@
 	Drag or click polygon points · hold Alt during lasso for straight segments · {add} add · {sub} before drawing subtracts	Ziehen oder Polygonpunkte klicken · Alt während des Lassos halten für gerade Segmente · {add} hinzufügen · {sub} vor dem Zeichnen zieht ab
 	Extend	Erweitern
 	Structure:	Struktur:
-	Content-Aware Move Tool	Inhaltsbasiert-verschieben-Werkzeug
+	Content-Aware Move Tool	Inhaltsbasiertes Verschieben-Werkzeug
 	TIFF Options	TIFF-Optionen
 	Including layers will increase file size.	Das Einbeziehen von Ebenen vergrößert die Datei.
 	Discard Layers and Save a Copy	Ebenen verwerfen und Kopie speichern
@@ -2138,7 +2138,7 @@
 	Reset to Default	Auf Standard zurücksetzen
 	Couldn't place {name}: {error}	{name} konnte nicht platziert werden: {error}
 	Full-resolution preview unavailable	Vorschau in voller Auflösung nicht verfügbar
-	Magnetic Lasso Tool	Magnetisches-Lasso-Werkzeug
+	Magnetic Lasso Tool	Magnetisches Lasso-Werkzeug
 	Frequency	Frequenz
 	Use tablet pressure to change pen width	Tablettdruck zum Ändern der Stiftbreite verwenden
 # About ▸ Contributors / Models (credits, craftrules standards/contributors.md)
@@ -2150,7 +2150,7 @@
 	Display name	Anzeigename
 	Real name	Echter Name
 	Reverse the order	Reihenfolge umkehren
-	Grab bag	Wortwolke
+	Grab bag	Wundertüte
 	Table	Tabelle
 	Name (A–Z)	Name (A–Z)
 	Merged PRs	Gemergte PRs
@@ -2181,7 +2181,7 @@
 	Bicubic Smoother (enlargement)	Bikubisch glatter (Vergrößerung)
 	Browse, rate and organise your photos	Fotos durchsuchen, bewerten und ordnen
 	Layers, retouching and AI tools	Ebenen, Retusche und KI-Werkzeuge
-	Contextual Task Bar	Kontextabhängige Taskleiste
+	Contextual Task Bar	Kontextbezogene Taskleiste
 	Describe an image to create…	Beschreiben Sie das gewünschte Bild…
 	Edit photos, catalogue them, and create with local AI.	Fotos bearbeiten, katalogisieren und mit lokaler KI gestalten.
 	Filmstrip	Filmstreifen
@@ -2199,7 +2199,7 @@
 	Set Up AI…	KI einrichten…
 	Subject (AI)	Motiv (KI)
 	The AI engine isn't running.	Die KI-Engine läuft nicht.
-	Contextual task bar	Kontextabhängige Taskleiste
+	Contextual task bar	Kontextbezogene Taskleiste
 	Tool presets	Werkzeugvorgaben
 	Paint only when the string is pulled taut	Nur malen, wenn die Schnur gespannt ist
 	Keep painting toward the pointer while it pauses	Weiter zum Zeiger hin malen, während er ruht
@@ -2231,9 +2231,9 @@
 	Regenerate the area from a description	Bereich nach einer Beschreibung neu erzeugen
 	Hide Contextual Task Bar	Kontextbezogene Taskleiste ausblenden
 	More	Mehr
-	Click a red pupil	Klicke auf eine rote Pupille
-	Click the first point or press {key} to close · {del} removes a point · Esc cancels	Klicke auf den ersten Punkt oder drücke {key} zum Schließen · {del} entfernt einen Punkt · Esc bricht ab
-	Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close	Klicke und fahre an einer Kante entlang · Klick setzt einen Ankerpunkt · {alt}-Klick für ein gerades Segment · Doppelklick schließt
+	Click a red pupil	Klicken Sie auf eine rote Pupille
+	Click the first point or press {key} to close · {del} removes a point · Esc cancels	Klicken Sie auf den ersten Punkt oder drücken Sie {key} zum Schließen · {del} entfernt einen Punkt · Esc bricht ab
+	Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close	Klicken Sie und fahren Sie an einer Kante entlang · Klicken Sie, um einen Ankerpunkt zu setzen · {alt}-Klick für ein gerades Segment · Doppelklick schließt
 	Darken Amount	Verdunkelungsbetrag
 	Follows only edges this close to the pointer ([ and ] change it)	Folgt nur Kanten in diesem Abstand zum Zeiger ([ und ] ändern ihn)
 	Higher values follow only edges that contrast sharply with their surroundings	Höhere Werte folgen nur Kanten mit starkem Kontrast zur Umgebung
@@ -2254,7 +2254,7 @@
 	AI starting…	KI startet…
 	AI · no models	KI · keine Modelle
 	API key	API-Schlüssel
-	Accept the licence on the publisher's page first	Akzeptiere zuerst die Lizenz auf der Seite des Anbieters
+	Accept the licence on the publisher's page first	Akzeptieren Sie zuerst die Lizenz auf der Seite des Anbieters
 	Add Background ▾	Hintergrund hinzufügen ▾
 	Add Folder…	Ordner hinzufügen…
 	Add Images…	Bilder hinzufügen…
@@ -2262,8 +2262,8 @@
 	Add a LoRA	LoRA hinzufügen
 	Add an image file	Bilddatei hinzufügen
 	Add the current image	Aktuelles Bild hinzufügen
-	Add your {provider} API key in Local AI › Cloud to use it.	Füge deinen {provider}-API-Schlüssel unter Lokale KI › Cloud hinzu, um es zu verwenden.
-	Add your {provider} API key in Local AI › Cloud.	Füge deinen {provider}-API-Schlüssel unter Lokale KI › Cloud hinzu.
+	Add your {provider} API key in Local AI › Cloud to use it.	Fügen Sie Ihren {provider}-API-Schlüssel unter Lokale KI › Cloud hinzu, um es zu verwenden.
+	Add your {provider} API key in Local AI › Cloud.	Fügen Sie Ihren {provider}-API-Schlüssel unter Lokale KI › Cloud hinzu.
 	Added “{name}” to the model list (basic controls)	„{name}“ zur Modellliste hinzugefügt (einfache Steuerung)
 	Address:	Adresse:
 	Already installed: {names}	Bereits installiert: {names}
@@ -2275,7 +2275,7 @@
 	Basic controls	Einfache Steuerung
 	Browse Models…	Modelle durchsuchen…
 	CLOUD (OPTIONAL)	CLOUD (OPTIONAL)
-	CLOUD · YOUR API KEY	CLOUD · DEIN API-SCHLÜSSEL
+	CLOUD · YOUR API KEY	CLOUD · IHR API-SCHLÜSSEL
 	CUSTOM WORKFLOWS	EIGENE WORKFLOWS
 	Cancelled	Abgebrochen
 	Change the open image from an instruction (edit models), or restyle it	Das geöffnete Bild per Anweisung ändern (Bearbeitungsmodelle) oder neu gestalten
@@ -2286,12 +2286,12 @@
 	Checking the files’ sizes and checksums…	Dateigrößen und Prüfsummen werden geprüft…
 	Choose Folder…	Ordner auswählen…
 	Choose a model	Modell auswählen
-	Choose a model to refine with.	Wähle ein Modell zum Verfeinern.
+	Choose a model to refine with.	Wählen Sie ein Modell zum Verfeinern.
 	Choose the model folder	Modellordner auswählen
 	Choose your ComfyUI folder	ComfyUI-Ordner auswählen
 	Civitai API key:	Civitai-API-Schlüssel:
-	Click Remove Background first; then drag to erase or restore parts of the cutout.	Klicke zuerst auf „Hintergrund entfernen“; ziehe dann, um Teile der Freistellung zu radieren oder wiederherzustellen.
-	ComfyUI at {host} — click for Local AI settings	ComfyUI auf {host} — klicke für die Einstellungen der lokalen KI
+	Click Remove Background first; then drag to erase or restore parts of the cutout.	Klicken Sie zuerst auf „Hintergrund entfernen“; ziehen Sie dann, um Teile der Freistellung zu radieren oder wiederherzustellen.
+	ComfyUI at {host} — click for Local AI settings	ComfyUI auf {host} — klicken Sie für die Einstellungen der lokalen KI
 	ComfyUI installation found.	ComfyUI-Installation gefunden.
 	ComfyUI is not running at {host}	ComfyUI läuft nicht auf {host}
 	ComfyUI workflow	ComfyUI-Workflow
@@ -2303,13 +2303,13 @@
 	Couldn't update profiles: {error}	Profile konnten nicht aktualisiert werden: {error}
 	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	Stellt das Motiv jedes Bildes mit Qwen Image 2.1 frei und speichert PNGs. Die Originale werden nie verändert.
 	Delete from Library	Aus der Bibliothek löschen
-	Describe details to add (optional)…	Beschreibe Details, die hinzukommen sollen (optional)…
-	Describe the change, e.g. “make it golden hour”…	Beschreibe die Änderung, z. B. „mach es zur goldenen Stunde“…
-	Describe the empty scene behind your subject	Beschreibe die leere Szene hinter deinem Motiv
-	Describe the image (optional)…	Beschreibe das Bild (optional)…
-	Describe the image you want it to become…	Beschreibe das Bild, das daraus werden soll…
-	Describe what should appear in the selection	Beschreibe, was in der Auswahl erscheinen soll
-	Describe what you want first.	Beschreibe zuerst, was du möchtest.
+	Describe details to add (optional)…	Beschreiben Sie Details, die hinzukommen sollen (optional)…
+	Describe the change, e.g. “make it golden hour”…	Beschreiben Sie die Änderung, z. B. „Machen Sie es zur goldenen Stunde“…
+	Describe the empty scene behind your subject	Beschreiben Sie die leere Szene hinter Ihrem Motiv
+	Describe the image (optional)…	Beschreiben Sie das Bild (optional)…
+	Describe the image you want it to become…	Beschreiben Sie das Bild, das daraus werden soll…
+	Describe what should appear in the selection	Beschreiben Sie, was in der Auswahl erscheinen soll
+	Describe what you want first.	Beschreiben Sie zuerst, was Sie möchten.
 	Detect	Erkennen
 	Double-click to open	Zum Öffnen doppelklicken
 	Download	Herunterladen
@@ -2331,12 +2331,12 @@
 	Filmstrip options	Filmstreifen-Optionen
 	Find LoRAs…	LoRAs finden…
 	Find, compare and install models and LoRAs for any family	Modelle und LoRAs für jede Familie finden, vergleichen und installieren
-	Fits your GPU memory	Passt in deinen GPU-Speicher
+	Fits your GPU memory	Passt in Ihren GPU-Speicher
 	Found {n} installation(s).	{n} Installation(en) gefunden.
 	Free GPU Memory	GPU-Speicher freigeben
-	GPU MEMORY GUIDE	GPU-SPEICHER-RICHTWERTE
-	Generate (AI)…	Erzeugen (KI)…
-	Generate Background	Hintergrund erzeugen
+	GPU MEMORY GUIDE	GPU-SPEICHER-LEITFADEN
+	Generate (AI)…	Generieren (KI)…
+	Generate Background	Hintergrund generieren
 	Generate {n}	{n} generieren
 	Generated images are kept here.	Generierte Bilder werden hier aufbewahrt.
 	Generated {name} · seed {seed}	{name} generiert · Seed {seed}
@@ -2372,8 +2372,8 @@
 	Local Image doesn't know this family yet: it runs through the official template with prompt, seed and size only	Local Image kennt diese Familie noch nicht: Sie läuft über die offizielle Vorlage nur mit Prompt, Seed und Größe
 	Local Image doesn't know this model family yet: it will appear in the model list as a custom workflow with basic controls (prompt, seed, size).	Local Image kennt diese Modellfamilie noch nicht: Sie erscheint in der Modellliste als eigener Workflow mit einfacher Steuerung (Prompt, Seed, Größe).
 	MODELS	MODELLE
-	Make a selection first	Erstelle zuerst eine Auswahl
-	Make a selection to fill.	Erstelle eine Auswahl zum Füllen.
+	Make a selection first	Erstellen Sie zuerst eine Auswahl
+	Make a selection to fill.	Erstellen Sie eine Auswahl zum Füllen.
 	Model Browser	Modell-Browser
 	Model default	Modellstandard
 	Model folder:	Modellordner:
@@ -2384,24 +2384,24 @@
 	Newest	Neueste
 	Next image ({key})	Nächstes Bild ({key})
 	No ComfyUI installation found in the usual places.	An den üblichen Orten wurde keine ComfyUI-Installation gefunden.
-	No ComfyUI installation found. Choose its folder in Local AI, or install ComfyUI first.	Keine ComfyUI-Installation gefunden. Wähle ihren Ordner unter Lokale KI oder installiere zuerst ComfyUI.
+	No ComfyUI installation found. Choose its folder in Local AI, or install ComfyUI first.	Keine ComfyUI-Installation gefunden. Wählen Sie ihren Ordner unter Lokale KI oder installieren Sie zuerst ComfyUI.
 	No LoRAs for this model family are installed (Find LoRAs…)	Für diese Modellfamilie sind keine LoRAs installiert (LoRAs finden…)
 	No compatible LoRAs installed.	Keine kompatiblen LoRAs installiert.
-	No matches. Try another family, source or search.	Keine Treffer. Versuche eine andere Familie, Quelle oder Suche.
+	No matches. Try another family, source or search.	Keine Treffer. Versuchen Sie eine andere Familie, Quelle oder Suche.
 	Not chosen — detected automatically	Nicht gewählt — wird automatisch erkannt
 	Not enough space in {folder} ({free} free).	Nicht genug Platz in {folder} ({free} frei).
 	Not installed: {reason}	Nicht installiert: {reason}
-	Not stated: check the model's page before use	Nicht angegeben: Prüfe vor der Nutzung die Seite des Modells
-	Nothing installed yet. Pick a model from Trending or a family.	Noch nichts installiert. Wähle ein Modell unter „Angesagt“ oder in einer Familie.
+	Not stated: check the model's page before use	Nicht angegeben: Prüfen Sie vor der Nutzung die Seite des Modells
+	Nothing installed yet. Pick a model from Trending or a family.	Noch nichts installiert. Wählen Sie ein Modell unter „Angesagt“ oder in einer Familie.
 	Nothing matches.	Keine Treffer.
 	Only .safetensors and .gguf files with a published size and SHA-256 are installed.	Installiert werden nur .safetensors- und .gguf-Dateien mit veröffentlichter Größe und SHA-256.
 	Open Folder	Ordner öffnen
 	Open Its Page	Seite öffnen
-	Open an image first	Öffne zuerst ein Bild
-	Open an image first.	Öffne zuerst ein Bild.
-	Open an image from the filmstrip's folder first.	Öffne zuerst ein Bild aus dem Ordner des Filmstreifens.
+	Open an image first	Öffnen Sie zuerst ein Bild
+	Open an image first.	Öffnen Sie zuerst ein Bild.
+	Open an image from the filmstrip's folder first.	Öffnen Sie zuerst ein Bild aus dem Ordner des Filmstreifens.
 	Open its page	Seite öffnen
-	Paint over a distraction; it's removed when you release	Male über ein störendes Element; es wird beim Loslassen entfernt
+	Paint over a distraction; it's removed when you release	Malen Sie über ein störendes Element; es wird beim Loslassen entfernt
 	Place as Layer	Als Ebene platzieren
 	Port:	Port:
 	Precision	Genauigkeit
@@ -2424,7 +2424,7 @@
 	Remove Backgrounds	Hintergründe entfernen
 	Remove Selection	Auswahl entfernen
 	Request Access…	Zugang anfordern…
-	Resample the open image at a chosen strength (img2img)	Das geöffnete Bild mit wählbarer Stärke neu berechnen (img2img)
+	Resample the open image at a chosen strength (img2img)	Das geöffnete Bild mit gewählter Stärke neu berechnen (img2img)
 	Results appear here and are saved to the Library.	Ergebnisse erscheinen hier und werden in der Bibliothek gespeichert.
 	Retry	Erneut versuchen
 	Review in Library: see this folder in the Library's grid to compare and rate	In der Bibliothek prüfen: diesen Ordner im Raster der Bibliothek ansehen, vergleichen und bewerten
@@ -2469,7 +2469,7 @@
 	The author doesn't allow commercial use.	Der Autor erlaubt keine kommerzielle Nutzung.
 	The model isn't ready.	Das Modell ist nicht bereit.
 	The original file	Die Originaldatei
-	The publisher asks you to accept its licence on its page first; add a Hugging Face token in Local AI settings.	Der Anbieter verlangt, dass du zuerst seine Lizenz auf seiner Seite akzeptierst; füge in den Einstellungen der lokalen KI ein Hugging-Face-Token hinzu.
+	The publisher asks you to accept its licence on its page first; add a Hugging Face token in Local AI settings.	Der Anbieter verlangt, dass du zuerst seine Lizenz auf seiner Seite akzeptierst; füge in den Einstellungen von Local AI ein Hugging-Face-Token hinzu.
 	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	Der Workflow hat keine Knoten mit den Titeln li:prompt, li:image, li:mask, li:seed oder li:output, daher kann Local Image ihn nicht befüllen. Benenne die Knoten in ComfyUI um und exportiere erneut.
 	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	Mit Tokens kann der Modell-Browser zugangsbeschränkte oder anmeldepflichtige Modelle herunterladen. Sie werden nur an die jeweilige Website gesendet.
 	Transparent PNG	Transparentes PNG
@@ -2518,7 +2518,7 @@
 	{size} · runs on the CPU · {licence}	{size} · läuft auf der CPU · {licence}
 	{source}: offline, showing results from {when}	{source}: offline, Ergebnisse von {when}
 	{source}: the catalogue couldn't be read	{source}: Der Katalog konnte nicht gelesen werden
-	{why} Qwen Image 2.1 runs these.	{why} Dies läuft mit Qwen Image 2.1.
+	{why} Qwen Image 2.1 runs these.	{why} Qwen Image 2.1 führt diese aus.
 	Choose…	Auswählen…
 	Stop	Stoppen
 	Seed	Seed
@@ -2539,13 +2539,13 @@ ai	New	Neu
 	Develop photos: light, colour, detail, masks, AI selections and removal	Fotos entwickeln: Licht, Farbe, Details, Masken, KI-Auswahl und -Entfernen
 	Layers, retouching, compositing and every AI tool	Ebenen, Retusche, Compositing und alle KI-Werkzeuge
 	Develop…	Entwickeln…
-	Open the Library to develop this layer	Öffnen Sie die Bibliothek, um diese Ebene zu entwickeln
+	Open the Library to develop this layer	Öffne die Bibliothek, um diese Ebene zu entwickeln
 	The active layer isn't a Develop layer	Die aktive Ebene ist keine Entwicklungsebene
 	Updated from Develop	Aus „Entwickeln“ aktualisiert
 	{name} · Develop layer (double-click it to return to Develop)	{name} · Entwicklungsebene (Doppelklick führt zurück zu „Entwickeln“)
 	A merged copy on top, as a Smart Object with a Camera Raw Filter.	Eine zusammengefügte Kopie obenauf, als Smart-Objekt mit einem Camera-Raw-Filter.
 	Apply Destructively	Destruktiv anwenden
-	As a Smart Object the filter stays editable: double-click it in the Layers panel to change it.	Als Smart-Objekt bleibt der Filter bearbeitbar: Doppelklicken Sie im Ebenenbedienfeld darauf, um ihn zu ändern.
+	As a Smart Object the filter stays editable: double-click it in the Layers panel to change it.	Als Smart-Objekt bleibt der Filter bearbeitbar: Doppelklicke im Ebenenbedienfeld darauf, um ihn zu ändern.
 	Camera Raw Filter	Camera-Raw-Filter
 	Camera Raw Filter applied	Camera-Raw-Filter angewendet
 	Camera Raw Filter cancelled	Camera-Raw-Filter abgebrochen
@@ -2635,7 +2635,7 @@ ai	New	Neu
 	Line weight	Linienstärke
 	Mask out the background with AI	Hintergrund mit KI maskieren
 	Number of sides	Anzahl der Seiten
-	Open in Develop	In Entwicklung öffnen
+	Open in Develop	In Entwickeln öffnen
 	Open the Smart Object's contents	Inhalt des Smartobjekts öffnen
 	Regenerate	Erneut erzeugen
 	Select the main subject with AI	Hauptmotiv mit KI auswählen
@@ -2653,7 +2653,7 @@ ai	New	Neu
 	Dock Panel	Panel andocken
 	Float Panel Group	Panelgruppe lösen
 	Save and Return to Library	Sichern und zur Bibliothek zurückkehren
-	Added your new Develop edits as layer {name}	Ihre neuen Develop-Bearbeitungen wurden als Ebene {name} hinzugefügt
+	Added your new Develop edits as layer {name}	Ihre neuen Bearbeitungen im Entwickeln-Modul wurden als Ebene {name} hinzugefügt
 	Open the Library to save into it	Öffnen Sie die Bibliothek, um darin zu sichern
 	The layers below are unchanged; hide or delete the new layer to go back.	Die darunterliegenden Ebenen sind unverändert; blenden Sie die neue Ebene aus oder löschen Sie sie, um zurückzugehen.
 # Attributions page (li-attributions)
@@ -2661,9 +2661,9 @@ ai	New	Neu
 	Search attributions…	Quellennachweise durchsuchen…
 	No matches.	Keine Treffer.
 	Show licence text	Lizenztext anzeigen
-	Smart Sort (scenes)	Intelligent sortieren (Szenen)
-	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	Erkennt den Inhalt eines Fotos (Redner, Publikum, Details…), damit es im richtigen Ordner landet. Läuft auf der CPU; Fotos bleiben auf diesem Computer.
-	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	Erkennt Szenen anhand Ihrer Beschreibungen. Ein schnelles lokales Modell für Redner, Publikum, Details und andere gewählte Kategorien. Der Download enthält auch Textmodell und Tokenizer.
+	Smart Sort (scenes)	Smart Sort (Szenen)
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	Erkennt den Inhalt eines Fotos (Redner, Publikum, Details…), damit Smart Sort es im richtigen Ordner ablegen kann. Läuft auf der CPU; Fotos bleiben auf diesem Computer.
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	Erkennt Szenen anhand Ihrer Beschreibungen für Smart Sort. Ein schnelles lokales Modell für Redner, Publikum, Details und andere gewählte Kategorien. Der Download enthält auch Textmodell und Tokenizer.
 	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Findet das Hauptmotiv eines Fotos. Verwendet von Auswahl › Motiv, Hintergrund entfernen (Schnell), dem Klick-Modus des Objektauswahl-Werkzeugs sowie den Motiv- und Hintergrundmasken der Bibliothek.
 	Finds the sky. Used by Select › Sky and the Library's sky masks.	Findet den Himmel. Verwendet von Auswahl › Himmel und den Himmelsmasken der Bibliothek.
 	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Schätzt, wie weit jeder Teil eines Fotos entfernt ist. Verwendet von den Tiefenmasken der Bibliothek (z. B. um den Hintergrund abzudunkeln oder zu verwischen oder den Vordergrund nach Entfernung zu wählen).

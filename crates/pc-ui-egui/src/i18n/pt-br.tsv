@@ -46,11 +46,11 @@
 	Export As…	Exportar como…
 	Export Preferences…	Preferências de exportação…
 	Save for Web (Legacy)…	Salvar para Web (legado)…
-	Artboards to Files…	Prancheta em arquivos…
+	Artboards to Files…	Pranchetas em arquivos…
 	Artboards to PDF…	Pranchetas em PDF…
 	Layers to Files…	Camadas em arquivos…
 	Layer Comps to Files…	Composições de camadas em arquivos…
-	Color Lookup Tables…	Tabelas de pesquisa de cores…
+	Color Lookup Tables…	Tabelas de consulta de cores…
 	Data Sets as Files…	Conjuntos de dados como arquivos…
 	Paths to Illustrator…	Demarcadores para o Illustrator…
 	Render Video…	Renderizar vídeo…
@@ -234,7 +234,7 @@
 	Count Tool	Ferramenta Contagem
 	Place Scale Marker…	Inserir marcador de escala…
 	Custom…	Personalizado…
-	New	Novo
+	New	Novos
 	Layer…	Camada…
 	Group…	Grupo…
 	Group from Layers…	Grupo a partir de camadas…
@@ -260,7 +260,7 @@
 	Create Layer	Criar camada
 	Layer Style	Estilo de camada
 	Blending Options…	Opções de mesclagem…
-	Bevel & Emboss…	Chanfro e entalhe…
+	Bevel & Emboss…	Chanfro e relevo…
 	Inner Shadow…	Sombra interna…
 	Inner Glow…	Brilho interno…
 	Satin…	Acetinado…
@@ -336,7 +336,7 @@
 	Delete Frame	Excluir quadro
 	Duplicate Frame	Duplicar quadro
 	Frame from Layers	Quadro a partir de camadas
-	Video Frames to Layers…	Quadros de vídeo em camadas…
+	Video Frames to Layers…	Converter quadros de vídeo em camadas…
 	Rasterize	Rasterizar
 	Rasterize Type	Rasterizar texto
 	Rasterize Type Layer	Rasterizar camada de texto
@@ -369,9 +369,9 @@
 	Combine Shapes	Combinar formas
 	Unite Shapes	Unir formas
 	Subtract Front Shape	Subtrair forma frontal
-	Intersect Shape Areas	Fazer interseção das áreas de formas
+	Intersect Shape Areas	Fazer interseção das áreas de forma
 	Exclude Overlapping Shapes	Excluir formas sobrepostas
-	Merge Shape Components	Mesclar componentes de formas
+	Merge Shape Components	Mesclar componentes de forma
 	Align	Alinhar
 	Top Edges	Bordas superiores
 	Vertical Centers	Centros verticais
@@ -529,7 +529,7 @@
 	Diffuse…	Difusão…
 	Emboss…	Entalhe…
 	Extrude…	Extrusão…
-	Find Edges	Indicação de arestas
+	Find Edges	Localizar bordas
 	Oil Paint…	Pintura a óleo…
 	Solarize	Solarizar
 	Tiles…	Ladrilhos…
@@ -609,14 +609,14 @@
 	Mesh	Malha
 	Edit Pins	Editar alfinetes
 	Document Bounds	Limites do documento
-	Show Extras Options…	Opções de mostrar extras…
+	Show Extras Options…	Mostrar opções de extras…
 	Rulers	Réguas
 	Snap	Encaixar
 	Snap To	Encaixar em
 	Lock Guides	Bloquear guias
 	Clear Guides	Limpar guias
 	Clear Selected Artboard Guides	Limpar guias da prancheta selecionada
-	Clear Canvas Guides	Limpar guias da tela de pintura
+	Clear Canvas Guides	Limpar guias da tela
 	New Guide…	Nova guia…
 	Lock Slices	Bloquear fatias
 	Clear Slices	Limpar fatias
@@ -627,16 +627,16 @@
 	Tile	Lado a lado
 	Tile All Horizontally	Todas lado a lado horizontalmente
 	Tile All Vertically	Todas lado a lado verticalmente
-	2-up Horizontal	2 janelas horizontal
-	2-up Vertical	2 janelas vertical
-	3-up Horizontal	3 janelas horizontal
+	2-up Horizontal	2 por Horizontal
+	2-up Vertical	2 por Vertical
+	3-up Horizontal	3 por Horizontal
 	3-up Stacked	3 janelas empilhadas
-	3-up Vertical	3 janelas vertical
+	3-up Vertical	3 por Vertical
 	4-up	4 janelas
 	6-up	6 janelas
 	Consolidate All to Tabs	Consolidar tudo em guias
 	Float in Window	Flutuar na janela
-	Float All in Windows	Flutuar tudo em janelas
+	Float All in Windows	Flutuar tudo nas janelas
 	New Window for Document	Nova janela para o documento
 	Workspace	Espaço de trabalho
 	Essentials	Essenciais
@@ -660,7 +660,7 @@
 	Channels	Canais
 	Character	Caractere
 	Character Styles	Estilos de caractere
-	Clone Source	Origem da clonagem
+	Clone Source	Origem de clone
 	Color	Cor
 	Glyphs	Glifos
 	Gradients	Degradês
@@ -711,8 +711,8 @@
 	Absolute	Absoluto
 	Absolute Colorimetric	Colorimétrico absoluto
 	Action	Ação
-	Adaptive	Adaptável
-	Adaptive Wide Angle isn't open	Grande angular adaptável não está aberto
+	Adaptive	Adaptativo
+	Adaptive Wide Angle isn't open	Grande angular adaptável não está aberta
 	Add	Adicionar
 	Add Layer Mask	Adicionar máscara de camada
 	Add Stop	Adicionar parada
@@ -818,7 +818,7 @@
 	Channel:	Canal:
 	Check All Layers	Verificar todas as camadas
 	Check Spelling	Verificar ortografia
-	Clarity	Claridade
+	Clarity	Clareza
 	Clear All	Limpar tudo
 	Clear Override	Limpar substituição
 	Clear Samples	Limpar amostras
@@ -831,7 +831,7 @@
 	Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out	Clique para aumentar o zoom  ·  {key}-clique para diminuir  ·  arraste para a direita/esquerda para aumentar/diminuir
 	Click with the Note tool to add a note.	Clique com a ferramenta Anotação para adicionar uma anotação.
 	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	Clique: canto · Arrastar: suave · Clique no primeiro ponto: fechar · {key}: concluir · Esc: cancelar
-	Clip to layer below	Recortar na camada abaixo
+	Clip to layer below	Recortar para a camada abaixo
 	Clipped	Recortado
 	Close Style Options	Fechar opções de estilo
 	Cmd	Cmd
@@ -840,7 +840,7 @@
 	Color Balance	Equilíbrio de cores
 	Color Detail	Detalhe da cor
 	Color Grading	Gradação de cores
-	Color Lookup	Pesquisa de cores
+	Color Lookup	Consulta de cores
 	Color Management	Gerenciamento de cores
 	Color Mixer	Misturador de cores
 	Color Mode	Modo de cor
@@ -849,8 +849,8 @@
 	Color:	Cor:
 	Colorize	Colorir
 	Colors	Cores
-	Commit Perspective Warp ({key})	Confirmar distorção de perspectiva ({key})
-	Commit Puppet Warp ({key})	Confirmar distorção de marionete ({key})
+	Commit Perspective Warp ({key})	Confirmar deformação de perspectiva ({key})
+	Commit Puppet Warp ({key})	Confirmar deformação de marionete ({key})
 	Commit any current edits ({key})	Confirmar as edições atuais ({key})
 	Commit current crop operation  ({key})	Confirmar a operação de corte atual  ({key})
 	Commit transform ({key})	Confirmar transformação ({key})
@@ -1020,7 +1020,7 @@
 	Format	Formato
 	Frame from Layers…	Quadro a partir de camadas…
 	Free	Livre
-	Full Spherical	Esférico completo
+	Full Spherical	Esférica completa
 	Fuzziness:	Tolerância:
 	GPU	GPU
 	Gamma Correction	Correção de gama
@@ -1096,7 +1096,7 @@
 	Lightness	Luminosidade
 	Lights	Claros
 	Limits:	Limites:
-	Linear Gradient	Degradê linear
+	Linear Gradient	Gradiente linear
 	Link layers	Vincular camadas
 	Link width and height	Vincular largura e altura
 	Liquify is not open	Dissolver não está aberto
@@ -1172,7 +1172,7 @@
 	Offset	Deslocamento
 	Only Web Colors	Somente cores da Web
 	Opacity	Opacidade
-	Opacity Jitter	Variação da opacidade
+	Opacity Jitter	Variação de opacidade
 	Opacity:	Opacidade:
 	Open a document to define variables.	Abra um documento para definir variáveis.
 	Open a document to select a colour range.	Abra um documento para selecionar um intervalo de cores.
@@ -1184,7 +1184,7 @@
 	Output Channel:	Canal de saída:
 	Output Levels:	Níveis de saída:
 	Output:	Saída:
-	Outside	Externo
+	Outside	Fora
 	Overlay Color	Cor de sobreposição
 	Overlay Opacity	Opacidade da sobreposição
 	Overlay: Rule of Thirds	Sobreposição: regra dos terços
@@ -1202,9 +1202,9 @@
 	Pause	Pausar
 	Percent	Porcentagem
 	Perceptual	Perceptivo
-	Perspective Warp is not active	A distorção de perspectiva não está ativa
-	Perspective Warp: draw planes along the image's perspective, then switch to Warp	Distorção de perspectiva: desenhe planos seguindo a perspectiva da imagem e depois mude para Deformar
-	Photo Filter	Filtro de fotos
+	Perspective Warp is not active	A deformação de perspectiva não está ativa
+	Perspective Warp: draw planes along the image's perspective, then switch to Warp	Deformação de perspectiva: desenhe planos seguindo a perspectiva da imagem e depois mude para Deformar
+	Photo Filter	Filtro de Fotos
 	Local Image	Local Image
 	Local Image Manages Colors	O Local Image gerencia as cores
 	Local Image — an open-source, native image editor written in Rust.	Local Image — um editor de imagens nativo e de código aberto escrito em Rust.
@@ -1229,7 +1229,7 @@
 	Pressure	Pressão
 	Pressure for Opacity	Pressão para a opacidade
 	Pressure for Size	Pressão para o tamanho
-	Prevent auto-nesting in and out of Artboards and Frames	Impedir o aninhamento automático dentro e fora de pranchetas e quadros
+	Prevent auto-nesting in and out of Artboards and Frames	Impedir o aninhamento automático dentro e fora de pranchetas e molduras
 	Preview	Visualizar
 	Previous frame	Quadro anterior
 	Previous note	Anotação anterior
@@ -1244,13 +1244,13 @@
 	Protect Foreground Color	Proteger a cor de primeiro plano
 	Protect Tones	Proteger tons
 	Proximity Match	Correspondência por proximidade
-	Pulled String Mode	Modo de cordão
+	Pulled String Mode	Modo de corda puxada
 	Puppet Warp is not active	A distorção de marionete não está ativa
 	Purity	Pureza
 	Quality	Qualidade
 	Quick Actions	Ações rápidas
 	Quick Export As PNG	Exportação rápida como PNG
-	Radial Gradient	Degradê radial
+	Radial Gradient	Gradiente radial
 	Radius	Raio
 	Radius:	Raio:
 	Range:	Intervalo:
@@ -1260,7 +1260,7 @@
 	Record ● a sequence of edits, then play ▶ it on any document.	Grave ● uma sequência de edições e depois reproduza-a ▶ em qualquer documento.
 	Red	Vermelho
 	Redefine style by current selection	Redefinir o estilo pela seleção atual
-	Reflected Gradient	Degradê refletido
+	Reflected Gradient	Gradiente refletido
 	Registration Marks	Marcas de registro
 	Regular	Regular
 	Relative	Relativo
@@ -1351,7 +1351,7 @@
 	Size:	Tamanho:
 	Slice Options…	Opções de fatia…
 	Slices From Guides	Fatias a partir de guias
-	Slices are locked (View › Lock Slices)	As fatias estão bloqueadas (Visualizar › Bloquear fatias)
+	Slices are locked (View › Lock Slices)	As fatias estão bloqueadas (Exibir › Bloquear fatias)
 	Small Caps	Versaletes
 	Smoothing	Suavização
 	Space After	Espaço depois
@@ -1411,7 +1411,7 @@
 	Update layer comp (visibility, position and appearance)	Atualizar composição de camadas (visibilidade, posição e aparência)
 	Use Default	Usar padrão
 	Use Legacy	Usar legado
-	Use Measurement Scale	Usar escala de medida
+	Use Measurement Scale	Usar escala de medição
 	Use the embedded profile (instead of the working space)	Usar o perfil incorporado (em vez do espaço de trabalho)
 	Variables bind a layer's visibility, text or pixels to a named data slot.	As variáveis vinculam a visibilidade, o texto ou os pixels de uma camada a um campo de dados nomeado.
 	Vertical scale	Escala vertical
@@ -1426,7 +1426,7 @@
 	Weight	Espessura
 	Weight:	Espessura:
 	White	Branco
-	White Balance: As Shot	Equilíbrio de branco: como fotografado
+	White Balance: As Shot	Balanço de brancos: como foto
 	Whites	Brancos
 	Width	Largura
 	Width:	Largura:
@@ -1481,9 +1481,9 @@
 	Conform	Conformar
 	Content-Aware Fill needs a selection on a pixel layer	O preenchimento sensível ao conteúdo precisa de uma seleção em uma camada de pixels
 	Could not transform: the layer is empty	Não foi possível transformar: a camada está vazia
-	Could not use Perspective Warp: the layer is empty	Não foi possível usar a distorção de perspectiva: a camada está vazia
-	Could not use Puppet Warp: no opaque pixels	Não foi possível usar a distorção de marionete: não há pixels opacos
-	Could not use Puppet Warp: the layer is empty	Não foi possível usar a distorção de marionete: a camada está vazia
+	Could not use Perspective Warp: the layer is empty	Não foi possível usar a deformação de perspectiva: a camada está vazia
+	Could not use Puppet Warp: no opaque pixels	Não foi possível usar a deformação de marionete: não há pixels opacos
+	Could not use Puppet Warp: the layer is empty	Não foi possível usar a deformação de marionete: a camada está vazia
 	Crop Tool	Ferramenta Corte demarcado
 	Crosswise	Em cruz
 	Current Tool	Ferramenta atual
@@ -1532,7 +1532,7 @@
 	Highlights from:	Realces a partir de:
 	History Brush Tool	Ferramenta Pincel do histórico
 	Horizontal Type Tool	Ferramenta Texto horizontal
-	Image Size:	Tamanho:
+	Image Size:	Tamanho da imagem:
 	Inches	Polegadas
 	Indexed	Indexado
 	Initial Direction	Direção inicial
@@ -1546,7 +1546,7 @@
 	Lasso	Laço
 	Lasso Tool	Ferramenta Laço
 	Layer Count	Número de camadas
-	Layer Knocks Out Drop Shadow	A camada vaza a sombra projetada
+	Layer Knocks Out Drop Shadow	A camada elimina a sombra projetada
 	Legal	Ofício
 	Letter	Carta
 	Light	Fino
@@ -1570,7 +1570,7 @@
 	My Brushes	Meus pincéis
 	Neutrals	Neutros
 	New Workspace	Novo espaço de trabalho
-	Note Tool	Ferramenta Anotação
+	Note Tool	Ferramenta Nota
 	Object Selection Tool	Ferramenta Seleção de objeto
 	Off	Desativado
 	Open	Abrir
@@ -1582,7 +1582,7 @@
 	Overlay	Sobrepor
 	Paint Bucket Tool	Ferramenta Lata de tinta
 	Paints from the document's opening state	Pinta a partir do estado de abertura do documento
-	Path Selection Tool	Ferramenta Seleção de demarcador
+	Path Selection Tool	Ferramenta Seleção de demarcado
 	Direct Selection Tool	Ferramenta Seleção direta
 	Pattern Overlay	Sobreposição de padrão
 	Pen Pressure	Pressão da caneta
@@ -1591,7 +1591,7 @@
 	Photo	Foto
 	Local Image website	Site do Local Image
 	Picas	Paicas
-	Pillow Emboss	Entalhe almofadado
+	Pillow Emboss	Relevo almofadado
 	Pixel Replacement	Substituição de pixels
 	Pixels	Pixels
 	Points	Pontos
@@ -1639,7 +1639,7 @@
 	Source: set	Origem: definida
 	Sponge Tool	Ferramenta Esponja
 	Spot Healing Brush Tool	Ferramenta Pincel de recuperação para manchas
-	Spread	Propagação
+	Spread	Expansão
 	Square, 12 x 12	Quadrado, 12 x 12
 	Square, 5 x 5	Quadrado, 5 x 5
 	Std Dev:	Desvio padrão:
@@ -1660,7 +1660,7 @@
 	Web Minimum	Web mínimo
 	Web Most Common	Web mais comum
 	WebP (lossless)	WebP (sem perdas)
-	Wet Edges	Bordas molhadas
+	Wet Edges	Bordas úmidas
 	Yellows	Amarelos
 	Zoom Tool	Ferramenta Zoom
 	{name} Properties	Propriedades de {name}
@@ -1681,7 +1681,7 @@
 @plural	{n} Layer|{n} Layers	{n} camada|{n} camadas
 @plural	{n} layer|{n} layers	{n} camada|{n} camadas
 @plural	Group · {n} layer|Group · {n} layers	Grupo · {n} camada|Grupo · {n} camadas
-	Additional plugins folder	Pasta adicional de plug-ins
+	Additional plugins folder	Pasta de plug-ins adicionais
 	Adobe	Adobe
 	Adobe rgb	Adobe RGB
 	Allow agent control	Permitir controle por agentes
@@ -1777,7 +1777,7 @@
 	Maximize psd compatibility	Maximizar compatibilidade de PSD
 	Medium gray	Cinza médio
 	Memory usage mb	Uso de memória (MB)
-	Missing glyph protection	Proteção de glifos ausentes
+	Missing glyph protection	Proteção contra glifos ausentes
 	Modern	Moderno
 	Nearest neighbor	Vizinho mais próximo
 	Never	Nunca
@@ -1987,7 +1987,7 @@
 	Enable Smart Filters	Ativar filtros inteligentes
 	New Layer…	Nova camada…
 	Delete Layer…	Excluir camada…
-	Color Range	Intervalo de cores
+	Color Range	Faixa de cores
 	Select Similar Colors	Selecionar cores semelhantes
 	New Selection	Nova seleção
 	Adaptive Wide Angle	Grande angular adaptável
@@ -2004,7 +2004,7 @@
 	Stamp	Carimbo
 	Torn Edges	Bordas rasgadas
 	Water Paper	Papel molhado
-	Canvas rotation	Rotação da tela de pintura
+	Canvas rotation	Rotação da tela
 	Extensions	Extensões
 	Libraries	Bibliotecas
 	3D	3D
@@ -2019,7 +2019,7 @@
 	Pen	Caneta
 	Hand	Mão
 	Sampler	Amostrador
-	Note tool	Ferramenta Anotação
+	Note tool	Ferramenta Nota
 	Quick Selection	Seleção rápida
 	Magnetic Lasso	Laço magnético
 	History Brush	Pincel do histórico
@@ -2082,7 +2082,7 @@
 	Working Spaces	Espaços de trabalho
 	Color Management Policies	Políticas de gerenciamento de cores
 	Detect Faces	Detectar rostos
-	Localize Color Clusters	Agrupamentos de cores localizados
+	Localize Color Clusters	Localizar agrupamentos de cores
 	Duplicated selection name	Nome da seleção duplicada
 	Operation	Operação
 	New channel only	Somente novo canal
@@ -2094,8 +2094,8 @@
 	Delete Snapshot	Excluir instantâneo
 	New Snapshot	Novo instantâneo
 	Snapshot 1	Instantâneo 1
-	Step Forward	Avançar um passo
-	Step Backward	Retroceder um passo
+	Step Forward	Avançar um estado
+	Step Backward	Retroceder um estado
 	Nonlinear History	Histórico não linear
 	Set New Snapshot as Default	Definir novo instantâneo como padrão
 	Automatically Create First Snapshot	Criar automaticamente o primeiro instantâneo
@@ -2138,8 +2138,8 @@
 	Ultra Bold	Ultranegrito
 	Condensed	Condensado
 	First Line Indent	Recuo da primeira linha
-	Hanging Punctuation	Pontuação deslocada
-	Roman Hanging Punctuation	Pontuação romana deslocada
+	Hanging Punctuation	Pontuação pendente
+	Roman Hanging Punctuation	Pontuação romana pendente
 	Avoid Widows/Orphans	Evitar viúvas/órfãs
 	Compose	Compor
 	Adobe Single-line Composer	Compositor de linha única Adobe
@@ -2154,7 +2154,7 @@
 	Justify	Justificar
 	Glyph	Glifo
 	Alternates for Current Selection	Alternativas para a seleção atual
-	Digits	Algarismos
+	Digits	Dígitos
 	Symbols	Símbolos
 	Punctuation	Pontuação
 	Path:	Demarcador:
@@ -2356,7 +2356,7 @@
 	Reference point location	Posição do ponto de referência
 	Toggle reference point	Alternar ponto de referência
 	Arc	Arco
-	Arch	Arco inferior
+	Arch	Arco côncavo
 	Bulge	Saliência
 	Shell Lower	Concha inferior
 	Shell Upper	Concha superior
@@ -2366,7 +2366,7 @@
 	Rise	Elevação
 	Inflate	Inflar
 	Twist	Torção
-	Squeeze	Compressão
+	Squeeze	Apertar
 	Add Pins	Adicionar alfinetes
 	Delete Pins	Excluir alfinetes
 	Rotate Auto	Rotação automática
@@ -2409,8 +2409,8 @@
 	Click to apply, ⌥-click to clear overrides, double-click for Style Options	Clique para aplicar, ⌥-clique para limpar substituições, clique duplo para Opções de estilo
 	Click to zoom in  ·  ⌥-click to zoom out	Clique para aumentar o zoom  ·  ⌥-clique para diminuir
 	Click: corner · Drag: smooth · Click first point: close · ↩ finish · Esc cancel	Clique: canto · Arrastar: suave · Clique no primeiro ponto: fechar · ↩ concluir · Esc cancelar
-	Commit Perspective Warp (↩)	Confirmar distorção de perspectiva (↩)
-	Commit Puppet Warp (↩)	Confirmar distorção de marionete (↩)
+	Commit Perspective Warp (↩)	Confirmar deformação de perspectiva (↩)
+	Commit Puppet Warp (↩)	Confirmar deformação de marionete (↩)
 	Commit any current edits (⌘↩)	Confirmar as edições atuais (⌘↩)
 	Commit current crop operation  (↵)	Confirmar a operação de corte atual  (↵)
 	Commit transform (↩)	Confirmar transformação (↩)
@@ -2447,11 +2447,11 @@
 	8 bit	8 bits
 	Integer	Inteiro
 	16 bit	16 bits
-	32 bit (float)	32 bits (flutuante)
+	32 bit (float)	32 bits (ponto flutuante)
 	Floating point	Ponto flutuante
 	Use Global Light	Usar luz global
 	Native file drag-and-drop is unavailable	Arrastar e soltar arquivos nativo indisponível
-	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= local-image`.	Arrastar e soltar arquivos nativo ainda não é compatível com Wayland. Use Arquivo › Abrir ou execute o Local Image no XWayland com `WAYLAND_DISPLAY= local-image`.
+	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= local-image`.	O arrastar e soltar nativo de arquivos ainda não é compatível com Wayland. Use Arquivo › Abrir ou execute o Local Image sob XWayland com `WAYLAND_DISPLAY= local-image`.
 	Use File › Open to open an image.	Use Arquivo › Abrir para abrir uma imagem.
 	Mixer Brush Tool	Ferramenta Pincel misturador
 	Invalid {mode} profile	Perfil {mode} inválido
@@ -2471,8 +2471,8 @@
 	GPU Backend	Backend da GPU
 	Details	Detalhes
 	Rendering mode	Modo de renderização
-	Shadow Clipping Warning (U)	Aviso de corte de sombras (U)
-	Highlight Clipping Warning (O)	Aviso de corte de realces (O)
+	Shadow Clipping Warning (U)	Aviso de recorte de sombras (U)
+	Highlight Clipping Warning (O)	Aviso de recorte de realces (O)
 	Show Lab Color Readouts	Mostrar leituras de cor Lab
 	Show Vectorscope	Mostrar vectorscópio
 	Show Red at 3 o'clock	Mostrar vermelho na posição de 3 horas
@@ -2549,7 +2549,7 @@ cameraRaw	Whites	Brancos
 	Display name	Nome de exibição
 	Real name	Nome real
 	Reverse the order	Inverter a ordem
-	Grab bag	Lista corrida
+	Grab bag	Miscelânea
 	Table	Tabela
 	Name (A–Z)	Nome (A–Z)
 	Merged PRs	PRs mesclados
@@ -2620,7 +2620,7 @@ cameraRaw	Whites	Brancos
 	Add a layer mask that shows only this area	Adicionar uma máscara de camada que mostra só esta área
 	Describe what to generate (optional)	Descreva o que gerar (opcional)
 	Generative Fill: regenerate the selection from your description	Preenchimento generativo: recria a seleção a partir da sua descrição
-	Contextual Task Bar hidden — Window › Contextual Task Bar shows it again.	Barra de tarefas contextual oculta — Janela › Barra de tarefas contextual a mostra de novo.
+	Contextual Task Bar hidden — Window › Contextual Task Bar shows it again.	Barra de tarefas contextual oculta — Janela › Barra de tarefas contextual mostra-a de novo.
 	AI Remove isn't ready: {why}	A remoção por IA não está pronta: {why}
 	Generative Fill	Preenchimento generativo
 	Remove what's inside with AI (on its own layer)	Remover o conteúdo com IA (em uma camada própria)
@@ -2660,11 +2660,11 @@ cameraRaw	Whites	Brancos
 	Add a LoRA	Adicionar um LoRA
 	Add an image file	Adicionar um arquivo de imagem
 	Add the current image	Adicionar a imagem atual
-	Add your {provider} API key in Local AI › Cloud to use it.	Adicione sua chave de API {provider} em IA local › Nuvem para usá-lo.
-	Add your {provider} API key in Local AI › Cloud.	Adicione sua chave de API {provider} em IA local › Nuvem.
+	Add your {provider} API key in Local AI › Cloud to use it.	Adicione sua chave de API {provider} em Local AI › Nuvem para usá-lo.
+	Add your {provider} API key in Local AI › Cloud.	Adicione sua chave de API {provider} em Local AI › Nuvem.
 	Added “{name}” to the model list (basic controls)	“{name}” adicionado à lista de modelos (controles básicos)
 	Address:	Endereço:
-	Already installed: {names}	Já instalado: {names}
+	Already installed: {names}	Já instalados: {names}
 	Apply Edit	Aplicar edição
 	Ask each time (Save As)	Perguntar sempre (Salvar como)
 	Avoid… (negative prompt)	Evitar… (prompt negativo)
@@ -2689,7 +2689,7 @@ cameraRaw	Whites	Brancos
 	Choose your ComfyUI folder	Escolha sua pasta do ComfyUI
 	Civitai API key:	Chave de API do Civitai:
 	Click Remove Background first; then drag to erase or restore parts of the cutout.	Clique primeiro em Remover plano de fundo; depois arraste para apagar ou restaurar partes do recorte.
-	ComfyUI at {host} — click for Local AI settings	ComfyUI em {host} — clique para as configurações de IA local
+	ComfyUI at {host} — click for Local AI settings	ComfyUI em {host} — clique para as configurações do Local AI
 	ComfyUI installation found.	Instalação do ComfyUI encontrada.
 	ComfyUI is not running at {host}	O ComfyUI não está em execução em {host}
 	ComfyUI workflow	Fluxo de trabalho do ComfyUI
@@ -2773,7 +2773,7 @@ cameraRaw	Whites	Brancos
 	Make a selection first	Faça uma seleção primeiro
 	Make a selection to fill.	Faça uma seleção para preencher.
 	Model Browser	Navegador de modelos
-	Model default	Padrão do modelo
+	Model default	Modelo padrão
 	Model folder:	Pasta de modelos:
 	Model profiles are up to date	Os perfis de modelos estão atualizados
 	Model:	Modelo:
@@ -2818,11 +2818,11 @@ cameraRaw	Whites	Brancos
 	Refine with	Refinar com
 	Refine:	Refinar:
 	Refresh	Atualizar
-	Regenerate the selection (Photoshop's Generative Fill)	Regenera a seleção (como o Preenchimento generativo do Photoshop)
+	Regenerate the selection (Photoshop's Generative Fill)	Regenerar a seleção (como o Preenchimento generativo do Photoshop)
 	Remove Backgrounds	Remover planos de fundo
 	Remove Selection	Remover seleção
 	Request Access…	Solicitar acesso…
-	Resample the open image at a chosen strength (img2img)	Reamostra a imagem aberta com a intensidade escolhida (img2img)
+	Resample the open image at a chosen strength (img2img)	Reamostrar a imagem aberta com a intensidade escolhida (img2img)
 	Results appear here and are saved to the Library.	Os resultados aparecem aqui e são salvos na biblioteca.
 	Retry	Tentar novamente
 	Review in Library: see this folder in the Library's grid to compare and rate	Revisar na biblioteca: veja esta pasta na grade da biblioteca para comparar e avaliar
@@ -2923,13 +2923,13 @@ cameraRaw	Whites	Brancos
 	Qwen AI · Compact	Qwen IA · compacto
 	Qwen AI · Full	Qwen IA · completo
 	Standard (CPU)	Padrão (CPU)
-	Templates	Templates
+	Templates	Modelos
 	Community	Comunidade
 ai	Restore	Restaurar
 ai	Sampler	Amostrador
 ai	New	Novos
 	Filmstrip shows folder	A tira de filme mostra a pasta
-	Save and next saves to	Salvar e próxima salva em
+	Save and next saves to	Salvar e avançar salva em
 	Develop	Revelação
 	Compositing	Composição
 	Develop photos: light, colour, detail, masks, AI selections and removal	Revelar fotos: luz, cor, detalhes, máscaras, seleções e remoção com IA
@@ -3025,8 +3025,8 @@ ai	New	Novos
 	Fill the selection from the image around it	Preencher a seleção a partir da imagem ao redor
 	Generate this area again from its surroundings	Gerar esta área novamente a partir do entorno
 	Generate “{prompt}” again with a new seed	Gerar “{prompt}” novamente com uma nova semente
-	Generative Fill: regenerate the area from your description (empty: from its surroundings)	Preenchimento generativo: recriar a área pela descrição (vazio: pelo entorno)
-	Generative Fill: regenerate the path's area from a description	Preenchimento generativo: recriar a área do demarcador pela descrição
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	Preenchimento generativo: gerar novamente a área a partir da descrição (vazio: a partir do entorno)
+	Generative Fill: regenerate the path's area from a description	Preenchimento generativo: gerar novamente a área do demarcador a partir da descrição
 	L	C
 	Line weight	Espessura da linha
 	Mask out the background with AI	Mascarar o fundo com IA
@@ -3049,8 +3049,8 @@ ai	New	Novos
 	Dock Panel	Encaixar painel
 	Float Panel Group	Desencaixar grupo de painéis
 	Save and Return to Library	Salvar e voltar à biblioteca
-	Added your new Develop edits as layer {name}	Suas novas edições do Develop foram adicionadas como camada {name}
-	Open the Library to save into it	Abra a biblioteca para salvar nela
+	Added your new Develop edits as layer {name}	Suas novas edições da Revelação foram adicionadas como camada {name}
+	Open the Library to save into it	Abra a Biblioteca para salvar nela
 	The layers below are unchanged; hide or delete the new layer to go back.	As camadas abaixo não foram alteradas; oculte ou exclua a nova camada para voltar.
 # Attributions page (li-attributions)
 	Attributions	Atribuições
@@ -3060,7 +3060,7 @@ ai	New	Novos
 	Smart Sort (scenes)	Organização inteligente (cenas)
 	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	Reconhece o conteúdo da foto (palestrantes, público, detalhes…) para colocá-la na pasta certa. Funciona na CPU; as fotos nunca saem deste computador.
 	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	Reconhece cenas a partir das suas descrições. Um modelo local rápido para palestrantes, público, detalhes e outras categorias que você escolher. O download inclui o modelo de texto e o tokenizador.
-	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Encontra o assunto principal de uma foto. Usado por Seleção › Assunto, Remover plano de fundo (rápido), pelo modo de clique da ferramenta de seleção de objetos e pelas máscaras de assunto e fundo da Biblioteca.
+	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Encontra o assunto principal de uma foto. Usado por Seleção › Assunto, Remover plano de fundo (rápido), pelo modo de clique da ferramenta Seleção de Objeto e pelas máscaras de Assunto e Plano de Fundo da Biblioteca.
 	Finds the sky. Used by Select › Sky and the Library's sky masks.	Encontra o céu. Usado por Seleção › Céu e pelas máscaras de céu da Biblioteca.
 	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Estima a distância de cada parte de uma foto. Usado pelas máscaras de profundidade da Biblioteca (por ex., para escurecer ou desfocar o fundo, ou escolher o primeiro plano pela distância).
 	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	Encontra o assunto com as bordas mais finas (cabelo, pelos, detalhes delicados). A melhor qualidade para Selecionar assunto e Remover plano de fundo; leva um ou dois segundos por foto.

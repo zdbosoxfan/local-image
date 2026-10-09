@@ -43,7 +43,7 @@
 	Save	Enregistrer
 	Save As…	Enregistrer sous…
 	Save a Copy…	Enregistrer une copie…
-	Revert	Revenir à la version enregistrée
+	Revert	Version précédente
 	Export	Exporter
 	Quick Export as PNG	Exportation rapide au format PNG
 	Export As…	Exporter sous…
@@ -103,7 +103,7 @@
 	Check Spelling…	Vérifier l'orthographe…
 	Find and Replace Text…	Rechercher et remplacer du texte…
 	Fill…	Remplir…
-	Stroke…	Contourner…
+	Stroke…	Contour…
 	Content-Aware Fill…	Remplissage d'après le contenu…
 	Content-Aware Scale	Mise à l'échelle d'après le contenu
 	Puppet Warp	Déformation par épingles
@@ -140,7 +140,7 @@
 	Preset Manager…	Gestionnaire de préréglages…
 	Migrate Presets	Migrer les préréglages
 	Export/Import Presets…	Exporter/importer des préréglages…
-	Color Settings…	Paramètres de couleur…
+	Color Settings…	Couleurs…
 	Assign Profile…	Attribuer un profil…
 	Convert to Profile…	Convertir en profil…
 	Keyboard Shortcuts…	Raccourcis clavier…
@@ -167,13 +167,13 @@
 	Raw Defaults…	Valeurs Raw par défaut…
 	Integrations…	Intégrations…
 	AI Integrations…	Intégrations d'IA…
-	Install Plug-in…	Installer une extension…
+	Install Plug-in…	Installer un module externe…
 	Language Options	Options de langue
 	Settings…	Paramètres…
 	Mode	Mode
 	Bitmap	Bitmap
 	Grayscale	Niveaux de gris
-	Duotone	Duotone
+	Duotone	Bichromie
 	Indexed Color	Couleurs indexées
 	RGB Color	Couleurs RVB
 	CMYK Color	Couleurs CMJN
@@ -184,7 +184,7 @@
 	32 Bits/Channel	32 bits/canal
 	Color Table…	Table des couleurs…
 	Bitmap…	Bitmap…
-	Duotone…	Duotone…
+	Duotone…	Bichromie…
 	Indexed Color…	Couleurs indexées…
 	Adjustments	Ajustements
 	Brightness/Contrast…	Luminosité/Contraste…
@@ -215,8 +215,8 @@
 	Image Size…	Taille de l'image…
 	Canvas Size…	Taille du canevas…
 	Image Rotation	Rotation de l'image
-	Flip Canvas Horizontal	Retourner le canevas horizontalement
-	Flip Canvas Vertical	Retourner le canevas verticalement
+	Flip Canvas Horizontal	Symétrie horizontale du canevas
+	Flip Canvas Vertical	Symétrie verticale du canevas
 	Crop	Recadrer
 	Trim…	Rogner les bords…
 	Reveal All	Tout afficher
@@ -237,7 +237,7 @@
 	Count Tool	Outil Compteur
 	Place Scale Marker…	Placer un repère d'échelle…
 	Custom…	Personnalisé…
-	New	Nouveau
+	New	Nouveautés
 	Layer…	Calque…
 	Group…	Groupe…
 	Group from Layers…	Groupe d'après des calques…
@@ -357,8 +357,8 @@
 	Flatten Image	Aplatir l'image
 	Matting	Détourage
 	Color Decontaminate…	Décontaminer les couleurs…
-	Remove Black Matte	Supprimer le fond noir
-	Remove White Matte	Supprimer le fond blanc
+	Remove Black Matte	Supprimer la frange noire
+	Remove White Matte	Supprimer la frange blanche
 	Defringe…	Supprimer les franges…
 	Group Layers	Grouper les calques
 	Ungroup Layers	Dissocier les calques
@@ -385,7 +385,7 @@
 	Distribute	Répartir
 	Vertically	Verticalement
 	Horizontally	Horizontalement
-	Layer Edges	Contours du calque
+	Layer Edges	Bords du calque
 	Isolate Layers	Isoler les calques
 	Layer Content Options…	Options de contenu du calque…
 	Fill Content	Contenu du remplissage
@@ -433,7 +433,7 @@
 	Default Features	Fonctionnalités par défaut
 	East Asian Features	Fonctionnalités d'Asie orientale
 	Middle Eastern Features	Fonctionnalités du Moyen-Orient
-	Middle Eastern & South Asian Composer	Composeur pour le Moyen-Orient et l'Asie du Sud
+	Middle Eastern & South Asian Composer	Compositeur pour le Moyen-Orient et l'Asie du Sud
 	Update All Text Layers	Mettre à jour tous les calques de texte
 	Replace All Missing Fonts	Remplacer toutes les polices manquantes
 	Resolve Missing Fonts…	Résoudre les polices manquantes…
@@ -462,7 +462,7 @@
 	Feather…	Adoucir…
 	Grow	Agrandir
 	Transform Selection	Transformer la sélection
-	Edit in Quick Mask Mode	Modifier en mode masque rapide
+	Edit in Quick Mask Mode	Modifier en mode Masque
 	Load Selection…	Charger la sélection…
 	Save Selection…	Enregistrer la sélection…
 	Match All	Tout faire correspondre
@@ -504,7 +504,7 @@
 	Dust & Scratches…	Poussière et rayures…
 	Median…	Médiane…
 	Reduce Noise…	Réduction du bruit…
-	Pixelate	Pixeliser
+	Pixelate	Pixellisation
 	Color Halftone…	Trame de demi-teintes couleur…
 	Crystallize…	Cristallisation…
 	Facet	Facettes
@@ -524,22 +524,22 @@
 	Tree…	Arbre…
 	Sharpen	Netteté
 	Sharpen Edges	Netteté des contours
-	Sharpen More	Netteté accentuée
+	Sharpen More	Netteté plus
 	Smart Sharpen…	Netteté intelligente…
 	Unsharp Mask…	Masque flou…
 	High Pass…	Passe-haut…
-	Stylize	Styliser
-	Diffuse…	Diffuser…
+	Stylize	Stylisation
+	Diffuse…	Diffusion…
 	Emboss…	Relief…
-	Extrude…	Extruder…
-	Find Edges	Détecter les contours
+	Extrude…	Extrusion…
+	Find Edges	Détection des contours
 	Oil Paint…	Peinture à l'huile…
-	Solarize	Solariser
+	Solarize	Solarisation
 	Tiles…	Carreaux…
-	Trace Contour…	Tracer les contours…
+	Trace Contour…	Tracé des contours…
 	Wind…	Vent…
 	Video	Vidéo
-	De-Interlace…	Désentrelacer…
+	De-Interlace…	Désentrelacement…
 	NTSC Colors	Couleurs NTSC
 	Other	Autres
 	Maximum…	Maximum…
@@ -614,8 +614,8 @@
 	Document Bounds	Limites du document
 	Show Extras Options…	Options d'affichage des extras…
 	Rulers	Règles
-	Snap	Aimanter
-	Snap To	Aimanter à
+	Snap	Aligner
+	Snap To	Aligner sur
 	Lock Guides	Verrouiller les repères
 	Clear Guides	Effacer les repères
 	Clear Selected Artboard Guides	Effacer les repères du plan de travail sélectionné
@@ -663,7 +663,7 @@
 	Channels	Canaux
 	Character	Caractère
 	Character Styles	Styles de caractère
-	Clone Source	Source de clonage
+	Clone Source	Source de duplication
 	Color	Couleur
 	Glyphs	Glyphes
 	Gradients	Dégradés
@@ -701,9 +701,9 @@
 	Other…	Autre…
 	Remove Warp Split	Supprimer la division de la déformation
 	Shape	Forme
-	Split Warp Crosswise	Diviser la déformation en croix
-	Split Warp Horizontally	Diviser la déformation horizontalement
-	Split Warp Vertically	Diviser la déformation verticalement
+	Split Warp Crosswise	Scinder la déformation en croix
+	Split Warp Horizontally	Scinder la déformation horizontalement
+	Split Warp Vertically	Scinder la déformation verticalement
 	Statistics…	Statistiques…
 @plural	{n} item|{n} items	{n} élément|{n} éléments
 	Auto	Auto
@@ -809,7 +809,7 @@
 	Canvas extension color:	Couleur d'extension du canevas :
 	Capture	Capturer
 	Capture the visibility, position and style of every layer with + below, then switch between versions.	Capturez la visibilité, la position et le style de chaque calque avec le + ci-dessous, puis passez d'une version à l'autre.
-	Catch-up on Stroke End	Rattraper en fin de trait
+	Catch-up on Stroke End	Rattrapage en fin de trait
 	Center	Centre
 	Center Crop Marks	Traits de coupe centraux
 	Center text	Centrer le texte
@@ -958,9 +958,9 @@
 	Done	Terminé
 	Dots	Points
 	Drag a rectangle around the object	Tracez un rectangle autour de l'objet
-	Drag on the image to add a constraint; Shift for horizontal/vertical; right-click to delete.	Faites glisser sur l'image pour ajouter une contrainte ; Maj pour horizontal/vertical ; clic droit pour supprimer.
+	Drag on the image to add a constraint; Shift for horizontal/vertical; right-click to delete.	Faites glisser sur l'image pour ajouter une contrainte ; Shift pour horizontal/vertical ; clic droit pour supprimer.
 	Drag to move the active shape's path or the Work Path	Faites glisser pour déplacer le tracé de la forme active ou le tracé de travail
-	Click: select anchor · Drag: move anchor, handle or segment · {shift}-click: add · {alt}-click: whole subpath	Clic : sélectionner le point · Glisser : déplacer point, poignée ou segment · {shift}-clic : ajouter · {alt}-clic : sous-tracé entier
+	Click: select anchor · Drag: move anchor, handle or segment · {shift}-click: add · {alt}-click: whole subpath	Clic : sélectionner le point d'ancrage · Glisser : déplacer le point d'ancrage, la ligne directrice ou le segment · {shift}-clic : ajouter · {alt}-clic : sous-tracé entier
 	Draw with the Pen tool (P) or make a work path from a selection.	Dessinez avec l'outil Plume (P) ou créez un tracé de travail à partir d'une sélection.
 	Drop an image or PSD anywhere to open it.	Déposez une image ou un PSD n'importe où pour l'ouvrir.
 	Duplicate Layers…	Dupliquer les calques…
@@ -1104,7 +1104,7 @@
 	Load	Charger
 	Load 3D LUT…	Charger une LUT 3D…
 	Load Photoshop brushes (.abr)	Charger des pinceaux Photoshop (.abr)
-	Load channel as selection	Charger le canal comme sélection
+	Load channel as selection	Charger la couche comme sélection
 	Load…	Charger…
 	Localized Color Clusters	Groupes de couleurs localisés
 	Lock	Verrouiller
@@ -1182,20 +1182,20 @@
 	Optimized	Optimisé
 	Option-click to define a source point to clone from	Option-clic pour définir le point source du clonage
 	Original	Original
-	Output Channel:	Canal de sortie :
+	Output Channel:	Couche de sortie :
 	Output Levels:	Niveaux de sortie :
 	Output:	Sortie :
 	Outside	Extérieur
 	Overlay Color	Couleur de superposition
 	Overlay Opacity	Opacité de superposition
 	Overlay: Rule of Thirds	Superposition : règle des tiers
-	Override Pressure	Forcer la pression
-	Override Rotation	Forcer la rotation
-	Override Tilt	Forcer l'inclinaison
+	Override Pressure	Remplacer la pression
+	Override Rotation	Remplacer la rotation
+	Override Tilt	Remplacer l'inclinaison
 	PRESET DETAILS	DÉTAILS DU PRÉRÉGLAGE
 	PSD	PSD
 	Paint Overlay	Superposition de peinture
-	Panel locations are saved in the workspace. Keyboard shortcuts, menus and toolbar are optional.	L'emplacement des panneaux est enregistré dans l'espace de travail. Les raccourcis clavier, les menus et la barre d'outils sont facultatifs.
+	Panel locations are saved in the workspace. Keyboard shortcuts, menus and toolbar are optional.	Les emplacements des panneaux sont enregistrés dans l'espace de travail. Les raccourcis clavier, les menus et la barre d'outils sont facultatifs.
 	Paper	Papier
 	Path	Tracé
 	Pattern	Motif
@@ -1204,7 +1204,7 @@
 	Percent	Pourcentage
 	Perceptual	Perceptif
 	Perspective Warp is not active	La déformation de la perspective n'est pas active
-	Perspective Warp: draw planes along the image's perspective, then switch to Warp	Déformation de la perspective : tracez des plans selon la perspective de l'image, puis passez à Déformer
+	Perspective Warp: draw planes along the image's perspective, then switch to Warp	Déformation de la perspective : tracez des plans selon la perspective de l'image, puis passez à Déformation
 	Photo Filter	Filtre photo
 	Local Image	Local Image
 	Local Image Manages Colors	Local Image gère les couleurs
@@ -1236,7 +1236,7 @@
 	Previous note	Note précédente
 	Print	Imprimer
 	Printer	Imprimante
-	Printer Manages Colors	L'imprimante gère les couleurs
+	Printer Manages Colors	Gestion des couleurs par l'imprimante
 	Printer Setup	Configuration de l'imprimante
 	Printing Marks	Repères d'impression
 	Progressive	Progressif
@@ -1306,7 +1306,7 @@
 	Saturation Jitter	Variation de la saturation
 	Save HTML and Images	Enregistrer le HTML et les images
 	Save as PDF	Enregistrer en PDF
-	Save selection as channel	Enregistrer la sélection comme canal
+	Save selection as channel	Mémoriser la sélection comme couche
 	Save…	Enregistrer…
 	Scale to Fit Media	Adapter au support
 	Scatter	Diffusion
@@ -1457,7 +1457,7 @@
 	Art & Illustration	Art et illustration
 	ArtCraft	ArtCraft
 	Background Eraser Tool	Outil Gomme d'arrière-plan
-	Bevel & Emboss	Biseau et relief
+	Bevel & Emboss	Biseautage et estampage
 	Blend Mode	Mode de fusion
 	Blues	Bleus
 	Blur Tool	Outil Flou
@@ -1523,13 +1523,13 @@
 	From	De
 	General	Général
 	GitHub	GitHub
-	Gradient Overlay	Superposition de dégradé
+	Gradient Overlay	Incrustation dégradé
 	Gradient Tool	Outil Dégradé
 	Greens	Verts
 	Hand Tool	Outil Main
 	Hard	Dur
 	Hard Mix	Mélange maximal
-	Healing Brush Tool	Outil Pinceau correcteur
+	Healing Brush Tool	Outil Correcteur
 	Highlights from:	Hautes lumières à partir de :
 	History Brush Tool	Outil Pinceau d'historique
 	Horizontal Type Tool	Outil Texte horizontal
@@ -1537,9 +1537,9 @@
 	Inches	Pouces
 	Indexed	Indexé
 	Initial Direction	Direction initiale
-	Inner Bevel	Biseau intérieur
-	Inner Glow	Lueur intérieure
-	Inner Shadow	Ombre intérieure
+	Inner Bevel	Biseau interne
+	Inner Glow	Lueur interne
+	Inner Shadow	Ombre interne
 	Lab	Lab
 	Landscape, 10 x 8	Paysage, 10 x 8
 	Landscape, 6 x 4	Paysage, 6 x 4
@@ -1547,9 +1547,9 @@
 	Lasso	Lasso
 	Lasso Tool	Outil Lasso
 	Layer Count	Nombre de calques
-	Layer Knocks Out Drop Shadow	Le calque masque l'ombre portée
-	Legal	Legal
-	Letter	Letter
+	Layer Knocks Out Drop Shadow	Le calque neutralise l'ombre portée
+	Legal	Légal
+	Letter	Lettre
 	Light	Maigre
 	Line Tool	Outil Trait
 	Linear	Linéaire
@@ -1578,14 +1578,14 @@
 	Orange	Orange
 	Original Ratio	Proportions d'origine
 	Out Of Gamut	Hors gamut
-	Outer Bevel	Biseau extérieur
-	Outer Glow	Lueur extérieure
+	Outer Bevel	Biseau externe
+	Outer Glow	Lueur externe
 	Overlay	Incrustation
 	Paint Bucket Tool	Outil Pot de peinture
 	Paints from the document's opening state	Peint à partir de l'état d'ouverture du document
 	Path Selection Tool	Outil Sélection de tracé
 	Direct Selection Tool	Outil Sélection directe
-	Pattern Overlay	Superposition de motif
+	Pattern Overlay	Incrustation de motif
 	Pen Pressure	Pression du stylet
 	Pen Tilt	Inclinaison du stylet
 	Pen Tool	Outil Plume
@@ -1640,7 +1640,7 @@
 	Source: set	Source : définie
 	Sponge Tool	Outil Éponge
 	Spot Healing Brush Tool	Outil Correcteur localisé
-	Spread	Grossissement
+	Spread	Maigrissement
 	Square, 12 x 12	Carré, 12 x 12
 	Square, 5 x 5	Carré, 5 x 5
 	Std Dev:	Écart type :
@@ -1669,7 +1669,7 @@
 	Do you want to save the changes you made to “{name}” before quitting?	Voulez-vous enregistrer les modifications apportées à « {name} » avant de quitter ?
 	Do you want to save the changes you made to “{name}” before closing?	Voulez-vous enregistrer les modifications apportées à « {name} » avant de fermer ?
 	Doc: {flat}/{layered}	Doc : {flat}/{layered}
-	Scratch: {size}	Travail : {size}
+	Scratch: {size}	Disque de travail : {size}
 	Untagged {mode}	{mode} sans profil
 	{w} px x {h} px ({ppi} ppi)	{w} px × {h} px ({ppi} ppp)
 	Resolution: {dpi} pixels/inch	Résolution : {dpi} pixels/pouce
@@ -1682,13 +1682,13 @@
 @plural	{n} Layer|{n} Layers	{n} calque|{n} calques
 @plural	{n} layer|{n} layers	{n} calque|{n} calques
 @plural	Group · {n} layer|Group · {n} layers	Groupe · {n} calque|Groupe · {n} calques
-	Additional plugins folder	Dossier d'extensions supplémentaire
+	Additional plugins folder	Dossier de modules externes supplémentaire
 	Adobe	Adobe
 	Adobe rgb	Adobe RGB
-	Allow agent control	Autoriser le pilotage par des agents
+	Allow agent control	Autoriser le contrôle par l'agent
 	Allow scripts to connect	Autoriser la connexion des scripts
 	Always	Toujours
-	Always create smart objects when placing	Toujours créer des objets intelligents lors du placement
+	Always create smart objects when placing	Toujours créer des objets dynamiques lors du placement
 	Animated zoom	Zoom animé
 	Apply auto tone	Appliquer la tonalité automatique
 	Ask	Demander
@@ -1710,7 +1710,7 @@
 	Canvas border	Bordure du canevas
 	Canvas color	Couleur du canevas
 	Canvas custom color	Couleur personnalisée du canevas
-	Color picker	Sélecteur de couleurs
+	Color picker	Sélecteur de couleur
 	Color space	Espace colorimétrique
 	Column width	Largeur de colonne
 	Concise	Concis
@@ -1733,7 +1733,7 @@
 	Effect cache mb	Cache des effets (Mo)
 	Enable flick panning	Activer le défilement par glissement rapide
 	Enable floating document window docking	Autoriser l'ancrage des fenêtres de document flottantes
-	Enable narrow options bar	Barre d'options étroite
+	Enable narrow options bar	Activer la barre d'options étroite
 	Enabled	Activé
 	Enhanced Controls	Commandes avancées
 	Export clipboard	Exporter le presse-papiers
@@ -1783,7 +1783,7 @@
 	Nearest neighbor	Au plus proche
 	Never	Jamais
 	Normal tip	Pointe normale
-	Open as smart object	Ouvrir en tant qu'objet intelligent
+	Open as smart object	Ouvrir en tant qu'objet dynamique
 	Open documents as tabs	Ouvrir les documents dans des onglets
 	Overscroll	Défilement au-delà des bords
 	Performance	Performances
@@ -1824,7 +1824,7 @@
 	Slice color	Couleur des tranches
 	Smart guide color	Couleur des repères intelligents
 	Smart quotes	Guillemets typographiques
-	Snap vector tools and transforms to pixel grid	Aimanter les outils vectoriels et les transformations à la grille de pixels
+	Snap vector tools and transforms to pixel grid	Aligner les outils vectoriels et les transformations sur la grille de pixels
 	Srgb	sRVB
 	Standard	Standard
 	Studio	Studio
@@ -1840,7 +1840,7 @@
 	UI font size	Taille de police de l'interface
 	UI scale	Échelle de l'interface
 	Units & Rulers	Unités et règles
-	Use additional plugins folder	Utiliser le dossier d'extensions supplémentaire
+	Use additional plugins folder	Utiliser le dossier de modules externes supplémentaire
 	Use esc to commit	Valider avec Échap
 	Use gpu	Utiliser le GPU
 	Use legacy free transform	Utiliser l'ancienne transformation libre
@@ -1852,8 +1852,8 @@
 	Zoom resizes windows	Le zoom redimensionne les fenêtres
 	Zoom with scroll wheel	Zoomer avec la molette
 	Zoom with trackpad pinch	Zoomer en pinçant le pavé tactile
-	Pass Through	Transfert
-	Dissolve	Fondu
+	Pass Through	Passer
+	Dissolve	Dissoudre
 	Darker Color	Couleur plus foncée
 	Linear Dodge (Add)	Densité linéaire − (Addition)
 	Lighter Color	Couleur plus claire
@@ -1867,7 +1867,7 @@
 	Luminosity	Luminosité
 @plural	{n} sample|{n} samples	{n} échantillon|{n} échantillons
 	{added}, {removed} subtracted	{added}, {removed} soustraits
-	Adjustment Preview	Aperçu de l'ajustement
+	Adjustment Preview	Aperçu du réglage
 	Airbrush: keeps depositing paint while the pointer rests.	Aérographe : continue de déposer de la peinture tant que le pointeur reste immobile.
 	Angle:	Angle :
 	Blend If	Fusion si
@@ -1883,7 +1883,7 @@
 	Expand	Développer
 	Expand Panel Group	Développer le groupe de panneaux
 	Expand group  ({key}-click: all groups)	Développer le groupe  ({key}-clic : tous les groupes)
-	Fade steps	Étapes d'estompage
+	Fade steps	Étapes de fondu
 	Hide the layer's effects  ({key}-click: all layers)	Masquer les effets du calque  ({key}-clic : tous les calques)
 	Import Brushes… (.abr)	Importer des pinceaux… (.abr)
 	Move Group Down	Descendre le groupe
@@ -2004,7 +2004,7 @@
 	Reticulation	Réticulation
 	Stamp	Tampon
 	Torn Edges	Bords déchirés
-	Water Paper	Papier mouillé
+	Water Paper	Papier humide
 	Canvas rotation	Rotation du canevas
 	Extensions	Extensions
 	Libraries	Bibliothèques
@@ -2013,7 +2013,7 @@
 	Move	Déplacement
 	Wand	Baguette magique
 	Pencil	Crayon
-	Clone Stamp	Tampon de clonage
+	Clone Stamp	Tampon de duplication
 	Healing	Correcteur
 	Dodge	Éclaircir
 	Burn	Assombrir
@@ -2029,7 +2029,7 @@
 	Spot Healing	Correcteur localisé
 	Red Eye	Yeux rouges
 	Patch	Pièce
-	Content-Aware Move	Déplacement selon le contenu
+	Content-Aware Move	Déplacement basé sur le contenu
 	Rotate View	Rotation de la vue
 	Perspective Crop	Recadrage en perspective
 	Color Replacement	Remplacement de couleur
@@ -2120,12 +2120,12 @@
 	Auto-Leading	Interlignage automatique
 	Scale Horizontally	Échelle horizontale
 	Scale Vertically	Échelle verticale
-	Baseline Shift	Décalage de la ligne de base
+	Baseline Shift	Décalage vertical
 	Mac LCD	LCD Mac
 	Mac Sharp	Mac net
-	Mac Crisp	Mac vif
+	Mac Crisp	Mac précis
 	Mac Strong	Mac fort
-	Mac Smooth	Mac doux
+	Mac Smooth	Mac lisse
 	Superscript	Exposant
 	Subscript	Indice
 	Ligature	Ligature
@@ -2200,8 +2200,8 @@
 	Repeat	Répéter
 	Play Once	Lire une fois
 	Info Options…	Options d'informations…
-	First Color Readout	Première lecture de couleur
-	Second Color Readout	Deuxième lecture de couleur
+	First Color Readout	Premier affichage de couleur
+	Second Color Readout	Second affichage de couleur
 	Actual Color	Couleur réelle
 	Grayscale Slider	Curseur de niveaux de gris
 	Web Color	Couleur Web
@@ -2248,7 +2248,7 @@
 	Location	Lieu
 	Province / State	Région / État
 	Country	Pays
-	Byline	Signature
+	Byline	Auteur
 	Byline Title	Fonction de l'auteur
 	Phone	Téléphone
 	Email	E-mail
@@ -2340,7 +2340,7 @@
 	Pencil Tool	Outil Crayon
 	Pixel	Pixel
 	Adjustment	Ajustement
-	Drag (lasso) or click points (polygonal) · {add} add · {sub} subtract	Faites glisser (lasso) ou cliquez des points (polygonal) · {add} ajouter · {sub} soustraire
+	Drag (lasso) or click points (polygonal) · {add} add · {sub} subtract	Faites glisser (lasso) ou cliquez sur des points (polygonal) · {add} ajouter · {sub} soustraire
 	Drag a crop box · drag inside to move · edges resize ({ratio} ratio, {centre} centre) · Space moves while drawing · {commit} commits · Esc cancels	Tracez un cadre de recadrage · faites glisser à l'intérieur pour le déplacer · les bords le redimensionnent ({ratio} proportions, {centre} centre) · Espace le déplace pendant le tracé · {commit} valide · Échap annule
 	{mode} Color · {bits} bit	Couleurs {mode} · {bits} bits
 	Drag to move the layer	Faites glisser pour déplacer le calque
@@ -2401,7 +2401,7 @@
 	3D…	3D…
 	Technology Previews…	Aperçus technologiques…
 	Background from Layer	Arrière-plan d'après le calque
-	Add a mask  (from the selection; ⌥ inverts)	Ajouter un masque  (d'après la sélection ; ⌥ l'inverse)
+	Add a mask  (from the selection; ⌥ inverts)	Ajouter un masque  (d'après la sélection ; ⌥ inverse)
 	Add to selection  (⇧)	Ajouter à la sélection  (⇧)
 	Airbrush: keeps painting while the pointer rests.	Aérographe : continue de peindre tant que le pointeur reste immobile.
 	Click the first point or press ↵ to close · Esc cancels	Cliquez sur le premier point ou appuyez sur ↵ pour fermer · Échap annule
@@ -2437,13 +2437,13 @@
 	Show the layer's effects  (⌥-click: all layers)	Afficher les effets du calque  (⌥-clic : tous les calques)
 
 # Copy transforms, layer navigation and cancellable opening (from PR #582 by neko233-com).
-	New from Clipboard	Créer depuis le presse-papiers
-	Free Transform a Copy	Transformer librement une copie
-	Transform Again on a Copy	Répéter la transformation sur une copie
+	New from Clipboard	Nouveau à partir du presse-papiers
+	Free Transform a Copy	Transformation manuelle d'une copie
+	Transform Again on a Copy	Nouvelle transformation sur une copie
 	Select Layer Above	Sélectionner le calque au-dessus
 	Select Layer Below	Sélectionner le calque au-dessous
-	Select Top Layer	Sélectionner le premier calque
-	Select Bottom Layer	Sélectionner le dernier calque
+	Select Top Layer	Sélectionner le calque supérieur
+	Select Bottom Layer	Sélectionner le calque inférieur
 	Add Layer Above to Selection	Ajouter le calque au-dessus à la sélection
 	Add Layer Below to Selection	Ajouter le calque au-dessous à la sélection
 
@@ -2485,7 +2485,7 @@
 	Show Skin Tone Indicator	Afficher l'indicateur de tons chair
 	Tone Histogram	Histogramme des tons
 	Show Selected Region	Afficher la zone sélectionnée
-cameraRaw	Light	Lumière
+cameraRaw	Light	Léger
 	Camera Raw Filter ({layer})	Filtre Camera Raw ({layer})
 cameraRaw	Lights	Tons clairs
 cameraRaw	Darks	Tons sombres
@@ -2519,9 +2519,9 @@ cameraRaw	Blending	Fusion
 	Enable {name}	Activer {name}
 	Hold Alt while drawing for straight segments	Maintenez Alt en dessinant pour des segments droits
 	Drag or click polygon points · hold Alt during lasso for straight segments · {add} add · {sub} before drawing subtracts	Faites glisser ou cliquez des points de polygone · maintenez Alt pendant le lasso pour des segments droits · {add} ajouter · {sub} avant de dessiner soustrait
-	Extend	Extension
+	Extend	Étendre
 	Structure:	Structure :
-	Content-Aware Move Tool	Outil Déplacement selon le contenu
+	Content-Aware Move Tool	Outil Déplacement basé sur le contenu
 	TIFF Options	Options TIFF
 	Including layers will increase file size.	L'inclusion des calques augmentera la taille du fichier.
 	Discard Layers and Save a Copy	Supprimer les calques et enregistrer une copie
@@ -2531,7 +2531,7 @@ cameraRaw	Blending	Fusion
 	Couldn't place {name}: {error}	Impossible d'importer {name} : {error}
 	Magnetic Lasso Tool	Outil Lasso magnétique
 	Frequency	Fréquence
-	Use tablet pressure to change pen width	Utiliser la pression de la tablette pour modifier la largeur de la plume
+	Use tablet pressure to change pen width	Utiliser la pression de la tablette pour modifier la largeur du stylet
 
 # About ▸ Contributors / Models (credits, craftrules standards/contributors.md)
 	About	À propos
@@ -2549,7 +2549,7 @@ cameraRaw	Blending	Fusion
 	Commits	Commits
 	Lines added	Lignes ajoutées
 	Lines deleted	Lignes supprimées
-	Line delta	Solde de lignes
+	Line delta	Écart de lignes
 	Binary assets added	Fichiers binaires ajoutés
 	Binary assets removed	Fichiers binaires supprimés
 	First commit	Premier commit
@@ -2582,7 +2582,7 @@ cameraRaw	Blending	Fusion
 	Get Models…	Obtenir des modèles…
 	Local AI…	IA locale…
 	Model Browser…	Navigateur de modèles…
-	New from Prompt…	Nouveau à partir d'une description…
+	New from Prompt…	Nouveau à partir d'une invite…
 	No AI model is installed yet.	Aucun modèle d'IA n'est encore installé.
 	Open Folder…	Ouvrir un dossier…
 	PhotoCraft and LightCraft (ArtCraft)	PhotoCraft et LightCraft (ArtCraft)
@@ -2592,7 +2592,7 @@ cameraRaw	Blending	Fusion
 	Subject (AI)	Sujet (IA)
 	The AI engine isn't running.	Le moteur d'IA n'est pas lancé.
 	Contextual task bar	Barre des tâches contextuelle
-	Tool presets	Paramètres prédéfinis d'outils
+	Tool presets	Formes d'outils prédéfinies
 	Paint only when the string is pulled taut	Peindre seulement quand la corde est tendue
 	Keep painting toward the pointer while it pauses	Continuer à peindre vers le pointeur pendant qu'il s'arrête
 	Finish the stroke where the pointer was released	Terminer le tracé là où le pointeur a été relâché
@@ -2607,12 +2607,12 @@ cameraRaw	Blending	Fusion
 	Triangle	Triangle
 	Golden Ratio	Nombre d'or
 	Frequency Separation…	Séparation de fréquences…
-	Perspective Crop Tool	Outil Recadrage perspective
+	Perspective Crop Tool	Outil Recadrage avec perspective
 	Drag a frame, then drag its corners onto the edges of the object to straighten	Tracez un cadre, puis faites glisser ses coins sur les bords de l’objet pour le redresser
 	Behind	Derrière
 	Add a layer mask that shows only this area	Ajouter un masque de fusion qui n’affiche que cette zone
 	Describe what to generate (optional)	Décrivez ce qu’il faut générer (facultatif)
-	Generative Fill: regenerate the selection from your description	Remplissage génératif : régénère la sélection d’après votre description
+	Generative Fill: regenerate the selection from your description	Remplissage génératif : régénérer la sélection d’après votre description
 	Contextual Task Bar hidden — Window › Contextual Task Bar shows it again.	Barre des tâches contextuelle masquée — Fenêtre › Barre des tâches contextuelle la réaffiche.
 	AI Remove isn't ready: {why}	La suppression par IA n’est pas prête : {why}
 	Generative Fill	Remplissage génératif
@@ -2653,8 +2653,8 @@ cameraRaw	Blending	Fusion
 	Add a LoRA	Ajouter un LoRA
 	Add an image file	Ajouter un fichier image
 	Add the current image	Ajouter l'image actuelle
-	Add your {provider} API key in Local AI › Cloud to use it.	Ajoutez votre clé API {provider} dans IA locale › Cloud pour l'utiliser.
-	Add your {provider} API key in Local AI › Cloud.	Ajoutez votre clé API {provider} dans IA locale › Cloud.
+	Add your {provider} API key in Local AI › Cloud to use it.	Ajoutez votre clé API {provider} dans Local AI › Cloud pour l'utiliser.
+	Add your {provider} API key in Local AI › Cloud.	Ajoutez votre clé API {provider} dans Local AI › Cloud.
 	Added “{name}” to the model list (basic controls)	« {name} » ajouté à la liste des modèles (réglages de base)
 	Address:	Adresse :
 	Already installed: {names}	Déjà installé : {names}
@@ -2674,7 +2674,7 @@ cameraRaw	Blending	Fusion
 	Check again	Vérifier à nouveau
 	Checking for profile updates…	Recherche de mises à jour des profils…
 	Checking models…	Vérification des modèles…
-	Checking the files’ sizes and checksums…	Vérification de la taille et des sommes de contrôle des fichiers…
+	Checking the files’ sizes and checksums…	Vérification des tailles et des sommes de contrôle des fichiers…
 	Choose Folder…	Choisir un dossier…
 	Choose a model	Choisissez un modèle
 	Choose a model to refine with.	Choisissez un modèle pour l'affinage.
@@ -2682,7 +2682,7 @@ cameraRaw	Blending	Fusion
 	Choose your ComfyUI folder	Choisissez votre dossier ComfyUI
 	Civitai API key:	Clé API Civitai :
 	Click Remove Background first; then drag to erase or restore parts of the cutout.	Cliquez d'abord sur Supprimer l'arrière-plan, puis faites glisser pour effacer ou restaurer des parties du détourage.
-	ComfyUI at {host} — click for Local AI settings	ComfyUI sur {host} — cliquez pour les réglages d'IA locale
+	ComfyUI at {host} — click for Local AI settings	ComfyUI sur {host} — cliquez pour les réglages de Local AI
 	ComfyUI installation found.	Installation de ComfyUI trouvée.
 	ComfyUI is not running at {host}	ComfyUI n'est pas lancé sur {host}
 	ComfyUI workflow	Workflow ComfyUI
@@ -2737,7 +2737,7 @@ cameraRaw	Blending	Fusion
 	Get models…	Obtenir des modèles…
 	Guidance	Guidage
 	Hide the filmstrip (Window › Filmstrip)	Masquer la pellicule (Fenêtre › Pellicule)
-	How much may change: 100 % regenerates, lower keeps more of the image	Ampleur des changements : 100 % régénère, moins conserve davantage l'image
+	How much may change: 100 % regenerates, lower keeps more of the image	Ampleur des changements : 100 % régénère, moins conserve davantage de l’image
 	Hugging Face token:	Jeton Hugging Face :
 	I have read and accept the licence	J'ai lu et j'accepte la licence
 	Images	Images
@@ -2761,7 +2761,7 @@ cameraRaw	Blending	Fusion
 	Local AI	IA locale
 	Local AI is off — click to set it up	L'IA locale est désactivée — cliquez pour la configurer
 	Local Image doesn't know this family yet: it runs through the official template with prompt, seed and size only	Local Image ne connaît pas encore cette famille : elle passe par le modèle de workflow officiel avec seulement le prompt, la graine et la taille
-	Local Image doesn't know this model family yet: it will appear in the model list as a custom workflow with basic controls (prompt, seed, size).	Local Image ne connaît pas encore cette famille de modèles : elle apparaîtra dans la liste des modèles comme workflow personnalisé avec des réglages de base (prompt, graine, taille).
+	Local Image doesn't know this model family yet: it will appear in the model list as a custom workflow with basic controls (prompt, seed, size).	Local Image ne connaît pas encore cette famille de modèles : elle apparaîtra dans la liste des modèles comme un workflow personnalisé avec des réglages de base (prompt, graine, taille).
 	MODELS	MODÈLES
 	Make a selection first	Faites d'abord une sélection
 	Make a selection to fill.	Faites une sélection à remplir.
@@ -2775,7 +2775,7 @@ cameraRaw	Blending	Fusion
 	Newest	Les plus récents
 	Next image ({key})	Image suivante ({key})
 	No ComfyUI installation found in the usual places.	Aucune installation de ComfyUI trouvée aux emplacements habituels.
-	No ComfyUI installation found. Choose its folder in Local AI, or install ComfyUI first.	Aucune installation de ComfyUI trouvée. Choisissez son dossier dans IA locale, ou installez d'abord ComfyUI.
+	No ComfyUI installation found. Choose its folder in Local AI, or install ComfyUI first.	Aucune installation de ComfyUI trouvée. Choisissez son dossier dans l'IA locale, ou installez d'abord ComfyUI.
 	No LoRAs for this model family are installed (Find LoRAs…)	Aucun LoRA n'est installé pour cette famille de modèles (Trouver des LoRA…)
 	No compatible LoRAs installed.	Aucun LoRA compatible installé.
 	No matches. Try another family, source or search.	Aucun résultat. Essayez une autre famille, source ou recherche.
@@ -2928,26 +2928,26 @@ ai	New	Nouveautés
 	Develop photos: light, colour, detail, masks, AI selections and removal	Développer les photos : lumière, couleur, détail, masques, sélections et suppression par IA
 	Layers, retouching, compositing and every AI tool	Calques, retouche, composition et tous les outils d’IA
 	Develop…	Développer…
-	Open the Library to develop this layer	Ouvrez la bibliothèque pour développer ce calque
+	Open the Library to develop this layer	Ouvrez la Bibliothèque pour développer ce calque
 	The active layer isn't a Develop layer	Le calque actif n’est pas un calque de développement
 	Updated from Develop	Mis à jour depuis Développement
 	{name} · Develop layer (double-click it to return to Develop)	{name} · calque de développement (double-cliquez pour revenir à Développement)
-	A merged copy on top, as a Smart Object with a Camera Raw Filter.	Une copie fusionnée au-dessus, en objet intelligent avec un filtre Camera Raw.
+	A merged copy on top, as a Smart Object with a Camera Raw Filter.	Une copie fusionnée au-dessus, en objet dynamique avec un filtre Camera Raw.
 	Apply Destructively	Appliquer de façon destructive
-	As a Smart Object the filter stays editable: double-click it in the Layers panel to change it.	En objet intelligent, le filtre reste modifiable : double-cliquez dessus dans le panneau Calques pour le changer.
+	As a Smart Object the filter stays editable: double-click it in the Layers panel to change it.	En objet dynamique, le filtre reste modifiable : double-cliquez dessus dans le panneau Calques pour le changer.
 	Camera Raw Filter	Filtre Camera Raw
 	Camera Raw Filter applied	Filtre Camera Raw appliqué
 	Camera Raw Filter cancelled	Filtre Camera Raw annulé
 	Composite	Composition
 	Convert	Convertir
-	Convert to Smart Object to keep it editable?	Convertir en objet intelligent pour qu'il reste modifiable ?
+	Convert to Smart Object to keep it editable?	Convertir en objet dynamique pour qu'il reste modifiable ?
 	Develop a Layered Document	Développer un document à calques
 	Develop the composite (live)	Développer la composition (en direct)
 	Don't ask again	Ne plus demander
 	Just switch	Changer simplement de module
 	Merge visible to a new layer and develop	Fusionner les calques visibles sur un nouveau calque et développer
 	Show the Library's Develop module.	Afficher le module Développement de la Bibliothèque.
-	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	Les calques visibles deviennent un objet intelligent (toujours modifiable à l'intérieur) avec un filtre Camera Raw.
+	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	Les calques visibles deviennent un objet dynamique (toujours modifiable à l'intérieur) avec un filtre Camera Raw.
 	This document has no Develop layer. How should Develop work on it?	Ce document n'a pas de calque de développement. Comment le module Développement doit-il le traiter ?
 	Pen pressure curve	Courbe de pression du stylet
 	Paste Seamless	Coller sans raccord
@@ -2959,7 +2959,7 @@ ai	New	Nouveautés
 	Firm	Ferme
 	Input pressure → brush pressure	Pression du stylet → pression du pinceau
 	Green Coordinates	Coordonnées de Green
-	Mean Value Coordinates	Coordonnées en valeur moyenne
+	Mean Value Coordinates	Coordonnées de valeur moyenne
 	Reset Cage	Réinitialiser la cage
 	Close Cage	Fermer la cage
 	Commit Cage ({key})	Valider la cage ({key})
@@ -3041,9 +3041,9 @@ ai	New	Nouveautés
 	Close panel	Fermer le panneau
 	Dock Panel	Ancrer le panneau
 	Float Panel Group	Détacher le groupe de panneaux
-	Save and Return to Library	Enregistrer et retourner à la bibliothèque
-	Added your new Develop edits as layer {name}	Vos nouvelles retouches Develop ont été ajoutées en tant que calque {name}
-	Open the Library to save into it	Ouvrez la bibliothèque pour y enregistrer
+	Save and Return to Library	Enregistrer et retourner à la Bibliothèque
+	Added your new Develop edits as layer {name}	Vos nouvelles retouches de développement ont été ajoutées en tant que calque {name}
+	Open the Library to save into it	Ouvrez la Bibliothèque pour y enregistrer
 	The layers below are unchanged; hide or delete the new layer to go back.	Les calques du dessous sont inchangés ; masquez ou supprimez le nouveau calque pour revenir en arrière.
 # Attributions page (li-attributions)
 	Attributions	Attributions
@@ -3051,8 +3051,8 @@ ai	New	Nouveautés
 	No matches.	Aucun résultat.
 	Show licence text	Afficher le texte de la licence
 	Smart Sort (scenes)	Tri intelligent (scènes)
-	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	Reconnaît le contenu des photos (intervenants, public, détails…) pour les placer dans le bon dossier. Fonctionne sur le processeur ; les photos restent sur cet ordinateur.
-	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	Reconnaît les scènes à partir de vos descriptions. Un modèle local rapide pour les intervenants, le public, les détails et vos autres catégories. Le téléchargement inclut le modèle de texte et le tokenizer.
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	Reconnaît le contenu des photos (intervenants, public, détails…) afin que Tri intelligent les place dans le bon dossier. Fonctionne sur le processeur ; les photos restent sur cet ordinateur.
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	Reconnaît les scènes à partir de vos descriptions pour Tri intelligent. Un modèle local rapide pour les intervenants, le public, les détails et vos autres catégories. Le téléchargement inclut le modèle de texte et le tokenizer.
 	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Repère le sujet principal d'une photo. Utilisé par Sélection › Sujet, Supprimer l'arrière-plan (rapide), le mode clic de l'outil Sélection d'objet et les masques Sujet et Arrière-plan de la Bibliothèque.
 	Finds the sky. Used by Select › Sky and the Library's sky masks.	Repère le ciel. Utilisé par Sélection › Ciel et les masques de ciel de la Bibliothèque.
 	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Estime la distance de chaque partie d'une photo. Utilisé par les masques de profondeur de la Bibliothèque (par ex. pour assombrir ou flouter l'arrière-plan, ou choisir le premier plan selon la distance).

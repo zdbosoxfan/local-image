@@ -53,20 +53,20 @@
 	Layer Comps to Files…	レイヤーカンプをファイルへ…
 	Color Lookup Tables…	カラールックアップテーブル…
 	Data Sets as Files…	データセットをファイルへ…
-	Paths to Illustrator…	パスをベクター形式へ…
+	Paths to Illustrator…	パスを Illustrator に書き出し…
 	Render Video…	ビデオを書き出し…
 	Generate	自動生成
 	Image Assets	画像アセット
 	Place Embedded…	埋め込みで配置…
 	Place Linked…	リンクで配置…
-	Package…	パッケージ化…
+	Package…	パッケージ…
 	Automate	自動処理
-	Batch…	バッチ処理…
+	Batch…	バッチ…
 	Create Droplet…	ドロップレットを作成…
 	Crop and Straighten Photos	写真を切り抜いて傾き補正
 	Contact Sheet II…	コンタクトシート II…
 	Conditional Mode Change…	条件付きカラーモード変更…
-	Fit Image…	画像を枠に合わせる…
+	Fit Image…	画像をフィット…
 	Lens Correction…	レンズ補正…
 	Merge to HDR Pro…	HDR 合成(Pro)…
 	Photomerge…	写真を貼り合わせ…
@@ -75,7 +75,7 @@
 	Delete All Empty Layers	空のレイヤーをすべて削除
 	Flatten All Layer Effects	すべてのレイヤー効果を統合
 	Flatten All Masks	すべてのマスクを統合
-	Script Events Manager…	スクリプトイベント管理…
+	Script Events Manager…	スクリプトイベントマネージャー…
 	Import	読み込み
 	Browse…	参照…
 	Reveal in Finder	Finder で表示
@@ -113,7 +113,7 @@
 	Transform Again on a Copy	複製してもう一度変形
 	Scale	拡大・縮小
 	Rotate	回転
-	Skew	斜体
+	Skew	スキュー
 	Distort	ゆがみ
 	Perspective	遠近法
 	Warp	ワープ
@@ -164,7 +164,7 @@
 	Type…	文字…
 	Enhanced Controls…	拡張コントロール…
 	Camera Raw…	Camera Raw…
-	Raw Defaults…	RAW の既定値…
+	Raw Defaults…	RAW の初期設定…
 	Integrations…	連携…
 	AI Integrations…	AI 連携…
 	Install Plug-in…	プラグインをインストール…
@@ -185,7 +185,7 @@
 	16 Bits/Channel	16 ビット/チャンネル
 	16 bit	16 ビット
 	32 Bits/Channel	32 ビット/チャンネル
-	32 bit (float)	32 ビット（float）
+	32 bit (float)	32 ビット（浮動小数点数）
 	Floating point	浮動小数点
 	Color Table…	カラーテーブル…
 	Bitmap…	ビットマップ…
@@ -242,7 +242,7 @@
 	Count Tool	カウントツール
 	Place Scale Marker…	スケールマーカーを配置…
 	Custom…	カスタム…
-	New	新規
+	New	新着
 	Layer…	レイヤー…
 	Group…	グループ…
 	Group from Layers…	レイヤーからグループ…
@@ -267,7 +267,7 @@
 	Rename Layer	レイヤー名を変更
 	Create Layer	レイヤーを作成
 	Layer Style	レイヤースタイル
-	Blending Options…	レイヤー効果の描画オプション…
+	Blending Options…	描画オプション…
 	Bevel & Emboss…	ベベルとエンボス…
 	Use Global Light	グローバルライトを使用
 	Inner Shadow…	シャドウ(内側)…
@@ -281,7 +281,7 @@
 	Copy Layer Style	レイヤースタイルをコピー
 	Paste Layer Style	レイヤースタイルを貼り付け
 	Clear Layer Style	レイヤースタイルを消去
-	Global Light…	グローバル光源…
+	Global Light…	グローバルライト…
 	Hide All Effects	すべての効果を非表示
 	Scale Effects…	効果を拡大・縮小…
 	Smart Filter	スマートフィルター
@@ -297,7 +297,7 @@
 	Vector Mask	ベクトルマスク
 	Reveal Selection	選択範囲を表示
 	Hide Selection	選択範囲を非表示
-	Hide All	すべて非表示
+	Hide All	すべてを非表示
 	From Transparency	透明部分から
 	Delete Vector Mask	ベクトルマスクを削除
 	Enable Layer Mask	レイヤーマスクを有効にする
@@ -332,11 +332,11 @@
 	Range	範囲
 	Skewness	歪度
 	Standard Deviation	標準偏差
-	Summation	総和
+	Summation	合算
 	Variance	分散
 	Video Layers	ビデオレイヤー
-	Interpret Footage…	素材を解釈…
-	Replace Footage…	素材を置き換え…
+	Interpret Footage…	フッテージを解釈…
+	Replace Footage…	フッテージを置き換え…
 	Reload Frame	フレームを再読み込み
 	Show Altered Video	変更されたビデオを表示
 	Restore Frame	フレームを復元
@@ -428,10 +428,10 @@
 	Vertical	縦書き
 	OpenType	OpenType
 	Standard Ligatures	標準合字
-	Contextual Alternates	文脈検索代替字形
+	Contextual Alternates	文脈依存の代替字形
 	Discretionary Ligatures	任意の合字
 	Swash	スワッシュ
-	Oldstyle	オールドスタイル数字
+	Oldstyle	古風な数字
 	Stylistic Alternates	スタイル代替字形
 	Titling Alternates	タイトル用代替字形
 	Ornaments	装飾記号
@@ -445,7 +445,7 @@
 	Default Features	既定の機能
 	East Asian Features	東アジア言語の機能
 	Middle Eastern Features	中東言語の機能
-	Middle Eastern & South Asian Composer	中東・南アジア言語の組版エンジン
+	Middle Eastern & South Asian Composer	中東・南アジア言語のコンポーザー
 	Update All Text Layers	すべての文字レイヤーを更新
 	Replace All Missing Fonts	不足しているフォントをすべて置き換え
 	Resolve Missing Fonts…	不足しているフォントを解決…
@@ -466,13 +466,13 @@
 	Color Range…	色域指定…
 	Focus Area…	焦点領域…
 	Select and Mask…	選択とマスク…
-	Modify	選択範囲を修正
-	Border…	境界…
+	Modify	選択範囲を変更
+	Border…	境界線…
 	Smooth…	滑らかに…
 	Expand…	拡張…
 	Contract…	縮小…
 	Feather…	境界をぼかす…
-	Grow	選択範囲を広げる
+	Grow	選択範囲を拡張
 	Transform Selection	選択範囲を変形
 	Edit in Quick Mask Mode	クイックマスクモードで編集
 	Load Selection…	選択範囲を読み込む…
@@ -518,12 +518,12 @@
 	Reduce Noise…	ノイズを軽減…
 	Pixelate	ピクセレート
 	Color Halftone…	カラーハーフトーン…
-	Crystallize…	水晶…
+	Crystallize…	クリスタライズ…
 	Facet	ファセット
 	Fragment	フラグメント
 	Mezzotint…	メゾティント…
 	Mosaic…	モザイク…
-	Pointillize…	ポインティリスト…
+	Pointillize…	ポインティライズ…
 	Render	描画
 	Clouds	雲模様
 	Difference Clouds	雲模様(差の絶対値)
@@ -545,7 +545,7 @@
 	Emboss…	エンボス…
 	Extrude…	押し出し…
 	Find Edges	輪郭検出
-	Oil Paint…	油彩画…
+	Oil Paint…	油彩…
 	Solarize	ソラリゼーション
 	Tiles…	タイル…
 	Trace Contour…	輪郭のトレース…
@@ -640,8 +640,8 @@
 	Match Rotation	回転を一致
 	Cascade	重ねて表示
 	Tile	並べて表示
-	Tile All Horizontally	すべてを横に並べる
-	Tile All Vertically	すべてを縦に並べる
+	Tile All Horizontally	すべてを上下に並べて表示
+	Tile All Vertically	すべてを左右に並べて表示
 	2-up Horizontal	2 アップ(横)
 	2-up Vertical	2 アップ(縦)
 	3-up Horizontal	3 アップ(横)
@@ -650,8 +650,8 @@
 	4-up	4 アップ
 	6-up	6 アップ
 	Consolidate All to Tabs	すべてをタブに統合
-	Float in Window	ウィンドウ内に浮動
-	Float All in Windows	すべてをウィンドウ内に浮動
+	Float in Window	ウィンドウにフロート
+	Float All in Windows	すべてをウィンドウにフロート
 	New Window for Document	ドキュメントの新規ウィンドウ
 	Workspace	ワークスペース
 	Essentials	基本
@@ -675,7 +675,7 @@
 	Channels	チャンネル
 	Character	文字
 	Character Styles	文字スタイル
-	Clone Source	コピーソース
+	Clone Source	クローンソース
 	Color	カラー
 	Glyphs	字形
 	Gradients	グラデーション
@@ -749,11 +749,11 @@
 	Align horizontal centers	水平方向の中央で整列
 	Align left edges	左端で整列
 	Align right edges	右端で整列
-	Aligned	位置合わせあり
+	Aligned	アライン
 	All Caps	すべて大文字
 	All Slices	すべてのスライス
 	All User Slices	すべてのユーザースライス
-	All shortcuts reset to Photoshop defaults.	すべてのショートカットを初期状態に戻しました。
+	All shortcuts reset to Photoshop defaults.	すべてのショートカットを Photoshop の初期設定に戻しました。
 	Alt	Alt
 	Alt-click to define a source point to clone from	Alt+クリックでコピー元を指定
 	Always use pressure for opacity	常に筆圧を不透明度に使う
@@ -761,7 +761,7 @@
 	Amount	量
 	Anchor:	基準位置:
 	Angle	角度
-	Angle Gradient	円錐形グラデーション
+	Angle Gradient	角度グラデーション
 	Angle Jitter	角度のジッター
 	Answer the unsaved-changes prompt first	先に未保存の変更の確認に答えてください
 	Anti-alias	アンチエイリアス
@@ -803,7 +803,7 @@
 	Blue	青
 	Blue, Red, Yellow	青、赤、黄
 	Both	両方
-	Both Axes	両方の軸
+	Both Axes	両軸
 	Bottom	下
 	Brightness	明るさ
 	Brightness Jitter	明るさのジッター
@@ -856,7 +856,7 @@
 	Coated CMYK	コート紙 CMYK
 	Color & Swatches	カラーとスウォッチ
 	Color Balance	カラーバランス
-	Color Detail	カラーの精細度
+	Color Detail	カラーディテール
 	Color Grading	カラーグレーディング
 	Color Lookup	カラールックアップ
 	Color Management	カラーマネジメント
@@ -889,12 +889,12 @@
 	Corner Crop Marks	角のトンボ
 	Corner radius	角の半径
 	Correction	補正
-	Count Jitter	数のジッター
+	Count Jitter	カウントのジッター
 	Create	作成
 	Create Droplet	ドロップレットを作成
 	Create Texture	テクスチャを作成
 	Create Video Timeline	ビデオタイムラインを作成
-	Create a new count group	新しいカウントグループを作成
+	Create a new count group	新規カウントグループを作成
 	Create a new document or open an existing file.	新規ドキュメントを作成するか、既存のファイルを開きます。
 	Create a new group	新しいグループを作成
 	Create a new layer	新規レイヤーを作成
@@ -909,7 +909,7 @@
 	Create new shape from the current path	現在のパスから新規シェイプを作成
 	Create new snapshot	新規スナップショットを作成
 	Create new tool preset	新規ツールプリセットを作成
-	Crop Factor	切り抜き係数
+	Crop Factor	クロップファクター
 	Ctrl	Ctrl
 	Current & Below	現在のレイヤーとその下
 	Current Layer	現在のレイヤー
@@ -955,7 +955,7 @@
 	Description	説明
 	Deselect All	すべての選択を解除
 	Detail	ディテール
-	Diamond Gradient	ダイヤモンド形グラデーション
+	Diamond Gradient	菱形グラデーション
 	Difference	差の絶対値
 	Diffusion	拡散
 	Discard the embedded profile (don't color manage)	埋め込みプロファイルを破棄(カラーマネジメントしない)
@@ -965,7 +965,7 @@
 	Display P3	Display P3
 	Display Text	表示テキスト
 	Dither	ディザ
-	Divide…	分割…
+	Divide…	除算…
 	Document	ドキュメント
 	Don't Save	保存しない
 	No	いいえ
@@ -978,7 +978,7 @@
 	Click: select anchor · Drag: move anchor, handle or segment · {shift}-click: add · {alt}-click: whole subpath	クリック: アンカーポイントを選択 · ドラッグ: ポイント、ハンドル、セグメントを移動 · {shift}+クリック: 追加 · {alt}+クリック: サブパス全体
 	Draw with the Pen tool (P) or make a work path from a selection.	ペンツール(P)で描くか、選択範囲から作業用パスを作成します。
 	Drop an image or PSD anywhere to open it.	画像や PSD をここにドロップすると開きます。
-	Native file drag-and-drop is unavailable	Wayland ではネイティブのファイルドラッグ＆ドロップを利用できません
+	Native file drag-and-drop is unavailable	ネイティブのファイルドラッグ＆ドロップは利用できません
 	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= local-image`.	Wayland ではネイティブのファイルドラッグ＆ドロップはまだ利用できません。[ファイル › 開く] を使うか、`WAYLAND_DISPLAY= local-image` を指定して Local Image を XWayland 上で起動してください。
 	Duplicate Layers…	レイヤーを複製…
 	Duplicate style	スタイルを複製
@@ -1039,7 +1039,7 @@
 	Format	形式
 	Frame from Layers…	レイヤーからフレーム…
 	Free	自由
-	Full Spherical	全球
+	Full Spherical	全天球
 	Fuzziness:	許容量:
 	GPU	GPU
 	Gamma Correction	ガンマ補正
@@ -1074,17 +1074,17 @@
 	Import Photoshop brushes (.abr)	Photoshop ブラシ(.abr)を読み込み
 	Import Presets	プリセットを読み込み
 	Imported	読み込み済み
-	Indent First	先頭行の字下げ
-	Indent Left	左の字下げ
-	Indent Right	右の字下げ
+	Indent First	先頭行インデント
+	Indent Left	左インデント
+	Indent Right	右インデント
 	Indent first line	先頭行を字下げ
 	Indent left margin	左マージンを字下げ
 	Indent right margin	右マージンを字下げ
 	Input:	入力:
 	Inside	内側
 	Interlaced	インターレース
-	Interpolation:	補間方法:
-	Intersect with selection  ({key})	選択範囲との共通部分({key})
+	Interpolation:	補間方式:
+	Intersect with selection  ({key})	選択範囲と交差({key})
 	Invert All	すべて反転
 	Invert has no settings.	階調の反転には設定がありません。
 	Italic	イタリック
@@ -1166,7 +1166,7 @@
 	Name	名前
 	Name:	名前:
 	Nearest Neighbor	ニアレストネイバー
-	Nearest Neighbor (hard edges)	ニアレストネイバー(ハードエッジ)
+	Nearest Neighbor (hard edges)	ニアレストネイバー(ハードな輪郭に最適)
 	New Size	新しいサイズ
 	New document…	新規ドキュメント…
 	New effect layer	新規効果レイヤー
@@ -1221,9 +1221,9 @@
 	Pause	一時停止
 	Percent	パーセント
 	Perceptual	知覚的
-	Perspective Warp is not active	遠近法ワープは有効ではありません
-	Perspective Warp: draw planes along the image's perspective, then switch to Warp	遠近法ワープ: 画像の遠近に沿って面を描き、ワープに切り替えます
-	Photo Filter	写真フィルター
+	Perspective Warp is not active	パースペクティブワープは有効ではありません
+	Perspective Warp: draw planes along the image's perspective, then switch to Warp	パースペクティブワープ: 画像の遠近に沿って面を描き、ワープに切り替えます
+	Photo Filter	フォトフィルター
 	Local Image	Local Image
 	Local Image Manages Colors	Local Image でカラーを管理
 	Local Image — an open-source, native image editor written in Rust.	Local Image — Rust で書かれた、オープンソースのネイティブ画像エディター。
@@ -1371,7 +1371,7 @@
 	Slice Options…	スライスオプション…
 	Slices From Guides	ガイドからスライス
 	Slices are locked (View › Lock Slices)	スライスはロックされています(表示 › スライスをロック)
-	Small Caps	スモールキャップ
+	Small Caps	スモールキャップス
 	Smoothing	スムージング
 	Space After	後ろのスペース
 	Space Before	前のスペース
@@ -1469,7 +1469,7 @@
 	Command	コマンド
 
 # Tool names, brush and style option tables
-	Adjustment layers have nothing to transform	色調補正レイヤーには変形するものがありません
+	Adjustment layers have nothing to transform	調整レイヤーには変形するものがありません
 	Altitude	高度
 	Android 1080p	Android 1080p
 	Apple Watch 45mm	Apple Watch 45mm
@@ -1489,7 +1489,7 @@
 	Build-up	重ね塗り
 	Burn Tool	焼き込みツール
 	Centimeters	センチメートル
-	Choke	境界のぼかし幅
+	Choke	チョーク
 	Classic	クラシック
 	Click to add text	クリックしてテキストを追加
 	Click to fill similar colours	クリックして近い色を塗りつぶし
@@ -1604,8 +1604,8 @@
 	Overlay	オーバーレイ
 	Paint Bucket Tool	塗りつぶしツール
 	Paints from the document's opening state	ドキュメントを開いた時点の状態から描画します
-	Path Selection Tool	パスコンポーネント選択ツール
-	Direct Selection Tool	パス選択ツール
+	Path Selection Tool	パス選択ツール
+	Direct Selection Tool	ダイレクト選択ツール
 	Pattern Overlay	パターンオーバーレイ
 	Pen Pressure	ペンの筆圧
 	Pen Tilt	ペンの傾き
@@ -1637,7 +1637,7 @@
 	Rectangle Tool	長方形ツール
 	Rectangular Marquee Tool	長方形選択ツール
 	Reds	レッド系
-	Reflected	反射形
+	Reflected	反射
 	Sample: foreground colour	サンプル: 描画色
 	Sampled Colors	サンプルしたカラー
 	Satin	サテン
@@ -1673,7 +1673,7 @@
 	Text Replacement	テキストの置き換え
 	Thin	シン
 	Traditional (72.27 points/inch)	従来方式 (72.27 ポイント/インチ)
-	Transfer	伝達
+	Transfer	転送
 	Triangle Tool	三角形ツール
 	Unsaved changes	未保存の変更
 	Uses the foreground and background colours.	描画色と背景色を使用します。
@@ -1703,7 +1703,7 @@
 	Count: {n}	カウント: {n}
 	BLANK DOCUMENT PRESETS ({n})	空白ドキュメントのプリセット ({n})
 	Constraints ({n})	制約 ({n})
-	Align {what}	{what}で整列
+	Align {what}	{what}に整列
 @plural	{n} Layer|{n} Layers	{n} レイヤー
 @plural	{n} layer|{n} layers	{n} レイヤー
 @plural	Group · {n} layer|Group · {n} layers	グループ · {n} レイヤー
@@ -1769,10 +1769,10 @@
 	File path	ファイルのパス
 	Fill new type layers with placeholder	新規文字レイヤーにプレースホルダーを入れる
 	Font preview	フォントのプレビュー
-	Full size tip	実寸の先端
+	Full size tip	フルサイズの先端
 	Gamut warning color	色域外警告の色
 	Gamut warning opacity	色域外警告の不透明度
-	Generator enabled	自動生成を有効にする
+	Generator enabled	Generator を有効にする
 	Gif	GIF
 	Glossy	光沢
 	Grid color	グリッドの色
@@ -1786,7 +1786,7 @@
 	Guides, Grid & Slices	ガイド・グリッド・スライス
 	Gutter	余白
 	History Log	ヒストリーログ
-	History states	ヒストリーの数
+	History states	ヒストリーステート
 	Ignore exif profile tag	EXIF のプロファイルタグを無視
 	Image interpolation	画像の補間方法
 	Image previews	画像のプレビュー
@@ -1805,7 +1805,7 @@
 	Maximize psd compatibility	PSD の互換性を最大にする
 	Medium gray	中間グレー
 	Memory usage mb	メモリ使用量 (MB)
-	Missing glyph protection	字形欠落の保護
+	Missing glyph protection	欠落グリフの保護
 	Modern	モダン
 	Nearest neighbor	ニアレストネイバー
 	Never	しない
@@ -1816,7 +1816,7 @@
 	Performance	パフォーマンス
 	Png	PNG
 	Point size	ポイントサイズ
-	Precise	精密
+	Precise	詳細
 	Preserve details	ディテールを保持
 	Print resolution	印刷解像度
 	Pro	プロ
@@ -1894,11 +1894,11 @@
 	Divide	除算
 	Luminosity	輝度
 @plural	{n} sample|{n} samples	サンプル {n} 個
-	{added}, {removed} subtracted	{added}、除外 {removed} 個
+	{added}, {removed} subtracted	{added} 個追加、{removed} 個削除
 
 # Added with the rebase onto the dock / brush picker work
 	Adjustment Preview	色調補正のプレビュー
-	Airbrush: keeps depositing paint while the pointer rests.	エアブラシ: ポインターを止めている間も塗料を乗せ続けます。
+	Airbrush: keeps depositing paint while the pointer rests.	エアブラシ: ポインターを止めている間も描画色を適用し続けます。
 	Angle:	角度:
 	Blend If	条件付き合成
 	Close Tab Group	タブグループを閉じる
@@ -1948,7 +1948,7 @@
 	Smart Object Layer	スマートオブジェクトレイヤー
 	Create Warped Text	ワープテキストを作成
 	Rasterize Smart Object	スマートオブジェクトをラスタライズ
-	Rasterize Fill Content	塗りの内容をラスタライズ
+	Rasterize Fill Content	塗りつぶしコンテンツをラスタライズ
 	Unlock: picking a preset replaces these settings	ロック解除: プリセットを選ぶとこの設定は置き換わります
 	Lock: keep these settings when picking another preset	ロック: 別のプリセットを選んでもこの設定を保持します
 	Diameter:	直径:
@@ -1964,7 +1964,7 @@
 	Grid view	グリッド表示
 	List view	リスト表示
 	Off: the speed of the pointer sets the spacing	オフ: ポインターの速度で間隔が決まります
-	Tilt Scale	傾きの比率
+	Tilt Scale	傾きスケール
 	Brush Projection	ブラシの投影
 	Apply the pen's tilt and rotation to the tip shape	ペンの傾きと回転を先端のシェイプに適用します
 	Mixer Brush	混合ブラシ
@@ -1980,13 +1980,13 @@
 	Gradient	グラデーション
 	Gradient Options	グラデーションオプション
 	Align with layer	レイヤーに揃える
-	Reset Alignment	位置をリセット
+	Reset Alignment	位置合わせをリセット
 	Centre the gradient (offset 0, 0)	グラデーションを中央に配置(オフセット 0, 0)
 	The current gradient (pick one in Window › Gradients)	現在のグラデーション(ウィンドウ › グラデーション で選択)
 	Select a type layer to edit its character and paragraph settings.	文字レイヤーを選択すると、文字と段落の設定を編集できます。
 	Text color	文字色
 	Type Options	文字オプション
-	Anti-aliasing method	アンチエイリアスの種類
+	Anti-aliasing method	アンチエイリアスの方式
 	Horizontal type	横書き
 	Vertical type	縦書き
 	Fill path with foreground color	パスを描画色で塗りつぶす
@@ -2022,7 +2022,7 @@
 	Rendering Mode	レンダリングモード
 	Automatic (recommended)	自動（推奨）
 	CPU / Compatibility	CPU / 互換性
-	Automatic uses GPU acceleration when available and falls back to CPU rendering on errors.	自動モードは利用可能な場合にGPUを使用し、エラー時はCPU描画に切り替えます。
+	Automatic uses GPU acceleration when available and falls back to CPU rendering on errors.	自動モードは利用可能な場合にGPUアクセラレーションを使用し、エラー時はCPU描画に切り替えます。
 	Switched to CPU rendering	CPU描画に切り替えました
 	GPU acceleration could not continue. Your documents are unchanged.	GPUアクセラレーションを継続できませんでした。ドキュメントは変更されていません。
 	Local Image is using the CPU image compositor. The window may still use your graphics adapter.	Local ImageはCPUで画像を合成しています。ウィンドウは引き続きグラフィックスアダプターを使用する場合があります。
@@ -2093,7 +2093,7 @@ cameraRaw	Color	カラー
 	Display name	表示名
 	Real name	本名
 	Reverse the order	順序を反転
-	Grab bag	一覧
+	Grab bag	ランダム
 	Table	表
 	Name (A–Z)	名前 (A–Z)
 	Merged PRs	マージされた PR
@@ -2148,8 +2148,8 @@ cameraRaw	Color	カラー
 	Paint only when the string is pulled taut	糸がぴんと張ったときだけペイントします
 	Keep painting toward the pointer while it pauses	ポインターが止まっている間もポインターに向かってペイントし続けます
 	Finish the stroke where the pointer was released	ポインターを離した位置でストロークを終えます
-	Less smoothing when zoomed in, more when zoomed out	拡大表示では補正を弱く、縮小表示では強くします
-	Diagonal	斜め
+	Less smoothing when zoomed in, more when zoomed out	拡大表示ではスムージングを弱く、縮小表示では強くします
+	Diagonal	対角線
 	Along the Work Path	作業用パスに沿って
 	Mirror across the current path (draw it with the Pen tool first)	現在のパスで反転します (先にペンツールでパスを描いてください)
 	Symmetry Off	対称をオフ
@@ -2186,11 +2186,11 @@ cameraRaw	Color	カラー
 	Follows only edges this close to the pointer ([ and ] change it)	ポインターからこの距離内のエッジのみを追跡（[ と ] で変更）
 	Higher values follow only edges that contrast sharply with their surroundings	値を大きくすると、周囲とのコントラストが強いエッジのみを追跡します
 	How often fastening points are placed by themselves	固定ポイントを自動的に配置する頻度
-	Pupil Size	瞳の大きさ
+	Pupil Size	瞳孔サイズ
 	Sample Size	サンプル範囲
 	Scrubby Zoom	スクラブズーム
 	Straighten: tilt the frame to level a horizon	角度補正：枠を傾けて水平線を水平にします
-	{mode} Color · {bits} bit	{mode} カラー · {bits} bit
+	{mode} Color · {bits} bit	{mode} カラー · {bits} ビット
 	+ Add	+ 追加
 	1 file to download ({size}), verified by SHA-256:	ダウンロードするファイル 1 個（{size}）、SHA-256 で検証：
 	A copy in the Edited folder (originals untouched)	Edited フォルダーにコピー（元のファイルはそのまま）
@@ -2311,7 +2311,7 @@ cameraRaw	Color	カラー
 	Install {name}	{name} をインストール
 	Installation:	インストール先：
 	Installed	インストール済み
-	Keep	固定
+	Keep	保持
 	Keep… (optional)	残すもの…（任意）
 	Licence	ライセンス
 	Licence gate	ライセンス同意が必要
@@ -2368,9 +2368,9 @@ cameraRaw	Color	カラー
 	Refine model: {why}	リファインモデル：{why}
 	Refine strength	リファインの強さ
 	Refine with	リファインに使用
-	Refine:	調整：
+	Refine:	リファイン：
 	Refresh	更新
-	Regenerate the selection (Photoshop's Generative Fill)	選択範囲を再生成（Photoshop の生成塗りつぶしと同様）
+	Regenerate the selection (Photoshop's Generative Fill)	選択範囲を再生成（Photoshop のジェネレーティブ塗りつぶしと同様）
 	Remove Backgrounds	背景を一括削除
 	Remove Selection	選択範囲を削除
 	Request Access…	アクセスをリクエスト…
@@ -2389,7 +2389,7 @@ cameraRaw	Color	カラー
 	Save Preset	プリセットを保存
 	Save a copy in the Edited folder and open the next one ({key})	Edited フォルダーにコピーを保存して次を開く（{key}）
 	Save these settings as a preset	この設定をプリセットとして保存
-	Save this image (Save As) and open the next one ({key})	この画像を保存（名前を付けて保存）して次を開く（{key}）
+	Save this image (Save As) and open the next one ({key})	この画像を保存（別名で保存）して次を開く（{key}）
 	Save this image over the original and open the next one ({key})	この画像を元のファイルに上書き保存して次を開く（{key}）
 	Save to:	保存先：
 	Saved {name}	{name} を保存しました
@@ -2540,7 +2540,7 @@ ai	New	新着
 	Kept because other installed models use them: {files}	ほかのインストール済みモデルが使うため残しました: {files}
 	List only the official upscalers (SeedVR2)	公式のアップスケーラーだけを表示（SeedVR2）
 	Move to Trash	ゴミ箱に移動
-	None of its files are in the model folder.	モデルフォルダーにはこのファイルがありません。
+	None of its files are in the model folder.	モデルフォルダーには、このモデルのファイルがありません。
 	ON-DEVICE MODELS (CPU)	デバイス上のモデル（CPU）
 	Official upscalers only	公式のアップスケーラーのみ
 	Recommended	おすすめ
@@ -2560,7 +2560,7 @@ ai	New	新着
 	using {name}	{name} を使用中
 	{n} of {total} installed	{total} 個中 {n} 個インストール済み
 	{size} download · runs on the CPU · {licence}	ダウンロード {size} · CPU で動作 · {licence}
-	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	このコンピューターのプロセッサーで動く小さなモデルです。ComfyUI や GPU は不要で、ダウンロードも小さく、写真がコンピューターの外に出ることはありません。グループごとに使われるツールが異なり、各グループでインストール済みの最良のモデルが使われます。
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	このコンピューターのプロセッサーで動く小さなモデルです。ComfyUI や GPU は不要で、ダウンロードも高速で、写真がコンピューターの外に出ることはありません。グループごとに使われるツールが異なり、各グループでインストール済みの最良のモデルが使われます。
 	Subject & Background	被写体と背景
 # Selected-item context bars and live shapes
 	AI Fill	AI 塗りつぶし
@@ -2597,7 +2597,7 @@ ai	New	新着
 	This layer's generation model is unavailable	このレイヤーの生成モデルは利用できません
 	Top-left corner radius	左上の角の半径
 	Top-right corner radius	右上の角の半径
-	Turn the shape into pixels	シェイプをピクセルに変換
+	Turn the shape into pixels	シェイプをラスタライズ
 	Variations	バリエーション
 	Close panel	パネルを閉じる
 	Dock Panel	パネルをドッキング

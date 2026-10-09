@@ -51,13 +51,13 @@
 	Export As…	匯出為…
 	Export Preferences…	匯出偏好設定…
 	Save for Web (Legacy)…	儲存為網頁用 (舊版)…
-	Artboards to Files…	工作區域轉檔案…
-	Artboards to PDF…	工作區域轉 PDF…
-	Layers to Files…	圖層轉檔案…
-	Layer Comps to Files…	圖層構圖轉檔案…
+	Artboards to Files…	工作區域轉存成檔案…
+	Artboards to PDF…	工作區域轉存成 PDF…
+	Layers to Files…	圖層轉存成檔案…
+	Layer Comps to Files…	圖層構圖轉存成檔案…
 	Color Lookup Tables…	色彩查詢表…
-	Data Sets as Files…	資料組轉檔案…
-	Paths to Illustrator…	路徑轉 Illustrator…
+	Data Sets as Files…	資料集轉存成檔案…
+	Paths to Illustrator…	路徑轉存成 Illustrator…
 	Render Video…	轉譯視訊…
 	Generate	產生
 	Image Assets	影像資產
@@ -135,7 +135,7 @@
 	Define Brush Preset…	定義筆刷預設集…
 	Define Pattern…	定義圖樣…
 	Define Custom Shape…	定義自訂形狀…
-	Purge	清除記憶
+	Purge	清理
 	Clipboard	剪貼簿
 	Histories	步驟記錄
 	Video Cache	視訊快取
@@ -234,19 +234,19 @@
 	Calculations…	運算…
 	Variables	變數
 	Define…	定義…
-	Data Sets…	資料組…
-	Apply Data Set…	套用資料組…
-	Variable Data Sets…	變數資料組…
+	Data Sets…	資料集…
+	Apply Data Set…	套用資料集…
+	Variable Data Sets…	變數資料集…
 	Trap…	補漏白…
 	Analysis	分析
 	Set Measurement Scale…	設定測量比例…
 	Select Data Points…	選取資料點…
 	Record Measurements	記錄測量
 	Ruler Tool	尺標工具
-	Count Tool	計算工具
+	Count Tool	計數工具
 	Place Scale Marker…	置入比例標記…
 	Custom…	自訂…
-	New	新增
+	New	最新
 	Layer…	圖層…
 	Group…	群組…
 	Group from Layers…	從圖層建立群組…
@@ -261,7 +261,7 @@
 	New Type Layer	新增文字圖層
 	New Fill Layer	新增填滿圖層
 	New Adjustment Layer	新增調整圖層
-	New Layer Based Slice	新增以圖層為基礎的切片
+	New Layer Based Slice	新增圖層式切片
 	New Smart Object via Copy	以拷貝新增智慧型物件
 	New Blank Video Layer	新增空白視訊圖層
 	New Video Layer from File…	從檔案新增視訊圖層…
@@ -273,7 +273,7 @@
 	Layer Style	圖層樣式
 	Blending Options…	混合選項…
 	Bevel & Emboss…	斜角和浮雕…
-	Use Global Light	使用全域光
+	Use Global Light	使用整體光源
 	Inner Shadow…	內陰影…
 	Inner Glow…	內光暈…
 	Satin…	緞面…
@@ -317,7 +317,7 @@
 	Smart Objects	智慧型物件
 	Smart Object	智慧型物件
 	Convert to Smart Object	轉換為智慧型物件
-	Convert to Embedded	轉換為嵌入
+	Convert to Embedded	轉換為嵌入式
 	Convert to Layers	轉換為圖層
 	Convert to Linked…	轉換為連結…
 	Edit Contents	編輯內容
@@ -331,7 +331,7 @@
 	Kurtosis	峰度
 	Maximum	最大
 	Mean	平均值
-	Median	中和
+	Median	中位數
 	Minimum	最小
 	Range	範圍
 	Skewness	偏度
@@ -373,8 +373,8 @@
 	Flatten Image	影像平面化
 	Matting	修邊
 	Color Decontaminate…	淨化顏色…
-	Remove Black Matte	移除黑色邊緣調合
-	Remove White Matte	移除白色邊緣調合
+	Remove Black Matte	移除黑色邊緣
+	Remove White Matte	移除白色邊緣
 	Defringe…	去除邊緣綴邊…
 	Group Layers	群組圖層
 	Ungroup Layers	解散圖層群組
@@ -387,7 +387,7 @@
 	Reverse	反向
 	Combine Shapes	合併形狀
 	Unite Shapes	聯集形狀
-	Subtract Front Shape	減去前方形狀
+	Subtract Front Shape	減去上層形狀
 	Intersect Shape Areas	交集形狀區域
 	Exclude Overlapping Shapes	排除重疊形狀
 	Merge Shape Components	合併形狀元件
@@ -423,7 +423,7 @@
 	Anti-Alias	消除鋸齒
 	Sharp	銳利
 	Crisp	清晰
-	Strong	加強
+	Strong	強
 	Smooth	平滑
 	Windows LCD	Windows LCD
 	Windows	Windows
@@ -451,9 +451,9 @@
 	Middle Eastern Features	中東功能
 	Middle Eastern & South Asian Composer	中東與南亞排版引擎
 	Update All Text Layers	更新所有文字圖層
-	Replace All Missing Fonts	取代所有遺失的字體
-	Resolve Missing Fonts…	解決遺失字體…
-	Font Preview Size	字體預覽大小
+	Replace All Missing Fonts	取代所有遺失的字型
+	Resolve Missing Fonts…	解決遺失字型…
+	Font Preview Size	字型預覽大小
 	None	無
 	Small	小
 	Medium	中
@@ -476,7 +476,7 @@
 	Expand…	擴張…
 	Contract…	縮減…
 	Feather…	羽化…
-	Grow	連續相近色
+	Grow	增長
 	Transform Selection	變形選取範圍
 	Edit in Quick Mask Mode	在快速遮色片模式中編輯
 	Load Selection…	載入選取範圍…
@@ -490,7 +490,7 @@
 	Vanishing Point…	消失點…
 	Blur	模糊
 	Blur Gallery	模糊收藏館
-	Field Blur…	區域模糊…
+	Field Blur…	場景模糊…
 	Iris Blur…	光圈模糊…
 	Tilt-Shift…	傾斜偏移…
 	Path Blur…	路徑模糊…
@@ -505,7 +505,7 @@
 	Smart Blur…	智慧型模糊…
 	Surface Blur…	表面模糊…
 	Average	平均
-	Displace…	位移…
+	Displace…	移置…
 	Pinch…	擠壓…
 	Polar Coordinates…	極座標…
 	Ripple…	漣漪…
@@ -540,7 +540,7 @@
 	Tree…	樹…
 	Sharpen	銳利化
 	Sharpen Edges	銳利化邊緣
-	Sharpen More	再次銳利化
+	Sharpen More	更銳利化
 	Smart Sharpen…	智慧型銳利化…
 	Unsharp Mask…	遮色片銳利化調整…
 	High Pass…	顏色快調…
@@ -616,7 +616,7 @@
 	Guides	參考線
 	Canvas Guides	版面參考線
 	Artboard Guides	工作區域參考線
-	Count	計算
+	Count	計數
 	Smart Guides	智慧型參考線
 	Slices	切片
 	Notes	註解
@@ -681,7 +681,7 @@
 	Character Styles	字元樣式
 	Clone Source	仿製來源
 	Color	顏色
-	Glyphs	字符
+	Glyphs	字形
 	Gradients	漸層
 	Histogram	色階分佈圖
 	History	步驟記錄
@@ -694,7 +694,7 @@
 	Paragraph Styles	段落樣式
 	Paths	路徑
 	Patterns	圖樣
-	Properties	內容
+	Properties	屬性
 	Shapes	形狀
 	Styles	樣式
 	Swatches	色票
@@ -791,8 +791,8 @@
 	Before (Y)	之前 (Y)
 	Begin recording	開始記錄
 	Bend:	彎曲：
-	Bicubic	雙三次
-	Bicubic (smooth gradients)	雙三次 (平滑漸層)
+	Bicubic	雙立方
+	Bicubic (smooth gradients)	雙立方 (平滑漸層)
 	Bilinear	雙線性
 	Black	黑色
 	Black & White	黑白
@@ -807,9 +807,9 @@
 	Both Axes	兩軸
 	Bottom	下
 	Brightness	亮度
-	Brightness Jitter	亮度快速變換
+	Brightness Jitter	亮度跳動
 	Brightness/Contrast	亮度/對比
-	Bring the selected pin forward	將所選控制點前移
+	Bring the selected pin forward	將選取的圖釘前移
 	Brush Preset picker	筆刷預設集選擇器
 	Brush Reconstruct Options	筆刷重建選項
 	Brush Tool Options	筆刷工具選項
@@ -826,7 +826,7 @@
 	Capture	擷取
 	Capture the visibility, position and style of every layer with + below, then switch between versions.	以下方的 + 擷取每個圖層的可見度、位置和樣式，然後在各版本間切換。
 	Catch-up on Stroke End	筆畫結束時追補
-	Center	居中
+	Center	置中
 	Center Crop Marks	中央裁切標記
 	Center text	文字置中
 	Change	變更
@@ -866,7 +866,7 @@
 	Color Priority	色彩優先
 	Color Range preview	顏色範圍預視
 	Color:	顏色：
-	Colorize	色彩化
+	Colorize	上色
 	Colors	顏色
 	Commit Perspective Warp ({key})	確認透視彎曲 ({key})
 	Commit Puppet Warp ({key})	確認操控彎曲 ({key})
@@ -875,8 +875,8 @@
 	Commit transform ({key})	確認變形 ({key})
 	Commit warp ({key})	確認彎曲 ({key})
 	Constant	常數
-	Constrain proportions	等比例限制
-	Contact Sheet II	連絡表 II
+	Constrain proportions	強制等比例
+	Contact Sheet II	縮圖目錄 II
 	Content-Aware	內容感知
 	Contiguous	連續的
 	Contrast	對比
@@ -890,12 +890,12 @@
 	Corner Crop Marks	角落裁切標記
 	Corner radius	圓角半徑
 	Correction	校正
-	Count Jitter	數量快速變換
+	Count Jitter	數量跳動
 	Create	建立
-	Create Droplet	建立快捷批次
+	Create Droplet	建立快捷批次處理
 	Create Texture	建立紋理
 	Create Video Timeline	建立視訊時間軸
-	Create a new count group	建立新的計算群組
+	Create a new count group	建立新的計數群組
 	Create a new document or open an existing file.	建立新文件或開啟現有檔案。
 	Create a new group	建立新群組
 	Create a new layer	建立新圖層
@@ -924,7 +924,7 @@
 	Cyan  ·  Red	青色  ·  紅色
 	Darken	變暗
 	Darks	暗部
-	Data Sets	資料組
+	Data Sets	資料集
 	Default	預設
 	Default colours (D)	預設顏色 (D)
 	Default printer	預設印表機
@@ -939,7 +939,7 @@
 	Delete Shortcut	刪除快速鍵
 	Delete Timeline	刪除時間軸
 	Delete Tool Preset	刪除工具預設集
-	Delete count group	刪除計算群組
+	Delete count group	刪除計數群組
 	Delete current channel	刪除目前色版
 	Delete current state	刪除目前狀態
 	Delete effect layer	刪除效果圖層
@@ -979,7 +979,7 @@
 	Click: select anchor · Drag: move anchor, handle or segment · {shift}-click: add · {alt}-click: whole subpath	按一下：選取錨點 · 拖曳：移動錨點、把手或線段 · {shift}-按一下：增加 · {alt}-按一下：整個子路徑
 	Draw with the Pen tool (P) or make a work path from a selection.	使用筆型工具 (P) 繪製，或從選取範圍建立工作路徑。
 	Drop an image or PSD anywhere to open it.	將影像或 PSD 拖放到任何位置即可開啟。
-	Native file drag-and-drop is unavailable	Wayland 不支援原生檔案拖放
+	Native file drag-and-drop is unavailable	原生檔案拖放無法使用
 	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= local-image`.	Wayland 尚未支援原生檔案拖放。請使用「檔案 › 開啟」，或透過 `WAYLAND_DISPLAY= local-image` 在 XWayland 下執行 Local Image。
 	Duplicate Layers…	複製圖層…
 	Duplicate style	複製樣式
@@ -995,8 +995,8 @@
 	Entire Font	整個字體
 	Exact	精確
 	Expansion:	擴張：
-	Export Presets	匯出預設集
-	Export selected measurements (CSV)	匯出所選測量 (CSV)
+	Export Presets	轉存預設集
+	Export selected measurements (CSV)	轉存所選測量 (CSV)
 	Exposure	曝光度
 	Exposure and Gamma	曝光度與 Gamma
 	Exposure:	曝光度：
@@ -1038,7 +1038,7 @@
 	Foreground to Background	前景到背景
 	Foreground/Background Jitter	前景/背景快速變換
 	Format	格式
-	Frame from Layers…	從圖層建立框架…
+	Frame from Layers…	從圖層建立影格…
 	Free	自由
 	Full Spherical	完整球面
 	Fuzziness:	模糊度：
@@ -1113,7 +1113,7 @@
 	Level	層級
 	Levels	色階
 	Lighten	變亮
-	Lightness	明亮
+	Lightness	明度
 	Lights	燈光
 	Limits:	限制：
 	Linear Gradient	線性漸層
@@ -1135,8 +1135,8 @@
 	Lock:	鎖定：
 	Logical Length:	邏輯長度：
 	Logical Units:	邏輯單位：
-	Luminance	明亮度
-	Luminance Detail	明亮度細節
+	Luminance	明度
+	Luminance Detail	明度細節
 	Magenta	洋紅
 	Magenta  ·  Green	洋紅  ·  綠色
 	Maintain aspect ratio	維持外觀比例
@@ -1146,7 +1146,7 @@
 	Masking	遮色
 	Master	主要
 	Matte	邊緣調合
-	Median:	中和：
+	Median:	中間值：
 	Menus	選單
 	Mesh Size	網格大小
 	Metadata	中繼資料
@@ -1166,8 +1166,8 @@
 	Move to	移至
 	Name	名稱
 	Name:	名稱：
-	Nearest Neighbor	鄰近
-	Nearest Neighbor (hard edges)	鄰近 (硬邊緣)
+	Nearest Neighbor	最接近像素
+	Nearest Neighbor (hard edges)	最接近像素 (硬邊)
 	New Size	新尺寸
 	New document…	新增文件…
 	New effect layer	新增效果圖層
@@ -1183,9 +1183,9 @@
 	No matching commands	沒有相符的指令
 	No presets for the current tool.	目前工具沒有預設集。
 	No presets of this type.	沒有此類型的預設集。
-	No properties	沒有內容
+	No properties	沒有屬性
 	No tool presets.	沒有工具預設集。
-	Noise Reduction	減少雜訊
+	Noise Reduction	雜訊減少
 	Normal	正常
 	Not in Dictionary:	不在字典中：
 	OK	確定
@@ -1231,7 +1231,7 @@
 	Pin Depth:	圖釘深度：
 	Pixel Length:	像素長度：
 	Pixels/Centimeter	像素/公分
-	Pixels/Inch	像素/英吋
+	Pixels/Inch	像素/英寸
 	Pixels:	像素：
 	Play	播放
 	Play selection	播放選取項目
@@ -1281,7 +1281,7 @@
 	Red	紅色
 	Redefine style by current selection	依目前選取項目重新定義樣式
 	Reflected Gradient	反射性漸層
-	Registration Marks	對齊標記
+	Registration Marks	對位標記
 	Regular	標準
 	Relative	相對
 	Relative Colorimetric	相對色度
@@ -1392,7 +1392,7 @@
 	Style Options	樣式選項
 	Style Options…	樣式選項…
 	Style: Normal	樣式：正常
-	Subtract from Sample	從樣本中減去
+	Subtract from Sample	從取樣減去
 	Subtract from selection  ({key})	從選取範圍減去  ({key})
 	Suggestions:	建議：
 	Swap colours (X)	切換顏色 (X)
@@ -1410,7 +1410,7 @@
 	Tilt X	傾斜 X
 	Tilt Y	傾斜 Y
 	Tint	色調
-	Toggle count group visibility	切換計算群組可見度
+	Toggle count group visibility	切換計數群組可見度
 	Toggle text orientation	切換文字方向
 	Tolerance	容許度
 	Tolerance:	容許度：
@@ -1478,7 +1478,7 @@
 	Background Eraser Tool	背景橡皮擦工具
 	Bevel & Emboss	斜角和浮雕
 	Blend Mode	混合模式
-	Blues	藍色系
+	Blues	藍色
 	Blur Tool	模糊工具
 	Bold	粗體
 	Brush	筆刷
@@ -1499,7 +1499,7 @@
 	Color Overlay	顏色覆蓋
 	Comic Book	漫畫書
 	Conform	符合
-	Content-Aware Fill needs a selection on a pixel layer	內容感知填滿需要在像素圖層上建立選取範圍
+	Content-Aware Fill needs a selection on a pixel layer	內容感知填色需要在像素圖層上建立選取範圍
 	Couldn't place {name}: {error}	無法置入 {name}：{error}
 	Could not transform: the layer is empty	無法變形：圖層是空的
 	Could not use Perspective Warp: the layer is empty	無法使用透視彎曲：圖層是空的
@@ -1509,16 +1509,16 @@
 	Crosswise	交叉
 	Current Tool	目前工具
 	Custom Shape Tool	自訂形狀工具
-	Cyans	青色系
+	Cyans	青色
 	Default Photoshop Size	預設 Photoshop 尺寸
 	Delete Workspace	刪除工作區
 	Diamond	菱形
 	Dimensions:	尺寸：
 	Direction	方向
-	Distance	間距
+	Distance	距離
 	Document Dimensions	文件尺寸
 	Document Profile	文件描述檔
-	Document Sizes	文件尺寸
+	Document Sizes	文件大小
 	Dodge Tool	加亮工具
 	Down	下
 	Drag to draw a gradient	拖曳以繪製漸層
@@ -1539,7 +1539,7 @@
 	Eyedropper Tool	滴管工具
 	Fade	淡化
 	Fill Opacity	填滿不透明度
-	Film & Video	電影與視訊
+	Film & Video	影片與視訊
 	From	從
 	General	一般
 	GitHub	GitHub
@@ -1638,7 +1638,7 @@
 	Reds	紅色
 	Reflected	反射
 	Sample: foreground colour	取樣：前景色
-	Sampled Colors	取樣的顏色
+	Sampled Colors	取樣顏色
 	Satin	緞面
 	Save Pixel Aspect Ratio	儲存像素外觀比例
 	Scattering	散佈
@@ -1672,7 +1672,7 @@
 	Text Replacement	文字取代
 	Thin	極細
 	Traditional (72.27 points/inch)	傳統 (72.27 點/英吋)
-	Transfer	轉換
+	Transfer	轉移
 	Triangle Tool	三角形工具
 	Unsaved changes	未儲存的變更
 	Uses the foreground and background colours.	使用前景色和背景色。
@@ -1684,7 +1684,7 @@
 	Wet Edges	濕邊
 	Yellows	黃色
 	Zoom Tool	縮放工具
-	{name} Properties	{name} 內容
+	{name} Properties	{name} 屬性
 	Revert “{name}” to the last saved version? Your changes will be lost.	回復「{name}」至上次儲存的版本？您所做的變更將會遺失。
 	Do you want to save the changes you made to “{name}” before quitting?	結束前要儲存對「{name}」所做的變更嗎？
 	Do you want to save the changes you made to “{name}” before closing?	關閉前要儲存對「{name}」所做的變更嗎？
@@ -1697,14 +1697,14 @@
 	Resolution: {dpi} pixels/inch	解析度：{dpi} 像素/英吋
 	Doc: {w} × {h} px	文件：{w} × {h} px
 	Frame {current} / {total}	影格 {current} / {total}
-	Count: {n}	計算：{n}
+	Count: {n}	計數：{n}
 	BLANK DOCUMENT PRESETS ({n})	空白文件預設集 ({n})
 	Constraints ({n})	限制 ({n})
 	Align {what}	對齊{what}
 @plural	{n} Layer|{n} Layers	{n} 個圖層
 @plural	{n} layer|{n} layers	{n} 個圖層
 @plural	Group · {n} layer|Group · {n} layers	群組 · {n} 個圖層
-	Additional plugins folder	額外增效模組資料夾
+	Additional plugins folder	額外外掛程式資料夾
 	Adobe	Adobe
 	Adobe rgb	Adobe RGB
 	Allow agent control	允許代理程式控制
@@ -1721,9 +1721,9 @@
 	Autosave	自動儲存
 	Autosave minutes	自動儲存間隔 (分鐘)
 	Beep when done	完成時發出嗶聲
-	Bicubic automatic	雙三次 (自動)
-	Bicubic sharper	雙三次 (較銳利)
-	Bicubic smoother	雙三次 (較平滑)
+	Bicubic automatic	雙立方體 (自動)
+	Bicubic sharper	雙立方體 (較銳利)
+	Bicubic smoother	雙立方體 (較平滑)
 	Bit depth	位元深度
 	Brush preview color	筆刷預視顏色
 	Cache levels	快取層級
@@ -1754,7 +1754,7 @@
 	East asian	東亞
 	Effect cache mb	效果快取 (MB)
 	Enable flick panning	啟用輕撥平移
-	Enable floating document window docking	啟用浮動文件視窗停駁
+	Enable floating document window docking	啟用浮動文件視窗停駐
 	Enable narrow options bar	啟用窄版選項列
 	Enabled	已啟用
 	Enhanced Controls	增強控制項
@@ -1781,7 +1781,7 @@
 	Guides, Grid & Slices	參考線、格點和切片
 	Gutter	欄距
 	History Log	步驟記錄檔
-	History states	步驟記錄數量
+	History states	步驟記錄狀態
 	Ignore exif profile tag	忽略 EXIF 描述檔標籤
 	Image interpolation	影像插補
 	Image previews	影像預視
@@ -1831,7 +1831,7 @@
 	Scratch Disks	暫存磁碟
 	Screen	濾色
 	Screen resolution	螢幕解析度
-	Scrubby slider acceleration	擦洗式滑桿加速
+	Scrubby slider acceleration	快速滑桿加速
 	Sessions only	僅限工作階段
 	Sharpen for	銳利化用途
 	Show channels in color	以彩色顯示色版
@@ -1858,7 +1858,7 @@
 	Text file	文字檔
 	Tiny	極小
 	Touch gestures	觸控手勢
-	Transparency & Gamut	透明和色域
+	Transparency & Gamut	透明度和色域
 	Type units	文字單位
 	UI font size	介面字體大小
 	UI scale	介面縮放
@@ -1875,7 +1875,7 @@
 	Zoom resizes windows	縮放時調整視窗大小
 	Zoom with scroll wheel	以滾輪縮放
 	Zoom with trackpad pinch	以觸控板捏合縮放
-	Pass Through	穿過
+	Pass Through	穿透
 	Dissolve	溶解
 	Darker Color	顏色變暗
 	Linear Dodge (Add)	線性加亮 (增加)
@@ -1906,7 +1906,7 @@
 	Expand	展開
 	Expand Panel Group	展開面板群組
 	Expand group  ({key}-click: all groups)	展開群組 ({key}+按一下：全部群組)
-	Fade steps	淡出步數
+	Fade steps	淡化步驟
 	Hide the layer's effects  ({key}-click: all layers)	隱藏圖層效果 ({key}+按一下：所有圖層)
 	Import Brushes… (.abr)	匯入筆刷… (.abr)
 	Move Group Down	下移群組
@@ -1981,7 +1981,7 @@
 	Horizontal type	水平文字
 	Vertical type	垂直文字
 	Fill path with foreground color	以前景色填滿路徑
-	Stroke path with brush	以筆刷為路徑加上筆畫
+	Stroke path with brush	以筆刷筆畫路徑
 	Load path as a selection	將路徑載入為選取範圍
 	Make work path from selection	從選取範圍建立工作路徑
 	Add vector mask	增加向量遮色片
@@ -2017,7 +2017,7 @@
 	Automatic uses GPU acceleration when available and falls back to CPU rendering on errors.	自動模式會在可用時使用 GPU 加速，發生錯誤時改用 CPU 渲染。
 	Switched to CPU rendering	已改用 CPU 渲染
 	GPU acceleration could not continue. Your documents are unchanged.	GPU 加速無法繼續。您的文件未變更。
-	Local Image is using the CPU image compositor. The window may still use your graphics adapter.	Local Image 正使用 CPU 合成影像。視窗仍可能使用您的顯示卡。
+	Local Image is using the CPU image compositor. The window may still use your graphics adapter.	Local Image 正使用 CPU 影像合成器。視窗仍可能使用您的顯示卡。
 	Retry GPU requires a restart. Save your work first.	重試 GPU 需要重新啟動。請先儲存您的工作。
 	Keep Using CPU	繼續使用 CPU
 	Retry GPU	重試 GPU
@@ -2034,16 +2034,16 @@
 	Show Skin Tone Indicator	顯示膚色指示線
 	Tone Histogram	色調直方圖
 	Show Selected Region	顯示選取區域
-cameraRaw	Light	光線
+cameraRaw	Light	細
 # Camera Raw: contextual controls and window title
 	Camera Raw Filter ({layer})	Camera Raw 濾鏡（{layer}）
 cameraRaw	Lights	亮調
 cameraRaw	Darks	暗調
-cameraRaw	Blacks	黑色色階
-cameraRaw	Whites	白色色階
+cameraRaw	Blacks	黑色
+cameraRaw	Whites	白色
 cameraRaw	Amount	強度
 cameraRaw	Tint	色偏
-cameraRaw	Masking	遮色片保護
+cameraRaw	Masking	遮色片
 cameraRaw	Blending	混合
 	Patch Tool	修補工具
 	Patch:	修補：
@@ -2087,7 +2087,7 @@ cameraRaw	Blending	混合
 	Display name	顯示名稱
 	Real name	真實姓名
 	Reverse the order	反轉順序
-	Grab bag	清單
+	Grab bag	隨機
 	Table	表格
 	Name (A–Z)	名稱 (A–Z)
 	Merged PRs	已合併的 PR
@@ -2121,10 +2121,10 @@ cameraRaw	Blending	混合
 	Layers, retouching and AI tools	圖層、修飾和 AI 工具
 	Contextual Task Bar	內容相關工作列
 	Describe an image to create…	描述要建立的影像…
-	Edit photos, catalogue them, and create with local AI.	編輯相片、建立圖庫，並以本機 AI 創作。
+	Edit photos, catalogue them, and create with local AI.	編輯相片、編目相片，並以本機 AI 創作。
 	Filmstrip	底片列
 	Generate Background (AI)…	產生背景 (AI)…
-	Generative Fill (AI)…	生成填色 (AI)…
+	Generative Fill (AI)…	生成式填色 (AI)…
 	Get Models…	取得模型…
 	Local AI…	本機 AI…
 	Model Browser…	模型瀏覽器…
@@ -2145,7 +2145,7 @@ cameraRaw	Blending	混合
 	Less smoothing when zoomed in, more when zoomed out	放大時平滑較少，縮小時平滑較多
 	Diagonal	對角線
 	Along the Work Path	沿著工作路徑
-	Mirror across the current path (draw it with the Pen tool first)	沿目前路徑鏡像（請先用鋼筆工具繪製路徑）
+	Mirror across the current path (draw it with the Pen tool first)	沿目前路徑鏡射（請先用鋼筆工具繪製路徑）
 	Symmetry Off	關閉對稱
 	Click to restore this snapshot	按一下以還原此快照
 	Delete Snapshot	刪除快照
@@ -2161,17 +2161,17 @@ cameraRaw	Blending	混合
 	Make Selection	建立選取範圍
 	Add a layer mask that shows only this area	加入只顯示此區域的圖層遮色片
 	Describe what to generate (optional)	描述要生成的內容(選填)
-	Generative Fill: regenerate the selection from your description	生成填色:依描述重新生成選取範圍
+	Generative Fill: regenerate the selection from your description	生成填色：依描述重新產生選取範圍
 	Contextual Task Bar hidden — Window › Contextual Task Bar shows it again.	已隱藏內容相關工作列 — 可透過 視窗 › 內容相關工作列 重新顯示。
 	AI Remove isn't ready: {why}	AI 移除尚未就緒:{why}
 	Generative Fill	生成填色
 	Remove what's inside with AI (on its own layer)	用 AI 移除其中的內容(在獨立圖層上)
 	Turn the path into a selection	將路徑轉換為選取範圍
 	Back	返回
-	Regenerate the area from a description	依描述重新生成該區域
+	Regenerate the area from a description	依描述重新產生該區域
 	Hide Contextual Task Bar	隱藏內容相關工作列
 	More	更多
-	Auto Erase	自動抹除
+	Auto Erase	自動擦除
 	Click a red pupil	按一下紅色瞳孔
 	Click the first point or press {key} to close · {del} removes a point · Esc cancels	按一下第一個點或按 {key} 以閉合 · {del} 移除一個點 · Esc 取消
 	Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close	按一下，然後沿邊緣移動 · 按一下固定一個點 · {alt}-按一下繪製直線段 · 按兩下以閉合
@@ -2181,7 +2181,7 @@ cameraRaw	Blending	混合
 	Higher values follow only edges that contrast sharply with their surroundings	值越高，僅追蹤與周圍對比強烈的邊緣
 	How often fastening points are placed by themselves	自動放置固定點的頻率
 	Pupil Size	瞳孔大小
-	Sample Size	樣本尺寸
+	Sample Size	取樣尺寸
 	Scrubby Zoom	拖曳縮放
 	Straighten: tilt the frame to level a horizon	拉直：傾斜框架以使地平線水平
 	{mode} Color · {bits} bit	{mode} 色彩 · {bits} 位元
@@ -2305,7 +2305,7 @@ cameraRaw	Blending	混合
 	Install {name}	安裝 {name}
 	Installation:	安裝：
 	Installed	已安裝
-	Keep	保持
+	Keep	保留
 	Keep… (optional)	保留…（選用）
 	Licence	授權條款
 	Licence gate	需接受授權條款
@@ -2356,22 +2356,22 @@ cameraRaw	Blending	混合
 	RESULTS	結果
 	Read the licence	閱讀授權條款
 	Ready	就緒
-	Recreate	重新建立
+	Recreate	重新產生
 	References · {n}/{max}	參考圖 · {n}/{max}
 	Refine	精修
 	Refine model: {why}	精修模型：{why}
 	Refine strength	精修強度
 	Refine with	精修模型
-	Refine:	調整：
+	Refine:	精修：
 	Refresh	重新整理
-	Regenerate the selection (Photoshop's Generative Fill)	重新產生選取範圍（類似 Photoshop 的生成填色）
+	Regenerate the selection (Photoshop's Generative Fill)	重新產生選取範圍（Photoshop 的生成填色）
 	Remove Backgrounds	批次移除背景
 	Remove Selection	移除選取範圍內容
 	Request Access…	申請存取…
 	Resample the open image at a chosen strength (img2img)	以所選強度對開啟的影像重新取樣（img2img）
 	Results appear here and are saved to the Library.	結果顯示在這裡並儲存到圖庫。
 	Retry	重試
-	Review in Library: see this folder in the Library's grid to compare and rate	在圖庫中檢視：在圖庫格線中顯示此資料夾以進行比較和評分
+	Review in Library: see this folder in the Library's grid to compare and rate	在圖庫中檢視：在圖庫格線中查看此資料夾以進行比較和評分
 	Rough GPU memory to run it	執行所需的大約 GPU 記憶體
 	Rough GPU memory to run it: more than your GPU has	執行所需的大約 GPU 記憶體：超過你的 GPU 容量
 	Running {name}	正在執行 {name}
@@ -2504,7 +2504,7 @@ ai	New	最新
 	Show the Library's Develop module.	顯示圖庫的「編輯相片」模組。
 	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	可見圖層會成為帶 Camera Raw 濾鏡的智慧型物件（內部仍可編輯）。
 	This document has no Develop layer. How should Develop work on it?	此文件沒有編輯相片圖層。「編輯相片」應如何處理它？
-	Pen pressure curve	壓感筆壓力曲線
+	Pen pressure curve	筆壓曲線
 	Paste Seamless	無縫貼上
 	Cage	籠形
 	Seamless	無縫
@@ -2596,9 +2596,9 @@ ai	New	最新
 	Close panel	關閉面板
 	Dock Panel	停靠面板
 	Float Panel Group	浮動面板群組
-	Save and Return to Library	儲存並返回資料庫
+	Save and Return to Library	儲存並返回圖庫
 	Added your new Develop edits as layer {name}	已將您新的 Develop 編輯加入為圖層 {name}
-	Open the Library to save into it	請先開啟資料庫再儲存至其中
+	Open the Library to save into it	請先開啟圖庫再儲存至其中
 	The layers below are unchanged; hide or delete the new layer to go back.	下方圖層未變更；如需還原，請隱藏或刪除新圖層。
 # Attributions page (li-attributions)
 	Attributions	致謝與授權
@@ -2606,8 +2606,8 @@ ai	New	最新
 	No matches.	沒有符合的項目。
 	Show licence text	顯示授權全文
 	Smart Sort (scenes)	智慧分類（場景）
-	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	辨識照片內容（演講者、觀眾、細節等），將照片放入合適的資料夾。在 CPU 上執行；照片始終保留在此電腦上。
-	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	根據您的描述辨識場景。快速的本機模型可辨識演講者、觀眾、細節及其他自選類別。下載包含文字模型和分詞器。
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	辨識照片內容（演講者、觀眾、細節等），讓智慧分類能將照片放入合適的資料夾。在 CPU 上執行；照片始終保留在此電腦上。
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	根據您的描述為智慧分類辨識場景。快速的本機模型可辨識演講者、觀眾、細節及其他自選類別。下載包含文字模型和分詞器。
 	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	找出照片的主體。用於選取 › 主體、移除背景（快速）、物件選取工具的點按模式，以及圖庫的主體與背景遮色片。
 	Finds the sky. Used by Select › Sky and the Library's sky masks.	找出天空。用於選取 › 天空以及圖庫的天空遮色片。
 	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	估計照片各部分的遠近。用於圖庫的深度遮色片（例如壓暗或模糊背景，或依距離選取前景）。
