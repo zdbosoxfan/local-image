@@ -294,7 +294,6 @@ fn subsample_max_one_returns_first_element() {
 }
 
 #[test]
-#[ignore = "BUG: subsample max=0 panics due to div_ceil(0)"]
 fn subsample_max_zero_does_not_panic() {
     let v = vec![1, 2, 3];
     let _ = subsample(&v, 0);

@@ -241,7 +241,6 @@ fn seamless_blend_constant_offset_matches_border() {
 }
 
 #[test]
-#[ignore = "BUG: seamless_blend panics on truncated src/dst buffers"]
 fn seamless_blend_truncated_input_does_not_panic() {
     let (w, h, n) = (8, 8, 3);
     let src = vec![0.5; 10]; // much shorter than w*h*n

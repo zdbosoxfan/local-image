@@ -353,7 +353,7 @@ fn min_points(model: Model) -> usize {
 pub fn ransac(model: Model, src: &[[f64; 2]], dst: &[[f64; 2]], iters: usize, threshold: f64, seed: u64) -> Option<(Homography, Vec<usize>)> {
     let k = min_points(model);
     let n = src.len();
-    if n < k {
+    if dst.len() != n || n < k {
         return None;
     }
     let mut rng = Rng(seed ^ 0xA11C_0DE5);

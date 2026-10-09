@@ -627,6 +627,9 @@ impl Rng {
 
 /// Every `k`-th element so that at most `max` remain.
 pub fn subsample<T: Copy>(v: &[T], max: usize) -> Vec<T> {
+    if max == 0 {
+        return Vec::new();
+    }
     if v.len() <= max {
         return v.to_vec();
     }
