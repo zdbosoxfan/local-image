@@ -127,22 +127,150 @@ fn extract(cx: &mut Cx<'_>, a: &Buf, n: usize, nc: usize, channels: usize, off: 
     one(cx, "p_extract", n, &[nc as u32, channels as u32, off as u32], a, n * channels)
 }
 fn eigf(cx: &mut Cx<'_>, input: &Buf, w: usize, h: usize, sigma: f32, eps: f32, iterations: usize, quant: f32) -> Buf {
+    eigf_with_geometric(cx, input, w, h, sigma, eps, iterations, quant, false)
+}
+// The CPU rounds log2 to f32 before floor. Its transition can be a few floats below
+// an exact power of two. Resolve these 17 scalar boundaries once; pixel selection
+// uses integer comparisons, never the driver's approximate transcendental result.
+fn quantization_words(quant: f32) -> Vec<u32> {
+    let mut words = vec![quant.to_bits()];
+    if quant == 1.0 {
+        for ev in -14..=2 {
+            let power = 2f32.powi(ev).to_bits();
+            let threshold = (power - 64..=power).find(|bits| f32::from_bits(*bits).log2().floor() >= ev as f32).unwrap_or(power);
+            words.push(threshold);
+        }
+    }
+    words
+}
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn eigf_with_geometric(
+    cx: &mut Cx<'_>,
+    input: &Buf,
+    w: usize,
+    h: usize,
+    sigma: f32,
+    eps: f32,
+    iterations: usize,
+    quant: f32,
+    geometric: bool,
+) -> Buf {
+    eigf_impl(cx, input, w, h, sigma, eps, iterations, quant, geometric, None)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn toneeq_eigf(cx: &mut Cx<'_>, lin: &Buf, lum: &Buf, w: usize, h: usize, sigma: f32, eps: f32, gain: f32, slope: f32) -> Buf {
+    let reference = std::env::var_os("LC_TONEEQ_TRACE").map(|_| {
+        let rgb = cx.read_rgb(lin, w, h);
+        let cpu = rgb.map(|c| {
+            let n = (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt() * gain;
+            ((n - 0.0625) * slope + 0.0625).max(2f32.powi(-16))
+        });
+        let actual: Vec<f32> = cx.read(lum, w * h);
+        trace_difference("compensated luminance", &cpu.data, &actual, w, 1);
+        cpu
+    });
+    eigf_impl(cx, lum, w, h, sigma, eps, 2, 1.0, true, reference)
+}
+
+fn trace_difference(label: &str, cpu: &[f32], gpu: &[f32], w: usize, nc: usize) {
+    let mut worst = Vec::new();
+    let mut changed = 0usize;
+    for (i, (&p, &q)) in cpu.iter().zip(gpu).enumerate() {
+        if p.to_bits() == q.to_bits() {
+            continue;
+        }
+        changed += 1;
+        let d = (p - q).abs();
+        let at = worst.iter().position(|&(error, _, _, _)| d > error).unwrap_or(worst.len());
+        if at < 8 {
+            worst.insert(at, (d, i, p, q));
+            worst.truncate(8);
+        }
+    }
+    eprintln!("toneeq {label}: {changed}/{} changed scalars", cpu.len());
+    for (d, i, p, q) in worst {
+        let pixel = i / nc;
+        eprintln!("  ({}, {}) ch{} CPU={p:.9e} [{:08x}] GPU={q:.9e} [{:08x}] delta={d:.9e}", pixel % w, pixel / w, i % nc, p.to_bits(), q.to_bits());
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn eigf_impl(
+    cx: &mut Cx<'_>,
+    input: &Buf,
+    w: usize,
+    h: usize,
+    sigma: f32,
+    eps: f32,
+    iterations: usize,
+    quant: f32,
+    geometric: bool,
+    mut reference: Option<lightcraft_raster::Plane>,
+) -> Buf {
     let scale = sigma.clamp(1., 4.);
     let dim = ((w as f32 / scale) as usize, (h as f32 / scale) as usize);
     let dim = (dim.0.max(1), dim.1.max(1));
     let dn = dim.0 * dim.1;
     let nc = if quant == 0. { 2 } else { 4 };
+    let quant_words = quantization_words(quant);
     let mut out = cx.copy(input);
-    for _ in 0..iterations {
+    for iteration in 0..iterations {
         let ds = interpolate(cx, &out, (w, h), dim, 1);
-        let mask = (quant != 0.).then(|| one(cx, "p_quant", w * h, &[f(quant)], &out, w * h));
+        let mask = (quant != 0.).then(|| one(cx, "p_quant", w * h, &quant_words, &out, w * h));
         let guide = interpolate(cx, mask.as_ref().unwrap_or(&out), (w, h), dim, 1);
         let moments = run(cx, "p_moments", dn, &[nc as u32], [Some(&guide), Some(&ds), None, None, None], dn * nc);
         let limit = bounds(cx, &moments, dn, nc, 1e7, 0.);
         let av = deriche(cx, &moments, dim.0, dim.1, nc, (sigma / scale).max(1.), Some(&limit), f32::MAX);
         let av = one(cx, "p_variance", dn, &[nc as u32], &av, dn * nc);
         let av = interpolate(cx, &av, dim, (w, h), nc);
-        out = run(cx, "p_eigf_apply", w * h, &[nc as u32, f(eps)], [Some(&out), Some(&av), mask.as_ref(), None, None], w * h);
+        out = run(
+            cx,
+            "p_eigf_apply",
+            w * h,
+            &[nc as u32, f(eps), (geometric && iteration + 1 == iterations) as u32],
+            [Some(&out), Some(&av), mask.as_ref(), None, None],
+            w * h,
+        );
+        if let Some(cpu) = &mut reference {
+            use lightcraft_pipeline::eigf;
+            eprintln!("toneeq EIGF iteration {}: {}x{}, downsample {}x{}, sigma={sigma}, eps={eps}", iteration + 1, w, h, dim.0, dim.1);
+            let ds_cpu = eigf::interpolate(&cpu.data, w, h, dim.0, dim.1, 1);
+            let mask_cpu: Vec<_> = cpu.data.iter().map(|v| v.log2().floor().exp2().clamp(2f32.powi(-14), 4.0)).collect();
+            let guide_cpu = eigf::interpolate(&mask_cpu, w, h, dim.0, dim.1, 1);
+            let moments_cpu: Vec<_> = guide_cpu.iter().zip(&ds_cpu).flat_map(|(&g, &m)| [g, g * g, m, m * g]).collect();
+            let mut min = [1e7f32; 4];
+            let mut max = [0f32; 4];
+            for pix in moments_cpu.as_chunks::<4>().0 {
+                for ch in 0..4 {
+                    min[ch] = min[ch].min(pix[ch]);
+                    max[ch] = max[ch].max(pix[ch]);
+                }
+            }
+            let mut avg = eigf::gaussian(&moments_cpu, dim.0, dim.1, 4, (sigma / scale).max(1.0), &min, &max);
+            for pix in avg.as_chunks_mut::<4>().0 {
+                pix[1] -= pix[0] * pix[0];
+                pix[3] -= pix[0] * pix[2];
+            }
+            let avg = eigf::interpolate(&avg, dim.0, dim.1, w, h, 4);
+            let mut p = eigf::Params::new(sigma, eps);
+            p.iterations = 1;
+            p.quantization = 1.0;
+            p.geometric = geometric && iteration + 1 == iterations;
+            let result = eigf::filter(cpu, p);
+            for (label, expected, buffer, count, width, channels) in [
+                ("downsample", &ds_cpu, &ds, dn, dim.0, 1),
+                ("quantized guidance", &mask_cpu, mask.as_ref().unwrap_or(input), w * h, w, 1),
+                ("resampled guidance", &guide_cpu, &guide, dn, dim.0, 1),
+                ("moments", &moments_cpu, &moments, dn * 4, dim.0, 4),
+                ("variance/covariance", &avg, &av, w * h * 4, w, 4),
+                ("filtered", &result.data, &out, w * h, w, 1),
+            ] {
+                let actual: Vec<f32> = cx.read(buffer, count);
+                trace_difference(label, expected, &actual, width, channels);
+            }
+            *cpu = result;
+        }
     }
     out
 }
@@ -691,11 +819,30 @@ pub(crate) fn clip_plane(cx: &mut Cx<'_>, rgb: &Buf, n: usize) -> Buf {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use lightcraft_pipeline::{RenderRequest, primary};
     use lightcraft_raster::{Plane, Rgb32f};
-    fn device() -> Option<&'static crate::ctx::Gpu> {
+    #[test]
+    fn native_power_bin_boundaries_match_cpu_rounded_log() {
+        let Some(g) = crate::test_device().or_else(device) else { return };
+        let _scope = crate::ctx::RenderScope::new(g);
+        let mut cx = Cx::new(g);
+        let values: Vec<_> = (-16..=4)
+            .flat_map(|ev| {
+                let bits = 2f32.powi(ev).to_bits();
+                (bits - 64..=bits + 64).map(f32::from_bits)
+            })
+            .collect();
+        let input = g.upload(&values);
+        let out = one(&mut cx, "p_quant", values.len(), &quantization_words(1.0), &input, values.len());
+        let actual: Vec<f32> = cx.read(&out, values.len());
+        for (v, q) in values.into_iter().zip(actual) {
+            let expected = v.log2().floor().exp2().clamp(2f32.powi(-14), 4.0);
+            assert_eq!(q.to_bits(), expected.to_bits(), "input {v:?} bits {:08x}, CPU log {}", v.to_bits(), v.log2());
+        }
+    }
+    pub(crate) fn device() -> Option<&'static crate::ctx::Gpu> {
         static DEVICE: std::sync::OnceLock<Result<crate::ctx::Gpu, String>> = std::sync::OnceLock::new();
         match DEVICE.get_or_init(crate::ctx::Gpu::numerical_test_device) {
             Ok(g) => Some(g),

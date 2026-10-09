@@ -243,3 +243,44 @@ fn ai_remove_is_in_the_gpu_render() {
     let v = views(&mut s, id, 480, &stages);
     assert_eq!(v.view, plain.view, "undone: the photo as before");
 }
+
+#[test]
+fn native_tone_equalizer_layers_and_depth_use_engine_gpu_stages() {
+    let _gpu = gpu_state();
+    if !gpu() {
+        return;
+    }
+    use lightcraft_develop::{DevelopSettings, Mask, MaskComponent, MaskOp, MaskShape, SegMask, ToneCurve};
+    let src = Arc::new(Rgb32f::from_fn(129, 91, |x, y| {
+        let v = 0.004 + x as f32 * 0.006;
+        [v, v * 0.6 + 0.02, v * 0.3 + y as f32 * 0.0002]
+    }));
+    let info = SourceInfo::default();
+    let mut s = DevelopSettings::default();
+    s.tone_eq.enabled = true;
+    s.tone_eq.ev5 = 1.0;
+    s.tone_eq.ev2 = -0.7;
+    s.masks.push(Mask {
+        components: vec![MaskComponent {
+            name: None,
+            op: MaskOp::Add,
+            invert: false,
+            shape: MaskShape::DepthRange {
+                lo: 0.2,
+                hi: 0.7,
+                feather: 0.1,
+                seg: Some(SegMask::from_logits(3, &[-3.0, -2.0, -1.0, 0.0, 0.5, 1.0, 2.0, 3.0, 4.0])),
+            },
+        }],
+        opacity: 70.0,
+        ..Default::default()
+    });
+    s.masks[0].tools.curve = Some(ToneCurve { darks: 40.0, ..Default::default() });
+    let stages = StageCache::default();
+    for overlay in [lightcraft_pipeline::Overlay::None, lightcraft_pipeline::Overlay::ToneEqMask] {
+        let req = RenderRequest { overlay, ..RenderRequest::fit(97, 97) };
+        let image = crate::media::develop(&src, &info, &s, &req, Some(&stages), true).image;
+        assert_close("native tools through engine", &lightcraft_pipeline::render(&src, &info, &s, &req).image, &image);
+        assert!(lightcraft_gpu::stage_bytes(&stages) > 0, "the engine used device stages");
+    }
+}
