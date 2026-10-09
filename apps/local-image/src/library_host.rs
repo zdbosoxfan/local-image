@@ -656,5 +656,6 @@ fn services(opens: Opens) -> Services {
         })),
         backup_library: None,
         restore_library: None,
+        doc_layers: None,
     }
 }
