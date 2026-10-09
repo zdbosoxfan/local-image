@@ -47,8 +47,6 @@ the connected ComfyUI (`/templates`) or this repository.
     model is Apache-2.0, unlike Base/Large, which are not used). The ONNX export
     `depth_anything_v2_vits_dynamic.onnx` is from **fabio-sim/Depth-Anything-ONNX** release v2.0.0
     (<https://github.com/fabio-sim/Depth-Anything-ONNX>, Apache-2.0).
-  * **MiDaS v2.1 small** (`model-small.onnx`, <https://github.com/isl-org/MiDaS> release v2_1,
-    MIT, Copyright (c) 2019 Intel ISL), the fallback.
 
 ## Ideas only (no code)
 

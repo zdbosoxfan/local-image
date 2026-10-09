@@ -1,4 +1,4 @@
-//! local-image: learned subject segmentation (`li-seg`, U²-Net / IS-Net on the CPU) behind
+//! local-image: learned subject segmentation (`li-seg`, IS-Net or a custom model on the CPU) behind
 //! Select › Subject, Remove Background and the Object Selection tool's click mode. It is used when
 //! a segmentation model is installed (Local AI window › Selection models); otherwise those commands
 //! keep PhotoCraft's classical saliency + GrabCut.
@@ -16,8 +16,8 @@ pub fn models_dir() -> PathBuf {
 }
 
 /// The installed model the commands would use, if any.
-pub fn installed() -> Option<&'static li_seg::ModelSpec> {
-    li_seg::best_installed(&models_dir()).map(|(s, _)| s)
+pub fn installed() -> Option<li_seg::InUse> {
+    li_seg::Group::Subject.in_use(&models_dir())
 }
 
 /// `"engine"`: `auto` (learned when installed), `classic` or `learned` (an error without a model).
@@ -125,8 +125,8 @@ pub fn quick_prior(doc: &Document, layer: Option<LayerId>, all_layers: bool) -> 
 }
 
 /// The installed sky model, if any.
-pub fn sky_installed() -> Option<&'static li_seg::ModelSpec> {
-    li_seg::best_sky(&models_dir()).map(|(s, _)| s)
+pub fn sky_installed() -> Option<li_seg::InUse> {
+    li_seg::Group::Sky.in_use(&models_dir())
 }
 
 /// Sky probability over the canvas from the sky model, its edges snapped to the image with a

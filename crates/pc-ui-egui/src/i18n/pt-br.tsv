@@ -3057,3 +3057,28 @@ ai	New	Novos
 	Search attributions…	Pesquisar atribuições…
 	No matches.	Nenhum resultado.
 	Show licence text	Mostrar o texto da licença
+	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Encontra o assunto principal de uma foto. Usado por Seleção › Assunto, Remover plano de fundo (rápido), pelo modo de clique da ferramenta de seleção de objetos e pelas máscaras de assunto e fundo da Biblioteca.
+	Finds the sky. Used by Select › Sky and the Library's sky masks.	Encontra o céu. Usado por Seleção › Céu e pelas máscaras de céu da Biblioteca.
+	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Estima a distância de cada parte de uma foto. Usado pelas máscaras de profundidade da Biblioteca (por ex., para escurecer ou desfocar o fundo, ou escolher o primeiro plano pela distância).
+	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	Encontra o assunto com as bordas mais finas (cabelo, pelos, detalhes delicados). A melhor qualidade para Selecionar assunto e Remover plano de fundo; leva um ou dois segundos por foto.
+	Clean edges between near and far, good on most photos. Takes a few seconds per photo.	Bordas limpas entre perto e longe, bom para a maioria das fotos. Leva alguns segundos por foto.
+	Custom: {name}	Personalizado: {name}
+	Use official model	Usar o modelo oficial
+	Your own model, run on the CPU instead of the official one.	Seu próprio modelo, executado no processador em vez do oficial.
+	{name} · {size} download · runs on the CPU · {licence}	{name} · download de {size} · roda no processador · {licence}
+	Custom model…	Modelo personalizado…
+	Pick any .onnx model that does this. It is copied into the models folder and used instead of the official one.	Escolha qualquer modelo .onnx para esta função. Ele é copiado para a pasta de modelos e usado no lugar do oficial.
+	Input style:	Estilo de entrada:
+	IS-Net style	Estilo IS-Net
+	U²-Net / ImageNet style	Estilo U²-Net / ImageNet
+	Sky class:	Classe do céu:
+	Only used when the model gives one map per class (ADE20K: 2).	Usado apenas quando o modelo fornece um mapa por classe (ADE20K: 2).
+	Testing the model…	Testando o modelo…
+	Choose an ONNX file…	Escolher um arquivo ONNX…
+	That model can't be used: {error}	Esse modelo não pode ser usado: {error}
+	Choose an ONNX model	Escolher um modelo ONNX
+	ONNX model	Modelo ONNX
+	Remove old models ({size})	Remover modelos antigos ({size})
+	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	Move para a Lixeira os modelos que o app não usa mais (U²-Net, TinySkyNet, MiDaS).
+	the old models	os modelos antigos
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	Modelos pequenos que rodam no processador deste computador: sem ComfyUI nem GPU, downloads rápidos e suas fotos nunca saem do computador. Cada função tem um modelo recomendado; você pode usar o seu próprio modelo ONNX no lugar.

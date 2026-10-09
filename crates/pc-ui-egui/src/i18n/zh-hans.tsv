@@ -2636,3 +2636,28 @@ ai	New	最新
 	Search attributions…	搜索致谢与许可…
 	No matches.	没有匹配项。
 	Show licence text	显示许可证全文
+	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	找出照片的主体。用于选择 › 主体、移除背景（快速）、对象选择工具的点击模式，以及图库的主体和背景蒙版。
+	Finds the sky. Used by Select › Sky and the Library's sky masks.	找出天空。用于选择 › 天空和图库的天空蒙版。
+	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	估计照片各部分的远近。用于图库的深度蒙版（例如压暗或模糊背景，或按距离选择前景）。
+	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	以最精细的边缘找出主体（头发、毛发、细小细节）。选择主体和移除背景的最佳质量；每张照片约需一两秒。
+	Clean edges between near and far, good on most photos. Takes a few seconds per photo.	远近之间边缘干净，适合大多数照片。每张照片约需几秒。
+	Custom: {name}	自定义：{name}
+	Use official model	使用官方模型
+	Your own model, run on the CPU instead of the official one.	您自己的模型，在 CPU 上运行，取代官方模型。
+	{name} · {size} download · runs on the CPU · {licence}	{name} · 下载 {size} · 在 CPU 上运行 · {licence}
+	Custom model…	自定义模型…
+	Pick any .onnx model that does this. It is copied into the models folder and used instead of the official one.	为此功能选择任意 .onnx 模型。它会被复制到模型文件夹，并取代官方模型使用。
+	Input style:	输入方式：
+	IS-Net style	IS-Net 方式
+	U²-Net / ImageNet style	U²-Net / ImageNet 方式
+	Sky class:	天空类别：
+	Only used when the model gives one map per class (ADE20K: 2).	仅当模型为每个类别输出一张图时使用（ADE20K：2）。
+	Testing the model…	正在测试模型…
+	Choose an ONNX file…	选择 ONNX 文件…
+	That model can't be used: {error}	无法使用该模型：{error}
+	Choose an ONNX model	选择 ONNX 模型
+	ONNX model	ONNX 模型
+	Remove old models ({size})	移除旧模型（{size}）
+	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	将应用不再使用的模型（U²-Net、TinySkyNet、MiDaS）移到废纸篓。
+	the old models	旧模型
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	在这台电脑的处理器上运行的小型模型：无需 ComfyUI 或 GPU，下载快，照片不会离开这台电脑。每项功能有一个推荐模型；您也可以改用自己的 ONNX 模型。
