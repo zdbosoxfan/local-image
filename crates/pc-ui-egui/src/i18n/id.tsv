@@ -3037,9 +3037,9 @@ ai	New	Baru
 	Search attributions…	Cari atribusi…
 	No matches.	Tidak ada yang cocok.
 	Show licence text	Tampilkan teks lisensi
-	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Menemukan subjek utama foto. Dipakai oleh Pilih › Subjek, Hapus Latar Belakang (Cepat), mode klik alat Pilihan Objek, serta mask Subjek dan Latar Belakang di Pustaka.
-	Finds the sky. Used by Select › Sky and the Library's sky masks.	Menemukan langit. Dipakai oleh Pilih › Langit dan mask langit di Pustaka.
-	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Memperkirakan seberapa jauh setiap bagian foto. Dipakai oleh mask kedalaman di Pustaka (misalnya untuk menggelapkan atau mengaburkan latar belakang, atau memilih latar depan berdasarkan jarak).
+	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Menemukan subjek utama foto. Dipakai oleh Pilih › Subjek, Hapus Latar Belakang (Cepat), mode klik Alat Seleksi Objek, serta masker Subjek dan Latar Belakang di Pustaka.
+	Finds the sky. Used by Select › Sky and the Library's sky masks.	Menemukan langit. Dipakai oleh Pilih › Langit dan masker langit di Pustaka.
+	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Memperkirakan seberapa jauh setiap bagian foto. Dipakai oleh masker kedalaman di Pustaka (misalnya untuk menggelapkan atau mengaburkan latar belakang, atau memilih latar depan berdasarkan jarak).
 	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	Menemukan subjek dengan tepi paling halus (rambut, bulu, detail tipis). Kualitas terbaik untuk Pilih Subjek dan Hapus Latar Belakang; butuh satu-dua detik per foto.
 	Clean edges between near and far, good on most photos. Takes a few seconds per photo.	Tepi bersih antara dekat dan jauh, bagus untuk sebagian besar foto. Butuh beberapa detik per foto.
 	Custom: {name}	Kustom: {name}

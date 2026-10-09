@@ -2693,21 +2693,21 @@ ai	New	Nuevos
 	Search attributions…	Buscar atribuciones…
 	No matches.	No hay coincidencias.
 	Show licence text	Mostrar el texto de la licencia
-	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Encuentra el sujeto principal de una foto. Lo usan Selección › Sujeto, Quitar fondo (rápido), el modo de clic de la herramienta de selección de objetos y las máscaras de sujeto y fondo de la Biblioteca.
-	Finds the sky. Used by Select › Sky and the Library's sky masks.	Encuentra el cielo. Lo usan Selección › Cielo y las máscaras de cielo de la Biblioteca.
-	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Estima la distancia de cada parte de una foto. Lo usan las máscaras de profundidad de la Biblioteca (p. ej. para oscurecer o desenfocar el fondo, o elegir el primer plano según la distancia).
-	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	Encuentra el sujeto con los bordes más finos (pelo, pelaje, detalles delgados). La mejor calidad para Seleccionar sujeto y Quitar fondo; tarda uno o dos segundos por foto.
+	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Encuentra el sujeto principal de una foto. Se usa en Selección › Sujeto, Quitar fondo (rápido), el modo de clic de la herramienta Selección de objetos y las máscaras de sujeto y fondo de la Biblioteca.
+	Finds the sky. Used by Select › Sky and the Library's sky masks.	Encuentra el cielo. Se usa en Selección › Cielo y las máscaras de cielo de la Biblioteca.
+	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Estima la distancia de cada parte de una foto. Se usa en las máscaras de profundidad de la Biblioteca (p. ej., para oscurecer o desenfocar el fondo, o elegir el primer plano según la distancia).
+	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	Encuentra el sujeto con los bordes más finos (pelo, pelaje, detalles finos). La mejor calidad para Seleccionar sujeto y Quitar fondo; tarda uno o dos segundos por foto.
 	Clean edges between near and far, good on most photos. Takes a few seconds per photo.	Bordes limpios entre cerca y lejos, bueno en la mayoría de las fotos. Tarda unos segundos por foto.
 	Custom: {name}	Personalizado: {name}
 	Use official model	Usar el modelo oficial
-	Your own model, run on the CPU instead of the official one.	Su propio modelo, ejecutado en el procesador en lugar del oficial.
-	{name} · {size} download · runs on the CPU · {licence}	{name} · descarga de {size} · se ejecuta en el procesador · {licence}
+	Your own model, run on the CPU instead of the official one.	Su propio modelo, ejecutado en la CPU en lugar del oficial.
+	{name} · {size} download · runs on the CPU · {licence}	{name} · descarga de {size} · se ejecuta en la CPU · {licence}
 	Custom model…	Modelo personalizado…
 	Pick any .onnx model that does this. It is copied into the models folder and used instead of the official one.	Elija cualquier modelo .onnx para esta función. Se copia en la carpeta de modelos y se usa en lugar del oficial.
 	Input style:	Estilo de entrada:
 	IS-Net style	Estilo IS-Net
 	U²-Net / ImageNet style	Estilo U²-Net / ImageNet
-	Sky class:	Clase del cielo:
+	Sky class:	Clase de cielo:
 	Only used when the model gives one map per class (ADE20K: 2).	Solo se usa cuando el modelo da un mapa por clase (ADE20K: 2).
 	Testing the model…	Probando el modelo…
 	Choose an ONNX file…	Elegir un archivo ONNX…

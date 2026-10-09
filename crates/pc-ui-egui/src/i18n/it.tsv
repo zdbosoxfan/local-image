@@ -2703,7 +2703,7 @@ ai	New	Nuovi
 	Custom: {name}	Personalizzato: {name}
 	Use official model	Usa il modello ufficiale
 	Your own model, run on the CPU instead of the official one.	Il tuo modello, eseguito sulla CPU al posto di quello ufficiale.
-	{name} · {size} download · runs on the CPU · {licence}	{name} · download di {size} · funziona sulla CPU · {licence}
+	{name} · {size} download · runs on the CPU · {licence}	{name} · {size} di download · funziona sulla CPU · {licence}
 	Custom model…	Modello personalizzato…
 	Pick any .onnx model that does this. It is copied into the models folder and used instead of the official one.	Scegli un qualsiasi modello .onnx per questa funzione. Viene copiato nella cartella dei modelli e usato al posto di quello ufficiale.
 	Input style:	Stile di input:
@@ -2719,4 +2719,4 @@ ai	New	Nuovi
 	Remove old models ({size})	Rimuovi i modelli vecchi ({size})
 	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	Sposta nel Cestino i modelli che l'app non usa più (U²-Net, TinySkyNet, MiDaS).
 	the old models	i modelli vecchi
-	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	Piccoli modelli che funzionano sul processore di questo computer: nessun ComfyUI o GPU necessari, download rapidi e le tue foto non lasciano mai il computer. Ogni funzione ha un modello consigliato; puoi usare invece un tuo modello ONNX.
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	Piccoli modelli che funzionano sul processore di questo computer: né ComfyUI né GPU necessari, download rapidi e le tue foto non lasciano mai il computer. Ogni funzione ha un modello consigliato; puoi usare invece un tuo modello ONNX.

@@ -2628,8 +2628,8 @@ ai	New	Nové
 	Search attributions…	Hledat v atribucích…
 	No matches.	Žádné shody.
 	Show licence text	Zobrazit text licence
-	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Najde hlavní objekt na fotografii. Používá ho Výběr › Objekt, Odstranit pozadí (rychle), režim kliknutí nástroje Výběr objektu a masky Objekt a Pozadí v Knihovně.
-	Finds the sky. Used by Select › Sky and the Library's sky masks.	Najde oblohu. Používá ji Výběr › Obloha a masky oblohy v Knihovně.
+	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Najde hlavní objekt na fotografii. Používají ho Výběr › Objekt, Odstranit pozadí (rychle), režim kliknutí nástroje Výběr objektu a masky Objekt a Pozadí v Knihovně.
+	Finds the sky. Used by Select › Sky and the Library's sky masks.	Najde oblohu. Používají ho Výběr › Obloha a masky oblohy v Knihovně.
 	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Odhaduje, jak daleko je každá část fotografie. Používají ho masky hloubky v Knihovně (např. ke ztmavení nebo rozostření pozadí či výběru popředí podle vzdálenosti).
 	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	Najde objekt s nejjemnějšími okraji (vlasy, srst, tenké detaily). Nejlepší kvalita pro Vybrat objekt a Odstranit pozadí; zabere sekundu nebo dvě na fotografii.
 	Clean edges between near and far, good on most photos. Takes a few seconds per photo.	Čisté okraje mezi blízkým a vzdáleným, vhodné pro většinu fotografií. Zabere několik sekund na fotografii.
