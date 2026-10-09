@@ -3,6 +3,7 @@
 
 pub mod bursts;
 pub mod classify;
+pub mod examples;
 #[doc(hidden)]
 pub mod mock;
 pub mod plan;
