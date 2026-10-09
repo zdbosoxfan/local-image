@@ -17,6 +17,9 @@ const ALLOWED_HOSTS: &[&str] = &[
     "github.com",
     "release-assets.githubusercontent.com",
     "objects.githubusercontent.com",
+    // files committed to a repository at a pinned commit (li-seg's sky models; size and SHA-256
+    // are checked like every other download)
+    "raw.githubusercontent.com",
     "huggingface.co",
     "cdn-lfs.huggingface.co",
     "cdn-lfs.hf.co",
@@ -303,6 +306,9 @@ mod tests {
         assert!(!host_allowed("http://huggingface.co/x"));
         assert!(!host_allowed("https://huggingface.co.evil.com/x"));
         assert!(!host_allowed("https://example.com/x"));
+        // li-seg's sky models (Settings › Local AI) are served from here
+        assert!(host_allowed("https://raw.githubusercontent.com/kisakutanaka/SkySegmentation/4f1715a/models/x.onnx"));
+        assert!(!host_allowed("https://raw.githubusercontent.com.evil.com/x"));
     }
 
     #[test]

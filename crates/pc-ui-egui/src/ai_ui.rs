@@ -1065,3 +1065,14 @@ pub fn on_job_event(app: &mut PhotocraftApp, e: &JobEvent) -> bool {
     }
     false
 }
+
+#[cfg(test)]
+mod tests {
+    /// Every local CPU model Settings offers must come from a host the downloader accepts (the
+    /// sky models' host was missing, so both refused to download).
+    #[test]
+    fn every_local_model_downloads_from_an_allowed_host() {
+        let refused: Vec<_> = li_seg::MODELS.iter().filter(|m| !li_ai::download::host_allowed(m.url)).map(|m| (m.id, m.url)).collect();
+        assert!(refused.is_empty(), "{refused:?}");
+    }
+}
