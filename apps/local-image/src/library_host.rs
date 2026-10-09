@@ -13,6 +13,15 @@
 //! photo's develop settings whenever you come back from Develop. Double-clicking a Develop layer
 //! goes to Develop on its photo.
 //!
+//! **Camera Raw Filter** (Filter › Camera Raw Filter… in Compositing) is edited in the real
+//! Develop module: the editor asks for a session (`develop_filter.request`: the layer's pixels,
+//! settings and name); the host opens the pixels as a temporary photo the Library never saves
+//! (`Session::open_ephemeral`), shows Develop with a "Camera Raw Filter · ‹layer› — Cancel / OK"
+//! banner (Library-only actions hidden), and on OK hands the settings back
+//! (`develop_filter_ui::finish`, one history step) and returns to Compositing; Cancel (or leaving
+//! the session with the module switch) changes nothing. Going from Compositing to Develop with a
+//! layered document that has no Develop layer asks how to develop it (`on_switch_to_develop`).
+//!
 //! The library opens lazily, the first time Library or Develop is shown.
 
 use std::path::PathBuf;
@@ -36,6 +45,22 @@ pub struct Host {
     /// The Library's active photo when Compositing was last left: coming back with the same photo
     /// returns to what was open there instead of bringing the photo forward again.
     left_compositing_with: Option<u64>,
+    /// The Camera Raw Filter session open in Develop.
+    camera_raw: Option<CameraRawSession>,
+}
+
+/// An open Camera Raw Filter session: the temporary photo and the Library view to restore.
+struct CameraRawSession {
+    photo: lightcraft_catalog::PhotoId,
+    name: String,
+    view: lightcraft_ui_egui::state::ViewMode,
+    right: lightcraft_ui_egui::state::RightPanel,
+    left_panel: bool,
+}
+
+/// Where the Camera Raw Filter's temporary images go (emptied at startup and when a session ends).
+fn camera_raw_dir() -> PathBuf {
+    config_dir().map(|d| d.join("cache").join("camera-raw")).unwrap_or_else(|| std::env::temp_dir().join("local-image-camera-raw"))
 }
 
 impl Host {
@@ -43,7 +68,17 @@ impl Host {
         let mut editor = editor;
         editor.host_modes = std::env::var_os("LOCAL_IMAGE_NO_LIBRARY").is_none();
         let mode = if editor.host_modes { last_module() } else { Module::Compositing };
-        Self { editor, library: None, prefs: PrefsWriter::default(), mode, styled: None, opens: Arc::default(), frames: 0, left_compositing_with: None }
+        Self {
+            editor,
+            library: None,
+            prefs: PrefsWriter::default(),
+            mode,
+            styled: None,
+            opens: Arc::default(),
+            frames: 0,
+            left_compositing_with: None,
+            camera_raw: None,
+        }
     }
 
     fn library(&mut self) -> &mut LightcraftApp {
@@ -80,11 +115,100 @@ impl Host {
         }
     }
 
+    /// Opens the Camera Raw Filter session the editor asked for.
+    fn start_camera_raw(&mut self, ctx: &egui::Context) {
+        let Some(req) = self.editor.develop_filter.request.take() else { return };
+        if self.camera_raw.is_some() {
+            let _ = photocraft_ui_egui::develop_filter_ui::finish(&mut self.editor, None);
+            return;
+        }
+        let dir = camera_raw_dir();
+        let lib = self.library();
+        match lib.session.open_ephemeral(&dir, &req.name, req.width, req.height, &req.rgb, &req.settings) {
+            Ok(photo) => {
+                use lightcraft_ui_egui::state::{RightPanel, ViewMode};
+                let session = CameraRawSession { photo, name: req.name.clone(), view: lib.ui.view, right: lib.ui.right, left_panel: lib.ui.left_panel };
+                lib.host_session = Some(lightcraft_ui_egui::panels::host_session::HostSession::new(req.name, req.hidden));
+                lib.ui.view = ViewMode::Detail;
+                lib.ui.right = RightPanel::Edit;
+                self.camera_raw = Some(session);
+                self.mode = Module::Develop;
+                self.styled = None;
+                ctx.request_repaint();
+            }
+            Err(e) => {
+                let _ = photocraft_ui_egui::develop_filter_ui::finish(&mut self.editor, None);
+                self.editor.ui.status = format!("Camera Raw Filter: {e}");
+                self.editor.ui.status_error = true;
+            }
+        }
+    }
+
+    /// Ends the session: OK applies the settings in Compositing, Cancel changes nothing.
+    fn end_camera_raw(&mut self, ctx: &egui::Context, ok: bool) {
+        let Some(cr) = self.camera_raw.take() else { return };
+        let settings = match self.library.as_mut() {
+            Some(lib) => {
+                let settings = lib.session.close_ephemeral();
+                lib.host_session = None;
+                lib.ui.view = cr.view;
+                lib.ui.right = cr.right;
+                lib.ui.left_panel = cr.left_panel;
+                settings
+            }
+            None => None,
+        };
+        if let Err(e) = photocraft_ui_egui::develop_filter_ui::finish(&mut self.editor, if ok { settings } else { None }) {
+            self.editor.ui.status = format!("Camera Raw Filter: {e}");
+            self.editor.ui.status_error = true;
+        }
+        self.mode = Module::Compositing;
+        self.styled = None;
+        ctx.request_repaint();
+    }
+
+    /// Keeps the session in Develop on its photo, and takes the banner's answer.
+    fn camera_raw_tick(&mut self, ctx: &egui::Context) {
+        let Some(photo) = self.camera_raw.as_ref().map(|c| c.photo) else { return };
+        let Some(lib) = self.library.as_mut() else { return };
+        let answer = lib.host_session.as_mut().and_then(|h| h.result.take());
+        if lib.session.ephemeral_photo() != Some(photo) {
+            // the Library dropped it (another library opened…): nothing to apply
+            return self.end_camera_raw(ctx, false);
+        }
+        if let Some(ok) = answer {
+            return self.end_camera_raw(ctx, ok);
+        }
+        use lightcraft_ui_egui::state::{RightPanel, ViewMode};
+        lib.ui.view = ViewMode::Detail;
+        if !lib.ui.right.is_edit_tool() || lib.ui.right == RightPanel::Crop {
+            lib.ui.right = RightPanel::Edit;
+        }
+        if lib.session.active() != Some(photo) {
+            lib.session.selection = lightcraft_engine::Selection::single(photo);
+        }
+    }
+
     fn switch(&mut self, ctx: &egui::Context, to: Module) {
         if self.mode == to || !self.editor.host_modes {
             return;
         }
+        // Leaving a Camera Raw Filter session with the module switch cancels it.
+        if self.camera_raw.is_some() {
+            self.end_camera_raw(ctx, false);
+            return;
+        }
         let from = self.mode;
+        // Compositing → Develop on a layered document with no Develop layer: ask how (or apply
+        // the remembered answer); the session or the switch follows.
+        if from == Module::Compositing
+            && to == Module::Develop
+            && photocraft_ui_egui::develop_layer::active_photo(&self.editor).is_none()
+            && !photocraft_ui_egui::develop_filter_ui::on_switch_to_develop(&mut self.editor, ctx)
+        {
+            ctx.request_repaint();
+            return;
+        }
         if from == Module::Compositing {
             self.left_compositing_with = self.library.as_ref().and_then(|l| l.session.active()).map(|id| id.0);
             // A Develop layer's photo becomes the Library's active photo, so Develop opens on it.
@@ -218,7 +342,15 @@ impl eframe::App for Host {
             self.mode = Module::Compositing;
             self.switch(ctx, Module::Develop);
         }
+        // Filter › Camera Raw Filter…: a session in Develop.
+        if self.editor.develop_filter.request.is_some() {
+            self.start_camera_raw(ctx);
+        }
         match self.mode {
+            Module::Library | Module::Develop if self.frames > 1 && self.camera_raw.is_some() => {
+                self.library().logic(ctx);
+                self.camera_raw_tick(ctx);
+            }
             Module::Library | Module::Develop if self.frames > 1 => {
                 self.library().logic(ctx);
                 // The Library's own navigation (D, G, Esc, the Edit button) moves between Library
@@ -255,7 +387,10 @@ impl eframe::App for Host {
             self.editor.ui(ui, frame);
             return;
         }
-        let title = self.library.as_ref().map(|l| library_title(l, self.mode)).unwrap_or_default();
+        let title = match &self.camera_raw {
+            Some(cr) => format!("Camera Raw Filter · {}", cr.name),
+            None => self.library.as_ref().map(|l| library_title(l, self.mode)).unwrap_or_default(),
+        };
         if let Some(m) = photocraft_ui_egui::panels::library_title_bar(&mut self.editor, ui, &title, self.mode) {
             let ctx = ui.ctx().clone();
             self.switch(&ctx, m);
@@ -269,6 +404,15 @@ impl eframe::App for Host {
 
     fn on_exit(&mut self) {
         self.editor.on_exit();
+        // An open Camera Raw Filter session is dropped (nothing applied), and the Library's view
+        // is restored before its settings are saved.
+        if let (Some(cr), Some(lib)) = (self.camera_raw.take(), self.library.as_mut()) {
+            lib.session.close_ephemeral();
+            lib.host_session = None;
+            lib.ui.view = cr.view;
+            lib.ui.right = cr.right;
+            lib.ui.left_panel = cr.left_panel;
+        }
         if let Some(lib) = self.library.as_mut() {
             if let Err(e) = self.prefs.save(lib) {
                 eprintln!("local-image: {e}");
@@ -398,6 +542,8 @@ fn open_library_app(opens: Opens, prefs_writer: &mut PrefsWriter) -> LightcraftA
     // AI masks (SAM 3): optional, offered for download when first needed.
     session.segmenter.dir = std::env::var_os("LOCAL_IMAGE_SAM3_DIR").map(PathBuf::from).or_else(|| config_dir().map(|d| d.join("models").join("sam3")));
     session.segmenter.mirrors_file = config_dir().map(|d| d.join("models").join("sam3-mirrors.txt"));
+    // Camera Raw Filter sessions left behind by a crash.
+    lightcraft_engine::ephemeral::clear_dir(&camera_raw_dir());
     // Quick Subject / Background / Sky masks share the models Compositing's selections use.
     session.quick_seg_dir = Some(photocraft_engine::seg::models_dir());
     let mut app = LightcraftApp::new(session, services(opens));

@@ -244,7 +244,8 @@ mod tests {
     #[test]
     fn layer_tools_are_sparse_and_round_trip() {
         let mut m = Mask { id: 1, opacity: 40.0, ..Default::default() };
-        m.tools.curve = Some(ToneCurve { master: vec![lightcraft_geom::Point::new(0.0, 0.1), lightcraft_geom::Point::new(1.0, 0.9)], ..Default::default() });
+        m.tools.curve =
+            Some(ToneCurve { master: vec![lightcraft_geom::Point::new(0.0, 0.1), lightcraft_geom::Point::new(1.0, 0.9)], ..Default::default() });
         m.tools.grading = Some(ColorGrading { shadows: Wheel { hue: 200.0, sat: 30.0, lum: 0.0 }, ..Default::default() });
         let v = serde_json::to_value(&m).unwrap();
         let keys: Vec<&String> = v["tools"].as_object().unwrap().keys().collect();

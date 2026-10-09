@@ -1060,5 +1060,14 @@
   "Highlights Blue": "ハイライト（青）",
   "Auto D-max": "D-max を自動設定",
   "Auto Print Exposure": "プリント露光量を自動設定",
-  "Auto Negative": "ネガを自動設定"
+  "Auto Negative": "ネガを自動設定",
+  "Local Adjustments": "ローカル補正",
+  "Show only tools this layer uses": "このレイヤーで使用中のツールのみ表示",
+  "Reset Layer": "レイヤーをリセット",
+  "Remove every tool from this layer and reset its sliders and opacity": "このレイヤーのツールをすべて削除し、スライダーと不透明度をリセットします",
+  "Black & white in this layer": "このレイヤーを白黒にする",
+  "Reset all curves": "すべてのカーブをリセット",
+  "Refine Edges": "境界を調整",
+  "Camera Raw Filter": "Camera Raw フィルター",
+  "The layer changes when you click OK (Enter); Cancel (Esc) leaves it as it was.": "OK（Enter）でレイヤーに反映されます。キャンセル（Esc）でレイヤーは元のままです。"
 }

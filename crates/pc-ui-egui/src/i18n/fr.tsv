@@ -2932,3 +2932,20 @@ ai	New	Nouveautés
 	The active layer isn't a Develop layer	Le calque actif n’est pas un calque de développement
 	Updated from Develop	Mis à jour depuis Développement
 	{name} · Develop layer (double-click it to return to Develop)	{name} · calque de développement (double-cliquez pour revenir à Développement)
+	A merged copy on top, as a Smart Object with a Camera Raw Filter.	Une copie fusionnée au-dessus, en objet intelligent avec un filtre Camera Raw.
+	Apply Destructively	Appliquer de façon destructive
+	As a Smart Object the filter stays editable: double-click it in the Layers panel to change it.	En objet intelligent, le filtre reste modifiable : double-cliquez dessus dans le panneau Calques pour le changer.
+	Camera Raw Filter	Filtre Camera Raw
+	Camera Raw Filter applied	Filtre Camera Raw appliqué
+	Camera Raw Filter cancelled	Filtre Camera Raw annulé
+	Composite	Composition
+	Convert	Convertir
+	Convert to Smart Object to keep it editable?	Convertir en objet intelligent pour qu'il reste modifiable ?
+	Develop a Layered Document	Développer un document à calques
+	Develop the composite (live)	Développer la composition (en direct)
+	Don't ask again	Ne plus demander
+	Just switch	Changer simplement de module
+	Merge visible to a new layer and develop	Fusionner les calques visibles sur un nouveau calque et développer
+	Show the Library's Develop module.	Afficher le module Développement de la Bibliothèque.
+	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	Les calques visibles deviennent un objet intelligent (toujours modifiable à l'intérieur) avec un filtre Camera Raw.
+	This document has no Develop layer. How should Develop work on it?	Ce document n'a pas de calque de développement. Comment le module Développement doit-il le traiter ?

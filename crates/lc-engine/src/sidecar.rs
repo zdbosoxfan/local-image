@@ -504,7 +504,8 @@ impl Session {
         }
         let owners = StemOwners::of(&self.catalog);
         for id in ids {
-            if self.catalog.photo(id).is_some_and(|p| file_path(p).is_some() && p.copy_of.is_none())
+            if !self.is_ephemeral(id)
+                && self.catalog.photo(id).is_some_and(|p| file_path(p).is_some() && p.copy_of.is_none())
                 && let Err(e) = self.save_sidecar_with(id, &owners)
             {
                 log::warn!("auto-write XMP: {e}");

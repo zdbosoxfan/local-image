@@ -120,7 +120,8 @@ pub fn resolve(s: &DevelopSettings, info: &SourceInfo, px_per_long: f64) -> Vec<
             let c = |g: f64, d: f64| (g + d).clamp(-100.0, 100.0);
             crate::finish::tone_map(s, info, c(s.light.contrast, l.contrast), c(s.light.whites, l.whites), c(s.light.blacks, l.blacks))
         });
-        let colour = t.color.is_some() || t.mixer.is_some() || t.point_colors.is_some() || t.treatment.is_some() || t.bw_mix.is_some() || t.grading.is_some();
+        let colour =
+            t.color.is_some() || t.mixer.is_some() || t.point_colors.is_some() || t.treatment.is_some() || t.bw_mix.is_some() || t.grading.is_some();
         let ops = colour.then(|| ColorOps::new(&v)).filter(|o| !o.is_identity());
         let curves = t.curve.as_ref().and_then(|c| crate::finish::curve_luts(c).map(|l| (l, (c.refine_saturation / 100.0).clamp(0.0, 1.0) as f32)));
         let vig = if effects && t.vignette.is_some() { crate::finish::vignette(&v) } else { None };

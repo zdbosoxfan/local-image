@@ -677,3 +677,45 @@ fn ai_masks_without_the_model_offer_the_download() {
     assert!(develop(&h).masks.is_empty());
     assert!(t.elapsed() < SETTLE, "{:?}", t.elapsed());
 }
+
+/// Develop layers: a selected mask shows its opacity, the "only tools this layer uses" filter and
+/// the full tool sections, which edit the layer (a dot marks sections it sets).
+#[test]
+fn a_selected_mask_shows_its_layer_tools() {
+    let mut h = detail("panel.masking");
+    exec(&mut h, "mask.add", json!({"kind": "radial"}));
+    h.settle(SETTLE);
+    let has = |h: &mut Headless, id: &str| {
+        let w = h.request("ui.widgets", json!({"filter": id}), T);
+        w["result"].as_array().is_some_and(|a| a.iter().any(|x| x["id"] == id))
+    };
+    for w in [
+        "slider:opacity",
+        "slider:amount",
+        "layerUsedOnly",
+        "button:layerReset",
+        "section:layer-light",
+        "section:layer-color",
+        "section:layer-effects",
+        "section:layer-detail",
+    ] {
+        assert!(has(&mut h, w), "{w}");
+    }
+    assert!(!has(&mut h, "layerSectionSet:light"), "nothing set yet");
+    // a layer value marks its section, and the section's sliders show the layer's values
+    exec(&mut h, "mask.setTools", json!({"values": {"light.exposure": 0.6}}));
+    h.app.ui.toggle_section("layer-light");
+    h.settle(Duration::from_secs(5));
+    assert!(has(&mut h, "layerSectionSet:light"));
+    assert!(has(&mut h, "slider:light.exposure"));
+    assert_eq!(develop(&h).light.exposure, 0.0, "the photo's own exposure is untouched");
+    // only the tools this layer uses
+    h.app.ui.layer_used_only = true;
+    h.settle(Duration::from_secs(5));
+    assert!(has(&mut h, "section:layer-light"));
+    assert!(!has(&mut h, "section:layer-effects"));
+    // Reset Layer
+    let r = h.request("ui.clickWidget", json!({"id": "button:layerReset"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert!(develop(&h).masks[0].tools.is_empty());
+}

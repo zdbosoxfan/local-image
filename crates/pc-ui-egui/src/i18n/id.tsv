@@ -2919,3 +2919,20 @@ ai	New	Baru
 	The active layer isn't a Develop layer	Lapisan aktif bukan lapisan Kembangkan
 	Updated from Develop	Diperbarui dari Kembangkan
 	{name} · Develop layer (double-click it to return to Develop)	{name} · lapisan Kembangkan (klik dua kali untuk kembali ke Kembangkan)
+	A merged copy on top, as a Smart Object with a Camera Raw Filter.	Salinan gabungan di atas, sebagai Smart Object dengan Filter Camera Raw.
+	Apply Destructively	Terapkan Secara Destruktif
+	As a Smart Object the filter stays editable: double-click it in the Layers panel to change it.	Sebagai Smart Object filter tetap dapat diedit: klik dua kali di panel Layer untuk mengubahnya.
+	Camera Raw Filter	Filter Camera Raw
+	Camera Raw Filter applied	Filter Camera Raw diterapkan
+	Camera Raw Filter cancelled	Filter Camera Raw dibatalkan
+	Composite	Komposit
+	Convert	Konversi
+	Convert to Smart Object to keep it editable?	Konversi ke Smart Object agar tetap dapat diedit?
+	Develop a Layered Document	Kembangkan Dokumen Berlapis
+	Develop the composite (live)	Kembangkan komposit (langsung)
+	Don't ask again	Jangan tanya lagi
+	Just switch	Hanya beralih
+	Merge visible to a new layer and develop	Gabungkan yang terlihat ke layer baru lalu kembangkan
+	Show the Library's Develop module.	Tampilkan modul Kembangkan di Pustaka.
+	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	Layer yang terlihat menjadi Smart Object (tetap dapat diedit di dalamnya) dengan Filter Camera Raw.
+	This document has no Develop layer. How should Develop work on it?	Dokumen ini tidak memiliki layer Kembangkan. Bagaimana Kembangkan harus mengolahnya?

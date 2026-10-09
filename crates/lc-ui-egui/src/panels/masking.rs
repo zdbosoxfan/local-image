@@ -335,11 +335,20 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         brush_settings(app, ui);
     }
     divider(ui);
-    for s in LOCAL {
-        let v = local_get(&m.adjust, s.id);
-        let out = slider(ui, s, v, true, None);
-        apply_slider_out(app, s, out, |app, v| app.run("mask.adjust", json!({"values": {s.id: v}})));
-    }
+    // the layer: opacity, amount, refine edges
+    let opacity = ControlSpec {
+        id: "opacity",
+        label: "Opacity",
+        section: Section::Light,
+        min: 0.0,
+        max: 100.0,
+        default: 100.0,
+        step: 1.0,
+        decimals: 0,
+        track: Track::Plain,
+    };
+    let out = slider(ui, &opacity, m.opacity, true, None);
+    apply_slider_out(app, &opacity, out, |app, v| app.run("mask.setOpacity", json!({"value": v})));
     let amt = ControlSpec {
         id: "amount",
         label: "Amount",
@@ -366,8 +375,61 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     };
     let out = slider(ui, &refine, m.refine, true, None);
     apply_slider_out(app, &refine, out, |app, v| app.run("mask.refine", json!({"value": v})));
+    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 6, bottom: 6 }).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            let mut only = app.ui.layer_used_only;
+            let r = ui.checkbox(&mut only, crate::i18n::tr("Show only tools this layer uses"));
+            register(ui.ctx(), "layerUsedOnly", r.rect);
+            if r.changed() {
+                app.ui.layer_used_only = only;
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if text_button(ui, "layerReset", crate::i18n::tr("Reset Layer"), false)
+                    .on_hover_text(crate::i18n::tr("Remove every tool from this layer and reset its sliders and opacity"))
+                    .clicked()
+                {
+                    let _ = app.run("mask.resetTools", json!({"id": m.id}));
+                }
+            });
+        });
+    });
+    divider(ui);
+    local_section(app, ui, &m);
+    // the full develop tools, on this layer
+    let photo = app.session.catalog.photo(id);
+    let raw = photo.is_some_and(|p| p.develops_raw() && !p.relative_wb());
+    let info = app.session.source_info(id);
+    let view = m.tools.view(lightcraft_engine::pipeline::local::effective_wb(&info, &d));
+    let used_only = app.ui.layer_used_only;
+    super::edit::tool_sections(app, ui, id, &view, raw, super::edit::Target::Layer(m.id), used_only);
     ui.add_space(30.0);
     let _ = Stroke::NONE;
+}
+
+/// The quick local sliders (Lightroom's mask sliders: added up across masks, with local-only
+/// tools such as Hue, Sharpness, Noise, Moiré, Defringe), collapsible; a dot when any is set.
+fn local_section(app: &mut LightcraftApp, ui: &mut egui::Ui, m: &lightcraft_develop::Mask) {
+    // open unless collapsed (these were the only mask sliders before develop layers)
+    let open = !app.ui.section_open("layer-local-collapsed");
+    let (resp, _) = crate::widgets::section_header(ui, "layer-local", "Local Adjustments", open, None);
+    let set = LocalAdjustments { amount: m.adjust.amount, ..Default::default() } != m.adjust;
+    if set {
+        let t = Tokens::get(ui.ctx());
+        let w = ui.painter().layout_no_wrap(crate::i18n::tr("Local Adjustments").to_string(), t.semibold(14.0), t.text).size().x;
+        ui.painter().circle_filled(pos2(resp.rect.left() + 52.0 + w, resp.rect.center().y), 3.5, t.accent);
+    }
+    if resp.clicked() {
+        app.ui.toggle_section("layer-local-collapsed");
+    }
+    if open {
+        for s in LOCAL {
+            let v = local_get(&m.adjust, s.id);
+            let out = slider(ui, s, v, true, None);
+            apply_slider_out(app, s, out, |app, v| app.run("mask.adjust", json!({"values": {s.id: v}})));
+        }
+        ui.add_space(6.0);
+    }
+    divider(ui);
 }
 
 /// The right-click menu of a mask in the Masks list.

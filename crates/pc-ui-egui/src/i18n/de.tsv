@@ -2543,3 +2543,20 @@ ai	New	Neu
 	The active layer isn't a Develop layer	Die aktive Ebene ist keine Entwicklungsebene
 	Updated from Develop	Aus „Entwickeln“ aktualisiert
 	{name} · Develop layer (double-click it to return to Develop)	{name} · Entwicklungsebene (Doppelklick führt zurück zu „Entwickeln“)
+	A merged copy on top, as a Smart Object with a Camera Raw Filter.	Eine zusammengefügte Kopie obenauf, als Smart-Objekt mit einem Camera-Raw-Filter.
+	Apply Destructively	Destruktiv anwenden
+	As a Smart Object the filter stays editable: double-click it in the Layers panel to change it.	Als Smart-Objekt bleibt der Filter bearbeitbar: Doppelklicken Sie im Ebenenbedienfeld darauf, um ihn zu ändern.
+	Camera Raw Filter	Camera-Raw-Filter
+	Camera Raw Filter applied	Camera-Raw-Filter angewendet
+	Camera Raw Filter cancelled	Camera-Raw-Filter abgebrochen
+	Composite	Komposition
+	Convert	Konvertieren
+	Convert to Smart Object to keep it editable?	In ein Smart-Objekt konvertieren, damit es bearbeitbar bleibt?
+	Develop a Layered Document	Dokument mit Ebenen entwickeln
+	Develop the composite (live)	Komposition entwickeln (live)
+	Don't ask again	Nicht mehr fragen
+	Just switch	Nur wechseln
+	Merge visible to a new layer and develop	Sichtbare auf neue Ebene zusammenfügen und entwickeln
+	Show the Library's Develop module.	Das Entwickeln-Modul der Bibliothek anzeigen.
+	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	Die sichtbaren Ebenen werden zu einem Smart-Objekt (innen weiter bearbeitbar) mit einem Camera-Raw-Filter.
+	This document has no Develop layer. How should Develop work on it?	Dieses Dokument hat keine Entwicklungsebene. Wie soll „Entwickeln“ damit arbeiten?

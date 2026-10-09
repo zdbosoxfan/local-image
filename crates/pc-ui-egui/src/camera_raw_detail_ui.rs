@@ -17,6 +17,22 @@ pub(crate) enum Coverage {
     None,
 }
 
+/// local-image: the Library's develop engine behind the dialog's controls (`filter.develop`
+/// without the Library): the controls replace their part of `base`.
+#[derive(Clone)]
+pub(crate) struct DevelopEngine {
+    pub base: Arc<photocraft_io::develop_filter::DevelopSettings>,
+    pub profile: Arc<photocraft_cms::Profile>,
+}
+
+impl DevelopEngine {
+    pub(crate) fn settings(&self, params: &CameraRaw) -> photocraft_io::develop_filter::DevelopSettings {
+        let mut s = photocraft_io::develop_filter::from_camera_raw(params, &self.base);
+        photocraft_io::develop_filter::sanitize(&mut s);
+        s
+    }
+}
+
 type DetailResult = Result<(u64, Surface), String>;
 type OverlayKey = (u64, bool, PixelRect, crate::camera_raw_scope_ui::ClippingMode, crate::theme::ThemeKind);
 
@@ -34,6 +50,7 @@ pub(crate) struct DetailPreview {
     overlay_texture: Option<TextureHandle>,
     overlay_key: Option<OverlayKey>,
     pub(crate) ready: bool,
+    pub(crate) develop: Option<DevelopEngine>,
 }
 
 impl Drop for DetailPreview {
@@ -58,6 +75,7 @@ impl DetailPreview {
             overlay_texture: None,
             overlay_key: None,
             ready: false,
+            develop: None,
         }
     }
 
@@ -107,6 +125,7 @@ impl DetailPreview {
         let source = self.source.clone();
         let area = self.area;
         let coverage = self.coverage.clone();
+        let engine = self.develop.clone();
         let mut params = params.clone();
         params.pixel_scale = 1.0;
         let cancel = self.cancel.clone();
@@ -116,7 +135,7 @@ impl DetailPreview {
             if cancel.load(Ordering::Relaxed) {
                 return;
             }
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| develop(&source, area, &params, &coverage)))
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| develop(&source, area, &params, &coverage, engine.as_ref())))
                 .map(|surface| (revision, surface))
                 .map_err(|_| "Camera Raw detail preview failed; the proxy remains available".into());
             if !cancel.load(Ordering::Relaxed) {
@@ -281,8 +300,11 @@ impl DetailPreview {
     }
 }
 
-fn develop(source: &Surface, area: PixelRect, params: &CameraRaw, coverage: &Coverage) -> Surface {
-    let mut result = photocraft_engine::lens_cmds::camera_raw_surface(source, area, params);
+fn develop(source: &Surface, area: PixelRect, params: &CameraRaw, coverage: &Coverage, engine: Option<&DevelopEngine>) -> Surface {
+    let mut result = match engine {
+        Some(e) => photocraft_io::develop_filter::develop_surface(source, area, &e.settings(params), &e.profile).unwrap_or_else(|_| source.clone()),
+        None => photocraft_engine::lens_cmds::camera_raw_surface(source, area, params),
+    };
     if matches!(coverage, Coverage::None) {
         return result;
     }
@@ -358,9 +380,9 @@ mod tests {
         source.write_region(area, &values);
         let params = CameraRaw { exposure: 0.5, texture: 15.0, grain_amount: 30.0, ..Default::default() };
         let expected = photocraft_engine::lens_cmds::camera_raw_surface(&source, area, &params);
-        assert_eq!(develop(&source, area, &params, &Coverage::None), expected);
+        assert_eq!(develop(&source, area, &params, &Coverage::None, None), expected);
         let mask = Surface::with_default(PixelFormat::GRAY8, &[0.0]);
-        assert_eq!(develop(&source, area, &params, &Coverage::Selection(mask)), source);
+        assert_eq!(develop(&source, area, &params, &Coverage::Selection(mask), None), source);
     }
     #[test]
     fn stale_refinements_and_failed_old_revisions_do_not_replace_new_settings() {
@@ -401,7 +423,7 @@ mod tests {
                 }
                 source.write_region(area, &pixels);
                 let params = CameraRaw { exposure: 0.5, sharpen_amount: 20.0, grain_amount: 30.0, ..Default::default() };
-                let full = develop(&source, area, &params, &Coverage::None);
+                let full = develop(&source, area, &params, &Coverage::None, None);
                 let expected = photocraft_engine::lens_cmds::camera_raw_surface(&source, area, &params);
                 assert_eq!(full, expected);
                 let mut preview = DetailPreview::new(source, area, Coverage::None);

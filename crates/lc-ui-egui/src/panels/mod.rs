@@ -9,6 +9,7 @@ pub mod dialogs;
 pub mod edit;
 pub mod filterbar;
 pub mod grid;
+pub mod host_session;
 pub mod left;
 pub mod library_problem;
 pub mod masking;

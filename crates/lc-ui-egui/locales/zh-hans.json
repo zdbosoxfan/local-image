@@ -1274,5 +1274,14 @@
   "Highlights Blue": "高光蓝色",
   "Auto D-max": "自动 D-max",
   "Auto Print Exposure": "自动冲印曝光",
-  "Auto Negative": "自动负片"
+  "Auto Negative": "自动负片",
+  "Local Adjustments": "局部调整",
+  "Show only tools this layer uses": "仅显示此图层使用的工具",
+  "Reset Layer": "重置图层",
+  "Remove every tool from this layer and reset its sliders and opacity": "移除此图层的所有工具，并重置其滑块和不透明度",
+  "Black & white in this layer": "此图层内黑白",
+  "Reset all curves": "重置所有曲线",
+  "Refine Edges": "调整边缘",
+  "Camera Raw Filter": "Camera Raw 滤镜",
+  "The layer changes when you click OK (Enter); Cancel (Esc) leaves it as it was.": "点按“好”（Enter）后图层才会改变；“取消”（Esc）保持原样。"
 }

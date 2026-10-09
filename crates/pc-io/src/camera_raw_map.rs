@@ -11,7 +11,12 @@ use super::{blend_options, from_hex, get_desc, int, rgbc, set, to_hex};
 pub(super) const CLASS: &str = "Adobe Camera Raw Filter";
 pub(super) const COMMAND: &str = "filter.cameraRaw";
 const FILTER_ID: i32 = 2783;
-const TEMPLATE_KEY: &str = "__cameraRawPsd";
+pub(super) const TEMPLATE_KEY: &str = "__cameraRawPsd";
+/// local-image: a key of the `filterFX` item (beside Photoshop's own `Fltr` descriptor) holding
+/// what the descriptor can't: `{"command": "filter.develop", "settings": {…}}` (the full develop
+/// settings) or `{"command": "filter.cameraRaw"}` (a filter of the original Camera Raw engine).
+/// Photoshop ignores it; our importer reads it back.
+pub(super) const PRIVATE_KEY: &str = "localImage";
 const MAX_TEMPLATE_BYTES: usize = 1024 * 1024;
 
 // Exposure and sharpening radius are doubles; other observed controls are integer levels.
@@ -186,6 +191,8 @@ pub(super) fn import_params(item: &Descriptor) -> Option<J> {
     }
     let mut params = descriptor_params(get_desc(item, "Fltr")?)?;
     let mut template = item.clone();
+    // our own private settings are not part of Photoshop's filter
+    template.items.retain(|(k, _)| !k.is(PRIVATE_KEY));
     let neutral = SmartFilter { command: String::new(), params: J::Null, blend: photocraft_color::BlendMode::Normal, opacity: 1.0, visible: true };
     set(&mut template, "blendOptions", blend_options(&neutral));
     set(&mut template, "enab", Value::Boolean(true));
@@ -395,6 +402,18 @@ mod tests {
             .with("filterID", Value::Integer(FILTER_ID))
     }
 
+    /// The item read as the original engine's filter (what the importer did before `filter.develop`).
+    fn legacy(item: &Descriptor) -> SmartFilter {
+        let f = filter_from_item(item);
+        assert_eq!(f.command, crate::develop_filter::COMMAND);
+        SmartFilter { command: COMMAND.into(), params: import_params(item).unwrap(), ..f }
+    }
+
+    fn without_private(mut d: Descriptor) -> Descriptor {
+        d.items.retain(|(k, _)| !k.is(PRIVATE_KEY));
+        d
+    }
+
     fn all_controls_item() -> Descriptor {
         let mut item = source_item();
         let mut d = get_desc(&item, "Fltr").unwrap().clone();
@@ -452,14 +471,13 @@ mod tests {
     #[test]
     fn all_observed_develop_controls_roundtrip_and_patch_only_the_edited_field() {
         let source = all_controls_item();
-        let f = filter_from_item(&source);
-        assert_eq!(f.command, COMMAND);
+        let f = legacy(&source);
         assert_eq!(f.params["temperature"], -26.0);
         assert_eq!(f.params["texture"], -31.0);
         assert!((f.params["sharpenRadius"].as_f64().unwrap() - 1.2).abs() < 1e-6);
         assert_eq!(f.params["gradeHighlights"], json!({"hue": 316.0, "sat": 70.0, "lum": 28.0}));
         assert_eq!(f.params["pointCurveBlue"], json!([[0.0, 0.0], [129.0, 202.0], [255.0, 255.0]]));
-        assert_eq!(item_for_filter(&f).unwrap(), source);
+        assert_eq!(without_private(item_for_filter(&f).unwrap()), source);
         let defaults = default_params().unwrap();
         for (param, key) in SCALARS {
             let mut edited = f.clone();
@@ -528,19 +546,19 @@ mod tests {
             })
             .expect("a Camera Raw descriptor");
         assert_eq!(item_for_filter(&filter_from_item(&original)).unwrap(), original);
+        assert_eq!(without_private(item_for_filter(&legacy(&original)).unwrap()), original);
         let mut projected = original.clone();
         let mut d = get_desc(&original, "Fltr").unwrap().clone();
         // This is a codec projection, not an editable replacement for the source filter:
         // active Optics settings have no rendering counterpart, and PCVS is unverified.
         d.items.retain(|(key, _)| !["MDis", "VigA", "PCVS"].iter().any(|k| key.is(k)));
         set(&mut projected, "Fltr", Value::Descriptor(d));
-        let mut f = filter_from_item(&projected);
-        assert_eq!(f.command, COMMAND);
+        let mut f = legacy(&projected);
         assert_eq!(f.params["temperature"], -26.0);
         assert_eq!(f.params["sharpenAmount"], 43.0);
         assert_eq!(f.params["gradeGlobal"], json!({"hue": 20.0, "sat": 61.0, "lum": 45.0}));
         assert_eq!(f.params["pointCurveRed"], json!([[0.0, 0.0], [90.0, 174.0], [255.0, 255.0]]));
-        assert_eq!(item_for_filter(&f).unwrap(), projected);
+        assert_eq!(without_private(item_for_filter(&f).unwrap()), projected);
         f.params["exposure"] = json!(0.5);
         let mut expected = get_desc(&projected, "Fltr").unwrap().clone();
         set(&mut expected, "Ex12", Value::Double(0.5));
@@ -550,15 +568,14 @@ mod tests {
     #[test]
     fn light_curve_and_hsl_are_editable_without_rewriting_unchanged_settings() {
         let source = source_item().with("futureOuterData", Value::RawData(vec![1, 2, 3, 4]));
-        let mut f = filter_from_item(&source);
-        assert_eq!(f.command, COMMAND);
+        let mut f = legacy(&source);
         assert!((f.params["exposure"].as_f64().unwrap() - 1.15).abs() < 1e-6);
         assert_eq!(f.params["contrast"], -38.0);
         assert_eq!(f.params["curveDarks"], -21.0);
         assert_eq!(f.params["curveLights"], 38.0);
         assert_eq!(f.params["curveSplits"], json!([25.0, 50.0, 75.0]));
         assert_eq!(f.params["hslHue"], json!([-50.0, 0.0, 29.0, 1.0, 0.0, 0.0, 0.0, 0.0]));
-        assert_eq!(item_for_filter(&f).unwrap(), source);
+        assert_eq!(without_private(item_for_filter(&f).unwrap()), source);
         f.params["exposure"] = json!(0.0);
         f.params["hslHue"][2] = json!(-20.0);
         f.visible = false;
@@ -624,7 +641,7 @@ mod tests {
 
     #[test]
     fn fractional_slider_levels_round_instead_of_dropping_the_filter() {
-        let mut f = filter_from_item(&source_item());
+        let mut f = legacy(&source_item());
         f.params["contrast"] = json!(-12.4);
         f.params["hslHue"][0] = json!(10.5);
         f.params["gradeShadows"]["hue"] = json!(359.7);
@@ -667,5 +684,69 @@ mod tests {
         }
         let wrong = Descriptor::new("filterFX").with("filterID", Value::Integer(1));
         assert!(export_item(&json!({TEMPLATE_KEY: to_hex(&wrong.to_bytes())})).is_err());
+    }
+
+    #[test]
+    fn photoshop_camera_raw_filters_open_as_develop_filters_and_write_back_unchanged() {
+        use crate::develop_filter as dev;
+        let source = all_controls_item();
+        let f = filter_from_item(&source);
+        assert_eq!(f.command, dev::COMMAND);
+        let s = dev::parse_settings(&f.params).unwrap();
+        assert!((s.light.exposure - 1.15).abs() < 1e-6);
+        assert_eq!(s.light.contrast, -38.0);
+        assert_eq!(s.wb.mode, lightcraft_develop::WbMode::Custom);
+        assert!(f.params.get(TEMPLATE_KEY).is_some());
+        // unchanged: byte for byte, nothing private added
+        assert_eq!(item_for_filter(&f).unwrap(), source);
+        // an edit patches only that control
+        let mut edited = f.clone();
+        edited.params["light"]["exposure"] = json!(0.5);
+        let mut expected = get_desc(&source, "Fltr").unwrap().clone();
+        set(&mut expected, "Ex12", Value::Double(0.5));
+        let item = item_for_filter(&edited).unwrap();
+        assert_eq!(get_desc(&item, "Fltr"), Some(&expected));
+        assert!(item.get(PRIVATE_KEY).is_none());
+    }
+
+    #[test]
+    fn develop_settings_beyond_camera_raw_round_trip_through_the_private_record() {
+        use crate::develop_filter as dev;
+        let mut s = dev::DevelopSettings::default();
+        s.light.exposure = 0.75;
+        s.treatment = lightcraft_develop::Treatment::Bw;
+        s.profile.id = "lc.vivid".into();
+        s.point_colors.push(Default::default());
+        let f =
+            SmartFilter { command: dev::COMMAND.into(), params: serde_json::to_value(&s).unwrap(), blend: BlendMode::Multiply, opacity: 0.5, visible: false };
+        let item = item_for_filter(&f).unwrap();
+        assert!(item.get(PRIVATE_KEY).is_some());
+        assert_eq!(get_desc(&item, "Fltr").and_then(|d| read_number(d, "Ex12")), Some(0.75), "Photoshop sees the subset");
+        let back = filter_from_item(&item);
+        assert_eq!(back.command, dev::COMMAND);
+        assert_eq!((back.blend, back.opacity, back.visible), (BlendMode::Multiply, 0.5, false));
+        assert_eq!(dev::parse_settings(&back.params).unwrap(), s, "no silent loss of our settings");
+        // edited in Photoshop since: its values apply over ours
+        let mut ps = item.clone();
+        let mut d = get_desc(&ps, "Fltr").unwrap().clone();
+        set(&mut d, "Ex12", Value::Double(-1.0));
+        set(&mut ps, "Fltr", Value::Descriptor(d));
+        let edited = dev::parse_settings(&filter_from_item(&ps).params).unwrap();
+        assert_eq!(edited.light.exposure, -1.0);
+        assert_eq!(edited.treatment, lightcraft_develop::Treatment::Bw);
+        assert_eq!(edited.profile.id, "lc.vivid");
+    }
+
+    #[test]
+    fn original_engine_filters_stay_original_engine_filters() {
+        let params = serde_json::to_value(CameraRaw { exposure: 0.5, ..Default::default() }).unwrap();
+        let f = SmartFilter { command: COMMAND.into(), params, blend: BlendMode::Normal, opacity: 1.0, visible: true };
+        let back = filter_from_item(&item_for_filter(&f).unwrap());
+        assert_eq!(back.command, COMMAND);
+        assert_eq!(back.params["exposure"], 0.5);
+        assert!(back.params[TEMPLATE_KEY].as_str().is_some_and(|t| !t.is_empty()));
+        // the private record isn't kept in the Photoshop template
+        let template = Descriptor::from_bytes(&from_hex(back.params[TEMPLATE_KEY].as_str().unwrap()).unwrap()).unwrap();
+        assert!(template.get(PRIVATE_KEY).is_none());
     }
 }

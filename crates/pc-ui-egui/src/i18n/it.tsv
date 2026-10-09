@@ -2577,3 +2577,20 @@ ai	New	Nuovi
 	The active layer isn't a Develop layer	Il livello attivo non è un livello di sviluppo
 	Updated from Develop	Aggiornato da Sviluppo
 	{name} · Develop layer (double-click it to return to Develop)	{name} · livello di sviluppo (doppio clic per tornare a Sviluppo)
+	A merged copy on top, as a Smart Object with a Camera Raw Filter.	Una copia unita in cima, come oggetto avanzato con un filtro Camera Raw.
+	Apply Destructively	Applica in modo distruttivo
+	As a Smart Object the filter stays editable: double-click it in the Layers panel to change it.	Come oggetto avanzato il filtro resta modificabile: fai doppio clic su di esso nel pannello Livelli per cambiarlo.
+	Camera Raw Filter	Filtro Camera Raw
+	Camera Raw Filter applied	Filtro Camera Raw applicato
+	Camera Raw Filter cancelled	Filtro Camera Raw annullato
+	Composite	Composizione
+	Convert	Converti
+	Convert to Smart Object to keep it editable?	Convertire in oggetto avanzato per mantenerlo modificabile?
+	Develop a Layered Document	Sviluppa un documento a livelli
+	Develop the composite (live)	Sviluppa la composizione (dal vivo)
+	Don't ask again	Non chiedere più
+	Just switch	Cambia e basta
+	Merge visible to a new layer and develop	Unisci i visibili in un nuovo livello e sviluppa
+	Show the Library's Develop module.	Mostra il modulo Sviluppo della Libreria.
+	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	I livelli visibili diventano un oggetto avanzato (modificabile all'interno) con un filtro Camera Raw.
+	This document has no Develop layer. How should Develop work on it?	Questo documento non ha livelli Sviluppo. Come deve lavorarci lo Sviluppo?

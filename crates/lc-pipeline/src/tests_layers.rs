@@ -25,14 +25,7 @@ fn scene() -> Rgb32f {
     Rgb32f::from_fn(W, H, |x, y| {
         let l = 0.004 * 1.03f32.powi(x as i32);
         let band = (y * 6 / H) as f32;
-        let tint = [
-            [1.0, 0.45, 0.3],
-            [0.9, 0.8, 0.25],
-            [0.35, 0.9, 0.35],
-            [0.3, 0.7, 1.0],
-            [0.75, 0.4, 0.95],
-            [0.8, 0.8, 0.8],
-        ][band as usize % 6];
+        let tint = [[1.0, 0.45, 0.3], [0.9, 0.8, 0.25], [0.35, 0.9, 0.35], [0.3, 0.7, 1.0], [0.75, 0.4, 0.95], [0.8, 0.8, 0.8]][band as usize % 6];
         let edge = if (x / 20 + y / 20) % 2 == 0 { 1.0 } else { 0.7 };
         let n = 1.0 + 0.05 * noise(x, y, 7);
         [l * tint[0] * edge * n, l * tint[1] * edge * n, l * tint[2] * edge * n]
@@ -148,7 +141,13 @@ fn full_layer(tools: Value) -> DevelopSettings {
 fn layer_over(shape: MaskShape, tools: Value, opacity: f64) -> DevelopSettings {
     let tools: LayerTools = LayerTools::default().merged((6500.0, 0.0), &tools).expect("layer tools");
     let mut s = DevelopSettings::default();
-    s.masks.push(Mask { id: 1, components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape }], tools, opacity, ..Default::default() });
+    s.masks.push(Mask {
+        id: 1,
+        components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape }],
+        tools,
+        opacity,
+        ..Default::default()
+    });
     s
 }
 
@@ -240,7 +239,9 @@ fn layers_without_tools_render_like_no_layer() {
     photo.effects.clarity = 20.0;
     let base = shot(&photo, &info);
     // no tools at all (any opacity), and sections set but neutral
-    for (tools, opacity) in [(json!({}), 100.0), (json!({}), 35.0), (json!({"light": {}, "curve": {}, "mixer": {}, "grading": {}, "detail": {}}), 100.0)] {
+    for (tools, opacity) in
+        [(json!({}), 100.0), (json!({}), 35.0), (json!({"light": {}, "curve": {}, "mixer": {}, "grading": {}, "detail": {}}), 100.0)]
+    {
         let mut s = left_layer(tools.clone(), opacity);
         s.light = photo.light;
         s.effects = photo.effects;

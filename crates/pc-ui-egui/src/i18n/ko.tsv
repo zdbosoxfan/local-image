@@ -3090,3 +3090,19 @@ ai	New	새 항목
 	The active layer isn't a Develop layer	활성 레이어가 현상 레이어가 아닙니다
 	Updated from Develop	현상에서 업데이트됨
 	{name} · Develop layer (double-click it to return to Develop)	{name} · 현상 레이어(두 번 클릭하면 현상으로 돌아갑니다)
+	A merged copy on top, as a Smart Object with a Camera Raw Filter.	병합한 복사본을 맨 위에 만들어 Camera Raw 필터가 적용된 스마트 오브젝트로 만듭니다.
+	Apply Destructively	파괴적으로 적용
+	As a Smart Object the filter stays editable: double-click it in the Layers panel to change it.	스마트 오브젝트로 두면 필터를 계속 편집할 수 있습니다. 레이어 패널에서 필터를 두 번 클릭해 변경하세요.
+	Camera Raw Filter applied	Camera Raw 필터를 적용했습니다
+	Camera Raw Filter cancelled	Camera Raw 필터를 취소했습니다
+	Composite	합성
+	Convert	변환
+	Convert to Smart Object to keep it editable?	편집 가능하도록 스마트 오브젝트로 변환할까요?
+	Develop a Layered Document	레이어가 있는 문서 현상
+	Develop the composite (live)	합성 현상(라이브)
+	Don't ask again	다시 묻지 않음
+	Just switch	전환만 하기
+	Merge visible to a new layer and develop	보이는 레이어를 새 레이어로 병합하고 현상
+	Show the Library's Develop module.	라이브러리의 현상 모듈을 표시합니다.
+	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	보이는 레이어가 Camera Raw 필터가 적용된 스마트 오브젝트가 됩니다(내부는 계속 편집 가능).
+	This document has no Develop layer. How should Develop work on it?	이 문서에는 현상 레이어가 없습니다. 현상에서 어떻게 처리할까요?

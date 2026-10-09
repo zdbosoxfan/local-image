@@ -62,6 +62,31 @@ Component    = Brush | Linear | Radial | Polygon | LuminanceRange | ColorRange |
 * **Masks are stored in source coordinates** and pushed through geometry (as `SegMask` already is), so cropping or straightening later keeps them aligned. AI masks keep their logits/raster in the settings (works offline after the first run).
 * **UI:** the Develop panel shows a layer strip (Background + layers, opacity, mask thumbnail, add/subtract/intersect chips), the same tool panels as global develop, and a "Show all tools / tools this layer uses" filter.
 
+**Built (October 2026):** layers are the existing masks, not a new `layers` list. `Mask` gained
+`opacity` (0–100) and `tools: LayerTools`: a sparse partial `DevelopSettings` (`wb`, `light`, `curve`,
+`color`, `mixer`, `point_colors`, `treatment`, `bw_mix`, `grading`, `effects`, `vignette`, `grain`,
+`detail`; each `Option`, left out of the JSON when unset, as is an opacity of 100, so older
+settings serialize, hash and render bit-identically, which golden hashes in
+`lc-pipeline/src/tests_layers.rs` check). Layer values are relative to the photo's (white balance is
+the layer's own white). `LocalAdjustments` (`adjust`) is kept alongside, not mapped: its sliders
+are summed across masks in one log-domain term (mapping them to sequential mixes would change
+existing renders), half of them have no global tool (hue shift, ± sharpness / noise, moiré,
+defringe, colour overlay), and the GPU already renders them; the Masking panel shows them as
+"Local Adjustments" above the full tool sections. `adjust.amount` × `opacity` scale the mask's
+alpha, so presets' amount and the opacity fade everything the layer does.
+Evaluation (`lc-pipeline/src/layers.rs`): each tool runs at its stage and every layer that sets it
+blends `mix(in, tool_L(in), alpha)`: NR (lin image denoised again, cached), dehaze, WB + exposure
+(with the local exposure), highlights/shadows/clarity/texture/sharpening (local tone stage),
+contrast/whites/blacks (tone map with summed values), colour tools, vignette, curves, grain.
+Settings with layer tools render on the CPU (`layers_need_cpu`; `lightcraft_gpu::render` returns
+`None` with a reason); opacity alone stays on the GPU. Commands: `mask.setTools {id, tools?, values?}`
+(merges like presets, clamps, `null` drops a section), `mask.setOpacity`, `mask.resetTools {section?}`,
+`pointColor.pick/delete {mask}`; copy/paste, presets and Auto Sync carry layers with the Masking
+group. UI: the Masking panel reuses the Edit panel's sections (`edit::tool_sections` with
+`Target::Layer`), with a dot on sections a layer sets, Reset Section / Reset Layer and the
+"Show only tools this layer uses" filter. Not yet: a WGSL port of the layer tools, a layer
+White Balance picker, curve presets / targeted adjustment on layers.
+
 ### 3.3 AI masks and AI Remove in the Library (and the same in the Editor)
 
 * **One segmentation service** (`li-seg` grows into it), used by both modes:

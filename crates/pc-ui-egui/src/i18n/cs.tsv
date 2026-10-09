@@ -2510,3 +2510,20 @@ ai	New	Nové
 	The active layer isn't a Develop layer	Aktivní vrstva není vrstva vyvolání
 	Updated from Develop	Aktualizováno z modulu Vyvolat
 	{name} · Develop layer (double-click it to return to Develop)	{name} · vrstva vyvolání (dvojklikem se vrátíte do modulu Vyvolat)
+	A merged copy on top, as a Smart Object with a Camera Raw Filter.	Sloučená kopie navrchu jako chytrý objekt s filtrem Camera Raw.
+	Apply Destructively	Použít destruktivně
+	As a Smart Object the filter stays editable: double-click it in the Layers panel to change it.	Jako chytrý objekt zůstane filtr upravitelný: dvojitým kliknutím na něj v panelu Vrstvy jej změníte.
+	Camera Raw Filter	Filtr Camera Raw
+	Camera Raw Filter applied	Filtr Camera Raw použit
+	Camera Raw Filter cancelled	Filtr Camera Raw zrušen
+	Composite	Kompozice
+	Convert	Převést
+	Convert to Smart Object to keep it editable?	Převést na chytrý objekt, aby zůstal upravitelný?
+	Develop a Layered Document	Vyvolat dokument s vrstvami
+	Develop the composite (live)	Vyvolat kompozici (živě)
+	Don't ask again	Příště se neptat
+	Just switch	Jen přepnout
+	Merge visible to a new layer and develop	Sloučit viditelné do nové vrstvy a vyvolat
+	Show the Library's Develop module.	Zobrazit modul Vyvolat v Knihovně.
+	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	Viditelné vrstvy se stanou chytrým objektem (uvnitř stále upravitelným) s filtrem Camera Raw.
+	This document has no Develop layer. How should Develop work on it?	Tento dokument nemá vrstvu Vyvolat. Jak má Vyvolat s dokumentem pracovat?

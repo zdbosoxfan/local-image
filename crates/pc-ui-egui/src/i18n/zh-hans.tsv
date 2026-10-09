@@ -2518,3 +2518,20 @@ ai	New	最新
 	The active layer isn't a Develop layer	当前图层不是修改照片图层
 	Updated from Develop	已从修改照片更新
 	{name} · Develop layer (double-click it to return to Develop)	{name} · 修改照片图层(双击可返回修改照片)
+	A merged copy on top, as a Smart Object with a Camera Raw Filter.	在顶部创建合并副本，作为带 Camera Raw 滤镜的智能对象。
+	Apply Destructively	破坏性应用
+	As a Smart Object the filter stays editable: double-click it in the Layers panel to change it.	作为智能对象，滤镜仍可编辑：在“图层”面板中双击它即可修改。
+	Camera Raw Filter	Camera Raw 滤镜
+	Camera Raw Filter applied	已应用 Camera Raw 滤镜
+	Camera Raw Filter cancelled	已取消 Camera Raw 滤镜
+	Composite	合成
+	Convert	转换
+	Convert to Smart Object to keep it editable?	转换为智能对象以保持可编辑？
+	Develop a Layered Document	修改分层文档
+	Develop the composite (live)	修改合成效果（实时）
+	Don't ask again	不再询问
+	Just switch	仅切换
+	Merge visible to a new layer and develop	将可见图层合并到新图层并修改
+	Show the Library's Develop module.	显示图库的“修改照片”模块。
+	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	可见图层将成为带 Camera Raw 滤镜的智能对象（内部仍可编辑）。
+	This document has no Develop layer. How should Develop work on it?	此文档没有修改照片图层。“修改照片”应如何处理它？

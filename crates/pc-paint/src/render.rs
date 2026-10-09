@@ -410,6 +410,18 @@ pub struct StrokeRenderer {
     dab_buf: Vec<Dab>,
     dual_buf: Vec<Dab>,
     all_dabs: Option<Vec<Dab>>,
+    /// local-image: continuous coverage (soft round brushes, see [`crate::continuous`]).
+    cont: Option<Continuous>,
+}
+
+/// Continuous-coverage state: the user's spacing (the density), the tip hardness, the last dab
+/// (where the next segment starts) and whether the stroke's end cap is in.
+#[derive(Clone, Copy, Debug)]
+struct Continuous {
+    spacing: f32,
+    hardness: f32,
+    prev: Option<Dab>,
+    capped: bool,
 }
 
 impl StrokeRenderer {
@@ -427,9 +439,16 @@ impl StrokeRenderer {
     pub fn new(brush: &BrushSettings, fmt: Option<PixelFormat>, zoom: f32) -> Self {
         let per_dab_color = brush.color_dynamics.enabled && !brush.erase && fmt.is_some();
         let nc = if per_dab_color { fmt.map_or(0, |f| f.mode.color_channels()) } else { 0 };
+        // Soft round brushes integrate their coverage along segments between dabs placed at a
+        // fixed internal spacing; the user's spacing sets the density.
+        let cont = brush.continuous_coverage().then(|| Continuous { spacing: brush.spacing, hardness: brush.hardness, prev: None, capped: false });
+        let generator = match cont {
+            Some(_) => DabGenerator::new(&BrushSettings { spacing: crate::continuous::SEGMENT_SPACING, ..brush.clone() }, zoom),
+            None => DabGenerator::new(brush, zoom),
+        };
         Self {
             ctx: BrushContext::new(brush),
-            generator: DabGenerator::new(brush, zoom),
+            generator,
             cov: CoverageMap::new(nc),
             dual: brush.dual_brush.enabled.then(|| CoverageMap::new(0)),
             fmt,
@@ -439,7 +458,22 @@ impl StrokeRenderer {
             dab_buf: Vec::new(),
             dual_buf: Vec::new(),
             all_dabs: None,
+            cont,
         }
+    }
+
+    /// [`new`](Self::new), always stamping dabs (no continuous coverage): for comparisons.
+    pub fn new_stamped(brush: &BrushSettings, fmt: Option<PixelFormat>, zoom: f32) -> Self {
+        let mut r = Self::new(brush, fmt, zoom);
+        if r.cont.take().is_some() {
+            r.generator = DabGenerator::new(brush, zoom);
+        }
+        r
+    }
+
+    /// Does this stroke render with continuous coverage?
+    pub fn is_continuous(&self) -> bool {
+        self.cont.is_some()
     }
 
     /// Keep a copy of every primary dab (for tests and sequential tools).
@@ -463,7 +497,20 @@ impl StrokeRenderer {
         let mut duals = std::mem::take(&mut self.dual_buf);
         let wet = self.ctx.brush.wet_edges;
         let mut native = [0.0f32; 8];
-        for d in &dabs {
+        if let Some(c) = self.cont.as_mut() {
+            for d in &dabs {
+                let (rect, ceil) = match c.prev {
+                    // The stroke's first dab: its start cap (half a dab).
+                    None => (crate::continuous::end_cap(d, c.hardness, &mut self.scratch), d.opacity),
+                    Some(p) => (crate::continuous::segment(&p, d, c.hardness, c.spacing, &mut self.scratch), 0.5 * (p.opacity + d.opacity)),
+                };
+                self.cov.accumulate(rect, &self.scratch, ceil, false, None);
+                self.cov.bounds = self.cov.bounds.union(&self.ctx.dab_rect(d, false));
+                c.prev = Some(*d);
+                c.capped = false;
+            }
+        }
+        for d in dabs.iter().filter(|_| self.cont.is_none()) {
             let rect = self.ctx.dab_rect(d, false);
             self.ctx.rasterize(d, false, rect, &mut self.scratch);
             let col = match (self.per_dab_color, self.fmt) {
@@ -504,6 +551,19 @@ impl StrokeRenderer {
     pub fn finish(&mut self) {
         self.generator.finish(&mut self.dab_buf, &mut self.dual_buf);
         self.raster_pending();
+        self.end_cap();
+    }
+
+    /// Continuous coverage: the half dab at the stroke's last dab.
+    fn end_cap(&mut self) {
+        if let Some(c) = self.cont.as_mut()
+            && !c.capped
+            && let Some(p) = c.prev
+        {
+            let rect = crate::continuous::end_cap(&p, c.hardness, &mut self.scratch);
+            self.cov.accumulate(rect, &self.scratch, p.opacity, false, None);
+            c.capped = true;
+        }
     }
 
     /// What finishing the stroke now would add (the smoothing catch-up tail to the last point, or
@@ -514,11 +574,14 @@ impl StrokeRenderer {
         let mut generator = self.generator.clone();
         let (mut dabs, mut duals) = (Vec::new(), Vec::new());
         generator.finish(&mut dabs, &mut duals);
-        if dabs.is_empty() && duals.is_empty() {
+        let cap_pending = self.cont.is_some_and(|c| c.prev.is_some() && !c.capped);
+        if dabs.is_empty() && duals.is_empty() && !cap_pending {
             return None;
         }
         let mut keys = HashSet::new();
-        for r in dabs.iter().map(|d| self.ctx.dab_rect(d, false)).chain(duals.iter().map(|d| self.ctx.dab_rect(d, true))) {
+        let prev = self.cont.and_then(|c| c.prev).map(|d| crate::continuous::dab_reach(&d));
+        let reach = dabs.iter().map(|d| if self.cont.is_some() { crate::continuous::dab_reach(d) } else { self.ctx.dab_rect(d, false) });
+        for r in reach.chain(prev).chain(duals.iter().map(|d| self.ctx.dab_rect(d, true))) {
             if r.is_empty() {
                 continue;
             }
@@ -546,8 +609,10 @@ impl StrokeRenderer {
             dab_buf: dabs,
             dual_buf: duals,
             all_dabs: None,
+            cont: self.cont,
         };
         t.raster_pending();
+        t.end_cap();
         // Tiles whose coverage the tail doesn't change still composite the same: redraw them all.
         t.cov.dirty.extend(t.cov.tiles.keys().copied());
         Some(t)

@@ -483,6 +483,33 @@ impl Default for BrushSettings {
 }
 
 impl BrushSettings {
+    /// local-image: does this brush paint with continuous coverage ([`crate::continuous`])
+    /// instead of stamping? Soft round tips without per-dab variation, at spacings of at most
+    /// [`crate::continuous::SEGMENT_SPACING`]: no sampled tip, aliasing, wet edges, noise, dual
+    /// brush, per-tip texture, colour dynamics, scattering, build-up, jitter, flips, projection
+    /// or tilt/direction/fade controls (pen pressure and the stylus wheel may drive size, opacity
+    /// and flow).
+    pub fn continuous_coverage(&self) -> bool {
+        let smooth = |d: &Dynamic| d.jitter <= 0.0 && matches!(d.control, Control::Off | Control::PenPressure | Control::StylusWheel);
+        let sd = &self.shape_dynamics;
+        let tr = &self.transfer;
+        matches!(self.tip, TipShape::Round)
+            && !self.aliased
+            && self.hardness < 1.0
+            && self.spacing_enabled
+            && self.spacing > 0.0
+            && self.spacing <= crate::continuous::SEGMENT_SPACING
+            && !self.wet_edges
+            && !self.noise
+            && !self.dual_brush.enabled
+            && !(self.texture.enabled && self.texture.each_tip)
+            && !self.color_dynamics.enabled
+            && !self.scattering.enabled
+            && !self.build_up
+            && (!sd.enabled || (smooth(&sd.size) && !sd.angle.is_active() && !sd.roundness.is_active() && !sd.flip_x_jitter && !sd.flip_y_jitter && !sd.brush_projection))
+            && (!tr.enabled || (smooth(&tr.opacity) && smooth(&tr.flow)))
+    }
+
     /// Copy the settings with the primary and dual diameters constrained for rasterization.
     ///
     /// Engine commands reject out-of-range values; this is a final guard for direct users of the

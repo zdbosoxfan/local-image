@@ -382,7 +382,13 @@ fn cases() -> Vec<(&'static str, Edit)> {
                     invert: false,
                     shape: MaskShape::Radial { center: Point::new(0.45, 0.5), rx: 0.3, ry: 0.25, angle: 0.0, feather: 50.0, invert: false },
                 }],
-                adjust: lightcraft_develop::LocalAdjustments { exposure: 1.0, contrast: 30.0, saturation: -50.0, amount: 120.0, ..Default::default() },
+                adjust: lightcraft_develop::LocalAdjustments {
+                    exposure: 1.0,
+                    contrast: 30.0,
+                    saturation: -50.0,
+                    amount: 120.0,
+                    ..Default::default()
+                },
                 opacity: 45.0,
                 ..Default::default()
             }];

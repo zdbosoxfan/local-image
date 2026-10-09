@@ -206,6 +206,8 @@ pub struct LightcraftApp {
     /// local-image: the host installed the fonts (a superset of ours, with the same family
     /// names): never replace them.
     pub host_fonts: bool,
+    /// local-image: a host session in Develop (Compositing's Camera Raw Filter): banner, OK/Cancel.
+    pub host_session: Option<panels::host_session::HostSession>,
 }
 
 impl LightcraftApp {
@@ -256,6 +258,7 @@ impl LightcraftApp {
             memory_applied: None,
             library_problem: None,
             host_fonts: false,
+            host_session: None,
         }
     }
 
@@ -704,6 +707,7 @@ impl LightcraftApp {
         self.collect_screenshots(ctx);
         self.issue_screenshots(ctx);
         if self.fonts_ready {
+            panels::host_session::keys(self, ctx);
             shortcuts::handle(self, ctx);
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -822,7 +826,13 @@ impl LightcraftApp {
         }
         // Order matters: earlier panels take the full edge (top bar spans the window; the tool strip,
         // right panels and left panel run to the bottom; the bottom bar sits between them).
-        panels::topbar::show(self, ui);
+        // a host session (Camera Raw Filter) replaces the Library's chrome with its banner
+        let session = self.host_session.is_some();
+        if session {
+            panels::host_session::banner(self, ui);
+        } else {
+            panels::topbar::show(self, ui);
+        }
         panels::library_problem::banner(self, ui);
         panels::strip::show(self, ui);
         if self.ui.right != state::RightPanel::None {
@@ -831,10 +841,12 @@ impl LightcraftApp {
         if self.ui.presets {
             panels::presets::show(self, ui);
         }
-        if self.ui.left_panel {
+        if self.ui.left_panel && !session {
             panels::left::show(self, ui);
         }
-        panels::bottombar::show(self, ui);
+        if !session {
+            panels::bottombar::show(self, ui);
+        }
         let t = theme::Tokens::get(&ctx);
         let bg = if matches!(self.ui.view, state::ViewMode::Detail | state::ViewMode::Compare | state::ViewMode::Survey | state::ViewMode::Reference)
         {

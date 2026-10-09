@@ -1285,5 +1285,14 @@
   "Highlights Blue": "Altas luzes – azul",
   "Auto D-max": "D-max automático",
   "Auto Print Exposure": "Exposição da ampliação automática",
-  "Auto Negative": "Negativo automático"
+  "Auto Negative": "Negativo automático",
+  "Local Adjustments": "Ajustes locais",
+  "Show only tools this layer uses": "Mostrar só as ferramentas usadas nesta camada",
+  "Reset Layer": "Redefinir camada",
+  "Remove every tool from this layer and reset its sliders and opacity": "Remove todas as ferramentas desta camada e redefine os controles e a opacidade",
+  "Black & white in this layer": "Preto e branco nesta camada",
+  "Reset all curves": "Redefinir todas as curvas",
+  "Refine Edges": "Refinar bordas",
+  "Camera Raw Filter": "Filtro Camera Raw",
+  "The layer changes when you click OK (Enter); Cancel (Esc) leaves it as it was.": "A camada muda ao clicar em OK (Enter); Cancelar (Esc) a deixa como estava."
 }

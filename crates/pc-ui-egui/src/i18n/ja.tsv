@@ -2493,3 +2493,20 @@ ai	New	新着
 	The active layer isn't a Develop layer	アクティブなレイヤーは現像レイヤーではありません
 	Updated from Develop	現像から更新しました
 	{name} · Develop layer (double-click it to return to Develop)	{name}・現像レイヤー(ダブルクリックで現像に戻ります)
+	A merged copy on top, as a Smart Object with a Camera Raw Filter.	結合したコピーを最前面に作成し、Camera Raw フィルター付きのスマートオブジェクトにします。
+	Apply Destructively	破壊的に適用
+	As a Smart Object the filter stays editable: double-click it in the Layers panel to change it.	スマートオブジェクトならフィルターを後から編集できます。レイヤーパネルでフィルターをダブルクリックして変更します。
+	Camera Raw Filter	Camera Raw フィルター
+	Camera Raw Filter applied	Camera Raw フィルターを適用しました
+	Camera Raw Filter cancelled	Camera Raw フィルターをキャンセルしました
+	Composite	合成
+	Convert	変換
+	Convert to Smart Object to keep it editable?	編集可能なままにするため、スマートオブジェクトに変換しますか？
+	Develop a Layered Document	レイヤーのあるドキュメントを現像
+	Develop the composite (live)	合成を現像（ライブ）
+	Don't ask again	今後確認しない
+	Just switch	切り替えのみ
+	Merge visible to a new layer and develop	表示レイヤーを新規レイヤーに結合して現像
+	Show the Library's Develop module.	ライブラリの現像モジュールを表示します。
+	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	表示レイヤーを Camera Raw フィルター付きのスマートオブジェクトにまとめます（中身は編集可能なまま）。
+	This document has no Develop layer. How should Develop work on it?	このドキュメントには現像レイヤーがありません。現像でどのように扱いますか？

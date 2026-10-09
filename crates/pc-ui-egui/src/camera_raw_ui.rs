@@ -60,6 +60,9 @@ pub struct CameraRawDialog {
     pub show_before: bool,
     mixer_tab: usize,
     pub render_ms: f64,
+    /// local-image: the dialog edits a `filter.develop` (the Library's develop engine) when the
+    /// Library isn't there to show its Develop module: these controls over `base`.
+    pub(crate) develop: Option<super::camera_raw_detail_ui::DevelopEngine>,
 }
 
 impl CameraRawDialog {
@@ -133,7 +136,15 @@ impl CameraRawDialog {
         let mut px = self.proxy.clone();
         let mut p = self.params.clone();
         p.pixel_scale = (self.pw as f32 / self.full_w.max(1) as f32).min(1.0);
-        photocraft_algo::camera_raw::develop(&mut px, self.pw, self.ph, &p, self.float);
+        match &self.develop {
+            Some(e) => {
+                let s = e.settings(&self.params);
+                if let Err(err) = photocraft_io::develop_filter::develop_rgba(&mut px, self.pw, self.ph, &s, &e.profile) {
+                    self.detail.error = Some(err);
+                }
+            }
+            None => photocraft_algo::camera_raw::develop(&mut px, self.pw, self.ph, &p, self.float),
+        }
         if let Some(mask) = &self.selection {
             for ((out, original), coverage) in px.iter_mut().zip(&self.proxy).zip(mask) {
                 for (out, original) in out.iter_mut().zip(original) {
@@ -320,10 +331,43 @@ fn open_pixels(
         curve_state: Default::default(),
         curve_rect: None,
         render_ms: 0.0,
+        develop: None,
     };
     d.render(ctx);
     app.camera_raw = Some(d);
     Ok(())
+}
+
+/// local-image: the dialog over the Library's develop engine (no Library to show Develop): edits
+/// the controls it has on top of `base`; OK / Cancel end the Camera Raw Filter session
+/// (`develop_filter_ui::finish`).
+pub fn open_develop(
+    app: &mut PhotocraftApp,
+    ctx: &egui::Context,
+    layer: LayerId,
+    surf: photocraft_raster::Surface,
+    base: photocraft_io::develop_filter::DevelopSettings,
+    profile: std::sync::Arc<photocraft_cms::Profile>,
+    smart_filter: bool,
+) -> Result<(), String> {
+    let params = photocraft_io::develop_filter::to_camera_raw(&base);
+    let coverage = if smart_filter { Coverage::None } else { Coverage::Selection };
+    open_pixels(app, ctx, layer, surf, params, coverage, Target::NewFilter)?;
+    let engine = super::camera_raw_detail_ui::DevelopEngine { base: std::sync::Arc::new(base), profile };
+    if let Some(d) = app.camera_raw.as_mut() {
+        d.detail.develop = Some(engine.clone());
+        d.develop = Some(engine);
+        d.dirty = true;
+        d.render(ctx);
+    }
+    Ok(())
+}
+
+/// Closes the dialog without applying (ending a develop session too).
+fn cancel(app: &mut PhotocraftApp) {
+    if app.camera_raw.take().is_some_and(|d| d.develop.is_some()) {
+        let _ = crate::develop_filter_ui::finish(app, None);
+    }
 }
 
 /// Menu / control-channel entry point. `None` when the call isn't for this dialog.
@@ -446,7 +490,7 @@ fn menu_update(app: &mut PhotocraftApp, ctx: &egui::Context, ui: &Value) -> Opti
     }
     super::camera_raw_scope_ui::persist(app, ctx);
     if ui.get("cancel").and_then(Value::as_bool) == Some(true) {
-        app.camera_raw = None;
+        cancel(app);
         return Some(Ok(json!({"cancelled": true})));
     }
     if ui.get("commit").and_then(Value::as_bool) == Some(true) {
@@ -457,6 +501,11 @@ fn menu_update(app: &mut PhotocraftApp, ctx: &egui::Context, ui: &Value) -> Opti
 
 fn commit(app: &mut PhotocraftApp) -> Result<Value, String> {
     let d = app.camera_raw.as_ref().ok_or(tl!("Camera Raw isn't open"))?;
+    if let Some(e) = &d.develop {
+        let settings = serde_json::to_value(e.settings(&d.params)).map_err(|e| e.to_string())?;
+        app.camera_raw = None;
+        return crate::develop_filter_ui::finish(app, Some(settings));
+    }
     let result = match d.target {
         Target::NewFilter => {
             let mut p = d.command_params();
@@ -776,7 +825,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 app.ui.status = e;
             }
         }
-        Some("cancel") => app.camera_raw = None,
+        Some("cancel") => cancel(app),
         _ => {}
     }
 }

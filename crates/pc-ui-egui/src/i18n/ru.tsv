@@ -2842,3 +2842,20 @@ ai	New	Новые
 	The active layer isn't a Develop layer	Активный слой не является слоем обработки
 	Updated from Develop	Обновлено из «Обработки»
 	{name} · Develop layer (double-click it to return to Develop)	{name} · слой обработки (дважды щёлкните, чтобы вернуться в «Обработку»)
+	A merged copy on top, as a Smart Object with a Camera Raw Filter.	Сведённая копия сверху как смарт-объект с фильтром Camera Raw.
+	Apply Destructively	Применить необратимо
+	As a Smart Object the filter stays editable: double-click it in the Layers panel to change it.	В смарт-объекте фильтр остаётся редактируемым: дважды щёлкните его на панели «Слои», чтобы изменить.
+	Camera Raw Filter	Фильтр Camera Raw
+	Camera Raw Filter applied	Фильтр Camera Raw применён
+	Camera Raw Filter cancelled	Фильтр Camera Raw отменён
+	Composite	Композиция
+	Convert	Преобразовать
+	Convert to Smart Object to keep it editable?	Преобразовать в смарт-объект, чтобы его можно было редактировать?
+	Develop a Layered Document	Обработка многослойного документа
+	Develop the composite (live)	Обработать композицию (вживую)
+	Don't ask again	Больше не спрашивать
+	Just switch	Просто переключиться
+	Merge visible to a new layer and develop	Свести видимые в новый слой и обработать
+	Show the Library's Develop module.	Показать модуль «Обработка» библиотеки.
+	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	Видимые слои становятся смарт-объектом (внутри по-прежнему редактируемым) с фильтром Camera Raw.
+	This document has no Develop layer. How should Develop work on it?	В этом документе нет слоя обработки. Как модулю «Обработка» работать с ним?

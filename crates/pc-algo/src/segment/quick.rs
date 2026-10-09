@@ -16,6 +16,20 @@
 //! This follows the spirit of "Paint Selection" (Liu, Sun & Shum, SIGGRAPH 2009) and of
 //! geodesic matting (Bai & Sapiro, ICCV 2007). Large windows run at a reduced working resolution
 //! and the boundary is re-cut at full resolution.
+//!
+//! local-image: **specular highlights**. A highlight on a glossy object is a strong colour step
+//! inside it, so the cut used to stop at its rim (the geodesic distance put it "behind an edge",
+//! its colours went into the background model). By the dichromatic reflection model (Shafer,
+//! "Using color to separate reflection components", 1985) a highlight's colour is the object's
+//! body colour plus the (white) illuminant: `p ≈ a·μ + b·(1, 1, 1)`. Pixels that fit that plane for
+//! one of the stroke's colour clusters with a clear white part, and that form blobs mostly
+//! surrounded by the stroke's colours and not explained by the background beyond the object, are
+//! highlight candidates: before the cut their white part is removed (a "specular-free" image, in the
+//! spirit of Tan & Ikeuchi 2005; clipped cores take the colour around them), so the edge, geodesic
+//! and colour terms see the body underneath; holes they leave are filled afterwards. A white
+//! background seen through a real hole is explained by the background outside the object and stays
+//! out. GEGL's `paint-select` was a reference for the problem only. Optionally a learned
+//! subject-probability map (the installed `li-seg` model) adds a weak prior to the colour terms.
 
 use photocraft_geom::Rect;
 
@@ -35,10 +49,41 @@ const GAMMA: f32 = 50.0;
 /// Default working-resolution budget (pixels) for a stroke.
 pub const WORK_PX: usize = 160_000;
 
+/// A foreground probability map over `area` (document pixels, row-major, `0..=1`), from a
+/// learned subject model: a weak prior for the cut.
+#[derive(Clone, Copy, Debug)]
+pub struct Prior<'a> {
+    pub area: Rect,
+    pub prob: &'a [f32],
+}
+
+/// Options of [`quick_select_with`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct QuickOptions {
+    /// Look through specular highlights (see the module docs).
+    pub highlights: bool,
+    /// Working-resolution foreground prior (same size as the working image), if any.
+    pub prior: Option<Vec<f32>>,
+}
+
+impl Default for QuickOptions {
+    fn default() -> Self {
+        Self { highlights: true, prior: None }
+    }
+}
+
+/// Data-term weight (nats) of the learned prior.
+const PRIOR_W: f32 = 3.0;
+
 /// Grows a selection from a brush stroke (`points` in document pixels, brush diameter `size`).
 /// Returns the new region (to be added to or subtracted from the current selection), or `None`
 /// when the stroke misses the canvas.
 pub fn quick_select(sampler: &dyn Sampler, canvas: Rect, points: &[(f32, f32)], size: f32, work_px: usize) -> Option<Region> {
+    quick_select_with(sampler, canvas, points, size, work_px, None)
+}
+
+/// [`quick_select`] with an optional learned subject prior.
+pub fn quick_select_with(sampler: &dyn Sampler, canvas: Rect, points: &[(f32, f32)], size: f32, work_px: usize, prior: Option<Prior>) -> Option<Region> {
     if points.is_empty() {
         return None;
     }
@@ -66,15 +111,58 @@ pub fn quick_select(sampler: &dyn Sampler, canvas: Rect, points: &[(f32, f32)], 
     if !seeds.iter().any(|s| *s) {
         return None;
     }
-    let (fg, bg, low) = segment(&img, &seeds);
+    let opts = QuickOptions { highlights: true, prior: prior.and_then(|p| prior_at(&p, window, step, lw, lh)) };
+    let (fg, bg, low) = segment_with(&img, &seeds, &opts);
     if !low.iter().any(|v| *v) {
         return None;
     }
     super::finish_region(sampler, window, step, &low, lw, lh, Some((&fg, &bg)))
 }
 
+/// The prior resampled to the working grid (`None` when it doesn't cover the window).
+fn prior_at(p: &Prior, window: Rect, step: usize, lw: usize, lh: usize) -> Option<Vec<f32>> {
+    let aw = p.area.width() as usize;
+    if aw == 0 || p.prob.len() < aw * p.area.height() as usize || p.area.intersect(&window).is_empty() {
+        return None;
+    }
+    let mut out = vec![0.5f32; lw * lh];
+    for y in 0..lh {
+        for x in 0..lw {
+            // Box average of the block this working pixel stands for.
+            let (x0, y0) = (window.x0 + (x * step) as i32, window.y0 + (y * step) as i32);
+            let b = Rect::new(x0, y0, (x0 + step as i32).min(window.x1), (y0 + step as i32).min(window.y1)).intersect(&p.area);
+            if b.is_empty() {
+                continue;
+            }
+            let mut sum = 0.0f32;
+            for yy in b.y0..b.y1 {
+                let row = (yy - p.area.y0) as usize * aw;
+                for xx in b.x0..b.x1 {
+                    sum += p.prob[row + (xx - p.area.x0) as usize];
+                }
+            }
+            out[y * lw + x] = (sum / (b.width() * b.height()) as f32).clamp(0.0, 1.0);
+        }
+    }
+    Some(out)
+}
+
 /// The working-resolution segmentation: (foreground model, background model, labels).
 pub fn segment(img: &RgbImage, seeds: &[bool]) -> (Gmm, Gmm, Vec<bool>) {
+    segment_with(img, seeds, &QuickOptions { highlights: false, prior: None })
+}
+
+/// [`segment`] with highlight handling and a prior (see [`QuickOptions`]).
+pub fn segment_with(img: &RgbImage, seeds: &[bool], opts: &QuickOptions) -> (Gmm, Gmm, Vec<bool>) {
+    let blobs = if opts.highlights { highlight_blobs(img, seeds) } else { None };
+    let Some(blobs) = blobs else { return cut(img, seeds, opts.prior.as_deref()) };
+    let (fg, bg, mut low) = cut(&blobs.compensated, seeds, opts.prior.as_deref());
+    // Holes the highlights leave (a clipped core whose rim the cut still followed) are filled.
+    fill_highlight_holes(&mut low, &blobs.mask, img.w, img.h);
+    (fg, bg, low)
+}
+
+fn cut(img: &RgbImage, seeds: &[bool], prior: Option<&[f32]>) -> (Gmm, Gmm, Vec<bool>) {
     let (lw, lh) = (img.w, img.h);
     let geo = geodesic(img, seeds);
     let fs: Vec<[f32; 3]> = img.px.iter().zip(seeds).filter(|(_, s)| **s).map(|(p, _)| *p).collect();
@@ -98,11 +186,242 @@ pub fn segment(img: &RgbImage, seeds: &[bool]) -> (Gmm, Gmm, Vec<bool>) {
     };
     #[cfg(target_arch = "wasm32")]
     let costs: Vec<(f32, f32)> = img.px.iter().zip(geo.iter()).map(eval).collect();
-    let (cf, cb): (Vec<f32>, Vec<f32>) = costs.into_iter().unzip();
+    let (mut cf, mut cb): (Vec<f32>, Vec<f32>) = costs.into_iter().unzip();
+    if let Some(q) = prior.filter(|q| q.len() == lw * lh) {
+        // The model's subject or its complement, whichever the stroke is on.
+        let (n, sum) = q.iter().zip(seeds).filter(|(_, s)| **s).fold((0usize, 0.0f32), |(n, s), (v, _)| (n + 1, s + v));
+        let on_subject = n == 0 || sum / n as f32 >= 0.5;
+        for ((f, b), v) in cf.iter_mut().zip(cb.iter_mut()).zip(q) {
+            let v = if on_subject { *v } else { 1.0 - v };
+            *f += PRIOR_W * -(v + 0.02).ln();
+            *b += PRIOR_W * -(1.0 - v + 0.02).ln();
+        }
+    }
     let fixed: Vec<u8> = seeds.iter().map(|s| if *s { HARD_FG } else { FREE }).collect();
     let cut = grid_cut(img, &cf, &cb, &fixed, GAMMA, contrast_beta(img));
     let low = keep_seeded(&cut, seeds, lw, lh);
     (fg, bg.unwrap_or_else(broad_model), low)
+}
+
+/// Accepted highlight blobs: their mask and the image with their white part removed.
+struct Highlights {
+    mask: Vec<bool>,
+    compensated: RgbImage,
+}
+
+/// Least-squares fit of `p ≈ a·μ + b·(1,1,1)` with `a, b ≥ 0`: (a, b, residual).
+fn dichromatic(p: [f32; 3], mu: [f32; 3]) -> (f32, f32, f32) {
+    let mm = mu[0] * mu[0] + mu[1] * mu[1] + mu[2] * mu[2];
+    let m1 = mu[0] + mu[1] + mu[2];
+    let mp = mu[0] * p[0] + mu[1] * p[1] + mu[2] * p[2];
+    let sp = p[0] + p[1] + p[2];
+    let det = 3.0 * mm - m1 * m1;
+    let (mut a, mut b) = if det > 1e-6 { ((3.0 * mp - m1 * sp) / det, (mm * sp - m1 * mp) / det) } else { (0.0, sp / 3.0) };
+    if b < 0.0 {
+        b = 0.0;
+        a = if mm > 1e-9 { mp / mm } else { 0.0 };
+    }
+    if a < 0.0 {
+        a = 0.0;
+        b = sp / 3.0;
+    }
+    let r = [0, 1, 2].map(|c| p[c] - a * mu[c] - b);
+    (a.max(0.0), b.max(0.0), (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt())
+}
+
+/// White part a highlight candidate needs, and the largest fit residual it may have.
+const SPEC_B: f32 = 0.06;
+const SPEC_RESID: f32 = 0.08;
+/// Fraction of a blob's border that must be the stroke's colours.
+const ENCLOSED: f32 = 0.7;
+
+/// Finds the highlight blobs of the stroke's object (see the module docs). `None` when there
+/// are none (the image is then segmented as is).
+fn highlight_blobs(img: &RgbImage, seeds: &[bool]) -> Option<Highlights> {
+    let (w, h) = (img.w, img.h);
+    let fs: Vec<[f32; 3]> = img.px.iter().zip(seeds).filter(|(_, s)| **s).map(|(p, _)| *p).collect();
+    let fs = subsample(&fs, 20_000);
+    let fg = Gmm::fit(&fs, (fs.len() / 40).clamp(1, 4), QREG)?;
+    // Only chromatic clusters: on a grey object a highlight is just a brighter grey.
+    let means: Vec<[f32; 3]> = fg
+        .comps
+        .iter()
+        .map(|c| c.mean)
+        .filter(|m| m.iter().copied().fold(f32::MIN, f32::max) - m.iter().copied().fold(f32::MAX, f32::min) >= 0.15)
+        .collect();
+    if means.is_empty() {
+        return None;
+    }
+    // "Looks like the stroke": within the stroke's own spread of colour likelihood.
+    let mut own: Vec<f32> = fs.iter().map(|p| fg.neg_log(*p)).collect();
+    let k = (own.len() * 95 / 100).min(own.len().saturating_sub(1));
+    let like_thr = *own.select_nth_unstable_by(k, f32::total_cmp).1 + 2.0;
+    // Per pixel: the best dichromatic fit (a, b, residual, cluster).
+    let fits: Vec<(f32, f32, f32, usize)> = img
+        .px
+        .iter()
+        .map(|p| {
+            means.iter().enumerate().map(|(i, m)| (dichromatic(*p, *m), i)).min_by(|x, y| x.0.2.total_cmp(&y.0.2)).map_or((0.0, 0.0, f32::MAX, 0), |((a, b, r), i)| (a, b, r, i))
+        })
+        .collect();
+    let fit: Vec<Option<(f32, usize)>> = fits.iter().map(|&(a, b, r, i)| (b >= SPEC_B && r <= SPEC_RESID).then_some((a, i))).collect();
+    let cand: Vec<bool> = fit.iter().zip(seeds).map(|(f, s)| f.is_some() && !*s).collect();
+    if !cand.iter().any(|c| *c) {
+        return None;
+    }
+    // The object's body: the stroke's colours, or their shades with at most a little white.
+    let like: Vec<bool> = img.px.iter().zip(&fits).map(|(p, f)| fg.neg_log(*p) <= like_thr || (f.2 <= SPEC_RESID && f.0 >= 0.25 && f.1 < SPEC_B)).collect();
+    // Blobs (4-connected) of candidates, and which are enclosed by the stroke's colours.
+    let (lab, n) = label4(&cand, w, h);
+    let mut border = vec![(0usize, 0usize); n + 1];
+    let mut touches = vec![false; n + 1];
+    for y in 0..h {
+        for x in 0..w {
+            let i = y * w + x;
+            let l = lab[i] as usize;
+            if l == 0 {
+                continue;
+            }
+            if x == 0 || y == 0 || x + 1 == w || y + 1 == h {
+                touches[l] = true;
+            }
+            let nb = [(x > 0).then(|| i - 1), (x + 1 < w).then(|| i + 1), (y > 0).then(|| i - w), (y + 1 < h).then(|| i + w)];
+            for j in nb.into_iter().flatten() {
+                if lab[j] as usize != l {
+                    border[l].0 += 1;
+                    if like[j] || seeds[j] {
+                        border[l].1 += 1;
+                    }
+                }
+            }
+        }
+    }
+    let enclosed: Vec<bool> = (0..=n).map(|l| l > 0 && !touches[l] && border[l].0 > 0 && border[l].1 as f32 >= ENCLOSED * border[l].0 as f32).collect();
+    if !enclosed.iter().any(|e| *e) {
+        return None;
+    }
+    // The background beyond the object (geodesically behind an edge, outside enclosed blobs):
+    // a blob whose colours it explains is the background showing through a real hole.
+    let geo = geodesic(img, seeds);
+    let bs: Vec<[f32; 3]> = (0..w * h).filter(|i| geo[*i] > EDGE && !enclosed[lab[*i] as usize]).map(|i| img.px[i]).collect();
+    let bs = subsample(&bs, 20_000);
+    let bg = if bs.len() >= 30 { Gmm::fit(&bs, 6, QREG) } else { None };
+    let typical = bg.as_ref().map(|b| {
+        let mut v: Vec<f32> = bs.iter().map(|p| b.neg_log(*p)).collect();
+        let k = (v.len() * 90 / 100).min(v.len() - 1);
+        (*v.select_nth_unstable_by(k, f32::total_cmp).1, b)
+    });
+    let mut per_blob: Vec<Vec<f32>> = vec![Vec::new(); n + 1];
+    if let Some((_, b)) = &typical {
+        for i in 0..w * h {
+            let l = lab[i] as usize;
+            if enclosed[l] {
+                per_blob[l].push(b.neg_log(img.px[i]));
+            }
+        }
+    }
+    let accept: Vec<bool> = (0..=n)
+        .map(|l| {
+            enclosed[l]
+                && match &typical {
+                    Some((t, _)) => {
+                        let v = &mut per_blob[l];
+                        let m = v.len() / 2;
+                        !v.is_empty() && *v.select_nth_unstable_by(m, f32::total_cmp).1 > *t
+                    }
+                    None => true,
+                }
+        })
+        .collect();
+    if !accept.iter().any(|a| *a) {
+        return None;
+    }
+    // Each accepted blob is filled smoothly from the body colours around it (a mean-value
+    // interpolation of its border, as in seamless cloning), so the cut sees the body underneath.
+    let mask: Vec<bool> = lab.iter().map(|l| accept[*l as usize]).collect();
+    let mut border_col = vec![0.0f32; w * h * 3];
+    for y in 0..h {
+        for x in 0..w {
+            let i = y * w + x;
+            if !mask[i] {
+                continue;
+            }
+            let nb = [(x > 0).then(|| i - 1), (x + 1 < w).then(|| i + 1), (y > 0).then(|| i - w), (y + 1 < h).then(|| i + w)];
+            let (mut sum, mut n) = ([0.0f32; 3], 0);
+            for j in nb.into_iter().flatten().filter(|j| !mask[*j]) {
+                for c in 0..3 {
+                    sum[c] += img.px[j][c];
+                }
+                n += 1;
+            }
+            if n > 0 {
+                for c in 0..3 {
+                    border_col[i * 3 + c] = sum[c] / n as f32;
+                }
+            }
+        }
+    }
+    let fill = crate::seamless::mvc_membrane(w, h, &mask, &border_col, 3);
+    let mut compensated = img.clone();
+    for i in (0..w * h).filter(|i| mask[*i]) {
+        compensated.px[i] = [0, 1, 2].map(|c| fill[i * 3 + c].clamp(0.0, 1.0));
+    }
+    Some(Highlights { mask, compensated })
+}
+
+/// 4-connected labels of `m` (0 = off) and the label count.
+fn label4(m: &[bool], w: usize, h: usize) -> (Vec<u32>, usize) {
+    let mut lab = vec![0u32; w * h];
+    let mut n = 0u32;
+    let mut stack = Vec::new();
+    for s in 0..w * h {
+        if !m[s] || lab[s] != 0 {
+            continue;
+        }
+        n += 1;
+        lab[s] = n;
+        stack.push(s);
+        while let Some(i) = stack.pop() {
+            let (x, y) = (i % w, i / w);
+            let nb = [(x > 0).then(|| i - 1), (x + 1 < w).then(|| i + 1), (y > 0).then(|| i - w), (y + 1 < h).then(|| i + w)];
+            for j in nb.into_iter().flatten() {
+                if m[j] && lab[j] == 0 {
+                    lab[j] = n;
+                    stack.push(j);
+                }
+            }
+        }
+    }
+    (lab, n as usize)
+}
+
+/// Fills holes of `low` (4-connected unselected areas not touching the border) made mostly of
+/// accepted highlight pixels.
+fn fill_highlight_holes(low: &mut [bool], spec: &[bool], w: usize, h: usize) {
+    let inv: Vec<bool> = low.iter().map(|v| !v).collect();
+    let (lab, n) = label4(&inv, w, h);
+    let mut stats = vec![(0usize, 0usize, false); n + 1];
+    for y in 0..h {
+        for x in 0..w {
+            let l = lab[y * w + x] as usize;
+            if l == 0 {
+                continue;
+            }
+            stats[l].0 += 1;
+            if spec[y * w + x] {
+                stats[l].1 += 1;
+            }
+            if x == 0 || y == 0 || x + 1 == w || y + 1 == h {
+                stats[l].2 = true;
+            }
+        }
+    }
+    for (o, l) in low.iter_mut().zip(&lab) {
+        let (size, sp, edge) = stats[*l as usize];
+        if *l != 0 && !edge && sp * 2 >= size {
+            *o = true;
+        }
+    }
 }
 
 /// A near-uniform density over the RGB cube.

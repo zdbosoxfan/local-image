@@ -2939,3 +2939,20 @@ ai	New	Novos
 	The active layer isn't a Develop layer	A camada ativa não é uma camada de revelação
 	Updated from Develop	Atualizado a partir da Revelação
 	{name} · Develop layer (double-click it to return to Develop)	{name} · camada de revelação (clique duas vezes para voltar à Revelação)
+	A merged copy on top, as a Smart Object with a Camera Raw Filter.	Uma cópia mesclada no topo, como objeto inteligente com um filtro Camera Raw.
+	Apply Destructively	Aplicar de forma destrutiva
+	As a Smart Object the filter stays editable: double-click it in the Layers panel to change it.	Como objeto inteligente o filtro continua editável: clique duas vezes nele no painel Camadas para alterá-lo.
+	Camera Raw Filter	Filtro Camera Raw
+	Camera Raw Filter applied	Filtro Camera Raw aplicado
+	Camera Raw Filter cancelled	Filtro Camera Raw cancelado
+	Composite	Composição
+	Convert	Converter
+	Convert to Smart Object to keep it editable?	Converter em objeto inteligente para continuar editável?
+	Develop a Layered Document	Revelar um documento com camadas
+	Develop the composite (live)	Revelar a composição (ao vivo)
+	Don't ask again	Não perguntar novamente
+	Just switch	Apenas alternar
+	Merge visible to a new layer and develop	Mesclar visíveis em uma nova camada e revelar
+	Show the Library's Develop module.	Mostrar o módulo Revelação da Biblioteca.
+	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	As camadas visíveis se tornam um objeto inteligente (editável por dentro) com um filtro Camera Raw.
+	This document has no Develop layer. How should Develop work on it?	Este documento não tem camada de revelação. Como a Revelação deve trabalhar nele?

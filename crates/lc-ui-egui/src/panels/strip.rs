@@ -35,6 +35,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     ("masking", Icon::Mask, RightPanel::Masking, "Masking (M)"),
                     ("redeye", Icon::Eye, RightPanel::RedEye, "Red Eye"),
                 ] {
+                    // local-image: a Camera Raw Filter session has no Crop
+                    if crate::panels::host_session::hides(app, id) {
+                        continue;
+                    }
                     let on = app.ui.right == panel || (panel == RightPanel::Edit && app.ui.right == RightPanel::Profiles);
                     if icon_button(ui, id, icon, sz, on, has_photo, tip).clicked() {
                         let _ = app.run(&format!("panel.{id}"), json!({}));

@@ -407,6 +407,7 @@ impl Session {
     /// Called after every top-level command; cheap when nothing changed. Fails (with
     /// [`EngineError::NotSaved`]) only when the queued ops couldn't be written; they stay queued.
     pub fn persist(&mut self) -> Result<()> {
+        self.strip_ephemeral_log();
         let Some(lib) = self.library.as_mut() else { return Ok(()) };
         if !self.pending_log.is_empty() {
             if let Err(e) = lib.journal.append(&self.pending_log) {
@@ -432,6 +433,7 @@ impl Session {
         // reported (`library.info` → `lastError`), not returned.
         if lib.journal.wants_snapshot()
             && self.interaction.is_none()
+            && self.ephemeral.is_none()
             && let Err(e) = lib.journal.snapshot_in_background(&self.catalog)
         {
             log::error!("library: compaction: {e}");
@@ -478,6 +480,7 @@ impl Session {
             return Ok(());
         }
         let _ = self.end_interaction();
+        self.close_ephemeral();
         let persisted = self.persist();
         self.save_view();
         let unlogged = if persisted.is_err() { self.pending_log.len() as u64 } else { 0 };

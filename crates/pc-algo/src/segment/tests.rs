@@ -483,7 +483,7 @@ pub(crate) fn glossy_ball(w: usize, h: usize, seed: u64) -> (RgbImage, Vec<bool>
             let i = y * w + x;
             img.px[i] = if d <= r {
                 ball[i] = true;
-                let shade = 0.55 + 0.45 * (1.0 - (d / r).powi(2)).max(0.0).sqrt();
+                let shade = 0.75 + 0.25 * (1.0 - (d / r).powi(2)).max(0.0).sqrt();
                 let body = [0.8 * shade + n, 0.12 * shade + n, 0.1 * shade + n];
                 let sd = (px - hx).hypot(py - hy) / hs;
                 let spec = (1.6 * (-0.5 * sd * sd).exp()).min(1.0);
@@ -510,6 +510,13 @@ fn quick_select_includes_a_specular_highlight() {
     assert!(got as f32 >= 0.97 * total as f32, "highlight: {got} of {total} selected");
     let v = iou(&reg, &ball, w, h);
     assert!(v > 0.95, "IoU {v}");
+    // Without the highlight handling the cut stops at the highlight's rim.
+    let seeds = quick::stroke_mask(&[(120.0, 150.0), (180.0, 160.0)], 7.0, w, h);
+    let (_, _, plain) = quick::segment(&img, &seeds);
+    let plain_got = (0..w * h).filter(|i| core[*i] && plain[*i]).count();
+    assert!((plain_got as f32) < 0.5 * total as f32, "{plain_got} of {total} without highlight handling");
+    let (_, _, with) = quick::segment_with(&img, &seeds, &quick::QuickOptions::default());
+    assert!((0..w * h).filter(|i| core[*i] && with[*i]).count() as f32 >= 0.97 * total as f32);
 }
 
 #[test]
@@ -527,4 +534,23 @@ fn quick_select_keeps_a_real_hole_open() {
     let reg = quick::quick_select(&s, Rect::new(0, 0, w as i32, h as i32), &[(120.0, 45.0), (150.0, 50.0)], 10.0, quick::WORK_PX).unwrap();
     assert!(reg.at(120, 100) < 0.5 && reg.at(110, 95) < 0.5, "the hole was filled");
     assert!(reg.at(120, 160) >= 0.5, "the ring is selected");
+}
+
+#[test]
+fn quick_select_follows_a_learned_prior_where_colour_cannot_tell() {
+    // One colour everywhere: alone, the stroke grows over everything; with a subject prior on
+    // the left half it stays there, and a stroke on the right uses the complement.
+    let (w, h) = (160, 100);
+    let mut rng = Rng::new(3);
+    let img = RgbImage::from_fn(w, h, |_, _| [0.5 + 0.05 * rng.normal(), 0.45 + 0.05 * rng.normal(), 0.4 + 0.05 * rng.normal()]);
+    let s = ImageSampler { img: &img, origin: (0, 0) };
+    let canvas = Rect::new(0, 0, w as i32, h as i32);
+    let prob: Vec<f32> = (0..w * h).map(|i| if i % w < 80 { 0.95 } else { 0.05 }).collect();
+    let prior = quick::Prior { area: canvas, prob: &prob };
+    let plain = quick::quick_select(&s, canvas, &[(30.0, 50.0)], 8.0, quick::WORK_PX).unwrap();
+    assert!(plain.at(140, 50) >= 0.5, "no prior: everything is alike");
+    let left = quick::quick_select_with(&s, canvas, &[(30.0, 50.0)], 8.0, quick::WORK_PX, Some(prior)).unwrap();
+    assert!(left.at(40, 20) >= 0.5 && left.at(140, 50) < 0.5 && left.at(90, 50) < 0.5, "{} {} {} {:?}", left.at(40, 20), left.at(140, 50), left.at(90, 50), left.bbox);
+    let right = quick::quick_select_with(&s, canvas, &[(130.0, 50.0)], 8.0, quick::WORK_PX, Some(prior)).unwrap();
+    assert!(right.at(150, 20) >= 0.5 && right.at(20, 50) < 0.5);
 }

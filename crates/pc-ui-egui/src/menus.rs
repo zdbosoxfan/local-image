@@ -179,6 +179,12 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
     if let Some(r) = crate::distort_ui::menu(app, ctx, id, &params) {
         return r;
     }
+    // local-image: Camera Raw Filter in the Library's Develop module (and its prompt).
+    if id == photocraft_engine::develop_filter_cmds::DEVELOP
+        && let Some(r) = crate::develop_filter_ui::invoke(app, ctx, &params)
+    {
+        return r;
+    }
     // Camera Raw Filter dialog (and its control params).
     if let Some(r) = crate::camera_raw_ui::menu(app, ctx, id, &params) {
         return r;

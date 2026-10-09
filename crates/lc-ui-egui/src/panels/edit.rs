@@ -115,93 +115,115 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
         }
         ui.add_space(8.0);
     });
-    tool_section(app, ui, d, target, tl, used_only, "color", "Color", &["wb", "color", "mixer", "point_colors", "treatment", "bw_mix", "grading"], |app, ui, d| {
-        if target.is_layer() {
-            // a layer can turn its area black & white
-            egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 4 }).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    let bw = crate::is_bw(d);
-                    if text_button(ui, "layerBw", crate::i18n::tr("B&W"), bw).on_hover_text(crate::i18n::tr("Black & white in this layer")).clicked() {
-                        let _ = target.merge(app, json!({"treatment": if bw { "color" } else { "bw" }}), "Treatment");
-                    }
-                });
-            });
-        }
-        if shows("wb") {
-            if !target.is_layer() {
-                // White balance row
-                egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 2 }).show(ui, |ui| {
+    tool_section(
+        app,
+        ui,
+        d,
+        target,
+        tl,
+        used_only,
+        "color",
+        "Color",
+        &["wb", "color", "mixer", "point_colors", "treatment", "bw_mix", "grading"],
+        |app, ui, d| {
+            if target.is_layer() {
+                // a layer can turn its area black & white
+                egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 4 }).show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(crate::i18n::tr("White Balance")).font(t.font(13.0)).color(t.text_dim));
-                        let r = crate::widgets::dropdown(ui, "wbMode", crate::i18n::tr(d.wb.mode.label()), t.font(14.0), t.text_label);
-                        egui::Popup::menu(&r).show(|ui| {
-                            for m in WbMode::ALL {
-                                if m == WbMode::Custom {
-                                    continue;
-                                }
-                                if ui.selectable_label(d.wb.mode == m, m.label()).clicked() {
-                                    let mode = serde_json::to_value(m).unwrap_or_default();
-                                    let _ = app.run("develop.wb", json!({"mode": mode}));
-                                }
-                            }
-                        });
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let active = app.ui.tool == "wbPicker";
-                            if crate::widgets::icon_button(ui, "wbPicker", Icon::Picker, vec2(28.0, 28.0), active, true, "White Balance Selector (W)")
-                                .clicked()
-                            {
-                                app.ui.tool = if active { String::new() } else { "wbPicker".into() };
-                            }
-                        });
+                        let bw = crate::is_bw(d);
+                        if text_button(ui, "layerBw", crate::i18n::tr("B&W"), bw)
+                            .on_hover_text(crate::i18n::tr("Black & white in this layer"))
+                            .clicked()
+                        {
+                            let _ = target.merge(app, json!({"treatment": if bw { "color" } else { "bw" }}), "Treatment");
+                        }
                     });
                 });
-            } else {
-                sub_title(ui, crate::i18n::tr("White Balance"));
             }
-            if raw {
-                control_t(app, ui, d, "wb.temp", true, target);
-                control_t(app, ui, d, "wb.tint", true, target);
-            } else {
-                let out = slider(ui, &REL_TEMP, k_to_rel(d.wb.temp), true, None);
-                apply_slider_out(app, &REL_TEMP, out, |app, v| target.set(app, json!({"wb.temp": rel_to_k(v)})));
-                let out = slider(ui, &REL_TINT, d.wb.tint.clamp(-100.0, 100.0), true, None);
-                apply_slider_out(app, &REL_TINT, out, |app, v| target.set(app, json!({"wb.tint": v})));
+            if shows("wb") {
+                if !target.is_layer() {
+                    // White balance row
+                    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 2 }).show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(crate::i18n::tr("White Balance")).font(t.font(13.0)).color(t.text_dim));
+                            let r = crate::widgets::dropdown(ui, "wbMode", crate::i18n::tr(d.wb.mode.label()), t.font(14.0), t.text_label);
+                            egui::Popup::menu(&r).show(|ui| {
+                                for m in WbMode::ALL {
+                                    if m == WbMode::Custom {
+                                        continue;
+                                    }
+                                    if ui.selectable_label(d.wb.mode == m, m.label()).clicked() {
+                                        let mode = serde_json::to_value(m).unwrap_or_default();
+                                        let _ = app.run("develop.wb", json!({"mode": mode}));
+                                    }
+                                }
+                            });
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                let active = app.ui.tool == "wbPicker";
+                                if crate::widgets::icon_button(
+                                    ui,
+                                    "wbPicker",
+                                    Icon::Picker,
+                                    vec2(28.0, 28.0),
+                                    active,
+                                    true,
+                                    "White Balance Selector (W)",
+                                )
+                                .clicked()
+                                {
+                                    app.ui.tool = if active { String::new() } else { "wbPicker".into() };
+                                }
+                            });
+                        });
+                    });
+                } else {
+                    sub_title(ui, crate::i18n::tr("White Balance"));
+                }
+                if raw {
+                    control_t(app, ui, d, "wb.temp", true, target);
+                    control_t(app, ui, d, "wb.tint", true, target);
+                } else {
+                    let out = slider(ui, &REL_TEMP, k_to_rel(d.wb.temp), true, None);
+                    apply_slider_out(app, &REL_TEMP, out, |app, v| target.set(app, json!({"wb.temp": rel_to_k(v)})));
+                    let out = slider(ui, &REL_TINT, d.wb.tint.clamp(-100.0, 100.0), true, None);
+                    apply_slider_out(app, &REL_TINT, out, |app, v| target.set(app, json!({"wb.tint": v})));
+                }
             }
-        }
-        if shows("color") {
-            control_t(app, ui, d, "color.vibrance", true, target);
-            control_t(app, ui, d, "color.saturation", true, target);
-        }
-        ui.add_space(6.0);
-        if shows("mixer") || shows("bw_mix") || (crate::is_bw(d) && shows("treatment")) {
-            let open = app.ui.flyout_open(&target.key("mixer"));
-            if flyout_row(ui, &target.key("mixer"), if crate::is_bw(d) { "B&W Mixer" } else { "Color Mixer" }, Icon::Radial, open).clicked() {
-                app.ui.toggle_flyout(&target.key("mixer"));
+            if shows("color") {
+                control_t(app, ui, d, "color.vibrance", true, target);
+                control_t(app, ui, d, "color.saturation", true, target);
             }
-            if open {
-                mixer(app, ui, d, target);
+            ui.add_space(6.0);
+            if shows("mixer") || shows("bw_mix") || (crate::is_bw(d) && shows("treatment")) {
+                let open = app.ui.flyout_open(&target.key("mixer"));
+                if flyout_row(ui, &target.key("mixer"), if crate::is_bw(d) { "B&W Mixer" } else { "Color Mixer" }, Icon::Radial, open).clicked() {
+                    app.ui.toggle_flyout(&target.key("mixer"));
+                }
+                if open {
+                    mixer(app, ui, d, target);
+                }
             }
-        }
-        if !crate::is_bw(d) && shows("point_colors") {
-            let open = app.ui.flyout_open(&target.key("pointColor"));
-            if flyout_row(ui, &target.key("pointColor"), crate::i18n::tr("Point Color"), Icon::Picker, open).clicked() {
-                app.ui.toggle_flyout(&target.key("pointColor"));
+            if !crate::is_bw(d) && shows("point_colors") {
+                let open = app.ui.flyout_open(&target.key("pointColor"));
+                if flyout_row(ui, &target.key("pointColor"), crate::i18n::tr("Point Color"), Icon::Picker, open).clicked() {
+                    app.ui.toggle_flyout(&target.key("pointColor"));
+                }
+                if open {
+                    point_color(app, ui, d, target);
+                }
             }
-            if open {
-                point_color(app, ui, d, target);
+            if shows("grading") {
+                let open = app.ui.flyout_open(&target.key("grading"));
+                if flyout_row(ui, &target.key("grading"), crate::i18n::tr("Color Grading"), Icon::Presets, open).clicked() {
+                    app.ui.toggle_flyout(&target.key("grading"));
+                }
+                if open {
+                    grading(app, ui, d, target);
+                }
             }
-        }
-        if shows("grading") {
-            let open = app.ui.flyout_open(&target.key("grading"));
-            if flyout_row(ui, &target.key("grading"), crate::i18n::tr("Color Grading"), Icon::Presets, open).clicked() {
-                app.ui.toggle_flyout(&target.key("grading"));
-            }
-            if open {
-                grading(app, ui, d, target);
-            }
-        }
-        ui.add_space(8.0);
-    });
+            ui.add_space(8.0);
+        },
+    );
     tool_section(app, ui, d, target, tl, used_only, "effects", "Effects", &["effects", "vignette", "grain"], |app, ui, d| {
         if shows("effects") {
             for c in ["effects.texture", "effects.clarity", "effects.dehaze"] {
@@ -288,9 +310,8 @@ fn tool_section(
     resp.context_menu(|ui| {
         let r = ui.add_enabled(!set.is_empty(), egui::Button::new(crate::i18n::tr("Reset Section")));
         if r.clicked() {
-            for k in &set {
-                let _ = app.run("mask.resetTools", json!({"id": mid, "section": k}));
-            }
+            let drop: serde_json::Map<String, Value> = set.iter().map(|k| (k.to_string(), Value::Null)).collect();
+            let _ = Target::Layer(mid).merge(app, Value::Object(drop), "Reset Layer Section");
             ui.close();
         }
     });
@@ -428,7 +449,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 let _ = app.run("develop.merge", json!({"settings": {"optics": {"remove_ca": ca}}, "label": "Remove CA"}));
             }
             let mut lp = d.optics.lens_profile;
-            if ui.checkbox(&mut lp, crate::i18n::tr("Enable Lens Corrections")).changed() {
+            if !crate::panels::host_session::hides(app, "lensProfile") && ui.checkbox(&mut lp, crate::i18n::tr("Enable Lens Corrections")).changed() {
                 let _ = app.run("develop.merge", json!({"settings": {"optics": {"lens_profile": lp}}, "label": "Lens Corrections"}));
             }
             if lp && !has_lens {
@@ -724,6 +745,10 @@ fn section(
     title: &str,
     body: impl FnOnce(&mut LightcraftApp, &mut egui::Ui, &DevelopSettings),
 ) {
+    // local-image: tools a Camera Raw Filter session can't use
+    if crate::panels::host_session::hides(app, id) {
+        return;
+    }
     let open = app.ui.section_open(id);
     let (resp, toggled) = section_header(ui, id, title, open, Some(d.section_enabled(id)));
     if let Some(on) = toggled {
@@ -874,7 +899,24 @@ fn soft_proofing(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
 
 // ------------------------------------------------------------------------------ tone curve
 
-fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &DevelopSettings) {
+/// Reset tone curve channel `ch` (`parametric`, `master`, `red`, `green`, `blue` or `all`) of
+/// `target`.
+fn reset_curve(app: &mut LightcraftApp, target: Target, ch: &str) {
+    if !target.is_layer() {
+        let _ = app.run("curve.reset", json!({"channel": ch}));
+        return;
+    }
+    let d = lightcraft_develop::ToneCurve::default();
+    let partial = match ch {
+        "all" => json!({"curve": null}),
+        "parametric" => json!({"curve": {"highlights": d.highlights, "lights": d.lights, "darks": d.darks, "shadows": d.shadows,
+            "split_shadows": d.split_shadows, "split_mid": d.split_mid, "split_highlights": d.split_highlights}}),
+        ch => json!({"curve": {ch: []}}),
+    };
+    let _ = target.merge(app, partial, "Reset Tone Curve");
+}
+
+fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &DevelopSettings, target: Target) {
     let t = Tokens::get(ui.ctx());
     // channel selector
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 6, bottom: 4 }).show(ui, |ui| {
@@ -910,14 +952,16 @@ fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Dev
                 let resp = resp.on_hover_text(crate::i18n::tr_format!("{name} — double-click to reset it", name = name));
                 if resp.double_clicked() {
                     app.ui.curve_channel = ch.into();
-                    let _ = app.run("curve.reset", json!({"channel": ch}));
+                    reset_curve(app, target, ch);
                 } else if resp.clicked() {
                     app.ui.curve_channel = ch.into();
                 }
             }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                tat_button(app, ui, "tat:curve", "Targeted adjustment: drag up/down on the photo to adjust the curve there");
-            });
+            if !target.is_layer() {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    tat_button(app, ui, "tat:curve", "Targeted adjustment: drag up/down on the photo to adjust the curve there");
+                });
+            }
         });
     });
     let ch = app.ui.curve_channel.clone();
@@ -927,7 +971,7 @@ fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Dev
     let r = Rect::from_min_size(pos2(outer.left() + 24.0, outer.top() + 6.0), vec2(side, side));
     let resp = ui.interact(r, egui::Id::new(("curve", &ch)), Sense::click_and_drag());
     register(ui.ctx(), "curve", r);
-    resp.context_menu(|ui| curve_reset_menu(app, ui, &ch));
+    resp.context_menu(|ui| curve_reset_menu(app, ui, &ch, target));
     let p = ui.painter();
     p.rect_filled(r, 2.0, t.canvas);
     for i in 1..4 {
@@ -966,11 +1010,11 @@ fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Dev
             })
             .collect();
         p.add(egui::Shape::line(pts, Stroke::new(2.0, Color32::from_gray(220))));
-        curve_footer(app, ui, d);
+        curve_footer(app, ui, d, target);
         for c in ["curve.highlights", "curve.lights", "curve.darks", "curve.shadows"] {
-            control(app, ui, d, c, true);
+            control_t(app, ui, d, c, true, target);
         }
-        control(app, ui, d, "curve.refineSaturation", true);
+        control_t(app, ui, d, "curve.refineSaturation", true, target);
         return;
     }
     let pts_of = |d: &DevelopSettings| -> Vec<Point> {
@@ -1079,25 +1123,45 @@ fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Dev
         new_pts = Some(v);
     }
     if let Some(v) = new_pts {
-        let arr: Vec<[f64; 2]> = v.iter().map(|p| [p.x, p.y]).collect();
-        let _ = app.run("develop.curve", json!({"channel": ch, "points": arr}));
+        match target {
+            Target::Global => {
+                let arr: Vec<[f64; 2]> = v.iter().map(|p| [p.x, p.y]).collect();
+                let _ = app.run("develop.curve", json!({"channel": ch, "points": arr}));
+            }
+            Target::Layer(_) => {
+                let key = if ["red", "green", "blue"].contains(&ch.as_str()) { ch.as_str() } else { "master" };
+                let _ = target.merge(app, json!({"curve": {key: v}}), "Tone Curve");
+            }
+        }
     }
     if resp.drag_stopped() {
         dragging = None;
         let _ = app.run("develop.endInteraction", json!({}));
     }
     ui.data_mut(|dd| dd.insert_temp(drag_id, dragging));
-    curve_footer(app, ui, d);
-    control(app, ui, d, "curve.refineSaturation", true);
+    curve_footer(app, ui, d, target);
+    control_t(app, ui, d, "curve.refineSaturation", true, target);
     let _ = id;
 }
 
 /// The row under the curve graph: point-curve presets and reset every curve.
-fn curve_footer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
+fn curve_footer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, target: Target) {
     use lightcraft_engine::cmd::curves::{all_presets, matching_preset};
     let t = Tokens::get(ui.ctx());
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 4 }).show(ui, |ui| {
         ui.horizontal(|ui| {
+            if target.is_layer() {
+                // (point-curve presets apply to the photo's curve)
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if text_button(ui, "layerCurveReset", crate::i18n::tr("Reset"), false)
+                        .on_hover_text(crate::i18n::tr("Reset all curves"))
+                        .clicked()
+                    {
+                        reset_curve(app, target, "all");
+                    }
+                });
+                return;
+            }
             ui.label(RichText::new(crate::i18n::tr("Point Curve")).font(t.font(12.0)).color(t.text_label));
             let current = matching_preset(&app.session, &d.curve);
             let builtin = current.as_ref().is_none_or(|name| all_presets(&app.session).iter().any(|p| p.builtin && &p.name == name));
@@ -1161,19 +1225,19 @@ fn curve_footer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings)
 }
 
 /// Right-click menu of the curve graph.
-fn curve_reset_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, ch: &str) {
+fn curve_reset_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, ch: &str, target: Target) {
     let label =
         if ch == "parametric" { "Reset Parametric Curve".to_string() } else { crate::i18n::tr_format!("Reset {} Channel", channel_label(ch)) };
     let r = ui.button(label);
     register(ui.ctx(), "curveMenu:resetChannel", r.rect);
     if r.clicked() {
-        let _ = app.run("curve.reset", json!({"channel": ch}));
+        reset_curve(app, target, ch);
         ui.close();
     }
     let r = ui.button(crate::i18n::tr("Reset All Curves"));
     register(ui.ctx(), "curveMenu:resetAll", r.rect);
     if r.clicked() {
-        let _ = app.run("curve.reset", json!({"channel": "all"}));
+        reset_curve(app, target, "all");
         ui.close();
     }
 }
@@ -1198,7 +1262,7 @@ fn tat_button(app: &mut LightcraftApp, ui: &mut egui::Ui, tool: &str, tip: &str)
 
 // ------------------------------------------------------------------------------ colour mixer
 
-fn mixer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
+fn mixer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, target: Target) {
     let t = Tokens::get(ui.ctx());
     let bands = lightcraft_develop::MIXER_BANDS;
     let sel = bands.iter().position(|b| *b == app.ui.mixer_mode).unwrap_or(0);
@@ -1219,8 +1283,12 @@ fn mixer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
             }
         });
     });
-    // targeted adjustment: pick the attribute, then drag on the photo
+    // targeted adjustment: pick the attribute, then drag on the photo (the photo's mixer only)
+    let tat = !target.is_layer();
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 2 }).show(ui, |ui| {
+        if !tat {
+            return;
+        }
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
@@ -1241,19 +1309,21 @@ fn mixer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
     });
     let b = bands[sel];
     if crate::is_bw(d) {
-        ui.horizontal(|ui| {
-            ui.add_space(24.0);
-            if crate::widgets::text_button(ui, "bwAuto", crate::i18n::tr("Auto"), false)
-                .on_hover_text(crate::i18n::tr("Set the mix from the photo's colours"))
-                .clicked()
-            {
-                let _ = app.run("develop.autoBwMix", json!({}));
-            }
-        });
-        control(app, ui, d, &format!("bw.{b}"), true);
+        if tat {
+            ui.horizontal(|ui| {
+                ui.add_space(24.0);
+                if crate::widgets::text_button(ui, "bwAuto", crate::i18n::tr("Auto"), false)
+                    .on_hover_text(crate::i18n::tr("Set the mix from the photo's colours"))
+                    .clicked()
+                {
+                    let _ = app.run("develop.autoBwMix", json!({}));
+                }
+            });
+        }
+        control_t(app, ui, d, &format!("bw.{b}"), true, target);
     } else {
         for k in ["hue", "sat", "lum"] {
-            control(app, ui, d, &format!("mixer.{b}.{k}"), true);
+            control_t(app, ui, d, &format!("mixer.{b}.{k}"), true, target);
         }
     }
 }
@@ -1271,7 +1341,11 @@ fn oklch_color(l: f64, c: f64, h_deg: f64) -> Color32 {
 
 /// Point Color: swatches of the samples (+ the eyedropper), the selected sample's shifts and range,
 /// and "Visualize range".
-fn point_color(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
+fn point_color(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, target: Target) {
+    let layer = match target {
+        Target::Layer(m) => Some(m),
+        Target::Global => None,
+    };
     let t = Tokens::get(ui.ctx());
     let n = d.point_colors.len();
     if app.ui.point_color >= n && n > 0 {
@@ -1281,12 +1355,13 @@ fn point_color(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) 
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 8, bottom: 4 }).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 5.0;
-            let active = app.ui.tool == "pointColor";
+            let active = app.ui.tool == "pointColor" && app.ui.point_color_mask == layer;
             let full = n >= lightcraft_develop::MAX_POINT_COLORS;
             if crate::widgets::icon_button(ui, "pointColorPicker", Icon::Picker, vec2(26.0, 26.0), active, !full, "Sample a colour on the photo")
                 .clicked()
             {
                 app.ui.tool = if active { String::new() } else { "pointColor".into() };
+                app.ui.point_color_mask = layer;
             }
             for (i, p) in d.point_colors.iter().enumerate() {
                 let (r, resp) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
@@ -1308,21 +1383,27 @@ fn point_color(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) 
         return;
     }
     for k in ["hueShift", "satShift", "lumShift", "variance"] {
-        control(app, ui, d, &format!("pointColor.{sel}.{k}"), true);
+        control_t(app, ui, d, &format!("pointColor.{sel}.{k}"), true, target);
     }
     sub_title(ui, crate::i18n::tr("Range"));
     for k in ["range", "hueRange", "satRange", "lumRange"] {
-        control(app, ui, d, &format!("pointColor.{sel}.{k}"), true);
+        control_t(app, ui, d, &format!("pointColor.{sel}.{k}"), true, target);
     }
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 4, bottom: 8 }).show(ui, |ui| {
         ui.horizontal(|ui| {
-            let mut v = app.ui.point_color_visualize;
-            if ui.checkbox(&mut v, crate::i18n::tr("Visualize range")).changed() {
-                app.ui.point_color_visualize = v;
+            if layer.is_none() {
+                let mut v = app.ui.point_color_visualize;
+                if ui.checkbox(&mut v, crate::i18n::tr("Visualize range")).changed() {
+                    app.ui.point_color_visualize = v;
+                }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if text_button(ui, "pointColorDelete", crate::i18n::tr("Delete"), false).clicked() {
-                    let _ = app.run("pointColor.delete", json!({"index": sel}));
+                    let mut q = json!({"index": sel});
+                    if let Some(m) = layer {
+                        q["mask"] = json!(m);
+                    }
+                    let _ = app.run("pointColor.delete", q);
                 }
             });
         });
@@ -1331,7 +1412,7 @@ fn point_color(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) 
 
 // ------------------------------------------------------------------------------ colour grading
 
-fn grading(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
+fn grading(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, target: Target) {
     let t = Tokens::get(ui.ctx());
     let w = ui.available_width();
     let (area, _) = ui.allocate_exact_size(vec2(w, 250.0), Sense::hover());
@@ -1366,17 +1447,17 @@ fn grading(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
             let v = q - c;
             let hue = ((-v.y).atan2(v.x).to_degrees() + 360.0) % 360.0;
             let sat = (v.length() / rad * 100.0).min(100.0);
-            let _ = app.run("develop.set", json!({"values": {format!("grading.{key}.hue"): hue.round(), format!("grading.{key}.sat"): sat.round()}}));
+            let _ = target.set(app, json!({format!("grading.{key}.hue"): hue.round(), format!("grading.{key}.sat"): sat.round()}));
         }
         if resp.drag_stopped() || resp.clicked() {
             let _ = app.run("develop.endInteraction", json!({}));
         }
         if resp.double_clicked() {
-            let _ = app.run("develop.set", json!({"values": {format!("grading.{key}.hue"): 0, format!("grading.{key}.sat"): 0}}));
+            let _ = target.set(app, json!({format!("grading.{key}.hue"): 0, format!("grading.{key}.sat"): 0}));
         }
     }
     for c in ["grading.shadows.lum", "grading.midtones.lum", "grading.highlights.lum", "grading.blending", "grading.balance"] {
-        control(app, ui, d, c, true);
+        control_t(app, ui, d, c, true, target);
     }
 }
 

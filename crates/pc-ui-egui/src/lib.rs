@@ -95,6 +95,7 @@ pub mod context_bar;
 pub mod control;
 pub mod credits;
 pub mod crop_ui;
+pub mod develop_filter_ui;
 pub mod develop_layer;
 pub mod dialogs;
 pub mod direct_select;
@@ -418,6 +419,9 @@ pub struct PhotocraftApp {
     pub browse_in_library: Option<String>,
     /// local-image: a Develop layer was double-clicked: the host shows Develop on this Library photo.
     pub develop_request: Option<u64>,
+    /// local-image: Filter › Camera Raw Filter… sessions in the Library's Develop module (the host
+    /// takes `develop_filter.request`), and the prompts around them.
+    pub develop_filter: develop_filter_ui::State,
     /// local-image: the module the host shows (kept up to date by the host).
     pub current_module: Module,
     fonts_ready: bool,
@@ -561,6 +565,7 @@ impl PhotocraftApp {
             switch_module: None,
             browse_in_library: None,
             develop_request: None,
+            develop_filter: Default::default(),
             current_module: Module::Compositing,
             fonts_ready: false,
             last_canvas_rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0)),
@@ -1171,6 +1176,7 @@ impl eframe::App for PhotocraftApp {
         tiff_options_ui::show(self, &ctx);
         distort_ui::show(self, &ctx);
         camera_raw_ui::show(self, &ctx);
+        develop_filter_ui::show(self, &ctx);
         wide_angle_ui::show(self, &ctx);
         canvas::extra_windows(self, &ctx);
         notices::show(self, &ctx);

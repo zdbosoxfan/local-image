@@ -887,3 +887,131 @@ fn transfer_wetness_and_mix_vary_per_dab() {
     assert!(old.spacing_enabled && !old.shape_dynamics.brush_projection && old.shape_dynamics.tilt_scale == 0.0 && old.locks == SectionLocks::default());
     assert_eq!(old.mixer, crate::mixer::MixerSettings::default());
 }
+
+// ---------- continuous coverage (soft round brushes) ----------
+
+fn soft(spacing: f32, flow: f32) -> BrushSettings {
+    BrushSettings { size: 40.0, hardness: 0.0, spacing, flow, ..brush() }
+}
+
+/// Coverage of a horizontal stroke along row `y` over `x0..x1`: (mean, max − min).
+fn row_stats(r: &StrokeRenderer, y: i32, x0: i32, x1: i32) -> (f32, f32) {
+    let v: Vec<f32> = (x0..x1).map(|x| r.coverage_at(x, y)).collect();
+    let mean = v.iter().sum::<f32>() / v.len() as f32;
+    let (lo, hi) = v.iter().fold((f32::MAX, f32::MIN), |(a, b), c| (a.min(*c), b.max(*c)));
+    (mean, hi - lo)
+}
+
+fn stroke(b: &BrushSettings, stamped: bool) -> StrokeRenderer {
+    let mut r = if stamped { StrokeRenderer::new_stamped(b, None, 1.0) } else { StrokeRenderer::new(b, None, 1.0) };
+    r.push(&line(40.0, 360.0, 50.5));
+    r.finish();
+    r
+}
+
+#[test]
+fn soft_round_brushes_take_the_continuous_path_and_others_stamp() {
+    assert!(!BrushSettings::default().continuous_coverage(), "the default brush is hard");
+    assert!(soft(0.25, 1.0).continuous_coverage());
+    assert!(!soft(0.3, 1.0).continuous_coverage(), "wide spacing keeps its dabs");
+    for b in [
+        BrushSettings { hardness: 1.0, ..soft(0.1, 1.0) },
+        BrushSettings { aliased: true, ..soft(0.1, 1.0) },
+        BrushSettings { wet_edges: true, ..soft(0.1, 1.0) },
+        BrushSettings { noise: true, ..soft(0.1, 1.0) },
+        BrushSettings { texture: Texture { enabled: true, each_tip: true, ..Default::default() }, ..soft(0.1, 1.0) },
+        BrushSettings { shape_dynamics: ShapeDynamics { enabled: true, size: Dynamic::jitter(0.3), ..Default::default() }, ..soft(0.1, 1.0) },
+        BrushSettings { shape_dynamics: ShapeDynamics { enabled: true, size: Dynamic::controlled(Control::Fade), ..Default::default() }, ..soft(0.1, 1.0) },
+        BrushSettings { scattering: Scattering { enabled: true, ..Default::default() }, ..soft(0.1, 1.0) },
+        BrushSettings { color_dynamics: ColorDynamics { enabled: true, ..Default::default() }, ..soft(0.1, 1.0) },
+        BrushSettings { build_up: true, ..soft(0.1, 1.0) },
+    ] {
+        assert!(!b.continuous_coverage(), "{b:?}");
+        assert!(!StrokeRenderer::new(&b, None, 1.0).is_continuous());
+    }
+    // Pen pressure on size or flow stays continuous.
+    let p = BrushSettings { shape_dynamics: ShapeDynamics { enabled: true, size: Dynamic::controlled(Control::PenPressure), ..Default::default() }, ..soft(0.1, 0.5) };
+    assert!(p.continuous_coverage());
+    // Hard brushes render exactly as before (the stamp path).
+    let h = BrushSettings { hardness: 1.0, ..soft(0.05, 0.3) };
+    let (a, b) = (stroke(&h, false), stroke(&h, true));
+    for x in (30..370).step_by(7) {
+        for y in 25..76 {
+            assert_eq!(a.coverage_at(x, y).to_bits(), b.coverage_at(x, y).to_bits());
+        }
+    }
+}
+
+#[test]
+fn continuous_coverage_matches_the_stamped_density_without_beading() {
+    for spacing in [0.01, 0.05, 0.25] {
+        for flow in [0.2, 1.0] {
+            let b = soft(spacing, flow);
+            let (c, s) = (stroke(&b, false), stroke(&b, true));
+            assert!(c.is_continuous() && !s.is_continuous());
+            // Along the centre and along a row halfway to the edge, away from the ends.
+            for y in [50, 59] {
+                let (cm, cv) = row_stats(&c, y, 120, 280);
+                let (sm, sv) = row_stats(&s, y, 120, 280);
+                assert!((cm - sm).abs() <= 0.02 * sm.max(0.05), "spacing {spacing} flow {flow} row {y}: continuous {cm} vs stamped {sm}");
+                assert!(cv <= 0.002 && cv <= sv * 0.5 + 1e-4, "spacing {spacing} flow {flow} row {y}: variation {cv} (stamped {sv})");
+            }
+        }
+    }
+    // Tighter spacing still builds more density at low flow (Photoshop's behaviour).
+    let (dense, sparse) = (stroke(&soft(0.05, 0.2), false), stroke(&soft(0.25, 0.2), false));
+    assert!(row_stats(&dense, 59, 120, 280).0 > row_stats(&sparse, 59, 120, 280).0 + 0.05);
+}
+
+#[test]
+fn continuous_click_is_one_dab_and_chunking_is_invariant() {
+    let b = soft(0.1, 0.6);
+    let mut c = StrokeRenderer::new(&b, None, 1.0);
+    c.push(&[StrokePoint::new(50.3, 40.7, 1.0)]);
+    c.finish();
+    let mut s = StrokeRenderer::new_stamped(&b, None, 1.0);
+    s.push(&[StrokePoint::new(50.3, 40.7, 1.0)]);
+    s.finish();
+    for y in 15..66 {
+        for x in 25..76 {
+            assert!((c.coverage_at(x, y) - s.coverage_at(x, y)).abs() < 1e-5, "({x},{y})");
+        }
+    }
+    // Feeding the stroke in chunks gives the same coverage as one push.
+    let pts: Vec<StrokePoint> = (0..50).map(|i| StrokePoint::new(30.0 + i as f64 * 5.0, 60.0 + (i as f64 * 0.2).sin() * 20.0, 0.4 + 0.6 * (i as f64 / 49.0) as f32)).collect();
+    let pb = BrushSettings { shape_dynamics: ShapeDynamics { enabled: true, size: Dynamic::controlled(Control::PenPressure), ..Default::default() }, ..b };
+    let mut one = StrokeRenderer::new(&pb, None, 1.0);
+    one.push(&pts);
+    one.finish();
+    let mut inc = StrokeRenderer::new(&pb, None, 1.0);
+    for ch in pts.chunks(3) {
+        inc.push(ch);
+    }
+    // The live tail preview already shows the end cap.
+    let tail = inc.tail_preview().map(|t| t.coverage_at(275, 60 + ((49.0f64 * 0.2).sin() * 20.0) as i32));
+    inc.finish();
+    assert!(one.is_continuous());
+    let b1 = one.bounds();
+    for y in b1.y0..b1.y1 {
+        for x in b1.x0..b1.x1 {
+            assert_eq!(one.coverage_at(x, y).to_bits(), inc.coverage_at(x, y).to_bits(), "({x},{y})");
+        }
+    }
+    let end = inc.coverage_at(275, 60 + ((49.0f64 * 0.2).sin() * 20.0) as i32);
+    assert!(tail.is_some_and(|t| (t - end).abs() < 1e-6), "{tail:?} vs {end}");
+}
+
+#[test]
+#[ignore = "timing"]
+fn continuous_timing() {
+    for (size, spacing) in [(500.0, 0.25), (500.0, 0.01), (60.0, 0.25)] {
+        let b = BrushSettings { size, hardness: 0.0, spacing, flow: 0.3, ..brush() };
+        for stamped in [false, true] {
+            let t = std::time::Instant::now();
+            let mut r = if stamped { StrokeRenderer::new_stamped(&b, None, 1.0) } else { StrokeRenderer::new(&b, None, 1.0) };
+            r.push(&line(0.0, 2000.0, 300.0));
+            r.finish();
+            eprintln!("TIMING size {size} spacing {spacing} stamped {stamped}: {:?}", t.elapsed());
+        }
+    }
+}

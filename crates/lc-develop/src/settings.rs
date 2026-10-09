@@ -1141,7 +1141,8 @@ impl LayerTools {
             return Err(format!("`{k}` is not a layer tool (layers take {})", LAYER_KEYS.join(", ")));
         }
         let mut out = self.clone();
-        let patch: serde_json::Map<String, serde_json::Value> = obj.iter().filter(|(_, v)| !v.is_null()).map(|(k, v)| (k.clone(), v.clone())).collect();
+        let patch: serde_json::Map<String, serde_json::Value> =
+            obj.iter().filter(|(_, v)| !v.is_null()).map(|(k, v)| (k.clone(), v.clone())).collect();
         let view = crate::presets::apply_partial_strict(&self.view(global_wb), &serde_json::Value::Object(patch.clone()))?;
         for k in patch.keys() {
             out.take(k, &view);

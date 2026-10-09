@@ -18,6 +18,7 @@ pub mod crs;
 pub mod crs_masks;
 pub mod demo;
 pub mod devices;
+pub mod ephemeral;
 pub mod export;
 pub mod files;
 pub mod fonts;
@@ -210,6 +211,8 @@ pub struct Session {
     /// Untouched Local records of folders not browsed for this many days are forgotten when the
     /// library opens (0 = never; persisted in prefs.json). See `cmd/browse.rs`.
     pub forget_local_days: u32,
+    /// local-image: the Camera Raw Filter's temporary photo (see [`ephemeral`]).
+    pub(crate) ephemeral: Option<ephemeral::Ephemeral>,
 }
 
 impl Default for Session {
@@ -274,6 +277,7 @@ impl Session {
             cache_mb: 0,
             smart_previews_dir: None,
             forget_local_days: lightcraft_catalog::DEFAULT_FORGET_DAYS,
+            ephemeral: None,
         }
     }
 
@@ -378,6 +382,9 @@ impl Session {
     /// differ from its latest version; at most [`AUTO_VERSIONS`] auto versions, oldest dropped).
     /// Saved with the library but not an undo step.
     pub fn auto_version(&mut self, id: PhotoId) {
+        if self.is_ephemeral(id) {
+            return;
+        }
         let Some(p) = self.catalog.photo(id) else { return };
         if !p.is_edited() || p.versions.last().is_some_and(|v| *v.settings == *p.develop) || self.interaction.is_some() {
             return;
@@ -488,6 +495,7 @@ impl Session {
 
     /// Ops applied since the last call, for the op-log store.
     pub fn drain_log(&mut self) -> Vec<Op> {
+        self.strip_ephemeral_log();
         std::mem::take(&mut self.pending_log)
     }
 
@@ -720,9 +728,9 @@ mod tests_import;
 #[cfg(test)]
 mod tests_import_move;
 #[cfg(test)]
-mod tests_libops;
-#[cfg(test)]
 mod tests_layers;
+#[cfg(test)]
+mod tests_libops;
 #[cfg(test)]
 mod tests_library;
 #[cfg(test)]

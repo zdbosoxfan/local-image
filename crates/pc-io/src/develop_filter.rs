@@ -82,6 +82,11 @@ pub fn identity() -> &'static DevelopSettings {
     })
 }
 
+/// [`identity`] as JSON.
+pub fn identity_json() -> Value {
+    serde_json::to_value(identity()).unwrap_or_else(|_| Value::Object(Default::default()))
+}
+
 /// Section ids of the Develop panels hidden for a filter (see [`sanitize`]).
 pub const HIDDEN_SECTIONS: [&str; 4] = ["calibration", "crop", "geometry", "lensProfile"];
 
@@ -101,10 +106,19 @@ pub fn linear_rec2020() -> &'static Profile {
 /// Converts between a document's RGB profile and linear Rec.2020.
 pub enum Conv {
     /// Matrix/TRC: `lin = M · trc(rgb)`.
-    Matrix { trc: Box<[Curve; 3]>, to: [[f32; 3]; 3], from: [[f32; 3]; 3] },
+    Matrix {
+        trc: Box<[Curve; 3]>,
+        to: [[f32; 3]; 3],
+        from: [[f32; 3]; 3],
+    },
     /// Gray (a grayscale document's RGB view): neutral in, Rec.2020 luminance out.
-    Gray { trc: Box<Curve> },
-    Cms { to: Arc<Transform>, from: Arc<Transform> },
+    Gray {
+        trc: Box<Curve>,
+    },
+    Cms {
+        to: Arc<Transform>,
+        from: Arc<Transform>,
+    },
 }
 
 fn f32m(m: &math::Mat3) -> [[f32; 3]; 3] {
@@ -113,11 +127,7 @@ fn f32m(m: &math::Mat3) -> [[f32; 3]; 3] {
 
 #[inline]
 fn mat(m: &[[f32; 3]; 3], p: [f32; 3]) -> [f32; 3] {
-    [
-        m[0][0] * p[0] + m[0][1] * p[1] + m[0][2] * p[2],
-        m[1][0] * p[0] + m[1][1] * p[1] + m[1][2] * p[2],
-        m[2][0] * p[0] + m[2][1] * p[1] + m[2][2] * p[2],
-    ]
+    [m[0][0] * p[0] + m[0][1] * p[1] + m[0][2] * p[2], m[1][0] * p[0] + m[1][1] * p[1] + m[1][2] * p[2], m[2][0] * p[0] + m[2][1] * p[1] + m[2][2] * p[2]]
 }
 
 impl Conv {

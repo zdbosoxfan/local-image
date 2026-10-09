@@ -2575,3 +2575,20 @@ ai	New	Nuevos
 	The active layer isn't a Develop layer	La capa activa no es una capa de revelado
 	Updated from Develop	Actualizado desde Revelar
 	{name} · Develop layer (double-click it to return to Develop)	{name} · capa de revelado (doble clic para volver a Revelar)
+	A merged copy on top, as a Smart Object with a Camera Raw Filter.	Una copia combinada encima, como objeto inteligente con un filtro Camera Raw.
+	Apply Destructively	Aplicar de forma destructiva
+	As a Smart Object the filter stays editable: double-click it in the Layers panel to change it.	Como objeto inteligente el filtro sigue siendo editable: haz doble clic en él en el panel Capas para cambiarlo.
+	Camera Raw Filter	Filtro Camera Raw
+	Camera Raw Filter applied	Filtro Camera Raw aplicado
+	Camera Raw Filter cancelled	Filtro Camera Raw cancelado
+	Composite	Composición
+	Convert	Convertir
+	Convert to Smart Object to keep it editable?	¿Convertir en objeto inteligente para que siga siendo editable?
+	Develop a Layered Document	Revelar un documento con capas
+	Develop the composite (live)	Revelar la composición (en vivo)
+	Don't ask again	No volver a preguntar
+	Just switch	Solo cambiar
+	Merge visible to a new layer and develop	Combinar visibles en una capa nueva y revelar
+	Show the Library's Develop module.	Mostrar el módulo Revelar de la Biblioteca.
+	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	Las capas visibles se convierten en un objeto inteligente (editable por dentro) con un filtro Camera Raw.
+	This document has no Develop layer. How should Develop work on it?	Este documento no tiene capa de revelado. ¿Cómo debe trabajar Revelar con él?

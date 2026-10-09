@@ -129,6 +129,11 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
             }
         }
     });
+    // local-image: a Camera Raw Filter session keeps to Develop
+    if let Some(h) = &app.host_session {
+        fire.retain(|id| h.allows(id));
+        aliased.retain(|(id, _)| h.allows(id));
+    }
     use crate::panels::compare;
     // rating/flag/label keys: in Compare/Survey they act on the active photo only; Shift+key or
     // Auto Advance then moves on (next candidate in Compare, next photo elsewhere)
