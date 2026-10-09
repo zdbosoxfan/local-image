@@ -65,6 +65,15 @@ struct Post {
     tables: Vec<Vec<f32>>,
 }
 
+/// Borrowed device-link tables used by [`Transform::eval_fast`]. A GPU consumer must use
+/// the CLUT's tetrahedral interpolation, followed by the optional output tables indexed by
+/// `clamp(x, 0, 1).sqrt().sqrt()`. Includes white-preservation fixes made at construction.
+#[derive(Clone, Copy)]
+pub struct FastGrid<'a> {
+    pub clut: &'a Clut,
+    pub post: Option<&'a [Vec<f32>]>,
+}
+
 impl Post {
     #[inline]
     fn eval(&self, c: usize, x: f32) -> f32 {
@@ -224,6 +233,13 @@ impl Transform {
     /// The exact evaluation pipeline.
     pub fn pipeline(&self) -> &Pipeline {
         &self.pipeline
+    }
+
+    /// The exact accelerated grid representation, without resampling the output curves.
+    /// Analytic transforms without a device-link grid return `None`.
+    pub fn fast_grid(&self) -> Option<FastGrid<'_>> {
+        let Core::Grid(clut) = &self.core else { return None };
+        Some(FastGrid { clut, post: self.post.as_ref().map(|p| p.tables.as_slice()) })
     }
 
     /// Exact evaluation of one colour (`inputs` → `outputs` normalised values).

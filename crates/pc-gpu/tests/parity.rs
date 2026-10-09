@@ -1,5 +1,5 @@
 //! GPU vs CPU parity: every blend mode, adjustment, group/clip/mask/fill combination must match
-//! the reference compositor within 2/255 (premultiplied). Skips when no GPU adapter exists.
+//! the reference compositor within 1/255 (premultiplied). Skips when no GPU adapter exists.
 
 use photocraft_color::{BlendMode, Color, ColorMode, PixelFormat, SampleType};
 use photocraft_doc::adjust::{CurvePoint, HueRange, LevelsChannel};
@@ -43,14 +43,9 @@ fn gpu() -> Option<Gpu> {
         eprintln!("skipping GPU parity tests: adapter can't render Rgba32Float");
         return None;
     }
-    let comp = match Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("skipping GPU parity tests: {e}");
-            return None;
-        }
-    };
-    let mut paged = Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).ok()?;
+    eprintln!("parity adapter: {:?}", adapter.get_info());
+    let comp = Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).expect("compositor pipelines on a supported adapter");
+    let mut paged = Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).expect("paged compositor pipelines");
     paged.set_texture_limit(PAGED_LIMIT);
     Some(Gpu { device, queue, comp, paged, _lock: lock })
 }
@@ -1568,4 +1563,341 @@ fn deferred_encode_uniforms_survive_an_intervening_render() {
     });
     let expected = photocraft_compose::render(&a, a.bounds()).px[0];
     assert!(actual.iter().zip(expected).all(|(a, b)| (a - b).abs() <= TOL), "{actual:?} != {expected:?}");
+}
+
+fn blend_ranges() -> photocraft_doc::BlendIf {
+    use photocraft_doc::{BlendIf, BlendRange};
+    let mut bi = BlendIf::default();
+    for ch in 0..4 {
+        bi.set(ch, [BlendRange { black: [12 + ch as u8 * 5, 65], white: [195, 244] }, BlendRange { black: [0, 40], white: [215, 255] }]);
+    }
+    bi
+}
+
+#[test]
+fn blend_if_ranges_depth_modes_and_boundaries() {
+    let Some(mut g) = gpu() else { return };
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        for mode in [BlendMode::Normal, BlendMode::Multiply, BlendMode::Screen, BlendMode::Overlay] {
+            let mut d = Document::new("Blend If", Size::new(72, 48), ColorMode::Rgb, depth);
+            let fmt = d.pixel_format();
+            d.layers.push(noise_layer("under", fmt, d.bounds(), 123, 0.0));
+            let mut l = noise_layer("this", fmt, Rect::new(-12, -8, 65, 43), 456, 0.0);
+            l.blend_if = blend_ranges();
+            l.opacity = 0.63;
+            l.fill_opacity = 0.79;
+            l.blend = mode;
+            l.mask = Some(mask(d.bounds(), 19, 1.0));
+            l.excluded_channels = 2;
+            d.layers.push(l);
+            check(&mut g, &d, &format!("Blend If {depth:?} {mode:?}"));
+        }
+    }
+    // Exact unsplit endpoints (including fully transparent this/under pixels).
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        for ch in 0..4 {
+            let mut d = Document::new("endpoints", Size::new(8, 2), ColorMode::Rgb, depth);
+            let mut l = Layer::raster("endpoints", d.pixel_format());
+            for (x, v) in [0.0, 49.5, 50.0, 50.5, 199.5, 200.0, 200.5, 255.0].into_iter().enumerate() {
+                let mut px = [v / 255.0; 4];
+                px[3] = 0.8;
+                l.surface_mut().unwrap().fill_rect(Rect::from_xywh(x as i32, 0, 1, 2), &px);
+            }
+            l.blend_if.set(ch, [photocraft_doc::BlendRange { black: [50, 50], white: [200, 200] }, photocraft_doc::BlendRange::FULL]);
+            d.layers.push(l);
+            check(&mut g, &d, &format!("inclusive Blend If endpoints {depth:?} channel {ch}"));
+            d.layers[0].blend_if.set(ch, [photocraft_doc::BlendRange { black: [255, 255], white: [255, 255] }, photocraft_doc::BlendRange::FULL]);
+            check(&mut g, &d, &format!("white Blend If endpoint {depth:?} channel {ch}"));
+        }
+    }
+    let mut d = base_doc(32, 16);
+    for mode in [ColorMode::Grayscale, ColorMode::Duotone] {
+        d.mode = mode;
+        d.layers[0].blend_if = blend_ranges();
+        check(&mut g, &d, &format!("Blend If {mode:?}"));
+    }
+}
+
+#[test]
+fn blend_if_groups_clipping_adjustments_and_damage() {
+    let Some(mut g) = gpu() else { return };
+    for group_mode in [BlendMode::PassThrough, BlendMode::Multiply] {
+        let mut d = base_doc(530, 90);
+        let mut base = noise_layer("base", d.pixel_format(), Rect::new(220, -10, 520, 80), 31, 0.3);
+        base.blend_if = blend_ranges();
+        let mut clipped = noise_layer("clip", d.pixel_format(), d.bounds(), 41, 0.1);
+        clipped.clipped = true;
+        clipped.blend = BlendMode::Screen;
+        clipped.blend_if = blend_ranges();
+        clipped.mask = Some(mask(d.bounds(), 19, 1.0));
+        let mut adj = Layer::new("adjusted this", LayerContent::Adjustment(Adjustment::Invert));
+        adj.clipped = true;
+        adj.opacity = 0.4;
+        adj.blend_if = blend_ranges();
+        let mut group = Layer::group("group", vec![base, clipped, adj]);
+        group.blend = group_mode;
+        group.opacity = 0.7;
+        group.mask = Some(mask(d.bounds(), 29, 1.0));
+        group.blend_if = blend_ranges();
+        group.excluded_channels = 1;
+        d.layers.push(group);
+        check(&mut g, &d, &format!("Blend If group {group_mode:?}"));
+        let r = Rect::new(250, 15, 275, 40);
+        d.layers[1].children_mut().unwrap()[0].surface_mut().unwrap().fill_rect(r, &[0.9, 0.1, 0.2, 0.8]);
+        diff_rect(&mut g, &d, r, "Blend If damaged page boundary").unwrap();
+        check(&mut g, &d, "Blend If after damage");
+        // Cached ranges must invalidate on a slider edit and undo.
+        let undo = d.clone();
+        d.layers[1].blend_if.set(2, [photocraft_doc::BlendRange::FULL; 2]);
+        check(&mut g, &d, "Blend If slider changed");
+        check(&mut g, &undo, "Blend If slider undo");
+    }
+}
+
+#[test]
+fn noisy_shadows_and_glows_depth_modes_and_pages() {
+    let Some(mut g) = gpu() else { return };
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        for mode in [BlendMode::Normal, BlendMode::Multiply, BlendMode::Screen] {
+            for kind in 0..6 {
+                let mut d = fx_doc(280, 70, depth);
+                let mut l = blob("noisy", d.pixel_format(), 250.0, 35.0, 22.0, [0.8, 0.3, 0.1]);
+                l.opacity = match mode {
+                    BlendMode::Normal => 0.4,
+                    BlendMode::Multiply => 0.72,
+                    _ => 1.0,
+                };
+                l.fill_opacity = match depth {
+                    SampleType::U8 => 0.61,
+                    SampleType::U16 => 0.85,
+                    SampleType::F32 => 1.0,
+                };
+                l.blend = mode;
+                l.mask = Some(mask(d.bounds(), 75, 1.0));
+                let mut s = shadow(mode, 0.8, 130.0, 5.0, 9.0, 0.2);
+                s.noise = 0.37;
+                if kind == 1 {
+                    s.contour = contour();
+                }
+                let mut glow = glow(
+                    FxPaint::Color(Color::rgb(0.9, 0.5, 0.2)),
+                    if kind < 4 { GlowTechnique::Softer } else { GlowTechnique::Precise },
+                    10.0,
+                    0.3,
+                    if kind == 3 { GlowSource::Center } else { GlowSource::Edge },
+                );
+                glow.noise = 0.43;
+                if kind == 3 {
+                    glow.contour = contour();
+                }
+                l.effects.items = vec![match kind {
+                    0 => Effect::DropShadow(s),
+                    1 => Effect::InnerShadow(s),
+                    2 | 4 => Effect::OuterGlow(glow),
+                    _ => Effect::InnerGlow(glow),
+                }];
+                d.layers.push(l);
+                fx_check(&mut g, &d, &format!("noise {kind} {depth:?} {mode:?}"));
+            }
+        }
+    }
+}
+
+#[test]
+fn noisy_maps_hash_damage_move_and_setting_changes() {
+    let Some(mut g) = gpu() else { return };
+    let mut d = Document::new("noise hash", Size::new(280, 60), ColorMode::Rgb, SampleType::F32);
+    let mut l = Layer::raster("hash", d.pixel_format());
+    l.surface_mut().unwrap().fill_rect(Rect::new(-5, -5, 275, 55), &[0.2, 0.5, 0.7, 0.5]);
+    l.fill_opacity = 0.0;
+    let mut s = shadow(BlendMode::Normal, 1.0, 0.0, 0.0, 0.0, 0.0);
+    s.contour = Contour::Linear;
+    s.noise = 0.5;
+    s.knocks_out = false;
+    l.effects.items = vec![Effect::DropShadow(s)];
+    d.layers.push(l);
+    fx_check(&mut g, &d, "hash noise with negative map origin");
+    let out = render_to_vec(&mut g.comp, &g.device, &g.queue, &d, d.bounds()).unwrap();
+    for y in 0..55 {
+        for x in 0..275 {
+            let n = photocraft_compose::effects::hash_noise(x, y);
+            assert!((out[(y * 280 + x) as usize][3] - n).abs() < 0.001, "noise hash at ({x}, {y})");
+        }
+    }
+    let r = Rect::new(250, 20, 265, 40);
+    d.layers[0].surface_mut().unwrap().fill_rect(r, &[0.7, 0.2, 0.1, 0.7]);
+    diff_rect(&mut g, &d, r, "noisy map damage").unwrap();
+    fx_check(&mut g, &d, "noisy map damage full");
+    if let Effect::DropShadow(s) = &mut d.layers[0].effects.items[0] {
+        s.noise = 0.8;
+    }
+    assert_eq!(fx_check(&mut g, &d, "noise amount edited").fx_programs, 1);
+    let src = d.layers[0].surface().unwrap();
+    let b = src.content_bounds();
+    let mut moved = photocraft_raster::Surface::new(src.format());
+    moved.write_region(Rect::new(b.x0 + 3, b.y0 + 2, b.x1 + 3, b.y1 + 2), &src.read_region(b));
+    *d.layers[0].surface_mut().unwrap() = moved;
+    assert!(fx_check(&mut g, &d, "noise after whole-pixel move").fx_programs > 0);
+}
+
+fn native_adjustments(space: photocraft_doc::adjust::ToneSpace) -> [Adjustment; 3] {
+    let lc = LevelsChannel { in_black: 0.07, in_white: 0.94, gamma: 1.25, out_black: 0.03, out_white: 0.97 };
+    let curve = vec![CurvePoint { input: 0.0, output: 0.03 }, CurvePoint { input: 0.4, output: 0.52 }, CurvePoint { input: 1.0, output: 0.96 }];
+    [
+        Adjustment::Levels { master: lc.clone(), per_channel: [lc.clone(), LevelsChannel::default(), lc.clone()], space, black: lc },
+        Adjustment::Curves { master: curve.clone(), per_channel: [curve.clone(), vec![], curve.clone()], space, black: curve },
+        Adjustment::Curves { master: vec![], per_channel: Default::default(), space, black: vec![] },
+    ]
+}
+
+#[test]
+fn native_cmyk_lab_tones_depth_blends_masks_clipping() {
+    use photocraft_doc::adjust::ToneSpace;
+    let Some(mut g) = gpu() else { return };
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        for doc_mode in [ColorMode::Rgb, ColorMode::Cmyk, ColorMode::Lab] {
+            for space in [ToneSpace::Cmyk, ToneSpace::Lab] {
+                let mut d = Document::new("native tone", Size::new(40, 28), doc_mode, depth);
+                let fmt = d.pixel_format();
+                d.layers.push(noise_layer("native", fmt, d.bounds(), 831, 0.4));
+                for (i, adj) in native_adjustments(space).into_iter().enumerate() {
+                    let mut l = Layer::new("native adjustment", LayerContent::Adjustment(adj));
+                    l.opacity = 0.7;
+                    l.blend = if i == 0 { BlendMode::Normal } else { BlendMode::Screen };
+                    l.mask = Some(mask(d.bounds(), 56, 1.0));
+                    d.layers.truncate(1);
+                    d.layers.push(l.clone());
+                    check(&mut g, &d, &format!("native {space:?}/{doc_mode:?}/{depth:?}/{i}"));
+                    l.clipped = true;
+                    l.blend = BlendMode::Multiply;
+                    let base = noise_layer("clip base", fmt, Rect::new(4, 3, 37, 25), 913, 0.0);
+                    let mut group = Layer::group("native group", vec![base, l]);
+                    group.blend = BlendMode::Normal;
+                    group.opacity = 0.8;
+                    d.layers.truncate(1);
+                    d.layers.push(group);
+                    check(&mut g, &d, "native clipped adjustment in isolated group");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn former_fallbacks_combined_damage_and_pages() {
+    use photocraft_doc::adjust::ToneSpace;
+    let Some(mut g) = gpu() else { return };
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        let mut d = fx_doc(530, 80, depth);
+        let mut base = blob("combined", d.pixel_format(), 255.0, 40.0, 32.0, [0.7, 0.2, 0.4]);
+        base.blend_if = blend_ranges();
+        let mut glow = glow(FxPaint::Color(Color::rgb(0.2, 0.8, 0.5)), GlowTechnique::Precise, 8.0, 0.2, GlowSource::Edge);
+        glow.noise = 0.4;
+        base.effects.items = vec![Effect::OuterGlow(glow)];
+        let mut adj = Layer::new("Lab", LayerContent::Adjustment(native_adjustments(ToneSpace::Lab)[1].clone()));
+        adj.clipped = true;
+        adj.opacity = 0.8;
+        adj.blend_if = blend_ranges();
+        let mut group = Layer::group("combined group", vec![base, adj]);
+        group.mask = Some(mask(d.bounds(), 935, 1.0));
+        group.opacity = 0.75;
+        d.layers.push(group);
+        check(&mut g, &d, "former fallback paths combined");
+        let r = Rect::new(250, 30, 265, 45);
+        d.layers[1].children_mut().unwrap()[0].surface_mut().unwrap().fill_rect(r, &[0.1, 0.6, 0.3, 0.8]);
+        diff_rect(&mut g, &d, r.inflate(12), "combined damaged pages").unwrap();
+        check(&mut g, &d, "combined after damage");
+        d.layers[1].children_mut().unwrap()[1].content = LayerContent::Adjustment(native_adjustments(ToneSpace::Cmyk)[0].clone());
+        check(&mut g, &d, "changed native channel mode");
+    }
+}
+
+#[test]
+fn blur_lut_spans_multiple_rows() {
+    let Some(mut g) = gpu() else { return };
+    let mut d = fx_doc(270, 16, SampleType::U16);
+    let mut l = blob("wide blur", d.pixel_format(), 250.0, 8.0, 4.0, [0.5, 0.2, 0.1]);
+    let mut s = shadow(BlendMode::Normal, 0.7, 0.0, 0.0, 2051.0, 0.0);
+    s.noise = 0.25;
+    l.effects.items = vec![Effect::DropShadow(s)];
+    d.layers.push(l);
+    assert!(photocraft_compose::effects::tent_kernel(2051.0).1.len() > 4096);
+    fx_check(&mut g, &d, "multirow blur LUT and clipped apron");
+}
+
+#[test]
+fn oversized_effect_apron_splits_page_work() {
+    let _lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Ok(adapter) = pollster::block_on(wgpu::Instance::default().request_adapter(&wgpu::RequestAdapterOptions::default())) else { return };
+    let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_limits: wgpu::Limits { max_texture_dimension_2d: 4096, ..Default::default() },
+        ..Default::default()
+    })) else {
+        return;
+    };
+    if Compositor::preferred_acc_format(&adapter) != wgpu::TextureFormat::Rgba32Float {
+        return;
+    }
+    let mut comp = Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).unwrap();
+    let mut d = base_doc(4200, 4);
+    let mut l = noise_layer("long shifted shadow", d.pixel_format(), d.bounds(), 391, 0.2);
+    l.fill_opacity = 0.5;
+    l.effects.items = vec![Effect::DropShadow(shadow(BlendMode::Normal, 0.8, 0.0, 1100.0, 0.0, 0.0))];
+    d.layers.push(l);
+    // 2048 + 2×1102 exceeds 4096; the split windows still fit and preserve both sides.
+    assert!(comp.supports(&d).is_ok());
+    let cpu = photocraft_compose::render(&d, d.bounds());
+    let (out, stats) = photocraft_gpu::render_to_vec_stats(&mut comp, &device, &queue, &d, d.bounds()).unwrap();
+    assert!(stats.chunks > d.size.width.div_ceil(photocraft_gpu::CHUNK) as usize, "page work did not split: {stats:?}");
+    assert!(worst_diff(&cpu.px, &out).0 <= TOL);
+}
+
+#[test]
+fn noisy_group_shape_tracks_blend_if_edits_and_document_mode() {
+    let Some(mut g) = gpu() else { return };
+    let mut d = base_doc(300, 80);
+    let mut child = blob("child", d.pixel_format(), 250.0, 40.0, 25.0, [0.8, 0.3, 0.1]);
+    child.blend_if = blend_ranges();
+    let mut group = Layer::group("noisy group", vec![child]);
+    group.mask = Some(mask(d.bounds(), 551, 1.0));
+    let mut glow = glow(FxPaint::Color(Color::rgb(0.9, 0.6, 0.2)), GlowTechnique::Softer, 8.0, 0.25, GlowSource::Edge);
+    glow.noise = 0.4;
+    group.effects.items = vec![Effect::OuterGlow(glow)];
+    d.layers.push(group);
+    fx_check(&mut g, &d, "noise on Blend If group shape");
+    d.layers[1].children_mut().unwrap()[0].blend_if.set(3, [photocraft_doc::BlendRange::FULL; 2]);
+    // The CPU's pre-existing effect cache omits child Blend If and document mode. Compare
+    // fresh reference maps for these synthetic edits, without changing CPU cache behavior.
+    photocraft_compose::purge_effect_cache();
+    fx_check(&mut g, &d, "group child's Blend If edited");
+    d.mode = ColorMode::Lab;
+    photocraft_compose::purge_effect_cache();
+    fx_check(&mut g, &d, "group Blend If disabled by Lab mode");
+}
+
+#[test]
+fn noisy_blur_damage_keeps_reference_residue_speckles() {
+    let Some(mut g) = gpu() else { return };
+    let mut d = fx_doc(300, 90, SampleType::U8);
+    let mut l = blob("soft noisy", d.pixel_format(), 245.0, 40.0, 26.0, [0.8, 0.3, 0.2]);
+    let mut glow = glow(FxPaint::Color(Color::rgb(0.7, 0.6, 0.3)), GlowTechnique::Softer, 9.0, 0.2, GlowSource::Edge);
+    glow.noise = 0.5;
+    l.effects.items = vec![Effect::OuterGlow(glow)];
+    d.layers.push(l);
+    fx_check(&mut g, &d, "soft noise before damage");
+    let r = Rect::new(240, 35, 260, 45);
+    d.layers[1].surface_mut().unwrap().fill_rect(r, &[0.1, 0.7, 0.4, 0.4]);
+    diff_rect(&mut g, &d, r.inflate(12), "soft noise partial damage").unwrap();
+    fx_check(&mut g, &d, "soft noise full after damage");
+}
+
+#[test]
+fn wide_glow_fields_remain_exact_inside_the_reference_region() {
+    let Some(mut g) = gpu() else { return };
+    let mut d = fx_doc(800, 540, SampleType::U8);
+    let mut l = blob("wide precise", d.pixel_format(), 250.0, 10.0, 8.0, [0.4, 0.2, 0.7]);
+    l.effects.items = vec![Effect::OuterGlow(glow(FxPaint::Color(Color::rgb(0.9, 0.7, 0.1)), GlowTechnique::Precise, 1000.0, 0.6, GlowSource::Edge))];
+    d.layers.push(l);
+    // Corner pixels inside the reference map can be farther from the shape than MAX_REACH.
+    fx_check(&mut g, &d, "wide glow/spread fields beyond 512 pixels");
 }

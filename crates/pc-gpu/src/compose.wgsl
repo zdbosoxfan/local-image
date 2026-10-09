@@ -48,6 +48,7 @@ const F_STROKE_OUT: u32 = 1024u; // effect paint: outside stroke band
 const F_FIRST: u32 = 2048u;      // outside strokes: nothing accumulated yet
 const F_CHANNELS: u32 = 4096u;   // lerp: per-channel weights in p0 (channel restrictions)
 const F_LAB: u32 = 65536u;      // Lab document: Normal mixes in CIELAB
+const F_EXACT8: u32 = 262144u;  // exact byte normalization for discontinuous/native operations
 const F_QUANT: u32 = 32768u;    // lerp: A rounded to p0.x steps (adjustment results, integer docs)
 const F_ADD_DIFF: u32 = 16384u;  // lerp: A + (B - C) premultiplied (clips on pass-through groups)
 const F_TEXT_GAMMA: u32 = 8192u; // blend / atop / fx merge: type layer, mix coverage at gamma p4.w
@@ -314,6 +315,48 @@ fn dissolve_noise(d: vec2<i32>) -> f32 {
     return f32(h & 0xffffu) / 65536.0;
 }
 
+// BlendRange::weight, including inclusive unsplit endpoints and split ramps.
+fn blend_ramp(lo: f32, hi: f32, x: f32) -> f32 {
+    if (hi <= lo) { return select(0.0, 1.0, x >= lo); }
+    return clamp((x - lo) / (hi - lo), 0.0, 1.0);
+}
+
+fn blend_range(i: i32, v: f32) -> f32 {
+    let black_lo = lut_at(i);
+    let black_hi = lut_at(i + 1);
+    let white_lo = lut_at(i + 2);
+    let white_hi = lut_at(i + 3);
+    return blend_ramp(black_lo, black_hi, v) * blend_ramp(255.0 - white_hi, 255.0 - white_lo, 255.0 - v);
+}
+
+@fragment
+fn fs_blend_if(in: VOut) -> @location(0) vec4<f32> {
+    let p = local(in.pos);
+    let before = textureLoad(tex_a, p, 0);
+    let after = textureLoad(tex_b, p, 0);
+    var own = textureLoad(tex_c, p, 0);
+    if (op.kind == 1) { own = after; }
+    var k = 1.0;
+    for (var side = 0; side < 2; side++) {
+        var px = own;
+        if (side == 1) { px = before; }
+        // Adjustment results are tested even when transparent; absent content/backdrop is not.
+        if (px.a <= 0.0 && !(side == 0 && op.kind == 1)) { continue; }
+        let v = clamp(px.rgb, vec3(0.0), vec3(1.0)) * 255.0;
+        if (op.p0.x > 2.0) {
+            k *= blend_range(side * 16, gray(v));
+            k *= blend_range(side * 16 + 4, v.r);
+            k *= blend_range(side * 16 + 8, v.g);
+            k *= blend_range(side * 16 + 12, v.b);
+        } else {
+            k *= blend_range(side * 16, v.r) * blend_range(side * 16 + 4, v.r);
+        }
+    }
+    if (k >= 1.0) { return after; }
+    let mixed = mix_premul(before, after, k);
+    return vec4(clamp(mixed.rgb, vec3(0.0), vec3(1.0)), mixed.a);
+}
+
 // ---- adjustments (compose::adjust) ----------------------------------------------------------
 
 fn srgb_to_linear(v: f32) -> f32 {
@@ -377,6 +420,80 @@ var<private> adj_px: vec2<i32>;
 
 fn lut_at(i: i32) -> f32 {
     return textureLoad(lut_tex, vec2(i % 4096, i / 4096), 0).r;
+}
+
+// CMS eval_fast tables: ICC channel order (first input slowest), tetrahedral interpolation
+// in three dimensions, linear along C for four inputs, then the accurate output shapers.
+fn cms_node(i: i32, outputs: i32) -> vec4<f32> {
+    var v = vec4(lut_at(i), lut_at(i + 1), lut_at(i + 2), 0.0);
+    if (outputs == 4) { v.w = lut_at(i + 3); }
+    return v;
+}
+
+fn cms_tetra(base: i32, s: vec3<i32>, f: vec3<f32>, outputs: i32) -> vec4<f32> {
+    var order = vec3(0, 1, 2);
+    if (f.x >= f.y) {
+        if (f.y >= f.z) { order = vec3(0, 1, 2); }
+        else if (f.x >= f.z) { order = vec3(0, 2, 1); }
+        else { order = vec3(2, 0, 1); }
+    } else {
+        if (f.x >= f.z) { order = vec3(1, 0, 2); }
+        else if (f.y >= f.z) { order = vec3(1, 2, 0); }
+        else { order = vec3(2, 1, 0); }
+    }
+    let v0 = cms_node(base, outputs);
+    let v1 = cms_node(base + s[order.x], outputs);
+    let v2 = cms_node(base + s[order.x] + s[order.y], outputs);
+    let v3 = cms_node(base + s.x + s.y + s.z, outputs);
+    return v0 + (v1 - v0) * f[order.x] + (v2 - v1) * f[order.y] + (v3 - v2) * f[order.z];
+}
+
+fn cms_grid(c: vec4<f32>, four: bool) -> vec4<f32> {
+    let n = i32(select(op.p0.x, op.p0.y, four));
+    let outputs = select(4, 3, four);
+    let start = i32(select(op.p0.z, op.p0.w, four));
+    let pos = clamp(c, vec4(0.0), vec4(1.0)) * f32(n - 1);
+    let ix = min(vec4<i32>(pos), vec4(n - 2));
+    let f = pos - vec4<f32>(ix);
+    let s = vec3(n * n * outputs, n * outputs, outputs);
+    var v: vec4<f32>;
+    if (four) {
+        let base = start + ix.x * n * s.x + ix.y * s.x + ix.z * s.y + ix.w * s.z;
+        let lo = cms_tetra(base, s, f.yzw, outputs);
+        v = lo;
+        if (f.x > 0.0) { v = lo + (cms_tetra(base + n * s.x, s, f.yzw, outputs) - lo) * f.x; }
+    } else {
+        v = cms_tetra(start + ix.x * s.x + ix.y * s.y + ix.z * s.z, s, f.xyz, outputs);
+    }
+    let post = i32(select(op.p1.x, op.p1.y, four));
+    if (post > 0) {
+        for (var ch = 0; ch < outputs; ch++) {
+            let u = sqrt(sqrt(clamp(v[ch], 0.0, 1.0))) * 4095.0;
+            let i = min(i32(u), 4094);
+            let a = lut_at(post + ch * 4096 + i);
+            v[ch] = a + (lut_at(post + ch * 4096 + i + 1) - a) * (u - f32(i));
+        }
+    }
+    return v;
+}
+
+fn native_tone(c: vec3<f32>, cmyk: bool) -> vec3<f32> {
+    if (cmyk) {
+        let ink = cms_grid(vec4(c, 0.0), false);
+        let b = 1.0 - ink;
+        let changed = 1.0 - vec4(lut(0, b.x), lut(1, b.y), lut(2, b.z), lut(3, b.w));
+        if (all(changed == ink)) { return c; }
+        let before = cms_grid(ink, true).rgb;
+        let after = cms_grid(changed, true).rgb;
+        return clamp(c + after - before, vec3(0.0), vec3(1.0));
+    }
+    let lab = srgb_to_lab(c);
+    let n = vec3(lab.x / 100.0, (lab.y + 128.0) / 255.0, (lab.z + 128.0) / 255.0);
+    let changed = vec3(lut(0, n.x), lut(1, n.y), lut(2, n.z));
+    if (all(changed == n)) { return c; }
+    let before = lab_to_srgb(vec3(n.x * 100.0, n.y * 255.0 - 128.0, n.z * 255.0 - 128.0));
+    let after = lab_to_srgb(vec3(changed.x * 100.0, changed.y * 255.0 - 128.0, changed.z * 255.0 - 128.0));
+    return clamp(c + after - before, vec3(0.0), vec3(1.0));
 }
 
 fn lut3(n: i32, r: i32, g: i32, b: i32) -> vec3<f32> {
@@ -499,6 +616,8 @@ fn adjust(c: vec3<f32>) -> vec3<f32> {
         }
         case 6: { return vec3(exposure(c.r, p0), exposure(c.g, p0), exposure(c.b, p0)); }  // Exposure
         case 7: { return vec3(lut(0, c.r), lut(1, c.g), lut(2, c.b)); }        // Levels / Curves
+        case 17: { return native_tone(c, false); }                          // Lab Levels / Curves
+        case 18: { return native_tone(c, true); }                           // CMYK Levels / Curves
         case 8: {                                                              // Hue/Saturation
             let hsl = rgb_to_hsl(c);
             var hh: f32;
@@ -650,7 +769,16 @@ fn layer_texel(d: vec2<i32>) -> vec4<f32> {
     if ((op.flags & F_TEX) != 0u) {
         let q = d - op.tex_origin;
         if (inside(q, op.tex_size)) {
-            return textureLoad(layer_tex, q, 0);
+            let c = textureLoad(layer_tex, q, 0);
+            if ((op.flags & F_EXACT8) != 0u) {
+                // UNORM reads may use a rounded reciprocal. Recover the integer and correct
+                // division like fs_lerp's quantization, preserving CPU-inclusive endpoints.
+                let levels = vec4(255.0);
+                let n = floor(c * levels + 0.5);
+                let v = n / levels;
+                return v + fma(-v, levels, n) / levels;
+            }
+            return c;
         }
     }
     return op.color;
@@ -1024,11 +1152,8 @@ fn fs_mblur(in: VOut) -> @location(0) vec4<f32> {
         c = p.y;
     }
     var acc = 0.0;
-    for (var k = 0; k <= 2 * r; k++) {
-        let i = c + k - r;
-        if (i >= 0 && i < n) {
-            acc += textureLoad(tex_a, p + step * (k - r), 0).r * textureLoad(lut_tex, vec2(k, 0), 0).r;
-        }
+    for (var k = max(0, r - c); k <= min(2 * r, r + n - 1 - c); k++) {
+        acc += textureLoad(tex_a, p + step * (k - r), 0).r * lut_at(k);
     }
     return mout(acc);
 }
@@ -1052,6 +1177,11 @@ fn fs_mfinish(in: VOut) -> @location(0) vec4<f32> {
     if (op.p0.x > 0.5) { v = abs(v - textureLoad(tex_b, p, 0).r); }
     if (op.p0.y > 0.5) { v = 1.0 - v; }
     if (op.p0.z > 0.5) { v = lut(0, v); }
+    // effects::noise: the fixed seed and document-coordinate hash are identical to Dissolve.
+    // Apply after the contour and before the inner effect's shape gate; leave zero alone.
+    if (op.p1.x > 0.0 && textureLoad(mask_tex, p, 0).r > 0.0) {
+        v = clamp(v + (dissolve_noise(doc_px(p)) - 0.5) * 2.0 * op.p1.x, 0.0, 1.0);
+    }
     if (op.p0.w > 0.5) { v = v * textureLoad(layer_tex, p, 0).r; }
     return mout(v);
 }

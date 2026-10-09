@@ -79,7 +79,19 @@ pub(crate) struct MapProgram {
 pub(crate) fn field_radius(_kind: FieldKind, reach: i32) -> i32 {
     // The nearest seed lies within the reach (seeds may start up to 1 px in, at their sub-pixel
     // edge); stroke fields classify seeds by their 3×3 local coverage, one more pixel.
-    reach + 3
+    reach.saturating_add(3)
+}
+
+/// Noise is anchored to document coordinates, so moving a layer must regenerate its maps.
+pub(crate) fn has_noise(layer: &Layer) -> bool {
+    layer.effects.items.iter().filter(|e| e.enabled()).any(|e| {
+        let amount = match e {
+            Effect::DropShadow(s) | Effect::InnerShadow(s) => s.noise,
+            Effect::OuterGlow(g) | Effect::InnerGlow(g) => g.noise,
+            _ => 0.0,
+        };
+        amount.is_finite() && amount > 0.0
+    })
 }
 
 impl MapProgram {
@@ -124,7 +136,7 @@ impl MapProgram {
                 Some(In::Field(f)) => field_radius(f, field_reach(f)),
                 _ => 0,
             };
-            let r = of(s.a).max(of(s.b)).max(of(s.s)) + s.radius;
+            let r = of(s.a).max(of(s.b)).max(of(s.s)).saturating_add(s.radius);
             reach.push(r);
         }
         reach
@@ -186,6 +198,15 @@ fn stage(kernel: Kernel, a: Option<In>, b: Option<In>, p0: [f32; 4], radius: i32
 }
 
 impl B {
+    /// Noise belongs to the final contour stage, before its optional inner shape gate.
+    fn noise(&mut self, amount: f32) {
+        if amount.is_finite()
+            && amount > 0.0
+            && let Some(s) = self.stages.last_mut()
+        {
+            s.p1[0] = amount;
+        }
+    }
     fn push(&mut self, s: Stage) -> In {
         self.stages.push(s);
         In::Val(self.stages.len() - 1)
@@ -242,7 +263,9 @@ impl B {
 /// Distance up to which a field must be exact for a band / dilation of width `w`
 /// (`clamp(w + 0.5 - d)`, with `d` up to 1.5 px beyond the pixel distance).
 fn reach_for(w: f32) -> i32 {
-    w.clamp(0.0, photocraft_compose::effects::MAX_REACH).ceil() as i32 + 2
+    // MAX_REACH bounds the reference map's exterior apron, not distances inside a large
+    // layer/region. Wide glow/spread consumers still need exact fields up to their own width.
+    (w.max(0.0).ceil() as i32).saturating_add(2)
 }
 
 /// `compose::effects::blur`'s kernel (a tent of the effect size): (radius, normalised weights),
@@ -300,6 +323,7 @@ pub(crate) fn program_with(e: &Effect, light: &GlobalLight, vector_shape: bool, 
             }
             let m = b.blur(m, bw);
             b.finish(m, None, false, &s.contour, inner, 0);
+            b.noise(s.noise);
             1
         }
         Effect::OuterGlow(g) | Effect::InnerGlow(g) => {
@@ -328,6 +352,7 @@ pub(crate) fn program_with(e: &Effect, light: &GlobalLight, vector_shape: bool, 
                     b.finish_lut(m, None, center, photocraft_compose::effects::glow_lut(g), inner, 0);
                 }
             }
+            b.noise(g.noise);
             1
         }
         Effect::Satin(s) => {
@@ -504,7 +529,24 @@ pub(crate) fn shape(doc: &photocraft_doc::Document, layer: &Layer, r: Rect) -> V
     if r.is_empty() {
         return Vec::new();
     }
-    par_map(bands(r, BAND), |band| photocraft_compose::layer_shape(doc, layer, band)).concat()
+    let space = photocraft_compose::cmyk_space(doc);
+    par_map(bands(r, BAND), |band| {
+        // Rayon workers retain thread-local color state. Group Blend If can depend on colors
+        // produced by child blends/native adjustments, so enter this document on each worker.
+        photocraft_color::convert::with_cmyk_space(space.as_ref(), || {
+            photocraft_compose::psblend::LAB_MIX.with(|mix| {
+                struct Restore<'a>(&'a std::cell::Cell<bool>, bool);
+                impl Drop for Restore<'_> {
+                    fn drop(&mut self) {
+                        self.0.set(self.1);
+                    }
+                }
+                let _restore = Restore(mix, mix.replace(doc.mode == photocraft_color::ColorMode::Lab));
+                photocraft_compose::layer_shape(doc, layer, band)
+            })
+        })
+    })
+    .concat()
 }
 
 /// Write `v` (row-major over `r`) into the region-sized `shape`.
@@ -617,7 +659,7 @@ pub(crate) fn group_key(layer: &Layer, light: &GlobalLight) -> u64 {
             (m.enabled, m.density.to_bits(), m.feather.to_bits()).hash(h);
             surface_fp(&m.surface, h);
         }
-        format!("{:?}{:?}", l.vector_mask, l.effects).hash(h);
+        format!("{:?}{:?}{:?}{:?}", l.vector_mask, l.effects, l.blend_if, l.excluded_channels).hash(h);
         h.write_u8(0xfe);
     }
     let mut h = std::collections::hash_map::DefaultHasher::new();

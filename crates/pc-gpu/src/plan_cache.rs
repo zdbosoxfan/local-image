@@ -338,3 +338,44 @@ mod tests {
         assert_eq!(c.builds, 5);
     }
 }
+
+#[cfg(test)]
+mod fallback_input_tests {
+    use super::*;
+    use photocraft_color::{ColorMode, SampleType};
+    use photocraft_doc::adjust::ToneSpace;
+    use photocraft_doc::{Adjustment, BlendRange, Effect, Size};
+
+    #[test]
+    fn ranges_noise_and_native_space_invalidate_owned_templates() {
+        let mut d = Document::new("keys", Size::new(32, 24), ColorMode::Rgb, SampleType::U8);
+        let mut l = Layer::raster("source", d.pixel_format());
+        l.surface_mut().unwrap().fill_rect(d.bounds(), &[0.7, 0.2, 0.4, 0.8]);
+        l.effects.items = vec![Effect::default_drop_shadow()];
+        d.layers = vec![
+            l,
+            Layer::new(
+                "tone",
+                LayerContent::Adjustment(Adjustment::Curves { master: vec![], per_channel: Default::default(), space: ToneSpace::Lab, black: vec![] }),
+            ),
+        ];
+        let mut c = PlanCache::default();
+        c.get(&d, |_| Ok(())).unwrap();
+        d.layers[0].blend_if.set(2, [BlendRange { black: [10, 30], white: [200, 240] }, BlendRange::FULL]);
+        assert!(c.get(&d, |_| Ok(())).unwrap().passes.iter().any(|p| p.kernel == crate::Kernel::BlendIf));
+        assert_eq!(c.builds, 2);
+        if let Effect::DropShadow(s) = &mut d.layers[0].effects.items[0] {
+            s.noise = 0.35;
+        }
+        c.get(&d, |_| Ok(())).unwrap();
+        assert_eq!(c.builds, 3);
+        if let LayerContent::Adjustment(Adjustment::Curves { space, .. }) = &mut d.layers[1].content {
+            *space = ToneSpace::Cmyk;
+        }
+        assert!(c.get(&d, |_| Ok(())).unwrap().passes.iter().any(|p| p.adjust_kind == 18));
+        assert_eq!(c.builds, 4);
+        d.mode = ColorMode::Grayscale;
+        c.get(&d, |_| Ok(())).unwrap();
+        assert_eq!(c.builds, 5);
+    }
+}

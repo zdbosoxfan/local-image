@@ -101,6 +101,18 @@ fn srgb_to_cmyk_transform() -> Option<&'static Transform> {
     T.get_or_init(|| Transform::new(Builtin::Srgb.profile(), Builtin::CoatedCmyk.profile(), Intent::RelativeColorimetric, true).ok()).as_ref()
 }
 
+/// Read the active CMYK profile's exact accelerated RGB → ink and ink → RGB tables.
+/// The callback keeps the profile alive while its borrowed tables are used. `None` means
+/// an unusual analytic profile has no accelerated grids, so a GPU caller can decline it.
+pub fn with_cmyk_grids<R>(f: impl FnOnce(photocraft_cms::transform::FastGrid<'_>, photocraft_cms::transform::FastGrid<'_>) -> R) -> Option<R> {
+    let active = active_cmyk_space();
+    let (from, to) = match &active {
+        Some(s) => (&s.from_srgb, &s.to_srgb),
+        None => (srgb_to_cmyk_transform()?, cmyk_to_srgb_transform()?),
+    };
+    Some(f(from.fast_grid()?, to.fast_grid()?))
+}
+
 /// Colour-managed CMYK → sRGB (the active document CMYK profile, else the built-in coated
 /// CMYK; relative colorimetric + BPC).
 #[inline]
@@ -305,6 +317,49 @@ mod tests {
             for i in 0..3 {
                 assert!((back[i] - rgb[i]).abs() < 2e-3, "{rgb:?} -> {back:?}");
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod gpu_table_tests {
+    use super::*;
+
+    fn eval(g: photocraft_cms::transform::FastGrid<'_>, input: &[f32]) -> Vec<f32> {
+        let mut out = vec![0.0; g.clut.outputs];
+        g.clut.eval(input, &mut out);
+        if let Some(post) = g.post {
+            for (v, t) in out.iter_mut().zip(post) {
+                let u = v.clamp(0.0, 1.0).sqrt().sqrt() * (t.len() - 1) as f32;
+                let i = (u as usize).min(t.len() - 2);
+                *v = t[i] + (t[i + 1] - t[i]) * (u - i as f32);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn exported_cmyk_grids_match_fast_conversion_including_profile_scope() {
+        let custom = photocraft_cms::synth::cmyk_profile(&photocraft_cms::synth::CmykParams {
+            description: "Grid export test".into(),
+            tvi: [0.26, 0.26, 0.26, 0.3],
+            grid_a2b: 5,
+            grid_b2a: 9,
+            ..Default::default()
+        })
+        .to_bytes();
+        let space = CmykSpace::for_profile(Some(&custom)).unwrap();
+        for profile in [None, Some(&space)] {
+            with_cmyk_space(profile, || {
+                with_cmyk_grids(|from, to| {
+                    for c in [[0.0; 3], [1.0; 3], [0.1, 0.4, 0.7], [0.8, 0.2, 0.05]] {
+                        let ink = rgb_to_cmyk(c);
+                        assert_eq!(eval(from, &c), ink);
+                        assert_eq!(eval(to, &ink), cmyk_to_rgb(ink));
+                    }
+                })
+                .unwrap()
+            });
         }
     }
 }
