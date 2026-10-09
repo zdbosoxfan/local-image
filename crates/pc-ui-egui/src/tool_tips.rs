@@ -316,7 +316,7 @@ pub fn spec(session: &photocraft_engine::Session, tool: Tool, group: &[Tool]) ->
     Spec {
         title: tl!(tool.label()).to_string(),
         key: shortcut(session, tool),
-        icon: icons::tool_icon(tool),
+        icon: icons::tool_icon_name(tool),
         entry,
         group: group.iter().filter(|g| **g != tool).map(|g| tl!(g.label()).to_string()).collect(),
     }
@@ -540,7 +540,7 @@ fn draw(ui: &egui::Ui, resp: &Response, sp: &Spec) {
                 ui.set_max_width(width - 20.0);
                 ui.horizontal_top(|ui| {
                     let (slot, _) = ui.allocate_exact_size(vec2(ICON, ICON), Sense::hover());
-                    icons::paint(ui, slot, sp.icon, ICON * 0.78, t.icon);
+                    icons::tool_icon(ui, sp.icon, ICON).paint_at(ui, slot);
                     ui.add_space(4.0);
                     ui.vertical(|ui| {
                         ui.set_max_width(width - 20.0 - ICON - 8.0);
@@ -632,6 +632,62 @@ mod tests {
         for _ in 0..40 {
             h.run_steps(1);
         }
+    }
+
+    #[test]
+    fn tool_tips_icon_pixels_follow_colour_preference_and_keep_text() {
+        use crate::tool_icon_tests::cpu;
+        #[derive(Default)]
+        struct CpuRenderer(cpu::TextureStore);
+        impl egui_kittest::TestRenderer for CpuRenderer {
+            fn handle_delta(&mut self, delta: &mut egui::TexturesDelta) {
+                self.0.apply(std::mem::take(delta));
+            }
+            fn render(&mut self, ctx: &egui::Context, output: &egui::FullOutput) -> Result<image::RgbaImage, String> {
+                let scale = output.pixels_per_point;
+                let screen = ctx.content_rect().size() * scale;
+                let primitives = ctx.tessellate(output.shapes.clone(), scale);
+                let painted = cpu::paint(&primitives, &self.0, [screen.x as usize, screen.y as usize], scale, egui::Color32::from_gray(31));
+                let pixels = painted.pixels.iter().flat_map(|p| p.to_array()).collect();
+                image::RgbaImage::from_raw(painted.size[0] as u32, painted.size[1] as u32, pixels).ok_or_else(|| "invalid CPU image size".into())
+            }
+        }
+        let mut h =
+            Harness::builder().with_size(vec2(1100.0, 760.0)).with_step_dt(1.0 / 60.0).with_max_steps(64).renderer(CpuRenderer::default()).build_eframe(|cc| {
+                PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+                PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default())
+            });
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Brush Tool").hover();
+        settle(&mut h);
+        let icon_pixels = |h: &mut Harness<'_, PhotocraftApp>| {
+            let tip = shown(&h.ctx).unwrap();
+            let scale = h.output().pixels_per_point;
+            let image = h.render().unwrap();
+            let slot = egui::Rect::from_min_size(tip.bounds.min + vec2(10.0, 10.0), vec2(ICON, ICON));
+            let min = slot.min * scale;
+            let max = slot.max * scale;
+            let pixels = &image;
+            (min.y.max(0.0) as u32..(max.y as u32).min(image.height()))
+                .flat_map(|y| {
+                    (min.x.max(0.0) as u32..(max.x as u32).min(image.width())).map(move |x| {
+                        let p = pixels.get_pixel(x, y);
+                        egui::Color32::from_rgb(p[0], p[1], p[2])
+                    })
+                })
+                .collect::<Vec<_>>()
+        };
+        let tip = shown(&h.ctx).unwrap();
+        assert_eq!(tip.key.as_deref(), Some("B"));
+        let colour = icon_pixels(&mut h);
+        let saturation = |pixels: &[egui::Color32]| pixels.iter().filter(|p| p.r().max(p.g()).max(p.b()) - p.r().min(p.g()).min(p.b()) > 40).count();
+        assert!(saturation(&colour) > 20, "the rich tip has a colour icon");
+        h.state_mut().run("prefs.set", json!({"values": {"interface.toolIcons": "monochrome"}})).unwrap();
+        h.run_steps(4);
+        assert_eq!(shown(&h.ctx).unwrap().text, tip.text);
+        let mono = icon_pixels(&mut h);
+        assert_eq!(saturation(&mono), 0, "the rich tip respects Monochrome");
+        let background = Tokens::get(&h.ctx).card;
+        assert!(mono.iter().filter(|p| p.r().abs_diff(background.r()) > 25).count() > 20, "the monochrome glyph stays visible");
     }
 
     #[test]

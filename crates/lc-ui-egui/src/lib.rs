@@ -6,6 +6,10 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+#[path = "../../pc-ui-egui/src/color_icon_data.rs"]
+mod color_icon_data;
+#[path = "../../pc-ui-egui/src/color_icons.rs"]
+mod color_icons;
 pub mod control;
 pub mod credits;
 pub mod export_task;
@@ -21,10 +25,13 @@ pub mod panels;
 pub mod render;
 pub mod shortcuts;
 pub mod smart_sort_keys;
+pub mod smart_sort_task;
 pub mod softpaint;
 pub mod state;
 pub mod tasks;
 pub mod theme;
+#[cfg(test)]
+mod tool_icon_tests;
 pub mod widgets;
 
 #[cfg(test)]
@@ -49,6 +56,8 @@ mod tests_panels;
 mod tests_quit_unsaved;
 #[cfg(test)]
 mod tests_scroll;
+#[cfg(test)]
+mod tests_smart_sort;
 #[cfg(test)]
 mod tests_switch_library;
 #[cfg(test)]
@@ -105,6 +114,9 @@ pub struct Services {
     pub reveal: Option<RevealFn>,
     /// Choose a folder (Settings → General → Open Library…; desktop only).
     pub pick_folder: Option<PickFolder>,
+    /// Host bridge; UI stays independent of li-ai and its downloader.
+    pub download_models: Option<Box<dyn Fn(&str, bool) -> Result<(), String>>>,
+    pub model_download_status: Option<Box<dyn Fn(&str) -> ModelDownloadStatus>>,
     /// Open a web link in the browser (Help menu, About dialog).
     pub open_url: Option<OpenUrlFn>,
     /// Open a file in an external editor (Edit in External Editor; desktop only).
@@ -133,6 +145,14 @@ pub struct Perf {
     /// The slowest whole update since start.
     pub max_update_ms: f64,
     pub fps: f64,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ModelDownloadStatus {
+    pub running: bool,
+    pub done: u64,
+    pub total: u64,
+    pub error: Option<String>,
 }
 
 pub struct LightcraftApp {
@@ -198,6 +218,7 @@ pub struct LightcraftApp {
     pub scan: Option<import::ScanTask>,
     /// A background export in progress.
     pub export: Option<export_task::ExportTask>,
+    pub smart_sort: Option<smart_sort_task::SmartSortTask>,
     /// Background file-system work of other commands (Find Missing Photos, auto import…).
     pub tasks: tasks::Tasks,
     /// The files of the last finished background export (`ui.inspect` → `export.last`).
@@ -266,6 +287,7 @@ impl LightcraftApp {
             import: None,
             scan: None,
             export: None,
+            smart_sort: None,
             tasks: Default::default(),
             last_export_result: None,
             hover_preview: None,
@@ -294,6 +316,7 @@ impl LightcraftApp {
         import::poll_scan(self, ctx);
         import::tick(self, ctx);
         tasks::poll(self, ctx);
+        smart_sort_task::poll(self, ctx);
         self.session.persist_if_dirty();
     }
 
@@ -819,6 +842,7 @@ impl LightcraftApp {
 
     /// Lay out the whole window.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        crate::color_icons::set_enabled(ui.ctx(), self.ui.settings.color_tool_icons);
         i18n::set_language(self.ui.language);
         let ctx = ui.ctx().clone();
         if !self.fonts_ready {
@@ -890,6 +914,7 @@ impl LightcraftApp {
         import::progress(self, &ctx);
         import::scan_progress(self, &ctx);
         export_task::poll(self, &ctx);
+        smart_sort_task::poll(self, &ctx);
         panels::grid::drag_feedback(self, &ctx);
         panels::toast(self, &ctx);
         self.widgets = widgets::take_registry(&ctx);

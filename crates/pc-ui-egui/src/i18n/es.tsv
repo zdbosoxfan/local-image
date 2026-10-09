@@ -2890,6 +2890,8 @@ ai	New	Nuevos
 	Tool tips	Información de herramientas
 	Rich (name, shortcut and how to use)	Detallada (nombre, atajo y cómo usar)
 	Simple (name and shortcut)	Simple (nombre y atajo)
+	Tool icons	Iconos de herramientas
+	Colour (default)	Color (predeterminado)
 
 # Smart Sort face model bundle
 	Faces	Rostros

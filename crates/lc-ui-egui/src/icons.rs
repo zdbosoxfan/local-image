@@ -486,6 +486,47 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
     }
 }
 
+/// Colour image for rich tooltips. `None` requests the caller's existing vector glyph.
+pub fn tool_icon(ui: &egui::Ui, name: &str, size: f32) -> Option<egui::Image<'static>> {
+    crate::color_icons::enabled(ui.ctx()).then(|| crate::color_icons::image(ui, name, size, !ui.is_enabled())).flatten()
+}
+
+/// Only tool controls opt into colour; the rest of the interface keeps its vector glyphs.
+pub fn paint_tool(ui: &egui::Ui, rect: Rect, name: &str, fallback: Icon, tint: Color32, enabled: bool) {
+    let size = rect.width().min(rect.height());
+    if crate::color_icons::enabled(ui.ctx())
+        && let Some(image) = crate::color_icons::image(ui, name, size, !enabled || !ui.is_enabled())
+    {
+        image.paint_at(ui, rect);
+    } else {
+        paint(ui.painter(), rect, fallback, tint);
+    }
+}
+
+/// Named tool controls in Develop (the app uses string tools and RightPanel, not a Tool enum).
+pub fn tool_name(tool: &str) -> Option<&'static str> {
+    crate::color_icon_data::DEVELOP_TOOL_ICONS.iter().find(|(name, _)| *name == tool).map(|(_, icon)| *icon)
+}
+
+pub fn mask_name(shape: &lightcraft_develop::MaskShape) -> &'static str {
+    use lightcraft_develop::MaskShape::*;
+    match shape {
+        Brush { .. } => "brush",
+        Linear { .. } => "linear-mask",
+        Radial { .. } => "radial-mask",
+        ColorRange { .. } => "color-range",
+        LuminanceRange { .. } => "luminance-range",
+        DepthRange { .. } => "depth-range",
+        Subject { .. } => "subject-mask",
+        Sky { .. } => "sky-mask",
+        Background { .. } => "background-mask",
+        Object { .. } => "object-mask",
+        Prompt { .. } => "prompt-mask",
+        People { .. } => "people-mask",
+        Landscape { .. } => "landscape-mask",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

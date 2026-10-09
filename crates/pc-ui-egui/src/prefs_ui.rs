@@ -197,6 +197,7 @@ pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
         load(app);
     }
     sync_display_scale(app, ctx);
+    crate::color_icons::set_enabled(ctx, app.session.prefs().interface.tool_icons != "monochrome");
     // Interface theme: a preference change applies to the UI; a theme picked from the Window
     // menu is stored as the preference.
     let pref = app.session.prefs().interface.theme;
@@ -797,6 +798,8 @@ fn humanize(key: &str) -> String {
 
 fn choice_label(v: &str) -> String {
     match v {
+        "colour" => "Colour (default)".into(),
+        "monochrome" => "Monochrome".into(),
         "cm" => "Centimeters".into(),
         "editedFolder" => "A copy in the Edited folder (originals untouched)".into(),
         "original" => "The original file".into(),
@@ -978,6 +981,16 @@ fn has_visible_fields(values: &Value, section: &str) -> bool {
 /// number fields with the preference's range, text fields.
 fn section_fields(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>, order: &[String], lang: crate::i18n::Lang) {
     let t = Tokens::get(ui.ctx());
+    if section == "interface" {
+        let mut current = obj.get("toolIcons").and_then(Value::as_str).unwrap_or("colour").to_string();
+        ui.horizontal(|ui| {
+            ui.label(tl!("Tool icons"));
+            let choices = [("colour".to_string(), tl!("Colour (default)")), ("monochrome".to_string(), tl!("Monochrome"))];
+            crate::widgets::dropdown(ui, "pref-interface.toolIcons", &mut current, &choices, 220.0);
+        });
+        obj.insert("toolIcons".into(), json!(current));
+        ui.add_space(8.0);
+    }
     if section == "performance" {
         rendering_mode_row(ui, obj);
     }
@@ -988,7 +1001,10 @@ fn section_fields(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>
             let path = format!("{section}.{k}");
             // Settings nothing reads yet stay out of the dialog (issue #204); their stored values
             // pass through untouched.
-            if prefs::is_hidden(&path) || (section == "performance" && matches!(k.as_str(), "useGpu" | "gpuBackend" | "renderingMode")) {
+            if (section == "interface" && k == "toolIcons")
+                || prefs::is_hidden(&path)
+                || (section == "performance" && matches!(k.as_str(), "useGpu" | "gpuBackend" | "renderingMode"))
+            {
                 continue;
             }
             let v = obj.get(&k).cloned().unwrap_or(Value::Null);

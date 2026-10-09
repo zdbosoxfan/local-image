@@ -44,3 +44,14 @@ The requested implementation is complete. **Full-suite validation has one remain
 ```sh
 PATH="$HOME/.cargo/bin:$PATH" CARGO_BUILD_JOBS=3 cargo +1.98.1 test --offline -p photocraft-engine --lib ai_commands_against_the_mock_server -- --nocapture
 ```
+
+## Merge with colour icons
+
+Resolved the working-branch merge over coordinator commit `2030a83c`, preserving colour/monochrome tool buttons, Rich/Simple/Off tips, both preferences pages, and Compositing's tool-set switcher. Both rich-card implementations now use `icons::tool_icon` for the 32 px slot; additional Develop mappings cover the pickers and targeted adjustment. Two new CPU pixel tests verify that changing the icon preference preserves rich-tip text. The Tool Presets button now has its own accessible action name; colour tests distinguish Liquify's strip and global Reconstruct buttons.
+
+- All four conflicted JSON catalogs retain both sides' values and existing order, with **57 new keys appended per catalog**.
+- Offline check and all-target clippy with `-D warnings` **passed** for `photocraft-ui-egui`, `lightcraft-ui-egui`, `photocraft-engine`, and `local-image`.
+- Requested filters: tool tips **19**, toolsets **16**, `tool_icon` **14**, `icons::tests` **7**, translation coverage **1**: **57 distinct tests passed, 1 existing contact-sheet test ignored**. Logs: `target/tooltips-color-merge-*.log`. No watchdog kills or GPU tests added.
+- Regenerated `assets/attributions.json` with the offline xtask (**738 Rust crates**). Formatting and `git diff --check` passed. All ten conflict files are marker-free; the index is untouched and changes are uncommitted for the coordinator to stage.
+
+The earlier full-suite results describe the pre-merge branch. Full and GPU suites were not repeated for this merge, following the coordinator's testing budget.

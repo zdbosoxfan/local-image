@@ -107,7 +107,9 @@ thiserror = { version = "2" }
 tiff = { version = "0.11" }
 tiny_http = { version = "0.12" }
 tungstenite = { version = "0.27" }
-ureq = { version = "3", features = ["json"] }
+ureq = { version = "3", default-features = false, features = ["json", "gzip", "rustls-no-provider", "rustls-webpki-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
+rustls-rustcrypto = "0.0.2-alpha"
 uuid = { version = "1", features = ["v4"] }
 wasm-bindgen = { version = "0.2.129" }
 wasm-bindgen-futures = { version = "0.4" }

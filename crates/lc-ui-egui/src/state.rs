@@ -164,6 +164,8 @@ impl InfoOverlay {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AppSettings {
+    /// Colour tool silhouettes; defaults on when loading older UI settings.
+    pub color_tool_icons: bool,
     /// Library opened at launch when no `--library` is given (empty = the default location).
     pub library_path: String,
     pub startup_view: StartupView,
@@ -192,6 +194,7 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         AppSettings {
+            color_tool_icons: true,
             library_path: String::new(),
             startup_view: StartupView::Last,
             confirm_delete: false,
@@ -458,6 +461,9 @@ impl Dialog {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Dialog {
+    SmartSort {
+        state: Box<crate::panels::smart_sort::SmartSortDialog>,
+    },
     NewAlbum {
         name: String,
         folder: bool,

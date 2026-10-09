@@ -58,8 +58,7 @@ impl TextureStore {
             let ImageData::Color(img) = &d.image;
             match d.pos {
                 None => {
-                    self.map
-                        .insert(*id, CpuTexture { image: img.clone(), magnification: d.options.magnification, minification: d.options.minification });
+                    self.map.insert(*id, CpuTexture { image: img.clone(), magnification: d.options.magnification, minification: d.options.minification });
                 }
                 Some([x0, y0]) => {
                     let Some(t) = self.map.get_mut(id) else { continue };
@@ -254,16 +253,7 @@ impl Edge {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn raster_triangle(
-    band: &mut [Color32],
-    band_y0: usize,
-    w: usize,
-    clip: [usize; 4],
-    tex: Option<&CpuTexture>,
-    v0: PVert,
-    mut v1: PVert,
-    mut v2: PVert,
-) {
+fn raster_triangle(band: &mut [Color32], band_y0: usize, w: usize, clip: [usize; 4], tex: Option<&CpuTexture>, v0: PVert, mut v1: PVert, mut v2: PVert) {
     let area = (v1.x - v0.x) * (v2.y - v0.y) - (v1.y - v0.y) * (v2.x - v0.x);
     if area == 0.0 || !area.is_finite() {
         return;

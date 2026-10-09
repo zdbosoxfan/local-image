@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::LightcraftApp;
 use crate::state::RightPanel;
 use crate::theme::Tokens;
-use crate::widgets::icon_button;
+use crate::widgets::tool_button;
 
 pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
@@ -26,7 +26,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 let sz = vec2(t.strip_w, 40.0);
                 use crate::panels::tool_tips::{StripTool as T, attach};
                 let mode = app.ui.settings.tool_tips;
-                let r = icon_button(ui, "presets", T::Presets.icon(), sz, app.ui.presets, has_photo, "");
+                let r = tool_button(ui, "presets", T::Presets.icon(), sz, app.ui.presets, has_photo, "");
                 attach(mode, ui, &r, T::Presets);
                 if r.clicked() {
                     let _ = app.run("panel.presets", json!({}));
@@ -44,7 +44,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                         continue;
                     }
                     let on = app.ui.right == panel || (panel == RightPanel::Edit && app.ui.right == RightPanel::Profiles);
-                    let r = icon_button(ui, id, tool.icon(), sz, on, has_photo, "");
+                    let r = tool_button(ui, id, tool.icon(), sz, on, has_photo, "");
                     attach(mode, ui, &r, tool);
                     if r.clicked() {
                         let _ = app.run(&format!("panel.{id}"), json!({}));
@@ -54,17 +54,17 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     }
                 }
                 separator(ui, &t);
-                let r = icon_button(ui, "versions", T::Versions.icon(), sz, app.ui.right == RightPanel::Versions, has_photo, "");
+                let r = tool_button(ui, "versions", T::Versions.icon(), sz, app.ui.right == RightPanel::Versions, has_photo, "");
                 attach(mode, ui, &r, T::Versions);
                 if r.clicked() {
                     let _ = app.run("panel.versions", json!({}));
                 }
-                let r = icon_button(ui, "activity", T::Activity.icon(), sz, app.ui.right == RightPanel::Activity, true, "");
+                let r = tool_button(ui, "activity", T::Activity.icon(), sz, app.ui.right == RightPanel::Activity, true, "");
                 attach(mode, ui, &r, T::Activity);
                 if r.clicked() {
                     let _ = app.run("panel.activity", json!({}));
                 }
-                let r = icon_button(ui, "more", T::More.icon(), sz, false, true, "");
+                let r = tool_button(ui, "more", T::More.icon(), sz, false, true, "");
                 attach(mode, ui, &r, T::More);
                 if r.clicked() {
                     app.ui.dialog = Some(crate::state::Dialog::About);
@@ -79,12 +79,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             child.vertical_centered(|ui| {
                 let sz = vec2(t.strip_w, 40.0);
                 use crate::panels::tool_tips::{StripTool as T, attach};
-                let r = icon_button(ui, "keywords", T::Keywords.icon(), sz, app.ui.right == RightPanel::Keywords, has_photo, "");
+                let r = tool_button(ui, "keywords", T::Keywords.icon(), sz, app.ui.right == RightPanel::Keywords, has_photo, "");
                 attach(app.ui.settings.tool_tips, ui, &r, T::Keywords);
                 if r.clicked() {
                     let _ = app.run("panel.keywords", json!({}));
                 }
-                let r = icon_button(ui, "info", T::Info.icon(), sz, app.ui.right == RightPanel::Info, has_photo, "");
+                let r = tool_button(ui, "info", T::Info.icon(), sz, app.ui.right == RightPanel::Info, has_photo, "");
                 attach(app.ui.settings.tool_tips, ui, &r, T::Info);
                 if r.clicked() {
                     let _ = app.run("panel.info", json!({}));

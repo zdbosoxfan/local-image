@@ -514,20 +514,23 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
 }
 
-fn tool_icon(t: LiquifyTool) -> &'static str {
+pub(crate) fn tool_icon_name(t: LiquifyTool) -> &'static str {
     match t {
-        LiquifyTool::ForwardWarp => "pointer",
-        LiquifyTool::Reconstruct => "brush-cleaning",
-        LiquifyTool::Smooth => "droplet",
-        LiquifyTool::TwirlCw => "rotate-cw",
-        LiquifyTool::TwirlCcw => "undo-2",
-        LiquifyTool::Pucker => "scan",
-        LiquifyTool::Bloat => "maximize-2",
-        LiquifyTool::PushLeft => "chevrons-left",
-        LiquifyTool::Freeze => "lock",
-        LiquifyTool::Thaw => "lock-open",
-        LiquifyTool::LassoMask => "lasso",
-        _ => "circle",
+        LiquifyTool::ForwardWarp => "forward-warp",
+        LiquifyTool::Reconstruct => "reconstruct",
+        LiquifyTool::Smooth => "smooth",
+        LiquifyTool::TwirlCw => "twirl-cw",
+        LiquifyTool::TwirlCcw => "twirl-ccw",
+        LiquifyTool::Pucker => "pucker",
+        LiquifyTool::Bloat => "bloat",
+        LiquifyTool::PushLeft => "push-left",
+        LiquifyTool::Freeze => "freeze",
+        LiquifyTool::Thaw => "thaw",
+        LiquifyTool::LassoMask => "freeze-lasso",
+        LiquifyTool::ReconstructAll => "reconstruct-all",
+        LiquifyTool::FreezeAll => "freeze-all",
+        LiquifyTool::ThawAll => "thaw-all",
+        LiquifyTool::InvertFreeze => "invert-freeze",
     }
 }
 
@@ -600,8 +603,8 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let mut strip = ui.new_child(egui::UiBuilder::new().max_rect(left.shrink2(vec2(6.0, 8.0))));
         strip.spacing_mut().item_spacing.y = 4.0;
         for tool in LiquifyTool::ALL {
-            let resp = crate::icons::button(&mut strip, tool_icon(tool), 34.0, d.opts.tool == tool, "");
-            crate::tool_tips::attach_liquify(&app.session, &strip, &resp, tool, shortcut(tool), tool_icon(tool));
+            let resp = crate::icons::tool_button(&mut strip, tool_icon_name(tool), 34.0, d.opts.tool == tool, "");
+            crate::tool_tips::attach_liquify(&app.session, &strip, &resp, tool, shortcut(tool), tool_icon_name(tool));
             if resp.clicked() {
                 d.opts.tool = tool;
             }
@@ -625,7 +628,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             widgets::section_label(ui, tl!("Brush Reconstruct Options"));
             widgets::slider_row(ui, tl!("Amount"), &mut d.opts.reconstruct_amount, 0.0..=100.0, "%", None);
             ui.horizontal(|ui| {
-                if widgets::secondary_button(ui, tl!("Reconstruct"), 110.0).clicked() {
+                if liquify_action(ui, "reconstruct-all", tl!("Reconstruct"), 110.0).clicked() {
                     let a = f64::from(d.opts.reconstruct_amount);
                     d.global(LiquifyTool::ReconstructAll, Some(a));
                 }
@@ -635,14 +638,14 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             });
             widgets::hairline(ui);
             widgets::section_label(ui, tl!("Mask Options"));
-            ui.horizontal(|ui| {
-                if widgets::secondary_button(ui, tl!("None"), 70.0).clicked() {
+            ui.horizontal_wrapped(|ui| {
+                if liquify_action(ui, "thaw-all", tl!("None"), 70.0).clicked() {
                     d.global(LiquifyTool::ThawAll, None);
                 }
-                if widgets::secondary_button(ui, tl!("Mask All"), 80.0).clicked() {
+                if liquify_action(ui, "freeze-all", tl!("Mask All"), 80.0).clicked() {
                     d.global(LiquifyTool::FreezeAll, None);
                 }
-                if widgets::secondary_button(ui, tl!("Invert All"), 80.0).clicked() {
+                if liquify_action(ui, "invert-freeze", tl!("Invert All"), 80.0).clicked() {
                     d.global(LiquifyTool::InvertFreeze, None);
                 }
             });
@@ -850,6 +853,14 @@ fn draw_mesh(d: &LiquifyDialog, painter: &egui::Painter, area: ERect) {
             }
         }
     }
+}
+
+fn liquify_action(ui: &mut egui::Ui, name: &str, label: &str, width: f32) -> egui::Response {
+    ui.horizontal(|ui| {
+        let icon = ui.add(crate::icons::tool_icon(ui, name, 20.0).sense(egui::Sense::click()));
+        icon.union(widgets::secondary_button(ui, label, width))
+    })
+    .inner
 }
 
 #[cfg(test)]

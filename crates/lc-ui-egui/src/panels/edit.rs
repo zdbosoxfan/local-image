@@ -167,7 +167,7 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
                             });
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 let active = app.ui.tool == "wbPicker";
-                                let resp = crate::widgets::icon_button(ui, "wbPicker", Icon::Picker, vec2(28.0, 28.0), active, true, "");
+                                let resp = crate::widgets::tool_button(ui, "wbPicker", Icon::Picker, vec2(28.0, 28.0), active, true, "");
                                 super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::WbPicker);
                                 if resp.clicked() {
                                     app.ui.tool = if active { String::new() } else { "wbPicker".into() };
@@ -635,7 +635,9 @@ fn negative_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSetti
             ui.painter().rect_filled(r, 3.0, Color32::from_rgb(enc[0], enc[1], enc[2]));
             ui.painter().rect_stroke(r, 3.0, Stroke::new(1.0, t.button_border), egui::StrokeKind::Inside);
             let picking = app.ui.tool == "negDmin";
-            let resp = text_button(ui, "negativePickBase", "Pick from the Film Rim", picking);
+            let (icon_rect, icon_response) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
+            crate::icons::paint_tool(ui, icon_rect, "pipette", Icon::Picker, t.icon, true);
+            let resp = text_button(ui, "negativePickBase", "Pick from the Film Rim", picking).union(icon_response);
             super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::FilmBase);
             if resp.clicked() {
                 app.ui.tool = if picking { String::new() } else { "negDmin".into() };
@@ -1314,7 +1316,7 @@ fn channel_label(ch: &str) -> &'static str {
 fn tat_button(app: &mut LightcraftApp, ui: &mut egui::Ui, tool: &str, _tip: &str) {
     let active = app.ui.tool == tool;
     let id = tool.replace(':', "-");
-    let resp = crate::widgets::icon_button(ui, &id, Icon::Target, vec2(26.0, 26.0), active, true, "");
+    let resp = crate::widgets::tool_button(ui, &id, Icon::Target, vec2(26.0, 26.0), active, true, "");
     super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::Target);
     if resp.clicked() {
         app.ui.tool = if active { String::new() } else { tool.to_string() };
@@ -1418,7 +1420,7 @@ fn point_color(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, 
             ui.spacing_mut().item_spacing.x = 5.0;
             let active = app.ui.tool == "pointColor" && app.ui.point_color_mask == layer;
             let full = n >= lightcraft_develop::MAX_POINT_COLORS;
-            let resp = crate::widgets::icon_button(ui, "pointColorPicker", Icon::Picker, vec2(26.0, 26.0), active, !full, "");
+            let resp = crate::widgets::tool_button(ui, "pointColorPicker", Icon::Picker, vec2(26.0, 26.0), active, !full, "");
             super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::PointColor);
             if resp.clicked() {
                 app.ui.tool = if active { String::new() } else { "pointColor".into() };

@@ -10,10 +10,18 @@
 //!     secrets are set (see `sign`).
 //! cargo xtask check-icons [path/to/local-image.wxs]
 //!     the MSI's advertised-shortcut icon references (ICE50), without building.
+//! cargo xtask deps-pure
+//!     fails if a C/C++-building crate (ring, openssl-sys, aws-lc-sys, cmake, bindgen, cc) is in
+//!     the dependency graph (`cargo tree`, all platforms). `cc` is tolerated only for a short list of known leftovers
+//!     (blake3's unused build-dependency, tract-linalg, wayland-backend, platform-only crates).
 //! cargo xtask upstream-check [--offline]
 //!     for every algorithm ported from another project (docs/PORTS.md), the upstream commits that
 //!     touched its source file since the commit it was ported from — what to review and re-port.
 //!     Clones go to target/upstream/ (blob-less); --offline skips fetching.
+//! cargo xtask assets
+//!     audit asset attribution rows and referenced licence files.
+//! cargo xtask tool-icons
+//!     render docs/design/tool-icons.png with resvg at 24/48 px on dark/light backgrounds.
 //! cargo xtask attributions [--fetch]
 //!     regenerate assets/attributions.json (Settings › Attributions) from
 //!     assets/attributions-curated.json, docs/PORTS.md, the AI model tables and Cargo.lock.
@@ -32,6 +40,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
+mod assets;
 mod attributions;
 
 fn root() -> PathBuf {
@@ -385,7 +394,7 @@ fn sign(files: &[PathBuf]) -> Result<()> {
             // The dlib authenticates with DefaultAzureCredential (AZURE_TENANT_ID, AZURE_CLIENT_ID,
             // AZURE_CLIENT_SECRET from the environment).
             let mut body = Vec::new();
-            ureq::get("https://www.nuget.org/api/v2/package/Microsoft.Trusted.Signing.Client").call()?.body_mut().as_reader().read_to_end(&mut body)?;
+            xtask_agent().get("https://www.nuget.org/api/v2/package/Microsoft.Trusted.Signing.Client").call()?.body_mut().as_reader().read_to_end(&mut body)?;
             let mut zip = zip::ZipArchive::new(std::io::Cursor::new(body))?;
             zip.extract(tmp.join("client"))?;
             let dlib = find_file(&tmp.join("client"), "Azure.CodeSigning.Dlib.dll", "x64")
@@ -433,7 +442,10 @@ const USAGE: &str = "usage: cargo xtask <task>
   package linux [--skip-build]
   package windows [--arch x64|x86|arm64] [--skip-build]
   check-icons [file.wxs]
+  deps-pure
   upstream-check [--offline]
+  assets
+  tool-icons
   attributions [--fetch]
   sign <files…>";
 
@@ -448,13 +460,108 @@ fn main() -> Result<()> {
             _ => bail!("{USAGE}"),
         },
         Some("check-icons") => check_icons(&args.get(1).map(PathBuf::from).unwrap_or_else(|| root().join("packaging").join("windows").join("local-image.wxs"))),
+        Some("deps-pure") => deps_pure(),
         Some("upstream-check") => upstream_check(flag("--offline")),
+        Some("assets") => assets::run(&root()),
+        Some("tool-icons") => run(
+            "render tool icon contact sheet",
+            Command::new("cargo").current_dir(root()).env("CARGO_BUILD_JOBS", "3").args([
+                "+1.98.1",
+                "test",
+                "--offline",
+                "--lib",
+                "-p",
+                "photocraft-ui-egui",
+                "write_tool_icon_contact_sheet",
+                "--",
+                "--ignored",
+                "--nocapture",
+            ]),
+        ),
         Some("attributions") => attributions::run(&root(), flag("--fetch")),
         Some("sign") if args.len() > 1 => sign(&args[1..].iter().map(PathBuf::from).collect::<Vec<_>>()),
         _ => {
             println!("{USAGE}");
             Ok(())
         }
+    }
+}
+
+// ------------------------------------------------------------------ deps-pure
+
+/// Crates that compile C/C++/assembly (or drive a C toolchain). The app is all Rust.
+const IMPURE: &[&str] = &["ring", "openssl-sys", "openssl-src", "aws-lc-sys", "aws-lc-rs", "cmake", "bindgen", "cc"];
+
+/// Crates still allowed to build-depend on `cc`. blake3 never calls it (`pure`); the rest are
+/// known leftovers to remove: tract-linalg (x86_64/arm64 asm kernels), wayland-backend
+/// (log_shim.c), and platform-only android-activity, iana-time-zone-haiku, libfuzzer-sys.
+const CC_KNOWN: &[&str] = &["blake3", "tract-linalg", "wayland-backend", "android-activity", "iana-time-zone-haiku", "libfuzzer-sys"];
+
+/// Lists the deny-listed crates in the `cargo tree` edges (`parent child` per line, normal and
+/// build dependencies of every platform); `cc` only under `CC_KNOWN` crates. Cargo.lock itself
+/// is no use here: it also lists optional dependencies no enabled feature ever activates.
+fn impure_crates(edges: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    for line in edges.lines() {
+        let mut it = line.split_whitespace();
+        let (Some(parent), Some(child)) = (it.next(), it.next()) else { continue };
+        if IMPURE.contains(&child) && (child != "cc" || !CC_KNOWN.contains(&parent)) {
+            found.push(format!("{child} (needed by {parent})"));
+        }
+    }
+    found.sort();
+    found.dedup();
+    found
+}
+
+/// One `parent child` line per dependency edge of the whole workspace, from `cargo tree`.
+fn dependency_edges() -> Result<String> {
+    let out = Command::new("cargo")
+        .args(["tree", "--offline", "--workspace", "--target", "all", "-e", "normal,build", "--prefix", "depth", "--format", "{p}"])
+        .current_dir(root())
+        .output()?;
+    if !out.status.success() {
+        bail!("cargo tree failed: {}", String::from_utf8_lossy(&out.stderr));
+    }
+    // `--prefix depth` gives "<depth><name> v<version> ..."; rebuild parent/child pairs.
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut stack: Vec<String> = Vec::new();
+    let mut edges = String::new();
+    for line in text.lines() {
+        let digits = line.chars().take_while(char::is_ascii_digit).count();
+        let Ok(depth) = line[..digits].parse::<usize>() else { continue };
+        let name = line[digits..].split_whitespace().next().unwrap_or_default().to_owned();
+        stack.truncate(depth);
+        if let Some(parent) = stack.last() {
+            edges.push_str(&format!("{parent} {name}\n"));
+        }
+        stack.push(name);
+    }
+    Ok(edges)
+}
+
+fn deps_pure() -> Result<()> {
+    let found = impure_crates(&dependency_edges()?);
+    if !found.is_empty() {
+        bail!("C-building crates in the dependency graph: {}. The app must stay all Rust.", found.join(", "));
+    }
+    println!("deps-pure: no C-building crates in the dependency graph");
+    Ok(())
+}
+
+#[cfg(test)]
+mod deps_pure_tests {
+    use super::*;
+
+    #[test]
+    fn the_workspace_graph_has_no_new_c_building_crates() {
+        assert_eq!(impure_crates(&dependency_edges().unwrap()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_deny_list_catches_ring_and_stray_cc() {
+        let edges = "li-ai ureq\nrustls ring\nx cc\nblake3 cc\n";
+        assert_eq!(impure_crates(edges), vec!["cc (needed by x)".to_string(), "ring (needed by rustls)".to_string()]);
     }
 }
 
@@ -597,4 +704,13 @@ mod tests {
     fn version_reads_the_workspace() {
         assert!(version().unwrap().starts_with("2."));
     }
+}
+
+/// HTTPS agent using the pure-Rust RustCrypto provider (no `ring`).
+fn xtask_agent() -> ureq::Agent {
+    let tls = ureq::tls::TlsConfig::builder()
+        .provider(ureq::tls::TlsProvider::Rustls)
+        .unversioned_rustls_crypto_provider(std::sync::Arc::new(rustls_rustcrypto::provider()))
+        .build();
+    ureq::Agent::config_builder().tls_config(tls).build().into()
 }

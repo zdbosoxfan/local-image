@@ -235,7 +235,7 @@ pub(crate) fn interact(
 }
 
 pub(crate) fn toolbar(session: &photocraft_engine::Session, ui: &mut Ui, state: &mut CameraRawPreviewState, viewport: Rect, size: Vec2, sampler: &mut bool) {
-    let zoom_tool = crate::icons::button(ui, "zoom-in", 28.0, !state.hand && !*sampler, "");
+    let zoom_tool = crate::icons::tool_button(ui, "zoom-in", 28.0, !state.hand && !*sampler, "");
     crate::tool_tips::attach_camera_raw(session, ui, &zoom_tool, crate::tool_tips::CameraRawTool::Zoom);
     zoom_tool.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tl!("Zoom Tool")));
     if zoom_tool.double_clicked() {
@@ -245,7 +245,7 @@ pub(crate) fn toolbar(session: &photocraft_engine::Session, ui: &mut Ui, state: 
         state.hand = false;
         *sampler = false;
     }
-    let hand_tool = crate::icons::button(ui, "hand", 28.0, state.hand && !*sampler, "");
+    let hand_tool = crate::icons::tool_button(ui, "hand", 28.0, state.hand && !*sampler, "");
     crate::tool_tips::attach_camera_raw(session, ui, &hand_tool, crate::tool_tips::CameraRawTool::Hand);
     hand_tool.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tl!("Hand Tool")));
     if hand_tool.double_clicked() {
@@ -255,7 +255,7 @@ pub(crate) fn toolbar(session: &photocraft_engine::Session, ui: &mut Ui, state: 
         state.hand = true;
         *sampler = false;
     }
-    let sampler_tool = crate::icons::button(ui, "pipette", 28.0, *sampler, "");
+    let sampler_tool = crate::icons::tool_button(ui, "pipette", 28.0, *sampler, "");
     crate::tool_tips::attach_camera_raw(session, ui, &sampler_tool, crate::tool_tips::CameraRawTool::Sampler);
     if sampler_tool.clicked() {
         *sampler = !*sampler;

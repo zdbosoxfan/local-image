@@ -178,6 +178,7 @@ impl Headless {
             || self.app.scan.is_some()
             || self.app.import.is_some()
             || self.app.export.is_some()
+            || self.app.smart_sort.is_some()
             || !self.app.tasks.is_empty()
             || !self.app.synthetic.is_empty()
             || !self.events.is_empty()
@@ -2149,6 +2150,34 @@ mod tests {
         assert_eq!(h.request("ui.hoverWidget", json!({"id": "icon:wbPicker"}), t)["ok"], true);
         assert!(h.step_until(t, |h| shown(&h.view.ctx).is_some_and(|s| s.tool == "wbPicker")));
         assert!(shown(&h.view.ctx).unwrap().text.starts_with("White Balance Selector (W)"));
+    }
+
+    #[test]
+    fn strip_tool_tips_icon_pixels_follow_colour_preference_and_keep_text() {
+        use crate::panels::tool_tips::{ICON, ToolTipMode, shown};
+        let mut h = demo([1400.0, 900.0]);
+        let timeout = Duration::from_secs(10);
+        h.request("ui.set", json!({"view": "detail"}), timeout);
+        h.request("ui.hoverWidget", json!({"id": "icon:crop"}), timeout);
+        assert!(h.step_until(timeout, |h| shown(&h.view.ctx).is_some()));
+        h.settle(Duration::from_millis(250));
+        let tip = shown(&h.view.ctx).unwrap();
+        let slot = egui::Rect::from_min_size(tip.bounds.min + egui::vec2(10.0, 10.0), egui::vec2(ICON, ICON));
+        let colour = crate::tool_icon_tests::saturation(&h.paint(), slot, 1.0);
+        assert!(colour > 20, "the rich tip has a colour icon: {colour}");
+        h.request("ui.key", json!({"key": ",", "cmd": true}), timeout);
+        h.request("ui.clickWidget", json!({"id": "button:settingsTab-interface"}), timeout);
+        assert_eq!(h.request("ui.clickWidget", json!({"id": "button:settingsToolIcons-1"}), timeout)["ok"], true);
+        assert!(!h.app.ui.settings.color_tool_icons);
+        assert_eq!(h.app.ui.settings.tool_tips, ToolTipMode::Rich);
+        h.request("ui.key", json!({"key": "Escape"}), timeout);
+        h.request("ui.hoverWidget", json!({"id": "icon:crop"}), timeout);
+        assert!(h.step_until(timeout, |h| shown(&h.view.ctx).is_some()));
+        h.settle(Duration::from_millis(250));
+        let mono_tip = shown(&h.view.ctx).unwrap();
+        assert_eq!(mono_tip.text, tip.text);
+        let slot = egui::Rect::from_min_size(mono_tip.bounds.min + egui::vec2(10.0, 10.0), egui::vec2(ICON, ICON));
+        assert_eq!(crate::tool_icon_tests::saturation(&h.paint(), slot, 1.0), 0, "the rich tip respects Monochrome");
     }
 
     #[test]

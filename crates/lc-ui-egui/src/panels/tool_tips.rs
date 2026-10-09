@@ -536,7 +536,11 @@ fn draw(ui: &egui::Ui, resp: &Response, tool: StripTool) {
                 ui.set_max_width(width - 20.0);
                 ui.horizontal_top(|ui| {
                     let (slot, _) = ui.allocate_exact_size(vec2(ICON, ICON), Sense::hover());
-                    paint(ui.painter(), slot.shrink(ICON * 0.11), tool.icon(), t.icon);
+                    if let Some(image) = crate::icons::tool_name(tool.id()).and_then(|name| crate::icons::tool_icon(ui, name, ICON)) {
+                        image.paint_at(ui, slot);
+                    } else {
+                        paint(ui.painter(), slot.shrink(ICON * 0.11), tool.icon(), t.icon);
+                    }
                     ui.add_space(4.0);
                     ui.vertical(|ui| {
                         ui.set_max_width(width - 20.0 - ICON - 8.0);
@@ -595,6 +599,7 @@ mod tests {
             assert!(e.blurb.len() > 10, "{t:?}");
             assert!((2..=4).contains(&e.how.len()), "{t:?}");
             assert!(!t.title().is_empty());
+            assert!(crate::icons::tool_name(t.id()).is_some(), "{t:?} needs a colour tooltip icon");
         }
     }
 

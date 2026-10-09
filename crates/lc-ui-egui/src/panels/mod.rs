@@ -98,3 +98,5 @@ pub fn empty_message(ui: &egui::Ui, rect: Rect, title: &str, body: &str) {
     p.text(rect.center() - vec2(0.0, 12.0), Align2::CENTER_CENTER, crate::i18n::tr(title), t.semibold(18.0), t.text_label);
     p.text(rect.center() + vec2(0.0, 14.0), Align2::CENTER_CENTER, crate::i18n::tr(body), t.font(13.0), t.text_dim);
 }
+
+pub mod smart_sort;

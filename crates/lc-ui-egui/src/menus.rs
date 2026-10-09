@@ -134,6 +134,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("dialog.pasteSettings", "Paste Selected Settings…", Some("Cmd+Shift+V"), "Edit"),
     ("view.focusSearch", "Find…", Some("Cmd+F"), "Edit"),
     ("dialog.export", "Export…", None, "File"),
+    ("dialog.smartSort", "Smart Sort & Export…", None, "File"),
     // replace the original with the edited render (asks first; raws get a JPEG beside them)
     ("dialog.saveOverOriginal", "Save Over Original…", Some("Cmd+Alt+S"), "File"),
     ("photo.editInExternal", "Edit in External Editor", Some("Cmd+Shift+E"), "Photo"),
@@ -863,6 +864,10 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             let groups =
                 app.session.copy_groups.iter().filter_map(|g| serde_json::to_value(g).ok().and_then(|v| v.as_str().map(str::to_string))).collect();
             app.ui.dialog = Some(Dialog::CopySettings { groups });
+            Ok(Value::Null)
+        }
+        "dialog.smartSort" => {
+            crate::panels::smart_sort::open(app, p["selectedOnly"] == true);
             Ok(Value::Null)
         }
         "dialog.export" => {

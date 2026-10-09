@@ -734,6 +734,7 @@ pub struct HttpNet {
 impl HttpNet {
     pub fn new(cfg: Config) -> Self {
         let agent = ureq::Agent::config_builder()
+            .tls_config(crate::tls::config())
             .timeout_connect(Some(std::time::Duration::from_secs(15)))
             .timeout_global(Some(std::time::Duration::from_secs(60)))
             .max_redirects(4)

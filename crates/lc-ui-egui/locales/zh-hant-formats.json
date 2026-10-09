@@ -122,5 +122,12 @@
   "{n} more layers": "另外 {n} 個圖層",
   "Follows {name}": "跟隨 {name}",
   "Auto: {lens}": "自動：{lens}",
-  "Camera: {camera}": "相機：{camera}"
+  "Camera: {camera}": "相機：{camera}",
+  "Analyse {n} Photos": "分析{n}張照片",
+  "Analysing {done} of {total} — {file}": "正在分析{done}/{total} — {file}",
+  "Learned from {n} corrections": "已從{n}次修正中學習",
+  "{files} files into {folders} folders ({photos} photos)": "{files}個檔案匯出至{folders}個資料夾（{photos}張照片）",
+  "{n} already analysed": "{n}張已分析",
+  "{n} photos from {source}": "來自{source}的{n}張照片",
+  "{n} videos skipped": "已略過{n}個影片"
 }

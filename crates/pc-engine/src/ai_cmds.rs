@@ -759,9 +759,20 @@ mod tests {
 
     /// The real flows against the mock ComfyUI: a stroke becomes an "AI Remove" layer, Remove
     /// Background puts a mask on the layer, Generative Fill adds a layer, Enhance opens a document.
+    /// Like the UI's mock-server tests, skip when the sandbox denies local sockets.
     #[test]
     fn ai_commands_against_the_mock_server() {
-        let server = li_ai::mock::MockComfy::start().expect("mock server");
+        let server = match li_ai::mock::MockComfy::start() {
+            Ok(server) => server,
+            Err(e)
+                if e.kind() == std::io::ErrorKind::PermissionDenied
+                    || e.get_ref().and_then(|e| e.downcast_ref::<std::io::Error>()).is_some_and(|e| e.kind() == std::io::ErrorKind::PermissionDenied) =>
+            {
+                eprintln!("skipped: sandbox denies sockets for the mock HTTP server");
+                return;
+            }
+            Err(e) => panic!("mock server: {e}"),
+        };
         server.delay_ms.store(10, Ordering::SeqCst);
         li_ai::set_service_override(Some(server.host().to_owned()));
         let mut s = Session::new();

@@ -3,12 +3,12 @@
 
 use super::store::normalized;
 use super::{SortPreset, Store, Tagger};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 const BACKGROUND: [&str; 4] = ["a photo", "a blurry photo", "a photo of an empty room", "a screenshot"];
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Classification {
     pub key: String,
     pub scores: BTreeMap<String, f32>,
@@ -18,7 +18,8 @@ pub struct Classification {
 
 pub struct Classifier {
     names: Vec<String>,
-    prototypes: Vec<Option<Vec<f32>>>,
+    prototypes: Vec<Vec<Vec<f32>>>,
+    match_all: Vec<bool>,
     threshold: f32,
     multi: bool,
     face_gates: Vec<(Option<u32>, Option<u32>)>,
@@ -48,25 +49,29 @@ impl Classifier {
         let mut prototypes = Vec::new();
         for c in &preset.categories {
             let texts: Vec<_> = c.prompts.iter().filter(|p| !p.trim().is_empty()).map(|p| tagger.embed_text(&prompt(p))).collect::<Result<_, _>>()?;
-            let mut text = if texts.is_empty() { None } else { Some(mean(&texts, dim)?) };
+            let mut texts = texts.into_iter().map(|t| normalized(t, dim)).collect::<Result<Vec<_>, _>>()?;
             // Duplicate keys must not inflate the few-shot weight.
             let keys: std::collections::BTreeSet<_> = c.exemplars.iter().collect();
             let examples: Vec<_> = keys.into_iter().filter_map(|key| store.get(tagger.model_id(), key).map(|v| v.to_vec())).collect();
             if !examples.is_empty() {
                 let e = mean(&examples, dim)?;
                 let gamma = examples.len().min(10) as f32 / 5.0;
-                text = Some(match text {
-                    Some(t) => normalized(t.iter().zip(e).map(|(t, e)| t + gamma * e).collect(), dim)?,
-                    None => e,
-                });
+                if texts.is_empty() {
+                    texts.push(e);
+                } else {
+                    for t in &mut texts {
+                        *t = normalized(t.iter().zip(&e).map(|(t, e)| t + gamma * e).collect(), dim)?;
+                    }
+                }
             }
-            prototypes.push(text);
+            prototypes.push(texts);
         }
         let background: Vec<_> = BACKGROUND.iter().map(|p| tagger.embed_text(p)).collect::<Result<_, _>>()?;
-        prototypes.push(Some(mean(&background, dim)?));
+        prototypes.push(vec![mean(&background, dim)?]);
         Ok(Self {
             names: preset.categories.iter().map(|c| c.name.clone()).collect(),
             prototypes,
+            match_all: preset.categories.iter().map(|c| c.match_all).chain([false]).collect(),
             threshold: preset.sensitivity.threshold(),
             multi: preset.multi,
             face_gates: preset.categories.iter().map(|c| (c.min_faces, c.max_faces)).collect(),
@@ -92,7 +97,17 @@ impl Classifier {
             let logits: Vec<_> = self
                 .prototypes
                 .iter()
-                .map(|t| t.as_ref().map_or(f32::NEG_INFINITY, |t| 100.0 * image.iter().zip(t).map(|(a, b)| a * b).sum::<f32>()))
+                .zip(&self.match_all)
+                .map(|(tags, all)| {
+                    let scores = tags.iter().map(|t| 100.0 * image.iter().zip(t).map(|(a, b)| a * b).sum::<f32>());
+                    if tags.is_empty() {
+                        f32::NEG_INFINITY
+                    } else if *all {
+                        scores.fold(f32::INFINITY, f32::min)
+                    } else {
+                        scores.fold(f32::NEG_INFINITY, f32::max)
+                    }
+                })
                 .collect();
             let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
             let weights: Vec<_> = logits.iter().map(|l| (l - max).exp()).collect();

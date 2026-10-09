@@ -3158,6 +3158,8 @@ ai	New	Новые
 	Tool tips	Подсказки инструментов
 	Rich (name, shortcut and how to use)	Подробные (название, сочетание клавиш и применение)
 	Simple (name and shortcut)	Простые (название и сочетание клавиш)
+	Tool icons	Значки инструментов
+	Colour (default)	Цветные (по умолчанию)
 
 # Smart Sort face model bundle
 	Faces	Лица
