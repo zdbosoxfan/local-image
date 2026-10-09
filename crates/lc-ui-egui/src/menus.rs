@@ -1232,14 +1232,46 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             }
             return Some(r);
         }
-        "app.export" => crate::control::export_active(app, p),
+        "app.export" => {
+            // File → Export with Preset uses the same Ask choice as the dialog. Explicit
+            // control-channel destinations/selections are handled directly by export_active.
+            if p.get("preset").is_some() && p.get("ids").is_none() && p.get("path").is_none() {
+                let params = match app.session.export_params(p) {
+                    Ok(params) => params,
+                    Err(e) => return Some(Err(e)),
+                };
+                let dir = params
+                    .get("dir")
+                    .and_then(Value::as_str)
+                    .or_else(|| app.session.last_export.as_ref().and_then(|p| p.get("dir")).and_then(Value::as_str))
+                    .map(str::to_string)
+                    .unwrap_or_else(crate::control::default_export_dir);
+                let mut dlg = crate::panels::export_dialog::new_dialog(dir);
+                crate::panels::export_dialog::apply_export_params(&mut dlg, &params, true);
+                if !crate::panels::export_dialog::ready_to_export(app, &mut dlg) {
+                    app.ui.dialog = Some(dlg);
+                    return Some(Ok(json!({"needsConflictChoice": true})));
+                }
+            }
+            crate::control::export_active(app, p)
+        }
         "app.showInFinder" => show_in_finder(app),
         "app.website" | "app.github" | "app.artcraft" | "app.help" | "app.feedback" => {
             let url = crate::links::url_of(id).unwrap_or(crate::links::WEBSITE);
             crate::links::open(app, url)
         }
         "app.exportPrevious" => match app.session.last_export.clone() {
-            Some(prev) => crate::control::export_active(app, &prev),
+            Some(prev) => {
+                let dir = prev.get("dir").and_then(Value::as_str).map(str::to_string).unwrap_or_else(crate::control::default_export_dir);
+                let mut dlg = crate::panels::export_dialog::new_dialog(dir);
+                crate::panels::export_dialog::apply_export_params(&mut dlg, &prev, true);
+                if !crate::panels::export_dialog::ready_to_export(app, &mut dlg) {
+                    app.ui.dialog = Some(dlg);
+                    Ok(json!({"needsConflictChoice": true}))
+                } else {
+                    crate::control::export_active(app, &prev)
+                }
+            }
             None => Err("nothing exported yet — use Export…".into()),
         },
         _ => return None,
@@ -1253,11 +1285,11 @@ pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
         "app.export" | "dialog.export" | "dialog.createPreset" | "dialog.rename" | "dialog.captureTime" | "dialog.copySettings" => {
             app.session.active().is_some()
         }
-        "dialog.saveOverOriginal" => app
-            .session
-            .active()
-            .and_then(|id| app.session.catalog.photo(id))
-            .is_some_and(|p| matches!(p.source, lightcraft_engine::catalog::Source::File { .. }) && p.copy_of.is_none()),
+        "dialog.saveOverOriginal" => app.session.active().and_then(|id| app.session.catalog.photo(id)).is_some_and(|p| {
+            matches!(p.source, lightcraft_engine::catalog::Source::File { .. })
+                && p.copy_of.is_none()
+                && p.kind != lightcraft_engine::catalog::MediaKind::Video
+        }),
         "photo.tagFromTracklog" => app.session.active().is_some() && app.services.pick_tracklog.is_some(),
         "app.exportPrevious" => app.session.active().is_some() && app.session.last_export.is_some(),
         "dialog.pasteSettings" => app.session.active().is_some() && app.session.clipboard.is_some(),
@@ -1355,13 +1387,21 @@ fn open_save_over(app: &mut LightcraftApp, ctx: &egui::Context) -> Result<Value,
 /// Run Save Over Original for the photo of `plan` (`beside`: Save Copy Beside), with a toast.
 pub fn run_save_over(app: &mut LightcraftApp, ctx: &egui::Context, plan: &Value, beside: bool) -> Result<Value, String> {
     let r = app.run("photo.saveOverOriginal", json!({"id": plan["id"], "confirm": true, "beside": beside}))?;
-    let name = |p: &Value| std::path::Path::new(p.as_str().unwrap_or_default()).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let name =
+        |p: &Value| std::path::Path::new(p.as_str().unwrap_or_default()).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     let msg = if r["mode"] == "overwrite" {
-        format!("{} {} · {} {}", crate::i18n::tr("Saved over"), name(&r["path"]), crate::i18n::tr("original backed up to"), r["backup"].as_str().unwrap_or_default())
+        format!(
+            "{} {} · {} {}",
+            crate::i18n::tr("Saved over"),
+            name(&r["path"]),
+            crate::i18n::tr("original backed up to"),
+            r["backup"].as_str().unwrap_or_default()
+        )
     } else {
         format!("{} {}", crate::i18n::tr("Saved"), name(&r["path"]))
     };
-    app.toast(ctx, msg);
+    app.ui.toast = Some((msg, ctx.input(|i| i.time).max(app.last_time) + 6.0));
+    ctx.request_repaint();
     Ok(r)
 }
 

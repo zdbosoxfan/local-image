@@ -5,15 +5,15 @@
 //!
 //! What it does, in order:
 //! 1. render the photo at full size through the export path, in the original's format (JPEG at
-//!    quality 95 with the original's chroma subsampling, PNG / TIFF / WebP / AVIF at the
+//!    quality 95 with the original's chroma subsampling, PNG / TIFF / WebP at the
 //!    original's bit depth), in the original's colour space, with the photo's metadata;
 //! 2. copy the original into the library's `originals-backup/` folder (written, synced and read
 //!    back before anything is replaced);
 //! 3. replace the original atomically (a temp file in the same folder renamed over it);
 //! 4. reload the photo (new size, content hash, caches and thumbnail: `photo.reload`) and reset its
 //!    develop settings to defaults (the edits are in the pixels now; keeping them would apply them
-//!    twice), clearing its AI patches, spots and masks with them, its history and its automatic
-//!    versions.
+//!    twice), clearing its AI patches, spots and masks with them, its history and its
+//!    versions (their settings describe the old pixels too).
 //!
 //! The file change can't be undone (only the backup brings the old file back), so the photo's
 //! undo steps are dropped: undoing an earlier edit would re-apply it on top of the saved pixels.
@@ -27,11 +27,11 @@
 use std::path::{Path, PathBuf};
 
 use lightcraft_catalog::{MediaKind, Op, PhotoId, Source};
-use lightcraft_codecs::{ChromaSubsampling, Format, NamedSpace};
+use lightcraft_codecs::{ChromaSubsampling, Format};
 use serde_json::{Value, json};
 
 use super::{CommandSpec, always, bad, cmd};
-use crate::export::{Conflict, Destination, ExportFormat, ExportOptions, OutputSpace};
+use crate::export::{Conflict, Destination, ExportFormat, ExportOptions, SourceEncoding};
 use crate::{Result, Session};
 
 const C: &str = "photo.saveOverOriginal";
@@ -60,7 +60,6 @@ fn writable(format: Option<Format>) -> Option<ExportFormat> {
         Format::Png => Some(ExportFormat::Png),
         Format::Tiff => Some(ExportFormat::Tiff),
         Format::WebP => Some(ExportFormat::Webp),
-        Format::Avif => Some(ExportFormat::Avif),
         _ => None,
     }
 }
@@ -98,8 +97,8 @@ fn read_head(s: &Session, path: &str) -> std::result::Result<Vec<u8>, String> {
 }
 
 fn plan(s: &Session, p: &Value) -> Result<Plan> {
-    let id = match p.get("id").and_then(Value::as_u64) {
-        Some(id) => PhotoId(id),
+    let id = match p.get("id") {
+        Some(id) => PhotoId(id.as_u64().ok_or_else(|| bad(C, "`id` must be a photo ID"))?),
         None => s.active().ok_or_else(|| bad(C, "no photo selected"))?,
     };
     let ph = s.catalog.photo(id).ok_or_else(|| bad(C, "no such photo"))?;
@@ -177,6 +176,9 @@ pub fn jpeg_chroma(bytes: &[u8]) -> Option<ChromaSubsampling> {
             continue;
         }
         let len = u16::from_be_bytes([bytes[i + 2], bytes[i + 3]]) as usize;
+        if len < 2 {
+            return None;
+        }
         // SOF0..SOF15 except DHT (C4), JPG (C8) and DAC (CC)
         if (0xC0..=0xCF).contains(&marker) && !matches!(marker, 0xC4 | 0xC8 | 0xCC) {
             let sof = bytes.get(i + 4..i + 2 + len)?;
@@ -206,34 +208,41 @@ pub fn jpeg_chroma(bytes: &[u8]) -> Option<ChromaSubsampling> {
 
 /// The export options that re-encode `bytes` (the original, `format`) like it was: full size,
 /// its colour space and bit depth, JPEG quality 95 with its chroma subsampling, all metadata.
-fn options_like(bytes: &[u8], format: ExportFormat) -> ExportOptions {
-    let decoded = lightcraft_codecs::decode(bytes, lightcraft_codecs::DecodeOptions::fit(64, 64)).ok();
-    let space = match decoded.as_ref().and_then(|d| d.space.named) {
-        Some(NamedSpace::DisplayP3) => OutputSpace::DisplayP3,
-        Some(NamedSpace::AdobeRgb) => OutputSpace::AdobeRgb,
-        Some(NamedSpace::ProPhoto) => OutputSpace::ProPhoto,
-        Some(NamedSpace::Rec2020) => OutputSpace::Rec2020,
-        _ => OutputSpace::Srgb,
+fn options_like(bytes: &[u8], format: ExportFormat) -> Result<ExportOptions> {
+    let decoded = lightcraft_codecs::decode(bytes, lightcraft_codecs::DecodeOptions::fit(64, 64)).map_err(|e| bad(C, e.to_string()))?;
+    let profile = match decoded.icc.clone() {
+        Some(profile) => {
+            if !matches!(lightcraft_codecs::icc::parse(&profile).map(|p| p.kind), Some(lightcraft_codecs::icc::IccKind::MatrixTrc { .. })) {
+                return Err(bad(C, "the original colour profile cannot be preserved by this encoder; export a copy instead"));
+            }
+            profile
+        }
+        None => {
+            let named = decoded.space.named.ok_or_else(|| bad(C, "the original colour space is unknown; export a copy instead"))?;
+            let curves = decoded.space.trc.as_ref().ok_or_else(|| bad(C, "the original encoding curves are unknown"))?;
+            lightcraft_codecs::icc::write_matrix_trc(&named.rgb_space(), &curves[0])
+        }
     };
-    let depth = decoded.as_ref().map(|d| match (d.bit_depth, d.float) {
+    let depth = Some(match (decoded.bit_depth, decoded.float) {
         (_, true) | (32, _) => 32,
         (d, _) if d > 8 && format == ExportFormat::Avif => 10,
         (d, _) if d > 8 => 16,
         _ => 8,
     });
     let depth = depth.filter(|d| ExportOptions::bit_depths(format).iter().any(|(v, _)| v == d));
-    ExportOptions {
+    Ok(ExportOptions {
         format,
         quality: 95,
         resize: None,
-        color_space: space,
+        source_encoding: Some(Box::new(SourceEncoding { space: decoded.space, profile })),
+        source_metadata: Some(Box::new(lightcraft_meta::extract(bytes))),
         bit_depth: depth,
         jpeg_chroma: if format == ExportFormat::Jpeg { jpeg_chroma(bytes) } else { None },
         metadata: crate::export::MetadataPolicy::All,
         naming: "{name}".into(),
         conflict: Conflict::Unique,
         ..Default::default()
-    }
+    })
 }
 
 /// `2026-09-30T12:00:00` → `2026-09-30T12-00-00` (a folder name on every system).
@@ -251,9 +260,13 @@ fn touches(op: &Op, id: PhotoId) -> bool {
 fn overwrite(s: &mut Session, pl: &Plan, format: ExportFormat) -> Result<Value> {
     let _ = s.end_interaction();
     let original = read_original(s, &pl.path).map_err(|e| bad(C, e))?;
-    let opts = options_like(&original, format);
+    let opts = options_like(&original, format)?;
+    s.media.forget(pl.id);
     // 1. render (nothing is touched if this fails)
     let rendered = crate::export::prepare_export(s, pl.id, &opts, 1).and_then(|e| e.run()).map_err(|e| bad(C, e))?;
+    if read_original(s, &pl.path).map_err(|e| bad(C, e))? != original {
+        return Err(bad(C, "the original changed while rendering; reload the photo and try again"));
+    }
     // 2. back up the original: written, synced and read back before the original is replaced
     let (root, temporary) = backup_root(s);
     let folder = root.join(format!("{}-{}", stamp(&(s.clock)()), pl.id.0));
@@ -280,18 +293,22 @@ fn overwrite(s: &mut Session, pl: &Plan, format: ExportFormat) -> Result<Value> 
     };
     let label = "Save Over Original";
     let fresh = std::sync::Arc::new(fresh);
-    let versions = s.catalog.photo(pl.id).map(|p| p.versions.iter().filter(|v| !v.auto).cloned().collect()).unwrap_or_default();
     let step = lightcraft_catalog::HistoryStep { label: label.into(), settings: fresh.clone() };
     let ops = vec![
         Op::SetDevelop { id: pl.id, settings: fresh, label: label.into(), edited: Some((s.clock)()) },
         Op::SetHistory { id: pl.id, history: vec![step] },
-        Op::SetVersions { id: pl.id, versions },
+        Op::SetVersions { id: pl.id, versions: Vec::new() },
     ];
     s.commit(label, Op::Batch { ops })?;
     s.media.forget(pl.id);
     // the file change can't be undone: drop the steps that would re-apply old settings
     s.undo.retain(|e| !touches(&e.op, pl.id));
     s.redo.retain(|e| !touches(&e.op, pl.id));
+    // A manually written sidecar must not bring the baked edits back on Read Metadata.
+    if !s.xmp.auto_write && crate::sidecar::find_sidecar(&pl.path, s.sidecar_naming(pl.id)).is_some() {
+        s.save_sidecar(pl.id)
+            .map_err(|e| bad(C, format!("the photo was saved (backup: {}), but its reset XMP could not be written: {e}", backup.display())))?;
+    }
     Ok(json!({
         "mode": "overwrite",
         "id": pl.id.0,
@@ -310,7 +327,7 @@ fn overwrite(s: &mut Session, pl: &Plan, format: ExportFormat) -> Result<Value> 
 fn beside(s: &mut Session, pl: &Plan, p: &Value) -> Result<Value> {
     let _ = s.end_interaction();
     let opts = match pl.format {
-        Some(f) => options_like(&read_original(s, &pl.path).map_err(|e| bad(C, e))?, f),
+        Some(f) => options_like(&read_original(s, &pl.path).map_err(|e| bad(C, e))?, f)?,
         // a raw (or a format we can't write): a high-quality sRGB JPEG
         None => ExportOptions { format: ExportFormat::Jpeg, quality: 95, naming: "{name}".into(), conflict: Conflict::Unique, ..Default::default() },
     };
@@ -318,7 +335,7 @@ fn beside(s: &mut Session, pl: &Plan, p: &Value) -> Result<Value> {
     let mut written = Vec::new();
     let mut write = |path: &str, bytes: &[u8]| -> std::result::Result<(), String> {
         // durable: it becomes a library photo
-        crate::export::write_file_durable(path, bytes)?;
+        lightcraft_catalog::safe_file::write_new(Path::new(path), bytes).map_err(|e| format!("{path}: {e}"))?;
         written.push(path.to_string());
         Ok(())
     };
@@ -374,7 +391,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Save Over Original",
             [],
             None,
-            "{id?, confirm: true, beside?: false, import?: true, stack?: true} — replace the photo's original (JPEG, PNG, TIFF, WebP, AVIF) with its full-size render in the same format, colour space and bit depth, after backing the original up into the library's originals-backup folder; then reload it and reset its edits (they are in the pixels now). Not undoable (the backup is the way back). Raws/DNG/HEIC, or beside: true: write `<name>.jpg` (or the original's format) beside it instead and add it stacked on the original → {mode: overwrite, path, backup, format, width, height} | {mode: beside, path, id, original}",
+            "{id?, confirm: true, beside?: false, import?: true, stack?: true} — replace the photo's original (JPEG, PNG, TIFF, WebP) with its full-size render in the same format, colour space and bit depth, after backing the original up into the library's originals-backup folder; then reload it and reset its edits (they are in the pixels now). Not undoable (the backup is the way back). Raws/DNG/HEIC/AVIF, or beside: true: write `<name>.jpg` (or the original's format) beside it instead and add it stacked on the original → {mode: overwrite, path, backup, format, width, height} | {mode: beside, path, id, original}",
             always,
             save_over
         ),

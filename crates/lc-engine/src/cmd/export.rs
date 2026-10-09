@@ -94,13 +94,13 @@ fn add_to_library(s: &mut Session, p: &Value) -> Result<Value> {
     let mut added = Vec::new();
     for (path, from) in files {
         let found = s.catalog.photos().find(|ph| match &ph.source {
-            lightcraft_catalog::Source::File { path: q } => *q == path || lightcraft_catalog::safe_file::same_file(std::path::Path::new(q), std::path::Path::new(&path)),
+            lightcraft_catalog::Source::File { path: q } => {
+                *q == path || lightcraft_catalog::safe_file::same_file(std::path::Path::new(q), std::path::Path::new(&path))
+            }
             _ => false,
         });
         let Some(new) = found.map(|ph| ph.id.0) else { continue };
-        if stack
-            && let Some(from) = from.filter(|f| *f != new && s.catalog.photo(lightcraft_catalog::PhotoId(*f)).is_some())
-        {
+        if stack && let Some(from) = from.filter(|f| *f != new && s.catalog.photo(lightcraft_catalog::PhotoId(*f)).is_some()) {
             let _ = s.execute("stack.group", &json!({"ids": [new, from], "top": new, "collapsed": false}));
         }
         added.push(new);

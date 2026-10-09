@@ -556,7 +556,7 @@ pub enum Dialog {
     /// the right). `resize` is used unless `full_size`; `limit_kb` 0 = no limit; `dir` empty =
     /// default export folder (unused with `opts.same_folder`).
     Export {
-        opts: lightcraft_engine::export::ExportOptions,
+        opts: Box<lightcraft_engine::export::ExportOptions>,
         full_size: bool,
         resize: lightcraft_engine::export::Resize,
         /// Name typed for a new preset (Add).

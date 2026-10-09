@@ -275,10 +275,21 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context, req: &ControlRequest
             }
         }
         "ui.dialog.confirm" => match app.ui.dialog.take() {
-            Some(d) => {
+            Some(mut d) => {
+                if !crate::panels::export_dialog::ready_to_export(app, &mut d) {
+                    app.ui.dialog = Some(d);
+                    return ok(json!({"needsConflictChoice": true}));
+                }
                 let r = crate::panels::dialogs::confirm_dialog(app, &d);
                 // the import review stays open on an error, as with its button
-                if (r.is_err() && matches!(d, crate::state::Dialog::Import { .. } | crate::state::Dialog::SamModel { .. }))
+                if (r.is_err()
+                    && matches!(
+                        d,
+                        crate::state::Dialog::Import { .. }
+                            | crate::state::Dialog::Export { .. }
+                            | crate::state::Dialog::SaveOverOriginal { .. }
+                            | crate::state::Dialog::SamModel { .. }
+                    ))
                     || (r.is_ok() && crate::panels::dialogs::keeps_open(app, &d))
                 {
                     app.ui.dialog = Some(d);

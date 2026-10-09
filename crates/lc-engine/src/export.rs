@@ -546,6 +546,21 @@ pub struct ExportOptions {
     /// setting: Save Over Original keeps the original's.
     #[serde(skip)]
     pub jpeg_chroma: Option<ChromaSubsampling>,
+    /// Explicit Save Over Original only: encode into the source's matrix/TRC profile.
+    /// Internal render state must never become part of a preset.
+    #[serde(skip)]
+    #[doc(hidden)]
+    pub source_encoding: Option<Box<SourceEncoding>>,
+    #[serde(skip)]
+    #[doc(hidden)]
+    pub source_metadata: Option<Box<Metadata>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[doc(hidden)]
+pub struct SourceEncoding {
+    pub space: lightcraft_codecs::SourceSpace,
+    pub profile: Vec<u8>,
 }
 
 impl Default for ExportOptions {
@@ -571,6 +586,8 @@ impl Default for ExportOptions {
             color_space: OutputSpace::Srgb,
             bit_depth: None,
             jpeg_chroma: None,
+            source_encoding: None,
+            source_metadata: None,
         }
     }
 }
@@ -620,6 +637,8 @@ impl ExportOptions {
             color_space: s("colorSpace").and_then(OutputSpace::parse).unwrap_or(d.color_space),
             bit_depth: u("bitDepth").filter(|b| matches!(b, 8 | 10 | 16 | 32)).map(|b| b as u8),
             jpeg_chroma: None,
+            source_encoding: None,
+            source_metadata: None,
         }
     }
 
@@ -894,10 +913,60 @@ pub fn srgb8_in(space: OutputSpace, c: [u8; 3]) -> [u8; 3] {
 /// Encode a render according to `o`: its high-bit-depth samples when it has them (16-bit PNG/TIFF,
 /// 10-bit AVIF, 32-bit float linear TIFF), else its 8-bit image.
 pub fn encode_rendered(r: &lightcraft_pipeline::Rendered, o: &ExportOptions, meta: Option<&Metadata>) -> Result<Vec<u8>, String> {
+    if let Some(source) = &o.source_encoding {
+        return encode_in_source_space(r, o, source, meta);
+    }
     match &r.deep {
         Some(d) if o.effective_depth() != OutputDepth::U8 => encode_deep(d, o, meta),
         _ => encode_with_metadata(&r.image, o, meta),
     }
+}
+
+/// The render still uses the export pipeline, delivered as linear Rec.2020 floats to avoid
+/// an 8-bit/sRGB intermediate. Convert those pixels back to the original profile's primaries
+/// and per-channel curves before encoding, including nonstandard RGB matrix/TRC profiles.
+fn encode_in_source_space(
+    r: &lightcraft_pipeline::Rendered,
+    o: &ExportOptions,
+    source: &SourceEncoding,
+    meta: Option<&Metadata>,
+) -> Result<Vec<u8>, String> {
+    let deep = r.deep.as_ref().ok_or("source-profile export needs a float render")?;
+    let DeepSamples::F32(samples) = &deep.samples else { return Err("source-profile export needs linear floats".into()) };
+    let matrix = source.space.to_working().inverse().ok_or("the original's colour matrix is singular")?;
+    let curves = source.space.trc.as_ref().ok_or("the original's encoding curves are unknown")?;
+    let mut converted = Vec::with_capacity(samples.len());
+    let float = o.bit_depth == Some(32);
+    for pixel in samples.as_chunks::<3>().0 {
+        let linear = matrix.apply([pixel[0] as f64, pixel[1] as f64, pixel[2] as f64]);
+        for (i, value) in linear.into_iter().enumerate() {
+            let encoded = curves[i].from_linear(value as f32);
+            converted.push(if float { encoded } else { encoded.clamp(0.0, 1.0) });
+        }
+    }
+    let exif = meta.map(lightcraft_meta::write_exif);
+    let xmp = meta.map(|m| lightcraft_meta::write_xmp(m, None));
+    let meta = EncodeMeta { icc: Some(&source.profile), exif: exif.as_deref(), xmp: xmp.as_deref(), ppi: Some(o.ppi) };
+    let u16s;
+    let u8s;
+    let samples = if float {
+        Samples::F32(&converted)
+    } else if o.bit_depth == Some(16) {
+        u16s = converted.iter().map(|v| (v * 65535.0 + 0.5) as u16).collect::<Vec<_>>();
+        Samples::U16(&u16s)
+    } else {
+        u8s = converted.iter().map(|v| (v * 255.0 + 0.5) as u8).collect::<Vec<_>>();
+        Samples::U8(&u8s)
+    };
+    let image = EncodeImage::new(deep.width as u32, deep.height as u32, 3, samples);
+    match o.format {
+        ExportFormat::Jpeg => encode::encode_jpeg(&image, o.quality, o.jpeg_chroma.unwrap_or(ChromaSubsampling::S444), &meta),
+        ExportFormat::Png => encode::encode_png(&image, &meta),
+        ExportFormat::Tiff => encode::encode_tiff(&image, o.tiff_compression, &meta),
+        ExportFormat::Webp => encode::encode_webp_lossless(&image, &meta),
+        _ => return Err("this format cannot preserve the original colour profile".into()),
+    }
+    .map_err(|e| e.to_string())
 }
 
 /// Encode a high-bit-depth image (see [`encode_rendered`]).
@@ -1080,8 +1149,23 @@ fn prepare_guarded(
     };
     let work = if o.format.is_rendered() {
         let (w, h) = output_size(p, o);
-        let meta = export_metadata(p, o);
-        let job = session.export_job(id, w, h, o.effective_space(), o.effective_depth())?;
+        let mut meta = export_metadata(p, o);
+        if let (Some(meta), Some(original)) = (&mut meta, &o.source_metadata) {
+            meta.fill_missing(original);
+            if let (Some(gps), Some(old)) = (&mut meta.gps, &original.gps)
+                && gps.latitude == old.latitude
+                && gps.longitude == old.longitude
+            {
+                gps.altitude = old.altitude;
+            }
+            // Orientation and dimensions describe the new, upright rendered pixels.
+            meta.orientation = Some(lightcraft_meta::Orientation::Normal);
+            meta.width = Some(w as u32);
+            meta.height = Some(h as u32);
+        }
+        let (space, depth) =
+            if o.source_encoding.is_some() { (OutputSpace::Rec2020, OutputDepth::F32Linear) } else { (o.effective_space(), o.effective_depth()) };
+        let job = session.export_job(id, w, h, space, depth)?;
         Work::Render(Box::new(RenderWork { job, meta, opts: o.clone() }))
     } else {
         let lightcraft_catalog::Source::File { path } = &p.source else {
@@ -1161,7 +1245,12 @@ pub struct Destination {
 /// the folder ([`ExportOptions::same_folder`]: the photo's own; plus the subfolder) and the file
 /// name ([`ExportOptions::file_name_for`]). `None` for a photo with no folder of its own. Used to
 /// preview names and to ask about existing files before an export starts.
-pub fn planned_paths(catalog: &lightcraft_catalog::Catalog, ids: &[lightcraft_catalog::PhotoId], o: &ExportOptions, to: &Destination) -> Vec<Option<String>> {
+pub fn planned_paths(
+    catalog: &lightcraft_catalog::Catalog,
+    ids: &[lightcraft_catalog::PhotoId],
+    o: &ExportOptions,
+    to: &Destination,
+) -> Vec<Option<String>> {
     let join = |a: &str, b: &str| if a.is_empty() { b.to_string() } else { format!("{}/{b}", a.trim_end_matches('/')) };
     let in_sub = |d: &str| if o.subfolder.is_empty() { d.to_string() } else { join(d, &o.subfolder) };
     ids.iter()
@@ -1523,6 +1612,40 @@ mod tests {
         assert_eq!(orig.file_name_for(&named("DSC_1.NEF"), 2), "DSC_1-002.NEF");
         assert_eq!(orig.file_name_for(&named("noext"), 1), "noext-001");
         assert_eq!(ExportOptions { format: ExportFormat::Dng, ..Default::default() }.file_name_for(&named("a.cr2"), 1), "a.dng");
+    }
+
+    #[test]
+    fn source_profile_encoding_converts_pixels_and_stays_out_of_presets() {
+        let profile = icc::write_matrix_trc(&lightcraft_color::DISPLAY_P3, &lightcraft_codecs::Trc::Gamma(2.0));
+        let Some(icc::IccInfo { kind: icc::IccKind::MatrixTrc { to_xyz_d50, trc }, .. }) = icc::parse(&profile) else { panic!("matrix profile") };
+        let source = lightcraft_codecs::SourceSpace { named: None, to_xyz_d50, trc: Some(trc), origin: lightcraft_codecs::SpaceOrigin::IccMatrixTrc };
+        let linear = [0.2, 0.4, 0.1];
+        let working = source.to_working().apply(linear).map(|v| v as f32).to_vec();
+        let image = Rgba8::new(1, 1);
+        let render = lightcraft_pipeline::Rendered {
+            histogram: lightcraft_raster::Histogram::of_srgb8(&image),
+            image,
+            deep: Some(DeepImage { width: 1, height: 1, space: OutputSpace::Rec2020, samples: DeepSamples::F32(working) }),
+        };
+        let options = ExportOptions {
+            format: ExportFormat::Png,
+            bit_depth: Some(16),
+            source_encoding: Some(Box::new(SourceEncoding { space: source, profile: profile.clone() })),
+            ..Default::default()
+        };
+        let bytes = encode_rendered(&render, &options, None).unwrap();
+        let decoded = lightcraft_codecs::decode(&bytes, Default::default()).unwrap();
+        assert_eq!(decoded.icc.as_deref(), Some(profile.as_slice()));
+        for (value, expected) in decoded.image.data[0].iter().zip(linear) {
+            assert!((*value as f64 - expected).abs() < 5e-5, "{value} != {expected}");
+        }
+        let params = serde_json::to_value(&options).unwrap();
+        assert!(params.get("sourceEncoding").is_none());
+        assert!(params.get("sourceMetadata").is_none());
+        let loaded: ExportOptions = serde_json::from_value(params).unwrap();
+        assert!(loaded.source_encoding.is_none());
+        let old: ExportOptions = serde_json::from_value(json!({"format": "jpeg", "quality": 80})).unwrap();
+        assert!(!old.same_folder);
     }
 
     fn named(file_name: &str) -> lightcraft_catalog::Photo {

@@ -10,7 +10,9 @@
 //! Catalog, Ask what to do, After Export) ride along as extra params.
 
 use egui::{Align, Layout, RichText, Sense, Ui, vec2};
-use lightcraft_engine::export::{Anchor, Conflict, ExportFormat as F, ExportOptions, MetadataPolicy as M, OutputSpace, Resize, ResizeMode as R, SharpenAmount, SharpenFor};
+use lightcraft_engine::export::{
+    Anchor, Conflict, ExportFormat as F, ExportOptions, MetadataPolicy as M, OutputSpace, Resize, ResizeMode as R, SharpenAmount, SharpenFor,
+};
 use serde_json::{Value, json};
 
 use crate::LightcraftApp;
@@ -66,7 +68,8 @@ const SPACES: [(OutputSpace, &str); 5] = [
 const METADATA: [(M, &str); 4] =
     [(M::All, "All Metadata"), (M::AllExceptCamera, "All Except Camera Info"), (M::Copyright, "Copyright Only"), (M::None, "None")];
 
-const SHARPEN_FOR: [(SharpenFor, &str); 3] = [(SharpenFor::Screen, "Screen"), (SharpenFor::Matte, "Matte Paper"), (SharpenFor::Glossy, "Glossy Paper")];
+const SHARPEN_FOR: [(SharpenFor, &str); 3] =
+    [(SharpenFor::Screen, "Screen"), (SharpenFor::Matte, "Matte Paper"), (SharpenFor::Glossy, "Glossy Paper")];
 
 const AMOUNTS: [(SharpenAmount, &str); 3] = [(SharpenAmount::Low, "Low"), (SharpenAmount::Standard, "Standard"), (SharpenAmount::High, "High")];
 
@@ -115,18 +118,17 @@ pub fn new_dialog(dir: String) -> Dialog {
 }
 
 /// Load `app.export` params `p` (the last export's, or a preset's) into the dialog. The folder is
-/// kept (presets don't carry one). `from_preset`: a preset without a size means full size; for
-/// the last export, no size at all (nothing exported yet) means the 2048 px default.
+/// kept (presets don't carry one). Saved options without a size mean full size, as they do in
+/// the engine; no saved options yet means the 2048 px default.
 pub fn apply_export_params(dlg: &mut Dialog, p: &Value, from_preset: bool) {
-    let Dialog::Export { opts, full_size, resize, limit_kb, add_to_library, add_to_stack, ask_existing, existing, after, after_app, .. } = dlg
-    else {
+    let Dialog::Export { opts, full_size, resize, limit_kb, add_to_library, add_to_stack, ask_existing, existing, after, after_app, .. } = dlg else {
         return;
     };
     let o = ExportOptions::from_json(p);
-    *full_size = o.resize.is_none() && (from_preset || ExportOptions::has_size_param(p));
+    *full_size = o.resize.is_none() && (from_preset || p.as_object().is_some_and(|p| !p.is_empty()));
     *resize = o.resize.unwrap_or_default();
     *limit_kb = o.limit_kb.unwrap_or(0);
-    *opts = o;
+    **opts = o;
     let b = |k: &str| p.get(k).and_then(Value::as_bool).unwrap_or(false);
     *add_to_library = b("addToLibrary");
     *add_to_stack = b("addToStack");
@@ -141,7 +143,7 @@ pub fn export_dialog_params(dlg: &Dialog) -> Value {
     let Dialog::Export { opts, full_size, resize, limit_kb, add_to_library, add_to_stack, ask_existing, after, after_app, .. } = dlg else {
         return json!({});
     };
-    let o = ExportOptions { resize: (!full_size).then_some(*resize), limit_kb: (*limit_kb > 0).then_some(*limit_kb), ..opts.clone() };
+    let o = ExportOptions { resize: (!full_size).then_some(*resize), limit_kb: (*limit_kb > 0).then_some(*limit_kb), ..opts.as_ref().clone() };
     let mut p = o.to_json();
     p["addToLibrary"] = json!(add_to_library);
     p["addToStack"] = json!(*add_to_library && *add_to_stack);
@@ -156,7 +158,7 @@ pub fn export_dialog_params(dlg: &Dialog) -> Value {
 /// The options the export will run with (the size and file-size limit applied).
 fn effective(dlg: &Dialog) -> Option<ExportOptions> {
     let Dialog::Export { opts, full_size, resize, limit_kb, .. } = dlg else { return None };
-    Some(ExportOptions { resize: (!full_size).then_some(*resize), limit_kb: (*limit_kb > 0).then_some(*limit_kb), ..opts.clone() })
+    Some(ExportOptions { resize: (!full_size).then_some(*resize), limit_kb: (*limit_kb > 0).then_some(*limit_kb), ..opts.as_ref().clone() })
 }
 
 /// File Naming ▸ Example: the first photo's exported file name.
@@ -171,7 +173,30 @@ pub fn existing_outputs(app: &mut LightcraftApp, dlg: &Dialog) -> usize {
     let (Some(o), Dialog::Export { dir, .. }) = (effective(dlg), dlg) else { return 0 };
     let ids = crate::control::export_targets(app);
     let to = lightcraft_engine::export::Destination { dir: dir.trim().to_string(), exact: None };
-    lightcraft_engine::export::planned_paths(&app.session.catalog, &ids, &o, &to).into_iter().flatten().filter(|p| std::path::Path::new(p).exists()).count()
+    lightcraft_engine::export::planned_paths(&app.session.catalog, &ids, &o, &to)
+        .into_iter()
+        .flatten()
+        .filter(|p| std::path::Path::new(p).exists() || (o.format == F::Original && std::path::Path::new(p).with_extension("xmp").exists()))
+        .count()
+}
+
+/// A repeated confirmation cannot bypass a pending Existing Files question.
+pub fn ready_to_export(app: &mut LightcraftApp, dlg: &mut Dialog) -> bool {
+    if matches!(dlg, Dialog::Export { ask_existing: true, existing: None, .. }) {
+        let count = existing_outputs(app, dlg);
+        if let Dialog::Export { existing, .. } = dlg {
+            *existing = Some(count);
+        }
+    }
+    !matches!(dlg, Dialog::Export { ask_existing: true, existing: Some(1..), .. })
+}
+
+fn choices(dlg: &Dialog) -> Value {
+    let dir = match dlg {
+        Dialog::Export { dir, .. } => dir.as_str(),
+        _ => "",
+    };
+    json!({"params": export_dialog_params(dlg), "dir": dir})
 }
 
 /// The section's one-line summary (shown in its header).
@@ -270,9 +295,10 @@ fn short_path(p: &str) -> String {
 
 /// The dialog body. Returns true when the export should start now (an Existing Files choice).
 pub fn body(app: &mut LightcraftApp, ui: &mut Ui, dlg: &mut Dialog) -> bool {
+    let before = choices(dlg);
     let t = Tokens::get(ui.ctx());
     let n = crate::control::export_targets(app).len();
-    let body_h = (ui.ctx().content_rect().height() * 0.66 - 90.0).clamp(300.0, 620.0);
+    let body_h = (ui.available_height() - 100.0).clamp(220.0, (ui.ctx().content_rect().height() - 180.0).max(220.0));
     // header: where to (Lightroom's "Export To: Hard Drive") and how many
     ui.horizontal(|ui| {
         ui.label(RichText::new(crate::i18n::tr("Export To:")).color(t.text_label));
@@ -308,6 +334,11 @@ pub fn body(app: &mut LightcraftApp, ui: &mut Ui, dlg: &mut Dialog) -> bool {
             });
         });
     });
+    if before != choices(dlg)
+        && let Dialog::Export { existing, .. } = dlg
+    {
+        *existing = None;
+    }
     existing_prompt(ui, dlg)
 }
 
@@ -321,7 +352,9 @@ fn existing_prompt(ui: &mut Ui, dlg: &mut Dialog) -> bool {
         let what = if count == 1 { "1 file already exists".to_string() } else { format!("{count} files already exist") };
         ui.label(RichText::new(format!("{what} {}", crate::i18n::tr("in the destination. What should the export do?"))).color(t.caution));
         ui.horizontal(|ui| {
-            for (i, (label, c)) in [("Choose New Names", Conflict::Unique), ("Overwrite", Conflict::Overwrite), ("Skip", Conflict::Skip)].into_iter().enumerate() {
+            for (i, (label, c)) in
+                [("Choose New Names", Conflict::Unique), ("Overwrite", Conflict::Overwrite), ("Skip", Conflict::Skip)].into_iter().enumerate()
+            {
                 if crate::widgets::text_button(ui, &format!("exportExisting-{i}"), label, false).clicked() {
                     opts.conflict = c;
                     go = true;
@@ -393,8 +426,9 @@ fn combo<V: PartialEq + Copy>(ui: &mut Ui, id: &str, width: f32, options: &[(V, 
     let before = *value;
     let cur = options.iter().find(|o| o.0 == *value).map_or("", |o| o.1);
     let c = egui::ComboBox::from_id_salt(id).width(width).selected_text(crate::i18n::tr(cur)).show_ui(ui, |ui| {
-        for (v, l) in options {
-            ui.selectable_value(value, *v, crate::i18n::tr(l));
+        for (i, (v, l)) in options.iter().enumerate() {
+            let r = ui.selectable_value(value, *v, crate::i18n::tr(l));
+            register(ui.ctx(), format!("option:{id}:{i}"), r.rect);
         }
     });
     register(ui.ctx(), format!("combo:{id}"), c.response.rect);
@@ -453,6 +487,14 @@ fn presets(app: &mut LightcraftApp, ui: &mut Ui, dlg: &mut Dialog, body_h: f32) 
         && let Ok(params) = app.session.export_params(&json!({"preset": name}))
     {
         apply_export_params(dlg, &params, true);
+        // An unfinished Graphic choice or disabled subfolder name belongs to the old options,
+        // not the newly loaded preset. Derive these controls from the preset again.
+        ui.data_mut(|d| {
+            d.remove::<bool>(egui::Id::new("wm-graphic"));
+            let subfolder = egui::Id::new("export-subfolder-name");
+            d.remove::<bool>(subfolder.with("on"));
+            d.remove::<String>(subfolder);
+        });
         if let Dialog::Export { preset, .. } = dlg {
             *preset = name;
         }
@@ -542,7 +584,9 @@ fn location(app: &mut LightcraftApp, ui: &mut Ui, dlg: &mut Dialog) {
             }
         }
         ui.add_enabled_ui(sub_on, |ui| {
-            let r = ui.add(egui::TextEdit::singleline(&mut opts.subfolder).hint_text(crate::i18n::tr("Subfolder name")).desired_width(ui.available_width()));
+            let r = ui.add(
+                egui::TextEdit::singleline(&mut opts.subfolder).hint_text(crate::i18n::tr("Subfolder name")).desired_width(ui.available_width()),
+            );
             register(ui.ctx(), "field:exportSubfolder", r.rect);
         });
     });
@@ -639,7 +683,11 @@ fn file_settings(ui: &mut Ui, dlg: &mut Dialog) {
                 *limit_kb = if on { 500 } else { 0 };
             }
             ui.add_enabled_ui(on, |ui| {
-                let r = ui.add(egui::DragValue::new(limit_kb).range(1..=100_000).suffix(" K"));
+                let mut value = if on { *limit_kb } else { 500 };
+                let r = ui.add(egui::DragValue::new(&mut value).range(1..=100_000).suffix(" K"));
+                if on && r.changed() {
+                    *limit_kb = value;
+                }
                 register(ui.ctx(), "field:exportLimitKb", r.rect);
             });
         });
@@ -670,7 +718,13 @@ fn file_settings(ui: &mut Ui, dlg: &mut Dialog) {
     if opts.format == F::Dng {
         use lightcraft_engine::export::DngCompression as Z;
         row(ui, "Compression:", |ui| {
-            combo(ui, "exportDngCompression", 180.0, &[(Z::Lossless, "Lossless"), (Z::Deflate, "ZIP"), (Z::Uncompressed, "None")], &mut opts.dng_compression);
+            combo(
+                ui,
+                "exportDngCompression",
+                180.0,
+                &[(Z::Lossless, "Lossless"), (Z::Deflate, "ZIP"), (Z::Uncompressed, "None")],
+                &mut opts.dng_compression,
+            );
         });
     }
 }
@@ -875,7 +929,17 @@ fn watermark(app: &mut LightcraftApp, ui: &mut Ui, dlg: &mut Dialog) {
                 let (r, resp) = ui.allocate_exact_size(vec2(22.0, 18.0), Sense::click());
                 register(ui.ctx(), format!("button:exportWmAnchor-{i}"), r);
                 let t = Tokens::get(ui.ctx());
-                ui.painter().rect_filled(r, 2.0, if on { t.accent } else if resp.hovered() { t.hover } else { t.button });
+                ui.painter().rect_filled(
+                    r,
+                    2.0,
+                    if on {
+                        t.accent
+                    } else if resp.hovered() {
+                        t.hover
+                    } else {
+                        t.button
+                    },
+                );
                 ui.painter().circle_filled(r.center(), 2.5, if on { t.text } else { t.text_dim });
                 if resp.clicked() {
                     wm.anchor = *a;
@@ -926,7 +990,9 @@ mod tests {
             "askExisting": true, "afterExport": "openIn", "afterExportApp": "gimp", "longEdge": 1500, "naming": "{name}-{seq}"});
         apply_export_params(&mut d, &p, true);
         let back = export_dialog_params(&d);
-        for k in ["format", "bitDepth", "sameFolder", "subfolder", "addToLibrary", "addToStack", "askExisting", "afterExport", "afterExportApp", "naming"] {
+        for k in
+            ["format", "bitDepth", "sameFolder", "subfolder", "addToLibrary", "addToStack", "askExisting", "afterExport", "afterExportApp", "naming"]
+        {
             assert_eq!(back[k], p[k], "{k}: {back}");
         }
         assert_eq!(ExportOptions::from_json(&back).resize.map(|r| r.value), Some(1500.0));
@@ -937,8 +1003,10 @@ mod tests {
         assert_eq!(export_dialog_params(&d)["addToStack"], false);
         // an old saved export (no dialog-only params) still loads
         apply_export_params(&mut d, &json!({"format": "jpeg", "quality": 80}), false);
-        let Dialog::Export { opts, full_size, after, .. } = &d else { unreachable!() };
-        assert_eq!((opts.quality, opts.same_folder, *full_size, after.as_str()), (80, false, false, "nothing"));
+        assert!(matches!(d, Dialog::Export { .. }));
+        if let Dialog::Export { opts, full_size, after, .. } = &d {
+            assert_eq!((opts.quality, opts.same_folder, *full_size, after.as_str()), (80, false, true, "nothing"));
+        }
     }
 
     #[test]

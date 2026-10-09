@@ -67,7 +67,8 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
     let screen = ctx.content_rect();
     // The backdrop is an area below the dialog window (a bare `Middle` layer painter would be
     // painted after every area — i.e. over the dialog too).
-    egui::Area::new(egui::Id::new("dialog-dim")).order(egui::Order::Middle).fixed_pos(screen.min).interactable(false).show(ctx, |ui| {
+    egui::Area::new(egui::Id::new("dialog-dim")).order(egui::Order::Middle).fixed_pos(screen.min).show(ctx, |ui| {
+        ui.allocate_exact_size(screen.size(), egui::Sense::click());
         ui.painter().rect_filled(screen, 0.0, egui::Color32::from_black_alpha(140));
     });
     let mut close = false;
@@ -107,12 +108,15 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
     }
     .to_string();
     let frame = egui::Frame::window(&ctx.global_style()).inner_margin(egui::Margin::symmetric(16, 12));
-    let shown = egui::Window::new(crate::i18n::tr(&title)).id(egui::Id::new("lightcraft-dialog"))
+    let exporting = matches!(dlg, Dialog::Export { .. });
+    let shown = egui::Window::new(crate::i18n::tr(&title)).id(egui::Id::new(if exporting { "lightcraft-export-dialog" } else { "lightcraft-dialog" }))
         .collapsible(false)
         // the Export dialog is wide (presets beside the sections) and can be resized
         .resizable(matches!(dlg, Dialog::Export { .. }))
         .frame(frame)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .default_height(if exporting { (screen.height() * 0.78).min(780.0) } else { 0.0 })
+        .min_width(if exporting { 800.0_f32.min(screen.width() - 60.0) } else { 0.0 })
         .default_width(match dlg {
             Dialog::Export { .. } => 900.0,
             Dialog::SaveOverOriginal { .. } => 480.0,
@@ -622,26 +626,18 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         close = true;
     }
-    if save_beside && let Dialog::SaveOverOriginal { beside, .. } = &mut dlg {
-        *beside = true;
+    if confirm && let Dialog::SaveOverOriginal { beside, .. } = &mut dlg {
+        *beside = save_beside;
     }
     // Existing Files ▸ Ask what to do: ask before the export starts when files are in the way
-    if confirm
-        && let Dialog::Export { ask_existing: true, existing: None, .. } = &dlg
-    {
-        let n = crate::panels::export_dialog::existing_outputs(app, &dlg);
-        if let Dialog::Export { existing, .. } = &mut dlg {
-            *existing = Some(n);
-        }
-        if n > 0 {
-            confirm = false;
-        }
+    if confirm {
+        confirm = crate::panels::export_dialog::ready_to_export(app, &mut dlg);
     }
     if confirm {
         match confirm_dialog(app, &dlg) {
             // the import review stays open on an error (e.g. an unusable folder template), and so
             // does Export (e.g. no folder chosen) so the choices aren't lost
-            Err(e) if matches!(dlg, Dialog::Import { .. } | Dialog::Export { .. }) => app.toast(ctx, e),
+            Err(e) if matches!(dlg, Dialog::Import { .. } | Dialog::Export { .. } | Dialog::SaveOverOriginal { .. }) => app.toast_error(ctx, e),
             // the SAM 3 dialog stays open to show the download (or why it can't start)
             Err(e) if matches!(dlg, Dialog::SamModel { .. }) => {
                 if let Dialog::SamModel { error, .. } = &mut dlg {
@@ -654,7 +650,11 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     *error = None;
                 }
             }
-            _ => close = true,
+            Err(e) => {
+                app.toast(ctx, e);
+                close = true;
+            }
+            Ok(_) => close = true,
         }
     }
     app.ui.dialog = if close { None } else { Some(dlg) };
@@ -689,7 +689,9 @@ fn save_over_body(ui: &mut egui::Ui, plan: &serde_json::Value, dont_ask: &mut bo
                 "{} {} {}",
                 crate::i18n::tr("The edited photo is saved over it at full size as"),
                 s("format"),
-                crate::i18n::tr("(same color space and bit depth, with its metadata). The edits are then part of the pixels: the photo's settings, history, masks and AI removals are reset."),
+                crate::i18n::tr(
+                    "(same color space and bit depth, with its metadata). The edits are then part of the pixels: the photo's settings, history, versions, masks and AI removals are reset."
+                ),
             ),
             t.text_label,
         );
@@ -704,7 +706,11 @@ fn save_over_body(ui: &mut egui::Ui, plan: &serde_json::Value, dont_ask: &mut bo
             t.text_dim,
         );
     } else {
-        wrap(ui, format!("{} {}", s("fileName"), crate::i18n::tr("is a raw file (or a format Local Image can't write), so it is never replaced.")), t.text);
+        wrap(
+            ui,
+            format!("{} {}", s("fileName"), crate::i18n::tr("is a raw file (or a format Local Image can't write), so it is never replaced.")),
+            t.text,
+        );
         wrap(
             ui,
             format!(
@@ -875,10 +881,11 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
             app.run("app.export", p)
         }
         Dialog::SaveOverOriginal { plan, dont_ask, beside } => {
+            let result = crate::menus::run_save_over(app, &egui::Context::default(), plan, *beside)?;
             if *dont_ask {
                 app.ui.settings.confirm_save_over = false;
             }
-            crate::menus::run_save_over(app, &egui::Context::default(), plan, *beside)
+            Ok(result)
         }
         Dialog::Merge { opts } => crate::merge::start_final(app, opts),
         Dialog::Import { opts } => crate::import::start(app, opts),
