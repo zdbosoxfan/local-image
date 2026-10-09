@@ -1111,7 +1111,7 @@ pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let p = app.ui.panels.clone();
     if t.pro {
-        dock_panels(app, ui, &p, &t);
+        dock_panels(app, ui, &t);
     }
     // Narrow icon rail (always visible): shows, expands or collapses panel groups.
     let (rw, rb) = if t.pro { (36.0, 28.0) } else { (44.0, 32.0) };
@@ -1141,7 +1141,7 @@ pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         },
     );
     if !t.pro {
-        dock_panels(app, ui, &p, &t);
+        dock_panels(app, ui, &t);
     }
     crate::dock::persist(app, ui.ctx());
 }
@@ -1159,22 +1159,13 @@ pub fn request_dock_width(ctx: &egui::Context, w: f32) {
     ctx.data_mut(|d| d.insert_temp(dock_width_id(), w));
 }
 
-fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &crate::state::Panels, t: &Tokens) {
-    use crate::dock::Group;
-    // Floating in Studio, Properties docks only in Pro (Photoshop).
-    let shown: Vec<Group> = [
-        (Group::Color, p.color),
-        (Group::Properties, t.pro && p.properties),
-        (Group::Generate, p.generate),
-        (Group::Character, p.character),
-        (Group::Navigator, p.navigator),
-        (Group::History, p.history),
-        (Group::Layers, p.layers),
-    ]
-    .into_iter()
-    .filter_map(|(g, on)| on.then_some(g))
-    .collect();
-    if shown.is_empty() {
+fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &Tokens) {
+    // Open groups that hold tabs (floating in Studio, Properties docks only in Pro).
+    let groups = crate::dock::docked(app, t.pro);
+    if groups.is_empty() {
+        // Nothing docked: panels dragged to the dock's edge still dock there.
+        let r = ui.available_rect_before_wrap();
+        crate::dock::note_empty(ui.ctx(), egui::Rect::from_min_max(egui::pos2(r.right() - 2.0, r.top()), r.right_bottom()));
         return;
     }
     let margin = if t.pro { 2 } else { 8 };
@@ -1184,35 +1175,40 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &crate::state::Pan
     }
     panel.frame(egui::Frame::NONE.fill(t.dock).inner_margin(egui::Margin::same(margin))).show(ui, |ui| {
         // Groups keep their heights whatever they show (#88): see `dock`.
-        crate::dock::show(app, ui, &shown, dock_body);
+        crate::dock::show(app, ui, &groups, dock_body);
     });
 }
 
-/// One dock group's tab content; `dock` bounds it and scrolls it when it's taller.
-fn dock_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, group: crate::dock::Group, tab: usize) {
-    use crate::dock::Group;
+/// Panels torn off the dock, floating over the canvas (see `dock`).
+pub fn floating_panels(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    crate::dock::show_floating(app, ctx, dock_body);
+}
+
+/// One dock tab's content, docked or floating; `dock` bounds it and scrolls it when it's taller.
+fn dock_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, tab: crate::dock::Tab) {
+    use crate::dock::Tab;
     let pro = Tokens::get(ui.ctx()).pro;
-    match (group, tab) {
-        (Group::Color, 2) => crate::preset_panels::gradients_panel(app, ui),
-        (Group::Color, 3) => crate::preset_panels::patterns_panel(app, ui),
-        (Group::Color, 0) if pro => color_field(app, ui),
-        (Group::Color, _) if pro => swatches(app, ui),
-        (Group::Color, 0) => swatches(app, ui),
-        (Group::Color, _) => color_picker(app, ui),
-        (Group::Properties, 0) => properties_body(app, ui),
-        (Group::Properties, _) => adjustments_grid(app, ui),
-        (Group::Character, tab) => crate::type_tool::character_panel(app, ui, tab == 1),
-        (Group::Navigator, 0) => navigator(app, ui),
-        (Group::Navigator, 1) => crate::tone::histogram_panel(app, ui),
-        (Group::Navigator, _) => info_panel(app, ui),
-        (Group::History, 0) => history(app, ui),
-        (Group::History, 1) => crate::actions::panel(app, ui),
-        (Group::History, _) => crate::comps_ui::panel(app, ui),
-        (Group::Layers, 0) => layers(app, ui),
-        (Group::Layers, 1) => channels(app, ui),
-        (Group::Layers, _) => crate::vector_ui::paths_panel(app, ui),
-        (Group::Generate, 0) => crate::generate_ui::panel(app, ui),
-        (Group::Generate, _) => crate::generate_ui::library_panel(app, ui),
+    match tab {
+        Tab::Gradients => crate::preset_panels::gradients_panel(app, ui),
+        Tab::Patterns => crate::preset_panels::patterns_panel(app, ui),
+        Tab::Color if pro => color_field(app, ui),
+        Tab::Color => color_picker(app, ui),
+        Tab::Swatches => swatches(app, ui),
+        Tab::Properties => properties_body(app, ui),
+        Tab::Adjustments => adjustments_grid(app, ui),
+        Tab::Character => crate::type_tool::character_panel(app, ui, false),
+        Tab::Paragraph => crate::type_tool::character_panel(app, ui, true),
+        Tab::Navigator => navigator(app, ui),
+        Tab::Histogram => crate::tone::histogram_panel(app, ui),
+        Tab::Info => info_panel(app, ui),
+        Tab::History => history(app, ui),
+        Tab::Actions => crate::actions::panel(app, ui),
+        Tab::LayerComps => crate::comps_ui::panel(app, ui),
+        Tab::Layers => layers(app, ui),
+        Tab::Channels => channels(app, ui),
+        Tab::Paths => crate::vector_ui::paths_panel(app, ui),
+        Tab::Generate => crate::generate_ui::panel(app, ui),
+        Tab::Library => crate::generate_ui::library_panel(app, ui),
     }
 }
 
