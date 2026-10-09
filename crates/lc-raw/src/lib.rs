@@ -32,9 +32,16 @@ mod dng;
 pub mod dngwrite;
 pub mod highlight;
 pub mod ljpeg;
+mod numerics;
 pub mod opcodes;
 mod preview;
 pub mod profile;
+#[cfg(test)]
+#[path = "../examples/quality_support/mod.rs"]
+mod quality_support;
+
+#[cfg(test)]
+mod test_vectors;
 mod tiffraw;
 mod unpack;
 mod vendor;
@@ -571,7 +578,14 @@ impl RawImage {
 
     /// [`Self::develop`] with the demosaic methods' parameters.
     pub fn develop_with(&self, method: Method, opts: &DemosaicOptions) -> Result<Rgb32f> {
-        let n = self.normalized()?;
+        self.develop_with_cfa(method, opts, |_| {})
+    }
+
+    /// Develop with a CFA-stage operation after normalization/opcodes 1/2 and before demosaic.
+    /// The callback sees the active area; opcodes 3 and the default crop are applied afterwards.
+    pub fn develop_with_cfa(&self, method: Method, opts: &DemosaicOptions, hook: impl FnOnce(&mut Normalized)) -> Result<Rgb32f> {
+        let mut n = self.normalized()?;
+        hook(&mut n);
         let mut rgb = demosaic_with(&n, method, opts);
         drop(n);
         opcodes::apply_list3(&self.opcodes.list3, &mut rgb);

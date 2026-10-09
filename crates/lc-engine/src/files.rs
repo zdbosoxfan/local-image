@@ -223,14 +223,13 @@ pub struct RawOptions {
 impl RawOptions {
     /// The options `s` asks for (the defaults while the Raw section is switched off).
     pub fn of(s: &lightcraft_develop::DevelopSettings) -> RawOptions {
-        use lightcraft_develop::Demosaic;
         let r = &s.raw;
         if !s.section_enabled("raw") {
             return RawOptions::default();
         }
         RawOptions {
             demosaic: r.demosaic,
-            dual_threshold: if r.demosaic == Demosaic::DualRcd { (r.dual_threshold / 100.0).clamp(0.0, 1.0) as f32 } else { 0.0 },
+            dual_threshold: if r.demosaic.is_dual() { (r.dual_threshold / 100.0).clamp(0.0, 1.0) as f32 } else { 0.0 },
             highlights: r.highlights,
             capture_radius: r.capture.enabled && r.capture.radius <= 0.0,
         }
@@ -260,6 +259,10 @@ impl RawOptions {
             D::Auto | D::Ahd => M::Ahd,
             D::Rcd => M::Rcd,
             D::DualRcd => M::DualRcd,
+            D::DualRcdVng => M::DualRcdVng,
+            D::Vng4 => M::Vng4,
+            D::Amaze => M::Amaze,
+            D::DualAmazeVng => M::DualAmazeVng,
             D::Ppg => M::Ppg,
             D::Bilinear => M::Bilinear,
         }
@@ -326,6 +329,16 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
             if c.width > 1 && c.height > 1 { c.width.max(c.height) } else { raw.active_area.width.max(raw.active_area.height) }
         };
         let binned = match bin_factor(&raw, max_edge) {
+            Some(k) if opts.highlights == lightcraft_develop::HighlightMode::Segmentation => raw
+                .develop_binned_with(k, HIGHLIGHT_CLIP, |n, scale| {
+                    lightcraft_raw::highlight::segmentation(
+                        n,
+                        t.wb,
+                        HIGHLIGHT_CLIP,
+                        &lightcraft_raw::highlight::SegmentationOptions::default().at_scale(scale),
+                    );
+                })
+                .map_err(|e| e.to_string())?,
             Some(k) => raw.develop_binned(k, HIGHLIGHT_CLIP).map_err(|e| e.to_string())?,
             None => None,
         };
@@ -333,7 +346,12 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
             Some(img) => img,
             None => {
                 let dopts = lightcraft_raw::DemosaicOptions { dual_threshold: opts.dual_threshold };
-                raw.develop_with(opts.method(max_edge), &dopts).map_err(|e| e.to_string())?
+                raw.develop_with_cfa(opts.method(max_edge), &dopts, |n| {
+                    if opts.highlights == lightcraft_develop::HighlightMode::Segmentation {
+                        lightcraft_raw::highlight::segmentation(n, t.wb, HIGHLIGHT_CLIP, &lightcraft_raw::highlight::SegmentationOptions::default());
+                    }
+                })
+                .map_err(|e| e.to_string())?
             }
         };
         // the samples aren't needed any more (the colour model below reads only the tags)
@@ -343,6 +361,12 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
         match opts.highlights {
             lightcraft_develop::HighlightMode::Reconstruct => drop(lightcraft_raw::highlight::reconstruct(&mut img, t.wb, HIGHLIGHT_CLIP)),
             lightcraft_develop::HighlightMode::Opposed => drop(lightcraft_raw::highlight::opposed(&mut img, t.wb, HIGHLIGHT_CLIP)),
+            lightcraft_develop::HighlightMode::Segmentation => {
+                // Linear RGB / monochrome raws have no CFA to segment.
+                if raw.cpp != 1 || raw.cfa.is_none() {
+                    lightcraft_raw::highlight::opposed(&mut img, t.wb, HIGHLIGHT_CLIP);
+                }
+            }
             lightcraft_develop::HighlightMode::Clip => lightcraft_raw::highlight::clip_neutral(&mut img, t.wb, HIGHLIGHT_CLIP),
         }
         stages.push(("highlights", t0.elapsed()));

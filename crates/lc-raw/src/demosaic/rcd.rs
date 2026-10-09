@@ -264,3 +264,21 @@ pub(crate) fn rcd(m: &Mosaic) -> Rgb32f {
     });
     out
 }
+
+#[cfg(test)]
+mod refvec_tests {
+    use super::*;
+    #[test]
+    fn upstream_vectors_and_packing_difference() {
+        let data: Vec<_> = (0..128 * 128).map(crate::test_vectors::noise).collect();
+        for pat in ["RGGB", "BGGR", "GRBG", "GBRG"] {
+            let cfa = crate::Cfa::bayer(pat).unwrap();
+            let out = rcd(&Mosaic { w: 128, h: 128, data: &data, cfa: &cfa });
+            let actual: Vec<_> =
+                (16..112).step_by(3).flat_map(|y| (16..112).step_by(3).map(move |x| y * 128 + x)).flat_map(|i| out.data[i]).collect();
+            crate::test_vectors::compare(&format!("rcd/{pat}-site.f32"), &actual, 2e-6);
+            // Quantify the pre-existing intentional site/packed-index difference, never bless it as rounding.
+            crate::test_vectors::compare(&format!("rcd/{pat}-original.f32"), &actual, 1.0);
+        }
+    }
+}
