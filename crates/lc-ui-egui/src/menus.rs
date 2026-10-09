@@ -134,6 +134,8 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("dialog.pasteSettings", "Paste Selected Settings…", Some("Cmd+Shift+V"), "Edit"),
     ("view.focusSearch", "Find…", Some("Cmd+F"), "Edit"),
     ("dialog.export", "Export…", None, "File"),
+    // replace the original with the edited render (asks first; raws get a JPEG beside them)
+    ("dialog.saveOverOriginal", "Save Over Original…", Some("Cmd+Alt+S"), "File"),
     ("photo.editInExternal", "Edit in External Editor", Some("Cmd+Shift+E"), "Photo"),
     ("dialog.mergeHdr", "HDR…", Some("Ctrl+H"), "Photo>Photo Merge"),
     ("dialog.mergePanorama", "Panorama…", Some("Ctrl+M"), "Photo>Photo Merge"),
@@ -851,15 +853,13 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         }
         "dialog.export" => {
             let prev = app.session.last_export.clone().unwrap_or_default();
-            let u = |k: &str, d: u64| prev.get(k).and_then(Value::as_u64).unwrap_or(d);
             let dir = prev.get("dir").and_then(Value::as_str).map(str::to_string).unwrap_or_else(crate::control::default_export_dir);
-            let opts = lightcraft_engine::export::ExportOptions::from_json(&prev);
-            // no previous export: 2048 px long edge; a previous full-size export: full size
-            let full_size = opts.resize.is_none() && lightcraft_engine::export::ExportOptions::has_size_param(&prev);
-            let resize = opts.resize.unwrap_or_default();
-            app.ui.dialog = Some(Dialog::Export { opts, full_size, resize, preset_name: String::new(), limit_kb: u("limitKb", 0) as u32, dir });
+            let mut dlg = crate::panels::export_dialog::new_dialog(dir);
+            crate::panels::export_dialog::apply_export_params(&mut dlg, &prev, false);
+            app.ui.dialog = Some(dlg);
             Ok(Value::Null)
         }
+        "dialog.saveOverOriginal" => open_save_over(app, &ctx),
         "merge.hdrLast" => crate::merge::start_last(app, "merge.hdr"),
         "merge.panoramaLast" => crate::merge::start_last(app, "merge.panorama"),
         "merge.hdrPanoramaLast" => crate::merge::start_last(app, "merge.hdrPanorama"),
@@ -1253,6 +1253,11 @@ pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
         "app.export" | "dialog.export" | "dialog.createPreset" | "dialog.rename" | "dialog.captureTime" | "dialog.copySettings" => {
             app.session.active().is_some()
         }
+        "dialog.saveOverOriginal" => app
+            .session
+            .active()
+            .and_then(|id| app.session.catalog.photo(id))
+            .is_some_and(|p| matches!(p.source, lightcraft_engine::catalog::Source::File { .. }) && p.copy_of.is_none()),
         "photo.tagFromTracklog" => app.session.active().is_some() && app.services.pick_tracklog.is_some(),
         "app.exportPrevious" => app.session.active().is_some() && app.session.last_export.is_some(),
         "dialog.pasteSettings" => app.session.active().is_some() && app.session.clipboard.is_some(),
@@ -1326,6 +1331,38 @@ pub fn confirm_delete(app: &mut LightcraftApp) -> bool {
     }
     app.ui.dialog = Some(Dialog::ConfirmDelete { count });
     true
+}
+
+/// The active photo is a raw or DNG (Save Over Original writes a JPEG beside it instead).
+pub fn active_is_raw(app: &LightcraftApp) -> bool {
+    app.session
+        .active()
+        .and_then(|id| app.session.catalog.photo(id))
+        .is_some_and(|p| p.kind == lightcraft_engine::catalog::MediaKind::Raw || p.format.eq_ignore_ascii_case("DNG"))
+}
+
+/// File ▸ Save Over Original…: show what will happen and ask (Cancel / Save Copy Beside /
+/// Overwrite), unless "Don't ask again" was chosen before.
+fn open_save_over(app: &mut LightcraftApp, ctx: &egui::Context) -> Result<Value, String> {
+    let plan = app.session.execute("photo.saveOverOriginalPlan", &json!({})).map_err(|e| e.to_string())?;
+    if app.ui.settings.confirm_save_over {
+        app.ui.dialog = Some(Dialog::SaveOverOriginal { plan, dont_ask: false, beside: false });
+        return Ok(Value::Null);
+    }
+    run_save_over(app, ctx, &plan, false)
+}
+
+/// Run Save Over Original for the photo of `plan` (`beside`: Save Copy Beside), with a toast.
+pub fn run_save_over(app: &mut LightcraftApp, ctx: &egui::Context, plan: &Value, beside: bool) -> Result<Value, String> {
+    let r = app.run("photo.saveOverOriginal", json!({"id": plan["id"], "confirm": true, "beside": beside}))?;
+    let name = |p: &Value| std::path::Path::new(p.as_str().unwrap_or_default()).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let msg = if r["mode"] == "overwrite" {
+        format!("{} {} · {} {}", crate::i18n::tr("Saved over"), name(&r["path"]), crate::i18n::tr("original backed up to"), r["backup"].as_str().unwrap_or_default())
+    } else {
+        format!("{} {}", crate::i18n::tr("Saved"), name(&r["path"]))
+    };
+    app.toast(ctx, msg);
+    Ok(r)
 }
 
 /// Reveal the active photo's original in the system file manager.

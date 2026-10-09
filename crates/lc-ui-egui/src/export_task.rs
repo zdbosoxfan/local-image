@@ -23,6 +23,8 @@ pub struct ExportTask {
     pub progress: Arc<Mutex<(usize, String)>>,
     pub cancel: Arc<AtomicBool>,
     rx: Receiver<Result<Vec<Value>, String>>,
+    /// What to do with the files once they are written (add to the library, show the folder…).
+    after: crate::control::AfterExport,
 }
 
 impl ExportTask {
@@ -34,7 +36,13 @@ impl ExportTask {
 }
 
 /// Start exporting `items` in the background. Errors per photo are collected, not fatal.
-pub fn start(app: &mut LightcraftApp, items: Vec<PreparedExport>, opts: ExportOptions, to: Destination) -> Result<Value, String> {
+pub fn start(
+    app: &mut LightcraftApp,
+    items: Vec<PreparedExport>,
+    opts: ExportOptions,
+    to: Destination,
+    after: crate::control::AfterExport,
+) -> Result<Value, String> {
     if app.export.is_some() {
         return Err("an export is already running".into());
     }
@@ -58,7 +66,7 @@ pub fn start(app: &mut LightcraftApp, items: Vec<PreparedExport>, opts: ExportOp
     std::thread::Builder::new().name("export".into()).spawn(work).map_err(|e| e.to_string())?;
     #[cfg(target_arch = "wasm32")]
     work();
-    app.export = Some(ExportTask { total, progress, cancel, rx });
+    app.export = Some(ExportTask { total, progress, cancel, rx, after });
     Ok(json!({"background": true, "total": total}))
 }
 
@@ -69,6 +77,7 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
         Ok(r) => {
             let cancelled = task.cancel.load(Ordering::Relaxed);
             let total = task.total;
+            let after = task.after.clone();
             app.export = None;
             let msg = match r {
                 Ok(files) => {
@@ -85,6 +94,9 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
                     }
                     if cancelled {
                         m += " · cancelled";
+                    }
+                    if let Some(note) = after.run(app, &files) {
+                        m += &format!(" · {note}");
                     }
                     app.last_export_result = Some(json!({"files": files, "cancelled": cancelled}));
                     m

@@ -73,6 +73,8 @@ pub enum ResizeMode {
     Height,
     /// Fit inside `value × height` pixels, whichever way round the photo is (long edge ≤ the larger).
     Dimensions,
+    /// Fit inside a `value` (width) × `height` box as given (Lightroom's "Width & Height").
+    WidthHeight,
     /// `value` = megapixels.
     Megapixels,
     /// `value` = percent of the full size.
@@ -116,6 +118,7 @@ impl Resize {
                 let (a, b) = (v, self.height as f64);
                 (a.max(b) / long).min(a.min(b) / short)
             }
+            ResizeMode::WidthHeight => (v / w).min(self.height as f64 / h),
             ResizeMode::Megapixels => (v * 1e6 / (w * h)).sqrt(),
             ResizeMode::Percent => v / 100.0,
         };
@@ -519,6 +522,10 @@ pub struct ExportOptions {
     pub start_number: u32,
     /// Created inside the destination folder (empty = none).
     pub subfolder: String,
+    /// Export each photo into the folder of its own original (Lightroom's "Same folder as original
+    /// photo") instead of the batch's destination folder; `subfolder` still applies. The usual
+    /// guard holds: an original is never written over.
+    pub same_folder: bool,
     /// When a file of the same name exists in the destination folder.
     pub conflict: Conflict,
     /// TIFF compression.
@@ -535,6 +542,10 @@ pub struct ExportOptions {
     /// Bits per channel: 8, 16 (PNG, TIFF), 32 (TIFF: float, linear) or 10 (AVIF); `None` = the
     /// format's default (TIFF 16, everything else 8). See [`ExportOptions::effective_depth`].
     pub bit_depth: Option<u8>,
+    /// JPEG chroma subsampling (`None` = 4:4:4, or 4:2:0 with a file-size limit). Not a user
+    /// setting: Save Over Original keeps the original's.
+    #[serde(skip)]
+    pub jpeg_chroma: Option<ChromaSubsampling>,
 }
 
 impl Default for ExportOptions {
@@ -550,6 +561,7 @@ impl Default for ExportOptions {
             naming: "{name}".into(),
             start_number: 1,
             subfolder: String::new(),
+            same_folder: false,
             conflict: Conflict::Unique,
             tiff_compression: TiffCompression::Deflate,
             dng_compression: DngCompression::Lossless,
@@ -558,6 +570,7 @@ impl Default for ExportOptions {
             watermark: None,
             color_space: OutputSpace::Srgb,
             bit_depth: None,
+            jpeg_chroma: None,
         }
     }
 }
@@ -587,6 +600,7 @@ impl ExportOptions {
             naming: s("naming").map_or(d.naming, str::to_string),
             start_number: u("startNumber").map_or(d.start_number, |v| v.min(999_999) as u32),
             subfolder: s("subfolder").map_or(d.subfolder, |v| v.trim().replace(['\\', ':', '\0'], "_")),
+            same_folder: p.get("sameFolder").and_then(Value::as_bool).unwrap_or(d.same_folder),
             conflict: enm(p, "conflict").unwrap_or(d.conflict),
             tiff_compression: match s("tiffCompression").map(str::to_ascii_lowercase).as_deref() {
                 Some("none") => TiffCompression::None,
@@ -605,6 +619,7 @@ impl ExportOptions {
             .filter(|w: &Watermark| !w.text.trim().is_empty() || !w.image.trim().is_empty()),
             color_space: s("colorSpace").and_then(OutputSpace::parse).unwrap_or(d.color_space),
             bit_depth: u("bitDepth").filter(|b| matches!(b, 8 | 10 | 16 | 32)).map(|b| b as u8),
+            jpeg_chroma: None,
         }
     }
 
@@ -817,7 +832,7 @@ pub fn encode_with_metadata(img: &Rgba8, o: &ExportOptions, meta: Option<&Metada
     let r = match o.format {
         ExportFormat::Jpeg => {
             // 4:4:4 normally; 4:2:0 when targeting a file size (much smaller at equal visual quality).
-            let sub = if o.limit_kb.is_some() { ChromaSubsampling::S420 } else { ChromaSubsampling::S444 };
+            let sub = if o.limit_kb.is_some() { ChromaSubsampling::S420 } else { o.jpeg_chroma.unwrap_or(ChromaSubsampling::S444) };
             let jpeg = |q: u8| encode::encode_jpeg(&e, q, sub, &meta);
             match o.limit_kb {
                 Some(kb) => {
@@ -1007,6 +1022,9 @@ pub struct PreparedExport {
     work: Work,
     /// The library's originals, which [`run_batch`] never writes over (shared by a batch).
     guard: std::sync::Arc<crate::originals::OriginalGuard>,
+    /// The folder of the photo's original (`None` for a generated demo photo): the destination
+    /// with [`ExportOptions::same_folder`].
+    source_dir: Option<String>,
 }
 
 struct RenderWork {
@@ -1056,6 +1074,10 @@ fn prepare_guarded(
 ) -> Result<PreparedExport, String> {
     let p = session.catalog.photo(id).ok_or("no such photo")?;
     let file_name = o.file_name_for(p, seq);
+    let source_dir = match &p.source {
+        lightcraft_catalog::Source::File { path } => std::path::Path::new(path).parent().map(|d| d.to_string_lossy().to_string()),
+        lightcraft_catalog::Source::Demo { .. } => None,
+    };
     let work = if o.format.is_rendered() {
         let (w, h) = output_size(p, o);
         let meta = export_metadata(p, o);
@@ -1074,7 +1096,7 @@ fn prepare_guarded(
             size: (p.width as usize, p.height as usize),
         }
     };
-    Ok(PreparedExport { photo: id, file_name, work, guard })
+    Ok(PreparedExport { photo: id, file_name, work, guard, source_dir })
 }
 
 impl PreparedExport {
@@ -1135,6 +1157,30 @@ pub struct Destination {
     pub exact: Option<String>,
 }
 
+/// Where each of `ids` would be exported to under `o` and `to`, before any conflict policy:
+/// the folder ([`ExportOptions::same_folder`]: the photo's own; plus the subfolder) and the file
+/// name ([`ExportOptions::file_name_for`]). `None` for a photo with no folder of its own. Used to
+/// preview names and to ask about existing files before an export starts.
+pub fn planned_paths(catalog: &lightcraft_catalog::Catalog, ids: &[lightcraft_catalog::PhotoId], o: &ExportOptions, to: &Destination) -> Vec<Option<String>> {
+    let join = |a: &str, b: &str| if a.is_empty() { b.to_string() } else { format!("{}/{b}", a.trim_end_matches('/')) };
+    let in_sub = |d: &str| if o.subfolder.is_empty() { d.to_string() } else { join(d, &o.subfolder) };
+    ids.iter()
+        .enumerate()
+        .map(|(i, id)| {
+            let p = catalog.photo(*id)?;
+            if let Some(exact) = to.exact.as_deref().filter(|_| ids.len() == 1) {
+                return Some(exact.to_string());
+            }
+            let dir = match (&p.source, o.same_folder) {
+                (_, false) => in_sub(&to.dir),
+                (lightcraft_catalog::Source::File { path }, true) => in_sub(&std::path::Path::new(path).parent()?.to_string_lossy()),
+                (lightcraft_catalog::Source::Demo { .. }, true) => return None,
+            };
+            Some(join(&dir, &o.file_name_for(p, i + 1)))
+        })
+        .collect()
+}
+
 /// Export `ids` in order ([`prepare_batch`] + [`run_batch`]), stopping at the first error.
 pub fn export_batch(
     session: &mut crate::Session,
@@ -1182,7 +1228,7 @@ fn sidecar_path(main: &str, ext: &str) -> String {
 /// sidecars as one: with Unique both get the same free name, with Skip the photo is skipped when
 /// either is taken. A path that is a catalogued original (or its sidecar) is refused whatever the
 /// policy. `progress(done, next file)` is called before each photo; returning false cancels the
-/// rest. Returns one JSON object per photo: `{path, width, height, bytes, sidecars}`,
+/// rest. Returns one JSON object per photo: `{path, photo, width, height, bytes, sidecars}`,
 /// `{skipped: path}` or (unless `stop_on_error`) `{photo, file, error}`.
 pub fn run_batch(
     items: Vec<PreparedExport>,
@@ -1195,7 +1241,8 @@ pub fn run_batch(
 ) -> Result<Vec<serde_json::Value>, String> {
     use serde_json::json;
     let join = |a: &str, b: &str| if a.is_empty() { b.to_string() } else { format!("{}/{b}", a.trim_end_matches('/')) };
-    let dir = if o.subfolder.is_empty() { to.dir.clone() } else { join(&to.dir, &o.subfolder) };
+    let in_sub = |d: &str| if o.subfolder.is_empty() { d.to_string() } else { join(d, &o.subfolder) };
+    let batch_dir = in_sub(&to.dir);
     let single = items.len() == 1;
     let mut taken = std::collections::HashSet::new();
     let mut out = Vec::new();
@@ -1204,6 +1251,19 @@ pub fn run_batch(
             break;
         }
         let (photo, name, guard) = (item.photo, item.file_name.clone(), item.guard.clone());
+        // the batch's folder, or (Same folder as original photo) the photo's own
+        let dir = match (o.same_folder, &item.source_dir) {
+            (false, _) => batch_dir.clone(),
+            (true, Some(d)) => in_sub(d),
+            (true, None) => {
+                let err = format!("{name}: a generated demo photo has no folder of its own; choose a specific folder");
+                if stop_on_error {
+                    return Err(err);
+                }
+                out.push(json!({"photo": photo.0, "file": name, "error": err}));
+                continue;
+            }
+        };
         let e = match item.run() {
             Ok(e) => e,
             Err(err) if stop_on_error => return Err(err),
@@ -1255,7 +1315,7 @@ pub fn run_batch(
         match written {
             Ok((path, files, sidecars)) => {
                 taken.extend(files);
-                out.push(json!({"path": path, "width": e.width, "height": e.height, "bytes": e.bytes.len(), "sidecars": sidecars}));
+                out.push(json!({"path": path, "photo": photo.0, "width": e.width, "height": e.height, "bytes": e.bytes.len(), "sidecars": sidecars}));
             }
             Err(err) if stop_on_error => return Err(err),
             Err(err) => out.push(json!({"photo": photo.0, "file": file, "error": err})),

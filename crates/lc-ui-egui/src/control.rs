@@ -349,6 +349,19 @@ pub fn default_export_dir() -> String {
 /// Export the selected photos (UI command `app.export`). Params: see
 /// [`lightcraft_engine::export::ExportOptions::from_json`], plus `dir` (output folder) or `path`
 /// (exact output file, single photo), `ids` (default: the selection, else the active photo).
+/// The photos an export without `ids` exports: the selection in grid order (which also numbers
+/// `{seq}`), else the active photo.
+pub fn export_targets(app: &mut LightcraftApp) -> Vec<lightcraft_engine::catalog::PhotoId> {
+    if app.session.selection.ids.is_empty() {
+        return app.session.active().into_iter().collect();
+    }
+    let sel: std::collections::HashSet<_> = app.session.selection.ids.iter().copied().collect();
+    let mut v: Vec<_> = app.session.visible().iter().copied().filter(|id| sel.contains(id)).collect();
+    let shown: std::collections::HashSet<_> = v.iter().copied().collect();
+    v.extend(app.session.selection.ids.iter().filter(|id| !shown.contains(id)));
+    v
+}
+
 pub fn export_active(app: &mut LightcraftApp, p: &Value) -> Result<Value, String> {
     use lightcraft_engine::export::{Destination, ExportOptions, export_batch};
     let p = &app.session.export_params(p)?;
@@ -359,15 +372,7 @@ pub fn export_active(app: &mut LightcraftApp, p: &Value) -> Result<Value, String
     }
     let ids: Vec<_> = match p.get("ids").and_then(Value::as_array) {
         Some(a) => a.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect(),
-        None if !app.session.selection.ids.is_empty() => {
-            // Batch order (and `{seq}`) follows the grid order.
-            let sel: std::collections::HashSet<_> = app.session.selection.ids.iter().copied().collect();
-            let mut v: Vec<_> = app.session.visible().iter().copied().filter(|id| sel.contains(id)).collect();
-            let shown: std::collections::HashSet<_> = v.iter().copied().collect();
-            v.extend(app.session.selection.ids.iter().filter(|id| !shown.contains(id)));
-            v
-        }
-        None => app.session.active().into_iter().collect(),
+        None => export_targets(app),
     };
     if ids.is_empty() {
         return Err("no photo selected".into());
@@ -385,17 +390,25 @@ pub fn export_active(app: &mut LightcraftApp, p: &Value) -> Result<Value, String
             last_dir.map(str::to_string).unwrap_or_else(default_export_dir)
         }
     };
-    if dir.is_empty() && exact.is_none() {
+    // (Same folder as original photo needs none)
+    if dir.is_empty() && exact.is_none() && !opts.same_folder {
         return Err(NO_EXPORT_FOLDER.into());
     }
     let to = Destination { dir: dir.clone(), exact };
     let background = p.get("background").and_then(Value::as_bool).unwrap_or(false) && app.services.write_shared.is_some();
+    let after = AfterExport::from_params(p);
     let out = if background {
         let items = lightcraft_engine::export::prepare_batch(&mut app.session, &ids, &opts)?;
-        crate::export_task::start(app, items, opts, to)?
+        crate::export_task::start(app, items, opts, to, after)?
     } else {
         let w = app.services.write.as_mut().ok_or("no writer")?;
-        json!({"files": export_batch(&mut app.session, &ids, &opts, &to, &mut |path, bytes| w(path, bytes), &|path| std::path::Path::new(path).exists())?})
+        let files = export_batch(&mut app.session, &ids, &opts, &to, &mut |path, bytes| w(path, bytes), &|path| std::path::Path::new(path).exists())?;
+        let note = after.run(app, &files);
+        let mut out = json!({"files": files});
+        if let Some(n) = note {
+            out["after"] = json!(n);
+        }
+        out
     };
     // remember for Export with Previous (and to prefill the dialog)
     let mut last = p.clone();
@@ -407,6 +420,65 @@ pub fn export_active(app: &mut LightcraftApp, p: &Value) -> Result<Value, String
     app.session.last_export = Some(last);
     let _ = app.session.save_prefs();
     Ok(out)
+}
+
+/// What happens once an export has written its files (the Export dialog's "Add to This
+/// Catalog" / "Add to Stack" and Post-Processing ▸ After Export): `app.export` params
+/// `addToLibrary`, `addToStack`, `afterExport` (`nothing` | `showInFolder` | `openIn`) and
+/// `afterExportApp`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AfterExport {
+    pub add_to_library: bool,
+    pub add_to_stack: bool,
+    pub after: String,
+    pub app: String,
+}
+
+impl AfterExport {
+    pub fn from_params(p: &Value) -> Self {
+        let b = |k: &str| p.get(k).and_then(Value::as_bool).unwrap_or(false);
+        let s = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
+        AfterExport { add_to_library: b("addToLibrary"), add_to_stack: b("addToStack"), after: s("afterExport"), app: s("afterExportApp") }
+    }
+
+    /// Do it for the exported `files` (`app.export` results); a note for the user when something
+    /// didn't work.
+    pub fn run(&self, app: &mut LightcraftApp, files: &[Value]) -> Option<String> {
+        let written: Vec<&Value> = files.iter().filter(|f| f.get("path").is_some()).collect();
+        if written.is_empty() {
+            return None;
+        }
+        let mut notes = Vec::new();
+        if self.add_to_library
+            && let Err(e) = app.session.execute("export.addToLibrary", &json!({"files": written, "stack": self.add_to_stack}))
+        {
+            notes.push(format!("not added to the library: {e}"));
+        }
+        let first = written[0]["path"].as_str().unwrap_or_default().to_string();
+        match self.after.as_str() {
+            "showInFolder" => match app.services.reveal.as_mut() {
+                Some(reveal) => {
+                    if let Err(e) = reveal(&first) {
+                        notes.push(format!("couldn't show the folder: {e}"));
+                    }
+                }
+                None => notes.push("showing the folder isn't available here".into()),
+            },
+            "openIn" => match app.services.open_with.as_mut() {
+                Some(open) => {
+                    for f in &written {
+                        if let Err(e) = open(f["path"].as_str().unwrap_or_default(), &self.app) {
+                            notes.push(format!("couldn't open the files: {e}"));
+                            break;
+                        }
+                    }
+                }
+                None => notes.push("opening in another application isn't available here".into()),
+            },
+            _ => {}
+        }
+        (!notes.is_empty()).then(|| notes.join(" · "))
+    }
 }
 
 pub fn save_screenshot(app: &mut LightcraftApp, image: &egui::ColorImage, path: Option<&str>) -> Value {

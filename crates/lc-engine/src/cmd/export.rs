@@ -75,6 +75,39 @@ fn delete(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(list(s))
 }
 
+/// Export ▸ Add to This Catalog (and Add to Stack): import exported files and stack each on
+/// top of the photo it was exported from. `files` are `app.export` results (`{path, photo}`).
+fn add_to_library(s: &mut Session, p: &Value) -> Result<Value> {
+    const ID: &str = "export.addToLibrary";
+    let files: Vec<(String, Option<u64>)> = p
+        .get("files")
+        .and_then(Value::as_array)
+        .ok_or_else(|| bad(ID, "missing `files` ([{path, photo}])"))?
+        .iter()
+        .filter_map(|f| Some((f.get("path")?.as_str()?.to_string(), f.get("photo").and_then(Value::as_u64))))
+        .collect();
+    let stack = p.get("stack").and_then(Value::as_bool).unwrap_or(false);
+    if files.is_empty() {
+        return Ok(json!({"imported": []}));
+    }
+    s.execute("library.import", &json!({"paths": files.iter().map(|f| f.0.clone()).collect::<Vec<_>>()}))?;
+    let mut added = Vec::new();
+    for (path, from) in files {
+        let found = s.catalog.photos().find(|ph| match &ph.source {
+            lightcraft_catalog::Source::File { path: q } => *q == path || lightcraft_catalog::safe_file::same_file(std::path::Path::new(q), std::path::Path::new(&path)),
+            _ => false,
+        });
+        let Some(new) = found.map(|ph| ph.id.0) else { continue };
+        if stack
+            && let Some(from) = from.filter(|f| *f != new && s.catalog.photo(lightcraft_catalog::PhotoId(*f)).is_some())
+        {
+            let _ = s.execute("stack.group", &json!({"ids": [new, from], "top": new, "collapsed": false}));
+        }
+        added.push(new);
+    }
+    Ok(json!({"imported": added}))
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(
@@ -96,6 +129,15 @@ pub fn specs() -> Vec<CommandSpec> {
             save
         ),
         cmd!("export.deletePreset", "Delete Export Preset", [], None, "{name} — removes a user preset → presets", always, delete),
+        cmd!(
+            "export.addToLibrary",
+            "Add Exported Files to Library",
+            [],
+            None,
+            "{files: [{path, photo?}] (app.export results), stack?: false} — import exported files into the library; with `stack`, each goes on top of a stack with the photo it was exported from → {imported: [ids]}",
+            always,
+            add_to_library
+        ),
         cmd!(
             query "export.checkTarget",
             "Check Output Path",
