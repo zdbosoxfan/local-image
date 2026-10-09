@@ -35,6 +35,7 @@ data in `~/.local/share/local-image-dev/engine-sources/`.
 ## Follow-ups found along the way
 
 - Occasional SIGSEGV at process exit in UI tests, inside the NVIDIA Vulkan driver during a background `lightcraft_gpu::render` (`wgpu create_buffer`) — likely a GPU render still running when the test process tears down. Check the app's own shutdown path for the same race.
+- 2026-10-09 03:02: the kernel logged NVIDIA Xid 13 "Illegal Instruction Encoding" (SM warp exception) from the `tests_ai::heal_…` test process — a GPU kernel fault in the lc-gpu render path during the Develop UI tests; probably the same issue as the exit SIGSEGV. Reproduce with `cargo test -p lightcraft-ui-egui tests_ai` and check `journalctl -k | grep Xid`.
 - Content-aware Heal on 24 MP photos with large strokes: unbenchmarked (runs in the background with progress).
 - Remove overlay visibility (Auto / Always / Never) isn't bound to H yet (H opens the Remove panel).
 
