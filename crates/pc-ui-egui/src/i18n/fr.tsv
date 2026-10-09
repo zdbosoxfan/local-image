@@ -3075,3 +3075,14 @@ ai	New	Nouveautés
 	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	Déplace vers la corbeille les modèles que l'application n'utilise plus (U²-Net, TinySkyNet, MiDaS).
 	the old models	les anciens modèles
 	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	Petits modèles qui s'exécutent sur le processeur de cet ordinateur : ni ComfyUI ni GPU requis, téléchargements rapides, et vos photos ne quittent jamais l'ordinateur. Chaque fonction a un modèle recommandé ; vous pouvez utiliser votre propre modèle ONNX à la place.
+	Choose an ONNX model (a file ending in .onnx)	Choisir un modèle ONNX (un fichier se terminant par .onnx)
+	Not a depth model: it must output one depth map	Pas un modèle de profondeur : il doit produire une seule carte de profondeur
+	Not a sky model	Pas un modèle de ciel
+	Not a sky model: its output {shape} should be 1 map or one map per class	Pas un modèle de ciel : sa sortie {shape} doit être 1 carte ou une carte par classe
+	Not a subject model: it must output one foreground map	Pas un modèle de sujet : il doit produire une seule carte de premier plan
+	The model has no input	Le modèle n'a pas d'entrée
+	The model's input has {channels} channels; an RGB image (3) is needed	L'entrée du modèle a {channels} canaux ; une image RVB (3) est nécessaire
+	The model's input is {height}×{width}; a square input (or a flexible size) is needed	L'entrée du modèle est {height}×{width} ; une entrée carrée (ou une taille flexible) est requise
+	The model's input must be an image (batch × 3 × height × width)	L'entrée du modèle doit être une image (lot × 3 × hauteur × largeur)
+	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	La classe de ciel {class} est hors limites : ce modèle a {classes} classes (0 à {max})
+	{path} isn't a file	{path} n'est pas un fichier

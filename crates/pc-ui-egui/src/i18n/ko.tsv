@@ -3230,3 +3230,14 @@ ai	New	새 항목
 	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	앱에서 더 이상 사용하지 않는 모델(U²-Net, TinySkyNet, MiDaS)을 휴지통으로 이동합니다.
 	the old models	이전 모델
 	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	이 컴퓨터의 프로세서에서 실행되는 작은 모델입니다. ComfyUI나 GPU가 필요 없고 다운로드가 빠르며 사진이 컴퓨터 밖으로 나가지 않습니다. 기능마다 권장 모델이 하나씩 있으며, 대신 직접 가져온 ONNX 모델을 사용할 수도 있습니다.
+	Choose an ONNX model (a file ending in .onnx)	ONNX 모델 선택(.onnx 파일)
+	Not a depth model: it must output one depth map	깊이 모델이 아님: 깊이 맵 하나를 출력해야 합니다
+	Not a sky model	하늘 모델이 아님
+	Not a sky model: its output {shape} should be 1 map or one map per class	하늘 모델이 아님: 출력 {shape}이(가) 맵 1개 또는 클래스당 맵 1개여야 합니다
+	Not a subject model: it must output one foreground map	피사체 모델이 아님: 전경 맵 하나를 출력해야 합니다
+	The model has no input	모델에 입력이 없습니다
+	The model's input has {channels} channels; an RGB image (3) is needed	모델 입력 채널이 {channels}개입니다. RGB 이미지(3)가 필요합니다
+	The model's input is {height}×{width}; a square input (or a flexible size) is needed	모델 입력이 {height}×{width}입니다. 정사각형 입력(또는 가변 크기)이 필요합니다
+	The model's input must be an image (batch × 3 × height × width)	모델 입력은 이미지(배치 × 3 × 높이 × 너비)여야 합니다
+	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	하늘 클래스 {class} 값이 범위를 벗어났습니다. 이 모델은 {classes}개의 클래스(0~{max})를 가집니다
+	{path} isn't a file	{path}은(는) 파일이 아닙니다

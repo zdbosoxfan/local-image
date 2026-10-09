@@ -2653,3 +2653,14 @@ ai	New	Nové
 	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	Přesune do koše modely, které aplikace již nepoužívá (U²-Net, TinySkyNet, MiDaS).
 	the old models	staré modely
 	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	Malé modely běžící na procesoru tohoto počítače: nepotřebujete ComfyUI ani GPU, stahování je rychlé a vaše fotografie počítač nikdy neopustí. Každá funkce má jeden doporučený model; místo něj můžete použít vlastní model ONNX.
+	Choose an ONNX model (a file ending in .onnx)	Vyberte model ONNX (soubor končící na .onnx)
+	Not a depth model: it must output one depth map	Není model hloubky: musí vydávat jednu mapu hloubky
+	Not a sky model	Není model oblohy
+	Not a sky model: its output {shape} should be 1 map or one map per class	Není model oblohy: jeho výstup {shape} by měl být 1 mapa nebo jedna mapa na třídu
+	Not a subject model: it must output one foreground map	Není model objektu: musí vydávat jednu mapu popředí
+	The model has no input	Model nemá žádný vstup
+	The model's input has {channels} channels; an RGB image (3) is needed	Vstup modelu má {channels} kanálů; je potřeba obrázek RGB (3)
+	The model's input is {height}×{width}; a square input (or a flexible size) is needed	Vstup modelu je {height}×{width}; je potřeba čtvercový vstup (nebo flexibilní velikost)
+	The model's input must be an image (batch × 3 × height × width)	Vstup modelu musí být obrázek (dávka × 3 × výška × šířka)
+	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Třída oblohy {class} je mimo rozsah: tento model má {classes} tříd (0 až {max})
+	{path} isn't a file	{path} není soubor
