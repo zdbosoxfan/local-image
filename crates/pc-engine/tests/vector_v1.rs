@@ -172,6 +172,39 @@ fn invalid_input_is_atomic_and_does_not_journal() {
     }
 }
 #[test]
+fn locked_and_nonshape_inputs_leave_document_history_and_journal_unchanged() {
+    let mut s = session();
+    let id = shape(&mut s, [10.0, 10.0, 100.0, 100.0], "#ff0000");
+    s.edit("Lock shape", |doc, _| {
+        doc.layer_mut(photocraft_doc::LayerId(id)).unwrap().locks.all = true;
+        Ok(())
+    })
+    .unwrap();
+    let raster = s.active().unwrap().doc.layers.iter().find(|l| matches!(l.content, LayerContent::Raster(_))).unwrap().id.0;
+    let before = s.active().unwrap().doc.clone();
+    let history = s.active().unwrap().history.entries().len();
+    let journal = s.journal.len();
+    for input in [id, raster, u64::MAX] {
+        for command in [
+            "path.boolean",
+            "path.pathfinder",
+            "path.outlineStroke",
+            "path.offset",
+            "path.simplify",
+            "path.smooth",
+            "path.reverse",
+            "path.join",
+            "path.splitAt",
+            "path.finishCompound",
+        ] {
+            assert!(s.execute(command, json!({"layers":[input]})).is_err(), "{command}");
+            assert_eq!(s.active().unwrap().doc.as_ref(), before.as_ref(), "{command}");
+            assert_eq!(s.active().unwrap().history.entries().len(), history, "{command}");
+            assert_eq!(s.journal.len(), journal, "{command}");
+        }
+    }
+}
+#[test]
 fn v1_bundle_with_shapes_masks_and_paths_loads() {
     let mut s = session();
     let id = shape(&mut s, [10.0, 10.0, 100.0, 100.0], "#ff0000");

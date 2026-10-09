@@ -31,6 +31,24 @@ fn circle_difference_keeps_curves_and_holes() {
     close(vector::path_coverage(&out, Rect::new(0, 0, 128, 128)).iter().map(|x| f64::from(*x)).sum(), ops::area(&out).unwrap(), 2.0);
 }
 #[test]
+fn coincident_reversed_and_tangent_curves_keep_set_semantics() {
+    let a = vector::shapes::ellipse(10.0, 10.0, 100.0, 100.0);
+    // Normalization refits curves at DEFAULT_PRECISION. Its area tolerance
+    // scales with the contour length, rather than requiring exact refits.
+    let tolerance = ops::to_geometry(&a).length() * ops::DEFAULT_PRECISION;
+    for b in [a.clone(), ops::reverse(&a).unwrap()] {
+        for op in [ops::BoolOp::Difference, ops::BoolOp::Xor] {
+            assert!(ops::boolean(&a, &b, op).unwrap().is_empty());
+        }
+        for op in [ops::BoolOp::Union, ops::BoolOp::Intersect] {
+            close(ops::area(&ops::boolean(&a, &b, op).unwrap()).unwrap(), ops::area(&a).unwrap(), tolerance);
+        }
+    }
+    let tangent = vector::shapes::ellipse(110.0, 10.0, 100.0, 100.0);
+    assert!(ops::boolean(&a, &tangent, ops::BoolOp::Intersect).unwrap().is_empty());
+    close(ops::area(&ops::boolean(&a, &tangent, ops::BoolOp::Union).unwrap()).unwrap(), 2.0 * ops::area(&a).unwrap(), 2.0 * tolerance);
+}
+#[test]
 fn twenty_random_pairs_agree_with_coverage() {
     let mut seed = 0x51a7u64;
     let mut number = || {
@@ -67,6 +85,26 @@ fn compound_evenodd_first_op_and_inversion() {
     let inverse = ops::finish_compound(&p, Some(ops::geom::Rect::new(0.0, 0.0, 120.0, 120.0))).unwrap();
     close(ops::area(&inverse).unwrap(), 6900.0, 0.001);
     assert!(ops::contains(&p, Point::new(50.0, 50.0)).unwrap());
+}
+#[test]
+fn open_fill_ignores_unused_endpoint_handles() {
+    let mut p = Path::new(vec![Subpath::polyline(&[(10.0, 10.0), (110.0, 10.0), (110.0, 110.0)])]);
+    p.subpaths[0].knots[0].in_ctrl = Point::new(-90.0, 110.0);
+    p.subpaths[0].knots[2].out_ctrl = Point::new(-90.0, 210.0);
+    let original = p.clone();
+    // The raw adapter and editing APIs still retain the unused handles.
+    assert_eq!(ops::from_geometry(&ops::to_geometry(&p)), p);
+    assert_eq!(ops::reverse(&ops::reverse(&p).unwrap()).unwrap(), p);
+    let baked = ops::finish_compound(&p, None).unwrap();
+    close(ops::area(&baked).unwrap(), 5000.0, 0.001);
+    let rect = Rect::new(0, 0, 128, 128);
+    let expected = vector::path_coverage(&p, rect);
+    let actual = vector::path_coverage(&baked, rect);
+    assert!(expected.iter().zip(actual).all(|(a, b)| (a - b).abs() <= 1.0 / 255.0));
+    let clip = vector::shapes::rect(60.0, 10.0, 50.0, 50.0);
+    close(ops::area(&ops::boolean(&p, &clip, ops::BoolOp::Intersect).unwrap()).unwrap(), 2500.0, 0.001);
+    assert!(!ops::contains(&p, Point::new(10.0, 60.0)).unwrap());
+    assert_eq!(p, original);
 }
 #[test]
 fn adapter_handles_roundtrip_and_tight_bounds() {
@@ -156,6 +194,18 @@ proptest! {
         let _=ops::simplify(&path,0.5);
         let _=ops::shape_builder(&[ops::Shape::new(path,0)],true);
     }
+    #[test]
+    fn degenerate_curves_do_not_panic(knots in prop::collection::vec(
+        ((-10.0..10.0f64, -10.0..10.0f64), (-10.0..10.0f64, -10.0..10.0f64), (-10.0..10.0f64, -10.0..10.0f64)), 0..5), closed in any::<bool>()) {
+        let path = Path::new(vec![Subpath {
+            knots: knots.iter().map(|&(a, i, o)| Knot::smooth(Point::new(a.0, a.1), Point::new(i.0, i.1), Point::new(o.0, o.1))).collect(),
+            closed, op: PathOp::Combine,
+        }]);
+        let _ = ops::finish_compound(&path, None);
+        let _ = ops::boolean(&path, &path, ops::BoolOp::Xor);
+        let _ = ops::offset_path(&path, 1.0, ops::Join::Round, 4.0);
+        let _ = ops::pathfinder(ops::PathfinderOp::Divide, &[ops::Shape::new(path, 0)]);
+    }
 }
 #[test]
 fn nonfinite_and_invalid_options_are_errors() {
@@ -163,6 +213,21 @@ fn nonfinite_and_invalid_options_are_errors() {
     assert_eq!(ops::boolean(&p, &Path::default(), ops::BoolOp::Union), Err(ops::PathOpsError::NonFinite));
     assert!(ops::split_at(&square(0.0, 0.0), usize::MAX, 0, 0.5).is_err());
     assert!(ops::simplify(&square(0.0, 0.0), -1.0).is_err());
+}
+#[test]
+fn kernel_failures_are_errors_instead_of_empty_geometry() {
+    let good = ops::to_geometry(&square(0.0, 0.0));
+    let bad = ops::to_geometry(&Path::new(vec![Subpath::polygon(&[(f64::NAN, 0.0), (1.0, 0.0), (1.0, 1.0)])]));
+    let rule = ops::geom::FillRule::NonZero;
+    assert_eq!(ops::kernel::try_unite_all(&[(&good, rule), (&bad, rule)]), Err(ops::PathOpsError::NonFinite));
+    let shapes = [ops::kernel::Shape::new(good.clone(), rule, 0), ops::kernel::Shape::new(bad.clone(), rule, 1)];
+    for op in [ops::PathfinderOp::Unite, ops::PathfinderOp::Divide, ops::PathfinderOp::Trim, ops::PathfinderOp::Crop, ops::PathfinderOp::Outline] {
+        assert_eq!(ops::kernel::try_pathfinder(op, &shapes), Err(ops::PathOpsError::NonFinite));
+    }
+    assert_eq!(ops::kernel::try_regions(&shapes), Err(ops::PathOpsError::NonFinite));
+    assert_eq!(ops::kernel::try_offset_path(&bad, 0.0, ops::Join::Miter, 4.0), Err(ops::PathOpsError::NonFinite));
+    assert_eq!(ops::kernel::try_offset_path(&good, f64::NAN, ops::Join::Miter, 4.0), Err(ops::PathOpsError::InvalidOption));
+    assert_eq!(ops::kernel::try_offset_path(&good, -100.0, ops::Join::Miter, 4.0).unwrap(), ops::geom::PathData::default());
 }
 #[test]
 #[ignore = "release performance budget: coordinator machine, two 1000-segment paths"]

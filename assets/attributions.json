@@ -450,6 +450,20 @@
         },
         {
           "name": "VectorCraft",
+          "used_for": "Adapter for VectorCraft geom/path.rs and pathops operations to pc-doc paths.",
+          "upstream": "crates/geom/src/path.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/src/adapter.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/geom/src/path.rs"
+        },
+        {
+          "name": "VectorCraft",
           "used_for": "Adapted from VectorCraft crates/geom/src/bez.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
           "upstream": "crates/geom/src/bez.rs",
           "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",

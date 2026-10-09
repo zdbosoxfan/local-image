@@ -21,7 +21,10 @@ file format. `to_geometry` maps coordinates and handles without changing them;
 filled-area algorithms. Geometry outputs have nonzero winding, a leading `Combine`
 component and `Join` contours for holes. Using independent `Combine` operations for
 holes would fill them in the PSD-calibrated rasterizer. Inverted geometry requires a
-finite clip; the engine supplies the document rectangle.
+finite clip; the engine supplies the document rectangle. Open fills close with a
+straight edge, matching pc-vector; unused endpoint handles remain intact for editing.
+The document adapter uses fallible kernel operations so sweep failures propagate as
+errors before a command mutates its input layers.
 
 The native `outline_stroke` adapter uses pc-vector's stroke polygons, including its
 PSD width-relative dashes, cap/join tessellation and closed-path alignment. The

@@ -10,6 +10,7 @@ use kurbo::{BezPath, PathEl, Stroke, StrokeOpts};
 
 pub use kurbo::{Cap, Join};
 
+use crate::PathOpsError;
 use linesweeper::topology::{ContourIdx, Contours};
 
 use crate::kernel::boolean::{Arrangement, DEFAULT_PRECISION, Tidy, all_contours_to_path, contours_to_path, fill_bezpath, normalize_bez};
@@ -82,8 +83,16 @@ pub fn stroke_region(outlines: &[BezPath]) -> PathData {
 /// Closed subpaths are treated as a non-zero filled region; open subpaths are outlined with a
 /// stroke of width `2|delta|` (butt caps).
 pub fn offset_path(path: &PathData, delta: f64, join: Join, miter_limit: f64) -> PathData {
-    if !delta.is_finite() || path.is_empty() {
-        return PathData::default();
+    try_offset_path(path, delta, join, miter_limit).unwrap_or_default()
+}
+
+/// Fallible offset: a failed sweep is distinct from a completely eroded shape.
+pub fn try_offset_path(path: &PathData, delta: f64, join: Join, miter_limit: f64) -> Result<PathData, PathOpsError> {
+    if !delta.is_finite() || !miter_limit.is_finite() || miter_limit < 1.0 {
+        return Err(PathOpsError::InvalidOption);
+    }
+    if path.is_empty() {
+        return Ok(PathData::default());
     }
     let closed = PathData::new(path.subpaths.iter().filter(|s| s.closed && s.anchors.len() > 1).cloned().collect());
     let open: Vec<SubPath> = path.subpaths.iter().filter(|s| !s.closed && s.anchors.len() > 1).cloned().collect();
@@ -92,9 +101,7 @@ pub fn offset_path(path: &PathData, delta: f64, join: Join, miter_limit: f64) ->
     let ring = if d > 0.0 { stroke_bez(&closed.to_bezpath(), 2.0 * d, Cap::Butt, join, miter_limit) } else { BezPath::new() };
     let open_bp =
         if d > 0.0 && !open.is_empty() { stroke_bez(&PathData::new(open).to_bezpath(), 2.0 * d, Cap::Butt, join, miter_limit) } else { BezPath::new() };
-    let Ok(arr) = Arrangement::new(vec![(fill, FillRule::NonZero), (ring, FillRule::NonZero), (open_bp, FillRule::NonZero)]) else {
-        return PathData::default();
-    };
+    let arr = Arrangement::new(vec![(fill, FillRule::NonZero), (ring, FillRule::NonZero), (open_bp, FillRule::NonZero)])?;
     let c = if delta >= 0.0 { arr.contours(|m| m[0] || m[1] || m[2]) } else { arr.contours(|m| m[0] && !m[1]) };
     // When `d` exceeds a curvature radius the stroker's inner offset inverts and its loops cancel
     // winding, leaving faces uncovered that are really within `d` of the path. Every face of the
@@ -105,10 +112,10 @@ pub fn offset_path(path: &PathData, delta: f64, join: Join, miter_limit: f64) ->
     let spurious: Vec<bool> =
         c.contours().map(|k| k.outer == drop_outer && deep_point(&k.path).is_some_and(|p| dist_to(&src, p) < d * (1.0 - 1e-4) - 1e-6)).collect();
     if !spurious.contains(&true) {
-        return all_contours_to_path(&c, &Tidy::free(DEFAULT_PRECISION));
+        return Ok(all_contours_to_path(&c, &Tidy::free(DEFAULT_PRECISION)));
     }
     let keep = (0..spurious.len()).filter(|&i| !has_marked_ancestor(&c, i, &spurious)).map(ContourIdx);
-    contours_to_path(&c, keep, &Tidy::free(DEFAULT_PRECISION))
+    Ok(contours_to_path(&c, keep, &Tidy::free(DEFAULT_PRECISION)))
 }
 
 fn has_marked_ancestor(c: &Contours, mut i: usize, marked: &[bool]) -> bool {

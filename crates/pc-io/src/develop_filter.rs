@@ -513,7 +513,7 @@ mod tests {
                 let out = develop_surface_always(&src, area, identity(), &profile).unwrap();
                 let (a, b) = (src.read_region(area), out.read_region(area));
                 let mut worst = 0.0f32;
-                for (p, q) in a.as_chunks::<4>().0.iter().zip(b.chunks_exact(4)) {
+                for (p, q) in a.as_chunks::<4>().0.iter().zip(b.as_chunks::<4>().0) {
                     assert_eq!(p[3].to_bits(), q[3].to_bits(), "{name} {sample:?}: alpha changed");
                     // linear data is compared as it displays (sRGB-encoded)
                     let enc = |v: f32| if name.starts_with("linear") { photocraft_cms::curve::srgb_trc().eval_inverse(v.clamp(0.0, 1.0)) } else { v };
@@ -527,27 +527,6 @@ mod tests {
     }
 
     #[test]
-    fn identity_diagnostic() {
-        let profile = Builtin::ProPhotoCompat.profile();
-        let area = Rect::new(0, 0, 40, 24);
-        let src = pattern(PixelFormat::RGBA32F, 40, 24);
-        let out = develop_surface_always(&src, area, identity(), profile).unwrap();
-        let a = src.read_region(area);
-        let b = out.read_region(area);
-        let (index, diff) = a.iter().zip(&b).enumerate().filter(|(i, _)| i % 4 != 3)
-            .map(|(i, (p, q))| (i, (p-q).abs())).max_by(|x,y| x.1.total_cmp(&y.1)).unwrap();
-        let pix = index / 4;
-        let mut working: Vec<_> = a.as_chunks::<4>().0.iter().map(|p| [p[0],p[1],p[2]]).collect();
-        let conv = Conv::new(profile).unwrap();
-        conv.to_working(&mut working);
-        let clipped: Vec<_> = working.iter().map(|p| p.map(|v| v.clamp(0.0,1.0))).collect();
-        let developed = render_working(clipped.clone(),40,24,identity()).unwrap();
-        let mut roundtrip = working.clone();
-        conv.from_working(&mut roundtrip);
-        eprintln!("DIAGNOSTIC pixel={pix} channel={} diff={diff}; original={:?}; output={:?}; working={:?}; clipped={:?}; developed={:?}; matrix-only={:?}", index%4, &a[pix*4..pix*4+4], &b[pix*4..pix*4+4],working[pix],clipped[pix],developed[pix],roundtrip[pix]);
-    }
-
-    #[test]
     fn exposure_brightens_and_alpha_stays() {
         let fmt = PixelFormat::new(ColorMode::Rgb, SampleType::U16, true);
         let src = pattern(fmt, 32, 16);
@@ -558,7 +537,7 @@ mod tests {
         let (a, b) = (src.read_region(area), out.read_region(area));
         let mean = |v: &[f32]| v.as_chunks::<4>().0.iter().map(|p| p[1]).sum::<f32>() / (v.len() / 4) as f32;
         assert!(mean(&b) > mean(&a) + 0.05);
-        for (p, q) in a.as_chunks::<4>().0.iter().zip(b.chunks_exact(4)) {
+        for (p, q) in a.as_chunks::<4>().0.iter().zip(b.as_chunks::<4>().0) {
             assert_eq!(p[3].to_bits(), q[3].to_bits());
         }
     }

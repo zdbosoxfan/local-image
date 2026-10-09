@@ -73,7 +73,18 @@ pub fn from_geometry(path: &geom::PathData) -> Path {
 /// Bake PSD's ordered component operations. Inversion is bounded by `clip` when supplied.
 pub fn finish_compound(path: &Path, clip: Option<kurbo::Rect>) -> Result<Path> {
     validate(path)?;
-    let raw = to_geometry(path);
+    let mut raw = to_geometry(path);
+    // pc-vector fills an open contour by a straight edge between its endpoints.
+    // The kernel closes contours using their handles, so retract only the unused
+    // endpoint handles in this temporary fill geometry. Editing remains lossless.
+    for s in raw.subpaths.iter_mut().filter(|s| !s.closed) {
+        if let Some(first) = s.anchors.first_mut() {
+            first.h_in = first.p;
+        }
+        if let Some(last) = s.anchors.last_mut() {
+            last.h_out = last.p;
+        }
+    }
     let mut out = geom::PathData::default();
     for c in path.components() {
         let part = geom::PathData::new(raw.subpaths[c.clone()].to_vec());
@@ -151,10 +162,10 @@ fn shapes(input: &[Shape], filled: bool) -> Result<Vec<kernel::Shape>> {
         .collect()
 }
 pub fn pathfinder(op: PathfinderOp, input: &[Shape]) -> Result<Vec<Shape>> {
-    Ok(kernel::pathfinder(op, &shapes(input, true)?).into_iter().map(|s| Shape::new(from_geometry(&s.path), s.key)).collect())
+    Ok(kernel::try_pathfinder(op, &shapes(input, true)?)?.into_iter().map(|s| Shape::new(from_geometry(&s.path), s.key)).collect())
 }
 pub fn regions(input: &[Shape]) -> Result<Vec<Region>> {
-    Ok(kernel::regions(&shapes(input, true)?).into_iter().map(|r| Region { path: from_geometry(&r.path), sources: r.sources }).collect())
+    Ok(kernel::try_regions(&shapes(input, true)?)?.into_iter().map(|r| Region { path: from_geometry(&r.path), sources: r.sources }).collect())
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuilderArrangement {
@@ -184,7 +195,7 @@ pub fn offset_path(path: &Path, delta: f64, join: crate::Join, miter: f64) -> Re
     let closed = Path { subpaths: path.subpaths.iter().filter(|s| s.closed).cloned().collect(), ..path.clone() };
     let mut p = finish_compound(&closed, None)?;
     p.subpaths.extend(path.subpaths.iter().filter(|s| !s.closed).cloned());
-    Ok(from_geometry(&kernel::offset_path(&to_geometry(&p), delta, join, miter)))
+    Ok(from_geometry(&kernel::try_offset_path(&to_geometry(&p), delta, join, miter)?))
 }
 
 /// Native outline geometry uses pc-vector's exact stroke polygons (including PSD dash units).

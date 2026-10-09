@@ -536,7 +536,8 @@ pub(crate) fn normalize_bez(bp: &BezPath, rule: FillRule) -> Result<Contours, Pa
     let eps = eps_for([bp])?;
     let mut bp = bp.clone();
     snap_horizontals(&mut [&mut bp], eps);
-    let top = Topology::<i32>::from_path(&bp, eps).map_err(|_| PathOpsError::OpenPath)?;
+    let sweep = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Topology::<i32>::from_path(&bp, eps)));
+    let top = sweep.map_err(|_| PathOpsError::Degenerate)?.map_err(|_| PathOpsError::OpenPath)?;
     Ok(top.contours(|w| inside(rule, *w)))
 }
 
@@ -566,25 +567,28 @@ pub fn boolean_n(paths: &[(&PathData, FillRule)], pred: impl Fn(&[bool]) -> bool
 /// Union of many filled paths. Each input is first normalised on its own, then all are swept
 /// together with a single integer winding number, which keeps this fast for thousands of shapes.
 pub fn unite_all(paths: &[(&PathData, FillRule)]) -> PathData {
+    try_unite_all(paths).unwrap_or_default()
+}
+
+/// Fallible union: a failed input must not silently disappear from the result.
+pub fn try_unite_all(paths: &[(&PathData, FillRule)]) -> Result<PathData, PathOpsError> {
     let mut all = BezPath::new();
     for (p, r) in paths {
         let bp = fill_bezpath(p);
         if bp.elements().is_empty() {
             continue;
         }
-        let Ok(c) = normalize_bez(&bp, *r) else { continue };
+        let c = normalize_bez(&bp, *r)?;
         for ct in c.contours() {
             all.extend(ct.path.iter());
         }
     }
     if all.elements().is_empty() {
-        return PathData::default();
+        return Ok(PathData::default());
     }
     let tidy = Tidy::keeping(DEFAULT_PRECISION, paths.iter().map(|(p, _)| fill_bezpath(p)).collect::<Vec<_>>().iter());
-    match normalize_bez(&all, FillRule::NonZero) {
-        Ok(c) => all_contours_to_path(&c, &tidy),
-        Err(_) => PathData::default(),
-    }
+    let c = normalize_bez(&all, FillRule::NonZero)?;
+    Ok(all_contours_to_path(&c, &tidy))
 }
 
 /// Unsigned filled area of a path under a fill rule (normalises first, so it is exact for

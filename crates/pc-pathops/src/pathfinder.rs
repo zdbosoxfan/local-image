@@ -12,7 +12,10 @@ use crate::geom::{FillRule, PathData};
 use kurbo::{BezPath, ParamCurve, ParamCurveNearest, Point, Shape as _};
 use linesweeper::topology::ContourIdx;
 
-use crate::kernel::boolean::{Arrangement, Multi, Seg, all_contours_to_path, contours_to_path, fill_bezpath, normalize_bez, segs_to_subpath, unite_all};
+use crate::PathOpsError;
+use crate::kernel::boolean::{
+    Arrangement, Multi, Seg, all_contours_to_path, contours_to_path, fill_bezpath, normalize_bez, segs_to_subpath, try_unite_all, unite_all,
+};
 
 /// A filled shape in a Pathfinder stack. `key` identifies its paint (e.g. a hashed fill colour);
 /// results carry the key of the object whose paint they keep.
@@ -75,9 +78,9 @@ impl Region {
     }
 }
 
-fn arrangement(shapes: &[Shape]) -> Option<Arrangement> {
+fn arrangement(shapes: &[Shape]) -> Result<Arrangement, PathOpsError> {
     let bps: Vec<(BezPath, FillRule)> = shapes.iter().map(|s| (fill_bezpath(&s.path), s.rule)).collect();
-    Arrangement::new(bps).ok()
+    Arrangement::new(bps)
 }
 
 fn topmost(m: &[bool]) -> Option<usize> {
@@ -90,23 +93,28 @@ fn one(path: PathData, key: u64) -> Vec<Shape> {
 
 /// Run a Pathfinder operation over `shapes` (back → front).
 pub fn pathfinder(op: PathfinderOp, shapes: &[Shape]) -> Vec<Shape> {
+    try_pathfinder(op, shapes).unwrap_or_default()
+}
+
+/// Fallible Pathfinder for destructive document commands.
+pub fn try_pathfinder(op: PathfinderOp, shapes: &[Shape]) -> Result<Vec<Shape>, PathOpsError> {
     let n = shapes.len();
     if n == 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let front_key = shapes[n - 1].key;
     let unite = || {
         let v: Vec<(&PathData, FillRule)> = shapes.iter().map(|s| (&s.path, s.rule)).collect();
-        one(unite_all(&v), front_key)
+        Ok(one(try_unite_all(&v)?, front_key))
     };
     // Unite doesn't need the arrangement.
     if op == PathfinderOp::Unite {
         return unite();
     }
-    let Some(arr) = arrangement(shapes) else { return Vec::new() };
+    let arr = arrangement(shapes)?;
     let p = &arr.tidy;
-    match op {
-        PathfinderOp::Unite => unite(),
+    Ok(match op {
+        PathfinderOp::Unite => return unite(),
         PathfinderOp::MinusFront => one(all_contours_to_path(&arr.contours(|m| m[0] && !m[1..].iter().any(|&b| b)), p), shapes[0].key),
         PathfinderOp::MinusBack => one(all_contours_to_path(&arr.contours(|m| m[n - 1] && !m[..n - 1].iter().any(|&b| b)), p), front_key),
         PathfinderOp::Intersect => one(all_contours_to_path(&arr.contours(|m| m.iter().all(|&b| b)), p), front_key),
@@ -137,7 +145,7 @@ pub fn pathfinder(op: PathfinderOp, shapes: &[Shape]) -> Vec<Shape> {
         }
         PathfinderOp::Crop => {
             if n < 2 {
-                return Vec::new();
+                return Ok(Vec::new());
             }
             (0..n - 1)
                 .flat_map(|i| {
@@ -147,7 +155,7 @@ pub fn pathfinder(op: PathfinderOp, shapes: &[Shape]) -> Vec<Shape> {
                 .collect()
         }
         PathfinderOp::Outline => outline_edges(&arr, shapes),
-    }
+    })
 }
 
 /// The faces of `arr`, each distinct coverage mask's in turn (sorted), each face grouped as
@@ -255,7 +263,12 @@ fn vertex_key(p: Point) -> (u64, u64) {
 /// All faces of the planar arrangement of `shapes` (every area covered by at least one shape,
 /// split wherever coverage changes).
 pub fn regions(shapes: &[Shape]) -> Vec<Region> {
-    arrangement(shapes).map(|a| regions_of(&a)).unwrap_or_default()
+    try_regions(shapes).unwrap_or_default()
+}
+
+/// Fallible face construction, preserving sweep errors for callers.
+pub fn try_regions(shapes: &[Shape]) -> Result<Vec<Region>, PathOpsError> {
+    arrangement(shapes).map(|a| regions_of(&a))
 }
 
 /// The face under `point`, if any (Shape Builder hover/click).
@@ -284,7 +297,7 @@ pub struct FaceMerger {
 impl FaceMerger {
     pub fn new(shapes: &[Shape]) -> Self {
         let has_open = shapes.iter().flat_map(|s| &s.path.subpaths).any(|sp| !sp.closed && sp.anchors.len() >= 2);
-        Self { arr: if has_open { None } else { arrangement(shapes) }, shapes: shapes.len() }
+        Self { arr: if has_open { None } else { arrangement(shapes).ok() }, shapes: shapes.len() }
     }
 
     /// The union of `faces`.
