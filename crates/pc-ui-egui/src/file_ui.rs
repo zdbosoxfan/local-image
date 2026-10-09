@@ -18,8 +18,15 @@ fn no_params(p: &Value) -> bool {
     p.as_object().is_none_or(|o| o.is_empty())
 }
 
+/// The active document's folder; for an unsaved photo from the Library, its original's folder.
 fn default_dir(app: &PhotocraftApp) -> String {
-    app.session.active().and_then(|d| d.path.as_deref()).and_then(|p| p.rfind(['/', '\\']).map(|i| p[..i].to_string())).unwrap_or_else(|| ".".into())
+    let folder = |p: &str| p.rfind(['/', '\\']).map(|i| p[..i].to_string());
+    app.session
+        .active()
+        .and_then(|d| d.path.as_deref())
+        .and_then(folder)
+        .or_else(|| crate::develop_layer::library_original(app).and_then(|(_, original)| folder(&original)))
+        .unwrap_or_else(|| ".".into())
 }
 
 fn doc_stem(app: &PhotocraftApp) -> String {

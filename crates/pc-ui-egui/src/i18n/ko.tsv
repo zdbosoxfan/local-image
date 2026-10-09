@@ -3196,3 +3196,7 @@ ai	New	새 항목
 	Close panel	패널 닫기
 	Dock Panel	패널 도킹
 	Float Panel Group	패널 그룹 분리
+	Save and Return to Library	저장 후 라이브러리로 돌아가기
+	Added your new Develop edits as layer {name}	새 Develop 편집 내용을 {name} 레이어로 추가했습니다
+	Open the Library to save into it	라이브러리에 저장하려면 라이브러리를 여세요
+	The layers below are unchanged; hide or delete the new layer to go back.	아래 레이어는 변경되지 않았습니다. 되돌리려면 새 레이어를 숨기거나 삭제하세요.

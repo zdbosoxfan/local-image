@@ -22,6 +22,13 @@
 //! the session with the module switch) changes nothing. Going from Compositing to Develop with a
 //! layered document that has no Develop layer asks how to develop it (`on_switch_to_develop`).
 //!
+//! **Back to the Library** (Photoshop's Edit In from Lightroom): a document that came from a
+//! Library photo saves beside the original as `<name>-Edit.psd` (⌘S writes it there; Save As
+//! suggests it). Every save in Compositing reaches the host (`PhotocraftApp::library_saves`):
+//! a file the Library already has is reloaded (its thumbnail follows); a new file from a Library
+//! photo is imported and stacked on top of the original, as Edit in External Editor does
+//! ([`add_saved_file`]). File › Save and Return to Library then shows the Library on it.
+//!
 //! The library opens lazily, the first time Library or Develop is shown.
 
 use std::path::PathBuf;
@@ -47,7 +54,22 @@ pub struct Host {
     left_compositing_with: Option<u64>,
     /// The Camera Raw Filter session open in Develop.
     camera_raw: Option<CameraRawSession>,
+    /// Composites of unsaved Compositing documents, rendered for the Library.
+    composites: Composites,
 }
+
+/// What a Library photo looks like in Compositing, rendered on worker threads for the Library's
+/// loupe and grid (`lightcraft_ui_egui::panels::host_composite`).
+#[derive(Default)]
+struct Composites {
+    /// Photo → key of the render in flight.
+    pending: std::collections::HashMap<u64, u64>,
+    /// Finished renders: (photo, key, image).
+    done: Arc<Mutex<Vec<(u64, u64, photocraft_raster::Rgba8Image)>>>,
+}
+
+/// Longest side of a composite shown in the Library.
+const COMPOSITE_EDGE: u32 = 2048;
 
 /// An open Camera Raw Filter session: the temporary photo and the Library view to restore.
 struct CameraRawSession {
@@ -78,6 +100,7 @@ impl Host {
             frames: 0,
             left_compositing_with: None,
             camera_raw: None,
+            composites: Composites::default(),
         }
     }
 
@@ -97,6 +120,116 @@ impl Host {
         };
         let settings = serde_json::to_value(&*ph.develop).ok()?;
         Some((id.0, path, settings, ph.file_name.clone()))
+    }
+
+    /// Files saved in Compositing: the Library adds the ones that came from its photos (stacked on
+    /// the original) and reloads the ones it has; Save and Return to Library then shows it.
+    /// Without `ctx` (at exit) nothing is shown.
+    fn take_library_saves(&mut self, ctx: Option<&egui::Context>) {
+        for save in std::mem::take(&mut self.editor.library_saves) {
+            // An unopened library has none of the files; one opens for a photo from it.
+            if self.library.is_none() && (save.photo.is_none() || ctx.is_none()) {
+                continue;
+            }
+            let lib = self.library();
+            let (id, msg) = match add_saved_file(&mut lib.session, &save.path, save.photo) {
+                Ok(Some(LibraryUpdate::Added { id, original })) => {
+                    let name = lib.session.catalog.photo(original).map(|p| p.file_name.clone()).unwrap_or_default();
+                    (Some(id), format!("Saved to Library, stacked with {name}"))
+                }
+                Ok(Some(LibraryUpdate::Reloaded(id))) => {
+                    let name = lib.session.catalog.photo(id).map(|p| p.file_name.clone()).unwrap_or_default();
+                    (Some(id), format!("Saved {name}; updated in the Library"))
+                }
+                Ok(None) => (None, String::new()),
+                Err(e) => {
+                    self.editor.ui.status = format!("Saved, but the Library couldn't add it: {e}");
+                    self.editor.ui.status_error = true;
+                    continue;
+                }
+            };
+            if !msg.is_empty() {
+                self.editor.ui.status = msg.clone();
+                self.editor.ui.status_error = false;
+            }
+            let Some(ctx) = ctx.filter(|_| save.show) else { continue };
+            self.switch(ctx, Module::Library);
+            if let Some(id) = id {
+                let lib = self.library();
+                let _ = lib.run("library.select", serde_json::json!({ "ids": [id.0], "active": id.0 }));
+                if !msg.is_empty() {
+                    lib.toast(ctx, msg);
+                }
+                // back in Compositing, the saved document is still the one shown
+                self.left_compositing_with = Some(id.0);
+            }
+        }
+    }
+
+    /// Keeps the Library showing what Compositing is doing to its photos: each unsaved document
+    /// with compositing work ([`unsaved_composites`]) is rendered off this thread and handed to the
+    /// Library (loupe and grid show it, marked); saved or closed ones are dropped.
+    fn update_composites(&mut self, ctx: &egui::Context) {
+        use lightcraft_ui_egui::panels::host_composite;
+        let Some(lib) = self.library.as_mut() else { return };
+        let want = unsaved_composites(&self.editor, &lib.session);
+        let done = std::mem::take(&mut *self.composites.done.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        for (photo, key, img) in done {
+            if want.iter().any(|(id, k, _)| id.0 == photo && *k == key) {
+                let label = lightcraft_ui_egui::i18n::tr("Edited in Compositing · unsaved").to_string();
+                host_composite::set(lib, ctx, lightcraft_catalog::PhotoId(photo), key, img.width as usize, img.height as usize, &img.pixels, label);
+            }
+            if self.composites.pending.get(&photo) == Some(&key) {
+                self.composites.pending.remove(&photo);
+            }
+        }
+        let ids: Vec<lightcraft_catalog::PhotoId> = want.iter().map(|w| w.0).collect();
+        host_composite::retain(lib, &ids);
+        self.composites.pending.retain(|p, _| ids.iter().any(|id| id.0 == *p));
+        for (id, key, doc) in want {
+            if host_composite::key(lib, id) == Some(key) || self.composites.pending.get(&id.0) == Some(&key) {
+                continue;
+            }
+            self.composites.pending.insert(id.0, key);
+            let (done, ctx) = (self.composites.done.clone(), ctx.clone());
+            std::thread::spawn(move || {
+                let img = photocraft_compose::thumbnail(&doc, COMPOSITE_EDGE);
+                done.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((id.0, key, img));
+                ctx.request_repaint();
+            });
+        }
+    }
+
+    /// The Library's "Open in Compositing" on a photo shown as its unsaved composite: back to that
+    /// document as it is.
+    fn open_composite(&mut self, ctx: &egui::Context) {
+        let Some(id) = self.library.as_mut().and_then(|l| l.host_composite_open.take()) else { return };
+        let doc = self.library.as_ref().and_then(|lib| document_of(&self.editor, &lib.session, id));
+        if let Some(i) = doc {
+            self.editor.session.set_active(i);
+            self.editor.sync_views();
+        }
+        let lib = self.library();
+        let _ = lib.run("library.select", serde_json::json!({ "ids": [id.0], "active": id.0 }));
+        // the photo is the one Compositing shows: switching doesn't open it again
+        self.left_compositing_with = Some(id.0);
+        self.switch(ctx, Module::Compositing);
+    }
+
+    /// Quitting from Library or Develop with unsaved documents: Compositing comes forward (as it
+    /// is: the Library's photo isn't opened there) so its unsaved-changes prompt asks about them
+    /// (Save / Don't Save / Cancel). `true` when the editor must run this frame.
+    fn quit_review(&mut self, ctx: &egui::Context) -> bool {
+        if self.mode == Module::Compositing || !ctx.input(|i| i.viewport().close_requested()) || !self.editor.has_unsaved() {
+            return false;
+        }
+        if self.camera_raw.is_some() {
+            self.end_camera_raw(ctx, false);
+        }
+        self.mode = Module::Compositing;
+        self.styled = None;
+        ctx.request_repaint();
+        true
     }
 
     /// Re-renders Develop layers whose photo's develop settings changed in Develop.
@@ -239,6 +372,8 @@ impl Host {
                 let photo = self.active_photo();
                 let changed = photo.as_ref().map(|p| p.0) != self.left_compositing_with || self.editor.session.documents().is_empty();
                 if let Some((id, path, settings, name)) = photo.filter(|_| changed || from == Module::Develop)
+                    // a file open in Compositing (a saved `-Edit.psd`) comes forward as it is
+                    && (from == Module::Develop || !focus_open_document(&mut self.editor, &path))
                     && let Err(e) = photocraft_ui_egui::develop_layer::open_photo(&mut self.editor, id, &path, &settings, &name)
                 {
                     self.editor.ui.status = e;
@@ -275,6 +410,85 @@ impl Host {
             self.switch(ctx, m);
         }
     }
+}
+
+/// What the Library did with a file saved in Compositing ([`add_saved_file`]).
+#[derive(Debug, PartialEq, Eq)]
+enum LibraryUpdate {
+    /// The Library already had the file: it was re-read (thumbnail and previews follow).
+    Reloaded(lightcraft_catalog::PhotoId),
+    /// Imported and stacked on top of `original`, the photo the document came from; selected.
+    Added { id: lightcraft_catalog::PhotoId, original: lightcraft_catalog::PhotoId },
+}
+
+/// The editor's document that shows Library photo `id`: the one saved to its file, else one whose
+/// Develop layer follows it.
+fn document_of(editor: &PhotocraftApp, s: &lightcraft_engine::Session, id: lightcraft_catalog::PhotoId) -> Option<usize> {
+    let docs = editor.session.documents();
+    docs.iter()
+        .position(|d| d.path.as_deref().and_then(|p| photo_at_path(s, p)) == Some(id))
+        .or_else(|| photocraft_engine::develop_layer_cmds::document_of_photo(&editor.session, id.0))
+}
+
+/// The Library photos Compositing has unsaved work on: (photo, version key, document). A document
+/// counts once it is more than its one Develop layer and has unsaved changes; it stands for the
+/// photo whose file it was saved to (a `-Edit.psd` in the Library), else the photo its Develop
+/// layer follows.
+fn unsaved_composites(editor: &PhotocraftApp, s: &lightcraft_engine::Session) -> Vec<(lightcraft_catalog::PhotoId, u64, Arc<photocraft_doc::Document>)> {
+    let mut out: Vec<(lightcraft_catalog::PhotoId, u64, Arc<photocraft_doc::Document>)> = Vec::new();
+    for d in editor.session.documents() {
+        if !d.is_dirty() || photocraft_engine::develop_layer_cmds::is_untouched(&d.doc) {
+            continue;
+        }
+        let photo = d.path.as_deref().and_then(|p| photo_at_path(s, p)).or_else(|| {
+            photocraft_engine::develop_layer_cmds::develop_layers(&d.doc)
+                .into_iter()
+                .filter_map(|(_, p)| p.map(lightcraft_catalog::PhotoId))
+                .find(|id| s.catalog.photo(*id).is_some())
+        });
+        let Some(photo) = photo.filter(|p| !out.iter().any(|o| o.0 == *p)) else { continue };
+        let key = (Arc::as_ptr(&d.doc) as usize as u64) ^ d.revision.rotate_left(32);
+        out.push((photo, key, d.doc.clone()));
+    }
+    out
+}
+
+/// The Library photo whose file is `path` (a master: virtual copies share its file).
+fn photo_at_path(s: &lightcraft_engine::Session, path: &str) -> Option<lightcraft_catalog::PhotoId> {
+    let file = |p: &lightcraft_catalog::Photo| match &p.source {
+        lightcraft_catalog::Source::File { path } if p.copy_of.is_none() => Some(path.clone()),
+        _ => None,
+    };
+    if let Some(p) = s.catalog.photos().find(|p| file(p).as_deref() == Some(path)) {
+        return Some(p.id);
+    }
+    // The same file by another spelling (a symlinked folder, `..`): compare only same-named files.
+    let canonical = std::fs::canonicalize(path).ok()?;
+    let name = std::path::Path::new(path).file_name()?;
+    s.catalog
+        .photos()
+        .filter_map(|p| file(p).map(|f| (p.id, f)))
+        .find(|(_, f)| std::path::Path::new(f).file_name() == Some(name) && std::fs::canonicalize(f).ok().as_ref() == Some(&canonical))
+        .map(|(id, _)| id)
+}
+
+/// The Library's half of saving in Compositing: a file it has is reloaded; a file saved from a
+/// document that came from Library photo `original` is imported, stacked on top of the original
+/// (expanded, as Edit in External Editor does) and selected. Anything else is left alone (`None`).
+fn add_saved_file(s: &mut lightcraft_engine::Session, path: &str, original: Option<u64>) -> Result<Option<LibraryUpdate>, String> {
+    if let Some(id) = photo_at_path(s, path) {
+        s.execute("photo.reload", &serde_json::json!({ "ids": [id.0] })).map_err(|e| e.to_string())?;
+        return Ok(Some(LibraryUpdate::Reloaded(id)));
+    }
+    let Some(original) = original.map(lightcraft_catalog::PhotoId).filter(|id| s.catalog.photo(*id).is_some()) else { return Ok(None) };
+    let r = s.execute("library.import", &serde_json::json!({ "paths": [path] })).map_err(|e| e.to_string())?;
+    let Some(id) = r["imported"].get(0).and_then(serde_json::Value::as_u64).map(lightcraft_catalog::PhotoId) else {
+        let why = r["failed"][0][1].as_str().or(r["duplicates"][0]["reason"].as_str().map(|_| "the Library already has the same picture"));
+        return Err(why.unwrap_or("not a photo it reads").to_string());
+    };
+    s.execute("stack.group", &serde_json::json!({ "ids": [id.0, original.0], "top": id.0, "collapsed": false })).map_err(|e| e.to_string())?;
+    s.selection = lightcraft_engine::Selection::single(id);
+    Ok(Some(LibraryUpdate::Added { id, original }))
 }
 
 /// Brings the editor's document saved at `path` forward; `false` when none is open.
@@ -328,8 +542,7 @@ impl eframe::App for Host {
             self.editor.background_tick(ctx);
         }
         // Quitting from the Library with unsaved documents: the editor asks about them.
-        if self.mode != Module::Compositing && ctx.input(|i| i.viewport().close_requested()) && self.editor.has_unsaved() {
-            self.switch(ctx, Module::Compositing);
+        if self.quit_review(ctx) {
             self.editor.logic(ctx, frame);
         }
         let opened: Vec<String> = std::mem::take(&mut *self.opens.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
@@ -355,6 +568,15 @@ impl eframe::App for Host {
             let _ = lib.run("library.select", serde_json::json!({ "ids": [id], "active": id }));
             self.mode = Module::Compositing;
             self.switch(ctx, Module::Develop);
+        }
+        // Saved in Compositing: into the Library (Save and Return to Library: and show it there).
+        if !self.editor.library_saves.is_empty() {
+            self.take_library_saves(Some(ctx));
+        }
+        // The Library shows what Compositing is doing to its photos, and goes back to it.
+        if self.mode != Module::Compositing && self.library.is_some() {
+            self.update_composites(ctx);
+            self.open_composite(ctx);
         }
         // Filter › Camera Raw Filter…: a session in Develop.
         if self.editor.develop_filter.request.is_some() {
@@ -418,6 +640,8 @@ impl eframe::App for Host {
 
     fn on_exit(&mut self) {
         self.editor.on_exit();
+        // Saved while quitting (the unsaved-changes prompt): the Library still takes the files.
+        self.take_library_saves(None);
         // An open Camera Raw Filter session is dropped (nothing applied), and the Library's view
         // is restored before its settings are saved.
         if let (Some(cr), Some(lib)) = (self.camera_raw.take(), self.library.as_mut()) {
@@ -464,7 +688,8 @@ fn last_module() -> Module {
 }
 
 fn remember_module(m: Module) {
-    if std::env::var_os("LOCAL_IMAGE_NO_PREFS").is_some() {
+    // tests switch modules too: never over the user's own setting
+    if cfg!(test) || std::env::var_os("LOCAL_IMAGE_NO_PREFS").is_some() {
         return;
     }
     if let Some(d) = config_dir() {
@@ -690,5 +915,191 @@ mod tests {
         assert_eq!(editor.session.active_index(), Some(0));
         assert!(!focus_open_document(&mut editor, "/photos/c.psd"));
         assert_eq!(editor.session.active_index(), Some(0));
+    }
+
+    // ------------------------------------------------------------- Library ↔ Compositing round trip
+
+    use photocraft_ui_egui::develop_layer::{self, LibrarySave};
+    use serde_json::json;
+
+    /// A folder with `photo.png` in it, and a Library that has the photo.
+    fn library_with_photo(tag: &str) -> (PathBuf, String, LightcraftApp, lightcraft_catalog::PhotoId) {
+        let dir = std::env::temp_dir().join(format!("li-roundtrip-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("photo.png");
+        image::RgbImage::from_fn(40, 30, |x, y| image::Rgb([(x * 6) as u8, (y * 8) as u8, 60])).save(&path).unwrap();
+        let path = path.to_string_lossy().to_string();
+        let mut s = lightcraft_engine::Session::new().with_fs();
+        s.execute("library.import", &json!({ "paths": [path] })).unwrap();
+        let id = s.catalog.photos().next().map(|p| p.id).unwrap();
+        (dir, path, LightcraftApp::new(s, lightcraft_ui_egui::Services::default()), id)
+    }
+
+    /// A host whose editor writes real PSDs, with `library` open and the photo in Compositing as a
+    /// Develop layer with a layer added on top (unsaved work).
+    fn host_with_round_trip(library: LightcraftApp, photo: lightcraft_catalog::PhotoId, path: &str) -> Host {
+        let services = photocraft_ui_egui::Services {
+            export: Some(Box::new(|doc: &photocraft_doc::Document, path: &str, _: &photocraft_ui_egui::ExportSettings| {
+                photocraft_io::export(doc, path, &photocraft_io::ExportOptions::default()).map(|r| (r.bytes, r.warnings)).map_err(|e| e.to_string())
+            })),
+            write: Some(Box::new(|path: &str, bytes: &[u8]| std::fs::write(path, bytes).map_err(|e| e.to_string()))),
+            ..Default::default()
+        };
+        let mut host = Host::new(PhotocraftApp::new(photocraft_engine::Session::new(), services));
+        host.editor.host_modes = true;
+        // the photo's own settings, as the switch to Compositing passes them
+        let settings = serde_json::to_value(&*library.session.catalog.photo(photo).unwrap().develop).unwrap();
+        host.library = Some(library);
+        host.mode = Module::Compositing;
+        develop_layer::open_photo(&mut host.editor, photo.0, path, &settings, "photo.png").unwrap();
+        host.editor.run("layer.new.layer", json!({})).unwrap();
+        assert!(host.editor.has_unsaved());
+        host
+    }
+
+    fn catalog(host: &Host) -> &lightcraft_engine::Session {
+        &host.library.as_ref().unwrap().session
+    }
+
+    /// ⌘S on a photo from the Library writes `<name>-Edit.psd` beside the original; the Library
+    /// adds it stacked on top of the original exactly once; saving again reloads it.
+    #[test]
+    fn saving_a_photo_from_the_library_adds_it_stacked_on_the_original() {
+        let (dir, path, lib, orig) = library_with_photo("save");
+        let mut host = host_with_round_trip(lib, orig, &path);
+        let ctx = egui::Context::default();
+        let r = photocraft_ui_egui::menus::invoke(&mut host.editor, &ctx, "file.save", json!({})).unwrap();
+        let saved = dir.join("photo-Edit.psd").to_string_lossy().to_string();
+        assert_eq!(r["path"], saved.as_str(), "beside the original, without a dialog");
+        assert!(std::path::Path::new(&saved).is_file());
+        assert_eq!(host.editor.library_saves, vec![LibrarySave { path: saved.clone(), photo: Some(orig.0), show: false }]);
+
+        host.take_library_saves(Some(&ctx));
+        assert!(host.editor.library_saves.is_empty());
+        let s = catalog(&host);
+        assert_eq!(s.catalog.len(), 2, "imported once");
+        let edit = photo_at_path(s, &saved).expect("the edit is in the Library");
+        let stack = s.catalog.stack_of(edit).expect("stacked");
+        assert_eq!(stack.photos, vec![edit, orig], "on top of the original");
+        assert!(!stack.collapsed);
+        assert_eq!(s.active(), Some(edit));
+        assert_eq!(host.editor.ui.status, "Saved to Library, stacked with photo.png");
+        assert_eq!(host.mode, Module::Compositing, "a plain save stays in Compositing");
+
+        // more work, saved again: in place, and the Library re-reads the same photo
+        host.editor.run("layer.new.layer", json!({})).unwrap();
+        let r = photocraft_ui_egui::menus::invoke(&mut host.editor, &ctx, "file.save", json!({})).unwrap();
+        assert_eq!(r["path"], saved.as_str());
+        host.take_library_saves(Some(&ctx));
+        let s = catalog(&host);
+        assert_eq!(s.catalog.len(), 2, "reloaded, not imported again");
+        assert_eq!(photo_at_path(s, &saved), Some(edit));
+        assert!(host.editor.ui.status.contains("updated in the Library"), "{}", host.editor.ui.status);
+
+        // a second round trip of the same photo doesn't overwrite the first edit
+        assert_eq!(develop_layer::edit_path(&path), dir.join("photo-Edit-2.psd").to_string_lossy());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// File › Save and Return to Library: saved and stacked as above, then the Library shows the
+    /// edit; coming back to Compositing shows the same document.
+    #[test]
+    fn save_and_return_shows_the_edit_in_the_library() {
+        let (dir, path, lib, orig) = library_with_photo("return");
+        let mut host = host_with_round_trip(lib, orig, &path);
+        let ctx = egui::Context::default();
+        assert!(photocraft_ui_egui::menus::is_enabled(&host.editor, develop_layer::SAVE_RETURN_ID));
+        photocraft_ui_egui::menus::invoke(&mut host.editor, &ctx, develop_layer::SAVE_RETURN_ID, json!({})).unwrap();
+        assert!(host.editor.library_saves[0].show);
+        host.take_library_saves(Some(&ctx));
+        assert_eq!(host.mode, Module::Library);
+        let saved = dir.join("photo-Edit.psd").to_string_lossy().to_string();
+        let edit = photo_at_path(catalog(&host), &saved).unwrap();
+        assert_eq!(catalog(&host).active(), Some(edit));
+        host.switch(&ctx, Module::Compositing);
+        assert_eq!(host.editor.session.documents().len(), 1, "nothing opened again");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Unsaved work in Compositing shows in the Library (its loupe and grid), and goes away once
+    /// saved.
+    #[test]
+    fn the_library_shows_unsaved_compositing_work() {
+        let (dir, path, lib, orig) = library_with_photo("composite");
+        let mut host = host_with_round_trip(lib, orig, &path);
+        let ctx = egui::Context::default();
+        host.switch(&ctx, Module::Library);
+        let shown = |h: &Host| h.library.as_ref().unwrap().host_composites.get(&orig).map(|c| (c.size, c.label.clone()));
+        for _ in 0..500 {
+            host.update_composites(&ctx);
+            if shown(&host).is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(shown(&host), Some(([40, 30], "Edited in Compositing · unsaved".to_string())));
+        // its button goes back to the document as it is
+        host.library.as_mut().unwrap().host_composite_open = Some(orig);
+        host.open_composite(&ctx);
+        assert_eq!(host.mode, Module::Compositing);
+        assert_eq!(host.editor.session.documents().len(), 1);
+        // saved: the Library shows its file again
+        photocraft_ui_egui::menus::invoke(&mut host.editor, &ctx, "file.save", json!({})).unwrap();
+        host.switch(&ctx, Module::Library);
+        host.update_composites(&ctx);
+        assert_eq!(shown(&host), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Quitting from the Library with unsaved Compositing work: Compositing comes forward with
+    /// its Save / Don't Save / Cancel prompt, and the window stays open.
+    #[test]
+    fn quitting_from_the_library_asks_about_unsaved_work() {
+        let (dir, path, lib, orig) = library_with_photo("quit");
+        let mut host = host_with_round_trip(lib, orig, &path);
+        let ctx = egui::Context::default();
+        host.switch(&ctx, Module::Library);
+        assert_eq!(host.mode, Module::Library);
+        let mut raw = egui::RawInput::default();
+        raw.viewports.entry(egui::ViewportId::ROOT).or_default().events.push(egui::ViewportEvent::Close);
+        let mut asked = false;
+        let mut out = ctx.run_ui(raw, |ui| {
+            let ctx = ui.ctx().clone();
+            asked = host.quit_review(&ctx);
+            photocraft_ui_egui::discard_ui::guard_window_close(&mut host.editor, &ctx);
+        });
+        assert!(asked);
+        assert_eq!(host.mode, Module::Compositing, "the prompt is in Compositing");
+        assert_eq!(host.editor.session.documents().len(), 1, "no photo opened on the way");
+        let cmds = &out.viewport_output[&egui::ViewportId::ROOT].commands;
+        assert!(cmds.contains(&egui::ViewportCommand::CancelClose), "the window stays open: {cmds:?}");
+        out.textures_delta.clear();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Library → Develop (new edits) → Compositing: the edits arrive as a new Develop layer on
+    /// top of a document with compositing work; its existing layers stay as they were.
+    #[test]
+    fn new_develop_edits_come_back_as_a_new_layer() {
+        let (dir, path, lib, orig) = library_with_photo("develop2");
+        let mut host = host_with_round_trip(lib, orig, &path);
+        let ctx = egui::Context::default();
+        let before = host.editor.session.active().unwrap().doc.layers.clone();
+        assert_eq!(before.len(), 2);
+        host.switch(&ctx, Module::Library);
+        host.switch(&ctx, Module::Develop);
+        host.library().run("develop.set", json!({ "control": "light.exposure", "value": 1.0 })).unwrap();
+        host.switch(&ctx, Module::Compositing);
+        assert_eq!(host.editor.session.documents().len(), 1, "same document");
+        let layers = &host.editor.session.active().unwrap().doc.layers;
+        assert_eq!(layers.len(), 3, "{:?}", layers.iter().map(|l| &l.name).collect::<Vec<_>>());
+        assert_eq!(&layers[..2], &before[..], "existing layers untouched");
+        assert_eq!(layers[2].name, "Develop 2");
+        // no further edits: coming back again adds nothing
+        host.switch(&ctx, Module::Library);
+        host.switch(&ctx, Module::Compositing);
+        assert_eq!(host.editor.session.active().unwrap().doc.layers.len(), 3);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

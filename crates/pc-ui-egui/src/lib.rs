@@ -423,6 +423,10 @@ pub struct PhotocraftApp {
     pub browse_in_library: Option<String>,
     /// local-image: a Develop layer was double-clicked: the host shows Develop on this Library photo.
     pub develop_request: Option<u64>,
+    /// local-image: files written by Save / Save As since the host last looked (the host takes
+    /// them): the Library adds a document that came from one of its photos, stacked on top of
+    /// that photo, and reloads a file it already has (see [`develop_layer::LibrarySave`]).
+    pub library_saves: Vec<develop_layer::LibrarySave>,
     /// local-image: Filter › Camera Raw Filter… sessions in the Library's Develop module (the host
     /// takes `develop_filter.request`), and the prompts around them.
     pub develop_filter: develop_filter_ui::State,
@@ -569,6 +573,7 @@ impl PhotocraftApp {
             switch_module: None,
             browse_in_library: None,
             develop_request: None,
+            library_saves: Vec::new(),
             develop_filter: Default::default(),
             current_module: Module::Compositing,
             fonts_ready: false,
@@ -919,7 +924,13 @@ impl PhotocraftApp {
         }
         let st = self.session.active().ok_or("no document")?;
         // Documents are named after their file ("cat.png"): suggest "cat.psd", not "cat.png.psd".
-        let suggested = st.path.clone().unwrap_or_else(|| format!("{}.psd", st.doc.name.rsplit_once('.').map_or(st.doc.name.as_str(), |(stem, _)| stem)));
+        // local-image: a photo from the Library is suggested beside its original, as
+        // "<name>-Edit.psd" (Photoshop's Edit In from Lightroom).
+        let suggested = st
+            .path
+            .clone()
+            .or_else(|| develop_layer::library_original(self).map(|(_, original)| develop_layer::edit_path(&original)))
+            .unwrap_or_else(|| format!("{}.psd", st.doc.name.rsplit_once('.').map_or(st.doc.name.as_str(), |(stem, _)| stem)));
         let path = match path {
             Some(p) => p,
             None => self.services.pick_save.as_mut().and_then(|f| f(&suggested)).ok_or("cancelled")?,
@@ -954,6 +965,11 @@ impl PhotocraftApp {
         }
         self.ui.status_error = false;
         notices::io_warnings(self, &format!("Saved {}", file_open::display_name(&path)), &warnings);
+        // local-image: the Library picks the file up (adds it stacked on its photo, or reloads it).
+        if self.host_modes {
+            let photo = develop_layer::active_photo(self);
+            self.library_saves.push(develop_layer::LibrarySave { path: path.clone(), photo, show: false });
+        }
         self.sync_views();
         Ok((path, warnings))
     }

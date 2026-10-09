@@ -2627,3 +2627,7 @@ ai	New	最新
 	Close panel	关闭面板
 	Dock Panel	停靠面板
 	Float Panel Group	浮动面板组
+	Save and Return to Library	存储并返回资源库
+	Added your new Develop edits as layer {name}	已将您新的 Develop 编辑添加为图层 {name}
+	Open the Library to save into it	请先打开资源库再存储到其中
+	The layers below are unchanged; hide or delete the new layer to go back.	下方图层未更改；如需恢复，请隐藏或删除新图层。

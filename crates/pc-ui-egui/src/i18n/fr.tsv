@@ -3041,3 +3041,7 @@ ai	New	Nouveautés
 	Close panel	Fermer le panneau
 	Dock Panel	Ancrer le panneau
 	Float Panel Group	Détacher le groupe de panneaux
+	Save and Return to Library	Enregistrer et retourner à la bibliothèque
+	Added your new Develop edits as layer {name}	Vos nouvelles retouches Develop ont été ajoutées en tant que calque {name}
+	Open the Library to save into it	Ouvrez la bibliothèque pour y enregistrer
+	The layers below are unchanged; hide or delete the new layer to go back.	Les calques du dessous sont inchangés ; masquez ou supprimez le nouveau calque pour revenir en arrière.

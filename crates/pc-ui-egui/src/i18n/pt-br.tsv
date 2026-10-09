@@ -3048,3 +3048,7 @@ ai	New	Novos
 	Close panel	Fechar painel
 	Dock Panel	Encaixar painel
 	Float Panel Group	Desencaixar grupo de painéis
+	Save and Return to Library	Salvar e voltar à biblioteca
+	Added your new Develop edits as layer {name}	Suas novas edições do Develop foram adicionadas como camada {name}
+	Open the Library to save into it	Abra a biblioteca para salvar nela
+	The layers below are unchanged; hide or delete the new layer to go back.	As camadas abaixo não foram alteradas; oculte ou exclua a nova camada para voltar.

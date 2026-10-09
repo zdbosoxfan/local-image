@@ -2684,3 +2684,7 @@ ai	New	Nuevos
 	Close panel	Cerrar panel
 	Dock Panel	Acoplar panel
 	Float Panel Group	Desacoplar grupo de paneles
+	Save and Return to Library	Guardar y volver a la biblioteca
+	Added your new Develop edits as layer {name}	Se añadieron tus nuevas ediciones de Develop como capa {name}
+	Open the Library to save into it	Abre la biblioteca para guardar en ella
+	The layers below are unchanged; hide or delete the new layer to go back.	Las capas inferiores no han cambiado; oculta o elimina la capa nueva para volver atrás.

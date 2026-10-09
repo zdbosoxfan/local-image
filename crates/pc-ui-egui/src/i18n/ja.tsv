@@ -2602,3 +2602,7 @@ ai	New	新着
 	Close panel	パネルを閉じる
 	Dock Panel	パネルをドッキング
 	Float Panel Group	パネルグループをフローティング
+	Save and Return to Library	保存してライブラリに戻る
+	Added your new Develop edits as layer {name}	新しい現像の編集をレイヤー {name} として追加しました
+	Open the Library to save into it	ライブラリに保存するにはライブラリを開いてください
+	The layers below are unchanged; hide or delete the new layer to go back.	下のレイヤーは変更されていません。元に戻すには新しいレイヤーを非表示にするか削除してください。

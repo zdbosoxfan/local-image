@@ -2596,3 +2596,7 @@ ai	New	最新
 	Close panel	關閉面板
 	Dock Panel	停靠面板
 	Float Panel Group	浮動面板群組
+	Save and Return to Library	儲存並返回資料庫
+	Added your new Develop edits as layer {name}	已將您新的 Develop 編輯加入為圖層 {name}
+	Open the Library to save into it	請先開啟資料庫再儲存至其中
+	The layers below are unchanged; hide or delete the new layer to go back.	下方圖層未變更；如需還原，請隱藏或刪除新圖層。
