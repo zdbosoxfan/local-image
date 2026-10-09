@@ -32,11 +32,20 @@ pub struct SortPreset {
     pub categories: Vec<Category>,
     pub sensitivity: Sensitivity,
     pub multi: bool,
+    /// People layout stores library identities, never names. Unknown IDs are skipped on reuse.
+    pub people_layout: Vec<super::FolderDef>,
 }
 
 impl Default for SortPreset {
     fn default() -> Self {
-        Self { name: "Custom".into(), keyword_parent: "Smart Sort".into(), categories: Vec::new(), sensitivity: Sensitivity::Balanced, multi: false }
+        Self {
+            name: "Custom".into(),
+            keyword_parent: "Smart Sort".into(),
+            categories: Vec::new(),
+            sensitivity: Sensitivity::Balanced,
+            multi: false,
+            people_layout: Vec::new(),
+        }
     }
 }
 

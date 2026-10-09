@@ -40,6 +40,7 @@ fn meta_of(m: &lightcraft_meta::Metadata) -> (Meta, Option<String>) {
         creator: m.artist.clone().unwrap_or_default(),
         keywords: m.keywords.clone(),
         regions: m.regions.clone(),
+        person_ids: Vec::new(),
     };
     (meta, m.capture_time.as_ref().map(|d| d.to_iso()))
 }

@@ -2,6 +2,9 @@
 //! mocks and future model families implement the same small embedding interface.
 
 pub mod classify;
+pub mod faces_store;
+pub mod people;
+pub use people::{FaceTagger, PeopleEngine};
 #[doc(hidden)]
 pub mod mock;
 pub mod plan;
@@ -52,6 +55,7 @@ pub struct SmartSort {
     pub tagger: Option<Arc<dyn Tagger>>,
     pub store: Store,
     pub prefs: SmartSortPrefs,
+    pub people: PeopleEngine,
 }
 
 impl SmartSort {
