@@ -309,7 +309,7 @@ mod tests {
     fn the_page_filters_by_search() {
         let ctx = egui::Context::default();
         let tr = |s: &'static str| s.to_string();
-        let mut run = |q: &str| {
+        let run = |q: &str| {
             set_query(&ctx, "test", q);
             let mut out = Output::default();
             for _ in 0..2 {

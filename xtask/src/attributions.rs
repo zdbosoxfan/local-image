@@ -196,10 +196,7 @@ fn notices_mentioning(root: &Path, needle: &str) -> Vec<String> {
     if needle.trim().len() < 4 {
         return vec![];
     }
-    files_in(root, "licenses")
-        .into_iter()
-        .filter(|f| f.ends_with(".md") && std::fs::read_to_string(root.join(f)).is_ok_and(|t| t.contains(needle)))
-        .collect()
+    files_in(root, "licenses").into_iter().filter(|f| f.ends_with(".md") && std::fs::read_to_string(root.join(f)).is_ok_and(|t| t.contains(needle))).collect()
 }
 
 // ------------------------------------------------------------------------------ PORTS.md
@@ -258,9 +255,20 @@ pub fn parse_ports(md: &str) -> Vec<PortRow> {
         };
         let get = |k: &str| c.get(k).and_then(|&i| cells.get(i)).copied().unwrap_or("");
         let commit_cell = plain(get("commit"));
-        let mut words = commit_cell.split_whitespace();
-        let Some(hash) = words.next().filter(|w| w.len() >= 7 && w.chars().all(|ch| ch.is_ascii_hexdigit())) else { continue };
-        let tag = words.collect::<Vec<_>>().join(" ").trim_matches(|ch| ch == '(' || ch == ')').to_string();
+        // the first hex word of at least 7 digits: a commit, or the pinned tree of a release
+        // archive without commit metadata (e.g. "v0.8.0; immutable tree `ae01bcb…`")
+        let Some(hash) = commit_cell
+            .split_whitespace()
+            .map(|w| w.trim_matches(|ch: char| !ch.is_ascii_alphanumeric()))
+            .find(|w| w.len() >= 7 && w.chars().all(|ch| ch.is_ascii_hexdigit()))
+        else {
+            continue;
+        };
+        // the rest of the cell: after the hash (a tag in parentheses), or before it (a release)
+        let at = commit_cell.find(hash).unwrap_or(0);
+        let rest = if at == 0 { &commit_cell[hash.len()..] } else { &commit_cell[..at] };
+        let tag =
+            rest.split_whitespace().collect::<Vec<_>>().join(" ").trim_matches(|ch: char| ch == '(' || ch == ')' || ch == ';' || ch == '`').trim().to_string();
         let project_cell = get("project");
         let (project, project_url, via) = match first_link(project_cell) {
             Some((name, url)) => {
@@ -298,9 +306,8 @@ fn port_entries(root: &Path) -> Result<Vec<Entry>> {
                 }
                 other => other.clone(),
             };
-            let used_for = r.used_for.clone().or_else(|| {
-                r.ours.split([',', ' ']).find(|p| p.ends_with(".rs")).and_then(|p| module_summary(&root.join(p.trim())))
-            });
+            let used_for =
+                r.used_for.clone().or_else(|| r.ours.split([',', ' ']).find(|p| p.ends_with(".rs")).and_then(|p| module_summary(&root.join(p.trim()))));
             let upstream = if r.via.is_empty() { r.path.clone() } else { format!("{} {}", r.path, r.via) };
             Entry {
                 name: r.project.clone(),
@@ -581,8 +588,7 @@ fn member_activation(m: &Member, requested: &BTreeSet<String>) -> (BTreeSet<Stri
 pub fn app_crates(root: &Path) -> Result<Vec<(String, String)>> {
     let pkgs = parse_lock(&std::fs::read_to_string(root.join("Cargo.lock")).context("Cargo.lock")?)?;
     let root_toml: toml::Table = toml::from_str(&std::fs::read_to_string(root.join("Cargo.toml"))?)?;
-    let workspace_deps =
-        root_toml.get("workspace").and_then(|w| w.get("dependencies")).and_then(|d| d.as_table()).cloned().unwrap_or_default();
+    let workspace_deps = root_toml.get("workspace").and_then(|w| w.get("dependencies")).and_then(|d| d.as_table()).cloned().unwrap_or_default();
     let manifests = member_manifests(root);
     let mut by_name: HashMap<&str, Vec<usize>> = HashMap::new();
     for (i, p) in pkgs.iter().enumerate() {
@@ -816,7 +822,9 @@ pub fn check_licence_files(root: &Path, a: &Attributions) -> Result<()> {
     }
     let missing: Vec<String> = licence_files_to_cover(root).into_iter().filter(|f| !referenced.contains(f)).collect();
     if !missing.is_empty() {
-        bail!("licence files no attribution refers to: {missing:?} — add them to an entry's licence_files in {CURATED} (a licenses/<project>-NOTICE.md is picked up by the PORTS.md rows of <project>)");
+        bail!(
+            "licence files no attribution refers to: {missing:?} — add them to an entry's licence_files in {CURATED} (a licenses/<project>-NOTICE.md is picked up by the PORTS.md rows of <project>)"
+        );
     }
     Ok(())
 }
@@ -843,7 +851,9 @@ pub fn run(root: &Path, fetch: bool) -> Result<()> {
     }
     println!("wrote {OUTPUT} ({n_crates} crates)");
     if unknown > 0 {
-        println!("warning: {unknown} crate(s) have no licence information here (not downloaded); run `cargo xtask attributions --fetch` where the network is available");
+        println!(
+            "warning: {unknown} crate(s) have no licence information here (not downloaded); run `cargo xtask attributions --fetch` where the network is available"
+        );
     }
     Ok(())
 }
@@ -930,11 +940,11 @@ mod tests {
 
     #[test]
     fn model_links_open_project_pages_not_downloads() {
+        assert_eq!(project_page("https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx"), "https://github.com/danielgatis/rembg");
         assert_eq!(
-            project_page("https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx"),
-            "https://github.com/danielgatis/rembg"
+            project_page("https://raw.githubusercontent.com/kisakutanaka/SkySegmentation/4f17/models/x.onnx"),
+            "https://github.com/kisakutanaka/SkySegmentation"
         );
-        assert_eq!(project_page("https://raw.githubusercontent.com/kisakutanaka/SkySegmentation/4f17/models/x.onnx"), "https://github.com/kisakutanaka/SkySegmentation");
         let a = committed();
         for e in &a.sections.iter().find(|s| s.id == "models").unwrap().entries {
             let url = e.url.as_deref().unwrap_or("");

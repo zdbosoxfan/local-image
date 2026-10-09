@@ -19,6 +19,78 @@
       "entries": [
         {
           "name": "darktable",
+          "used_for": "darktable src/iop/denoiseprofile.c (wavelets, Y0U0V0, new VST), src/common/eaw.c (eaw_dn_decompose, accumulate) and src/common/math.h (fast_mexp2f), at 733bd69f32cac7ff5e41025115942772add1f088.",
+          "upstream": "src/iop/denoiseprofile.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-pipeline/src/detail/nr.rs, crates/lc-gpu/src/wgsl/detail.wgsl",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/denoiseprofile.c"
+        },
+        {
+          "name": "darktable",
+          "used_for": "darktable src/iop/denoiseprofile.c (wavelets, Y0U0V0, new VST), src/common/eaw.c (eaw_dn_decompose, accumulate) and src/common/math.h (fast_mexp2f), at 733bd69f32cac7ff5e41025115942772add1f088.",
+          "upstream": "src/common/eaw.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-pipeline/src/detail/nr.rs, crates/lc-gpu/src/wgsl/detail.wgsl",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/common/eaw.c"
+        },
+        {
+          "name": "darktable",
+          "used_for": "darktable src/iop/denoiseprofile.c (wavelets, Y0U0V0, new VST), src/common/eaw.c (eaw_dn_decompose, accumulate) and src/common/math.h (fast_mexp2f), at 733bd69f32cac7ff5e41025115942772add1f088.",
+          "upstream": "src/common/math.h",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-pipeline/src/detail/nr.rs, crates/lc-gpu/src/wgsl/detail.wgsl",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/common/math.h"
+        },
+        {
+          "name": "darktable",
+          "used_for": "darktable src/iop/hazeremoval.c, src/common/guided_filter.c and src/common/box_filters.cc, at 733bd69f32cac7ff5e41025115942772add1f088.",
+          "upstream": "src/iop/hazeremoval.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-pipeline/src/detail/haze.rs, crates/lc-gpu/src/wgsl/detail.wgsl",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/hazeremoval.c"
+        },
+        {
+          "name": "darktable",
+          "used_for": "darktable src/iop/hazeremoval.c, src/common/guided_filter.c and src/common/box_filters.cc, at 733bd69f32cac7ff5e41025115942772add1f088.",
+          "upstream": "src/common/guided_filter.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-pipeline/src/detail/haze.rs, crates/lc-gpu/src/wgsl/detail.wgsl",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/common/guided_filter.c"
+        },
+        {
+          "name": "darktable",
+          "used_for": "darktable src/iop/hazeremoval.c, src/common/guided_filter.c and src/common/box_filters.cc, at 733bd69f32cac7ff5e41025115942772add1f088.",
+          "upstream": "src/common/box_filters.cc",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-pipeline/src/detail/haze.rs, crates/lc-gpu/src/wgsl/detail.wgsl",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/common/box_filters.cc"
+        },
+        {
+          "name": "darktable",
           "used_for": "Film negative conversion: inverts a scanned colour or black & white negative and simulates printing it on paper.",
           "upstream": "src/iop/negadoctor.c",
           "commit": "733bd69f32cac7ff5e41025115942772add1f088",
@@ -30,17 +102,136 @@
           "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/negadoctor.c"
         },
         {
-          "name": "darktable-ai",
-          "version": "tag release-5.6.0",
-          "used_for": "AI Denoise: the RawNIND UtNet2 denoiser (linear Rec.2020 variant, model_linear.onnx from darktable-ai's rawdenoise-nind package) run on the CPU with tract, tile by tile.",
-          "upstream": "models/rawdenoise-nind/demo.py (_run_tiled, _match_gain)",
-          "commit": "6bcd41c6f296ca692e6f845b25cf7cdb8148305c",
-          "ours": "crates/li-seg/src/denoise.rs",
-          "licence": "GPL-3.0-only",
+          "name": "darktable",
+          "used_for": "VNG4, including the four-colour linear pass and all 64 gradient terms.",
+          "upstream": "src/iop/demosaicing/vng.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/src/demosaic/vng.rs",
+          "licence": "GPL-3.0-or-later",
           "licence_files": [
-            "licenses/darktable-ai-NOTICE.md"
+            "licenses/darktable-NOTICE.md"
           ],
-          "url": "https://github.com/darktable-org/darktable-ai/blob/6bcd41c6f296ca692e6f845b25cf7cdb8148305c/models/rawdenoise-nind/demo.py"
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/demosaicing/vng.c"
+        },
+        {
+          "name": "darktable",
+          "used_for": "VNG4, including the four-colour linear pass and all 64 gradient terms.",
+          "upstream": "src/iop/demosaicing/basics.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/src/demosaic/vng.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/demosaicing/basics.c"
+        },
+        {
+          "name": "darktable",
+          "used_for": "AMaZE (Aliasing Minimization and Zipper Elimination), complete scalar kernel.",
+          "upstream": "src/iop/demosaicing/amaze.cc",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/src/demosaic/amaze.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/demosaicing/amaze.cc"
+        },
+        {
+          "name": "darktable",
+          "used_for": "Segmentation-based highlight reconstruction v2, ported from darktable src/iop/hlreconstruct/{segbased,segmentation,opposed}.c, common/distance_transform.c, common/gaussian.c and develop/noise_generator.h at 733bd69f32cac7ff5e41025115942772add1f088.",
+          "upstream": "src/iop/hlreconstruct/segbased.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/src/highlight/segbased.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/hlreconstruct/segbased.c"
+        },
+        {
+          "name": "darktable",
+          "used_for": "darktable highlight segmentation: complete scanline flood fill and morphology.",
+          "upstream": "src/iop/hlreconstruct/segmentation.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/src/highlight/segmentation.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/hlreconstruct/segmentation.c"
+        },
+        {
+          "name": "darktable",
+          "used_for": "Segmentation-based highlight reconstruction v2, ported from darktable src/iop/hlreconstruct/{segbased,segmentation,opposed}.c, common/distance_transform.c, common/gaussian.c and develop/noise_generator.h at 733bd69f32cac7ff5e41025115942772add1f088.",
+          "upstream": "src/iop/hlreconstruct/opposed.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/src/highlight/segbased.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/hlreconstruct/opposed.c"
+        },
+        {
+          "name": "darktable",
+          "used_for": "Segmentation-based highlight reconstruction v2, ported from darktable src/iop/hlreconstruct/{segbased,segmentation,opposed}.c, common/distance_transform.c, common/gaussian.c and develop/noise_generator.h at 733bd69f32cac7ff5e41025115942772add1f088.",
+          "upstream": "src/common/distance_transform.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/src/highlight/segbased.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/common/distance_transform.c"
+        },
+        {
+          "name": "darktable",
+          "used_for": "Segmentation-based highlight reconstruction v2, ported from darktable src/iop/hlreconstruct/{segbased,segmentation,opposed}.c, common/distance_transform.c, common/gaussian.c and develop/noise_generator.h at 733bd69f32cac7ff5e41025115942772add1f088.",
+          "upstream": "src/common/box_filters.cc",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/src/highlight/segbased.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/common/box_filters.cc"
+        },
+        {
+          "name": "darktable",
+          "used_for": "Segmentation-based highlight reconstruction v2, ported from darktable src/iop/hlreconstruct/{segbased,segmentation,opposed}.c, common/distance_transform.c, common/gaussian.c and develop/noise_generator.h at 733bd69f32cac7ff5e41025115942772add1f088.",
+          "upstream": "src/develop/noise_generator.h",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/src/highlight/segbased.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/develop/noise_generator.h"
+        },
+        {
+          "name": "darktable",
+          "used_for": "Numerical helpers from darktable common/{math.h,gaussian.c} at 733bd69f32cac7ff5e41025115942772add1f088 (GPL-3.0-or-later).",
+          "upstream": "src/common/gaussian.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/src/numerics.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/common/gaussian.c"
+        },
+        {
+          "name": "darktable",
+          "used_for": "Numerical helpers from darktable common/{math.h,gaussian.c} at 733bd69f32cac7ff5e41025115942772add1f088 (GPL-3.0-or-later).",
+          "upstream": "src/common/math.h",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/src/numerics.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/common/math.h"
         },
         {
           "name": "darktable",
@@ -56,7 +247,7 @@
         },
         {
           "name": "darktable",
-          "used_for": "Dual demosaic: a detail-preserving demosaic (RCD) where the image has structure, a smooth one (bilinear) in flat areas, blended by a local-contrast mask — flat areas then show less maze-like noise.",
+          "used_for": "Dual demosaic with upstream VNG-linear and two colour-smoothing passes in flat areas.",
           "upstream": "src/iop/demosaicing/dual.c, src/develop/masks/detail.c",
           "commit": "733bd69f32cac7ff5e41025115942772add1f088",
           "ours": "crates/lc-raw/src/demosaic/dual.rs",
@@ -149,6 +340,90 @@
             "licenses/lensfun-NOTICE.md"
           ],
           "url": "https://github.com/lensfun/lensfun/blob/43f9e001ab66c4fcdd4f400463f13b72f94b2288/libs/lensfun/mod-coord.cpp"
+        },
+        {
+          "name": "darktable",
+          "used_for": "global tone: the looks and the hue-preserving tone stage.",
+          "upstream": "src/iop/sigmoid.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-pipeline/src/tone2.rs, crates/lc-gpu/src/wgsl/finish.wgsl",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/sigmoid.c"
+        },
+        {
+          "name": "darktable",
+          "used_for": "darktable src/iop/basecurve.c presets at 733bd69f32cac7ff5e41025115942772add1f088.",
+          "upstream": "src/iop/basecurve.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-pipeline/src/base_curve_data.rs, basecurves.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/basecurve.c"
+        },
+        {
+          "name": "darktable",
+          "used_for": "darktable basecurve.c maker/camera presets and curve_tools.c monotone Hermite.",
+          "upstream": "src/common/curve_tools.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-pipeline/src/basecurves.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/common/curve_tools.c"
+        },
+        {
+          "name": "rawler",
+          "version": "v0.8.0; immutable tree",
+          "used_for": "Generated by scripts/engine_colour_data.py; DO NOT EDIT.",
+          "upstream": "rawler/data/cameras//.toml",
+          "commit": "ae01bcb2d0f8a74f9dfbb9f7b5c7e315c8e668b7",
+          "ours": "crates/lc-raw/src/camera_matrices.rs",
+          "licence": "LGPL-2.1-only → GPL-3.0-or-later via §3",
+          "licence_files": [
+            "licenses/rawler-NOTICE.md"
+          ],
+          "url": "https://github.com/dnglab/dnglab/blob/ae01bcb2d0f8a74f9dfbb9f7b5c7e315c8e668b7/rawler/data/cameras//.toml"
+        },
+        {
+          "name": "RawTherapee",
+          "used_for": "Generated by scripts/engine_colour_data.py; DO NOT EDIT.",
+          "upstream": "rtengine/camconst.json",
+          "commit": "5f486d3678b34c74ba0c63571c17babe20935019",
+          "ours": "crates/lc-raw/src/camera_matrices.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/rawtherapee-NOTICE.md"
+          ],
+          "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/camconst.json"
+        },
+        {
+          "name": "RawTherapee",
+          "used_for": "DNG camera-profile look data carried by the file itself (Adobe DNG Specification 1.6/1.7, chapter 6 and the ProfileHueSatMap, ProfileLookTable and ProfileToneCurve tags).",
+          "upstream": "rtengine/dcp.cc (table interpolation, matrix blending)",
+          "commit": "5f486d3678b34c74ba0c63571c17babe20935019",
+          "ours": "crates/lc-color/src/profile.rs, camera.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/rawtherapee-NOTICE.md"
+          ],
+          "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/dcp.cc"
+        },
+        {
+          "name": "RawTherapee",
+          "upstream": "rtdata/dcpprofiles/ (explicit embedded-rights allowlist)",
+          "commit": "5f486d3678b34c74ba0c63571c17babe20935019",
+          "ours": "crates/lc-raw/data/dcp/",
+          "licence": "CC0-1.0 / public domain; per-file rights + SHA-256 in manifest",
+          "licence_files": [
+            "licenses/rawtherapee-NOTICE.md"
+          ],
+          "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtdata/dcpprofiles/"
         },
         {
           "name": "Hugging Face Transformers (SAM 3)",
@@ -299,16 +574,6 @@
             "licenses/model-system-NOTICE.md"
           ],
           "url": "https://github.com/isl-org/MiDaS"
-        },
-        {
-          "name": "AI Denoise · RawNIND UtNet2",
-          "author": "RawNIND UtNet2, Brummer & De Vleeschouwer 2025; darktable-ai",
-          "used_for": "AI Denoise in Develop.",
-          "licence": "GPL-3.0",
-          "licence_files": [
-            "licenses/darktable-ai-NOTICE.md"
-          ],
-          "url": "https://github.com/darktable-org/darktable-ai"
         },
         {
           "name": "SAM 3 (Segment Anything 3)",
@@ -575,8 +840,9 @@
         {
           "name": "accesskit_consumer",
           "version": "0.38.0",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/accesskit_consumer"
+          "used_for": "AccessKit consumer library (internal)",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/AccessKit/accesskit"
         },
         {
           "name": "accesskit_macos",
@@ -3406,8 +3672,9 @@
         {
           "name": "rand_distr",
           "version": "0.5.1",
-          "licence": "not recorded (see crates.io)",
-          "url": "https://crates.io/crates/rand_distr"
+          "used_for": "Sampling from random number distributions",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/rust-random/rand_distr"
         },
         {
           "name": "rand_distr",

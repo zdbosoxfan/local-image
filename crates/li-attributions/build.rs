@@ -25,7 +25,9 @@ fn main() {
     }
     files.sort();
     files.dedup();
-    let mut out = String::from("/// (path from the repository root, text) of every licence file the attributions refer to.\npub static LICENCE_TEXTS: &[(&str, &str)] = &[\n");
+    let mut out = String::from(
+        "/// (path from the repository root, text) of every licence file the attributions refer to.\npub static LICENCE_TEXTS: &[(&str, &str)] = &[\n",
+    );
     for f in &files {
         assert!(!f.contains("..") && !f.starts_with('/'), "licence file {f} must be a path inside the repository");
         let path = root.join(f).canonicalize().unwrap_or_else(|e| panic!("licence file {f}: {e}"));
