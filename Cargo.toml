@@ -90,6 +90,7 @@ photocraft-testkit = { path = "crates/pc-testkit" }
 photocraft-text = { path = "crates/pc-text" }
 photocraft-ui-egui = { path = "crates/pc-ui-egui" }
 photocraft-vector = { path = "crates/pc-vector" }
+pc-trace = { path = "crates/pc-trace" }
 png = { version = "0.18" }
 pollster = { version = "1" }
 proptest = { version = "1" }
