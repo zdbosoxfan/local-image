@@ -123,7 +123,7 @@ mod tests {
         let clip = s.clipboard.as_mut().unwrap();
         let b = clip.bounds;
         let px = clip.surface.read_region(b);
-        let brighter: Vec<f32> = px.chunks_exact(4).flat_map(|p| [(p[0] + 0.3).min(1.0), (p[1] - 0.2).max(0.0), p[2], p[3]]).collect();
+        let brighter: Vec<f32> = px.as_chunks::<4>().0.iter().flat_map(|p| [(p[0] + 0.3).min(1.0), (p[1] - 0.2).max(0.0), p[2], p[3]]).collect();
         clip.surface.write_region(b, &brighter);
         s.execute("select.deselect", json!({})).unwrap();
         s

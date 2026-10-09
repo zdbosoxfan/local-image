@@ -142,7 +142,13 @@ pub fn sync(app: &mut PhotocraftApp, photo: u64, settings: &Value) {
             for a in r["added"].as_array().into_iter().flatten() {
                 let name = a["name"].as_str().unwrap_or("Develop");
                 let msg = crate::i18n::fmt(tl!("Added your new Develop edits as layer {name}"), &[("name", name)]);
-                crate::notices::post(app, msg.clone(), vec![tl!("The layers below are unchanged; hide or delete the new layer to go back.").into()], false, None);
+                crate::notices::post(
+                    app,
+                    msg.clone(),
+                    vec![tl!("The layers below are unchanged; hide or delete the new layer to go back.").into()],
+                    false,
+                    None,
+                );
                 app.ui.status = msg;
             }
             app.ui.status_error = false;

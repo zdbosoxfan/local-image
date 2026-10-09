@@ -2582,3 +2582,7 @@ ai	New	Neu
 	Cage is not active	Käfig ist nicht aktiv
 	Could not use Cage: the layer is empty	Käfig nicht möglich: Die Ebene ist leer
 	Index	Index
+	Save and Return to Library	Sichern und zur Bibliothek zurückkehren
+	Added your new Develop edits as layer {name}	Ihre neuen Develop-Bearbeitungen wurden als Ebene {name} hinzugefügt
+	Open the Library to save into it	Öffnen Sie die Bibliothek, um darin zu sichern
+	The layers below are unchanged; hide or delete the new layer to go back.	Die darunterliegenden Ebenen sind unverändert; blenden Sie die neue Ebene aus oder löschen Sie sie, um zurückzugehen.

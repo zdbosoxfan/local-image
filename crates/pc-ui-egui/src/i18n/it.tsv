@@ -2616,3 +2616,7 @@ ai	New	Nuovi
 	Cage is not active	La gabbia non è attiva
 	Could not use Cage: the layer is empty	Impossibile usare Gabbia: il livello è vuoto
 	Index	Indice
+	Save and Return to Library	Salva e torna alla libreria
+	Added your new Develop edits as layer {name}	Le nuove modifiche di Develop sono state aggiunte come livello {name}
+	Open the Library to save into it	Apri la libreria per salvare al suo interno
+	The layers below are unchanged; hide or delete the new layer to go back.	I livelli sottostanti sono invariati; nascondi o elimina il nuovo livello per tornare indietro.

@@ -2526,3 +2526,7 @@ ai	New	最新
 	Cage is not active	籠形未啟用
 	Could not use Cage: the layer is empty	無法使用籠形：圖層是空的
 	Index	索引
+	Save and Return to Library	儲存並返回資料庫
+	Added your new Develop edits as layer {name}	已將您新的 Develop 編輯加入為圖層 {name}
+	Open the Library to save into it	請先開啟資料庫再儲存至其中
+	The layers below are unchanged; hide or delete the new layer to go back.	下方圖層未變更；如需還原，請隱藏或刪除新圖層。

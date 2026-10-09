@@ -1064,7 +1064,7 @@ mod tests {
         let mut raw = egui::RawInput::default();
         raw.viewports.entry(egui::ViewportId::ROOT).or_default().events.push(egui::ViewportEvent::Close);
         let mut asked = false;
-        let out = ctx.run_ui(raw, |ui| {
+        let mut out = ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             asked = host.quit_review(&ctx);
             photocraft_ui_egui::discard_ui::guard_window_close(&mut host.editor, &ctx);
@@ -1074,6 +1074,32 @@ mod tests {
         assert_eq!(host.editor.session.documents().len(), 1, "no photo opened on the way");
         let cmds = &out.viewport_output[&egui::ViewportId::ROOT].commands;
         assert!(cmds.contains(&egui::ViewportCommand::CancelClose), "the window stays open: {cmds:?}");
+        out.textures_delta.clear();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Library → Develop (new edits) → Compositing: the edits arrive as a new Develop layer on
+    /// top of a document with compositing work; its existing layers stay as they were.
+    #[test]
+    fn new_develop_edits_come_back_as_a_new_layer() {
+        let (dir, path, lib, orig) = library_with_photo("develop2");
+        let mut host = host_with_round_trip(lib, orig, &path);
+        let ctx = egui::Context::default();
+        let before = host.editor.session.active().unwrap().doc.layers.clone();
+        assert_eq!(before.len(), 2);
+        host.switch(&ctx, Module::Library);
+        host.switch(&ctx, Module::Develop);
+        host.library().run("develop.set", json!({ "control": "light.exposure", "value": 1.0 })).unwrap();
+        host.switch(&ctx, Module::Compositing);
+        assert_eq!(host.editor.session.documents().len(), 1, "same document");
+        let layers = &host.editor.session.active().unwrap().doc.layers;
+        assert_eq!(layers.len(), 3, "{:?}", layers.iter().map(|l| &l.name).collect::<Vec<_>>());
+        assert_eq!(&layers[..2], &before[..], "existing layers untouched");
+        assert_eq!(layers[2].name, "Develop 2");
+        // no further edits: coming back again adds nothing
+        host.switch(&ctx, Module::Library);
+        host.switch(&ctx, Module::Compositing);
+        assert_eq!(host.editor.session.active().unwrap().doc.layers.len(), 3);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

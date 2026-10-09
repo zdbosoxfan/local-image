@@ -509,9 +509,7 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
         i if i.starts_with("file.openRecent.") => true,
         i if crate::links::url_for(i).is_some() => true,
         i if i.starts_with("window.theme.") => true,
-        crate::develop_layer::SAVE_RETURN_ID => {
-            app.host_modes && app.services.export.is_some() && crate::develop_layer::library_original(app).is_some()
-        }
+        crate::develop_layer::SAVE_RETURN_ID => app.host_modes && app.services.export.is_some() && crate::develop_layer::library_original(app).is_some(),
         "file.save" | "file.saveAs" | "file.export.exportAs" | "file.export.quickExportAsPng" => {
             app.session.active().is_some() && app.services.export.is_some()
         }
@@ -669,10 +667,8 @@ pub fn is_live(id: &str) -> bool {
 }
 
 /// Commands outside the catalogue that belong right after a catalogue item: `(id, after)`.
-const PLACE_AFTER: &[(&str, &str)] = &[
-    ("file.newFromClipboard", "file.new"),
-    (crate::develop_layer::SAVE_RETURN_ID, "file.saveAs"),
-    ("filter.render.relight", "filter.render.lightingEffects")];
+const PLACE_AFTER: &[(&str, &str)] =
+    &[("file.newFromClipboard", "file.new"), (crate::develop_layer::SAVE_RETURN_ID, "file.saveAs"), ("filter.render.relight", "filter.render.lightingEffects")];
 
 pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
     // 1) Photoshop's full menu tree, in Photoshop order; live where we implement the command.

@@ -44,8 +44,10 @@ pub fn retain(app: &mut LightcraftApp, keep: &[PhotoId]) {
 }
 
 /// Draws photo `id`'s composite in the loupe (`area`), with its badge and the button back to
-/// Compositing. `None` when Compositing isn't editing the photo; `Some(clicked)` otherwise.
-pub fn loupe(app: &LightcraftApp, ui: &egui::Ui, id: PhotoId, area: Rect) -> Option<bool> {
+/// Compositing. `None` when Compositing isn't editing the photo; otherwise the button's rect,
+/// which the caller makes clickable with [`button`] once the loupe's own interaction exists
+/// (so the button is on top of it).
+pub fn loupe(app: &LightcraftApp, ui: &egui::Ui, id: PhotoId, area: Rect) -> Option<Rect> {
     let c = app.host_composites.get(&id)?;
     let t = Tokens::get(ui.ctx());
     let ppp = ui.ctx().pixels_per_point();
@@ -60,12 +62,19 @@ pub fn loupe(app: &LightcraftApp, ui: &egui::Ui, id: PhotoId, area: Rect) -> Opt
     p.galley(badge.min + vec2(8.0, 4.0), g, Color32::WHITE);
     let bg = p.layout_no_wrap(crate::i18n::tr("Open in Compositing").to_string(), t.font(12.0), Color32::WHITE);
     let button = Rect::from_min_size(pos2(badge.right() + 6.0, badge.top()), bg.size() + vec2(16.0, 8.0));
-    let resp = ui.interact(button, egui::Id::new(("host-composite-open", id.0)), Sense::click());
     register(ui.ctx(), "hostComposite:open", button);
-    p.rect_filled(button, 4.0, if resp.hovered() { Color32::from_black_alpha(220) } else { Color32::from_black_alpha(160) });
-    p.galley(button.min + vec2(8.0, 4.0), bg, Color32::WHITE);
-    let resp = resp.on_hover_text(crate::i18n::tr("Back to the document in Compositing (its layers are kept)"));
-    Some(resp.clicked())
+    Some(button)
+}
+
+/// The button back to Compositing at `rect` (from [`loupe`]); `true` when clicked.
+pub fn button(ui: &egui::Ui, id: PhotoId, rect: Rect) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let resp = ui.interact(rect, egui::Id::new(("host-composite-open", id.0)), Sense::click());
+    let p = ui.painter();
+    let g = p.layout_no_wrap(crate::i18n::tr("Open in Compositing").to_string(), t.font(12.0), Color32::WHITE);
+    p.rect_filled(rect, 4.0, if resp.hovered() { Color32::from_black_alpha(220) } else { Color32::from_black_alpha(160) });
+    p.galley(rect.min + vec2(8.0, 4.0), g, Color32::WHITE);
+    resp.on_hover_text(crate::i18n::tr("Back to the document in Compositing (its layers are kept)")).clicked()
 }
 
 /// Photo `id`'s composite for a grid cell: (texture, size).

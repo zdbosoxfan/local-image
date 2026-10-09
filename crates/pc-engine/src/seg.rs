@@ -139,7 +139,7 @@ pub fn sky_probability(doc: &Document, layer: Option<LayerId>, all_layers: bool)
     let guide = photocraft_algo::segment::RgbImage {
         w,
         h,
-        px: rgba.chunks_exact(4).map(|p| [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0]).collect(),
+        px: rgba.as_chunks::<4>().0.iter().map(|p| [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0]).collect(),
     };
     let r = (w.max(h) / 160).clamp(2, 24);
     let refined = photocraft_algo::matting::guided_filter_color(&guide, &prob, r, 1e-3);

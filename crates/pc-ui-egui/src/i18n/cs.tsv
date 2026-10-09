@@ -2549,3 +2549,7 @@ ai	New	Nové
 	Cage is not active	Klec není aktivní
 	Could not use Cage: the layer is empty	Klec nelze použít: vrstva je prázdná
 	Index	Index
+	Save and Return to Library	Uložit a vrátit se do knihovny
+	Added your new Develop edits as layer {name}	Vaše nové úpravy Develop byly přidány jako vrstva {name}
+	Open the Library to save into it	Pro uložení do knihovny ji nejprve otevřete
+	The layers below are unchanged; hide or delete the new layer to go back.	Spodní vrstvy zůstaly beze změny; chcete-li se vrátit, novou vrstvu skryjte nebo smažte.
