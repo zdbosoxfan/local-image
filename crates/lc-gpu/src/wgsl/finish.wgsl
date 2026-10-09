@@ -31,7 +31,7 @@ fn chroma_scale(o: f32) -> f32 {
     return a + (b - a) * t;
 }
 
-// Process 2026 tone (`tone2::tone_px`): darktable sigmoid's per-channel curve with its hue and
+// Unified tone (`tone2::tone_px`): darktable sigmoid's per-channel curve with its hue and
 // energy preservation, then a camera curve's chroma scale.
 fn gamut(r: vec3<f32>, weights: vec3<f32>) -> vec3<f32> {
     let yy = clamp(dot(weights, r), 0.0, 1.0);
@@ -654,4 +654,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
     e = vec3<f32>(out_encode(e.x), out_encode(e.y), out_encode(e.z));
     out[i] = enc8(e.x, x, y, 0u) | (enc8(e.y, x, y, 1u) << 8u) | (enc8(e.z, x, y, 2u) << 16u) | (255u << 24u);
+}
+
+// Scene-linear colour selection uses the photo's complete tone map, before primary edits.
+@compute @workgroup_size(16,16)
+fn select_colour(@builtin(global_invocation_id) g: vec3<u32>) {
+    let w=pu(F_W); if(g.x>=w || g.y>=pu(F_H)) {return;} let i=g.y*w+g.x;
+    let c=vec3<f32>(img[3u*i],img[3u*i+1u],img[3u*i+2u])*pf(F_GAIN);
+    let lab=oklab(tone_v2(c)); out[3u*i]=bitcast<u32>(lab.x);out[3u*i+1u]=bitcast<u32>(lab.y);out[3u*i+2u]=bitcast<u32>(lab.z);
 }

@@ -305,14 +305,10 @@ fn lens_profiles_replace_embedded_and_zero_strength_matches_disabled() {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Tone equalizer: no kernel, a clean CPU fallback
+// Tone equalizer: retain the CPU fallback until a native kernel exists.
 
 #[test]
-fn tone_equalizer_falls_back_to_the_cpu() {
-    if !lightcraft_gpu::enabled() {
-        eprintln!("skipped: GPU rendering disabled ({:?})", lightcraft_gpu::unavailable_reason());
-        return;
-    }
+fn tone_equalizer_falls_back_to_cpu_and_draws_a_mask() {
     let src = scene(0, 640, 427);
     let info = raw();
     let mut s = DevelopSettings::default();
@@ -323,13 +319,11 @@ fn tone_equalizer_falls_back_to_the_cpu() {
     let req = RenderRequest::fit(640, 640);
     assert!(lightcraft_pipeline::tools_need_cpu(&s, &req));
     assert!(lightcraft_gpu::render(&src, &info, &s, &req, None).is_none());
-    let why = lightcraft_gpu::last_fallback().unwrap_or_default();
-    assert!(why.contains("tone equalizer"), "{why}");
-    // the Show Mask overlay: CPU too, even with every zone at 0 (the mask is still shown)
+    // Show Mask also uses the CPU renderer, including neutral zones.
     let mut shown = s.clone();
-    shown.tone_eq.ev6 = 0.0;
-    shown.tone_eq.ev5 = 0.0;
-    shown.tone_eq.ev1 = 0.0;
+    shown.tone_eq.ev6 = 0.;
+    shown.tone_eq.ev5 = 0.;
+    shown.tone_eq.ev1 = 0.;
     let mreq = RenderRequest { overlay: Overlay::ToneEqMask, ..req };
     assert!(lightcraft_pipeline::tools_need_cpu(&shown, &mreq));
     assert!(lightcraft_gpu::render(&src, &info, &shown, &mreq, None).is_none());
@@ -339,6 +333,7 @@ fn tone_equalizer_falls_back_to_the_cpu() {
     assert!(levels.1 > levels.0 + 40, "the mask follows the image: {levels:?}");
     // off (or with the section turned off): the GPU renders again
     s.set_section_enabled("toneEq", false);
+    assert!(!lightcraft_pipeline::toneeq::mask_wanted(&s));
     assert!(!lightcraft_pipeline::tools_need_cpu(&s, &req));
     if lightcraft_gpu::available() {
         check("tone eq section off", &src, &info, &s, &req);
@@ -932,6 +927,39 @@ fn bench_toolset_24mp() {
         s.detail.sharpen_amount = 40.0;
     };
     let cases: Vec<(&str, SourceInfo, DevelopSettings)> = vec![
+        ("primary identity", info.clone(), DevelopSettings::default()),
+        ("primary highlights/shadows", info.clone(), {
+            let mut s = DevelopSettings::default();
+            s.light.highlights = -100.;
+            s.light.shadows = 100.;
+            s
+        }),
+        ("primary EIGF candidate B", info.clone(), {
+            let mut s = DevelopSettings::default();
+            s.light.highlights = -100.;
+            s.light.shadows = 100.;
+            s
+        }),
+        ("primary clarity/texture/structure", info.clone(), {
+            let mut s = DevelopSettings::default();
+            s.effects.clarity = 50.;
+            s.effects.texture = 50.;
+            s.effects.structure = 50.;
+            s
+        }),
+        ("primary UCS colour", info.clone(), {
+            let mut s = DevelopSettings::default();
+            s.color.vibrance = 50.;
+            s.mixer.orange.lum = 20.;
+            s.grading.shadows = lightcraft_develop::Wheel { hue: 220., sat: 20., lum: 0. };
+            s
+        }),
+        ("primary skin uniformity", info.clone(), {
+            let mut s = DevelopSettings::default();
+            s.skin_tone.reference = Some([0.5, 0.13, 45.]);
+            s.skin_tone.uniformity = 80.;
+            s
+        }),
         ("detail sharpening", info.clone(), {
             let mut s = DevelopSettings::default();
             s.detail.sharpen_amount = 100.0;
@@ -998,22 +1026,31 @@ fn bench_toolset_24mp() {
     ];
     let ms = |t: std::time::Instant| t.elapsed().as_secs_f64() * 1e3;
     eprintln!("{:<34} {:>10} {:>10}  renderer", "24 MP (6000×4000), full size", "GPU path", "CPU only");
+    let mut primary_baseline = None;
     for (name, info, mut s) in cases {
         if std::env::var_os("LC_DETAIL_BENCH_ONLY").is_some() && !name.starts_with("detail ") {
             continue;
         }
-        if !name.starts_with("detail ") {
+        if std::env::var_os("LC_PRIMARY_BENCH_ONLY").is_some() && !name.starts_with("primary ") && name != "typical edit" {
+            continue;
+        }
+        if !name.starts_with("detail ") && !name.starts_with("primary ") {
             typical(&mut s);
         }
+        let method = if name == "primary EIGF candidate B" {
+            lightcraft_pipeline::primary::HsMethod::Eigf
+        } else {
+            lightcraft_pipeline::primary::DEFAULT_HS_METHOD
+        };
         // warm-up (device, kernels, patch cache), then the timed renders
         if has_gpu {
-            let _ = lightcraft_gpu::render(&src, &info, &s, &req, None);
+            let _ = lightcraft_gpu::render_hs_candidate(&src, &info, &s, &req, None, method);
         }
         let t = std::time::Instant::now();
-        let on_gpu = lightcraft_gpu::render(&src, &info, &s, &req, None).is_some();
+        let on_gpu = lightcraft_gpu::render_hs_candidate(&src, &info, &s, &req, None, method).is_some();
         let gpu_ms = if on_gpu { ms(t) } else { f64::NAN };
         let t = std::time::Instant::now();
-        let _ = render(&src, &info, &s, &req);
+        let _ = lightcraft_pipeline::render_hs_candidate(&src, &info, &s, &req, method);
         let cpu_ms = ms(t);
         // what runs on the CPU inside a GPU render (per-stage hybrid)
         let plan = lightcraft_pipeline::plan(&src, &info, &s, &req);
@@ -1027,6 +1064,17 @@ fn bench_toolset_24mp() {
         if plan.settings.masks.iter().flat_map(|m| &m.components).any(|c| matches!(c.shape, MaskShape::DepthRange { .. })) {
             cpu_parts.push("mask shape");
         }
+        if lightcraft_pipeline::detail::nr::nr_params(
+            &plan.settings,
+            lightcraft_pipeline::detail::out_per_orig(plan.px_per_long, plan.src_long, info.sensor_scale),
+        )
+        .is_some()
+        {
+            cpu_parts.push("NR statistics");
+        }
+        if lightcraft_pipeline::toneeq::mask_wanted(&plan.settings) {
+            cpu_parts.push("EIGF spatial/finish stage");
+        }
         let path = match (on_gpu, cpu_parts.is_empty()) {
             (false, _) => "CPU fallback".to_string(),
             (true, true) => "GPU".to_string(),
@@ -1034,6 +1082,35 @@ fn bench_toolset_24mp() {
         };
         let gpu_col = if on_gpu { format!("{gpu_ms:.0} ms") } else { "—".into() };
         eprintln!("{name:<34} {gpu_col:>10} {:>10}  {path}", format!("{cpu_ms:.0} ms"));
+        if name == "primary identity" && on_gpu {
+            primary_baseline = Some(gpu_ms);
+        }
+        if name.starts_with("primary ")
+            && name != "primary identity"
+            && on_gpu
+            && let Some(baseline) = primary_baseline
+        {
+            eprintln!("  incremental primary cost: {:.1} ms", (gpu_ms - baseline).max(0.));
+        }
+        if has_gpu && name.starts_with("primary ") && name != "primary identity" {
+            let cache = StageCache::default();
+            let _ = lightcraft_gpu::render_hs_candidate(&src, &info, &s, &req, Some(&cache), method);
+            let mut times = Vec::new();
+            for value in [10., 30., 60., 90., -30.] {
+                match name {
+                    "primary highlights/shadows" | "primary EIGF candidate B" => s.light.highlights = value,
+                    "primary clarity/texture/structure" => s.effects.clarity = value,
+                    "primary UCS colour" => s.mixer.orange.lum = value,
+                    "primary skin uniformity" => s.skin_tone.uniformity = value.abs(),
+                    _ => {}
+                }
+                let t = std::time::Instant::now();
+                assert!(lightcraft_gpu::render_hs_candidate(&src, &info, &s, &req, Some(&cache), method).is_some());
+                times.push(ms(t));
+            }
+            times.sort_by(f64::total_cmp);
+            eprintln!("  cached single-slider drag: median {:.1} ms, worst {:.1} ms", times[2], times[4]);
+        }
     }
     lightcraft_pipeline::patches::forget("lc-gpu-bench-patch");
 }
