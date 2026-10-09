@@ -3077,3 +3077,15 @@ ai	New	Baru
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Kelas langit {class} di luar rentang: model ini memiliki {classes} kelas (0 hingga {max})
 	{path} isn't a file	{path} bukan file
 	Custom models are not supported for this function	Model kustom tidak didukung untuk fungsi ini
+
+# V1 geometry engine command labels (command palette and shortcut editor).
+@id	path.boolean	Operasi Boolean Jalur
+@id	path.pathfinder	Pathfinder
+@id	path.outlineStroke	Ubah Goresan Menjadi Kontur
+@id	path.offset	Geser Jalur
+@id	path.simplify	Sederhanakan Jalur
+@id	path.smooth	Haluskan Jalur
+@id	path.reverse	Balik Arah Jalur
+@id	path.join	Gabungkan Jalur
+@id	path.splitAt	Pisahkan Jalur
+@id	path.finishCompound	Selesaikan Jalur Gabungan

@@ -3245,3 +3245,15 @@ ai	New	새 항목
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	하늘 클래스 {class} 값이 범위를 벗어났습니다. 이 모델은 {classes}개의 클래스(0~{max})를 가집니다
 	{path} isn't a file	{path}은(는) 파일이 아닙니다
 	Custom models are not supported for this function	이 기능에서는 사용자 지정 모델을 지원하지 않습니다
+
+# V1 geometry engine command labels (command palette and shortcut editor).
+@id	path.boolean	패스 부울 연산
+@id	path.pathfinder	패스파인더
+@id	path.outlineStroke	선 윤곽선 만들기
+@id	path.offset	패스 오프셋
+@id	path.simplify	패스 단순화
+@id	path.smooth	패스 매끄럽게
+@id	path.reverse	패스 방향 반전
+@id	path.join	패스 연결
+@id	path.splitAt	패스 분할
+@id	path.finishCompound	복합 패스 확정

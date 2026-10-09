@@ -183,6 +183,21 @@
           "licence": "MIT OR Apache-2.0",
           "licence_files": ["licenses/photocraft-NOTICE", "licenses/photocraft-LICENSE-MIT", "licenses/photocraft-LICENSE-APACHE", "licenses/photocraft-ATTRIBUTION.md"],
           "url": "https://github.com/storytold/photocraft"
+        },
+        {
+          "name": "VectorCraft",
+          "author": "ArtCraft Team and the VectorCraft contributors",
+          "used_for": "Curve geometry, boolean and Pathfinder operations, shape builder, offsets, outline stroke and path editing, adapted to Local Image documents.",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-NOTICE",
+            "assets/ATTRIBUTION-vectorcraft.md"
+          ],
+          "url": "https://github.com/storytold/vectorcraft"
         }
       ]
     },

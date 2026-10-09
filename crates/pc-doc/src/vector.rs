@@ -158,6 +158,29 @@ impl Path {
         }
         p
     }
+    /// Tight curve bounds `(x0, y0, x1, y1)`, including isolated anchors.
+    /// Adapted from VectorCraft `crates/geom/src/path.rs` at
+    /// d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).
+    /// Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
+    pub fn bounds(&self) -> Option<(f64, f64, f64, f64)> {
+        use kurbo::Shape;
+        if self.subpaths.iter().flat_map(|s| &s.knots).flat_map(|k| [k.anchor, k.in_ctrl, k.out_ctrl]).any(|p| !p.x.is_finite() || !p.y.is_finite()) {
+            return None;
+        }
+        let mut bounds: Option<kurbo::Rect> = None;
+        for s in &self.subpaths {
+            for k in &s.knots {
+                let p = kurbo::Point::new(k.anchor.x, k.anchor.y);
+                bounds = Some(bounds.map_or(kurbo::Rect::from_points(p, p), |r| r.union_pt(p)));
+            }
+            for [p0, p1, p2, p3] in s.segments() {
+                let pt = |p: Point| kurbo::Point::new(p.x, p.y);
+                let b = kurbo::CubicBez::new(pt(p0), pt(p1), pt(p2), pt(p3)).bounding_box();
+                bounds = Some(bounds.map_or(b, |r| r.union(b)));
+            }
+        }
+        bounds.map(|r| (r.x0, r.y0, r.x1, r.y1))
+    }
     /// Bounds of all anchors and control points `(x0, y0, x1, y1)` (a superset of the curve).
     pub fn control_bounds(&self) -> Option<(f64, f64, f64, f64)> {
         let mut it = self.subpaths.iter().flat_map(|s| s.knots.iter()).flat_map(|k| [k.anchor, k.in_ctrl, k.out_ctrl]);
@@ -324,6 +347,21 @@ mod tests {
         assert_eq!(p.control_bounds(), Some((1.0, 2.0, 5.0, 9.0)));
         let t = p.transform(&Affine::translate(1.0, 1.0));
         assert_eq!(t.control_bounds(), Some((2.0, 3.0, 6.0, 10.0)));
+    }
+
+    #[test]
+    fn analytic_bounds_ignore_unused_handles_and_include_singletons() {
+        let mut p = Path::new(vec![Subpath::polyline(&[(0.0, 0.0), (100.0, 0.0)])]);
+        p.subpaths[0].knots[0].in_ctrl = Point::new(-500.0, 500.0);
+        p.subpaths[0].knots[0].out_ctrl = Point::new(0.0, 100.0);
+        p.subpaths[0].knots[1].in_ctrl = Point::new(100.0, 100.0);
+        p.subpaths[0].knots[1].out_ctrl = Point::new(500.0, 500.0);
+        assert_eq!(p.bounds(), Some((0.0, 0.0, 100.0, 75.0)));
+        p.subpaths.push(Subpath::polyline(&[(200.0, 200.0)]));
+        assert_eq!(p.bounds(), Some((0.0, 0.0, 200.0, 200.0)));
+        assert_eq!(Path::default().bounds(), None);
+        p.subpaths[0].knots[0].anchor.x = f64::INFINITY;
+        assert_eq!(p.bounds(), None);
     }
 
     #[test]

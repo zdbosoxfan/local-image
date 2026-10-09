@@ -221,8 +221,8 @@ mod tests {
     fn min_filter_takes_the_window_minimum() {
         let img = Image::<f32>::from_fn(20, 10, |x, y| ((x * 3 + y * 7) % 11) as f32);
         let m = min_filter(&img, 2);
-        for y in 0..10 {
-            for x in 0..20 {
+        for y in 0usize..10 {
+            for x in 0usize..20 {
                 let mut want = f32::INFINITY;
                 for yy in y.saturating_sub(2)..=(y + 2).min(9) {
                     for xx in x.saturating_sub(2)..=(x + 2).min(19) {

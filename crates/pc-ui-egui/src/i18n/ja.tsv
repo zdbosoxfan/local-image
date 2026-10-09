@@ -2651,3 +2651,15 @@ ai	New	新着
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	空（スカイ）のクラス番号 {class} は範囲外です：このモデルには {classes} クラスあります（0〜{max}）
 	{path} isn't a file	{path} はファイルではありません
 	Custom models are not supported for this function	この機能ではカスタムモデルを使用できません
+
+# V1 geometry engine command labels (command palette and shortcut editor).
+@id	path.boolean	パスのブール演算
+@id	path.pathfinder	パスファインダー
+@id	path.outlineStroke	線をアウトライン化
+@id	path.offset	パスのオフセット
+@id	path.simplify	パスを単純化
+@id	path.smooth	パスを滑らかにする
+@id	path.reverse	パスの方向を反転
+@id	path.join	パスを連結
+@id	path.splitAt	パスを分割
+@id	path.finishCompound	複合パスを確定

@@ -1,0 +1,24 @@
+[package]
+name = "photocraft-pathops"
+description = "Document path geometry and constructive operations adapted from VectorCraft"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+photocraft-doc.workspace = true
+photocraft-geom.workspace = true
+photocraft-vector.workspace = true
+kurbo.workspace = true
+linesweeper.workspace = true
+polycool.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+serde_json.workspace = true

@@ -3002,3 +3002,15 @@ ai	New	Новые
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Класс неба {class} вне диапазона: модель имеет {classes} классов (от 0 до {max})
 	{path} isn't a file	{path} не является файлом
 	Custom models are not supported for this function	Пользовательские модели не поддерживаются для этой функции
+
+# V1 geometry engine command labels (command palette and shortcut editor).
+@id	path.boolean	Булевы операции с контурами
+@id	path.pathfinder	Обработка контуров
+@id	path.outlineStroke	Преобразовать обводку в контур
+@id	path.offset	Смещение контура
+@id	path.simplify	Упростить контуры
+@id	path.smooth	Сгладить контуры
+@id	path.reverse	Обратить направление контуров
+@id	path.join	Соединить контуры
+@id	path.splitAt	Разделить контур
+@id	path.finishCompound	Завершить составной контур

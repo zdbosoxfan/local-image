@@ -2701,3 +2701,15 @@ ai	New	Neu
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Die Himmelsklasse {class} liegt außerhalb des Bereichs: Dieses Modell hat {classes} Klassen (0 bis {max})
 	{path} isn't a file	{path} ist keine Datei
 	Custom models are not supported for this function	Benutzerdefinierte Modelle werden für diese Funktion nicht unterstützt
+
+# V1 geometry engine command labels (command palette and shortcut editor).
+@id	path.boolean	Boolesche Pfadoperationen
+@id	path.pathfinder	Pathfinder
+@id	path.outlineStroke	Konturlinie erstellen
+@id	path.offset	Pfad versetzen
+@id	path.simplify	Pfade vereinfachen
+@id	path.smooth	Pfade glätten
+@id	path.reverse	Pfadrichtung umkehren
+@id	path.join	Pfade verbinden
+@id	path.splitAt	Pfad teilen
+@id	path.finishCompound	Zusammengesetzten Pfad abschließen

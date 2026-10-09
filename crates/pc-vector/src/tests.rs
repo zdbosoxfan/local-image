@@ -369,3 +369,16 @@ fn joined_subpaths_fill_as_one_component() {
     let lone = Path::new(vec![Subpath::polygon(&[(2.0, 2.0), (8.0, 2.0), (8.0, 8.0)]).with_op(PathOp::Join)]);
     assert_eq!(cov(&lone, r)[3 * 20 + 6], 1.0);
 }
+
+#[test]
+fn analytic_curve_bounds_and_sparse_shape_cache() {
+    let path = crate::shapes::ellipse(100.0, 120.0, 60.0, 40.0);
+    let bounds = path.bounds().unwrap();
+    assert_eq!(bounds, (100.0, 120.0, 160.0, 160.0));
+    let covered: f64 = crate::path_coverage(&path, photocraft_geom::Rect::new(96, 116, 164, 164)).iter().map(|v| f64::from(*v)).sum();
+    assert!((covered - std::f64::consts::PI * 30.0 * 20.0).abs() < 1.0);
+    let shape = photocraft_doc::ShapeLayer { path, fill: Some(photocraft_doc::Fill::Solid(photocraft_color::Color::BLACK)), ..Default::default() };
+    let surface = crate::render_shape(&shape, photocraft_color::PixelFormat::RGBA8, photocraft_geom::Rect::new(0, 0, 6000, 4000));
+    let content = surface.content_bounds();
+    assert!(content.width() <= 256 && content.height() <= 256, "cache must stay bounds-limited: {content:?}");
+}

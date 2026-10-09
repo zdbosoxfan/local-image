@@ -592,6 +592,7 @@ mod tests {
                 | "path.moveHandle"
                 | "path.bendSegment"
                 | "path.convertPoint"
+                | "path.splitAt"
                 | "path.clippingPath.set"
                 | "path.rename"
                 | "select.toWorkPath"

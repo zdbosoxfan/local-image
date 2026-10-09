@@ -2668,3 +2668,15 @@ ai	New	Nové
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Třída oblohy {class} je mimo rozsah: tento model má {classes} tříd (0 až {max})
 	{path} isn't a file	{path} není soubor
 	Custom models are not supported for this function	Vlastní modely nejsou pro tuto funkci podporovány
+
+# V1 geometry engine command labels (command palette and shortcut editor).
+@id	path.boolean	Booleovské operace s cestami
+@id	path.pathfinder	Pathfinder
+@id	path.outlineStroke	Převést tah na obrys
+@id	path.offset	Odsadit cestu
+@id	path.simplify	Zjednodušit cesty
+@id	path.smooth	Vyhladit cesty
+@id	path.reverse	Obrátit cesty
+@id	path.join	Spojit cesty
+@id	path.splitAt	Rozdělit cestu
+@id	path.finishCompound	Dokončit složenou cestu

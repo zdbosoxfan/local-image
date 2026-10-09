@@ -85,6 +85,7 @@ pub mod redeye_cmds;
 pub mod render_cmds;
 pub mod retouch_cmds;
 // local-image: Edit › Paste Special › Paste Seamless.
+pub mod pathops_cmds;
 pub mod seamless_cmds;
 pub mod select_extra_cmds;
 pub mod selection_cmds;

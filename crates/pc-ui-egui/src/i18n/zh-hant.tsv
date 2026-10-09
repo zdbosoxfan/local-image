@@ -2645,3 +2645,15 @@ ai	New	最新
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	天空類別 {class} 超出範圍：此模型具有 {classes} 個類別（0 到 {max}）
 	{path} isn't a file	{path} 不是檔案
 	Custom models are not supported for this function	此功能不支援自訂模型
+
+# V1 geometry engine command labels (command palette and shortcut editor).
+@id	path.boolean	路徑布林運算
+@id	path.pathfinder	路徑管理員
+@id	path.outlineStroke	描邊轉外框
+@id	path.offset	偏移路徑
+@id	path.simplify	簡化路徑
+@id	path.smooth	平滑路徑
+@id	path.reverse	反轉路徑方向
+@id	path.join	連接路徑
+@id	path.splitAt	分割路徑
+@id	path.finishCompound	完成複合路徑

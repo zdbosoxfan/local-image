@@ -2733,3 +2733,15 @@ ai	New	Nuevos
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	La clase de cielo {class} está fuera de rango: este modelo tiene {classes} clases (0 a {max})
 	{path} isn't a file	{path} no es un archivo
 	Custom models are not supported for this function	Esta función no admite modelos personalizados
+
+# V1 geometry engine command labels (command palette and shortcut editor).
+@id	path.boolean	Operaciones booleanas de trazados
+@id	path.pathfinder	Buscatrazos
+@id	path.outlineStroke	Contornear trazo
+@id	path.offset	Desplazar trazado
+@id	path.simplify	Simplificar trazados
+@id	path.smooth	Suavizar trazados
+@id	path.reverse	Invertir trazados
+@id	path.join	Unir trazados
+@id	path.splitAt	Dividir trazado
+@id	path.finishCompound	Finalizar trazado compuesto

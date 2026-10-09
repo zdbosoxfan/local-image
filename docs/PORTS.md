@@ -46,6 +46,30 @@ updated to a newer upstream commit, update its row (commit and date) rather than
 | `crates/lc-raw/src/camera_matrices.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/camconst.json` | `5f486d3678b34c74ba0c63571c17babe20935019` | GPL-3.0-or-later | 2026-10-09 |
 | `crates/lc-color/src/profile.rs`, `camera.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/dcp.cc` (table interpolation, matrix blending) | `5f486d3678b34c74ba0c63571c17babe20935019` | GPL-3.0-or-later | 2026-10-09 |
 | `crates/lc-raw/data/dcp/` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtdata/dcpprofiles/` (explicit embedded-rights allowlist) | `5f486d3678b34c74ba0c63571c17babe20935019` | CC0-1.0 / public domain; per-file rights + SHA-256 in manifest | 2026-10-09 |
+| `crates/pc-pathops/src/geom/path.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/geom/src/path.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-pathops/src/geom/bez.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/geom/src/bez.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-pathops/src/geom/arc.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/geom/src/arc.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-pathops/src/geom/hit.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/geom/src/hit.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-pathops/src/geom/shapes.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/geom/src/shapes.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-pathops/src/boolean.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/pathops/src/boolean.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-pathops/src/pathfinder.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/pathops/src/pathfinder.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-pathops/src/planar.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/pathops/src/planar.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-pathops/src/offset.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/pathops/src/offset.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-pathops/src/edit.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/pathops/src/edit.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-pathops/src/fit.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/pathops/src/fit.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-pathops/tests/upstream_ops.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/pathops/tests/ops.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-pathops/tests/upstream_regressions.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/pathops/tests/regressions.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-pathops/tests/upstream_props.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/pathops/tests/props.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-pathops/tests/common/mod.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/pathops/tests/common/mod.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-doc/src/vector.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/geom/src/path.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-pathops/src/geom/corners.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/geom/src/corners.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-pathops/tests/support/geom.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/testkit/src/geom.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-pathops/tests/support/strategies.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/testkit/src/strategies.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-pathops/tests/upstream_prop_pathops.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/pathops/tests/prop_pathops.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-pathops/tests/upstream_prop_geom.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/geom/tests/prop_geom.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-engine/tests/vector_v1.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/engine/src/tests_pathops.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-engine/tests/vector_v1.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/engine/src/tests_outlinestroke.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
+| `crates/pc-pathops/src/kernel.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/pathops/src/lib.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
 
 Colour/tone notices: [`rawler-NOTICE.md`](../licenses/rawler-NOTICE.md),
 [`rawtherapee-NOTICE.md`](../licenses/rawtherapee-NOTICE.md), and the colour/tone section of
