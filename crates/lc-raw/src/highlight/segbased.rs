@@ -10,6 +10,7 @@
 //! GUI diagnostic masks and darktable's GUI chroma cache are host concerns and omitted.
 use super::segmentation::{ID_MASK, Seg};
 use crate::{Cfa, Normalized};
+use rayon::prelude::*;
 
 const BORDER: usize = 8;
 
@@ -69,9 +70,10 @@ fn raw_to_plane(w: usize, y: usize, x: usize) -> usize {
 fn refavg(input: &[f32], w: usize, h: usize, cfa: &Cfa, y: usize, x: usize) -> f32 {
     let (mut sum, mut count) = ([0.0f32; 3], [0.0f32; 3]);
     for yy in y.saturating_sub(1)..(y + 2).min(h - 1) {
-        for xx in x.saturating_sub(1)..(x + 2).min(w - 1) {
-            let c = cfa.color_at(xx, yy) as usize;
-            sum[c] += input[yy * w + xx].max(0.0);
+        let xmin = x.saturating_sub(1);
+        for (dx, &v) in input[yy * w + xmin..yy * w + (x + 2).min(w - 1)].iter().enumerate() {
+            let c = cfa.color_at(xmin + dx, yy) as usize;
+            sum[c] += v.max(0.0);
             count[c] += 1.0;
         }
     }
@@ -88,18 +90,21 @@ fn opposed(input: &[f32], w: usize, h: usize, cfa: &Cfa, clips: [f32; 3]) -> Vec
     let (mw, mh) = (w / 3, h / 3);
     let size = mw.max(1) * mh.max(1);
     let mut masks = vec![[false; 3]; size];
-    for my in 0..mh {
-        for mx in 0..mw {
+    masks.par_chunks_mut(mw).enumerate().for_each(|(my, row)| {
+        for (mx, mask) in row.iter_mut().enumerate() {
             for y in 3 * my..3 * my + 3 {
                 for x in 3 * mx..3 * mx + 3 {
                     let c = cfa.color_at(x, y) as usize;
-                    masks[my * mw + mx][c] |= input[y * w + x] >= clips[c];
+                    mask[c] |= input[y * w + x] >= clips[c];
                 }
             }
         }
-    }
+    });
     let mut dilated = masks.clone();
-    for y in 3..mh.saturating_sub(3) {
+    dilated.par_chunks_mut(mw).enumerate().for_each(|(y, row)| {
+        if y < 3 || y + 3 >= mh {
+            return;
+        }
         for x in 3..mw.saturating_sub(3) {
             for dy in -3isize..=3 {
                 for dx in -3isize..=3 {
@@ -107,13 +112,27 @@ fn opposed(input: &[f32], w: usize, h: usize, cfa: &Cfa, clips: [f32; 3]) -> Vec
                         continue;
                     }
                     let m = masks[(y as isize + dy) as usize * mw + (x as isize + dx) as usize];
-                    for (o, v) in dilated[y * mw + x].iter_mut().zip(m) {
+                    for (o, v) in row[x].iter_mut().zip(m) {
                         *o |= v;
                     }
                 }
             }
         }
-    }
+    });
+    // Evaluate expensive reference averages in parallel, then accumulate chroma
+    // in the original pixel order. A floating-point parallel reduction would
+    // change the chroma and every clipped pixel depending on it.
+    let mut deltas = vec![0.0; w * h];
+    deltas.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
+        for (x, delta) in row.iter_mut().enumerate() {
+            let c = cfa.color_at(x, y) as usize;
+            let i = (y / 3) * mw + x / 3;
+            let v = input[y * w + x];
+            if i < size && dilated[i][c] && v < clips[c] && v > 0.2 * clips[c] {
+                *delta = v - cube(refavg(input, w, h, cfa, y, x));
+            }
+        }
+    });
     let (mut sums, mut counts) = ([0.0f32; 3], [0usize; 3]);
     for y in 0..h {
         for x in 0..w {
@@ -122,14 +141,14 @@ fn opposed(input: &[f32], w: usize, h: usize, cfa: &Cfa, clips: [f32; 3]) -> Vec
             let v = input[y * w + x];
             // Last partial blocks fall in upstream's zero-filled allocation padding.
             if i < size && dilated[i][c] && v < clips[c] && v > 0.2 * clips[c] {
-                sums[c] += v - cube(refavg(input, w, h, cfa, y, x));
+                sums[c] += deltas[y * w + x];
                 counts[c] += 1;
             }
         }
     }
     let chroma: [f32; 3] = std::array::from_fn(|c| if counts[c] > 100 { sums[c] / counts[c] as f32 } else { 0.0 });
     input
-        .iter()
+        .par_iter()
         .enumerate()
         .map(|(i, &v)| {
             let (x, y) = (i % w, i / w);
@@ -154,6 +173,10 @@ fn extend(p: &mut [f32], w: usize, h: usize, b: usize) {
             p[(h - y - 1) * w + x] = bot;
         }
     }
+}
+fn plane_rows<T: Send>(planes: &mut [Vec<T>; 3], w: usize) -> impl IndexedParallelIterator<Item = [&mut [T]; 3]> {
+    let [a, b, c] = planes;
+    a.par_chunks_mut(w).zip(b.par_chunks_mut(w)).zip(c.par_chunks_mut(w)).map(|((a, b), c)| [a, b, c])
 }
 fn weight(p: &[f32], i: usize, w: usize, clip: f32) -> f32 {
     let mut values = [0.0; 21];
@@ -180,52 +203,63 @@ fn weight(p: &[f32], i: usize, w: usize, clip: f32) -> f32 {
 }
 fn candidates(p: &[f32], reference: &[f32], s: &mut Seg, clip: f32, bad: f32) {
     let w = s.width as usize;
-    for id in 2..s.nr as usize {
-        if s.ymax[id] - s.ymin[id] <= 2 || s.xmax[id] - s.xmin[id] <= 2 {
-            continue;
-        }
-        let mut best = 0;
-        let mut bestweight = 0.0;
-        for y in (s.border + 2).max(s.ymin[id] - 2)..(s.height - s.border - 2).min(s.ymax[id] + 3) {
-            for x in (s.border + 2).max(s.xmin[id] - 2)..(s.width - s.border - 2).min(s.xmax[id] + 3) {
-                let i = y as usize * w + x as usize;
-                if s.id(i) == id && p[i] < clip {
-                    let k = weight(p, i, w, clip) * if s.data[i] & ID_MASK != 0 { 1.0 } else { 0.75 };
-                    if k > bestweight {
-                        bestweight = k;
-                        best = i;
+    let values: Vec<_> = (2..s.nr as usize)
+        .into_par_iter()
+        .map(|id| {
+            if s.ymax[id] - s.ymin[id] <= 2 || s.xmax[id] - s.xmin[id] <= 2 {
+                return (s.val1[id], s.val2[id]);
+            }
+            let ymin = (s.border + 2).max(s.ymin[id] - 2);
+            let ymax = (s.height - s.border - 2).min(s.ymax[id] + 3);
+            let rows: Vec<_> = (ymin..ymax)
+                .into_par_iter()
+                .map(|y| {
+                    let (mut best, mut bestweight) = (0, 0.0);
+                    for x in (s.border + 2).max(s.xmin[id] - 2)..(s.width - s.border - 2).min(s.xmax[id] + 3) {
+                        let i = y as usize * w + x as usize;
+                        if s.id(i) == id && p[i] < clip {
+                            let k = weight(p, i, w, clip) * if s.data[i] & ID_MASK != 0 { 1.0 } else { 0.75 };
+                            if k > bestweight {
+                                bestweight = k;
+                                best = i;
+                            }
+                        }
+                    }
+                    (best, bestweight)
+                })
+                .collect();
+            let (best, bestweight) = rows.into_iter().fold((0, 0.0), |best, row| if row.1 > best.1 { row } else { best });
+            if best == 0 || bestweight <= 1.0 - bad {
+                return (s.val1[id], s.val2[id]);
+            }
+            let weights = [1.0, 4.0, 6.0, 4.0, 1.0];
+            let (mut sum, mut cnt) = (0.0, 0.0);
+            for y in -2isize..=2 {
+                for x in -2isize..=2 {
+                    let i = (best as isize + y * w as isize + x) as usize;
+                    if p[i] < clip {
+                        let k = weights[(y + 2) as usize] * weights[(x + 2) as usize];
+                        sum += p[i] * k;
+                        cnt += k;
                     }
                 }
             }
-        }
-        if best == 0 || bestweight <= 1.0 - bad {
-            continue;
-        }
-        let weights = [1.0, 4.0, 6.0, 4.0, 1.0];
-        let (mut sum, mut cnt) = (0.0, 0.0);
-        for y in -2isize..=2 {
-            for x in -2isize..=2 {
-                let i = (best as isize + y * w as isize + x) as usize;
-                if p[i] < clip {
-                    let k = weights[(y + 2) as usize] * weights[(x + 2) as usize];
-                    sum += p[i] * k;
-                    cnt += k;
-                }
+            let av = sum / cnt.max(1.0);
+            if av > 0.125 * clip {
+                return (av.min(clip), reference[best]);
             }
-        }
-        let av = sum / cnt.max(1.0);
-        if av > 0.125 * clip {
-            s.val1[id] = av.min(clip);
-            s.val2[id] = reference[best];
-        }
+            (s.val1[id], s.val2[id])
+        })
+        .collect();
+    for (id, (v1, v2)) in (2..s.nr as usize).zip(values) {
+        s.val1[id] = v1;
+        s.val2[id] = v2;
     }
 }
 
 // Felzenszwalb/Huttenlocher lower envelope of parabolas, exactly the upstream two-pass EDT.
-fn transform_1d(f: &[f32]) -> Vec<f32> {
+fn transform_1d(f: &[f32], d: &mut [f32], z: &mut [f32], v: &mut [usize]) {
     let n = f.len();
-    let mut z = vec![0.0; n + 1];
-    let mut v = vec![0usize; n];
     let mut k = 0;
     z[0] = -1e20;
     z[1] = 1e20;
@@ -242,33 +276,46 @@ fn transform_1d(f: &[f32]) -> Vec<f32> {
         z[k + 1] = 1e20;
     }
     k = 0;
-    (0..n)
-        .map(|q| {
-            while z[k + 1] < (q as f32) {
-                k += 1;
-            }
-            ((q as f32) - (v[k] as f32)).powi(2) + f[v[k]]
-        })
-        .collect()
+    for (q, out) in d.iter_mut().enumerate() {
+        while z[k + 1] < (q as f32) {
+            k += 1;
+        }
+        *out = ((q as f32) - (v[k] as f32)).powi(2) + f[v[k]];
+    }
 }
 fn distance_transform(p: &mut [f32], w: usize, h: usize) -> f32 {
-    for x in 0..w {
-        let f: Vec<_> = (0..h).map(|y| p[y * w + x]).collect();
-        let d = transform_1d(&f);
-        for y in 0..h {
-            p[y * w + x] = d[y];
-        }
-    }
-    let mut max = 0.0f32;
-    for y in 0..h {
-        let d = transform_1d(&p[y * w..(y + 1) * w]);
-        for x in 0..w {
-            p[y * w + x] = d[x].sqrt();
-            max = max.max(p[y * w + x]);
-        }
-    }
-    max
+    // Column-major staging makes each column independently writable in safe
+    // Rust. Scratch is reused by Rayon jobs rather than allocated per line.
+    let mut columns = vec![0.0; w * h];
+    columns.par_chunks_mut(h).enumerate().for_each_init(
+        || (vec![0.0; h], vec![0.0; h + 1], vec![0usize; h]),
+        |(f, z, v), (x, column)| {
+            for (y, value) in f.iter_mut().enumerate() {
+                *value = p[y * w + x];
+            }
+            transform_1d(f, column, z, v);
+        },
+    );
+    p.par_chunks_mut(w)
+        .enumerate()
+        .map_init(
+            || (vec![0.0; w], vec![0.0; w + 1], vec![0usize; w]),
+            |(f, z, v), (y, row)| {
+                for (x, value) in f.iter_mut().enumerate() {
+                    *value = columns[x * h + y];
+                }
+                transform_1d(f, row, z, v);
+                let mut max = 0.0f32;
+                for value in row {
+                    *value = value.sqrt();
+                    max = max.max(*value);
+                }
+                max
+            },
+        )
+        .reduce(|| 0.0, f32::max)
 }
+
 fn scharr(p: &[f32], i: usize, w: usize) -> f32 {
     let at = |x: isize, y: isize| p[(i as isize + y * w as isize + x) as usize];
     let gx = 47.0 / 255.0 * (at(-1, -1) - at(1, -1) + at(-1, 1) - at(1, 1)) + 162.0 / 255.0 * (at(-1, 0) - at(1, 0));
@@ -279,41 +326,49 @@ fn blur(p: &[f32], w: usize, h: usize) -> Vec<f32> {
     crate::numerics::gaussian9(p, w, h, 1.2, 0.0, 20.0)
 }
 fn box_mean(p: &mut [f32], w: usize, h: usize, r: usize) {
-    // Shrinking windows at boundaries, two separable passes per iteration.
+    // Preserve each line's running-sum order and shrinking boundary window.
+    // Column-major staging permits independent vertical sums without unsafe.
+    let mut tmp = vec![0.0; w * h];
+    let mut columns = vec![0.0; w * h];
     for _ in 0..2 {
-        let mut tmp = vec![0.0; w * h];
-        for y in 0..h {
+        tmp.par_chunks_mut(w).zip(p.par_chunks(w)).for_each(|(out, row)| {
             let mut sum = 0.0;
-            for x in 0..r.min(w) {
-                sum += p[y * w + x];
+            for &v in &row[..r.min(w)] {
+                sum += v;
             }
-            for x in 0..w {
+            for (x, value) in out.iter_mut().enumerate() {
                 if x > r {
-                    sum -= p[y * w + x - r - 1];
+                    sum -= row[x - r - 1];
                 }
                 if x + r < w {
-                    sum += p[y * w + x + r];
+                    sum += row[x + r];
                 }
-                tmp[y * w + x] = sum / ((x + r + 1).min(w) - x.saturating_sub(r)) as f32;
+                *value = sum / ((x + r + 1).min(w) - x.saturating_sub(r)) as f32;
             }
-        }
-        for x in 0..w {
+        });
+        columns.par_chunks_mut(h).enumerate().for_each(|(x, column)| {
             let mut sum = 0.0;
             for y in 0..r.min(h) {
                 sum += tmp[y * w + x];
             }
-            for y in 0..h {
+            for (y, value) in column.iter_mut().enumerate() {
                 if y > r {
                     sum -= tmp[(y - r - 1) * w + x];
                 }
                 if y + r < h {
                     sum += tmp[(y + r) * w + x];
                 }
-                p[y * w + x] = sum / ((y + r + 1).min(h) - y.saturating_sub(r)) as f32;
+                *value = sum / ((y + r + 1).min(h) - y.saturating_sub(r)) as f32;
             }
-        }
+        });
+        p.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
+            for (x, value) in row.iter_mut().enumerate() {
+                *value = columns[x * h + y];
+            }
+        });
     }
 }
+
 fn segment_gradients(distance: &[f32], gradient: &mut [f32], s: &Seg, id: usize, mode: Recovery) {
     let w = s.width as usize;
     let (xmin, xmax, ymin, ymax) = (
@@ -421,8 +476,21 @@ pub fn segmentation(n: &mut Normalized, wb: [f32; 3], clip: f32, opts: &Segmenta
     let clip = clip.max(0.1);
     let clips = wb.map(|v| clip * v);
     let cubes = clips.map(f32::cbrt);
-    let input: Vec<_> = n.data.iter().enumerate().map(|(i, &v)| v * wb[cfa.color_at(i % w, i / w) as usize]).collect();
-    let count = input.iter().enumerate().filter(|(i, v)| **v >= clips[cfa.color_at(i % w, i / w) as usize]).count();
+    let mut input = vec![0.0; w * h];
+    let count: usize = input
+        .par_chunks_mut(w)
+        .zip(n.data.par_chunks(w))
+        .enumerate()
+        .map(|(y, (out, row))| {
+            let mut count = 0;
+            for (x, (value, &v)) in out.iter_mut().zip(row).enumerate() {
+                let c = cfa.color_at(x, y) as usize;
+                *value = v * wb[c];
+                count += usize::from(*value >= clips[c]);
+            }
+            count
+        })
+        .sum();
     if count == 0 {
         return 0;
     }
@@ -434,16 +502,33 @@ pub fn segmentation(n: &mut Normalized, wb: [f32; 3], clip: f32, opts: &Segmenta
     let mut refs: [Vec<f32>; 3] = std::array::from_fn(|_| vec![0.0; size]);
     let mut segments: [Seg; 4] = std::array::from_fn(|_| Seg::new(pw, ph, BORDER + 1, slots));
     let xshift = if cfa.is_bayer() && cfa.color_at(0, 0) == 1 { 1 } else { 2 };
-    let mut any = 0;
-    let mut all = false;
-    for y in 1..h - 1 {
-        for x in 1..w - 1 {
-            if x % 3 == xshift && y % 3 == 1 {
+    let [s0, s1, s2, s3] = &mut segments;
+    let labels = s0
+        .data
+        .par_chunks_mut(pw)
+        .zip(s1.data.par_chunks_mut(pw))
+        .zip(s2.data.par_chunks_mut(pw))
+        .zip(s3.data.par_chunks_mut(pw))
+        .map(|(((a, b), c), d)| [a, b, c, d]);
+    let (any, all) = plane_rows(&mut planes, pw)
+        .zip(plane_rows(&mut refs, pw))
+        .zip(labels)
+        .enumerate()
+        .map(|(py, ((planes, refs), labels))| {
+            if py < BORDER {
+                return (0, false);
+            }
+            let y = (py - BORDER) * 3 + 1;
+            if y + 1 >= h {
+                return (0, false);
+            }
+            let (mut any, mut all) = (0, false);
+            for x in (xshift..w - 1).step_by(3) {
                 let (mut mean, mut cnt) = ([0.0f32; 3], [0.0f32; 3]);
                 for yy in y - 1..y + 2 {
-                    for xx in x - 1..x + 2 {
-                        let c = cfa.color_at(xx, yy) as usize;
-                        mean[c] += output[yy * w + xx];
+                    for (dx, &v) in output[yy * w + x - 1..yy * w + x + 2].iter().enumerate() {
+                        let c = cfa.color_at(x - 1 + dx, yy) as usize;
+                        mean[c] += v;
                         cnt[c] += 1.0;
                     }
                 }
@@ -451,70 +536,93 @@ pub fn segmentation(n: &mut Normalized, wb: [f32; 3], clip: f32, opts: &Segmenta
                     mean[c] = if cnt[c] > 0.0 { (mean[c] / cnt[c]).cbrt() } else { 0.0 };
                 }
                 let opp = [0.5 * (mean[1] + mean[2]), 0.5 * (mean[0] + mean[2]), 0.5 * (mean[0] + mean[1])];
-                let i = raw_to_plane(pw, y, x);
+                let i = BORDER + x / 3;
                 let mut clipped = 0;
                 for c in 0..3 {
                     planes[c][i] = mean[c];
                     refs[c][i] = opp[c];
                     if mean[c] > cubes[c] {
                         clipped += 1;
-                        segments[c].data[i] = 1;
+                        labels[c][i] = 1;
                     }
                 }
-                segments[3].data[i] = i32::from(clipped == 3);
+                labels[3][i] = i32::from(clipped == 3);
                 all |= clipped == 3;
                 any += clipped;
             }
-        }
-    }
+            (any, all)
+        })
+        .reduce(|| (0, false), |(ac, aa), (bc, ba)| (ac + bc, aa || ba));
     if any >= 20 {
-        for c in 0..3 {
-            extend(&mut planes[c], pw, ph, BORDER);
-            segments[c].combine(opts.combine.min(8));
-            segments[c].segmentize();
-            candidates(&planes[c], &refs[c], &mut segments[c], cubes[c], opts.candidating.clamp(0.0, 1.0));
-        }
-        for y in 1..h - 1 {
-            for x in 1..w - 1 {
-                let i = y * w + x;
-                let c = cfa.color_at(x, y) as usize;
-                let v = input[i].max(0.0);
-                if v > clips[c] {
-                    let o = raw_to_plane(pw, y, x);
-                    let id = segments[c].id(o);
-                    if id > 1 && segments[c].val1[id] != 0.0 {
-                        let oval = cube(refavg(&input, w, h, cfa, y, x) + segments[c].val1[id] - segments[c].val2[id]);
-                        output[i] = v.max(oval);
-                        planes[c][o] = output[i];
+        planes.par_iter_mut().zip(refs.par_iter()).zip(segments[..3].par_iter_mut()).enumerate().for_each(|(c, ((plane, reference), seg))| {
+            extend(plane, pw, ph, BORDER);
+            seg.combine(opts.combine.min(8));
+            seg.segmentize();
+            candidates(plane, reference, seg, cubes[c], opts.candidating.clamp(0.0, 1.0));
+        });
+        // A plane cell is written by multiple CFA pixels. Partition by three
+        // source rows so the original last-write order stays local to one job.
+        let [p0, p1, p2] = &mut planes;
+        output
+            .par_chunks_mut(3 * w)
+            .zip(p0.par_chunks_mut(pw).skip(BORDER))
+            .zip(p1.par_chunks_mut(pw).skip(BORDER))
+            .zip(p2.par_chunks_mut(pw).skip(BORDER))
+            .enumerate()
+            .for_each(|(band, (((out, p0), p1), p2))| {
+                let plane_rows = [p0, p1, p2];
+                for (dy, row) in out.chunks_mut(w).enumerate() {
+                    let y = band * 3 + dy;
+                    if y == 0 || y + 1 >= h {
+                        continue;
+                    }
+                    for x in 1..w - 1 {
+                        let i = y * w + x;
+                        let c = cfa.color_at(x, y) as usize;
+                        let v = input[i].max(0.0);
+                        if v > clips[c] {
+                            let o = raw_to_plane(pw, y, x);
+                            let id = segments[c].id(o);
+                            if id > 1 && segments[c].val1[id] != 0.0 {
+                                let oval = cube(refavg(&input, w, h, cfa, y, x) + segments[c].val1[id] - segments[c].val2[id]);
+                                row[x] = v.max(oval);
+                                plane_rows[c][BORDER + x / 3] = row[x];
+                            }
+                        }
                     }
                 }
-            }
-        }
+            });
         if opts.recovery != Recovery::Off && all && opts.strength > 0.0 {
             let seg = &mut segments[3];
             seg.combine(opts.recovery.closing());
             let b = seg.border as usize;
             let mut dist = vec![0.0; size];
             let mut tmp = vec![0.0; size];
-            for y in b..ph - b {
+            tmp.par_chunks_mut(pw).zip(dist.par_chunks_mut(pw)).enumerate().for_each(|(y, (tmp, dist))| {
+                if y < b || y + b >= ph {
+                    return;
+                }
                 for x in b..pw - b {
                     let i = y * pw + x;
-                    tmp[i] = (planes[0][i] * wb[0] + planes[1][i] * wb[1] + planes[2][i] * wb[2]) / 3.0;
-                    dist[i] = if seg.data[i] == 1 { 1e20 } else { 0.0 };
+                    tmp[x] = (planes[0][i] * wb[0] + planes[1][i] * wb[1] + planes[2][i] * wb[2]) / 3.0;
+                    dist[x] = if seg.data[i] == 1 { 1e20 } else { 0.0 };
                 }
-            }
+            });
             extend(&mut tmp, pw, ph, b);
             let lum = blur(&tmp, pw, ph);
             let md = distance_transform(&mut dist, pw, ph);
             if md > 3.0 {
                 seg.segmentize(); // Upstream recout aliases refavg[2]; its outer interior row survives initialization.
                 let mut gradient = refs[2].clone();
-                for y in BORDER + 2..ph - BORDER - 2 {
+                gradient.par_chunks_mut(pw).enumerate().for_each(|(y, row)| {
+                    if y < BORDER + 2 || y + BORDER + 2 >= ph {
+                        return;
+                    }
                     for x in BORDER + 2..pw - BORDER - 2 {
                         let i = y * pw + x;
-                        gradient[i] = if dist[i] > 0.0 && dist[i] < 2.0 { 4.0 * scharr(&lum, i, pw) } else { 0.0 };
+                        row[x] = if dist[i] > 0.0 && dist[i] < 2.0 { 4.0 * scharr(&lum, i, pw) } else { 0.0 };
                     }
-                }
+                });
                 extend(&mut gradient, pw, ph, b);
                 for id in 2..seg.nr as usize {
                     let mut max = 0.0f32;
@@ -540,27 +648,30 @@ pub fn segmentation(n: &mut Normalized, wb: [f32; 3], clip: f32, opts: &Segmenta
                     }
                 }
                 let shift = 2.0 + opts.recovery.closing() as f32;
-                for y in 1..h - 1 {
+                output.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
+                    if y == 0 || y + 1 >= h {
+                        return;
+                    }
                     for x in 1..w - 1 {
                         let i = y * w + x;
                         let c = cfa.color_at(x, y) as usize;
                         if input[i].max(0.0) > clips[c] {
                             let o = raw_to_plane(pw, y, x);
                             let effect = opts.strength / (1.0 + (-(dist[o] - shift)).exp());
-                            output[i] += (gradient[o] * effect).max(0.0);
+                            row[x] += (gradient[o] * effect).max(0.0);
                         }
                     }
-                }
+                });
             }
         }
     }
-    for (i, v) in n.data.iter_mut().enumerate() {
+    n.data.par_iter_mut().enumerate().for_each(|(i, v)| {
         let c = cfa.color_at(i % w, i / w) as usize;
         // Preserve unclipped samples bit-for-bit across the temporary WB conversion.
         if input[i] >= clips[c] {
             *v = output[i] / wb[c];
         }
-    }
+    });
     count
 }
 
