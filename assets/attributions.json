@@ -18,6 +18,18 @@
       "intro": "Algorithms re-implemented in Rust from other projects (docs/PORTS.md). No C, C++ or Python from them is compiled or shipped.",
       "entries": [
         {
+          "name": "vkdt",
+          "used_for": "Primary Develop tools.",
+          "upstream": "src/pipe/modules/llap/reduce.comp, assemble.comp",
+          "commit": "afc34256fb22bcaf6dcf6503d19d5f9a6f477af5",
+          "ours": "crates/lc-pipeline/src/primary.rs, crates/lc-gpu/src/wgsl/primary.wgsl",
+          "licence": "BSD-2-Clause",
+          "licence_files": [
+            "licenses/vkdt-NOTICE.md"
+          ],
+          "url": "https://github.com/hanatos/vkdt/blob/afc34256fb22bcaf6dcf6503d19d5f9a6f477af5/src/pipe/modules/llap/reduce.comp"
+        },
+        {
           "name": "OpenCV",
           "used_for": "Opt-in face inference on the CPU, with no process-wide state or persistence.",
           "upstream": "modules/objdetect/src/face_detect.cpp",
