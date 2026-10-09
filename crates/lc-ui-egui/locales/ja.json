@@ -1193,5 +1193,9 @@
   "Instant Film": "インスタントフィルム",
   "Classic B&W Film": "クラシック白黒フィルム",
   "High-Speed B&W Film": "高感度白黒フィルム",
-  "Lens data: LensFun database (CC BY-SA 3.0, lensfun.github.io) via the lensfun crate (LGPL-3.0).": "レンズデータ：LensFunデータベース（CC BY-SA 3.0、lensfun.github.io）、lensfunクレート経由（LGPL-3.0）。"
+  "Lens data: LensFun database (CC BY-SA 3.0, lensfun.github.io) via the lensfun crate (LGPL-3.0).": "レンズデータ：LensFunデータベース（CC BY-SA 3.0、lensfun.github.io）、lensfunクレート経由（LGPL-3.0）。",
+  "Attributions": "帰属表示",
+  "Search attributions…": "帰属表示を検索…",
+  "No matches.": "一致する項目はありません。",
+  "Show licence text": "ライセンス全文を表示"
 }

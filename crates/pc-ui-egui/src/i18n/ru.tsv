@@ -2957,3 +2957,8 @@ ai	New	Новые
 	Added your new Develop edits as layer {name}	Ваши новые правки Develop добавлены как слой {name}
 	Open the Library to save into it	Откройте библиотеку, чтобы сохранить в неё
 	The layers below are unchanged; hide or delete the new layer to go back.	Нижние слои не изменены; чтобы вернуться, скройте или удалите новый слой.
+# Attributions page (li-attributions)
+	Attributions	Атрибуции
+	Search attributions…	Поиск атрибуций…
+	No matches.	Совпадений нет.
+	Show licence text	Показать текст лицензии

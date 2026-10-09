@@ -20,6 +20,8 @@ web-time = { workspace = true }
 lightcraft-engine = { workspace = true }
 lightcraft-preview = { workspace = true }
 egui = { workspace = true }
+# The Attributions page (Settings / Preferences / About).
+li-attributions = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }

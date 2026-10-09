@@ -2606,3 +2606,8 @@ ai	New	新着
 	Added your new Develop edits as layer {name}	新しい現像の編集をレイヤー {name} として追加しました
 	Open the Library to save into it	ライブラリに保存するにはライブラリを開いてください
 	The layers below are unchanged; hide or delete the new layer to go back.	下のレイヤーは変更されていません。元に戻すには新しいレイヤーを非表示にするか削除してください。
+# Attributions page (li-attributions)
+	Attributions	帰属表示
+	Search attributions…	帰属表示を検索…
+	No matches.	一致する項目はありません。
+	Show licence text	ライセンス全文を表示

@@ -2600,3 +2600,8 @@ ai	New	最新
 	Added your new Develop edits as layer {name}	已將您新的 Develop 編輯加入為圖層 {name}
 	Open the Library to save into it	請先開啟資料庫再儲存至其中
 	The layers below are unchanged; hide or delete the new layer to go back.	下方圖層未變更；如需還原，請隱藏或刪除新圖層。
+# Attributions page (li-attributions)
+	Attributions	致謝與授權
+	Search attributions…	搜尋致謝與授權…
+	No matches.	沒有符合的項目。
+	Show licence text	顯示授權全文
