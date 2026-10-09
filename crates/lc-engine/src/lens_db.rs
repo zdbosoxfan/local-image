@@ -123,7 +123,7 @@ pub fn search(camera: Option<&Named>, query: &str, limit: usize) -> Vec<Named> {
         })
         .map(Named::of_lens)
         .collect();
-    out.sort_by(|a, b| a.label().to_lowercase().cmp(&b.label().to_lowercase()));
+    out.sort_by_key(|n| n.label().to_lowercase());
     out.dedup();
     out.truncate(limit);
     out

@@ -319,7 +319,7 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
         let mut img = match binned {
             Some(img) => img,
             None => {
-                let dopts = lightcraft_raw::DemosaicOptions { dual_threshold: opts.dual_threshold, ..Default::default() };
+                let dopts = lightcraft_raw::DemosaicOptions { dual_threshold: opts.dual_threshold };
                 raw.develop_with(opts.method(max_edge), &dopts).map_err(|e| e.to_string())?
             }
         };

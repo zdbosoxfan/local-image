@@ -864,7 +864,7 @@ impl crate::Session {
             level,
             source,
             origin: p.source.clone(),
-            info: job_info(&p, &settings),
+            info: job_info(&p, settings),
             settings: Arc::new(settings.clone()),
             request: RenderRequest { apply_crop: true, ..RenderRequest::fit(edge, edge) },
             key: (ck.0 as u64) ^ ((ck.0 >> 64) as u64),
