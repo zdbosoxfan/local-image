@@ -3062,3 +3062,14 @@ ai	New	Baru
 	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	Memindahkan model yang tidak lagi dipakai aplikasi (U²-Net, TinySkyNet, MiDaS) ke Tempat Sampah.
 	the old models	model lama
 	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	Model kecil yang berjalan di prosesor komputer ini: tanpa ComfyUI atau GPU, unduhan cepat, dan foto Anda tidak pernah meninggalkan komputer. Setiap fungsi punya satu model yang direkomendasikan; Anda bisa memakai model ONNX sendiri.
+	Choose an ONNX model (a file ending in .onnx)	Pilih model ONNX (file yang berakhiran .onnx)
+	Not a depth model: it must output one depth map	Bukan model kedalaman: harus menghasilkan satu peta kedalaman
+	Not a sky model	Bukan model langit
+	Not a sky model: its output {shape} should be 1 map or one map per class	Bukan model langit: keluarannya {shape} harus 1 peta atau satu peta per kelas
+	Not a subject model: it must output one foreground map	Bukan model subjek: harus menghasilkan satu peta latar depan
+	The model has no input	Model tidak memiliki masukan
+	The model's input has {channels} channels; an RGB image (3) is needed	Masukan model memiliki {channels} saluran; diperlukan citra RGB (3)
+	The model's input is {height}×{width}; a square input (or a flexible size) is needed	Masukan model adalah {height}×{width}; diperlukan masukan persegi (atau ukuran fleksibel)
+	The model's input must be an image (batch × 3 × height × width)	Masukan model harus berupa citra (batch × 3 × tinggi × lebar)
+	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Kelas langit {class} di luar rentang: model ini memiliki {classes} kelas (0 hingga {max})
+	{path} isn't a file	{path} bukan file

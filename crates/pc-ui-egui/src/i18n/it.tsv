@@ -2720,3 +2720,14 @@ ai	New	Nuovi
 	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	Sposta nel Cestino i modelli che l'app non usa più (U²-Net, TinySkyNet, MiDaS).
 	the old models	i modelli vecchi
 	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	Piccoli modelli che funzionano sul processore di questo computer: nessun ComfyUI o GPU necessari, download rapidi e le tue foto non lasciano mai il computer. Ogni funzione ha un modello consigliato; puoi usare invece un tuo modello ONNX.
+	Choose an ONNX model (a file ending in .onnx)	Scegli un modello ONNX (un file con estensione .onnx)
+	Not a depth model: it must output one depth map	Non è un modello di profondità: deve produrre una mappa di profondità
+	Not a sky model	Non è un modello cielo
+	Not a sky model: its output {shape} should be 1 map or one map per class	Non è un modello cielo: il suo output {shape} dovrebbe essere 1 mappa o una mappa per classe
+	Not a subject model: it must output one foreground map	Non è un modello per il soggetto: deve produrre una mappa di primo piano
+	The model has no input	Il modello non ha input
+	The model's input has {channels} channels; an RGB image (3) is needed	L'input del modello ha {channels} canali; è necessaria un'immagine RGB (3)
+	The model's input is {height}×{width}; a square input (or a flexible size) is needed	L'input del modello è {height}×{width}; è necessario un input quadrato (o una dimensione flessibile)
+	The model's input must be an image (batch × 3 × height × width)	L'input del modello deve essere un'immagine (batch × 3 × altezza × larghezza)
+	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	La classe cielo {class} è fuori intervallo: questo modello ha {classes} classi (da 0 a {max})
+	{path} isn't a file	{path} non è un file

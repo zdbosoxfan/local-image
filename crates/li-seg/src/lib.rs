@@ -10,6 +10,7 @@
 //! image's peak value then mean 0.5 / std 1 (IS-Net) or ImageNet mean/std (U²-Net style), the
 //! first output map, min–max stretch, bilinear upscale.
 
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -553,28 +554,83 @@ fn safe_name(name: &str) -> String {
     s.trim_matches('.').to_owned()
 }
 
+/// Why a user-picked custom model cannot be used.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CustomModelError {
+    /// The path isn't a regular file.
+    NotAFile { path: PathBuf },
+    /// The file name doesn't end in `.onnx`.
+    NotOnnx,
+    /// The model has no input.
+    NoInput,
+    /// The model's input is not a 4D image tensor.
+    NotAnImageInput,
+    /// The model's input has a channel count other than 3.
+    WrongChannels { channels: i64 },
+    /// The model's input is not square.
+    NonSquareInput { height: i64, width: i64 },
+    /// The model's output isn't what a sky model should produce.
+    NotSkyModel,
+    /// The sky model's first output shape isn't a class map.
+    NotSkyModelOutput { shape: Vec<usize> },
+    /// The requested sky class index is out of range.
+    SkyClassOutOfRange { class: usize, classes: usize },
+    /// The subject model doesn't output a single foreground map.
+    NotSubjectModel,
+    /// The depth model doesn't output a single depth map.
+    NotDepthModel,
+    /// A tract load/optimise failure.
+    Other(String),
+}
+
+impl fmt::Display for CustomModelError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CustomModelError::NotAFile { path } => write!(f, "{} isn't a file", path.display()),
+            CustomModelError::NotOnnx => f.write_str("Choose an ONNX model (a file ending in .onnx)"),
+            CustomModelError::NoInput => f.write_str("The model has no input"),
+            CustomModelError::NotAnImageInput => f.write_str("The model's input must be an image (batch × 3 × height × width)"),
+            CustomModelError::WrongChannels { channels } => write!(f, "The model's input has {channels} channels; an RGB image (3) is needed"),
+            CustomModelError::NonSquareInput { height, width } => {
+                write!(f, "The model's input is {height}×{width}; a square input (or a flexible size) is needed")
+            }
+            CustomModelError::NotSkyModel => f.write_str("Not a sky model"),
+            CustomModelError::NotSkyModelOutput { shape } => write!(f, "Not a sky model: its output {shape:?} should be 1 map or one map per class"),
+            CustomModelError::SkyClassOutOfRange { class, classes } => {
+                write!(f, "The sky class {class} is out of range: this model has {classes} classes (0 to {})", classes - 1)
+            }
+            CustomModelError::NotSubjectModel => f.write_str("Not a subject model: it must output one foreground map"),
+            CustomModelError::NotDepthModel => f.write_str("Not a depth model: it must output one depth map"),
+            CustomModelError::Other(msg) => f.write_str(msg),
+        }
+    }
+}
+
+impl std::error::Error for CustomModelError {}
+
 /// The model's square input size when the file fixes it (`None` when it is dynamic).
-pub fn input_size(path: &Path) -> Result<Option<usize>> {
-    let model = tract_onnx::onnx().model_for_path(path).with_context(|| format!("Could not read {} as an ONNX model", path.display()))?;
-    let fact = model.input_fact(0).context("The model has no input")?;
+pub fn input_size(path: &Path) -> Result<Option<usize>, CustomModelError> {
+    let model = tract_onnx::onnx().model_for_path(path).map_err(|_| CustomModelError::Other(format!("Could not read {} as an ONNX model", path.display())))?;
+    let fact = model.input_fact(0).map_err(|_| CustomModelError::NoInput)?;
     let dim = |i: usize| fact.shape.dim(i).and_then(|d| d.concretize()).and_then(|d| d.to_i64().ok());
     if fact.shape.rank().concretize().is_some_and(|r| r != 4) {
-        bail!("The model's input must be an image (batch × 3 × height × width)");
+        return Err(CustomModelError::NotAnImageInput);
     }
     if let Some(c) = dim(1)
         && c != 3
     {
-        bail!("The model's input has {c} channels; an RGB image (3) is needed");
+        return Err(CustomModelError::WrongChannels { channels: c });
     }
     match (dim(2), dim(3)) {
         (Some(h), Some(w)) if h == w && h > 0 => Ok(Some(h as usize)),
-        (Some(h), Some(w)) => bail!("The model's input is {h}×{w}; a square input (or a flexible size) is needed"),
+        (Some(h), Some(w)) => Err(CustomModelError::NonSquareInput { height: h, width: w }),
         _ => Ok(None),
     }
 }
 
 /// A small synthetic photo to test a model on: a sky-blue gradient over a green ground, with a
 /// red block in the middle.
+#[cfg(test)]
 fn synthetic(w: usize, h: usize) -> Vec<u8> {
     let mut img = vec![255u8; w * h * 4];
     for y in 0..h {
@@ -593,21 +649,28 @@ fn synthetic(w: usize, h: usize) -> Vec<u8> {
     img
 }
 
-/// Checks that `path` can serve `group` as configured by `custom` (loads it and runs it once on a
-/// synthetic image). Errors say what doesn't fit.
-fn validate(custom: &Custom, path: &Path) -> Result<()> {
-    let seg = Segmenter::load_cfg(custom.config(), path)?;
-    let (w, h) = (96, 64);
-    let img = synthetic(w, h);
+/// Checks that `path` can serve `group` as configured by `custom` (loads it and checks its first
+/// output shape). Errors say what doesn't fit.
+fn validate(custom: &Custom, path: &Path) -> Result<(), CustomModelError> {
+    let seg = Segmenter::load_cfg(custom.config(), path).map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
+    let shape = seg.output_shape().map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
     match custom.group {
         Group::Subject => {
-            seg.predict(&img, w, h).context("Not a subject model: it must output one foreground map")?;
+            if single_map(&shape).is_none() {
+                return Err(CustomModelError::NotSubjectModel);
+            }
         }
         Group::Sky => {
-            seg.predict_sky(&img, w, h).context("Not a sky model")?;
+            let classes = custom.classes;
+            match shape.as_slice() {
+                [_, c, _, _] if *c == classes => {}
+                _ => return Err(CustomModelError::NotSkyModel),
+            }
         }
         Group::Depth => {
-            seg.predict_depth(&img, w, h).context("Not a depth model: it must output one depth map")?;
+            if single_map(&shape).is_none() {
+                return Err(CustomModelError::NotDepthModel);
+            }
         }
     }
     Ok(())
@@ -619,24 +682,25 @@ fn validate(custom: &Custom, path: &Path) -> Result<()> {
 /// file away (the Trash). Nothing changes when the model doesn't fit.
 pub fn add_custom(models_dir: &Path, group: Group, src: &Path, opts: CustomOptions, dispose: &dyn Fn(&Path) -> std::io::Result<()>) -> Result<Custom> {
     if !src.is_file() {
-        bail!("{} isn't a file", src.display());
+        return Err(CustomModelError::NotAFile { path: src.to_path_buf() }.into());
     }
     let name = src.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     if !name.to_lowercase().ends_with(".onnx") {
-        bail!("Choose an ONNX model (a file ending in .onnx)");
+        return Err(CustomModelError::NotOnnx.into());
     }
     let size = input_size(src)?.unwrap_or(group.official().size);
     let mut c = Custom { group, file: format!("{}-{}", group.key(), safe_name(&name)), name, size, norm: opts.norm, classes: 1, class: 0 };
     if group == Group::Sky {
         // a sky model gives one sigmoid map, or one logit map per class
-        let probe = Segmenter::load_cfg(Config { task: Task::Sky { classes: 1, class: 0, margin: 0.0 }, ..c.config() }, src)?;
-        let shape = probe.output_shape()?;
+        let probe = Segmenter::load_cfg(Config { task: Task::Sky { classes: 1, class: 0, margin: 0.0 }, ..c.config() }, src)
+            .map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
+        let shape = probe.output_shape().map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
         let classes = match shape.as_slice() {
             [_, ch, _, _] if *ch >= 1 => *ch,
-            other => bail!("Not a sky model: its output {other:?} should be 1 map or one map per class"),
+            other => return Err(CustomModelError::NotSkyModelOutput { shape: other.to_vec() }.into()),
         };
         if classes > 1 && opts.sky_class >= classes {
-            bail!("The sky class {} is out of range: this model has {classes} classes (0 to {})", opts.sky_class, classes - 1);
+            return Err(CustomModelError::SkyClassOutOfRange { class: opts.sky_class, classes }.into());
         }
         c.classes = classes;
         c.class = if classes > 1 { opts.sky_class } else { 0 };

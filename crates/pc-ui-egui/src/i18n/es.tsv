@@ -2718,3 +2718,14 @@ ai	New	Nuevos
 	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	Mueve a la papelera los modelos que la app ya no usa (U²-Net, TinySkyNet, MiDaS).
 	the old models	los modelos antiguos
 	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	Modelos pequeños que se ejecutan en el procesador de este equipo: sin ComfyUI ni GPU, descargas rápidas y sus fotos nunca salen del equipo. Cada función tiene un modelo recomendado; puede usar su propio modelo ONNX en su lugar.
+	Choose an ONNX model (a file ending in .onnx)	Elegir un modelo ONNX (un archivo con extensión .onnx)
+	Not a depth model: it must output one depth map	No es un modelo de profundidad: debe generar un mapa de profundidad
+	Not a sky model	No es un modelo de cielo
+	Not a sky model: its output {shape} should be 1 map or one map per class	No es un modelo de cielo: su salida {shape} debe ser 1 mapa o un mapa por clase
+	Not a subject model: it must output one foreground map	No es un modelo de sujeto: debe generar un mapa de primer plano
+	The model has no input	El modelo no tiene entrada
+	The model's input has {channels} channels; an RGB image (3) is needed	La entrada del modelo tiene {channels} canales; se necesita una imagen RGB (3)
+	The model's input is {height}×{width}; a square input (or a flexible size) is needed	La entrada del modelo es {height}×{width}; se necesita una entrada cuadrada (o un tamaño flexible)
+	The model's input must be an image (batch × 3 × height × width)	La entrada del modelo debe ser una imagen (lote × 3 × alto × ancho)
+	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	La clase de cielo {class} está fuera de rango: este modelo tiene {classes} clases (0 a {max})
+	{path} isn't a file	{path} no es un archivo

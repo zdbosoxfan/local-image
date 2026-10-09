@@ -355,6 +355,34 @@ fn pick_onnx() -> Option<std::path::PathBuf> {
     TEST_PICK.with(|p| p.borrow_mut().take())
 }
 
+/// Translates a custom-model validation error into a one-line reason.
+fn custom_model_reason(e: &li_seg::CustomModelError) -> String {
+    match e {
+        li_seg::CustomModelError::NotAFile { path } => crate::i18n::fmt(tl!("{path} isn't a file"), &[("path", &path.display().to_string())]),
+        li_seg::CustomModelError::NotOnnx => tl!("Choose an ONNX model (a file ending in .onnx)").to_owned(),
+        li_seg::CustomModelError::NoInput => tl!("The model has no input").to_owned(),
+        li_seg::CustomModelError::NotAnImageInput => tl!("The model's input must be an image (batch × 3 × height × width)").to_owned(),
+        li_seg::CustomModelError::WrongChannels { channels } => {
+            crate::i18n::fmt(tl!("The model's input has {channels} channels; an RGB image (3) is needed"), &[("channels", &channels.to_string())])
+        }
+        li_seg::CustomModelError::NonSquareInput { height, width } => crate::i18n::fmt(
+            tl!("The model's input is {height}×{width}; a square input (or a flexible size) is needed"),
+            &[("height", &height.to_string()), ("width", &width.to_string())],
+        ),
+        li_seg::CustomModelError::NotSkyModel => tl!("Not a sky model").to_owned(),
+        li_seg::CustomModelError::NotSkyModelOutput { shape } => {
+            crate::i18n::fmt(tl!("Not a sky model: its output {shape} should be 1 map or one map per class"), &[("shape", &format!("{shape:?}"))])
+        }
+        li_seg::CustomModelError::SkyClassOutOfRange { class, classes } => crate::i18n::fmt(
+            tl!("The sky class {class} is out of range: this model has {classes} classes (0 to {max})"),
+            &[("class", &class.to_string()), ("classes", &classes.to_string()), ("max", &(classes - 1).to_string())],
+        ),
+        li_seg::CustomModelError::NotSubjectModel => tl!("Not a subject model: it must output one foreground map").to_owned(),
+        li_seg::CustomModelError::NotDepthModel => tl!("Not a depth model: it must output one depth map").to_owned(),
+        li_seg::CustomModelError::Other(msg) => msg.clone(),
+    }
+}
+
 /// Tests the picked model and, when it fits, sets it as the function's custom model; in the
 /// background (loading a model takes a moment).
 fn start_custom(dir: std::path::PathBuf, group: li_seg::Group, src: std::path::PathBuf, opts: li_seg::CustomOptions) {
@@ -362,10 +390,16 @@ fn start_custom(dir: std::path::PathBuf, group: li_seg::Group, src: std::path::P
         return;
     }
     set_custom_job(&dir, group, Some(CustomJob::Testing));
+    // the drawing language is per thread: translate the reason in the UI's language
+    let lang = crate::i18n::current();
     let _ = std::thread::Builder::new().name("seg-custom".into()).spawn(move || {
         let job = match li_seg::add_custom(&dir, group, &src, opts, &dispose) {
             Ok(_) => CustomJob::Done,
-            Err(e) => CustomJob::Failed(format!("{e:#}")),
+            Err(e) => {
+                let reason =
+                    crate::i18n::with_language(lang, || e.downcast_ref::<li_seg::CustomModelError>().map(custom_model_reason)).unwrap_or_else(|| e.to_string());
+                CustomJob::Failed(reason)
+            }
         };
         set_custom_job(&dir, group, Some(job));
         refresh();

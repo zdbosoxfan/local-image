@@ -270,28 +270,28 @@ fn a_flexible_input_falls_back_to_the_official_size() {
 fn models_that_do_not_fit_are_refused_with_a_reason_and_change_nothing() {
     let dir = temp_models();
     let echo = picked(&dir, "echo.onnx", Some((32, 32)), Out::Echo);
-    let e = format!("{:#}", add_custom(&dir, Group::Subject, &echo, CustomOptions::default(), &keep).unwrap_err());
-    assert!(e.contains("Not a subject model"), "{e}");
-    let e = format!("{:#}", add_custom(&dir, Group::Depth, &echo, CustomOptions::default(), &keep).unwrap_err());
-    assert!(e.contains("Not a depth model"), "{e}");
+    let err = add_custom(&dir, Group::Subject, &echo, CustomOptions::default(), &keep).unwrap_err();
+    assert!(matches!(err.downcast_ref::<CustomModelError>(), Some(CustomModelError::NotSubjectModel)), "{err:#}");
+    let err = add_custom(&dir, Group::Depth, &echo, CustomOptions::default(), &keep).unwrap_err();
+    assert!(matches!(err.downcast_ref::<CustomModelError>(), Some(CustomModelError::NotDepthModel)), "{err:#}");
     // a sky model needs one map or one per class: this is 3 channels (RGB echoed), so class 5 is out of range
-    let e = format!("{:#}", add_custom(&dir, Group::Sky, &echo, CustomOptions { sky_class: 5, ..Default::default() }, &keep).unwrap_err());
-    assert!(e.contains("out of range"), "{e}");
+    let err = add_custom(&dir, Group::Sky, &echo, CustomOptions { sky_class: 5, ..Default::default() }, &keep).unwrap_err();
+    assert!(matches!(err.downcast_ref::<CustomModelError>(), Some(CustomModelError::SkyClassOutOfRange { class: 5, classes: 3 })), "{err:#}");
     // a sky model must have a channel axis
     let flat = picked(&dir, "flat.onnx", Some((32, 32)), Out::Flat);
-    let e = format!("{:#}", add_custom(&dir, Group::Sky, &flat, CustomOptions::default(), &keep).unwrap_err());
-    assert!(e.contains("Not a sky model"), "{e}");
+    let err = add_custom(&dir, Group::Sky, &flat, CustomOptions::default(), &keep).unwrap_err();
+    assert!(matches!(err.downcast_ref::<CustomModelError>(), Some(CustomModelError::NotSkyModelOutput { .. })), "{err:#}");
     // not square, not an image input, not ONNX at all
     let wide = picked(&dir, "wide.onnx", Some((64, 32)), Out::Map);
-    let e = format!("{:#}", add_custom(&dir, Group::Subject, &wide, CustomOptions::default(), &keep).unwrap_err());
-    assert!(e.contains("square"), "{e}");
+    let err = add_custom(&dir, Group::Subject, &wide, CustomOptions::default(), &keep).unwrap_err();
+    assert!(matches!(err.downcast_ref::<CustomModelError>(), Some(CustomModelError::NonSquareInput { height: 64, width: 32 })), "{err:#}");
     let junk = dir.join("picked/junk.onnx");
     std::fs::write(&junk, b"this is not a model").unwrap();
     assert!(add_custom(&dir, Group::Subject, &junk, CustomOptions::default(), &keep).is_err());
     let txt = dir.join("picked/readme.txt");
     std::fs::write(&txt, b"hi").unwrap();
-    let e = format!("{:#}", add_custom(&dir, Group::Subject, &txt, CustomOptions::default(), &keep).unwrap_err());
-    assert!(e.contains(".onnx"), "{e}");
+    let err = add_custom(&dir, Group::Subject, &txt, CustomOptions::default(), &keep).unwrap_err();
+    assert!(matches!(err.downcast_ref::<CustomModelError>(), Some(CustomModelError::NotOnnx)), "{err:#}");
     assert!(add_custom(&dir, Group::Subject, &dir.join("missing.onnx"), CustomOptions::default(), &keep).is_err());
     for g in Group::ALL {
         assert!(custom(&dir, g).is_none());
@@ -316,8 +316,8 @@ fn sky_models_are_one_sigmoid_map_or_class_logits() {
     assert_eq!((c.classes, c.class), (4, 2));
     assert_eq!(custom(&dir, Group::Sky).unwrap().classes, 4, "replaced, not added");
     assert!(shared_sky(&dir).unwrap().predict_sky(&synthetic(w, h), w, h).is_ok());
-    let e = format!("{:#}", add_custom(&dir, Group::Sky, &many, CustomOptions { sky_class: 4, ..Default::default() }, &keep).unwrap_err());
-    assert!(e.contains("0 to 3"), "{e}");
+    let err = add_custom(&dir, Group::Sky, &many, CustomOptions { sky_class: 4, ..Default::default() }, &keep).unwrap_err();
+    assert!(matches!(err.downcast_ref::<CustomModelError>(), Some(CustomModelError::SkyClassOutOfRange { class: 4, classes: 4 })), "{err:#}");
     assert_eq!(custom(&dir, Group::Sky).unwrap().class, 2, "a refused model leaves the setting alone");
     let _ = std::fs::remove_dir_all(dir);
 }

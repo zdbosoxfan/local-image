@@ -2636,3 +2636,14 @@ ai	New	新着
 	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	アプリが使わなくなったモデル（U²-Net、TinySkyNet、MiDaS）をゴミ箱に移動します。
 	the old models	古いモデル
 	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	このコンピュータのプロセッサで動く小さなモデルです。ComfyUI も GPU も不要で、ダウンロードが速く、写真がコンピュータの外に出ることはありません。機能ごとに推奨モデルが1つあり、代わりに独自の ONNX モデルも使えます。
+	Choose an ONNX model (a file ending in .onnx)	ONNXモデル（.onnxで終わるファイル）を選択
+	Not a depth model: it must output one depth map	深度モデルではありません：深度マップを1枚出力する必要があります
+	Not a sky model	空モデルではありません
+	Not a sky model: its output {shape} should be 1 map or one map per class	空モデルではありません：出力 {shape} は、1枚のマップまたはクラスごとに1枚のマップである必要があります
+	Not a subject model: it must output one foreground map	被写体モデルではありません：前景マップを1枚出力する必要があります
+	The model has no input	モデルに入力がありません
+	The model's input has {channels} channels; an RGB image (3) is needed	モデルの入力は {channels} チャンネルです；RGB画像（3）が必要です
+	The model's input is {height}×{width}; a square input (or a flexible size) is needed	モデルの入力は {height}×{width} です；正方形の入力（または可変サイズ）が必要です
+	The model's input must be an image (batch × 3 × height × width)	モデルの入力は画像（バッチ × 3 × 高さ × 幅）である必要があります
+	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	空（スカイ）のクラス番号 {class} は範囲外です：このモデルには {classes} クラスあります（0〜{max}）
+	{path} isn't a file	{path} はファイルではありません

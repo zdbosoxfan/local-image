@@ -2987,3 +2987,14 @@ ai	New	Новые
 	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	Перемещает в Корзину модели, которые приложение больше не использует (U²-Net, TinySkyNet, MiDaS).
 	the old models	старые модели
 	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	Небольшие модели, работающие на процессоре этого компьютера: не нужны ни ComfyUI, ни GPU, загрузка быстрая, а ваши фото не покидают компьютер. У каждой функции есть рекомендуемая модель; вместо неё можно использовать свою модель ONNX.
+	Choose an ONNX model (a file ending in .onnx)	Выберите модель ONNX (файл с расширением .onnx)
+	Not a depth model: it must output one depth map	Не является моделью глубины: она должна выводить одну карту глубины
+	Not a sky model	Не модель неба
+	Not a sky model: its output {shape} should be 1 map or one map per class	Не модель неба: её выход {shape} должен быть 1 картой или одной картой на класс
+	Not a subject model: it must output one foreground map	Не модель объекта: она должна выводить одну карту переднего плана
+	The model has no input	У модели нет входа
+	The model's input has {channels} channels; an RGB image (3) is needed	Вход модели имеет {channels} каналов; необходимо RGB-изображение (3)
+	The model's input is {height}×{width}; a square input (or a flexible size) is needed	Вход модели — {height}×{width}; требуется квадратный вход (или гибкий размер)
+	The model's input must be an image (batch × 3 × height × width)	Вход модели должен быть изображением (пакет × 3 × высота × ширина)
+	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Класс неба {class} вне диапазона: модель имеет {classes} классов (от 0 до {max})
+	{path} isn't a file	{path} не является файлом
