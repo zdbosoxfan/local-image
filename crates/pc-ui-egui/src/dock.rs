@@ -619,7 +619,8 @@ impl DockLayout {
     pub fn new_group(&mut self, tabs: &[Tab], lead: Tab, before: Option<Group>, pro: bool) -> Group {
         self.take(tabs, pro);
         let a = self.assignment(pro);
-        let empty = |g: Group| a.iter().any(|(x, l)| *x == g && l.is_empty());
+        // Tabs just taken out count as homeless (they'd fall back home), so ignore them here.
+        let empty = |g: Group| a.iter().any(|(x, l)| *x == g && l.iter().all(|t| tabs.contains(t)));
         let homes = std::iter::once(lead).chain(tabs.iter().copied()).map(Tab::home);
         let g = homes.into_iter().find(|h| empty(*h)).unwrap_or_else(|| {
             let used = self.order();
@@ -913,11 +914,7 @@ pub fn rail_click(app: &mut PhotocraftApp, g: Group, docked: bool) {
 /// The groups the dock column draws, in display order, with their tabs: open and not empty
 /// (Studio floats Properties outside the dock, so `pro` false leaves it out).
 pub fn docked(app: &PhotocraftApp, pro: bool) -> Vec<(Group, Vec<Tab>)> {
-    app.ui.dock
-        .assignment(is_pro(app))
-        .into_iter()
-        .filter(|(g, l)| !l.is_empty() && g.shown(&app.ui.panels) && (pro || *g != Group::Properties))
-        .collect()
+    app.ui.dock.assignment(is_pro(app)).into_iter().filter(|(g, l)| !l.is_empty() && g.shown(&app.ui.panels) && (pro || *g != Group::Properties)).collect()
 }
 
 // ----------------------------------------------------------------------------- drawing

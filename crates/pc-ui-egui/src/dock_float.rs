@@ -455,11 +455,12 @@ fn panel(
 ) -> Option<PanelOut> {
     let aid = area_id(id);
     let labels: Vec<&str> = tabs.iter().map(|t| t.label()).collect();
-    let frame = egui::Frame::NONE
-        .fill(t.dock)
-        .stroke(Stroke::new(1.0, t.card_border))
-        .corner_radius(CornerRadius::same(4))
-        .shadow(egui::Shadow { offset: [0, 10], blur: 30, spread: 0, color: t.shadow });
+    let frame = egui::Frame::NONE.fill(t.dock).stroke(Stroke::new(1.0, t.card_border)).corner_radius(CornerRadius::same(4)).shadow(egui::Shadow {
+        offset: [0, 10],
+        blur: 30,
+        spread: 0,
+        color: t.shadow,
+    });
     egui::Area::new(aid)
         .order(Order::Middle)
         .fixed_pos(rect.min)
@@ -495,7 +496,10 @@ fn panel(
                     let resize = (!locked).then(|| ui.interact(corner, aid.with("resize"), Sense::drag()));
                     if !locked {
                         for k in [4.0, 8.0] {
-                            ui.painter().line_segment([pos2(corner.right() - k, corner.bottom() - 2.0), pos2(corner.right() - 2.0, corner.bottom() - k)], Stroke::new(1.0, t.text_faint));
+                            ui.painter().line_segment(
+                                [pos2(corner.right() - k, corner.bottom() - 2.0), pos2(corner.right() - 2.0, corner.bottom() - k)],
+                                Stroke::new(1.0, t.text_faint),
+                            );
                         }
                     }
                     let strip = card.tabs.iter().fold(card.strip.rect.union(card.menu.rect), |r, (_, t)| r.union(*t));

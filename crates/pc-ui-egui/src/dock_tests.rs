@@ -675,7 +675,8 @@ fn a_group_dragged_out_floats_whole_and_docks_back_between_groups() {
     assert_eq!(strip_of(&h, Group::Layers).tab_ids, vec![Tab::Layers, Tab::Channels, Tab::Paths]);
     // The column still reorders by strip as before.
     let layers = rect_of(&h, Group::Layers);
-    drag(&mut h, Pos2::new(layers.right() - 60.0, layers.top() + 13.0), rect_of(&h, Group::Color).left_top() + vec2(120.0, 10.0));
+    let to = rect_of(&h, Group::Color).left_top() + vec2(120.0, 10.0);
+    drag(&mut h, Pos2::new(layers.right() - 60.0, layers.top() + 13.0), to);
     assert_eq!(groups_drawn(&h), vec![Group::Layers, Group::Color, Group::Properties]);
     assert!(h.state().ui.dock.floating.is_empty(), "a reorder inside the column never floats");
 }
@@ -684,8 +685,10 @@ fn a_group_dragged_out_floats_whole_and_docks_back_between_groups() {
 fn floating_panels_merge_move_close_and_pull_tabs_out() {
     let (app, _, _) = app_with_layers();
     let mut h = float_harness(app, vec2(1400.0, 900.0), ThemeKind::ProMedium);
-    drag(&mut h, tab_rect(&h, Group::Layers, Tab::Channels).center(), Pos2::new(250.0, 150.0));
-    drag(&mut h, tab_rect(&h, Group::Layers, Tab::Paths).center(), Pos2::new(650.0, 300.0));
+    let from = tab_rect(&h, Group::Layers, Tab::Channels).center();
+    drag(&mut h, from, Pos2::new(250.0, 150.0));
+    let from = tab_rect(&h, Group::Layers, Tab::Paths).center();
+    drag(&mut h, from, Pos2::new(650.0, 300.0));
     assert_eq!(h.state().ui.dock.floating.len(), 2);
     let floats = last_floats(&h.ctx);
     let channels = floats.iter().find(|f| f.tab_ids == vec![Tab::Channels]).unwrap().clone();
@@ -724,7 +727,8 @@ fn a_locked_workspace_keeps_tabs_docked() {
     let (app, _, _) = app_with_layers();
     let mut h = float_harness(app, vec2(1200.0, 800.0), ThemeKind::ProMedium);
     h.state_mut().session.prefs.edit(|p| p.workspace_locked = true);
-    drag(&mut h, tab_rect(&h, Group::Layers, Tab::Channels).center(), Pos2::new(400.0, 300.0));
+    let from = tab_rect(&h, Group::Layers, Tab::Channels).center();
+    drag(&mut h, from, Pos2::new(400.0, 300.0));
     let layers = rect_of(&h, Group::Layers);
     drag(&mut h, Pos2::new(layers.right() - 60.0, layers.top() + 13.0), Pos2::new(400.0, 300.0));
     assert!(h.state().ui.dock.floating.is_empty());
