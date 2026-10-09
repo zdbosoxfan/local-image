@@ -123,10 +123,9 @@ fn crop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     padded(ui, |ui| {
         ui.horizontal(|ui| {
             let on = app.ui.tool == "straighten";
-            if text_button(ui, "straightenTool", crate::i18n::tr("Straighten Tool"), on)
-                .on_hover_text(crate::i18n::tr("Drag along the horizon; double-click for Auto"))
-                .clicked()
-            {
+            let resp = text_button(ui, "straightenTool", crate::i18n::tr("Straighten Tool"), on);
+            super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::Straighten);
+            if resp.clicked() {
                 app.ui.tool = if on { String::new() } else { "straighten".into() };
             }
             if text_button(ui, "straightenAuto", crate::i18n::tr("Auto"), false).clicked() {
@@ -192,7 +191,9 @@ fn crop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             }
             if guided {
                 let drawing = app.ui.tool == "guidedUpright";
-                if text_button(ui, "uprightDraw", crate::i18n::tr("Draw Guides"), drawing).clicked() {
+                let resp = text_button(ui, "uprightDraw", crate::i18n::tr("Draw Guides"), drawing);
+                super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::Guided);
+                if resp.clicked() {
                     app.ui.tool = if drawing { String::new() } else { "guidedUpright".into() };
                 }
                 if !d.geometry.guides.is_empty() && text_button(ui, "uprightClear", crate::i18n::tr("Clear Guides"), false).clicked() {
@@ -229,7 +230,15 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     padded(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             for (label, tool) in [("AI", "ai"), ("Remove", "remove"), ("Heal", "heal"), ("Clone", "clone")] {
-                if text_button(ui, &format!("removeMode-{tool}"), label, app.ui.tool == tool).clicked() {
+                let resp = text_button(ui, &format!("removeMode-{tool}"), label, app.ui.tool == tool);
+                let tip_tool = match tool {
+                    "ai" => super::tool_tips::StripTool::RemoveAi,
+                    "remove" => super::tool_tips::StripTool::RemovePixels,
+                    "heal" => super::tool_tips::StripTool::Heal,
+                    _ => super::tool_tips::StripTool::Clone,
+                };
+                super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, tip_tool);
+                if resp.clicked() {
                     app.ui.tool = tool.into();
                     // a new brush: the spot selected before is no longer what the sliders edit
                     if app.session.active_spot.is_some() {
@@ -393,7 +402,14 @@ fn red_eye(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     padded(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             for (label, pet) in [("Red Eye", false), ("Pet Eye", true)] {
-                if text_button(ui, &format!("eyeMode-{}", if pet { "pet" } else { "red" }), label, app.ui.eye_pet == pet).clicked() {
+                let resp = text_button(ui, &format!("eyeMode-{}", if pet { "pet" } else { "red" }), label, app.ui.eye_pet == pet);
+                super::tool_tips::attach(
+                    app.ui.settings.tool_tips,
+                    ui,
+                    &resp,
+                    if pet { super::tool_tips::StripTool::PetEye } else { super::tool_tips::StripTool::RedEye },
+                );
+                if resp.clicked() {
                     app.ui.eye_pet = pet;
                 }
             }

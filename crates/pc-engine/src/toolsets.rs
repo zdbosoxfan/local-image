@@ -35,7 +35,7 @@ pub struct ToolSet {
     pub id: String,
     pub name: String,
     pub persona: Persona,
-    /// Tool names; the toolbar lays them out in its own group order.
+    /// Tool names in display order; flyout tools keep the toolbar’s group structure.
     pub tools: Vec<String>,
 }
 
@@ -174,7 +174,8 @@ const RETOUCHING: &[&str] = &[
     "Zoom",
 ];
 
-const AI: &[&str] = &["Move", "ObjectSelection", "QuickSelection", "Crop", "SpotHealing", "ContentAwareMove", "AiRemove", "AiCutout", "Hand", "Zoom"];
+// Quick Selection can use Subject Assist; the other retouch tools use pixel algorithms.
+const AI: &[&str] = &["Move", "ObjectSelection", "QuickSelection", "Crop", "AiRemove", "AiCutout", "Hand", "Zoom"];
 
 fn built(id: &str, name: &str, tools: &[&str]) -> ToolSet {
     ToolSet { id: id.into(), name: name.into(), persona: Persona::Pixel, tools: tools.iter().map(|t| t.to_string()).collect() }
@@ -236,8 +237,10 @@ impl ToolbarCustomization {
             }
             let hidden: Vec<String> = self.hidden.iter().map(|h| h.to_ascii_lowercase()).collect();
             tools.retain(|t| !hidden.contains(&t.to_ascii_lowercase()));
-            self.sets.push(ToolSet { id: "custom-1".into(), name: "My Tools".into(), persona: Persona::Pixel, tools });
-            self.active_set = "custom-1".into();
+            if !tools.iter().map(String::as_str).eq(ALL_TOOLS.iter().copied()) {
+                self.sets.push(ToolSet { id: "custom-1".into(), name: "My Tools".into(), persona: Persona::Pixel, tools });
+                self.active_set = "custom-1".into();
+            }
         }
         self.hidden.clear();
         self.order.clear();
@@ -251,11 +254,18 @@ impl ToolbarCustomization {
     pub fn unique_name(&self, base: &str) -> String {
         let taken = |n: &str| self.all_sets().iter().any(|s| s.name.eq_ignore_ascii_case(n));
         let base: String = base.trim().chars().take(MAX_NAME).collect();
-        if !base.is_empty() && !taken(&base) {
+        let base = if base.is_empty() { "My Tools".to_string() } else { base };
+        if !taken(&base) {
             return base;
         }
-        let base = if base.is_empty() { "My Tools".to_string() } else { base };
-        (2u32..).map(|n| format!("{base} {n}")).find(|n| !taken(n)).unwrap_or(base)
+        (2u32..)
+            .map(|n| {
+                let suffix = format!(" {n}");
+                let stem: String = base.chars().take(MAX_NAME - suffix.len()).collect();
+                format!("{stem}{suffix}")
+            })
+            .find(|n| !taken(n))
+            .unwrap_or(base)
     }
 }
 
@@ -284,16 +294,15 @@ fn find(c: &ToolbarCustomization, p: &Value) -> R<ToolSet> {
 }
 
 fn clean_tools(p: &Value) -> R<Option<Vec<String>>> {
-    let Some(arr) = p.get("tools").and_then(Value::as_array) else { return Ok(None) };
+    let Some(value) = p.get("tools") else { return Ok(None) };
+    let arr = value.as_array().ok_or("`tools` must be an array of tool names")?;
     let mut out: Vec<String> = Vec::new();
-    for t in arr.iter().filter_map(Value::as_str) {
+    for value in arr {
+        let t = value.as_str().ok_or("every tool must be a string")?;
         let canon = ALL_TOOLS.iter().find(|a| a.eq_ignore_ascii_case(t)).ok_or_else(|| format!("unknown tool `{t}`"))?;
         if !out.iter().any(|o| o == canon) {
             out.push(canon.to_string());
         }
-    }
-    if out.is_empty() {
-        return Err("a tool set needs at least one tool".into());
     }
     Ok(Some(out))
 }
@@ -402,9 +411,13 @@ fn delete_impl(s: &mut Session, p: &Value) -> R<Value> {
     Ok(describe(&s.prefs().toolbar))
 }
 
-/// `toolset.reset`: back to All Tools (the user's own sets stay).
-fn reset_impl(s: &mut Session, _: &Value) -> R<Value> {
-    s.edit_prefs(|pr| pr.toolbar.active_set = DEFAULT_ID.into());
+/// `toolset.reset`: select a built-in template (All Tools by default); custom sets stay.
+fn reset_impl(s: &mut Session, p: &Value) -> R<Value> {
+    let set = if p.get("id").is_some() || p.get("name").is_some() { find(&s.prefs().toolbar, p)? } else { builtins().remove(0) };
+    if !ToolbarCustomization::is_builtin(&set.id) {
+        return Err("reset needs a built-in tool set".into());
+    }
+    s.edit_prefs(|pr| pr.toolbar.active_set = set.id);
     Ok(describe(&s.prefs().toolbar))
 }
 
@@ -448,7 +461,7 @@ pub fn specs() -> Vec<CommandSpec> {
         spec!("toolset.duplicate", "Duplicate Tool Set", r##"{"id":"<set>","newName":str?}"##, duplicate, true),
         spec!("toolset.rename", "Rename Tool Set", r##"{"id":"custom-N","newName":str}"##, rename, true),
         spec!("toolset.delete", "Delete Tool Set", r##"{"id":"custom-N"} (custom sets only)"##, delete, true),
-        spec!("toolset.reset", "Reset Toolbar to All Tools", r##"{}"##, reset, true),
+        spec!("toolset.reset", "Reset Built-in Tool Set", r##"{"id":"<built-in>"?} (defaults to All Tools; custom sets stay)"##, reset, true),
     ]
 }
 
@@ -529,6 +542,48 @@ mod tests {
         // and preferences with no toolbar key at all
         s.load_prefs_json(r#"{}"#).unwrap();
         assert_eq!(s.prefs().toolbar.active().id, DEFAULT_ID);
+    }
+
+    #[test]
+    fn toolsets_reject_malformed_tools_without_mutation_and_accept_an_empty_layout() {
+        let mut s = session();
+        let original = s.prefs().toolbar.clone();
+        for tools in [json!(true), json!("Move"), json!(["Move", 1]), json!([null]), json!(["Move", "Unknown"])] {
+            assert!(s.execute("toolset.save", json!({"name": "Bad", "tools": tools})).is_err());
+            assert_eq!(s.prefs().toolbar, original);
+        }
+        s.execute("toolset.save", json!({"name": "Empty", "tools": []})).unwrap();
+        assert!(s.prefs().toolbar.active().tools.is_empty());
+    }
+
+    #[test]
+    fn toolsets_long_names_duplicate_and_reset_keeps_custom_sets() {
+        let mut s = session();
+        let name = "a".repeat(MAX_NAME);
+        let first = s.execute("toolset.save", json!({"name": name, "from": "photographer"})).unwrap();
+        for _ in 0..3 {
+            s.execute("toolset.duplicate", json!({"id": first["created"]})).unwrap();
+        }
+        assert_eq!(s.prefs().toolbar.sets.len(), 4);
+        assert!(s.prefs().toolbar.sets.iter().all(|t| t.name.chars().count() <= MAX_NAME));
+        s.execute("toolset.reset", json!({"id": "photographer"})).unwrap();
+        assert_eq!(s.prefs().toolbar.active().id, "photographer");
+        s.execute("edit.toolbar", json!({"reset": true})).unwrap();
+        assert_eq!(s.prefs().toolbar.active().id, DEFAULT_ID);
+        assert_eq!(s.prefs().toolbar.sets.len(), 4);
+    }
+
+    #[test]
+    fn toolsets_default_legacy_order_and_prefs_set_migration() {
+        let mut s = session();
+        s.load_prefs_json(&json!({"toolbar": {"order": ALL_TOOLS}}).to_string()).unwrap();
+        assert!(s.prefs().toolbar.sets.is_empty());
+        assert_eq!(s.prefs().toolbar.active().id, DEFAULT_ID);
+        s.execute("prefs.set", json!({"values": {"toolbar.hidden": ["Brush"]}})).unwrap();
+        assert_eq!(s.prefs().toolbar.active().name, "My Tools");
+        assert!(!s.prefs().toolbar.active().tools.iter().any(|t| t == "Brush"));
+        s.execute("edit.toolbar", json!({"order": ["Zoom", "Move"]})).unwrap();
+        assert_eq!(&s.prefs().toolbar.active().tools[..2], &["Zoom", "Move"]);
     }
 
     #[test]

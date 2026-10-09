@@ -167,17 +167,9 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
                             });
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 let active = app.ui.tool == "wbPicker";
-                                if crate::widgets::icon_button(
-                                    ui,
-                                    "wbPicker",
-                                    Icon::Picker,
-                                    vec2(28.0, 28.0),
-                                    active,
-                                    true,
-                                    "White Balance Selector (W)",
-                                )
-                                .clicked()
-                                {
+                                let resp = crate::widgets::icon_button(ui, "wbPicker", Icon::Picker, vec2(28.0, 28.0), active, true, "");
+                                super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::WbPicker);
+                                if resp.clicked() {
                                     app.ui.tool = if active { String::new() } else { "wbPicker".into() };
                                 }
                             });
@@ -643,10 +635,9 @@ fn negative_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSetti
             ui.painter().rect_filled(r, 3.0, Color32::from_rgb(enc[0], enc[1], enc[2]));
             ui.painter().rect_stroke(r, 3.0, Stroke::new(1.0, t.button_border), egui::StrokeKind::Inside);
             let picking = app.ui.tool == "negDmin";
-            if text_button(ui, "negativePickBase", "Pick from the Film Rim", picking)
-                .on_hover_text(crate::i18n::tr("Drag over the unexposed film rim (or click it) to set the film base colour"))
-                .clicked()
-            {
+            let resp = text_button(ui, "negativePickBase", "Pick from the Film Rim", picking);
+            super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::FilmBase);
+            if resp.clicked() {
                 app.ui.tool = if picking { String::new() } else { "negDmin".into() };
             }
         });
@@ -1320,10 +1311,12 @@ fn channel_label(ch: &str) -> &'static str {
 }
 
 /// Toggle for a targeted-adjustment tool (`tool` = `tat:<target>`).
-fn tat_button(app: &mut LightcraftApp, ui: &mut egui::Ui, tool: &str, tip: &str) {
+fn tat_button(app: &mut LightcraftApp, ui: &mut egui::Ui, tool: &str, _tip: &str) {
     let active = app.ui.tool == tool;
     let id = tool.replace(':', "-");
-    if crate::widgets::icon_button(ui, &id, Icon::Target, vec2(26.0, 26.0), active, true, tip).clicked() {
+    let resp = crate::widgets::icon_button(ui, &id, Icon::Target, vec2(26.0, 26.0), active, true, "");
+    super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::Target);
+    if resp.clicked() {
         app.ui.tool = if active { String::new() } else { tool.to_string() };
     }
 }
@@ -1425,9 +1418,9 @@ fn point_color(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, 
             ui.spacing_mut().item_spacing.x = 5.0;
             let active = app.ui.tool == "pointColor" && app.ui.point_color_mask == layer;
             let full = n >= lightcraft_develop::MAX_POINT_COLORS;
-            if crate::widgets::icon_button(ui, "pointColorPicker", Icon::Picker, vec2(26.0, 26.0), active, !full, "Sample a colour on the photo")
-                .clicked()
-            {
+            let resp = crate::widgets::icon_button(ui, "pointColorPicker", Icon::Picker, vec2(26.0, 26.0), active, !full, "");
+            super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::PointColor);
+            if resp.clicked() {
                 app.ui.tool = if active { String::new() } else { "pointColor".into() };
                 app.ui.point_color_mask = layer;
             }

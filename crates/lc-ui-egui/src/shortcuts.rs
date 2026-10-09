@@ -78,6 +78,15 @@ fn matches(i: &egui::InputState, m: Modifiers, k: Key) -> bool {
     })
 }
 
+/// Labels use the same command lookup as dispatch, including UI wrappers of engine keys.
+pub fn shortcut_label(command: &str) -> Option<String> {
+    crate::menus::ui_commands()
+        .find(|c| c.0 == command)
+        .and_then(|c| c.2)
+        .or_else(|| lightcraft_engine::command_specs().iter().find(|c| c.id == command).and_then(|c| c.shortcut))
+        .map(|sc| crate::menubar::shortcut_text(sc, cfg!(target_os = "macos")))
+}
+
 pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
     // don't steal keys from text fields
     if ctx.egui_wants_keyboard_input() {

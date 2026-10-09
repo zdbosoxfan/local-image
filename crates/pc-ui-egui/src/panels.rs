@@ -59,22 +59,32 @@ fn slot_tool(ui: &egui::Ui, current: Tool, slot: &[Tool], key: egui::Id) -> Tool
 /// for a tool the set leaves out, and the toolbar then shows it in its usual place.
 pub fn visible_sections(app: &PhotocraftApp) -> Vec<Vec<(usize, Vec<Tool>)>> {
     let set = app.session.prefs().toolbar.active();
-    let listed: std::collections::HashSet<Tool> = set.tools.iter().filter_map(|n| Tool::from_name(n)).collect();
+    let rank = |tool: &Tool| set.tools.iter().position(|n| Tool::from_name(n) == Some(*tool)).unwrap_or(usize::MAX);
     let current = app.ui.tool;
     let mut index = 0usize;
-    let mut out = Vec::new();
-    for section in TOOL_SECTIONS {
-        let mut slots = Vec::new();
+    let mut ordered = Vec::new();
+    for (section_index, section) in TOOL_SECTIONS.iter().enumerate() {
         for slot in *section {
-            let kept: Vec<Tool> = slot.iter().copied().filter(|t| listed.contains(t) || *t == current).collect();
+            let mut kept: Vec<Tool> = slot.iter().copied().filter(|t| rank(t) != usize::MAX || *t == current).collect();
+            kept.sort_by_key(&rank);
             if !kept.is_empty() {
-                slots.push((index, kept));
+                let first = kept.iter().map(&rank).min().unwrap_or(usize::MAX);
+                ordered.push((first, section_index, index, kept));
             }
             index += 1;
         }
-        if !slots.is_empty() {
-            out.push(slots);
+    }
+    // Order applies to slots and to the tools in each flyout. Stable canonical ids keep the
+    // last-used tool attached to its group when a set is reordered or switched.
+    ordered.sort_by_key(|(rank, _, index, _)| (*rank, *index));
+    let mut out: Vec<Vec<(usize, Vec<Tool>)>> = Vec::new();
+    let mut previous = None;
+    for (_, section, index, kept) in ordered {
+        if previous != Some(section) {
+            out.push(Vec::new());
         }
+        out.last_mut().unwrap().push((index, kept));
+        previous = Some(section);
     }
     out
 }
@@ -121,6 +131,11 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             let held_id = flyout_id.with("held");
             if ui.input(|i| i.pointer.any_pressed()) {
                 ui.data_mut(|d| d.remove::<egui::Id>(held_id));
+            }
+            if let Some((key, _)) = ui.data(|d| d.get_temp::<(egui::Id, Rect)>(flyout_id))
+                && !sections.iter().flatten().any(|(index, slot)| slot.len() > 1 && egui::Id::new(("tool-slot", *index)) == key)
+            {
+                ui.data_mut(|d| d.remove::<(egui::Id, Rect)>(flyout_id));
             }
             for (si, section) in sections.iter().enumerate() {
                 // Photoshop 2026 draws one uninterrupted column (no group dividers).
@@ -210,11 +225,12 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                                     egui::FontId::proportional(12.5),
                                                     t.text,
                                                 );
-                                                if item.key() != '\0' {
+                                                crate::tool_tips::attach(&app.session, ui, &ir, item, slot, true);
+                                                if let Some(key) = crate::tool_tips::shortcut(&app.session, item) {
                                                     ui.painter().text(
                                                         pos2(r.right() - 8.0, r.center().y),
                                                         Align2::RIGHT_CENTER,
-                                                        item.key().to_string(),
+                                                        key,
                                                         egui::FontId::proportional(12.0),
                                                         t.text_dim,
                                                     );

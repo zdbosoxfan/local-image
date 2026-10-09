@@ -47,7 +47,7 @@ fn e(blurb: &str, how: &[&str]) -> Entry {
 
 /// The tip text of `tool`. Exhaustive, so a new tool cannot ship without one.
 pub fn entry(tool: Tool) -> Entry {
-    match tool {
+    let mut entry = match tool {
         Tool::Move => e(
             tl!("Moves the selected layers or the selection."),
             &[
@@ -111,15 +111,30 @@ pub fn entry(tool: Tool) -> Entry {
                 tl!("Press Enter to apply, Esc to cancel."),
             ],
         ),
-        Tool::PerspectiveCrop => e(tl!("Crops to a four-cornered shape and straightens it, as for a photographed page or building."), &[]),
-        Tool::Slice => e(tl!("Divides the image into slices for web export."), &[]),
-        Tool::SliceSelect => e(tl!("Selects and adjusts existing slices."), &[]),
+        Tool::PerspectiveCrop => e(
+            tl!("Crops to a four-cornered shape and straightens it, as for a photographed page or building."),
+            &[tl!("Drag a frame, then drag its four corners onto the subject."), tl!("Press Enter to apply, Esc to cancel.")],
+        ),
+        Tool::Slice => e(
+            tl!("Divides the image into slices for web export."),
+            &[tl!("Drag a rectangle to create a slice."), tl!("Use Slice Select to move an existing slice.")],
+        ),
+        Tool::SliceSelect => e(tl!("Selects and adjusts existing slices."), &[tl!("Click a slice to select it."), tl!("Drag the selected slice to move it.")]),
         Tool::Eyedropper => {
             e(tl!("Samples a colour from the image."), &[tl!("Click to set the foreground colour."), tl!("{alt}-click sets the background colour.")])
         }
-        Tool::Ruler => e(tl!("Measures distances and angles on the image."), &[]),
-        Tool::Note => e(tl!("Adds a text note to the document."), &[]),
-        Tool::Count => e(tl!("Counts items in the image by clicking on each."), &[]),
+        Tool::Ruler => e(
+            tl!("Measures distances and angles on the image."),
+            &[tl!("Drag between two points to measure."), tl!("{alt}-drag an endpoint to measure an angle.")],
+        ),
+        Tool::Note => e(
+            tl!("Adds a text note to the document."),
+            &[tl!("Click to add a note and edit its text in the Notes panel."), tl!("Drag a note marker to move it.")],
+        ),
+        Tool::Count => e(
+            tl!("Counts items in the image by clicking on each."),
+            &[tl!("Click each item to add a numbered marker."), tl!("{alt}-click a marker to remove it.")],
+        ),
         Tool::SpotHealing => e(
             tl!("Removes a blemish by blending in the pixels around it."),
             &[tl!("Paint over the spot."), tl!("Hold {shift} for a straight line from the last stroke.")],
@@ -132,10 +147,14 @@ pub fn entry(tool: Tool) -> Entry {
             tl!("Repairs a selected area from another area."),
             &[tl!("Draw around the flaw, then drag the selection onto clean pixels."), tl!("Drag from inside an existing selection to move it.")],
         ),
-        Tool::ContentAwareMove => {
-            e(tl!("Moves a selected object and fills the gap it leaves."), &[tl!("Draw around the object, then drag the selection to its new place.")])
-        }
-        Tool::RedEye => e(tl!("Removes red from the pupils in flash photos."), &[tl!("Click on the red pupil.")]),
+        Tool::ContentAwareMove => e(
+            tl!("Moves a selected object and fills the gap it leaves."),
+            &[tl!("Draw around the object, then drag the selection to its new place."), tl!("Choose Move or Extend in the options bar.")],
+        ),
+        Tool::RedEye => e(
+            tl!("Removes red from the pupils in flash photos."),
+            &[tl!("Click on the red pupil."), tl!("Set Pupil Size and Darken Amount in the options bar.")],
+        ),
         Tool::Brush => e(
             tl!("Paints soft or hard strokes in the foreground colour."),
             &[
@@ -159,7 +178,7 @@ pub fn entry(tool: Tool) -> Entry {
             tl!("Paints with pixels copied from another part of the image."),
             &[tl!("{alt}-click to set the source point."), tl!("Then paint where you want the copy.")],
         ),
-        Tool::HistoryBrush => e(tl!("Paints back an earlier state of the image."), &[tl!("Drag to paint; hold {shift} to keep a straight line.")]),
+        Tool::HistoryBrush => e(tl!("Paints back the document’s opening state."), &[tl!("Drag to paint; hold {shift} to keep a straight line.")]),
         Tool::Eraser => e(tl!("Erases pixels as you drag."), &[tl!("Drag to erase; hold {shift} to keep a straight line.")]),
         Tool::BackgroundEraser => e(tl!("Erases the background colour under the brush, keeping edges."), &[tl!("Drag along the edge of the subject.")]),
         Tool::MagicEraser => e(tl!("Erases all pixels of a similar colour with one click."), &[tl!("Click the colour to erase.")]),
@@ -185,9 +204,11 @@ pub fn entry(tool: Tool) -> Entry {
         }
         Tool::Pen => e(
             tl!("Draws precise paths and shapes with anchor points."),
-            &[tl!("Click to add points; {alt} on an anchor turns it into a corner or smooth point.")],
+            &[tl!("Click to add corners; drag to create smooth handles."), tl!("Click the first point to close, Enter to finish an open path.")],
         ),
-        Tool::PathSelection => e(tl!("Selects and moves whole paths."), &[]),
+        Tool::PathSelection => {
+            e(tl!("Selects and moves whole paths."), &[tl!("Choose the active shape, work path or targeted vector mask."), tl!("Drag to move its whole path.")])
+        }
         Tool::DirectSelection => e(
             tl!("Selects and edits individual anchor points and handles."),
             &[
@@ -200,12 +221,30 @@ pub fn entry(tool: Tool) -> Entry {
         Tool::VerticalType => {
             e(tl!("Adds text that runs top to bottom."), &[tl!("Click to type a line of text."), tl!("Drag to make a box for paragraph text.")])
         }
-        Tool::Rectangle => e(tl!("Draws rectangles as editable shape layers."), &[]),
-        Tool::EllipseShape => e(tl!("Draws ellipses and circles as editable shape layers."), &[]),
-        Tool::Triangle => e(tl!("Draws triangles as editable shape layers."), &[]),
-        Tool::Polygon => e(tl!("Draws polygons with any number of sides."), &[]),
-        Tool::Line => e(tl!("Draws straight lines as editable shape layers."), &[]),
-        Tool::CustomShape => e(tl!("Draws a shape chosen from the shape library."), &[]),
+        Tool::Rectangle => e(
+            tl!("Draws rectangles as editable shape layers."),
+            &[tl!("Drag to draw; {shift} keeps equal width and height."), tl!("Hold {alt} to draw from the centre.")],
+        ),
+        Tool::EllipseShape => e(
+            tl!("Draws ellipses and circles as editable shape layers."),
+            &[tl!("Drag to draw; {shift} keeps equal width and height."), tl!("Hold {alt} to draw from the centre.")],
+        ),
+        Tool::Triangle => e(
+            tl!("Draws triangles as editable shape layers."),
+            &[tl!("Drag to draw; {shift} keeps equal width and height."), tl!("Hold {alt} to draw from the centre.")],
+        ),
+        Tool::Polygon => e(
+            tl!("Draws polygons with any number of sides."),
+            &[tl!("Drag to draw; {shift} keeps equal width and height."), tl!("Hold {alt} to draw from the centre.")],
+        ),
+        Tool::Line => e(
+            tl!("Draws straight lines as editable shape layers."),
+            &[tl!("Drag between the endpoints."), tl!("Hold {shift} to snap the angle to 45 degrees.")],
+        ),
+        Tool::CustomShape => e(
+            tl!("Draws a shape chosen from the shape library."),
+            &[tl!("Drag to draw; {shift} keeps equal width and height."), tl!("Hold {alt} to draw from the centre.")],
+        ),
         Tool::Hand => e(tl!("Pans the view around the image."), &[tl!("Drag to move the image."), tl!("Hold Space with any other tool to pan temporarily.")]),
         Tool::Zoom => e(
             tl!("Magnifies or reduces the view."),
@@ -217,14 +256,21 @@ pub fn entry(tool: Tool) -> Entry {
         ),
         Tool::AiCutout => e(
             tl!("Cuts out the subject with the local AI model."),
-            &[tl!("Use Remove Background in the options bar to make the mask."), tl!("Then paint to erase or restore parts of it; X swaps the two.")],
+            &[
+                tl!("Use Remove Background in the options bar to make the mask."),
+                tl!("Then paint to erase or restore parts of it; Swap Colors switches modes."),
+            ],
         ),
+    };
+    if entry.how.len() < 2 && tool.is_brushlike() {
+        entry.how.push(tl!("Set the brush size in the options bar before painting.").into());
     }
+    entry
 }
 
 /// The tool's single-key shortcut (`B`), or `None` for a tool with no key.
-pub fn shortcut(tool: Tool) -> Option<String> {
-    (tool.key() != '\0').then(|| tool.key().to_string())
+pub fn shortcut(session: &photocraft_engine::Session, tool: Tool) -> Option<String> {
+    crate::shortcuts::tool_shortcut(session, tool).map(|s| crate::shortcuts::pretty(&s))
 }
 
 /// Per-frame hover memory, in the context's temp data.
@@ -233,7 +279,7 @@ struct Hover {
     /// The button the pointer is on and since when.
     over: Option<(Id, f64)>,
     /// When a tip was last drawn.
-    shown: f64,
+    shown: Option<f64>,
 }
 
 /// What a tip shows, independent of which tool strip it belongs to.
@@ -247,12 +293,21 @@ pub struct Spec {
 }
 
 /// The spec of a toolbar tool; `group` is the whole flyout slot.
-pub fn spec(tool: Tool, group: &[Tool]) -> Spec {
+pub fn spec(session: &photocraft_engine::Session, tool: Tool, group: &[Tool]) -> Spec {
+    let mut entry = entry(tool);
+    if tool == Tool::Hand {
+        let key = session.prefs().shortcut("tools.temporary.hand", Some("Space"));
+        if let Some(key) = key {
+            entry.how[1] = crate::i18n::fmt(tl!("Hold {key} with any other tool to pan temporarily."), &[("key", &crate::shortcuts::pretty(key))]);
+        } else {
+            entry.how.pop();
+        }
+    }
     Spec {
         title: tl!(tool.label()).to_string(),
-        key: shortcut(tool),
+        key: shortcut(session, tool),
         icon: icons::tool_icon(tool),
-        entry: entry(tool),
+        entry,
         group: group.iter().filter(|g| **g != tool).map(|g| tl!(g.label()).to_string()).collect(),
     }
 }
@@ -260,12 +315,12 @@ pub fn spec(tool: Tool, group: &[Tool]) -> Spec {
 /// Attach the tip of `tool` to its button. `group` is the whole flyout slot (the button's tool
 /// included); `blocked` is true while a flyout is open. The tip is drawn here.
 pub fn attach(session: &photocraft_engine::Session, ui: &egui::Ui, resp: &Response, tool: Tool, group: &[Tool], blocked: bool) {
-    attach_spec(session, ui, resp, blocked, tl!(tool.label()), shortcut(tool), || spec(tool, group));
+    attach_spec(session, ui, resp, blocked, tl!(tool.label()), shortcut(session, tool), || spec(session, tool, group));
 }
 
 /// The Liquify strip's tip text.
 pub fn liquify_entry(tool: LiquifyTool) -> Entry {
-    match tool {
+    let mut entry = match tool {
         LiquifyTool::ForwardWarp => e(tl!("Pushes pixels forward as you drag."), &[tl!("Drag across the area to push it along.")]),
         LiquifyTool::Reconstruct => {
             e(tl!("Undoes warping where you paint."), &[tl!("Paint over a distorted area to restore it; hold still to keep restoring.")])
@@ -282,18 +337,96 @@ pub fn liquify_entry(tool: LiquifyTool) -> Entry {
         LiquifyTool::ReconstructAll | LiquifyTool::FreezeAll | LiquifyTool::ThawAll | LiquifyTool::InvertFreeze => {
             e(tl!("Changes the whole image at once."), &[])
         }
+    };
+    if entry.how.len() < 2 {
+        entry.how.push(tl!("Set Size and Pressure in Brush Tool Options.").into());
     }
+    entry
 }
 
 /// Attach the tip of a Liquify tool; its strip has no groups.
 pub fn attach_liquify(session: &photocraft_engine::Session, ui: &egui::Ui, resp: &Response, tool: LiquifyTool, key: &str, icon: &'static str) {
-    let key = (!key.is_empty()).then(|| key.to_string());
+    let key = crate::shortcuts::local_tool_shortcut(session, &crate::liquify_ui::shortcut_id(tool), key).map(|s| crate::shortcuts::pretty(&s));
     let k2 = key.clone();
     attach_spec(session, ui, resp, false, tl!(tool.label()), key, || Spec {
         title: tl!(tool.label()).to_string(),
         key: k2,
         icon,
         entry: liquify_entry(tool),
+        group: Vec::new(),
+    });
+}
+
+/// Camera Raw has a modal key map, separate from the main toolbar.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum CameraRawTool {
+    Zoom,
+    Hand,
+    Sampler,
+}
+
+impl CameraRawTool {
+    pub(crate) const ALL: [Self; 3] = [Self::Zoom, Self::Hand, Self::Sampler];
+    pub(crate) fn title(self) -> &'static str {
+        match self {
+            Self::Zoom => tl!("Zoom Tool"),
+            Self::Hand => tl!("Hand Tool"),
+            Self::Sampler => tl!("Color Sampler Tool"),
+        }
+    }
+    pub(crate) fn shortcut_id(self) -> &'static str {
+        match self {
+            Self::Zoom => "tools.cameraRaw.zoom",
+            Self::Hand => "tools.cameraRaw.hand",
+            Self::Sampler => "tools.cameraRaw.sampler",
+        }
+    }
+    pub(crate) fn default_shortcut(self) -> &'static str {
+        match self {
+            Self::Zoom => "Z",
+            Self::Hand => "H",
+            Self::Sampler => "S",
+        }
+    }
+    pub(crate) fn binding(self, session: &photocraft_engine::Session) -> Option<String> {
+        crate::shortcuts::local_tool_shortcut(session, self.shortcut_id(), self.default_shortcut())
+    }
+    pub(crate) fn icon(self) -> &'static str {
+        match self {
+            Self::Zoom => "zoom-in",
+            Self::Hand => "hand",
+            Self::Sampler => "pipette",
+        }
+    }
+    fn entry(self) -> Entry {
+        match self {
+            Self::Zoom => e(
+                tl!("Magnifies or reduces the Camera Raw preview."),
+                &[
+                    tl!("Click to switch between Fit and 100%; {alt}-click zooms out."),
+                    tl!("Drag right to zoom in and left to zoom out; {cmd}-drag draws a zoom box."),
+                    tl!("Double-click the tool button to fit the image."),
+                ],
+            ),
+            Self::Hand => e(
+                tl!("Pans the Camera Raw preview."),
+                &[tl!("Drag to move the image; hold Space to pan with another tool."), tl!("Double-click the image or tool button to fit the image.")],
+            ),
+            Self::Sampler => e(
+                tl!("Places colour readouts on the Camera Raw preview."),
+                &[tl!("Click the image to add a sampler, then drag its marker to move it."), tl!("{alt}-click a marker to remove it.")],
+            ),
+        }
+    }
+}
+
+pub(crate) fn attach_camera_raw(session: &photocraft_engine::Session, ui: &egui::Ui, resp: &Response, tool: CameraRawTool) {
+    let key = tool.binding(session).map(|s| crate::shortcuts::pretty(&s));
+    attach_spec(session, ui, resp, false, tool.title(), key.clone(), || Spec {
+        title: tool.title().into(),
+        key,
+        icon: tool.icon(),
+        entry: tool.entry(),
         group: Vec::new(),
     });
 }
@@ -312,26 +445,28 @@ fn attach_spec(
     let on = prefs.interface.show_tooltips && prefs.tools.show_tooltips;
     let style = prefs.interface.tool_tips;
     // The button's accessible name is its tool's name, whatever the tip does.
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, title));
-    if !on || style == ToolTips::Off {
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, resp.enabled(), title));
+    let blocked = blocked || ui.ctx().input(|i| i.pointer.any_down()) || egui::Popup::is_any_open(ui.ctx());
+    if !on || style == ToolTips::Off || blocked {
+        ui.ctx().data_mut(|d| {
+            d.remove::<Hover>(Id::new("tool-tip-hover"));
+            d.remove::<Shown>(Id::new("tool-tip-shown"));
+        });
         return;
     }
     if style == ToolTips::Simple {
-        if !blocked {
-            let tip = match &key {
-                Some(k) => format!("{title}  ({k})"),
-                None => title.to_string(),
-            };
-            resp.clone().on_hover_text(tip);
-        }
+        let tip = match &key {
+            Some(k) => format!("{title}  ({k})"),
+            None => title.to_string(),
+        };
+        resp.clone().on_hover_text(tip);
         return;
     }
     let ctx = ui.ctx();
     let now = ctx.input(|i| i.time);
     let mem_id = Id::new("tool-tip-hover");
     let mut mem: Hover = ctx.data(|d| d.get_temp(mem_id)).unwrap_or_default();
-    let held = ctx.input(|i| i.pointer.any_down());
-    if !resp.hovered() || held || blocked {
+    if !resp.hovered() {
         if mem.over.is_some_and(|(id, _)| id == resp.id) {
             mem.over = None;
             ctx.data_mut(|d| d.insert_temp(mem_id, mem));
@@ -345,10 +480,9 @@ fn attach_spec(
             now
         }
     };
-    if now - mem.shown < LINGER || now - since >= DELAY {
-        mem.shown = now;
+    if mem.shown.is_some_and(|last| now - last < LINGER) || now - since >= DELAY {
+        mem.shown = Some(now);
         draw(ui, resp, &make());
-        ctx.request_repaint();
     } else {
         ctx.request_repaint_after(std::time::Duration::from_secs_f64((DELAY - (now - since)).max(0.01)));
     }
@@ -357,12 +491,13 @@ fn attach_spec(
 
 /// What the open tip says (title, shortcut, sentence, how-to lines, group), for tests and
 /// automation; valid for the frame it was drawn in and the next.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Shown {
     pub frame: u64,
     pub title: String,
     pub key: Option<String>,
     pub text: String,
+    pub bounds: egui::Rect,
 }
 
 /// The tip open now, if any.
@@ -382,13 +517,13 @@ fn draw(ui: &egui::Ui, resp: &Response, sp: &Spec) {
         if !sp.group.is_empty() {
             text.push_str(&format!("\n{} {}", tl!("Also in this group:"), sp.group.join(", ")));
         }
-        let s = Shown { frame: ui.ctx().cumulative_pass_nr(), title: sp.title.clone(), key: sp.key.clone(), text };
+        let s = Shown { frame: ui.ctx().cumulative_pass_nr(), title: sp.title.clone(), key: sp.key.clone(), text, bounds: egui::Rect::NOTHING };
         ui.ctx().data_mut(|d| d.insert_temp(Id::new("tool-tip-shown"), s));
     }
     let screen = ui.ctx().content_rect();
     let width = MAX_WIDTH.min(screen.width() - 16.0);
     let pos = resp.rect.right_top() + vec2(8.0, 0.0);
-    Area::new(Id::new("tool-tip-area")).order(Order::Tooltip).interactable(false).fixed_pos(pos).constrain_to(screen).show(ui.ctx(), |ui| {
+    let area = Area::new(Id::new("tool-tip-area")).order(Order::Tooltip).interactable(false).fixed_pos(pos).constrain_to(screen).show(ui.ctx(), |ui| {
         Frame::popup(ui.style()).fill(t.card).stroke(Stroke::new(1.0, t.card_border)).corner_radius(t.radius).inner_margin(egui::Margin::same(10)).show(
             ui,
             |ui| {
@@ -427,6 +562,12 @@ fn draw(ui: &egui::Ui, resp: &Response, sp: &Spec) {
             },
         );
     });
+    ui.ctx().data_mut(|d| {
+        if let Some(mut tip) = d.get_temp::<Shown>(Id::new("tool-tip-shown")) {
+            tip.bounds = area.response.rect;
+            d.insert_temp(Id::new("tool-tip-shown"), tip);
+        }
+    });
 }
 
 /// The shortcut chip: a small rounded key cap.
@@ -446,12 +587,14 @@ mod tests {
     #[test]
     fn every_tool_has_a_complete_entry() {
         for t in LiquifyTool::ALL {
-            assert!(liquify_entry(t).blurb.len() > 10, "{t:?}");
+            let entry = liquify_entry(t);
+            assert!(entry.blurb.len() > 10, "{t:?}");
+            assert!((2..=4).contains(&entry.how.len()), "{t:?}");
         }
         for t in Tool::ALL {
             let en = entry(t);
             assert!(en.blurb.len() > 10, "{t:?} has no description");
-            assert!(en.how.len() <= 4, "{t:?}: at most four how-to lines");
+            assert!((2..=4).contains(&en.how.len()), "{t:?}: two to four verified how-to lines");
             for h in &en.how {
                 assert!(!h.contains('{'), "{t:?}: unfilled placeholder in {h}");
             }
@@ -464,14 +607,14 @@ mod tests {
     use serde_json::json;
 
     fn harness() -> Harness<'static, PhotocraftApp> {
-        Harness::builder().with_size(egui::vec2(1100.0, 760.0)).with_max_steps(64).build_eframe(|cc| {
+        Harness::builder().with_size(egui::vec2(1100.0, 760.0)).with_step_dt(1.0 / 60.0).with_max_steps(64).build_eframe(|cc| {
             PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
             PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default())
         })
     }
 
     fn settle(h: &mut Harness<'_, PhotocraftApp>) {
-        for _ in 0..12 {
+        for _ in 0..40 {
             h.run_steps(1);
         }
     }
@@ -486,6 +629,7 @@ mod tests {
         settle(&mut h);
         let tip = shown(&h.ctx).expect("the tip opened");
         assert_eq!(tip.title, "Brush Tool");
+        assert!(tip.bounds.width() <= MAX_WIDTH + 2.0, "{:?}", tip.bounds);
         assert_eq!(tip.key.as_deref(), Some(Tool::Brush.key().to_string().as_str()), "the chip shows the tool's real key");
         for line in &entry(Tool::Brush).how {
             assert!(tip.text.contains(line.as_str()), "{line}");
@@ -526,6 +670,121 @@ mod tests {
     }
 
     #[test]
+    fn tool_tips_show_remapped_keys_and_hidden_tools_still_switch_by_key() {
+        let mut h = harness();
+        h.state_mut().run("edit.keyboardShortcuts", json!({"set": {"tools.select.Brush": "F6"}})).unwrap();
+        h.state_mut().run("toolset.select", json!({"id": "ai"})).unwrap();
+        h.key_press(egui::Key::F6);
+        h.run_steps(3);
+        assert_eq!(h.state().ui.tool, Tool::Brush);
+        h.get_by_label("Brush Tool").hover();
+        settle(&mut h);
+        assert_eq!(shown(&h.ctx).unwrap().key.as_deref(), Some("F6"));
+        h.state_mut().run("edit.keyboardShortcuts", json!({"set": {"tools.select.Brush": ""}})).unwrap();
+        h.run_steps(2);
+        assert_eq!(shown(&h.ctx).unwrap().key, None);
+        h.key_press(egui::Key::V);
+        h.run_steps(2);
+        h.key_press(egui::Key::B);
+        h.run_steps(2);
+        assert_eq!(h.state().ui.tool, Tool::Move, "removed binding does not fire its default");
+    }
+
+    #[test]
+    fn tool_tips_hide_during_pointer_holds_and_flyouts() {
+        let mut h = harness();
+        h.run_steps(2);
+        h.get_by_label("Lasso Tool").hover();
+        settle(&mut h);
+        assert!(shown(&h.ctx).is_some());
+        let pos = h.get_by_role_and_label(egui::accesskit::Role::Button, "Lasso Tool").rect().center();
+        h.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+        h.run_steps(3);
+        assert!(shown(&h.ctx).is_none());
+        h.run_steps(24); // the long press opens the flyout
+        h.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+        h.run_steps(3);
+        h.get_by_label("Polygonal Lasso Tool");
+        h.get_by_label("Brush Tool").hover();
+        settle(&mut h);
+        assert!(shown(&h.ctx).is_none(), "a flyout blocks tips on every toolbar tool");
+        h.get_by_label("Polygonal Lasso Tool").click();
+        h.run_steps(3);
+        assert_eq!(h.state().ui.tool, Tool::PolygonLasso);
+    }
+
+    #[test]
+    fn tool_tips_simple_shows_only_name_and_effective_shortcut() {
+        let mut h = harness();
+        h.state_mut().run("prefs.set", json!({"values": {"interface.toolTips": "simple"}})).unwrap();
+        h.state_mut().run("edit.keyboardShortcuts", json!({"set": {"tools.select.Brush": "F6"}})).unwrap();
+        h.run_steps(2);
+        h.get_by_label("Brush Tool").hover();
+        h.run_steps(90);
+        h.get_by_label("Brush Tool  (F6)");
+        assert!(h.query_by_label(entry(Tool::Brush).blurb.as_str()).is_none());
+        h.state_mut().run("prefs.set", json!({"values": {"interface.toolTips": "off"}})).unwrap();
+        h.run_steps(3);
+        assert!(h.query_by_label("Brush Tool  (F6)").is_none());
+    }
+
+    #[test]
+    fn tool_tips_camera_raw_and_liquify_use_their_modal_bindings() {
+        let mut h = harness();
+        h.state_mut().run("file.new", json!({"width": 16, "height": 16})).unwrap();
+        h.state_mut().run("layer.new.layer", json!({})).unwrap();
+        h.state_mut().run("edit.fill", json!({"color": "#808080"})).unwrap();
+        let ctx = h.ctx.clone();
+        crate::menus::invoke(h.state_mut(), &ctx, "filter.cameraRaw", json!({})).unwrap();
+        h.state_mut().session.edit_prefs(|p| {
+            p.shortcuts.insert("tools.cameraRaw.sampler".into(), "F6".into());
+        });
+        h.run_steps(4);
+        h.get_all_by_label("Color Sampler Tool").last().unwrap().hover();
+        settle(&mut h);
+        assert_eq!(shown(&h.ctx).unwrap().key.as_deref(), Some("F6"));
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Color Sampler Tool").click();
+        h.run_steps(2);
+        assert!(h.state().ui.camera_raw_scope.sampler_tool);
+        h.key_press(egui::Key::F6);
+        h.run_steps(2);
+        assert!(!h.state().ui.camera_raw_scope.sampler_tool);
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+        crate::menus::invoke(h.state_mut(), &ctx, "filter.liquify", json!({})).unwrap();
+        h.state_mut().session.edit_prefs(|p| {
+            p.shortcuts.insert("tools.liquify.Freeze".into(), "F6".into());
+        });
+        h.run_steps(4);
+        h.get_by_label(tl!(LiquifyTool::Freeze.label())).hover();
+        settle(&mut h);
+        assert_eq!(shown(&h.ctx).unwrap().key.as_deref(), Some("F6"));
+        h.key_press(egui::Key::F6);
+        h.run_steps(2);
+        assert_eq!(h.state().distort.liquify.as_ref().unwrap().opts.tool, LiquifyTool::Freeze);
+    }
+
+    #[test]
+    fn tool_tips_preferences_dropdown_changes_the_mode() {
+        let mut h = harness();
+        crate::prefs_ui::open_preferences(h.state_mut(), "interface");
+        h.run_steps(4);
+        let combo = h
+            .query_all_by_role(egui::accesskit::Role::ComboBox)
+            .find(|n| n.value().as_deref() == Some("Rich (name, shortcut and how to use)"))
+            .expect("Tool tips dropdown");
+        combo.click();
+        h.run_steps(3);
+        h.get_by_label("Simple (name and shortcut)").click();
+        h.run_steps(3);
+        h.get_by_label("Apply").click();
+        h.run_steps(3);
+        assert_eq!(h.state().session.prefs().interface.tool_tips, ToolTips::Simple);
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+    }
+
+    #[test]
     fn the_setting_defaults_to_rich_and_old_prefs_load() {
         let p: photocraft_engine::prefs::Preferences = serde_json::from_value(json!({"interface": {"theme": "pro"}})).unwrap();
         assert_eq!(p.interface.tool_tips, ToolTips::Rich);
@@ -538,7 +797,7 @@ mod tests {
     #[test]
     fn tips_name_the_keys_the_shortcut_handler_uses() {
         for t in Tool::ALL {
-            let sp = spec(t, &[t]);
+            let sp = spec(&photocraft_engine::Session::new(), t, &[t]);
             assert_eq!(sp.key, (t.key() != '\0').then(|| t.key().to_string()), "{t:?}");
         }
     }

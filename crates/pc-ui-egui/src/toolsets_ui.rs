@@ -10,11 +10,10 @@
 
 use egui::RichText;
 use photocraft_engine::prefs::ToolbarCustomization;
-use photocraft_engine::toolsets::{DEFAULT_ID, ToolSet};
+use photocraft_engine::toolsets::ToolSet;
 use serde_json::{Map, Value, json};
 
 use crate::PhotocraftApp;
-use crate::icons;
 use crate::menus::MenuItem;
 use crate::state::Tool;
 use crate::theme::Tokens;
@@ -47,7 +46,7 @@ fn sets(app: &PhotocraftApp) -> (String, Vec<ToolSet>) {
 pub fn switcher(app: &mut PhotocraftApp, ui: &mut egui::Ui, size: f32) {
     let (active_id, all) = sets(app);
     let active = all.iter().find(|s| s.id == active_id).cloned().unwrap_or_default();
-    let resp = icons::button(ui, "panels-top-left", size, false, "");
+    let resp = ui.add_sized([ui.available_width().max(size), size], egui::Button::new(RichText::new(display_name(&active)).size(9.5)).truncate());
     let tip = format!("{}: {}", tl!("Tool Set"), display_name(&active));
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &tip));
     let resp = resp.on_hover_text(tip);
@@ -70,7 +69,9 @@ pub fn switcher(app: &mut PhotocraftApp, ui: &mut egui::Ui, size: f32) {
 
 /// Window › Tool Set › <each set>, then Edit Toolbar…: inserted after Window › Tools.
 pub fn menu_items(app: &PhotocraftApp, items: &mut Vec<MenuItem>) {
-    let Some(after) = items.iter().position(|i| i.id == "window.toggle.toolbar").or_else(|| items.iter().rposition(|i| i.path.first().is_some_and(|p| p == "Window"))) else {
+    let Some(after) =
+        items.iter().position(|i| i.id == "window.toggle.toolbar").or_else(|| items.iter().rposition(|i| i.path.first().is_some_and(|p| p == "Window")))
+    else {
         return;
     };
     let (active, all) = sets(app);
@@ -120,11 +121,10 @@ pub fn tab(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value
     let builtin = ToolbarCustomization::is_builtin(&active.id);
     let mut renaming = f.get("tsRenaming").and_then(Value::as_bool).unwrap_or(false);
     let mut rename_to = f.get("tsRename").and_then(Value::as_str).unwrap_or("").to_string();
-    let mut error = String::new();
+    let mut error = f.get("tsError").and_then(Value::as_str).unwrap_or("").to_string();
     let mut act = |app: &mut PhotocraftApp, cmd: &str, p: Value| {
-        if let Err(e) = app.run(cmd, p) {
-            error = e;
-        }
+        error = app.run(cmd, p).err().unwrap_or_default();
+        error.is_empty()
     };
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
@@ -137,6 +137,7 @@ pub fn tab(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value
                     if ui.add(egui::Button::selectable(set.id == active.id, name)).clicked() && set.id != active.id {
                         act(app, "toolset.select", json!({"id": set.id}));
                         renaming = false;
+                        rename_to.clear();
                     }
                 }
             });
@@ -164,11 +165,10 @@ pub fn tab(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value
             if renaming && !builtin {
                 ui.horizontal(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut rename_to).desired_width(110.0).id_salt("toolset-rename"));
-                    if ui.button(tl!("OK")).clicked() {
-                        act(app, "toolset.rename", json!({"id": active.id, "newName": rename_to}));
+                    if ui.button(tl!("Save Name")).clicked() && act(app, "toolset.rename", json!({"id": active.id, "newName": rename_to})) {
                         renaming = false;
                     }
-                    if ui.button(tl!("Cancel")).clicked() {
+                    if ui.button(tl!("Cancel Rename")).clicked() {
                         renaming = false;
                     }
                 });
@@ -189,25 +189,43 @@ pub fn tab(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value
                 ui.label(RichText::new(tl!("Tick the tools this set shows.")).color(t.text_dim));
             }
             egui::ScrollArea::vertical().max_height(340.0).id_salt("toolbar-scroll").show(ui, |ui| {
-                egui::Grid::new("toolbar-grid").num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
+                egui::Grid::new("toolbar-grid").num_columns(3).spacing([16.0, 4.0]).show(ui, |ui| {
                     let mut tools: Vec<String> = active.tools.clone();
                     let mut changed = false;
-                    for tool in Tool::ALL {
+                    let mut ordered = Tool::ALL.to_vec();
+                    ordered.sort_by_key(|tool| active.tools.iter().position(|n| Tool::from_name(n) == Some(*tool)).unwrap_or(usize::MAX));
+                    let mut reorder = None;
+                    for tool in ordered {
                         let name = format!("{tool:?}");
                         let mut on = tools.contains(&name);
                         let was = on;
                         ui.add_enabled_ui(!builtin, |ui| crate::widgets::checkbox(ui, &mut on, tl!(tool.label())));
                         if on != was && !builtin {
                             if on {
-                                tools.push(name);
+                                tools.push(name.clone());
                             } else {
                                 tools.retain(|x| *x != name);
                             }
                             changed = true;
                         }
-                        let k = tool.key();
-                        ui.label(if k == '\0' { String::new() } else { k.to_string() });
+                        ui.label(crate::tool_tips::shortcut(&app.session, tool).unwrap_or_default());
+                        ui.horizontal(|ui| {
+                            let index = tools.iter().position(|n| *n == name);
+                            for (delta, label) in [(-1isize, tl!("Up")), (1isize, tl!("Down"))] {
+                                let enabled = !builtin && index.is_some_and(|i| (i as isize + delta) >= 0 && (i as isize + delta) < tools.len() as isize);
+                                let response = ui.add_enabled(enabled, egui::Button::new(label).small());
+                                response
+                                    .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, format!("{}: {}", tl!(tool.label()), label)));
+                                if response.clicked() {
+                                    reorder = index.map(|i| (i, (i as isize + delta) as usize));
+                                }
+                            }
+                        });
                         ui.end_row();
+                    }
+                    if let Some((a, b)) = reorder {
+                        tools.swap(a, b);
+                        changed = true;
                     }
                     if changed {
                         act(app, "toolset.save", json!({"id": active.id, "tools": tools}));
@@ -217,11 +235,11 @@ pub fn tab(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value
         });
     });
     if !error.is_empty() {
-        ui.colored_label(t.danger, error);
+        ui.colored_label(t.danger, &error);
     }
     f.insert("tsRenaming".into(), json!(renaming));
     f.insert("tsRename".into(), json!(rename_to));
-    let _ = DEFAULT_ID;
+    f.insert("tsError".into(), json!(error));
 }
 
 #[cfg(test)]

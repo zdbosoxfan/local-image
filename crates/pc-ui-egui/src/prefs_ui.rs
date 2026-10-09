@@ -481,6 +481,20 @@ pub fn shortcut_items(app: &PhotocraftApp) -> Vec<(String, String, Vec<String>, 
     let at = out.iter().rposition(|i| i.2.first().map(String::as_str) == Some("Layer")).map_or(out.len(), |i| i + 1);
     out.splice(at..at, layer);
     out.extend(tools);
+    for (id, label, def) in prefs::TOOL_SHORTCUTS {
+        out.push((id.to_string(), label.to_string(), vec!["Tools".into()], def.map(str::to_string)));
+    }
+    for tool in photocraft_algo::liquify::LiquifyTool::ALL {
+        out.push((
+            crate::liquify_ui::shortcut_id(tool),
+            tool.label().to_string(),
+            vec!["Tools".into(), "Liquify".into()],
+            (!crate::liquify_ui::shortcut(tool).is_empty()).then(|| crate::liquify_ui::shortcut(tool).to_string()),
+        ));
+    }
+    for tool in crate::tool_tips::CameraRawTool::ALL {
+        out.push((tool.shortcut_id().into(), tool.title().into(), vec!["Tools".into(), "Camera Raw".into()], Some(tool.default_shortcut().into())));
+    }
     for (id, label, def) in prefs::TEMPORARY_TOOLS {
         if seen.insert(id.to_string()) {
             out.push((id.to_string(), label.to_string(), vec!["Tools".into(), "Temporary".into()], Some(def.to_string())));
@@ -626,6 +640,15 @@ fn open_kind(app: &mut PhotocraftApp, kind: &str, label: &str, fields: Value) ->
     app.ui.open_dialog(DialogKind::Command, f)
 }
 
+/// Revert the toolbar preview when the Shortcuts/Toolbar dialog is cancelled.
+pub(crate) fn cancel(app: &mut PhotocraftApp, fields: &Map<String, Value>) {
+    if fields.get("__prefsui").and_then(Value::as_str) == Some("shortcuts")
+        && let Some(original) = fields.get("toolbarOriginal").and_then(|v| serde_json::from_value(v.clone()).ok())
+    {
+        app.session.edit_prefs(|p| p.toolbar = original);
+    }
+}
+
 /// Is this a dialog rendered by this module?
 pub fn owns(fields: &Map<String, Value>) -> bool {
     fields.contains_key("__prefsui")
@@ -707,6 +730,7 @@ pub fn open_shortcuts(app: &mut PhotocraftApp, tab: u64) -> u64 {
         "overrides": p.shortcuts,
         "hidden": p.menus.hidden,
         "colors": p.menus.colors,
+        "toolbarOriginal": p.toolbar,
         "selected": "",
         "capture": false,
         "message": "",

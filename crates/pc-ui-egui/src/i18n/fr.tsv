@@ -3252,3 +3252,43 @@ ai	New	Nouveautés
 	Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library.	Détecte les visages et reconnaît la même personne sur plusieurs photos. Désactivé jusqu’à son activation dans Smart Sort. Les données restent dans votre bibliothèque.
 	Finds faces and their landmarks, ready to recognise the same person in other photos. Runs locally on the CPU.	Détecte les visages et leurs points de repère pour reconnaître la même personne sur d’autres photos. Fonctionne localement sur le processeur.
 	Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.	Détecte les visages et regroupe les photos d’une même personne pour Smart Sort. Inclut les deux modèles ; fonctionne sur le processeur et conserve les données dans votre bibliothèque.
+
+# Tool tip and tool set completion (English fallback).
+	Cancel Rename	Cancel Rename
+	Choose Move or Extend in the options bar.	Choose Move or Extend in the options bar.
+	Choose the active shape, work path or targeted vector mask.	Choose the active shape, work path or targeted vector mask.
+	Click a slice to select it.	Click a slice to select it.
+	Click each item to add a numbered marker.	Click each item to add a numbered marker.
+	Click the first point to close, Enter to finish an open path.	Click the first point to close, Enter to finish an open path.
+	Click the image to add a sampler, then drag its marker to move it.	Click the image to add a sampler, then drag its marker to move it.
+	Click to add a note and edit its text in the Notes panel.	Click to add a note and edit its text in the Notes panel.
+	Click to add corners; drag to create smooth handles.	Click to add corners; drag to create smooth handles.
+	Click to switch between Fit and 100%; {alt}-click zooms out.	Click to switch between Fit and 100%; {alt}-click zooms out.
+	Color Sampler Tool	Color Sampler Tool
+	Double-click the image or tool button to fit the image.	Double-click the image or tool button to fit the image.
+	Double-click the tool button to fit the image.	Double-click the tool button to fit the image.
+	Drag a frame, then drag its four corners onto the subject.	Drag a frame, then drag its four corners onto the subject.
+	Drag a note marker to move it.	Drag a note marker to move it.
+	Drag a rectangle to create a slice.	Drag a rectangle to create a slice.
+	Drag between the endpoints.	Drag between the endpoints.
+	Drag between two points to measure.	Drag between two points to measure.
+	Drag right to zoom in and left to zoom out; {cmd}-drag draws a zoom box.	Drag right to zoom in and left to zoom out; {cmd}-drag draws a zoom box.
+	Drag the selected slice to move it.	Drag the selected slice to move it.
+	Drag to draw; {shift} keeps equal width and height.	Drag to draw; {shift} keeps equal width and height.
+	Drag to move its whole path.	Drag to move its whole path.
+	Drag to move the image; hold Space to pan with another tool.	Drag to move the image; hold Space to pan with another tool.
+	Hold {alt} to draw from the centre.	Hold {alt} to draw from the centre.
+	Magnifies or reduces the Camera Raw preview.	Magnifies or reduces the Camera Raw preview.
+	Paints back the document’s opening state.	Paints back the document’s opening state.
+	Pans the Camera Raw preview.	Pans the Camera Raw preview.
+	Places colour readouts on the Camera Raw preview.	Places colour readouts on the Camera Raw preview.
+	Save Name	Save Name
+	Set Pupil Size and Darken Amount in the options bar.	Set Pupil Size and Darken Amount in the options bar.
+	Set Size and Pressure in Brush Tool Options.	Set Size and Pressure in Brush Tool Options.
+	Set the brush size in the options bar before painting.	Set the brush size in the options bar before painting.
+	Then paint to erase or restore parts of it; Swap Colors switches modes.	Then paint to erase or restore parts of it; Swap Colors switches modes.
+	Up	Up
+	Use Slice Select to move an existing slice.	Use Slice Select to move an existing slice.
+	{alt}-click a marker to remove it.	{alt}-click a marker to remove it.
+	{alt}-drag an endpoint to measure an angle.	{alt}-drag an endpoint to measure an angle.
+	Hold {key} with any other tool to pan temporarily.	Hold {key} with any other tool to pan temporarily.

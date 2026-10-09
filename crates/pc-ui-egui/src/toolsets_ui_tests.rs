@@ -58,7 +58,9 @@ fn all_tools_is_the_default_and_the_switcher_changes_the_toolbar() {
     assert!(kept.contains(&Tool::Healing) && !kept.contains(&Tool::Pen), "{kept:?}");
     h.get_by_label("Tool Set: Retouching");
     // A tool the set leaves out still works by its key, and the toolbar shows it while active.
-    h.state_mut().ui.tool = Tool::Pen;
+    h.key_press(egui::Key::P);
+    h.run_steps(3);
+    assert_eq!(h.state().ui.tool, Tool::Pen);
     assert!(shown_tools(h.state()).contains(&Tool::Pen));
 }
 
@@ -72,19 +74,20 @@ fn create_rename_and_delete_a_custom_set_in_the_dialog() {
     assert_eq!(made.name, "My Tools");
     assert_eq!(made.tools.len(), Tool::ALL.len(), "a new set starts as a copy of the one in use");
     // untick a tool: it leaves the set
-    h.get_all_by_label("Sponge Tool").last().unwrap().click();
+    h.get_all_by_label("Rectangular Marquee Tool").last().unwrap().click();
     h.run_steps(3);
-    assert!(!active(&h).tools.iter().any(|t| t == "Sponge"));
+    assert!(!active(&h).tools.iter().any(|t| t == "RectMarquee"));
     h.get_by_label("Rename").click();
     h.run_steps(2);
     let edit = h.get_by_role(egui::accesskit::Role::TextInput);
     edit.focus();
     h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
     h.get_by_role(egui::accesskit::Role::TextInput).type_text("Faces");
     h.run_steps(2);
-    h.get_by_label("OK").click();
+    h.get_by_label("Save Name").click();
     h.run_steps(3);
-    assert!(active(&h).name.contains("Faces"), "{}", active(&h).name);
+    assert_eq!(active(&h).name, "Faces");
     h.get_by_label("Delete").click();
     h.run_steps(3);
     assert_eq!(active(&h).id, "allTools");
@@ -132,4 +135,46 @@ fn window_menu_lists_the_sets_and_marks_the_active_one() {
     let sets: Vec<&MenuItem> = items.iter().filter(|i| i.path == ["Window", "Tool Set"] && i.id.starts_with("window.toolSet.")).collect();
     assert_eq!(sets.len(), 5);
     assert_eq!(sets.iter().filter(|i| i.checked == Some(true)).map(|i| i.id.as_str()).collect::<Vec<_>>(), ["window.toolSet.allTools"]);
+}
+
+#[test]
+fn toolsets_custom_order_changes_the_toolbar_and_dialog_buttons_reorder() {
+    let mut h = harness();
+    h.state_mut().session.load_prefs_json(r#"{"toolbar":{"order":["Zoom","Brush"],"hidden":["Move"]}}"#).unwrap();
+    let shown = shown_tools(h.state());
+    assert_eq!(shown[0], Tool::Zoom);
+    assert_eq!(shown[1], Tool::Brush);
+    open_dialog(&mut h);
+    h.get_by_label("Zoom Tool: Down").click();
+    h.run_steps(3);
+    assert_eq!(&active(&h).tools[..2], &["Brush", "Zoom"]);
+    assert_eq!(shown_tools(h.state())[0], Tool::Brush);
+    h.get_by_label("Duplicate").click();
+    h.run_steps(3);
+    assert_eq!(active(&h).name, "My Tools copy");
+    assert_eq!(h.state().session.prefs().toolbar.sets.len(), 2);
+    h.get_by_label("Reset to All Tools").click();
+    h.run_steps(3);
+    assert_eq!(active(&h).id, "allTools");
+    assert_eq!(h.state().session.prefs().toolbar.sets.len(), 2);
+}
+
+#[test]
+fn toolsets_dialog_cancel_reverts_preview_and_ok_persists_it() {
+    let mut h = harness();
+    open_dialog(&mut h);
+    h.get_by_label("New").click();
+    h.run_steps(3);
+    assert_eq!(active(&h).name, "My Tools");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert_eq!(active(&h).id, "allTools");
+    assert!(h.state().session.prefs().toolbar.sets.is_empty());
+    open_dialog(&mut h);
+    h.get_by_label("New").click();
+    h.run_steps(3);
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    assert_eq!(active(&h).name, "My Tools");
+    assert!(h.state().ui.dialogs.is_empty());
 }

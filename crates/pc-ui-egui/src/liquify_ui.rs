@@ -504,21 +504,12 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::CloseBracket)) {
         d.opts.size = (d.opts.size * 1.1).min(15000.0);
     }
-    let tools = [
-        (egui::Key::W, LiquifyTool::ForwardWarp),
-        (egui::Key::R, LiquifyTool::Reconstruct),
-        (egui::Key::E, LiquifyTool::Smooth),
-        (egui::Key::C, LiquifyTool::TwirlCw),
-        (egui::Key::S, LiquifyTool::Pucker),
-        (egui::Key::B, LiquifyTool::Bloat),
-        (egui::Key::O, LiquifyTool::PushLeft),
-        (egui::Key::F, LiquifyTool::Freeze),
-        (egui::Key::D, LiquifyTool::Thaw),
-        (egui::Key::L, LiquifyTool::LassoMask),
-    ];
-    for (k, t) in tools {
-        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, k)) {
-            d.opts.tool = t;
+    for tool in LiquifyTool::ALL {
+        let sc = crate::shortcuts::local_tool_shortcut(&app.session, &shortcut_id(tool), shortcut(tool));
+        if let Some(sc) = sc.as_deref().and_then(crate::shortcuts::parse)
+            && crate::shortcuts::consume(ctx, &sc)
+        {
+            d.opts.tool = tool;
         }
     }
 }
@@ -540,7 +531,11 @@ fn tool_icon(t: LiquifyTool) -> &'static str {
     }
 }
 
-fn shortcut(t: LiquifyTool) -> &'static str {
+pub(crate) fn shortcut_id(tool: LiquifyTool) -> String {
+    format!("tools.liquify.{tool:?}")
+}
+
+pub(crate) fn shortcut(t: LiquifyTool) -> &'static str {
     match t {
         LiquifyTool::ForwardWarp => "W",
         LiquifyTool::Reconstruct => "R",

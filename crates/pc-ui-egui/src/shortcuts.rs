@@ -77,6 +77,23 @@ pub fn effective_shortcut(app: &PhotocraftApp, id: &str, default: Option<&str>) 
     app.session.prefs().shortcut(id, default).map(str::to_string)
 }
 
+/// One id per toolbar key group. Hidden tools use the same lookup as visible tools.
+pub fn tool_shortcut_id(tool: Tool) -> String {
+    let leader = Tool::ALL.into_iter().find(|t| t.key() == tool.key()).unwrap_or(tool);
+    format!("tools.select.{leader:?}")
+}
+
+pub fn tool_shortcut(session: &photocraft_engine::Session, tool: Tool) -> Option<String> {
+    let id = tool_shortcut_id(tool);
+    let default = default_shortcut(&id);
+    session.prefs().shortcut(&id, default.as_deref()).map(str::to_string)
+}
+
+/// Modal tool bindings also pass through the preferences lookup.
+pub(crate) fn local_tool_shortcut(session: &photocraft_engine::Session, id: &str, default: &str) -> Option<String> {
+    session.prefs().shortcut(id, (!default.is_empty()).then_some(default)).map(str::to_string)
+}
+
 /// Default (unmodified) shortcut of a command id.
 pub fn default_shortcut(id: &str) -> Option<String> {
     crate::menus::UI_COMMANDS
@@ -85,8 +102,16 @@ pub fn default_shortcut(id: &str) -> Option<String> {
         .and_then(|c| c.3)
         .or_else(|| photocraft_engine::commands::find(id).and_then(|c| c.shortcut))
         .or_else(|| crate::menu_catalog::CATALOG.iter().find(|c| c.3 == id).and_then(|c| c.2))
+        .or_else(|| photocraft_engine::prefs::TOOL_SHORTCUTS.iter().find(|t| t.0 == id).and_then(|t| t.2))
         .or_else(|| photocraft_engine::prefs::TEMPORARY_TOOLS.iter().find(|t| t.0 == id).map(|t| t.2))
         .map(str::to_string)
+        .or_else(|| {
+            photocraft_algo::liquify::LiquifyTool::ALL
+                .into_iter()
+                .find(|t| crate::liquify_ui::shortcut_id(*t) == id)
+                .and_then(|t| (!crate::liquify_ui::shortcut(t).is_empty()).then(|| crate::liquify_ui::shortcut(t).to_string()))
+        })
+        .or_else(|| crate::tool_tips::CameraRawTool::ALL.into_iter().find(|t| t.shortcut_id() == id).map(|t| t.default_shortcut().into()))
 }
 
 /// With ⇧ held the OS reports the shifted character as the logical key (US layout): ⇧; is `:`.
@@ -346,10 +371,13 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     // Tools › Use Shift Key for Tool Switch, only ⇧+key cycles and the plain key keeps the
     // group's current tool.
     let shift_switch = app.session.prefs().tools.use_shift_key_for_tool_switch;
-    for t in Tool::ALL {
-        let Some(k) = Key::from_name(&t.key().to_string()) else { continue };
-        let cycle_shift = shift_switch && ctx.input_mut(|i| i.consume_key(Modifiers::SHIFT, k));
-        if cycle_shift || pressed(k) {
+    for (id, _, _) in photocraft_engine::prefs::TOOL_SHORTCUTS {
+        let Some(t) = id.strip_prefix("tools.select.").and_then(Tool::from_name) else { continue };
+        let Some(sc) = tool_shortcut(&app.session, t).as_deref().and_then(parse) else { continue };
+        let mut cycling = sc;
+        cycling.modifiers |= Modifiers::SHIFT;
+        let cycle_shift = shift_switch && !sc.modifiers.shift && consume(ctx, &cycling);
+        if cycle_shift || consume(ctx, &sc) {
             let group: Vec<Tool> = Tool::ALL.iter().copied().filter(|x| x.key() == t.key()).collect();
             app.ui.tool = match group.iter().position(|x| *x == app.ui.tool) {
                 Some(i) if shift_switch && !cycle_shift => group[i],

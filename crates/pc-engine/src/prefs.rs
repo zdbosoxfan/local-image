@@ -745,11 +745,9 @@ pub struct MenuCustomization {
 #[serde(default, rename_all = "camelCase")]
 pub struct ToolbarCustomization {
     /// Before tool sets: hidden tools. Read once and turned into the set "My Tools"
-    /// ([`ToolbarCustomization::migrate`]); never written.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    /// ([`ToolbarCustomization::migrate`]); cleared after migration.
     pub hidden: Vec<String>,
     /// Before tool sets: a custom order (see `hidden`).
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub order: Vec<String>,
     /// Id of the tool set in use (`""` = All Tools, the default).
     pub active_set: String,
@@ -1097,6 +1095,7 @@ impl Preferences {
         let mut root = self.to_json();
         set_path(&mut root, path, value)?;
         *self = serde_json::from_value(root).map_err(|e| format!("invalid value for `{path}`: {e}"))?;
+        self.toolbar.migrate();
         Ok(())
     }
 
@@ -1210,9 +1209,39 @@ pub const TEMPORARY_TOOLS: &[(&str, &str, &str)] = &[
     ("tools.temporary.zoomOut", "Zoom Out (hold)", "Cmd+Alt+Space"),
 ];
 
+/// Bindable toolbar groups. A group shares one shortcut, including its flyout tools.
+pub const TOOL_SHORTCUTS: &[(&str, &str, Option<&str>)] = &[
+    ("tools.select.Move", "Move Tool", Some("V")),
+    ("tools.select.RectMarquee", "Marquee Tools", Some("M")),
+    ("tools.select.Lasso", "Lasso Tools", Some("L")),
+    ("tools.select.MagicWand", "Selection Tools", Some("W")),
+    ("tools.select.Crop", "Crop and Slice Tools", Some("C")),
+    ("tools.select.Eyedropper", "Eyedropper and Measurement Tools", Some("I")),
+    ("tools.select.Brush", "Brush Tools", Some("B")),
+    ("tools.select.Eraser", "Eraser Tools", Some("E")),
+    ("tools.select.Gradient", "Fill Tools", Some("G")),
+    ("tools.select.Type", "Type Tools", Some("T")),
+    ("tools.select.Hand", "Hand Tool", Some("H")),
+    ("tools.select.Zoom", "Zoom Tool", Some("Z")),
+    ("tools.select.SpotHealing", "Healing Tools", Some("J")),
+    ("tools.select.CloneStamp", "Clone Stamp Tool", Some("S")),
+    ("tools.select.HistoryBrush", "History Brush Tool", Some("Y")),
+    ("tools.select.Blur", "Blur, Sharpen and Smudge Tools", None),
+    ("tools.select.Dodge", "Dodge, Burn and Sponge Tools", Some("O")),
+    ("tools.select.Pen", "Pen Tool", Some("P")),
+    ("tools.select.PathSelection", "Path Selection Tools", Some("A")),
+    ("tools.select.Rectangle", "Shape Tools", Some("U")),
+    ("tools.select.AiRemove", "AI Remove Tool", Some("R")),
+    ("tools.select.AiCutout", "AI Cutout Tool", Some("K")),
+];
+
 /// Every bindable id with its default: commands, then the temporary tools.
 fn bindable() -> impl Iterator<Item = (&'static str, Option<&'static str>)> {
-    crate::command_specs().iter().map(|c| (c.id, c.shortcut)).chain(TEMPORARY_TOOLS.iter().map(|t| (t.0, Some(t.2))))
+    crate::command_specs()
+        .iter()
+        .map(|c| (c.id, c.shortcut))
+        .chain(TEMPORARY_TOOLS.iter().map(|t| (t.0, Some(t.2))))
+        .chain(TOOL_SHORTCUTS.iter().map(|t| (t.0, t.2)))
 }
 
 /// Shortcuts bound to more than one command: (shortcut, ids). `bindings` are (id, shortcut).
@@ -1493,6 +1522,7 @@ fn keyboard_shortcuts(s: &mut Session, p: &Value) -> Result<Value> {
         .iter()
         .map(|c| (c.id, c.label, c.menu, c.shortcut, false))
         .chain(temporary)
+        .chain(TOOL_SHORTCUTS.iter().map(|t| (t.0, t.1, &["Tools"][..], t.2, false)))
         .filter(|c| filter.as_ref().is_none_or(|f| c.0.to_ascii_lowercase().contains(f) || c.1.to_ascii_lowercase().contains(f)))
         .filter(|c| p.get("list").and_then(Value::as_bool).unwrap_or(false) || filter.is_some() || prefs.shortcuts.contains_key(c.0))
         .map(|(id, label, menu, def, hold)| {
@@ -1555,7 +1585,7 @@ fn toolbar(s: &mut Session, p: &Value) -> Result<Value> {
     let ids = |k: &str| -> Option<Vec<String>> { p.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()) };
     s.edit_prefs(|pr| {
         if p.get("reset").and_then(Value::as_bool) == Some(true) {
-            pr.toolbar = ToolbarCustomization::default();
+            pr.toolbar.active_set = crate::toolsets::DEFAULT_ID.into();
         }
         let (hidden, order) = (ids("hidden"), ids("order"));
         if hidden.is_none() && order.is_none() {
