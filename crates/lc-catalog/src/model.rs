@@ -188,6 +188,9 @@ pub struct Meta {
     /// Left out of the catalog JSON when empty (most photos), so older catalogs read unchanged.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub regions: Vec<lightcraft_meta::Region>,
+    /// Local Smart Sort identities, including unnamed people. Never written to XMP.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub person_ids: Vec<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

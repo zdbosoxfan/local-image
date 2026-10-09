@@ -50,3 +50,6 @@ impl Tagger for MockTagger {
         normalized(v, 8)
     }
 }
+
+#[doc(hidden)]
+pub use super::people::MockFaces;

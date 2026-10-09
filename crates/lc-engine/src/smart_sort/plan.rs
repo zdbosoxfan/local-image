@@ -5,16 +5,32 @@ use super::SortPreset;
 use lightcraft_catalog::{Catalog, PhotoId, Rule, RuleSet};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct FolderDef {
     pub name: String,
     pub rules: RuleSet,
     pub enabled: bool,
+    pub people_enabled: bool,
+    pub person_ids: Vec<u64>,
+    pub everyone: bool,
+    /// false: tag/rules AND people; true: tag/rules OR people.
+    pub people_or: bool,
+    /// When false, this is a pure people folder (empty RuleSet otherwise matches everything).
+    pub use_rules: bool,
 }
 impl Default for FolderDef {
     fn default() -> Self {
-        Self { name: "Untitled".into(), rules: RuleSet::default(), enabled: true }
+        Self {
+            name: "Untitled".into(),
+            rules: RuleSet::default(),
+            enabled: true,
+            people_enabled: false,
+            person_ids: Vec::new(),
+            everyone: false,
+            people_or: false,
+            use_rules: true,
+        }
     }
 }
 
@@ -39,6 +55,7 @@ pub fn keyword_folders(preset: &SortPreset) -> Vec<FolderDef> {
                 ..Default::default()
             },
             enabled: true,
+            ..Default::default()
         })
         .collect()
 }
@@ -70,9 +87,30 @@ pub fn plan(cat: &Catalog, ids: &[PhotoId], folders: &[FolderDef]) -> Result<Vec
             n += 1;
         }
         let mut seen = std::collections::BTreeSet::new();
-        let ids =
-            ids.iter().filter(|id| seen.insert(**id)).filter(|id| cat.photo(**id).is_some_and(|p| folder.rules.matches(p, cat))).copied().collect();
+        let ids = ids.iter().filter(|id| seen.insert(**id)).filter(|id| cat.photo(**id).is_some_and(|p| folder.matches(p, cat))).copied().collect();
         out.push(Folder { name, ids });
     }
     Ok(out)
+}
+
+impl FolderDef {
+    pub fn matches(&self, photo: &lightcraft_catalog::Photo, cat: &Catalog) -> bool {
+        let tags = self.rules.matches(photo, cat);
+        if !self.people_enabled {
+            return self.use_rules && tags;
+        }
+        let people = !self.person_ids.is_empty()
+            && if self.everyone {
+                self.person_ids.iter().all(|id| photo.meta.person_ids.contains(id))
+            } else {
+                self.person_ids.iter().any(|id| photo.meta.person_ids.contains(id))
+            };
+        if !self.use_rules || self.rules.rules.is_empty() {
+            people
+        } else if self.people_or {
+            tags || people
+        } else {
+            tags && people
+        }
+    }
 }

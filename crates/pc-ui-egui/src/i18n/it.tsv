@@ -2735,3 +2735,9 @@ ai	New	Nuovi
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	La classe cielo {class} è fuori intervallo: questo modello ha {classes} classi (da 0 a {max})
 	{path} isn't a file	{path} non è un file
 	Custom models are not supported for this function	I modelli personalizzati non sono supportati per questa funzione
+
+# Smart Sort face model bundle
+	Faces	Volti
+	Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library.	Trova i volti e riconosce la stessa persona in più foto. Disattivato finché non lo attivi in Smart Sort. I dati dei volti restano nella tua libreria.
+	Finds faces and their landmarks, ready to recognise the same person in other photos. Runs locally on the CPU.	Trova i volti e i loro punti di riferimento per riconoscere la stessa persona in altre foto. Funziona localmente sulla CPU.
+	Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.	Trova i volti e raggruppa le foto della stessa persona per Smart Sort. Include entrambi i modelli; funziona sulla CPU e conserva i dati nella tua libreria.

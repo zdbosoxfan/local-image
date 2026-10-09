@@ -62,10 +62,11 @@ pub enum Group {
     Sky,
     Depth,
     Tagging,
+    Faces,
 }
 
 impl Group {
-    pub const ALL: [Group; 4] = [Group::Subject, Group::Sky, Group::Depth, Group::Tagging];
+    pub const ALL: [Group; 5] = [Group::Subject, Group::Sky, Group::Depth, Group::Tagging, Group::Faces];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -73,6 +74,7 @@ impl Group {
             Group::Sky => "Sky",
             Group::Depth => "Depth",
             Group::Tagging => "Smart Sort (scenes)",
+            Group::Faces => "Faces",
         }
     }
 
@@ -83,6 +85,7 @@ impl Group {
             Group::Sky => "sky",
             Group::Depth => "depth",
             Group::Tagging => "tagging",
+            Group::Faces => "faces",
         }
     }
 
@@ -101,6 +104,9 @@ impl Group {
             Group::Tagging => {
                 "Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer."
             }
+            Group::Faces => {
+                "Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library."
+            }
             Group::Depth => {
                 "Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance)."
             }
@@ -114,6 +120,7 @@ impl Group {
             Group::Sky => "sky-mobileseg",
             Group::Depth => "depth-anything-v2-small",
             Group::Tagging => "clip-b32-laion",
+            Group::Faces => "sface",
         };
         MODELS.iter().find(|m| m.id == id).expect("the official model is in MODELS")
     }
@@ -177,12 +184,18 @@ pub enum Task {
     Subject,
     /// The sky. `classes` = 1: one logit map (sigmoid); otherwise ADE20K-style class logits where
     /// `class` is the sky and `margin` how far it must lead every other class.
-    Sky { classes: usize, class: usize, margin: f32 },
+    Sky {
+        classes: usize,
+        class: usize,
+        margin: f32,
+    },
     /// Monocular relative depth (Depth Anything V2): one map of relative inverse depth
     /// (larger = nearer), ImageNet-normalised input.
     Depth,
     /// Paired image/text embedding models; kept separate from mask inference.
     ImageText,
+    FaceDetect,
+    FaceEmbed,
 }
 
 pub const MODELS: &[ModelSpec] = &[
@@ -270,6 +283,41 @@ pub const MODELS: &[ModelSpec] = &[
         group: Some(Group::Tagging),
         about: "Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.",
     },
+    ModelSpec {
+        id: "yunet",
+        label: "YuNet",
+        file: "face_detection_yunet_2023mar.onnx",
+        companions: &[],
+        bytes: 232589,
+        sha256: "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+        url: "https://huggingface.co/opencv/face_detection_yunet/resolve/3cc26e7f1014a5ee5d74a42acee58bafc9d0a310/face_detection_yunet_2023mar.onnx",
+        size: 640,
+        isnet: false,
+        licence: "MIT (YuNet, Shiqi Yu / OpenCV Zoo)",
+        task: Task::FaceDetect,
+        group: Some(Group::Faces),
+        about: "Finds faces and their landmarks, ready to recognise the same person in other photos. Runs locally on the CPU.",
+    },
+    ModelSpec {
+        id: "sface",
+        label: "YuNet + SFace",
+        file: "face_recognition_sface_2021dec.onnx",
+        companions: &[Companion {
+            file: "face_detection_yunet_2023mar.onnx",
+            url: "https://huggingface.co/opencv/face_detection_yunet/resolve/3cc26e7f1014a5ee5d74a42acee58bafc9d0a310/face_detection_yunet_2023mar.onnx",
+            bytes: 232589,
+            sha256: "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+        }],
+        bytes: 38696353,
+        sha256: "0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79",
+        url: "https://huggingface.co/opencv/face_recognition_sface/resolve/3d7082438a6e4551e840c9b2bb60b71e8da4b524/face_recognition_sface_2021dec.onnx",
+        size: 112,
+        isnet: false,
+        licence: "Apache-2.0 (SFace, OpenCV Zoo)",
+        task: Task::FaceEmbed,
+        group: Some(Group::Faces),
+        about: "Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.",
+    },
 ];
 
 /// Files of models the app used to offer (U²-Net small and full, TinySkyNet, MiDaS small): no
@@ -329,8 +377,8 @@ impl Segmenter {
     }
 
     fn load_cfg(cfg: Config, path: &Path) -> Result<Self> {
-        if cfg.task == Task::ImageText {
-            bail!("use Clip to load an image/text model");
+        if matches!(cfg.task, Task::ImageText | Task::FaceDetect | Task::FaceEmbed) {
+            bail!("use the dedicated embedding or face inference API");
         }
         let s = cfg.size;
         // the dynamic-shape depth export declares symbolic intermediate shapes that conflict
@@ -568,6 +616,7 @@ impl Custom {
             Group::Sky => Task::Sky { classes: self.classes, class: self.class, margin: if self.classes == 1 { 0.0 } else { 2.0 } },
             Group::Depth => Task::Depth,
             Group::Tagging => Task::ImageText,
+            Group::Faces => Task::FaceEmbed,
         };
         Config { id: format!("custom:{}", self.file), size: self.size, norm: self.norm, task }
     }
@@ -747,7 +796,7 @@ fn validate(custom: &Custom, path: &Path) -> Result<(), CustomModelError> {
     let seg = Segmenter::load_cfg(custom.config(), path).map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
     let shape = seg.output_shape().map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
     match custom.group {
-        Group::Tagging => return Err(CustomModelError::UnsupportedFunction),
+        Group::Tagging | Group::Faces => return Err(CustomModelError::UnsupportedFunction),
         Group::Subject => {
             if single_map(&shape).is_none() {
                 return Err(CustomModelError::NotSubjectModel);
@@ -1012,7 +1061,7 @@ fn slot(group: Group) -> Option<&'static Slot> {
         Group::Subject => Some(&SUBJECT),
         Group::Sky => Some(&SKY),
         Group::Depth => Some(&DEPTH),
-        Group::Tagging => None,
+        Group::Tagging | Group::Faces => None,
     }
 }
 

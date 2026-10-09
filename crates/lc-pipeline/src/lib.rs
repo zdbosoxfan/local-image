@@ -478,24 +478,22 @@ pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &R
     Plan { settings, frame, w, h, px_per_long, src_long, geo, lin_key, eyes }
 }
 
-/// Whether the scene-linear stage needs work only the CPU does (film negative conversion,
-/// defringe, spot removal).
+/// Whether scene-linear pixel tools still require the host inside a GPU render.
+/// Nonlinear calibration and stored AI patches have native kernels.
 pub fn lin_needs_cpu(s: &DevelopSettings) -> bool {
     let o = &s.optics;
     let defringe = s.section_enabled("optics") && (o.defringe_purple_amount > 0.0 || o.defringe_green_amount > 0.0);
-    defringe || !s.spots.is_empty() || negative::converts(s) || colorcal::needs_cpu(s)
+    defringe || s.spots.iter().any(|spot| !spot.is_ai()) || negative::converts(s)
 }
 
-/// Whether a tool without a native GPU kernel requires the CPU renderer.
-/// The separate Tone Equalizer and its mask overlay still use the CPU reference.
-pub fn tools_need_cpu(s: &DevelopSettings, req: &RenderRequest) -> bool {
-    toneeq::active(s) || req.overlay == Overlay::ToneEqMask
+/// Tone Equalizer and its overlay have native device preparation and finish kernels.
+pub fn tools_need_cpu(_s: &DevelopSettings, _req: &RenderRequest) -> bool {
+    false
 }
 
-/// Whether the remaining develop layer tools require the CPU renderer (`layers`).
-/// New primary tools have native scene-stage kernels inside the GPU render.
-pub fn layers_need_cpu(s: &DevelopSettings) -> bool {
-    layers::active(&primary::remaining(s))
+/// Develop layer tools have native stage blends (device limits still permit fallback).
+pub fn layers_need_cpu(_s: &DevelopSettings) -> bool {
+    false
 }
 
 /// The white-balanced, negative-converted, defringed, retouched image (before noise reduction):

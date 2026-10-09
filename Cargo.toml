@@ -90,6 +90,7 @@ photocraft-testkit = { path = "crates/pc-testkit" }
 photocraft-text = { path = "crates/pc-text" }
 photocraft-ui-egui = { path = "crates/pc-ui-egui" }
 photocraft-vector = { path = "crates/pc-vector" }
+pc-trace = { path = "crates/pc-trace" }
 png = { version = "0.18" }
 pollster = { version = "1" }
 proptest = { version = "1" }
@@ -132,9 +133,14 @@ excessive_precision = "allow"
 # Pixel code is unusably slow unoptimised.
 [profile.dev]
 opt-level = 1
+# Line tables only: panics and backtraces still show file:line, but builds and test binaries are several times
+# smaller and link faster (full debug info made every worktree's target/ 100–400 GB).
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
 opt-level = 2
+# Third-party crates need no debug info at all.
+debug = false
 
 [profile.release]
 lto = "thin"

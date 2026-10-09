@@ -3002,3 +3002,9 @@ ai	New	Новые
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Класс неба {class} вне диапазона: модель имеет {classes} классов (от 0 до {max})
 	{path} isn't a file	{path} не является файлом
 	Custom models are not supported for this function	Пользовательские модели не поддерживаются для этой функции
+
+# Smart Sort face model bundle
+	Faces	Лица
+	Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library.	Находит лица и узнаёт одного человека на разных фотографиях. Выключено до включения в Smart Sort. Данные лиц остаются в вашей библиотеке.
+	Finds faces and their landmarks, ready to recognise the same person in other photos. Runs locally on the CPU.	Находит лица и их ключевые точки для распознавания одного человека на других фотографиях. Работает локально на процессоре.
+	Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.	Находит лица и группирует фотографии одного человека для Smart Sort. Включает обе модели; работает на процессоре и хранит данные лиц в вашей библиотеке.

@@ -5179,6 +5179,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
 
 [[package]]
+name = "pc-trace"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "image",
+ "kurbo 0.13.1",
+ "photocraft-color",
+ "photocraft-compose",
+ "photocraft-doc",
+ "photocraft-geom",
+ "photocraft-gpu",
+ "photocraft-testkit",
+ "photocraft-vector",
+ "pollster 1.0.1",
+ "proptest",
+ "resvg",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "ttf-parser",
+ "wgpu",
+]
+
+[[package]]
 name = "pem-rfc7468"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5366,6 +5389,7 @@ dependencies = [
  "image",
  "li-ai",
  "li-seg",
+ "pc-trace",
  "photocraft-algo",
  "photocraft-cms",
  "photocraft-codecs",
@@ -5550,8 +5574,11 @@ dependencies = [
 name = "photocraft-testkit"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "image",
+ "kurbo 0.13.1",
  "memory-stats",
  "photocraft-color",
+ "photocraft-doc",
  "photocraft-geom",
  "photocraft-raster",
  "serde_json",

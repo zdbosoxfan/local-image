@@ -205,3 +205,18 @@ fn xguided_refine(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workg
     let i=lin_index(g,nw);if(i>=pu(0u)) {return;}
     let q=clamp(b[2u*i]*a[i]+b[2u*i+1u],0.0,1.0);dst[i]=c[i]+(q-c[i])*pf(1u);
 }
+
+// Tone equalizer luminance compensation, before the faithful linear EIGF.
+@compute @workgroup_size(256)
+fn toneeq_lum(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {
+    let i=lin_index(g,nw);if(i>=pu(0u)){return;}let v=rgb_a(i);
+    dst[i]=max((sqrt(v.x*v.x+v.y*v.y+v.z*v.z)*pf(1u)-0.0625)*pf(2u)+0.0625,0.0000152587890625);
+}
+@compute @workgroup_size(256)
+fn toneeq_log(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {
+    let i=lin_index(g,nw);if(i>=pu(0u)){return;}dst[i]=log2(max(a[i],0.0000152587890625));
+}
+@compute @workgroup_size(256)
+fn toneeq_preview(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {
+    let i=lin_index(g,nw);if(i>=pu(0u)){return;}dst[i]=floor(clamp(a[i],-8.0,0.0)+8.0+0.5)/8.0;
+}

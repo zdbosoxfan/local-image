@@ -85,6 +85,8 @@ pub struct UndoEntry {
     /// A folder to rename on disk (`from` → `to`) before `op` is applied: Rename / Move Folder
     /// (whose `op` relinks the photos inside). Never overwrites; refused when `to` exists.
     pub folder: Option<FolderMove>,
+    /// People identity changes share the catalog step without entering its op log.
+    pub people: Option<smart_sort::people::PeopleData>,
 }
 
 /// A folder renamed or moved on disk as part of an undo step.
@@ -370,7 +372,7 @@ impl Session {
         let fwd = op.clone();
         let inv = self.catalog.apply(op)?;
         self.pending_log.push(fwd);
-        self.undo.push(UndoEntry { label: label.to_string(), op: inv, folder: None });
+        self.undo.push(UndoEntry { label: label.to_string(), op: inv, folder: None, people: None });
         if self.undo.len() > 1000 {
             self.undo.remove(0);
         }
@@ -422,12 +424,12 @@ impl Session {
             return;
         }
         // a step that moves a folder on disk stays on its own
-        if self.undo[self.undo.len() - n..].iter().any(|e| e.folder.is_some()) {
+        if self.undo[self.undo.len() - n..].iter().any(|e| e.folder.is_some() || e.people.is_some()) {
             return;
         }
         let tail = self.undo.split_off(self.undo.len() - n);
         let ops = tail.into_iter().rev().map(|e| e.op).collect();
-        self.undo.push(UndoEntry { label: label.to_string(), op: Op::Batch { ops }, folder: None });
+        self.undo.push(UndoEntry { label: label.to_string(), op: Op::Batch { ops }, folder: None, people: None });
     }
 
     /// Apply without recording undo (interactive previews).
@@ -438,7 +440,7 @@ impl Session {
 
     pub fn undo_step(&mut self) -> Result<String> {
         let e = self.undo.pop().ok_or_else(|| EngineError::Other("nothing to undo".into()))?;
-        let redo = match self.apply_with_files(&e.op, e.folder.as_ref()) {
+        let (redo, people) = match self.apply_people_history(&e.op, e.folder.as_ref(), e.people.as_ref()) {
             Ok(r) => r,
             Err(err) => {
                 self.undo.push(e);
@@ -446,13 +448,13 @@ impl Session {
             }
         };
         self.pending_log.push(e.op);
-        self.redo.push(UndoEntry { label: e.label.clone(), op: redo, folder: e.folder.as_ref().map(FolderMove::reversed) });
+        self.redo.push(UndoEntry { label: e.label.clone(), op: redo, folder: e.folder.as_ref().map(FolderMove::reversed), people });
         Ok(e.label)
     }
 
     pub fn redo_step(&mut self) -> Result<String> {
         let e = self.redo.pop().ok_or_else(|| EngineError::Other("nothing to redo".into()))?;
-        let undo = match self.apply_with_files(&e.op, e.folder.as_ref()) {
+        let (undo, people) = match self.apply_people_history(&e.op, e.folder.as_ref(), e.people.as_ref()) {
             Ok(r) => r,
             Err(err) => {
                 self.redo.push(e);
@@ -460,7 +462,7 @@ impl Session {
             }
         };
         self.pending_log.push(e.op);
-        self.undo.push(UndoEntry { label: e.label.clone(), op: undo, folder: e.folder.as_ref().map(FolderMove::reversed) });
+        self.undo.push(UndoEntry { label: e.label.clone(), op: undo, folder: e.folder.as_ref().map(FolderMove::reversed), people });
         Ok(e.label)
     }
 

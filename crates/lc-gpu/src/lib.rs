@@ -116,7 +116,23 @@ pub enum Fault {
 }
 
 thread_local! {
+    static CPU_STAGES: std::cell::RefCell<Vec<&'static str>> = const { std::cell::RefCell::new(Vec::new()) };
     static FAULT: std::cell::Cell<Option<Fault>> = const { std::cell::Cell::new(None) };
+}
+
+/// Host pixel/statistical stages used inside the most recent GPU render on this thread.
+/// Metadata resolution, output histogram and requested overlays are not pixel processing stages.
+pub fn last_cpu_stages() -> Vec<&'static str> {
+    CPU_STAGES.with(|stages| stages.borrow().clone())
+}
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn record_cpu_stage(stage: &'static str) {
+    CPU_STAGES.with(|stages| {
+        let mut stages = stages.borrow_mut();
+        if !stages.contains(&stage) {
+            stages.push(stage);
+        }
+    });
 }
 
 /// Make the next [`render`] on this thread fail with `f` (tests).
@@ -334,20 +350,11 @@ pub fn render_hs_candidate(
     stages: Option<&StageCache>,
     method: lightcraft_pipeline::primary::HsMethod,
 ) -> Option<Rendered> {
+    CPU_STAGES.with(|stages| stages.borrow_mut().clear());
     #[cfg(not(target_arch = "wasm32"))]
     {
         // the kernel writes 8-bit output: high-bit-depth exports (and soft proofs) render on the CPU
         if !enabled() || req.depth != lightcraft_pipeline::OutputDepth::U8 || req.proof.is_some() {
-            return None;
-        }
-        // develop layer tools (curves, colour, … on a mask) have no kernels yet: CPU
-        if lightcraft_pipeline::layers_need_cpu(s) {
-            record_fallback("develop layer tools render on the CPU".into());
-            return None;
-        }
-        // the tone equalizer has no kernel yet: CPU
-        if lightcraft_pipeline::tools_need_cpu(s, req) {
-            record_fallback("the tone equalizer renders on the CPU".into());
             return None;
         }
         let gpu = device()?;

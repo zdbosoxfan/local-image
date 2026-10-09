@@ -62,6 +62,23 @@ fn check(name: &str, src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, 
     let gpu = gpu_render(src, info, s, req, None);
     let (mean, max) = diff(&cpu, &gpu);
     eprintln!("{name:<44} {}x{}  mean {mean:.4}  max {max}", cpu.width, cpu.height);
+    if max > MAX_LSB {
+        let mut pixels: Vec<_> = cpu
+            .data
+            .iter()
+            .zip(&gpu.data)
+            .enumerate()
+            .filter_map(|(i, (p, q))| {
+                let d = (0..3).map(|c| p[c].abs_diff(q[c])).max().unwrap_or(0);
+                (d > MAX_LSB).then_some((d, i, p, q))
+            })
+            .collect();
+        pixels.sort_unstable_by_key(|(d, i, _, _)| (std::cmp::Reverse(*d), *i));
+        eprintln!("settings: tone_eq={:?}, request={req:?}", s.tone_eq);
+        for (d, i, p, q) in pixels.iter().take(32) {
+            eprintln!("pixel ({}, {}) CPU={p:?} GPU={q:?} max={d}", i % cpu.width, i / cpu.width);
+        }
+    }
     assert!(mean < MEAN_LSB && max <= MAX_LSB, "{name}: mean {mean:.4} LSB, max {max} LSB");
     gpu
 }
@@ -305,10 +322,13 @@ fn lens_profiles_replace_embedded_and_zero_strength_matches_disabled() {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Tone equalizer: retain the CPU fallback until a native kernel exists.
+// Native tone equalizer and its neutral/non-neutral mask overlay.
 
 #[test]
-fn tone_equalizer_falls_back_to_cpu_and_draws_a_mask() {
+fn tone_equalizer_matches_and_draws_a_mask() {
+    if !gpu() {
+        return;
+    }
     let src = scene(0, 640, 427);
     let info = raw();
     let mut s = DevelopSettings::default();
@@ -317,16 +337,16 @@ fn tone_equalizer_falls_back_to_cpu_and_draws_a_mask() {
     s.tone_eq.ev5 = 0.8;
     s.tone_eq.ev1 = -0.6;
     let req = RenderRequest::fit(640, 640);
-    assert!(lightcraft_pipeline::tools_need_cpu(&s, &req));
-    assert!(lightcraft_gpu::render(&src, &info, &s, &req, None).is_none());
-    // Show Mask also uses the CPU renderer, including neutral zones.
+    assert!(!lightcraft_pipeline::tools_need_cpu(&s, &req));
+    check("native tone equalizer", &src, &info, &s, &req);
+    // Show Mask also runs natively, including neutral zones.
     let mut shown = s.clone();
     shown.tone_eq.ev6 = 0.;
     shown.tone_eq.ev5 = 0.;
     shown.tone_eq.ev1 = 0.;
     let mreq = RenderRequest { overlay: Overlay::ToneEqMask, ..req };
-    assert!(lightcraft_pipeline::tools_need_cpu(&shown, &mreq));
-    assert!(lightcraft_gpu::render(&src, &info, &shown, &mreq, None).is_none());
+    assert!(!lightcraft_pipeline::tools_need_cpu(&shown, &mreq));
+    check("native neutral tone mask", &src, &info, &shown, &mreq);
     let mask = render(&src, &info, &shown, &mreq).image;
     assert!(mask.data.iter().all(|p| p[0] == p[1] && p[1] == p[2]), "the mask is drawn in grey");
     let levels = mask.data.iter().map(|p| p[0]).fold((255u8, 0u8), |(lo, hi), v| (lo.min(v), hi.max(v)));
@@ -341,7 +361,7 @@ fn tone_equalizer_falls_back_to_cpu_and_draws_a_mask() {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Colour calibration: linear cases on the GPU, the rest through the CPU's linear stage
+// Colour calibration: folded linear matrices and native per-pixel nonlinear adaptation.
 
 fn cal(adaptation: Adaptation, illuminant: Illuminant, gamut: f64, clip: bool) -> DevelopSettings {
     let mut s =
@@ -385,7 +405,7 @@ fn color_calibration_matches() {
             ("defaults (gamut 1 + clip)", cal(Cat16, I::WhiteBalance, 1.0, true)),
             ("full bradford + gamut + clip", cal(FullBradford, I::Custom, 0.6, true)),
         ] {
-            assert!(lightcraft_pipeline::lin_needs_cpu(&s), "{name} takes the CPU's linear stage");
+            assert!(!lightcraft_pipeline::lin_needs_cpu(&s), "{name} has a native linear stage");
             check(&format!("cal {kind} mixed {name}"), &src, &info, &s, &req);
         }
     }
@@ -719,7 +739,7 @@ fn bench_capture_sharpening_24mp() {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Depth masks: the stored depth map, evaluated on the CPU, used by the GPU
+// Depth masks: stored logits sampled and feathered on the GPU.
 
 fn depth_map(side: usize) -> SegMask {
     // distance rising left (near) → right (far), with a nearer blob in the middle
@@ -840,7 +860,7 @@ fn film_looks_match_the_cpu_export() {
 }
 
 // ------------------------------------------------------------------------------------------------
-// AI Remove patches: composited in the CPU's linear stage, before the GPU's per-pixel work
+// AI Remove patches: composited on device before white balance and finish.
 
 fn ai_spot(key: &str, rect: [f64; 4], opacity: f64) -> Spot {
     Spot {
@@ -1028,6 +1048,9 @@ fn bench_toolset_24mp() {
     eprintln!("{:<34} {:>10} {:>10}  renderer", "24 MP (6000×4000), full size", "GPU path", "CPU only");
     let mut primary_baseline = None;
     for (name, info, mut s) in cases {
+        if std::env::var("LC_TOOLSET_BENCH_ROW").is_ok_and(|row| row != name) {
+            continue;
+        }
         if std::env::var_os("LC_DETAIL_BENCH_ONLY").is_some() && !name.starts_with("detail ") {
             continue;
         }
@@ -1052,29 +1075,8 @@ fn bench_toolset_24mp() {
         let t = std::time::Instant::now();
         let _ = lightcraft_pipeline::render_hs_candidate(&src, &info, &s, &req, method);
         let cpu_ms = ms(t);
-        // what runs on the CPU inside a GPU render (per-stage hybrid)
-        let plan = lightcraft_pipeline::plan(&src, &info, &s, &req);
-        let mut cpu_parts = Vec::new();
-        if !plan.frame.gpu_samplable() {
-            cpu_parts.push("geometry");
-        }
-        if lightcraft_pipeline::lin_needs_cpu(&plan.settings) {
-            cpu_parts.push("linear stage");
-        }
-        if plan.settings.masks.iter().flat_map(|m| &m.components).any(|c| matches!(c.shape, MaskShape::DepthRange { .. })) {
-            cpu_parts.push("mask shape");
-        }
-        if lightcraft_pipeline::detail::nr::nr_params(
-            &plan.settings,
-            lightcraft_pipeline::detail::out_per_orig(plan.px_per_long, plan.src_long, info.sensor_scale),
-        )
-        .is_some()
-        {
-            cpu_parts.push("NR statistics");
-        }
-        if lightcraft_pipeline::toneeq::mask_wanted(&plan.settings) {
-            cpu_parts.push("EIGF spatial/finish stage");
-        }
+        // Report the stages actually executed, including device-limit preparation paths.
+        let cpu_parts = lightcraft_gpu::last_cpu_stages();
         let path = match (on_gpu, cpu_parts.is_empty()) {
             (false, _) => "CPU fallback".to_string(),
             (true, true) => "GPU".to_string(),
@@ -1277,4 +1279,110 @@ fn detail_slider_and_sensor_scale_changes_invalidate_cached_planes() {
         let fresh = check(&format!("detail cached step {step}"), &src, &info, &s, &req);
         assert_eq!(cached, fresh, "cache at step {step}");
     }
+}
+
+#[test]
+fn tone_equalizer_extremes_masks_tiny_odd_and_cached_edits_match() {
+    if !gpu() {
+        return;
+    }
+    for (w, h) in [(1, 1), (3, 7), (129, 91), (641, 427)] {
+        let src = Arc::new(Rgb32f::from_fn(w, h, |x, y| {
+            let v = 0.0003 * 1.02f32.powf(x as f32 * 320.0 / w as f32) * (1.0 + 0.06 * (y as f32 * 0.7).sin());
+            [v, v * 0.7, v * 0.4]
+        }));
+        let info = raw();
+        let cache = StageCache::default();
+        let mut s = DevelopSettings::default();
+        s.tone_eq.enabled = true;
+        s.tone_eq.ev8 = -2.0;
+        s.tone_eq.ev4 = 2.0;
+        s.tone_eq.ev0 = -2.0;
+        s.masks.push(depth_mask(0.0, 0.7, 0.1, LocalAdjustments { exposure: 0.6, contrast: 20.0, ..Default::default() }));
+        for (size, edges, smoothing, exposure, contrast) in
+            [(0.1, 0.0, -2.33, -2.0, -1.0), (50.0, 100.0, 1.67, 2.0, 1.0), (0.1, 0.0, -2.33, -2.0, -1.0)]
+        {
+            s.tone_eq.size = size;
+            s.tone_eq.refine = edges;
+            s.tone_eq.smoothing = smoothing;
+            s.tone_eq.mask_exposure = exposure;
+            s.tone_eq.mask_contrast = contrast;
+            for edge in [w.max(h), (w.max(h) / 2).max(1)] {
+                let req = RenderRequest::fit(edge, edge);
+                let fresh = check("tone eq extremes+mask", &src, &info, &s, &req);
+                let cached = gpu_render(&src, &info, &s, &req, Some(&cache));
+                assert_eq!(fresh, cached, "tone mask cache tracks compensation and geometry");
+            }
+        }
+    }
+}
+
+#[test]
+fn layer_tools_curves_and_effects_match_across_order_opacity_and_cache() {
+    use lightcraft_develop::{Detail, Effects, Grain, LayerTools, Light, ToneCurve, Vignette};
+    if !gpu() {
+        return;
+    }
+    let src = scene(2, 257, 173);
+    let info = raw();
+    let cache = StageCache::default();
+    let req = RenderRequest::fit(257, 173);
+    let tools = [
+        LayerTools { curve: Some(ToneCurve { darks: 60.0, lights: -35.0, refine_saturation: 0.0, ..Default::default() }), ..Default::default() },
+        LayerTools { light: Some(Light { exposure: 1.0, contrast: -70.0, ..Default::default() }), ..Default::default() },
+        LayerTools {
+            vignette: Some(Vignette { amount: -80.0, midpoint: 20.0, ..Default::default() }),
+            grain: Some(Grain { amount: 60.0, ..Default::default() }),
+            ..Default::default()
+        },
+        LayerTools {
+            detail: Some(Detail {
+                sharpen_amount: 150.0,
+                sharpen_radius: 3.0,
+                sharpen_detail: 100.0,
+                sharpen_masking: 60.0,
+                nr_luminance: 80.0,
+                nr_color: 100.0,
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        LayerTools { effects: Some(Effects { dehaze: -80.0, ..Default::default() }), ..Default::default() },
+    ];
+    let mut s = DevelopSettings::default();
+    s.light.exposure = 0.4;
+    s.curve.darks = -15.0;
+    for (i, t) in tools.iter().enumerate() {
+        let mut m = depth_mask(0.0, 0.8, 0.2, LocalAdjustments::default());
+        m.id = i as u32 + 1;
+        m.tools = t.clone();
+        m.opacity = 50.0;
+        s.masks.push(m);
+        let fresh = check("layer stage order", &src, &info, &s, &req);
+        assert_eq!(fresh, gpu_render(&src, &info, &s, &req, Some(&cache)));
+    }
+    s.masks.reverse();
+    s.masks[0].opacity = 100.0;
+    s.masks[1].invert = true;
+    check("layer reordered+inverted", &src, &info, &s, &RenderRequest::fit(131, 97));
+}
+
+#[test]
+fn tone_equalizer_layer_curve_across_finish_bands_matches() {
+    if !gpu() {
+        return;
+    }
+    // Just over BAND_PIXELS: the finish dispatch needs a second row band.
+    let (w, h) = (2053, 2049);
+    let src = Arc::new(Rgb32f::from_fn(w, h, |x, y| {
+        let v = 0.001 + x as f32 / w as f32 * 0.3 + y as f32 / h as f32 * 0.02;
+        [v, v * 0.7, v * 0.4]
+    }));
+    let mut s = DevelopSettings::default();
+    s.tone_eq.enabled = true;
+    s.tone_eq.ev5 = 1.5;
+    let mut m = depth_mask(0.1, 0.7, 0.1, LocalAdjustments::default());
+    m.tools.curve = Some(lightcraft_develop::ToneCurve { darks: 40.0, ..Default::default() });
+    s.masks.push(m);
+    check("native finish row bands", &src, &SourceInfo::default(), &s, &RenderRequest::fit(w, h));
 }

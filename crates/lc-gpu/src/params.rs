@@ -10,6 +10,15 @@ pub const CURVE_N: u32 = 1024;
 
 /// Field name and number of 32-bit words.
 const FIELDS: &[(&str, usize)] = &[
+    ("NLAYER", 1),
+    ("LAYER_OFF", 1),
+    ("LAYER_WB", 1),
+    ("LAYER_M", 9),
+    ("LAYER_GAIN", 1),
+    ("TONE_OFF", 1),
+    ("TEQ_OFF", 1),
+    ("TEQ_PLANE", 1),
+    ("TEQ", 1),
     ("W", 1),
     ("H", 1),
     ("NMASK", 1),
@@ -21,6 +30,7 @@ const FIELDS: &[(&str, usize)] = &[
     ("SOFT_GAMUT", 1),
     ("GAIN", 1),
     ("EV", 1),
+    ("AIR_PLANE", 1),
     ("AIR_RGB", 3),
     ("HAZE_DISTANCE", 1),
     ("HL", 1),
@@ -165,7 +175,14 @@ pub fn finish_block(fp: &FinishParams, masks: &[[f32; MASK_TERMS]], present: &Pr
         aux.extend_from_slice(m);
     }
 
+    let teq_off = aux.len();
+    if let Some((curve, _)) = &fp.tone_eq {
+        aux.extend_from_slice(curve.lut());
+    }
     let mut p = Block::new();
+    p.b("TEQ", fp.tone_eq.is_some());
+    p.u("TEQ_OFF", teq_off as u32);
+
     p.u("W", fp.w as u32);
     p.u("H", fp.h as u32);
     p.u("NMASK", masks.len() as u32);

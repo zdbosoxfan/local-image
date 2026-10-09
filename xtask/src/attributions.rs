@@ -357,6 +357,7 @@ fn li_seg_entries(root: &Path) -> Result<Vec<Entry>> {
                 "Sky" => "Sky masks: Select Sky.",
                 "Depth" => "Depth masks in Develop.",
                 "ImageText" => "Smart Sort: sorting photos into folders by what they show.",
+                "FaceDetect" | "FaceEmbed" => "Smart Sort: finding faces and recognising people (opt-in).",
                 "Denoise" => "AI Denoise in Develop.",
                 _ => "Masks and image analysis.",
             };
@@ -379,7 +380,7 @@ fn li_seg_entries(root: &Path) -> Result<Vec<Entry>> {
             continue;
         }
         if in_companions {
-            if line.trim() == "]," {
+            if line.trim().ends_with("],") {
                 in_companions = false;
             }
             continue;

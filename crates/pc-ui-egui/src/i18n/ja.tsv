@@ -2651,3 +2651,9 @@ ai	New	新着
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	空（スカイ）のクラス番号 {class} は範囲外です：このモデルには {classes} クラスあります（0〜{max}）
 	{path} isn't a file	{path} はファイルではありません
 	Custom models are not supported for this function	この機能ではカスタムモデルを使用できません
+
+# Smart Sort face model bundle
+	Faces	顔
+	Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library.	顔を検出し、複数の写真で同じ人物を認識します。Smart Sortで有効にするまで無効です。顔データはライブラリ内に保存されます。
+	Finds faces and their landmarks, ready to recognise the same person in other photos. Runs locally on the CPU.	顔と特徴点を検出し、他の写真で同じ人物を認識するために使います。ローカルのCPUで動作します。
+	Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.	Smart Sort用に顔を検出し、同じ人物の写真をまとめます。両方の顔モデルを含み、CPUで動作し、顔データはライブラリ内に保存されます。

@@ -19,8 +19,7 @@
 //! * vibrance, saturation, colour mixer, Point Color, B&W, colour grading: after the photo's;
 //! * vignette, tone curves (encoded values), grain: after the photo's.
 //!
-//! The GPU renderer has no kernels for these: settings with layer tools render on the CPU
-//! ([`active`], `lightcraft_gpu::render`).
+//! The GPU renderer mirrors these stage blends with device-resident NR/sharpening planes.
 
 use std::sync::Arc;
 
@@ -38,7 +37,7 @@ fn evaluated(s: &DevelopSettings) -> impl Iterator<Item = &Mask> {
     s.masks.iter().filter(|m| m.visible && !m.components.is_empty())
 }
 
-/// Whether any evaluated mask holds layer tools (such settings render on the CPU).
+/// Whether any evaluated mask holds layer tools.
 pub fn active(s: &DevelopSettings) -> bool {
     evaluated(s).any(|m| !m.tools.is_empty())
 }

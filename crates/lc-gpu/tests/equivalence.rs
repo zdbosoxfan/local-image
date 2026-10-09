@@ -882,7 +882,10 @@ fn primary_scene_stages_clip_clarity_colour_skin_and_layers() {
 }
 
 #[test]
-fn eigf_tone_equalizer_requests_cpu_render_including_mask_preview() {
+fn eigf_tone_equalizer_matches_including_mask_preview() {
+    if !gpu() {
+        return;
+    }
     let src = Arc::new(Rgb32f::from_fn(129, 91, |x, y| {
         let v = 0.002 * 1.045f32.powi(x as i32) * (1. + 0.05 * (y as f32 * 0.4).sin());
         [v, v * 0.7, v * 0.5]
@@ -894,12 +897,12 @@ fn eigf_tone_equalizer_requests_cpu_render_including_mask_preview() {
     s.tone_eq.mask_contrast = 0.3;
     s.light.exposure = 0.4;
     let req = RenderRequest::fit(129, 91);
-    assert!(lightcraft_pipeline::tools_need_cpu(&s, &req));
-    assert!(lightcraft_gpu::render(&src, &info, &s, &req, None).is_none());
+    assert!(!lightcraft_pipeline::tools_need_cpu(&s, &req));
+    check("native tone equalizer", &src, &info, &s, &req);
     let mut req = RenderRequest::fit(73, 73);
     req.overlay = lightcraft_pipeline::Overlay::ToneEqMask;
-    assert!(lightcraft_pipeline::tools_need_cpu(&s, &req));
-    assert!(lightcraft_gpu::render(&src, &info, &s, &req, None).is_none());
+    assert!(!lightcraft_pipeline::tools_need_cpu(&s, &req));
+    check("native tone equalizer", &src, &info, &s, &req);
 }
 
 #[test]

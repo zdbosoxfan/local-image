@@ -2676,3 +2676,9 @@ ai	New	最新
 	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	天空类别 {class} 超出范围：此模型有 {classes} 个类别（0 到 {max}）
 	{path} isn't a file	{path} 不是文件
 	Custom models are not supported for this function	此功能不支持自定义模型
+
+# Smart Sort face model bundle
+	Faces	人脸
+	Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library.	查找人脸并识别不同照片中的同一个人。在 Smart Sort 中启用前默认关闭。人脸数据保存在图库中。
+	Finds faces and their landmarks, ready to recognise the same person in other photos. Runs locally on the CPU.	查找人脸及其特征点，以识别其他照片中的同一个人。在本机 CPU 上运行。
+	Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.	为 Smart Sort 查找人脸并将同一个人的照片分组。包含两个人脸模型；在 CPU 上运行，人脸数据保存在图库中。

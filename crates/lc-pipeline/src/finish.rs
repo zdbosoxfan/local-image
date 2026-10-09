@@ -290,9 +290,9 @@ pub struct FinishParams {
     pub w: usize,
     pub h: usize,
     pub px_per_long: f64,
-    /// Develop layers that change something (CPU only: the GPU path declines them).
+    /// Develop layers that change something, shared with the native GPU finish stage.
     pub layers: Vec<crate::layers::LayerK>,
-    /// The tone equalizer's curve and mask compensation (CPU only: the GPU path declines it).
+    /// The tone equalizer's curve and mask compensation, shared by both renderers.
     pub tone_eq: Option<(crate::toneeq::Curve, crate::toneeq::MaskAdjust)>,
 }
 

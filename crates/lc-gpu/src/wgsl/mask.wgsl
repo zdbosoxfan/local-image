@@ -122,6 +122,15 @@ fn shape(@builtin(global_invocation_id) g: vec3<u32>) {
             }
         }
     }
+    if(kind==5u && pu(10u)>0u){
+        let side=pu(10u);let n=pos(g.x,g.y);let lo=vec2<f32>(pf(11u),pf(12u));let hi=vec2<f32>(pf(13u),pf(14u));
+        let f=clamp((n-lo)/(hi-lo)*f32(side)-0.5,vec2<f32>(0.0),vec2<f32>(f32(side-1u)));
+        let x0=u32(floor(f.x));let y0=u32(floor(f.y));let x1=min(x0+1u,side-1u);let y1=min(y0+1u,side-1u);let t=f-floor(f);
+        let top=aux[y0*side+x0]*(1.0-t.x)+aux[y0*side+x1]*t.x;
+        let bot=aux[y1*side+x0]*(1.0-t.x)+aux[y1*side+x1]*t.x;
+        let depth=1.0/(1.0+exp(-(top*(1.0-t.y)+bot*t.y)));
+        v=sstep(pf(15u)-pf(17u),pf(15u),depth)*(1.0-sstep(pf(16u),pf(16u)+pf(17u),depth));
+    }
     if (pu(3u) != 0u) {
         v = 1.0 - v;
     }

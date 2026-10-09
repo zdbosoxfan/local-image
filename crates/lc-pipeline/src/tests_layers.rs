@@ -312,6 +312,6 @@ fn cached_renders_with_layers_match_uncached() {
         let b = render(&src, &info, &s, &req).image;
         assert_eq!(a.data, b.data, "pass {k}");
     }
-    assert!(crate::layers_need_cpu(&s));
+    assert!(!crate::layers_need_cpu(&s));
     assert!(!crate::layers_need_cpu(&left_layer(json!({}), 50.0)));
 }
