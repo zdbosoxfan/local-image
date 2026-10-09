@@ -2646,3 +2646,4 @@ ai	New	Nuovi
 	{size} download · runs on the CPU · {licence}	{size} da scaricare · funziona sulla CPU · {licence}
 	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	Piccoli modelli che funzionano sul processore di questo computer: niente ComfyUI né GPU, download rapidi, e le tue foto non lasciano mai il computer. Ogni gruppo alimenta strumenti diversi e viene usato il miglior modello installato del gruppo.
 	Subject & Background	Soggetto e sfondo
+# Selected-item context bars and live shapes

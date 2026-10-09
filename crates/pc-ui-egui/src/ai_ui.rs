@@ -128,7 +128,18 @@ fn shared() -> &'static Arc<Shared> {
 
 /// The current engine status (cheap).
 pub fn status() -> EngineStatus {
+    #[cfg(test)]
+    if let Some(status) = TEST_STATUS.with(|s| s.borrow().clone()) {
+        return status;
+    }
     shared().status.lock().map(|s| s.clone()).unwrap_or_default()
+}
+
+// UI tests use the real mock server for commands, with deterministic readiness on their
+// own thread rather than racing the asynchronous status poller.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TEST_STATUS: std::cell::RefCell<Option<EngineStatus>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Ask the poller to check again now.

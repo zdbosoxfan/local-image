@@ -225,6 +225,9 @@ pub struct LayerM {
     pub blend_if: photocraft_doc::BlendIf,
     #[serde(default)]
     pub video: Option<VideoDataM>,
+    /// local-image: AI generation parameters (prompt, seed…) of a generated layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

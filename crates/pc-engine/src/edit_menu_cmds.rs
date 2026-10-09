@@ -287,8 +287,10 @@ fn can_purge_all(s: &Session) -> std::result::Result<(), String> {
 
 // ------------------------------------------------------------------ Content-Aware Fill
 
+/// Content-Aware Fill works on any layer: a pixel layer is filled in place (or per `output`); on
+/// anything else (a shape, type, Smart Object or Develop layer, a locked layer) it samples all
+/// visible layers and puts the fill on a new layer above.
 fn can_caf(s: &Session) -> std::result::Result<(), String> {
-    pixel_layer(s)?;
     let d = s.active().ok_or("no document open")?;
     if d.doc.selection.as_ref().is_none_or(|m| m.content_bounds().is_empty()) {
         return Err("make a selection around what to remove".into());
@@ -324,8 +326,10 @@ fn rect_param(p: &Value, key: &str, cmd: &str) -> Result<Rect> {
 fn content_aware_fill(s: &mut Session, p: &Value) -> Result<Value> {
     use photocraft_algo::content_aware::{FillOptions, color_level, fill_with, rotation_level};
     let cmd = "edit.contentAwareFill";
-    let id = pixel_layer(s).map_err(EngineError::Other)?;
     let st = s.active().ok_or(EngineError::NoDocument)?;
+    // Not a writable pixel layer (or Sample All Layers): sample the composite, fill a new layer.
+    let target = pixel_layer(s).ok().filter(|_| !bool_or(p, "sampleAllLayers", false));
+    let anchor = target.or(st.active_layer);
     let doc = st.doc.clone();
     let sel = doc.selection.clone().ok_or_else(|| bad(cmd, "no selection"))?;
     let hb = sel.content_bounds().intersect(&doc.bounds());
@@ -357,12 +361,14 @@ fn content_aware_fill(s: &mut Session, p: &Value) -> Result<Value> {
         mirror: bool_or(p, "mirror", false),
         seed: p.get("seed").and_then(Value::as_u64).unwrap_or(1),
     };
-    let output = str_or(p, "output", "current").to_string();
+    let output = if target.is_some() { str_or(p, "output", "current") } else { "new" }.to_string();
     if !matches!(output.as_str(), "current" | "new" | "duplicate") {
         return Err(bad(cmd, "`output` must be current|new|duplicate"));
     }
-    let surf = doc.layer(id).and_then(|l| l.surface()).ok_or(EngineError::NoLayer(id))?;
-    let fmt = surf.format();
+    let fmt = match target {
+        Some(id) => doc.layer(id).and_then(|l| l.surface()).ok_or(EngineError::NoLayer(id))?.format(),
+        None => PixelFormat { alpha: true, ..doc.pixel_format() },
+    };
     let n = fmt.channels();
     let (w, h) = (window.width() as usize, window.height() as usize);
     let label = "Content-Aware Fill";
@@ -374,8 +380,19 @@ fn content_aware_fill(s: &mut Session, p: &Value) -> Result<Value> {
         true,
         move |ctx| {
             ctx.progress(0.0, label);
-            let surf = doc.layer(id).and_then(|l| l.surface()).ok_or(EngineError::NoLayer(id))?;
-            let img = surf.read_region(window);
+            let img = match target {
+                Some(id) => doc.layer(id).and_then(|l| l.surface()).ok_or(EngineError::NoLayer(id))?.read_region(window),
+                None => {
+                    let buf = photocraft_compose::render(&doc, window);
+                    let mut out = vec![0.0f32; buf.px.len() * n];
+                    let mut enc = [0.0f32; 8];
+                    for (i, px) in buf.px.iter().enumerate() {
+                        from_rgba_into(&fmt, *px, &mut enc);
+                        out[i * n..(i + 1) * n].copy_from_slice(&enc[..n]);
+                    }
+                    out
+                }
+            };
             let mut cover = vec![0.0f32; w * h];
             let mut hole = vec![false; w * h];
             let mut source = vec![true; w * h];
@@ -401,7 +418,7 @@ fn content_aware_fill(s: &mut Session, p: &Value) -> Result<Value> {
             let filled = ctx.stage(0.05, 1.0, label, |ctl| fill_with(w, h, n, &img, &hole, &source, &opts, ctl)).map_err(|_| EngineError::Cancelled)?;
             Ok((img, cover, hole, filled))
         },
-        move |s, (img, cover, hole, filled)| apply_content_aware_fill(s, label, id, &output, fmt, window, &img, &cover, &hole, &filled),
+        move |s, (img, cover, hole, filled)| apply_content_aware_fill(s, label, anchor, &output, fmt, window, &img, &cover, &hole, &filled),
     )
 }
 
@@ -411,7 +428,7 @@ fn content_aware_fill(s: &mut Session, p: &Value) -> Result<Value> {
 fn apply_content_aware_fill(
     s: &mut Session,
     label: &str,
-    id: LayerId,
+    id: Option<LayerId>,
     output: &str,
     fmt: PixelFormat,
     window: Rect,
@@ -443,18 +460,19 @@ fn apply_content_aware_fill(
                     s.write_region(window, &px);
                     s.prune();
                 }
-                let nid = doc.insert_above(Some(id), l);
+                let nid = doc.insert_above(id, l);
                 *active = Some(nid);
                 return Ok(nid);
             }
             "duplicate" => {
+                let id = id.ok_or(EngineError::Other("no layer to duplicate".into()))?;
                 let mut dup = doc.layer(id).ok_or(EngineError::NoLayer(id))?.duplicate();
                 dup.name = format!("{} copy", dup.name);
                 let nid = doc.insert_above(Some(id), dup);
                 *active = Some(nid);
                 nid
             }
-            _ => id,
+            _ => id.ok_or(EngineError::Other("no pixel layer to fill".into()))?,
         };
         let surf = writable_surface(doc, target)?;
         let mut out = img.to_vec();
@@ -953,7 +971,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Content-Aware Fill…",
             ["Edit"],
             None,
-            r##"{"sampling":"auto|rectangular|custom","margin":px?,"area":[x,y,w,h]?,"channel":index|name?,"colorAdaptation":"default|none|high|veryHigh","rotationAdaptation":"none|low|medium|high|full","scale":bool=false,"mirror":bool=false,"output":"current|new|duplicate","seed":u64=1}"##,
+            r##"{"sampling":"auto|rectangular|custom","margin":px?,"area":[x,y,w,h]?,"channel":index|name?,"colorAdaptation":"default|none|high|veryHigh","rotationAdaptation":"none|low|medium|high|full","scale":bool=false,"mirror":bool=false,"sampleAllLayers":bool=false,"output":"current|new|duplicate","seed":u64=1}"##,
             can_caf,
             content_aware_fill
         ),

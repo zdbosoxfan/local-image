@@ -2913,3 +2913,4 @@ ai	New	Новые
 	{size} download · runs on the CPU · {licence}	загрузка {size} · работает на CPU · {licence}
 	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	Небольшие модели, которые работают на процессоре этого компьютера: не нужны ни ComfyUI, ни GPU, загрузки быстрые, а ваши фотографии не покидают компьютер. Каждая группа обслуживает свои инструменты; используется лучшая установленная модель группы.
 	Subject & Background	Объект и фон
+# Selected-item context bars and live shapes

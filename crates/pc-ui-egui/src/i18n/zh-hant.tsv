@@ -2556,3 +2556,4 @@ ai	New	最新
 	{size} download · runs on the CPU · {licence}	下載 {size} · 在 CPU 上執行 · {licence}
 	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	在本機處理器上執行的小型模型：不需要 ComfyUI 或 GPU，下載快速，相片也不會離開這台電腦。每組服務不同的工具，並使用組內已安裝的最佳模型。
 	Subject & Background	主體與背景
+# Selected-item context bars and live shapes
