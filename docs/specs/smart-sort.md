@@ -585,3 +585,26 @@ Add `Task::ImageText` variant data `{family: Clip|Siglip}`; SentencePiece-Unigra
      mock person finds that person's other photos and not others; rejecting removes a match; folders appear only for
      ticked/created people. Headless: open a photo, click a face (automation id `smartSort:face:<photoId>:<i>`), name it,
      Find Photos, Create Folder → one folder row in Step 3.
+7. **Export folder setup section** (owner, 2026-10-09). Step 3 has a "Folders" section that decides exactly which
+   folders are written:
+   - **Default: one folder per tag category** — every Step 1 category (e.g. "Speakers" with its tag list) gets a folder
+     row named after it, plus an "Unsorted" row (unticked by default). Rows can be unticked, renamed, reordered.
+   - **"+ Custom Folder"**: a folder built from any combination of categories/tags and (if enabled) people. The editor is
+     simple pickers, not the full rules editor: "Include photos tagged: [Speakers ×] [Panel ×] [+]" (any of),
+     "and/or showing: [Jane Doe ×] [John Roe ×] [+]" (any of the people), with a combine switch "Tagged AND showing"
+     / "Tagged OR showing". Example: a "Keynote" folder = people {Jane Doe} only; "VIPs" = people {Jane, John, Ana};
+     "Jane on stage" = tag Speakers AND person Jane. "Advanced Rules…" still opens the full rules editor.
+   - **"☐ People folders"** checkbox in that section (only shown when face recognition is on): unticked = no person
+     pickers and no person rows at all. Ticking it shows the people pickers in custom folders and the "Find This
+     Person…" button (item 6) to add people; it does NOT create a folder per person automatically.
+   - A folder may hold several people (any of them). Default folder rows stay alongside custom ones; the
+     multi-match choice ("a copy in each" / "first matching folder only", item 3) applies across all rows in order.
+   - The folder layout (default rows' enabled/renamed state + custom folders) is saved in the sort preset; people are
+     stored by person id so presets reused in another library skip unknown people with a notice.
+   - Phase split: tag-based default rows + custom folders with tag pickers in Phase 2; the People folders checkbox,
+     person pickers and person rows in Phase 3.
+   - Automation ids: `smartSort:folders:default:<index>`, `smartSort:folders:addCustom`, `smartSort:folders:custom:<index>`,
+     `smartSort:folders:tagPicker:<index>`, `smartSort:folders:peoplePicker:<index>`, `smartSort:folders:combine:<index>`,
+     `smartSort:peopleFolders`.
+   - Tests: default rows = categories; unticking a row skips it in the plan; a custom folder with tags {A,B} contains
+     photos assigned A or B; AND/OR with people (Phase 3, mock faces); preset round trip of the layout.
