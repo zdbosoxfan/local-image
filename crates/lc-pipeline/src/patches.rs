@@ -69,10 +69,16 @@ impl PatchPixels {
         let (fx, fy) = (x - 0.5, y - 0.5);
         let (x0, y0) = (fx.floor(), fy.floor());
         let (tx, ty) = (fx - x0, fy - y0);
-        let at = |x: isize, y: isize| self.data[y.clamp(0, self.height as isize - 1) as usize * self.width + x.clamp(0, self.width as isize - 1) as usize];
+        let at =
+            |x: isize, y: isize| self.data[y.clamp(0, self.height as isize - 1) as usize * self.width + x.clamp(0, self.width as isize - 1) as usize];
         let (x0, y0) = (x0 as isize, y0 as isize);
         let mut acc = [0.0f32; 4];
-        for (p, wgt) in [(at(x0, y0), (1.0 - tx) * (1.0 - ty)), (at(x0 + 1, y0), tx * (1.0 - ty)), (at(x0, y0 + 1), (1.0 - tx) * ty), (at(x0 + 1, y0 + 1), tx * ty)] {
+        for (p, wgt) in [
+            (at(x0, y0), (1.0 - tx) * (1.0 - ty)),
+            (at(x0 + 1, y0), tx * (1.0 - ty)),
+            (at(x0, y0 + 1), (1.0 - tx) * ty),
+            (at(x0 + 1, y0 + 1), tx * ty),
+        ] {
             for c in 0..3 {
                 acc[c] += p[c] * p[3] * wgt;
             }
@@ -231,7 +237,11 @@ fn invert3(m: &[[f32; 3]; 3]) -> Option<[[f32; 3]; 3]> {
         return None;
     }
     let c = |r0: usize, r1: usize, c0: usize, c1: usize| m[r0][c0] * m[r1][c1] - m[r0][c1] * m[r1][c0];
-    let adj = [[c(1, 2, 1, 2), -c(0, 2, 1, 2), c(0, 1, 1, 2)], [-c(1, 2, 0, 2), c(0, 2, 0, 2), -c(0, 1, 0, 2)], [c(1, 2, 0, 1), -c(0, 2, 0, 1), c(0, 1, 0, 1)]];
+    let adj = [
+        [c(1, 2, 1, 2), -c(0, 2, 1, 2), c(0, 1, 1, 2)],
+        [-c(1, 2, 0, 2), c(0, 2, 0, 2), -c(0, 1, 0, 2)],
+        [c(1, 2, 0, 1), -c(0, 2, 0, 1), c(0, 1, 0, 1)],
+    ];
     Some(adj.map(|r| r.map(|v| (v / det) as f32)))
 }
 
@@ -324,7 +334,11 @@ mod tests {
     #[test]
     fn a_large_patch_on_a_small_preview_is_averaged() {
         // a fine checkerboard of 0 and 1 seen at a tenth of its size: grey, not aliased
-        let p = PatchPixels { width: 200, height: 200, data: (0..200 * 200).map(|i| if (i % 200 + i / 200) % 2 == 0 { [1.0, 1.0, 1.0, 1.0] } else { [0.0, 0.0, 0.0, 1.0] }).collect() };
+        let p = PatchPixels {
+            width: 200,
+            height: 200,
+            data: (0..200 * 200).map(|i| if (i % 200 + i / 200) % 2 == 0 { [1.0, 1.0, 1.0, 1.0] } else { [0.0, 0.0, 0.0, 1.0] }).collect(),
+        };
         let frame = Frame::new(20, 20, &DevelopSettings::default(), true);
         let mut img = flat(20, 20);
         composite(&mut img, &p, [0.0, 0.0, 1.0, 1.0], 1.0, &frame);

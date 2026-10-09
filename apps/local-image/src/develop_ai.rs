@@ -87,9 +87,7 @@ impl AiHost for DevelopAi {
     }
 
     fn model_download(&self, id: &str) -> Option<Download> {
-        ai_ui::downloads()
-            .get(&format!("seg:{id}"))
-            .map(|d| Download { running: !d.finished, done: d.done, total: d.total, error: d.error.clone() })
+        ai_ui::downloads().get(&format!("seg:{id}")).map(|d| Download { running: !d.finished, done: d.done, total: d.total, error: d.error.clone() })
     }
 
     fn cancel_model_download(&self, id: &str) {

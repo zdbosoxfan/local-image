@@ -425,3 +425,24 @@ fn video_layer_frames_survive_roundtrip() {
     v.frames[2].read_rgba_into(Rect::from_xywh(1, 1, 1, 1), &mut px);
     assert!(px[0][0] > 0.9 && px[0][2] < 0.1, "frame 2 is reddish: {:?}", px[0]);
 }
+
+/// local-image: a Develop layer's link (settings + the Library photo it follows) survives a save,
+/// and smart objects without one stay without one.
+#[test]
+fn develop_links_roundtrip() {
+    let mut doc = rich_doc(ColorMode::Rgb, SampleType::U16);
+    let ids: Vec<LayerId> = doc.walk().into_iter().filter(|(_, _, l)| matches!(l.content, LayerContent::Smart(_))).map(|(_, _, l)| l.id).collect();
+    assert!(ids.len() >= 2);
+    let link = photocraft_doc::DevelopLink { settings: serde_json::json!({"light": {"exposure": 0.65, "contrast": -12.0}, "profile": {"id": "lc.vivid"}}), photo: Some(42) };
+    if let Some(LayerContent::Smart(sm)) = doc.layer_mut(ids[0]).map(|l| &mut l.content) {
+        sm.develop = Some(link.clone());
+    }
+    let back = load_from_bytes(&save_to_bytes(&doc, &SaveOptions::default()).unwrap()).unwrap();
+    assert_eq!(back, doc);
+    let develop = |id| match back.layer(id).map(|l| &l.content) {
+        Some(LayerContent::Smart(sm)) => sm.develop.clone(),
+        _ => None,
+    };
+    assert_eq!(develop(ids[0]), Some(link));
+    assert_eq!(develop(ids[1]), None);
+}

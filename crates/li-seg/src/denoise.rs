@@ -93,10 +93,7 @@ impl Denoiser {
         if tile == 0 || tile % 16 != 0 {
             bail!("the tile size must be a multiple of 16");
         }
-        let plan = model
-            .with_input_fact(0, InferenceFact::dt_shape(f32::datum_type(), tvec!(1, 3, tile, tile)))?
-            .into_optimized()?
-            .into_runnable()?;
+        let plan = model.with_input_fact(0, InferenceFact::dt_shape(f32::datum_type(), tvec!(1, 3, tile, tile)))?.into_optimized()?.into_runnable()?;
         let d = Denoiser { tile, run: Arc::new(move |t: Tensor| plan.run(tvec!(t.into()))) };
         // a shape the graph doesn't really support shows up here, not halfway through a photo
         let out = d.run_tile(&vec![0.1; 3 * tile * tile])?;
@@ -477,7 +474,8 @@ mod tests {
     #[test]
     fn tiny_onnx_model_runs_through_tract() {
         use tract_onnx::pb::*;
-        let tensor_f32 = |name: &str, dims: Vec<i64>, data: Vec<f32>| TensorProto { name: name.into(), dims, data_type: 1, float_data: data, ..Default::default() };
+        let tensor_f32 =
+            |name: &str, dims: Vec<i64>, data: Vec<f32>| TensorProto { name: name.into(), dims, data_type: 1, float_data: data, ..Default::default() };
         let vi = |name: &str| ValueInfoProto {
             name: name.into(),
             r#type: Some(TypeProto {
@@ -585,7 +583,8 @@ mod tests {
         let dest = dir.join("segmentation").join("m.onnx");
         install_package(&pkg, &good, &dest).unwrap();
         assert_eq!(std::fs::read(&dest).unwrap(), model);
-        let bad = crate::ModelSpec { task: crate::Task::Denoise { inner: "pkg/model_linear.onnx", inner_bytes: model.len() as u64, inner_sha256: "00" }, ..good };
+        let bad =
+            crate::ModelSpec { task: crate::Task::Denoise { inner: "pkg/model_linear.onnx", inner_bytes: model.len() as u64, inner_sha256: "00" }, ..good };
         let dest2 = dir.join("segmentation").join("m2.onnx");
         assert!(install_package(&pkg, &bad, &dest2).is_err());
         assert!(!dest2.exists(), "nothing is left behind");
@@ -626,7 +625,11 @@ mod tests {
         let per_tile = secs / tiles as f64;
         let step = (d.tile() - OVERLAP) as f64;
         let tiles_24mp = (6000.0 / step).ceil() * (4000.0 / step).ceil();
-        eprintln!("512² crop: {secs:.2}s for {tiles} tiles ({per_tile:.3}s/tile, {} threads) → 24 MP ≈ {:.0}s", rayon::current_num_threads(), per_tile * tiles_24mp);
+        eprintln!(
+            "512² crop: {secs:.2}s for {tiles} tiles ({per_tile:.3}s/tile, {} threads) → 24 MP ≈ {:.0}s",
+            rayon::current_num_threads(),
+            per_tile * tiles_24mp
+        );
         // high-frequency energy: mean |x − 3×3 box blur| on the green channel
         let hf = |img: &[[f32; 3]]| {
             let mut s = 0.0f64;

@@ -173,9 +173,13 @@ pub enum Outcome {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum JobKind {
     /// A new AI removal (its stroke, for the canvas to show while it runs).
-    Remove { stroke: AiStroke },
+    Remove {
+        stroke: AiStroke,
+    },
     /// A new variation of AI spot `spot`.
-    Regenerate { spot: usize },
+    Regenerate {
+        spot: usize,
+    },
     Denoise,
 }
 
@@ -333,10 +337,16 @@ mod tests {
     #[test]
     fn jobs_run_report_and_are_picked_up_once() {
         let mut e = Enhance::default();
-        let j = e.spawn(PhotoId(7), JobKind::Denoise, "AI Denoise", true, Box::new(|ctl| {
-            ctl.set(0.5, "half");
-            Ok(done())
-        }));
+        let j = e.spawn(
+            PhotoId(7),
+            JobKind::Denoise,
+            "AI Denoise",
+            true,
+            Box::new(|ctl| {
+                ctl.set(0.5, "half");
+                Ok(done())
+            }),
+        );
         assert!(j.finished());
         assert_eq!((j.ctl.progress(), j.ctl.message()), (0.5, "half".to_string()));
         assert_eq!(j.json()["job"]["kind"], "denoise");
@@ -349,12 +359,18 @@ mod tests {
     #[test]
     fn background_jobs_cancel_and_panics_become_errors() {
         let mut e = Enhance::default();
-        let j = e.spawn(PhotoId(1), JobKind::Denoise, "x", false, Box::new(|ctl| {
-            while !ctl.cancelled() {
-                std::thread::sleep(std::time::Duration::from_millis(2));
-            }
-            ctl.check().map(|_| done())
-        }));
+        let j = e.spawn(
+            PhotoId(1),
+            JobKind::Denoise,
+            "x",
+            false,
+            Box::new(|ctl| {
+                while !ctl.cancelled() {
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                }
+                ctl.check().map(|_| done())
+            }),
+        );
         assert!(e.busy() && e.running_for(PhotoId(1)).count() == 1);
         assert_eq!(e.cancel(Some(j.id)), 1);
         while !j.finished() {

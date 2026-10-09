@@ -20,7 +20,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
-
 use lightcraft_preview::Hasher128;
 use lightcraft_raster::Rgb32f;
 
@@ -193,7 +192,8 @@ fn put_samples(kind: Kind, key: &str, width: usize, height: usize, channels: usi
             if let Some(dir) = p.parent() {
                 std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
             }
-            lightcraft_catalog::safe_file::write_atomic(&p, &encode_samples(width, height, channels, data)).map_err(|e| format!("{}: {e}", p.display()))?;
+            lightcraft_catalog::safe_file::write_atomic(&p, &encode_samples(width, height, channels, data))
+                .map_err(|e| format!("{}: {e}", p.display()))?;
         }
         _ => {
             let r = Raster { width, height, channels, data: data.to_vec() };
@@ -250,7 +250,12 @@ mod tests {
 
     fn raster(c: usize) -> Raster {
         let (w, h) = (37, 11);
-        Raster { width: w, height: h, channels: c, data: (0..w * h * c).map(|i| if c == 4 && i % 4 == 3 { (i % 5) as f32 / 4.0 } else { (i % 97) as f32 * 0.013 }).collect() }
+        Raster {
+            width: w,
+            height: h,
+            channels: c,
+            data: (0..w * h * c).map(|i| if c == 4 && i % 4 == 3 { (i % 5) as f32 / 4.0 } else { (i % 97) as f32 * 0.013 }).collect(),
+        }
     }
 
     #[test]

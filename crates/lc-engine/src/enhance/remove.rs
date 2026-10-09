@@ -31,7 +31,9 @@ pub struct Patches;
 impl PatchSource for Patches {
     fn load(&self, key: &str) -> Option<Arc<PatchPixels>> {
         let r = store::get(Kind::Remove, key)?;
-        (r.channels == 4).then(|| Arc::new(PatchPixels { width: r.width, height: r.height, data: r.data.chunks_exact(4).map(|p| [p[0], p[1], p[2], p[3]]).collect() }))
+        (r.channels == 4).then(|| {
+            Arc::new(PatchPixels { width: r.width, height: r.height, data: r.data.chunks_exact(4).map(|p| [p[0], p[1], p[2], p[3]]).collect() })
+        })
     }
 }
 
@@ -87,7 +89,15 @@ impl Session {
 
     /// Start an AI removal of `stroke` on photo `id` (`regenerate`: a new variation of that AI
     /// spot). In the background, or here with `wait`.
-    pub fn start_ai_remove(&mut self, id: PhotoId, stroke: AiStroke, engine: Option<&str>, seed: Option<u64>, regenerate: Option<usize>, wait: bool) -> Result<Arc<Job>, String> {
+    pub fn start_ai_remove(
+        &mut self,
+        id: PhotoId,
+        stroke: AiStroke,
+        engine: Option<&str>,
+        seed: Option<u64>,
+        regenerate: Option<usize>,
+        wait: bool,
+    ) -> Result<Arc<Job>, String> {
         if self.is_ephemeral(id) {
             return Err("AI Remove isn't available in the Camera Raw Filter: use Compositing's AI Remove on the layer.".into());
         }
@@ -269,7 +279,13 @@ fn stroke_coverage(stroke: &AiStroke, frame: &lightcraft_pipeline::geometry::Fra
 }
 
 /// Coverage of a develop layer's mask on the transformed image (evaluated smaller, scaled up).
-fn mask_coverage(m: &lightcraft_develop::Mask, frame: &lightcraft_pipeline::geometry::Frame, img: &Rgb32f, info: &lightcraft_pipeline::SourceInfo, s: &DevelopSettings) -> Vec<f32> {
+fn mask_coverage(
+    m: &lightcraft_develop::Mask,
+    frame: &lightcraft_pipeline::geometry::Frame,
+    img: &Rgb32f,
+    info: &lightcraft_pipeline::SourceInfo,
+    s: &DevelopSettings,
+) -> Vec<f32> {
     let (ew, eh) = frame.fit(MASK_EDGE, MASK_EDGE);
     let mut small = resize(img, ew, eh, Filter::Box);
     lightcraft_pipeline::local::white_balance(&mut small, info, s);
@@ -317,7 +333,8 @@ mod tests {
         assert_eq!(c[50 * 200 + 120], 0.0, "radius 10 px");
         let b = bbox(&c, 200, 100).unwrap();
         assert!(b.x0 >= 89 && b.x1 <= 111, "{b:?}");
-        let lasso = AiStroke { polygon: vec![Point::new(0.1, 0.1), Point::new(0.3, 0.1), Point::new(0.3, 0.5), Point::new(0.1, 0.5)], ..stroke(vec![]) };
+        let lasso =
+            AiStroke { polygon: vec![Point::new(0.1, 0.1), Point::new(0.3, 0.1), Point::new(0.3, 0.5), Point::new(0.1, 0.5)], ..stroke(vec![]) };
         let c = stroke_coverage(&lasso, &frame, 200, 100);
         assert_eq!(c[30 * 200 + 40], 1.0);
         assert_eq!(c[30 * 200 + 70], 0.0);
