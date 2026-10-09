@@ -1,6 +1,6 @@
 # Glossy Duotone tool icons
 
-Continued on 2026-10-09 from `1a8dd802` ("Checkpoint after the machine crash"). The checkpoint's implementation was retained and reviewed; this continuation's changes remain uncommitted.
+Continued on 2026-10-09 from `1a8dd802` ("Checkpoint after the machine crash"). The coordinator subsequently checkpointed this continuation as `f8502f4c` and merged the working branch as `14a35c90`. The existing implementation was retained and reviewed. Final report and contact-sheet updates remain uncommitted; this session made no commits.
 
 ## Artwork and coverage
 
@@ -9,7 +9,7 @@ Continued on 2026-10-09 from `1a8dd802` ("Checkpoint after the machine crash"). 
 - Library/Develop covers the tool strip, retouch modes, all 13 mask-shape variants, crop helpers, and point-colour sampling. It uses string tool IDs and `RightPanel`, rather than a separate Tool enum; exhaustive matches cover its panel and mask enums.
 - Formerly shared glyphs have distinct artwork, including Blur/Smooth, Smudge/Forward Warp, Healing/Spot Healing, and Type/Vertical Type. This continuation replaced the near-identical Luminance Range rectangle with a sun silhouette to distinguish it from Linear Mask.
 - `docs/design/tool-icons.png` is the complete contact sheet: every icon at actual 24 and 48 px on `#1f2023` and `#f2f2f4`, rendered by resvg. Regenerate offline with `CARGO_NET_OFFLINE=true cargo +1.98.1 xtask tool-icons`.
-- The checkpoint's contact sheet was visually reviewed. The original `target/icon-ref/` boards and NOTES were lost with the build-directory removal/reboot and are absent from this worktree and the original repository; the established artwork and palette were preserved.
+- The regenerated contact sheet was visually reviewed, including the distinct Luminance Range silhouette. The original `target/icon-ref/` boards and NOTES were unavailable in this worktree and the original repository after the earlier interruptions; the established artwork and palette were preserved.
 
 ## Rendering and preferences
 
@@ -29,10 +29,37 @@ Continued on 2026-10-09 from `1a8dd802` ("Checkpoint after the machine crash"). 
 
 ## Validation
 
-Fresh-session validation is running; this section will be replaced with results before handoff.
+Fresh validation was performed after the coordinator's merge and cache reseed, offline with Rust 1.98.1, `CARGO_BUILD_JOBS=3`, one cargo process at a time, and `RUST_TEST_THREADS=1`. Per the coordinator's latest instruction, runtime tests were restricted to icon/preferences, the i18n literal check, and the contact-sheet renderer; full suites remain with the coordinator.
 
-Tests cover every SVG at 20/24/48 px, nonempty renders, grayscale/alpha for disabled tools, cache identities across size/scale/state, exhaustive tool coverage, unique mappings, unused/unembedded assets, real preference clicks, CPU-rendered colour saturation changes at both display scales, persistence, disabled clicks, and Develop retouch/mask selection clicks. This continuation also adds silhouette comparisons independent of family colour, and real Liquify strip/global-image clicks in both icon modes.
+| Check | Result |
+|---|---|
+| `cargo check --offline` for photocraft-ui-egui, lightcraft-ui-egui, photocraft-engine, and xtask | Passed |
+| `tool_icon` filter: Compositing | 9 passed (four icon/UI tests and five supporting CPU painter tests) |
+| `tool_icon` filter: Library/Develop | 4 passed |
+| `tool_icon` filter: preference engine | 1 passed |
+| `icons::tests` filter: Compositing | 4 passed (SVG rendering, disabled state, cache, legacy monochrome coverage) |
+| `icons::tests` filter: Library/Develop | 3 passed (SVG rendering, disabled state, cache, vector glyph regression) |
+| `every_tl_literal_is_translated` | 1 passed |
+| `write_tool_icon_contact_sheet -- --ignored --nocapture` | 1 passed; all 93 icons rendered at 24/48 px on dark/light |
+| Asset audit | Passed: 333 assets attributed; referenced licence files exist |
+| Attribution regeneration | Passed: 690 Rust crates, nine Assets entries; generated JSON matches the merge |
+| Clippy, all targets, all four task crates, `-D warnings` | Passed |
 
-GPU tests added: none. The change concerns CPU SVG rasterization and existing egui texture uploads; no GPU algorithm or shader changes.
+Total: **23 targeted tests passed, zero failed**. The contact-sheet test is intentionally ignored during normal test runs because it writes a repository artifact; it was run explicitly and passed.
 
-The checkpoint's narrowly scoped mock-server test skip for denied local sockets remains in place; other setup failures still fail. All UI validation is headless, and no running desktop application was opened or stopped.
+Test commands used the same three-package selection to reuse dependency-feature caches:
+
+```sh
+cargo +1.98.1 test --offline --lib \
+  -p photocraft-ui-egui -p lightcraft-ui-egui -p photocraft-engine <filter>
+```
+
+Filters: `tool_icon`, `icons::tests`, `every_tl_literal_is_translated`, and `write_tool_icon_contact_sheet` (the last adds `-- --ignored --nocapture`). The required audits used `cargo +1.98.1 run -q --offline -p xtask -- assets` and `-- attributions`. Clippy uses `CARGO_TARGET_DIR=target/clippy`; its cache was populated from the warm worktree cache before linting.
+
+The checks cover every SVG at 20/24/48 px, nonempty renders, grayscale/alpha for disabled tools, cache identities across size/scale/state, exhaustive tool coverage, unique mappings, unused/unembedded assets, real preference clicks, CPU-rendered colour saturation changes at both display scales, persistence, disabled clicks, and Develop retouch/mask selection clicks. The continuation's tests also verify rendered silhouette differences independently of colour and real Liquify strip/global-image clicks in both modes.
+
+GPU tests added: none. The change concerns CPU SVG rasterization and existing egui texture uploads; no GPU algorithm or shader changes. All UI tests are headless; no desktop application was opened or stopped.
+
+Earlier attempts were interrupted by gate/process termination and the machine-wide OOM event; the results above come from the final merged branch. No final test was killed by the memory watchdog. Short-lived xtask/contact-sheet commands emitted external watchdog accounting warnings but returned success and completed their checks; the build also reported the existing unavailable craft-fonts warning. These environment messages did not produce Rust diagnostics or failed tests.
+
+The checkpoint's narrowly scoped mock-server test skip for denied local sockets remains in place; its unrelated AI flows were outside this final targeted run. No icon-task work remains pending.
