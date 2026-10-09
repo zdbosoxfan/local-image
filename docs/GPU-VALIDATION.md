@@ -42,8 +42,9 @@ New GPU ↔ CPU equivalence coverage (`lightcraft-gpu/tests/toolset.rs`, bounds 
   switching between the two paths on a cached view.
 - **Capture sharpening**: several radius / threshold / iterations / corner-boost values, a binned
   preview, a rendered source; on one cached view each change (radius, threshold, iterations, corner
-  boost, off, on) re-makes and re-uploads the sharpened source (cached == fresh == CPU), and going
-  back to the first values gives the first image.
+  boost, off, on) invalidates the sharpened source and downstream stages (cached == fresh within
+  the CPU bounds), and going back to the first values gives the first image. The original RTX
+  run used CPU capture; the new native GPU implementation is awaiting the rerun described below.
 - **Depth masks**: three bands, combined with an inverted linear, opacity, inverted mask, rotation
   + crop, and the mask overlay.
 - **Film looks**: all eight `lc.filmsim.*` profiles at 50 / 100 / 200 % on a raw and a rendered
@@ -93,19 +94,18 @@ full-size render of a synthetic scene with a typical edit on top, warm device:
 | colour calibration, linear | 111 ms | 644 ms | GPU |
 | colour calibration, gamut + clip | 320 ms | 703 ms | GPU + CPU linear stage |
 | colour calibration, non-linear Bradford | 285 ms | 661 ms | GPU + CPU linear stage |
-| capture sharpening | 1155 ms | 1657 ms | GPU + CPU capture presource |
+| capture sharpening (historical CPU presource) | 1155 ms | 1657 ms | previous hybrid implementation |
 | depth mask | 302 ms | 699 ms | GPU + CPU mask shape |
 | film look | 109 ms | 723 ms | GPU |
 | AI Remove patch | 282 ms | 653 ms | GPU + CPU linear stage |
 | develop layer tools (curve on a mask) | — | 695 ms | CPU fallback |
 
-On the real ARWs (18.7 MP output) capture sharpening took 1.4–3.5 s (radius measured from the raw).
+On the real ARWs (18.7 MP output) the previous CPU capture stage took 1.4–3.5 s
+(radius measured from the raw). Capture now runs on the device; these historical timings do
+not measure the native GPU implementation.
 
 ### Candidates for native WGSL kernels (not built)
 
-- **Capture sharpening** — the slowest stage by far (1–3.5 s per full render, every time a capture
-  value changes); Richardson–Lucy is a few separable blurs and multiplies per iteration, which the
-  existing blur kernels already cover. Highest value.
 - **Tone equalizer** — a whole-render CPU fallback (~0.8 s at 24 MP) for a guided filter on log
   luminance and a per-pixel gain: the guided filter kernels exist (`guided_fast`), only the zone
   curve is new.
@@ -146,3 +146,46 @@ Only image noise estimation and reduced band statistics run on the host. GPU haz
 uses host ambient-light selection, then native morphology, cropped Kahan boxes,
 covariance solves and reconstruction. If its 9-channel covariance buffer exceeds
 the storage-buffer limit, only haze preparation runs on the CPU inside the GPU render.
+
+## Native capture sharpening (2026-10-09; RTX validation pending)
+
+Capture is no longer a CPU stage inside GPU renders. `lc-gpu/src/capture.rs` and
+`wgsl/capture.wgsl` run luminance, the black/clipped exclusion and 21-pixel variance
+mask, corner-boost kernel indices, Richardson–Lucy and the final RGB gain on the
+uploaded source before geometry. The 256 quarter Gaussian kernels (25 KiB) are
+generated once on the host in exactly the reference's f32 order. Their disc
+truncation makes them non-separable; both 5x5 and 9x9 convolution use the actual
+Gaussian taps, including at small sigma. A shared-memory tile includes the 4px halo.
+
+The mask's sigma-2 blur reuses `blur.wgsl` box kernels with whole-row horizontal
+sums and 32-row vertical bands to match the CPU's addition order. RL accumulates
+taps in the CPU's row-major order. Radial distance uses WGSL sqrt in place of Rust
+hypot; device exp/log/division and multiply-add contraction can differ by ulps.
+A residual correction on division protects the sigma-index truncation boundary.
+The CPU reference and its output goldens are unchanged.
+
+The per-view device cache keeps the original upload and the last sharpened source,
+keyed by source identity and all resolved capture parameters. Sampled, linear and
+spatial stages also include that capture key. Other tools and output-size changes
+reuse capture; radius/threshold/iterations/corner boost and sensor metadata changes
+rebuild it. Device memory accounting and cache clearing include both source buffers.
+CPU-only lens geometry and source-dependent pupil/automatic Upright analyses read
+back the GPU-sharpened source. If capture's full
+source exceeds the device buffer limit, the renderer returns `None` with a limit
+reason for the ordinary CPU fallback; it does not run hidden CPU capture inside a
+successful GPU render.
+
+Adapter-independent tests compare the f32 WGSL transcription's mask and output
+with the CPU at 1/2/8/50 iterations and its estimate with the independent upstream
+RL fixture (4096 samples). Device tests inspect luminance, mask, kernel indices,
+ratio and estimate after each iteration, exercise cache reuse/invalidation and
+source-limit refusal. `toolset.rs` requires mean |delta| <0.5 LSB and max <=3 LSB
+for parameter sweeps, binned previews, odd/tiny dimensions, HDR/black/negative
+border pixels, cached edits and CPU-only geometry. No adapter is available in the
+sandbox, so device numerical comparisons and timings still need the RTX 5090.
+
+`bench_capture_sharpening_24mp` measures a fresh capture render, a cached exposure
+edit and a radius change that preserves the upload, plus CPU ms at 6000x4000.
+`bench_toolset_24mp` retains its capture row and now reports it as GPU. Exact RTX
+commands and sandbox test counts are in
+[`CODEX-REPORT-gpu-capture.md`](wip/CODEX-REPORT-gpu-capture.md).
