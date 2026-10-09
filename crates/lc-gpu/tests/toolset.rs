@@ -344,7 +344,7 @@ fn color_calibration_changes_reach_cached_renders() {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Capture sharpening: the sharpened source is what the GPU uploads
+// Capture sharpening: sharpen the uploaded source before geometry; keep it resident
 
 fn capture(s: &mut DevelopSettings, radius: f64, threshold: f64, iterations: f64) {
     s.raw.capture.enabled = true;
@@ -383,8 +383,8 @@ fn capture_sharpening_changes_re_upload_the_source() {
     if !gpu() {
         return;
     }
-    // Render, change one capture value, render again on the same view: the sharpened source must
-    // be made and uploaded again (not a stale texture of the previous values).
+    // Render, change one capture value, render again on the same view: the device's sharpened
+    // source and downstream stages must be rebuilt (the original upload can now stay resident).
     let src = scene(3, 900, 600);
     let info = SourceInfo { capture_radius: Some(0.8), ..raw() };
     let cache = StageCache::default();
@@ -420,6 +420,216 @@ fn capture_sharpening_changes_re_upload_the_source() {
     capture(&mut s, 0.8, 10.0, 8.0);
     s.raw.capture.corner_boost = 0.0;
     assert_eq!(gpu_render(&src, &info, &s, &req, Some(&cache)), first, "back to the first values");
+}
+
+/// Soft edges, fine colour texture, black/negative pixels and HDR near every border.
+fn capture_chart(w: usize, h: usize) -> Arc<Rgb32f> {
+    Arc::new(Rgb32f::from_fn(w, h, |x, y| {
+        let fx = x as f32;
+        let fy = y as f32;
+        let edge = 0.5 + 0.5 * ((fx - 0.43 * w as f32) * 0.9 + fy * 0.04).tanh();
+        let texture = 0.015 * (fx * 1.4 + fy * 0.7).sin();
+        let v = 0.035 + 0.6 * edge + texture;
+        if (x < 4 && y < h / 2) || (x == w - 5 && y == h - 5) {
+            [-0.01, 0.0, 0.005]
+        } else if y < 3 || (x > w.saturating_sub(8) && y > h / 2) {
+            [2.0, 1.2, 0.8]
+        } else {
+            [v * 0.8 + texture, v, v * 1.15 - texture]
+        }
+    }))
+}
+
+#[test]
+fn capture_sharpening_parameter_sweeps_match() {
+    if !gpu() {
+        return;
+    }
+    let src = capture_chart(193, 129);
+    let info = SourceInfo { capture_radius: Some(0.8), capture_threshold: 0.32, ..raw() };
+    let req = RenderRequest::fit(193, 193);
+    let mut s = DevelopSettings::default();
+    capture(&mut s, 0.8, 25.0, 8.0);
+    for radius in [0.0, 0.25, 0.26, 0.3, 0.5, 0.65, 0.66, 0.67, 1.0, 1.5, 2.55, 3.0] {
+        s.raw.capture.radius = radius;
+        check(&format!("capture radius {radius}"), &src, &info, &s, &req);
+    }
+    s.raw.capture.radius = 0.8;
+    for threshold in [0.0, 1.0, 10.0, 40.0, 80.0, 100.0] {
+        s.raw.capture.threshold = threshold;
+        check(&format!("capture threshold {threshold}"), &src, &info, &s, &req);
+    }
+    s.raw.capture.threshold = 25.0;
+    for iterations in [1.0, 2.0, 8.0, 15.0, 25.0] {
+        s.raw.capture.iterations = iterations;
+        check(&format!("capture iterations {iterations}"), &src, &info, &s, &req);
+    }
+    s.raw.capture.iterations = 8.0;
+    for boost in [0.0, 10.0, 50.0, 100.0, 150.0] {
+        s.raw.capture.corner_boost = boost;
+        check(&format!("capture corner boost {boost}"), &src, &info, &s, &req);
+    }
+}
+
+#[test]
+fn capture_sharpening_binned_previews_edges_and_borders_match() {
+    // Build tiny fixtures even without an adapter so border arithmetic is exercised.
+    let fixtures = [(7, 5), (8, 33), (9, 9), (17, 41), (257, 193)].map(|(w, h)| ((w, h), capture_chart(w, h)));
+    if !gpu() {
+        return;
+    }
+    for ((w, h), src) in fixtures {
+        for scale in [1.0, 2.0, 4.0] {
+            let info = SourceInfo { sensor_scale: scale, capture_radius: Some(1.2), ..raw() };
+            let mut s = DevelopSettings::default();
+            capture(&mut s, 0.0, 10.0, 25.0);
+            s.raw.capture.corner_boost = 150.0;
+            for edge in [w.max(h), 31] {
+                check(&format!("capture {w}x{h} sensor {scale} output {edge}"), &src, &info, &s, &RenderRequest::fit(edge, edge));
+            }
+        }
+    }
+}
+
+#[test]
+fn capture_sharpening_source_info_and_geometry_changes_invalidate_cache() {
+    if !gpu() {
+        return;
+    }
+    let mut src = capture_chart(193, 129);
+    let mut info = SourceInfo { capture_radius: Some(0.8), capture_threshold: 0.2, ..raw() };
+    let stages = StageCache::default();
+    let mut s = DevelopSettings::default();
+    capture(&mut s, 0.0, 0.0, 8.0);
+    s.raw.capture.corner_boost = 50.0;
+    for step in 0..10 {
+        match step {
+            1 => info.capture_radius = Some(1.4),
+            2 => info.capture_threshold = 0.65,
+            3 => info.sensor_scale = 2.0,
+            4 => s.light.exposure = 0.7,
+            5 => src = Arc::new((*src).clone()), // new decoder source, identical dimensions
+            6 => info.raw = false,
+            7 => info.raw = true,
+            8 => s.disabled_sections.push("raw".into()),
+            9 => s.disabled_sections.clear(),
+            _ => {}
+        }
+        let req = RenderRequest::fit(if step % 2 == 0 { 193 } else { 97 }, 193);
+        let cached = gpu_render(&src, &info, &s, &req, Some(&stages));
+        let fresh = check(&format!("capture info/cache step {step}"), &src, &info, &s, &req);
+        assert_eq!(cached, fresh, "capture source-info invalidation {step}");
+    }
+    // Lens-database geometry is CPU-only. It must resample the GPU's sharpened
+    // source, including on a cached view, rather than resampling the original.
+    info.lens_db = Some(barrel());
+    lens_on(&mut s, 100.0);
+    let req = RenderRequest::fit(151, 151);
+    check("capture before CPU lens geometry", &src, &info, &s, &req);
+    assert_eq!(gpu_render(&src, &info, &s, &req, Some(&stages)), gpu_render(&src, &info, &s, &req, None));
+}
+
+#[test]
+fn capture_sharpening_reuses_device_source_for_other_tools_and_sizes() {
+    if !gpu() {
+        return;
+    }
+    let src = capture_chart(193, 129);
+    let info = raw();
+    let stages = StageCache::default();
+    let mut s = DevelopSettings::default();
+    capture(&mut s, 0.8, 25.0, 8.0);
+    for (edge, exposure, clarity) in [(193, 0.0, 0.0), (97, 0.7, 0.0), (193, 0.7, 25.0), (53, -0.4, 25.0)] {
+        s.light.exposure = exposure;
+        s.effects.clarity = clarity;
+        let req = RenderRequest::fit(edge, edge);
+        let cached = gpu_render(&src, &info, &s, &req, Some(&stages));
+        let fresh = check(&format!("capture + edits/size {edge}/{exposure}/{clarity}"), &src, &info, &s, &req);
+        assert_eq!(cached, fresh);
+    }
+    // GPU renders must not populate StageCache.pre with a CPU-sharpened copy.
+    assert_eq!(stages.bytes(), 0, "all capture and downstream image stages are device-resident");
+    assert!(lightcraft_gpu::stage_bytes(&stages) > 0);
+    stages.clear();
+    assert_eq!(lightcraft_gpu::stage_bytes(&stages), 0);
+}
+
+#[test]
+fn capture_sharpening_over_limit_source_falls_back_without_device_failure() {
+    if !gpu() {
+        return;
+    }
+    let src = capture_chart(257, 193);
+    let info = raw();
+    let mut s = DevelopSettings::default();
+    capture(&mut s, 0.8, 25.0, 8.0);
+    let req = RenderRequest::fit(31, 31);
+    lightcraft_gpu::inject_fault(lightcraft_gpu::Fault::Limit(64 << 10));
+    assert!(lightcraft_gpu::render(&src, &info, &s, &req, None).is_none());
+    assert!(lightcraft_gpu::last_fallback().is_some_and(|r| r.contains("capture sharpening") && r.contains("limit")));
+    assert!(lightcraft_gpu::available());
+    check("capture after source-limit refusal", &src, &info, &s, &req);
+}
+
+#[test]
+fn capture_sharpening_before_source_analysis_matches() {
+    if !gpu() {
+        return;
+    }
+    let src = Arc::new(Rgb32f::from_fn(193, 129, |x, y| {
+        let dx = x as f32 - 105.0;
+        let dy = y as f32 - 61.0;
+        let pupil = (-0.5 * (dx * dx + dy * dy) / 36.0).exp();
+        let v = 0.15 + 0.12 * (0.5 + 0.5 * (x as f32 * 0.45 + y as f32 * 0.1).sin());
+        [v + 0.45 * pupil, v * (1.0 - 0.8 * pupil), v * (1.0 - 0.8 * pupil)]
+    }));
+    let info = raw();
+    let mut s = DevelopSettings::default();
+    capture(&mut s, 1.2, 10.0, 8.0);
+    let stages = StageCache::default();
+    let req = RenderRequest::fit(193, 193);
+    s.red_eye.push(lightcraft_develop::RedEye { center: Point::new(0.55, 0.48), rx: 0.1, ry: 0.1, ..Default::default() });
+    for upright in [lightcraft_develop::Upright::Off, lightcraft_develop::Upright::Level] {
+        s.geometry.upright = upright;
+        let fresh = check(&format!("capture before pupil/Upright {upright:?}"), &src, &info, &s, &req);
+        assert_eq!(gpu_render(&src, &info, &s, &req, Some(&stages)), fresh);
+    }
+}
+
+/// Fresh full render reruns capture; exposure on the same view reuses its device
+/// source. RTX command: --test toolset bench_capture_sharpening_24mp -- --ignored --exact --nocapture
+#[test]
+#[ignore = "24 MP benchmark: run with --release --ignored"]
+fn bench_capture_sharpening_24mp() {
+    let has_gpu = gpu();
+    let (w, h) = (6000, 4000);
+    let src = scene(3, w, h);
+    let info = raw();
+    let req = RenderRequest::fit(w, h);
+    let mut s = DevelopSettings::default();
+    capture(&mut s, 0.8, 25.0, 8.0);
+    s.raw.capture.corner_boost = 30.0;
+    let ms = |t: std::time::Instant| t.elapsed().as_secs_f64() * 1e3;
+    let stages = StageCache::default();
+    if has_gpu {
+        let _ = gpu_render(&src, &info, &s, &req, Some(&stages)); // warm device/pool
+        let t = std::time::Instant::now();
+        let _ = gpu_render(&src, &info, &s, &req, None);
+        eprintln!("24 MP capture r0.8 / 8 it / boost30, fresh GPU: {:.1} ms", ms(t));
+        s.light.exposure = 0.3;
+        let t = std::time::Instant::now();
+        let _ = gpu_render(&src, &info, &s, &req, Some(&stages));
+        eprintln!("24 MP capture cached + exposure GPU: {:.1} ms", ms(t));
+        s.raw.capture.radius = 1.0;
+        let t = std::time::Instant::now();
+        let _ = gpu_render(&src, &info, &s, &req, Some(&stages));
+        eprintln!("24 MP capture radius change GPU (upload reused): {:.1} ms", ms(t));
+    }
+    capture(&mut s, 0.8, 25.0, 8.0);
+    s.light.exposure = 0.0;
+    let t = std::time::Instant::now();
+    std::hint::black_box(render(&src, &info, &s, &req));
+    eprintln!("24 MP capture r0.8 / 8 it / boost30, fresh CPU: {:.1} ms", ms(t));
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -712,9 +922,6 @@ fn bench_toolset_24mp() {
         // what runs on the CPU inside a GPU render (per-stage hybrid)
         let plan = lightcraft_pipeline::plan(&src, &info, &s, &req);
         let mut cpu_parts = Vec::new();
-        if lightcraft_pipeline::capture_params(&info, &plan.settings).is_some() {
-            cpu_parts.push("capture presource");
-        }
         if !plan.frame.gpu_samplable() {
             cpu_parts.push("geometry");
         }

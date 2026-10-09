@@ -1,42 +1,30 @@
-# Codex task: Save Over Original + Lightroom-style Export dialog (item 2)
+# Codex task: capture sharpening on the GPU
 
-Worktree of "Local Image" (Library/Develop UI: crates/lc-ui-egui; engine: crates/lc-engine). A previous builder was
-stopped mid-work; its changes are in the last WIP commit ("Save Over Original and Lightroom-style Export dialog") —
-continue from it (new files `crates/lc-engine/src/cmd/save_over.rs`, `tests_save_over.rs`,
-`crates/lc-ui-egui/src/panels/export_dialog.rs`).
+Worktree of "Local Image" (Develop engine: crates/lc-pipeline CPU reference, crates/lc-gpu wgpu/WGSL twin). Capture
+sharpening (Richardson–Lucy deconvolution with a Gaussian PSF on luminance, per-pixel kernel table with corner boost,
+variance blend mask; a faithful port of darktable `src/iop/demosaicing/capture.c` — see `crates/lc-pipeline/src/capture.rs`,
+`lightcraft_pipeline::presource` / `presource_with`, `StageCache.pre`) currently runs on the CPU **for both renderers**:
+`lightcraft_gpu::render` calls `presource` before uploading the source. On the owner's real 33 MP Sony raws it costs
+1.4–3.5 s per full render and runs again whenever a capture value changes — the slowest stage in Develop.
 
-## A. "I want my 'save over original' function back for if I remove some junk from a photo and just want to save it
-over the original quickly."
+## Work
 
-The old 0.7.x app had it (`git show dd46a73:backend/frontend/editor.js` ~158-159, 1177-1240: Overwrite kept the original
-format, asked first with Cancel / Save Unique / Overwrite + "don't ask again"). lc-engine forbids writing over originals
-(`originals.rs` OriginalGuard; test `export_never_overwrites_an_original` must keep passing for normal exports).
-Implement `photo.saveOverOriginal` + Library/Develop File menu "Save Over Original…" (free shortcut) + confirm dialog
-(Cancel / Save Copy Beside / Overwrite, "Don't ask again" in prefs): full-size render through the export path in the
-original's format (JPEG ~95, PNG/TIFF/WebP at source bit depth) with the original's metadata and colour space; atomic
-write (temp + rename) bypassing the guard only on this explicit path; keep a backup of the original in the library's
-data folder (say so in the dialog); then reset the photo's develop settings, drop spots/AI patches referencing the old
-pixels, and `photo.reload`. Raw/DNG originals: the action becomes "Save JPEG Beside Original" (Conflict::Unique),
-imported and stacked with the raw (same import + `stack.group` as `edit_external` in cmd/convert.rs). Engine tests.
+1. Port capture sharpening to the GPU (WGSL compute + host in crates/lc-gpu), operating on the uploaded source: the RL
+   iterations (Gaussian blur passes — reuse/extend the existing blur kernels in `src/wgsl/blur.wgsl` if their accuracy
+   matches; small-σ kernels need true Gaussian taps), the per-pixel kernel table with corner boost, and the blend mask.
+   Iteration count, radius (incl. `info.sensor_scale` for binned previews), threshold and corner boost exactly as the
+   CPU. Cache the sharpened source on the device per (source, parameters) like `GpuStages.source`, so slider drags of
+   other tools don't redo it, and a capture change re-runs it (the existing test
+   `capture_sharpening_changes_re_upload_the_source` in `crates/lc-gpu/tests/toolset.rs` must keep its meaning).
+2. The CPU path stays the reference and is unchanged. GPU-vs-CPU: extend `crates/lc-gpu/tests/toolset.rs`
+   (`capture_sharpening_matches`, plus radius/threshold/iterations/corner-boost sweeps, binned preview, edges/borders):
+   mean |Δ| < 0.5 LSB, max ≤ 3 LSB. Add an `#[ignore]` 24 MP bench row (GPU vs CPU ms).
+3. Keep float accuracy: RL is iterative, so compare intermediate results against the CPU in a CPU-side unit test of
+   your WGSL math where possible (e.g. run the same algorithm step on the CPU in f32 with the GPU's ordering) and
+   document any ordering differences.
+4. Update `docs/GPU-VALIDATION.md` (capture sharpening is no longer a CPU stage) and the darktable notice if needed.
 
-## B. "The export menu from Develop has bad UI; it should more closely match Adobe Lightroom or Capture One export
-menus. Replace it with a real one; darktable's export module is a reference."
-
-Rebuild in the **Lightroom Classic Export dialog** layout: wide resizable modal, preset list on the left (built-in +
-User Presets; Add / Remove / Update), collapsible sections on the right in Lightroom's order — Export Location (Specific
-folder / Same folder as original; Choose…; subfolder; Add to This Catalog [+ Add to Stack]; Existing Files:
-Ask / New name / Overwrite / Skip), File Naming (template + live example filename + start number), File Settings
-(format, quality, limit size, colour space, bit depth, compression), Image Sizing (W&H / Dimensions / Long / Short edge /
-Megapixels / Percentage, Don't Enlarge, ppi), Output Sharpening (Screen / Matte / Glossy; Low / Standard / High),
-Metadata (All / All except camera / Copyright only / None; Remove Location), Watermarking (all 9 anchors, inset, colour),
-Post-Processing (Do nothing / Show in file manager / Open in other application…). Collapsed headers show a one-line
-summary. Bottom bar "Export N photos" / Cancel. Engine additions only where cheap: same-folder destination, add to
-catalog/stack, show in folder. Keep `ExportOptions` serde-compatible so saved presets / `last_export` load. Update
-`headless.rs` export tests and add tests for presets, same-folder destination and the filename preview.
-
-Tests: `cargo +1.98.1 test --offline -p lightcraft-engine -p lightcraft-ui-egui`.
-
-Report file: `docs/wip/CODEX-REPORT-export.md`.
+Report file: `docs/wip/CODEX-REPORT-gpu-capture.md` — list exactly which GPU tests to run on the RTX 5090.
 
 ## Rules (all Codex jobs)
 

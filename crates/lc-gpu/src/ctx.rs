@@ -15,6 +15,19 @@ struct Module {
 
 const MODULES: &[Module] = &[
     Module {
+        src: include_str!("wgsl/capture.wgsl"),
+        bindings: &[
+            ("img", false, "f32"),
+            ("a", false, "f32"),
+            ("b", false, "f32"),
+            ("blend", false, "f32"),
+            ("indices", true, "u32"),
+            ("kernels", false, "f32"),
+            ("dst", true, "f32"),
+        ],
+        entries: &["capture_lum", "capture_mask", "capture_blend", "capture_div", "capture_mul", "capture_apply"],
+    },
+    Module {
         src: include_str!("wgsl/finish.wgsl"),
         bindings: &[
             ("img", false, "f32"),
