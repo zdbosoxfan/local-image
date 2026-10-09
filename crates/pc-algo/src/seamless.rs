@@ -460,7 +460,7 @@ mod tests {
                 [0.3 + 0.1 * (x * 0.3).sin(), 0.5 + 0.05 * (y * 0.2).cos(), 0.2, 1.0]
             })
             .collect();
-        let src: Vec<f32> = dst.chunks_exact(4).flat_map(|p| [p[0] + 0.25, p[1] - 0.2, p[2] + 0.1, 1.0]).collect();
+        let src: Vec<f32> = dst.as_chunks::<4>().0.iter().flat_map(|p| [p[0] + 0.25, p[1] - 0.2, p[2] + 0.1, 1.0]).collect();
         let out = seamless_blend(w, h, 4, 3, &src, &dst, &mask);
         let mut worst = 0.0f32;
         for i in (0..w * h).filter(|i| mask[*i]) {
