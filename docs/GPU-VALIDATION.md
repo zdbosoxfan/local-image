@@ -48,14 +48,13 @@ New GPU ↔ CPU equivalence coverage (`lightcraft-gpu/tests/toolset.rs`, bounds 
   + crop, and the mask overlay.
 - **Film looks**: all eight `lc.filmsim.*` profiles at 50 / 100 / 200 % on a raw and a rendered
   scene, with edits, and in Display P3 — GPU render vs CPU export.
-- **AI Remove / AI Denoise**: a stub patch (gradient, soft alpha) at 100 % / 40 % opacity, with a
-  heal spot, edits and geometry, added / removed on a cached view, a missing patch; a stub denoised
-  source at 25 % / 100 % on a cached view.
+- **AI Remove**: a stub patch (gradient, soft alpha) at 100 % / 40 % opacity, with a
+  heal spot, edits and geometry, added / removed on a cached view, a missing patch.
 
 Through the engine (`lightcraft-engine/src/tests_gpu.rs`, a view `RenderJob` with its stage cache):
 raw options RCD / Dual / Opposed / Clip each decode again and render on the GPU, and switching back
 to Default gives the original image bit for bit; a real lensfun-database lens at 0 / 100 / 200 %
-with crop + rotation; AI Remove (mock engine) and AI Denoise (stand-in model) through the commands.
+with crop + rotation; AI Remove (mock engine) through the commands.
 
 Real raw files (three Sony ILCE-1 ARW, 3744 × 5616, Tamron 35-150 f/2-2.8 found in the lens
 database), rendered at 3333 × 5000 through the engine's job path: default, typical edit, lens
@@ -130,3 +129,20 @@ Not automatable here (no display automation was used on the photos):
 - Raw options: switching Demosaic / Highlights shows a re-decode; check the progress feedback and
   that the view never shows the old decode after the switch.
 - Tone equalizer *Show Mask* overlay in the UI.
+
+## Detail tools (2026-10-09; RTX validation pending)
+
+`lc-gpu/tests/toolset.rs` adds four tests for pixel-scale log USM/halo clamping,
+Alt Masking preview, Y0U0V0 wavelet NR's six sliders, RGB-guided dark-channel dehaze
+with both signs, and cached slider/sensor-scale changes. Odd dimensions, HDR values,
+strong colour edges, full size and two preview sizes are covered. Each comparison
+requires mean absolute error <0.5 LSB and maximum <=3 LSB. The no-adapter sandbox
+skips device execution; all WGSL modules are parsed and validated by Naga regardless.
+
+The ignored `bench_toolset_24mp` includes independent sharpening, wavelet NR and
+Dehaze rows. `LC_DETAIL_BENCH_ONLY=1` selects them; CPU rows run without an adapter.
+GPU NR executes VST, EAW, reduction, soft-threshold synthesis and recombination.
+Only image noise estimation and reduced band statistics run on the host. GPU haze
+uses host ambient-light selection, then native morphology, cropped Kahan boxes,
+covariance solves and reconstruction. If its 9-channel covariance buffer exceeds
+the storage-buffer limit, only haze preparation runs on the CPU inside the GPU render.

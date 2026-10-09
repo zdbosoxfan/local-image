@@ -43,7 +43,8 @@ struct Planes {
     base: Option<(u32, Arc<Buf>)>,
     clarity: Option<(u32, Arc<Buf>)>,
     texture: Option<(u32, Arc<Buf>)>,
-    dark: Option<(u32, Arc<Buf>, f32)>,
+    haze: Option<(Arc<Buf>, [f32; 3], f32)>,
+    sharp: Option<(u32, Arc<Buf>, Arc<Buf>)>,
     chroma: Option<(u32, Arc<Buf>)>,
 }
 
@@ -104,7 +105,12 @@ impl GpuStages {
             p.base.iter().for_each(|(_, b)| add(b));
             p.clarity.iter().for_each(|(_, b)| add(b));
             p.texture.iter().for_each(|(_, b)| add(b));
-            p.dark.iter().for_each(|(_, b, _)| add(b));
+            p.haze.iter().for_each(|(b, _, _)| add(b));
+            p.sharp.iter().for_each(|(_, a, b)| {
+                add(a);
+                add(b);
+            });
+            p.chroma.iter().for_each(|(_, b)| add(b));
         }
         if let Some((_, b)) = &*self.source.lock().unwrap_or_else(|e| e.into_inner()) {
             add(b);
@@ -579,7 +585,7 @@ pub fn render(
         Some(p) if p.key == plan.lin_key => p,
         _ => Planes { key: plan.lin_key, ..Default::default() },
     };
-    let prep = prepare(&mut cx, &lin, &plan, req, &mut planes);
+    let prep = prepare(&mut cx, &lin, &plan, req, &mut planes, info.sensor_scale);
     lap("planes", &mut t, &mut cx);
     if let Some(c) = stages {
         c.put(Entry { src: src.clone(), geo: plan.geo, sampled, lin: Some((plan.lin_key, lin.clone())), planes });
@@ -590,11 +596,25 @@ pub fn render(
     lap("masks", &mut t, &mut cx);
 
     // 5. per-pixel stage
-    let fp = FinishParams::new(s, &plan.frame, info, w, h, plan.px_per_long, prep.air, req.space);
+    let fp = FinishParams::new(s, &plan.frame, info, w, h, plan.px_per_long, req.space)
+        .with_planes(prep.sharp.as_ref().map(|v| v.2), prep.haze.as_ref().map(|v| (v.1, v.2)));
+    // Reuse the existing texture binding for [texture | sharp B1 | sharp B2].
+    let texture = if let Some((b1, b2, _)) = &prep.sharp {
+        let buf = gpu.buffer(3 * n);
+        if let Some(tex) = &prep.texture {
+            cx.copy_into(tex, &buf, 0);
+        }
+        cx.copy_into(b1, &buf, n);
+        cx.copy_into(b2, &buf, 2 * n);
+        Some(buf)
+    } else {
+        None
+    };
     let present = Present {
         clarity: prep.clarity.is_some(),
         texture: prep.texture.is_some(),
-        dark: prep.dark.is_some(),
+        dark: prep.haze.is_some(),
+        sharp: prep.sharp.is_some(),
         chroma: masks.is_some() && prep.chroma.is_some(),
     };
     let (p, aux) = finish_block(&fp, &terms, &present);
@@ -619,8 +639,8 @@ pub fn render(
                 Some(&prep.log_l),
                 Some(&prep.base),
                 prep.clarity.as_deref(),
-                prep.texture.as_deref(),
-                prep.dark.as_deref(),
+                texture.as_ref().or(prep.texture.as_deref()),
+                prep.haze.as_ref().map(|v| &*v.0),
                 masks.as_ref(),
                 Some(&aux),
                 Some(&out),
@@ -629,13 +649,21 @@ pub fn render(
         );
     }
     // the alpha a mask overlay shows: copied out before the readback below submits
-    let overlay_mask = req.overlay.mask(s).map(|m| {
-        let list = s.masks.iter().filter(|m| m.visible && !m.components.is_empty());
-        match (list.map(|m| m.id).position(|id| id == m.id), masks.as_ref()) {
-            (Some(mi), Some(all)) => Ok(cx.slice(all, mi * n, n)),
-            _ => Err(m),
-        }
-    });
+    let overlay_mask = if req.overlay == lightcraft_pipeline::Overlay::SharpenMask {
+        let (b2, sigma) = prep.sharp.as_ref().map_or((&prep.log_l, 0.0), |(_, b2, sg)| (b2, *sg));
+        let k = lightcraft_pipeline::detail::SharpK::new(0.0, fp.sharp_masking, sigma);
+        let buf = gpu.buffer(n);
+        map(&mut cx, "sharp_preview", n, &[w as u32, h as u32, k.mask_t.to_bits(), k.edge_k.to_bits()], [Some(b2), None, None], &buf);
+        Some(Ok(buf))
+    } else {
+        req.overlay.mask(s).map(|m| {
+            let list = s.masks.iter().filter(|m| m.visible && !m.components.is_empty());
+            match (list.map(|m| m.id).position(|id| id == m.id), masks.as_ref()) {
+                (Some(mi), Some(all)) => Ok(cx.slice(all, mi * n, n)),
+                _ => Err(m),
+            }
+        })
+    };
     let data: Vec<[u8; 4]> = cx.read(&out, n);
     let image = Rgba8 { width: w, height: h, data };
     lap("finish + readback", &mut t, &mut cx);
@@ -682,7 +710,7 @@ fn linear(cx: &mut Cx<'_>, sampled: &Buf, info: &SourceInfo, plan: &Plan<'_>, ho
     let (w, h) = (plan.w, plan.h);
     let n = w * h;
     let s = &*plan.settings;
-    let img = if lightcraft_pipeline::lin_needs_cpu(s) {
+    let img = if lightcraft_pipeline::lin_needs_cpu(s) || info.camera_profile.is_some() {
         // film negative conversion / defringe / spot removal: CPU
         let mut img = match host.sampled.take() {
             Some(i) => i,
@@ -706,32 +734,56 @@ fn linear(cx: &mut Cx<'_>, sampled: &Buf, info: &SourceInfo, plan: &Plan<'_>, ho
             eyed
         }
     };
-    denoise(cx, img, plan)
+    denoise(cx, img, plan, info.sensor_scale)
 }
 
-/// Noise reduction (`local::denoise`).
-fn denoise(cx: &mut Cx<'_>, img: Buf, plan: &Plan<'_>) -> Buf {
+/// Native wavelet NR; host noise estimation and band variances are small statistical stages.
+fn denoise(cx: &mut Cx<'_>, img: Buf, plan: &Plan<'_>, sensor_scale: f32) -> Buf {
+    use lightcraft_pipeline::detail::nr::*;
     let (w, h) = (plan.w, plan.h);
     let n = w * h;
-    let (lum, col) = local::nr_params(&plan.settings, plan.src_long, w.max(h));
-    let mut img = img;
-    if let Some(nr) = lum {
-        let l = cx.gpu.buffer(n);
-        map(cx, "log_lum_k", n, &[], [Some(&img), None, None], &l);
-        let f = guided(cx, &l, w, h, nr.sigma, nr.eps);
+    let scale = lightcraft_pipeline::detail::out_per_orig(plan.px_per_long, plan.src_long, sensor_scale);
+    let Some(p) = nr_params(&plan.settings, scale) else { return img };
+    let model = estimate_noise(&cx.read_rgb(&img, w, h));
+    let vst = Vst::new(model, &p);
+    let block = |m: [[f32; 3]; 3]| {
+        let mut b = vec![vst.a.to_bits(), vst.b.to_bits(), vst.p.to_bits(), vst.bias.to_bits(), vst.wb.to_bits()];
+        b.extend(m.iter().flatten().map(|v| v.to_bits()));
+        b
+    };
+    let mut coarse = cx.gpu.buffer(n * 3);
+    map(cx, "nr_forward", n, &block(vst.to), [Some(&img), None, None], &coarse);
+    let mut acc = cx.zeroed(n * 3);
+    let levels = max_scale(w, h, p.scale);
+    for level in 0..levels {
+        let next = cx.gpu.buffer(n * 3);
+        map(cx, "nr_eaw", n, &[w as u32, h as u32, level as u32, (1.0 / VARF.powi(2 * level as i32)).to_bits()], [Some(&coarse), None, None], &next);
+        let det = cx.gpu.buffer(n * 3);
+        map(cx, "nr_detail", n, &[], [Some(&coarse), Some(&next), None], &det);
+        let groups = groups1(n);
+        let count = groups[0] as usize * groups[1] as usize;
+        let sums = cx.gpu.buffer(count * 3);
+        map(cx, "nr_sum", n, &[], [Some(&det), None, None], &sums);
+        let values: Vec<[f32; 3]> = cx.read(&sums, count * 3);
+        let mut sum = [0.0f64; 3];
+        for v in values {
+            for c in 0..3 {
+                sum[c] += v[c] as f64;
+            }
+        }
+        let t = thresholds(level, n, sum.map(|v| v as f32), band_force(&p, level, levels));
         let out = cx.gpu.buffer(n * 3);
-        map(cx, "nr_lum", n, &[nr.k.to_bits()], [Some(&img), Some(&l), Some(&f)], &out);
-        img = out;
+        map(cx, "nr_synthesize", n, &t.map(f32::to_bits), [Some(&acc), Some(&det), None], &out);
+        acc = out;
+        coarse = next;
     }
-    if let Some(nr) = col {
-        let chroma = cx.gpu.buffer(n * 3);
-        map(cx, "chroma_k", n, &[], [Some(&img), None, None], &chroma);
-        let b = gaussian(cx, &chroma, w, h, 3, nr.sigma);
-        let out = cx.gpu.buffer(n * 3);
-        map(cx, "nr_col", n, &[nr.t.to_bits()], [Some(&img), Some(&chroma), Some(&b)], &out);
-        img = out;
-    }
-    img
+    let joined = cx.gpu.buffer(n * 3);
+    map(cx, "nr_residual", n, &[], [Some(&acc), Some(&coarse), None], &joined);
+    let back = cx.gpu.buffer(n * 3);
+    map(cx, "nr_backward", n, &block(vst.from), [Some(&joined), None, None], &back);
+    let out = cx.gpu.buffer(n * 3);
+    map(cx, "nr_join", n, &[(p.lum > 0.0) as u32, (p.col > 0.0) as u32], [Some(&img), Some(&back), None], &out);
+    out
 }
 
 /// The planes the per-pixel stage reads.
@@ -740,10 +792,10 @@ struct Prep {
     base: Arc<Buf>,
     clarity: Option<Arc<Buf>>,
     texture: Option<Arc<Buf>>,
-    dark: Option<Arc<Buf>>,
+    haze: Option<(Arc<Buf>, [f32; 3], f32)>,
+    sharp: Option<(Arc<Buf>, Arc<Buf>, f32)>,
     /// Blurred chromaticity (local Moiré / Noise).
     chroma: Option<Arc<Buf>>,
-    air: f32,
 }
 
 fn plane_at(slot: &mut Option<(u32, Arc<Buf>)>, sigma: f32, f: impl FnOnce() -> Buf) -> Arc<Buf> {
@@ -758,10 +810,11 @@ fn plane_at(slot: &mut Option<(u32, Arc<Buf>)>, sigma: f32, f: impl FnOnce() -> 
 }
 
 /// The spatial planes (`local::prepare`), reusing those in `planes`.
-fn prepare(cx: &mut Cx<'_>, lin: &Buf, plan: &Plan<'_>, req: &RenderRequest, planes: &mut Planes) -> Prep {
+fn prepare(cx: &mut Cx<'_>, lin: &Buf, plan: &Plan<'_>, req: &RenderRequest, planes: &mut Planes, sensor_scale: f32) -> Prep {
     let (w, h) = (plan.w, plan.h);
     let n = w * h;
-    let sig = local::plane_sigmas(&plan.settings, plan.px_per_long, req.quality);
+    let scale = lightcraft_pipeline::detail::out_per_orig(plan.px_per_long, plan.src_long, sensor_scale);
+    let sig = local::plane_sigmas(&plan.settings, plan.px_per_long, scale, req.quality);
     let log_l = match &planes.log_l {
         Some(b) => b.clone(),
         None => {
@@ -778,26 +831,16 @@ fn prepare(cx: &mut Cx<'_>, lin: &Buf, plan: &Plan<'_>, req: &RenderRequest, pla
     };
     let clarity = sig.clarity.map(|sg| plane_at(&mut planes.clarity, sg, || guided_fast(cx, &log_l, w, h, sg, local::CLARITY_EPS)));
     let texture = sig.texture.map(|sg| plane_at(&mut planes.texture, sg, || gaussian(cx, &log_l, w, h, 1, sg)));
-    let (dark, air) = match sig.dark {
-        None => (None, 1.0),
-        Some(sg) => match &planes.dark {
-            Some((k, d, air)) if *k == sg.to_bits() => (Some(d.clone()), *air),
-            _ => {
-                let d0 = cx.gpu.buffer(n);
-                map(cx, "dark_k", n, &[], [Some(lin), None, None], &d0);
-                let d = gaussian(cx, &d0, w, h, 1, sg);
-                // airlight: a percentile of every 7th value, as on the CPU
-                let m = n.div_ceil(local::AIRLIGHT_STEP);
-                let sub = cx.gpu.buffer(m);
-                map(cx, "subsample", m, &[local::AIRLIGHT_STEP as u32], [Some(&d), None, None], &sub);
-                let air = local::airlight_of(cx.read(&sub, m));
-                cx.flush();
-                let b = Arc::new(d);
-                planes.dark = Some((sg.to_bits(), b.clone(), air));
-                (Some(b), air)
-            }
-        },
-    };
+    let sharp = sig.sharp.map(|sigma| match &planes.sharp {
+        Some((key, b1, b2)) if *key == sigma.to_bits() => (b1.clone(), b2.clone(), sigma),
+        _ => {
+            let b1 = Arc::new(gaussian_fine(cx, &log_l, w, h, 1, sigma));
+            let b2 = Arc::new(gaussian_fine(cx, &b1, w, h, 1, sigma));
+            planes.sharp = Some((sigma.to_bits(), b1.clone(), b2.clone()));
+            (b1, b2, sigma)
+        }
+    });
+    let haze = sig.haze.then(|| planes.haze.get_or_insert_with(|| haze_planes(cx, lin, w, h, scale)).clone());
     let chroma = sig.chroma.map(|sg| {
         plane_at(&mut planes.chroma, sg, || {
             let ch = cx.gpu.buffer(n * 3);
@@ -805,7 +848,7 @@ fn prepare(cx: &mut Cx<'_>, lin: &Buf, plan: &Plan<'_>, req: &RenderRequest, pla
             gaussian(cx, &ch, w, h, 3, sg)
         })
     });
-    Prep { log_l, base, clarity, texture, dark, chroma, air }
+    Prep { log_l, base, clarity, texture, chroma, sharp, haze }
 }
 
 /// Most brush dabs the mask kernel evaluates per pixel (more: the CPU rasterizes the brush).
@@ -983,6 +1026,85 @@ fn masks(cx: &mut Cx<'_>, lin: &Buf, prep: &Prep, plan: &Plan<'_>, host: &mut Ho
     }
     let terms = list.iter().map(|m| mask_terms(&m.adjust)).collect();
     (Some(alpha), terms)
+}
+
+/// Exact small-radius Gaussian used by pixel-scale sharpening.
+fn gaussian_fine(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize, sigma: f32) -> Buf {
+    use lightcraft_raster::blur::{FINE_SIGMA, gauss_taps};
+    if sigma >= FINE_SIGMA {
+        return gaussian(cx, src, w, h, nc, sigma);
+    }
+    if sigma <= 0.05 {
+        return cx.copy(src);
+    }
+    let taps = gauss_taps(sigma);
+    let mut p = vec![w as u32, h as u32, nc as u32, (taps.len() - 1) as u32];
+    p.extend(taps.iter().map(|v| v.to_bits()));
+    let tmp = cx.gpu.buffer(w * h * nc);
+    let out = cx.gpu.buffer(w * h * nc);
+    cx.run("conv_h", &p, &[Some(src), Some(&tmp)], groups2(w, h, [16, 16]));
+    cx.run("conv_v", &p, &[Some(&tmp), Some(&out)], groups2(w, h, [16, 16]));
+    out
+}
+fn extrema(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, r: usize, max: bool) -> Buf {
+    let tmp = cx.gpu.buffer(w * h);
+    let out = cx.gpu.buffer(w * h);
+    cx.run("extrema", &[w as u32, h as u32, r as u32, max as u32, 0], &[Some(src), Some(&tmp)], groups2(w, h, [16, 16]));
+    cx.run("extrema", &[w as u32, h as u32, r as u32, max as u32, 1], &[Some(&tmp), Some(&out)], groups2(w, h, [16, 16]));
+    out
+}
+fn box_mean(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize, r: usize) -> Buf {
+    let tmp = cx.gpu.buffer(w * h * nc);
+    let out = cx.gpu.buffer(w * h * nc);
+    cx.run("mean_box", &[w as u32, h as u32, nc as u32, r as u32, 0], &[Some(src), Some(&tmp)], groups1(h * nc));
+    cx.run("mean_box", &[w as u32, h as u32, nc as u32, r as u32, 1], &[Some(&tmp), Some(&out)], groups1(w * nc));
+    out
+}
+fn guided_rgb(cx: &mut Cx<'_>, guide: &Buf, input: &Buf, w: usize, h: usize, r: usize) -> Buf {
+    let n = w * h;
+    let mean = cx.gpu.buffer(n * 4);
+    let var = cx.gpu.buffer(n * 9);
+    map(cx, "haze_moments", n, &[0], [Some(guide), Some(input), None], &mean);
+    map(cx, "haze_moments", n, &[1], [Some(guide), Some(input), None], &var);
+    let mean = box_mean(cx, &mean, w, h, 4, r);
+    let var = box_mean(cx, &var, w, h, 9, r);
+    let coeff = cx.gpu.buffer(n * 4);
+    map(cx, "haze_solve", n, &[lightcraft_pipeline::detail::haze::HAZE_EPS.to_bits()], [Some(&mean), Some(&var), None], &coeff);
+    let coeff = box_mean(cx, &coeff, w, h, 4, r);
+    let out = cx.gpu.buffer(n);
+    map(cx, "haze_apply", n, &[], [Some(guide), Some(&coeff), None], &out);
+    out
+}
+/// Host ambient-light statistics, GPU morphology/refinement; on small-buffer devices only
+/// the haze preparation runs on CPU, and the remainder of the render stays on GPU.
+fn haze_planes(cx: &mut Cx<'_>, lin: &Buf, w: usize, h: usize, scale: f32) -> (Arc<Buf>, [f32; 3], f32) {
+    use lightcraft_pipeline::detail::haze;
+    let host = cx.read_rgb(lin, w, h);
+    let n = w * h;
+    if !cx.gpu.fits(n * 9) {
+        let hz = haze::haze_plane(&host, scale);
+        let buf = cx.gpu.buffer(n * 2);
+        let positive = cx.gpu.upload(&hz.positive.data);
+        let negative = cx.gpu.upload(&hz.negative.data);
+        cx.copy_into(&positive, &buf, 0);
+        cx.copy_into(&negative, &buf, n);
+        return (Arc::new(buf), hz.air, hz.distance);
+    }
+    let (w1, w2) = haze::windows(scale);
+    let (air, distance) = haze::ambient_light(&host, w1);
+    drop(host);
+    let raw = cx.gpu.buffer(n);
+    map(cx, "haze_dark", n, &air.map(|v| (1.0 / v.max(1e-6)).to_bits()), [Some(lin), None, None], &raw);
+    let low = extrema(cx, &raw, w, h, w1, false);
+    let positive = extrema(cx, &low, w, h, w1, true);
+    let high = extrema(cx, &raw, w, h, w1, true);
+    let negative = extrema(cx, &high, w, h, w1, false);
+    let positive = guided_rgb(cx, lin, &positive, w, h, w2);
+    let negative = guided_rgb(cx, lin, &negative, w, h, w2);
+    let buf = cx.gpu.buffer(n * 2);
+    cx.copy_into(&positive, &buf, 0);
+    cx.copy_into(&negative, &buf, n);
+    (Arc::new(buf), air, distance)
 }
 
 #[cfg(test)]

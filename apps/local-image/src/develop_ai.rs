@@ -1,13 +1,12 @@
 //! Develop's AI services, provided by the app: Compositing's AI Remove engines (FLUX.2 Klein and
-//! Qwen through ComfyUI, `li-ai`) and the local model downloads (the same hash-checked downloads
-//! and model list as Compositing's Local AI › Selection models), handed to the Library's engine as
+//! Qwen through ComfyUI, `li-ai`), handed to the Library's engine as
 //! its [`AiHost`] — so the `lc-*` crates depend on neither ComfyUI nor the editor.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use lightcraft_engine::enhance::{AiHost, Download, JobCtl, RemoveEngine, RemoveRequest, RemoveResult};
+use lightcraft_engine::enhance::{AiHost, JobCtl, RemoveEngine, RemoveRequest, RemoveResult};
 use photocraft_ui_egui::ai_ui;
 
 /// The AI Remove engines, as Compositing's AI Remove tool offers them.
@@ -80,19 +79,9 @@ impl AiHost for DevelopAi {
         Ok(RemoveResult { rgb: out.pixels().map(|p| p.0).collect(), alpha: alpha.pixels().map(|p| p.0[0]).collect() })
     }
 
-    fn start_model_download(&self, id: &str) -> Result<(), String> {
-        let spec = li_seg::spec(id).ok_or_else(|| format!("unknown model `{id}`"))?;
-        ai_ui::start_seg_download(spec);
-        Ok(())
-    }
 
-    fn model_download(&self, id: &str) -> Option<Download> {
-        ai_ui::downloads().get(&format!("seg:{id}")).map(|d| Download { running: !d.finished, done: d.done, total: d.total, error: d.error.clone() })
-    }
 
-    fn cancel_model_download(&self, id: &str) {
-        if let Some(d) = ai_ui::downloads().get(&format!("seg:{id}")) {
-            d.ctl.cancel();
-        }
-    }
+
+
+
 }

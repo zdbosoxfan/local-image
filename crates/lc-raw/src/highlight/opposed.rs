@@ -169,3 +169,25 @@ mod tests {
         assert!(white.data.iter().all(|p| p.iter().all(|v| v.is_finite() && *v >= 0.99)));
     }
 }
+
+#[cfg(test)]
+mod refvec_tests {
+    use super::*;
+    #[test]
+    fn upstream_opposed_and_channel_test_difference() {
+        let mut img = Rgb32f::from_fn(96, 96, |x, y| {
+            let v = 0.4 + 0.002 * x as f32 + 0.001 * y as f32;
+            let mut p = [v * 0.8, v, v * 1.2];
+            let (x, y) = (x as i32, y as i32);
+            if (x - 48) * (x - 48) + (y - 48) * (y - 48) < 21 * 21 {
+                p[1] = 2.2;
+                p[2] = 1.05;
+            }
+            p
+        });
+        opposed(&mut img, [1.0; 3], 0.99);
+        let actual: Vec<_> = img.data.iter().step_by(3).flatten().copied().collect();
+        crate::test_vectors::compare("opposed/corrected.f32", &actual, 2e-6);
+        crate::test_vectors::compare("opposed/original.f32", &actual, 1.0);
+    }
+}
