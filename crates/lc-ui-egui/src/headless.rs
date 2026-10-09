@@ -178,6 +178,7 @@ impl Headless {
             || self.app.scan.is_some()
             || self.app.import.is_some()
             || self.app.export.is_some()
+            || self.app.smart_sort.is_some()
             || !self.app.tasks.is_empty()
             || !self.app.synthetic.is_empty()
             || !self.events.is_empty()

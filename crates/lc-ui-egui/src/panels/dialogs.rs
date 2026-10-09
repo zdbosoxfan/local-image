@@ -63,6 +63,10 @@ pub const ABOUT_TABS: &[(&str, &str)] =
 pub const WHATS_NEW: &str = include_str!("../../../../docs/whats-new.md");
 
 pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
+    if matches!(app.ui.dialog, Some(Dialog::SmartSort { .. })) {
+        super::smart_sort::show(app, ctx);
+        return;
+    }
     let Some(mut dlg) = app.ui.dialog.clone() else { return };
     let t = Tokens::get(ctx);
     let screen = ctx.content_rect();
@@ -89,6 +93,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         Dialog::NewSmartAlbum { .. } => "Create Smart Album",
         Dialog::AllMetadata { .. } => "All Metadata",
         Dialog::SystemInfo { .. } => "System Info",
+        Dialog::SmartSort { .. } => "Smart Sort & Export…",
         Dialog::WhatsNew => "What's New",
         Dialog::Cull { .. } => "Assisted Culling",
         Dialog::SmartRules { id: None, .. } => "New Smart Album",
@@ -129,6 +134,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         .show(ctx, |ui| {
             ui.spacing_mut().item_spacing.y = 8.0;
             match &mut dlg {
+                Dialog::SmartSort { .. } => {},
                 Dialog::AutoStack { gap } => {
                     ui.label(egui::RichText::new(crate::i18n::tr("Stack photos taken within this time of each other:")).color(t.text_label));
                     ui.add(
@@ -801,6 +807,7 @@ fn sam_model_body(app: &mut LightcraftApp, ui: &mut egui::Ui, error: Option<&str
 
 pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_json::Value, String> {
     match dlg {
+        Dialog::SmartSort { .. } => Ok(serde_json::Value::Null),
         Dialog::SamModel { then, .. } => {
             if app.session.segmenter.installed() {
                 // installed: start what the user was doing

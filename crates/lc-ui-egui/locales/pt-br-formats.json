@@ -122,5 +122,12 @@
   "{n} more layers": "mais {n} camadas",
   "Follows {name}": "Segue {name}",
   "Auto: {lens}": "Automático: {lens}",
-  "Camera: {camera}": "Câmera: {camera}"
+  "Camera: {camera}": "Câmera: {camera}",
+  "Analyse {n} Photos": "Analisar {n} fotos",
+  "Analysing {done} of {total} — {file}": "Analisando {done} de {total} — {file}",
+  "Learned from {n} corrections": "Aprendeu com {n} correções",
+  "{files} files into {folders} folders ({photos} photos)": "{files} arquivos em {folders} pastas ({photos} fotos)",
+  "{n} already analysed": "{n} já analisadas",
+  "{n} photos from {source}": "{n} fotos de {source}",
+  "{n} videos skipped": "{n} vídeos ignorados"
 }

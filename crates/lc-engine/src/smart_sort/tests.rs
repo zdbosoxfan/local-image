@@ -437,3 +437,175 @@ fn analysis_retries_a_failed_save_even_when_every_photo_is_cached() {
     assert_eq!(loaded.len("mock-tags"), 1);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn tag_any_all_use_max_min_and_each_tag_gets_exemplar_boost() {
+    let t = mock::MockTagger;
+    let mut store = Store::default();
+    store.ensure(t.model_id(), 8).unwrap();
+    let red = t.embed_image(&Rgba8::filled(1, 1, [255, 0, 0, 255])).unwrap();
+    let mut preset = sort(&[("Mixed", "red"), ("Blue", "blue")], Sensitivity::Balanced);
+    preset.categories[0].prompts.push("blue".into());
+    let any = classify::Classifier::new(&t, &store, &preset).unwrap().classify("r", Some(&red), None).unwrap();
+    assert_eq!(any.assigned, ["Mixed"]);
+    preset.categories[0].match_all = true;
+    let all = classify::Classifier::new(&t, &store, &preset).unwrap().classify("r", Some(&red), None).unwrap();
+    assert!(all.scores["Mixed"] < any.scores["Mixed"]);
+    for i in 0..10 {
+        store.insert(t.model_id(), format!("e{i}"), red.clone()).unwrap();
+        preset.categories[0].exemplars.push(format!("e{i}"));
+    }
+    let learned = classify::Classifier::new(&t, &store, &preset).unwrap().classify("r", Some(&red), None).unwrap();
+    assert_eq!(learned.assigned, ["Mixed"]);
+    let podium = t.embed_text("a photo of podium").unwrap();
+    let preset = sort(&[("Podium", "podium"), ("Crowd", "crowd")], Sensitivity::Balanced);
+    assert_eq!(classify::Classifier::new(&t, &store, &preset).unwrap().classify("podium", Some(&podium), None).unwrap().assigned, ["Podium"]);
+}
+
+#[test]
+fn tag_sets_and_folder_layout_persist_with_old_defaults() {
+    let dir = temp();
+    {
+        let mut s = demo();
+        s.open_library(&dir, true).unwrap();
+        s.execute("smartSort.saveTagSet", &json!({"name":"My speakers","tags":["podium","microphone","podium",""]})).unwrap();
+        s.execute("smartSort.renameTagSet", &json!({"name":"My speakers","to":"Speakers set"})).unwrap();
+        let mut preset = sort(&[("A", "red"), ("B", "blue")], Sensitivity::Loose);
+        preset.name = "Saved layout".into();
+        preset.first_match = true;
+        preset.categories[0].match_all = true;
+        preset.folders = plan::default_folders(&preset);
+        preset.folders[0].enabled = false;
+        preset.folders[1].name = "Blue photos".into();
+        preset.folders.push(FolderDef {
+            name: "Combined".into(),
+            custom: true,
+            tags: vec!["A".into(), "B".into()],
+            person_ids: vec![42],
+            rules: plan::tag_rules("Smart Sort", &["A".into(), "B".into()], false),
+            ..Default::default()
+        });
+        s.execute("smartSort.savePreset", &json!({"preset":preset})).unwrap();
+    }
+    {
+        let mut s = demo();
+        s.open_library(&dir, false).unwrap();
+        assert_eq!(s.smart.tag_sets[0].name, "Speakers set");
+        assert_eq!(s.smart.tag_sets[0].tags, ["podium", "microphone"]);
+        let saved = &s.smart.prefs.presets[0];
+        assert!(saved.first_match && saved.categories[0].match_all);
+        assert!(!saved.folders[0].enabled);
+        assert_eq!(saved.folders[1].name, "Blue photos");
+        assert_eq!(saved.folders[3].person_ids, [42]);
+        s.execute("smartSort.deleteTagSet", &json!({"name":"Speakers set"})).unwrap();
+        assert!(s.smart.tag_sets.is_empty());
+        assert!(s.execute("smartSort.deleteTagSet", &json!({"name":"Conference / Speakers"})).is_err());
+    }
+    let old: SortPreset = serde_json::from_value(json!({"name":"Old","categories":[{"name":"A","prompts":["a person on stage"]}]})).unwrap();
+    assert!(!old.first_match && old.folders.is_empty() && !old.categories[0].match_all);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn folder_export_overlap_unsorted_custom_rules_and_guards() {
+    let mut s = demo();
+    let ids: Vec<_> = s.catalog.photos().filter(|p| p.flag != Flag::Reject).map(|p| p.id).take(3).collect();
+    let preset = sort(&[("A", "red"), ("B", "blue")], Sensitivity::Balanced);
+    s.execute(
+        "smartSort.applyKeywords",
+        &json!({"preset":preset,"assignments":[{"id":ids[0],"categories":["A","B"]},{"id":ids[1],"categories":["A"]},{"id":ids[2],"categories":[]}]}),
+    )
+    .unwrap();
+    let mut folders = plan::default_folders(&preset);
+    folders[2].enabled = true;
+    let dir = temp();
+    for first in [false, true] {
+        let root = dir.join(if first { "first" } else { "each" });
+        let result =
+            s.execute("smartSort.export", &json!({"dir":root,"ids":ids,"folders":folders,"firstMatch":first,"format":"png","longEdge":64})).unwrap();
+        assert_eq!(result.as_array().unwrap().len(), if first { 3 } else { 4 });
+        assert!(result.as_array().unwrap().iter().all(|r| r.get("path").is_some()), "{result}");
+        assert_eq!(std::fs::read_dir(root.join("A")).unwrap().count(), 2);
+        if !first {
+            assert_eq!(std::fs::read_dir(root.join("B")).unwrap().count(), 1);
+        }
+        assert_eq!(std::fs::read_dir(root.join("Unsorted")).unwrap().count(), 1);
+    }
+    folders[0].enabled = false;
+    folders.push(FolderDef {
+        name: "Custom".into(),
+        custom: true,
+        tags: vec!["A".into(), "B".into()],
+        rules: plan::tag_rules("Smart Sort", &["A".into(), "B".into()], false),
+        ..Default::default()
+    });
+    let p = plan::plan(&s.catalog, &ids, &folders).unwrap();
+    assert!(!p.iter().any(|f| f.name == "A"));
+    assert_eq!(p.iter().find(|f| f.name == "Custom").unwrap().ids.len(), 2);
+    folders[3].rules = plan::tag_rules("Smart Sort", &["A".into(), "B".into()], true);
+    let p = plan::plan(&s.catalog, &ids, &folders).unwrap();
+    assert_eq!(p.iter().find(|f| f.name == "Custom").unwrap().ids, [ids[0]]);
+    folders[3].name = "../escape".into();
+    assert!(plan::plan(&s.catalog, &ids, &folders).is_err());
+    assert!(plan::sanitize("C:\\escape").is_err());
+    let lib = dir.join("library");
+    s.open_library(&lib, true).unwrap();
+    assert!(plan::check_destination(&s, &lib.join("out").to_string_lossy()).is_err());
+    assert!(plan::check_destination(&s, &lib.join("../library/out").to_string_lossy()).is_err());
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&lib, dir.join("link")).unwrap();
+        assert!(plan::check_destination(&s, &dir.join("link/out").to_string_lossy()).is_err());
+    }
+    drop(s);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn category_whitespace_keeps_keywords_and_folder_rules_consistent() {
+    let mut s = demo();
+    let id = s.catalog.photos().find(|p| p.flag != Flag::Reject).unwrap().id;
+    let preset = sort(&[("  Red  ", "red")], Sensitivity::Loose);
+    s.execute("smartSort.applyKeywords", &json!({"preset":preset,"assignments":[{"id":id,"categories":["  Red  "]}]})).unwrap();
+    let folders = plan::keyword_folders(&preset);
+    let planned = plan::plan(&s.catalog, &[id], &folders).unwrap();
+    assert_eq!(planned[0].name, "Red");
+    assert_eq!(planned[0].ids, [id]);
+    let duplicate = sort(&[("Red", "red"), (" Red ", "blue")], Sensitivity::Loose);
+    assert!(duplicate.validate().is_err());
+}
+
+#[test]
+fn sensitivity_and_exemplar_edits_reuse_text_inference() {
+    struct Counting(Arc<std::sync::atomic::AtomicUsize>);
+    impl Tagger for Counting {
+        fn model_id(&self) -> &str {
+            "mock-tags"
+        }
+        fn dim(&self) -> usize {
+            8
+        }
+        fn embed_image(&self, img: &Rgba8) -> Result<Vec<f32>, String> {
+            mock::MockTagger.embed_image(img)
+        }
+        fn embed_text(&self, text: &str) -> Result<Vec<f32>, String> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            mock::MockTagger.embed_text(text)
+        }
+    }
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let t = CachedTagger::new(Arc::new(Counting(calls.clone())));
+    let mut store = Store::default();
+    store.ensure(t.model_id(), t.dim()).unwrap();
+    let mut preset = sort(&[("Red", "red")], Sensitivity::Balanced);
+    classify::Classifier::new(&t, &store, &preset).unwrap();
+    let before = calls.load(Ordering::Relaxed);
+    preset.sensitivity = Sensitivity::Loose;
+    store.insert(t.model_id(), "example".into(), t.embed_image(&Rgba8::filled(1, 1, [255, 0, 0, 255])).unwrap()).unwrap();
+    preset.categories[0].exemplars.push("example".into());
+    classify::Classifier::new(&t, &store, &preset).unwrap();
+    assert_eq!(calls.load(Ordering::Relaxed), before);
+    preset.categories[0].prompts.push("blue".into());
+    classify::Classifier::new(&t, &store, &preset).unwrap();
+    assert_eq!(calls.load(Ordering::Relaxed), before + 1);
+}

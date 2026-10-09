@@ -911,6 +911,12 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     if ui.add_enabled(crate::menus::ui_enabled(app, "app.showInFinder"), egui::Button::new(crate::i18n::tr("Show in Finder"))).clicked() {
         let _ = app.run("app.showInFinder", json!({}));
     }
+    let smart_sort = ui.button(crate::i18n::tr("Smart Sort Selected…"));
+    register(ui.ctx(), "menu:smartSortSelected", smart_sort.rect);
+    if smart_sort.clicked() {
+        let _ = app.run("dialog.smartSort", json!({"selectedOnly":true}));
+        ui.close();
+    }
     if ui.button(crate::i18n::tr("Export…")).clicked() {
         let _ = app.run("dialog.export", json!({}));
     }

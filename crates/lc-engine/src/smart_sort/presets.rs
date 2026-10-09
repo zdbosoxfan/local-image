@@ -32,11 +32,24 @@ pub struct SortPreset {
     pub categories: Vec<Category>,
     pub sensitivity: Sensitivity,
     pub multi: bool,
+    pub first_match: bool,
+    pub folders: Vec<super::FolderDef>,
+    /// Reserved for Phase 2b name tokens.
+    pub folder_pattern: String,
 }
 
 impl Default for SortPreset {
     fn default() -> Self {
-        Self { name: "Custom".into(), keyword_parent: "Smart Sort".into(), categories: Vec::new(), sensitivity: Sensitivity::Balanced, multi: false }
+        Self {
+            name: "Custom".into(),
+            keyword_parent: "Smart Sort".into(),
+            categories: Vec::new(),
+            sensitivity: Sensitivity::Balanced,
+            multi: false,
+            first_match: false,
+            folders: Vec::new(),
+            folder_pattern: String::new(),
+        }
     }
 }
 
@@ -46,6 +59,7 @@ pub struct Category {
     pub name: String,
     pub prompts: Vec<String>,
     pub exemplars: Vec<String>,
+    pub match_all: bool,
     // Reserved data only in Phase 1; face inference/gating belongs to Phase 3.
     pub min_faces: Option<u32>,
     pub max_faces: Option<u32>,
@@ -75,47 +89,34 @@ pub fn builtin_presets() -> Vec<SortPreset> {
         preset(
             "Conference",
             &[
-                (
-                    "Speakers",
-                    &["a person speaking at a podium on stage", "a presenter giving a talk with a microphone", "a panel discussion on a stage"],
-                ),
-                ("Audience reactions", &["an audience applauding", "audience members laughing in their seats", "a crowd of people at a conference"]),
-                ("Candids & networking", &["people talking and networking at an event", "a candid photo of people having a conversation"]),
-                (
-                    "Sponsors & exhibitors",
-                    &["a sponsor booth with logo banners", "an exhibition stand at a trade show", "a branded backdrop with company logos"],
-                ),
-                ("Group photos", &["a posed group photo of people smiling at the camera"]),
-                (
-                    "Venue & details",
-                    &[
-                        "an empty conference room with rows of chairs",
-                        "name badges, signs and event decorations",
-                        "food and drinks on a catering table",
-                    ],
-                ),
+                ("Speakers", &["speaker on stage", "presenter with microphone", "podium", "panel discussion"]),
+                ("Audience reactions", &["audience applauding", "audience laughing", "conference crowd"]),
+                ("Candids & networking", &["event networking", "candid conversation"]),
+                ("Sponsors & exhibitors", &["sponsor booth", "exhibition stand", "company logo backdrop"]),
+                ("Group photos", &["posed group photo"]),
+                ("Venue & details", &["conference room", "name badges", "catering table"]),
             ],
         ),
         preset(
             "Wedding",
             &[
-                ("Getting ready", &["a bride or groom getting ready for a wedding", "wedding makeup and dressing"]),
-                ("Ceremony", &["a wedding ceremony", "a couple exchanging wedding vows"]),
-                ("Couple portraits", &["a posed portrait of a wedding couple"]),
-                ("Family & group formals", &["a posed wedding family group photo"]),
-                ("Speeches & toasts", &["a wedding speech with a microphone", "people raising glasses for a wedding toast"]),
-                ("Reception & dancing", &["people dancing at a wedding reception"]),
-                ("Details", &["wedding rings, flowers, cake and table decorations"]),
+                ("Getting ready", &["bride getting ready", "wedding makeup"]),
+                ("Ceremony", &["wedding ceremony", "wedding vows"]),
+                ("Couple portraits", &["wedding couple portrait"]),
+                ("Family & group formals", &["wedding family group"]),
+                ("Speeches & toasts", &["wedding speech", "wedding toast"]),
+                ("Reception & dancing", &["reception dancing"]),
+                ("Details", &["wedding rings", "flowers", "wedding cake", "table decorations"]),
             ],
         ),
         preset(
             "Sports",
             &[
-                ("Action", &["athletes competing in a sports game"]),
-                ("Celebrations", &["athletes celebrating a victory"]),
-                ("Fans & crowd", &["fans cheering in a sports crowd"]),
-                ("Team & portraits", &["a posed sports team photo", "a portrait of an athlete"]),
-                ("Venue", &["an empty stadium or sports field"]),
+                ("Action", &["sports action"]),
+                ("Celebrations", &["victory celebration"]),
+                ("Fans & crowd", &["cheering fans"]),
+                ("Team & portraits", &["sports team", "athlete portrait"]),
+                ("Venue", &["stadium"]),
             ],
         ),
         preset("Custom", &[("Folder 1", &[]), ("Folder 2", &[])]),
@@ -134,10 +135,10 @@ impl SortPreset {
         }
         let mut names = std::collections::BTreeSet::new();
         for c in &self.categories {
-            if c.name.trim().is_empty() || c.name.contains('|') || c.name.eq_ignore_ascii_case("Unsorted") {
+            if c.name.trim().is_empty() || c.name.contains('|') || c.name.trim().eq_ignore_ascii_case("Unsorted") {
                 return Err("invalid category name".into());
             }
-            if !names.insert(c.name.to_lowercase()) {
+            if !names.insert(c.name.trim().to_lowercase()) {
                 return Err("duplicate category name".into());
             }
         }
