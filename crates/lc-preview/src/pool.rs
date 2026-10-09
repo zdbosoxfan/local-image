@@ -47,6 +47,9 @@ pub struct JobPool<S, R> {
     threads: usize,
     started: bool,
     seq: u64,
+    /// The workers, joined on drop (see the `Drop` impl).
+    #[cfg(not(target_arch = "wasm32"))]
+    workers: Vec<std::thread::JoinHandle<()>>,
 }
 
 impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
@@ -60,6 +63,8 @@ impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
             threads,
             started: false,
             seq: 0,
+            #[cfg(not(target_arch = "wasm32"))]
+            workers: Vec::new(),
         }
     }
 
@@ -84,7 +89,7 @@ impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
         for i in 0..self.threads {
             let shared = self.shared.clone();
             let tx = self.tx.clone();
-            let _ = std::thread::Builder::new().name(format!("lc-job-{i}")).spawn(move || {
+            let spawned = std::thread::Builder::new().name(format!("lc-job-{i}")).spawn(move || {
                 while let Some(e) = take(&shared, true) {
                     let t0 = std::time::Instant::now();
                     let result = (e.job)();
@@ -94,6 +99,9 @@ impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
                     }
                 }
             });
+            if let Ok(h) = spawned {
+                self.workers.push(h);
+            }
         }
     }
 
@@ -173,8 +181,20 @@ fn take<S, R>(shared: &Shared<S, R>, wait: bool) -> Option<Entry<S, R>> {
 }
 
 impl<S, R> Drop for JobPool<S, R> {
+    /// Stops the workers and waits for the jobs running right now (queued ones are dropped).
+    ///
+    /// Waiting matters: a detached worker still inside a GPU render when its owner (or the whole
+    /// process) goes away races the driver's teardown — NVIDIA's driver segfaults in
+    /// `libnvidia-glcore` and the GPU raises Xid 13 "Illegal Instruction Encoding".
     fn drop(&mut self) {
         self.shared.shutdown.store(true, Ordering::Relaxed);
+        self.shared.queue.lock().unwrap_or_else(|e| e.into_inner()).clear();
         self.shared.cv.notify_all();
+        #[cfg(not(target_arch = "wasm32"))]
+        for h in self.workers.drain(..) {
+            if h.thread().id() != std::thread::current().id() {
+                let _ = h.join();
+            }
+        }
     }
 }
