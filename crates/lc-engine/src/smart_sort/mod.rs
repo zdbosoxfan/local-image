@@ -1,6 +1,7 @@
 //! Smart Sort's model boundary and prepared inputs. Catalog commands never expose tract types;
 //! mocks and future model families implement the same small embedding interface.
 
+pub mod bursts;
 pub mod classify;
 #[doc(hidden)]
 pub mod mock;
