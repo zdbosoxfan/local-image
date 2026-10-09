@@ -95,6 +95,7 @@ pub mod color_range_ui;
 pub mod comps_ui;
 pub mod context_bar;
 pub mod control;
+pub mod attributions;
 pub mod credits;
 pub mod crop_ui;
 pub mod develop_filter_ui;

@@ -1415,5 +1415,9 @@
   "Instant Film": "即显胶片",
   "Classic B&W Film": "经典黑白胶片",
   "High-Speed B&W Film": "高速黑白胶片",
-  "Lens data: LensFun database (CC BY-SA 3.0, lensfun.github.io) via the lensfun crate (LGPL-3.0).": "镜头数据：LensFun 数据库（CC BY-SA 3.0，lensfun.github.io），经由 lensfun crate（LGPL-3.0）。"
+  "Lens data: LensFun database (CC BY-SA 3.0, lensfun.github.io) via the lensfun crate (LGPL-3.0).": "镜头数据：LensFun 数据库（CC BY-SA 3.0，lensfun.github.io），经由 lensfun crate（LGPL-3.0）。",
+  "Attributions": "致谢与许可",
+  "Search attributions…": "搜索致谢与许可…",
+  "No matches.": "没有匹配项。",
+  "Show licence text": "显示许可证全文"
 }

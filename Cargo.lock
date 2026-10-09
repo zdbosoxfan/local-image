@@ -3763,6 +3763,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "li-attributions"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "egui",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "li-seg"
 version = "2.0.0-alpha.1"
 dependencies = [
@@ -4086,6 +4095,7 @@ name = "lightcraft-ui-egui"
 version = "2.0.0-alpha.1"
 dependencies = [
  "egui",
+ "li-attributions",
  "lightcraft-catalog",
  "lightcraft-codecs",
  "lightcraft-color",
@@ -5569,6 +5579,7 @@ dependencies = [
  "egui_kittest",
  "image",
  "li-ai",
+ "li-attributions",
  "li-seg",
  "lightcraft-codecs",
  "lightcraft-raw",
@@ -9041,9 +9052,11 @@ dependencies = [
  "flate2",
  "hex",
  "quick-xml 0.38.4",
+ "serde",
  "serde_json",
  "sha2",
  "tar",
+ "toml",
  "ureq",
  "zip",
 ]

@@ -141,7 +141,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     let tab = about_tab(&fields);
                     let mut chosen = tab;
                     ui.horizontal(|ui| {
-                        for (key, label) in [("about", tl!("About")), ("contributors", tl!("Contributors")), ("models", tl!("Models"))] {
+                        for (key, label) in [("about", tl!("About")), ("contributors", tl!("Contributors")), ("models", tl!("Models")), ("attributions", tl!("Attributions"))] {
                             if crate::widgets::pill_tab(ui, label, tab == key).clicked() {
                                 chosen = key;
                             }
@@ -154,6 +154,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     match chosen {
                         "contributors" => crate::credits::contributors_ui(ui),
                         "models" => crate::credits::models_ui(ui),
+                        "attributions" => crate::attributions::about(app, ui),
                         _ => {
                             ui.label(tl!("Local Image — an open-source, native image editor written in Rust."));
                             ui.label(crate::i18n::fmt(tl!("Version {version}"), &[("version", &photocraft_engine::build_info::long_version())]));
@@ -266,7 +267,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
 }
 
 /// The About window's tabs, as stored in its `tab` field.
-pub const ABOUT_TABS: [&str; 3] = ["about", "contributors", "models"];
+pub const ABOUT_TABS: [&str; 4] = ["about", "contributors", "models", "attributions"];
 
 /// The About tab to show: the `tab` field when it names one, otherwise "about".
 fn about_tab(fields: &serde_json::Map<String, Value>) -> &'static str {

@@ -1415,5 +1415,9 @@
   "Instant Film": "即顯底片",
   "Classic B&W Film": "經典黑白底片",
   "High-Speed B&W Film": "高感光黑白底片",
-  "Lens data: LensFun database (CC BY-SA 3.0, lensfun.github.io) via the lensfun crate (LGPL-3.0).": "鏡頭資料：LensFun 資料庫（CC BY-SA 3.0，lensfun.github.io），經由 lensfun crate（LGPL-3.0）。"
+  "Lens data: LensFun database (CC BY-SA 3.0, lensfun.github.io) via the lensfun crate (LGPL-3.0).": "鏡頭資料：LensFun 資料庫（CC BY-SA 3.0，lensfun.github.io），經由 lensfun crate（LGPL-3.0）。",
+  "Attributions": "致謝與授權",
+  "Search attributions…": "搜尋致謝與授權…",
+  "No matches.": "沒有符合的項目。",
+  "Show licence text": "顯示授權全文"
 }
