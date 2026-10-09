@@ -3,4 +3,5 @@
 mod ds_layout_coverage;
 mod ds_optical_coverage;
 mod ds_psd_coverage;
+mod ds_psd_styles_coverage;
 mod ds_render_coverage;
