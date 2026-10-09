@@ -7,15 +7,12 @@ Full workspace + GPU (RTX 5090) suites, benchmarks and these items are handled i
 - **Regression (real):** `photocraft-io develop_filter::tests::identity_settings_leave_pixels_within_one_level_and_alpha_untouched` fails on the working branch — Camera Raw filter at identity settings moves a ProPhoto F32 channel by ~0.0047 (should be within one level). Likely from today's colour/tone engine changes. (A DeepSeek job tried to `#[ignore]` it — rejected.)
 - Verify PSD v7 slice descriptor enum names (horizontal Left/Cntr/Rght, vertical Top /Cntr/Btom, `bgColorType` "Clr ") against a PSD saved by Photoshop — written from memory in the bug-fix run (`crates/pc-psd`).
 - pc-algo features: `ransac` panics when src and dst lengths differ (ignored test in `crates/pc-algo/tests/coverage/ds_features_coverage.rs`).
-- Develop GPU tone equalizer: `tone_equalizer_extremes_masks_tiny_odd_and_cached_edits_match` and
-  `native_toneeq_5090_extreme_fixture_matches` still fail on the RTX 5090 (a few pixels, max ~25 LSB on a 641×427
-  extreme+mask case); dehaze speed fixed (338 ms at 24 MP). Typical edit 257–423 ms under heavy load — re-bench idle.
 - pc-algo inpaint: `mvc_membrane` caps channels at 8 (test ignored; low impact).
 - Translation review (DeepSeek, ~1,850 guarded fixes) parked on `wip/ds-i18n-review`; 2 pinned-term tests to reconcile.
   Owner: translations are lowest priority.
 - `scripts/generate-trace-stage-fixtures.py` (pc-trace golden regeneration helper) was lost with its worktree; recreate
   from `crates/pc-trace/tests/golden/SOURCES.md`.
-- GPU validation pending on the 5090 for: Develop tone-equalizer/dehaze follow-up (wip/codex-gpu-toneeq), colour icons,
+- GPU validation pending on the 5090 for: colour icons,
   any compositor/vector rendering changes since the last 5090 run.
 - Vectorizer competitor gates (vtracer/potrace/Inkscape references) — results pending.
 - Flaky/unknown: occasional NVIDIA shader-compiler hang (`banded_full_size_render_matches`), crashes logged in
