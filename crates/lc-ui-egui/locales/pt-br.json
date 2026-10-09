@@ -1418,5 +1418,9 @@
   "Instant Film": "Filme Instantâneo",
   "Classic B&W Film": "Filme P&B Clássico",
   "High-Speed B&W Film": "Filme P&B de Alta Velocidade",
-  "Lens data: LensFun database (CC BY-SA 3.0, lensfun.github.io) via the lensfun crate (LGPL-3.0).": "Dados de lentes: banco de dados LensFun (CC BY-SA 3.0, lensfun.github.io) pela crate lensfun (LGPL-3.0)."
+  "Lens data: LensFun database (CC BY-SA 3.0, lensfun.github.io) via the lensfun crate (LGPL-3.0).": "Dados de lentes: banco de dados LensFun (CC BY-SA 3.0, lensfun.github.io) pela crate lensfun (LGPL-3.0).",
+  "Attributions": "Atribuições",
+  "Search attributions…": "Pesquisar atribuições…",
+  "No matches.": "Nenhum resultado.",
+  "Show licence text": "Mostrar o texto da licença"
 }

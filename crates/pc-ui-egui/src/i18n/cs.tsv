@@ -2623,3 +2623,8 @@ ai	New	Nové
 	Added your new Develop edits as layer {name}	Vaše nové úpravy Develop byly přidány jako vrstva {name}
 	Open the Library to save into it	Pro uložení do knihovny ji nejprve otevřete
 	The layers below are unchanged; hide or delete the new layer to go back.	Spodní vrstvy zůstaly beze změny; chcete-li se vrátit, novou vrstvu skryjte nebo smažte.
+# Attributions page (li-attributions)
+	Attributions	Atribuce
+	Search attributions…	Hledat v atribucích…
+	No matches.	Žádné shody.
+	Show licence text	Zobrazit text licence

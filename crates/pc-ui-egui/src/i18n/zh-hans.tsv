@@ -2631,3 +2631,8 @@ ai	New	最新
 	Added your new Develop edits as layer {name}	已将您新的 Develop 编辑添加为图层 {name}
 	Open the Library to save into it	请先打开资源库再存储到其中
 	The layers below are unchanged; hide or delete the new layer to go back.	下方图层未更改；如需恢复，请隐藏或删除新图层。
+# Attributions page (li-attributions)
+	Attributions	致谢与许可
+	Search attributions…	搜索致谢与许可…
+	No matches.	没有匹配项。
+	Show licence text	显示许可证全文

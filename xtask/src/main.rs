@@ -14,6 +14,10 @@
 //!     for every algorithm ported from another project (docs/PORTS.md), the upstream commits that
 //!     touched its source file since the commit it was ported from — what to review and re-port.
 //!     Clones go to target/upstream/ (blob-less); --offline skips fetching.
+//! cargo xtask attributions [--fetch]
+//!     regenerate assets/attributions.json (Settings › Attributions) from
+//!     assets/attributions-curated.json, docs/PORTS.md, the AI model tables and Cargo.lock.
+//!     Offline; --fetch first runs `cargo fetch` so every crate's licence can be read.
 //! cargo xtask sign <files…>
 //!     Authenticode signing with signtool, from WINDOWS_CERTIFICATE (+ _PASSWORD) or Azure Trusted
 //!     Signing (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_SIGNING_ENDPOINT,
@@ -27,6 +31,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
+
+mod attributions;
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("xtask sits in the workspace").to_path_buf()
@@ -428,6 +434,7 @@ const USAGE: &str = "usage: cargo xtask <task>
   package windows [--arch x64|x86|arm64] [--skip-build]
   check-icons [file.wxs]
   upstream-check [--offline]
+  attributions [--fetch]
   sign <files…>";
 
 fn main() -> Result<()> {
@@ -442,6 +449,7 @@ fn main() -> Result<()> {
         },
         Some("check-icons") => check_icons(&args.get(1).map(PathBuf::from).unwrap_or_else(|| root().join("packaging").join("windows").join("local-image.wxs"))),
         Some("upstream-check") => upstream_check(flag("--offline")),
+        Some("attributions") => attributions::run(&root(), flag("--fetch")),
         Some("sign") if args.len() > 1 => sign(&args[1..].iter().map(PathBuf::from).collect::<Vec<_>>()),
         _ => {
             println!("{USAGE}");

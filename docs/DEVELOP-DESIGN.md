@@ -212,7 +212,7 @@ render bit-identically. Golden hashes guard this:
 * `lc-engine` `tests_toolset`: the raw loader at a binned, a bilinear and a full size.
 
 Ports are listed in `docs/PORTS.md`, with notices in `licenses/darktable-NOTICE.md`,
-`licenses/RawTherapee-NOTICE.md`, `licenses/lensfun-NOTICE.md` and `licenses/model-system-NOTICE.md`.
+`licenses/rawtherapee-NOTICE.md`, `licenses/lensfun-NOTICE.md` and `licenses/model-system-NOTICE.md`.
 
 * **Raw processing** (`DevelopSettings.raw`, raw files only; Detail copy group):
   * Demosaic: Default (AHD) / AHD / **RCD** / **Dual (RCD + VNG4)** / **VNG4** /

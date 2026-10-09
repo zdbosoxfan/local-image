@@ -2,6 +2,7 @@
 //! `src/iop/hlreconstruct/segmentation.c`, 733bd69f32cac7ff5e41025115942772add1f088.
 //! Copyright (C) 2022-2026 darktable developers (Hanno Schwalm). GPL-3.0-or-later.
 #![allow(unused_parens, unused_mut, non_snake_case)]
+use rayon::prelude::*;
 pub(super) const ID_MASK: i32 = 0x40000;
 pub(super) struct Seg {
     pub data: Vec<i32>,
@@ -62,18 +63,24 @@ impl Seg {
         let (w, h, b) = (self.width as usize, self.height as usize, self.border as usize);
         borderfill(&mut self.data, w, h, b, 0);
         let mut tmp = vec![0; w * h];
-        for y in b..h - b {
-            for x in b..w - b {
-                tmp[y * w + x] = i32::from(test(&self.data, w, x, y, radius, false));
+        tmp.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
+            if y < b || y + b >= h {
+                return;
             }
-        }
+            for x in b..w - b {
+                row[x] = i32::from(test(&self.data, w, x, y, radius, false));
+            }
+        });
         if radius > 3 {
             borderfill(&mut tmp, w, h, b, 1);
-            for y in b..h - b {
-                for x in b..w - b {
-                    self.data[y * w + x] = i32::from(test(&tmp, w, x, y, radius - 3, true));
+            self.data.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
+                if y < b || y + b >= h {
+                    return;
                 }
-            }
+                for x in b..w - b {
+                    row[x] = i32::from(test(&tmp, w, x, y, radius - 3, true));
+                }
+            });
         } else {
             self.data = tmp;
         }

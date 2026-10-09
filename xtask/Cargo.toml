@@ -11,7 +11,10 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
+# attributions: Cargo.lock and manifests (already in Cargo.lock through the UI crates' build scripts)
+toml = "1"
 base64 = "0.22"
 sha2 = { workspace = true }
 hex = { workspace = true }

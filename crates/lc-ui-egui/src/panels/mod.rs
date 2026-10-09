@@ -1,5 +1,6 @@
 //! Window regions and panels.
 
+pub mod attributions;
 pub mod bottombar;
 pub mod chips;
 pub mod compare;
