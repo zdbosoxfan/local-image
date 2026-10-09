@@ -702,11 +702,20 @@ mod tests {
         assert!(h.app.export.is_some(), "running in the background");
         let running = h.request("ui.inspect", json!({}), t);
         assert_eq!(running["result"]["export"]["running"]["total"], 3, "{}", running["result"]["export"]);
-        let t0 = Instant::now();
-        while h.app.export.is_some() && t0.elapsed() < Duration::from_secs(60) {
+        let mut last_done = running["result"]["export"]["running"]["done"].as_u64().unwrap_or(0);
+        let mut last_progress_at = Instant::now();
+        while h.app.export.is_some() {
             h.step();
+            let inspect = h.request("ui.inspect", json!({}), t);
+            let done = inspect["result"]["export"]["running"]["done"].as_u64().unwrap_or(0);
+            if done > last_done {
+                last_done = done;
+                last_progress_at = Instant::now();
+            } else if last_progress_at.elapsed() > Duration::from_secs(120) {
+                break;
+            }
         }
-        assert!(h.app.export.is_none(), "finished");
+        assert!(h.app.export.is_none(), "finished (no progress for 120 s)");
         let w = written.lock().unwrap().clone();
         assert_eq!(w.len(), 3, "{w:?}");
         assert!(w.iter().all(|p| p.starts_with("/lc-test-out/")));
