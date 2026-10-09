@@ -222,6 +222,9 @@ mod tests {
     fn sharper_data_gives_a_smaller_radius() {
         let cfa = Cfa::bayer("RGGB").unwrap();
         let r = |sigma| capture_radius(&mosaic_from_rgb(&blurred_scene(1200, 1020, sigma), &cfa));
+        for s in [0.3f32, 0.5, 0.8, 1.2, 2.0] {
+            eprintln!("σ {s}: {}", r(s));
+        }
         let (sharp, soft) = (r(0.5), r(1.2));
         eprintln!("radius: σ 0.5 → {sharp:.3}, σ 1.2 → {soft:.3}");
         assert!(sharp < soft, "{sharp} {soft}");

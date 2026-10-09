@@ -90,7 +90,7 @@ impl Denoiser {
 
     /// A denoiser from an already parsed model (tests build small ones in memory).
     pub fn from_model(model: InferenceModel, tile: usize) -> Result<Self> {
-        if tile == 0 || tile % 16 != 0 {
+        if tile == 0 || !tile.is_multiple_of(16) {
             bail!("the tile size must be a multiple of 16");
         }
         let plan = model.with_input_fact(0, InferenceFact::dt_shape(f32::datum_type(), tvec!(1, 3, tile, tile)))?.into_optimized()?.into_runnable()?;
