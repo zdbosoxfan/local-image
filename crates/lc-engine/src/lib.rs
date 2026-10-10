@@ -631,6 +631,7 @@ impl Session {
             // "in the last N days" rules count back from the session's clock
             lightcraft_catalog::rules::set_now(Some((self.clock)()));
             let mut f = self.source.to_filter(&self.filter, &self.catalog);
+            smart_sort::people::resolve_filter_ids(&mut f, &self.smart.people.data);
             if self.source == LibrarySource::Folder {
                 // no folder chosen: nothing (an empty path matches nothing)
                 let b = self.browse.clone().unwrap_or_default();

@@ -890,3 +890,38 @@ fn clear_without_remove_names_keeps_names_and_legacy_people_centroids_load() {
     assert!(s.catalog.photo(b).unwrap().meta.person_ids.is_empty());
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn find_by_existing_name_refines_identity_from_an_automatic_match() {
+    let mut s = session();
+    let a = add(&mut s, &[[255, 0, 0]]);
+    let b = add(&mut s, &[[255, 0, 0]]);
+    let id = pick(&mut s, a, "Jane");
+    let before = s.smart.people.data.people.len();
+    let r = run(&mut s, "smartSort.findPerson", json!({"name":"jane","faces":[{"photo":b,"face":0}]}));
+    assert_eq!(r["person"], id);
+    assert_eq!(s.smart.people.data.people.len(), before);
+    assert_eq!(s.smart.people.data.person(id).unwrap().confirmed_faces.len(), 2);
+}
+
+#[test]
+fn merged_identity_keeps_library_filters_and_smart_albums_working_and_undoable() {
+    let mut s = session();
+    let a = add(&mut s, &[[255, 0, 0]]);
+    let b = add(&mut s, &[[0, 255, 0]]);
+    let jane = pick(&mut s, a, "Jane");
+    let john = pick(&mut s, b, "John");
+    let album =
+        run(&mut s, "album.createSmart", json!({"name":"John","rules":{"ruleSet":{"rules":[{"field":"person","op":"anyOf","value":[john]}]}}}));
+    let album = lightcraft_catalog::AlbumId(album["id"].as_u64().unwrap());
+    run(&mut s, "library.filter", json!({"personIds":[john]}));
+    assert_eq!(s.visible_cloned(), vec![b]);
+    assert_eq!(s.catalog.album_count(album), 1);
+    run(&mut s, "smartSort.mergePeople", json!({"ids":[jane,john]}));
+    assert_eq!(s.visible_cloned().len(), 2);
+    assert_eq!(s.catalog.album_count(album), 2);
+    assert_eq!(s.view_rules().person_ids, vec![jane], "saving the current view must use the surviving identity");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(s.visible_cloned(), vec![b]);
+    assert_eq!(s.catalog.album_count(album), 1);
+}

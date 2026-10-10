@@ -125,6 +125,26 @@ pub fn ops_for(kind: Kind) -> &'static [(&'static str, &'static str)] {
     }
 }
 
+/// Person identity sets extend the text/name operators with any/all membership.
+pub fn ops_for_field(field: &str) -> &'static [(&'static str, &'static str)] {
+    if field == "person" {
+        &[
+            ("contains", "contains"),
+            ("notContains", "doesn't contain"),
+            ("is", "is"),
+            ("isNot", "isn't"),
+            ("startsWith", "starts with"),
+            ("endsWith", "ends with"),
+            ("isEmpty", "is empty"),
+            ("isNotEmpty", "isn't empty"),
+            ("anyOf", "any of"),
+            ("allOf", "everyone"),
+        ]
+    } else {
+        field_kind(field).map(ops_for).unwrap_or(&[])
+    }
+}
+
 pub fn field_kind(field: &str) -> Option<Kind> {
     FIELDS.iter().find(|f| f.0 == field).map(|f| f.2)
 }
@@ -410,7 +430,7 @@ impl RuleSet {
                 Rule::Group { group } => out.extend(group.problems()),
                 Rule::Field { field, op, .. } => match field_kind(field) {
                     None => out.push(format!("unknown field `{field}`")),
-                    Some(k) if !ops_for(k).iter().any(|o| o.0 == op) => out.push(format!("`{field}` has no operator `{op}`")),
+                    Some(_) if !ops_for_field(field).iter().any(|o| o.0 == op) => out.push(format!("`{field}` has no operator `{op}`")),
                     _ => {}
                 },
             }
@@ -432,7 +452,7 @@ impl RuleSet {
                 Rule::Group { group } => format!("({})", group.describe()),
                 Rule::Field { field, op, value } => {
                     let label = FIELDS.iter().find(|f| f.0 == field).map_or(field.as_str(), |f| f.1).to_lowercase();
-                    let op = field_kind(field).and_then(|k| ops_for(k).iter().find(|o| o.0 == op)).map_or(op.as_str(), |o| o.1);
+                    let op = ops_for_field(field).iter().find(|o| o.0 == op).map_or(op.as_str(), |o| o.1);
                     let v = match value {
                         Value::String(s) => s.clone(),
                         Value::Null => String::new(),
@@ -474,6 +494,21 @@ mod tests {
 
     fn rs(v: serde_json::Value) -> RuleSet {
         serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn person_identity_set_rules_validate_and_match() {
+        let cat = Catalog::new();
+        let mut p = photo(1);
+        p.meta.person_ids = vec![7, 9];
+        for (op, ids, expected) in
+            [("anyOf", vec![7, 10], true), ("allOf", vec![7, 9], true), ("allOf", vec![7, 10], false), ("anyOf", vec![], false)]
+        {
+            let rules = rs(json!({"rules":[{"field":"person","op":op,"value":ids}]}));
+            assert!(rules.problems().is_empty());
+            assert_eq!(rules.matches(&p, &cat), expected);
+        }
+        assert!(!rs(json!({"rules":[{"field":"keywords","op":"allOf","value":[7]}]})).problems().is_empty());
     }
 
     #[test]

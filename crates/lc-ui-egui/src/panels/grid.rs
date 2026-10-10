@@ -140,7 +140,7 @@ fn show_inner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let (hr, _) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::hover());
     ui.painter().rect_filled(hr, 0.0, t.canvas);
     let sel_n = app.session.selection.ids.len();
-    let chips = lightcraft_engine::filter_chips(&app.session.filter, &app.session.catalog);
+    let chips = super::people_workspace::filter_chips(app);
     let total = app.session.source_total();
     let counted = super::chips::count_text(ids.len(), total, !chips.is_empty());
     let cnt = if sel_n > 1 { crate::i18n::tr_format!("{sel_n} selected · {counted}", counted = counted, sel_n = sel_n) } else { counted };
@@ -805,6 +805,12 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             }
             Err(e) => app.toast(ui.ctx(), e),
         }
+    }
+    let finder = ui.button(crate::i18n::tr("Find This Person…"));
+    register(ui.ctx(), "photo:findPerson", finder.rect);
+    if finder.clicked() {
+        super::people_workspace::finder(app, id);
+        ui.close();
     }
     if ui.button(crate::i18n::tr("Set as Reference Photo")).clicked() {
         let _ = app.run("photo.setReference", json!({"id": id.0}));

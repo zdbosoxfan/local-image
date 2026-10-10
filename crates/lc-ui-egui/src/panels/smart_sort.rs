@@ -52,7 +52,12 @@ pub struct SmartSortDialog {
     pub anchor: Option<PhotoId>,
     pub undo: Vec<ReviewSnapshot>,
     pub redo: Vec<ReviewSnapshot>,
-    // People will occupy a second review panel in Phase 3; names/patterns stay in the preset.
+    pub people_open: bool,
+    pub people_folders: bool,
+    pub people_folder: Option<usize>,
+    pub include_names: bool,
+    #[serde(skip)]
+    pub people_folders_seeded: bool,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ReviewSnapshot {
@@ -104,6 +109,11 @@ impl Default for SmartSortDialog {
             anchor: None,
             undo: Vec::new(),
             redo: Vec::new(),
+            people_open: false,
+            people_folders: false,
+            people_folder: None,
+            include_names: false,
+            people_folders_seeded: false,
         }
     }
 }
@@ -145,6 +155,7 @@ pub fn open(app: &mut LightcraftApp, selected_only: bool) {
             source,
             source_name,
             library_examples: selected,
+            people_folders: preset.folders.iter().any(|f| f.people_enabled),
             preset,
             dest: home.join("Desktop").to_string_lossy().into_owned(),
             ..Default::default()
@@ -242,14 +253,23 @@ fn correct(app: &mut LightcraftApp, ctx: &egui::Context, s: &mut SmartSortDialog
 }
 
 pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
+    if app.ui.people.queue.is_some() || app.ui.people.finder.is_some() || app.ui.people.merge.is_some() {
+        return;
+    }
     let Some(Dialog::SmartSort { mut state }) = app.ui.dialog.clone() else { return };
     let s = &mut *state;
+    if app.session.smart.people.data.people.iter().any(|p| p.folder_enabled && !p.ignored) && s.step < 2 {
+        s.people_folders = true;
+    }
     if s.dirty
         && app.smart_sort.is_none()
         && let Err(e) = classify(app, s)
     {
         s.error = e;
         s.dirty = false;
+    }
+    if s.step < 2 {
+        s.people_folders_seeded = false;
     }
     let screen = ctx.content_rect();
     egui::Area::new(egui::Id::new("smart-sort-dim")).order(egui::Order::Middle).fixed_pos(screen.min).show(ctx, |ui| {
@@ -268,8 +288,10 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 for (i, key, label) in [(0, "sort", "1 Sort"), (1, "review", "2 Review"), (2, "export", "3 Export")] {
-                    let r = ui
-                        .add_enabled(app.smart_sort.is_none() && (i == 0 || !s.rows.is_empty()), egui::Button::new(tr(label)).selected(s.step == i));
+                    let r = ui.add_enabled(
+                        app.smart_sort.is_none() && app.people_task.is_none() && (i == 0 || !s.rows.is_empty()),
+                        egui::Button::new(tr(label)).selected(s.step == i),
+                    );
                     register(ui.ctx(), format!("smartSort:step:{key}"), r.rect);
                     if r.clicked() {
                         if i == 2 && s.step < 2 {
@@ -286,7 +308,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
             });
             ui.separator();
             let body_h = (ui.available_height() - 72.0).max(340.0);
-            egui::ScrollArea::vertical().id_salt("smart-sort-body").max_height(body_h).auto_shrink([false, false]).show(ui, |ui| {
+            let body = egui::ScrollArea::vertical().id_salt("smart-sort-body").max_height(body_h).auto_shrink([false, false]).show(ui, |ui| {
                 ui.set_min_height(body_h);
                 match s.step {
                     0 => sort(app, ui, s),
@@ -294,6 +316,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     _ => export(app, ui, s),
                 }
             });
+            register(ui.ctx(), "smartSort:body", body.inner_rect);
             if !s.error.is_empty() {
                 ui.colored_label(egui::Color32::LIGHT_RED, &s.error);
             }
@@ -302,7 +325,11 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                 if button(ui, "smartSort:cancel", "Cancel").clicked() {
                     if let Some(task) = &app.smart_sort {
                         task.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-                    } else {
+                    }
+                    if let Some(task) = &app.people_task {
+                        task.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    if app.smart_sort.is_none() && app.people_task.is_none() {
                         close = true;
                     }
                 }
@@ -310,7 +337,10 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     if s.step == 0 {
                         let status = app.session.execute("smartSort.status", &json!({})).unwrap_or_default();
                         let r = ui.add_enabled(
-                            app.smart_sort.is_none() && status["tagger"]["installed"] == true,
+                            app.smart_sort.is_none()
+                                && app.people_task.is_none()
+                                && status["tagger"]["installed"] == true
+                                && (!app.session.smart.prefs.faces_enabled || status["faces"]["installed"] == true),
                             egui::Button::new(crate::i18n::tr_format!("Analyse {n} Photos", n = ids(app, s).len())),
                         );
                         register(ui.ctx(), "smartSort:analyze", r.rect);
@@ -350,12 +380,17 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
     if s.step != 1 && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         if let Some(task) = &app.smart_sort {
             task.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-        } else {
+        }
+        if let Some(task) = &app.people_task {
+            task.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        if app.smart_sort.is_none() && app.people_task.is_none() {
             close = true;
         }
     }
     if close {
         app.session.smart.tagger = None;
+        app.session.smart.people.tagger = None;
         app.ui.dialog = None;
     } else {
         app.ui.dialog = Some(Dialog::SmartSort { state });
@@ -390,6 +425,13 @@ fn sort(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
             }
         }
     });
+    super::people_workspace::face_options(app, ui);
+    if app.session.smart.prefs.faces_enabled {
+        check(ui, "smartSort:peopleSection", &mut s.people_open, "People");
+        if s.people_open {
+            super::people_workspace::show(app, ui, &ids(app, s), None);
+        }
+    }
     session_options(app, ui, s);
     burst_options(app, ui, s);
     s.inputs.resize(s.preset.categories.len(), String::new());
@@ -727,6 +769,24 @@ fn sensitivity(ui: &mut Ui, s: &mut SmartSortDialog) {
 #[derive(Clone)]
 struct DragPhotos(Vec<PhotoId>);
 fn review(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
+    if app.session.smart.prefs.faces_enabled {
+        check(ui, "smartSort:peopleSection", &mut s.people_open, "People");
+        if button(ui, "smartSort:findPerson", "Find This Person…").clicked()
+            && let Some(id) = s.selected.first().or(s.source.first()).copied()
+        {
+            super::people_workspace::finder(app, id);
+        }
+        if s.people_open {
+            let scope: Vec<_> = s
+                .rows
+                .iter()
+                .filter(|p| p.row.assigned.contains(&s.review_folder) || (s.review_folder == "Unsorted" && p.row.assigned.is_empty()))
+                .map(|p| p.id)
+                .collect();
+            super::people_workspace::show(app, ui, &scope, None);
+            return;
+        }
+    }
     ui.horizontal(|ui| {
         ui.label(tr("Sorting"));
         sensitivity(ui, s);
@@ -985,13 +1045,41 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
             }
         }
     });
-    let planned = planned_folders(app, s).unwrap_or_default();
+    if app.session.smart.prefs.faces_enabled {
+        if check(ui, "smartSort:peopleFolders", &mut s.people_folders, "People folders").changed() {
+            s.people_folders_seeded = false;
+        }
+        if s.people_folders && !s.people_folders_seeded {
+            s.people_folders_seeded = true;
+            for p in app.session.smart.people.data.people.iter().filter(|p| p.folder_enabled && !p.ignored) {
+                if !s.preset.folders.iter().any(|f| f.people_enabled && f.person_ids == [p.id]) {
+                    s.preset.folders.push(FolderDef {
+                        name: if p.name.is_empty() { crate::i18n::tr_format!("Unnamed person {id}", id = p.id) } else { p.name.clone() },
+                        person_ids: vec![p.id],
+                        people_enabled: true,
+                        use_rules: false,
+                        custom: true,
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+        check(ui, "smartSort:includeNames", &mut s.include_names, "Include people's names in exported files");
+    }
+    let value = plan_result(app, s).unwrap_or_default();
+    let planned: Vec<plan::Folder> = serde_json::from_value(value["folders"].clone()).unwrap_or_default();
+    for notice in value["notices"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        ui.label(tr(notice));
+    }
     let mut swap = None;
     for i in 0..s.preset.folders.len() {
+        if !s.people_folders && s.preset.folders[i].people_enabled && !s.preset.folders[i].use_rules {
+            continue;
+        }
         let count_index = if s.preset.folders[i].unsorted {
             planned.len().saturating_sub(1)
         } else {
-            s.preset.folders[..i].iter().filter(|f| f.enabled && !f.unsorted).count()
+            s.preset.folders[..i].iter().filter(|f| f.enabled && !f.unsorted && (s.people_folders || !f.people_enabled || f.use_rules)).count()
         };
         ui.push_id(("export-folder", i), |ui| {
             let folder = &mut s.preset.folders[i];
@@ -1009,6 +1097,7 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
                     swap = Some((i, i + 1));
                 }
                 if !folder.unsorted && button(ui, format!("smartSort:folders:rules:{i}"), "Advanced Rules…").clicked() {
+                    folder.use_rules = true;
                     s.rules_open = if s.rules_open == Some(i) { None } else { Some(i) };
                 }
                 if s.preset.sessions.enabled {
@@ -1032,6 +1121,27 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
                     register(ui.ctx(), format!("smartSort:folderSession:{i}"), response.response.rect);
                 }
             });
+            if s.people_folders && app.session.smart.prefs.faces_enabled && !folder.unsorted {
+                if check(ui, format!("smartSort:folderPeople:{i}"), &mut folder.people_enabled, "People").changed() && folder.people_enabled {
+                    s.people_folder = Some(i);
+                }
+                if folder.people_enabled {
+                    if button(ui, format!("smartSort:folders:peoplePicker:{i}"), "Choose people…").clicked() {
+                        s.people_folder = Some(i);
+                    }
+                    check(ui, format!("smartSort:folderEveryone:{i}"), &mut folder.everyone, "Everyone in the photo together");
+                    ui.label(tr("Any of these people"));
+                    check(ui, format!("smartSort:folderUseTags:{i}"), &mut folder.use_rules, "Also use tag rules");
+                    if folder.use_rules {
+                        check(ui, format!("smartSort:folderPeopleOr:{i}"), &mut folder.people_or, "Tagged OR showing");
+                    }
+                    for id in folder.person_ids.clone() {
+                        if button(ui, format!("smartSort:folderReview:{i}:{id}"), "Review matches…").clicked() {
+                            super::people_workspace::review_person(app, id);
+                        }
+                    }
+                }
+            }
             if custom {
                 ui.horizontal(|ui| {
                     ui.label(tr("Include photos tagged:"));
@@ -1039,6 +1149,7 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
                         for (j, c) in s.preset.categories.iter().enumerate() {
                             let mut on = folder.tags.contains(&c.name);
                             if check(ui, format!("smartSort:folders:tag:{i}:{j}"), &mut on, &c.name).changed() {
+                                folder.use_rules = true;
                                 if on {
                                     folder.tags.push(c.name.clone());
                                 } else {
@@ -1080,7 +1191,7 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
                 ui.label(folder.tags.join(", "));
             }
             if s.rules_open == Some(i) {
-                super::rules_editor::edit(ui, &mut folder.rules, &format!("smart-sort-rules-{i}"), 0);
+                super::rules_editor::edit(ui, &mut folder.rules, &format!("smart-sort-rules-{i}"), 0, &super::rules_editor::people_choices(app));
             }
         });
     }
@@ -1097,6 +1208,19 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
             rules: plan::tag_rules(&s.preset.keyword_parent, &[], false),
             ..Default::default()
         });
+    }
+    if s.people_folders
+        && let Some(i) = s.people_folder
+        && i < s.preset.folders.len()
+    {
+        // Plans follow enabled row order; folder names are editable and need not be unique.
+        let index = if s.preset.folders[i].unsorted {
+            planned.len().saturating_sub(1)
+        } else {
+            s.preset.folders[..i].iter().filter(|f| f.enabled && !f.unsorted).count()
+        };
+        let scope = if s.preset.folders[i].enabled { planned.get(index).map(|f| f.ids.clone()).unwrap_or_default() } else { Vec::new() };
+        super::people_workspace::show(app, ui, &scope, Some(&mut s.preset.folders[i]));
     }
     ui.separator();
     check(ui, "smartSort:firstMatch", &mut s.preset.first_match, "First matching folder only");
@@ -1156,8 +1280,10 @@ fn start_export(app: &mut LightcraftApp, s: &SmartSortDialog) -> Result<(), Stri
         return Err(tr("An export is already running").to_string());
     }
     let folders = planned_folders(app, s)?;
+    let effective = export_preset(app, s);
     let params = export_params(app, s);
     let mut opts = lightcraft_engine::export::ExportOptions::from_json(&params);
+    opts.include_people_names = s.include_names;
     opts.same_folder = false;
     opts.subfolder.clear();
     let sessions = sessions::split_sessions(&app.session.catalog, &ids(app, s), &s.preset.sessions);
@@ -1186,24 +1312,22 @@ fn start_export(app: &mut LightcraftApp, s: &SmartSortDialog) -> Result<(), Stri
             }
         } else {
             let mut previous = Vec::new();
-            let defs = s
-                .preset
+            let defs = effective
                 .folders
                 .iter()
                 .filter(|f| f.enabled && !f.unsorted)
-                .chain(s.preset.folders.iter().filter(|f| f.enabled && f.unsorted).take(1));
+                .chain(effective.folders.iter().filter(|f| f.enabled && f.unsorted).take(1));
             for (f, planned) in defs.zip(&folders) {
                 // Unsorted/first-match albums include exclusions, matching the complete plan.
-                let mut rules = f.rules.clone();
+                let mut rules = folder_rules(app, f);
                 if f.unsorted {
                     rules = lightcraft_catalog::RuleSet {
                         mode: lightcraft_catalog::Match::None,
-                        rules: s
-                            .preset
+                        rules: effective
                             .folders
                             .iter()
                             .filter(|f| f.enabled && !f.unsorted)
-                            .map(|f| lightcraft_catalog::Rule::Group { group: f.rules.clone() })
+                            .map(|f| lightcraft_catalog::Rule::Group { group: folder_rules(app, f) })
                             .collect(),
                     };
                 }
@@ -1222,7 +1346,7 @@ fn start_export(app: &mut LightcraftApp, s: &SmartSortDialog) -> Result<(), Stri
                     .execute("album.createSmart", &json!({"name":planned.name,"rules":{"ruleSet":rules,"only":photos}}))
                     .map_err(|e| e.to_string())?;
                 if !f.unsorted {
-                    previous.push(lightcraft_catalog::Rule::Group { group: f.rules.clone() });
+                    previous.push(lightcraft_catalog::Rule::Group { group: folder_rules(app, f) });
                 }
             }
         }
@@ -1268,6 +1392,7 @@ pub fn confirm(app: &mut LightcraftApp, state: &SmartSortDialog) -> Result<Value
     if action.is_ok() && exporting {
         app.ui.dialog = None;
         app.session.smart.tagger = None;
+        app.session.smart.people.tagger = None;
     } else {
         if let Err(e) = &action {
             state.error = e.clone();
@@ -1343,14 +1468,17 @@ fn burst_options(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) 
         s.error = e;
     }
 }
-fn planned_folders(app: &mut LightcraftApp, s: &SmartSortDialog) -> Result<Vec<plan::Folder>, String> {
+fn plan_result(app: &mut LightcraftApp, s: &SmartSortDialog) -> Result<Value, String> {
     let ids = ids(app, s);
-    let value = app
-        .session
-        .execute("smartSort.plan", &json!({"sortPreset":s.preset,"ids":ids,"includeRejected":s.include_rejected}))
-        .map_err(|e| e.to_string())?;
+    app.session
+        .execute("smartSort.plan", &json!({"sortPreset":export_preset(app,s),"ids":ids,"includeRejected":s.include_rejected}))
+        .map_err(|e| e.to_string())
+}
+fn planned_folders(app: &mut LightcraftApp, s: &SmartSortDialog) -> Result<Vec<plan::Folder>, String> {
+    let value = plan_result(app, s)?;
     serde_json::from_value(value["folders"].clone()).map_err(|e| e.to_string())
 }
+
 fn expand_selection(s: &SmartSortDialog, chosen: &[PhotoId]) -> Vec<PhotoId> {
     let mut result = Vec::new();
     for id in chosen {
@@ -1437,7 +1565,7 @@ fn restore_review(app: &mut LightcraftApp, s: &mut SmartSortDialog, redo: bool) 
 }
 pub fn review_history_enabled(app: &LightcraftApp, id: &str) -> Option<bool> {
     let Some(Dialog::SmartSort { state }) = &app.ui.dialog else { return None };
-    if state.step != 1 {
+    if state.step != 1 || app.ui.people.queue.is_some() || app.ui.people.merge.is_some() || app.ui.people.finder.is_some() {
         return None;
     }
     match id {
@@ -1452,4 +1580,38 @@ pub fn review_history_command(app: &mut LightcraftApp, id: &str) -> Option<Resul
     let result = restore_review(app, &mut state, id == "edit.redo").map(|()| Value::Null);
     app.ui.dialog = Some(Dialog::SmartSort { state });
     Some(result)
+}
+
+fn export_preset(app: &LightcraftApp, s: &SmartSortDialog) -> SortPreset {
+    let mut preset = s.preset.clone();
+    if !s.people_folders || !app.session.smart.prefs.faces_enabled {
+        preset.folders.retain(|f| !f.people_enabled || f.use_rules);
+        for f in &mut preset.folders {
+            f.people_enabled = false;
+        }
+    }
+    preset
+}
+
+fn folder_rules(app: &LightcraftApp, f: &FolderDef) -> lightcraft_catalog::RuleSet {
+    if !f.people_enabled {
+        return f.rules.clone();
+    }
+    let data = &app.session.smart.people.data;
+    let ids: Vec<_> = f.person_ids.iter().map(|id| data.resolve_id(*id)).filter(|id| data.person(*id).is_ok_and(|p| !p.ignored)).collect();
+    let people = lightcraft_catalog::RuleSet {
+        rules: vec![lightcraft_catalog::Rule::Field {
+            field: "person".into(),
+            op: if f.everyone { "allOf" } else { "anyOf" }.into(),
+            value: json!(ids),
+        }],
+        ..Default::default()
+    };
+    if !f.use_rules {
+        return people;
+    }
+    lightcraft_catalog::RuleSet {
+        mode: if f.people_or { lightcraft_catalog::Match::Any } else { lightcraft_catalog::Match::All },
+        rules: vec![lightcraft_catalog::Rule::Group { group: f.rules.clone() }, lightcraft_catalog::Rule::Group { group: people }],
+    }
 }

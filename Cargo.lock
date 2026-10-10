@@ -4112,6 +4112,7 @@ dependencies = [
  "lightcraft-preview",
  "lightcraft-raster",
  "log",
+ "rayon",
  "serde",
  "serde_json",
  "toml",

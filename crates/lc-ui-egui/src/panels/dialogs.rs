@@ -243,7 +243,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     crate::widgets::register(ui.ctx(), "field:smartName", r.rect);
                     ui.add_space(6.0);
                     egui::ScrollArea::vertical().max_height(360.0).auto_shrink([false, true]).show(ui, |ui| {
-                        crate::panels::rules_editor::edit(ui, rules, "rules", 0);
+                        crate::panels::rules_editor::edit(ui, rules, "rules", 0, &crate::panels::rules_editor::people_choices(app));
                     });
                     let problems = rules.problems();
                     let f = lightcraft_catalog::Filter { rule_set: Some(rules.clone()), ..Default::default() };

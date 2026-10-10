@@ -130,5 +130,13 @@
   "{n} already analysed": "{n}張已分析",
   "{n} photos from {source}": "來自{source}的{n}張照片",
   "{n} videos skipped": "已略過{n}個影片",
-  "{start}–{end} · {n} photos": "{start}–{end} · {n} 張照片"
+  "{start}–{end} · {n} photos": "{start}–{end} · {n} 張照片",
+  "Skipped {n} headshots without exactly one face": "Skipped {n} headshots without exactly one face",
+  "Faces: {done} of {total}": "Faces: {done} of {total}",
+  "{folder} / {total} photos": "{folder} / {total} photos",
+  "? {n} matches to review": "? {n} matches to review",
+  "Show everyone ({n} more)": "Show everyone ({n} more)",
+  "Restore {name}": "Restore {name}",
+  "Unnamed person {id}": "Unnamed person {id}",
+  "Merge with {name}?": "Merge with {name}?"
 }

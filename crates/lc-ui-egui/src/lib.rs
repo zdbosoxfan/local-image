@@ -22,6 +22,7 @@ pub mod menubar;
 pub mod menus;
 pub mod merge;
 pub mod panels;
+pub mod people_task;
 pub mod render;
 pub mod shortcuts;
 pub mod smart_sort_keys;
@@ -52,6 +53,8 @@ mod tests_masking;
 mod tests_offline;
 #[cfg(test)]
 mod tests_panels;
+#[cfg(test)]
+mod tests_people;
 #[cfg(test)]
 mod tests_quit_unsaved;
 #[cfg(test)]
@@ -221,6 +224,8 @@ pub struct LightcraftApp {
     /// A background export in progress.
     pub export: Option<export_task::ExportTask>,
     pub smart_sort: Option<smart_sort_task::SmartSortTask>,
+    pub people_task: Option<people_task::PeopleTask>,
+    pub people_images: people_task::SeedImages,
     /// Background file-system work of other commands (Find Missing Photos, auto import…).
     pub tasks: tasks::Tasks,
     /// The files of the last finished background export (`ui.inspect` → `export.last`).
@@ -290,6 +295,8 @@ impl LightcraftApp {
             scan: None,
             export: None,
             smart_sort: None,
+            people_task: None,
+            people_images: Default::default(),
             tasks: Default::default(),
             last_export_result: None,
             hover_preview: None,
@@ -319,6 +326,7 @@ impl LightcraftApp {
         import::tick(self, ctx);
         tasks::poll(self, ctx);
         smart_sort_task::poll(self, ctx);
+        people_task::poll(self, ctx);
         self.session.persist_if_dirty();
     }
 
@@ -708,6 +716,7 @@ impl LightcraftApp {
         import::poll_scan(self, ctx);
         import::tick(self, ctx);
         tasks::poll(self, ctx);
+        people_task::poll(self, ctx);
         self.preview_build_status(ctx);
         self.save_status(ctx);
         self.slideshow_tick(ctx);
@@ -885,6 +894,7 @@ impl LightcraftApp {
             panels::second::show(self, &ctx);
             panels::notices::show(self, &ctx);
             panels::dialogs::show(self, &ctx);
+            panels::people_workspace::overlay(self, &ctx);
             panels::library_problem::show(self, &ctx);
             panels::toast(self, &ctx);
             self.widgets = widgets::take_registry(&ctx);
@@ -933,6 +943,7 @@ impl LightcraftApp {
         panels::second::show(self, &ctx);
         panels::notices::show(self, &ctx);
         panels::dialogs::show(self, &ctx);
+        panels::people_workspace::overlay(self, &ctx);
         panels::library_problem::show(self, &ctx);
         import::progress(self, &ctx);
         import::scan_progress(self, &ctx);

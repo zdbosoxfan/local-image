@@ -79,6 +79,7 @@ pub fn inspect(app: &LightcraftApp, ctx: &egui::Context) -> Value {
     let r = ctx.content_rect();
     json!({
         "ui": serde_json::to_value(&app.ui).unwrap_or_default(),
+        "people": {"list":app.ui.people.list,"finder":app.ui.people.finder,"pickedFace":app.ui.people.picked,"queue":app.ui.people.queue.as_ref().map(|q|json!({"person":q.person,"cursor":q.cursor,"skipped":q.skipped,"matches":q.rows})),"merge":app.ui.people.merge,"error":app.ui.people.error},
         "window": [r.width(), r.height()],
         "pixelsPerPoint": ctx.pixels_per_point(),
         "canvasRect": app.canvas_rect.map(rect_json),

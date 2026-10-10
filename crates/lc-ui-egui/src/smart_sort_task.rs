@@ -34,6 +34,9 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId]) -> Result<(), String> {
     if app.smart_sort.is_some() {
         return Err(tr("Analysis is already running").to_string());
     }
+    if app.session.smart.prefs.faces_enabled {
+        crate::people_task::start(app, ids, None)?;
+    }
     let injected = app.session.smart.tagger.clone();
     let (model, dim) = injected.as_ref().map_or((smart_sort::DEFAULT_MODEL.into(), 512), |t| (t.model_id().to_string(), t.dim()));
     app.session.smart.store.ensure(&model, dim)?;
@@ -143,7 +146,7 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
             state.skipped = task.skipped;
             state.videos = task.videos;
             state.dirty = app.session.smart.tagger.is_some();
-            if succeeded && !task.cancel.load(Ordering::Relaxed) {
+            if succeeded && !task.cancel.load(Ordering::Relaxed) && app.people_task.is_none() {
                 state.step = 1;
             }
         } else {

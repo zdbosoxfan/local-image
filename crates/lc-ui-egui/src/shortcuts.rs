@@ -88,7 +88,11 @@ pub fn shortcut_label(command: &str) -> Option<String> {
 }
 
 pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
-    if matches!(app.ui.dialog, Some(crate::state::Dialog::SmartSort { .. })) {
+    if matches!(app.ui.dialog, Some(crate::state::Dialog::SmartSort { .. }))
+        || app.ui.people.queue.is_some()
+        || app.ui.people.finder.is_some()
+        || app.ui.people.merge.is_some()
+    {
         return;
     }
     // don't steal keys from text fields
