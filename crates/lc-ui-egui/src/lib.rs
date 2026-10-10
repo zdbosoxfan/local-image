@@ -38,6 +38,7 @@ pub mod theme;
 mod tool_icon_data;
 #[cfg(test)]
 mod tool_icon_tests;
+pub mod vectorize_handoff;
 pub mod widgets;
 
 #[cfg(test)]
