@@ -4,6 +4,9 @@ Until every planned feature is merged, merges are gated on: compiles, clippy cle
 Full workspace + GPU (RTX 5090) suites, benchmarks and these items are handled in the final bug-fixing run.
 
 ## Known issues
+- **NVIDIA driver segfault at process exit (2026-10-09):** `lightcraft-ui-egui --lib` passes all tests, then crashes in
+  `libnvidia-glvkspirv.so` (driver shader-compiler thread) while exiting. Driver teardown race; if the app does the
+  same on quit, the GPU start-up marker is already cleared (fa739578). Consider waiting for device idle before exit.
 - **ComfyUI left running after V2 quits (owner, 2026-10-09):** the auto-started ComfyUI (`auto_start_comfy`) kept
   running after Local Image V2 closed and held 29–46 GB of RAM (and ~20 GB VRAM), nearly exhausting the 60 GB PC. Stop
   the ComfyUI the app started on quit (not one the user started themselves); consider unloading models when idle.
