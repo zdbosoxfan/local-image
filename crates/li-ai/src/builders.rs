@@ -240,7 +240,7 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
                 link(&s, 0)
             } else {
                 // The templates scale every reference to about one megapixel first.
-                let s = g.add("ImageScaleToTotalPixels", json!({ "image": link(&img, 0), "upscale_method": "lanczos", "megapixels": 1.0 }));
+                let s = g.add("ImageScaleToTotalPixels", json!({ "image": link(&img, 0), "upscale_method": "lanczos", "megapixels": 1.0, "resolution_steps": 1 }));
                 link(&s, 0)
             };
             let enc = g.add("VAEEncode", json!({ "pixels": px, "vae": vae }));

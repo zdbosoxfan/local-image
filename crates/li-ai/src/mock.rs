@@ -211,7 +211,7 @@ const NODE_DEFS: &[(&str, &str, &str)] = &[
     ("ModelSamplingSD3", "model:MODEL shift:FLOAT", ""),
     ("PreviewAny", "source:*", ""),
     ("PreviewImage", "images:IMAGE", ""),
-    ("ImageScaleToTotalPixels", "image:IMAGE upscale_method:(nearest-exact|bilinear|area|bicubic|lanczos) megapixels:FLOAT", ""),
+    ("ImageScaleToTotalPixels", "image:IMAGE upscale_method:(nearest-exact|bilinear|area|bicubic|lanczos) megapixels:FLOAT resolution_steps:INT", ""),
     ("PrimitiveBoolean", "value:BOOLEAN", ""),
     ("PrimitiveFloat", "value:FLOAT", ""),
     ("PrimitiveInt", "value:INT*", ""),
