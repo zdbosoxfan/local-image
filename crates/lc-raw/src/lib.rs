@@ -455,6 +455,30 @@ pub struct Normalized {
     pub cfa: Option<Cfa>,
 }
 
+/// Normalized active-area samples without a full float copy for ordinary files. DNG
+/// opcodes retain the full-buffer path because their corrections may depend on neighbours.
+pub struct NormalizedSamples<'a> {
+    pub width: usize,
+    pub height: usize,
+    pub cpp: usize,
+    pub cfa: Option<Cfa>,
+    raw: &'a RawImage,
+    prepared: Option<Normalized>,
+    scale: [f32; 4],
+}
+impl NormalizedSamples<'_> {
+    #[inline]
+    pub fn get(&self, x: usize, y: usize, sample: usize) -> f32 {
+        if let Some(n) = &self.prepared {
+            n.data[(y * self.width + x) * self.cpp + sample]
+        } else {
+            let a = self.raw.active_area;
+            let i = ((a.y + y) * self.raw.width + a.x + x) * self.cpp + sample;
+            (self.raw.data.get(i) - self.raw.black.at(x, y, sample, self.cpp)) * self.scale[sample]
+        }
+    }
+}
+
 impl RawImage {
     /// The description without the samples (what [`probe_info`] returns for the same file).
     pub fn info(&self) -> RawInfo {
@@ -526,6 +550,25 @@ impl RawImage {
     /// White level for sample `s`.
     pub fn white_at(&self, s: usize) -> f32 {
         self.white.get(s).or_else(|| self.white.first()).copied().unwrap_or(65535.0)
+    }
+
+    pub fn normalized_samples(&self) -> Result<NormalizedSamples<'_>> {
+        self.validate()?;
+        let prepared = if self.opcodes.list1.is_empty() && self.opcodes.list2.is_empty() { None } else { Some(self.normalized()?) };
+        let a = self.active_area;
+        let scale = std::array::from_fn(|s| {
+            let range = self.white_at(s) - self.black.mean();
+            if range > 0.0 { 1.0 / range } else { 1.0 }
+        });
+        Ok(NormalizedSamples {
+            width: a.width,
+            height: a.height,
+            cpp: self.cpp,
+            cfa: self.cfa.as_ref().map(|c| c.shifted(a.x, a.y)),
+            raw: self,
+            prepared,
+            scale,
+        })
     }
 
     /// Black-subtract, white-scale and crop to the active area, applying `OpcodeList1` (on raw values) first and

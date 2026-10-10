@@ -36,19 +36,23 @@ fn no_mods(m: Modifiers) -> bool {
 }
 
 fn shift_only(m: Modifiers) -> bool {
-    m.shift && !m.alt && !m.command
+    m.shift && !m.alt && !m.command && !m.ctrl && !m.mac_cmd
+}
+
+fn command_aliases_only(m: Modifiers) -> bool {
+    if cfg!(target_os = "macos") { !m.ctrl } else { !m.mac_cmd }
 }
 
 fn command_only(m: Modifiers) -> bool {
-    m.command && !m.alt && !m.shift
+    m.command && !m.alt && !m.shift && command_aliases_only(m)
 }
 
 fn shift_command(m: Modifiers) -> bool {
-    m.command && m.shift && !m.alt
+    m.command && m.shift && !m.alt && command_aliases_only(m)
 }
 
 fn alt_only(m: Modifiers) -> bool {
-    m.alt && !m.shift && !m.command
+    m.alt && !m.shift && !m.command && !m.ctrl && !m.mac_cmd
 }
 
 fn number_index(key: Key) -> Option<usize> {
@@ -265,4 +269,18 @@ mod tests {
     fn apply_move_zero_columns_falls_back_to_one() {
         assert_eq!(apply_move(2, 2, 5, 0, 0, 1, false), (3, 3, 3..=3));
     }
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_extra_physical_modifiers_do_not_trigger_review_chords() {
+    assert_eq!(review_action(Key::ArrowLeft, Modifiers { shift: true, ctrl: true, ..Modifiers::NONE }), None);
+    assert_eq!(review_action(Key::Num1, Modifiers { alt: true, mac_cmd: true, ..Modifiers::NONE }), None);
+    let command = if cfg!(target_os = "macos") {
+        Modifiers { command: true, mac_cmd: true, ..Modifiers::NONE }
+    } else {
+        Modifiers { command: true, ctrl: true, ..Modifiers::NONE }
+    };
+    assert_eq!(review_action(Key::A, command), Some(ReviewAction::SelectAll));
+    assert_eq!(review_action(Key::A, Modifiers { ctrl: true, mac_cmd: true, ..command }), None);
 }

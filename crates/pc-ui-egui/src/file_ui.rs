@@ -21,6 +21,9 @@ fn no_params(p: &Value) -> bool {
 /// The active document's folder; for an unsaved photo from the Library, its original's folder.
 fn default_dir(app: &PhotocraftApp) -> String {
     let folder = |p: &str| p.rfind(['/', '\\']).map(|i| p[..i].to_string());
+    if let Some(path) = app.session.active().and_then(|d| d.path.as_deref()) {
+        return folder(path).unwrap_or_else(|| ".".into());
+    }
     app.session
         .active()
         .and_then(|d| d.path.as_deref())
@@ -780,4 +783,15 @@ mod tests {
             assert!(r["dialog"].is_u64(), "{id}");
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_relative_saved_path_keeps_current_directory() {
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    app.run("file.new", json!({"width":8,"height":8})).unwrap();
+    app.session.active_mut().unwrap().path = Some("edit.pcraft".into());
+    assert_eq!(default_dir(&app), ".");
+    app.session.active_mut().unwrap().path = Some("/photos/edit.pcraft".into());
+    assert_eq!(default_dir(&app), "/photos");
 }

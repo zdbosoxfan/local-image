@@ -185,9 +185,22 @@ impl GpuCanvas {
             res.compositor = None;
             res.encode_pool.clear();
             res.docs.clear();
-            res.move_frames.clear();
+            clear_move_resources(res);
         }
         true
+    }
+
+    /// Cached Move viewport targets and view uniforms (for resource diagnostics).
+    pub fn move_resources(&self) -> (usize, usize) {
+        let renderer = self.rs.renderer.read();
+        renderer.callback_resources.get::<Resources>().map_or((0, 0), |res| (res.move_frames.len(), res.views.len()))
+    }
+
+    pub(crate) fn clear_move_frames(&self) {
+        let mut renderer = self.rs.renderer.write();
+        if let Some(res) = renderer.callback_resources.get_mut::<Resources>() {
+            clear_move_resources(res);
+        }
     }
 
     /// Free every GPU resource the canvas holds (compositor pages, document textures, LUTs) after
@@ -519,6 +532,7 @@ impl GpuCanvas {
         }));
         let mut renderer = self.rs.renderer.write();
         let Some(res) = renderer.callback_resources.get_mut::<Resources>() else { return Err(photocraft_gpu::Unsupported("no GPU canvas".into())) };
+        encode_pool.truncate(encode_index);
         res.encode_pool = encode_pool;
         let Ok(result) = result else {
             self.health.mark(photocraft_gpu::Fault::Lost("the GPU compositor stopped (internal error)".into()));
@@ -558,6 +572,31 @@ impl GpuCanvas {
         }
         res.compositor = Some(comp);
         result
+    }
+
+    /// Refresh from an immutable app snapshot, avoiding repeated structural key formatting.
+    pub fn refresh_snapshot(
+        &self,
+        key: u64,
+        doc: &std::sync::Arc<photocraft_doc::Document>,
+        damage: Option<photocraft_geom::Rect>,
+        display: Option<&photocraft_engine::display_color::CanvasDisplay>,
+    ) -> Refresh {
+        let remember = || {
+            let r = self.rs.renderer.read();
+            if let Some(c) = r.callback_resources.get::<Resources>().and_then(|r| r.compositor.as_ref()) {
+                let _ = c.prepare_snapshot(doc);
+            }
+        };
+        remember();
+        let out = self.refresh(key, doc, damage, display);
+        remember();
+        out
+    }
+
+    /// Uniform/bind-group slots held for the last composite (profiling/tests).
+    pub fn encode_bindings(&self) -> usize {
+        self.rs.renderer.read().callback_resources.get::<Resources>().map_or(0, |r| r.encode_pool.len())
     }
 
     /// Bring document `key`'s display texture up to date with `doc`: only `damage` when given (a
@@ -678,6 +717,7 @@ impl GpuCanvas {
                 }
             }
             res.docs.retain(|k, _| live.contains(k));
+            res.encode_pool.clear();
         }
         // LUTs and identity-transform signatures can outlive document textures. Prune both,
         // or a preserved-ID reopen can skip rebuilding a missing LUT.
@@ -1257,6 +1297,15 @@ struct Resources {
     identity_lut: wgpu::BindGroup,
     /// Transparency checkerboard and gamut warning colours (Preferences › Transparency & Gamut).
     style: CanvasStyle,
+}
+
+fn clear_move_resources(res: &mut Resources) {
+    for (key, frame) in res.move_frames.drain() {
+        for view in frame.view_keys {
+            res.views.remove(&view);
+        }
+        res.views.remove(&key);
+    }
 }
 
 struct MoveFrame {

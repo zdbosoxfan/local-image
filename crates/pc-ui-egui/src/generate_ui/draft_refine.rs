@@ -157,9 +157,9 @@ pub(crate) fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
     update_source(app);
     if rt(|r| r.library_loaded.is_none_or(|t| t.elapsed() > Duration::from_secs(10))) {
-        let entries = Library::default().list();
+        let entries = crate::generate_ui::library().list();
         rt(|r| {
-            r.library = entries;
+            r.library = entries.into();
             r.library_loaded = Some(Instant::now());
         });
     }
@@ -483,7 +483,7 @@ fn start_stage(app: &mut PhotocraftApp, ctx: &egui::Context, refine: bool) {
 }
 
 fn set_result(app: &mut PhotocraftApp, refine: bool, entry: Entry) {
-    match Library::default().load(&entry) {
+    match crate::generate_ui::library().load(&entry) {
         Ok(img) => {
             if refine {
                 app.draft_refine.refinement.set(img);

@@ -97,7 +97,9 @@ fn upstream_ambient_transmission_guidance_and_boxes() {
     let mut worst = 0.0;
     let data: Vec<_> = (0..37 * 29).map(|i| 0.03 * (i % 17) as f32 - 0.2).collect();
     let mean = haze::box_mean(&data, 37, 29, 1, 5);
-    for line in include_str!("../tests/fixtures/detail-haze.csv").lines() {
+    // Corrected percentile ranks use an independent C qsort oracle. The upstream
+    // guide, morphology, inversion and box kernels remain unchanged.
+    for line in include_str!("../tests/fixtures/detail-haze-sorted.csv").lines() {
         let v: Vec<_> = line.split(',').collect();
         let f = |i: usize| v[i].parse::<f32>().unwrap();
         match v[0] {

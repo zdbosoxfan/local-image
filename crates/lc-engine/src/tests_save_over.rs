@@ -376,3 +376,23 @@ fn export_to_the_same_folder_as_the_original() {
     assert!(err.contains("no folder"), "{err}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn ds_finding_add_export_imports_only_new_ids_and_reports_stack_failure() {
+    let png = lightcraft_codecs::encode_png(&EncodeImage::rgba8(&gradient(24, 16)), &EncodeMeta::default()).unwrap();
+    let (mut s, id, dir, src) = library_with("ds-export-import", "original.png", &png);
+    let skipped = s.execute("export.addToLibrary", &json!({"files":[{"path":src,"photo":id.0}],"stack":true})).unwrap();
+    assert_eq!(skipped["imported"], json!([]));
+    assert!(s.catalog.stack_of(id).is_none());
+    let dst = dir.join("new.png");
+    let image = lightcraft_raster::Rgba8::from_fn(16, 16, |_, _| [220, 30, 70, 255]);
+    let bytes = lightcraft_codecs::encode_png(&EncodeImage::rgba8(&image), &EncodeMeta::default()).unwrap();
+    std::fs::write(&dst, bytes).unwrap();
+    let mut catalog = serde_json::to_value(&s.catalog).unwrap();
+    catalog["next_stack"] = json!(u64::MAX);
+    s.catalog = serde_json::from_value(catalog).unwrap();
+    let error = s.execute("export.addToLibrary", &json!({"files":[{"path":dst,"photo":id.0}],"stack":true})).unwrap_err();
+    assert!(error.to_string().contains("stack.group"), "{error}");
+    assert_eq!(s.catalog.photos().count(), 2, "the imported file survives a reported stacking error");
+    std::fs::remove_dir_all(dir).unwrap();
+}

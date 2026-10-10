@@ -88,8 +88,17 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId]) -> Result<(), String> {
         });
         let _ = tx.send(Event::Done(result));
     };
+    let faces = app.session.smart.prefs.faces_enabled;
+    if faces {
+        crate::people_task::start(app, ids, None)?;
+    }
     #[cfg(not(target_arch = "wasm32"))]
-    std::thread::Builder::new().name("smart-sort".into()).spawn(work).map_err(|e| e.to_string())?;
+    if let Err(e) = std::thread::Builder::new().name("smart-sort".into()).spawn(work) {
+        if faces {
+            app.people_task = None;
+        } // Drop cancels the worker we just started.
+        return Err(e.to_string());
+    }
     #[cfg(target_arch = "wasm32")]
     work();
     app.smart_sort = Some(SmartSortTask { cancel, progress, total, skipped, videos, model, rx });

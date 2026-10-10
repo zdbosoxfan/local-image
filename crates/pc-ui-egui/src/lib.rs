@@ -689,6 +689,11 @@ impl PhotocraftApp {
         self.gpu.as_ref().map(|g| g.health().clone())
     }
 
+    /// Cached Move viewport targets and view uniforms, for GPU resource diagnostics.
+    pub fn gpu_move_resources(&self) -> (usize, usize) {
+        self.gpu.as_ref().map_or((0, 0), |g| g.move_resources())
+    }
+
     /// Run `hook` once the app has rendered its first frames (and a document opened at launch
     /// has drawn): the desktop app clears its crash-safe GPU startup marker there.
     pub fn on_started(&mut self, hook: impl FnOnce(&mut PhotocraftApp) + 'static) {

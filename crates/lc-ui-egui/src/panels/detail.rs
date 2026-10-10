@@ -1512,7 +1512,7 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
         } else {
             register(ui.ctx(), format!("spotPin:{i}"), Rect::from_center_size(q, vec2(14.0, 14.0)));
         }
-        if pins || sel {
+        if overlay != SpotOverlay::Never && (pins || sel) {
             pin(&p, q, sel);
         }
     }

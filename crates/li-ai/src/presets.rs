@@ -33,6 +33,12 @@ pub struct GenPreset {
     /// Draft → Refine: refine with this model at this strength.
     pub refine_model: Option<String>,
     pub refine_strength: Option<f32>,
+    #[serde(default)]
+    pub refine_steps: Option<u32>,
+    #[serde(default)]
+    pub refine_guidance: Option<f32>,
+    #[serde(default)]
+    pub refine_loras: Vec<PresetLora>,
     #[serde(skip)]
     pub built_in: bool,
 }

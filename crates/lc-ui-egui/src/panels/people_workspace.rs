@@ -10,12 +10,29 @@ use crate::{
 use egui::{Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 use lightcraft_catalog::PhotoId;
 use lightcraft_engine::smart_sort::FolderDef;
+use lightcraft_engine::smart_sort::people::{self, PeopleData};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
+
+#[derive(Clone, Debug)]
+struct PeopleQuery {
+    revision: u64,
+    face_revision: u64,
+    model: String,
+    before: PeopleData,
+    cancel: Arc<AtomicBool>,
+    result: Arc<Mutex<Option<Result<PeopleData, String>>>>,
+}
 
 #[derive(Clone, Debug)]
 pub struct PeopleUi {
     pub refresh: bool,
+    pub(crate) person_folder_enabled: bool,
+    query: Option<PeopleQuery>,
     pub list: Value,
     pub revision: u64,
     pub scope: Vec<PhotoId>,
@@ -40,6 +57,8 @@ impl Default for PeopleUi {
     fn default() -> Self {
         Self {
             refresh: true,
+            person_folder_enabled: false,
+            query: None,
             list: Value::Null,
             revision: u64::MAX,
             scope: Vec::new(),
@@ -89,13 +108,10 @@ fn command(app: &mut LightcraftApp, s: &mut PeopleUi, id: &str, p: Value) -> Opt
             if matches!(id, "edit.undo" | "edit.redo" | "smartSort.mergePeople") {
                 s.names.clear();
             }
-            if id == "smartSort.personFolder"
-                && p["enabled"] == true
-                && let Some(crate::state::Dialog::SmartSort { state }) = &mut app.ui.dialog
-                && state.step == 2
-            {
-                state.people_folders = true;
-                state.people_folders_seeded = false;
+            if id == "smartSort.personFolder" && p["enabled"] == true {
+                // Smart Sort owns its dialog while drawing these controls. Carry the
+                // explicit action back without overriding a later unchecked option.
+                s.person_folder_enabled = true;
             }
             s.refresh = true;
             Some(v)
@@ -170,14 +186,77 @@ pub fn face_options(app: &mut LightcraftApp, ui: &mut Ui) {
     }
 }
 fn refresh(app: &mut LightcraftApp, s: &mut PeopleUi, scope: &[PhotoId]) {
-    if (s.refresh || s.revision != app.session.catalog.revision || s.scope != scope)
-        && let Some(list) = command(
-            app,
-            s,
-            "smartSort.people",
-            json!({"folderIds":scope,"showEveryone":s.show_everyone,"limit":if s.show_all {usize::MAX} else {60}}),
-        )
-    {
+    let mut clustered = false;
+    if let Some(query) = s.query.take() {
+        if !app.session.smart.prefs.faces_enabled
+            || query.revision != app.session.catalog.revision
+            || query.before != app.session.smart.people.data
+            || query.face_revision != app.session.smart.people.store.revision()
+            || query.model != app.session.smart.people.model_id()
+        {
+            query.cancel.store(true, Ordering::Relaxed);
+        } else {
+            let result = query.result.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+            if let Some(result) = result {
+                match result.and_then(|data| app.session.commit_people("Smart Sort: suggest people", data).map_err(|e| e.to_string())) {
+                    Ok(()) => clustered = true,
+                    Err(e) => {
+                        s.error = e;
+                        s.refresh = false;
+                        s.revision = app.session.catalog.revision;
+                        s.scope = scope.to_vec();
+                        return;
+                    }
+                }
+            } else {
+                s.query = Some(query);
+                return;
+            }
+        }
+    }
+    if !clustered && !s.refresh && s.revision == app.session.catalog.revision && s.scope == scope {
+        return;
+    }
+    if !app.session.smart.prefs.faces_enabled {
+        return;
+    }
+    if let Err(e) = app.session.smart.people.ready() {
+        s.error = e;
+        return;
+    }
+    if !clustered && app.session.smart.people.store.entries(app.session.smart.people.model_id()).map(|(_, f)| f.len()).sum::<usize>() >= 256 {
+        let query = PeopleQuery {
+            revision: app.session.catalog.revision,
+            face_revision: app.session.smart.people.store.revision(),
+            model: app.session.smart.people.model_id().to_owned(),
+            before: app.session.smart.people.data.clone(),
+            cancel: Arc::new(AtomicBool::new(false)),
+            result: Arc::new(Mutex::new(None)),
+        };
+        let (cat, engine) = (app.session.catalog.clone(), app.session.smart.people.snapshot());
+        let (cancel, result, mut data) = (query.cancel.clone(), query.result.clone(), query.before.clone());
+        let work = move || {
+            let value = people::refresh_cancellable(&cat, &engine, &mut data, true, &|| cancel.load(Ordering::Relaxed)).map(|()| data);
+            *result.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(value);
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Err(e) = std::thread::Builder::new().name("lc-people-query".into()).spawn(work) {
+            s.error = e.to_string();
+            return;
+        }
+        #[cfg(target_arch = "wasm32")]
+        work();
+        s.query = Some(query);
+        return;
+    }
+    if let Some(list) = command(
+        app,
+        s,
+        "smartSort.people",
+        json!({
+            "folderIds":scope,"showEveryone":s.show_everyone,"limit":if s.show_all {usize::MAX} else {60},"cluster":!clustered
+        }),
+    ) {
         s.list = list;
         s.revision = app.session.catalog.revision;
         s.scope = scope.to_vec();
@@ -220,6 +299,22 @@ fn folder_select(app: &LightcraftApp, folder: &mut FolderDef, id: u64, on: bool)
 pub fn show(app: &mut LightcraftApp, ui: &mut Ui, scope: &[PhotoId], mut folder: Option<&mut FolderDef>) {
     let mut s = std::mem::take(&mut app.ui.people);
     refresh(app, &mut s, scope);
+    if s.query.is_some() {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label(tr("Grouping people…"));
+            if button(ui, "people:groupCancel", "Cancel").clicked() {
+                if let Some(query) = s.query.take() {
+                    query.cancel.store(true, Ordering::Relaxed);
+                }
+                s.refresh = false;
+                s.revision = app.session.catalog.revision;
+                s.scope = scope.to_vec();
+            }
+        });
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+    }
+
     ui.horizontal(|ui| {
         if button(ui, "smartSort:seedHeadshots", "Add People from Photos…").clicked()
             && let Some(pick) = &mut app.services.pick_folder
@@ -236,7 +331,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut Ui, scope: &[PhotoId], mut folder:
         let r = ui.add(egui::DragValue::new(&mut min).range(1..=10));
         register(ui.ctx(), "smartSort:minFaces", r.rect);
         if r.changed() {
-            command(app, &mut s, "smartSort.people", json!({"minPhotos":min}));
+            command(app, &mut s, "smartSort.people", json!({"minPhotos":min,"cluster":false}));
         }
         if button(ui, "smartSort:peopleUndo", "Undo").clicked() {
             command(app, &mut s, "edit.undo", json!({}));
@@ -554,6 +649,10 @@ fn photo(app: &mut LightcraftApp, ui: &mut Ui, id: PhotoId, size: egui::Vec2) ->
     r
 }
 pub fn overlay(app: &mut LightcraftApp, ctx: &egui::Context) {
+    // Keep the workspace pending while a separate dialog owns input.
+    if app.ui.dialog.as_ref().is_some_and(|d| !matches!(d, crate::state::Dialog::SmartSort { .. })) {
+        return;
+    }
     if app.ui.people.queue.is_none() && app.ui.people.merge.is_none() && app.ui.people.finder.is_none() {
         return;
     }
@@ -624,6 +723,9 @@ pub fn overlay(app: &mut LightcraftApp, ctx: &egui::Context) {
 }
 fn finder_body(app: &mut LightcraftApp, ui: &mut Ui, s: &mut PeopleUi, id: PhotoId) {
     face_options(app, ui);
+    if !app.ui.people.error.is_empty() {
+        s.error = std::mem::take(&mut app.ui.people.error);
+    }
     if !app.session.smart.prefs.faces_enabled {
         return;
     }

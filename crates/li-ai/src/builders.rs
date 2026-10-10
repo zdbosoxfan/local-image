@@ -306,7 +306,8 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
         _ => 1.0,
     };
     let empty = |g: &mut G| {
-        let l = g.add(&pl.latent, json!({ "width": p.width, "height": p.height, "batch_size": p.batch.max(1) }));
+        let l =
+            g.add(&pl.latent, json!({ "width": p.width, "height": p.height, "batch_size": if matches!(p.task, Task::Create) { p.batch.max(1) } else { 1 } }));
         link(&l, 0)
     };
     let mut latent = match (p.task, &source) {
@@ -909,5 +910,27 @@ mod tests {
         assert!(req.contains(&"ModelSamplingAuraFlow".into()) && req.contains(&"EmptySD3LatentImage".into()));
         let q = registry().model("qwen").unwrap();
         assert!(required_nodes(&q.0.resolved_for(q.1)).contains(&"TextEncodeQwenImage21".into()));
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_flux_refine_batch_is_not_squared() {
+    let family = crate::family::registry().family("flux2-klein").unwrap();
+    for task in [Task::Create, Task::Refine { denoise: 1.0 }, Task::Refine { denoise: 0.4 }] {
+        let mut p = Params::create("a cat", 128, 128, 3, 4, 1.0);
+        p.batch = 3;
+        p.task = task;
+        let built = build(family, &Files::default(), &p);
+        let nodes: Vec<_> = built.graph.as_object().unwrap().values().collect();
+        let empty = nodes.iter().find(|n| n["class_type"] == "EmptyFlux2LatentImage");
+        if let Some(empty) = empty {
+            assert_eq!(empty["inputs"]["batch_size"], if task == Task::Create { 3 } else { 1 });
+        }
+        let repeat: Vec<_> = nodes.iter().filter(|n| n["class_type"] == "RepeatLatentBatch").collect();
+        assert_eq!(repeat.len(), usize::from(task != Task::Create));
+        if let Some(repeat) = repeat.first() {
+            assert_eq!(repeat["inputs"]["amount"], 3);
+        }
     }
 }

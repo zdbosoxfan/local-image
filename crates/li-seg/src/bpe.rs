@@ -64,13 +64,23 @@ impl Bpe {
             return Vec::new();
         }
         let mut ids = vec![BOS];
-        for word in pre_tokenize(&text.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()) {
-            let mapped: String = word.bytes().map(|b| self.byte_char.get(usize::from(b)).copied().unwrap_or('?')).collect();
-            for piece in self.bpe(&mapped) {
-                ids.push(self.vocab.get(&piece).copied().unwrap_or(EOS));
+        'words: for chunk in text.split_whitespace() {
+            if ids.len() == context - 1 {
+                break;
+            }
+            for word in pre_tokenize(&chunk.to_lowercase()) {
+                if ids.len() == context - 1 {
+                    break 'words;
+                }
+                let mapped: String = word.bytes().map(|b| self.byte_char[usize::from(b)]).collect();
+                for piece in self.bpe(&mapped) {
+                    if ids.len() == context - 1 {
+                        break 'words;
+                    }
+                    ids.push(self.vocab.get(&piece).copied().unwrap_or(EOS));
+                }
             }
         }
-        ids.truncate(context - 1);
         ids.push(EOS);
         ids.resize(context, 0);
         ids
@@ -184,5 +194,34 @@ mod tests {
         assert_eq!(ids[0], BOS);
         assert!(ids[1..76].iter().all(|v| *v == 5));
         assert_eq!(ids[76], EOS);
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_bpe_preserves_prefix_without_processing_unused_suffix() {
+    let bpe = Bpe::new(serde_json::from_str(include_str!("../tests/fixtures/vocab.json")).unwrap(), include_str!("../tests/fixtures/merges.txt"));
+    let prefix = "cat ".repeat(76);
+    let long = prefix.clone() + &"x".repeat(100_000);
+    assert_eq!(bpe.encode(&long, 77), bpe.encode(&prefix, 77));
+    for text in [
+        "A DOG's toy, 25 cats!",
+        "ü CAT
+cat",
+        "1234 ?! cat",
+    ] {
+        let all = pre_tokenize(&text.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase());
+        let mut old = vec![BOS];
+        for word in all {
+            let mapped: String = word.bytes().map(|b| bpe.byte_char[b as usize]).collect();
+            old.extend(bpe.bpe(&mapped).iter().map(|p| bpe.vocab.get(p).copied().unwrap_or(EOS)));
+        }
+        for context in 2..20 {
+            let mut expected = old.clone();
+            expected.truncate(context - 1);
+            expected.push(EOS);
+            expected.resize(context, 0);
+            assert_eq!(bpe.encode(text, context), expected, "{text} context={context}");
+        }
     }
 }

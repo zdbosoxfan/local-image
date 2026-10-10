@@ -1391,6 +1391,7 @@ pub fn layer_key_of_control(id: &str) -> Option<&'static str> {
         "vignette" => "vignette",
         "grain" => "grain",
         "detail" => "detail",
+        "skinTone" => "skin_tone",
         _ => return None,
     })
 }
@@ -1512,4 +1513,14 @@ pub struct LensBlur {
 pub struct Enhance {
     pub raw_details: bool,
     pub super_resolution: bool,
+}
+
+#[cfg(test)]
+mod ds_tests {
+    use super::*;
+    #[test]
+    fn ds_finding_layer_skin_tone_controls_are_routed() {
+        let tools = LayerTools::default().set_controls((5000.0, 0.0), &[("skinTone.uniformity".into(), 25.0)]).unwrap();
+        assert_eq!(tools.skin_tone.unwrap().uniformity, 25.0);
+    }
 }

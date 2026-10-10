@@ -491,8 +491,9 @@ fn bands(r: Rect, rows: i32) -> Vec<Rect> {
     let mut out = Vec::new();
     let mut y = r.y0;
     while y < r.y1 {
-        out.push(Rect::new(r.x0, y, r.x1, (y + rows).min(r.y1)));
-        y += rows;
+        let end = y.saturating_add(rows.max(1)).min(r.y1);
+        out.push(Rect::new(r.x0, y, r.x1, end));
+        y = end;
     }
     out
 }
@@ -515,7 +516,7 @@ const BAND: i32 = 128;
 /// region-sized `shape`. Values within the reach depend only on the shape within
 /// [`field_radius`], so each band is computed from a window grown by it.
 pub(crate) fn field(kind: FieldKind, reach: i32, shape: &[f32], region: Rect, out: Rect) -> Vec<f32> {
-    let halo = field_radius(kind, reach) + 1;
+    let halo = field_radius(kind, reach).saturating_add(1);
     let parts = par_map(bands(out, BAND.max(halo)), |band| {
         let win = band.inflate(halo).intersect(&region);
         let f = photocraft_compose::effects::distance_field(kind, crop(shape, region, win), win.width() as usize, win.height() as usize);
@@ -685,6 +686,18 @@ mod tests {
     use super::*;
     use photocraft_color::BlendMode;
     use photocraft_doc::FxCommon;
+
+    #[test]
+    fn ds_finding_extreme_field_reach_matches_whole_region() {
+        let region = Rect::new(-4, -3, 12, 9);
+        let shape: Vec<_> = (0..192).map(|i| if i % 16 > 5 { 1.0 } else { 0.0 }).collect();
+        let kind = FieldKind::Outside;
+        let whole = photocraft_compose::effects::distance_field(kind, shape.clone(), 16, 12);
+        assert_eq!(field(kind, i32::MAX, &shape, region, region), whole);
+        assert_eq!(bands(region, i32::MAX), vec![region]);
+        let positive = Rect::new(5, 5, 20, 20);
+        assert_eq!(bands(positive, i32::MAX), vec![positive]);
+    }
 
     #[test]
     fn programs_key_on_geometry_not_colour() {

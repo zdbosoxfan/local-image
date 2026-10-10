@@ -439,7 +439,9 @@ fn group_header(app: &mut LightcraftApp, ui: &mut egui::Ui, run: &DateRun, ids: 
 pub fn request_thumb(app: &mut LightcraftApp, id: PhotoId, size: usize, priority: u32) {
     // Keep the filmstrip's existing pixels during a live edit. These CPU renders otherwise
     // compete with every loupe step and populate the disk cache with transient slider values.
-    if app.session.interaction.as_ref().is_some_and(|i| i.photo == id) {
+    let interacting = app.session.interaction.as_ref().is_some_and(|i| i.photo == id);
+    if interacting && (app.renderer.thumb(id).is_some() || app.renderer.is_pending(Slot::Thumb(id)) || app.renderer.is_pending(Slot::ThumbQuick(id)))
+    {
         return;
     }
     let bucket = lightcraft_engine::media::thumb_bucket(size);
@@ -448,10 +450,17 @@ pub fn request_thumb(app: &mut LightcraftApp, id: PhotoId, size: usize, priority
     {
         return;
     }
-    let Some(job) = app.session.thumb_job(id, size) else { return };
+    let Some(mut job) = app.session.thumb_job(id, size) else { return };
     #[cfg(test)]
     {
         app.renderer.thumb_jobs_built += 1;
+    }
+    if let Some(interaction) = app.session.interaction.as_ref().filter(|i| i.photo == id) {
+        // Pin the initial preview to committed settings, including the embedded-preview key.
+        let original = &interaction.original;
+        job.key ^= job.settings.hash64() ^ original.hash64();
+        job.settings = original.clone();
+        job.cache = None;
     }
     let quick = if app.renderer.textures.contains_key(&Slot::Thumb(id)) { None } else { app.session.quick_thumb_job(&job) };
     if let Some(photo) = app.session.catalog.photo(id) {
@@ -460,11 +469,13 @@ pub fn request_thumb(app: &mut LightcraftApp, id: PhotoId, size: usize, priority
     match quick {
         Some(q) => {
             app.renderer.request_quick(Slot::ThumbQuick(id), q, priority + 1);
-            if !app.renderer.is_pending(Slot::ThumbQuick(id)) {
+            if !interacting && !app.renderer.is_pending(Slot::ThumbQuick(id)) {
                 app.renderer.request(Slot::Thumb(id), job, BACKGROUND_THUMB_PRIORITY);
             }
         }
-        None => app.renderer.request(Slot::Thumb(id), job, priority),
+        None => {
+            app.renderer.request(Slot::Thumb(id), job, priority);
+        }
     }
 }
 

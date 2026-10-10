@@ -1089,6 +1089,7 @@ pub(crate) fn status_controls_with(app: &mut PhotocraftApp, ui: &mut egui::Ui, s
         app.ui.status = tl!("Unloading AI models…").into();
         app.ui.status_error = false;
         let lang = crate::i18n::current();
+        let ctx = ui.ctx().clone();
         let _ = std::thread::Builder::new().name("ai-unload".into()).spawn(move || {
             crate::i18n::set_current(lang);
             let note = match li_ai::service().client.free_memory() {
@@ -1099,6 +1100,7 @@ pub(crate) fn status_controls_with(app: &mut PhotocraftApp, ui: &mut egui::Ui, s
                 *n = Some(note);
             }
             refresh();
+            ctx.request_repaint();
         });
     }
 }
@@ -2100,6 +2102,43 @@ mod tests {
         }
         gate.store(true, std::sync::atomic::Ordering::Relaxed);
         let _ = h.state_mut().session.wait_job(other);
+    }
+
+    #[test]
+    fn ds_finding_unload_completion_wakes_idle_ui() {
+        let _lock = AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let server = li_ai::mock::MockComfy::start().unwrap();
+        server.free_delay_ms.store(200, std::sync::atomic::Ordering::SeqCst);
+        struct Reset;
+        impl Drop for Reset {
+            fn drop(&mut self) {
+                li_ai::set_service_override(None);
+            }
+        }
+        let _reset = Reset;
+        li_ai::set_service_override(Some(server.host().into()));
+        let app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        let connected = EngineStatus { checked: true, connected: true, ..Default::default() };
+        let mut h = egui_kittest::Harness::builder()
+            .with_size(vec2(400.0, 40.0))
+            .build_ui_state(move |ui, app: &mut PhotocraftApp| status_controls_with(app, ui, &connected), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(2);
+        let woke = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let record = woke.clone();
+        h.ctx.set_request_repaint_callback(move |_| {
+            if std::thread::current().name() == Some("ai-unload") {
+                record.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        });
+        h.get_by_label("Unload AI models from GPU memory").click();
+        h.run_steps(8);
+        let start = Instant::now();
+        while woke.load(std::sync::atomic::Ordering::Relaxed) == 0 && start.elapsed() < Duration::from_secs(3) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(woke.load(std::sync::atomic::Ordering::Relaxed) > 0, "worker must request repaint after publishing its status");
+        assert_eq!(REMOVE_NOTE.lock().unwrap().take().unwrap(), ("Models unloaded.".into(), false));
     }
 
     /// Disconnected: Eject is shown but inert.

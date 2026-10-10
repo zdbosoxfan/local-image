@@ -14,6 +14,9 @@ use crate::plan::{FxLayer, MaskUse, Pass, Plan, Role, SurfaceRef, TexUse, Unsupp
 #[derive(Default)]
 pub struct PlanCache {
     key: String,
+    snapshot: std::sync::Weak<Document>,
+    gamma: f32,
+    pub key_builds: u64,
     cached: Option<Result<Template, Unsupported>>,
     bounds: HashMap<u64, Rect>,
     _profile: Option<Arc<Vec<u8>>>,
@@ -33,8 +36,12 @@ struct Template {
 
 impl PlanCache {
     pub fn get<'a>(&mut self, doc: &'a Document, check: impl FnOnce(&Plan<'_>) -> Result<(), Unsupported>) -> Result<Plan<'a>, Unsupported> {
-        let key = self.structure(doc);
-        if self.cached.is_none() || self.key != key {
+        let same = self.snapshot.upgrade().is_some_and(|saved| std::ptr::eq(saved.as_ref(), doc)) && self.gamma == photocraft_compose::psblend::text_gamma();
+        if !same {
+            self.snapshot = std::sync::Weak::new();
+        }
+        let key = if same { None } else { Some(self.structure(doc)) };
+        if self.cached.is_none() || key.as_ref().is_some_and(|key| self.key != *key) {
             self.builds += 1;
             self.cached = Some(crate::plan(doc).and_then(|mut p| {
                 if let Some(Ok(previous)) = &self.cached {
@@ -43,7 +50,9 @@ impl PlanCache {
                 check(&p)?;
                 Ok(Template::new(doc, &p))
             }));
-            self.key = key;
+            if let Some(key) = key {
+                self.key = key;
+            }
         }
         match self.cached.as_ref() {
             Some(Ok(t)) => t.bind(doc),
@@ -52,11 +61,22 @@ impl PlanCache {
         }
     }
 
+    /// Arc snapshots cannot mutate in place while a Weak identity is live: Arc::make_mut
+    /// either clones the document or dissociates the Weak. Ordinary borrowed documents still
+    /// get the complete key, so this does not trust mutable Document revision counters.
+    pub fn get_snapshot<'a>(&mut self, doc: &'a Arc<Document>, check: impl FnOnce(&Plan<'_>) -> Result<(), Unsupported>) -> Result<Plan<'a>, Unsupported> {
+        let plan = self.get(doc, check);
+        self.snapshot = Arc::downgrade(doc);
+        self.gamma = photocraft_compose::psblend::text_gamma();
+        plan
+    }
+
     pub fn layer_ids(&self) -> Option<Arc<HashSet<LayerId>>> {
         self.cached.as_ref().and_then(|t| t.as_ref().ok()).map(|t| t.layers.clone())
     }
 
     fn structure(&mut self, doc: &Document) -> String {
+        self.key_builds += 1;
         // Bound storage is bounded even during a long stroke (surface revisions are unique).
         if self.bounds.len() > 4096 {
             self.bounds.clear();
@@ -459,4 +479,30 @@ mod fallback_input_tests {
         c.get(&d, |_| Ok(())).unwrap();
         assert_eq!(c.builds, 5);
     }
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_snapshot_skips_structure_key_but_make_mut_invalidates() {
+    use photocraft_color::{Color, ColorMode, SampleType};
+    use photocraft_doc::Size;
+    let mut doc = Arc::new(Document::with_background("snapshot", Size::new(8, 8), ColorMode::Rgb, SampleType::U8, Color::rgb(0.1, 0.2, 0.3)));
+    let mut cache = PlanCache::default();
+    cache.get_snapshot(&doc, |_| Ok(())).unwrap();
+    for _ in 0..20 {
+        cache.get(&doc, |_| panic!("unchanged snapshot replanned")).unwrap();
+    }
+    assert_eq!(cache.key_builds, 1);
+    Arc::make_mut(&mut doc).layers[0].opacity = 0.5;
+    cache.get_snapshot(&doc, |_| Ok(())).unwrap();
+    assert_eq!(cache.key_builds, 2);
+    assert_eq!(cache.builds, 2);
+    // An ordinary mutable document must still be inspected after each edit.
+    let mut owned = (*doc).clone();
+    cache.get(&owned, |_| Ok(())).unwrap();
+    owned.layers[0].opacity = 0.2;
+    cache.get(&owned, |_| Ok(())).unwrap();
+    assert_eq!(cache.key_builds, 4);
+    cache.get_snapshot(&doc, |_| Ok(())).unwrap();
+    assert_eq!(cache.key_builds, 5, "a borrowed document cannot leave a stale snapshot identity");
 }

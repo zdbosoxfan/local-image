@@ -15,26 +15,24 @@ use crate::vc::{Color, ColorImage};
 
 use crate::error::Error;
 
-fn color_exists(img: &ColorImage, color: Color) -> bool {
-    for y in 0..img.height {
-        for x in 0..img.width {
-            let p = img.get_pixel(x, y);
-            if p.r == color.r && p.g == color.g && p.b == color.b {
-                return true;
-            }
-        }
-    }
-    false
-}
-
 /// Find a color not present in the image, to be used as the key. Tries the
 /// primary/secondary colors first, then does a deterministic sweep of the RGB
-/// cube. Returns [`Error::NoKeyColor`] only if every probed color is used.
+/// cube. Returns [`Error::NoKeyColor`] only if all 24-bit RGB colors are used.
 pub fn find_unused_color(img: &ColorImage) -> Result<Color, Error> {
+    // One bit per RGB value: bounded 2 MiB, regardless of image size.
+    let mut occupied = vec![0u64; (1 << 24) / 64];
+    for p in img.pixels.as_chunks::<4>().0 {
+        let i = (usize::from(p[0]) << 16) | (usize::from(p[1]) << 8) | usize::from(p[2]);
+        occupied[i / 64] |= 1u64 << (i % 64);
+    }
+    let exists = |c: Color| {
+        let i = (usize::from(c.r) << 16) | (usize::from(c.g) << 8) | usize::from(c.b);
+        occupied[i / 64] & (1u64 << (i % 64)) != 0
+    };
     let specials =
         [Color::new(255, 0, 0), Color::new(0, 255, 0), Color::new(0, 0, 255), Color::new(255, 255, 0), Color::new(0, 255, 255), Color::new(255, 0, 255)];
     for &c in specials.iter() {
-        if !color_exists(img, c) {
+        if !exists(c) {
             return Ok(c);
         }
     }
@@ -48,7 +46,7 @@ pub fn find_unused_color(img: &ColorImage) -> Result<Color, Error> {
             let mut b = 0u16;
             while b < 256 {
                 let c = Color::new(r as u8, g as u8, b as u8);
-                if !color_exists(img, c) {
+                if !exists(c) {
                     return Ok(c);
                 }
                 b += STEP;
@@ -58,6 +56,12 @@ pub fn find_unused_color(img: &ColorImage) -> Result<Color, Error> {
         r += STEP;
     }
 
+    for (word, &bits) in occupied.iter().enumerate() {
+        if bits != u64::MAX {
+            let i = word * 64 + (!bits).trailing_zeros() as usize;
+            return Ok(Color::new((i >> 16) as u8, (i >> 8) as u8, i as u8));
+        }
+    }
     Err(Error::NoKeyColor)
 }
 
@@ -69,5 +73,25 @@ pub fn apply_key(img: &mut ColorImage, key: Color) {
                 img.set_pixel(x, y, &key);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod ds_tests {
+    use super::*;
+    #[test]
+    fn ds_finding_key_search_covers_more_than_initial_candidates() {
+        let mut colors = vec![[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255], [255, 255, 0, 255], [0, 255, 255, 255], [255, 0, 255, 255]];
+        for r in (0..256).step_by(37) {
+            for g in (0..256).step_by(37) {
+                for b in (0..256).step_by(37) {
+                    colors.push([r as u8, g as u8, b as u8, 255]);
+                }
+            }
+        }
+        let img = ColorImage { width: colors.len(), height: 1, pixels: colors.iter().flatten().copied().collect() };
+        let key = find_unused_color(&img).unwrap();
+        assert!(!colors.iter().any(|c| c[..3] == [key.r, key.g, key.b]));
+        assert_eq!([key.r, key.g, key.b], [0, 0, 1]);
     }
 }

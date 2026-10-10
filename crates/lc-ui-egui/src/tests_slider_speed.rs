@@ -436,6 +436,19 @@ fn slider_step_timings(gpu: bool) {
 
 #[test]
 fn develop_slider_cpu_step_timings() {
+    // The preference is process-wide. Other headless apps running in parallel can
+    // enable it, so pin this CPU measurement in its own process.
+    if std::env::var_os("LC_SLIDER_CPU_TEST_CHILD").is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "tests_slider_speed::develop_slider_cpu_step_timings", "--nocapture"])
+            .env("LC_SLIDER_CPU_TEST_CHILD", "1")
+            .env("LIGHTCRAFT_GPU", "0")
+            .output()
+            .unwrap();
+        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+        assert!(output.status.success(), "CPU timing child failed: {}", String::from_utf8_lossy(&output.stdout));
+        return;
+    }
     slider_step_timings(false);
 }
 

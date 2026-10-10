@@ -52,6 +52,7 @@ impl Entry {
             self.author.as_deref(),
             self.used_for.as_deref(),
             self.upstream.as_deref(),
+            self.commit.as_deref(),
             self.ours.as_deref(),
             Some(self.licence.as_str()),
             self.url.as_deref(),
@@ -145,11 +146,11 @@ pub fn show(ui: &mut Ui, salt: &str, max_height: f32, tr: Translate<'_>) -> Outp
     ui.add_space(4.0);
     let query = st.query.trim().to_lowercase();
     egui::ScrollArea::vertical().id_salt(id.with("scroll")).max_height(max_height).auto_shrink([false, true]).show(ui, |ui| {
-        if query.is_empty() || data.app.matches(&query) {
+        let mut any = query.is_empty() || data.app.matches(&query);
+        if any {
             entry_ui(ui, "app", &data.app, &mut st, &mut out, tr);
             ui.add_space(6.0);
         }
-        let mut any = false;
         for s in &data.sections {
             let shown: Vec<(usize, &Entry)> = s.entries.iter().enumerate().filter(|(_, e)| query.is_empty() || e.matches(&query)).collect();
             if shown.is_empty() {
@@ -300,6 +301,7 @@ mod tests {
     fn search_matches_every_word_in_any_field() {
         let dt = data().entries().map(|(_, e)| e).find(|e| e.name == "darktable").unwrap();
         assert!(dt.matches("darktable"));
+        assert!(dt.matches(&dt.commit.as_ref().unwrap()[..8]));
         assert!(dt.matches("gpl darktable"));
         assert!(!dt.matches("darktable lucide"));
     }
@@ -328,4 +330,39 @@ mod tests {
         assert!(!wgpu.contains(&"darktable".to_string()));
         assert!(run("no such thing at all").is_empty());
     }
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_app_only_search_does_not_say_no_matches() {
+    let query = "layered raster editor";
+    assert!(data().app.matches(query));
+    assert!(!data().entries().any(|(_, e)| e.matches(query)));
+    let ctx = egui::Context::default();
+    let tr = |s: &'static str| s.to_string();
+    let mut out = Output::default();
+    let mut frame = ctx.run_ui(Default::default(), |ui| {
+        out = show(ui, "ds", 600., &tr);
+    });
+    frame.textures_delta.clear();
+    let at = out.search.unwrap().center();
+    for pressed in [true, false] {
+        let raw = egui::RawInput {
+            events: vec![
+                egui::Event::PointerMoved(at),
+                egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE },
+            ],
+            ..Default::default()
+        };
+        frame = ctx.run_ui(raw, |ui| {
+            out = show(ui, "ds", 600., &tr);
+        });
+        frame.textures_delta.clear();
+    }
+    frame = ctx.run_ui(egui::RawInput { events: vec![egui::Event::Text(query.into())], ..Default::default() }, |ui| {
+        out = show(ui, "ds", 600., &tr);
+    });
+    frame.textures_delta.clear();
+    assert_eq!(out.rows.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(), ["Local Image"]);
+    assert!(!frame.shapes.iter().any(|s| matches!(&s.shape,egui::Shape::Text(t) if t.galley.job.text=="No matches.")));
 }

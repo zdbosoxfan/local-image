@@ -7,6 +7,8 @@ from pathlib import Path
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--sources', type=Path, default=Path('/home/zdavidson/.local/share/local-image-dev/engine-sources/dt-src'))
+parser.add_argument('--only-haze', action='store_true')
+parser.add_argument('--sorted-haze-quantiles', action='store_true', help='independent sorted-rank oracle for the corrected percentile selection')
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[4]
 out = Path(__file__).resolve().parent
@@ -119,7 +121,8 @@ def run(name, text, compiler, ext):
     data=subprocess.check_output([str(path/'reference')])
     (out/('detail-'+name+'.csv')).write_bytes(data)
     print(name, len(data), 'bytes')
-run('nr', nr, 'gcc', 'c')
+if not args.only_haze:
+    run('nr', nr, 'gcc', 'c')
 
 # C++ templates are extracted unchanged; no project headers/runtime or C in the Cargo build.
 alloc = r'''
@@ -150,7 +153,20 @@ typedef dt_aligned_pixel_t rgb_pixel;
 typedef struct {const float *data;int width,height,stride;} const_rgb_image;
 '''
 for f in ['_pointer_swap_f','_dark_channel','_transition_map','_partition','_quick_select','_ambient_light']:
-    haze += extract('hazeremoval.c',f)
+    if f == '_quick_select' and args.sorted_haze_quantiles:
+        # Independent rank oracle; the remaining upstream function bodies stay unchanged.
+        haze += r'''
+static int sorted_haze_compare(const void *a,const void *b){
+  const float x=*(const float*)a,y=*(const float*)b;
+  return (x>y)-(x<y);
+}
+void _quick_select(float *first,float *nth,float *last,const gboolean compatibility_mode){
+  (void)nth;(void)compatibility_mode;
+  qsort(first,(size_t)(last-first),sizeof(float),sorted_haze_compare);
+}
+'''
+    else:
+        haze += extract('hazeremoval.c',f)
 haze += r'''
 int main(void){
   enum{W=37,H=29,N=W*H};float in[N*4],trans[N],refined[N],box[N];
@@ -170,4 +186,4 @@ int main(void){
   return 0;
 }
 '''
-run('haze',haze,'g++','cc')
+run('haze-sorted' if args.sorted_haze_quantiles else 'haze',haze,'g++','cc')

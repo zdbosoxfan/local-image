@@ -82,3 +82,40 @@ fn the_library_shows_the_unsaved_composite_of_a_photo_in_compositing() {
     assert_ne!(h.app.loupe_shown.map(|l| l.1), Some("compositing"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn ds_finding_compositing_button_is_clipped_to_small_loupe() {
+    let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Services::default());
+    let id = app.session.active().unwrap();
+    let mut view = crate::headless::HeadlessView::new();
+    host_composite::set(&mut app, &view.ctx, id, 1, 2, 2, &[255, 0, 0, 255].repeat(4), "");
+    let area = egui::Rect::from_min_size(egui::pos2(10., 10.), egui::vec2(85., 50.));
+    let mut button = None;
+    for _ in 0..2 {
+        view.run(crate::headless::HeadlessView::raw_input(egui::vec2(250., 150.), 1., 0., vec![]), |ui| {
+            button = host_composite::loupe(&app, ui, id, area);
+        });
+    }
+    let rect = button.expect("partially visible button");
+    assert!(area.contains_rect(rect));
+    let mut clicked = false;
+    for at in [egui::pos2(area.right() + 5., rect.center().y), rect.center()] {
+        let mut this_click = false;
+        for pressed in [true, false] {
+            let events = vec![
+                egui::Event::PointerMoved(at),
+                egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE },
+            ];
+            view.run(crate::headless::HeadlessView::raw_input(egui::vec2(250., 150.), 1., 0., events), |ui| {
+                let r = host_composite::loupe(&app, ui, id, area).unwrap();
+                this_click |= host_composite::button(ui, id, r);
+            });
+        }
+        if area.contains(at) {
+            clicked = this_click;
+        } else {
+            assert!(!this_click, "adjacent UI is not clickable as the loupe button");
+        }
+    }
+    assert!(clicked);
+}

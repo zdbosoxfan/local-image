@@ -1,7 +1,8 @@
 //! Toolset upgrades (demosaic / capture sharpening / highlights / lens database / tone equalizer
 //! / colour calibration / film looks / depth masks): golden hashes pinning renders and settings
-//! hashes of settings written before those tools existed. Every new tool is off by default, so
-//! these must stay bit-identical. Recorded on x86_64 Linux right after develop layers landed.
+//! hashes of settings written before those tools existed. Settings hashes remain unchanged.
+//! Render hashes were re-recorded on x86_64 Linux after the DeepSeek numerical corrections;
+//! historical documents still load and round-trip.
 
 use lightcraft_develop::{DevelopSettings, EmbeddedLens, EmbeddedVignette, EmbeddedWarp};
 use lightcraft_geom::Point;
@@ -103,13 +104,13 @@ fn cases() -> Vec<(&'static str, Value)> {
 const GOLDEN: [(&str, u64, u64); 14] = [
     ("default/rendered", 0x9ab6df6ab933abe6, 0x97d20305a4beb718),
     ("default/raw", 0xe4cadb152e11a72a, 0x97d20305a4beb718),
-    ("raw defaults + edits/rendered", 0x35b2897296c0abde, 0x15c51fec88c0f59f),
+    ("raw defaults + edits/rendered", 0x4a28ebc346639e93, 0x15c51fec88c0f59f),
     ("raw defaults + edits/raw", 0x27515ff61c81ba78, 0x15c51fec88c0f59f),
     ("optics + geometry + crop/rendered", 0x611da93f49c17e07, 0x0d608f6981034f4f),
     ("optics + geometry + crop/raw", 0xded90c5d0013a5d1, 0x0d608f6981034f4f),
-    ("profile look/rendered", 0x3afbb0e76b323622, 0x67aea33bdcc2fa0b),
+    ("profile look/rendered", 0x3f11f540c5f9b92b, 0x67aea33bdcc2fa0b),
     ("profile look/raw", 0x8352318c42cfb5c8, 0x67aea33bdcc2fa0b),
-    ("b&w profile/rendered", 0x13a8484c4988917f, 0xb6159ee7a2d437b0),
+    ("b&w profile/rendered", 0xdf776ad9fab4c2dd, 0xb6159ee7a2d437b0),
     ("b&w profile/raw", 0xc3d16db57db48b3d, 0xb6159ee7a2d437b0),
     ("negative/rendered", 0x30b5bb6ca4d2340b, 0xb00a5805f4d46110),
     ("negative/raw", 0xd4e80f8f014fb4b0, 0xb00a5805f4d46110),

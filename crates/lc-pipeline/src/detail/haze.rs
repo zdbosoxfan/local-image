@@ -36,52 +36,14 @@ pub fn windows(scale: f32) -> (usize, usize) {
 fn max_filter(p: &Plane, r: usize) -> Plane {
     min_filter(&p.map(|v| -v), r).map(|v| -v)
 }
-// Term-for-term modern upstream median-of-three quick_select. Keeping its partition
-// ordering matters when the dark channel contains repeated window minima.
+// Rust's selection partitions around the selected element, including repeated minima.
+// The upstream-derived hand partition could swap its pivot into the unsorted interior.
 fn quantile(mut v: Vec<f32>, p: f32) -> f32 {
     if v.is_empty() {
         return 0.0;
     }
     let nth = ((v.len() as f32 * p) as usize).min(v.len() - 1);
-    let (mut first, mut last) = (0, v.len());
-    while last > first + 1 {
-        let pivot = last - 1;
-        if v[first] >= v[pivot] {
-            v.swap(first, pivot);
-        }
-        if v[first] >= v[nth] {
-            v.swap(first, nth);
-        }
-        if v[pivot] >= v[nth] {
-            v.swap(pivot, nth);
-        }
-        let val = v[pivot];
-        let (mut a, mut b) = (first, last);
-        let new_pivot = loop {
-            a += 1;
-            while a < b && v[a] < val {
-                a += 1;
-            }
-            b -= 1;
-            while a < b && v[b] > val {
-                b -= 1;
-            }
-            if a >= b {
-                break a;
-            }
-            v.swap(a, b);
-        };
-        v.swap(pivot, new_pivot);
-        if nth == new_pivot {
-            break;
-        }
-        if nth < new_pivot {
-            last = new_pivot;
-        } else {
-            first = new_pivot + 1;
-        }
-    }
-    v[nth]
+    *v.select_nth_unstable_by(nth, f32::total_cmp).1
 }
 
 /// Modern upstream 95% dark-channel / 95% brightness selection, ambient colour and depth.
@@ -255,4 +217,21 @@ pub fn dehaze_px(c: [f32; 3], strength: f32, dark: f32, air: [f32; 3], distance:
     let tmin = (-s.abs() * distance).exp().clamp(1.0 / 1024.0, 1.0);
     let t = (1.0 - s * dark).max(tmin);
     if t == 1.0 { c } else { std::array::from_fn(|k| (c[k] - air[k]) / t + air[k]) }
+}
+
+#[cfg(test)]
+mod ds_review_tests {
+    #[test]
+    fn ds_finding_quantile_keeps_pivot_outside_partition() {
+        assert_eq!(super::quantile(vec![1.0, 4.0, 3.0, 2.0], 0.95), 4.0);
+        for len in 1..100 {
+            let values: Vec<_> = (0..len).map(|i| ((i * 37 + len * 13) % 17) as f32).collect();
+            let mut sorted = values.clone();
+            sorted.sort_by(f32::total_cmp);
+            for p in [0.0, 0.5, 0.95, 1.0] {
+                let nth = ((len as f32 * p) as usize).min(len - 1);
+                assert_eq!(super::quantile(values.clone(), p), sorted[nth], "len={len} p={p}");
+            }
+        }
+    }
 }

@@ -356,7 +356,7 @@ pub fn liquify_entry(tool: LiquifyTool) -> Entry {
 
 /// Attach the tip of a Liquify tool; its strip has no groups.
 pub fn attach_liquify(session: &photocraft_engine::Session, ui: &egui::Ui, resp: &Response, tool: LiquifyTool, key: &str, icon: &'static str) {
-    let key = crate::shortcuts::local_tool_shortcut(session, &crate::liquify_ui::shortcut_id(tool), key).map(|s| crate::shortcuts::pretty(&s));
+    let key = crate::shortcuts::local_tool_shortcut(session, crate::liquify_ui::shortcut_id(tool), key).map(|s| crate::shortcuts::pretty(&s));
     let k2 = key.clone();
     attach_spec(session, ui, resp, false, tl!(tool.label()), key, || Spec {
         title: tl!(tool.label()).to_string(),

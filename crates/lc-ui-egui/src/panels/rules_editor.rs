@@ -84,7 +84,12 @@ fn person_picker(ui: &mut egui::Ui, op: &str, v: &mut Value, salt: &str, people:
     let r = crate::widgets::dropdown(ui, &format!("rule-person-{salt}"), &label, t.font(12.5), t.text);
     register(ui.ctx(), format!("rulePerson:{salt}"), r.rect);
     egui::Popup::menu(&r).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
-        for (id, name) in people {
+        let missing: Vec<_> = ids
+            .iter()
+            .filter(|id| !people.iter().any(|p| p.0 == **id))
+            .map(|id| (*id, crate::i18n::tr_format!("Unnamed person {id}", id = id)))
+            .collect();
+        for (id, name) in people.iter().chain(&missing) {
             if multiple {
                 let mut selected = ids.contains(id);
                 let r = ui.checkbox(&mut selected, name);
@@ -284,4 +289,41 @@ pub fn people_choices(app: &crate::LightcraftApp) -> Vec<(u64, String)> {
         .filter(|p| !p.ignored)
         .map(|p| (p.id, if p.name.is_empty() { crate::i18n::tr_format!("Unnamed person {id}", id = p.id) } else { p.name.clone() }))
         .collect()
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_person_picker_can_remove_selected_missing_identity() {
+    let mut view = crate::headless::HeadlessView::new();
+    let mut value = json!([1, 99]);
+    let size = egui::vec2(500., 400.);
+    let mut render = |view: &mut crate::headless::HeadlessView, events| {
+        view.run(crate::headless::HeadlessView::raw_input(size, 1., 0., events), |ui| {
+            person_picker(ui, "anyOf", &mut value, "ds2", &[(1, "Jane".into())])
+        });
+        crate::widgets::take_registry(&view.ctx)
+    };
+    let widgets = render(&mut view, vec![]);
+    let at = widgets.iter().find(|(id, _)| id == "rulePerson:ds2").unwrap().1.center();
+    for pressed in [true, false] {
+        render(
+            &mut view,
+            vec![
+                egui::Event::PointerMoved(at),
+                egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() },
+            ],
+        );
+    }
+    let widgets = render(&mut view, vec![]);
+    let at = widgets.iter().find(|(id, _)| id == "rulePerson:ds2:99").unwrap().1.center();
+    for pressed in [true, false] {
+        render(
+            &mut view,
+            vec![
+                egui::Event::PointerMoved(at),
+                egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() },
+            ],
+        );
+    }
+    assert_eq!(value, json!([1]));
 }

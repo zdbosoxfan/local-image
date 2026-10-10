@@ -330,6 +330,16 @@ fn sky_models_are_one_sigmoid_map_or_class_logits() {
 }
 
 #[test]
+fn ds_finding_custom_sky_class_is_validated_on_reload() {
+    let dir = temp_models();
+    let model = picked(&dir, "many.onnx", Some((32, 32)), Out::Classes(4));
+    let c = add_custom(&dir, Group::Sky, &model, CustomOptions { sky_class: 2, ..Default::default() }, &keep).unwrap();
+    std::fs::write(custom_list(&dir), format!("sky\t{}\tSky\t32\tisnet\t4\t4\n", c.file)).unwrap();
+    assert!(custom(&dir, Group::Sky).is_none());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn replacing_a_custom_model_puts_the_old_copy_away() {
     let dir = temp_models();
     let a = picked(&dir, "a.onnx", Some((32, 32)), Out::Map);
@@ -587,5 +597,31 @@ fn faces_official_bundle_contains_both_pinned_models_and_no_custom_flow() {
     assert_eq!(removed, 12);
     assert!(!model_path(&dir, spec).exists());
     assert!(!companion_path(&dir, faces::YUNET.file).exists());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn ds_finding_failed_custom_publication_keeps_old_registration_and_file() {
+    let dir = temp_models();
+    let source = picked(&dir, "a.onnx", Some((32, 32)), Out::Map);
+    let old = add_custom(&dir, Group::Subject, &source, CustomOptions::default(), &keep).unwrap();
+    let bytes = std::fs::read(old.path(&dir)).unwrap();
+    let registry = std::fs::read(custom_list(&dir)).unwrap();
+    for src in [&source, &picked(&dir, "b.onnx", Some((32, 32)), Out::Map)] {
+        assert!(
+            add_custom_with(
+                &dir,
+                Group::Subject,
+                src,
+                CustomOptions { norm: Norm::ImageNet, ..Default::default() },
+                &|_| panic!("old file disposed before publication"),
+                &|_, _| Err(anyhow::anyhow!("disk full"))
+            )
+            .is_err()
+        );
+        assert_eq!(std::fs::read(old.path(&dir)).unwrap(), bytes);
+        assert_eq!(std::fs::read(custom_list(&dir)).unwrap(), registry);
+        assert_eq!(custom(&dir, Group::Subject), Some(old.clone()));
+    }
     std::fs::remove_dir_all(dir).unwrap();
 }

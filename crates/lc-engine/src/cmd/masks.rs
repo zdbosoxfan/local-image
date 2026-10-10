@@ -777,6 +777,11 @@ pub fn specs() -> Vec<CommandSpec> {
                 }
                 let mut dd = (*s.develop_of(id).unwrap_or_default()).clone();
                 let base = Spot::default();
+                let hash = s.catalog.photo(id).map(|p| crate::enhance::source_hash(p));
+                let source_settings = settings_for_source(&dd, hash.as_deref());
+                let src = s.source_now(id, crate::media::SourceLevel::Thumb).ok();
+                let info = s.source_info(id);
+                let mut additions = Vec::with_capacity(found.len());
                 for d in &found {
                     let mut spot = Spot {
                         mode: SpotMode::Heal,
@@ -787,9 +792,11 @@ pub fn specs() -> Vec<CommandSpec> {
                         source_offset: None,
                         ..Default::default()
                     };
-                    spot.source_offset = pick_source(s, id, &dd, &spot, None);
-                    dd.spots.push(spot);
+                    spot.source_offset =
+                        src.as_ref().and_then(|src| lightcraft_pipeline::spots::pick_source(src, &info, &source_settings, &spot, None));
+                    additions.push(spot);
                 }
+                dd.spots.extend(additions);
                 s.set_develop(id, dd, "Find Dust Spots")?;
                 Ok(json!({"spots": out, "added": found.len()}))
             }
@@ -1025,17 +1032,8 @@ fn pick_source(s: &mut Session, id: crate::PhotoId, d: &lightcraft_develop::Deve
     let src = s.source_now(id, crate::media::SourceLevel::Thumb).ok()?;
     let info = s.source_info(id);
     let hash = s.catalog.photo(id).map(|p| crate::enhance::source_hash(p));
-    let foreign = |sp: &Spot| sp.patch.as_ref().is_some_and(|p| hash.as_deref() != Some(p.source.as_str()));
-    let own;
-    let d = if d.spots.iter().any(foreign) {
-        let mut c = d.clone();
-        c.spots.retain(|sp| !foreign(sp));
-        own = c;
-        &own
-    } else {
-        d
-    };
-    lightcraft_pipeline::spots::pick_source(&src, &info, d, spot, avoid)
+    let own = settings_for_source(d, hash.as_deref());
+    lightcraft_pipeline::spots::pick_source(&src, &info, &own, spot, avoid)
 }
 
 fn clamp_local(mut a: LocalAdjustments) -> LocalAdjustments {
@@ -1065,4 +1063,43 @@ fn clamp_local(mut a: LocalAdjustments) -> LocalAdjustments {
     c(&mut a.color_sat, 0.0, 100.0);
     c(&mut a.amount, 0.0, 200.0);
     a
+}
+
+fn settings_for_source<'a>(
+    d: &'a lightcraft_develop::DevelopSettings,
+    hash: Option<&str>,
+) -> std::borrow::Cow<'a, lightcraft_develop::DevelopSettings> {
+    let foreign = |sp: &Spot| sp.patch.as_ref().is_some_and(|p| hash != Some(p.source.as_str()));
+    if !d.spots.iter().any(foreign) {
+        return std::borrow::Cow::Borrowed(d);
+    }
+    let mut own = d.clone();
+    own.spots.retain(|sp| !foreign(sp));
+    std::borrow::Cow::Owned(own)
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_dust_source_settings_filter_foreign_once() {
+    use lightcraft_develop::{AiPatch, DevelopSettings};
+    let patch = |source: &str| AiPatch {
+        key: "k".into(),
+        source: source.into(),
+        rect: [0., 0., 1., 1.],
+        engine: "local".into(),
+        seed: 1,
+        geometry: "".into(),
+    };
+    let d = DevelopSettings {
+        spots: vec![
+            Spot { mode: SpotMode::Ai, patch: Some(patch("foreign")), ..Default::default() },
+            Spot { mode: SpotMode::Ai, patch: Some(patch("own")), ..Default::default() },
+        ],
+        ..Default::default()
+    };
+    let filtered = settings_for_source(&d, Some("own"));
+    assert_eq!(filtered.spots.len(), 1);
+    assert_eq!(filtered.spots[0].patch.as_ref().unwrap().source, "own");
+    assert_eq!(d.spots.len(), 2);
+    assert!(matches!(settings_for_source(&filtered, Some("own")), std::borrow::Cow::Borrowed(_)));
 }

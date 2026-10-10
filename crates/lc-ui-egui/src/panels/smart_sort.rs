@@ -155,7 +155,8 @@ pub fn open(app: &mut LightcraftApp, selected_only: bool) {
             source,
             source_name,
             library_examples: selected,
-            people_folders: preset.folders.iter().any(|f| f.people_enabled),
+            people_folders: preset.folders.iter().any(|f| f.people_enabled)
+                || app.session.smart.people.data.people.iter().any(|p| p.folder_enabled && !p.ignored),
             preset,
             dest: home.join("Desktop").to_string_lossy().into_owned(),
             ..Default::default()
@@ -189,11 +190,16 @@ fn classify(app: &mut LightcraftApp, s: &mut SmartSortDialog) -> Result<(), Stri
         .map_err(|e| e.to_string())?;
     s.rows = serde_json::from_value(result["photos"].clone()).map_err(|e| e.to_string())?;
     s.counts = serde_json::from_value(result["counts"].clone()).map_err(|e| e.to_string())?;
-    if first_review
+    if (first_review || (s.review_folder != "Unsorted" && !s.preset.categories.iter().any(|c| c.name == s.review_folder)))
         && s.counts.get(&s.review_folder).copied().unwrap_or(0) == 0
         && let Some(category) = s.preset.categories.iter().find(|c| s.counts.get(&c.name).copied().unwrap_or(0) > 0)
     {
         s.review_folder = category.name.clone();
+    }
+    if s.review_folder != "Unsorted" && !s.preset.categories.iter().any(|c| c.name == s.review_folder) {
+        s.review_folder = "Unsorted".into();
+        s.focus = None;
+        s.anchor = None;
     }
     // The command returns its learned exemplars through the last preset.
     if let Some(last) = &app.session.smart.prefs.last {
@@ -256,11 +262,12 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
     if app.ui.people.queue.is_some() || app.ui.people.finder.is_some() || app.ui.people.merge.is_some() {
         return;
     }
-    let Some(Dialog::SmartSort { mut state }) = app.ui.dialog.clone() else { return };
+    let dialog = app.ui.dialog.take();
+    let Some(Dialog::SmartSort { mut state }) = dialog else {
+        app.ui.dialog = dialog;
+        return;
+    };
     let s = &mut *state;
-    if app.session.smart.people.data.people.iter().any(|p| p.folder_enabled && !p.ignored) && s.step < 2 {
-        s.people_folders = true;
-    }
     if s.dirty
         && app.smart_sort.is_none()
         && let Err(e) = classify(app, s)
@@ -373,6 +380,10 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                 });
             });
         });
+    if std::mem::take(&mut app.ui.people.person_folder_enabled) {
+        s.people_folders = true;
+        s.people_folders_seeded = false;
+    }
     if let Some(w) = shown {
         ctx.move_to_top(w.response.layer_id);
         register(ctx, "dialog:window", w.response.rect);
@@ -865,38 +876,42 @@ fn review(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
         });
         ui.separator();
         ui.vertical(|ui| {
+            // Sort lightweight review summaries; score maps stay in the dialog.
             let mut rows: Vec<_> = s
                 .rows
                 .iter()
                 .filter(|p| if s.review_folder == "Unsorted" { p.row.assigned.is_empty() } else { p.row.assigned.contains(&s.review_folder) })
-                .cloned()
+                .map(|p| {
+                    (
+                        p.id,
+                        p.row.manual,
+                        p.row.scores.get(&s.review_folder).copied().unwrap_or_else(|| p.row.scores.values().copied().fold(0.0, f32::max)),
+                    )
+                })
                 .collect();
-            let confidence_folder = s.review_folder.clone();
-            let confidence =
-                |p: &ReviewPhoto| p.row.scores.get(&confidence_folder).copied().unwrap_or_else(|| p.row.scores.values().copied().fold(0.0, f32::max));
             if s.least_sure {
-                rows.sort_by(|a, b| confidence(a).total_cmp(&confidence(b)).then(a.id.cmp(&b.id)));
+                rows.sort_by(|a, b| a.2.total_cmp(&b.2).then(a.0.cmp(&b.0)));
             } else {
                 rows.sort_by_key(|p| {
-                    app.session.catalog.photo(p.id).map(|p| p.captured.clone().unwrap_or_else(|| p.imported.clone())).unwrap_or_default()
+                    app.session.catalog.photo(p.0).map(|p| p.captured.clone().unwrap_or_else(|| p.imported.clone())).unwrap_or_default()
                 });
             }
             if s.preset.bursts.enabled {
-                let visible: std::collections::BTreeSet<_> = rows.iter().map(|p| p.id).collect();
+                let visible: std::collections::BTreeSet<_> = rows.iter().map(|p| p.0).collect();
                 rows.retain(|p| {
-                    s.bursts.iter().find(|b| b.photos.contains(&p.id)).is_none_or(|b| {
+                    s.bursts.iter().find(|b| b.photos.contains(&p.0)).is_none_or(|b| {
                         let representative =
-                            if visible.contains(&b.best) { b.best } else { b.photos.iter().copied().find(|id| visible.contains(id)).unwrap_or(p.id) };
-                        p.id == representative
+                            if visible.contains(&b.best) { b.best } else { b.photos.iter().copied().find(|id| visible.contains(id)).unwrap_or(p.0) };
+                        p.0 == representative
                     })
                 });
             }
             let cols = (ui.available_width() / 148.0).floor().max(1.0) as usize;
             let old_focus = s.focus;
-            review_keys(app, ui, s, &rows, cols);
+            review_keys(app, ui, s, &rows.iter().map(|p| p.0).collect::<Vec<_>>(), cols);
             let mut area = egui::ScrollArea::vertical().id_salt("smart-sort-review-thumbs").max_height(430.0).auto_shrink([false, false]);
             if s.focus != old_focus
-                && let Some(index) = rows.iter().position(|p| Some(p.id) == s.focus)
+                && let Some(index) = rows.iter().position(|p| Some(p.0) == s.focus)
             {
                 area = area.vertical_scroll_offset((index / cols) as f32 * 156.0);
             }
@@ -907,15 +922,15 @@ fn review(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
                     for (i, p) in rows.iter().enumerate().take(end).skip(start) {
                         ui.vertical(|ui| {
                             let (rect, r) = ui.allocate_exact_size(egui::vec2(132.0, 106.0), egui::Sense::click_and_drag());
-                            register(ui.ctx(), format!("smartSort:thumb:{}", p.id.0), rect);
-                            super::grid::request_thumb(app, p.id, 160, 10);
-                            let selected = s.selected.contains(&p.id);
+                            register(ui.ctx(), format!("smartSort:thumb:{}", p.0.0), rect);
+                            super::grid::request_thumb(app, p.0, 160, 10);
+                            let selected = s.selected.contains(&p.0);
                             ui.painter().rect_filled(
                                 rect,
                                 3.0,
                                 if selected { egui::Color32::from_rgb(50, 85, 120) } else { egui::Color32::from_gray(30) },
                             );
-                            if let Some(t) = app.renderer.thumb(p.id) {
+                            if let Some(t) = app.renderer.thumb(p.0) {
                                 let size = egui::vec2(t.size[0] as f32, t.size[1] as f32);
                                 let scale = (rect.width() / size.x).min(rect.height() / size.y);
                                 let fit = egui::Rect::from_center_size(rect.center(), size * scale);
@@ -929,7 +944,7 @@ fn review(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
                             if selected {
                                 ui.painter().rect_stroke(rect, 3.0, egui::Stroke::new(2.0, egui::Color32::LIGHT_BLUE), egui::StrokeKind::Inside);
                             }
-                            if p.row.manual {
+                            if p.1 {
                                 ui.painter().text(
                                     rect.right_top() + egui::vec2(-5.0, 5.0),
                                     egui::Align2::RIGHT_TOP,
@@ -939,7 +954,7 @@ fn review(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
                                 );
                             }
                             if s.preset.bursts.enabled
-                                && let Some(burst) = s.bursts.iter().find(|b| b.photos.contains(&p.id) && b.photos.len() > 1)
+                                && let Some(burst) = s.bursts.iter().find(|b| b.photos.contains(&p.0) && b.photos.len() > 1)
                             {
                                 let badge = egui::Rect::from_min_size(rect.left_top() + egui::vec2(4.0, 4.0), egui::vec2(30.0, 22.0));
                                 ui.painter().rect_filled(badge, 5.0, egui::Color32::from_black_alpha(210));
@@ -950,24 +965,24 @@ fn review(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
                                     egui::FontId::proportional(15.0),
                                     egui::Color32::WHITE,
                                 );
-                                register(ui.ctx(), format!("smartSort:burstBadge:{}", p.id.0), badge);
+                                register(ui.ctx(), format!("smartSort:burstBadge:{}", p.0.0), badge);
                             }
                             if r.clicked() || r.secondary_clicked() || r.drag_started() {
-                                s.focus = Some(p.id);
+                                s.focus = Some(p.0);
                                 if ui.input(|i| i.modifiers.shift) && !s.selected.is_empty() {
-                                    let from = rows.iter().position(|p| Some(p.id) == s.anchor).unwrap_or(i);
-                                    let chosen: Vec<_> = rows[from.min(i)..=from.max(i)].iter().map(|p| p.id).collect();
+                                    let from = rows.iter().position(|p| Some(p.0) == s.anchor).unwrap_or(i);
+                                    let chosen: Vec<_> = rows[from.min(i)..=from.max(i)].iter().map(|p| p.0).collect();
                                     s.selected = expand_selection(s, &chosen);
                                 } else if ui.input(|i| i.modifiers.command) {
                                     if selected {
-                                        let members = expand_selection(s, &[p.id]);
+                                        let members = expand_selection(s, &[p.0]);
                                         s.selected.retain(|id| !members.contains(id));
                                     } else {
-                                        s.selected.extend(expand_selection(s, &[p.id]));
+                                        s.selected.extend(expand_selection(s, &[p.0]));
                                     }
                                 } else if !selected {
-                                    s.selected = expand_selection(s, &[p.id]);
-                                    s.anchor = Some(p.id);
+                                    s.selected = expand_selection(s, &[p.0]);
+                                    s.anchor = Some(p.0);
                                 }
                             }
                             r.dnd_set_drag_payload(DragPhotos(s.selected.clone()));
@@ -991,8 +1006,8 @@ fn review(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
                                     ui.close();
                                 }
                             });
-                            ui.add(egui::ProgressBar::new(confidence(p)).desired_width(132.0).show_percentage());
-                            let name = app.session.catalog.photo(p.id).map(|p| p.file_name.clone()).unwrap_or_default();
+                            ui.add(egui::ProgressBar::new(p.2).desired_width(132.0).show_percentage());
+                            let name = app.session.catalog.photo(p.0).map(|p| p.file_name.clone()).unwrap_or_default();
                             ui.add_sized([132.0, 18.0], egui::Label::new(name).truncate());
                         });
                         if (i + 1) % cols == 0 {
@@ -1497,7 +1512,7 @@ fn expand_selection(s: &SmartSortDialog, chosen: &[PhotoId]) -> Vec<PhotoId> {
     }
     result
 }
-fn review_keys(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog, rows: &[ReviewPhoto], cols: usize) {
+fn review_keys(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog, rows: &[PhotoId], cols: usize) {
     if ui.ctx().egui_wants_keyboard_input() {
         return;
     }
@@ -1508,27 +1523,27 @@ fn review_keys(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog, ro
         ui.input_mut(|i| {
             i.consume_key(modifiers, key);
         });
-        let focus = rows.iter().position(|p| Some(p.id) == s.focus).unwrap_or(0);
-        let anchor = rows.iter().position(|p| Some(p.id) == s.anchor).unwrap_or(focus);
+        let focus = rows.iter().position(|p| Some(*p) == s.focus).unwrap_or(0);
+        let anchor = rows.iter().position(|p| Some(*p) == s.anchor).unwrap_or(focus);
         match action {
             ReviewAction::Move(dx, dy, extend) => {
                 let (focus, anchor, range) = smart_sort_keys::apply_move(focus, anchor, rows.len(), cols, dx, dy, extend);
                 if !rows.is_empty() {
-                    s.focus = Some(rows[focus].id);
-                    s.anchor = Some(rows[anchor].id);
-                    s.selected = expand_selection(s, &rows[range].iter().map(|p| p.id).collect::<Vec<_>>());
+                    s.focus = Some(rows[focus]);
+                    s.anchor = Some(rows[anchor]);
+                    s.selected = expand_selection(s, &rows[range]);
                 }
             }
             ReviewAction::Home(extend) | ReviewAction::End(extend) => {
                 if !rows.is_empty() {
                     let end = if matches!(action, ReviewAction::Home(_)) { 0 } else { rows.len() - 1 };
                     let from = if extend { anchor } else { end };
-                    s.focus = Some(rows[end].id);
-                    s.anchor = Some(rows[from].id);
-                    s.selected = expand_selection(s, &rows[from.min(end)..=from.max(end)].iter().map(|p| p.id).collect::<Vec<_>>());
+                    s.focus = Some(rows[end]);
+                    s.anchor = Some(rows[from]);
+                    s.selected = expand_selection(s, &rows[from.min(end)..=from.max(end)]);
                 }
             }
-            ReviewAction::SelectAll => s.selected = expand_selection(s, &rows.iter().map(|p| p.id).collect::<Vec<_>>()),
+            ReviewAction::SelectAll => s.selected = expand_selection(s, rows),
             ReviewAction::MoveTo(index) | ReviewAction::AlsoAdd(index) => {
                 if let Some(name) = s.preset.categories.get(index).map(|c| c.name.clone()) {
                     correct(app, ui.ctx(), s, &name, matches!(action, ReviewAction::AlsoAdd(_)), false);

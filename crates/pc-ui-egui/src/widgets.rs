@@ -228,7 +228,8 @@ fn number_edit<T: egui::emath::Numeric>(ui: &mut Ui, value: &mut T, range: std::
             .custom_formatter(move |v, _| match decimals {
                 0 => format!("{v:.0}"),
                 1 => fmt_num(v),
-                _ => fmt_num2(v),
+                2 => fmt_num2(v),
+                _ => format!("{v:.decimals$}"),
             })
             .update_while_editing(!math)
             // Focus is read when parsing, not above: Tab hands it on inside `ui.add`.
@@ -902,4 +903,36 @@ mod tests {
         assert_eq!(super::fmt_num(12.46), "12.5");
         assert_eq!(super::fmt_num(-3.0), "-3");
     }
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_value_field_displays_requested_four_decimal_precision() {
+    let mut initialized = false;
+    let mut h = egui_kittest::Harness::builder().with_size(vec2(300., 100.)).build_ui_state(
+        move |ui, state: &mut (f64, Rect)| {
+            if !initialized {
+                crate::PhotocraftApp::setup_context(ui.ctx(), Default::default());
+                initialized = true;
+                return;
+            }
+            state.1 = value_field_with_precision(ui, &mut state.0, 0.0..=1.0, "", 140., 4).rect;
+        },
+        (0.1234, Rect::NOTHING),
+    );
+    h.run_steps(4);
+    assert!(h.output().shapes.iter().any(|s| matches!(&s.shape,egui::Shape::Text(t) if t.galley.text()=="0.1234")));
+    let pos = h.state().1.center();
+    h.hover_at(pos);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
+        h.step();
+    }
+    h.run_steps(2);
+    h.event(egui::Event::Key { key: egui::Key::A, physical_key: Some(egui::Key::A), pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND });
+    h.event(egui::Event::Text("0.5678".into()));
+    h.step();
+    h.event(egui::Event::Key { key: egui::Key::Enter, physical_key: Some(egui::Key::Enter), pressed: true, repeat: false, modifiers: Default::default() });
+    h.run_steps(2);
+    assert!((h.state().0 - 0.5678).abs() < 1e-8);
 }

@@ -92,7 +92,13 @@ impl HsvTable {
         }
         let g = g.clamp(0.0, 1.0) as f32;
         let data = a.data.iter().zip(&b.data).map(|(x, y)| std::array::from_fn(|i| g * x[i] + (1.0 - g) * y[i])).collect();
-        Some(HsvTable { data, ..a.clone() })
+        Some(HsvTable {
+            data,
+            hue_divisions: a.hue_divisions,
+            sat_divisions: a.sat_divisions,
+            val_divisions: a.val_divisions,
+            srgb_value: a.srgb_value,
+        })
     }
 
     fn entry(&self, v: usize, h: usize, s: usize) -> [f32; 3] {
@@ -225,8 +231,8 @@ impl ToneCurve {
         let n = p.len();
         let x = x.clamp(p[0][0], p[n - 1][0]);
         let i = p.partition_point(|q| q[0] <= x).clamp(1, n - 1) - 1;
-        let slope = |k: usize| (p[k + 1][1] - p[k][1]) / (p[k + 1][0] - p[k][0]);
-        let tangent = |k: usize| -> f32 {
+        let slope = |k: usize| (f64::from(p[k + 1][1]) - f64::from(p[k][1])) / (f64::from(p[k + 1][0]) - f64::from(p[k][0]));
+        let tangent = |k: usize| -> f64 {
             if k == 0 {
                 return slope(0);
             }
@@ -236,15 +242,15 @@ impl ToneCurve {
             let (a, b) = (slope(k - 1), slope(k));
             if a * b <= 0.0 { 0.0 } else { 2.0 / (1.0 / a + 1.0 / b) }
         };
-        let (x0, x1) = (p[i][0], p[i + 1][0]);
+        let (x0, x1) = (f64::from(p[i][0]), f64::from(p[i + 1][0]));
         let h = x1 - x0;
-        let t = (x - x0) / h;
+        let t = (f64::from(x) - x0) / h;
         let (t2, t3) = (t * t, t * t * t);
-        let y = (2.0 * t3 - 3.0 * t2 + 1.0) * p[i][1]
+        let y = (2.0 * t3 - 3.0 * t2 + 1.0) * f64::from(p[i][1])
             + (t3 - 2.0 * t2 + t) * h * tangent(i)
-            + (-2.0 * t3 + 3.0 * t2) * p[i + 1][1]
+            + (-2.0 * t3 + 3.0 * t2) * f64::from(p[i + 1][1])
             + (t3 - t2) * h * tangent(i + 1);
-        y.clamp(0.0, 1.0)
+        y.clamp(0.0, 1.0) as f32
     }
 }
 
@@ -432,11 +438,17 @@ mod tests {
 
     #[test]
     fn blend_and_tables_round_trip_through_prophoto() {
-        let a = identity(2, 2, 1);
+        let mut a = identity(2, 2, 1);
+        a.srgb_value = true;
         let mut b = identity(2, 2, 1);
+        b.srgb_value = true;
         b.data[1] = [10.0, 2.0, 1.0];
         let m = HsvTable::blend(&a, &b, 0.25).unwrap();
         assert_eq!(m.data[1], [7.5, 1.75, 1.0]);
+        assert_eq!(
+            (m.hue_divisions, m.sat_divisions, m.val_divisions, m.srgb_value),
+            (a.hue_divisions, a.sat_divisions, a.val_divisions, a.srgb_value)
+        );
         assert!(HsvTable::blend(&a, &identity(3, 2, 1), 0.5).is_none());
         let look = ProfileLook { hue_sat_map: [Some(a.clone()), None], look_table: Some(a), tone_curve: None };
         let t = ProfileTables::new(&look, 0.5).unwrap();
@@ -493,5 +505,17 @@ mod reference_vectors {
             }
         }
         assert!(worst < 4e-5, "RawTherapee interpolation absolute error: {worst}");
+    }
+}
+
+#[cfg(test)]
+mod ds_review_tests {
+    #[test]
+    fn ds_finding_subnormal_tone_intervals_are_finite() {
+        let curve = super::ToneCurve::from_tag(&[0.0, 0.0, 1e-45, 1.0, 1.0, 1.0]).unwrap();
+        for x in [0.0, f32::from_bits(1), 0.5, 1.0] {
+            assert!(curve.eval(x).is_finite(), "at {x}");
+        }
+        assert_eq!(curve.eval(0.0), 0.0);
     }
 }

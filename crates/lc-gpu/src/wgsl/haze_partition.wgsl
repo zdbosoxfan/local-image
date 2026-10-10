@@ -1,10 +1,10 @@
 // Parallel, stable lists of the CPU Hoare partition's left/right stop positions.
 // Pair k swaps L[k] with R[countR-1-k] only while L < R. This preserves the
-// reference's unusual inclusion of the pivot in the first right-hand scan.
+// scalar scans, with the pivot excluded until the final placement.
 var<workgroup> select_counts:array<vec2<u32>,256>;
 fn stops(i:u32)->vec2<u32>{
     var v=vec2<u32>(0u);
-    if(bitcast<u32>(b[3])==0u && i>bitcast<u32>(b[0]) && i<bitcast<u32>(b[1])){
+    if(bitcast<u32>(b[3])==0u && i>bitcast<u32>(b[0]) && i+1u<bitcast<u32>(b[1])){
         let q=a[i];let pivot=b[4];v=vec2<u32>(u32(!(q<pivot)),u32(!(q>pivot)));
     }return v;
 }
@@ -40,7 +40,7 @@ fn haze_partition_split(){
     for(var j=0u;j<16u;j++){dst[j]=b[j];}if(bitcast<u32>(b[3])!=0u){return;}
     let nl=bitcast<u32>(c[2u*pu(1u)]);let nr=bitcast<u32>(c[2u*pu(1u)+1u]);var lo=0u;var hi=min(nl,nr);
     while(lo<hi){let mid=(lo+hi)/2u;if(bitcast<u32>(a[mid])<bitcast<u32>(a[pu(2u)+nr-1u-mid])){lo=mid+1u;}else{hi=mid;}}
-    var left=bitcast<u32>(b[1]);if(lo<nl){left=bitcast<u32>(a[lo]);}
+    var left=bitcast<u32>(b[1])-1u;if(lo<nl){left=bitcast<u32>(a[lo]);}
     var right=bitcast<u32>(b[1]);if(lo>0u){right=bitcast<u32>(a[pu(2u)+nr-lo]);}
     dst[5]=bitcast<f32>(min(left,right));dst[6]=bitcast<f32>(lo);dst[7]=bitcast<f32>(nl);dst[8]=bitcast<f32>(nr);
 }

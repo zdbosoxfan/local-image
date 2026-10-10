@@ -11,13 +11,13 @@ fn code_spans(text: &str) -> impl Iterator<Item = &str> {
 
 /// `*` stays within a path component; a directory pattern covers its whole subtree.
 fn matches(pattern: &str, path: &str) -> bool {
-    if pattern.ends_with('/') {
-        return path.starts_with(pattern);
-    }
     if let Some(start) = pattern.find('{')
         && let Some(end) = pattern[start..].find('}').map(|i| i + start)
     {
         return pattern[start + 1..end].split(',').any(|p| matches(&format!("{}{}{}", &pattern[..start], p, &pattern[end + 1..]), path));
+    }
+    if pattern.ends_with('/') {
+        return path.match_indices('/').any(|(i, _)| matches(pattern.trim_end_matches('/'), &path[..i]));
     }
     let (p, s) = (pattern.as_bytes(), path.as_bytes());
     let mut dp = vec![false; s.len() + 1];
@@ -91,15 +91,22 @@ fn asset(path: &str) -> bool {
 }
 
 fn licence_paths(column: &str) -> Vec<&str> {
-    let mut paths: Vec<_> = code_spans(column).filter(|s| (s.contains('/') || *s == "LICENSE") && !s.contains("://")).collect();
-    for part in column.split("](").skip(1) {
-        if let Some(path) = part.split(')').next()
-            && path.contains('/')
-            && !path.contains("://")
-        {
+    let is_path = |s: &&str| !s.is_empty() && !s.contains("://");
+    let mut paths = Vec::new();
+    let mut rest = column;
+    while let Some(start) = rest.find('[') {
+        let Some(label_end) = rest[start + 1..].find("](").map(|i| start + 1 + i) else { break };
+        let target_start = label_end + 2;
+        let Some(target_end) = rest[target_start..].find(')').map(|i| target_start + i) else { break };
+        paths.extend(code_spans(&rest[..start]).filter(is_path));
+        // Backticks in a link's label describe it; only the target is a path.
+        let path = &rest[target_start..target_end];
+        if is_path(&path) {
             paths.push(path);
         }
+        rest = &rest[target_end + 1..];
     }
+    paths.extend(code_spans(rest).filter(is_path));
     paths
 }
 
@@ -112,7 +119,7 @@ pub fn run(root: &Path) -> Result<()> {
             if columns.len() < 7 {
                 continue;
             }
-            let paths: Vec<_> = code_spans(columns[1]).filter(|s| s.contains('/')).collect();
+            let paths: Vec<_> = code_spans(columns[1]).filter(|s| !s.is_empty()).collect();
             if paths.is_empty() {
                 continue;
             }
@@ -163,5 +170,19 @@ mod tests {
     fn licences_are_read_from_both_table_formats() {
         assert_eq!(licence_paths("GPL (`LICENSE`), ISC (`assets/icons/LICENSE.txt`)"), ["LICENSE", "assets/icons/LICENSE.txt"]);
         assert_eq!(licence_paths("ISC, [`notice`](assets/icons/LICENSE.txt)"), ["assets/icons/LICENSE.txt"]);
+    }
+}
+
+#[cfg(test)]
+mod ds_tests {
+    use super::*;
+    #[test]
+    fn ds_finding_directory_globs_and_root_notices() {
+        assert!(matches("assets/{icons,photos}/*/", "assets/icons/color/brush.svg"));
+        assert!(!matches("assets/icons/*/", "assets/photos/color/brush.svg"));
+        assert_eq!(licence_paths("[licence](LICENSE.txt)"), ["LICENSE.txt"]);
+        assert_eq!(licence_paths("`LICENSE.txt`"), ["LICENSE.txt"]);
+        assert_eq!(licence_paths("`LICENSE` and [`notice`](COPYING) and [`site`](https://example.com)"), ["LICENSE", "COPYING"]);
+        assert!(matches("logo.svg", "logo.svg"));
     }
 }

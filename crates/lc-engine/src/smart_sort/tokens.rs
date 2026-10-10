@@ -84,21 +84,22 @@ pub fn expand_file(pattern: &str, v: &TokenValues) -> Result<String, String> {
 
 pub fn dedupe_paths(paths: Vec<(String, PathBuf)>) -> Vec<(String, PathBuf)> {
     let mut used = std::collections::BTreeSet::new();
+    let mut suffixes = std::collections::BTreeMap::<String, usize>::new();
     paths
         .into_iter()
         .map(|(key, path)| {
             let lower = path.to_string_lossy().to_lowercase();
-            if used.insert(lower) {
+            if used.insert(lower.clone()) {
                 return (key, path);
             }
-            let mut n = 2;
+            let n = suffixes.entry(lower).or_insert(2);
             loop {
-                let candidate = add_suffix(&path, n);
+                let candidate = add_suffix(&path, *n);
+                *n += 1;
                 let candidate_lower = candidate.to_string_lossy().to_lowercase();
                 if used.insert(candidate_lower) {
                     return (key, candidate);
                 }
-                n += 1;
             }
         })
         .collect()
@@ -187,7 +188,11 @@ fn token_value(token: &str, v: &TokenValues, allow_file: bool) -> Result<String,
 
 fn capture_date(captured: Option<&str>) -> String {
     match captured {
-        Some(s) if s.len() >= 10 && s.as_bytes().get(4) == Some(&b'-') && s.as_bytes().get(7) == Some(&b'-') => {
+        Some(s)
+            if s.as_bytes()
+                .get(..10)
+                .is_some_and(|d| d.iter().enumerate().all(|(i, b)| if i == 4 || i == 7 { *b == b'-' } else { b.is_ascii_digit() })) =>
+        {
             s.get(..10).unwrap_or("No date").to_string()
         }
         _ => "No date".into(),
@@ -320,5 +325,19 @@ mod tests {
         assert_eq!(norm(&out[2].1), "ONE/two (3)");
         assert_eq!(out[3].0, "four");
         assert_eq!(norm(&out[3].1), "one/three");
+    }
+}
+
+#[cfg(test)]
+mod ds_tests {
+    use super::*;
+    #[test]
+    fn ds_finding_duplicate_folders_and_bad_date() {
+        assert_eq!(capture_date(Some("abcd-ef-ghij")), "No date");
+        assert_eq!(capture_date(Some("2026-10-09T12:00:00")), "2026-10-09");
+        let paths = dedupe_paths((0..10_000).map(|i| (i.to_string(), PathBuf::from("same"))).collect());
+        assert_eq!(paths.last().unwrap().1, PathBuf::from("same (10000)"));
+        let paths = dedupe_paths(vec![("1".into(), "same (2)".into()), ("2".into(), "same".into()), ("3".into(), "SAME".into())]);
+        assert_eq!(paths[2].1, PathBuf::from("SAME (3)"));
     }
 }

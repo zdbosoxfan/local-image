@@ -588,7 +588,7 @@ fn skin(cx: &mut Cx<'_>, img: &Buf, s: &DevelopSettings, w: usize, h: usize, ppl
         f((r[2] as f32).to_radians()),
         f(sk.uniformity as f32 / 100.),
         f(sk.lightness as f32 / 100.),
-        f((sk.hue_range as f32).to_radians()),
+        f((sk.hue_range as f32).to_radians().max(1e-3)),
         f(0.04 + sk.chroma_range as f32 / 100. * 0.4),
         f(0.05 + sk.lightness_range as f32 / 100. * 0.5),
         sk.protect_lips as u32,

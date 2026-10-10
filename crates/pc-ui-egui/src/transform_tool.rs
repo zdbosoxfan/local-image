@@ -177,7 +177,7 @@ pub fn begin(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String>
     let max_side = ctx.input(|i| i.max_texture_side).max(app.gpu.as_ref().map_or(1, |g| g.max_texture_side()));
     let (image, uv) = if ids.len() > 1 {
         let mut solo = (*doc).clone();
-        let group = photocraft_doc::Layer::group("Transform selection", ids.iter().filter_map(|id| doc.layer(*id).cloned()).collect());
+        let group = photocraft_doc::Layer::group("Transform selection", ids.iter().filter_map(|id| doc.layer(*id)).map(moving_preview_layer).collect());
         let group_id = group.id;
         solo.layers = vec![group];
         preview_image(&solo, group_id, None, b, max_side)
@@ -410,6 +410,10 @@ pub fn begin_warp(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), St
 /// Switch to Warp mode: a smart object's existing warp (when the box is untouched), else a
 /// custom mesh following the current box (so a transform made first carries over).
 pub fn enter_warp(app: &mut PhotocraftApp) {
+    if app.transform_preview.as_ref().is_some_and(|p| p.layers.len() > 1) {
+        app.ui.status = "Warp needs one layer or group".into();
+        return;
+    }
     let existing =
         app.session.active().and_then(|d| d.doc.layer(LayerId(app.ui.transform.as_ref()?.layer)).and_then(photocraft_engine::warp_cmds::smart_warp_doc_space));
     let Some(t) = app.ui.transform.as_mut() else { return };
@@ -504,11 +508,29 @@ fn preview_mask(l: &photocraft_doc::Layer, b: photocraft_geom::Rect) -> Option<c
     linked_pixel.map(|m| PreviewMask { surface: m.surface.clone(), density: m.density })
 }
 
+fn moving_preview_layer(layer: &photocraft_doc::Layer) -> photocraft_doc::Layer {
+    let mut layer = layer.clone();
+    if layer.mask.as_ref().is_some_and(|m| m.enabled && !m.linked) {
+        layer.mask = None;
+    }
+    if layer.vector_mask.as_ref().is_some_and(|m| m.enabled && !m.linked) {
+        layer.vector_mask = None;
+    }
+    if let LayerContent::Group(group) = &mut layer.content {
+        group.children = group.children.iter().map(moving_preview_layer).collect();
+    }
+    layer
+}
+
 fn contains(l: &photocraft_doc::Layer, id: LayerId) -> bool {
     l.id == id || matches!(&l.content, LayerContent::Group(g) if g.children.iter().any(|c| contains(c, id)))
 }
 
 pub fn commit(app: &mut PhotocraftApp) {
+    if app.ui.transform.as_ref().is_some_and(|t| t.warp.is_some()) && app.transform_preview.as_ref().is_some_and(|p| p.layers.len() > 1) {
+        app.ui.status = "Warp needs one layer or group".into();
+        return;
+    }
     let Some(t) = app.ui.transform.take() else { return };
     let layers = app.transform_preview.take().map_or_else(Vec::new, |p| p.layers);
     if t.selection {
@@ -2248,6 +2270,67 @@ mod tests {
 
     fn texel_alpha(img: &egui::ColorImage, x: usize, y: usize) -> u8 {
         img.pixels[y * img.size[0] + x].a()
+    }
+
+    #[test]
+    fn ds2_multilayer_warp_keeps_pending_box_and_preview() {
+        use egui_kittest::kittest::Queryable;
+        let mut app = app_with_square(64, photocraft_geom::Rect::new(8, 8, 24, 24));
+        let a = app.session.active().unwrap().active_layer.unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        app.session
+            .edit("paint second", |doc, id| {
+                doc.layer_mut(id.unwrap()).unwrap().surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(32, 8, 40, 16), &[0., 1., 0., 1.]);
+                Ok(())
+            })
+            .unwrap();
+        app.run("layer.select", json!({"layer":a.0,"mode":"add"})).unwrap();
+        let ctx = egui::Context::default();
+        begin(&mut app, &ctx).unwrap();
+        app.ui.transform.as_mut().unwrap().quad[1][0] += 3.;
+        let before = app.ui.transform.as_ref().unwrap().quad;
+        let mut initialized = false;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1400., 160.)).build_ui_state(
+            move |ui, app: &mut PhotocraftApp| {
+                if !initialized {
+                    PhotocraftApp::setup_context(ui.ctx(), Default::default());
+                    initialized = true;
+                    return;
+                }
+                options_bar(app, ui);
+            },
+            app,
+        );
+        h.run_steps(4);
+        h.get_by_label("Switch between free transform and warp modes").click();
+        h.run_steps(3);
+        assert!(h.state().ui.transform.as_ref().unwrap().warp.is_none());
+        assert_eq!(h.state().ui.transform.as_ref().unwrap().quad, before);
+        assert!(h.state().transform_preview.is_some());
+        let rect = h.state().ui.transform.as_ref().unwrap().rect;
+        h.state_mut().ui.transform.as_mut().unwrap().warp = Some(Warp::preset(WarpStyle::Arc, 30., rect));
+        commit(h.state_mut());
+        assert!(h.state().ui.transform.is_some());
+        assert!(h.state().transform_preview.is_some());
+    }
+    #[test]
+    fn ds2_multilayer_preview_carries_only_linked_masks() {
+        for linked in [false, true] {
+            let mut app = masked_app(linked);
+            let a = app.session.active().unwrap().active_layer.unwrap();
+            app.run("layer.new.layer", json!({})).unwrap();
+            app.session
+                .edit("second", |d, id| {
+                    d.layer_mut(id.unwrap()).unwrap().surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(30, 8, 34, 12), &[0., 1., 0., 1.]);
+                    Ok(())
+                })
+                .unwrap();
+            app.run("layer.select", json!({"layer":a.0,"mode":"add"})).unwrap();
+            begin(&mut app, &egui::Context::default()).unwrap();
+            let image = app.transform_preview.as_ref().unwrap().texture.test_image();
+            assert_eq!(texel_alpha(&image, 2, 4), if linked { 0 } else { 255 });
+            assert_eq!(texel_alpha(&image, 12, 4), 255);
+        }
     }
 
     #[test]

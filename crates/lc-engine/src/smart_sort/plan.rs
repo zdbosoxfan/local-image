@@ -133,6 +133,7 @@ fn plan_with_sessions(
     sessions: Option<&super::sessions::Sessions>,
     numbered: bool,
 ) -> Result<Vec<Folder>, String> {
+    let sessions = sessions.map(super::sessions::Sessions::index);
     let mut used = std::collections::BTreeSet::new();
     let mut matched = std::collections::BTreeSet::new();
     let mut out = Vec::new();
@@ -160,7 +161,7 @@ fn plan_with_sessions(
             .filter(|id| {
                 (!first_match || !matched.contains(*id))
                     && cat.photo(**id).is_some_and(|p| folder.matches(p, cat))
-                    && folder.session.as_ref().is_none_or(|key| sessions.is_none_or(|s| s.key_of(**id) == key))
+                    && folder.session.as_ref().is_none_or(|key| sessions.as_ref().is_none_or(|s| s.key_of(**id) == key))
             })
             .copied()
             .collect::<Vec<_>>();
@@ -176,7 +177,7 @@ fn plan_with_sessions(
                 .iter()
                 .filter(|id| {
                     !matched.contains(*id)
-                        && unsorted_def.and_then(|f| f.session.as_ref()).is_none_or(|key| sessions.is_none_or(|s| s.key_of(**id) == key))
+                        && unsorted_def.and_then(|f| f.session.as_ref()).is_none_or(|key| sessions.as_ref().is_none_or(|s| s.key_of(**id) == key))
                 })
                 .copied()
                 .collect(),
@@ -204,26 +205,38 @@ fn resolved(path: &std::path::Path) -> Result<std::path::PathBuf, String> {
     Ok(absolute)
 }
 
-pub fn check_destination(session: &crate::Session, dir: &str) -> Result<(), String> {
-    if dir.trim().is_empty() {
-        return Err("choose an export destination".into());
+struct DestinationGuard {
+    guard: std::sync::Arc<crate::originals::OriginalGuard>,
+    library: Option<std::path::PathBuf>,
+    originals: std::collections::BTreeSet<std::path::PathBuf>,
+}
+impl DestinationGuard {
+    fn new(session: &crate::Session) -> Result<Self, String> {
+        let library = session.library.as_ref().filter(|l| l.on_disk).map(|l| resolved(&l.dir)).transpose()?;
+        let parents: std::collections::BTreeSet<_> = session
+            .catalog
+            .photos()
+            .filter_map(|p| if let lightcraft_catalog::Source::File { path } = &p.source { std::path::Path::new(path).parent() } else { None })
+            .collect();
+        let originals = parents.into_iter().map(resolved).collect::<Result<_, _>>()?;
+        Ok(Self { guard: std::sync::Arc::new(session.original_guard()), library, originals })
     }
-    let target = resolved(std::path::Path::new(dir))?;
-    if let Some(lib) = &session.library
-        && lib.on_disk
-        && target.starts_with(resolved(&lib.dir)?)
-    {
-        return Err("Smart Sort destination must be outside the library".into());
-    }
-    for p in session.catalog.photos() {
-        if let lightcraft_catalog::Source::File { path } = &p.source
-            && let Some(parent) = std::path::Path::new(path).parent()
-            && target == resolved(parent)?
-        {
+    fn check(&self, dir: &str) -> Result<(), String> {
+        if dir.trim().is_empty() {
+            return Err("choose an export destination".into());
+        }
+        let target = resolved(std::path::Path::new(dir))?;
+        if self.library.as_ref().is_some_and(|l| target.starts_with(l)) {
+            return Err("Smart Sort destination must be outside the library".into());
+        }
+        if self.originals.contains(&target) {
             return Err("Smart Sort destination cannot be an originals folder".into());
         }
+        self.guard.check(std::path::Path::new(dir))
     }
-    session.check_write_target(dir)
+}
+pub fn check_destination(session: &crate::Session, dir: &str) -> Result<(), String> {
+    DestinationGuard::new(session)?.check(dir)
 }
 
 pub fn prepare(
@@ -232,13 +245,23 @@ pub fn prepare(
     options: &crate::export::ExportOptions,
     dir: &str,
 ) -> Result<Vec<crate::export::PreparedExport>, String> {
-    check_destination(session, dir)?;
-    let guard = std::sync::Arc::new(session.original_guard());
+    let destinations = DestinationGuard::new(session)?;
+    prepare_with_guard(session, folders, options, dir, &destinations)
+}
+fn prepare_with_guard(
+    session: &mut crate::Session,
+    folders: &[Folder],
+    options: &crate::export::ExportOptions,
+    dir: &str,
+    destinations: &DestinationGuard,
+) -> Result<Vec<crate::export::PreparedExport>, String> {
+    destinations.check(dir)?;
+    let guard = destinations.guard.clone();
     let mut out = Vec::new();
     for folder in folders {
         let name = sanitize(&folder.name)?;
         // Reject symlinked child folders pointing back into the library/originals as well.
-        check_destination(session, &std::path::Path::new(dir).join(&name).to_string_lossy())?;
+        destinations.check(&std::path::Path::new(dir).join(&name).to_string_lossy())?;
         for (i, id) in folder.ids.iter().enumerate() {
             let mut item = crate::export::prepare_guarded(session, *id, options, i + 1, guard.clone())?;
             item.subfolder = Some(name.clone());
@@ -306,6 +329,7 @@ fn resolve_groups(
     preset: &SortPreset,
     sessions: &super::sessions::Sessions,
 ) -> Result<Vec<(Folder, String)>, String> {
+    let sessions = sessions.index();
     use super::tokens::{self, TokenValues};
     let pattern = if preset.folder_pattern.is_empty() { "{folder}" } else { &preset.folder_pattern };
     let mut groups = Vec::<(String, std::path::PathBuf, Vec<PhotoId>)>::new();
@@ -355,9 +379,11 @@ pub fn prepare_preset(
     sessions: &super::sessions::Sessions,
 ) -> Result<Vec<crate::export::PreparedExport>, String> {
     let groups = resolve_groups(&session.catalog, folders, preset, sessions)?;
+    let sessions = sessions.index();
+    let destinations = DestinationGuard::new(session)?;
     let mut out = Vec::new();
     for (folder, original_name) in groups {
-        let mut items = prepare(session, std::slice::from_ref(&folder), options, dir)?;
+        let mut items = prepare_with_guard(session, std::slice::from_ref(&folder), options, dir, &destinations)?;
         if !preset.file_pattern.is_empty() {
             for (index, item) in items.iter_mut().enumerate() {
                 let photo = session.catalog.photo(item.photo).ok_or("unknown export photo")?;
@@ -385,4 +411,38 @@ pub fn prepare_preset(
         out.extend(items);
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod ds_tests {
+    use super::*;
+    #[test]
+    fn ds_finding_session_restrictions_are_dormant_without_sessions() {
+        let s = crate::Session::with_demo();
+        let ids: Vec<_> = s.catalog.photos().map(|p| p.id).collect();
+        let folder = FolderDef {
+            session: Some("missing-session".into()),
+            rules: RuleSet { mode: lightcraft_catalog::Match::All, rules: vec![] },
+            ..Default::default()
+        };
+        let broad = FolderDef { session: None, ..folder.clone() };
+        assert_eq!(plan_with_options(&s.catalog, &ids, &[broad], false, None).unwrap()[0].ids, ids);
+        // Saved restrictions remain dormant when the caller disables sessions.
+        assert_eq!(plan_with_options(&s.catalog, &ids, &[folder], false, None).unwrap()[0].ids, ids);
+    }
+    #[test]
+    fn ds_finding_destination_guard_reuses_distinct_original_parents() {
+        let demo = crate::Session::with_demo();
+        let mut s = crate::Session::new();
+        let photos: Vec<_> = demo.catalog.photos().map(|p| (**p).clone()).collect();
+        let parent = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/ds/originals");
+        for mut p in photos {
+            p.source = lightcraft_catalog::Source::File { path: parent.join(format!("{}.jpg", p.id.0)).display().to_string() };
+            s.catalog.apply(lightcraft_catalog::Op::AddPhoto { photo: Box::new(p) }).unwrap();
+        }
+        let guard = DestinationGuard::new(&s).unwrap();
+        assert_eq!(guard.originals.len(), 1);
+        assert!(guard.check(&parent.display().to_string()).is_err());
+        assert!(guard.check(&parent.join("exports").display().to_string()).is_ok());
+    }
 }

@@ -167,17 +167,17 @@ pub fn specs() -> Vec<CommandSpec> {
                 .filter_map(|(id, _d)| {
                     // back to the photo's import defaults when a default preset gave it its look
                     let look = s.catalog.photo(id).and_then(|p| p.import_look.clone());
-                    let mut fresh = match look {
+                    let fresh = match look {
                         Some(l) => (*l).clone(),
                         None => {
                             let info = s.source_info(id);
                             DevelopSettings {
                                 wb: lightcraft_develop::WhiteBalance { mode: WbMode::AsShot, temp: info.as_shot_temp, tint: info.as_shot_tint },
+                                look: s.catalog.photo(id).map(|p| p.look).unwrap_or_default(),
                                 ..Default::default()
                             }
                         }
                     };
-                    fresh.look = s.catalog.photo(id).map(|p| p.look).unwrap_or_default();
                     s.develop_op(id, fresh, "Reset")
                 })
                 .collect();

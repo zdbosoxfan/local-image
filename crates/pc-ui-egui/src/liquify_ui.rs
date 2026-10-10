@@ -505,7 +505,7 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
         d.opts.size = (d.opts.size * 1.1).min(15000.0);
     }
     for tool in LiquifyTool::ALL {
-        let sc = crate::shortcuts::local_tool_shortcut(&app.session, &shortcut_id(tool), shortcut(tool));
+        let sc = crate::shortcuts::local_tool_shortcut(&app.session, shortcut_id(tool), shortcut(tool));
         if let Some(sc) = sc.as_deref().and_then(crate::shortcuts::parse)
             && crate::shortcuts::consume(ctx, &sc)
         {
@@ -534,8 +534,24 @@ pub(crate) fn tool_icon_name(t: LiquifyTool) -> &'static str {
     }
 }
 
-pub(crate) fn shortcut_id(tool: LiquifyTool) -> String {
-    format!("tools.liquify.{tool:?}")
+pub(crate) fn shortcut_id(tool: LiquifyTool) -> &'static str {
+    match tool {
+        LiquifyTool::ForwardWarp => "tools.liquify.ForwardWarp",
+        LiquifyTool::Reconstruct => "tools.liquify.Reconstruct",
+        LiquifyTool::Smooth => "tools.liquify.Smooth",
+        LiquifyTool::TwirlCw => "tools.liquify.TwirlCw",
+        LiquifyTool::TwirlCcw => "tools.liquify.TwirlCcw",
+        LiquifyTool::Pucker => "tools.liquify.Pucker",
+        LiquifyTool::Bloat => "tools.liquify.Bloat",
+        LiquifyTool::PushLeft => "tools.liquify.PushLeft",
+        LiquifyTool::Freeze => "tools.liquify.Freeze",
+        LiquifyTool::Thaw => "tools.liquify.Thaw",
+        LiquifyTool::LassoMask => "tools.liquify.LassoMask",
+        LiquifyTool::ReconstructAll => "tools.liquify.ReconstructAll",
+        LiquifyTool::FreezeAll => "tools.liquify.FreezeAll",
+        LiquifyTool::ThawAll => "tools.liquify.ThawAll",
+        LiquifyTool::InvertFreeze => "tools.liquify.InvertFreeze",
+    }
 }
 
 pub(crate) fn shortcut(t: LiquifyTool) -> &'static str {
@@ -1120,5 +1136,15 @@ mod tests {
         control(&mut app, &json!({"cancel": true})).unwrap();
         assert!(app.distort.liquify.is_none());
         assert_eq!(app.session.active().unwrap().history.past_len(), 2, "cancel records nothing");
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_liquify_shortcut_ids_are_stable_and_distinct() {
+    let ids: Vec<_> = LiquifyTool::ALL.iter().map(|tool| shortcut_id(*tool)).collect();
+    assert_eq!(ids.iter().copied().collect::<std::collections::HashSet<_>>().len(), ids.len());
+    for tool in LiquifyTool::ALL {
+        assert!(std::ptr::eq(shortcut_id(tool), shortcut_id(tool)));
     }
 }

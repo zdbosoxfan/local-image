@@ -78,6 +78,8 @@ struct State {
     confirm: Option<Confirm>,
     profiles: Option<Slot<Result<Vec<String>, String>>>,
     profiles_msg: String,
+    installed: Option<(std::time::Instant, Arc<HashSet<String>>)>,
+    installed_at: Option<std::time::Instant>,
 }
 
 impl Default for State {
@@ -97,6 +99,8 @@ impl Default for State {
             confirm: None,
             profiles: None,
             profiles_msg: String::new(),
+            installed: None,
+            installed_at: None,
         }
     }
 }
@@ -129,9 +133,7 @@ pub fn open_loras_any() {
     with(|s| {
         s.open = true;
         s.kind = Kind::Lora;
-        if matches!(s.nav, Nav::Family(_)) {
-            s.nav = Nav::Trending;
-        }
+        s.nav = Nav::Trending;
     });
 }
 
@@ -323,6 +325,17 @@ fn removal_for(item: &Item) -> Option<crate::ai_ui::RemoveTarget> {
 }
 
 /// File names ComfyUI already has (main models and LoRAs), by base name.
+fn cached_installed(s: &mut State, scan: impl FnOnce() -> HashSet<String>) -> Arc<HashSet<String>> {
+    if let Some((at, names)) = &s.installed
+        && at.elapsed() < std::time::Duration::from_secs(1)
+    {
+        return names.clone();
+    }
+    let names = Arc::new(scan());
+    s.installed = Some((std::time::Instant::now(), names.clone()));
+    names
+}
+
 fn installed_names() -> HashSet<String> {
     let base = |n: &str| n.rsplit('/').next().unwrap_or(n).to_ascii_lowercase();
     let mut out: HashSet<String> = li_ai::catalog::catalog().models.iter().filter_map(|m| m.id.key().split_once(':').map(|(_, n)| base(n))).collect();
@@ -587,6 +600,7 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
     if s.loaded.as_ref() != Some(&key) && s.fetch.is_none() {
         s.loaded = Some(key);
         if s.nav == Nav::Installed {
+            s.installed_at = Some(std::time::Instant::now());
             s.items = installed_items(s.kind);
             s.items.retain(|i| s.search.trim().is_empty() || i.title.to_lowercase().contains(&s.search.trim().to_lowercase()));
             s.notes.clear();
@@ -595,7 +609,8 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
         }
     }
     // Installed: always current (no network), so removed models drop off once ComfyUI re-scans.
-    if s.nav == Nav::Installed && s.fetch.is_none() {
+    if s.nav == Nav::Installed && s.fetch.is_none() && s.installed_at.is_none_or(|at| at.elapsed() >= std::time::Duration::from_secs(1)) {
+        s.installed_at = Some(std::time::Instant::now());
         s.items = installed_items(s.kind);
         s.items.retain(|i| s.search.trim().is_empty() || i.title.to_lowercase().contains(&s.search.trim().to_lowercase()));
     }
@@ -741,7 +756,7 @@ fn grid(ui: &mut egui::Ui, s: &mut State, t: &Tokens, loading: bool) {
         });
         return;
     }
-    let names = installed_names();
+    let names = cached_installed(s, installed_names);
     let gap = 12.0;
     let w = ui.available_width();
     let cols = ((w + gap) / (228.0 + gap)).floor().max(1.0) as usize;
@@ -1128,4 +1143,33 @@ fn confirm_window(ctx: &egui::Context, t: &Tokens) {
             s.confirm = None;
         }
     });
+}
+
+#[cfg(test)]
+mod ds_tests {
+    use super::*;
+    #[test]
+    fn ds_finding_unknown_family_loras_always_open_trending() {
+        for nav in [Nav::Installed, Nav::New, Nav::Family("flux".into())] {
+            with(|s| s.nav = nav);
+            open_loras_any();
+            with(|s| {
+                assert_eq!(s.nav, Nav::Trending);
+                assert_eq!(s.kind, Kind::Lora);
+                assert!(s.open);
+            });
+        }
+        with(|s| *s = State::default());
+    }
+    #[test]
+    fn ds_finding_installed_names_are_cached_across_repaints() {
+        let mut state = State::default();
+        let first = cached_installed(&mut state, || HashSet::from(["sample.safetensors".into()]));
+        for _ in 0..20 {
+            let next = cached_installed(&mut state, || panic!("filesystem rescan on repaint"));
+            assert!(Arc::ptr_eq(&first, &next));
+        }
+        state.installed.as_mut().unwrap().0 -= std::time::Duration::from_secs(2);
+        assert!(cached_installed(&mut state, HashSet::new).is_empty());
+    }
 }

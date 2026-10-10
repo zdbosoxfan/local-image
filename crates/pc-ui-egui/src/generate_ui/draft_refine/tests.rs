@@ -1,3 +1,10 @@
+struct RequestReset;
+impl Drop for RequestReset {
+    fn drop(&mut self) {
+        TEST_REQUEST.with(|m| *m.borrow_mut() = None);
+    }
+}
+
 use super::*;
 use egui::{Event, Key, Modifiers, PointerButton, pos2};
 use egui_kittest::{
@@ -173,6 +180,7 @@ fn draft_refine_sampling_is_editable_and_bounded_only_by_comfyui() {
 fn draft_refine_click_carries_current_composite_selected_layer_and_draft_pixels() {
     let mut h = harness(vec2(1280.0, 800.0));
     open_from_menu(&mut h);
+    let _request_reset = RequestReset;
     TEST_REQUEST.with(|m| *m.borrow_mut() = Some(Vec::new()));
     h.get_by_label("Refine image").click();
     h.run_steps(3);
@@ -291,7 +299,7 @@ fn draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened
     assert!(graph.as_object().unwrap().values().any(|n| n["class_type"] == "LoadImage"));
     assert!(graph.as_object().unwrap().values().any(|n| n["class_type"] == "VAEEncode"));
     let entry = h.state().draft_refine.refinement_entry.as_ref().unwrap().clone();
-    assert!(Library::default().image_path(&entry.id).is_file());
+    assert!(crate::generate_ui::library().image_path(&entry.id).is_file());
     let before = h.state().session.active().unwrap().history.past_len();
     h.get_by_label("Use").click();
     h.run_steps(3);
@@ -308,7 +316,7 @@ fn draft_refine_library_use_and_open_actions_are_one_undo_and_a_new_document() {
     let mut h = harness(vec2(1280.0, 800.0));
     open_from_menu(&mut h);
     let image = RgbaImage::from_pixel(320, 240, image::Rgba([70, 100, 130, 255]));
-    let library = Library::default();
+    let library = crate::generate_ui::library();
     let entry =
         library.add(&image, "DraftRefine-UI-test", Some(json!({"model":ModelId::Klein9B.key(),"mode":"refine","steps":4,"guidance":1.0})), None).unwrap();
     set_result(h.state_mut(), true, entry.clone());
@@ -435,6 +443,7 @@ fn draft_refine_lora_picker_filters_family_and_carries_strength_in_request() {
     drag(&mut h, strength.center(), vec2(10.0, 0.0));
     let strength = h.state().ui.ai.draft_refine.refinement.loras[0].strength;
     assert_ne!(strength, 0.8);
+    let _request_reset = RequestReset;
     TEST_REQUEST.with(|m| *m.borrow_mut() = Some(Vec::new()));
     h.get_by_label("Refine image").click();
     h.run_steps(2);
@@ -621,4 +630,15 @@ fn autodetect_refine_picker_disables_failure_and_click_retest_verifies_on_worker
     }
     assert_eq!(checker.status(&client, model), Status::Unchecked, "cancellation is transient");
     assert_eq!(server.interrupts(), 0, "the checker never sends a global interrupt");
+}
+
+#[test]
+fn ds_finding_mock_request_guard_clears_during_unwind() {
+    let result = std::panic::catch_unwind(|| {
+        let _reset = RequestReset;
+        TEST_REQUEST.with(|m| *m.borrow_mut() = Some(vec![]));
+        panic!("test unwind");
+    });
+    assert!(result.is_err());
+    assert!(TEST_REQUEST.with(|m| m.borrow().is_none()));
 }

@@ -42,6 +42,18 @@ pub struct Sessions {
     pub no_time: Vec<PhotoId>,
 }
 
+/// Borrowed lookup built once for a planning/export operation; public session vectors
+/// remain editable without an invalidatable persistent cache.
+pub struct SessionIndex<'a>(BTreeMap<PhotoId, &'a SortSession>);
+impl SessionIndex<'_> {
+    pub fn key_of(&self, id: PhotoId) -> &str {
+        self.0.get(&id).map_or(NO_TIME, |s| s.start.as_str())
+    }
+    pub fn name_of(&self, id: PhotoId) -> &str {
+        self.0.get(&id).map_or("No time", |s| s.name.as_str())
+    }
+}
+
 /// Group `ids` into capture-time sessions. Unknown ids are ignored; parseable capture times are
 /// ordered by `iso_seconds` (stable for equal times, preserving input order). `no_time` holds
 /// photos with no or unparseable capture time.
@@ -128,6 +140,15 @@ pub fn session_of(sessions: &Sessions, id: PhotoId) -> Option<&SortSession> {
 pub const NO_TIME: &str = "no-time";
 
 impl Sessions {
+    pub fn index(&self) -> SessionIndex<'_> {
+        let mut by_photo = BTreeMap::new();
+        for session in &self.sessions {
+            for id in &session.photos {
+                by_photo.entry(*id).or_insert(session);
+            }
+        }
+        SessionIndex(by_photo)
+    }
     pub fn key_of(&self, id: PhotoId) -> &str {
         session_of(self, id).map_or(NO_TIME, |s| s.start.as_str())
     }
@@ -156,6 +177,22 @@ mod tests {
 
     fn settings(enabled: bool, gap_minutes: u32) -> SessionSettings {
         SessionSettings { enabled, gap_minutes, ..SessionSettings::default() }
+    }
+
+    #[test]
+    fn ds_finding_index_preserves_first_membership_and_missing_time() {
+        let sessions = Sessions {
+            sessions: vec![
+                SortSession { start: "first".into(), name: "First".into(), photos: vec![PhotoId(1), PhotoId(2)], ..Default::default() },
+                SortSession { start: "second".into(), name: "Second".into(), photos: vec![PhotoId(2), PhotoId(3)], ..Default::default() },
+            ],
+            no_time: vec![PhotoId(4)],
+        };
+        let index = sessions.index();
+        for id in (0..6).map(PhotoId) {
+            assert_eq!(index.key_of(id), sessions.key_of(id));
+            assert_eq!(index.name_of(id), sessions.name_of(id));
+        }
     }
 
     #[test]

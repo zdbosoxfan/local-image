@@ -132,3 +132,17 @@ fn float_drag_bench() {
     }
     eprintln!("6000×4000 layer, 500×400 piece: cut {cut:?}, then {:?} per pointer move", t.elapsed() / 20);
 }
+
+#[test]
+fn ds2_move_pixels_does_not_drop_an_existing_floating_piece() {
+    let (mut s, _) = session();
+    s.execute("select.float", json!({"dx":20,"dy":5})).unwrap();
+    let doc = s.active().unwrap().doc.clone();
+    let history = s.active().unwrap().history.past_len();
+    for dx in [0, 10] {
+        assert!(s.execute("select.movePixels", json!({"dx":dx})).is_err());
+        assert!(std::sync::Arc::ptr_eq(&s.active().unwrap().doc, &doc));
+        assert_eq!(s.active().unwrap().history.past_len(), history);
+        assert_eq!(floating(s.active().unwrap()).unwrap().offset, (20, 5));
+    }
+}

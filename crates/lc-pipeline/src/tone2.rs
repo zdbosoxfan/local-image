@@ -281,7 +281,7 @@ pub fn display_tone(y: f32, contrast: f64, whites: f64, blacks: f64) -> f32 {
     }
     let mut o = p.max(0.0).powf(2.2);
     // short soft shoulder: slope 1 at 0.95, asymptotically approaching 1.0
-    if o > 0.95 {
+    if whites > 0.0 && o > 0.95 {
         o = 0.95 + 0.05 * (1.0 - (-(o - 0.95) / 0.05).exp());
     }
     o.clamp(0.0, 1.0)
@@ -700,5 +700,16 @@ mod reference_vectors {
             }
         }
         assert!(worst < 2e-6, "darktable C absolute error: {worst}");
+    }
+}
+
+#[cfg(test)]
+mod ds_review_tests {
+    #[test]
+    fn ds_finding_display_tone_preserves_white_without_positive_whites() {
+        for contrast in [-100.0, 10.0, 100.0] {
+            assert!((super::display_tone(1.0, contrast, 0.0, 0.0) - 1.0).abs() < 1e-6);
+        }
+        assert!(super::display_tone(1.0, 10.0, 20.0, 0.0) < 1.0);
     }
 }

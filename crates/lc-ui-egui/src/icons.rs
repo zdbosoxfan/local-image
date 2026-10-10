@@ -502,6 +502,7 @@ pub fn tool_icon(ui: &egui::Ui, name: &str, size: f32) -> Option<egui::Image<'st
 pub fn paint_tool(ui: &egui::Ui, rect: Rect, name: &str, fallback: Icon, tint: Color32, enabled: bool) {
     egui_extras::install_image_loaders(ui.ctx());
     let size = rect.width().min(rect.height());
+    let rect = Rect::from_center_size(rect.center(), egui::vec2(size, size));
     if crate::color_icons::enabled(ui.ctx())
         && let Some(image) = crate::color_icons::image(ui, name, size, !enabled || !ui.is_enabled())
     {
@@ -564,4 +565,36 @@ mod tests {
             }
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_colored_tool_icon_is_square_in_a_wide_click_target() {
+    let mut view = crate::headless::HeadlessView::new();
+    let wide = Rect::from_min_size(pos2(20., 20.), vec2(100., 30.));
+    let raw = crate::headless::HeadlessView::raw_input(vec2(200., 120.), 1., 0., vec![]);
+    view.run(raw, |ui| {
+        crate::color_icons::set_enabled(ui.ctx(), true);
+        let _ = ui.interact(wide, egui::Id::new("wide-tool"), egui::Sense::click());
+        paint_tool(ui, wide, "crop", Icon::Crop, Color32::WHITE, true);
+    });
+    let bounds = view
+        .shapes()
+        .iter()
+        .find_map(|s| if let Shape::Rect(r) = &s.shape { r.brush.as_ref().map(|_| r.rect) } else { None })
+        .expect("loaded SVG image");
+    assert_eq!(bounds, Rect::from_center_size(wide.center(), vec2(30., 30.)));
+    let at = wide.center();
+    let mut clicked = false;
+    for pressed in [true, false] {
+        let events = vec![
+            egui::Event::PointerMoved(at),
+            egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE },
+        ];
+        view.run(crate::headless::HeadlessView::raw_input(vec2(200., 120.), 1., 1., events), |ui| {
+            clicked |= ui.interact(wide, egui::Id::new("wide-tool"), egui::Sense::click()).clicked();
+            paint_tool(ui, wide, "crop", Icon::Crop, Color32::WHITE, true);
+        });
+    }
+    assert!(clicked);
 }

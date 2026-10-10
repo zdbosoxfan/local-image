@@ -136,11 +136,7 @@ impl DecodedSource {
     /// with any stored camera tone curve. The lens database's correction always comes from
     /// `header` (it follows the settings, not the file).
     pub fn info_or(&self, header: SourceInfo) -> SourceInfo {
-        let mut i = self.info.clone().unwrap_or(SourceInfo {
-            camera_tone: self.camera_tone.or(header.camera_tone),
-            look_curve: self.camera_tone.or(header.look_curve),
-            ..header
-        });
+        let mut i = self.info.clone().unwrap_or(SourceInfo { camera_tone: self.camera_tone.or(header.camera_tone), ..header });
         i.lens_db = header.lens_db;
         i
     }
@@ -1202,6 +1198,24 @@ mod thumbnail_hash_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ds_finding_smart_preview_keeps_distinct_look_curve() {
+        let camera = lightcraft_pipeline::tone::CameraTone::new(std::array::from_fn(|i| {
+            let x = (i + 1) as f32 / 32.0;
+            [x, x * 0.5]
+        }))
+        .unwrap();
+        let look = lightcraft_pipeline::tone::CameraTone::new(std::array::from_fn(|i| {
+            let x = (i + 1) as f32 / 32.0;
+            [x, x * 0.8]
+        }))
+        .unwrap();
+        let source = DecodedSource { camera_tone: Some(camera), ..DecodedSource::new(Arc::new(Rgb32f::new(1, 1)), None) };
+        let info = source.info_or(SourceInfo { look_curve: Some(look), ..Default::default() });
+        assert_eq!(info.camera_tone, Some(camera));
+        assert_eq!(info.look_curve, Some(look));
+    }
 
     #[test]
     fn decoder_info_survives_render_jobs_cache_and_eviction() {

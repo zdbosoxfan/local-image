@@ -324,6 +324,19 @@ fn human_bytes_formats_scale() {
 
 #[test]
 fn deletion_date_formats_known_timestamps() {
+    const CHILD: &str = "LI_AI_COVERAGE_TRASH_DATE_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        // The spec requires local time; known UTC values need an explicit UTC
+        // process rather than depending on the machine's timezone.
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "download_trash_inventory_coverage::deletion_date_formats_known_timestamps"])
+            .env("TZ", "UTC0")
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        return;
+    }
     assert_eq!(deletion_date(UNIX_EPOCH), "1970-01-01T00:00:00");
     assert_eq!(deletion_date(UNIX_EPOCH + Duration::from_secs(1_760_000_000)), "2025-10-09T08:53:20");
     assert_eq!(deletion_date(UNIX_EPOCH - Duration::from_secs(1)), "1970-01-01T00:00:00");

@@ -1038,6 +1038,7 @@ mod drop_tests {
 pub struct Caches {
     keyword_tree: Option<(u64, std::sync::Arc<Vec<lightcraft_catalog::KeywordNode>>)>,
     people: Option<(u64, lightcraft_catalog::Filter, std::sync::Arc<Vec<lightcraft_catalog::Person>>)>,
+    imported_people: Option<(u64, std::sync::Arc<Vec<lightcraft_catalog::Person>>, std::sync::Arc<Vec<lightcraft_catalog::Person>>)>,
     suggestions: Option<(u64, std::sync::Arc<Vec<String>>)>,
     counts: Option<(u64, LibraryCounts)>,
     date_groups: Option<(u64, std::sync::Arc<Vec<lightcraft_catalog::DateGroup>>)>,
@@ -1100,6 +1101,26 @@ impl Caches {
                 t
             }
         }
+    }
+    /// Imported names that have no recognized identity. Identity commits advance catalog revision.
+    pub fn imported_people(
+        &mut self,
+        cat: &lightcraft_catalog::Catalog,
+        filter: &lightcraft_catalog::Filter,
+        data: &lightcraft_engine::smart_sort::people::PeopleData,
+    ) -> std::sync::Arc<Vec<lightcraft_catalog::Person>> {
+        let source = self.people(cat, filter);
+        if let Some((revision, cached_source, imported)) = &self.imported_people
+            && *revision == cat.revision
+            && std::sync::Arc::ptr_eq(cached_source, &source)
+        {
+            return imported.clone();
+        }
+        let known: std::collections::HashSet<_> = data.people.iter().map(|p| p.name.to_ascii_lowercase()).collect();
+        let imported: std::sync::Arc<Vec<lightcraft_catalog::Person>> =
+            std::sync::Arc::new(source.iter().filter(|p| !known.contains(&p.name.to_ascii_lowercase())).cloned().collect());
+        self.imported_people = Some((cat.revision, source, imported.clone()));
+        imported
     }
     /// All Photos / Picks / Recently Deleted counts.
     pub fn counts(&mut self, cat: &lightcraft_catalog::Catalog) -> LibraryCounts {
