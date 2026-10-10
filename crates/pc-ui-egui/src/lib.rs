@@ -63,6 +63,8 @@ impl Module {
 }
 
 pub mod actions;
+#[path = "vector_packages/library_vectorize.rs"]
+pub mod library_vectorize;
 #[path = "vector_packages/symbols.rs"]
 pub mod symbols;
 #[path = "vector_packages/trace_dialog.rs"]
