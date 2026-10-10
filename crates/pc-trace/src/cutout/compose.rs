@@ -45,5 +45,5 @@ pub(super) fn trace(map: &LabelMap, faces: &Faces, fitted: &[Geometry], cancel: 
         return Err(Error::Cancelled);
     }
     let nodes = layers.iter().flat_map(|l| &l.path.subpaths).map(|s| s.knots.len()).sum();
-    Ok(Trace { width: map.width, height: map.height, layers, nodes })
+    Ok(Trace { width: map.width, height: map.height, strokes: Vec::new(), layers, nodes })
 }
