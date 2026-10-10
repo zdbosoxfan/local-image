@@ -381,6 +381,22 @@ pub fn default_variant(model: ModelId) -> &'static str {
     presets_for(model).next().map(|p| p.variant.as_str()).unwrap_or("bf16")
 }
 
+/// How an image guides refinement for this model.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RefineMethod {
+    Reference,
+    Img2Img,
+}
+
+pub fn refine_method(model: ModelId) -> RefineMethod {
+    match model.try_info() {
+        Some(i) if i.resolved.pipeline.reference == RefMethod::ReferenceLatent || i.edit && i.resolved.pipeline.reference == RefMethod::TextEncoder => {
+            RefineMethod::Reference
+        }
+        _ => RefineMethod::Img2Img,
+    }
+}
+
 /// Whether a preset can run on the connected ComfyUI, and the loader names to use.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Availability {
@@ -458,6 +474,21 @@ pub const VRAM_GUIDE: &[(&str, u32)] = &[
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn refine_method_and_default_follow_the_model_pipeline() {
+        for m in [ModelId::Klein4B, ModelId::Klein9B] {
+            assert_eq!(refine_method(m), RefineMethod::Reference);
+            assert_eq!(refine_default_denoise(m), 1.0);
+        }
+        // Text-encoder edit models refine by reference too, at full denoise (verified with real refines).
+        assert_eq!(refine_method(ModelId::Qwen), RefineMethod::Reference);
+        assert_eq!(refine_default_denoise(ModelId::Qwen), 1.0);
+        for m in [ModelId::ZImageTurbo, ModelId::Ernie, ModelId::intern("missing-refine-model")] {
+            assert_eq!(refine_method(m), RefineMethod::Img2Img);
+            assert_eq!(refine_default_denoise(m), 0.35);
+        }
+    }
 
     #[test]
     fn every_original_model_has_a_preset_and_hashes_are_hex() {

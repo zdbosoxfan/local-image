@@ -5,7 +5,28 @@ use egui_kittest::{
     kittest::{NodeT, Queryable},
 };
 
+#[derive(Default)]
+struct CpuRenderer(crate::tool_icon_tests::cpu::TextureStore);
+
+impl egui_kittest::TestRenderer for CpuRenderer {
+    fn handle_delta(&mut self, delta: &mut egui::TexturesDelta) {
+        self.0.apply(std::mem::take(delta));
+    }
+    fn render(&mut self, ctx: &egui::Context, output: &egui::FullOutput) -> Result<RgbaImage, String> {
+        let scale = output.pixels_per_point;
+        let size = ctx.content_rect().size() * scale;
+        let primitives = ctx.tessellate(output.shapes.clone(), scale);
+        let image = crate::tool_icon_tests::cpu::paint(&primitives, &self.0, [size.x as usize, size.y as usize], scale, Tokens::get(ctx).canvas);
+        RgbaImage::from_raw(image.size[0] as u32, image.size[1] as u32, image.pixels.iter().flat_map(|p| p.to_array()).collect())
+            .ok_or_else(|| "invalid CPU image size".into())
+    }
+}
+
 fn harness(size: egui::Vec2) -> Harness<'static, PhotocraftApp> {
+    harness_render(size, false)
+}
+
+fn harness_render(size: egui::Vec2, gpu: bool) -> Harness<'static, PhotocraftApp> {
     let mut s = photocraft_engine::Session::new();
     s.execute("file.new", json!({"width": 320, "height": 240})).unwrap();
     s.execute("edit.fill", json!({"color": "#3366cc"})).unwrap();
@@ -16,7 +37,18 @@ fn harness(size: egui::Vec2) -> Harness<'static, PhotocraftApp> {
         ..Default::default()
     };
     crate::ai_ui::TEST_STATUS.with(|v| *v.borrow_mut() = Some(st));
-    let mut h = Harness::builder().with_size(size).with_max_steps(64).build_eframe(move |cc| {
+    let mut builder = Harness::builder().with_size(size).with_max_steps(64).renderer(CpuRenderer::default());
+    if gpu {
+        let rs = egui_kittest::wgpu::create_render_state(crate::gpu_canvas::wgpu_setup(), eframe::egui_wgpu::RendererOptions::PREDICTABLE);
+        let adapter = rs.adapter.get_info();
+        assert_ne!(adapter.device_type, eframe::wgpu::DeviceType::Cpu, "hardware GPU required: {adapter:?}");
+        eprintln!("Draft / Refinement screenshot adapter: {adapter:?}");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/draft-style");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("gpu-adapter.txt"), format!("{adapter:?}\n")).unwrap();
+        builder = builder.renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs));
+    }
+    let mut h = builder.build_eframe(move |cc| {
         PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
         PhotocraftApp::new(
             s,
@@ -66,7 +98,7 @@ fn draft_refine_large_previews_and_window_open_at_both_resolutions() {
         let info = ModelId::Klein9B.info();
         assert_eq!(settings.steps, info.steps.default as u32);
         assert_eq!(settings.guidance, info.guidance.default);
-        assert_eq!(settings.denoise, info.resolved.sampling.denoise);
+        assert_eq!(settings.denoise, catalog::refine_default_denoise(ModelId::Klein9B));
         for label in ["Draft preview", "Refinement preview"] {
             let r = h.get_by_label(label).rect();
             assert!(r.width() >= 500.0 && r.height() >= 300.0, "{size:?}: {label}: {r:?}");
@@ -96,15 +128,15 @@ fn draft_refine_sampling_is_editable_and_bounded_only_by_comfyui() {
     let mut h = harness(vec2(1280.0, 800.0));
     open_from_menu(&mut h);
     // Qwen has variable steps and guidance; Klein's distilled ranges are fixed.
-    h.get_by_value(&ModelId::Klein9B.info().label).click();
+    h.get_by_value(&format!("{} · {}", ModelId::Klein9B.info().label, ModelId::Klein9B.info().family_label)).click();
     h.run_steps(2);
-    h.get_by_label(&ModelId::Qwen.info().label).click();
+    h.get_by_role_and_label(egui::accesskit::Role::Button, &ModelId::Qwen.info().label).click();
     h.run_steps(3);
     let settings = &h.state().ui.ai.draft_refine.refinement;
     let info = ModelId::Qwen.info();
     assert_eq!(settings.steps, info.steps.default as u32);
     assert_eq!(settings.guidance, info.guidance.default);
-    assert_eq!(settings.denoise, info.resolved.sampling.denoise);
+    assert_eq!(settings.denoise, catalog::refine_default_denoise(ModelId::Qwen));
     let steps = h.get_all_by_label("Steps").find(|n| n.accesskit_node().role() == egui::accesskit::Role::SpinButton).unwrap().rect();
     let before = h.state().ui.ai.draft_refine.refinement.steps;
     drag(&mut h, steps.center(), vec2(14.0, 0.0));
@@ -295,4 +327,206 @@ fn draft_refine_library_use_and_open_actions_are_one_undo_and_a_new_document() {
     assert!(library.list().iter().any(|e| e.id == entry.id));
     // Remove only this test's generated entry.
     std::fs::remove_dir_all(library.image_path(&entry.id).parent().unwrap()).unwrap();
+}
+
+#[test]
+fn draft_refine_gpu_design_system_all_themes_and_resolutions() {
+    use egui::accesskit::{Role, Toggled};
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/draft-style");
+    std::fs::create_dir_all(&dir).unwrap();
+    for theme in crate::theme::ThemeKind::ALL {
+        for size in [vec2(1280.0, 800.0), vec2(1920.0, 1080.0)] {
+            let mut h = harness_render(size, true);
+            let ctx = h.ctx.clone();
+            h.state_mut().set_theme(&ctx, theme);
+            open_from_menu(&mut h);
+            h.state_mut().ui.ai.draft_refine.draft.prompt = "a colour study".into();
+            let source = h.state().draft_refine.source.image.as_ref().unwrap().as_ref().clone();
+            h.state_mut().draft_refine.before_result.set(source);
+            h.state_mut().draft_refine.draft.set(RgbaImage::from_fn(320, 240, |x, y| image::Rgba([40 + (x / 2) as u8, 50 + (y / 2) as u8, 110, 255])));
+            h.state_mut().draft_refine.refinement.set(RgbaImage::from_fn(320, 240, |x, y| image::Rgba([60 + (x / 2) as u8, 70 + (y / 2) as u8, 140, 255])));
+            h.state_mut().draft_refine.compare = true;
+            h.run_steps(2);
+            for refine in [true, false] {
+                let tab = if refine { "Refinement" } else { "Draft" };
+                h.get_by_role_and_label(Role::Button, tab).click();
+                h.run_steps(3);
+                let node = h.get_by_role_and_label(Role::Button, tab);
+                assert_eq!(node.accesskit_node().toggled(), Some(Toggled::True), "pill tab selection: {theme:?}");
+                assert_eq!(node.rect().height(), 24.0, "shared pill-tab height");
+                for label in ["Draft preview", "Refinement preview"] {
+                    let rect = h.get_by_label(label).rect();
+                    assert!(rect.width() >= 500.0 && rect.height() >= 300.0, "{theme:?}: {size:?}: {label}: {rect:?}");
+                    assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, size).contains_rect(rect));
+                }
+                let label = if refine { "Refine image" } else { "Generate draft" };
+                let button = h.get_by_role_and_label(Role::Button, label).rect();
+                assert_eq!(button.height(), if Tokens::for_kind(theme).pro { 28.0 } else { 30.0 });
+                for name in ["Steps", "Guidance", "Width", "Height"] {
+                    let node = h.get_by_role_and_label(Role::SpinButton, name);
+                    assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, size).contains_rect(node.rect()), "{theme:?}: {name}: {:?}", node.rect());
+                    assert!(node.rect().width() >= 40.0, "app value field");
+                }
+                if refine {
+                    let denoise = h.get_by_role_and_label(Role::SpinButton, "Denoise");
+                    assert_eq!(denoise.accesskit_node().numeric_value(), Some(1.0), "Klein's reference default must be visible");
+                    h.get_by_label("Refines by reference: the image guides the result");
+                }
+                for name in ["Close", label] {
+                    let rect = h.get_all_by_label(name).last().unwrap().rect();
+                    assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, size).contains_rect(rect), "{theme:?}: {name}: {rect:?}");
+                }
+                h.hover_at(pos2(5.0, 5.0));
+                h.run_steps(2);
+                let pixels = h.render().unwrap();
+                // The custom primary action paints the theme's primary colour, including Pro density.
+                let point = button.left_center() + vec2(20.0, 0.0);
+                assert_eq!(pixels.get_pixel(point.x as u32, point.y as u32).0, Tokens::for_kind(theme).primary_bg.to_array());
+                pixels
+                    .save(dir.join(format!("{}-{}x{}-{}.png", theme.id(), size.x as u32, size.y as u32, if refine { "refinement" } else { "draft" })))
+                    .unwrap();
+                if refine && theme == crate::theme::ThemeKind::Pro && size.x == 1280.0 {
+                    h.get_by_value(&format!("{} · {}", ModelId::Klein9B.info().label, ModelId::Klein9B.info().family_label)).click();
+                    h.run_steps(3);
+                    h.get_by_label("Edit models — refine by reference");
+                    h.get_by_label("Image models — refine by denoise");
+                    h.render().unwrap().save(dir.join("pro-1280x800-refine-model-picker.png")).unwrap();
+                    h.event(Event::Key { key: Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE });
+                    h.run_steps(2);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn draft_refine_lora_picker_filters_family_and_carries_strength_in_request() {
+    let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let info = li_ai::comfy::ObjectInfo(
+        json!({"LoraLoader": {"input": {"required": {"lora_name": [["qwen_image_2.1_style.safetensors", "flux_realism_lora.safetensors"]]}}}}),
+    );
+    li_ai::inventory::refresh(&info, None);
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            li_ai::inventory::refresh(&li_ai::comfy::ObjectInfo(json!({})), None);
+            TEST_REQUEST.with(|m| *m.borrow_mut() = None);
+        }
+    }
+    let _reset = Reset;
+    let mut h = harness(vec2(1280.0, 800.0));
+    open_from_menu(&mut h);
+    h.get_by_value(&format!("{} · {}", ModelId::Klein9B.info().label, ModelId::Klein9B.info().family_label)).click();
+    h.run_steps(2);
+    h.get_by_role_and_label(egui::accesskit::Role::Button, &ModelId::Qwen.info().label).click();
+    h.run_steps(3);
+    h.get_by_label("+ Add").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("flux realism lora").is_none(), "other families aren't offered");
+    h.get_by_label("qwen image 2.1 style").click();
+    h.run_steps(3);
+    let pick = &h.state().ui.ai.draft_refine.refinement.loras[0];
+    assert_eq!(pick.name, "qwen_image_2.1_style.safetensors");
+    // Scroll the extra LoRA row into view, then scrub its actual strength field.
+    h.get_by_role_and_label(egui::accesskit::Role::SpinButton, "Strength").scroll_to_me();
+    h.run_steps(3);
+    let strength = h.get_by_role_and_label(egui::accesskit::Role::SpinButton, "Strength").rect();
+    drag(&mut h, strength.center(), vec2(10.0, 0.0));
+    let strength = h.state().ui.ai.draft_refine.refinement.loras[0].strength;
+    assert_ne!(strength, 0.8);
+    TEST_REQUEST.with(|m| *m.borrow_mut() = Some(Vec::new()));
+    h.get_by_label("Refine image").click();
+    h.run_steps(2);
+    let request = TEST_REQUEST.with(|m| m.borrow().as_ref().unwrap().last().unwrap().clone());
+    assert_eq!(request.loras, vec![li_ai::workflows::LoraUse { name: "qwen_image_2.1_style.safetensors".into(), strength }]);
+}
+
+#[test]
+fn draft_refine_properties_sections_collapse_and_sampling_has_no_offline_ceiling() {
+    let mut h = harness(vec2(1280.0, 800.0));
+    open_from_menu(&mut h);
+    h.get_all_by_label("Advanced").last().unwrap().click();
+    h.run_steps(2);
+    assert!(h.query_by_role_and_label(egui::accesskit::Role::SpinButton, "Steps").is_none());
+    h.get_all_by_label("Advanced").last().unwrap().click();
+    h.run_steps(2);
+    let s = &mut h.state_mut().ui.ai.draft_refine.refinement;
+    s.steps = 16_777_217;
+    s.guidance = -5.0;
+    s.denoise = 1.25;
+    h.run_steps(2);
+    let s = &h.state().ui.ai.draft_refine.refinement;
+    assert_eq!((s.steps, s.guidance, s.denoise), (16_777_217, -5.0, 1.25));
+    assert_eq!(h.get_by_role_and_label(egui::accesskit::Role::SpinButton, "Steps").accesskit_node().numeric_value(), Some(16_777_217.0));
+    let request = stage_request(h.state(), true).unwrap();
+    assert_eq!((request.steps, request.guidance, request.denoise), (16_777_217, -5.0, 1.25));
+}
+
+#[test]
+fn draft_refine_fresh_and_changed_refinement_model_use_per_model_denoise() {
+    use egui::accesskit::Role;
+    let mut h = harness(vec2(1280.0, 800.0));
+    open_from_menu(&mut h);
+    assert_eq!(h.state().ui.ai.draft_refine.refinement.denoise, 1.0);
+    h.get_by_label("Refines by reference: the image guides the result");
+    let denoise = h.get_by_role_and_label(egui::accesskit::Role::SpinButton, "Denoise").rect();
+    drag(&mut h, denoise.center(), vec2(-20.0, 0.0));
+    assert_ne!(h.state().ui.ai.draft_refine.refinement.denoise, 1.0, "denoise stays editable");
+    h.get_by_value(&format!("{} · {}", ModelId::Klein9B.info().label, ModelId::Klein9B.info().family_label)).click();
+    h.run_steps(2);
+    let reference = h.get_by_label("Edit models — refine by reference").rect();
+    let img2img = h.get_by_label("Image models — refine by denoise").rect();
+    let klein = h.get_by_role_and_label(Role::Button, &ModelId::Klein9B.info().label).rect();
+    let zimage = h.get_by_role_and_label(Role::Button, &ModelId::ZImageTurbo.info().label).rect();
+    assert!(reference.max.y < klein.min.y && klein.max.y < img2img.min.y && img2img.max.y < zimage.min.y);
+    for excluded in [ModelId::SeedVr2, ModelId::KleinRemove] {
+        assert!(h.query_by_role_and_label(Role::Button, &excluded.info().label).is_none());
+    }
+    h.get_by_role_and_label(egui::accesskit::Role::Button, &ModelId::Qwen.info().label).click();
+    h.run_steps(3);
+    // Qwen edit refines by reference at full denoise (verified with real refines).
+    assert_eq!(h.state().ui.ai.draft_refine.refinement.denoise, 1.0);
+    assert_eq!(stage_request(h.state(), true).unwrap().denoise, 1.0);
+    h.get_by_value(&format!("{} · {}", ModelId::Qwen.info().label, ModelId::Qwen.info().family_label)).click();
+    h.run_steps(2);
+    h.get_by_role_and_label(Role::Button, &ModelId::ZImageTurbo.info().label).click();
+    h.run_steps(3);
+    assert_eq!(h.state().ui.ai.draft_refine.refinement.denoise, 0.35);
+    h.get_by_label("Refines by denoise: lower keeps more of the image");
+    h.get_by_value(&format!("{} · {}", ModelId::ZImageTurbo.info().label, ModelId::ZImageTurbo.info().family_label)).click();
+    h.run_steps(2);
+    h.get_by_role_and_label(Role::Button, &ModelId::Klein9B.info().label).click();
+    h.run_steps(3);
+    assert_eq!(h.state().ui.ai.draft_refine.refinement.denoise, 1.0);
+    assert_eq!(stage_request(h.state(), true).unwrap().denoise, 1.0);
+}
+
+#[test]
+fn draft_refine_shared_aspect_presets_lock_and_model_grid() {
+    let mut h = harness(vec2(1280.0, 800.0));
+    open_from_menu(&mut h);
+    h.get_by_role_and_label(egui::accesskit::Role::Button, "16:9").click();
+    h.run_steps(2);
+    let s = &h.state().ui.ai.draft_refine.refinement;
+    let grid = model_of(s).info().resolved.sizes.multiple.max(8);
+    assert_eq!(s.aspect, "16:9");
+    assert!(s.aspect_locked);
+    let before = (s.width, s.height);
+    let width = h.get_by_role_and_label(egui::accesskit::Role::SpinButton, "Width").rect();
+    drag(&mut h, width.center(), vec2(60.0, 0.0));
+    let s = &h.state().ui.ai.draft_refine.refinement;
+    assert_ne!((s.width, s.height), before);
+    assert_eq!((s.width % grid, s.height % grid), (0, 0));
+    assert!((s.width as f32 / s.height as f32 - 16.0 / 9.0).abs() < 0.03);
+    h.get_by_label("Link width and height").click();
+    h.run_steps(2);
+    let height_before = h.state().ui.ai.draft_refine.refinement.height;
+    drag(&mut h, width.center(), vec2(60.0, 0.0));
+    let s = &h.state().ui.ai.draft_refine.refinement;
+    assert!(!s.aspect_locked);
+    assert_eq!(s.height, height_before);
+    assert_eq!(s.aspect, "custom");
+    assert_eq!((s.width % grid, s.height % grid), (0, 0));
+    let old: GenerateState = serde_json::from_value(json!({"width": 320, "height": 240})).unwrap();
+    assert!(old.aspect_locked, "old settings load with linked dimensions");
 }

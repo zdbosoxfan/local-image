@@ -20,7 +20,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         let mut refinement = GenerateState { mode: Mode::Refine, ..Default::default() };
-        set_stage_model(&mut refinement, ModelId::Klein9B);
+        set_model(&mut refinement, ModelId::Klein9B);
         Self { draft: GenerateState::default(), refinement, input: Input::Composite }
     }
 }
@@ -164,21 +164,19 @@ pub(crate) fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
         });
     }
     let screen = ctx.content_rect().size();
+    let size = vec2((screen.x - 64.0).clamp(700.0, 1600.0), (screen.y - 64.0).clamp(560.0, 1000.0));
     if ctx.embed_viewports() {
-        // Embedded hosts get a movable, resizable modal with the same workspace.
         let id = egui::Id::new("draft-refine-window");
-        let size = vec2((screen.x - 64.0).clamp(700.0, 1600.0), (screen.y - 64.0).clamp(560.0, 1000.0));
-        let modal =
-            egui::Modal::new(id).area(egui::Area::new(id).order(egui::Order::Foreground).movable(true).default_pos(ctx.content_rect().center() - size / 2.0));
+        let modal = egui::Modal::new(id)
+            .frame(window_frame(ctx))
+            .backdrop_color(egui::Color32::TRANSPARENT)
+            .area(egui::Area::new(id).order(egui::Order::Foreground).movable(true).default_pos(ctx.content_rect().center() - size / 2.0));
         let response = modal.show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading(tl!("Draft / Refinement"));
-            });
             egui::Resize::default()
                 .id_salt("draft-refine-size")
-                .default_size(size)
-                .min_size(vec2(700.0, 560.0))
-                .max_size((screen - vec2(32.0, 64.0)).max(vec2(700.0, 560.0)))
+                .default_size(size - vec2(24.0, 24.0))
+                .min_size(vec2(676.0, 536.0))
+                .max_size((screen - vec2(64.0, 64.0)).max(vec2(676.0, 536.0)))
                 .show(ui, |ui| content(app, ui));
         });
         if response.should_close() {
@@ -189,38 +187,62 @@ pub(crate) fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
             egui::ViewportId::from_hash_of("draft-refine-viewport"),
             egui::ViewportBuilder::default()
                 .with_title(tl!("Draft / Refinement"))
-                .with_inner_size(vec2((screen.x - 64.0).clamp(700.0, 1600.0), (screen.y - 64.0).clamp(560.0, 1000.0)))
+                .with_inner_size(size)
                 .with_min_inner_size([700.0, 600.0])
                 .with_resizable(true),
             |ui, class| {
                 if class == egui::ViewportClass::EmbeddedWindow {
                     ui.ctx().memory_mut(|m| m.set_modal_layer(ui.layer_id()));
-                    if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
-                        app.draft_refine.open = false;
-                    }
                 }
-                if ui.ctx().input(|i| i.viewport().close_requested()) {
+                if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) || ui.ctx().input(|i| i.viewport().close_requested()) {
                     app.draft_refine.open = false;
                 }
-                content(app, ui);
+                window_frame(ui.ctx()).show(ui, |ui| content(app, ui));
             },
         );
     }
 }
 
+fn window_frame(ctx: &egui::Context) -> egui::Frame {
+    let t = Tokens::get(ctx);
+    egui::Frame::window(&ctx.global_style())
+        .fill(t.dock)
+        .stroke(Stroke::new(1.0, t.card_border))
+        .corner_radius(t.radius_sm)
+        .inner_margin(egui::Margin::same(if t.pro { 8 } else { 12 }))
+}
+
 fn content(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    let height = ui.available_height().max(560.0);
-    let preview_height = (height - 390.0).max(240.0);
-    // Only Draft and Refinement tabs; both large previews stay visible for comparison.
-    ui.horizontal(|ui| {
-        ui.selectable_value(&mut app.draft_refine.refine_controls, false, tl!("Draft"));
-        ui.selectable_value(&mut app.draft_refine.refine_controls, true, tl!("Refinement"));
+    let t = Tokens::get(ui.ctx());
+    ui.spacing_mut().item_spacing = vec2(crate::theme::ROW_GAP * 2.0, crate::theme::ROW_GAP);
+    let height = ui.available_height();
+    egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(8, 4)).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(tl!("Draft / Refinement")).font(crate::theme::semibold(15.0)).color(t.text));
+            widgets::vline(ui, 20.0);
+            if widgets::pill_tab(ui, tl!("Draft"), !app.draft_refine.refine_controls).clicked() {
+                app.draft_refine.refine_controls = false;
+            }
+            if widgets::pill_tab(ui, tl!("Refinement"), app.draft_refine.refine_controls).clicked() {
+                app.draft_refine.refine_controls = true;
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if crate::icons::button(ui, "x", 24.0, false, tl!("Close")).clicked() {
+                    app.draft_refine.open = false;
+                }
+            });
+        });
     });
+    ui.add_space(crate::theme::ROW_GAP);
+    // Reserve the lower workspace for settings and the fixed action bar. Both previews keep at
+    // least 300 pt at the supported desktop sizes; long settings/LoRA lists scroll independently.
+    let preview_height = (height - 380.0).max(300.0);
     ui.columns(2, |cols| {
         for (i, ui) in cols.iter_mut().enumerate() {
             ui.push_id(i, |ui| {
                 let refine = i == 1;
-                ui.heading(if refine { tl!("Refinement") } else { tl!("Draft") });
+                widgets::section_label(ui, if refine { tl!("Refinement") } else { tl!("Draft") });
                 let rt = &mut app.draft_refine;
                 let before = if refine { rt.before_result.texture(ui.ctx()) } else { None };
                 let p = if refine { &mut rt.refinement } else { &mut rt.draft };
@@ -231,54 +253,116 @@ fn content(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 }
                 ui.horizontal(|ui| {
                     if refine {
-                        ui.checkbox(&mut app.draft_refine.compare, tl!("Compare with input"));
-                        ui.add(egui::Slider::new(&mut app.draft_refine.split, 0.0..=1.0).text(tl!("Comparison")));
+                        widgets::checkbox(ui, &mut app.draft_refine.compare, tl!("Compare with input"));
+                        ui.scope(|ui| {
+                            ui.set_width((ui.available_width() - 120.0).max(80.0));
+                            let r = widgets::slider(ui, &mut app.draft_refine.split, 0.0..=1.0, None);
+                            r.widget_info(|| egui::WidgetInfo::slider(ui.is_enabled(), app.draft_refine.split as f64, tl!("Comparison")));
+                        });
                     } else {
-                        ui.label(tl!("Wheel to zoom; drag to pan"));
+                        ui.label(RichText::new(tl!("Wheel to zoom; drag to pan")).font(crate::theme::medium(11.0)).color(t.text_faint));
                     }
                 });
             });
         }
     });
     let refine = app.draft_refine.refine_controls;
-    let mut run = false;
     let mut use_entry = None;
     let mut open_entry = None;
     let mut history_pick = None;
+    let st = crate::ai_ui::status();
+    let stage = if refine { &app.ui.ai.draft_refine.refinement } else { &app.ui.ai.draft_refine.draft };
+    let needs_warning = readiness(&st, model_of(stage), &stage.variant).is_err();
+    let controls_height = (ui.available_height() - if needs_warning { 112.0 } else { 78.0 }).max(60.0);
     ui.push_id(("stage-controls", refine), |ui| {
-        let entries = super::rt(|r| r.library.clone());
-        let current = if refine { app.draft_refine.refinement_entry.as_ref() } else { app.draft_refine.draft_entry.as_ref() };
-        let mut selected = current.map_or(String::new(), |e| e.id.clone());
-        let choices: Vec<_> = entries.iter().map(|e| (e.id.clone(), e.name.as_str())).collect();
-        ui.horizontal(|ui| {
-            ui.label(tl!("History"));
-            if widgets::dropdown(ui, "history", &mut selected, &choices, ui.available_width())
-                && let Some(entry) = entries.iter().find(|e| e.id == selected)
-            {
-                history_pick = Some(entry.clone());
-            }
-        });
-        let s = if refine { &mut app.ui.ai.draft_refine.refinement } else { &mut app.ui.ai.draft_refine.draft };
-        stage_settings(ui, s, refine);
-        if refine {
-            let choices =
-                [(Input::Composite, tl!("Open image (composite)")), (Input::SelectedLayer, tl!("Selected layer")), (Input::Draft, tl!("Draft result"))];
-            ui.horizontal(|ui| {
-                ui.label(tl!("Input"));
-                widgets::dropdown(ui, "input", &mut app.ui.ai.draft_refine.input, &choices, 230.0);
+        egui::ScrollArea::vertical().id_salt("stage-settings").max_height(controls_height).auto_shrink([false, false]).show(ui, |ui| {
+            ui.columns(3, |cols| {
+                let s = if refine { &mut app.ui.ai.draft_refine.refinement } else { &mut app.ui.ai.draft_refine.draft };
+                s.mode = if refine { Mode::Refine } else { Mode::Create };
+                s.refine = false;
+                egui::Frame::NONE.fill(t.card).inner_margin(8).corner_radius(t.radius_sm).show(&mut cols[0], |ui| {
+                    if crate::props_layout::section(ui, if refine { "refinement-model" } else { "draft-model" }, tl!("Model")) {
+                        if let Some(k) = model_picker(ui, "model", &s.model, s.mode, &st, false) {
+                            match k.as_str() {
+                                "browse:" => crate::model_browser::open(),
+                                "browse-loras:" => browse_loras(&s.model),
+                                _ => {
+                                    if let Some(m) = ModelId::from_key(&k) {
+                                        set_model(s, m);
+                                    }
+                                }
+                            }
+                        }
+                        let info = model_of(s).info();
+                        variant_picker(ui, info.id, &mut s.variant);
+                        ui.add(
+                            egui::TextEdit::multiline(&mut s.prompt)
+                                .hint_text(if refine { tl!("Describe the image (optional)…") } else { tl!("Describe the draft…") })
+                                .desired_rows(2)
+                                .desired_width(f32::INFINITY)
+                                .char_limit(4000),
+                        );
+                        if info.lora {
+                            loras_ui(ui, &mut s.loras, &info.resolved, &t);
+                        }
+                    }
+                });
+                egui::Frame::NONE.fill(t.card).inner_margin(8).corner_radius(t.radius_sm).show(&mut cols[1], |ui| {
+                    if crate::props_layout::section(ui, if refine { "refinement-size" } else { "draft-size" }, tl!("Size")) {
+                        size_controls(ui, s);
+                        if refine {
+                            let choices = [
+                                (Input::Composite, tl!("Open image (composite)")),
+                                (Input::SelectedLayer, tl!("Selected layer")),
+                                (Input::Draft, tl!("Draft result")),
+                            ];
+                            ui.horizontal(|ui| {
+                                label(ui, tl!("Input"));
+                                widgets::dropdown(ui, "input", &mut app.ui.ai.draft_refine.input, &choices, ui.available_width());
+                            });
+                        } else {
+                            ui.label(
+                                RichText::new(tl!("Create a draft, then choose Draft result as the refinement input."))
+                                    .font(crate::theme::medium(11.0))
+                                    .color(t.text_faint),
+                            );
+                        }
+                        let entries = super::rt(|r| r.library.clone());
+                        let current = if refine { app.draft_refine.refinement_entry.as_ref() } else { app.draft_refine.draft_entry.as_ref() };
+                        let mut selected = current.map_or(String::new(), |e| e.id.clone());
+                        let choices: Vec<_> = entries.iter().map(|e| (e.id.clone(), e.name.as_str())).collect();
+                        ui.horizontal(|ui| {
+                            label(ui, tl!("History"));
+                            if widgets::dropdown(ui, "history", &mut selected, &choices, ui.available_width().min(180.0))
+                                && let Some(entry) = entries.iter().find(|e| e.id == selected)
+                            {
+                                history_pick = Some(entry.clone());
+                            }
+                        });
+                    }
+                });
+                egui::Frame::NONE.fill(t.card).inner_margin(8).corner_radius(t.radius_sm).show(&mut cols[2], |ui| {
+                    if crate::props_layout::section(ui, if refine { "refinement-sampling" } else { "draft-sampling" }, tl!("Advanced")) {
+                        sampling_ui(ui, s, st.limits, refine);
+                    }
+                });
             });
-        } else {
-            ui.label(tl!("Create a draft, then choose Draft result as the refinement input."));
-        }
-        let s = if refine { &app.ui.ai.draft_refine.refinement } else { &app.ui.ai.draft_refine.draft };
-        let ready = crate::ai_ui::status().ready(model_of(s), &s.variant);
-        let busy = app.draft_refine.jobs.values().any(|job| job.refine == refine);
-        let has_source = match app.ui.ai.draft_refine.input {
-            Input::Draft => app.draft_refine.draft.image.is_some(),
-            _ => app.session.active().is_some(),
-        };
-        let enabled = ready.is_ok() && !busy && if refine { has_source } else { !s.prompt.trim().is_empty() };
-        ui.horizontal(|ui| {
+        });
+    });
+    widgets::hairline(ui);
+    let s = if refine { &app.ui.ai.draft_refine.refinement } else { &app.ui.ai.draft_refine.draft };
+    let ready = readiness(&st, model_of(s), &s.variant);
+    let busy = app.draft_refine.jobs.values().any(|job| job.refine == refine);
+    let has_source = match app.ui.ai.draft_refine.input {
+        Input::Draft => app.draft_refine.draft.image.is_some(),
+        _ => app.session.active().is_some(),
+    };
+    let enabled = ready.is_ok() && !busy && if refine { has_source } else { !s.prompt.trim().is_empty() };
+    if let Err(why) = &ready {
+        readiness_warning(app, ui, why, &st, false);
+    }
+    let run = ui
+        .horizontal(|ui| {
             let button = if busy {
                 tl!("Running…")
             } else if refine {
@@ -286,32 +370,33 @@ fn content(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             } else {
                 tl!("Generate draft")
             };
-            run = ui.add_enabled_ui(enabled, |ui| widgets::primary_button(ui, button, 0.0)).inner.clicked();
+            let run = ui.add_enabled_ui(enabled, |ui| widgets::primary_button(ui, button, 160.0)).inner.clicked();
             let entry = if refine { app.draft_refine.refinement_entry.clone() } else { app.draft_refine.draft_entry.clone() };
             if let Some(e) = entry {
-                if ui.add_enabled(app.session.active().is_some(), egui::Button::new(tl!("Use"))).clicked() {
+                if ui.add_enabled_ui(app.session.active().is_some(), |ui| widgets::secondary_button(ui, tl!("Use"), 0.0)).inner.clicked() {
                     use_entry = Some(e.clone());
                 }
-                if ui.button(tl!("Open as new document")).clicked() {
+                if widgets::secondary_button(ui, tl!("Open as new document"), 0.0).clicked() {
                     open_entry = Some(e);
                 }
             }
-        });
-        if let Err(why) = ready {
-            ui.label(RichText::new(why).color(Tokens::get(ui.ctx()).warning));
-        }
-    });
-    ui.horizontal(|ui| {
-        if ui.button(tl!("Close")).clicked() {
-            app.draft_refine.open = false;
-        }
-        if !app.draft_refine.jobs.is_empty() && ui.button(tl!("Stop generation")).clicked() {
-            for job in app.draft_refine.jobs.keys() {
-                app.session.cancel_job(photocraft_engine::jobs::JobId(*job));
-            }
-        }
-        ui.label(&app.ui.status);
-    });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if widgets::secondary_button(ui, tl!("Close"), 0.0).clicked() {
+                    app.draft_refine.open = false;
+                }
+                if !app.draft_refine.jobs.is_empty() && widgets::secondary_button(ui, tl!("Stop generation"), 0.0).clicked() {
+                    for job in app.draft_refine.jobs.keys() {
+                        app.session.cancel_job(photocraft_engine::jobs::JobId(*job));
+                    }
+                }
+            });
+            run
+        })
+        .inner;
+    ui.add(
+        egui::Label::new(RichText::new(&app.ui.status).font(crate::theme::medium(11.0)).color(if app.ui.status_error { t.warning } else { t.text_dim }))
+            .truncate(),
+    );
     let ctx = ui.ctx().clone();
     if let Some(entry) = history_pick {
         set_result(app, refine, entry);
@@ -325,85 +410,6 @@ fn content(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     if let Some(e) = open_entry {
         entry_action(app, &ctx, &e, "open");
     }
-}
-
-fn set_stage_model(s: &mut GenerateState, model: ModelId) {
-    set_model(s, model);
-    s.denoise = model.info().resolved.sampling.denoise;
-}
-
-fn stage_settings(ui: &mut egui::Ui, s: &mut GenerateState, refine: bool) {
-    s.mode = if refine { Mode::Refine } else { Mode::Create };
-    s.refine = false;
-    let models = catalog::catalog();
-    let choices: Vec<_> = models.models.iter().filter(|m| fits_mode(m, s.mode)).map(|m| (m.id.key().to_owned(), m.label.as_str())).collect();
-    ui.horizontal(|ui| {
-        ui.label(tl!("Model"));
-        if widgets::dropdown(ui, "model", &mut s.model, &choices, ui.available_width())
-            && let Some(m) = ModelId::from_key(&s.model)
-        {
-            set_stage_model(s, m);
-        }
-    });
-    let info = model_of(s).info();
-    let presets: Vec<_> = catalog::presets_for(info.id).collect();
-    let variants: Vec<_> = presets.iter().map(|p| (p.variant.clone(), p.label.as_str())).collect();
-    ui.horizontal(|ui| {
-        ui.label(tl!("Precision"));
-        widgets::dropdown(ui, "variant", &mut s.variant, &variants, ui.available_width());
-    });
-    ui.add(
-        egui::TextEdit::multiline(&mut s.prompt)
-            .hint_text(if refine { tl!("Describe the image (optional)…") } else { tl!("Describe the draft…") })
-            .desired_rows(2)
-            .desired_width(f32::INFINITY)
-            .char_limit(4000),
-    );
-    // Bounded only by what the connected ComfyUI reports for its sampler (owner: no built-in limits); the model's
-    // recommendation is shown as a hint.
-    let limits = crate::ai_ui::status().limits;
-    let (slo, shi) = limits.map_or((1.0, f32::MAX), |l| l.steps);
-    let (clo, chi) = limits.map_or((0.0, f32::MAX), |l| l.cfg);
-    let (dlo, dhi) = limits.map_or((0.0, 1.0), |l| l.denoise);
-    ui.horizontal(|ui| {
-        let label = ui.label(tl!("Steps"));
-        ui.add(egui::DragValue::new(&mut s.steps).range(slo.max(1.0) as u32..=shi.max(1.0) as u32)).labelled_by(label.id);
-        let label = ui.label(tl!("Guidance"));
-        ui.add(egui::DragValue::new(&mut s.guidance).range(clo..=chi.max(clo)).speed(0.1)).labelled_by(label.id);
-        if refine {
-            let label = ui.label(tl!("Denoise"));
-            ui.add(egui::DragValue::new(&mut s.denoise).range(dlo..=dhi.max(dlo)).speed(0.01)).labelled_by(label.id);
-        }
-    });
-    ui.label(
-        RichText::new(format!(
-            "{} · {}",
-            super::range_hint(info.steps.min, info.steps.max, info.steps.default, 0),
-            super::range_hint(info.guidance.min, info.guidance.max, info.guidance.default, 1)
-        ))
-        .size(11.0)
-        .weak(),
-    );
-    s.steps = s.steps.clamp(slo.max(1.0) as u32, shi.max(1.0) as u32);
-    s.guidance = if s.guidance.is_finite() { s.guidance.clamp(clo, chi.max(clo)) } else { info.guidance.default };
-    s.denoise = if s.denoise.is_finite() { s.denoise.clamp(dlo, dhi.max(dlo)) } else { info.resolved.sampling.denoise };
-    ui.horizontal(|ui| {
-        let sizes = &info.resolved.sizes;
-        let choices: Vec<_> = ASPECTS.iter().map(|(k, _)| ((*k).to_owned(), *k)).chain([("custom".into(), tl!("Custom"))]).collect();
-        if widgets::dropdown(ui, "aspect", &mut s.aspect, &choices, 76.0) && s.aspect != "custom" {
-            (s.width, s.height) = size_for(&s.aspect, s, sizes.native);
-        }
-        ui.label(tl!("Width"));
-        let width = ui.add(egui::DragValue::new(&mut s.width).range(sizes.min..=sizes.max).clamp_existing_to_range(!refine).speed(sizes.multiple));
-        ui.label(tl!("Height"));
-        let height = ui.add(egui::DragValue::new(&mut s.height).range(sizes.min..=sizes.max).clamp_existing_to_range(!refine).speed(sizes.multiple));
-        if width.changed() || height.changed() {
-            s.aspect = "custom".into();
-            if width.lost_focus() || height.lost_focus() || !(width.has_focus() || height.has_focus()) {
-                (s.width, s.height) = li_ai::imaging::snap_size(s.width, s.height, sizes.multiple.max(8));
-            }
-        }
-    });
 }
 
 fn stage_request(app: &PhotocraftApp, refine: bool) -> Option<GenerateRequest> {
@@ -454,7 +460,7 @@ fn start_stage(app: &mut PhotocraftApp, ctx: &egui::Context, refine: bool) {
     }
     let info = req.model.info();
     let meta = json!({"model": req.model.key(), "variant": req.variant, "mode": if refine { "refine" } else { "create" }, "prompt": req.prompt,
-        "width": req.width, "height": req.height, "steps": req.steps, "guidance": req.guidance, "denoise": req.denoise, "seed": req.seed});
+        "width": req.width, "height": req.height, "steps": req.steps, "guidance": req.guidance, "denoise": req.denoise, "seed": req.seed, "loras": req.loras});
     let name = format!("{}-{}", info.short, req.seed);
     let label = if refine { tl!("Refinement") } else { tl!("Draft") };
     if launch(app, label, label, name, meta, None, false, move |ctl| li_ai::service().generate(&req, ctl)) {
@@ -510,32 +516,45 @@ pub(super) fn on_generated(app: &mut PhotocraftApp, e: &JobEvent) {
 
 impl Preview {
     fn draw(&mut self, ui: &mut egui::Ui, label: &str, height: f32, before: Option<egui::TextureId>, split: f32) {
-        ui.horizontal(|ui| {
-            if ui.button(tl!("Fit")).clicked() {
-                self.camera = Camera::default();
-            }
-            if ui.button(tl!("100%")).clicked() {
-                self.camera.scale = Some(1.0);
-            }
-            if ui.button(tl!("−")).clicked() {
-                self.zoom(0.8, None);
-            }
-            if ui.button(tl!("+")).clicked() {
-                self.zoom(1.25, None);
-            }
-            ui.label(self.camera.scale.map_or_else(|| tl!("Fit").to_owned(), |s| format!("{:.0}%", s * 100.0)));
+        let t = Tokens::get(ui.ctx());
+        let preview_width = ui.available_width();
+        egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(6, 4)).corner_radius(t.radius_sm).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                if widgets::secondary_button(ui, tl!("Fit"), 0.0).clicked() {
+                    self.camera = Camera::default();
+                }
+                if widgets::secondary_button(ui, tl!("100%"), 0.0).clicked() {
+                    self.camera.scale = Some(1.0);
+                }
+                widgets::vline(ui, 18.0);
+                if crate::icons::button(ui, "minus", 24.0, false, tl!("−")).clicked() {
+                    self.zoom(0.8, None);
+                }
+                if crate::icons::button(ui, "plus", 24.0, false, tl!("+")).clicked() {
+                    self.zoom(1.25, None);
+                }
+                if let Some(img) = &self.image {
+                    let scale = self.camera.scale.unwrap_or_else(|| (preview_width / img.width() as f32).min(height / img.height() as f32));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(RichText::new(format!("{:.0}%", scale * 100.0)).font(crate::theme::mono(11.0)).color(t.text_dim));
+                    });
+                }
+            });
         });
         let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click_and_drag());
         self.rect = Some(rect);
         response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, label));
         let painter = ui.painter().with_clip_rect(rect);
-        painter.rect_filled(rect, 4.0, Color32::from_rgb(22, 23, 25));
+        let t = Tokens::get(ui.ctx());
+        widgets::surface(ui, rect, t.canvas, false);
+        painter.rect_stroke(rect, t.radius_sm, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
         let Some(img) = self.image.clone() else {
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 tl!("Choose or generate an image."),
-                egui::FontId::proportional(14.0),
+                crate::theme::medium(12.5),
                 Tokens::get(ui.ctx()).text_dim,
             );
             return;
@@ -601,7 +620,10 @@ impl Preview {
             let x = rect.left() + rect.width() * split;
             let clip = egui::Rect::from_min_max(rect.min, egui::pos2(x, rect.bottom()));
             painter.with_clip_rect(clip).image(before, image_rect, uv, Color32::WHITE);
-            painter.vline(x, rect.y_range(), Stroke::new(2.0, Color32::WHITE));
+            painter.vline(x, rect.y_range(), Stroke::new(2.0, t.accent));
+            let handle = egui::Rect::from_center_size(egui::pos2(x, rect.center().y), vec2(10.0, 28.0));
+            painter.rect_filled(handle, t.radius_sm, t.accent);
+            painter.rect_stroke(handle, t.radius_sm, Stroke::new(1.0, t.accent_border), StrokeKind::Inside);
         }
     }
     fn zoom(&mut self, factor: f32, anchor: Option<egui::Pos2>) {

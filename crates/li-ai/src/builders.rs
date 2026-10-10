@@ -427,6 +427,10 @@ fn qwen21(files: &Files, p: &Params) -> Built {
             seed: p.seed,
             steps: p.steps,
             cfg: p.cfg,
+            denoise: match p.task {
+                Task::Refine { denoise } | Task::Inpaint { denoise } => denoise,
+                _ => 1.0,
+            },
             references: refs,
             use_cache: false,
             loras: p.loras,
