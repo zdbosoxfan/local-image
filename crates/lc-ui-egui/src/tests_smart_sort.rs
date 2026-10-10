@@ -686,9 +686,7 @@ fn smart_sort_face_analysis_starts_once_after_setup() {
     crate::smart_sort_task::start(&mut h.app, &ids).unwrap();
     assert!(h.app.people_task.is_some());
     assert!(h.app.smart_sort.is_some());
-    assert!(h.step_until(T, |h| h.app.people_task.is_none() && h.app.smart_sort.is_none()));
-    h.step();
-    h.step();
+    assert!(h.step_until(T, |h| h.app.people_task.is_none() && h.app.smart_sort.is_none() && state(h).rows.len() == ids.len()));
     assert_eq!(state(&h).step, 1);
     assert_eq!(state(&h).rows.len(), ids.len());
 }
@@ -720,7 +718,7 @@ fn ds2_smart_sort_setup_failure_does_not_start_face_worker() {
     h.step();
     click(&mut h, "smartSort:analyze");
     assert!(state(&h).error.is_empty(), "{}", state(&h).error);
-    assert!(h.step_until(T, |h| h.app.smart_sort.is_none() && h.app.people_task.is_none() && state(h).step == 1));
+    assert!(h.step_until(T, |h| h.app.smart_sort.is_none() && h.app.people_task.is_none() && state(h).step == 1 && state(h).rows.len() == ids.len()));
     assert!(state(&h).failed.is_empty(), "{:?}", state(&h).failed);
     assert_eq!(state(&h).analysed, ids.len());
     assert_eq!(state(&h).rows.len(), ids.len());

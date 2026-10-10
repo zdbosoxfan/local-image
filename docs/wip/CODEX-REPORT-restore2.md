@@ -144,7 +144,7 @@ Raw independent PyTorch/tract FP32 tensor comparison:
 Scratch threshold-mask disagreements: **0** on the deterministic reference tensor.
 Evidence: `*-input.f32`, `*-reference.f32`, `*-tract.f32`, `numeric-comparison.log` and
 `pixel-reference.log` under `target/restore-export/`. Rust probe:
-`cargo +1.98.1 run --offline -p li-seg --example restoration_probe -- <onnx> <channels> <size> <input.f32> <output.f32>`.
+`cargo +1.98.1 run --offline -p li-seg --example restoration_onnx_probe -- <onnx> <channels> <size> <input.f32> <output.f32>`.
 
 The test image is [NASA's public-domain astronaut](https://scikit-image.org/docs/stable/api/skimage.data.html#skimage.data.astronaut),
 read from the installed scikit-image fixture and copied to `target/`. No owner photos.

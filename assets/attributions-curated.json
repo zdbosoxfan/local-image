@@ -159,7 +159,7 @@
           "name": "Microsoft scratch detector · Repair old photo",
           "used_for": "MIT one-channel UNet from the official v1.0 release; verified FP32 ONNX export. Scratch mask reviewed in AI Remove before filling; optional DDColor preview after a successful repair. No dlib or face stage.",
           "licence": "MIT",
-          "licence_files": ["licenses/restoration-scratches-LICENSE.txt"],
+          "licence_files": ["licenses/restoration-scratches-LICENSE.txt", "licenses/restoration-scratches-NOTICE.md"],
           "url": "https://github.com/microsoft/Bringing-Old-Photos-Back-to-Life/blob/33875eccf4ebcd3665cf38cc56f3a0ce563d3a9c/LICENSE",
           "ours": "crates/li-seg/src/restoration.rs; crates/pc-ui-egui/src/restoration_ui.rs; scripts/export_restore_models.py"
         }

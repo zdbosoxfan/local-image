@@ -756,6 +756,33 @@
           "url": "https://potrace.sourceforge.net/"
         },
         {
+          "name": "DDColor",
+          "used_for": "Neutral Lab input, original luminance + predicted chroma, nearest chroma resize.",
+          "upstream": "ddcolor/pipeline.py",
+          "commit": "2adb63f2656ac41cbdf7b894cddd94121a3faf13",
+          "ours": "crates/li-seg/src/restoration.rs",
+          "licence": "Apache-2.0",
+          "url": "https://github.com/piddnad/DDColor/blob/2adb63f2656ac41cbdf7b894cddd94121a3faf13/ddcolor/pipeline.py"
+        },
+        {
+          "name": "Microsoft old-photo restoration",
+          "used_for": "Grayscale normalisation, short-side detector scale, probability threshold and nearest mask.",
+          "upstream": "Global/detection.py",
+          "commit": "33875eccf4ebcd3665cf38cc56f3a0ce563d3a9c",
+          "ours": "crates/li-seg/src/restoration.rs",
+          "licence": "MIT",
+          "url": "https://github.com/microsoft/Bringing-Old-Photos-Back-to-Life/blob/33875eccf4ebcd3665cf38cc56f3a0ce563d3a9c/Global/detection.py"
+        },
+        {
+          "name": "DDColor",
+          "used_for": "Out-of-build FP32 export of the author's relicensed HF weights, with strict loading and frozen spectral weights.",
+          "upstream": "scripts/export_onnx.py",
+          "commit": "2adb63f2656ac41cbdf7b894cddd94121a3faf13",
+          "ours": "scripts/export_restore_models.py",
+          "licence": "Apache-2.0",
+          "url": "https://github.com/piddnad/DDColor/blob/2adb63f2656ac41cbdf7b894cddd94121a3faf13/scripts/export_onnx.py"
+        },
+        {
           "name": "vkdt",
           "author": "Johannes Hanika",
           "used_for": "The local-Laplacian reduce/assemble stencils and sampled construction in LI Tone, with Local Image's exposure remapping and rectangular pyramid extensions.",
@@ -1144,12 +1171,13 @@
         {
           "name": "Microsoft scratch detector · Repair old photo",
           "used_for": "MIT one-channel UNet from the official v1.0 release; verified FP32 ONNX export. Scratch mask reviewed in AI Remove before filling; optional DDColor preview after a successful repair. No dlib or face stage.",
+          "ours": "crates/li-seg/src/restoration.rs; crates/pc-ui-egui/src/restoration_ui.rs; scripts/export_restore_models.py",
           "licence": "MIT",
           "licence_files": [
-            "licenses/restoration-scratches-LICENSE.txt"
+            "licenses/restoration-scratches-LICENSE.txt",
+            "licenses/restoration-scratches-NOTICE.md"
           ],
-          "url": "https://github.com/microsoft/Bringing-Old-Photos-Back-to-Life/blob/33875eccf4ebcd3665cf38cc56f3a0ce563d3a9c/LICENSE",
-          "ours": "crates/li-seg/src/restoration.rs; crates/pc-ui-egui/src/restoration_ui.rs; scripts/export_restore_models.py"
+          "url": "https://github.com/microsoft/Bringing-Old-Photos-Back-to-Life/blob/33875eccf4ebcd3665cf38cc56f3a0ce563d3a9c/LICENSE"
         }
       ]
     },
