@@ -31,6 +31,14 @@ egui_kittest = { version = "0.36" }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 getrandom = { version = "0.3" }
 hex = { version = "0.4" }
+# Owner-approved vector bootstrap (architecture §2). Keep these exact pins and selected
+# features; xtask's optional vector-bootstrap anchors the lock until the adapters land.
+hayro-interpret = { version = "=0.7.0", default-features = false, features = ["embed-fonts", "embed-cmaps"] }
+hayro-syntax = { version = "=0.7.2", default-features = false, features = ["std", "images"] }
+krilla = { version = "=0.8.2", default-features = false, features = ["raster-images"] }
+kurbo = { version = "=0.13.1" }
+linesweeper = { version = "=0.4.0" }
+polycool = { version = "=0.4.0" }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff", "webp"] }
 image-webp = { version = "0.2" }
 jpeg-decoder = { version = "0.3", default-features = false }
