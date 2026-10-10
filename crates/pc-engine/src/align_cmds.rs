@@ -232,6 +232,123 @@ pub fn specs() -> Vec<CommandSpec> {
     ]
 }
 
+/// V8 key-object alignment. It adds a separate command; existing pixel registration and
+/// Photoshop layer.align IDs keep their original semantics and linked-layer behavior.
+pub(crate) fn vector_align(s: &mut Session, p: &Value) -> Result<Value> {
+    use crate::vector_packages::constraints::arithmetic::error;
+    use crate::vector_packages::layout::{self, Capture};
+    let capture: Capture =
+        serde_json::from_value(p.get("capture").cloned().ok_or_else(|| error("alignment requires capture"))?).map_err(|e| error(e.to_string()))?;
+    capture.check(s)?;
+    let edge = p.get("edge").and_then(Value::as_str).ok_or_else(|| error("alignment requires edge"))?;
+    let (axis, fraction) = match edge {
+        "left" => (0, 0.),
+        "centerX" => (0, 0.5),
+        "right" => (0, 1.),
+        "top" => (1, 0.),
+        "centerY" => (1, 0.5),
+        "bottom" => (1, 1.),
+        _ => return Err(error("unknown alignment edge")),
+    };
+    let key = p.get("key").map(|v| v.as_u64().map(LayerId).ok_or_else(|| error("key must be a layer id"))).transpose()?;
+    if key.is_some_and(|id| !capture.layers.contains(&id)) {
+        return Err(error("key must belong to the captured selection"));
+    }
+    let st = s.active().ok_or(EngineError::NoDocument)?;
+    let target = match key {
+        Some(id) => layout::bounds(st.doc.layer(id).ok_or(EngineError::NoLayer(id))?)?,
+        None => layout::selection_bounds(&st.doc, &capture.layers)?,
+    };
+    let coordinate = target[axis] + fraction * target[axis + 2];
+    let shifts = capture
+        .layers
+        .iter()
+        .map(|id| {
+            let b = layout::bounds(st.doc.layer(*id).ok_or(EngineError::NoLayer(*id))?)?;
+            let mut delta = [0.; 2];
+            delta[axis] = coordinate - b[axis] - fraction * b[axis + 2];
+            Ok((*id, delta))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    publish_vector_moves(s, &capture, shifts)?;
+    Ok(json!({"aligned":capture.layers.len(),"key":key}))
+}
+/// Equal gaps or an explicit gap in document pixels. An interior key stays stationary;
+/// neighbours are placed to either side in stable geometric order. With no explicit gap,
+/// the original outer span is retained. Negative gaps deliberately allow overlap.
+pub(crate) fn vector_spacing(s: &mut Session, p: &Value) -> Result<Value> {
+    use crate::vector_packages::constraints::arithmetic::{error, finite};
+    use crate::vector_packages::layout::{self, Capture};
+    let capture: Capture =
+        serde_json::from_value(p.get("capture").cloned().ok_or_else(|| error("spacing requires capture"))?).map_err(|e| error(e.to_string()))?;
+    capture.check(s)?;
+    if capture.layers.len() < 2 {
+        return Err(error("spacing needs at least two layers"));
+    }
+    let axis = match p.get("axis").and_then(Value::as_str) {
+        Some("x") => 0,
+        Some("y") => 1,
+        _ => return Err(error("axis must be x or y")),
+    };
+    let key = p.get("key").map(|v| v.as_u64().map(LayerId).ok_or_else(|| error("key must be a layer id"))).transpose()?;
+    if key.is_some_and(|id| !capture.layers.contains(&id)) {
+        return Err(error("key must belong to the captured selection"));
+    }
+    let st = s.active().ok_or(EngineError::NoDocument)?;
+    let mut items =
+        capture.layers.iter().map(|id| Ok((*id, layout::bounds(st.doc.layer(*id).ok_or(EngineError::NoLayer(*id))?)?))).collect::<Result<Vec<_>>>()?;
+    items.sort_by(|a, b| a.1[axis].total_cmp(&b.1[axis]).then_with(|| a.0.0.cmp(&b.0.0)));
+    let first = items.first().ok_or_else(|| error("empty selection"))?;
+    let last = items.last().ok_or_else(|| error("empty selection"))?;
+    let span = last.1[axis] + last.1[axis + 2] - first.1[axis];
+    let total: f64 = items.iter().map(|(_, b)| b[axis + 2]).sum();
+    let gap = match p.get("spacing") {
+        Some(v) => finite(v.as_f64().ok_or_else(|| error("spacing must be numeric"))?)?,
+        None => (span - total) / (items.len() - 1) as f64,
+    };
+    let anchor = key.and_then(|id| items.iter().position(|(layer, _)| *layer == id)).unwrap_or(0);
+    let mut positions = vec![0.; items.len()];
+    positions[anchor] = items[anchor].1[axis];
+    for i in anchor + 1..items.len() {
+        positions[i] = positions[i - 1] + items[i - 1].1[axis + 2] + gap;
+    }
+    for i in (0..anchor).rev() {
+        positions[i] = positions[i + 1] - gap - items[i].1[axis + 2];
+    }
+    let shifts = items
+        .iter()
+        .zip(positions)
+        .map(|((id, b), position)| {
+            finite(position)?;
+            let mut delta = [0.; 2];
+            delta[axis] = position - b[axis];
+            Ok((*id, delta))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    publish_vector_moves(s, &capture, shifts)?;
+    Ok(json!({"spacing":gap,"key":key}))
+}
+fn publish_vector_moves(s: &mut Session, capture: &crate::vector_packages::layout::Capture, shifts: Vec<(LayerId, [f64; 2])>) -> Result<()> {
+    use crate::vector_packages::layout;
+    let st = s.active().ok_or(EngineError::NoDocument)?;
+    let mut prepared = Vec::new();
+    let mut pixels = 0u64;
+    for (id, d) in shifts {
+        let layer = layout::transformed(&st.doc, st.doc.layer(id).ok_or(EngineError::NoLayer(id))?, photocraft_geom::Affine::translate(d[0], d[1]))?;
+        pixels = pixels.saturating_add(layout::prepared_pixels(&layer)?);
+        layout::check_pixel_sum(pixels)?;
+        prepared.push(layer);
+    }
+    capture.check(s)?;
+    s.edit("Vector Align / Spacing", |doc, _| {
+        for l in prepared {
+            let id = l.id;
+            *doc.layer_mut(id).ok_or(EngineError::NoLayer(id))? = l;
+        }
+        Ok(())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
