@@ -437,6 +437,11 @@ fn group_header(app: &mut LightcraftApp, ui: &mut egui::Ui, run: &DateRun, ids: 
 /// first gets a stand-in (its cached thumbnail, else its embedded camera preview), and its real
 /// render then follows in the background.
 pub fn request_thumb(app: &mut LightcraftApp, id: PhotoId, size: usize, priority: u32) {
+    // Keep the filmstrip's existing pixels during a live edit. These CPU renders otherwise
+    // compete with every loupe step and populate the disk cache with transient slider values.
+    if app.session.interaction.as_ref().is_some_and(|i| i.photo == id) {
+        return;
+    }
     let bucket = lightcraft_engine::media::thumb_bucket(size);
     if let Some(photo) = app.session.catalog.photo(id)
         && app.renderer.thumb_current(photo, bucket, priority)

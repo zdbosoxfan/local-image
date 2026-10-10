@@ -306,3 +306,70 @@ fn default_thread_pool_runs_job() {
         std::thread::sleep(Duration::from_millis(5));
     }
 }
+
+/// A newer job for a slot waits for the slot's running job instead of running beside it (a slider
+/// drag submits a loupe render every frame); other slots still use the idle workers.
+#[test]
+fn one_job_per_slot_runs_at_a_time() {
+    let mut pool = JobPool::<usize, i32>::new(3);
+    let running = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let overlap = Arc::new(AtomicBool::new(false));
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let release_rx = Arc::new(std::sync::Mutex::new(release_rx));
+    let job = |n: i32, wait: bool| {
+        let (running, overlap, release_rx) = (running.clone(), overlap.clone(), release_rx.clone());
+        Box::new(move || {
+            if running.fetch_add(1, Ordering::SeqCst) > 0 {
+                overlap.store(true, Ordering::SeqCst);
+            }
+            if wait {
+                let _ = release_rx.lock().unwrap().recv_timeout(Duration::from_secs(10));
+            }
+            running.fetch_sub(1, Ordering::SeqCst);
+            n
+        }) as Box<dyn FnOnce() -> i32 + Send>
+    };
+    pool.submit(1, 1, 5, job(1, true));
+    // wait until the first job runs, then queue a newer one for the same slot and one elsewhere
+    let t0 = Instant::now();
+    while running.load(Ordering::SeqCst) == 0 {
+        assert!(t0.elapsed() < Duration::from_secs(10));
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    pool.submit(1, 2, 5, job(2, false));
+    pool.submit(1, 3, 5, job(3, false));
+    pool.submit(1, 4, 5, job(4, false));
+    pool.submit(9, 3, 5, Box::new(|| 9));
+    let other = loop {
+        if let Some(d) = pool.try_recv() {
+            break d;
+        }
+        assert!(t0.elapsed() < Duration::from_secs(10), "the other slot did not run on an idle worker");
+        std::thread::sleep(Duration::from_millis(1));
+    };
+    assert_eq!(other.slot, 9);
+    assert!(pool.is_queued(1), "the newer job for the busy slot waits");
+    release_tx.send(()).unwrap();
+    let mut got = Vec::new();
+    while got.len() < 2 {
+        if let Some(d) = pool.try_recv() {
+            got.push(d.result);
+        }
+        assert!(t0.elapsed() < Duration::from_secs(10), "the waiting job never ran");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(got, vec![1, 4], "intermediate drag requests are coalesced while the slot runs");
+    assert!(!overlap.load(Ordering::SeqCst), "two jobs for one slot ran at once");
+}
+
+/// A job that panics frees its slot: a later job for the slot still runs.
+#[test]
+fn a_panicking_job_frees_its_slot() {
+    let mut pool = JobPool::<usize, i32>::new(0);
+    pool.submit(1, 1, 0, Box::new(|| panic!("job failed")));
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| pool.run_inline(1)));
+    assert!(r.is_err());
+    pool.submit(1, 2, 0, Box::new(|| 2));
+    assert_eq!(pool.run_inline(1), 1);
+    assert_eq!(pool.try_recv().unwrap().result, 2);
+}

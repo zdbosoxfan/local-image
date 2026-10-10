@@ -985,7 +985,8 @@ pub(crate) mod tests {
         match DEVICE.get_or_init(crate::ctx::Gpu::numerical_test_device) {
             Ok(g) => Some(g),
             Err(e) => {
-                eprintln!("skipped: no CPU Vulkan numerical-test adapter ({e})");
+                assert!(std::env::var_os("LC_REQUIRE_GPU").is_none(), "hardware GPU required for numerical tests: {e}");
+                eprintln!("skipped: no Vulkan numerical-test adapter ({e})");
                 None
             }
         }

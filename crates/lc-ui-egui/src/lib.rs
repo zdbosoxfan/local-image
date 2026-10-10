@@ -57,6 +57,8 @@ mod tests_quit_unsaved;
 #[cfg(test)]
 mod tests_scroll;
 #[cfg(test)]
+mod tests_slider_speed;
+#[cfg(test)]
 mod tests_smart_sort;
 #[cfg(test)]
 mod tests_switch_library;
@@ -228,7 +230,7 @@ pub struct LightcraftApp {
     pub hover_preview: Option<HoverPreview>,
     /// The window is in full screen (as last reported by the host, or as last requested).
     pub window_is_fullscreen: bool,
-    /// The GPU preference last applied (`app.gpu`), to apply Settings changes once.
+    /// The GPU preference last applied, to apply Settings changes once.
     gpu_applied: Option<bool>,
     /// The memory budget setting last applied (MB, 0 = automatic).
     memory_applied: Option<u32>,
@@ -690,6 +692,13 @@ impl LightcraftApp {
         }
         self.last_time = now;
         self.drain_control(ctx);
+        if self.ui.dragging_control.is_some() && self.session.interaction.is_none() {
+            // Selection, Undo or Cancel may finish the interaction through a command while
+            // the pointer is still held. Do not carry that gesture into another photo.
+            self.ui.dragging_control = None;
+            self.ui.sharpen_mask_preview = false;
+            ctx.stop_dragging();
+        }
         self.apply_settings(ctx);
         if !self.synthetic.is_empty() {
             ctx.request_repaint();
@@ -775,7 +784,9 @@ impl LightcraftApp {
     fn apply_settings(&mut self, ctx: &egui::Context) {
         if self.gpu_applied != Some(self.ui.settings.gpu) {
             self.gpu_applied = Some(self.ui.settings.gpu);
-            let _ = self.session.execute("app.gpu", &serde_json::json!({"enabled": self.ui.settings.gpu}));
+            // `app.gpu` is a synchronous diagnostic query: it creates the device. Applying a
+            // preference must only flip the flag here, leaving initialization to the worker.
+            lightcraft_engine::gpu::set_enabled(self.ui.settings.gpu);
             // GPU device + kernels off the UI thread, once the window is up and only when GPU
             // rendering is on: a broken driver must not keep the window from appearing (issue #136)
             if self.ui.settings.gpu {
@@ -840,6 +851,17 @@ impl LightcraftApp {
         self.perf.max_update_ms = self.perf.max_update_ms.max(self.perf.update_ms);
     }
 
+    fn finish_slider_if_released(&mut self, ctx: &egui::Context) {
+        // The dragged widget may disappear (panel closed, photo switched, focus lost). It then
+        // cannot report drag_stopped, but the session must still leave draft mode and commit.
+        if self.ui.dragging_control.is_some() && ctx.input(|i| !i.pointer.primary_down() || !i.focused) {
+            let _ = self.run("develop.endInteraction", serde_json::json!({}));
+            self.ui.dragging_control = None;
+            self.ui.sharpen_mask_preview = false;
+            ctx.request_repaint();
+        }
+    }
+
     /// Lay out the whole window.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         crate::color_icons::set_enabled(ui.ctx(), self.ui.settings.color_tool_icons);
@@ -866,6 +888,7 @@ impl LightcraftApp {
             panels::library_problem::show(self, &ctx);
             panels::toast(self, &ctx);
             self.widgets = widgets::take_registry(&ctx);
+            self.finish_slider_if_released(&ctx);
             self.end_frame(t0);
             return;
         }
@@ -918,6 +941,7 @@ impl LightcraftApp {
         panels::grid::drag_feedback(self, &ctx);
         panels::toast(self, &ctx);
         self.widgets = widgets::take_registry(&ctx);
+        self.finish_slider_if_released(&ctx);
         self.end_frame(t0);
     }
 }

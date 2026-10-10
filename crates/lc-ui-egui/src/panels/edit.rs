@@ -21,6 +21,11 @@ pub fn apply_slider_out(
     out: SliderOut,
     mut set: impl FnMut(&mut LightcraftApp, f64) -> Result<Value, String>,
 ) {
+    if out.drag_stopped && !out.drag_started && app.ui.dragging_control.as_deref() != Some(spec.id) {
+        // egui also reports drag_stopped when a command stopped dragging (selection/undo).
+        // Its former widget must not apply the old pointer position to the new settings.
+        return;
+    }
     if out.drag_started && !out.reset {
         let _ = app.run("develop.beginInteraction", json!({"label": spec.label}));
         app.ui.dragging_control = Some(spec.id.to_string());

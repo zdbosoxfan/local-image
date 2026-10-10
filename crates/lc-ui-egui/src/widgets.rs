@@ -157,31 +157,35 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
     // screen readers: a slider named after its control, with its value
     let label_text = crate::i18n::tr(label_override.unwrap_or(spec.label)).to_string();
     resp.widget_info(|| egui::WidgetInfo::slider(enabled, value, label_text.clone()));
-    let label_resp = ui.interact(label_rect, id.with("label"), Sense::click());
+    let label_resp = ui.interact(label_rect, id.with("label"), if enabled { Sense::click() } else { Sense::hover() });
     register(ui.ctx(), format!("slider:{}", spec.id), track_rect);
     let mut out = SliderOut::default();
     let span = (spec.max - spec.min).max(1e-9);
     let to_x = |v: f64| track_rect.left() + ((v - spec.min) / span).clamp(0.0, 1.0) as f32 * track_rect.width();
     let from_x = |x: f32| spec.min + ((x - track_rect.left()) / track_rect.width()).clamp(0.0, 1.0) as f64 * span;
     let mut v = value;
-    if resp.double_clicked() || label_resp.double_clicked() {
+    let drag_id = id.with("continuous-value");
+    if enabled && (resp.double_clicked() || label_resp.double_clicked()) {
         out.reset = true;
         out.value = Some(spec.default);
         v = spec.default;
     } else {
         if resp.drag_started() {
             out.drag_started = true;
+            // Keep unrounded motion across frames: rounding each tiny Shift-drag delta to a
+            // slider step made slow drags stick at one value indefinitely.
+            let x = ui.input(|i| i.pointer.press_origin()).map_or(track_rect.center().x, |p| p.x);
+            ui.data_mut(|d| d.insert_temp(drag_id, (value, x)));
         }
-        if (resp.dragged() || resp.drag_started())
+        let released = resp.drag_stopped() && ui.input(|i| !i.pointer.primary_down());
+        if (resp.dragged() || resp.drag_started() || released)
             && let Some(p) = resp.interact_pointer_pos()
         {
             let fine = ui.input(|i| i.modifiers.shift);
-            let nv = if fine {
-                let dx = ui.input(|i| i.pointer.delta().x);
-                value + dx as f64 * span / track_rect.width() as f64 * 0.1
-            } else {
-                from_x(p.x)
-            };
+            let (continuous, last_x) = ui.data(|d| d.get_temp::<(f64, f32)>(drag_id)).unwrap_or((value, p.x));
+            let nv = if fine { continuous + (p.x - last_x) as f64 * span / track_rect.width() as f64 * 0.1 } else { from_x(p.x) };
+            let nv = nv.clamp(spec.min, spec.max);
+            ui.data_mut(|d| d.insert_temp(drag_id, (nv, p.x)));
             let step = spec.step.max(1e-9);
             let nv = ((nv / step).round() * step).clamp(spec.min, spec.max);
             if (nv - value).abs() > 1e-12 {
@@ -200,6 +204,7 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
         }
         if resp.drag_stopped() {
             out.drag_stopped = true;
+            ui.data_mut(|d| d.remove_temp::<(f64, f32)>(drag_id));
         }
         // ↑ / ↓ while the pointer rests on the row nudge the value (⇧: five times as much)
         if enabled && out.value.is_none() && ui.rect_contains_pointer(row) {

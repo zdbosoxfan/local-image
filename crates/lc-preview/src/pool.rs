@@ -1,9 +1,13 @@
 //! A prioritized job pool with per-slot de-duplication.
 //!
 //! Each job targets a *slot* (a grid cell, the loupe…). Submitting for a slot replaces a job for
-//! that slot that hasn't started yet, so scrolling or dragging never builds a backlog. Workers
-//! take the highest priority first (newest first among equals). Frontends re-prioritize or drop
-//! queued jobs when the view changes (e.g. thumbnails scrolled out of view).
+//! that slot that hasn't started yet, so scrolling or dragging never builds a backlog. At most one
+//! job per slot runs at a time: a newer job waits for the running one instead of starting beside
+//! it (a slider drag submits a loupe render every frame; renders of one view running side by side
+//! only compete for the GPU, the cores and the view's cached stages, and each finishes later than
+//! it would alone). Workers take the highest priority first (newest first among equals).
+//! Frontends re-prioritize or drop queued jobs when the view changes (e.g. thumbnails scrolled out
+//! of view).
 //!
 //! Native: a fixed set of worker threads, started on first use. wasm32 (no threads): the host
 //! calls [`JobPool::run_inline`] once per frame.
@@ -23,8 +27,14 @@ struct Entry<S, R> {
     job: Job<R>,
 }
 
+/// Queued jobs and the slots whose job is running.
+struct State<S, R> {
+    queued: Vec<Entry<S, R>>,
+    running: Vec<S>,
+}
+
 struct Shared<S, R> {
-    queue: Mutex<Vec<Entry<S, R>>>,
+    queue: Mutex<State<S, R>>,
     cv: Condvar,
     shutdown: AtomicBool,
 }
@@ -57,7 +67,11 @@ impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
     pub fn new(threads: usize) -> Self {
         let (tx, rx) = channel();
         JobPool {
-            shared: Arc::new(Shared { queue: Mutex::new(Vec::new()), cv: Condvar::new(), shutdown: AtomicBool::new(false) }),
+            shared: Arc::new(Shared {
+                queue: Mutex::new(State { queued: Vec::new(), running: Vec::new() }),
+                cv: Condvar::new(),
+                shutdown: AtomicBool::new(false),
+            }),
             tx,
             rx,
             threads,
@@ -91,6 +105,7 @@ impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
             let tx = self.tx.clone();
             let spawned = std::thread::Builder::new().name(format!("lc-job-{i}")).spawn(move || {
                 while let Some(e) = take(&shared, true) {
+                    let _running = Running { shared: &shared, slot: e.slot };
                     let t0 = std::time::Instant::now();
                     let result = (e.job)();
                     let done = Done { slot: e.slot, key: e.key, result, ms: t0.elapsed().as_secs_f64() * 1000.0 };
@@ -111,8 +126,8 @@ impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
         self.seq += 1;
         let (lock, cv) = (&self.shared.queue, &self.shared.cv);
         let mut q = lock.lock().unwrap_or_else(|e| e.into_inner());
-        q.retain(|e| e.slot != slot);
-        q.push(Entry { slot, key, priority, seq: self.seq, job });
+        q.queued.retain(|e| e.slot != slot);
+        q.queued.push(Entry { slot, key, priority, seq: self.seq, job });
         cv.notify_one();
     }
 
@@ -121,7 +136,7 @@ impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
     pub fn reprioritize(&self, mut f: impl FnMut(&S, u32) -> Option<u32>) -> Vec<S> {
         let mut dropped = Vec::new();
         let mut q = self.shared.queue.lock().unwrap_or_else(|e| e.into_inner());
-        q.retain_mut(|e| match f(&e.slot, e.priority) {
+        q.queued.retain_mut(|e| match f(&e.slot, e.priority) {
             Some(p) => {
                 e.priority = p;
                 true
@@ -136,12 +151,12 @@ impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
 
     /// Queued (not started) jobs.
     pub fn queued(&self) -> usize {
-        self.shared.queue.lock().map(|q| q.len()).unwrap_or(0)
+        self.shared.queue.lock().map(|q| q.queued.len()).unwrap_or(0)
     }
 
     /// Is a job for `slot` queued?
     pub fn is_queued(&self, slot: S) -> bool {
-        self.shared.queue.lock().map(|q| q.iter().any(|e| e.slot == slot)).unwrap_or(false)
+        self.shared.queue.lock().map(|q| q.queued.iter().any(|e| e.slot == slot)).unwrap_or(false)
     }
 
     /// A finished job, if any.
@@ -154,6 +169,7 @@ impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
         let mut ran = 0;
         while ran < n {
             let Some(e) = take(&self.shared, false) else { break };
+            let _running = Running { shared: &self.shared, slot: e.slot };
             let result = (e.job)();
             let _ = self.tx.send(Done { slot: e.slot, key: e.key, result, ms: 0.0 });
             ran += 1;
@@ -162,21 +178,48 @@ impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
     }
 }
 
-/// Pop the best job (highest priority, newest first). Blocks when `wait` until one is queued or
-/// the pool shuts down.
-fn take<S, R>(shared: &Shared<S, R>, wait: bool) -> Option<Entry<S, R>> {
+/// Pop the best job (highest priority, newest first) whose slot has no job running, and mark its
+/// slot running. Blocks when `wait` until one is queued or the pool shuts down.
+fn take<S: PartialEq + Copy, R>(shared: &Shared<S, R>, wait: bool) -> Option<Entry<S, R>> {
     let mut q = shared.queue.lock().unwrap_or_else(|e| e.into_inner());
     loop {
         if shared.shutdown.load(Ordering::Relaxed) {
             return None;
         }
-        if let Some(i) = q.iter().enumerate().max_by_key(|(_, e)| (e.priority, e.seq)).map(|(i, _)| i) {
-            return Some(q.swap_remove(i));
+        let State { queued, running } = &mut *q;
+        if let Some(i) =
+            queued.iter().enumerate().filter(|(_, e)| !running.contains(&e.slot)).max_by_key(|(_, e)| (e.priority, e.seq)).map(|(i, _)| i)
+        {
+            let e = queued.swap_remove(i);
+            running.push(e.slot);
+            return Some(e);
         }
         if !wait {
             return None;
         }
         q = shared.cv.wait(q).unwrap_or_else(|e| e.into_inner());
+    }
+}
+
+/// A job running for `slot`; when it ends (also by a panic) a newer job queued for the slot may
+/// start.
+struct Running<'a, S: PartialEq, R> {
+    shared: &'a Shared<S, R>,
+    slot: S,
+}
+
+impl<S: PartialEq, R> Drop for Running<'_, S, R> {
+    fn drop(&mut self) {
+        let mut q = self.shared.queue.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(i) = q.running.iter().position(|s| *s == self.slot) {
+            q.running.swap_remove(i);
+        }
+        let waiting = q.queued.iter().any(|e| e.slot == self.slot);
+        drop(q);
+        if waiting {
+            // the waiting job may be the only runnable one, and any idle worker can take it
+            self.shared.cv.notify_all();
+        }
     }
 }
 
@@ -188,7 +231,7 @@ impl<S, R> Drop for JobPool<S, R> {
     /// `libnvidia-glcore` and the GPU raises Xid 13 "Illegal Instruction Encoding".
     fn drop(&mut self) {
         self.shared.shutdown.store(true, Ordering::Relaxed);
-        self.shared.queue.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        self.shared.queue.lock().unwrap_or_else(|e| e.into_inner()).queued.clear();
         self.shared.cv.notify_all();
         #[cfg(not(target_arch = "wasm32"))]
         for h in self.workers.drain(..) {
