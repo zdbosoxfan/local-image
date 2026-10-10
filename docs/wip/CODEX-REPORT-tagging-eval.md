@@ -2,14 +2,20 @@
 
 ## Outcome
 
-**Retain CLIP (`clip-b32-laion`) as the default and Fast option.** On the frozen
-330-photo sample it ranks 285/330 correctly (86.4%), versus SigLIP's 283/330 (85.8%).
-That small difference is not evidence of universal superiority. CLIP is also faster,
-smaller and materially more useful with the product's existing sensitivity thresholds.
-SigLIP (`siglip-b16-224`) is implemented and selectable as the requested Accurate
-family option; it improves Wedding ranking here but its raw sigmoid scores abstain
-heavily at the unmodified Balanced threshold. The option's name describes the model
-family tradeoff, not a promise that it wins every preset.
+**Ship only CLIP (`clip-b32-laion`).** On the frozen 330-photo open sample it ranks
+285/330 correctly (86.4%), versus evaluated SigLIP's 283/330 (85.8%). That small
+difference is not evidence of universal superiority. CLIP is also faster, smaller
+and materially more useful with the product's existing sensitivity thresholds.
+
+**Current shipping status:** SigLIP was evaluated and is **not shipped**. Its
+experimental implementation, tokenizer, model choice, fixtures and notices have
+been removed at the owner's request. CLIP is the sole tagging model. The report
+and both result JSON files are retained as the historical evaluation record.
+
+The implementation, validation and timings below describe the evaluation branch
+before removal, rather than features currently available in the app. The current
+CLIP-only evaluator can reproduce the retained model's run; archived SigLIP results
+require the historical evaluation revision `604657f0dc736af0a37443d50c1b936ec2d40a39` to reproduce.
 
 Continued the previous builder's engine/UI rather than replacing them. No commit made.
 No new dependencies, unsafe code, C/C++ code or linked -sys dependencies were introduced.
@@ -35,7 +41,7 @@ name assignment and find-person commands with the actual weights. These models r
 on the CPU by design. Logs: `faces-real.log`, `people-real.log` under target/tagging-eval.
 No face defect required a product-code fix.
 
-## 2. SigLIP implementation
+## 2. Historical SigLIP evaluation prototype (removed)
 
 Added the exact pinned FP32 encoders and 768-dimensional family specification.
 The first encoder outputs are hidden states, so the loader explicitly selects
@@ -51,7 +57,7 @@ Scoring is independent sigmoid, preserving Any/All tag aggregation and exemplar
 blending. Ranking uses the underlying cosine to avoid ties when f32 probabilities
 saturate at one; CLIP retains its softmax/background behavior.
 
-Primary references followed, with full upstream commits recorded in [PORTS](../PORTS.md):
+Primary references followed by the historical prototype (its shipping PORTS rows are now removed):
 
 - [Transformers SiglipTokenizer v4.45.2](https://github.com/huggingface/transformers/blob/v4.45.2/src/transformers/models/siglip/tokenization_siglip.py).
 - [Transformers SiglipImageProcessor v4.45.2](https://github.com/huggingface/transformers/blob/v4.45.2/src/transformers/models/siglip/image_processing_siglip.py).
@@ -60,11 +66,21 @@ Primary references followed, with full upstream commits recorded in [PORTS](../P
 - [Pillow Resample.c](https://github.com/python-pillow/Pillow/blob/bb1d8e8ab8d29048624d96e3ee53cecf7c13d13d/src/libImaging/Resample.c).
 
 Golden fixtures were generated offline with installed transformers 5.18.0, tokenizers
-0.23.2 and Pillow 12.3.0; no reference packages were downloaded. Goldens cover English,
+0.23.2 and Pillow 12.3.0; no reference packages were downloaded. They covered English,
 Unicode compatibility/composition, unknown fusion, long-prompt truncation, up/downscale
-and one-axis image resizing (pixel agreement 1e-6). Provenance and fixture generation
-formulae are in `crates/li-seg/tests/fixtures/SIGLIP-SOURCES.md`; licence notices are in
-`licenses/siglip-NOTICE.md`. Attributions include the new model and algorithm sources.
+and one-axis image resizing (pixel agreement 1e-6). These fixtures, their provenance
+file, the prototype's licence notice and its shipping attributions are now removed.
+
+The evaluated Xenova `siglip-base-patch16-224` bundle was pinned to revision
+`4649052661e53c7000355844105f8a1792088239` on Hugging Face:
+
+| File | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `onnx/vision_model.onnx` | 371819850 | `f89d41bac7f4d4b87e010a467d93f98689d708916ed22f5a07f96fdfa26f475f` |
+| `onnx/text_model.onnx` | 441332132 | `3aa7fdbd20eaa8740cce17bf82913de641fcb632a768fed59f661cdcd0c32553` |
+| `tokenizer.json` | 2398744 | `4a17c975210be5ab4c36b47d8dae4eefb866dbfb1e676e394aad85dc30a3ae08` |
+
+These are archival identifiers, not product download options.
 
 **Scalar provenance limitation:** the split encoders omit scale/bias and the authorised
 pins omit the full checkpoint. Learned constants `117.3308` and `-12.9324` therefore
@@ -178,18 +194,18 @@ outputs are under target/tagging-eval; preserved machine metadata, metrics and p
 [CLIP results](../../crates/lc-engine/tests/references/tagging-eval/results-clip.json),
 [SigLIP results](../../crates/lc-engine/tests/references/tagging-eval/results-siglip.json).
 
-## 4. Default, persistence and caches
+## 4. Historical prototype persistence and caches (removed)
 
-CLIP remains the default in the engine enum, default ID and li-seg official tagging
-bundle. Legacy preference JSON selects Fast through serde defaults. Both models remain
-selectable per library; the Library worker, status, model size, licence link and download
+During evaluation CLIP was the default in the engine enum, default ID and li-seg
+official tagging bundle. Legacy preference JSON selected Fast through serde defaults.
+Both models were selectable per library; the Library worker, status, model size, licence link and download
 controls use the selected ID. Compositing Local AI lists both bundles and independent
 controls. A switch clears the loaded tagger/review rows and requires that model's
 embeddings. Existing on-disk per-model filenames/header/dimension validation is retained;
 a new regression test verifies Fast → Accurate → Fast analyses **2 → 2 → 0** photos
 with 512/768-dimensional caches kept separate, including disk reopen/persistence.
 
-## 5. Validation
+## 5. Historical evaluation validation
 
 The changed-crate suites were each executed once, serially with
 `CARGO_BUILD_JOBS=3`, `cargo +1.98.1 --offline`, and test threads set to one.
@@ -239,10 +255,9 @@ logs in the same directory.
 
 ## Remaining scope and limits
 
-All required task points are handled. The optional OpenAI CLIP B/16 comparison
+The historical evaluation task was completed. SigLIP is not shipped and the current
+product offers only CLIP. The optional OpenAI CLIP B/16 comparison
 was not done: §4.2 supplies abbreviated hashes and its licence/model-card caveat;
 only the fully pinned, approved CLIP/SigLIP/YuNet/SFace artifacts were fetched.
-No rejected model or quantized ONNX was used. Further work would be independent
-human-labelled threshold validation for SigLIP and, if newly authorised/pinned,
-full-precision scalar extraction. Those limits are explicit above and do not
-change the measured decision to retain CLIP. No changes are committed.
+No rejected model or quantized ONNX was used. Those historical limitations do not change the measured decision to retain CLIP.
+No further implementation work on the rejected candidate is planned. No changes are committed.

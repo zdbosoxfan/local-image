@@ -71,7 +71,7 @@ LOCAL_IMAGE_MODELS_DIR=<models-dir> CARGO_BUILD_JOBS=3 \
 cargo +1.98.1 test --offline -p li-seg -- --ignored
 ```
 
-The coordinator still needs the section 9 real-gallery accuracy/threshold tuning, throughput and RSS checks. These require real weights and owner-authorised reference galleries, unavailable in this sandbox. Library dialog/review/export, face recognition and SigLIP remain in their specified later phases.
+The coordinator still needs the section 9 real-gallery accuracy/threshold tuning, throughput and RSS checks. These require real weights and owner-authorised reference galleries, unavailable in this sandbox. Library dialog/review/export, face recognition and tagging-model evaluation remain in their specified later phases.
 
 ## Merge with one-model-per-function
 

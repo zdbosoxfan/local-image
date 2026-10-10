@@ -57,13 +57,6 @@ fn status(s: &mut Session, _: &Value) -> Result<Value> {
         "faces":faces,"analysed":{"tags":s.smart.store.len(&model),"faces":face_count},"total":s.catalog.photos().filter(|p| p.in_library()).count()}))
 }
 
-fn set_model(s: &mut Session, p: &Value) -> Result<Value> {
-    let model = serde_json::from_value(p.get("model").cloned().unwrap_or(Value::Null)).map_err(|e| bad("smartSort.setModel", e.to_string()))?;
-    s.smart.set_model(model);
-    s.save_prefs()?;
-    status(s, &Value::Null)
-}
-
 fn list(s: &mut Session, _: &Value) -> Result<Value> {
     Ok(Value::Array(
         builtin_presets()
@@ -504,7 +497,6 @@ pub fn specs() -> Vec<CommandSpec> {
             always,
             export
         ),
-        cmd!("smartSort.setModel", "Smart Sort Model", [], None, "{model} → status", always, set_model),
         cmd!(query "smartSort.status","Smart Sort Status",[],None,"{} → {tagger, faces, analysed, total}",always,status),
         cmd!(query "smartSort.presets","Smart Sort Presets",[],None,"{} → [{name, builtin, preset}]",always,list),
         cmd!("smartSort.savePreset", "Save Smart Sort Preset", [], None, "{name?, preset: SortPreset}", always, save),

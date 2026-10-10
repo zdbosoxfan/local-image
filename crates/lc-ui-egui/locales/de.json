@@ -1584,8 +1584,5 @@
   "Only in session": "Nur in Sitzung",
   "Split into sessions when there is a gap of more than": "In Sitzungen aufteilen, wenn eine Lücke von mehr als",
   "All sessions": "Alle Sitzungen",
-  "Export sessions as folders": "Sitzungen als Ordner exportieren",
-  "Tagging model": "Sortiermodell",
-  "Fast (CLIP)": "Schnell (CLIP)",
-  "Accurate (SigLIP)": "Genau (SigLIP)"
+  "Export sessions as folders": "Sitzungen als Ordner exportieren"
 }

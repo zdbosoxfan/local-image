@@ -399,24 +399,6 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
 
 fn sort(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
     ui.horizontal(|ui| {
-        ui.label(tr("Tagging model"));
-        ui.add_enabled_ui(app.smart_sort.is_none(), |ui| {
-            for model in lightcraft_engine::smart_sort::TaggingModel::ALL {
-                let response = ui.selectable_label(app.session.smart.prefs.tagging_model == model, tr(model.label()));
-                crate::widgets::register(ui.ctx(), format!("smartSort:model:{}", model.id()), response.rect);
-                if response.clicked() && app.session.smart.prefs.tagging_model != model {
-                    match app.session.execute("smartSort.setModel", &json!({"model":model})) {
-                        Ok(_) => {
-                            s.rows.clear();
-                            s.dirty = false;
-                        }
-                        Err(e) => s.error = e.to_string(),
-                    }
-                }
-            }
-        });
-    });
-    ui.horizontal(|ui| {
         ui.label(tr("Preset"));
         let presets: Vec<_> = builtin_presets().into_iter().chain(app.session.smart.prefs.presets.clone()).collect();
         let response = egui::ComboBox::from_id_salt("smart-sort-preset").selected_text(tr(&s.preset.name)).show_ui(ui, |ui| {
@@ -680,7 +662,7 @@ fn sort(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
     }
     let status = app.session.execute("smartSort.status", &json!({})).unwrap_or_default();
     let installed = status["tagger"]["installed"] == true;
-    let model_id = app.session.smart.prefs.tagging_model.id();
+    let model_id = lightcraft_engine::smart_sort::DEFAULT_MODEL;
 
     if !installed {
         ui.label(crate::i18n::tr_format!(
@@ -709,14 +691,7 @@ fn sort(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
         } else {
             ui.label(tr("Download the Smart Sort model in Compositing ▸ Local AI"));
         }
-        match app.session.smart.prefs.tagging_model {
-            lightcraft_engine::smart_sort::TaggingModel::Fast => {
-                ui.hyperlink_to("MIT", "https://huggingface.co/laion/CLIP-ViT-B-32-laion2B-s34B-b79K");
-            }
-            lightcraft_engine::smart_sort::TaggingModel::Accurate => {
-                ui.hyperlink_to("Apache-2.0", "https://huggingface.co/google/siglip-base-patch16-224");
-            }
-        }
+        ui.hyperlink_to("MIT", "https://huggingface.co/laion/CLIP-ViT-B-32-laion2B-s34B-b79K");
     }
     if let Some(task) = &app.smart_sort {
         let status = task.status();

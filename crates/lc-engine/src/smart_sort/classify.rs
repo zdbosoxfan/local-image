@@ -2,7 +2,7 @@
 //! exemplars refine the text direction without training or uploading any model.
 
 use super::store::normalized;
-use super::{Scoring, SortPreset, Store, Tagger};
+use super::{SortPreset, Store, Tagger};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -14,13 +14,12 @@ pub struct Classification {
     pub scores: BTreeMap<String, f32>,
     pub assigned: Vec<String>,
     pub manual: bool,
-    /// Rank by unrounded similarities: sigmoid f32 probabilities can saturate at one.
+    /// Rank foreground categories by unrounded cosine similarities.
     #[serde(default)]
     pub ranked: Vec<String>,
 }
 
 pub struct Classifier {
-    scoring: Scoring,
     names: Vec<String>,
     prototypes: Vec<Vec<Vec<f32>>>,
     match_all: Vec<bool>,
@@ -73,7 +72,6 @@ impl Classifier {
         let background: Vec<_> = BACKGROUND.iter().map(|p| tagger.embed_text(p)).collect::<Result<_, _>>()?;
         prototypes.push(vec![mean(&background, dim)?]);
         Ok(Self {
-            scoring: tagger.scoring(),
             names: preset.categories.iter().map(|c| c.name.clone()).collect(),
             prototypes,
             match_all: preset.categories.iter().map(|c| c.match_all).chain([false]).collect(),
@@ -115,15 +113,10 @@ impl Classifier {
                     }
                 })
                 .collect();
-            let mut probs: Vec<f32> = match self.scoring {
-                Scoring::Clip => {
-                    let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-                    let weights: Vec<_> = logits.iter().map(|l| ((l - max) * 100.0).exp()).collect();
-                    let total: f32 = weights.iter().sum();
-                    weights.iter().map(|p| p / total).collect()
-                }
-                Scoring::Siglip => logits.iter().map(|cos| li_seg::siglip::probability(*cos)).collect(),
-            };
+            let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let weights: Vec<_> = logits.iter().map(|l| ((l - max) * 100.0).exp()).collect();
+            let total: f32 = weights.iter().sum();
+            let mut probs: Vec<f32> = weights.iter().map(|p| p / total).collect();
             if let Some(count) = faces {
                 for (prob, (min, max)) in probs.iter_mut().zip(&self.face_gates) {
                     if min.is_some_and(|n| count < n as usize) || max.is_some_and(|n| count > n as usize) {
@@ -139,15 +132,14 @@ impl Classifier {
             ranked = order.iter().map(|i| self.names[*i].clone()).collect();
             if self.multi {
                 for (name, p) in self.names.iter().zip(&probs) {
-                    if *p >= self.threshold * if self.scoring == Scoring::Clip { 0.75 } else { 1.0 } {
+                    if *p >= self.threshold * 0.75 {
                         assigned.push(name.clone());
                     }
                 }
             } else {
                 // Strict > preserves the first category on ties, including ties with background.
                 let mut best = 0;
-                let candidates = if self.scoring == Scoring::Siglip { self.names.len() } else { probs.len() };
-                for i in 1..candidates {
+                for i in 1..probs.len() {
                     if probs[i] > 0.0 && (probs[best] == 0.0 || logits[i] > logits[best]) {
                         best = i;
                     }

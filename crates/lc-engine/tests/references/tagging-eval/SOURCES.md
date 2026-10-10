@@ -50,7 +50,6 @@ PATH=~/.cargo/bin:$PATH CARGO_BUILD_JOBS=3 cargo +1.98.1 build --offline \
 /usr/bin/time -v env LIGHTCRAFT_GPU_BACKEND=off target/debug/examples/tagging_eval \
   clip-b32-laion crates/lc-engine/tests/references/tagging-eval/manifest.json \
   target/tagging-eval/images ~/.cache/local-image-test-models
-# Repeat in a fresh process with siglip-b16-224.
 ```
 
 The evaluator registers the application's real filesystem decoder and runs
@@ -61,6 +60,8 @@ sensitivity, then times warm reclassification and a cache-only resume. Top-k
 measures ranking; precision/recall include Unsorted abstentions. RAM is separate
 process peak RSS from `/usr/bin/time -v`, including decoding and model loading.
 
-Results and the default decision are in `docs/wip/CODEX-REPORT-tagging-eval.md`;
+CLIP is the only shipped tagging model; the current evaluator runs only CLIP.
+The rejected candidate's archived measurements cannot be rerun with product code.
+The historical results and selection decision are in `docs/wip/CODEX-REPORT-tagging-eval.md`;
 `results-*.json` retain measurements, category counts and predictions. CPU timings
 are exploratory on a shared developer machine, not isolated release benchmarks.

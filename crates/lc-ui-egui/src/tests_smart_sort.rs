@@ -580,7 +580,7 @@ fn smart_sort_p2b_sessions_bursts_layout_at_both_sizes() {
 }
 
 #[test]
-fn smart_sort_click_switches_model_and_downloads_selected_bundle() {
+fn smart_sort_downloads_clip_after_loading_retired_preference() {
     let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
     let out = calls.clone();
     let services = Services {
@@ -590,17 +590,16 @@ fn smart_sort_click_switches_model_and_downloads_selected_bundle() {
         })),
         ..Default::default()
     };
-    let mut h = Headless::new(LightcraftApp::new(Session::new(), services), [1280., 800.], 1.);
+    let mut session = Session::new();
+    session.smart.prefs = serde_json::from_value(json!({"taggingModel":"retired-tagger"})).unwrap();
+    let mut h = Headless::new(LightcraftApp::new(session, services), [1280., 800.], 1.);
     h.request("ui.menu.invoke", json!({"id":"dialog.smartSort"}), T);
     h.step();
     h.step();
+    assert!(!h.app.widgets.iter().any(|(id, _)| id.starts_with("smartSort:model:")));
+    assert_eq!(h.app.session.smart.selected(), (lightcraft_engine::smart_sort::DEFAULT_MODEL.into(), 512));
     click(&mut h, "smartSort:preset");
     click(&mut h, "smartSort:preset:3");
-    click(&mut h, "smartSort:model:clip-b32-laion");
-    assert_eq!(h.app.session.smart.prefs.tagging_model, lightcraft_engine::smart_sort::TaggingModel::Fast);
     click(&mut h, "smartSort:download");
-    click(&mut h, "smartSort:model:siglip-b16-224");
-    assert_eq!(h.app.session.smart.prefs.tagging_model, lightcraft_engine::smart_sort::TaggingModel::Accurate);
-    click(&mut h, "smartSort:download");
-    assert_eq!(*calls.lock().unwrap(), vec![("clip-b32-laion".into(), false), ("siglip-b16-224".into(), false)]);
+    assert_eq!(*calls.lock().unwrap(), vec![("clip-b32-laion".into(), false)]);
 }

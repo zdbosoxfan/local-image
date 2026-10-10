@@ -39,7 +39,6 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId]) -> Result<(), String> {
     }
     let (model, dim) = app.session.smart.selected();
     let injected = app.session.smart.tagger.clone();
-    let choice = app.session.smart.prefs.tagging_model;
     app.session.smart.store.ensure(&model, dim)?;
     let mut keys = std::collections::BTreeSet::new();
     let mut todo = Vec::new();
@@ -72,7 +71,6 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId]) -> Result<(), String> {
     let work = move || {
         let tagger = injected.map(Ok).unwrap_or_else(|| {
             let mut smart = smart_sort::SmartSort::default();
-            smart.prefs.tagging_model = choice;
             smart.tagger(dir.as_deref())
         });
         let result = tagger.and_then(|tagger| {

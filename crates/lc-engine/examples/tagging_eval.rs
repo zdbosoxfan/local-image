@@ -1,9 +1,9 @@
 //! Opt-in, offline evaluation through Smart Sort's real decode/render/analyze/classify path.
-//! Run once per model, in a separate process to measure peak RSS. No network or owner photos.
+//! Run CLIP in a separate process to measure peak RSS. No network or owner photos.
 use lightcraft_catalog::{Op, Photo, Source};
 use lightcraft_engine::{
     Session,
-    smart_sort::{self, Category, SortPreset, TaggingModel, classify::Classifier},
+    smart_sort::{self, Category, SortPreset, classify::Classifier},
 };
 use serde_json::{Value, json};
 use std::{path::PathBuf, sync::atomic::AtomicBool, time::Instant};
@@ -13,7 +13,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.len() != 5 {
         return Err("usage: tagging_eval MODEL MANIFEST IMAGE_DIR MODEL_DIR".into());
     }
-    let choice: TaggingModel = serde_json::from_value(json!(args[1]))?;
+    if args[1] != smart_sort::DEFAULT_MODEL {
+        return Err(format!("only {} is supported", smart_sort::DEFAULT_MODEL).into());
+    }
     let rows: Vec<Value> = serde_json::from_slice(&std::fs::read(&args[2])?)?;
     let root = std::fs::canonicalize(&args[3])?;
     let mut session = Session::new();
@@ -23,7 +25,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     session.media.preview_loader = Some(lightcraft_engine::files::fs_preview_loader());
     eprintln!("render GPU: {:?}", lightcraft_gpu::adapter_name());
     session.quick_seg_dir = Some(PathBuf::from(&args[4]));
-    session.smart.set_model(choice);
     let mut ids = Vec::new();
     for row in &rows {
         let file = row["file"].as_str().ok_or("file")?;
@@ -114,7 +115,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "{}",
         serde_json::to_string_pretty(
-            &json!({"model":choice.id(),"photos":rows.len(),"analysed":result.analysed,"load_ms":load_ms,"analysis_ms":analysis_ms,"ms_per_photo":analysis_ms/rows.len().max(1)as f64,"classify_ms":classify_ms,"interactive_reclassify_ms":interactive_ms,"resume_ms":resume_ms,"repeat_analysed":repeat.analysed,"download_bytes":li_seg::spec(choice.id()).ok_or("model")?.download_bytes(),"metrics":metrics,"predictions":predictions})
+            &json!({"model":smart_sort::DEFAULT_MODEL,"photos":rows.len(),"analysed":result.analysed,"load_ms":load_ms,"analysis_ms":analysis_ms,"ms_per_photo":analysis_ms/rows.len().max(1)as f64,"classify_ms":classify_ms,"interactive_reclassify_ms":interactive_ms,"resume_ms":resume_ms,"repeat_analysed":repeat.analysed,"download_bytes":li_seg::spec(smart_sort::DEFAULT_MODEL).ok_or("model")?.download_bytes(),"metrics":metrics,"predictions":predictions})
         )?
     );
     Ok(())

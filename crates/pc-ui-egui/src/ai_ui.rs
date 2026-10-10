@@ -511,37 +511,17 @@ fn seg_rows(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>, dir
 
 /// One function: its name and what it does, the model in use, and the custom-model controls.
 fn function_row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>, dir: &std::path::Path, group: li_seg::Group) {
-    if group == li_seg::Group::Tagging {
-        ui.label(RichText::new(tl!(group.label())).size(13.0).strong().color(t.text));
-        ui.label(RichText::new(tl!(group.about())).color(t.text_dim).size(11.5));
-        for spec in li_seg::MODELS.iter().filter(|m| m.group == Some(group)) {
-            tagging_model_row(ui, t, dls, dir, group, spec);
-        }
-    } else {
-        tagging_model_row(ui, t, dls, dir, group, group.official());
-    }
-}
-
-fn tagging_model_row(
-    ui: &mut egui::Ui,
-    t: &Tokens,
-    dls: &BTreeMap<String, Download>,
-    dir: &std::path::Path,
-    group: li_seg::Group,
-    spec: &'static li_seg::ModelSpec,
-) {
+    let spec = group.official();
     let key = format!("seg:{}", spec.id);
     let dl = dls.get(&key);
     let installed = li_seg::installed_bytes(dir, spec);
     let custom = li_seg::custom(dir, group);
-    let official_in_use = custom.is_none() && installed.is_some() && group != li_seg::Group::Tagging;
+    let official_in_use = custom.is_none() && installed.is_some();
     let frame = egui::Frame::NONE.fill(t.field).corner_radius(t.radius).inner_margin(egui::Margin::symmetric(10, 8));
     frame.show(ui, |ui| {
         ui.set_width(ui.available_width());
-        if group != li_seg::Group::Tagging {
-            ui.label(RichText::new(tl!(group.label())).size(13.0).strong().color(t.text));
-            ui.label(RichText::new(tl!(group.about())).color(t.text_dim).size(11.5));
-        }
+        ui.label(RichText::new(tl!(group.label())).size(13.0).strong().color(t.text));
+        ui.label(RichText::new(tl!(group.about())).color(t.text_dim).size(11.5));
         ui.add_space(4.0);
         if let Some(c) = &custom {
             ui.horizontal(|ui| {
@@ -1761,7 +1741,7 @@ mod tests {
         h.run_steps(3);
     }
 
-    /// One heading per function; tagging offers both families, and the three mask functions
+    /// One row per function; tagging offers CLIP, and the three mask functions
     /// retain custom-model buttons. None of the retired models is offered.
     #[test]
     fn settings_lists_one_row_per_function() {
@@ -1770,15 +1750,14 @@ mod tests {
         for title in ["Subject & Background", "Sky", "Depth", "Smart Sort (scenes)", "Faces"] {
             h.get_by_label(title);
         }
-        for model in ["IS-Net general", "PP-MobileSeg", "Depth Anything V2 Small", "CLIP ViT-B-32 LAION (Fast)", "SigLIP ViT-B/16 (Accurate)", "YuNet + SFace"]
-        {
+        for model in ["IS-Net general", "PP-MobileSeg", "Depth Anything V2 Small", "CLIP ViT-B-32 LAION", "YuNet + SFace"] {
             h.get_by_label(model);
         }
         for gone in ["U²-Net small", "U²-Net", "TinySkyNet", "MiDaS v2.1 small"] {
             assert!(h.query_by_label(gone).is_none(), "{gone} is still listed");
         }
         assert_eq!(h.get_all_by_label("Custom model…").count(), 3);
-        assert_eq!(h.get_all_by_label("Download").count(), 6);
+        assert_eq!(h.get_all_by_label("Download").count(), 5);
         assert!(h.query_by_label_contains("Remove old models").is_none());
         assert!(h.query_by_label_contains("Finds the main subject").is_some());
         assert!(h.query_by_label_contains("Finds the sky.").is_some());
@@ -1978,8 +1957,7 @@ mod tests {
         let dir = temp_dir("tagging");
         let h = seg_harness(&dir, Some(li_seg::Group::Tagging));
         h.get_by_label("Smart Sort (scenes)");
-        h.get_by_label("CLIP ViT-B-32 LAION (Fast)");
-        h.get_by_label("SigLIP ViT-B/16 (Accurate)");
+        h.get_by_label("CLIP ViT-B-32 LAION");
         assert!(h.query_by_label("Custom model…").is_none());
         assert!(h.query_by_label("Use official model").is_none());
         assert!(h.query_by_label("Choose an ONNX file…").is_none());
@@ -2028,8 +2006,8 @@ mod tests {
     }
 
     #[test]
-    fn smart_sort_siglip_option_cancel_click_stops_selected_download() {
-        let dir = temp_dir("siglip-option");
+    fn smart_sort_clip_cancel_click_stops_download() {
+        let dir = temp_dir("clip-download");
         let ctl = JobControl::new();
         let observed = ctl.clone();
         let mut h = egui_kittest::Harness::builder().with_size(vec2(760.0, 600.0)).build_ui(move |ui| {
@@ -2039,14 +2017,15 @@ mod tests {
             let t = Tokens::get(ui.ctx());
             let mut dls = BTreeMap::new();
             dls.insert(
-                "seg:siglip-b16-224".into(),
-                Download { total: li_seg::spec("siglip-b16-224").unwrap().download_bytes(), done: 100, ctl: ctl.clone(), ..Default::default() },
+                "seg:clip-b32-laion".into(),
+                Download { total: li_seg::Group::Tagging.official().download_bytes(), done: 100, ctl: ctl.clone(), ..Default::default() },
             );
             function_row(ui, &t, &dls, &dir, li_seg::Group::Tagging);
         });
         PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
         h.run_steps(3);
-        h.get_by_label("SigLIP ViT-B/16 (Accurate)");
+        h.get_by_label("CLIP ViT-B-32 LAION");
+        assert_eq!(h.get_all_by_label("Cancel").count(), 1);
         h.get_by_label("Cancel").click();
         h.run_steps(2);
         assert!(observed.is_cancelled());
