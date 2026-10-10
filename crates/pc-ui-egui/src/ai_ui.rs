@@ -433,12 +433,12 @@ thread_local! {
 
 /// The native file dialog for an `.onnx` model (tests inject the pick instead of opening it).
 #[cfg(not(test))]
-fn pick_onnx() -> Option<std::path::PathBuf> {
+pub(crate) fn pick_onnx() -> Option<std::path::PathBuf> {
     rfd::FileDialog::new().set_title(tl!("Choose an ONNX model")).add_filter(tl!("ONNX model"), &["onnx"]).pick_file()
 }
 
 #[cfg(test)]
-fn pick_onnx() -> Option<std::path::PathBuf> {
+pub(crate) fn pick_onnx() -> Option<std::path::PathBuf> {
     TEST_PICK.with(|p| p.borrow_mut().take())
 }
 

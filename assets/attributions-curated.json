@@ -149,11 +149,19 @@
         },
         {
           "name": "DDColor · Colourise",
-          "used_for": "Apache-2.0 relicensed Hugging Face tiny weights only, pinned revision e9e7b527709c8aeb2f5e1bf701e72fd468a13baa. Requires detection in main spandrel; unavailable with the present extra-only architecture.",
+          "used_for": "Apache-2.0 relicensed Hugging Face tiny weights only, pinned revision e9e7b527709c8aeb2f5e1bf701e72fd468a13baa. Verified FP32 ONNX export runs on-device in Rust through tract; original Lab luminance and alpha are preserved.",
           "licence": "Apache-2.0",
           "licence_files": ["licenses/restoration-ddcolor-LICENSE.txt"],
           "url": "https://huggingface.co/piddnad/DDColor-models/blob/e9e7b527709c8aeb2f5e1bf701e72fd468a13baa/README.md",
-          "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json"
+          "ours": "crates/li-seg/src/restoration.rs; crates/pc-ui-egui/src/restoration_ui.rs; scripts/export_restore_models.py"
+        },
+        {
+          "name": "Microsoft scratch detector · Repair old photo",
+          "used_for": "MIT one-channel UNet from the official v1.0 release; verified FP32 ONNX export. Scratch mask reviewed in AI Remove before filling; optional DDColor preview after a successful repair. No dlib or face stage.",
+          "licence": "MIT",
+          "licence_files": ["licenses/restoration-scratches-LICENSE.txt"],
+          "url": "https://github.com/microsoft/Bringing-Old-Photos-Back-to-Life/blob/33875eccf4ebcd3665cf38cc56f3a0ce563d3a9c/LICENSE",
+          "ours": "crates/li-seg/src/restoration.rs; crates/pc-ui-egui/src/restoration_ui.rs; scripts/export_restore_models.py"
         }
       ]
     },

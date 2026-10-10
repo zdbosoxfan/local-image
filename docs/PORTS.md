@@ -130,3 +130,9 @@ uniformity design. Texture/Structure use 4–16 and 2–4 original sensor-pixel 
 subpixel bands use a signed guided filter instead of EIGF's mandatory minimum radius.
 Primary tone/colour/detail/skin/CAT layers have native WGSL twins in `lc-gpu/src/wgsl/primary.wgsl`, `primary_colour.wgsl` and `ucs.wgsl`. CPU algorithms and fixture tolerances are unchanged. LI Tone caches four linear response fields before its bounded gain clamp; this changes f32 association only, checked against the unchanged equivalence bounds. The Deriche sweeps use tiled transposes, preserving endpoint and recurrence order.
 The faithful tone equalizer has a CPU spatial/finish stage after GPU geometry/WB/NR.
+
+| Our file | Upstream project | Upstream path | Upstream commit | Licence | Date | Used for |
+|---|---|---|---|---|---|---|
+| `crates/li-seg/src/restoration.rs` | [DDColor](https://github.com/piddnad/DDColor) | `ddcolor/pipeline.py` | `2adb63f2656ac41cbdf7b894cddd94121a3faf13` | Apache-2.0 | 2026-10-10 | Neutral Lab input, original luminance + predicted chroma, nearest chroma resize. |
+| `crates/li-seg/src/restoration.rs` | [Microsoft old-photo restoration](https://github.com/microsoft/Bringing-Old-Photos-Back-to-Life) | `Global/detection.py` | `33875eccf4ebcd3665cf38cc56f3a0ce563d3a9c` | MIT | 2026-10-10 | Grayscale normalisation, short-side detector scale, probability threshold and nearest mask. |
+| `scripts/export_restore_models.py` | [DDColor](https://github.com/piddnad/DDColor) | `scripts/export_onnx.py` | `2adb63f2656ac41cbdf7b894cddd94121a3faf13` | Apache-2.0 | 2026-10-10 | Out-of-build FP32 export of the author's relicensed HF weights, with strict loading and frozen spectral weights. |
