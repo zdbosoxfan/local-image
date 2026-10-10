@@ -23,6 +23,7 @@ fn synthetic(s: &Session, path: Path) -> Preview {
     Preview {
         capture: capture(s, None).unwrap(),
         trace: Trace {
+            strokes: Vec::new(),
             width: 32,
             height: 24,
             nodes: path.subpaths.iter().map(|s| s.knots.len()).sum(),
