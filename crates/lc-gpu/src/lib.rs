@@ -3,8 +3,8 @@
 //! The CPU pipeline (`lightcraft-pipeline`) is the reference: every kernel here is a port of a CPU
 //! stage, both read the same resolved parameters ([`lightcraft_pipeline::Plan`],
 //! [`lightcraft_pipeline::finish::FinishParams`]), and the equivalence tests (`tests/`) render the
-//! same settings on both and bound the difference in 8-bit sRGB. Stages without a kernel run on the
-//! CPU inside the same render (per-stage hybrid); see `docs/gpu-pipeline.md`.
+//! same settings on both and bound the difference in 8-bit previews and 16-bit output. Stages
+//! without a kernel run on the CPU inside the same render (per-stage hybrid); see `docs/gpu-pipeline.md`.
 //!
 //! Which backends wgpu may load (DX12 only on Windows; `LIGHTCRAFT_GPU_BACKEND`, `WGPU_BACKEND`) and
 //! the crash sentinel around device creation: [`backend`] (issue #136).
@@ -386,8 +386,8 @@ pub fn render_hs_candidate(
     CPU_STAGES.with(|stages| stages.borrow_mut().clear());
     #[cfg(not(target_arch = "wasm32"))]
     {
-        // the kernel writes 8-bit output: high-bit-depth exports (and soft proofs) render on the CPU
-        if !enabled() || req.depth != lightcraft_pipeline::OutputDepth::U8 || req.proof.is_some() {
+        // Linear float exports and soft proofs still use the CPU.
+        if !enabled() || req.depth == lightcraft_pipeline::OutputDepth::F32Linear || req.proof.is_some() {
             return None;
         }
         let gpu = device()?;
@@ -417,6 +417,17 @@ pub fn render_hs_candidate(
                 // the view's cached device stages may hold results of the failed passes
                 if let Some(e) = &ext {
                     e.clear();
+                }
+                // A shared device can run out of memory on full-size spatial scratch even
+                // though every buffer fits its advertised limits. Retry deep output once with
+                // smaller bindings: existing hybrid stages (notably haze) then prepare on CPU.
+                // The cap also bounds recursion and preserves the usual CPU fallback if retry
+                // cannot fit. No device failure is latched for an allocation failure.
+                const RETRY_BINDING_BYTES: u64 = 512 << 20;
+                if f.kind == ctx::FailKind::OutOfMemory && req.depth == lightcraft_pipeline::OutputDepth::U16 && gpu.limit() > RETRY_BINDING_BYTES {
+                    gpu.trim(0);
+                    let _limit = ctx::LimitOverride::new(RETRY_BINDING_BYTES);
+                    return render_hs_candidate(src, info, s, req, stages, method);
                 }
                 let what = match &r {
                     Some(r) => format!("{}×{}", r.image.width, r.image.height),

@@ -92,6 +92,8 @@ const FIELDS: &[(&str, usize)] = &[
     ("TONE_LUM", 1),
     // first row of a band dispatch (the kernel runs over rows Y0.., see `render`)
     ("Y0", 1),
+    // 0: 8-bit preview, 1: also write exact 16-bit RGB.
+    ("DEPTH", 1),
 ];
 
 /// `(name, index)` of every field (for the WGSL constants).

@@ -58,10 +58,28 @@ pub fn run(app: &mut PhotocraftApp, id: &str, params: Value) -> Result<Value, St
     if !app.background_jobs {
         return app.session.execute(id, params).map_err(|e| e.to_string());
     }
+    let open_name = (id == photocraft_engine::develop_layer_cmds::OPEN_JOB)
+        .then(|| params["name"].as_str().or_else(|| params["path"].as_str()).unwrap_or("Photo").to_string());
     match app.session.start(id, params).map_err(|e| e.to_string())? {
-        Started::Done(v) => Ok(v),
+        Started::Done(v) => {
+            if v["pending"].as_bool() == Some(true)
+                && let Some(job) = v["job"].as_u64().map(JobId).filter(|j| app.session.job(*j).is_some())
+            {
+                app.jobs.last_started = Some(job);
+                if app.jobs.opens.iter().any(|o| o.job == job) {
+                    app.jobs.focus = Some(job);
+                }
+            }
+            Ok(v)
+        }
         Started::Job(job) => {
             app.jobs.last_started = Some(job);
+            if let Some(name) = open_name {
+                // Develop sources are originals, not a compositing document's Save path.
+                app.jobs.opens.push(OpenTab { job, name, path: None, slot: None });
+                app.jobs.focus = Some(job);
+                app.ui.chrome.home = None;
+            }
             // The status bar's progress readout names the job; clear any old message.
             app.ui.status.clear();
             app.ui.status_error = false;
@@ -157,7 +175,7 @@ fn on_event(app: &mut PhotocraftApp, e: JobEvent) {
             true
         }
     });
-    if e.command == OPEN_JOB {
+    if e.command == OPEN_JOB || e.command == photocraft_engine::develop_layer_cmds::OPEN_JOB {
         let Some(i) = app.jobs.opens.iter().position(|o| o.job == e.id) else { return };
         let tab = app.jobs.opens.remove(i);
         match e.outcome {
@@ -172,6 +190,12 @@ fn on_event(app: &mut PhotocraftApp, e: JobEvent) {
                 app.ui.status_error = false;
             }
         }
+        return;
+    }
+    if e.command == "develop.syncPhoto"
+        && let JobOutcome::Done(v) = &e.outcome
+    {
+        crate::develop_layer::finish_sync(app, v);
         return;
     }
     // local-image: AI jobs (Generate results, downloads).

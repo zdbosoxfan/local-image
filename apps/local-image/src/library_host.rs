@@ -1340,6 +1340,122 @@ mod tests {
         }
     }
 
+    #[test]
+    fn background_develop_round_trip_keeps_switches_free_of_render_work() {
+        use photocraft_engine::develop_layer_cmds::{gate_next_work, work_count_on_thread};
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        let (dir, path, lib, photo) = library_with_photo("background-develop");
+        let mut host = host_with_round_trip(lib, photo, &path);
+        host.editor.session = photocraft_engine::Session::new();
+        host.editor.background_jobs = true;
+        host.mode = Module::Library;
+        host.library.as_mut().unwrap().run("library.select", json!({"ids": [photo.0]})).unwrap();
+        let mut h = RoundTripUi::new(host);
+        h.step(vec![]);
+        let gate = Arc::new(AtomicBool::new(false));
+        gate_next_work(gate.clone());
+        let count = work_count_on_thread();
+        h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        assert_eq!(h.host.mode, Module::Compositing);
+        assert_eq!(work_count_on_thread(), count, "the module switch never develops on the UI thread");
+        assert!(h.host.editor.session.documents().is_empty());
+        assert_eq!(h.host.editor.jobs.opens.len(), 1);
+        gate.store(true, Ordering::Relaxed);
+        h.wait_for(|host| !host.editor.session.has_jobs());
+        assert_eq!(h.host.editor.session.documents().len(), 1);
+        assert!(h.host.editor.jobs.opens.is_empty());
+        let initial = h.host.editor.session.active().unwrap().doc.clone();
+        let steps = h.host.editor.session.active().unwrap().history.past_len();
+        h.key(egui::Key::Num2, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        h.host.library.as_mut().unwrap().run("develop.set", json!({"control": "light.exposure", "value": 1.0})).unwrap();
+        let gate = Arc::new(AtomicBool::new(false));
+        gate_next_work(gate.clone());
+        h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        assert_eq!(h.host.mode, Module::Compositing);
+        assert_eq!(work_count_on_thread(), count);
+        assert!(Arc::ptr_eq(&h.host.editor.session.active().unwrap().doc, &initial), "old pixels until the worker finishes");
+        assert!(h.host.editor.jobs.opens.is_empty(), "already-open path keeps the document visible");
+        gate.store(true, Ordering::Relaxed);
+        h.wait_for(|host| !host.editor.session.has_jobs());
+        assert_eq!(h.host.editor.session.active().unwrap().history.past_len(), steps + 1);
+        assert_ne!(&*h.host.editor.session.active().unwrap().doc, &*initial);
+        h.host.editor.run("layer.new.layer", json!({})).unwrap();
+        let before = h.host.editor.session.active().unwrap().doc.layers.clone();
+        let steps = h.host.editor.session.active().unwrap().history.past_len();
+        h.key(egui::Key::Num2, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        h.host.library.as_mut().unwrap().run("develop.set", json!({"control": "light.exposure", "value": 2.0})).unwrap();
+        h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        h.wait_for(|host| !host.editor.session.has_jobs());
+        let state = h.host.editor.session.active().unwrap();
+        assert_eq!(&state.doc.layers[..2], &before);
+        assert_eq!(state.doc.layers[2].name, "Develop 2");
+        assert_eq!(state.history.past_len(), steps + 1);
+        assert_eq!(work_count_on_thread(), count);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The interactive path from the task's benchmark, using a real source without a window.
+    #[test]
+    #[ignore = "set LOCAL_IMAGE_TEST_RAW to a corpus raw file"]
+    fn bench_develop_host_switch() {
+        let path = std::env::var("LOCAL_IMAGE_TEST_RAW").expect("LOCAL_IMAGE_TEST_RAW");
+        let dir = std::env::temp_dir().join(format!("li-develop-host-bench-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let ctx = egui::Context::default();
+        PhotocraftApp::setup_context(&ctx, Default::default());
+        for typical in [false, true] {
+            let mut session = lightcraft_engine::Session::new().with_fs();
+            session.open_library(dir.join(if typical { "typical" } else { "plain" }), false).unwrap();
+            session.xmp.auto_write = false; // the corpus source is read-only
+            let r = session.execute("library.import", &json!({"paths": [path]})).unwrap();
+            let photo = r["imported"][0].as_u64().unwrap();
+            session.execute("library.select", &json!({"ids": [photo]})).unwrap();
+            session.execute("develop.reset", &json!({})).unwrap();
+            let base = if typical {
+                json!({"light": {"exposure": 0.3, "highlights": -40.0, "shadows": 30.0},
+                       "effects": {"clarity": 15.0, "texture": 10.0, "dehaze": 10.0},
+                       "detail": {"nr_luminance": 30.0, "nr_color": 25.0, "sharpen_amount": 40.0}})
+            } else {
+                json!({})
+            };
+            session.execute("develop.merge", &json!({"settings": base})).unwrap();
+            let library = LightcraftApp::new(session, Default::default());
+            let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+            editor.host_modes = true;
+            editor.background_jobs = true;
+            let mut host = Host::new(editor);
+            host.library = Some(library);
+            host.mode = Module::Library;
+            let count = photocraft_engine::develop_layer_cmds::work_count_on_thread();
+            let t = std::time::Instant::now();
+            host.switch(&ctx, Module::Compositing);
+            let dispatch = t.elapsed();
+            let id = host.editor.session.jobs()[0].id;
+            host.editor.session.wait_job(id).unwrap();
+            photocraft_ui_egui::jobs_ui::tick_background(&mut host.editor, &ctx);
+            let complete = t.elapsed();
+            // The return arm is the real Host::switch path; preparation is excluded from timing.
+            host.mode = Module::Develop;
+            host.library.as_mut().unwrap().run("develop.set", json!({"control": "light.exposure", "value": 0.5})).unwrap();
+            let t = std::time::Instant::now();
+            host.switch(&ctx, Module::Compositing);
+            let sync_dispatch = t.elapsed();
+            let id = host.editor.session.jobs()[0].id;
+            host.editor.session.wait_job(id).unwrap();
+            photocraft_ui_egui::jobs_ui::tick_background(&mut host.editor, &ctx);
+            let sync_complete = t.elapsed();
+            assert_eq!(photocraft_engine::develop_layer_cmds::work_count_on_thread(), count);
+            assert_eq!(host.editor.session.active().unwrap().history.past_len(), 1);
+            eprintln!(
+                "Host::switch typical={typical}: open dispatch {dispatch:?} / complete {complete:?}; sync dispatch {sync_dispatch:?} / complete {sync_complete:?}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     fn roundtrip_edited_pixels(render_state: Option<eframe::egui_wgpu::RenderState>) {
         use lightcraft_ui_egui::state::{BeforeAfter, ViewMode};
         let (dir, path, lib, orig) = library_with_photo(if render_state.is_some() { "gpu-pixels" } else { "cpu-pixels" });

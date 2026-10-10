@@ -122,7 +122,7 @@ pub fn import_raw_with(name: &str, bytes: &[u8], opts: &DevelopOptions) -> Resul
 /// (demosaic, profiles) was over half of that wait (1.3 s of 2.7 s for a 21 MP ARW on a Ryzen
 /// 9800X3D, measured with `bench_develop_open`). One entry, and only up to
 /// [`DECODE_CACHE_MAX_BYTES`], so it can't hold much memory.
-static LAST_DECODE: std::sync::Mutex<Option<([u8; 32], Arc<lightcraft_raster::Rgb32f>, lightcraft_pipeline::SourceInfo)>> = std::sync::Mutex::new(None);
+static LAST_DECODE: std::sync::Mutex<Option<(([u8; 32], u64), Arc<lightcraft_raster::Rgb32f>, lightcraft_pipeline::SourceInfo)>> = std::sync::Mutex::new(None);
 
 /// The largest decoded source (linear float RGB) [`LAST_DECODE`] keeps: about 64 MP.
 const DECODE_CACHE_MAX_BYTES: usize = 768 << 20;
@@ -132,8 +132,11 @@ thread_local! {
     static DECODES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-fn decoded_source(bytes: &[u8]) -> Result<(Arc<lightcraft_raster::Rgb32f>, lightcraft_pipeline::SourceInfo), IoError> {
-    let key = *blake3::hash(bytes).as_bytes();
+fn decoded_source(
+    bytes: &[u8],
+    opts: &lightcraft_engine::files::RawOptions,
+) -> Result<(Arc<lightcraft_raster::Rgb32f>, lightcraft_pipeline::SourceInfo), IoError> {
+    let key = (*blake3::hash(bytes).as_bytes(), opts.key());
     if let Ok(mut last) = LAST_DECODE.lock() {
         if let Some((k, src, info)) = last.as_ref()
             && *k == key
@@ -145,7 +148,7 @@ fn decoded_source(bytes: &[u8]) -> Result<(Arc<lightcraft_raster::Rgb32f>, light
     }
     #[cfg(test)]
     DECODES.with(|d| d.set(d.get() + 1));
-    let (src, info) = lightcraft_engine::files::load_bytes(bytes, usize::MAX).map_err(IoError::Unsupported)?;
+    let (src, info) = lightcraft_engine::files::load_bytes_with(bytes, usize::MAX, opts).map_err(IoError::Unsupported)?;
     let src = Arc::new(src);
     if let Ok(mut last) = LAST_DECODE.lock() {
         *last = (src.width * src.height * 12 <= DECODE_CACHE_MAX_BYTES).then(|| (key, src.clone(), info.clone()));
@@ -161,9 +164,9 @@ pub fn develop_with_settings(name: &str, bytes: &[u8], settings: &serde_json::Va
     use lightcraft_pipeline::{OutputDepth, OutputSpace, RenderRequest};
     let settings: lightcraft_develop::DevelopSettings =
         serde_json::from_value(settings.clone()).map_err(|e| IoError::Unsupported(format!("develop settings: {e}")))?;
-    let (src, info) = decoded_source(bytes)?;
+    let (src, info) = decoded_source(bytes, &lightcraft_engine::files::RawOptions::of(&settings))?;
     let req = RenderRequest { space: OutputSpace::ProPhoto, depth: OutputDepth::U16, ..RenderRequest::fit(src.width, src.height) };
-    let rendered = lightcraft_pipeline::render(&src, &info, &settings, &req);
+    let rendered = lightcraft_engine::media::develop(&src, &info, &settings, &req, None, true);
     let Some((width, height, lightcraft_pipeline::DeepSamples::U16(samples))) = rendered.deep.as_ref().map(|d| (d.width, d.height, &d.samples)) else {
         return Err(IoError::Unsupported(format!("{name}: the develop pipeline produced no 16-bit output")));
     };
@@ -181,6 +184,8 @@ mod tests {
     use super::*;
     use photocraft_raw::testgen::{DngSpec, mosaic, scene};
 
+    static CACHE_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn dng(w: usize, h: usize, neutral: [f64; 3]) -> Vec<u8> {
         let mut spec = DngSpec::cfa(w, h, mosaic(&scene(w, h), w, [0, 1, 1, 2], 0, 65535));
         spec.as_shot_neutral = Some(neutral);
@@ -197,6 +202,7 @@ mod tests {
     /// fresh decode gives; another file replaces it.
     #[test]
     fn redevelop_reuses_the_decode_and_matches_a_fresh_one() {
+        let _test = CACHE_TEST.lock().unwrap();
         let a = dng(40, 24, [0.6, 1.0, 0.8]);
         let b = dng(40, 24, [0.7, 1.0, 0.5]);
         let plain = serde_json::json!({});
@@ -216,5 +222,34 @@ mod tests {
         let back = develop_with_settings("a.dng", &a, &plain).unwrap();
         assert_eq!(decodes() - n0, 3);
         assert_eq!(pixels(&first), pixels(&back));
+    }
+
+    #[test]
+    fn develop_raw_options_are_used_and_part_of_the_decode_cache_key() {
+        let _test = CACHE_TEST.lock().unwrap();
+        let bytes = dng(52, 36, [0.6, 1.0, 0.8]);
+        let a: lightcraft_develop::DevelopSettings = serde_json::from_value(serde_json::json!({})).unwrap();
+        let b: lightcraft_develop::DevelopSettings = serde_json::from_value(serde_json::json!({"raw": {"demosaic": "rcd", "highlights": "clip"}})).unwrap();
+        let oa = lightcraft_engine::files::RawOptions::of(&a);
+        let ob = lightcraft_engine::files::RawOptions::of(&b);
+        assert_ne!(oa.key(), ob.key());
+        let (src_a, _) = decoded_source(&bytes, &oa).unwrap();
+        let (src_b, info_b) = decoded_source(&bytes, &ob).unwrap();
+        assert!(!Arc::ptr_eq(&src_a, &src_b), "different raw options decode again");
+        let (expected, _) = lightcraft_engine::files::load_bytes_with(&bytes, usize::MAX, &ob).unwrap();
+        assert_eq!(src_b.data, expected.data);
+        let req = lightcraft_pipeline::RenderRequest {
+            space: lightcraft_pipeline::OutputSpace::ProPhoto,
+            depth: lightcraft_pipeline::OutputDepth::U16,
+            ..lightcraft_pipeline::RenderRequest::fit(src_b.width, src_b.height)
+        };
+        let expected = lightcraft_engine::media::develop(&src_b, &info_b, &b, &req, None, true).deep.unwrap();
+        let lightcraft_pipeline::DeepSamples::U16(samples) = expected.samples else { panic!("U16") };
+        let img = Image::from_u16(expected.width as u32, expected.height as u32, ChannelLayout::Rgb, &samples).unwrap();
+        let expected = image_to_document("options.dng", &img).unwrap();
+        let actual = develop_with_settings("options.dng", &bytes, &serde_json::to_value(&b).unwrap()).unwrap();
+        assert_eq!(pixels(&actual), pixels(&expected));
+        let (back, _) = decoded_source(&bytes, &oa).unwrap();
+        assert_eq!(back.data, src_a.data);
     }
 }
