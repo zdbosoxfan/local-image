@@ -1584,8 +1584,5 @@
   "Only in session": "Pouze v relaci",
   "Split into sessions when there is a gap of more than": "Rozdělit na relace, pokud je mezera větší než",
   "All sessions": "Všechny relace",
-  "Export sessions as folders": "Exportovat relace jako složky",
-  "Tagging model": "Model třídění",
-  "Fast (CLIP)": "Rychlý (CLIP)",
-  "Accurate (SigLIP)": "Přesný (SigLIP)"
+  "Export sessions as folders": "Exportovat relace jako složky"
 }

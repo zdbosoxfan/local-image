@@ -63,46 +63,6 @@
           "url": "https://github.com/zdbosoxfan/local-image/blob/c18d18cf613422fe08d31001e1f803cf8ef7dd68/crates/lc-segment/src/tokenizer.rs"
         },
         {
-          "name": "Hugging Face Transformers",
-          "upstream": "src/transformers/models/siglip/tokenization_siglip.py",
-          "commit": "cba5c4a6fcd0f6b73bf591505337ccf08ded3550",
-          "ours": "crates/li-seg/src/unigram.rs",
-          "licence": "Apache-2.0",
-          "url": "https://github.com/huggingface/transformers/blob/cba5c4a6fcd0f6b73bf591505337ccf08ded3550/src/transformers/models/siglip/tokenization_siglip.py"
-        },
-        {
-          "name": "transformers.js",
-          "upstream": "src/tokenizers.js (Unigram lattice)",
-          "commit": "da2688626d7812ad1ea47fd304c2072cc685051b",
-          "ours": "crates/li-seg/src/unigram.rs",
-          "licence": "Apache-2.0",
-          "url": "https://github.com/huggingface/transformers.js/blob/da2688626d7812ad1ea47fd304c2072cc685051b/src/tokenizers.js"
-        },
-        {
-          "name": "spm_precompiled",
-          "upstream": "src/lib.rs (Darts charsmap format)",
-          "commit": "c00612e48dda9b8b31a5d2d09530f5caa666d5c0",
-          "ours": "crates/li-seg/src/unigram.rs",
-          "licence": "Apache-2.0",
-          "url": "https://github.com/huggingface/spm_precompiled/blob/c00612e48dda9b8b31a5d2d09530f5caa666d5c0/src/lib.rs"
-        },
-        {
-          "name": "Hugging Face Transformers",
-          "upstream": "src/transformers/models/siglip/image_processing_siglip.py",
-          "commit": "cba5c4a6fcd0f6b73bf591505337ccf08ded3550",
-          "ours": "crates/li-seg/src/siglip.rs",
-          "licence": "Apache-2.0",
-          "url": "https://github.com/huggingface/transformers/blob/cba5c4a6fcd0f6b73bf591505337ccf08ded3550/src/transformers/models/siglip/image_processing_siglip.py"
-        },
-        {
-          "name": "Pillow",
-          "upstream": "src/libImaging/Resample.c",
-          "commit": "bb1d8e8ab8d29048624d96e3ee53cecf7c13d13d",
-          "ours": "crates/li-seg/src/siglip.rs",
-          "licence": "MIT-CMU",
-          "url": "https://github.com/python-pillow/Pillow/blob/bb1d8e8ab8d29048624d96e3ee53cecf7c13d13d/src/libImaging/Resample.c"
-        },
-        {
           "name": "darktable",
           "used_for": "darktable src/iop/denoiseprofile.c (wavelets, Y0U0V0, new VST), src/common/eaw.c (eaw_dn_decompose, accumulate) and src/common/math.h (fast_mexp2f), at 733bd69f32cac7ff5e41025115942772add1f088.",
           "upstream": "src/iop/denoiseprofile.c",
@@ -908,16 +868,6 @@
           "used_for": "Smart Sort: sorting photos into folders by what they show.",
           "licence": "MIT",
           "url": "https://huggingface.co/immich-app/ViT-B-32__laion2b-s34b-b79k"
-        },
-        {
-          "name": "SigLIP ViT-B/16",
-          "author": "Google SigLIP; Xenova ONNX export",
-          "used_for": "Smart Sort: sorting photos into folders by what they show.",
-          "licence": "Apache-2.0",
-          "licence_files": [
-            "licenses/siglip-NOTICE.md"
-          ],
-          "url": "https://huggingface.co/Xenova/siglip-base-patch16-224"
         },
         {
           "name": "YuNet",

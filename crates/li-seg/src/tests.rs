@@ -164,11 +164,11 @@ fn object_flood_keeps_the_clicked_region_only() {
 /// One official model per function, each explained in plain language.
 #[test]
 fn one_official_model_per_function() {
-    assert_eq!(MODELS.len(), 7);
+    assert_eq!(MODELS.len(), 6);
     for g in Group::ALL {
         let m = g.official();
         assert_eq!(m.group, Some(g));
-        assert_eq!(MODELS.iter().filter(|x| x.group == Some(g)).count(), if matches!(g, Group::Faces | Group::Tagging) { 2 } else { 1 }, "{g:?}");
+        assert_eq!(MODELS.iter().filter(|x| x.group == Some(g)).count(), if matches!(g, Group::Faces) { 2 } else { 1 }, "{g:?}");
         assert!(m.about.len() > 60 && !g.about().is_empty() && !g.label().is_empty());
         assert!(!m.label.contains("MB"), "{}", m.label);
         assert!(g.in_use(Path::new("/nonexistent")).is_none());
@@ -180,12 +180,8 @@ fn one_official_model_per_function() {
     assert_eq!(Group::Subject.official().task, Task::Subject);
     assert!(matches!(Group::Sky.official().task, Task::Sky { .. }));
     assert_eq!(Group::Depth.official().task, Task::Depth);
-    assert_eq!(Group::Tagging.official().task, Task::ImageText { family: ModelFamily::Clip });
+    assert_eq!(Group::Tagging.official().task, Task::ImageText);
     assert_eq!(Group::Tagging.official().files().count(), 4);
-    let siglip = spec("siglip-b16-224").unwrap();
-    assert_eq!(siglip.task, Task::ImageText { family: ModelFamily::Siglip });
-    assert_eq!(siglip.files().count(), 3);
-    assert_eq!(siglip.download_bytes(), 815_550_726);
     for group in [Group::Subject, Group::Sky, Group::Depth] {
         assert!(group.supports_custom());
         assert!(group.official().companions.is_empty());

@@ -1584,8 +1584,5 @@
   "Only in session": "Только в сессии",
   "Split into sessions when there is a gap of more than": "Разделять на сессии при перерыве более",
   "All sessions": "Все сессии",
-  "Export sessions as folders": "Экспортировать сессии как папки",
-  "Tagging model": "Модель сортировки",
-  "Fast (CLIP)": "Быстро (CLIP)",
-  "Accurate (SigLIP)": "Точно (SigLIP)"
+  "Export sessions as folders": "Экспортировать сессии как папки"
 }

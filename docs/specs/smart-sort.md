@@ -72,7 +72,6 @@ A scratch program loaded the real candidate weights with the repo's exact tract 
 | LAION CLIP ViT-B-32 `textual/model.onnx` | yes, input `text` [1,77] **i32** | 0.18 s | ≈30 ms / prompt | 512-d output |
 | OpenAI CLIP ViT-B/16 (Xenova export) vision / text | yes (text input `input_ids` [1,77] **i64**) | 0.23 s | 160 ms / image | same correct ranking |
 | OpenAI CLIP B/16 `vision_model_quantized.onnx` | **no** (tract fails on the dynamic-quantization graph) | – | – | use fp32 files only |
-| SigLIP base-patch16-224 vision / text (Xenova) | yes | 0.26 s | 150 ms / image, 50 ms / prompt | outputs `[1,768]` pooled |
 | YuNet `face_detection_yunet_2023mar.onnx` | yes | 0.02 s | 82 ms at 640², 330 ms at 1280² | found the face(s) in Migrant Mother with score 0.92; needs `.with_ignore_output_shapes(true).with_ignore_value_info(true)` for any input size other than 640×640 |
 | SFace `face_recognition_sface_2021dec.onnx` | yes, input `data` [1,3,112,112] | 0.05 s | ≈50 ms / face | 128-d output |
 
@@ -161,8 +160,8 @@ Why:
 - Faces add what CLIP cannot: *who* (one folder per speaker) and counts (crowd vs portrait).
 
 Expected quality (estimates; **must be validated by the coordinator on a real event gallery**, §9):
-upstream ImageNet zero-shot top-1 is 66.6 % (LAION ViT-B-32 laion2B-s34B-b79K), 68.3 % (OpenAI B/16),
-76.2 % (SigLIP B/16-224). For 5–8 coarse, well-described event categories expect roughly 75–90 %
+upstream ImageNet zero-shot top-1 is 66.6 % (LAION ViT-B-32 laion2B-s34B-b79K), 68.3 % (OpenAI B/16).
+For 5–8 coarse, well-described event categories expect roughly 75–90 %
 correct on clear-cut shots, lower on overlapping categories (candid vs crowd reaction); the
 "Unsorted" bucket plus review catches the rest; exemplars typically add 5–15 points. The product
 must therefore **always show a review step before export**.
@@ -170,8 +169,7 @@ must therefore **always show a review step before export**.
 ### Model choice
 | Role | Model | Why |
 |---|---|---|
-| Tagging (default, Fast) | **LAION OpenCLIP ViT-B-32 laion2B-s34B-b79K**, ONNX export by Immich | Retained after the 330-photo evaluation: 86.4% top-1, 48.8 ms/photo CPU throughput, 607 MB download; better current assignment recall and lower RAM than SigLIP. |
-| Tagging (Accurate option) | **Google SigLIP base-patch16-224** (Xenova ONNX) | Apache-2.0, 768-d embeddings and independent sigmoid scores. 85.8% top-1, 52.3 ms/photo CPU throughput, 816 MB download here; Wedding ranking improves, but raw sigmoid values abstain heavily at the existing thresholds. |
+| Tagging | **LAION OpenCLIP ViT-B-32 laion2B-s34B-b79K**, ONNX export by Immich | Retained after the 330-photo evaluation: 86.4% top-1, 48.8 ms/photo CPU throughput, 607 MB download; the only shipped tagging model. The candidate comparison is archived in [the evaluation report](../wip/CODEX-REPORT-tagging-eval.md). |
 | Face detection (Phase 3) | **YuNet 2023mar** (OpenCV Zoo) | MIT, 233 KB, 5 landmarks for alignment, works in tract at any size. |
 | Face embedding (Phase 3) | **SFace 2021dec** (OpenCV Zoo) | Apache-2.0, 39 MB, 128-d, LFW ≈ 99.4 % per OpenCV Zoo eval. |
 
@@ -198,8 +196,6 @@ Total download: tagging 607 MB; faces 39 MB.
 ### 4.2 Alternatives evaluated
 | Model | Licence | Verdict |
 |---|---|---|
-| SigLIP base-patch16-224, Xenova ONNX `onnx/vision_model.onnx` (371819850 B, `f89d41bac7f4d4b87e010a467d93f98689d708916ed22f5a07f96fdfa26f475f` ✔), `onnx/text_model.onnx` (441332132 B, `3aa7fdbd20eaa8740cce17bf82913de641fcb632a768fed59f661cdcd0c32553` ✔), `tokenizer.json` (2398744 B, `4a17c975210be5ab4c36b47d8dae4eefb866dbfb1e676e394aad85dc30a3ae08` ✔) at `https://huggingface.co/Xenova/siglip-base-patch16-224/resolve/4649052661e53c7000355844105f8a1792088239/…` | Apache-2.0 (google/siglip-base-patch16-224) | **Implemented Accurate option** (Unigram tokenizer, 224-square preprocessing and independent sigmoid scoring). |
-| SigLIP 2 base-patch16-224 (onnx-community) | Apache-2.0 | Text model 1.13 GB, 34 MB tokenizer: too big for now. |
 | OpenAI CLIP ViT-B/16, Xenova ONNX (`vision_model.onnx` 345060583 B `b5170b47…e6b` ✔, `text_model.onnx` 254058553 B `19f40c79…77aa` ✔) | MIT code repo; HF card has no licence tag; card says deployment out of scope | Fallback only. |
 | Apple MobileCLIP / MobileCLIP2 | `apple-amlr` (research only) | **Reject.** |
 | RAM++ (recognize-anything-plus) | Apache-2.0 | Fixed tag set, ~3 GB, BERT text side: **not chosen.** |
@@ -494,38 +490,19 @@ Acceptance:
 - Headless: faces checkbox off by default; turning it on and analysing shows suggestions; typing a name and confirming creates a person folder row in step 3.
 - `#[ignore]` real-weight test: YuNet finds ≥ 1 face with score ≥ 0.9 in `ba-migrant-mother.jpg` (two copies side by side → expect 2 faces after NMS, centres near x≈620 and x≈1868 of 3200, y≈572) and the two SFace embeddings have cosine ≥ 0.6 (same woman); none in `ba-tetons.jpg`.
 
-### Phase 4 — SigLIP model family (implemented 2026-10-10)
+### Tagging evaluation decision (2026-10-10)
 
-`Task::ImageText { family: Clip|Siglip }` selects the family. SigLIP uses the pinned
-SentencePiece Unigram JSON, Hugging Face canonicalization (lowercase, ASCII punctuation
-removal, whitespace collapse), its precompiled Unicode normalization map, `▁` word
-boundaries, maximum-score Viterbi segmentation and fused unknown id 2. It reserves the
-last of 64 positions for EOS id 1 and pads with EOS. Image preprocessing stretches RGB
-to 224×224 using Pillow-compatible antialiased bicubic, then mean/std 0.5 in NCHW.
-Both split encoders select **`pooler_output`**, not their first `last_hidden_state`
-output, and L2-normalize the 768-dimensional embeddings.
-
-Scores are independent `σ(117.3308·cos - 12.9324)`, with Any/All tag aggregation
-(max/min) and exemplars retained. These learned scalars follow the published
-[upstream conversion reference](https://github.com/john-rocky/CoreML-Models/blob/1d103ecd243831f41dd099da78a5ddef3e568443/conversion_scripts/convert_siglip.py).
-They are published to four decimal places; full-checkpoint initializer verification
-would require an additional authorised pin, because this task permits only the split
-encoders/tokenizer in §4.2. Probabilities that saturate at f32 one still rank by the
-underlying cosine. SigLIP has no competing background softmax category; its Balanced
-threshold applies directly to each sigmoid probability. CLIP retains its existing
-softmax/background behavior.
-
-The per-library `taggingModel` preference stores the model ID, with a serde default
-for older libraries. Smart Sort exposes **Fast (CLIP)** and **Accurate (SigLIP)**;
-Compositing ▸ Local AI offers both pinned bundles and their own download/cancel controls.
-The model selector is disabled during analysis. A switch clears the loaded tagger
-and review results; analysis uses `AI/embeddings-<model-id>.bin` with its own validated
-header/dimension (CLIP 512, SigLIP 768). Returning to a previously analysed model
-reuses only that model's embeddings. Reference golden tests cover normalization,
-segmentation, padding/truncation, pixel preprocessing, sigmoid scoring and switching.
-
-The authorised 330-photo evaluation and final default decision are recorded in
+CLIP is the only shipped tagging model, with its existing BPE tokenizer, three-crop
+preprocessing, 512-dimensional embeddings and softmax/background scoring. The
+330-photo open comparison and rejected candidate's results remain in
 [the tagging evaluation report](../wip/CODEX-REPORT-tagging-eval.md).
+
+The model-choice setting and UI have been removed. Older libraries' `taggingModel`
+fields are ignored by serde, so any former selection loads with CLIP while the
+remaining preferences are preserved. Compositing ▸ Local AI and the Library dialog
+offer only the CLIP bundle and its download/cancel controls. Cache filenames remain
+`AI/embeddings-<model-id>.bin`, with model ID and dimension validation; CLIP's existing
+cache remains reusable and retired model caches are never read for tagging.
 
 ---
 
@@ -542,7 +519,7 @@ The authorised 330-photo evaluation and final default decision are recorded in
 | Risk | Mitigation |
 |---|---|
 | Zero-shot accuracy lower than users expect on event-specific categories | Mandatory review step, Unsorted bucket, few-shot exemplars, editable prompts, sensitivity slider; coordinator tunes defaults on a real gallery. |
-| CLIP model-card "deployment out of scope" language | Licence is MIT; SigLIP (Apache-2.0) is also available; the measured default decision is in the tagging report. |
+| CLIP model-card "deployment out of scope" language | Licence is MIT; the measured choice is recorded in the tagging evaluation report. |
 | Face recognition legal exposure (GDPR Art. 9, BIPA, etc.) and dataset provenance | Opt-in per library, local-only storage, clear-data action, names not exported by default; explain in UI and docs; owner decides (Q2). |
 | RAM (~1 GB with CLIP text+visual loaded) | Load lazily, drop when the dialog closes; text model only needed while prompts change. |
 | tract performance on low-end CPUs (≈4–8× slower than the test machine) | Dedicated half-core pool, resumable, progress + ETA; `Crops::Center` fallback setting if too slow. |
@@ -557,7 +534,7 @@ The authorised 330-photo evaluation and final default decision are recorded in
 5. Review the Codex diffs: `git diff Cargo.lock` (no new packages), fmt, clippy, all tests, then install/smoke-test the app.
 
 ## 10. Open product questions for the owner
-1. **Tagging default resolved 2026-10-10:** retain LAION CLIP B-32 after the authorised 330-photo comparison. SigLIP is available as the Accurate family option; see the measured tradeoffs and limitations in the tagging report.
+1. **Tagging default resolved 2026-10-10:** retain LAION CLIP B-32 after the authorised 330-photo comparison. CLIP is the only shipped tagging model; see the archived comparison and limitations in the tagging evaluation report.
 2. **Ship face recognition at all, and opt-in per library?** It is biometric processing of client photos; everything stays local, but the photographer is responsible for consent. The face models' licences are permissive (MIT / Apache-2.0); their training datasets are research face datasets (industry-normal, but not "clean").
 3. **Overlap default:** a photo in several folders gets a copy in each (proposed) or only the first match?
 4. **Export default:** rendered JPEG (Large) with edits (proposed), or copy the original files?
@@ -565,7 +542,7 @@ The authorised 330-photo evaluation and final default decision are recorded in
 
 ## 11. Owner decisions (2026-10-09)
 
-1. Default tagging model: **CLIP** (OpenCLIP ViT-B-32, section 4.1). **Updated 2026-10-10:** the owner authorised real model comparison and selection of the most effective practical default. The 330-photo comparison retains CLIP; SigLIP Phase 4 is implemented as the optional Accurate family. Missing legacy `taggingModel` preferences continue to select CLIP.
+1. Default tagging model: **CLIP** (OpenCLIP ViT-B-32, section 4.1). **Updated 2026-10-10:** the owner authorised real model comparison and selection of the most effective practical default. The 330-photo comparison retains CLIP as the only tagging model. Missing or obsolete `taggingModel` preferences load with CLIP; the comparison is archived in the tagging evaluation report.
 2. Face recognition: **yes, opt-in per library** (Phase 3), with "Clear face data"; face data never leaves the machine.
 3. Photo matching several folders: **a per-sort choice in the dialog** ("Copy into every matching folder" / "First
    matching folder only"), defaulting to copying into every matching folder; saved with the sort preset.
