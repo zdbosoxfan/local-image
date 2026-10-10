@@ -39,5 +39,28 @@
   "hf_tags": [
     "qwen-image-edit"
   ],
+  "file_overrides": [
+    {
+      "patterns": [
+        "qwen_image_edit.safetensors",
+        "qwen_image_edit_bf16",
+        "qwen_image_edit_fp8",
+        "qwen-image-edit.safetensors",
+        "qwen-image-edit-bf16",
+        "qwen-image-edit-fp8"
+      ],
+      "pipeline": {
+        "encode": "qwen_edit"
+      },
+      "capabilities": {
+        "create": true,
+        "edit": true,
+        "references": 1,
+        "inpaint": true,
+        "transparent": false,
+        "negative_prompt": true
+      }
+    }
+  ],
   "models": []
 }

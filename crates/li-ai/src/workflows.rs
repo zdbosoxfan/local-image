@@ -69,8 +69,8 @@ pub struct QwenParams<'a> {
     pub loras: &'a [LoraUse],
 }
 
-/// Qwen Image 2.1: text-to-image (EmptyLatentImage) or editing from references (the encoder's
-/// latent, so the canvas follows reference 1).
+/// Qwen Image 2.1: text-to-image (EmptyLatentImage) or editing from references. The encoder's
+/// third output is an empty latent sized to reference 1, not an encoded starting image.
 pub fn qwen(files: &Files, p: &QwenParams) -> Built {
     let mut g = Graph::default();
     g.node(1, "UNETLoader", json!({ "unet_name": f(files, Role::Unet), "weight_dtype": "default" }));

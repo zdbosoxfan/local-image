@@ -290,7 +290,8 @@ pub fn build(reg: &crate::family::Registry, installed: &[InstalledModel]) -> Cat
             continue;
         }
         let def = ModelDef { key: im.key.clone(), label: im.label.clone(), short: im.label.clone(), ..Default::default() };
-        let info = info_for(f, &def, Origin::Installed);
+        let resolved = f.resolved_for_file(main.map(String::as_str).unwrap_or_default());
+        let info = info_for(&resolved, &def, Origin::Installed);
         cat.presets.push(Preset {
             model: info.id,
             variant: "installed".into(),
@@ -355,11 +356,11 @@ pub fn set_installed(installed: Vec<InstalledModel>) -> bool {
     true
 }
 
-/// The starting denoise for refining with `model`: 1.0 for families that refine by reference (FLUX.2 Klein: the image
-/// is a `ReferenceLatent`, as in Comfy-Org's edit templates), a partial 0.35 for img2img families.
+/// The starting denoise for refining with `model`: 1.0 for native reference/edit conditioning
+/// (FLUX.2, Kontext, Qwen Edit and Qwen 2.1), a partial 0.35 for ordinary img2img families.
 pub fn refine_default_denoise(model: ModelId) -> f32 {
     match model.try_info() {
-        Some(i) if i.resolved.pipeline.reference == crate::family::RefMethod::ReferenceLatent => 1.0,
+        Some(i) if matches!(i.resolved.pipeline.reference, crate::family::RefMethod::ReferenceLatent | crate::family::RefMethod::TextEncoder) => 1.0,
         _ => 0.35,
     }
 }
@@ -515,5 +516,27 @@ mod tests {
         assert!(m.lora && !m.tags().iter().any(|t| t.contains("LoRA")), "{:?}", m.tags());
         let p = cat.presets.iter().find(|p| p.model == m.id).unwrap();
         assert!(p.installed);
+    }
+
+    #[test]
+    fn installed_weight_variants_publish_their_official_sampling_defaults() {
+        let installed = [
+            ("hidream", "hidream_i1_dev_fp8.safetensors", 28.0, 1.0),
+            ("hidream", "hidream_i1_fast_fp8.safetensors", 16.0, 1.0),
+            ("z-image", "z_image_bf16.safetensors", 25.0, 4.0),
+            ("flux1", "flux1-schnell.safetensors", 4.0, 1.0),
+            ("flux2-klein", "flux-2-klein-base-9b.safetensors", 20.0, 5.0),
+        ];
+        for (family, file, steps, cfg) in installed {
+            let im = InstalledModel { key: format!("unet:{file}"), family: family.into(), label: file.into(), files: [(Role::Unet, file.into())].into() };
+            let cat = build(crate::family::registry(), std::slice::from_ref(&im));
+            let model = cat.models.iter().find(|m| m.id.key() == im.key).unwrap();
+            assert_eq!(model.steps.default, steps);
+            assert_eq!(model.guidance.default, cfg);
+        }
+        // Existing schema-1 profiles without the optional field retain their defaults.
+        let sd15 = crate::family::registry().family("sd15").unwrap();
+        assert!(sd15.file_overrides.is_empty());
+        assert_eq!(sd15.resolved_for_file("custom.safetensors"), sd15.clone());
     }
 }
