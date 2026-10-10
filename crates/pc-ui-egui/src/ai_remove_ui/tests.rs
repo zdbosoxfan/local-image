@@ -238,3 +238,38 @@ fn ds_finding_remove_bounds_and_partial_texture_follow_actual_strokes() {
     paint(h.state_mut(), &[[-100., -100., 1.]], false);
     assert!(h.state().ai_remove.is_some());
 }
+
+#[test]
+fn restoration_detected_mask_fill_once_then_optional_colourise_preview() {
+    let server = li_ai::mock::MockComfy::start().unwrap();
+    let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    li_ai::set_service_override(Some(server.host().into()));
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            li_ai::set_service_override(None);
+        }
+    }
+    let _reset = Reset;
+    let mut h = harness();
+    h.state_mut().ui.ai.remove_immediately = true;
+    let before = h.state().session.active().unwrap().doc.clone();
+    let history = h.state().session.active().unwrap().history.past_len();
+    let mask = image::GrayImage::from_fn(320, 240, |x, y| image::Luma([if x > 90 && x < 96 && y > 60 && y < 180 { 255 } else { 0 }]));
+    detected(h.state_mut(), mask.clone(), true).unwrap();
+    h.run_steps(4);
+    assert_eq!(server.prompts().len(), 0, "detection cannot submit an immediate fill");
+    assert_eq!(h.state().session.active().unwrap().doc, before);
+    // The imported mask is adjustable with the same brush before confirmation.
+    paint(h.state_mut(), &[[92., 80., 1.]], true);
+    assert_eq!(h.state().ai_remove.as_ref().unwrap().mask[80 * 320 + 92], 0);
+    h.run_steps(2);
+    h.get_all_by_label("Remove").next().unwrap().click();
+    h.run_steps(3);
+    assert_eq!(server.prompts().len(), 1);
+    assert!(h.state().ai_remove.is_none());
+    assert_eq!(h.state().session.active().unwrap().history.past_len(), history + 1);
+    assert!(h.query_by_label("Restore Photo").is_some(), "optional Colourise waits for successful fill");
+    h.state_mut().run("edit.undo", json!({})).unwrap();
+    assert_eq!(h.state().session.active().unwrap().doc, before);
+}

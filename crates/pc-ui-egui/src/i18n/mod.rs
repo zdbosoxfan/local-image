@@ -595,6 +595,17 @@ mod tests {
     ];
 
     const PENDING_AI_TRANSLATIONS: &[&str] = &[
+        "Fix JPEG artefacts",
+        "Clean up scan",
+        "Repair old photo",
+        "No scratches detected.",
+        "Restore model installed.",
+        "Runs on this computer with the installed Restore model.",
+        "Choose the approved ONNX model to install locally.",
+        "Preview marks detected scratches in red. Review and adjust the mask in AI Remove, then click Remove to fill it.",
+        "Colourise after repair",
+        "Review scratches in AI Remove",
+        "Import Restore model…",
         li_ai::restoration::byo::NOTICE,
         li_ai::restoration::byo::DATA_NOTICE,
         "Permissive models",
