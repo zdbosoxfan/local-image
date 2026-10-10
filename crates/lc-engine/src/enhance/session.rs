@@ -60,6 +60,21 @@ impl Session {
     fn apply_outcome(&mut self, photo: PhotoId, kind: &JobKind, outcome: Outcome, label: &str) -> crate::Result<()> {
         let mut d = (*self.develop_of(photo).ok_or_else(|| crate::EngineError::Other("the photo is gone".into()))?).clone();
         match outcome {
+            Outcome::Denoise(r) => {
+                let key = lightcraft_develop::AiKey::parse(&r.key).ok_or_else(|| crate::EngineError::Other("invalid denoise key".into()))?;
+                let source = lightcraft_develop::AiKey::parse(&r.source).ok_or_else(|| crate::EngineError::Other("invalid denoise source".into()))?;
+                // A reloaded/replaced photo must never receive the old worker's result.
+                if self.catalog.photo(photo).is_none_or(|p| super::denoise::source_hash(p) != r.source) {
+                    return Ok(());
+                }
+                let first_result = d.enhance.ai.is_none();
+                d.enhance.ai = Some(lightcraft_develop::DenoiseRef { key, source, model: r.family, preview: r.preview });
+                if first_result && d.enhance.denoise == 0.0 {
+                    d.enhance.denoise = 100.0;
+                }
+                self.set_develop(photo, d, label)?;
+            }
+            Outcome::DenoiseExport(_) => {}
             Outcome::Remove(r) => {
                 let patch = AiPatch { key: r.key, source: r.source, rect: r.rect, engine: r.engine, seed: r.seed, geometry: r.geometry };
                 match kind {
@@ -139,5 +154,14 @@ pub fn for_render(src: &Arc<Rgb32f>, s: &Arc<DevelopSettings>, source: Option<Ha
     } else {
         s.clone()
     };
-    (src.clone(), settings)
+    let mixed = settings
+        .enhance
+        .ai
+        .filter(|a| {
+            hex.as_deref() == Some(&a.source.to_string())
+                && (settings.enhance.denoise_model == lightcraft_develop::DenoiseModel::Auto || settings.enhance.denoise_model == a.model)
+                && !settings.disabled_sections.iter().any(|s| s == "detail")
+        })
+        .and_then(|a| super::denoise::denoised_source(src, &a.key.to_string(), settings.enhance.denoise));
+    (mixed.unwrap_or_else(|| src.clone()), settings)
 }

@@ -18,6 +18,18 @@
       "intro": "Algorithms re-implemented in Rust from other projects (docs/PORTS.md). No C, C++ or Python from them is compiled or shipped.",
       "entries": [
         {
+          "name": "darktable-ai",
+          "used_for": "AI Denoise: RawNIND UtNet2 (Bayer and linear Rec.2020) and NIND UNet from darktable-ai, run on the CPU with tract, using the tiler shared with WGSL GPU execution.",
+          "upstream": "models/rawdenoise-nind/demo.py",
+          "commit": "f1a46e2d3feebc917a94f14705d128316fcf8114",
+          "ours": "crates/li-seg/src/denoise.rs",
+          "licence": "GPL-3.0",
+          "licence_files": [
+            "licenses/darktable-ai-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable-ai/blob/f1a46e2d3feebc917a94f14705d128316fcf8114/models/rawdenoise-nind/demo.py"
+        },
+        {
           "name": "vkdt",
           "used_for": "Primary Develop tools.",
           "upstream": "src/pipe/modules/llap/reduce.comp, assemble.comp",
@@ -888,6 +900,26 @@
             "licenses/opencv-NOTICE.md"
           ],
           "url": "https://huggingface.co/opencv/face_recognition_sface"
+        },
+        {
+          "name": "RawNIND UtNet2",
+          "author": "RawNIND UtNet2; darktable-ai ONNX export",
+          "used_for": "AI Denoise in Develop.",
+          "licence": "GPL-3.0",
+          "licence_files": [
+            "licenses/darktable-ai-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable-ai"
+        },
+        {
+          "name": "NIND UNet",
+          "author": "NIND UNet; darktable-ai ONNX export",
+          "used_for": "AI Denoise in Develop.",
+          "licence": "GPL-3.0",
+          "licence_files": [
+            "licenses/darktable-ai-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable-ai"
         },
         {
           "name": "SAM 3 (Segment Anything 3)",

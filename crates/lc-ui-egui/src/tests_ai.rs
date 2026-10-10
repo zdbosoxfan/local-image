@@ -271,3 +271,107 @@ fn masking_alt_preview_ends_with_the_drag() {
     app.ui.fullscreen = true;
     assert_eq!(crate::panels::detail::view_overlay(&app, &d), Overlay::None);
 }
+
+#[test]
+fn ai_denoise_ui_clicks_model_preview_apply_and_drags_strength() {
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut session = lightcraft_engine::Session::with_demo();
+    let counter = calls.clone();
+    session.enhance.denoiser = Some(Arc::new(move |pixels, _, _, progress| {
+        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        for i in 0..5 {
+            if !progress(i, 5) {
+                return Err(lightcraft_engine::enhance::CANCELLED.into());
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        Ok(vec![[0.15, 0.2, 0.25]; pixels.len()])
+    }));
+    let app = LightcraftApp::new(session, Services { png: None, ..Default::default() });
+    let mut h = Headless::new(app, [1200., 1800.], 1.);
+    assert_eq!(h.request("ui.set", json!({"view":"detail","right":"edit","leftPanel":false}), T)["ok"], true);
+    for key in ["light", "color", "effects", "optics", "raw", "geometry"] {
+        if h.app.ui.section_open(key) {
+            h.app.ui.toggle_section(key);
+        }
+    }
+    if !h.app.ui.section_open("detail") {
+        h.app.ui.toggle_section("detail");
+    }
+    h.step();
+    click(&mut h, "button:denoiseModel");
+    h.step();
+    click(&mut h, "button:denoiseModelRGB");
+    h.step();
+    let id = h.app.session.active().unwrap();
+    assert_eq!(h.app.session.develop_of(id).unwrap().enhance.denoise_model, lightcraft_develop::DenoiseModel::Rgb);
+    click(&mut h, "button:denoisePreview");
+    assert!(h.step_until(JOB, |h| h.app.session.develop_of(id).unwrap().enhance.ai.is_some_and(|a| a.preview)));
+    h.step();
+    let rect = h.app.widgets.iter().find(|(id, _)| id == "slider:enhance.denoise").unwrap().1;
+    let r = h.request("ui.drag", json!({"x":rect.center().x,"y":rect.center().y,"toX":rect.left()+12.,"toY":rect.center().y,"steps":5}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert!(h.app.session.develop_of(id).unwrap().enhance.denoise < 90.);
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1, "strength reuses pixels");
+    click(&mut h, "button:denoiseApply");
+    assert!(h.step_until(JOB, |h| h.app.session.develop_of(id).unwrap().enhance.ai.is_some_and(|a| !a.preview)));
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+    let path = std::env::temp_dir().join(format!("li-denoise-ui-{}.tiff", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let selected = path.clone();
+    h.app.services.save_denoise_file = Some(Box::new(move |_| Some(selected.to_string_lossy().into())));
+    h.step();
+    click(&mut h, "button:denoiseNewFile");
+    assert!(h.step_until(JOB, |_| path.is_file()));
+    assert!(!std::fs::read(&path).unwrap().is_empty());
+    std::fs::remove_file(path).unwrap();
+    exec(&mut h, "edit.undo", json!({}));
+    assert!(h.app.session.develop_of(id).unwrap().enhance.ai.unwrap().preview);
+}
+
+#[test]
+#[ignore = "real raw, approved model cache and physical GPU required"]
+fn ai_denoise_real_app_preview_and_strength_latency() {
+    use std::time::Instant;
+    let file = std::env::var("LOCAL_IMAGE_DENOISE_RAW").expect("set raw path");
+    let dir = std::env::var_os("LOCAL_IMAGE_DENOISE_MODELS").expect("set model-test directory");
+    let mut session = lightcraft_engine::Session::new().with_fs();
+    session.quick_seg_dir = Some(dir.into());
+    session.execute("library.import", &json!({"paths":[file]})).unwrap();
+    let id = session.active().unwrap();
+    let app = LightcraftApp::new(session, Services { png: None, ..Default::default() });
+    let mut h = Headless::new(app, [1200., 1200.], 1.);
+    h.request("ui.set", json!({"view":"detail","right":"edit","leftPanel":false}), T);
+    for key in ["light", "color", "effects", "optics", "raw", "geometry"] {
+        if h.app.ui.section_open(key) {
+            h.app.ui.toggle_section(key);
+        }
+    }
+    if !h.app.ui.section_open("detail") {
+        h.app.ui.toggle_section("detail");
+    }
+    h.settle(JOB);
+    let start = Instant::now();
+    click(&mut h, "button:denoisePreview");
+    let click_ms = start.elapsed().as_secs_f64() * 1000.;
+    assert!(h.step_until(Duration::from_secs(600), |h| h.app.session.develop_of(id).unwrap().enhance.ai.is_some()));
+    let preview_s = start.elapsed().as_secs_f64();
+    h.settle(JOB);
+    let rect = h.app.widgets.iter().find(|(id, _)| id == "slider:enhance.denoise").unwrap().1;
+    let mut timings = Vec::new();
+    let mut renders = Vec::new();
+    for i in 0..6 {
+        let x = rect.left() + rect.width() * (0.2 + i as f32 * 0.1);
+        let start = Instant::now();
+        let r = h.request("ui.drag", json!({"x":x,"y":rect.center().y,"toX":x+8.,"toY":rect.center().y,"steps":1}), T);
+        assert_eq!(r["ok"], true);
+        timings.push(start.elapsed().as_secs_f64() * 1000.);
+        h.settle(JOB);
+        renders.push(start.elapsed().as_secs_f64() * 1000.);
+    }
+    eprintln!(
+        "AI Denoise real app: click {click_ms:.2}ms preview job {preview_s:.3}s strength drags {timings:?} settled render ms {renders:?} adapter {:?}",
+        lightcraft_engine::gpu::adapter_name()
+    );
+    assert!(lightcraft_engine::gpu::adapter_name().unwrap().contains("5090"));
+}

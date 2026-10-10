@@ -574,6 +574,20 @@ mod tests {
     // Draft/Refinement. These English additions intentionally use runtime fallback.
     // Remove entries as their translations land; all other labels remain required.
     const PENDING_AI_TRANSLATIONS: &[&str] = &[
+        "Change…",
+        "Use default",
+        "Use RawNIND linear variant",
+        "Linear Rec.2020 input (RawNIND)",
+        "Custom Raw Denoise models use three-channel linear Rec.2020 input and output.",
+        "Your selected restoration model, with CPU fallback.",
+        "Selected model · {size} · licence from its provider",
+        "{name} · {size} download · GPU with CPU fallback · {licence}",
+        "Raw Denoise",
+        "RGB Denoise",
+        "Removes noise from raw photos locally, using RawNIND UtNet2. Includes Bayer demosaic and linear Rec.2020 models. Uses the GPU when available, with a CPU fallback.",
+        "Removes noise from JPEG, TIFF and edited RGB images locally with NIND UNet.",
+        "Raw denoising and Bayer demosaic on the GPU, with CPU fallback. Linear Rec.2020 variant for other sensors.",
+        "Local denoising for JPEG, TIFF and edited RGB images. Uses the GPU with a CPU fallback.",
         "+",
         "Choose or generate an image.",
         "Compare with input",

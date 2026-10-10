@@ -88,6 +88,16 @@ fn regenerate(s: &mut Session, p: &Value) -> Result<Value> {
     if wait { finish_inline(s, C, &job) } else { Ok(json!({"job": job.id})) }
 }
 
+fn denoise(s: &mut Session, p: &Value) -> Result<Value> {
+    const C: &str = "enhance.denoise";
+    let id = s.active().ok_or_else(|| bad(C, "no active photo"))?;
+    let wait = bool_or(p, "wait", false);
+    let preview = bool_or(p, "preview", false);
+    let destination = str_param(p, "path").map(std::path::PathBuf::from);
+    let job = s.start_denoise_with(id, preview, destination, wait).map_err(|e| other(C, e))?;
+    if wait { finish_inline(s, C, &job) } else { Ok(json!({"job":job.id})) }
+}
+
 fn jobs(s: &mut Session, _: &Value) -> Result<Value> {
     Ok(json!({"jobs": s.enhance.jobs().iter().map(|j| j.json()).collect::<Vec<_>>()}))
 }
@@ -116,6 +126,15 @@ fn status(s: &mut Session, p: &Value) -> Result<Value> {
 
 pub(crate) fn specs() -> Vec<CommandSpec> {
     vec![
+        cmd!(
+            "enhance.denoise",
+            "AI Denoise",
+            [],
+            None,
+            "{preview?: bool, path?: new .dng/.tiff file, wait?: bool} → {job}; background source-stage AI denoise",
+            has_active,
+            denoise
+        ),
         cmd!(
             "spot.regenerate",
             "Regenerate AI Removal",

@@ -3948,6 +3948,7 @@ name = "lightcraft-gpu"
 version = "2.0.0-alpha.1"
 dependencies = [
  "bytemuck",
+ "li-seg",
  "lightcraft-color",
  "lightcraft-develop",
  "lightcraft-geom",

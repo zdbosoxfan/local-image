@@ -45,7 +45,7 @@ fn ai() -> DevelopSettings {
 }
 
 #[test]
-fn ai_spots_round_trip_and_old_denoise_is_ignored() {
+fn ai_spots_round_trip_and_denoise_restore_compatibility() {
     let s = ai();
     let v = s.to_json();
     assert_eq!(v["spots"][1]["mode"], "ai");
@@ -54,8 +54,10 @@ fn ai_spots_round_trip_and_old_denoise_is_ignored() {
     let mut bad = v.clone();
     bad["enhance"]["ai"] = json!({"key": "xyz", "source": null});
     bad["enhance"]["denoise"] = json!(100);
-    assert_eq!(DevelopSettings::from_json(&bad).unwrap(), s);
-    assert!(s.to_json_full()["enhance"].get("denoise").is_none());
+    let restored = DevelopSettings::from_json(&bad).unwrap();
+    assert!(restored.enhance.ai.is_none(), "malformed obsolete references still load");
+    assert_eq!(restored.enhance.denoise, 100.0);
+    assert_eq!(s.to_json_full()["enhance"]["denoise"], 0.0);
 }
 
 #[test]
@@ -92,4 +94,17 @@ fn pasted_spots_keep_the_targets_ai_removals() {
     assert_eq!(crate::apply_partial(&target, &own, 1.0).spots.iter().filter(|x| x.is_ai()).count(), 1);
     // settings without a spots key leave every spot alone
     assert_eq!(crate::apply_partial(&target, &json!({"light": {"exposure": 1.0}}), 1.0).spots, target.spots);
+}
+
+#[test]
+fn ai_denoise_settings_roundtrip_and_copies_keep_only_controls() {
+    use crate::{AiKey, DenoiseModel, DenoiseRef};
+    let mut s = DevelopSettings::default();
+    s.enhance.denoise = 67.0;
+    s.enhance.denoise_model = DenoiseModel::Rgb;
+    s.enhance.ai = Some(DenoiseRef { key: AiKey(123), source: AiKey(456), model: DenoiseModel::Rgb, preview: true });
+    assert_eq!(DevelopSettings::from_json(&s.to_json()).unwrap(), s);
+    let copied = extract_groups(&s, &[SettingsGroup::Detail]);
+    assert!(copied["enhance"].get("ai").is_none());
+    assert_eq!(copied["enhance"]["denoise"], 67.0);
 }

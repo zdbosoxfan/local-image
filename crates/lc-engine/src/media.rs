@@ -1049,6 +1049,9 @@ impl crate::Session {
         space: lightcraft_pipeline::OutputSpace,
         depth: lightcraft_pipeline::OutputDepth,
     ) -> Result<RenderJob, String> {
+        if self.develop_of(id).is_some_and(|d| d.enhance.denoise > 0.0 && d.enhance.ai.is_some_and(|a| a.preview)) {
+            return Err("Run Apply AI Denoise at full resolution before exporting the preview result.".into());
+        }
         let mut job = self.render_job(id, max_w, max_h, false, true).ok_or("no such photo")?;
         job.request.space = space;
         job.request.depth = depth;
