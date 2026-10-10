@@ -2,7 +2,7 @@
 //! synchronous here; prepared input jobs and cancellation are also available to workers.
 
 use super::{CommandSpec, always, bad, cmd};
-use crate::smart_sort::{DEFAULT_MODEL, FolderDef, SortPreset, builtin_presets, classify::Classifier};
+use crate::smart_sort::{FolderDef, SortPreset, builtin_presets, classify::Classifier};
 use crate::{EngineError, Result, Session};
 use lightcraft_catalog::{Flag, MediaKind, Op, PhotoId};
 use serde::{Deserialize, Serialize};
@@ -41,10 +41,10 @@ fn preset(s: &Session, p: &Value, id: &str) -> Result<SortPreset> {
 }
 
 fn status(s: &mut Session, _: &Value) -> Result<Value> {
-    let (model, dim) = s.smart.tagger.as_ref().map_or((DEFAULT_MODEL.to_string(), 512), |t| (t.model_id().to_string(), t.dim()));
+    let (model, dim) = s.smart.selected();
     s.smart.store.ensure(&model, dim).map_err(EngineError::Other)?;
-    let spec = li_seg::spec(DEFAULT_MODEL).ok_or_else(|| EngineError::Other("missing CLIP specification".into()))?;
-    let injected = model != DEFAULT_MODEL && s.smart.tagger.is_some();
+    let injected = li_seg::spec(&model).is_none() && s.smart.tagger.is_some();
+    let spec = li_seg::spec(&model).unwrap_or_else(|| li_seg::Group::Tagging.official());
     let missing: Vec<_> = if injected {
         Vec::new()
     } else {
@@ -55,6 +55,13 @@ fn status(s: &mut Session, _: &Value) -> Result<Value> {
     let face_count = faces["analysed"].clone();
     Ok(json!({"tagger":{"id":model,"installed":installed,"bytes":if injected {0} else {spec.download_bytes()},"missing":missing},
         "faces":faces,"analysed":{"tags":s.smart.store.len(&model),"faces":face_count},"total":s.catalog.photos().filter(|p| p.in_library()).count()}))
+}
+
+fn set_model(s: &mut Session, p: &Value) -> Result<Value> {
+    let model = serde_json::from_value(p.get("model").cloned().unwrap_or(Value::Null)).map_err(|e| bad("smartSort.setModel", e.to_string()))?;
+    s.smart.set_model(model);
+    s.save_prefs()?;
+    status(s, &Value::Null)
 }
 
 fn list(s: &mut Session, _: &Value) -> Result<Value> {
@@ -497,6 +504,7 @@ pub fn specs() -> Vec<CommandSpec> {
             always,
             export
         ),
+        cmd!("smartSort.setModel", "Smart Sort Model", [], None, "{model} → status", always, set_model),
         cmd!(query "smartSort.status","Smart Sort Status",[],None,"{} → {tagger, faces, analysed, total}",always,status),
         cmd!(query "smartSort.presets","Smart Sort Presets",[],None,"{} → [{name, builtin, preset}]",always,list),
         cmd!("smartSort.savePreset", "Save Smart Sort Preset", [], None, "{name?, preset: SortPreset}", always, save),

@@ -399,6 +399,24 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
 
 fn sort(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
     ui.horizontal(|ui| {
+        ui.label(tr("Tagging model"));
+        ui.add_enabled_ui(app.smart_sort.is_none(), |ui| {
+            for model in lightcraft_engine::smart_sort::TaggingModel::ALL {
+                let response = ui.selectable_label(app.session.smart.prefs.tagging_model == model, tr(model.label()));
+                crate::widgets::register(ui.ctx(), format!("smartSort:model:{}", model.id()), response.rect);
+                if response.clicked() && app.session.smart.prefs.tagging_model != model {
+                    match app.session.execute("smartSort.setModel", &json!({"model":model})) {
+                        Ok(_) => {
+                            s.rows.clear();
+                            s.dirty = false;
+                        }
+                        Err(e) => s.error = e.to_string(),
+                    }
+                }
+            }
+        });
+    });
+    ui.horizontal(|ui| {
         ui.label(tr("Preset"));
         let presets: Vec<_> = builtin_presets().into_iter().chain(app.session.smart.prefs.presets.clone()).collect();
         let response = egui::ComboBox::from_id_salt("smart-sort-preset").selected_text(tr(&s.preset.name)).show_ui(ui, |ui| {
@@ -662,21 +680,26 @@ fn sort(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
     }
     let status = app.session.execute("smartSort.status", &json!({})).unwrap_or_default();
     let installed = status["tagger"]["installed"] == true;
+    let model_id = app.session.smart.prefs.tagging_model.id();
+
     if !installed {
-        ui.label(tr("Smart Sort needs a one-time download of 607 MB. It runs on this computer; your photos are never uploaded."));
+        ui.label(crate::i18n::tr_format!(
+            "Smart Sort needs a one-time download of {size} MB. It runs on this computer; your photos are never uploaded.",
+            size = status["tagger"]["bytes"].as_u64().unwrap_or(0) / 1_000_000
+        ));
         if app.services.download_models.is_some() {
-            let download = app.services.model_download_status.as_ref().map(|f| f("clip-b32-laion")).unwrap_or_default();
+            let download = app.services.model_download_status.as_ref().map(|f| f(model_id)).unwrap_or_default();
             if download.running {
                 ui.add(egui::ProgressBar::new(download.done as f32 / download.total.max(1) as f32));
                 if button(ui, "smartSort:downloadCancel", "Cancel download").clicked()
                     && let Some(f) = &app.services.download_models
                 {
-                    let _ = f("clip-b32-laion", true);
+                    let _ = f(model_id, true);
                 }
                 ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
             } else if button(ui, "smartSort:download", "Download").clicked()
                 && let Some(f) = &app.services.download_models
-                && let Err(e) = f("clip-b32-laion", false)
+                && let Err(e) = f(model_id, false)
             {
                 s.error = e;
             }
@@ -686,7 +709,14 @@ fn sort(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
         } else {
             ui.label(tr("Download the Smart Sort model in Compositing ▸ Local AI"));
         }
-        ui.hyperlink_to("MIT", "https://huggingface.co/laion/CLIP-ViT-B-32-laion2B-s34B-b79K");
+        match app.session.smart.prefs.tagging_model {
+            lightcraft_engine::smart_sort::TaggingModel::Fast => {
+                ui.hyperlink_to("MIT", "https://huggingface.co/laion/CLIP-ViT-B-32-laion2B-s34B-b79K");
+            }
+            lightcraft_engine::smart_sort::TaggingModel::Accurate => {
+                ui.hyperlink_to("Apache-2.0", "https://huggingface.co/google/siglip-base-patch16-224");
+            }
+        }
     }
     if let Some(task) = &app.smart_sort {
         let status = task.status();

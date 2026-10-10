@@ -3,7 +3,7 @@
 //! GPU, no external runtime), or a custom `.onnx` file the user picks for a function. Powers
 //! Select › Subject and Sky, Remove Background (Quick), the Object Selection tool's click mode,
 //! and the Library's Subject / Sky / Background / Depth masks — small, quick models that need no
-//! AI server. Smart Sort uses a paired CLIP image/text bundle through [`Clip`].
+//! AI server. Smart Sort uses paired CLIP or SigLIP image/text bundles through [`Clip`] or [`siglip::Siglip`].
 //!
 //! Pre- and post-processing follow the rembg conventions the models were trained for (and
 //! OmaPhoto's port of Compositor): premultiplied resize to the model size, normalisation by the
@@ -12,6 +12,8 @@
 
 pub mod bpe;
 pub mod clip;
+pub mod siglip;
+pub mod unigram;
 pub use clip::{Clip, Crops, shared_clip};
 
 use std::fmt;
@@ -193,9 +195,18 @@ pub enum Task {
     /// (larger = nearer), ImageNet-normalised input.
     Depth,
     /// Paired image/text embedding models; kept separate from mask inference.
-    ImageText,
+    ImageText {
+        family: ModelFamily,
+    },
     FaceDetect,
     FaceEmbed,
+}
+
+/// Preprocessing, tokenization and score calibration travel with the model family.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModelFamily {
+    Clip,
+    Siglip,
 }
 
 pub const MODELS: &[ModelSpec] = &[
@@ -251,7 +262,7 @@ pub const MODELS: &[ModelSpec] = &[
     },
     ModelSpec {
         id: "clip-b32-laion",
-        label: "CLIP ViT-B-32 LAION",
+        label: "CLIP ViT-B-32 LAION (Fast)",
         file: "clip-vit-b32-laion2b-visual.onnx",
         url: "https://huggingface.co/immich-app/ViT-B-32__laion2b-s34b-b79k/resolve/19a057a0fb927cf239541300e74237cd56c7ffe2/visual/model.onnx",
         companions: &[
@@ -279,9 +290,37 @@ pub const MODELS: &[ModelSpec] = &[
         size: 224,
         isnet: false,
         licence: "MIT (LAION CLIP weights; Immich ONNX export; OpenAI tokenizer)",
-        task: Task::ImageText,
+        task: Task::ImageText { family: ModelFamily::Clip },
         group: Some(Group::Tagging),
         about: "Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.",
+    },
+    ModelSpec {
+        id: "siglip-b16-224",
+        label: "SigLIP ViT-B/16 (Accurate)",
+        file: "siglip-vision.onnx",
+        companions: &[
+            Companion {
+                file: "siglip-text.onnx",
+                url: "https://huggingface.co/Xenova/siglip-base-patch16-224/resolve/4649052661e53c7000355844105f8a1792088239/onnx/text_model.onnx",
+                bytes: 441332132,
+                sha256: "3aa7fdbd20eaa8740cce17bf82913de641fcb632a768fed59f661cdcd0c32553",
+            },
+            Companion {
+                file: "siglip-tokenizer.json",
+                url: "https://huggingface.co/Xenova/siglip-base-patch16-224/resolve/4649052661e53c7000355844105f8a1792088239/tokenizer.json",
+                bytes: 2398744,
+                sha256: "4a17c975210be5ab4c36b47d8dae4eefb866dbfb1e676e394aad85dc30a3ae08",
+            },
+        ],
+        bytes: 371819850,
+        sha256: "f89d41bac7f4d4b87e010a467d93f98689d708916ed22f5a07f96fdfa26f475f",
+        url: "https://huggingface.co/Xenova/siglip-base-patch16-224/resolve/4649052661e53c7000355844105f8a1792088239/onnx/vision_model.onnx",
+        size: 224,
+        isnet: false,
+        licence: "Apache-2.0 (Google SigLIP; Xenova ONNX export)",
+        task: Task::ImageText { family: ModelFamily::Siglip },
+        group: Some(Group::Tagging),
+        about: "Accurate local scene recognition for Smart Sort. Includes its text model and tokenizer. Runs on the CPU; photos stay on this computer.",
     },
     ModelSpec {
         id: "yunet",
@@ -377,7 +416,7 @@ impl Segmenter {
     }
 
     fn load_cfg(cfg: Config, path: &Path) -> Result<Self> {
-        if matches!(cfg.task, Task::ImageText | Task::FaceDetect | Task::FaceEmbed) {
+        if matches!(cfg.task, Task::ImageText { .. } | Task::FaceDetect | Task::FaceEmbed) {
             bail!("use the dedicated embedding or face inference API");
         }
         let s = cfg.size;
@@ -615,7 +654,7 @@ impl Custom {
             Group::Subject => Task::Subject,
             Group::Sky => Task::Sky { classes: self.classes, class: self.class, margin: if self.classes == 1 { 0.0 } else { 2.0 } },
             Group::Depth => Task::Depth,
-            Group::Tagging => Task::ImageText,
+            Group::Tagging => Task::ImageText { family: ModelFamily::Clip },
             Group::Faces => Task::FaceEmbed,
         };
         Config { id: format!("custom:{}", self.file), size: self.size, norm: self.norm, task }
@@ -1029,8 +1068,9 @@ pub fn remove_with(models_dir: &Path, spec: &ModelSpec, dispose: &dyn Fn(&Path) 
 
 /// Drops the process-wide loaded copy of `spec` (after it is removed).
 fn forget(spec: &ModelSpec) {
-    if spec.task == Task::ImageText {
+    if matches!(spec.task, Task::ImageText { .. }) {
         clip::forget();
+        siglip::forget();
     }
     for slot in [&SUBJECT, &SKY, &DEPTH] {
         let mut g = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1044,6 +1084,7 @@ fn forget(spec: &ModelSpec) {
 fn forget_group(group: Group) {
     if group == Group::Tagging {
         clip::forget();
+        siglip::forget();
         return;
     }
     let Some(slot) = slot(group) else { return };
