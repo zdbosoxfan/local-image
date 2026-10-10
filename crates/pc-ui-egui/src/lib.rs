@@ -1784,3 +1784,6 @@ mod clipboard_tests {
 
 #[path = "vector_packages/frame_compose.rs"]
 pub mod frame_compose;
+// Package 17 module registration; persona/canvas routing stays in the 00 handoff.
+#[path = "vector_packages/brushes.rs"]
+pub mod vector_brush;
