@@ -12,6 +12,7 @@ mod gpu_canvas_perf;
 mod gpu_device_loss;
 mod layout_perf;
 mod live_stroke_canvas;
+mod move_canvas;
 
 static GPU_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 

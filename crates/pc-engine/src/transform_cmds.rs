@@ -381,6 +381,9 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(q) = quad_param(p)
         && let Some(folded) = QuadMap::new(rect, q).filter(QuadMap::is_folded)
     {
+        if p.get("layers").is_some() {
+            return Err(bad("folded transforms need one layer or group"));
+        }
         return transform_folded(s, p, id, rect, folded);
     }
     let h = if let Some(q) = quad_param(p) {
@@ -417,15 +420,28 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
             }
             return Ok(());
         }
-        let id = id.ok_or_else(|| EngineError::Other("no active layer".into()))?;
-        let is_group = doc.layer(id).is_some_and(Layer::is_group);
-        let group = group_locks(doc, id);
-        let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
-        transform_layer(if is_group { None } else { sel.as_ref() }, group, l, &h, affine, interp)?;
+        let ids = match p.get("layers").and_then(Value::as_array) {
+            Some(v) if !v.is_empty() => {
+                let roots: Vec<_> = v.iter().map(|v| v.as_u64().map(LayerId).ok_or_else(|| bad("layers must contain layer ids"))).collect::<Result<_>>()?;
+                if let Some(id) = roots.iter().find(|id| doc.layer(**id).is_none()) {
+                    return Err(EngineError::NoLayer(*id));
+                }
+                crate::layer_multi_cmds::move_targets(doc, &roots)
+            }
+            _ => vec![id.ok_or_else(|| EngineError::Other("no active layer".into()))?],
+        };
+        for id in &ids {
+            let is_group = doc.layer(*id).is_some_and(Layer::is_group);
+            let group = group_locks(doc, *id);
+            let l = doc.layer_mut(*id).ok_or(EngineError::NoLayer(*id))?;
+            transform_layer(if is_group { None } else { sel.as_ref() }, group, l, &h, affine, interp)?;
+        }
         // Type layers re-render from their new transform.
         let snapshot = doc.clone();
-        if let Some(l) = doc.layer_mut(id) {
-            refresh_text(&snapshot, l);
+        for id in ids {
+            if let Some(l) = doc.layer_mut(id) {
+                refresh_text(&snapshot, l);
+            }
         }
         // The selection outline moves with the pixels.
         if let Some(sel) = &doc.selection {
@@ -494,7 +510,7 @@ pub fn specs() -> Vec<CommandSpec> {
         label: "Free Transform",
         menu: &[],
         shortcut: None,
-        params: r##"{"layer":id?,"rect":[x0,y0,x1,y1]? (source frame; default = layer content ∩ selection),"quad":[[x,y]×4]? (where the frame's corners go, clockwise from top-left; a concave or folded quad draws as two triangles),"matrix":[a,b,c,d,e,f]? (affine alternative),"interpolation":"bicubic|bilinear|nearest"="bicubic","target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target (an unlinked mask, an alpha channel or the Quick Mask transforms alone; a linked mask moves with its layer)}"##,
+        params: r##"{"layer":id?,"layers":[id]? (transform these layers together, with linked layers),"rect":[x0,y0,x1,y1]? (source frame; default = layer content ∩ selection),"quad":[[x,y]×4]? (where the frame's corners go, clockwise from top-left; a concave or folded quad draws as two triangles),"matrix":[a,b,c,d,e,f]? (affine alternative),"interpolation":"bicubic|bilinear|nearest"="bicubic","target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target (an unlinked mask, an alpha channel or the Quick Mask transforms alone; a linked mask moves with its layer)}"##,
         enabled: has_layer,
         journal: true,
         run: transform,
@@ -521,6 +537,32 @@ mod tests {
     fn active_bounds(s: &Session) -> Rect {
         let st = s.active().unwrap();
         st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().content_bounds()
+    }
+
+    #[test]
+    fn transform_multiple_layers_is_atomic_and_one_undo_step() {
+        let mut s = session();
+        let a = s.active().unwrap().active_layer.unwrap();
+        s.execute("layer.duplicate", json!({})).unwrap();
+        let b = s.active().unwrap().active_layer.unwrap();
+        let before = s.active().unwrap().doc.clone();
+        let steps = s.active().unwrap().history.past_len();
+        let p = json!({"layers": [a.0, b.0], "matrix": [1, 0, 0, 1, 20, 10], "interpolation": "nearest"});
+        s.execute("edit.transform", p.clone()).unwrap();
+        assert_eq!(s.active().unwrap().history.past_len(), steps + 1);
+        for id in [a, b] {
+            assert_eq!(s.active().unwrap().doc.layer(id).unwrap().surface().unwrap().content_bounds(), Rect::new(30, 20, 50, 30));
+        }
+        s.undo();
+        assert_eq!(*s.active().unwrap().doc, *before);
+        s.edit("lock", |d, _| {
+            d.layer_mut(b).unwrap().locks.position = true;
+            Ok(())
+        })
+        .unwrap();
+        let locked = s.active().unwrap().doc.clone();
+        assert!(s.execute("edit.transform", p).is_err());
+        assert_eq!(*s.active().unwrap().doc, *locked, "failure rolls back every layer");
     }
 
     #[test]

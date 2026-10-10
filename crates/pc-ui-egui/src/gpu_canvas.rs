@@ -77,6 +77,16 @@ pub struct ViewParams {
     pub flip: bool,
 }
 
+/// A cached section of the layer stack, positioned in document coordinates by the Move shader.
+#[derive(Clone, Debug)]
+pub(crate) struct MovePlane {
+    pub key: u64,
+    pub size: [u32; 2],
+    pub origin: [i32; 2],
+    pub moving: bool,
+    pub offset: [i32; 2],
+}
+
 /// When high-bit documents get an `Rgba16Float` canvas texture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HighPolicy {
@@ -175,6 +185,7 @@ impl GpuCanvas {
             res.compositor = None;
             res.encode_pool.clear();
             res.docs.clear();
+            res.move_frames.clear();
         }
         true
     }
@@ -189,6 +200,7 @@ impl GpuCanvas {
             res.encode_pool.clear();
             res.docs.clear();
             res.luts.clear();
+            res.move_frames.clear();
             res.display_lut_signatures.clear();
             res.views.clear();
         }
@@ -671,6 +683,16 @@ impl GpuCanvas {
         // or a preserved-ID reopen can skip rebuilding a missing LUT.
         res.luts.retain(|k, _| live.contains(&k.0));
         res.display_lut_signatures.retain(|k, _| live.contains(&k.0));
+        // Per-drag plane uniforms and the viewport target must leave with their source planes.
+        let gone: Vec<_> = res.move_frames.iter().filter(|(_, f)| f.sources.iter().any(|k| !live.contains(k))).map(|(k, _)| *k).collect();
+        for key in gone {
+            if let Some(frame) = res.move_frames.remove(&key) {
+                for view in frame.view_keys {
+                    res.views.remove(&view);
+                }
+                res.views.remove(&key);
+            }
+        }
     }
 
     pub(crate) fn display_lut_signature(&self, doc: u64, output: u32) -> Option<(u64, u8)> {
@@ -771,6 +793,10 @@ impl GpuCanvas {
     /// Add the paint callback drawing `params` into `rect` (clipped by the painter's clip rect).
     pub fn paint(painter: &egui::Painter, rect: egui::Rect, params: ViewParams) {
         painter.add(egui_wgpu::Callback::new_paint_callback(rect, CanvasCallback { rect, params }));
+    }
+
+    pub(crate) fn paint_move(painter: &egui::Painter, rect: egui::Rect, params: ViewParams, planes: Vec<MovePlane>) {
+        painter.add(egui_wgpu::Callback::new_paint_callback(rect, MoveCallback { base: CanvasCallback { rect, params }, planes }));
     }
 }
 
@@ -1196,6 +1222,10 @@ struct Resources {
     tile_bgl: wgpu::BindGroupLayout,
     shadow_pipeline: wgpu::RenderPipeline,
     tile_pipeline: wgpu::RenderPipeline,
+    move_plane_pipeline: wgpu::RenderPipeline,
+    move_final_pipeline: wgpu::RenderPipeline,
+    move_format: wgpu::TextureFormat,
+    move_frames: HashMap<u64, MoveFrame>,
     sampler: wgpu::Sampler,
     mip_bgl: wgpu::BindGroupLayout,
     mip_pipeline: wgpu::RenderPipeline,
@@ -1227,6 +1257,14 @@ struct Resources {
     identity_lut: wgpu::BindGroup,
     /// Transparency checkerboard and gamut warning colours (Preferences › Transparency & Gamut).
     style: CanvasStyle,
+}
+
+struct MoveFrame {
+    size: [u32; 2],
+    view: wgpu::TextureView,
+    bind_group: wgpu::BindGroup,
+    sources: Vec<u64>,
+    view_keys: Vec<u64>,
 }
 
 /// Canvas colours from Preferences › Transparency & Gamut.
@@ -1412,6 +1450,9 @@ impl Resources {
         };
         let shadow_pipeline = pipeline(device, "pc_canvas_shadow", &shadow_layout, &module, ("vs_shadow", "fs_shadow"), target, Some(blend));
         let tile_pipeline = pipeline(device, "pc_canvas_tile", &layout, &module, ("vs_tile", "fs_tile"), target, Some(blend));
+        let move_format = if high { FORMAT_HIGH } else { FORMAT };
+        let move_plane_pipeline = pipeline(device, "pc_move_plane", &layout, &module, ("vs_tile", "fs_plane"), move_format, Some(blend));
+        let move_final_pipeline = pipeline(device, "pc_move_final", &layout, &module, ("vs_move", "fs_move"), target, Some(blend));
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("pc_canvas_trilinear"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -1470,6 +1511,10 @@ impl Resources {
             tile_bgl,
             shadow_pipeline,
             tile_pipeline,
+            move_plane_pipeline,
+            move_final_pipeline,
+            move_format,
+            move_frames: HashMap::new(),
             sampler,
             mip_bgl,
             mip_pipeline,
@@ -1647,6 +1692,164 @@ impl DocTextures {
 struct CanvasCallback {
     rect: egui::Rect,
     params: ViewParams,
+}
+
+struct MoveCallback {
+    base: CanvasCallback,
+    planes: Vec<MovePlane>,
+}
+
+impl MoveCallback {
+    fn callbacks(&self) -> Vec<CanvasCallback> {
+        self.planes
+            .iter()
+            .map(|plane| {
+                let mut params = self.base.params;
+                params.doc = plane.key;
+                params.doc_size = plane.size;
+                params.center = [params.center[0] - (plane.origin[0] + plane.offset[0]) as f32, params.center[1] - (plane.origin[1] + plane.offset[1]) as f32];
+                params.view_key = egui::Id::new(("move-plane", params.view_key, plane.key)).value();
+                params.shadow = false;
+                params.display = 0;
+                params.hdr = None;
+                params.pixel_grid = false;
+                CanvasCallback { rect: self.base.rect, params }
+            })
+            .collect()
+    }
+}
+
+impl CallbackTrait for MoveCallback {
+    fn prepare(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        screen: &ScreenDescriptor,
+        encoder: &mut wgpu::CommandEncoder,
+        resources: &mut CallbackResources,
+    ) -> Vec<wgpu::CommandBuffer> {
+        let _ = self.base.prepare(device, queue, screen, encoder, resources);
+        let callbacks = self.callbacks();
+        for cb in &callbacks {
+            let _ = cb.prepare(device, queue, screen, encoder, resources);
+        }
+        let Some(res) = resources.get_mut::<Resources>() else { return Vec::new() };
+        let size = screen.size_in_pixels;
+        if !res.health.is_ok() || size.contains(&0) {
+            return Vec::new();
+        }
+        let key = self.base.params.view_key;
+        if res.move_frames.get(&key).is_none_or(|f| f.size != size) {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("pc_move_viewport"),
+                size: wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: res.move_format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            let view = texture.create_view(&Default::default());
+            let tile = init_buffer(device, "pc_move_viewport_tile", &f32_bytes(&[0.0, 0.0, size[0] as f32, size[1] as f32]), wgpu::BufferUsages::UNIFORM);
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("pc_move_viewport"),
+                layout: &res.tile_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
+                    wgpu::BindGroupEntry { binding: 1, resource: tile.as_entire_binding() },
+                ],
+            });
+            if let Some(old) = res.move_frames.remove(&key) {
+                for key in old.view_keys {
+                    if !callbacks.iter().any(|cb| cb.params.view_key == key) {
+                        res.views.remove(&key);
+                    }
+                }
+            }
+            res.move_frames.insert(key, MoveFrame { size, view, bind_group, sources: Vec::new(), view_keys: Vec::new() });
+        }
+        let new_keys: Vec<_> = callbacks.iter().map(|cb| cb.params.view_key).collect();
+        if let Some(old) = res.move_frames.get(&key) {
+            for old_key in &old.view_keys {
+                if !new_keys.contains(old_key) {
+                    res.views.remove(old_key);
+                }
+            }
+        }
+        let Some(frame) = res.move_frames.get_mut(&key) else { return Vec::new() };
+        frame.sources = self.planes.iter().map(|p| p.key).collect();
+        frame.view_keys = new_keys;
+        let ppp = screen.pixels_per_point;
+        let rect = self.base.rect;
+        let x0 = (rect.left() * ppp).round().clamp(0.0, size[0] as f32) as u32;
+        let y0 = (rect.top() * ppp).round().clamp(0.0, size[1] as f32) as u32;
+        let x1 = (rect.right() * ppp).round().clamp(x0 as f32, size[0] as f32) as u32;
+        let y1 = (rect.bottom() * ppp).round().clamp(y0 as f32, size[1] as f32) as u32;
+        if x0 == x1 || y0 == y1 {
+            return Vec::new();
+        }
+        let mut command = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("pc_move_viewport") });
+        {
+            let mut pass = command.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("pc_move_viewport"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &frame.view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&res.move_plane_pipeline);
+            pass.set_viewport(0.0, 0.0, size[0] as f32, size[1] as f32, 0.0, 1.0);
+            pass.set_scissor_rect(x0, y0, x1 - x0, y1 - y0);
+            pass.set_bind_group(2, &res.identity_lut, &[]);
+            for cb in &callbacks {
+                let (Some(view), Some(doc)) = (res.views.get(&cb.params.view_key), res.docs.get(&cb.params.doc)) else { continue };
+                pass.set_bind_group(0, &view.bind_group, &[]);
+                let (origin, scale) = cb.placement(ppp);
+                for tile in &doc.tiles {
+                    let [tx, ty, tw, th] = tile.rect.map(|v| v as f32);
+                    let (left, right) = cb.screen_x(origin[0], scale, tx, tx + tw);
+                    let (top, bottom) = (origin[1] + ty * scale, origin[1] + (ty + th) * scale);
+                    if right < x0 as f32 || bottom < y0 as f32 || left > x1 as f32 || top > y1 as f32 {
+                        continue;
+                    }
+                    pass.set_bind_group(1, &tile.bind_group, &[]);
+                    pass.draw(0..6, 0..1);
+                }
+            }
+        }
+        vec![command.finish()]
+    }
+
+    fn paint(&self, info: egui::PaintCallbackInfo, pass: &mut wgpu::RenderPass<'static>, resources: &CallbackResources) {
+        let Some(res) = resources.get::<Resources>() else { return };
+        if !res.health.is_ok() {
+            return;
+        }
+        let key = self.base.params.view_key;
+        let (Some(view), Some(frame)) = (res.views.get(&key), res.move_frames.get(&key)) else { return };
+        let clip = info.clip_rect_in_pixels();
+        if clip.width_px <= 0 || clip.height_px <= 0 {
+            return;
+        }
+        pass.set_viewport(0.0, 0.0, info.screen_size_px[0] as f32, info.screen_size_px[1] as f32, 0.0, 1.0);
+        pass.set_scissor_rect(clip.left_px.max(0) as u32, clip.top_px.max(0) as u32, clip.width_px as u32, clip.height_px as u32);
+        pass.set_bind_group(0, &view.bind_group, &[]);
+        if self.base.params.shadow {
+            pass.set_pipeline(&res.shadow_pipeline);
+            pass.draw(0..6, 0..1);
+        }
+        pass.set_pipeline(&res.move_final_pipeline);
+        pass.set_bind_group(1, &frame.bind_group, &[]);
+        pass.set_bind_group(2, res.luts.get(&(self.base.params.doc, self.base.params.output)).unwrap_or(&res.identity_lut), &[]);
+        pass.draw(0..6, 0..1);
+    }
 }
 
 /// Sampling mode: 0 trilinear, 1 bilinear, 2 anti-aliased nearest.
@@ -1910,9 +2113,7 @@ fn checker(p: vec2<f32>) -> vec3<f32> {
     return select(view.e.xyz, view.f.xyz, odd);
 }
 
-@fragment
-fn fs_tile(in: VOut) -> @location(0) vec4<f32> {
-    let p = in.pos.xy;
+fn sample_tile(p: vec2<f32>) -> vec4<f32> {
     let scale = view.a.z;
     let d = px_to_doc(p);                  // document pixel coordinates
     let size = tile.r.zw;
@@ -1931,6 +2132,13 @@ fn fs_tile(in: VOut) -> @location(0) vec4<f32> {
         let f = clamp((tt - i - 0.5) * scale + 0.5, vec2(0.0), vec2(1.0));
         col = textureSampleLevel(tex, samp, (i + 0.5 + f) / size, 0.0);
     }
+    return col;
+}
+
+fn display_color(input: vec4<f32>, p: vec2<f32>) -> vec4<f32> {
+    var col = input;
+    let d = px_to_doc(p);
+    let scale = view.a.z;
     if (view.f.w > 0.0 && col.a > 0.0) {
         // View › 32-bit Preview Options: exposure and gamma in linear light on the sRGB-encoded
         // texture value, before the display LUT. A float canvas keeps values above 1.0, so they
@@ -1961,6 +2169,27 @@ fn fs_tile(in: VOut) -> @location(0) vec4<f32> {
         rgb = srgb_to_linear(rgb);
     }
     return vec4(rgb, 1.0);
+}
+
+@fragment
+fn fs_tile(in: VOut) -> @location(0) vec4<f32> {
+    return display_color(sample_tile(in.pos.xy), in.pos.xy);
+}
+
+// Blend the cached planes in document colour space before applying the display transform.
+@fragment
+fn fs_plane(in: VOut) -> @location(0) vec4<f32> {
+    return sample_tile(in.pos.xy);
+}
+
+@vertex
+fn vs_move(@builtin(vertex_index) vi: u32) -> VOut {
+    return VOut(px_to_clip(mix(doc_min(), doc_max(), corner(vi))));
+}
+
+@fragment
+fn fs_move(in: VOut) -> @location(0) vec4<f32> {
+    return display_color(textureLoad(tex, vec2<i32>(in.pos.xy), 0), in.pos.xy);
 }
 "#;
 
