@@ -1,0 +1,20 @@
+vector.snap.manager	Snapping Manager
+vector.snap.enabled	Enable snapping
+vector.snap.nodes	Snap to nodes
+vector.snap.curves	Snap to curves
+vector.snap.bounds	Snap to bounding boxes
+vector.snap.guides	Snap to guides
+vector.snap.grid	Snap to grid
+vector.snap.pixel	Snap to pixel grid
+vector.snap.artboard	Snap to artboards
+vector.snap.document	Snap to document
+vector.snap.alignment	Alignment guides
+vector.snap.spacing	Equal spacing guides
+vector.snap.angle	Angle guides
+vector.snap.tolerance	Screen tolerance (pixels)
+vector.snap.gridStep	Grid spacing
+vector.snap.requiresGeometry	Curve snapping is unavailable.
+vector.snap.query	Query Vector Snapping
+vector.snap.stale	stale snapping gesture
+vector.snap.missingTarget	snapping gesture target is missing
+vector.snap.lockedTarget	snapping gesture target is locked
