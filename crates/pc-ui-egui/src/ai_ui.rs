@@ -107,10 +107,13 @@ impl EngineStatus {
     }
 }
 
+/// The ComfyUI process Local Image started (never one the user started themselves). Kept outside
+/// [`Shared`] so quitting can stop it without starting the status poller.
+static CHILD: Mutex<Option<std::process::Child>> = Mutex::new(None);
+
 struct Shared {
     status: Mutex<EngineStatus>,
     refresh: std::sync::atomic::AtomicBool,
-    child: Mutex<Option<std::process::Child>>,
     downloads: Mutex<BTreeMap<String, Download>>,
     ctx: Mutex<Option<egui::Context>>,
 }
@@ -131,7 +134,6 @@ fn shared() -> &'static Arc<Shared> {
         let s = Arc::new(Shared {
             status: Mutex::new(EngineStatus::default()),
             refresh: std::sync::atomic::AtomicBool::new(true),
-            child: Mutex::new(None),
             downloads: Mutex::new(BTreeMap::new()),
             ctx: Mutex::new(None),
         });
@@ -212,7 +214,7 @@ fn poll_loop(s: Arc<Shared>) {
             limits = None;
             last_inventory = None;
         }
-        let child_alive = s.child.lock().ok().and_then(|mut c| c.as_mut().map(|c| c.try_wait().map(|st| st.is_none()).unwrap_or(false))).unwrap_or(false);
+        let child_alive = CHILD.lock().ok().and_then(|mut c| c.as_mut().map(|c| c.try_wait().map(|st| st.is_none()).unwrap_or(false))).unwrap_or(false);
         let changed;
         if let Ok(mut st) = s.status.lock() {
             let new = EngineStatus { checked: true, connected, host, gpu, presets, error, starting: child_alive && !connected, limits };
@@ -233,7 +235,7 @@ pub fn start_engine() -> Result<String, String> {
     let found = li_ai::setup::detect(&settings);
     let inst = found.first().ok_or(tl!("No ComfyUI installation found. Choose its folder in Local AI, or install ComfyUI first."))?;
     let child = li_ai::setup::start(inst, &settings).map_err(|e| format!("{e:#}"))?;
-    if let Ok(mut c) = shared().child.lock() {
+    if let Ok(mut c) = CHILD.lock() {
         *c = Some(child);
     }
     refresh();
@@ -242,9 +244,20 @@ pub fn start_engine() -> Result<String, String> {
 
 /// Stops ComfyUI if Local Image started it.
 pub fn stop_engine() -> bool {
-    let stopped = shared().child.lock().ok().and_then(|mut c| c.take()).map(|mut c| c.kill().is_ok() && c.wait().is_ok()).unwrap_or(false);
+    let stopped = kill_child();
     refresh();
     stopped
+}
+
+/// Called when the app quits: stops the ComfyUI Local Image started, so it doesn't keep holding
+/// tens of GB of RAM and VRAM after the window closes. A ComfyUI the user started is left alone.
+pub fn shutdown_engine() -> bool {
+    kill_child()
+}
+
+fn kill_child() -> bool {
+    let child = CHILD.lock().map(|mut c| c.take()).unwrap_or_else(|p| p.into_inner().take());
+    child.map(|mut c| c.kill().is_ok() && c.wait().is_ok()).unwrap_or(false)
 }
 
 /// Downloads a preset's missing files in the background (progress via [`downloads`]).
@@ -1334,7 +1347,7 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                             dialogs_mut(|d| d.message = tl!("That folder has no ComfyUI (main.py and a Python environment).").into());
                         }
                     }
-                    let running_ours = shared().child.lock().map(|c| c.is_some()).unwrap_or(false);
+                    let running_ours = CHILD.lock().map(|c| c.is_some()).unwrap_or(false);
                     if !st.connected && !st.starting && widgets::primary_button(ui, tl!("Start AI Engine"), 0.0).clicked() {
                         let _ = settings.save();
                         let m = match start_engine() {
@@ -1647,6 +1660,21 @@ pub fn on_job_event(app: &mut PhotocraftApp, e: &JobEvent) -> bool {
 mod tests {
     use super::*;
     use egui_kittest::kittest::{NodeT, Queryable};
+
+    /// Quitting stops the ComfyUI Local Image started (the backlog item: it kept running after
+    /// the app closed, holding 29-46 GB of RAM).
+    #[cfg(unix)]
+    #[test]
+    fn quitting_stops_the_engine_we_started() {
+        let _g = AI_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let child = std::process::Command::new("sleep").arg("60").spawn().expect("sleep");
+        let pid = child.id();
+        *CHILD.lock().unwrap() = Some(child);
+        assert!(shutdown_engine(), "the started engine is stopped");
+        assert!(CHILD.lock().unwrap().is_none());
+        assert!(!std::path::Path::new(&format!("/proc/{pid}")).exists(), "process {pid} is gone (reaped)");
+        assert!(!shutdown_engine(), "nothing to stop the second time (a user-started ComfyUI is never touched)");
+    }
 
     /// Every local CPU model Settings offers must come from a host the downloader accepts (the
     /// sky models' host was missing, so both refused to download).

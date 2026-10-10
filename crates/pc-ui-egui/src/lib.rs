@@ -1071,6 +1071,14 @@ impl PhotocraftApp {
 }
 
 impl eframe::App for PhotocraftApp {
+    fn on_exit(&mut self) {
+        // Stop the ComfyUI we started (a user-started one is left running).
+        #[cfg(not(target_arch = "wasm32"))]
+        if ai_ui::shutdown_engine() {
+            log::info!("stopped the AI engine (ComfyUI) Local Image started");
+        }
+    }
+
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         i18n::set_current(i18n::Lang::from_pref(&self.session.prefs().interface.language));
         if !self.styled {

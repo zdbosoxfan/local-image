@@ -25,8 +25,20 @@ fn cache() -> &'static Mutex<Cache> {
     C.get_or_init(|| Mutex::new(Cache { map: HashMap::new(), tick: 0 }))
 }
 
-/// Entries kept (least recently used dropped first).
-const CAPACITY: usize = 64;
+/// Entries kept (least recently used dropped first). Plan rebuilds look up every masked layer in
+/// turn, so fewer entries than a document's masked layers missed on all of them (LRU under a
+/// cyclic scan; see `shape_split`). Bounded by memory as well.
+const CAPACITY: usize = 1024;
+const BUDGET_BYTES: usize = 512 << 20;
+
+fn surface_bytes(s: &Surface) -> usize {
+    s.tiles().map(|(_, t)| t.bytes().len()).sum()
+}
+
+#[cfg(test)]
+thread_local! {
+    static BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 fn key(layer: &Layer, canvas: Rect) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -113,6 +125,8 @@ pub fn combined_mask(layer: &Layer, canvas: Rect) -> Option<Surface> {
             return Some(e.0.clone());
         }
     }
+    #[cfg(test)]
+    BUILDS.with(|b| b.set(b.get() + 1));
     // Far outside the path the vector mask is constant.
     let far = Rect::from_xywh(canvas.x0 - 1_000_000, canvas.y0 - 1_000_000, 1, 1);
     let v_out = vm.map_or(1.0, |vm| photocraft_vector::vector_mask_values(vm, far)[0]);
@@ -163,13 +177,15 @@ pub fn combined_mask(layer: &Layer, canvas: Rect) -> Option<Surface> {
         s.write_region(area, &v);
     }
     let mut c = cache().lock().unwrap_or_else(|e| e.into_inner());
-    if c.map.len() >= CAPACITY
-        && let Some(old) = c.map.iter().min_by_key(|e| e.1.1).map(|e| *e.0)
-    {
-        c.map.remove(&old);
-    }
     let tick = c.tick;
     c.map.insert(k, (s.clone(), tick));
+    let mut bytes: usize = c.map.values().map(|e| surface_bytes(&e.0)).sum();
+    while c.map.len() > 1 && (c.map.len() > CAPACITY || bytes > BUDGET_BYTES) {
+        let Some(old) = c.map.iter().filter(|e| *e.0 != k).min_by_key(|e| e.1.1).map(|e| *e.0) else { break };
+        if let Some(e) = c.map.remove(&old) {
+            bytes -= surface_bytes(&e.0);
+        }
+    }
     Some(s)
 }
 
@@ -177,6 +193,33 @@ pub fn combined_mask(layer: &Layer, canvas: Rect) -> Option<Surface> {
 mod tests {
     use super::*;
     use photocraft_doc::vector::{Knot, Path, Subpath, VectorMask};
+
+    /// More vector-masked layers than the old 64 entries: the next plan rebuild rasterises none.
+    #[test]
+    fn many_masked_layers_stay_cached_across_rebuilds() {
+        let canvas = Rect::new(0, 0, 64, 48);
+        let layers: Vec<Layer> = (0..96)
+            .map(|i| {
+                let mut l = Layer::raster("l", PixelFormat::RGBA8);
+                let o = (i % 20) as f64;
+                let knots = [(2.0 + o, 2.0), (40.0, 6.0 + o), (20.0, 30.0)].iter().map(|&(x, y)| Knot::corner(x, y)).collect();
+                let mut path = Path::default();
+                path.subpaths.push(Subpath { knots, closed: true, ..Default::default() });
+                l.vector_mask = Some(VectorMask::new(path));
+                l
+            })
+            .collect();
+        let builds = || BUILDS.with(std::cell::Cell::get);
+        let n0 = builds();
+        for l in &layers {
+            combined_mask(l, canvas).unwrap();
+        }
+        assert_eq!(builds() - n0, layers.len());
+        for l in &layers {
+            combined_mask(l, canvas).unwrap();
+        }
+        assert_eq!(builds() - n0, layers.len(), "every mask came from the cache the second time");
+    }
 
     #[test]
     fn matches_the_cpu_mask_and_is_cached() {

@@ -584,11 +584,15 @@ fn unsaved_composites(editor: &PhotocraftApp, s: &lightcraft_engine::Session) ->
 
 /// The Library photo whose file is `path` (a master: virtual copies share its file).
 fn photo_at_path(s: &lightcraft_engine::Session, path: &str) -> Option<lightcraft_catalog::PhotoId> {
-    let file = |p: &lightcraft_catalog::Photo| match &p.source {
-        lightcraft_catalog::Source::File { path } if p.copy_of.is_none() => Some(path.clone()),
-        _ => None,
-    };
-    if let Some(p) = s.catalog.photos().find(|p| file(p).as_deref() == Some(path)) {
+    // Runs every Library frame for each unsaved Compositing document (`unsaved_composites`):
+    // borrow the paths, no String per catalog photo (85,000 allocations a frame on big libraries).
+    fn file(p: &lightcraft_catalog::Photo) -> Option<&str> {
+        match &p.source {
+            lightcraft_catalog::Source::File { path } if p.copy_of.is_none() => Some(path.as_str()),
+            _ => None,
+        }
+    }
+    if let Some(p) = s.catalog.photos().find(|p| file(p) == Some(path)) {
         return Some(p.id);
     }
     // The same file by another spelling (a symlinked folder, `..`): compare only same-named files.
@@ -1673,6 +1677,60 @@ mod tests {
         assert!(h.host.library.as_ref().unwrap().host_composites.is_empty());
         assert!(h.host.round_trip_notice.is_none());
         drop(h);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The Library checks every unsaved Compositing document against the catalog each frame
+    /// (`unsaved_composites`): on a big library that must stay cheap (it cloned every photo's path
+    /// per frame) and still find the photo by its exact path, or by another spelling of it.
+    #[test]
+    fn unsaved_composites_on_a_big_library_find_the_photo_cheaply() {
+        let dir = std::env::temp_dir().join(format!("li-bigcat-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut s = lightcraft_engine::Session::new();
+        let n = 50_000u64;
+        for i in 1..=n {
+            let path = format!("/photos/shoot/IMG_{i:05}.CR3");
+            let p = lightcraft_catalog::Photo::new(
+                lightcraft_catalog::PhotoId(i),
+                lightcraft_catalog::Source::File { path },
+                "IMG.CR3",
+                "cr3",
+                6000,
+                4000,
+                "2026-10-09",
+            );
+            s.catalog.apply(lightcraft_catalog::Op::AddPhoto { photo: Box::new(p) }).unwrap();
+        }
+        let real = dir.join("edit.psd");
+        std::fs::write(&real, b"x").unwrap();
+        let p = lightcraft_catalog::Photo::new(
+            lightcraft_catalog::PhotoId(n + 1),
+            lightcraft_catalog::Source::File { path: real.to_string_lossy().into() },
+            "edit.psd",
+            "psd",
+            4,
+            4,
+            "2026-10-09",
+        );
+        s.catalog.apply(lightcraft_catalog::Op::AddPhoto { photo: Box::new(p) }).unwrap();
+        let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), photocraft_ui_egui::Services::default());
+        let doc = || photocraft_doc::Document::new("d", photocraft_doc::Size::new(4, 4), photocraft_color::ColorMode::Rgb, photocraft_color::SampleType::U8);
+        // the photo by its exact path, another spelling of it, and a file the Library doesn't have
+        let other_spelling = dir.join(".").join("edit.psd").to_string_lossy().to_string();
+        for path in [real.to_string_lossy().to_string(), other_spelling, "/elsewhere/new.psd".to_string()] {
+            editor.session.open_document(doc(), Some(path));
+            editor.session.active_mut().unwrap().revision += 1;
+        }
+        assert_eq!(photo_at_path(&s, &real.to_string_lossy()), Some(lightcraft_catalog::PhotoId(n + 1)));
+        assert_eq!(photo_at_path(&s, &dir.join(".").join("edit.psd").to_string_lossy()), Some(lightcraft_catalog::PhotoId(n + 1)));
+        let t = std::time::Instant::now();
+        let reps = 20;
+        for _ in 0..reps {
+            let found = unsaved_composites(&editor, &s);
+            assert_eq!(found.len(), 1, "both spellings are the same photo, shown once; the unknown file is skipped");
+        }
+        eprintln!("unsaved_composites, 3 dirty documents, {n} photos: {:.2} ms/frame", t.elapsed().as_secs_f64() * 1000.0 / reps as f64);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
