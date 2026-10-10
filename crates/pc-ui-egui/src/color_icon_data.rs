@@ -1,4 +1,4 @@
-//! Original full-colour tool SVGs, shared by both app shells.
+//! Approved Glossy Duotone SVGs with six reviewed source replacements, shared by both app shells.
 
 pub static COLOR_ICONS: &[(&str, &[u8])] = &[
     ("activity", include_bytes!("../../../assets/icons/color/activity.svg")),

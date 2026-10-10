@@ -1,5 +1,5 @@
 //! Generic vector icons, drawn on a 20×20 grid (1.5 px strokes, rounded caps).
-//! Tool controls use the shared original 24×24 colour/monochrome SVG family.
+//! Tool controls use the shared approved Glossy Duotone family with reviewed source replacements.
 //! Original work (see assets/ATTRIBUTION.md) — not derived from any third-party icon set.
 
 use egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, pos2, vec2};
@@ -487,7 +487,7 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
     }
 }
 
-/// Matching colour or theme-tinted original tool image for rich tooltips.
+/// Matching colour or theme-tinted Glossy Duotone tool image for rich tooltips.
 pub fn tool_icon(ui: &egui::Ui, name: &str, size: f32) -> Option<egui::Image<'static>> {
     egui_extras::install_image_loaders(ui.ctx());
     if crate::color_icons::enabled(ui.ctx()) {

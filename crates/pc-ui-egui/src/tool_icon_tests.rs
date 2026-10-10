@@ -234,9 +234,10 @@ fn gpu_tool_icons_upload_and_switch_styles_on_hardware() {
                     if ui.button("Switch tool style").clicked() {
                         *colour = !*colour;
                     }
+                    // A 32 px button paints a 20 px glyph: 20/40 physical px at these scales.
                     egui::Grid::new("all-tool-artwork").show(ui, |ui| {
                         for (i, (name, _)) in color_icon_data::COLOR_ICONS.iter().enumerate() {
-                            if icons::tool_button(ui, name, 40.0, false, name).clicked() {
+                            if icons::tool_button(ui, name, 32.0, false, name).clicked() {
                                 *clicked = true;
                             }
                             if i % 12 == 11 {
@@ -260,6 +261,48 @@ fn gpu_tool_icons_upload_and_switch_styles_on_hardware() {
         let mono = h.render().unwrap();
         assert!(!h.state().0);
         assert!(saturation(&mono) < colourful / 10, "monochrome textures must use theme tint");
+
+        // Also exercise the actual application toolbar. Timings include the whole headless
+        // app frame, GPU submission and readback, not just standalone SVG equivalence.
+        let mut session = photocraft_engine::Session::new();
+        session.prefs.edit(|p| {
+            p.interface.language = "en".into();
+            p.interface.theme = photocraft_engine::prefs::Theme::Studio;
+        });
+        let mut app = Harness::builder()
+            .with_size(vec2(1280.0, 1000.0))
+            .with_pixels_per_point(scale)
+            .wgpu_setup(egui_wgpu::WgpuSetup::CreateNew(setup.clone()))
+            .build_eframe(move |cc| {
+                PhotocraftApp::setup_context(&cc.egui_ctx, crate::theme::ThemeKind::Studio);
+                let mut app = PhotocraftApp::new(session, Default::default());
+                app.background_jobs = false;
+                app
+            });
+        app.run_steps(3);
+        app.get_by_role_and_label(egui::accesskit::Role::Button, "Brush Tool").click();
+        app.run_steps(2);
+        assert_eq!(app.state().ui.tool, Tool::Brush);
+        for mode in ["colour", "monochrome"] {
+            app.state_mut().session.prefs.edit(|p| p.interface.tool_icons = mode.into());
+            let start = std::time::Instant::now();
+            app.step();
+            app.render().expect("real application GPU toolbar");
+            let first_ms = start.elapsed().as_secs_f64() * 1000.0;
+            let mut samples = Vec::new();
+            for _ in 0..6 {
+                let start = std::time::Instant::now();
+                app.step();
+                app.render().expect("warm application GPU toolbar");
+                samples.push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+            samples.sort_by(f64::total_cmp);
+            eprintln!(
+                "real app tool icons: scale={scale}, style={mode}, first frame+readback={first_ms:.3} ms, warm median={:.3} ms, warm max={:.3} ms",
+                (samples[2] + samples[3]) / 2.0,
+                samples[5]
+            );
+        }
     }
 }
 
@@ -287,8 +330,8 @@ fn hardware_gpu_renders_compositing_and_develop_colour_icons_at_both_scales() {
                 for row in color_icon_data::COLOR_ICONS.chunks(10) {
                     ui.horizontal(|ui| {
                         for (name, _) in row {
-                            let enabled = ui.add(color_icons::image(ui, name, 28.0, false).unwrap()).rect;
-                            let disabled = ui.add(color_icons::image(ui, name, 28.0, true).unwrap()).rect;
+                            let enabled = ui.add(color_icons::image(ui, name, 20.0, false).unwrap()).rect;
+                            let disabled = ui.add(color_icons::image(ui, name, 20.0, true).unwrap()).rect;
                             rects.push((enabled, disabled));
                         }
                     });
@@ -320,5 +363,43 @@ fn hardware_gpu_renders_compositing_and_develop_colour_icons_at_both_scales() {
         drop(h);
         rs.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(std::time::Duration::from_secs(30)) }).unwrap();
         drop(rs);
+    }
+}
+
+#[test]
+fn approved_tool_icons_are_restored_exactly_and_source_replacements_have_filled_faces() {
+    let approved: serde_json::Value = serde_json::from_str(include_str!("../../../docs/design/tool-icons-pre-sourced.json")).unwrap();
+    let approved_mono: serde_json::Value = serde_json::from_str(include_str!("../../../docs/design/tool-icons-approved-mono.json")).unwrap();
+    let manifest: serde_json::Value = serde_json::from_str(include_str!("../../../assets/icons/source-manifest.json")).unwrap();
+    let mut restored = 0;
+    for tool in manifest["tools"].as_array().unwrap() {
+        let name = tool["id"].as_str().unwrap();
+        if tool["mode"] == "approved" {
+            restored += 1;
+            let colour = color_icon_data::COLOR_ICONS.iter().find(|(id, _)| *id == name).unwrap().1;
+            let mono = crate::tool_icon_data::TOOL_ICONS.iter().find(|(id, _)| *id == name).unwrap().1;
+            assert_eq!(colour, approved[name].as_str().unwrap().as_bytes(), "approved colour changed: {name}");
+            assert_eq!(mono, approved_mono[name].as_str().unwrap().as_bytes(), "approved mono changed: {name}");
+        }
+    }
+    assert_eq!(restored, 88);
+    for size in [20, 40] {
+        // The accepted gradient must retain an opaque face, rather than an empty outline.
+        let gradient = color_icons::raster("blend", size, false).unwrap();
+        let center = size as usize / 2;
+        assert_eq!(gradient.pixels[center * size as usize + center].a(), 255);
+        // Brush, eraser and marquee segments need substantial filled material at toolbar size.
+        for name in ["brush", "eraser", "square-dashed", "circle-dashed", "crop"] {
+            let image = color_icons::raster(name, size, false).unwrap();
+            let material = image
+                .pixels
+                .iter()
+                .filter(|pixel| {
+                    let [r, g, b, a] = pixel.to_srgba_unmultiplied();
+                    a > 200 && r.max(g).max(b) - r.min(g).min(b) > 30
+                })
+                .count();
+            assert!(material > (size * size / 20) as usize, "replacement lost its filled family material: {name}/{size}");
+        }
     }
 }

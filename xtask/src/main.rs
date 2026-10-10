@@ -23,7 +23,7 @@
 //! cargo xtask tool-icons
 //!     render both contact sheets with resvg at 20/40 px on dark/light backgrounds.
 //! cargo xtask redraw-tool-icons
-//!     regenerate original colour/monochrome SVGs from tool_art.rs.
+//!     regenerate the approved base and filled reviewed source replacements.
 //! cargo xtask attributions [--fetch]
 //!     regenerate assets/attributions.json (Settings › Attributions) from
 //!     assets/attributions-curated.json, docs/PORTS.md, the AI model tables and Cargo.lock.
