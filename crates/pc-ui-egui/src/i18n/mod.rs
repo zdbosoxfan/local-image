@@ -573,6 +573,27 @@ mod tests {
     // docs/wip/CODEX-TASK.md explicitly defers translations for AI Remove and
     // Draft/Refinement. These English additions intentionally use runtime fallback.
     // Remove entries as their translations land; all other labels remain required.
+    // Overwrite Original: English until the owner resumes translations.
+    const PENDING_OVERWRITE_TRANSLATIONS: &[&str] = &[
+        "Save Over Original…",
+        "Save Over Original and Return to Library…",
+        "Overwrite Original",
+        "Don't ask again",
+        "This document has no Library original",
+        "Raw files can't be overwritten; save a copy instead",
+        "This format can't be overwritten; save a copy instead",
+        "This PSD colour mode can't be overwritten; save a copy instead",
+        "Animated, multi-page or damaged originals can't be overwritten; save a copy instead",
+        "Couldn't keep the previous version in Trash: {error}",
+        "Overwrite requires a recoverable system Trash",
+        "This replaces the original file. The previous version will be kept in Trash so you can recover it.",
+        "Overwrite {name}?",
+        "Overwrote {path}; previous version kept in Trash",
+        "Couldn't overwrite the original: {error}",
+        "Overwrote {path}; updated {name} in the Library; previous version kept in Trash",
+        "The Library shows a preview of your layers. Save a copy or overwrite the original to keep this edit.",
+    ];
+
     const PENDING_AI_TRANSLATIONS: &[&str] = &[
         "+",
         "Choose or generate an image.",
@@ -628,7 +649,10 @@ mod tests {
         strings.remove("---");
         for l in LANGUAGES.iter().filter(|l| l.complete_menus) {
             let cat = l.catalog();
-            let missing: Vec<_> = strings.iter().filter(|s| !PENDING_AI_TRANSLATIONS.contains(s) && cat.plain(s).is_none()).collect();
+            let missing: Vec<_> = strings
+                .iter()
+                .filter(|s| !PENDING_AI_TRANSLATIONS.contains(s) && !PENDING_OVERWRITE_TRANSLATIONS.contains(s) && cat.plain(s).is_none())
+                .collect();
             assert!(missing.is_empty(), "{}: untranslated menu strings: {missing:#?}", l.code);
         }
     }
@@ -694,6 +718,7 @@ mod tests {
                     !KEEP_AS_IS.contains(&s.as_str())
                         && !PENDING_BACKGROUND_TRANSLATIONS.contains(&s.as_str())
                         && !PENDING_AI_TRANSLATIONS.contains(&s.as_str())
+                        && !PENDING_OVERWRITE_TRANSLATIONS.contains(&s.as_str())
                         && cat.plain(s).is_none()
                 })
                 .collect();
