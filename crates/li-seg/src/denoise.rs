@@ -387,6 +387,7 @@ pub fn install_package(pkg: &Path, spec: &crate::ModelSpec, dest: &Path) -> Resu
         let mut f = std::fs::File::create(&tmp)?;
         f.write_all(&bytes)?;
         f.sync_all()?;
+        drop(f);
         std::fs::rename(&tmp, dest)?;
         Ok(())
     })();
@@ -397,10 +398,15 @@ pub fn install_package(pkg: &Path, spec: &crate::ModelSpec, dest: &Path) -> Resu
 }
 
 /// Verify and extract every member of an official denoiser bundle. Readiness requires all files.
+/// If publication fails, verified members already published may remain for a repair retry;
+/// temporary files are removed and a partial bundle is never considered ready.
 pub fn install_bundle(pkg: &Path, spec: &crate::ModelSpec, dir: &Path) -> Result<()> {
-    install_package(pkg, spec, &crate::model_path(dir, spec))?;
+    let mut companions = Vec::new();
     if !spec.companions.is_empty() {
         let zip = std::fs::read(pkg)?;
+        if zip.len() as u64 != spec.bytes || sha256_hex(&zip) != spec.sha256 {
+            bail!("invalid denoiser package size or SHA-256");
+        }
         let crate::Task::Denoise { companion_inners, .. } = spec.task else { bail!("not a denoise bundle") };
         ensure!(companion_inners.len() == spec.companions.len(), "invalid bundle members");
         for (file, inner) in spec.companions.iter().zip(companion_inners) {
@@ -408,13 +414,24 @@ pub fn install_bundle(pkg: &Path, spec: &crate::ModelSpec, dir: &Path) -> Result
             if bytes.len() as u64 != file.bytes || sha256_hex(&bytes) != file.sha256 {
                 bail!("invalid companion size or SHA-256");
             }
-            let dest = crate::companion_path(dir, file.file);
-            let tmp = dest.with_extension("onnx.part");
-            let mut f = std::fs::File::create(&tmp)?;
-            f.write_all(&bytes)?;
-            f.sync_all()?;
-            std::fs::rename(tmp, dest)?;
+            companions.push((crate::companion_path(dir, file.file), bytes));
         }
+    }
+    install_package(pkg, spec, &crate::model_path(dir, spec))?;
+    for (dest, bytes) in companions {
+        let tmp = dest.with_extension("onnx.part");
+        let result = (|| -> Result<()> {
+            let mut file = std::fs::File::create(&tmp)?;
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            drop(file);
+            std::fs::rename(&tmp, &dest)?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        result?;
     }
     Ok(())
 }
@@ -473,6 +490,48 @@ pub fn shared(models_dir: &Path) -> Result<Denoiser> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn ds2_bundle_publish_error_cleans_companion_part_and_repair_replaces_files() {
+        let model = b"main model";
+        let companion = b"companion model";
+        let zip = zip_of(&[("main.onnx", model, false), ("extra.onnx", companion, false)]);
+        let leak = |s: String| -> &'static str { Box::leak(s.into_boxed_str()) };
+        let members: &'static [crate::Companion] = Box::leak(
+            vec![crate::Companion { file: "ds2-extra.onnx", bytes: companion.len() as u64, sha256: leak(sha256_hex(companion)), url: "" }].into_boxed_slice(),
+        );
+        let spec = crate::ModelSpec {
+            file: "ds2-main.onnx",
+            bytes: zip.len() as u64,
+            sha256: leak(sha256_hex(&zip)),
+            companions: members,
+            task: crate::Task::Denoise {
+                inner: "main.onnx",
+                inner_bytes: model.len() as u64,
+                inner_sha256: leak(sha256_hex(model)),
+                companion_inners: &["extra.onnx"],
+            },
+            ..*crate::spec(DENOISE_ID).unwrap()
+        };
+        let dir = std::env::temp_dir().join(format!("ds2-bundle-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let package = dir.join("bundle.dtmodel");
+        std::fs::write(&package, zip).unwrap();
+        let dest = crate::companion_path(&dir, "ds2-extra.onnx");
+        std::fs::create_dir_all(&dest).unwrap(); // force rename failure after writing companion
+        let unpinned = crate::ModelSpec { sha256: "invalid", ..spec };
+        assert!(install_bundle(&package, &unpinned, &dir).is_err());
+        assert!(!crate::model_path(&dir, &spec).exists());
+        assert!(install_bundle(&package, &spec, &dir).is_err());
+        assert!(!dest.with_extension("onnx.part").exists());
+        assert!(crate::verified_denoise_bytes(&dir, &spec).is_none());
+        std::fs::remove_dir(&dest).unwrap();
+        install_bundle(&package, &spec, &dir).unwrap();
+        install_bundle(&package, &spec, &dir).unwrap(); // repair/reinstall replaces existing files
+        assert_eq!(std::fs::read(&dest).unwrap(), companion);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     use super::*;
 
     fn img(w: usize, h: usize) -> Vec<[f32; 3]> {

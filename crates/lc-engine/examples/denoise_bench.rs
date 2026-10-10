@@ -43,6 +43,9 @@ fn main() -> Result<(), String> {
     let backend = args.get(3).map(String::as_str).unwrap_or("gpu");
     let gpu = backend == "gpu";
     let megapixels = args.get(4).and_then(|v| v.parse::<usize>().ok()).unwrap_or(0);
+    if megapixels > 400 {
+        return Err("benchmark size must be at most 400 megapixels".into());
+    }
     let out = PathBuf::from(args.get(5).map(String::as_str).unwrap_or("target/ai-denoise"));
     std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
     let bytes = std::fs::read(&source).map_err(|e| e.to_string())?;
@@ -63,7 +66,13 @@ fn main() -> Result<(), String> {
     if megapixels > 0 {
         let ratio = (megapixels as f64 * 1e6 / (w * h * 4) as f64).sqrt();
         let (nw, nh) = ((w as f64 * ratio).round() as usize, (h as f64 * ratio).round() as usize);
-        let mut scaled = vec![0.; nw * nh * 4];
+        let len = nw.checked_mul(nh).and_then(|n| n.checked_mul(4)).filter(|n| *n <= 400_000_000).ok_or("benchmark dimensions overflow")?;
+        if nw == 0 || nh == 0 {
+            return Err("benchmark dimensions round to zero".into());
+        }
+        let mut scaled = Vec::new();
+        scaled.try_reserve_exact(len).map_err(|e| e.to_string())?;
+        scaled.resize(len, 0.);
         for y in 0..nh {
             for x in 0..nw {
                 let sy = (y * h / nh).min(h - 1);

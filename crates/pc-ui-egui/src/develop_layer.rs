@@ -70,12 +70,17 @@ pub fn active_photo(app: &PhotocraftApp) -> Option<u64> {
 /// The Library photo the active document came from and the path of its original file: the photo
 /// [`active_photo`] names, when one of the document's Develop layers links it to a file.
 pub fn library_original(app: &PhotocraftApp) -> Option<(u64, String)> {
-    original_of(&app.session.active()?.doc)
+    let doc = &app.session.active()?.doc;
+    original_for_photo(doc, active_photo(app)?)
 }
 
 /// Source identity independent of the currently selected document tab.
 pub fn original_of(doc: &photocraft_doc::Document) -> Option<(u64, String)> {
     let photo = photocraft_engine::develop_layer_cmds::develop_layers(doc).into_iter().find_map(|(_, p)| p)?;
+    original_for_photo(doc, photo)
+}
+
+fn original_for_photo(doc: &photocraft_doc::Document, photo: u64) -> Option<(u64, String)> {
     doc.walk().into_iter().find_map(|(_, _, l)| match &l.content {
         LayerContent::Smart(SmartObject { develop: Some(d), source: SmartSource::Linked { path }, .. }) if d.photo == Some(photo) && !path.is_empty() => {
             Some((photo, path.clone()))
@@ -194,6 +199,29 @@ pub fn develop(app: &mut PhotocraftApp) -> Result<Value, String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn ds2_library_save_uses_active_develop_photo() {
+        let (dir, first, mut app) = photo_app("ds2-active-source");
+        let state = app.session.active_mut().unwrap();
+        let mut second = state.doc.layers[0].clone();
+        second.id = photocraft_doc::LayerId::fresh();
+        if let LayerContent::Smart(smart) = &mut second.content {
+            smart.develop.as_mut().unwrap().photo = Some(8);
+            smart.source = SmartSource::Linked { path: dir.join("other.png").to_string_lossy().into_owned() };
+        } else {
+            panic!("expected Develop layer");
+        }
+        let id = second.id;
+        std::sync::Arc::make_mut(&mut state.doc).layers.push(second);
+        state.active_layer = Some(id);
+        assert_eq!(library_original(&app).unwrap().0, 8);
+        assert_eq!(library_save_path(&app).unwrap(), dir.join("other-Edit.psd").to_string_lossy());
+        app.session.active_mut().unwrap().active_layer = None;
+        assert_eq!(library_original(&app), Some((7, first)));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     use super::*;
 
     /// A photo opens as a Develop layer (no copy of its pixels on disk), follows new settings,

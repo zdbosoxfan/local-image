@@ -27,7 +27,7 @@ fn other(c: &str, e: String) -> crate::EngineError {
 /// After a job ran inline (`wait`): apply it now and report what it did.
 fn finish_inline(s: &mut Session, c: &str, job: &super::Job) -> Result<Value> {
     let p = s.enhance_poll();
-    if let Some(e) = p.errors.into_iter().next() {
+    if let Some((_, e)) = p.job_errors.into_iter().find(|(id, _)| *id == job.id) {
         return Err(other(c, e));
     }
     if job.ctl.cancelled() {
@@ -156,4 +156,17 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             status
         ),
     ]
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_inline_job_does_not_report_an_unrelated_failure() {
+    use crate::enhance::{JobKind, Outcome};
+    let mut session = Session::with_demo();
+    let photo = session.visible_cloned()[0];
+    session.enhance.spawn(photo, JobKind::Denoise, "unrelated", true, Box::new(|_| Err("unrelated failure".into())));
+    let job = session.enhance.spawn(photo, JobKind::DenoiseExport, "ours", true, Box::new(|_| Ok(Outcome::DenoiseExport("copy.tiff".into()))));
+    assert!(finish_inline(&mut session, "enhance.denoise", &job).is_ok());
+    let job = session.enhance.spawn(photo, JobKind::Denoise, "ours", true, Box::new(|_| Err("own failure".into())));
+    assert!(finish_inline(&mut session, "enhance.denoise", &job).unwrap_err().to_string().contains("own failure"));
 }

@@ -1580,8 +1580,7 @@ impl DenoiseModel {
     }
 }
 fn deserialize_denoise_ref<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<DenoiseRef>, D::Error> {
-    let value = serde_json::Value::deserialize(d)?;
-    Ok(serde_json::from_value(value).ok())
+    Option::<DenoiseRef>::deserialize(d)
 }
 
 #[cfg(test)]
@@ -1592,4 +1591,16 @@ mod ds_tests {
         let tools = LayerTools::default().set_controls((5000.0, 0.0), &[("skinTone.uniformity".into(), 25.0)]).unwrap();
         assert_eq!(tools.skin_tone.unwrap().uniformity, 25.0);
     }
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_denoise_references_reject_invalid_non_null_values() {
+    use serde_json::json;
+    for ai in [json!({}), json!({"key":"bad", "source":"bad"}), json!(5)] {
+        assert!(serde_json::from_value::<Enhance>(json!({"ai": ai})).is_err());
+    }
+    assert!(serde_json::from_value::<Enhance>(json!({"ai":null})).unwrap().ai.is_none());
+    let value = Enhance { ai: Some(DenoiseRef { model: DenoiseModel::Raw, preview: false, key: AiKey(7), source: AiKey(9) }), ..Default::default() };
+    assert_eq!(serde_json::from_value::<Enhance>(serde_json::to_value(value).unwrap()).unwrap(), value);
 }

@@ -124,10 +124,18 @@ fn origins(length: usize, core: usize, step: usize) -> Vec<usize> {
     out
 }
 
-fn feather(p: usize, length: usize, overlap: usize, before: bool, after: bool) -> f32 {
-    let left = if before { ((p + 1) as f32 / (overlap + 1) as f32).min(1.0) } else { 1.0 };
-    let right = if after { ((length - p) as f32 / (overlap + 1) as f32).min(1.0) } else { 1.0 };
+fn feather(p: usize, length: usize, before: usize, after: usize) -> f32 {
+    let left = if before > 0 { ((p + 1) as f32 / (before + 1) as f32).min(1.0) } else { 1.0 };
+    let right = if after > 0 { ((length - p) as f32 / (after + 1) as f32).min(1.0) } else { 1.0 };
     left * right
+}
+
+fn overlaps(origins: &[usize], index: usize, core: usize, scale: usize) -> [usize; 2] {
+    let origin = origins[index];
+    [
+        if index > 0 { (origins[index - 1] + core - origin) * scale } else { 0 },
+        if index + 1 < origins.len() { (origin + core - origins[index + 1]) * scale } else { 0 },
+    ]
 }
 
 fn tiled(
@@ -151,11 +159,22 @@ fn tiled(
     let xs = origins(w, core, core - overlap);
     let ys = origins(h, core, core - overlap);
     let total = xs.len() * ys.len();
-    let mut sums = vec![[0.0f32; 4]; pixels];
+    // Only tile rows not yet completed need floating-point accumulators.
+    let band_rows = core.min(h) * scale;
+    let mut sums = Vec::new();
+    sums.try_reserve_exact(ow * band_rows)?;
+    sums.resize(ow * band_rows, [0.0f32; 4]);
+    let mut bytes = Vec::new();
+    bytes.try_reserve_exact(pixels * 3)?;
+    bytes.resize(pixels * 3, 0);
+    let mut output = RgbImage::from_raw(ow as u32, oh as u32, bytes).context("Invalid upscale output dimensions")?;
+    let mut flushed = 0;
     let mut done = 0;
     progress(done, total);
-    for &y in &ys {
-        for &x in &xs {
+    for (yi, &y) in ys.iter().enumerate() {
+        let [top, bottom] = overlaps(&ys, yi, core, scale);
+        for (xi, &x) in xs.iter().enumerate() {
+            let [left, right] = overlaps(&xs, xi, core, scale);
             check()?;
             let patch = RgbImage::from_fn(tile as u32, tile as u32, |px, py| {
                 let ix = (x as isize + px as isize - halo as isize).clamp(0, w as isize - 1);
@@ -173,11 +192,11 @@ fn tiled(
                 if py.is_multiple_of(32) {
                     check()?;
                 }
-                let wy = feather(py, ch, overlap * scale, y > 0, y + core < h);
+                let wy = feather(py, ch, top, bottom);
                 for px in 0..cw {
-                    let weight = wy * feather(px, cw, overlap * scale, x > 0, x + core < w);
+                    let weight = wy * feather(px, cw, left, right);
                     let value = values[(py + halo * scale) * side + px + halo * scale];
-                    let sum = &mut sums[(y * scale + py) * ow + x * scale + px];
+                    let sum = &mut sums[((y * scale + py) % band_rows) * ow + x * scale + px];
                     for c in 0..3 {
                         sum[c] += value[c] * weight;
                     }
@@ -187,12 +206,21 @@ fn tiled(
             done += 1;
             progress(done, total);
         }
+        let end = ys.get(yi + 1).map_or(oh, |y| y * scale);
+        for row in flushed..end {
+            if row.is_multiple_of(32) {
+                check()?;
+            }
+            for col in 0..ow {
+                let sum = &mut sums[(row % band_rows) * ow + col];
+                output.put_pixel(col as u32, row as u32, Rgb(std::array::from_fn(|c| (sum[c] / sum[3] * 255.0).round().clamp(0.0, 255.0) as u8)));
+                *sum = [0.0; 4];
+            }
+        }
+        flushed = end;
     }
     check()?;
-    Ok(RgbImage::from_fn(ow as u32, oh as u32, |x, y| {
-        let s = sums[y as usize * ow + x as usize];
-        Rgb(std::array::from_fn(|c| (s[c] / s[3] * 255.0).round().clamp(0.0, 255.0) as u8))
-    }))
+    Ok(output)
 }
 
 /// The publisher's .dtmodel format is a ZIP container. Only the named ONNX member is read;
@@ -235,6 +263,20 @@ pub fn archive_model(bytes: &[u8], name: &str) -> Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn ds2_final_tile_uses_actual_overlap_and_flushed_bands_match_whole() {
+        let starts = origins(29, 16, 12);
+        assert_eq!(starts, [0, 12, 13]);
+        assert_eq!(overlaps(&starts, 2, 16, 2), [30, 0]);
+        assert!((feather(10, 32, 30, 0) - 11.0 / 31.0).abs() < 1e-6);
+        let image = RgbImage::from_fn(29, 41, |x, y| Rgb([(x * 5) as u8, (y * 5) as u8, 100]));
+        for scale in [2, 4] {
+            let output = tiled(&image, 32, scale, 8, &*nearest(scale), &|| Ok(()), &|_, _| {}).unwrap();
+            assert_eq!(output, image::imageops::resize(&image, output.width(), output.height(), image::imageops::FilterType::Nearest));
+        }
+    }
+
     use super::*;
     fn nearest(scale: usize) -> Arc<Predict> {
         Arc::new(move |img, _| {

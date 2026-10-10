@@ -155,6 +155,13 @@ fn restoration_ui_discards_preview_when_document_or_task_changes() {
 #[test]
 fn restoration_ui_byo_selection_requires_persisted_acknowledgement() {
     let mut h = harness();
+    struct AckCleanup;
+    impl Drop for AckCleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(ack_path());
+        }
+    }
+    let _cleanup = AckCleanup;
     open_menu(&mut h);
     let mut info = li_ai::comfy::ObjectInfo(li_ai::mock::object_info());
     info.0["UpscaleModelLoader"]["input"]["required"]["model_name"] = json!([["LED_model.pth", "SUPIR_LED.pth", "HYPIR.pth"]]);

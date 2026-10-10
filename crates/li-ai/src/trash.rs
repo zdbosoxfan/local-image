@@ -131,10 +131,18 @@ fn record_into(path: &Path, trash: &Path, copy: bool) -> io::Result<PathBuf> {
         }
         let written = io::Write::write_all(&mut f, record.as_bytes()).and_then(|()| f.sync_all());
         drop(f);
+        let mut created_copy = false;
         let moved = written.and_then(|()| {
             if copy {
+                #[cfg(unix)]
+                if std::fs::symlink_metadata(path)?.file_type().is_symlink() {
+                    std::os::unix::fs::symlink(std::fs::read_link(path)?, &dest)?;
+                    created_copy = true;
+                    return Ok(());
+                }
                 let mut source = std::fs::File::open(path)?;
                 let mut target = std::fs::OpenOptions::new().write(true).create_new(true).open(&dest)?;
+                created_copy = true;
                 let result = io::copy(&mut source, &mut target).and_then(|_| {
                     std::fs::set_permissions(&dest, source.metadata()?.permissions())?;
                     target.sync_all()
@@ -147,17 +155,20 @@ fn record_into(path: &Path, trash: &Path, copy: bool) -> io::Result<PathBuf> {
                 std::fs::rename(path, &dest)
             }
         });
-        return match moved {
-            Ok(()) => {
-                #[cfg(unix)]
-                if copy {
-                    // Make the recoverable version durable before a caller replaces its source.
-                    std::fs::File::open(&files)?.sync_all()?;
-                    std::fs::File::open(&info)?.sync_all()?;
-                }
-                Ok(dest)
+        #[cfg(unix)]
+        let moved = moved.and_then(|()| {
+            if copy {
+                std::fs::File::open(&files)?.sync_all()?;
+                std::fs::File::open(&info)?.sync_all()?;
             }
+            Ok(())
+        });
+        return match moved {
+            Ok(()) => Ok(dest),
             Err(e) => {
+                if created_copy {
+                    let _ = std::fs::remove_file(&dest);
+                }
                 let _ = std::fs::remove_file(&info_path);
                 Err(e)
             }
@@ -313,4 +324,17 @@ fn ds_finding_deletion_date_uses_process_local_timezone() {
             .unwrap();
         assert!(status.status.success(), "{zone}: {}", String::from_utf8_lossy(&status.stderr));
     }
+}
+
+#[cfg(all(test, unix))]
+#[test]
+fn ds2_copy_to_trash_keeps_dangling_symlinks() {
+    let root = std::env::temp_dir().join(format!("ds2-copy-link-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let link = root.join("link");
+    std::os::unix::fs::symlink("missing-target", &link).unwrap();
+    let copy = copy_to_trash_in(&link, &root.join("Trash")).unwrap();
+    assert_eq!(std::fs::read_link(&copy).unwrap(), Path::new("missing-target"));
+    assert_eq!(std::fs::read_link(&link).unwrap(), Path::new("missing-target"));
+    std::fs::remove_dir_all(root).unwrap();
 }

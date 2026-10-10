@@ -145,9 +145,10 @@ pub(super) fn row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download
                         s.busy = true;
                         s.error.clear();
                     });
-                    let _ = std::thread::Builder::new().name("upscale-custom".into()).spawn(move || {
+                    let worker_key = key.clone();
+                    let worker = std::thread::Builder::new().name("upscale-custom".into()).spawn(move || {
                         let result = selection::import_custom(&dir, method, &source);
-                        update(&key, |s| {
+                        update(&worker_key, |s| {
                             s.busy = false;
                             s.error = result.err().map(|e| format!("{e:#}")).unwrap_or_default();
                         });
@@ -156,6 +157,12 @@ pub(super) fn row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download
                             ctx.request_repaint();
                         }
                     });
+                    if let Err(error) = worker {
+                        update(&key, |s| {
+                            s.busy = false;
+                            s.error = error.to_string();
+                        });
+                    }
                 }
             } else if s.custom {
                 ui.label(tl!("Enter installed SeedVR2-compatible model and VAE filenames."));
@@ -186,35 +193,66 @@ pub(super) fn row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download
     ui.add_space(4.0);
 }
 
-fn download_controls(ui: &mut egui::Ui, dls: &BTreeMap<String, Download>, dir: &std::path::Path, spec: &'static li_seg::ModelSpec) {
-    let key = format!("seg:{}", spec.id);
-    if let Some(d) = dls.get(&key).filter(|d| !d.finished) {
-        ui.add(egui::ProgressBar::new(d.done as f32 / d.total.max(1) as f32));
-        if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
-            d.ctl.cancel();
-        }
-    } else {
-        ui.horizontal(|ui| {
-            if li_seg::installed_bytes(dir, spec).is_some() {
-                ui.label(tl!("Installed"));
-                if remove_button(ui) {
-                    ask_remove(spec.label.into(), RemoveTarget::Seg(spec));
+pub(super) fn download_controls(ui: &mut egui::Ui, dls: &BTreeMap<String, Download>, dir: &std::path::Path, spec: &'static li_seg::ModelSpec) {
+    let cpu = format!("seg:{}", spec.id);
+    let gpu = format!("{}:default", spec.id);
+    for (key, label) in [(&cpu, "CPU"), (&gpu, "GPU")] {
+        if let Some(d) = dls.get(key).filter(|d| !d.finished) {
+            ui.label(label);
+            ui.add(egui::ProgressBar::new(d.done as f32 / d.total.max(1) as f32));
+            if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
+                d.ctl.cancel();
+            }
+        } else if key == &cpu {
+            ui.horizontal(|ui| {
+                if li_seg::installed_bytes(dir, spec).is_some() {
+                    ui.label(tl!("Installed"));
+                    if remove_button(ui) {
+                        ask_remove(spec.label.into(), RemoveTarget::Seg(spec));
+                    }
+                } else if widgets::secondary_button(ui, tl!("Download CPU model"), 0.0).clicked() {
+                    start_seg_download(spec);
                 }
-            } else if widgets::secondary_button(ui, tl!("Download CPU model"), 0.0).clicked() {
-                start_seg_download(spec);
-            }
-            if status().ready(ModelId::intern(spec.id), "default").is_err() && widgets::secondary_button(ui, tl!("Download GPU model"), 0.0).clicked() {
-                start_download(&format!("{}:default", spec.id));
-            }
-        });
-    }
-    if let Some(error) = dls.get(&key).and_then(|d| d.error.as_ref()) {
-        ui.label(RichText::new(error).color(Tokens::get(ui.ctx()).danger));
+            });
+        } else if status().ready(ModelId::intern(spec.id), "default").is_err() && widgets::secondary_button(ui, tl!("Download GPU model"), 0.0).clicked() {
+            start_download(key);
+        }
+        if let Some(error) = dls.get(key).and_then(|d| d.error.as_ref()) {
+            ui.label(RichText::new(error).color(Tokens::get(ui.ctx()).danger));
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn ds2_gpu_download_displays_progress_and_cancel() {
+        let _lock = AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = super::super::tests::temp_dir("ds2-gpu-download");
+        let folder = dir.clone();
+        let control = JobControl::new();
+        let test_control = control.clone();
+        let mut downloads = BTreeMap::new();
+        downloads.insert("realplksr-2x:default".into(), Download { total: 100, done: 50, ctl: control, ..Default::default() });
+        let mut initialized = false;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(600.0, 400.0)).build_ui(move |ui| {
+            if !initialized {
+                PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Studio);
+                initialized = true;
+                ui.ctx().request_repaint();
+                return;
+            }
+            download_controls(ui, &downloads, &folder, li_seg::spec("realplksr-2x").unwrap());
+        });
+        h.run_steps(3);
+        assert!(h.query_by_label("Download GPU model").is_none());
+        h.get_by_label("Cancel").click();
+        h.run_steps(2);
+        assert!(test_control.is_cancelled());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     use super::*;
     use egui_kittest::kittest::Queryable;
     #[test]

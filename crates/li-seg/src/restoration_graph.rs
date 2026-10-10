@@ -11,6 +11,9 @@ pub struct Shape {
     pub w: usize,
 }
 impl Shape {
+    pub fn checked_len(self) -> Option<usize> {
+        self.c.checked_mul(self.h)?.checked_mul(self.w)
+    }
     pub fn len(self) -> usize {
         self.c * self.h * self.w
     }
@@ -56,7 +59,10 @@ impl Graph {
         Self::from_proto(proto, input)
     }
     pub fn from_proto(proto: pb::ModelProto, input: Shape) -> Result<Self> {
-        ensure!(!input.is_empty() && input.h.is_multiple_of(16) && input.w.is_multiple_of(16), "invalid restoration input");
+        ensure!(
+            input.checked_len().is_some_and(|n| n > 0 && n <= 1 << 29) && input.h.is_multiple_of(16) && input.w.is_multiple_of(16),
+            "invalid restoration input"
+        );
         let g = proto.graph.context("ONNX has no graph")?;
         ensure!(g.input.len() == 1 && g.output.len() == 1, "expected one restoration input and output");
         let mut ids = HashMap::from([(g.input[0].name.clone(), 0usize)]);
@@ -106,14 +112,16 @@ impl Graph {
                     let pad = [pads[0] as usize, pads[1] as usize];
                     let output_padding = pair("output_padding", [0, 0])?;
                     let dim = |v: usize, axis: usize| -> Result<usize> {
+                        let padding = pad[axis].checked_add(usize::try_from(pads[axis + 2])?).context("invalid convolution padding")?;
+                        let extent = kernel[axis].checked_add(output_padding[axis]).context("invalid output padding")?;
                         if transpose {
-                            (v - 1)
-                                .checked_mul(stride[axis])
-                                .and_then(|v| v.checked_add(kernel[axis] + output_padding[axis]))
-                                .and_then(|v| v.checked_sub(pad[axis] + pads[axis + 2] as usize))
+                            v.checked_sub(1)
+                                .and_then(|v| v.checked_mul(stride[axis]))
+                                .and_then(|v| v.checked_add(extent))
+                                .and_then(|v| v.checked_sub(padding))
                                 .context("invalid deconvolution size")
                         } else {
-                            Ok((v + pad[axis] + pads[axis + 2] as usize).checked_sub(kernel[axis]).context("kernel outside input")? / stride[axis] + 1)
+                            Ok(v.checked_add(padding).and_then(|v| v.checked_sub(kernel[axis])).context("kernel outside input")? / stride[axis] + 1)
                         }
                     };
                     let weights = tensor(t)?;
@@ -130,7 +138,7 @@ impl Graph {
                 }
                 "MaxPool" => {
                     let kernel = pair("kernel_shape", [2, 2])?;
-                    let stride = pair("strides", kernel)?;
+                    let stride = pair("strides", [1, 1])?;
                     ensure!(
                         kernel.into_iter().all(|v| v > 0) && stride.into_iter().all(|v| v > 0) && a.h >= kernel[0] && a.w >= kernel[1],
                         "invalid pooling geometry"
@@ -142,22 +150,74 @@ impl Graph {
                     ensure!(int("axis", 1) == 1 && inputs.len() == 2, "only two-input channel concat is supported");
                     let b = shape_of(inputs[1]);
                     ensure!(a.w == b.w && a.h == b.h, "concat size mismatch");
-                    (Shape { c: a.c + b.c, ..a }, Op::Concat)
+                    (Shape { c: a.c.checked_add(b.c).context("concat channels overflow")?, ..a }, Op::Concat)
                 }
                 "DepthToSpace" => {
                     let block = usize::try_from(int("blocksize", 0))?;
-                    ensure!(block > 0 && a.c.is_multiple_of(block * block), "invalid PixelShuffle");
+                    let square = block.checked_mul(block).filter(|s| *s > 0).context("invalid PixelShuffle block")?;
+                    ensure!(a.c.is_multiple_of(square), "invalid PixelShuffle");
                     let mode = attr("mode").map(|a| a.s.as_slice()).unwrap_or(b"DCR");
                     ensure!(mode == b"DCR" || mode == b"CRD", "invalid PixelShuffle mode");
-                    (Shape { c: a.c / (block * block), h: a.h * block, w: a.w * block }, Op::Shuffle { block, crd: mode == b"CRD" })
+                    (
+                        Shape {
+                            c: a.c / square,
+                            h: a.h.checked_mul(block).context("PixelShuffle height overflow")?,
+                            w: a.w.checked_mul(block).context("PixelShuffle width overflow")?,
+                        },
+                        Op::Shuffle { block, crd: mode == b"CRD" },
+                    )
                 }
                 op => bail!("unsupported restoration ONNX operator {op}"),
             };
-            ensure!(!shape.is_empty() && shape.len() <= 1 << 29, "restoration tensor too large");
+            ensure!(shape.checked_len().is_some_and(|n| n > 0 && n <= 1 << 29), "restoration tensor too large");
             nodes.push(Node { inputs, shape, op });
             ids.insert(n.output[0].clone(), nodes.len());
         }
         let output = *ids.get(&g.output[0].name).context("unknown restoration output")?;
         Ok(Self { input, nodes, output })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn proto(op: &str, attributes: Vec<pb::AttributeProto>, weights: bool) -> pb::ModelProto {
+        pb::ModelProto {
+            graph: Some(pb::GraphProto {
+                input: vec![pb::ValueInfoProto { name: "in".into(), ..Default::default() }],
+                output: vec![pb::ValueInfoProto { name: "out".into(), ..Default::default() }],
+                initializer: if weights {
+                    vec![pb::TensorProto { name: "weights".into(), data_type: 1, dims: vec![1, 1, 1, 1], float_data: vec![1.], ..Default::default() }]
+                } else {
+                    vec![]
+                },
+                node: vec![pb::NodeProto {
+                    op_type: op.into(),
+                    input: if weights { vec!["in".into(), "weights".into()] } else { vec!["in".into()] },
+                    output: vec!["out".into()],
+                    attribute: attributes,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+    fn ints(name: &str, ints: Vec<i64>) -> pb::AttributeProto {
+        pb::AttributeProto { name: name.into(), ints, ..Default::default() }
+    }
+    #[test]
+    fn ds2_malicious_shapes_return_errors_without_panics() {
+        let input = Shape { c: 1, h: 16, w: 16 };
+        let block = pb::AttributeProto { name: "blocksize".into(), i: i64::MAX, ..Default::default() };
+        assert!(Graph::from_proto(proto("DepthToSpace", vec![block], false), input).is_err());
+        assert!(Graph::from_proto(proto("Conv", vec![ints("pads", vec![i64::MAX; 4])], true), input).is_err());
+        assert!(Graph::from_proto(proto("ConvTranspose", vec![ints("output_padding", vec![i64::MAX; 2])], true), input).is_err());
+        assert!(Graph::from_proto(proto("Relu", vec![], false), Shape { c: usize::MAX, h: 16, w: 16 }).is_err());
+    }
+    #[test]
+    fn ds2_maxpool_omitted_stride_is_one() {
+        let graph = Graph::from_proto(proto("MaxPool", vec![ints("kernel_shape", vec![3, 3])], false), Shape { c: 1, h: 16, w: 16 }).unwrap();
+        assert_eq!(graph.nodes[0].shape, Shape { c: 1, h: 14, w: 14 });
     }
 }

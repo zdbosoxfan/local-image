@@ -138,10 +138,48 @@ fn validate_detection(task: Task, detection: &Detection) -> Result<()> {
     Ok(())
 }
 
+fn probe_output(command: &mut std::process::Command, ctl: &JobControl, timeout: std::time::Duration) -> Result<std::process::Output> {
+    use std::io::Read;
+    use std::process::Stdio;
+    let mut child =
+        command.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().context("Cannot inspect main spandrel in the configured ComfyUI interpreter")?;
+    let stdout = child.stdout.take().context("Missing probe stdout")?;
+    let stderr = child.stderr.take().context("Missing probe stderr")?;
+    std::thread::scope(|scope| {
+        let read = |stream: Box<dyn Read + Send>| -> std::io::Result<Vec<u8>> {
+            let mut bytes = Vec::new();
+            stream.take(1 << 20).read_to_end(&mut bytes)?;
+            Ok(bytes)
+        };
+        let out = scope.spawn(move || read(Box::new(stdout)));
+        let err = scope.spawn(move || read(Box::new(stderr)));
+        let start = std::time::Instant::now();
+        let status = (|| -> Result<std::process::ExitStatus> {
+            loop {
+                ctl.check()?;
+                if start.elapsed() >= timeout {
+                    bail!("Restoration architecture inspection timed out");
+                }
+                if let Some(status) = child.try_wait()? {
+                    return Ok(status);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+        })();
+        if status.is_err() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        let stdout = out.join().map_err(|_| anyhow::anyhow!("Probe stdout reader failed"))??;
+        let stderr = err.join().map_err(|_| anyhow::anyhow!("Probe stderr reader failed"))??;
+        Ok(std::process::Output { status: status?, stdout, stderr })
+    })
+}
+
 /// Read-only inspection with the selected ComfyUI's own interpreter/package. It never imports
 /// extra arches or custom nodes. PyTorch's weights-only loader reads only the already verified
 /// publisher checkpoint; all product orchestration and graph building stay in Rust.
-fn detect(task: Task, installation: &crate::setup::Installation, model: &Path, argv: &Value) -> Result<()> {
+fn detect(task: Task, installation: &crate::setup::Installation, model: &Path, argv: &Value, ctl: &JobControl) -> Result<()> {
     let main = argv.get(0).and_then(Value::as_str).context("Update ComfyUI: restoration needs its server arguments to verify model paths")?;
     if std::fs::canonicalize(main)? != std::fs::canonicalize(installation.code.join("main.py"))? {
         bail!("The running ComfyUI differs from the configured installation; restoration cannot verify its model architecture");
@@ -202,16 +240,16 @@ print(json.dumps(dict(signature=signature, extra=extra, architecture=str(model.a
     image=isinstance(model, spandrel.ImageModelDescriptor), scale=model.scale,
     input_channels=model.input_channels, output_channels=model.output_channels)))
 "#;
-    let output = std::process::Command::new(&installation.python)
+    let mut command = std::process::Command::new(&installation.python);
+    command
         .args(["-B", "-I", "-c", PROBE])
         .arg(model)
         .arg(serde_json::to_string(argv)?)
         .arg(serde_json::to_string(&cached)?)
         .current_dir(&installation.code)
         .env_remove("PYTHONPATH")
-        .env_remove("PYTHONHOME")
-        .output()
-        .context("Cannot inspect main spandrel in the configured ComfyUI interpreter")?;
+        .env_remove("PYTHONHOME");
+    let output = probe_output(&mut command, ctl, std::time::Duration::from_secs(120))?;
     if !output.status.success() {
         bail!("Main spandrel could not recognise the verified restoration model: {}", String::from_utf8_lossy(&output.stderr));
     }
@@ -252,15 +290,26 @@ pub fn restore(client: &ComfyClient, settings: &AiSettings, task: Task, source: 
     let installation = crate::setup::installation(Path::new(&settings.comfy_directory), Some(Path::new(&settings.comfy_python)))
         .context("Choose the local ComfyUI folder and interpreter in Local AI settings to verify restoration architectures")?;
     let stats = client.system_stats()?;
-    detect(task, &installation, &path, &stats["system"]["argv"])?;
+    detect(task, &installation, &path, &stats["system"]["argv"], ctl)?;
     ctl.check()?;
-    execute(client, task, source, ctl)
+    execute_checked(client, task, source, ctl, &|| {
+        // Repeat both pin and backend-path checks after uploads, before prompt submission.
+        let path = verified_path(task, &settings.model_dir())?;
+        detect(task, &installation, &path, &stats["system"]["argv"], ctl)?;
+        verified_path(task, &settings.model_dir())?;
+        Ok(())
+    })
 }
 
+#[cfg(test)]
 fn execute(client: &ComfyClient, task: Task, source: &RgbaImage, ctl: &JobControl) -> Result<RgbaImage> {
+    execute_checked(client, task, source, ctl, &|| Ok(()))
+}
+
+fn execute_checked(client: &ComfyClient, task: Task, source: &RgbaImage, ctl: &JobControl, check: &dyn Fn() -> Result<()>) -> Result<RgbaImage> {
     let graph = graph(task, &client.object_info()?)?;
     let png = crate::imaging::encode_png(source)?;
-    let bytes = client.run_when_idle(graph, &[("1".into(), png)], ctl)?;
+    let bytes = client.run_when_idle_checked(graph, &[("1".into(), png)], ctl, check)?;
     ctl.check()?;
     let mut result = image::load_from_memory(&bytes)?.to_rgba8();
     if result.dimensions() != source.dimensions() {
@@ -274,6 +323,40 @@ fn execute(client: &ComfyClient, task: Task, source: &RgbaImage, ctl: &JobContro
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn ds2_probe_honours_timeout_and_cancellation() {
+        const CHILD: &str = "LI_DS2_PROBE_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            std::thread::sleep(std::time::Duration::from_secs(20));
+            return;
+        }
+        for cancelled in [true, false] {
+            let ctl = JobControl::new();
+            if cancelled {
+                ctl.cancel();
+            }
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command.args(["--exact", "restoration::tests::ds2_probe_honours_timeout_and_cancellation"]).env(CHILD, "1");
+            let error = probe_output(&mut command, &ctl, std::time::Duration::from_millis(75)).unwrap_err();
+            if cancelled {
+                assert!(error.is::<crate::Cancelled>());
+            } else {
+                assert!(error.to_string().contains("timed out"));
+            }
+        }
+    }
+
+    #[test]
+    fn ds2_admission_rejects_changed_models_before_submission() {
+        let server = crate::mock::MockComfy::start().unwrap();
+        let client = ComfyClient::new(server.host());
+        let image = RgbaImage::new(8, 8);
+        let error = execute_checked(&client, Task::Jpeg, &image, &JobControl::new(), &|| anyhow::bail!("model changed")).unwrap_err();
+        assert!(error.to_string().contains("model changed"));
+        assert!(server.prompts().is_empty());
+    }
+
     use super::*;
     use image::Rgba;
 
@@ -381,6 +464,11 @@ mod tests {
             let plan = crate::browser::plan(card, &card.files, None, &ObjectInfo::default(), &cfg, &net).unwrap();
             assert!(!plan.license.is_empty() && plan.license_url.is_some());
             assert_eq!(plan.files[0].sha256, card.files[0].sha256.clone().unwrap());
+            let mut installed = info();
+            installed.0["UpscaleModelLoader"]["input"]["required"]["model_name"] = json!([[card.files[0].name]]);
+            let present = crate::browser::plan(card, &card.files, None, &installed, &cfg, &net).unwrap();
+            assert!(present.files.is_empty());
+            assert_eq!(present.present, [card.files[0].name.clone()]);
             let mut files = card.files.clone();
             files[0].sha256 = Some("0".repeat(64));
             assert!(crate::browser::plan(card, &files, None, &ObjectInfo::default(), &cfg, &net).is_err());

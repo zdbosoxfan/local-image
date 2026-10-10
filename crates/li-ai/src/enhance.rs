@@ -81,9 +81,6 @@ pub fn native_scale(input: (u32, u32), output: (u32, u32)) -> Result<u32> {
         bail!("Keep the image's proportions when enhancing.");
     }
     let scale = if k <= 2.001 { 2 } else { 4 };
-    if u64::from(sw) * u64::from(sh) * u64::from(scale * scale) > 400_000_000 {
-        bail!("The native model output exceeds 400 megapixels.");
-    }
     Ok(scale)
 }
 
@@ -254,7 +251,8 @@ mod tests {
         assert_eq!(native_scale((101, 73), (404, 292)).unwrap(), 4);
         assert!(native_scale((1, 1), (5, 5)).is_err());
         assert!(native_scale((101, 73), (210, 170)).is_err());
-        assert!(native_scale((11000, 10000), (12100, 11000)).is_err());
+        assert_eq!(native_scale((11000, 10000), (12100, 11000)).unwrap(), 2);
+        assert!(native_scale((11000, 10000), (22000, 20000)).is_err());
         assert_eq!(Method::default(), Method::Generative);
     }
 
@@ -367,4 +365,10 @@ mod tests {
             }
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_requested_scale_does_not_reject_smaller_native_model() {
+    assert_eq!(native_scale((8000, 5000), (24000, 15000)).unwrap(), 4);
 }

@@ -305,6 +305,7 @@ pub const PENDING_AI_DENOISE_TRANSLATIONS: &[&str] = &[
     "Preview",
     "Apply AI Denoise",
     "Denoise to new DNG/TIFF…",
+    "Saving a denoised file is unavailable in this host.",
     "Download AI Denoise Model",
     "Denoise to new file",
     "Loading the photo",

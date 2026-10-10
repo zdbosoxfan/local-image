@@ -266,6 +266,9 @@ pub fn denoise_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopS
                 .photo(id)
                 .map(|p| format!("{}-Denoised.tiff", p.file_name.rsplit_once('.').map_or(p.file_name.as_str(), |(s, _)| s)))
                 .unwrap_or_else(|| "Denoised.tiff".into());
+            if app.services.save_denoise_file.is_none() {
+                app.toast(ui.ctx(), "Saving a denoised file is unavailable in this host.");
+            }
             if let Some(path) = app.services.save_denoise_file.as_mut().and_then(|f| f(&name))
                 && let Err(e) = app.run("enhance.denoise", json!({"path":path}))
             {

@@ -278,6 +278,9 @@ pub fn listed_file(model_dir: &Path, folders: &[&str], name: &str) -> Option<Pat
 /// Downloads every missing file of `preset` into `model_dir`.
 pub fn download_preset(model_dir: &Path, preset: &Preset, ctl: &JobControl, on_progress: &dyn Fn(DownloadProgress)) -> Result<()> {
     for f in &preset.files {
+        if target_path(model_dir, f).exists() {
+            continue; // Existing user-installed files are verified below, never downloaded.
+        }
         if crate::restoration::byo::external_only(&format!("{}/{}", f.url, f.name)) {
             anyhow::bail!("This model is user-installed only; Local Image never downloads it");
         }
@@ -541,4 +544,26 @@ mod tests {
         assert!(!dir.join("loras/sub/style.safetensors").exists() && dir.join("secret.txt").exists());
         std::fs::remove_dir_all(dir).ok();
     }
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_verified_external_preset_can_already_be_installed() {
+    use sha2::Digest;
+    let dir = std::env::temp_dir().join(format!("ds2-installed-{}", uuid::Uuid::new_v4()));
+    let mut preset = crate::catalog::preset(crate::ModelId::SeedVr2, "fp16").unwrap().clone();
+    preset.files.truncate(1);
+    let file = &mut preset.files[0];
+    file.name = "CodeFormer.pth".into();
+    file.folder = "upscale_models".into();
+    file.url = "https://example.invalid/CodeFormer.pth".into();
+    file.bytes = 7;
+    file.sha256 = format!("{:x}", sha2::Sha256::digest(b"weights"));
+    let path = target_path(&dir, file);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, b"weights").unwrap();
+    download_preset(&dir, &preset, &JobControl::new(), &|_| {}).unwrap();
+    std::fs::remove_file(path).unwrap();
+    assert!(download_preset(&dir, &preset, &JobControl::new(), &|_| {}).unwrap_err().to_string().contains("user-installed only"));
+    std::fs::remove_dir_all(dir).unwrap();
 }

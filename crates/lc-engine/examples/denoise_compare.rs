@@ -27,6 +27,9 @@ fn main() -> Result<(), String> {
     if (clean.width, clean.height) != (noisy.width, noisy.height) {
         return Err("pair dimensions differ".into());
     }
+    if noisy.width < 768 || noisy.height < 768 {
+        return Err("pair is too small for a 768 px comparison crop".into());
+    }
     // A single exposure normalization, determined from the input pair, shared by every candidate.
     let mean = |img: &Rgb32f| img.data.iter().map(|p| p[1].clamp(0., 1.) as f64).sum::<f64>() / img.data.len() as f64;
     let gain = (mean(&noisy) / mean(&clean)) as f32;
@@ -42,7 +45,12 @@ fn main() -> Result<(), String> {
         let x = ((noisy.width - side) as f64 * fx).round() as usize / 2 * 2;
         let y = ((noisy.height - side) as f64 * fy).round() as usize / 2 * 2;
         let input = crop(&noisy, x, y, side);
-        let reference = crop(&clean, (x as i32 + offset[0]) as usize, (y as i32 + offset[1]) as usize, side);
+        let rx = x.checked_add_signed(offset[0] as isize).ok_or("reference crop outside image")?;
+        let ry = y.checked_add_signed(offset[1] as isize).ok_or("reference crop outside image")?;
+        if rx > clean.width - side || ry > clean.height - side {
+            return Err("reference crop outside image".into());
+        }
+        let reference = crop(&clean, rx, ry, side);
         evaluate(&data, scene, index, "input", &input, &reference, 0.)?;
         for kind in [Variant::Linear, Variant::Rgb] {
             let pixels = if kind == Variant::Rgb { display(&input) } else { input.data.clone() };

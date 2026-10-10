@@ -389,15 +389,32 @@ impl ComfyClient {
     /// Runs `graph`: uploads `images` (node id → PNG bytes) into those `LoadImage` nodes, queues,
     /// reports progress into `ctl`, and returns the first output image's bytes.
     pub fn run(&self, graph: Value, images: &[(String, Vec<u8>)], ctl: &JobControl) -> Result<Vec<u8>> {
-        self.run_with_admission(graph, images, ctl, false)
+        self.run_with_admission(graph, images, ctl, false, None)
     }
 
     /// Background checks repeat queue admission after uploads, immediately before submission.
     pub fn run_when_idle(&self, graph: Value, images: &[(String, Vec<u8>)], ctl: &JobControl) -> Result<Vec<u8>> {
-        self.run_with_admission(graph, images, ctl, true)
+        self.run_with_admission(graph, images, ctl, true, None)
     }
 
-    fn run_with_admission(&self, mut graph: Value, images: &[(String, Vec<u8>)], ctl: &JobControl, idle_only: bool) -> Result<Vec<u8>> {
+    pub(crate) fn run_when_idle_checked(
+        &self,
+        graph: Value,
+        images: &[(String, Vec<u8>)],
+        ctl: &JobControl,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<Vec<u8>> {
+        self.run_with_admission(graph, images, ctl, true, Some(check))
+    }
+
+    fn run_with_admission(
+        &self,
+        mut graph: Value,
+        images: &[(String, Vec<u8>)],
+        ctl: &JobControl,
+        idle_only: bool,
+        check: Option<&dyn Fn() -> Result<()>>,
+    ) -> Result<Vec<u8>> {
         ctl.check()?;
         ctl.set_stage(Stage::Uploading);
         for (node, png) in images {
@@ -412,6 +429,13 @@ impl ComfyClient {
         let client_id = uuid::Uuid::new_v4().to_string();
         let socket = ProgressSocket::start(&self.host, &client_id, ctl.clone());
         ctl.set_stage(Stage::Queued);
+        if let Some(check) = check {
+            check()?;
+            ctl.check()?;
+            if idle_only && !crate::refine::queue_idle(self)? {
+                return Err(anyhow!(Busy));
+            }
+        }
         let prompt_id = self.queue_prompt(&graph, &client_id)?;
         let _ours = OurPrompt::new(&self.host, &prompt_id, ctl);
         if let Some(s) = &socket {

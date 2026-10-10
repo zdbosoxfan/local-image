@@ -618,6 +618,17 @@ fn upscale_any() -> bool {
     rt(|r| r.upscale_any)
 }
 
+fn restore_upscale_choice(s: &GenerateState) {
+    if s.mode == Mode::Upscale
+        && !upscale_any()
+        && (s.model.starts_with("custom:")
+            || s.model.starts_with("cloud:")
+            || ModelId::from_key(&s.model).and_then(|m| m.try_info()).is_some_and(|info| !is_upscaler(info)))
+    {
+        rt(|r| r.upscale_any = true);
+    }
+}
+
 fn size_for(aspect: &str, s: &GenerateState, native: u32) -> (u32, u32) {
     let Some((_, r)) = ASPECTS.iter().find(|(k, _)| *k == aspect) else { return (s.width, s.height) };
     // About the model's native pixel count, snapped to its pixel grid.
@@ -1016,6 +1027,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 }
             }
         }
+        restore_upscale_choice(s);
         if s.mode == Mode::Upscale && !upscale_any() {
             crate::ai_ui::enhance_controls(ui, &mut s.enhance_method, &mut s.enhance_backend, &mut s.upscale);
             let ready = crate::ai_ui::enhance_ready(s.enhance_method, s.enhance_backend, s.upscale as u32);
@@ -1093,14 +1105,6 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         // ---- Model.
         // Upscale offers the official upscalers; a diffusion model chosen earlier (saved
         // settings) keeps the full list.
-        if s.mode == Mode::Upscale
-            && !upscale_any()
-            && !s.model.starts_with("custom:")
-            && !s.model.starts_with("cloud:")
-            && ModelId::from_key(&s.model).and_then(|m| m.try_info()).is_some_and(|i| !is_upscaler(i))
-        {
-            rt(|r| r.upscale_any = true);
-        }
         let picked = model_picker(ui, "gen-model", (&s.model, &s.variant), s.mode, &st, true);
         if s.mode == Mode::Upscale {
             let any = upscale_any();
@@ -1861,6 +1865,7 @@ fn local_request(
 /// Starts the generation jobs for the current settings.
 fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let s = app.ui.ai.generate.clone();
+    restore_upscale_choice(&s);
     if s.mode == Mode::Upscale && !upscale_any() {
         if app.session.active().is_none() {
             return;
@@ -2744,6 +2749,7 @@ mod tests {
         session.execute("file.new", json!({"width": 32, "height": 24})).unwrap();
         let mut app = PhotocraftApp::new(session, crate::Services::default());
         app.ui.ai.generate.mode = Mode::Upscale;
+        app.ui.ai.generate.model = ModelId::SeedVr2.key().into();
         let mut initialized = false;
         let mut h = egui_kittest::Harness::builder().with_size(vec2(620.0, 900.0)).build_ui_state(
             move |ui, app: &mut PhotocraftApp| {
@@ -3249,4 +3255,18 @@ fn zimage_variety_settings_presets_and_requests_keep_old_defaults() {
     s.mode = Mode::Refine;
     let source = RgbaImage::new(64, 64);
     assert_eq!(local_request(&s, "a fox".into(), Some((photocraft_doc::DocId(1), source, None)), Vec::new()).unwrap().0.variety, 0.0);
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_restored_upscale_keeps_non_official_model_choice() {
+    for model in [ModelId::Klein4B.key(), "custom:saved-workflow", "cloud:saved-model"] {
+        rt(|r| r.upscale_any = false);
+        let state = GenerateState { mode: Mode::Upscale, model: model.into(), ..Default::default() };
+        restore_upscale_choice(&state);
+        assert!(upscale_any());
+    }
+    rt(|r| r.upscale_any = false);
+    restore_upscale_choice(&GenerateState { mode: Mode::Upscale, model: ModelId::SeedVr2.key().into(), ..Default::default() });
+    assert!(!upscale_any());
 }

@@ -1231,6 +1231,31 @@ pub fn remove(models_dir: &Path, spec: &ModelSpec) -> Result<u64> {
 /// and the loaded copy is forgotten so nothing keeps using it. Returns the bytes freed (0 when it
 /// wasn't installed).
 pub fn remove_with(models_dir: &Path, spec: &ModelSpec, dispose: &dyn Fn(&Path) -> std::io::Result<()>) -> Result<u64> {
+    let shared = shared_models(spec);
+    if shared.iter().any(|other| {
+        other.id != spec.id && other.files().any(|file| spec.files().any(|own| own.file == file.file) && companion_path(models_dir, file.file).is_file())
+    }) {
+        anyhow::bail!("This model shares files with another installed model; remove the shared bundle instead.");
+    }
+    remove_bundle_with(models_dir, spec, dispose)
+}
+
+/// Independent models backed by the same physical files (for example both BSRGAN scales).
+/// Components of one grouped function, such as SFace/YuNet, are already a single bundle.
+pub fn shared_models(spec: &ModelSpec) -> Vec<&'static ModelSpec> {
+    MODELS
+        .iter()
+        .filter(|other| {
+            (other.id == spec.id || spec.group.is_none() || spec.group != other.group) && other.files().any(|a| spec.files().any(|b| a.file == b.file))
+        })
+        .collect()
+}
+
+/// Explicitly remove the whole shared bundle, after showing all affected models to the user.
+pub fn remove_bundle_with(models_dir: &Path, spec: &ModelSpec, dispose: &dyn Fn(&Path) -> std::io::Result<()>) -> Result<u64> {
+    for other in shared_models(spec) {
+        forget(other);
+    }
     forget(spec);
     let mut bytes = 0;
     // Also remove a partially installed bundle, so failed downloads can be cleaned up.
@@ -1301,3 +1326,19 @@ fn cached(a: Active, slot: &Slot) -> Option<Segmenter> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[test]
+fn ds2_shared_model_removal_requires_explicit_bundle() {
+    let dir = std::env::temp_dir().join(format!("ds2-shared-model-{}", std::process::id()));
+    let spec = spec("bsrgan-2x").unwrap();
+    let path = model_path(&dir, spec);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, b"shared weights").unwrap();
+    assert!(remove(&dir, spec).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), b"shared weights");
+    assert_eq!(shared_models(spec).iter().map(|s| s.id).collect::<Vec<_>>(), ["bsrgan-2x", "bsrgan-4x"]);
+    assert_eq!(remove_bundle_with(&dir, spec, &|p| std::fs::remove_file(p)).unwrap(), 14);
+    assert!(!path.exists());
+    std::fs::remove_dir_all(dir).unwrap();
+}

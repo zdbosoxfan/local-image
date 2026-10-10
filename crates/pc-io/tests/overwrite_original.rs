@@ -140,3 +140,24 @@ fn overwrite_original_psd_psb_stay_native_flattened_with_profile_and_depth() {
         assert!(flat.metadata.psd_resources.iter().any(|(id, _, data)| *id == 65000 && data.as_slice() == [1, 2, 3]));
     }
 }
+
+#[test]
+fn ds2_overwrite_psd_retains_merged_alpha_and_refuses_damaged_channels() {
+    for layout in [ChannelLayout::Rgb, ChannelLayout::Rgba] {
+        let image = Image::from_u8(4, 3, layout, vec![100; 12 * layout.channels()]).unwrap();
+        let png = photocraft_codecs::encode(&image, Format::Png, &EncodeOptions::default()).unwrap();
+        let document = photocraft_io::import("photo", &png).unwrap().document;
+        let original = photocraft_io::export(&document, "psd", &Default::default()).unwrap();
+        let psd = photocraft_psd::PsdFile::from_bytes(&original.bytes).unwrap();
+        assert_eq!(psd.merged_has_alpha(), layout.has_alpha());
+        let saved = photocraft_io::export_over_original(&document, &original.bytes, 85).unwrap();
+        assert_eq!(photocraft_psd::PsdFile::from_bytes(&saved.bytes).unwrap().merged_has_alpha(), layout.has_alpha());
+        let mut damaged = psd;
+        let channel = &mut damaged.layer_info.as_mut().unwrap().layers[0].channels[0];
+        channel.compression = Some(photocraft_psd::Compression::Raw);
+        channel.data.clear();
+        let bytes = damaged.to_bytes().unwrap();
+        assert!(!photocraft_io::import("damaged", &bytes).unwrap().warnings.is_empty());
+        assert!(photocraft_io::export_over_original(&document, &bytes, 85).unwrap_err().to_string().contains("damaged originals"));
+    }
+}

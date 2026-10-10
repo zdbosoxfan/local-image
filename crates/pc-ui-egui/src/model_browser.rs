@@ -635,6 +635,9 @@ pub fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
 fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
     // Start or collect the catalogue fetch.
     let key = (s.nav.clone(), s.kind, s.search.trim().to_owned(), s.sources);
+    if s.loaded.as_ref() != Some(&key) && matches!(&s.nav, Nav::Family(f) if f == "restoration") {
+        s.fetch = None;
+    }
     if s.loaded.as_ref() != Some(&key) && s.fetch.is_none() {
         s.loaded = Some(key);
         if s.nav == Nav::Installed {
@@ -1220,4 +1223,27 @@ mod ds_tests {
         state.installed.as_mut().unwrap().0 -= std::time::Duration::from_secs(2);
         assert!(cached_installed(&mut state, HashSet::new).is_empty());
     }
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_restoration_cards_supersede_pending_catalogue_fetch() {
+    let mut state = State { nav: Nav::Family("restoration".into()), fetch: Some(Arc::new(Mutex::new(None))), ..Default::default() };
+    let old_fetch = state.fetch.clone().unwrap();
+    let mut initialized = false;
+    let mut h = egui_kittest::Harness::builder().with_size(vec2(1000.0, 700.0)).build_ui(move |ui| {
+        if !initialized {
+            PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Studio);
+            initialized = true;
+            ui.ctx().request_repaint();
+            return;
+        }
+        body(ui, &mut state, &Tokens::get(ui.ctx()));
+    });
+    h.run_steps(3);
+    use egui_kittest::kittest::Queryable;
+    assert!(h.get_all_by_label("FBCNN · JPEG cleanup").count() > 0);
+    *old_fetch.lock().unwrap() = Some(Fetched { items: vec![], notes: vec!["old family".into()] });
+    h.run_steps(2);
+    assert!(h.get_all_by_label("FBCNN · JPEG cleanup").count() > 0);
 }

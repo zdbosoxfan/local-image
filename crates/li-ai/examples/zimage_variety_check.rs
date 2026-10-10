@@ -76,6 +76,7 @@ fn main() -> Result<()> {
     let method = args.get(1).map(String::as_str).unwrap_or("blend-early");
     let client = ComfyClient::new("127.0.0.1:8188");
     if method == "app" {
+        std::fs::create_dir_all("target/zimage-variety")?;
         let ai = li_ai::Ai::new(client.host());
         let mut times = Vec::new();
         for (seed, variety) in [(4242424242, 0.0), (4343434343, 0.0), (4444444444, 100.0), (4545454545, 100.0)] {
@@ -103,8 +104,10 @@ fn main() -> Result<()> {
         &[0.0, 0.15, 0.35, 0.6]
     };
     let width = args.get(2).map(|s| s.parse::<u32>()).transpose()?.unwrap_or(512);
+    ensure!((16..=8192).contains(&width), "width must be 16–8192 pixels");
     let height = width * 9 / 16;
     let prompt_filter = args.get(3).map(|s| s.parse::<usize>()).transpose()?;
+    ensure!(prompt_filter.is_none_or(|i| i < PROMPTS.len()), "prompt filter outside prompt list");
     let info = client.object_info()?;
     let stats = client.system_stats()?;
     let dir = Path::new("target/zimage-variety").join(if width == 512 { method.to_owned() } else { format!("{method}-{width}") });

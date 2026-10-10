@@ -22,9 +22,15 @@ fn y(p: &image::Rgba<u8>) -> f64 {
     16.0 + (65.481 * p[0] as f64 + 128.553 * p[1] as f64 + 24.966 * p[2] as f64) / 255.0
 }
 
-fn metrics(reference: &RgbaImage, output: &RgbaImage, border: u32) -> (f64, f64) {
+fn metrics(reference: &RgbaImage, output: &RgbaImage, border: u32) -> Result<(f64, f64)> {
+    let margin = border.checked_mul(2).context("metric border overflow")?;
+    ensure!(
+        reference.dimensions() == output.dimensions() && reference.width().saturating_sub(margin) >= 11 && reference.height().saturating_sub(margin) >= 11,
+        "images too small or mismatched for metrics"
+    );
     let (w, h) = (reference.width() - 2 * border, reference.height() - 2 * border);
-    let mut fields = vec![[0.0; 5]; (w * h) as usize];
+    let count = (w as usize).checked_mul(h as usize).filter(|n| *n <= 400_000_000).context("metric dimensions too large")?;
+    let mut fields = vec![[0.0; 5]; count];
     let mut mse = 0.0;
     for row in 0..h {
         for col in 0..w {
@@ -64,7 +70,7 @@ fn metrics(reference: &RgbaImage, output: &RgbaImage, border: u32) -> (f64, f64)
             ssim += ((2.0 * a * b + c1) * (2.0 * (ab - a * b) + c2)) / ((a * a + b * b + c1) * (aa - a * a + bb - b * b + c2));
         }
     }
-    (psnr, ssim / ((w - 10) * (h - 10)) as f64)
+    Ok((psnr, ssim / ((w - 10) as f64 * (h - 10) as f64)))
 }
 
 fn damaged(input: &RgbaImage) -> Result<RgbaImage> {
@@ -223,7 +229,7 @@ pub fn run(ai: &Ai, models: &Path, backend: Backend) -> Result<()> {
                     continue;
                 }
                 let output = output.with_context(|| format!("{id} {case} {}", path.display()))?;
-                let (psnr, ssim) = metrics(&reference, &output, factor);
+                let (psnr, ssim) = metrics(&reference, &output, factor)?;
                 let cosine = if let (Some(clip), Some(expected)) = (&clip, &reference_embedding) {
                     let embedding = clip.embed_image(output.as_raw(), output.width() as usize, output.height() as usize, li_seg::Crops::Center)?;
                     expected.iter().zip(embedding).map(|(a, b)| *a as f64 * b as f64).sum::<f64>()
@@ -247,14 +253,23 @@ pub fn run(ai: &Ai, models: &Path, backend: Backend) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn ds2_metrics_reject_small_mismatched_images_and_huge_border() {
+        let image = RgbaImage::new(8, 8);
+        assert!(metrics(&image, &image, 2).is_err());
+        assert!(metrics(&image, &image, u32::MAX).is_err());
+        assert!(metrics(&RgbaImage::new(32, 32), &image, 2).is_err());
+    }
+
     use super::*;
     #[test]
     fn enhance_evaluation_metrics_match_identity_and_known_error() {
         let a = RgbaImage::from_pixel(32, 32, image::Rgba([128, 128, 128, 255]));
         let b = RgbaImage::from_pixel(32, 32, image::Rgba([138, 138, 138, 255]));
-        let (psnr, ssim) = metrics(&a, &a, 2);
+        let (psnr, ssim) = metrics(&a, &a, 2).unwrap();
         assert!(psnr > 100.0 && (ssim - 1.0).abs() < 1e-10);
-        let (psnr, ssim) = metrics(&a, &b, 2);
+        let (psnr, ssim) = metrics(&a, &b, 2).unwrap();
         let delta = y(b.get_pixel(0, 0)) - y(a.get_pixel(0, 0));
         assert!((psnr - 20.0 * (255.0 / delta).log10()).abs() < 1e-10);
         assert!(ssim < 1.0 && ssim > 0.9);

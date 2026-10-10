@@ -323,7 +323,12 @@ pub fn detect(info: &ObjectInfo, files: &[InstalledFile]) -> Vec<Model> {
                 if adapter.is_none() && reason.is_empty() {
                     reason = "No compatible image-restoration node is installed for this model.".into();
                 }
-                models.push(Model { kind, file: file.into(), folder: folder.into(), adapter, reason });
+                // Unknown loaders are admitted through local discovery, so use that discovery's
+                // folder identity rather than creating a second synthetic "user models" entry.
+                let folders: Vec<_> = if known_loader { vec![folder] } else { files.iter().filter(|f| f.name == file).map(|f| f.folder.as_str()).collect() };
+                for folder in folders {
+                    models.push(Model { kind, file: file.into(), folder: folder.into(), adapter: adapter.clone(), reason: reason.clone() });
+                }
             }
         }
     }
@@ -334,7 +339,7 @@ pub fn detect(info: &ObjectInfo, files: &[InstalledFile]) -> Vec<Model> {
         let Some(kind) = recognise(&format!("{}/{}", file.folder, file.name)) else {
             continue;
         };
-        if !models.iter().any(|m| m.kind == kind && m.file == file.name) {
+        if !models.iter().any(|m| m.kind == kind && m.file == file.name && m.folder == file.folder) {
             models.push(Model {
                 kind,
                 file: file.name.clone(),
@@ -344,8 +349,8 @@ pub fn detect(info: &ObjectInfo, files: &[InstalledFile]) -> Vec<Model> {
             });
         }
     }
-    models.sort_by_key(|m| (m.kind.label(), m.file.clone(), m.adapter.is_none()));
-    models.dedup_by(|a, b| a.kind == b.kind && a.file == b.file);
+    models.sort_by_key(|m| (m.kind.label(), m.folder.clone(), m.file.clone(), m.adapter.is_none()));
+    models.dedup_by(|a, b| a.kind == b.kind && a.folder == b.folder && a.file == b.file);
     models
 }
 
@@ -651,4 +656,16 @@ mod tests {
         std::fs::remove_file(path).unwrap();
         std::fs::remove_dir_all(dir).unwrap();
     }
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_byo_same_name_in_different_folders_remains_visible() {
+    let files = [
+        InstalledFile { folder: "folder-a".into(), name: "CodeFormer.pth".into() },
+        InstalledFile { folder: "folder-b".into(), name: "CodeFormer.pth".into() },
+    ];
+    let models = detect(&ObjectInfo::default(), &files);
+    assert_eq!(models.len(), 2);
+    assert_ne!(models[0].identity("host"), models[1].identity("host"));
 }

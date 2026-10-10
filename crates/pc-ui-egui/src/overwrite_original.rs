@@ -69,21 +69,10 @@ fn save(app: &mut PhotocraftApp, prompt: Prompt) -> Result<(), String> {
         return Err("the document's original changed; try again".into());
     }
     let doc = state.doc.clone();
-    let revision = state.revision;
     let quality = app.session.prefs().export.jpeg_quality.clamp(1, 100) as u8;
     let warnings = app.services.overwrite_original.as_mut().ok_or("no overwrite writer configured")?(&doc, &prompt.path, quality)?;
     // Keep the layered document and its history/path. A subsequent normal Save can still
     // preserve the layers as PSD; only this flattened revision has been saved to the source.
-    let active = app.session.active_index();
-    if let Some(index) = app.session.documents().iter().position(|d| d.doc.id == prompt.doc) {
-        app.session.set_active(index);
-        if let Some(state) = app.session.active_mut() {
-            state.saved_revision = revision;
-        }
-        if let Some(index) = active {
-            app.session.set_active(index);
-        }
-    }
     if prompt.dont_ask_again {
         app.session.edit_prefs(|p| {
             p.dialogs.insert(PREFERENCE.into(), json!({"dontAskAgain": true}));
@@ -156,6 +145,9 @@ mod tests {
             );
             app.host_modes = true;
             develop_layer::open_photo(&mut app, 7, &path.to_string_lossy(), &json!({}), "photo.png").unwrap();
+            app.run("layer.new.layer", json!({"name":"unsaved edit"})).unwrap();
+            let saved_revision = app.session.active().unwrap().saved_revision;
+            assert_ne!(saved_revision, app.session.active().unwrap().revision);
             app.session.edit_prefs(|p| p.export.jpeg_quality = 71);
             let mut h = Harness::builder().with_size(egui::vec2(1200.0, 900.0)).build_ui_state(
                 |ui, app| {
@@ -182,6 +174,8 @@ mod tests {
                 assert!(h.state().overwrite_prompt.is_none());
                 assert_eq!(saves.lock().unwrap().len(), usize::from(confirm));
             }
+            assert_eq!(h.state().session.active().unwrap().saved_revision, saved_revision);
+            assert_ne!(h.state().session.active().unwrap().saved_revision, h.state().session.active().unwrap().revision);
             let save = &h.state().library_saves[0];
             assert_eq!(save.show, command == RETURN_ID);
             assert!(save.overwritten);

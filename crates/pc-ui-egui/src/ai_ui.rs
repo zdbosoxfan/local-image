@@ -99,6 +99,7 @@ pub struct EngineStatus {
     pub starting: bool,
     /// The sampler limits the connected ComfyUI reports (steps, guidance, denoise).
     pub limits: Option<li_ai::comfy::SamplerLimits>,
+    pub object_info: Option<Arc<li_ai::comfy::ObjectInfo>>,
 }
 
 impl EngineStatus {
@@ -192,6 +193,7 @@ fn poll_loop(s: Arc<Shared>) {
         let gpu = stats.as_ref().and_then(|st| li_ai::setup::gpus_from_stats(st).into_iter().next());
         let mut presets = s.status.lock().map(|x| x.presets.clone()).unwrap_or_default();
         let mut limits = s.status.lock().ok().and_then(|x| x.limits);
+        let mut object_info = s.status.lock().ok().and_then(|x| x.object_info.clone());
         let mut error = String::new();
         if connected && (forced || !connected_before || last_inventory.is_none_or(|t| t.elapsed() > Duration::from_secs(30))) {
             match ai.client.object_info() {
@@ -211,6 +213,7 @@ fn poll_loop(s: Arc<Shared>) {
                             })
                         })
                         .collect();
+                    object_info = Some(Arc::new(info));
                     last_inventory = Some(Instant::now());
                 }
                 Err(e) => error = format!("{e:#}"),
@@ -219,13 +222,19 @@ fn poll_loop(s: Arc<Shared>) {
         if !connected {
             presets.clear();
             limits = None;
+            object_info = None;
             last_inventory = None;
         }
         let child_alive = CHILD.lock().ok().and_then(|mut c| c.as_mut().map(|c| c.try_wait().map(|st| st.is_none()).unwrap_or(false))).unwrap_or(false);
         let changed;
         if let Ok(mut st) = s.status.lock() {
-            let new = EngineStatus { checked: true, connected, host, gpu, presets, error, starting: child_alive && !connected, limits };
-            changed = st.connected != new.connected || st.presets != new.presets || st.starting != new.starting || st.limits != new.limits || !st.checked;
+            let new = EngineStatus { checked: true, connected, host, gpu, presets, error, starting: child_alive && !connected, limits, object_info };
+            changed = st.connected != new.connected
+                || st.presets != new.presets
+                || st.starting != new.starting
+                || st.limits != new.limits
+                || st.object_info.as_ref().map(|i| &i.0) != new.object_info.as_ref().map(|i| &i.0)
+                || !st.checked;
             *st = new;
         } else {
             changed = false;
@@ -334,6 +343,9 @@ pub fn start_seg_download(spec: &'static li_seg::ModelSpec) {
 pub fn download_seg_files(spec: &li_seg::ModelSpec, dir: &std::path::Path, ctl: &JobControl, progress: &dyn Fn(u64)) -> anyhow::Result<()> {
     if matches!(spec.task, li_seg::Task::Denoise { .. }) {
         let package = dir.join("segmentation").join(format!("{}.dtmodel", spec.id));
+        if package.exists() {
+            std::fs::remove_file(&package)?;
+        }
         li_ai::download::download_file(spec.url, &package, spec.bytes, spec.sha256, ctl, progress)?;
         if ctl.is_cancelled() {
             anyhow::bail!("download cancelled");
@@ -799,7 +811,13 @@ pub fn dispose(path: &std::path::Path) -> std::io::Result<()> {
 }
 
 /// What removing `target` would free and keep (cheap: sizes only, no hashing).
-pub fn plan_removal(what: String, target: RemoveTarget) -> RemoveAsk {
+pub fn plan_removal(mut what: String, target: RemoveTarget) -> RemoveAsk {
+    if let RemoveTarget::Seg(spec) = &target {
+        let shared = li_seg::shared_models(spec);
+        if shared.len() > 1 {
+            what = shared.iter().map(|s| s.label).collect::<Vec<_>>().join(" / ");
+        }
+    }
     let model_dir = AiSettings::load().model_dir();
     let (bytes, kept) = match &target {
         RemoveTarget::Seg(spec) => (li_seg::installed_bytes(&photocraft_engine::seg::models_dir(), spec).unwrap_or(0), Vec::new()),
@@ -841,7 +859,7 @@ fn remove_now(ask: RemoveAsk) {
         crate::i18n::set_current(lang);
         let model_dir = AiSettings::load().model_dir();
         let r: anyhow::Result<(u64, Vec<String>)> = match &ask.target {
-            RemoveTarget::Seg(spec) => li_seg::remove_with(&photocraft_engine::seg::models_dir(), spec, &dispose).map(|b| (b, Vec::new())),
+            RemoveTarget::Seg(spec) => li_seg::remove_bundle_with(&photocraft_engine::seg::models_dir(), spec, &dispose).map(|b| (b, Vec::new())),
             RemoveTarget::Presets(ids) => {
                 let (these, others) = split_presets(ids);
                 these.into_iter().try_fold((0u64, Vec::<String>::new()), |(freed, mut kept), p| {
@@ -1317,15 +1335,19 @@ pub(crate) fn enhance_controls(ui: &mut egui::Ui, method: &mut li_ai::enhance::M
             }
         });
         let Some(spec) = enhance_settings::selected_spec(&photocraft_engine::seg::models_dir(), *method) else { return };
-        if li_seg::installed_bytes(&photocraft_engine::seg::models_dir(), spec).is_none()
-            && widgets::secondary_button(ui, tl!("Download CPU model"), 0.0).clicked()
-        {
-            start_seg_download(spec);
-        }
-        if status().ready(ModelId::intern(spec.id), "default").is_err() && widgets::secondary_button(ui, tl!("Download GPU model"), 0.0).clicked() {
-            start_download(&format!("{}:default", spec.id));
-        }
+        let downloads = shared().downloads.lock().map(|d| d.clone()).unwrap_or_default();
+        enhance_settings::download_controls(ui, &downloads, &photocraft_engine::seg::models_dir(), spec);
     }
+}
+
+fn custom_seed_ready(status: &EngineStatus, unet: &str, vae: &str) -> bool {
+    status.connected
+        && status.object_info.as_ref().is_some_and(|info| {
+            catalog::preset(ModelId::SeedVr2, "fp16").is_some_and(|p| p.required_nodes.iter().all(|node| info.has_node(node)))
+                && ["UNETLoader", "VAELoader"].iter().all(|node| info.has_node(node))
+                && info.choices("UNETLoader", "unet_name").iter().any(|name| name == unet)
+                && info.choices("VAELoader", "vae_name").iter().any(|name| name == vae)
+        })
 }
 
 pub(crate) fn enhance_ready(method: li_ai::enhance::Method, backend: li_ai::enhance::Backend, _scale: u32) -> Result<(), String> {
@@ -1333,7 +1355,15 @@ pub(crate) fn enhance_ready(method: li_ai::enhance::Method, backend: li_ai::enha
     if method == Method::Generative {
         let choice = li_ai::enhance::selection::load(&photocraft_engine::seg::models_dir(), method);
         if choice != li_ai::enhance::selection::default_choice(method) {
-            return if status().connected { Ok(()) } else { Err(tl!("Start ComfyUI to use the custom SeedVR2 models.").into()) };
+            let st = status();
+            if !st.connected {
+                return Err(tl!("Start ComfyUI to use the custom SeedVR2 models.").into());
+            }
+            let li_ai::enhance::selection::Choice::Seed { unet, vae } = choice else {
+                return Err(tl!("Checking models…").into());
+            };
+            let ready = custom_seed_ready(&st, &unet, &vae);
+            return if ready { Ok(()) } else { Err(tl!("Install the selected SeedVR2 model and VAE, then refresh ComfyUI.").into()) };
         }
         return status().ready(ModelId::SeedVr2, "fp16");
     }
@@ -2372,4 +2402,18 @@ mod tests {
         let node = h.get_by_label("Unload AI models from GPU memory (the AI engine is off)");
         assert!(node.accesskit_node().is_disabled());
     }
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_custom_seed_readiness_requires_files_and_nodes() {
+    let mut info = li_ai::comfy::ObjectInfo(li_ai::mock::object_info());
+    info.0["UNETLoader"]["input"]["required"]["unet_name"] = json!([["custom-seed.safetensors"]]);
+    info.0["VAELoader"]["input"]["required"]["vae_name"] = json!([["custom-vae.safetensors"]]);
+    let mut st = EngineStatus { connected: true, object_info: Some(Arc::new(info.clone())), ..Default::default() };
+    assert!(custom_seed_ready(&st, "custom-seed.safetensors", "custom-vae.safetensors"));
+    assert!(!custom_seed_ready(&st, "missing.safetensors", "custom-vae.safetensors"));
+    info.0.as_object_mut().unwrap().remove("SeedVR2Preprocess");
+    st.object_info = Some(Arc::new(info));
+    assert!(!custom_seed_ready(&st, "custom-seed.safetensors", "custom-vae.safetensors"));
 }

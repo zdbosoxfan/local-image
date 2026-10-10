@@ -54,8 +54,10 @@ fn ai_spots_round_trip_and_denoise_restore_compatibility() {
     let mut bad = v.clone();
     bad["enhance"]["ai"] = json!({"key": "xyz", "source": null});
     bad["enhance"]["denoise"] = json!(100);
+    assert!(DevelopSettings::from_json(&bad).is_err(), "malformed non-null references must not be silently lost");
+    bad["enhance"]["ai"] = serde_json::Value::Null;
     let restored = DevelopSettings::from_json(&bad).unwrap();
-    assert!(restored.enhance.ai.is_none(), "malformed obsolete references still load");
+    assert!(restored.enhance.ai.is_none(), "null references still load");
     assert_eq!(restored.enhance.denoise, 100.0);
     assert_eq!(s.to_json_full()["enhance"]["denoise"], 0.0);
 }

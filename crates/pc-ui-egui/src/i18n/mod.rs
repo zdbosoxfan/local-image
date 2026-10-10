@@ -595,6 +595,21 @@ mod tests {
     ];
 
     const PENDING_AI_TRANSLATIONS: &[&str] = &[
+        "Install the selected SeedVR2 model and VAE, then refresh ComfyUI.",
+        "Invalid enhancement choices file",
+        "invalid convolution padding",
+        "invalid output padding",
+        "concat channels overflow",
+        "invalid PixelShuffle block",
+        "PixelShuffle height overflow",
+        "PixelShuffle width overflow",
+        "Invalid upscale output dimensions",
+        "Restoration architecture inspection timed out",
+        "Probe stdout reader failed",
+        "Probe stderr reader failed",
+        "Missing probe stdout",
+        "Missing probe stderr",
+        "This model shares files with another installed model; remove the shared bundle instead.",
         "AI Enhance…",
         "Faithful",
         "Upscale Faithful",
@@ -757,8 +772,15 @@ mod tests {
     fn every_tl_literal_is_translated() {
         // English until the next translation pass (GPU start-up recovery, October 2026).
         // English until translations resume (owner, 2026-10-09: language work paused).
-        const KEEP_AS_IS: &[&str] =
-            &["Denoise", "Refine denoise", "Refine steps", "Refine guidance", "ComfyUI denoise: 1 regenerates the image, lower values keep more of it"];
+        const KEEP_AS_IS: &[&str] = &[
+            "CPU",
+            "GPU",
+            "Denoise",
+            "Refine denoise",
+            "Refine steps",
+            "Refine guidance",
+            "ComfyUI denoise: 1 regenerates the image, lower values keep more of it",
+        ];
         // docs/wip/CODEX-TASK.md explicitly defers translation of the new background
         // controls. Keep this exception scoped to their keys; remove it when translated.
         const PENDING_BACKGROUND_TRANSLATIONS: &[&str] = &[

@@ -34,17 +34,32 @@ pub fn save(dir: &Path, method: Method, choice: Option<Choice>) -> Result<()> {
     if let Some(c) = &choice {
         validate(method, c)?;
     }
+    static SAVES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _save = SAVES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    std::fs::create_dir_all(dir)?;
+    let lock = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(dir.join(".enhance-functions.lock"))?;
+    lock.lock()?;
     let path = dir.join("enhance-functions.json");
-    let mut choices: BTreeMap<String, Choice> = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    let mut choices: BTreeMap<String, Choice> = match std::fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).context("Invalid enhancement choices file")?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
+        Err(e) => return Err(e.into()),
+    };
     if let Some(c) = choice {
         choices.insert(method.key().into(), c);
     } else {
         choices.remove(method.key());
     }
-    std::fs::create_dir_all(dir)?;
-    let part = path.with_extension("json.part");
-    std::fs::write(&part, serde_json::to_vec_pretty(&choices)?)?;
-    std::fs::rename(&part, &path)?;
+    let part = path.with_extension(format!("{}.part", uuid::Uuid::new_v4()));
+    let result = (|| -> Result<()> {
+        std::fs::write(&part, serde_json::to_vec_pretty(&choices)?)?;
+        std::fs::rename(&part, &path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(part);
+    }
+    result?;
     Ok(())
 }
 
@@ -105,7 +120,7 @@ pub fn import_custom(dir: &Path, method: Method, source: &Path) -> Result<Choice
 pub fn load_custom(dir: &Path, choice: &Choice) -> Result<li_seg::enhance::Upscaler> {
     let Choice::Custom { bytes: expected, sha256, tile, scale, .. } = choice else { bail!("Not a custom ONNX model") };
     let bytes = std::fs::read(custom_path(dir, choice)?)?;
-    if bytes.len() as u64 != *expected || format!("{:x}", Sha256::digest(&bytes)) != *sha256 {
+    if bytes.len() as u64 != *expected || !format!("{:x}", Sha256::digest(&bytes)).eq_ignore_ascii_case(sha256) {
         bail!("The custom enhancement model changed; choose it again.");
     }
     li_seg::enhance::Upscaler::from_onnx(&bytes, *tile, *scale as usize)
@@ -113,6 +128,29 @@ pub fn load_custom(dir: &Path, choice: &Choice) -> Result<li_seg::enhance::Upsca
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn ds2_choices_preserve_concurrent_updates_and_corrupt_files() {
+        let dir = std::env::temp_dir().join(format!("ds2-choices-{}", uuid::Uuid::new_v4()));
+        std::thread::scope(|scope| {
+            for method in [Method::Faithful, Method::Rescue] {
+                let dir = &dir;
+                scope.spawn(move || {
+                    for _ in 0..8 {
+                        save(dir, method, Some(default_choice(method))).unwrap();
+                    }
+                });
+            }
+        });
+        let path = dir.join("enhance-functions.json");
+        let choices: BTreeMap<String, Choice> = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(choices.len(), 2);
+        std::fs::write(&path, b"{broken").unwrap();
+        assert!(save(&dir, Method::Faithful, None).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"{broken");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     use super::*;
     #[test]
     fn enhance_function_choices_default_custom_validation_and_shared_execution() {
@@ -134,6 +172,11 @@ mod tests {
             crate::Ai::new("127.0.0.1:1").enhance(&input, 34, 26, Method::Faithful, super::super::Backend::Cpu, &dir, 1, &crate::JobControl::new()).unwrap();
         assert_eq!(out.dimensions(), (34, 26));
         assert_eq!(*out.get_pixel(10, 10), image::Rgba([30, 100, 200, 255]));
+        let mut upper = custom.clone();
+        if let Choice::Custom { sha256, .. } = &mut upper {
+            *sha256 = sha256.to_ascii_uppercase();
+        }
+        assert!(load_custom(&dir, &upper).is_ok());
         std::fs::write(custom_path(&dir, &custom).unwrap(), b"corrupt").unwrap();
         assert!(load_custom(&dir, &custom).is_err());
         let escaped = Choice::Custom { file: "../outside.onnx".into(), name: "bad".into(), bytes: 1, sha256: "0".repeat(64), tile: 32, scale: 2 };

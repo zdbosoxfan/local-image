@@ -692,7 +692,7 @@ const PLACE_AFTER: &[(&str, &str)] = &[
     (crate::overwrite_original::SAVE_ID, "file.saveAs"),
     (crate::overwrite_original::RETURN_ID, crate::overwrite_original::SAVE_ID),
     ("file.newFromClipboard", "file.new"),
-    (crate::develop_layer::SAVE_RETURN_ID, "file.saveAs"),
+    (crate::develop_layer::SAVE_RETURN_ID, crate::overwrite_original::RETURN_ID),
     ("filter.render.relight", "filter.render.lightingEffects"),
 ];
 

@@ -518,7 +518,11 @@ pub fn required_nodes(f: &Family) -> Vec<String> {
     if f.pipeline.vae != "file" {
         files.remove(&Role::Vae);
     }
-    let p = Params::create("", 1024, 1024, 0, 1, 1.0);
+    let mut p = Params::create("", 1024, 1024, 0, 1, 1.0);
+    if f.id == "z-image" {
+        files.insert(Role::Unet, "z_image_turbo.safetensors".into());
+        p.variety = 100.0;
+    }
     let b = build(f, &files, &p);
     let mut nodes: Vec<String> =
         b.graph.as_object().map(|o| o.values().filter_map(|n| n["class_type"].as_str().map(str::to_owned)).collect()).unwrap_or_default();
@@ -1045,5 +1049,15 @@ fn ds_finding_flux_refine_batch_is_not_squared() {
         if let Some(repeat) = repeat.first() {
             assert_eq!(repeat["inputs"]["amount"], 3);
         }
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_variety_nodes_are_in_capability_requirements() {
+    let (family, model) = crate::family::registry().model("z-image-turbo").unwrap();
+    let requirements = required_nodes(&family.resolved_for(model));
+    for node in ["CLIPTextEncode", "ConditioningAverage", "ConditioningZeroOut"] {
+        assert!(requirements.contains(&node.into()), "{node}: {requirements:?}");
     }
 }

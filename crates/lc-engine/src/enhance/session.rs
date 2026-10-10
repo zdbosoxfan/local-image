@@ -22,6 +22,7 @@ pub struct Polled {
     pub done: Vec<String>,
     /// Errors of failed jobs.
     pub errors: Vec<String>,
+    pub(crate) job_errors: Vec<(u64, String)>,
 }
 
 impl Session {
@@ -38,7 +39,9 @@ impl Session {
                 Ok(o) => o,
                 Err(e) if e == CANCELLED => continue,
                 Err(e) => {
-                    polled.errors.push(format!("{}: {e}", job.label));
+                    let error = format!("{}: {e}", job.label);
+                    polled.job_errors.push((job.id, error.clone()));
+                    polled.errors.push(error);
                     continue;
                 }
             };
@@ -51,7 +54,11 @@ impl Session {
                     polled.changed = true;
                     polled.done.push(label);
                 }
-                Err(e) => polled.errors.push(format!("{label}: {e}")),
+                Err(e) => {
+                    let error = format!("{label}: {e}");
+                    polled.job_errors.push((job.id, error.clone()));
+                    polled.errors.push(error);
+                }
             }
         }
         polled

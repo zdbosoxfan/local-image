@@ -247,7 +247,15 @@ pub fn export_over_original(doc: &Document, original: &[u8], jpeg_quality: u8) -
     if crate::raw::is_raw(original) {
         return Err(IoError::Unsupported("Raw files can't be overwritten; save a copy instead".into()));
     }
-    let original_psd = if crate::is_psd(original) { Some(crate::import("original", original)?.document) } else { None };
+    let original_psd = if crate::is_psd(original) {
+        let result = crate::import("original", original)?;
+        if !result.warnings.is_empty() {
+            return Err(IoError::Unsupported("Animated, multi-page or damaged originals can't be overwritten; save a copy instead".into()));
+        }
+        Some(result.document)
+    } else {
+        None
+    };
     let format = if original_psd.is_some() { Format::Tiff } else { codecs::detect(original).ok_or_else(|| IoError::UnknownFormat("original".into()))? };
     if !matches!(format, Format::Jpeg | Format::Png | Format::Tiff | Format::WebP) || !format.caps().read || !format.caps().write {
         return Err(IoError::Unsupported("This format can't be overwritten; save a copy instead".into()));
@@ -256,12 +264,15 @@ pub fn export_over_original(doc: &Document, original: &[u8], jpeg_quality: u8) -
         if !matches!(old.mode, ColorMode::Rgb | ColorMode::Grayscale | ColorMode::Cmyk) {
             return Err(IoError::Unsupported("This PSD colour mode can't be overwritten; save a copy instead".into()));
         }
-        Image::new(1, 1, layout_for(old.mode, true), csample(old.depth))?.with_icc(old.icc_profile.as_ref().map(|p| p.to_vec())).with_meta(codecs::Metadata {
-            exif: old.metadata.exif.as_ref().map(|p| p.to_vec()),
-            xmp: old.metadata.xmp.clone(),
-            dpi: Some((old.resolution_dpi, old.resolution_dpi)),
-            ..Default::default()
-        })
+        let has_alpha = photocraft_psd::PsdFile::from_bytes(original)?.merged_has_alpha();
+        Image::new(1, 1, layout_for(old.mode, has_alpha), csample(old.depth))?.with_icc(old.icc_profile.as_ref().map(|p| p.to_vec())).with_meta(
+            codecs::Metadata {
+                exif: old.metadata.exif.as_ref().map(|p| p.to_vec()),
+                xmp: old.metadata.xmp.clone(),
+                dpi: Some((old.resolution_dpi, old.resolution_dpi)),
+                ..Default::default()
+            },
+        )
     } else {
         codecs::decode(original)?
     };

@@ -154,7 +154,8 @@ fn repaint(source: &str, tool: &Tool, mono: bool, layer: Layer) -> Result<String
                 writer.write_event(if empty { Event::Empty(element) } else { Event::Start(element) })?;
                 if root {
                     root = false;
-                    let (top, bottom) = if mono { ("#ffffff", "#ffffff") } else { palette(&tool.family).with_context(|| format!("unknown icon family: {}", tool.family))? };
+                    let (top, bottom) =
+                        if mono { ("#ffffff", "#ffffff") } else { palette(&tool.family).with_context(|| format!("unknown icon family: {}", tool.family))? };
                     let (metal_top, metal_bottom) = if mono { ("#ffffff", "#ffffff") } else { palette("grey").expect("built-in grey palette") };
                     let shine = if mono { "#ffffff" } else { "#F7F9FC" };
                     writer.get_mut().extend_from_slice(format!("<defs><linearGradient id=\"mix-face\" x2=\".25\" y2=\"1\"><stop stop-color=\"{top}\"/><stop offset=\"1\" stop-color=\"{bottom}\"/></linearGradient><linearGradient id=\"mix-metal\" x2=\".25\" y2=\"1\"><stop stop-color=\"{metal_top}\"/><stop offset=\"1\" stop-color=\"{metal_bottom}\"/></linearGradient><linearGradient id=\"mix-shine\" x2=\"0\" y2=\"1\"><stop stop-color=\"{shine}\" stop-opacity=\".28\"/><stop offset=\"1\" stop-color=\"{shine}\" stop-opacity=\"0\"/></linearGradient></defs>").as_bytes());
@@ -197,7 +198,7 @@ fn artwork(root: &Path, manifest: &Manifest, tool: &Tool, mono: bool) -> Result<
             STANDARD.encode(repaint(text, tool, mono, layer)?)
         ));
     }
-    let commit = &manifest.sets[&source.set].commit;
+    let commit = &manifest.sets.get(&source.set).context("source references an unknown icon set")?.commit;
     Ok(format!(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\">\n<!-- {} @ {commit} ({}); filled Glossy Duotone adaptation GPL-3.0-or-later, {} family. -->\n<g transform=\"translate(1.5 1.5) scale(.875)\">{images}</g>\n</svg>\n",
         component.source, source.licence, tool.family
@@ -223,6 +224,7 @@ pub fn run(root: &Path) -> Result<()> {
     let manifest = manifest(root)?;
     for tool in &manifest.tools {
         for (dir, mono) in [("color", false), ("tools", true)] {
+            std::fs::create_dir_all(root.join("assets/icons").join(dir))?;
             std::fs::write(root.join(format!("assets/icons/{dir}/{}.svg", tool.id)), artwork(root, &manifest, tool, mono)?)?;
         }
     }
@@ -248,6 +250,43 @@ pub fn run(root: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn ds2_unknown_icon_set_returns_error_and_generation_creates_destinations() {
+        let source = crate::root();
+        let mut manifest = manifest(&source).unwrap();
+        let tool = manifest.tools.iter().find(|t| t.mode == "sourced").unwrap();
+        let name = &tool.components[0].source;
+        manifest.sources.get_mut(name).unwrap().set = "missing".into();
+        assert!(artwork(&source, &manifest, tool, false).unwrap_err().to_string().contains("unknown icon set"));
+        fn copy(source: &Path, dest: &Path) {
+            std::fs::create_dir_all(dest).unwrap();
+            for entry in std::fs::read_dir(source).unwrap() {
+                let entry = entry.unwrap();
+                if entry.file_type().unwrap().is_dir() {
+                    copy(&entry.path(), &dest.join(entry.file_name()));
+                } else {
+                    std::fs::copy(entry.path(), dest.join(entry.file_name())).unwrap();
+                }
+            }
+        }
+        let root = source.join("target/ds2/icon-bootstrap");
+        let _ = std::fs::remove_dir_all(&root);
+        copy(&source.join("assets/icons"), &root.join("assets/icons"));
+        for file in [&manifest.approved.colour, &manifest.approved.monochrome] {
+            let dest = root.join(file);
+            std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+            std::fs::copy(source.join(file), dest).unwrap();
+        }
+        std::fs::remove_dir_all(root.join("assets/icons/color")).unwrap();
+        std::fs::remove_dir_all(root.join("assets/icons/tools")).unwrap();
+        std::fs::create_dir_all(root.join("crates/pc-ui-egui/src")).unwrap();
+        run(&root).unwrap();
+        assert!(root.join("assets/icons/color/crop.svg").is_file());
+        assert!(root.join("assets/icons/tools/crop.svg").is_file());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     use super::*;
     #[test]
     fn mixed_tool_artwork_is_pinned_fresh_and_preserves_the_approved_base() {

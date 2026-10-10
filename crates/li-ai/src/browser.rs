@@ -990,17 +990,17 @@ pub fn plan(item: &Item, files: &[CatalogFile], fam: Option<&Family>, info: &Obj
         if files != canonical.files {
             bail!("Restoration browser files differ from the built-in allowlist");
         }
-        return Ok(Plan {
-            license: canonical.license,
-            license_url: canonical.license_url,
-            files: canonical
-                .files
-                .into_iter()
-                .map(|f| PlannedFile { name: f.name, folder: f.folder, url: f.url, bytes: f.bytes.unwrap(), sha256: f.sha256.unwrap() })
-                .collect(),
-            ..Default::default()
-        });
+        let mut plan = Plan { license: canonical.license, license_url: canonical.license_url, ..Default::default() };
+        for f in canonical.files {
+            if installed(info, &f.folder, &f.name) {
+                plan.present.push(f.name);
+            } else {
+                plan.files.push(PlannedFile { name: f.name, folder: f.folder, url: f.url, bytes: f.bytes.unwrap(), sha256: f.sha256.unwrap() });
+            }
+        }
+        return Ok(plan);
     }
+
     let mut want: Vec<CatalogFile> = files.to_vec();
     // The family's components that ComfyUI doesn't have.
     if let Some(f) = fam

@@ -28,9 +28,21 @@ fn engine(key: &str) -> li_ai::RemoveEngine {
     }
 }
 
+struct ProgressDone<'a>(&'a AtomicBool);
+impl Drop for ProgressDone<'_> {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
 impl AiHost for DevelopAi {
     fn upscale(&self, req: &lightcraft_engine::enhance::UpscaleRequest, ctl: &JobCtl) -> Result<Vec<[u8; 4]>, String> {
-        if req.rgba.len() != req.width * req.height {
+        if req.width == 0
+            || req.height == 0
+            || req.width > u32::MAX as usize
+            || req.height > u32::MAX as usize
+            || req.width.checked_mul(req.height) != Some(req.rgba.len())
+        {
             return Err("image buffer size mismatch".into());
         }
         let method = li_ai::enhance::Method::parse(&req.method).ok_or("unknown enhancement method")?;
@@ -48,6 +60,7 @@ impl AiHost for DevelopAi {
                     std::thread::sleep(Duration::from_millis(50));
                 }
             });
+            let _done = ProgressDone(&done);
             let r = li_ai::service().enhance(
                 &input,
                 req.target.0 as u32,
@@ -102,6 +115,7 @@ impl AiHost for DevelopAi {
                     std::thread::sleep(Duration::from_millis(100));
                 }
             });
+            let _done = ProgressDone(&done);
             let r = li_ai::service().remove_objects(&rgb, &mask, &engine(&req.engine), req.seed, &lctl);
             done.store(true, Ordering::SeqCst);
             r
@@ -113,5 +127,35 @@ impl AiHost for DevelopAi {
         // only the cleaned selection changed (what Compositing's AI Remove composites through)
         let alpha = li_ai::imaging::clean_selection_mask(&mask);
         Ok(RemoveResult { rgb: out.pixels().map(|p| p.0).collect(), alpha: alpha.pixels().map(|p| p.0[0]).collect() })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn ds2_upscale_rejects_overflow_and_zero_dimensions() {
+        for (width, height) in [(usize::MAX, 2), (0, 0)] {
+            let req = lightcraft_engine::enhance::UpscaleRequest { width, height, rgba: vec![], target: (2, 2), method: "faithful".into() };
+            assert!(DevelopAi.upscale(&req, &JobCtl::new()).unwrap_err().contains("buffer size mismatch"));
+        }
+    }
+
+    #[test]
+    fn ds2_progress_thread_exits_when_service_panics() {
+        let done = AtomicBool::new(false);
+        let panic = std::panic::catch_unwind(|| {
+            std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    while !done.load(Ordering::SeqCst) {
+                        std::thread::yield_now();
+                    }
+                });
+                let _done = ProgressDone(&done);
+                panic!("service panic");
+            })
+        });
+        assert!(panic.is_err());
+        assert!(done.load(Ordering::SeqCst));
     }
 }

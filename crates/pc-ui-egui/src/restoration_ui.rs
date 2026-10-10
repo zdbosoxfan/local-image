@@ -73,11 +73,15 @@ pub(crate) struct Runtime {
     acks: byo::Acknowledgements,
     checkpoints: Vec<String>,
     checkpoint: String,
+    model_dir: std::path::PathBuf,
+    local_ready: Option<(Task, bool, Instant)>,
 }
 
 pub(crate) fn open(app: &mut PhotocraftApp) {
     app.restoration.open = true;
     app.restoration.split = 0.5;
+    app.restoration.model_dir = settings().model_dir();
+    app.restoration.local_ready = None;
     app.restoration.acks = byo::Acknowledgements::load(&ack_path());
     sync_source(app);
 }
@@ -205,7 +209,10 @@ fn receive(r: &mut Runtime, preview: Preview) {
             }
             r.mask = Some(mask);
         }
-        Preview::Installed => r.message = tl!("Restore model installed.").into(),
+        Preview::Installed => {
+            r.message = tl!("Restore model installed.").into();
+            r.local_ready = None;
+        }
     }
 }
 
@@ -393,11 +400,16 @@ pub(crate) fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             } else {
                 ui.label(tl!("Original resolution. Apply creates a new layer and hides the source layers."));
             }
+            let local_ready = if let Some(pin) = pin {
+                if r.local_ready.is_none_or(|(task, _, at)| task != r.task || at.elapsed() >= Duration::from_secs(1)) {
+                    r.local_ready = Some((r.task, pin.installed(&r.model_dir), Instant::now()));
+                }
+                r.local_ready.is_some_and(|(_, ready, _)| ready)
+            } else {
+                r.task.file().is_ok()
+            };
             ui.horizontal(|ui| {
-                let ready = r.selected_byo.as_ref().map_or_else(
-                    || pin.map_or_else(|| r.task.file().is_ok(), |pin| pin.installed(&settings().model_dir())),
-                    |m| m.adapter.is_some() && r.acks.contains(m, &r.byo_host),
-                );
+                let ready = r.selected_byo.as_ref().map_or_else(|| local_ready, |m| m.adapter.is_some() && r.acks.contains(m, &r.byo_host));
                 #[cfg(test)]
                 let ready = ready || TEST_RESULT.with(|s| s.borrow().is_some()) || TEST_MASK.with(|s| s.borrow().is_some());
                 run = ui.add_enabled(r.source.is_some() && ready && r.pending.is_none(), egui::Button::new(tl!("Preview restoration"))).clicked();

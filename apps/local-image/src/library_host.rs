@@ -1407,6 +1407,7 @@ mod tests {
         let previous = std::fs::read(&path).unwrap();
         let mut old_handle = std::fs::File::open(&path).unwrap();
         let history = h.host.editor.session.active().unwrap().history.past_len();
+        let saved_revision = h.host.editor.session.active().unwrap().saved_revision;
         let develop = catalog(&h.host).catalog.photo(photo).unwrap().develop.clone();
         if let Some(rs) = rs {
             let probe = photocraft_ui_egui::gpu_canvas::GpuCanvas::new(&rs);
@@ -1442,8 +1443,9 @@ mod tests {
         assert_eq!(catalog(&h.host).catalog.len(), 1);
         assert_eq!(catalog(&h.host).catalog.photo(photo).unwrap().develop, develop);
         assert_eq!(h.host.editor.session.active().unwrap().history.past_len(), history);
-        assert!(!h.host.editor.has_unsaved());
-        assert!(h.host.library.as_ref().unwrap().host_composites.is_empty());
+        assert!(h.host.editor.has_unsaved(), "flattening the original does not save the layered document");
+        assert_eq!(h.host.editor.session.active().unwrap().saved_revision, saved_revision);
+        assert!(h.host.library.as_ref().unwrap().host_composites.contains_key(&photo), "unsaved layered edits keep their Library preview");
         assert!(
             matches!(&h.host.round_trip_notice, Some(RoundTripNotice::Saved(msg)) if msg.contains("Overwrote") && msg.contains(&path) && msg.contains("Trash"))
         );
@@ -1563,6 +1565,7 @@ mod tests {
     fn overwrite_original_notice_saves_its_document_when_another_tab_is_active() {
         let (dir, path, photo, mut h) = overwrite_host("overwrite-other-tab", "png");
         let target = h.host.editor.session.active().unwrap().doc.id;
+        let saved_revision = h.host.editor.session.active().unwrap().saved_revision;
         h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
         h.wait_for(|h| h.library.as_ref().unwrap().host_composites.contains_key(&photo));
         h.host.editor.run("file.new", json!({"width": 8, "height": 8})).unwrap();
@@ -1572,8 +1575,9 @@ mod tests {
         click_overwrite(&mut h, "overwriteConfirm");
         assert!(Arc::ptr_eq(&other, &h.host.editor.session.active().unwrap().doc));
         let state = h.host.editor.session.documents().iter().find(|d| d.doc.id == target).unwrap();
-        assert!(!state.is_dirty());
-        assert!(h.host.library.as_ref().unwrap().host_composites.is_empty());
+        assert!(state.is_dirty(), "the overwritten document still has unsaved layers");
+        assert_eq!(state.saved_revision, saved_revision);
+        assert!(h.host.library.as_ref().unwrap().host_composites.contains_key(&photo));
         let img = photocraft_codecs::decode(&std::fs::read(&path).unwrap())
             .unwrap()
             .convert(photocraft_codecs::ChannelLayout::Rgb, photocraft_codecs::SampleType::U8);
