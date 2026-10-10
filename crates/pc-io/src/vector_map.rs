@@ -13,6 +13,10 @@ use photocraft_psd::path::{PathData, PsdKnot, PsdSubpath, VectorMaskBlock};
 
 use crate::blocks::{bool_of, enum_of, fill_from_desc, fill_to_desc, get_desc, num, parse_prefix_versioned};
 
+// Package 23 owns this registration point. Package 00 may also re-export it at the crate root.
+#[path = "vector_fallback.rs"]
+pub mod fallback;
+
 /// Saved path resource ids (Adobe spec: 2000–2997).
 pub const SAVED_PATHS: std::ops::RangeInclusive<u16> = 2000..=2997;
 /// Work path resource id.
