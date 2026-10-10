@@ -903,10 +903,10 @@ impl<'a> Planner<'a> {
     fn adjust(&mut self, adj: &Adjustment, src: Slot) -> Result<Slot, Unsupported> {
         let mut p = Pass::new(Kernel::Adjust, 0);
         p.a = Some(src);
-        let (kind, params, lut) = adjustment_program(adj, self.cx.transfer, self.cx.depth);
+        let (kind, params, lut) = cached_adjustment_program(adj, self.cx.transfer, self.cx.depth);
         p.adjust_kind = kind;
         p.params = params;
-        p.lut = lut.map(std::sync::Arc::new);
+        p.lut = lut;
         if kind == 18 && p.params[0][0] == 0.0 {
             return Err(Unsupported("CMYK profile has no accelerated device-link grids".into()));
         }
@@ -1444,6 +1444,53 @@ fn lut_rows(f: impl Fn(usize, f32) -> f32, rows: usize) -> Vec<[f32; 4096]> {
 }
 
 type Program = (i32, [[f32; 4]; 4], Option<Vec<[f32; 4096]>>);
+type SharedProgram = (i32, [[f32; 4]; 4], Option<std::sync::Arc<Vec<[f32; 4096]>>>);
+
+/// A Move changes plan clips, not Levels/Curves. Cache these expensive, profile-independent
+/// programs by exact input bits and document depth. CMYK rows embed the active profile grids,
+/// so they continue through the uncached path. At most 64 programs (~4 MiB of rows) are retained.
+fn cached_adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraft_color::SampleType) -> SharedProgram {
+    let mut key = vec![depth as u64];
+    match adj {
+        Adjustment::Levels { master, per_channel, space, black } if *space != ToneSpace::Cmyk => {
+            key.extend([0, *space as u64]);
+            for c in std::iter::once(master).chain(per_channel).chain(std::iter::once(black)) {
+                key.extend([c.in_black, c.in_white, c.gamma, c.out_black, c.out_white].map(|v| u64::from(v.to_bits())));
+            }
+        }
+        Adjustment::Curves { master, per_channel, space, black } if *space != ToneSpace::Cmyk => {
+            key.extend([1, *space as u64]);
+            for points in std::iter::once(master).chain(per_channel).chain(std::iter::once(black)) {
+                key.push(points.len() as u64);
+                for p in points {
+                    key.extend([u64::from(p.input.to_bits()), u64::from(p.output.to_bits())]);
+                }
+            }
+        }
+        _ => {
+            let (kind, params, lut) = adjustment_program(adj, transfer, depth);
+            return (kind, params, lut.map(std::sync::Arc::new));
+        }
+    }
+    static CACHE: std::sync::Mutex<Vec<(Vec<u64>, SharedProgram)>> = std::sync::Mutex::new(Vec::new());
+    let mut cache = CACHE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(i) = cache.iter().position(|(k, _)| *k == key) {
+        let entry = cache.remove(i);
+        let program = entry.1.clone();
+        cache.push(entry);
+        return program;
+    }
+    // Don't hold the shared cache while computing the table.
+    drop(cache);
+    let (kind, params, lut) = adjustment_program(adj, transfer, depth);
+    let program = (kind, params, lut.map(std::sync::Arc::new));
+    let mut cache = CACHE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if cache.len() == 64 {
+        cache.remove(0);
+    }
+    cache.push((key, program.clone()));
+    program
+}
 
 /// A CPU LUT (4096 entries) as one texture row.
 fn to_row(t: &[f32]) -> [f32; 4096] {
@@ -1665,6 +1712,50 @@ mod tests {
     use super::*;
     use photocraft_color::{Color, ColorMode, SampleType};
     use photocraft_geom::Size;
+
+    #[test]
+    fn cached_tone_programs_match_fresh_tables_and_invalidate_on_edits() {
+        let mut levels = Adjustment::identity_levels();
+        if let Adjustment::Levels { master, .. } = &mut levels {
+            master.gamma = 1.37;
+            master.in_black = 0.07;
+        }
+        let mut curves = Adjustment::identity_curves();
+        if let Adjustment::Curves { master, .. } = &mut curves {
+            master.insert(1, photocraft_doc::adjust::CurvePoint { input: 0.35, output: 0.47 });
+        }
+        for mut adj in [levels, curves] {
+            for space in [ToneSpace::Rgb, ToneSpace::Lab] {
+                if let Adjustment::Levels { space: s, .. } | Adjustment::Curves { space: s, .. } = &mut adj {
+                    *s = space;
+                }
+                let mut previous = None;
+                for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+                    let cached = cached_adjustment_program(&adj, Transfer::Srgb, depth);
+                    let fresh = adjustment_program(&adj, Transfer::Srgb, depth);
+                    assert_eq!(cached.0, fresh.0);
+                    assert_eq!(cached.1, fresh.1);
+                    let rows = cached.2.unwrap();
+                    assert_eq!(rows.as_ref(), fresh.2.as_ref().unwrap());
+                    let repeated = cached_adjustment_program(&adj, Transfer::Gamma(2.2), depth).2.unwrap();
+                    assert!(std::sync::Arc::ptr_eq(&rows, &repeated), "tone tables do not depend on transfer");
+                    if let Some(old) = previous {
+                        assert!(!std::sync::Arc::ptr_eq(&old, &rows), "depth is part of the key");
+                    }
+                    previous = Some(rows);
+                }
+            }
+            let before = cached_adjustment_program(&adj, Transfer::Srgb, SampleType::U8).2.unwrap();
+            match &mut adj {
+                Adjustment::Levels { per_channel, .. } => per_channel[0].gamma = 1.1,
+                Adjustment::Curves { per_channel, .. } => per_channel[0][0].output = 0.1,
+                _ => panic!("tone adjustment"),
+            }
+            let after = cached_adjustment_program(&adj, Transfer::Srgb, SampleType::U8).2.unwrap();
+            assert!(!std::sync::Arc::ptr_eq(&before, &after), "edited channel receives new rows");
+            assert_eq!(after.as_ref(), adjustment_program(&adj, Transfer::Srgb, SampleType::U8).2.as_ref().unwrap());
+        }
+    }
 
     #[test]
     fn slots_are_recycled() {

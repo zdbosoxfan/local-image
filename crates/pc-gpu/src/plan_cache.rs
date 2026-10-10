@@ -36,7 +36,10 @@ impl PlanCache {
         let key = self.structure(doc);
         if self.cached.is_none() || self.key != key {
             self.builds += 1;
-            self.cached = Some(crate::plan(doc).and_then(|p| {
+            self.cached = Some(crate::plan(doc).and_then(|mut p| {
+                if let Some(Ok(previous)) = &self.cached {
+                    previous.share_luts(&mut p);
+                }
                 check(&p)?;
                 Ok(Template::new(doc, &p))
             }));
@@ -82,7 +85,7 @@ impl PlanCache {
                 key,
                 "{:?}{:?}",
                 (l.id, &l.name, l.visible, l.blend, l.opacity, l.fill_opacity, l.clipped, l.excluded_channels),
-                (&l.blend_if, &l.effects, &l.vector_mask)
+                (&l.blend_if, (l.effects.enabled, &l.effects.items, l.effects.reference), &l.vector_mask)
             );
             if let Some(m) = &l.mask {
                 let _ = write!(key, "{:?}", (m.enabled, m.density, m.feather));
@@ -106,7 +109,7 @@ impl PlanCache {
                     let _ = write!(key, "f{f:?}");
                 }
                 LayerContent::Shape(s) => {
-                    let _ = write!(key, "s{:?}", (&s.path, &s.fill, &s.stroke));
+                    let _ = write!(key, "s{:016x}", photocraft_compose::shape_split::state_key(s));
                     if let Some(s) = &s.cache {
                         self.surface(s, key, true);
                     } else {
@@ -142,6 +145,22 @@ impl PlanCache {
 }
 
 impl Template {
+    /// A Move rebuild changes world-space clips and shape sources, but most gradient/adjustment
+    /// LUTs are unchanged. Keep their Arc identity so `frame_res` retains the GPU textures rather
+    /// than uploading every LUT again on every drag frame (and clearing its 256-entry cache).
+    fn share_luts(&self, plan: &mut Plan<'_>) {
+        for p in &mut plan.passes {
+            let Some(rows) = &p.lut else { continue };
+            let same = |other: &&Arc<Vec<[f32; 4096]>>| {
+                Arc::ptr_eq(rows, other)
+                    || (rows.len() == other.len() && rows.iter().flatten().zip(other.iter().flatten()).all(|(a, b)| a.to_bits() == b.to_bits()))
+            };
+            if let Some(previous) = self.passes.iter().filter_map(|p| p.lut.as_ref()).find(same) {
+                p.lut = Some(previous.clone());
+            }
+        }
+    }
+
     fn new(doc: &Document, p: &Plan<'_>) -> Self {
         let own = |s: &SurfaceRef<'_>| match s {
             SurfaceRef::Derived(s) => SurfaceRef::Derived(s.clone()),
@@ -280,6 +299,68 @@ mod tests {
             c.get(&d, |_| Ok(())).unwrap();
             assert_eq!(c.builds, n + 1);
         }
+    }
+
+    #[test]
+    fn unchanged_luts_keep_gpu_identity_across_plan_rebuilds() {
+        use photocraft_doc::Adjustment;
+        let mut d = doc();
+        d.layers.push(Layer::new(
+            "tone",
+            LayerContent::Adjustment(Adjustment::GradientMap { stops: vec![(0.0, [0.1, 0.2, 0.3]), (1.0, [0.8, 0.9, 1.0])], reverse: false, dither: false }),
+        ));
+        let mut c = PlanCache::default();
+        let first = c.get(&d, |_| Ok(())).unwrap().passes.iter().find_map(|p| p.lut.clone()).unwrap();
+        // Position/visibility changes rebuild the plan but do not change the tone program.
+        d.layers[0].opacity = 0.5;
+        let moved = c.get(&d, |_| Ok(())).unwrap().passes.iter().find_map(|p| p.lut.clone()).unwrap();
+        assert_eq!(c.builds, 2);
+        assert!(Arc::ptr_eq(&first, &moved));
+        if let LayerContent::Adjustment(Adjustment::GradientMap { stops, .. }) = &mut d.layers[1].content {
+            stops[0].1[0] = 0.4;
+        }
+        let edited = c.get(&d, |_| Ok(())).unwrap().passes.iter().find_map(|p| p.lut.clone()).unwrap();
+        assert_eq!(c.builds, 3);
+        assert!(!Arc::ptr_eq(&moved, &edited));
+        let fresh = crate::plan(&d).unwrap().passes.iter().find_map(|p| p.lut.clone()).unwrap();
+        assert_eq!(edited, fresh);
+    }
+
+    #[test]
+    fn archival_psd_effect_bytes_do_not_rebuild_render_plans() {
+        let mut d = doc();
+        d.layers[0].effects.items.push(Effect::default_drop_shadow());
+        let mut c = PlanCache::default();
+        c.get(&d, |_| Ok(())).unwrap();
+        // These bytes are saved verbatim on PSD export, but the planner renders `items`.
+        d.layers[0].effects.psd_raw = Some(Arc::new(vec![42; 64 << 10]));
+        c.get(&d, |_| panic!("archival data must not invalidate rendering")).unwrap();
+        assert_eq!(c.builds, 1);
+        d.layers[0].effects.reference = Some((3.0, 5.0));
+        c.get(&d, |_| Ok(())).unwrap();
+        assert_eq!(c.builds, 2);
+    }
+
+    #[test]
+    fn shape_plan_keys_preserve_subpixel_edits_and_live_parameters() {
+        use photocraft_doc::vector::{LiveShape, ShapeLayer};
+        use photocraft_doc::{Fill, Path, Subpath};
+        let mut d = doc();
+        let path = Path::new(vec![Subpath::polygon(&[(1.0, 1.0), (20.0, 1.0), (1.0, 20.0)])]);
+        let shape = ShapeLayer { path, fill: Some(Fill::Solid(Color::rgb(0.7, 0.2, 0.3))), stroke: None, live: None, cache: None, psd_raw: None };
+        d.layers.push(Layer::new("shape", LayerContent::Shape(shape)));
+        let mut c = PlanCache::default();
+        c.get(&d, |_| Ok(())).unwrap();
+        if let LayerContent::Shape(s) = &mut d.layers[1].content {
+            s.path.subpaths[0].knots[0].anchor.x += 1.0 / 4_194_304.0;
+        }
+        c.get(&d, |_| Ok(())).unwrap();
+        assert_eq!(c.builds, 2);
+        if let LayerContent::Shape(s) = &mut d.layers[1].content {
+            s.live = Some(LiveShape::Ellipse { rect: [1.0, 1.0, 19.0, 19.0] });
+        }
+        c.get(&d, |_| Ok(())).unwrap();
+        assert_eq!(c.builds, 3);
     }
 
     #[test]
