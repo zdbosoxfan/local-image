@@ -86,6 +86,7 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId]) -> Result<(), String> {
         let _ = tx.send(Event::Done(result));
     };
     let faces = app.session.smart.prefs.faces_enabled;
+    // Finish tagging setup before starting faces, so setup errors leave no worker running.
     if faces {
         crate::people_task::start(app, ids, None)?;
     }

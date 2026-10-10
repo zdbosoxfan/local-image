@@ -161,6 +161,7 @@ pub fn cancel(app: &mut PhotocraftApp, id: JobId) {
 }
 
 fn on_event(app: &mut PhotocraftApp, e: JobEvent) {
+    crate::restoration_ui::repair_finished(app, &e);
     // Control requests waiting on this job.
     let reply = match &e.outcome {
         JobOutcome::Done(v) => json!({"ok": true, "result": v}),

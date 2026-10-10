@@ -439,12 +439,12 @@ thread_local! {
 
 /// The native file dialog for an `.onnx` model (tests inject the pick instead of opening it).
 #[cfg(not(test))]
-fn pick_onnx() -> Option<std::path::PathBuf> {
+pub(crate) fn pick_onnx() -> Option<std::path::PathBuf> {
     rfd::FileDialog::new().set_title(tl!("Choose an ONNX model")).add_filter(tl!("ONNX model"), &["onnx"]).pick_file()
 }
 
 #[cfg(test)]
-fn pick_onnx() -> Option<std::path::PathBuf> {
+pub(crate) fn pick_onnx() -> Option<std::path::PathBuf> {
     TEST_PICK.with(|p| p.borrow_mut().take())
 }
 
@@ -2306,9 +2306,20 @@ mod tests {
 
     #[test]
     fn ds_finding_unload_completion_wakes_idle_ui() {
+        // Full-app tests consume REMOVE_NOTE and other AI tests replace the service.
+        // Keep both globals private to this regression so completion remains observable.
+        if std::env::var_os("PC_AI_UNLOAD_TEST_CHILD").is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "ai_ui::tests::ds_finding_unload_completion_wakes_idle_ui", "--nocapture"])
+                .env("PC_AI_UNLOAD_TEST_CHILD", "1")
+                .output()
+                .unwrap();
+            eprint!("{}", String::from_utf8_lossy(&output.stderr));
+            assert!(output.status.success(), "Unload completion child failed: {}", String::from_utf8_lossy(&output.stdout));
+            return;
+        }
         let _lock = AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let server = li_ai::mock::MockComfy::start().unwrap();
-        server.free_delay_ms.store(200, std::sync::atomic::Ordering::SeqCst);
         struct Reset;
         impl Drop for Reset {
             fn drop(&mut self) {
@@ -2324,20 +2335,27 @@ mod tests {
             .build_ui_state(move |ui, app: &mut PhotocraftApp| status_controls_with(app, ui, &connected), app);
         PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
         h.run_steps(2);
-        let woke = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let record = woke.clone();
-        h.ctx.set_request_repaint_callback(move |_| {
+
+        // Hold status publication until the click, SVG loading and hover animations settle.
+        let mut note = REMOVE_NOTE.lock().unwrap();
+        *note = None;
+        h.get_by_label("Unload AI models from GPU memory").click();
+        h.remove_cursor();
+        h.run();
+        assert_eq!(h.state().ui.status, "Unloading AI models…");
+        assert!(!h.ctx.has_requested_repaint(), "the UI must be idle before worker completion");
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        h.ctx.set_request_repaint_callback(move |info| {
             if std::thread::current().name() == Some("ai-unload") {
-                record.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let _ = tx.send(info);
             }
         });
-        h.get_by_label("Unload AI models from GPU memory").click();
-        h.run_steps(8);
-        let start = Instant::now();
-        while woke.load(std::sync::atomic::Ordering::Relaxed) == 0 && start.elapsed() < Duration::from_secs(3) {
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        assert!(woke.load(std::sync::atomic::Ordering::Relaxed) > 0, "worker must request repaint after publishing its status");
+        drop(note);
+        let info = rx.recv_timeout(Duration::from_secs(10)).expect("worker must request repaint after publishing its status");
+        assert_eq!(info.viewport_id, egui::ViewportId::ROOT);
+        assert_eq!(info.delay, Duration::ZERO);
+        assert!(h.ctx.has_requested_repaint());
         assert_eq!(REMOVE_NOTE.lock().unwrap().take().unwrap(), ("Models unloaded.".into(), false));
     }
 

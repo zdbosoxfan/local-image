@@ -13,6 +13,7 @@ pub(crate) struct Pending {
     texture: Option<TextureHandle>,
     dirty: Rect,
     show_bar: bool,
+    colourise_after: bool,
 }
 
 fn sync(app: &mut PhotocraftApp) {
@@ -34,6 +35,7 @@ fn new(app: &PhotocraftApp) -> Option<Pending> {
         texture: None,
         dirty: Rect::from_xywh(0, 0, size[0], size[1]),
         show_bar: true,
+        colourise_after: false,
     })
 }
 
@@ -116,6 +118,24 @@ pub(crate) fn selection(app: &mut PhotocraftApp) {
     }
 }
 
+/// A learned detector's mask enters the same transient, editable confirmation as painting.
+/// Even when immediate removal is enabled, importing a mask never submits a fill.
+pub(crate) fn detected(app: &mut PhotocraftApp, mask: image::GrayImage, colourise_after: bool) -> Result<(), String> {
+    let mut pending = new(app).ok_or("Open an image to repair.")?;
+    if mask.dimensions() != (pending.size[0], pending.size[1]) {
+        return Err("Scratch mask dimensions differ from the image.".into());
+    }
+    pending.mask = mask.into_raw();
+    pending.colourise_after = colourise_after;
+    changed(&mut pending);
+    if pending.bounds.is_empty() {
+        return Err("No scratches detected.".into());
+    }
+    app.ui.tool = Tool::AiRemove;
+    app.ai_remove = Some(pending);
+    Ok(())
+}
+
 fn ready(app: &PhotocraftApp) -> bool {
     let (m, v) = crate::ai_ui::remove_engine(&app.ui.ai.remove_engine);
     crate::ai_ui::status().ready(m, v).is_ok()
@@ -135,10 +155,14 @@ fn remove(app: &mut PhotocraftApp) {
         Some(service) => service(app, &params),
         None => app.run("ai.remove", params),
     });
-    if let Err(error) = result {
-        app.ai_remove = Some(p);
-        app.ui.status = error;
-        app.ui.status_error = true;
+    match result {
+        Err(error) => {
+            app.ai_remove = Some(p);
+            app.ui.status = error;
+            app.ui.status_error = true;
+        }
+        Ok(value) if p.colourise_after => crate::restoration_ui::after_repair(app, &value, p.doc),
+        Ok(_) => {}
     }
 }
 

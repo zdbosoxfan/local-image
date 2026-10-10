@@ -25,6 +25,7 @@ use tract_onnx::tract_hir::infer::Factoid;
 pub mod denoise;
 pub mod enhance;
 pub mod faces;
+pub mod restoration;
 pub mod restoration_graph;
 
 /// Another file required by a multi-file model (weights or tokenizer data).
