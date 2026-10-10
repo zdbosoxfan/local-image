@@ -258,3 +258,127 @@ fn layout_document_composites_on_the_gpu_like_the_cpu() {
     }
     assert!(worst <= 2.0 / 255.0, "GPU differs from the CPU by {}/255", worst * 255.0);
 }
+
+/// Read the actual app canvas during a group drag, including stroked shapes with effects,
+/// against a CPU render that cannot hit the translated split entry. No adapter skips: this
+/// regression must exercise GPU pixels and the real pointer-event preview/commit path.
+#[test]
+fn stroked_group_drag_gpu_pixels_match_fresh_render_and_commit() {
+    let _gpu = crate::gpu_lock();
+    let (document, handles) = layout_doc::build(layout_doc::Spec::small());
+    let observer = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let capture = observer.clone();
+    let mut h: H = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .with_pixels_per_point(1.0)
+        .with_max_steps(64)
+        .wgpu_setup(photocraft_ui_egui::gpu_canvas::wgpu_setup())
+        .build_eframe(move |cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Services::default());
+            let rs = cc.wgpu_render_state.as_ref().expect("GPU render state");
+            let info = rs.adapter.get_info();
+            eprintln!("group drag GPU: {} ({:?}, {:?})", info.name, info.backend, info.device_type);
+            assert_ne!(info.device_type, eframe::wgpu::DeviceType::Cpu, "a software adapter does not cover this regression");
+            *capture.lock().expect("observer") = Some(photocraft_ui_egui::gpu_canvas::GpuCanvas::new(rs));
+            app.set_wgpu(rs.clone());
+            app.session.open_document(document, None);
+            app.sync_views();
+            app
+        });
+    h.run_steps(6);
+    actual_pixels(&mut h);
+    h.state_mut().ui.tool = Tool::Move;
+    h.state_mut().ui.tool_options.move_auto_select = false;
+    h.state_mut().run("layer.select", json!({"layer": handles.group.0})).expect("select group");
+    h.run_steps(2);
+    let before = doc(&h);
+    let old_bounds = bounds(&h, handles.group);
+    let history = h.state().session.active().expect("document").history.entries().len();
+    let gpu = observer.lock().expect("observer").clone().expect("GPU canvas");
+    let compare = |expected: &Document, phase: &str| {
+        // Mint fresh identities for the expected cached shape pixels. This forces the split
+        // fitter to render at this exact final position rather than use the moved entry.
+        let mut fresh = expected.clone();
+        fn reset(layers: &mut [photocraft_doc::Layer]) {
+            for l in layers {
+                if let LayerContent::Shape(sh) = &mut l.content
+                    && let Some(c) = &mut sh.cache
+                {
+                    let r = photocraft_compose::bounds::content_bounds(c);
+                    *c = photocraft_raster::Surface::from_interleaved(c.format(), r, &c.to_interleaved(r));
+                }
+                if let Some(children) = l.children_mut() {
+                    reset(children);
+                }
+            }
+        }
+        reset(&mut fresh.layers);
+        let cpu = photocraft_compose::flatten(&fresh);
+        let (_, size, pixels) = gpu.read_texels(expected.id.0).expect("GPU app canvas readback");
+        assert_eq!(size, [expected.size.width, expected.size.height]);
+        let (mut worst, mut at) = (0.0f32, 0usize);
+        for (i, (c, g)) in cpu.px.iter().zip(&pixels).enumerate() {
+            for k in 0..4 {
+                let want = if k == 3 { c[3] } else { c[k] * c[3] };
+                if (want - g[k]).abs() > worst {
+                    worst = (want - g[k]).abs();
+                    at = i;
+                }
+            }
+        }
+        assert!(
+            worst <= 2.0 / 255.0,
+            "{phase}: app canvas differs by {}/255 at ({}, {}): CPU {:?}, GPU {:?}",
+            worst * 255.0,
+            at % size[0] as usize,
+            at / size[0] as usize,
+            cpu.px[at],
+            pixels[at]
+        );
+    };
+    compare(&before, "before drag");
+    let from = point_on(&h, handles.group);
+    let start = screen(&h, from);
+    h.event(Event::PointerMoved(start));
+    h.step();
+    h.event(Event::PointerButton { pos: start, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+    h.step();
+    for i in 1..=6 {
+        let (dx, dy) = (i * 7, i * 4);
+        h.event(Event::PointerMoved(screen(&h, [from[0] + f64::from(dx), from[1] + f64::from(dy)])));
+        h.step();
+        // Canvas painting precedes tool-event handling in the app's UI pass. Present the newly
+        // computed preview in the next frame while the pointer is still held at this position.
+        h.step();
+        assert!(h.state().perf.gpu && h.state().perf.gpu_fallback.is_none(), "real GPU preview");
+        assert!(h.state().perf.spans.contains_key("move preview"), "the pointer drives a live Move preview");
+        assert_eq!(bounds(&h, handles.group), old_bounds, "no commit during drag");
+        compare(&moved(&before, &[handles.group], dx, dy).expect("expected preview"), &format!("move {dx}, {dy}"));
+    }
+    release(&mut h, [from[0] + 42.0, from[1] + 24.0]);
+    assert_eq!(bounds(&h, handles.group), old_bounds.translate(42, 24));
+    assert_eq!(h.state().session.active().expect("document").history.entries().len(), history + 1);
+    compare(&doc(&h), "committed");
+    h.state_mut().run("edit.undo", json!({})).expect("undo");
+    h.run_steps(3);
+    assert_eq!(bounds(&h, handles.group), old_bounds);
+    compare(&doc(&h), "undone");
+}
+
+#[test]
+fn psd_group_preview_preserves_stroked_shape_pixel_identity() {
+    let _gpu = crate::gpu_lock();
+    let (document, _) = layout_doc::build(layout_doc::Spec::full());
+    let bytes = photocraft_io::export(&document, "layout.psd", &Default::default()).expect("PSD export").bytes;
+    let document = photocraft_io::import("layout.psd", &bytes).expect("PSD import").document;
+    let group = document.walk().into_iter().find(|(_, _, l)| l.name == "Card 1" && l.is_group()).expect("card group").2.id;
+    let preview = moved(&document, &[group], 37, 23).expect("group preview");
+    for layer in document.layer(group).expect("group").children().expect("children") {
+        let LayerContent::Shape(original) = &layer.content else { continue };
+        let LayerContent::Shape(shifted) = &preview.layer(layer.id).expect("moved shape").content else { panic!("shape") };
+        let original = original.cache.as_ref().expect("original cache");
+        let shifted = shifted.cache.as_ref().expect("shifted cache");
+        assert_eq!(shifted.translation_identity(), (original.translation_identity().0, 37, 23), "{} keeps its PSD pixel source", layer.name);
+    }
+}

@@ -347,15 +347,9 @@ pub fn moved(doc: &Document, ids: &[LayerId], dx: i32, dy: i32) -> Result<Docume
     Ok(out)
 }
 
-/// `photocraft_algo::resample::translate_surface` with the content scan cached per tile (a Move
-/// drag shifts the same layers every frame; scanning them each time cost more than the copy).
+/// Lossless Move preview translation, retaining pixel lineage for the stroked-shape split cache.
 pub(crate) fn shift_surface(s: &photocraft_raster::Surface, dx: i32, dy: i32) -> photocraft_raster::Surface {
-    let mut out = photocraft_raster::Surface::with_default(s.format(), &s.default_pixel());
-    let r = photocraft_compose::bounds::content_bounds(s);
-    if !r.is_empty() {
-        out.write_interleaved(r.translate(dx, dy), &s.to_interleaved(r));
-    }
-    out
+    s.translated(dx, dy)
 }
 
 /// [`crate::commands::translate_layer`] plus the vector side, without re-rendering anything.
@@ -920,6 +914,30 @@ mod tests {
 
     fn damage(s: &Session) -> Option<Rect> {
         s.active().unwrap().last_damage
+    }
+
+    #[test]
+    fn group_preview_preserves_shape_cache_translation_identity() {
+        use photocraft_doc::vector::{Path, ShapeLayer, ShapeStroke, Subpath};
+        let mut d = Document::new("move", photocraft_geom::Size::new(300, 240), photocraft_color::ColorMode::Rgb, photocraft_color::SampleType::U8);
+        let mut sh = ShapeLayer {
+            path: Path::new(vec![Subpath::polygon(&[(20.25, 30.5), (80.25, 30.5), (80.25, 70.5), (20.25, 70.5)])]),
+            fill: Some(photocraft_doc::Fill::Solid(photocraft_color::Color::WHITE)),
+            stroke: Some(ShapeStroke::default()),
+            ..ShapeLayer::default()
+        };
+        sh.cache = Some(photocraft_vector::render_shape(&sh, d.pixel_format(), d.bounds()));
+        let identity = sh.cache.as_ref().unwrap().translation_identity().0;
+        let layer = Layer::new("shape", LayerContent::Shape(sh));
+        let shape_id = layer.id;
+        let group = Layer::group("group", vec![layer]);
+        let group_id = group.id;
+        d.layers.push(group);
+        for (dx, dy) in [(37, 23), (-13, -7), (256, 256)] {
+            let preview = moved(&d, &[group_id], dx, dy).unwrap();
+            let LayerContent::Shape(sh) = &preview.layer(shape_id).unwrap().content else { panic!("shape") };
+            assert_eq!(sh.cache.as_ref().unwrap().translation_identity(), (identity, i64::from(dx), i64::from(dy)));
+        }
     }
 
     #[test]
