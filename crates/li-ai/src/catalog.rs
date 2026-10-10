@@ -507,8 +507,8 @@ mod tests {
             for f in &p.files {
                 assert_eq!(f.sha256.len(), 64);
                 assert!(f.sha256.bytes().all(|b| b.is_ascii_hexdigit()));
-                assert!(f.url.starts_with("https://huggingface.co/"));
-                assert!(f.url.ends_with(".safetensors"));
+                assert!(crate::download::host_allowed(&f.url));
+                assert!(f.url.ends_with(".safetensors") || crate::restoration::pinned_file(&f.name).is_some());
             }
         }
         assert_eq!(ModelId::Qwen.info().label, "Qwen Image 2.1");

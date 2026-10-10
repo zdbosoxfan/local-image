@@ -119,6 +119,17 @@ pub fn open() {
     with(|s| s.open = true);
 }
 
+pub(crate) fn open_restoration() {
+    with(|s| {
+        s.open = true;
+        s.kind = Kind::Model;
+        s.nav = Nav::Family("restoration".into());
+        s.search.clear();
+        s.fetch = None;
+        s.loaded = None;
+    });
+}
+
 /// Opens it on the LoRAs that fit `family`.
 pub fn open_loras(family: &str) {
     with(|s| {
@@ -253,7 +264,7 @@ fn installed_items(kind: Kind) -> Vec<Item> {
         Kind::Model => li_ai::catalog::catalog()
             .models
             .iter()
-            .filter(|m| !m.tool && li_ai::catalog::presets_for(m.id).any(|p| st.ready(m.id, &p.variant).is_ok()))
+            .filter(|m| (!m.tool || m.family == "restoration") && li_ai::catalog::presets_for(m.id).any(|p| st.ready(m.id, &p.variant).is_ok()))
             .map(|m| Item {
                 id: format!("installed:{}", m.id.key()),
                 source: Some(Source::Installed),
@@ -340,11 +351,25 @@ fn installed_names() -> HashSet<String> {
     let base = |n: &str| n.rsplit('/').next().unwrap_or(n).to_ascii_lowercase();
     let mut out: HashSet<String> = li_ai::catalog::catalog().models.iter().filter_map(|m| m.id.key().split_once(':').map(|(_, n)| base(n))).collect();
     out.extend(li_ai::inventory::loras().iter().map(|l| base(&l.name)));
+    let dir = model_dir();
+    out.extend(
+        li_ai::restoration::policy()
+            .models
+            .iter()
+            .flat_map(|m| &m.presets)
+            .flat_map(|p| &p.files)
+            .filter(|f| li_ai::download::target_path(&dir, f).is_file())
+            .map(|f| base(&f.name)),
+    );
     out
 }
 
 fn is_installed(item: &Item, names: &HashSet<String>) -> bool {
-    let weights: Vec<_> = item.files.iter().filter(|f| f.name.ends_with(".safetensors") || f.name.ends_with(".gguf")).collect();
+    let weights: Vec<_> = item
+        .files
+        .iter()
+        .filter(|f| f.name.ends_with(".safetensors") || f.name.ends_with(".gguf") || li_ai::restoration::pinned_file(&f.name).is_some())
+        .collect();
     item.source == Some(Source::Installed) || (!weights.is_empty() && weights.iter().all(|f| names.contains(&f.name.to_ascii_lowercase())))
 }
 
@@ -376,12 +401,19 @@ fn start_plan(item: Item) -> Slot<Result<(Plan, Option<Value>), String>> {
         let r = (|| -> anyhow::Result<(Plan, Option<Value>)> {
             let cfg = config();
             let net = HttpNet::new(cfg.clone());
-            let info = li_ai::service().client.object_info().map_err(|e| {
-                anyhow::anyhow!(
-                    "{}",
-                    crate::i18n::fmt(tl!("Start the AI engine first: Local Image checks what ComfyUI already has. ({error})"), &[("error", &format!("{e:#}"))])
-                )
-            })?;
+            let info = if item.family.as_deref() == Some("restoration") {
+                li_ai::comfy::ObjectInfo::default()
+            } else {
+                li_ai::service().client.object_info().map_err(|e| {
+                    anyhow::anyhow!(
+                        "{}",
+                        crate::i18n::fmt(
+                            tl!("Start the AI engine first: Local Image checks what ComfyUI already has. ({error})"),
+                            &[("error", &format!("{e:#}"))]
+                        )
+                    )
+                })?
+            };
             let reg = li_ai::family::registry();
             if let Some(name) = &item.template {
                 let (ui, files) = browser::fetch_template(&cfg, &net, name)?;
@@ -583,7 +615,13 @@ pub fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
         .frame(egui::Frame::window(&ctx.global_style()).fill(t.card).stroke(Stroke::new(1.0, t.card_border)).inner_margin(egui::Margin::same(0)))
         .open(&mut open)
         .anchor(egui::Align2::CENTER_CENTER, vec2(0.0, 0.0))
-        .show(ctx, |ui| with(|s| body(ui, s, &t)));
+        .show(ctx, |ui| {
+            if with(|s| matches!(&s.nav, Nav::Family(f) if f == "restoration")) && ui.button(tl!("Bring your own model…")).clicked() {
+                crate::restoration_ui::open(app);
+                close();
+            }
+            with(|s| body(ui, s, &t));
+        });
     confirm_window(ctx, &t);
     if !open {
         with(|s| {
@@ -603,6 +641,9 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
             s.installed_at = Some(std::time::Instant::now());
             s.items = installed_items(s.kind);
             s.items.retain(|i| s.search.trim().is_empty() || i.title.to_lowercase().contains(&s.search.trim().to_lowercase()));
+            s.notes.clear();
+        } else if matches!(&s.nav, Nav::Family(f) if f == "restoration") {
+            s.items = browser::items(li_ai::family::registry(), &Config::default(), &query(s), &[]);
             s.notes.clear();
         } else {
             s.fetch = Some(start_fetch(query(s)));
@@ -657,7 +698,9 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
                 egui::ScrollArea::vertical().id_salt("browser-families").auto_shrink([false, false]).show(ui, |ui| {
                     let reg = li_ai::family::registry();
                     let mut group = "";
-                    for f in reg.families.iter().filter(|f| f.models.iter().any(|m| !m.tool) || f.base.is_some() || f.models.is_empty()) {
+                    for f in
+                        reg.families.iter().filter(|f| f.id == "restoration" || f.models.iter().any(|m| !m.tool) || f.base.is_some() || f.models.is_empty())
+                    {
                         if f.id == "seedvr2" {
                             continue;
                         }
@@ -1002,7 +1045,12 @@ fn footer_ui(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
     ui.painter().hline(r.x_range(), r.top(), Stroke::new(1.0, t.separator));
     egui::Frame::new().inner_margin(egui::Margin::symmetric(14, 6)).show(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(tl!("Only .safetensors and .gguf files with a published size and SHA-256 are installed.")).size(11.0).color(t.text_faint));
+            let note = if matches!(&s.nav, Nav::Family(f) if f == "restoration") {
+                tl!("Restoration installs only vetted official weights with pinned size and SHA-256.")
+            } else {
+                tl!("Only .safetensors and .gguf files with a published size and SHA-256 are installed.")
+            };
+            ui.label(RichText::new(note).size(11.0).color(t.text_faint));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let busy = s.profiles.is_some();
                 if ui

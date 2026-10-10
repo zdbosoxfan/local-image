@@ -101,7 +101,40 @@
       "id": "models",
       "title": "AI models",
       "intro": "Downloaded only when you ask for them, never shipped with Local Image. Each model keeps its own licence.",
-      "entries": []
+      "entries": [
+        {
+          "name": "FBCNN · JPEG cleanup",
+          "used_for": "FBCNN · JPEG cleanup at original resolution; applies on a new layer. Automatic quality-factor prediction; the core node has no quality-factor input.",
+          "licence": "Apache-2.0",
+          "licence_files": ["licenses/restoration-fbcnn-LICENSE.txt"],
+          "url": "https://github.com/jiaxi-jiang/FBCNN/blob/main/LICENSE",
+          "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json"
+        },
+        {
+          "name": "SCUNet-real · Scan cleanup",
+          "used_for": "SCUNet-real · Scan cleanup at original resolution; applies on a new layer. PSNR-trained real-image cleanup; no GAN weights.",
+          "licence": "Apache-2.0",
+          "licence_files": ["licenses/restoration-scunet-LICENSE.txt"],
+          "url": "https://github.com/cszn/SCUNet/blob/main/LICENSE",
+          "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json"
+        },
+        {
+          "name": "NAFNet-SIDD · Denoise",
+          "used_for": "NAFNet-SIDD · Denoise at original resolution; applies on a new layer. SIDD real smartphone denoising, width 64.",
+          "licence": "MIT",
+          "licence_files": ["licenses/restoration-nafnet-LICENSE.txt"],
+          "url": "https://github.com/megvii-research/NAFNet/blob/main/LICENSE",
+          "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json"
+        },
+        {
+          "name": "DDColor · Colourise",
+          "used_for": "Apache-2.0 relicensed Hugging Face tiny weights only, pinned revision e9e7b527709c8aeb2f5e1bf701e72fd468a13baa. Requires detection in main spandrel; unavailable with the present extra-only architecture.",
+          "licence": "Apache-2.0",
+          "licence_files": ["licenses/restoration-ddcolor-LICENSE.txt"],
+          "url": "https://huggingface.co/piddnad/DDColor-models/blob/e9e7b527709c8aeb2f5e1bf701e72fd468a13baa/README.md",
+          "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json"
+        }
+      ]
     },
     {
       "id": "assets",

@@ -110,7 +110,7 @@ pub fn write_model_paths(settings: &AiSettings) -> Result<PathBuf> {
     // JSON is valid YAML; ComfyUI reads it as such.
     let v = serde_json::json!({ "local_image": {
         "base_path": models, "diffusion_models": "diffusion_models", "text_encoders": "text_encoders",
-        "vae": "vae", "loras": "loras", "checkpoints": "checkpoints" } });
+        "vae": "vae", "loras": "loras", "checkpoints": "checkpoints", "upscale_models": "upscale_models" } });
     write_atomic(&path, serde_json::to_string_pretty(&v)?.as_bytes())?;
     Ok(path)
 }

@@ -966,6 +966,12 @@
           "url": "https://huggingface.co/Qwen/Qwen-Image"
         },
         {
+          "name": "Restoration",
+          "used_for": "Pinned 1× photo restoration using ComfyUI core nodes and main spandrel only.",
+          "upstream": "FBCNN · JPEG cleanup, SCUNet-real · Scan cleanup, NAFNet-SIDD · Denoise, DDColor · Colourise",
+          "licence": "Per model: Apache-2.0 or MIT"
+        },
+        {
           "name": "Stable Diffusion 1.5",
           "used_for": "The classic 512 px model and its thousands of fine-tunes. Light on memory; a huge choice of styles and LoRAs.",
           "licence": "CreativeML OpenRAIL-M",
@@ -996,6 +1002,46 @@
           "upstream": "Z-Image Turbo",
           "licence": "Apache 2.0",
           "url": "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo"
+        },
+        {
+          "name": "FBCNN · JPEG cleanup",
+          "used_for": "FBCNN · JPEG cleanup at original resolution; applies on a new layer. Automatic quality-factor prediction; the core node has no quality-factor input.",
+          "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/restoration-fbcnn-LICENSE.txt"
+          ],
+          "url": "https://github.com/jiaxi-jiang/FBCNN/blob/main/LICENSE"
+        },
+        {
+          "name": "SCUNet-real · Scan cleanup",
+          "used_for": "SCUNet-real · Scan cleanup at original resolution; applies on a new layer. PSNR-trained real-image cleanup; no GAN weights.",
+          "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/restoration-scunet-LICENSE.txt"
+          ],
+          "url": "https://github.com/cszn/SCUNet/blob/main/LICENSE"
+        },
+        {
+          "name": "NAFNet-SIDD · Denoise",
+          "used_for": "NAFNet-SIDD · Denoise at original resolution; applies on a new layer. SIDD real smartphone denoising, width 64.",
+          "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json",
+          "licence": "MIT",
+          "licence_files": [
+            "licenses/restoration-nafnet-LICENSE.txt"
+          ],
+          "url": "https://github.com/megvii-research/NAFNet/blob/main/LICENSE"
+        },
+        {
+          "name": "DDColor · Colourise",
+          "used_for": "Apache-2.0 relicensed Hugging Face tiny weights only, pinned revision e9e7b527709c8aeb2f5e1bf701e72fd468a13baa. Requires detection in main spandrel; unavailable with the present extra-only architecture.",
+          "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/restoration-ddcolor-LICENSE.txt"
+          ],
+          "url": "https://huggingface.co/piddnad/DDColor-models/blob/e9e7b527709c8aeb2f5e1bf701e72fd468a13baa/README.md"
         }
       ]
     },

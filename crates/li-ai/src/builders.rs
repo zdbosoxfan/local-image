@@ -505,6 +505,9 @@ fn qwen21(files: &Files, p: &Params) -> Built {
 
 /// The node classes a family's plain Create graph uses (what ComfyUI must offer).
 pub fn required_nodes(f: &Family) -> Vec<String> {
+    if f.id == "restoration" {
+        return crate::restoration::NODES.iter().map(|n| (*n).to_owned()).collect();
+    }
     if f.kind != crate::family::FamilyKind::Image {
         return Vec::new();
     }

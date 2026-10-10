@@ -84,6 +84,7 @@ mod camera_raw_detail_ui;
 mod camera_raw_preview_ui;
 mod camera_raw_scope_ui;
 pub mod camera_raw_ui;
+mod restoration_ui;
 // local-image: Edit › Transform › Cage on the canvas.
 pub mod attributions;
 pub mod cage_ui;
@@ -387,6 +388,7 @@ pub struct PhotocraftApp {
     /// Footprint trail of a retouching drag (see `stroke_trail`).
     trail: Option<stroke_trail::Trail>,
     ai_remove: Option<ai_remove_ui::Pending>,
+    restoration: restoration_ui::Runtime,
     draft_refine: generate_ui::draft_refine::Runtime,
     /// Move tool drag shown live (`move_ui`).
     pub(crate) move_preview: Option<move_ui::MovePreview>,
@@ -569,6 +571,7 @@ impl PhotocraftApp {
             live_stroke: None,
             trail: None,
             ai_remove: None,
+            restoration: Default::default(),
             draft_refine: Default::default(),
             move_preview: None,
             move_fast: None,
@@ -1225,6 +1228,7 @@ impl eframe::App for PhotocraftApp {
         // local-image: Local AI window and the AI prompt dialogs.
         ai_ui::windows(self, &ctx);
         ai_remove_ui::show(self, &ctx);
+        restoration_ui::show(self, &ctx);
         context_bar::show(self, &ctx);
         type_panels_ui::windows(self, &ctx);
         analysis_ui::windows(self, &ctx);

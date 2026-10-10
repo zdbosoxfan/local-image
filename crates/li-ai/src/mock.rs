@@ -153,7 +153,8 @@ fn files_in(dir: &std::path::Path) -> Vec<String> {
             let p = e.path();
             if p.is_dir() {
                 stack.push(p);
-            } else if p.extension().is_some_and(|x| x == "safetensors" || x == "gguf")
+            } else if (p.extension().is_some_and(|x| x == "safetensors" || x == "gguf")
+                || p.file_name().and_then(|n| n.to_str()).is_some_and(|n| crate::restoration::pinned_file(n).is_some()))
                 && let Ok(rel) = p.strip_prefix(dir)
             {
                 out.push(rel.to_string_lossy().replace('\\', "/"));
@@ -308,6 +309,7 @@ pub fn object_info_with(model_dir: Option<&std::path::Path>) -> Value {
             ("text_encoders", Role::Clip),
             ("clip", Role::Clip),
             ("vae", Role::Vae),
+            ("upscale_models", Role::Upscaler),
         ] {
             for f in files_in(&dir.join(folder)) {
                 add(role, &f);
@@ -347,6 +349,7 @@ pub fn object_info_with(model_dir: Option<&std::path::Path>) -> Value {
         info.insert(n, json!({ "input": { "required": {} } }));
     }
     let clips = files.remove(&Role::Clip).unwrap_or_default();
+    info.insert("UpscaleModelLoader".into(), json!({"input": {"required": {"model_name": combo(files.remove(&Role::Upscaler).unwrap_or_default())}}}));
     info.insert("UNETLoader".into(), json!({ "input": { "required": { "unet_name": combo(files.remove(&Role::Unet).unwrap_or_default()) } } }));
     info.insert(
         "CheckpointLoaderSimple".into(),
@@ -402,6 +405,10 @@ pub fn object_info_with(model_dir: Option<&std::path::Path>) -> Value {
     info["KSampler"]["input"]["required"]["steps"] = json!(["INT", {"default":20,"min":1,"max":10000}]);
     info["KSampler"]["input"]["required"]["cfg"] = json!(["FLOAT", {"default":8.0,"min":0.0,"max":100.0}]);
     info["KSampler"]["input"]["required"]["denoise"] = json!(["FLOAT", {"default":1.0,"min":0.0,"max":1.0}]);
+    for node in crate::restoration::NODES {
+        let module = if matches!(*node, "LoadImage" | "SaveImage") { "nodes" } else { "comfy_extras.nodes_upscale_model" };
+        info[*node]["python_module"] = json!(module);
+    }
     Value::Object(info)
 }
 
@@ -619,7 +626,9 @@ fn render(graph: &Value, uploads: &HashMap<String, Vec<u8>>) -> Vec<u8> {
         return png(&out);
     }
     // Instruction edits and upscales: return the (first) input, tinted slightly.
-    if (input_of(graph, "SeedVR2Preprocess").is_some() || input_of(graph, "TextEncodeQwenImage21").is_some_and(|i| i["resolution"] == json!(0)))
+    if (input_of(graph, "ImageUpscaleWithModel").is_some()
+        || input_of(graph, "SeedVR2Preprocess").is_some()
+        || input_of(graph, "TextEncodeQwenImage21").is_some_and(|i| i["resolution"] == json!(0)))
         && let Some(mut src) = uploaded(graph, uploads, 0)
     {
         let tint = hash_color(&prompt);
