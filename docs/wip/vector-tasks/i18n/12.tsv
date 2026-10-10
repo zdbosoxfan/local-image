@@ -1,0 +1,9 @@
+key	en
+vector.pathText.flip	Flip path text
+vector.pathText.baseline	Baseline
+vector.pathText.ascender	Ascender
+vector.pathText.center	Center
+vector.pathText.descender	Descender
+vector.pathText.overflow	Path text overflow
+type.path.commit	Path text
+type.path.convert	Convert path text to curves
