@@ -8,6 +8,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+photocraft-pdf.workspace = true
 # local-image: AI services and image buffers.
 li-ai = { workspace = true }
 li-seg = { workspace = true }

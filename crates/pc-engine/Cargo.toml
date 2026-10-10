@@ -13,6 +13,7 @@ svg-import-integrated = ["photocraft-svg/svg-import-integrated"]
 corpus = []
 
 [dependencies]
+photocraft-pdf.workspace = true
 photocraft-svg.workspace = true
 pc-trace.workspace = true
 # local-image: AI services (ComfyUI client, workflows) and the image buffers they use.

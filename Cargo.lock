@@ -5567,6 +5567,7 @@ dependencies = [
  "photocraft-ops",
  "photocraft-paint",
  "photocraft-pathops",
+ "photocraft-pdf",
  "photocraft-plugins",
  "photocraft-psd",
  "photocraft-raster",
@@ -5695,6 +5696,26 @@ dependencies = [
  "photocraft-vector",
  "polycool",
  "proptest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "photocraft-pdf"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "hayro-syntax",
+ "image",
+ "krilla",
+ "kurbo 0.13.1",
+ "photocraft-compose",
+ "photocraft-doc",
+ "photocraft-geom",
+ "photocraft-pathops",
+ "photocraft-testkit",
+ "photocraft-text",
+ "photocraft-vector",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -5841,6 +5862,7 @@ dependencies = [
  "photocraft-geom",
  "photocraft-gpu",
  "photocraft-io",
+ "photocraft-pdf",
  "photocraft-plugins",
  "photocraft-psd",
  "photocraft-raster",
