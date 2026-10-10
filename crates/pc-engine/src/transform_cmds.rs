@@ -349,10 +349,18 @@ fn quad_param(p: &Value) -> Option<[[f64; 2]; 4]> {
 
 fn transform(s: &mut Session, p: &Value) -> Result<Value> {
     let st = s.active().ok_or(EngineError::NoDocument)?;
-    let id = match p.get("layer").and_then(Value::as_u64) {
-        Some(v) => Some(LayerId(v)),
-        None => st.active_layer,
-    };
+    let roots = p
+        .get("layers")
+        .map(|value| -> Result<Vec<LayerId>> {
+            let values = value.as_array().filter(|v| !v.is_empty()).ok_or_else(|| bad("layers must be a non-empty array of layer ids"))?;
+            let ids: Vec<_> = values.iter().map(|v| v.as_u64().map(LayerId).ok_or_else(|| bad("layers must contain layer ids"))).collect::<Result<_>>()?;
+            if let Some(id) = ids.iter().find(|id| st.doc.layer(**id).is_none()) {
+                return Err(EngineError::NoLayer(*id));
+            }
+            Ok(crate::layer_multi_cmds::move_targets(&st.doc, &ids))
+        })
+        .transpose()?;
+    let id = roots.as_ref().and_then(|ids| ids.first().copied()).or_else(|| p.get("layer").and_then(Value::as_u64).map(LayerId)).or(st.active_layer);
     let lone = lone_target(&st.doc, id, p)?;
     let id = match (id, lone.is_some() && crate::channel_cmds::is_channel_target(p)) {
         (_, true) => None,
@@ -365,10 +373,14 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
             [v[0], v[1], v[2], v[3]]
         }
         _ => {
-            let b = match (lone, id) {
-                (Some(surf), _) => target_bounds(&st.doc, surf),
-                (None, Some(id)) => transform_bounds(&st.doc, st.doc.layer(id).ok_or(EngineError::NoLayer(id))?),
-                (None, None) => Rect::EMPTY,
+            let b = match (lone, roots.as_deref(), id) {
+                (Some(surf), _, _) => target_bounds(&st.doc, surf),
+                (None, Some(ids), _) => ids.iter().try_fold(Rect::EMPTY, |bounds, id| {
+                    let layer = st.doc.layer(*id).ok_or(EngineError::NoLayer(*id))?;
+                    Ok::<_, EngineError>(bounds.union(&transform_bounds(&st.doc, layer)))
+                })?,
+                (None, None, Some(id)) => transform_bounds(&st.doc, st.doc.layer(id).ok_or(EngineError::NoLayer(id))?),
+                (None, None, None) => Rect::EMPTY,
             };
             if b.is_empty() {
                 return Err(EngineError::Other("nothing to transform".into()));
@@ -381,7 +393,7 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(q) = quad_param(p)
         && let Some(folded) = QuadMap::new(rect, q).filter(QuadMap::is_folded)
     {
-        if p.get("layers").is_some() {
+        if roots.as_ref().is_some_and(|ids| ids.len() > 1) {
             return Err(bad("folded transforms need one layer or group"));
         }
         return transform_folded(s, p, id, rect, folded);
@@ -420,15 +432,9 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
             }
             return Ok(());
         }
-        let ids = match p.get("layers").and_then(Value::as_array) {
-            Some(v) if !v.is_empty() => {
-                let roots: Vec<_> = v.iter().map(|v| v.as_u64().map(LayerId).ok_or_else(|| bad("layers must contain layer ids"))).collect::<Result<_>>()?;
-                if let Some(id) = roots.iter().find(|id| doc.layer(**id).is_none()) {
-                    return Err(EngineError::NoLayer(*id));
-                }
-                crate::layer_multi_cmds::move_targets(doc, &roots)
-            }
-            _ => vec![id.ok_or_else(|| EngineError::Other("no active layer".into()))?],
+        let ids = match &roots {
+            Some(ids) => ids.clone(),
+            None => vec![id.ok_or_else(|| EngineError::Other("no active layer".into()))?],
         };
         for id in &ids {
             let is_group = doc.layer(*id).is_some_and(Layer::is_group);
@@ -596,6 +602,39 @@ mod tests {
         assert!(sm.warp.is_some(), "kept as a re-renderable warp");
         let c = sm.cache.as_ref().unwrap();
         assert!(c.pixel(13, 12)[3] > 0.8 && c.pixel(26, 18)[3] < 0.2, "{:?} {:?}", c.pixel(13, 12), c.pixel(26, 18));
+    }
+
+    #[test]
+    fn ds2_transform_layers_uses_union_and_rejects_empty_requests() {
+        let mut s = session();
+        let a = s.active().unwrap().active_layer.unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        let b = s.active().unwrap().active_layer.unwrap();
+        s.edit("paint second", |doc, _| {
+            doc.layer_mut(b).unwrap().surface_mut().unwrap().fill_rect(Rect::new(50, 10, 70, 20), &[0.0, 1.0, 0.0, 1.0]);
+            Ok(())
+        })
+        .unwrap();
+        let before = s.active().unwrap().doc.clone();
+        for value in [json!([]), json!("bad"), json!([a.0, "bad"])] {
+            assert!(s.execute("edit.transform", json!({"layers":value,"matrix":[1,0,0,1,5,0]})).is_err());
+            assert_eq!(*s.active().unwrap().doc, *before);
+        }
+        let result = s.execute("edit.transform", json!({"layers":[a.0,b.0],"quad":[[10,10],[130,10],[130,20],[10,20]],"interpolation":"nearest"})).unwrap();
+        assert_eq!(result["rect"], json!([10.0, 10.0, 70.0, 20.0]));
+        assert_eq!(s.active().unwrap().doc.layer(a).unwrap().surface().unwrap().content_bounds(), Rect::new(10, 10, 50, 20));
+        assert_eq!(s.active().unwrap().doc.layer(b).unwrap().surface().unwrap().content_bounds(), Rect::new(90, 10, 130, 20));
+    }
+
+    #[test]
+    fn ds2_single_layer_array_accepts_folded_quad_and_targets_named_layer() {
+        let mut s = session();
+        let a = s.active().unwrap().active_layer.unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        let other = s.active().unwrap().active_layer.unwrap();
+        let result = s.execute("edit.transform", json!({"layers":[a.0],"quad":[[10,10],[30,10],[10,20],[30,20]]}));
+        assert!(result.is_ok(), "{result:?}");
+        assert!(s.active().unwrap().doc.layer(other).unwrap().surface().unwrap().content_bounds().is_empty());
     }
 
     #[test]

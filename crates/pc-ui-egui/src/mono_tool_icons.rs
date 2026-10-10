@@ -1,4 +1,4 @@
-//! Theme-tinted version of the same original geometry used by colour tool icons.
+//! Theme-tinted version of the same approved/mixed geometry used by colour tool icons.
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
@@ -24,7 +24,7 @@ pub fn exists(name: &str) -> bool {
 
 pub fn image(name: &str, size: f32, tint: Color32) -> Option<Image<'static>> {
     let bytes = white_icons().get(name)?.clone();
-    Some(Image::from_bytes(format!("bytes://original-tool-icons/{name}.svg"), egui::load::Bytes::Shared(bytes)).fit_to_exact_size(Vec2::splat(size)).tint(tint))
+    Some(Image::from_bytes(format!("bytes://sourced-tool-icons/{name}.svg"), egui::load::Bytes::Shared(bytes)).fit_to_exact_size(Vec2::splat(size)).tint(tint))
 }
 
 #[cfg(test)]
@@ -47,7 +47,8 @@ mod tests {
                 // RGB is the only difference: antialiased alpha, holes and optical padding agree.
                 assert!(mono.pixels.iter().zip(&colour.pixels).all(|(a, b)| a.a().abs_diff(b.a()) <= 1), "style geometry differs: {name}/{size}");
                 assert!(mono.pixels.iter().filter(|p| p.a() > 100).count() > (size * size / 12) as usize, "empty monochrome tool: {name}/{size}");
-                assert!(mono.pixels.iter().all(|p| p.r() == p.g() && p.g() == p.b()), "{name}");
+                // Embedded SVG images need an explicit white base before egui multiplies the tint.
+                assert!(mono.pixels.iter().all(|p| p.r() == p.a() && p.g() == p.a() && p.b() == p.a()), "mono tint base is not white: {name}");
             }
         }
     }

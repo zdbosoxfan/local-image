@@ -81,11 +81,12 @@ pub(crate) fn display_doc(app: &mut PhotocraftApp, idx: usize) -> Option<(Arc<Do
         return None;
     };
     let st = app.session.documents().get(idx)?;
-    let (doc, ids) = crate::move_mods::copy_source(app)
-        .unwrap_or_else(|| (st.doc.clone(), photocraft_engine::layer_multi_cmds::move_targets(&st.doc, &st.selected_layers())));
+    let doc = crate::move_mods::copy_source(app).map_or_else(|| st.doc.clone(), |(doc, _)| doc);
     let (doc_id, revision) = (st.doc.id, st.revision);
     let fresh = app.move_preview.as_ref().is_some_and(|p| p.doc == doc_id && p.revision == revision);
     if !fresh {
+        let ids = crate::move_mods::copy_source(app)
+            .map_or_else(|| photocraft_engine::layer_multi_cmds::move_targets(&st.doc, &st.selected_layers()), |(_, ids)| ids);
         if doc.selection.is_some() {
             return None;
         }

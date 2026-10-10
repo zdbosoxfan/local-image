@@ -136,6 +136,9 @@ fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
                 Err(e) => app.ui.people.error = e.to_string(),
             }
         }
+        if !app.ui.people.error.is_empty() {
+            ui.colored_label(t.caution, &app.ui.people.error);
+        }
         if crate::widgets::text_button(ui, "settingsClearFacesCancel", crate::i18n::tr("Cancel"), false).clicked() {
             app.ui.people.clear = false;
         }
@@ -226,17 +229,26 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         let edit_id = ui.id().with("cameraProfilesFolderEdit");
         let mut folder = ui.data(|data| data.get_temp::<String>(edit_id)).unwrap_or_else(|| d.camera_profiles_folder.clone());
         let response = ui.text_edit_singleline(&mut folder);
-        ui.data_mut(|data| data.insert_temp(edit_id, folder.clone()));
-        if response.lost_focus() && folder != d.camera_profiles_folder {
-            let _ = app.run("library.preferences", json!({"import":{"cameraProfilesFolder":folder}}));
+        crate::widgets::register(ui.ctx(), "settings:cameraFolder", response.rect);
+        if response.has_focus() {
+            ui.data_mut(|data| data.insert_temp(edit_id, folder.clone()));
+        } else {
             ui.data_mut(|data| data.remove::<String>(edit_id));
         }
-        if app.services.pick_folder.is_some()
-            && ui.button(crate::i18n::tr("Choose…")).clicked()
-            && let Some(folder) = app.services.pick_folder.as_mut().and_then(|f| f())
-        {
-            let _ = app.run("library.preferences", json!({"import":{"cameraProfilesFolder":folder}}));
+        let (choose, choosing) = if app.services.pick_folder.is_some() {
+            let r = ui.button(crate::i18n::tr("Choose…"));
+            crate::widgets::register(ui.ctx(), "settings:cameraFolderChoose", r.rect);
+            (r.clicked(), r.is_pointer_button_down_on())
+        } else {
+            (false, false)
+        };
+        if choose {
+            if let Some(folder) = app.services.pick_folder.as_mut().and_then(|f| f()) {
+                let _ = app.run("library.preferences", json!({"import":{"cameraProfilesFolder":folder}}));
+            }
             ui.data_mut(|data| data.remove::<String>(edit_id));
+        } else if !choosing && response.lost_focus() && folder != d.camera_profiles_folder {
+            let _ = app.run("library.preferences", json!({"import":{"cameraProfilesFolder":folder}}));
         }
     });
     hint(ui, t, crate::i18n::tr("Read DCP profiles for matching cameras from this folder."));

@@ -24,3 +24,19 @@ Key sources (verify, cite in reports):
 - AVOID (non-commercial or no licence): SUPIR, HYPIR, StableSR, CodeFormer, PromptIR, LED, AutoDIR, Zero-DCE, dlib 68-pt,
   GFPGAN/RestoreFormer (FFHQ data), anything needing spandrel_extra_arches.
 - No independent comparison vs Topaz/Lightroom/DxO exists; measure our own results.
+
+## Owner extension, 2026-10-10 (supersedes the BYO exclusions above)
+
+The owner authorises detection/use only of user-installed LED, Zero-DCE/++, StableSR, CodeFormer, PromptIR, GFPGAN v1.4 and RestoreFormer++. Local Image must never ship/bundle/download those models or install their nodes/extra arches. User-installed spandrel_extra_arches and community nodes may be used in the BYO section, with a persisted per-model acknowledgement and licence links. SUPIR/HYPIR remain excluded entirely. Default pinned-model architecture eligibility remains a separate policy. See `docs/BYO-MODELS.md` for the review, short clauses and output/software distinction.
+
+Primary sources verified for the extension:
+
+- LED: https://github.com/Srameo/LED#-license (CC BY-NC 4.0; RAW pipeline).
+- Zero-DCE: https://github.com/Li-Chongyi/Zero-DCE#license and https://github.com/Li-Chongyi/Zero-DCE_extension#license.
+- CC legal code: https://creativecommons.org/licenses/by-nc/4.0/legalcode.en.
+- StableSR: https://github.com/IceClear/StableSR/blob/main/LICENSE.txt; CodeFormer: https://github.com/sczhou/CodeFormer/blob/master/LICENSE (S-Lab 1.0).
+- PromptIR: https://github.com/va1shn9v/PromptIR/blob/main/LICENSE.md (Academic Public License).
+- GFPGAN: https://github.com/TencentARC/GFPGAN/blob/master/LICENSE (Apache plus NVIDIA §3.3 and other notices).
+- RestoreFormer++: https://github.com/wzhouxiff/RestoreFormerPlusPlus/blob/main/LICENSE and its README training-data section; FFHQ: https://github.com/NVlabs/ffhq-dataset#licenses.
+- SupPixel processing-for-sale clause: https://github.com/Fanghua-Yu/SUPIR/blob/master/LICENSE and https://github.com/XPixelGroup/HYPIR/blob/main/LICENSE.
+- Installed-node contracts: https://github.com/comfyorg/comfyui-facerestore/blob/master/__init__.py and its `facelib/utils/face_restoration_helper.py`; https://github.com/gameltb/Comfyui-StableSR/blob/main/nodes.py and `examples/stablesr_w_color_fix.json`. These are references only, not bundled/ported node code.

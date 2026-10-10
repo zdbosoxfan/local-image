@@ -148,3 +148,18 @@ regeneration script are tracked. Source-function scope is in the script and noti
 These check numerical kernels, independently of Local Image's six-slider/noise
 estimator host mapping. The measured differences and quality checks are in
 `docs/wip/CODEX-REPORT-detail.md`; GPU execution needs the coordinator's adapter.
+
+`detail-haze-sorted.csv` retains the pinned upstream ambient, morphology, RGB
+guidance, inversion and box kernels, but replaces the hand-written selection
+helper with an independent C `qsort` rank oracle. The original fixture remains
+unchanged: its percentile rank error is intentionally not reproduced by Local
+Image. Regenerate the corrected fixture without touching the NR vectors:
+
+```sh
+python3 crates/lc-pipeline/tests/fixtures/regenerate_detail.py --only-haze --sorted-haze-quantiles
+```
+
+The generated C++ harness and executable remain under `target/refvec/haze-sorted`;
+Cargo does not compile them. The sorted fixture is checked with the original
+tight tolerances, alongside the separate sorted-quantile regression and real-GPU
+equivalence tests.

@@ -601,7 +601,19 @@ impl DockLayout {
 
     /// Dock `tabs` into group `g` at strip position `at` (clamped).
     pub fn insert(&mut self, tabs: &[Tab], g: Group, at: usize, pro: bool) {
+        let order = self.order.clone();
+        let height = self.heights.get(&g).copied();
+        let active = self.active.get(&g).copied();
         self.take(tabs, pro);
+        if order.contains(&g) {
+            self.order = order;
+        }
+        if let Some(height) = height {
+            self.heights.insert(g, height);
+        }
+        if let Some(active) = active {
+            self.active.insert(g, active);
+        }
         let list = self.tabs.entry(g).or_default();
         let at = at.min(list.len());
         list.splice(at..at, tabs.iter().copied());
@@ -642,9 +654,7 @@ impl DockLayout {
 
     /// Put `tabs` into floating panel `id` at strip position `at`.
     pub fn merge_into_floating(&mut self, tabs: &[Tab], id: u32, at: usize, pro: bool) {
-        if self.floating(id).is_none() {
-            return;
-        }
+        let Some(mut previous) = self.floating(id).cloned() else { return };
         self.take(tabs, pro);
         // Taking the tabs can't empty the target unless it held only them: then re-create it.
         match self.floating_mut(id) {
@@ -653,7 +663,11 @@ impl DockLayout {
                 f.tabs.splice(at..at, tabs.iter().copied());
                 f.hidden = false;
             }
-            None => self.floating.push(Floating { id, tabs: tabs.to_vec(), ..Default::default() }),
+            None => {
+                previous.tabs = tabs.to_vec();
+                previous.hidden = false;
+                self.floating.push(previous);
+            }
         }
     }
 

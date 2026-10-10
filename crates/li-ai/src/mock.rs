@@ -40,6 +40,8 @@ pub struct MockComfy {
     stop: Arc<AtomicBool>,
     /// Milliseconds each job takes (so progress and cancel can be observed).
     pub delay_ms: Arc<AtomicU64>,
+    /// Delay for `/free`, allowing UI tests to observe an idle worker completion.
+    pub free_delay_ms: Arc<AtomicU64>,
     fail_next: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -57,14 +59,16 @@ impl MockComfy {
         let stop = Arc::new(AtomicBool::new(false));
         let delay_ms = Arc::new(AtomicU64::new(150));
         let fail_next = Arc::new(AtomicBool::new(false));
+        let free_delay_ms = Arc::new(AtomicU64::new(0));
+        let free_delay = free_delay_ms.clone();
         let (st, sp, dl, fl) = (state.clone(), stop.clone(), delay_ms.clone(), fail_next.clone());
         let thread = std::thread::Builder::new().name("mock-comfy".into()).spawn(move || {
             while !sp.load(Ordering::SeqCst) {
                 let Ok(Some(req)) = server.recv_timeout(Duration::from_millis(100)) else { continue };
-                handle(req, &st, &dl, &fl);
+                handle(req, &st, &dl, &fl, &free_delay);
             }
         })?;
-        Ok(Self { host, state, stop, delay_ms, fail_next, thread: Some(thread) })
+        Ok(Self { host, state, stop, delay_ms, free_delay_ms, fail_next, thread: Some(thread) })
     }
 
     pub fn host(&self) -> &str {
@@ -149,7 +153,8 @@ fn files_in(dir: &std::path::Path) -> Vec<String> {
             let p = e.path();
             if p.is_dir() {
                 stack.push(p);
-            } else if p.extension().is_some_and(|x| x == "safetensors" || x == "gguf")
+            } else if (p.extension().is_some_and(|x| x == "safetensors" || x == "gguf" || x == "pth")
+                || p.file_name().and_then(|n| n.to_str()).is_some_and(|n| crate::restoration::pinned_file(n).is_some()))
                 && let Ok(rel) = p.strip_prefix(dir)
             {
                 out.push(rel.to_string_lossy().replace('\\', "/"));
@@ -400,6 +405,10 @@ pub fn object_info_with(model_dir: Option<&std::path::Path>) -> Value {
     info["KSampler"]["input"]["required"]["steps"] = json!(["INT", {"default":20,"min":1,"max":10000}]);
     info["KSampler"]["input"]["required"]["cfg"] = json!(["FLOAT", {"default":8.0,"min":0.0,"max":100.0}]);
     info["KSampler"]["input"]["required"]["denoise"] = json!(["FLOAT", {"default":1.0,"min":0.0,"max":1.0}]);
+    for node in crate::restoration::NODES {
+        let module = if matches!(*node, "LoadImage" | "SaveImage") { "nodes" } else { "comfy_extras.nodes_upscale_model" };
+        info[*node]["python_module"] = json!(module);
+    }
     Value::Object(info)
 }
 
@@ -412,7 +421,7 @@ fn json_resp(req: tiny_http::Request, status: u16, v: Value) {
     respond(req, status, v.to_string().into_bytes(), "application/json");
 }
 
-fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<AtomicU64>, fail: &Arc<AtomicBool>) {
+fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<AtomicU64>, fail: &Arc<AtomicBool>, free_delay: &Arc<AtomicU64>) {
     let url = req.url().to_owned();
     let path = url.split('?').next().unwrap_or("").to_owned();
     let mut body = Vec::new();
@@ -443,7 +452,10 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
             }
             json_resp(req, 200, json!({}))
         }
-        ("POST", "/free") => json_resp(req, 200, json!({})),
+        ("POST", "/free") => {
+            std::thread::sleep(Duration::from_millis(free_delay.load(Ordering::SeqCst)));
+            json_resp(req, 200, json!({}));
+        }
         ("POST", "/upload/image") => {
             let (name, data) = parse_multipart(&body);
             if let Ok(mut s) = st.lock() {
@@ -494,12 +506,18 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
         }
         ("POST", p) if p.starts_with("/api/jobs/") && p.ends_with("/cancel") => {
             let id = p.trim_start_matches("/api/jobs/").trim_end_matches("/cancel").to_owned();
+            let mut cancelled = false;
             if let Ok(mut s) = st.lock() {
-                s.running.retain(|r| *r != id);
-                s.history
-                    .insert(id, json!({ "status": { "status_str": "error", "completed": false, "messages": [["execution_interrupted", {}]] }, "outputs": {} }));
+                cancelled = s.running.iter().any(|r| r == &id);
+                if cancelled {
+                    s.running.retain(|r| *r != id);
+                    s.history.insert(
+                        id,
+                        json!({ "status": { "status_str": "error", "completed": false, "messages": [["execution_interrupted", {}]] }, "outputs": {} }),
+                    );
+                }
             }
-            json_resp(req, 200, json!({ "cancelled": true }))
+            json_resp(req, 200, json!({ "cancelled": cancelled }))
         }
         (m @ ("GET" | "HEAD" | "POST"), _) => {
             let host = st.lock().map(|s| s.host.clone()).unwrap_or_default();
@@ -607,16 +625,27 @@ fn render(graph: &Value, uploads: &HashMap<String, Vec<u8>>) -> Vec<u8> {
         });
         return png(&out);
     }
-    // Core restoration uses a model's native scale, without a prompt or diffusion sampler.
+    // Enlargement uses the checkpoint's native scale. Original-resolution restoration
+    // continues through the tint fixture below, even though it uses the same core nodes.
     if input_of(graph, "ImageUpscaleWithModel").is_some()
         && let Some(src) = uploaded(graph, uploads, 0)
     {
         let name = input_of(graph, "UpscaleModelLoader").and_then(|i| i["model_name"].as_str()).unwrap_or("");
-        let scale = if name.contains("2x") || name.contains("x2") { 2 } else { 4 };
-        return png(&image::imageops::resize(&src, src.width() * scale, src.height() * scale, image::imageops::FilterType::Nearest));
+        let scale = if name.contains("2x") || name.contains("x2") {
+            Some(2)
+        } else if name.contains("4x") || name.contains("x4") || name == "BSRGAN.pth" {
+            Some(4)
+        } else {
+            None
+        };
+        if let Some(scale) = scale {
+            return png(&image::imageops::resize(&src, src.width() * scale, src.height() * scale, image::imageops::FilterType::Nearest));
+        }
     }
     // Instruction edits and upscales: return the (first) input, tinted slightly.
-    if (input_of(graph, "SeedVR2Preprocess").is_some() || input_of(graph, "TextEncodeQwenImage21").is_some_and(|i| i["resolution"] == json!(0)))
+    if (input_of(graph, "ImageUpscaleWithModel").is_some()
+        || input_of(graph, "SeedVR2Preprocess").is_some()
+        || input_of(graph, "TextEncodeQwenImage21").is_some_and(|i| i["resolution"] == json!(0)))
         && let Some(mut src) = uploaded(graph, uploads, 0)
     {
         let tint = hash_color(&prompt);
@@ -776,9 +805,9 @@ mod tests {
         }
         assert_eq!(crate::comfy::our_prompts(server.host()).len(), 1);
         assert!(client.interrupt_ours().unwrap());
-        assert_eq!(server.interrupts(), 1);
+        assert_eq!(server.interrupts(), 0);
         let err = job.join().unwrap().unwrap_err();
-        assert!(err.to_string().to_lowercase().contains("interrupt") || err.to_string().contains("stopped"), "{err:#}");
+        assert!(err.downcast_ref::<crate::comfy::Cancelled>().is_some(), "{err:#}");
         assert!(t.elapsed() < Duration::from_secs(4), "stopped well before the job would end");
         // Finished prompts are no longer ours.
         assert!(crate::comfy::our_prompts(server.host()).is_empty());

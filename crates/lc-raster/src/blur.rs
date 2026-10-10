@@ -178,13 +178,13 @@ pub fn min_filter(img: &Image<f32>, r: usize) -> Image<f32> {
     par_rows(&mut a.data, w, |y, row| {
         let src = &img.data[y * w..(y + 1) * w];
         for (x, o) in row.iter_mut().enumerate() {
-            let (x0, x1) = (x.saturating_sub(r), (x + r).min(w - 1));
+            let (x0, x1) = (x.saturating_sub(r), x.saturating_add(r).min(w - 1));
             *o = src[x0..=x1].iter().fold(f32::INFINITY, |m, v| m.min(*v));
         }
     });
     let mut b = Image::<f32>::new(w, h);
     par_rows(&mut b.data, w, |y, row| {
-        let (y0, y1) = (y.saturating_sub(r), (y + r).min(h - 1));
+        let (y0, y1) = (y.saturating_sub(r), y.saturating_add(r).min(h - 1));
         row.copy_from_slice(&a.data[y0 * w..(y0 + 1) * w]);
         for yy in y0 + 1..=y1 {
             for (o, v) in row.iter_mut().zip(&a.data[yy * w..(yy + 1) * w]) {
@@ -258,4 +258,11 @@ mod tests {
         let var: f32 = b.data.iter().enumerate().map(|(i, v)| v * ((i as f32 - 100.0).powi(2))).sum();
         assert!((var.sqrt() - sigma).abs() / sigma < 0.1, "{}", var.sqrt());
     }
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_min_filter_extreme_radius() {
+    let image = Image::from_fn(3, 2, |x, y| (x + 3 * y) as f32);
+    assert_eq!(min_filter(&image, usize::MAX), Image::filled(3, 2, 0.));
 }

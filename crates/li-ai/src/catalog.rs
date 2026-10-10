@@ -510,11 +510,8 @@ mod tests {
                 let family = &p.model.info().resolved;
                 let core_upscaler =
                     family.kind == FamilyKind::Upscaler && family.pipeline.sampler == crate::family::SamplerStyle::UpscaleModel && f.role == Role::Upscaler;
-                assert!(
-                    f.url.starts_with("https://huggingface.co/")
-                        || (core_upscaler && f.url.starts_with("https://github.com/cszn/KAIR/releases/download/v1.0/"))
-                );
-                assert!(f.url.ends_with(".safetensors") || (core_upscaler && f.url.ends_with(".pth")));
+                assert!(crate::download::host_allowed(&f.url));
+                assert!(f.url.ends_with(".safetensors") || (core_upscaler && f.url.ends_with(".pth")) || crate::restoration::pinned_file(&f.name).is_some());
             }
         }
         assert_eq!(ModelId::Qwen.info().label, "Qwen Image 2.1");

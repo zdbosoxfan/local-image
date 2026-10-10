@@ -93,14 +93,15 @@ fn golden_cases() -> Vec<(&'static str, Value)> {
 }
 
 /// Historical settings rendered by the unified Detail pipeline, recorded on x86_64 Linux
-/// (other platforms' libm may round differently).
+/// (other platforms' libm may round differently). Render hashes were re-recorded after
+/// correcting haze quantiles and numerical edge cases; historical JSON still round-trips.
 const GOLDEN: [(&str, u64); 6] = [
     ("default/rendered", 0x6dc2c87b1494a4a2),
     ("default/raw", 0x61dfdd1c1479866c),
-    ("global edits/rendered", 0xed30a70ce89869f7),
-    ("global edits/raw", 0xa184c372831bc0e3),
-    ("old masks/rendered", 0x520cae1df563a030),
-    ("old masks/raw", 0x9b24de949a7b4566),
+    ("global edits/rendered", 0x7b9236807e147100),
+    ("global edits/raw", 0x4c3b932252745f9e),
+    ("old masks/rendered", 0x442eb7386062df48),
+    ("old masks/raw", 0x2087195d5011de65),
 ];
 
 #[test]

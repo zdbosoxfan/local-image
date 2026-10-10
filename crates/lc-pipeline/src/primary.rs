@@ -560,7 +560,7 @@ pub fn skin(img: &mut Rgb32f, s: &SkinTone, ppl: f64) {
     for i in 0..img.len() {
         let c = jch[i];
         let dh = wrap(c[2] - refc[2]).abs();
-        let wh = (s.hue_range as f32).to_radians();
+        let wh = (s.hue_range as f32).to_radians().max(1e-3);
         let wc = 0.04 + s.chroma_range as f32 / 100. * 0.4;
         let wl = 0.05 + s.lightness_range as f32 / 100. * 0.5;
         let mut w = (1. - smooth(wh * 0.5, wh, dh))

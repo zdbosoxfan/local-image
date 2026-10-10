@@ -308,6 +308,9 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
         for c in ["detail.sharpenAmount", "detail.sharpenRadius", "detail.sharpenDetail", "detail.sharpenMasking"] {
             control_t(app, ui, d, c, c == "detail.sharpenAmount" || d.detail.sharpen_amount > 0.0, target);
         }
+        if target == Target::Global {
+            super::enhance::denoise_controls(app, ui, d);
+        }
         sub_title(ui, crate::i18n::tr("Noise Reduction"));
         for c in ["detail.nrLuminance", "detail.nrDetail", "detail.nrContrast", "detail.nrColor", "detail.nrColorDetail", "detail.nrColorSmoothness"]
         {

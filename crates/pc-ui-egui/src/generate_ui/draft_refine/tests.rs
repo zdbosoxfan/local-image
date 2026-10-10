@@ -1,3 +1,10 @@
+struct RequestReset;
+impl Drop for RequestReset {
+    fn drop(&mut self) {
+        TEST_REQUEST.with(|m| *m.borrow_mut() = None);
+    }
+}
+
 use super::*;
 use egui::{Event, Key, Modifiers, PointerButton, pos2};
 use egui_kittest::{
@@ -69,6 +76,102 @@ fn open_from_menu(h: &mut Harness<'_, PhotocraftApp>) {
     let ctx = h.ctx.clone();
     crate::menus::invoke(h.state_mut(), &ctx, "li.draftRefine", json!({})).unwrap();
     h.run_steps(4);
+}
+
+#[test]
+fn zimage_turbo_variety_tip_follows_picker_clicks_in_generate_and_draft_gpu() {
+    use egui::accesskit::Role;
+    let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let tip = model_variety_tip(ModelId::ZImageTurbo).unwrap();
+    for model in ModelId::all().into_iter().filter(|m| *m != ModelId::ZImageTurbo) {
+        assert!(model_variety_tip(model).is_none(), "{model:?}");
+    }
+    assert!(model_variety_tip(ModelId::intern("installed:z_image_bf16.safetensors")).is_none());
+    assert!(crate::icons::exists("info"));
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/zimage-variety/ui");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = harness_render(vec2(1280.0, 800.0), true);
+    crate::dock::reveal(h.state_mut(), crate::dock::Group::Generate);
+    h.state_mut().ui.dock_tabs.generate = 0;
+    h.run_steps(3);
+    assert!(h.query_by_label(tip).is_none());
+    let current = model_of(&h.state().ui.ai.generate).info();
+    h.get_by_value(&format!("{} · {}", current.label, current.family_label)).click();
+    h.run_steps(2);
+    h.get_by_role_and_label(Role::Button, &ModelId::ZImageTurbo.info().label).click();
+    h.run_steps(3);
+    h.get_by_label(tip).scroll_to_me();
+    h.run_steps(20);
+    let note = h.get_by_label(tip).rect();
+    assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1280.0, 800.0)).contains_rect(note));
+    h.render().unwrap().save(dir.join("generate-tip.png")).unwrap();
+    let info = ModelId::ZImageTurbo.info();
+    h.get_by_value(&format!("{} · {}", info.label, info.family_label)).scroll_to_me();
+    h.run_steps(20);
+    h.get_by_value(&format!("{} · {}", info.label, info.family_label)).click();
+    h.run_steps(2);
+    let row = h.get_by_role_and_label(Role::Button, &info.label).rect();
+    h.hover_at(row.center());
+    h.run_steps(90);
+    h.get_by_label(&format!("{}\n{}\n{tip}", info.best_for, info.tags().join(" · ")));
+    h.render().unwrap().save(dir.join("picker-tooltip.png")).unwrap();
+    h.get_by_role_and_label(Role::Button, &ModelId::Ernie.info().label).click();
+    h.run_steps(3);
+    assert!(h.query_by_label(tip).is_none());
+    open_from_menu(&mut h);
+    h.get_by_role_and_label(Role::Button, "Draft").click();
+    h.run_steps(3);
+    let current = model_of(&h.state().ui.ai.draft_refine.draft).info();
+    h.get_by_value(&format!("{} · {}", current.label, current.family_label)).click();
+    h.run_steps(2);
+    h.get_by_role_and_label(Role::Button, &info.label).click();
+    h.run_steps(3);
+    let note = h.get_by_label(tip).rect();
+    assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1280.0, 800.0)).contains_rect(note));
+    h.get_by_role_and_label(Role::Slider, "Variety").scroll_to_me();
+    h.run_steps(20);
+    let slider = h.get_by_role_and_label(Role::Slider, "Variety").rect();
+    let from = slider.left_center() + vec2(8.0, 0.0);
+    let delta = vec2(slider.width() * 0.6, 0.0);
+    h.hover_at(from);
+    h.step();
+    h.event(Event::PointerButton { pos: from, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+    h.step();
+    let mut frame_ms = Vec::new();
+    for i in 1..=5 {
+        let start = std::time::Instant::now();
+        h.event(Event::PointerMoved(from + delta * (i as f32 / 5.0)));
+        h.step();
+        h.render().unwrap();
+        frame_ms.push(start.elapsed().as_secs_f64() * 1000.0);
+    }
+    h.event(Event::PointerButton { pos: from + delta, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+    h.run_steps(2);
+    std::fs::write(
+        dir.join("interaction-times.json"),
+        serde_json::to_vec_pretty(&json!({"scenario":"Draft Variety drag: app update and GPU render/readback", "size":[1280,800], "frame_ms":frame_ms}))
+            .unwrap(),
+    )
+    .unwrap();
+    let variety = h.state().ui.ai.draft_refine.draft.variety;
+    assert!(variety > 0.0 && variety <= 100.0, "slider={slider:?}, value={variety}");
+    let req = stage_request(h.state(), false).unwrap();
+    assert_eq!(req.variety, variety);
+    let saved = serde_json::to_value(&h.state().ui.ai.draft_refine).unwrap();
+    let restored: Settings = serde_json::from_value(saved).unwrap();
+    assert_eq!(restored.draft.variety, variety);
+    h.render().unwrap().save(dir.join("draft-tip.png")).unwrap();
+    h.get_by_role_and_label(Role::Button, "Off").click();
+    h.run_steps(2);
+    assert_eq!(h.state().ui.ai.draft_refine.draft.variety, 0.0);
+    h.get_by_value(&format!("{} · {}", info.label, info.family_label)).scroll_to_me();
+    h.run_steps(20);
+    h.get_by_value(&format!("{} · {}", info.label, info.family_label)).click();
+    h.run_steps(2);
+    h.get_by_role_and_label(Role::Button, &ModelId::Klein4B.info().label).click();
+    h.run_steps(3);
+    assert!(h.query_by_label(tip).is_none());
+    assert!(h.query_by_role_and_label(Role::Slider, "Variety").is_none());
 }
 
 fn drag(h: &mut Harness<'_, PhotocraftApp>, from: egui::Pos2, delta: egui::Vec2) {
@@ -173,6 +276,7 @@ fn draft_refine_sampling_is_editable_and_bounded_only_by_comfyui() {
 fn draft_refine_click_carries_current_composite_selected_layer_and_draft_pixels() {
     let mut h = harness(vec2(1280.0, 800.0));
     open_from_menu(&mut h);
+    let _request_reset = RequestReset;
     TEST_REQUEST.with(|m| *m.borrow_mut() = Some(Vec::new()));
     h.get_by_label("Refine image").click();
     h.run_steps(3);
@@ -291,7 +395,7 @@ fn draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened
     assert!(graph.as_object().unwrap().values().any(|n| n["class_type"] == "LoadImage"));
     assert!(graph.as_object().unwrap().values().any(|n| n["class_type"] == "VAEEncode"));
     let entry = h.state().draft_refine.refinement_entry.as_ref().unwrap().clone();
-    assert!(Library::default().image_path(&entry.id).is_file());
+    assert!(crate::generate_ui::library().image_path(&entry.id).is_file());
     let before = h.state().session.active().unwrap().history.past_len();
     h.get_by_label("Use").click();
     h.run_steps(3);
@@ -308,7 +412,7 @@ fn draft_refine_library_use_and_open_actions_are_one_undo_and_a_new_document() {
     let mut h = harness(vec2(1280.0, 800.0));
     open_from_menu(&mut h);
     let image = RgbaImage::from_pixel(320, 240, image::Rgba([70, 100, 130, 255]));
-    let library = Library::default();
+    let library = crate::generate_ui::library();
     let entry =
         library.add(&image, "DraftRefine-UI-test", Some(json!({"model":ModelId::Klein9B.key(),"mode":"refine","steps":4,"guidance":1.0})), None).unwrap();
     set_result(h.state_mut(), true, entry.clone());
@@ -435,6 +539,7 @@ fn draft_refine_lora_picker_filters_family_and_carries_strength_in_request() {
     drag(&mut h, strength.center(), vec2(10.0, 0.0));
     let strength = h.state().ui.ai.draft_refine.refinement.loras[0].strength;
     assert_ne!(strength, 0.8);
+    let _request_reset = RequestReset;
     TEST_REQUEST.with(|m| *m.borrow_mut() = Some(Vec::new()));
     h.get_by_label("Refine image").click();
     h.run_steps(2);
@@ -621,4 +726,15 @@ fn autodetect_refine_picker_disables_failure_and_click_retest_verifies_on_worker
     }
     assert_eq!(checker.status(&client, model), Status::Unchecked, "cancellation is transient");
     assert_eq!(server.interrupts(), 0, "the checker never sends a global interrupt");
+}
+
+#[test]
+fn ds_finding_mock_request_guard_clears_during_unwind() {
+    let result = std::panic::catch_unwind(|| {
+        let _reset = RequestReset;
+        TEST_REQUEST.with(|m| *m.borrow_mut() = Some(vec![]));
+        panic!("test unwind");
+    });
+    assert!(result.is_err());
+    assert!(TEST_REQUEST.with(|m| m.borrow().is_none()));
 }

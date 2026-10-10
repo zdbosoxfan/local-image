@@ -27,12 +27,22 @@ pub fn insert_menu_items(app: &PhotocraftApp, items: &mut Vec<MenuItem>) {
                 shortcut: None,
                 enabled,
                 checked: None,
+                tooltip: None,
                 color: None,
             }
         })
         .collect();
     if !extra.is_empty() {
-        extra.push(MenuItem { id: "---".into(), label: "---".into(), path: path.clone(), shortcut: None, enabled: false, checked: None, color: None });
+        extra.push(MenuItem {
+            id: "---".into(),
+            label: "---".into(),
+            path: path.clone(),
+            shortcut: None,
+            enabled: false,
+            checked: None,
+            tooltip: None,
+            color: None,
+        });
     }
     for (k, it) in extra.into_iter().enumerate() {
         items.insert(at + k, it);

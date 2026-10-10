@@ -30,7 +30,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     super::people_workspace::face_options(app, ui);
     if app.session.smart.prefs.faces_enabled {
-        let scope = app.session.visible_cloned();
+        let (_, scope) = app.session.visible_shared();
         if app.people_task.is_none()
             && ui.button(crate::i18n::tr("Analyse faces in this view")).clicked()
             && let Err(e) = crate::people_task::start(app, &scope, None)
@@ -44,13 +44,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         register(ui.ctx(), "people:body", body.inner_rect);
     }
     let t = Tokens::get(ui.ctx());
-    let mut people = app.caches.people(&app.session.catalog, &app.session.filter).as_ref().clone();
-    if app.session.smart.prefs.faces_enabled {
-        people.retain(|p| !app.session.smart.people.data.people.iter().any(|known| known.name.eq_ignore_ascii_case(&p.name)));
-        if people.is_empty() {
-            return;
-        }
-    }
+    let people = if app.session.smart.prefs.faces_enabled {
+        app.caches.imported_people(&app.session.catalog, &app.session.filter, &app.session.smart.people.data)
+    } else {
+        app.caches.people(&app.session.catalog, &app.session.filter)
+    };
     let (head, _) = ui.allocate_exact_size(vec2(ui.available_width(), HEADER_H), Sense::hover());
     ui.painter().text(
         pos2(head.left() + PAD, head.center().y),

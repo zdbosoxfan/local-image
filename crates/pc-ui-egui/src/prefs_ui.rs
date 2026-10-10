@@ -236,6 +236,13 @@ const SAVE_RETRY_MAX_S: f64 = 30.0;
 /// Failed writes in a row before a notice says preferences aren't being saved.
 const SAVE_NOTICE_AFTER: u32 = 3;
 
+/// Persist hosted edits while Library/Develop is visible, without applying editor visuals.
+pub fn persist_background(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    if let Some(wait) = persist(app, ctx.input(|i| i.time)) {
+        ctx.request_repaint_after(std::time::Duration::try_from_secs_f64(wait).unwrap_or_default());
+    }
+}
+
 /// Retry state of a failed preferences write (times are egui input time, in seconds).
 #[derive(Default)]
 struct SaveRetry {
@@ -487,7 +494,7 @@ pub fn shortcut_items(app: &PhotocraftApp) -> Vec<(String, String, Vec<String>, 
     }
     for tool in photocraft_algo::liquify::LiquifyTool::ALL {
         out.push((
-            crate::liquify_ui::shortcut_id(tool),
+            crate::liquify_ui::shortcut_id(tool).to_owned(),
             tool.label().to_string(),
             vec!["Tools".into(), "Liquify".into()],
             (!crate::liquify_ui::shortcut(tool).is_empty()).then(|| crate::liquify_ui::shortcut(tool).to_string()),

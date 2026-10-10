@@ -164,7 +164,7 @@ fn object_flood_keeps_the_clicked_region_only() {
 /// One official model per function, each explained in plain language.
 #[test]
 fn one_official_model_per_function() {
-    assert_eq!(MODELS.iter().filter(|m| m.group.is_some()).count(), 6);
+    assert_eq!(MODELS.iter().filter(|m| m.group.is_some()).count(), 8);
     assert_eq!(MODELS.iter().filter(|m| m.task == Task::Upscale).count(), 4);
     assert!(MODELS.iter().filter(|m| m.task == Task::Upscale).all(|m| m.group.is_none()));
     for g in Group::ALL {
@@ -224,7 +224,7 @@ fn remove_deletes_only_that_model_and_reports_the_size() {
 fn a_custom_subject_model_is_validated_copied_and_used() {
     let dir = temp_models();
     let src = picked(&dir, "my model.onnx", Some((64, 64)), Out::Map);
-    let c = add_custom(&dir, Group::Subject, &src, CustomOptions { norm: Norm::ImageNet, sky_class: 2 }, &keep).unwrap();
+    let c = add_custom(&dir, Group::Subject, &src, CustomOptions { norm: Norm::ImageNet, sky_class: 2, ..Default::default() }, &keep).unwrap();
     assert_eq!((c.size, c.norm, c.name.as_str()), (64, Norm::ImageNet, "my model.onnx"));
     assert!(c.path(&dir).starts_with(custom_dir(&dir)) && c.path(&dir).is_file(), "copied into the custom folder");
     assert!(src.is_file(), "the picked file stays where it was");
@@ -328,6 +328,16 @@ fn sky_models_are_one_sigmoid_map_or_class_logits() {
     let err = add_custom(&dir, Group::Sky, &many, CustomOptions { sky_class: 4, ..Default::default() }, &keep).unwrap_err();
     assert!(matches!(err.downcast_ref::<CustomModelError>(), Some(CustomModelError::SkyClassOutOfRange { class: 4, classes: 4 })), "{err:#}");
     assert_eq!(custom(&dir, Group::Sky).unwrap().class, 2, "a refused model leaves the setting alone");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn ds_finding_custom_sky_class_is_validated_on_reload() {
+    let dir = temp_models();
+    let model = picked(&dir, "many.onnx", Some((32, 32)), Out::Classes(4));
+    let c = add_custom(&dir, Group::Sky, &model, CustomOptions { sky_class: 2, ..Default::default() }, &keep).unwrap();
+    std::fs::write(custom_list(&dir), format!("sky\t{}\tSky\t32\tisnet\t4\t4\n", c.file)).unwrap();
+    assert!(custom(&dir, Group::Sky).is_none());
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -590,4 +600,46 @@ fn faces_official_bundle_contains_both_pinned_models_and_no_custom_flow() {
     assert!(!model_path(&dir, spec).exists());
     assert!(!companion_path(&dir, faces::YUNET.file).exists());
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn ds_finding_failed_custom_publication_keeps_old_registration_and_file() {
+    let dir = temp_models();
+    let source = picked(&dir, "a.onnx", Some((32, 32)), Out::Map);
+    let old = add_custom(&dir, Group::Subject, &source, CustomOptions::default(), &keep).unwrap();
+    let bytes = std::fs::read(old.path(&dir)).unwrap();
+    let registry = std::fs::read(custom_list(&dir)).unwrap();
+    for src in [&source, &picked(&dir, "b.onnx", Some((32, 32)), Out::Map)] {
+        assert!(
+            add_custom_with(
+                &dir,
+                Group::Subject,
+                src,
+                CustomOptions { norm: Norm::ImageNet, ..Default::default() },
+                &|_| panic!("old file disposed before publication"),
+                &|_, _| Err(anyhow::anyhow!("disk full"))
+            )
+            .is_err()
+        );
+        assert_eq!(std::fs::read(old.path(&dir)).unwrap(), bytes);
+        assert_eq!(std::fs::read(custom_list(&dir)).unwrap(), registry);
+        assert_eq!(custom(&dir, Group::Subject), Some(old.clone()));
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn ai_denoise_custom_model_and_use_default() {
+    let dir = temp_models();
+    let path = picked(&dir, "restore.onnx", Some((32, 32)), Out::Echo);
+    for group in [Group::RawDenoise, Group::RgbDenoise] {
+        let c = add_custom(&dir, group, &path, CustomOptions::default(), &keep).unwrap();
+        assert_eq!(c.size, 32);
+        assert_eq!(c.classes, 3);
+        assert_eq!(c.class, usize::from(group == Group::RawDenoise));
+        assert_eq!(group.in_use(&dir), Some(InUse::Custom(c)));
+        clear_custom(&dir, group, &|p| std::fs::remove_file(p)).unwrap();
+        assert!(custom(&dir, group).is_none());
+    }
+    let _ = std::fs::remove_dir_all(dir);
 }

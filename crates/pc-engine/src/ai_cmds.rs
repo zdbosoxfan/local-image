@@ -252,6 +252,16 @@ pub fn stroke_mask(s: &Session, p: &Value, cmd: &str) -> Result<(Rect, Vec<f32>)
     Ok(photocraft_paint::retouch::stroke_coverage(&Stroke { brush, points: pts }))
 }
 
+fn mask_index(width: u32, x: u32, y: u32) -> usize {
+    y as usize * width as usize + x as usize
+}
+
+#[test]
+#[cfg(target_pointer_width = "64")]
+fn ds_finding_mask_index_exceeds_u32_without_wrapping() {
+    assert_eq!(mask_index(70_000, 69_999, 69_999), 4_899_999_999usize);
+}
+
 /// The removal area: stroke coverage, else the selection. Returns (bbox, full-doc mask).
 fn removal_mask(s: &Session, p: &Value, cmd: &str) -> Result<(Rect, Size, Vec<u8>)> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
@@ -273,7 +283,7 @@ fn removal_mask(s: &Session, p: &Value, cmd: &str) -> Result<(Rect, Size, Vec<u8
         mask = bytes;
         for y in 0..size.height {
             for x in 0..size.width {
-                if mask[(y * size.width + x) as usize] > 0 {
+                if mask[mask_index(size.width, x, y)] > 0 {
                     bbox = bbox.union(&Rect::from_xywh(x as i32, y as i32, 1, 1));
                 }
             }

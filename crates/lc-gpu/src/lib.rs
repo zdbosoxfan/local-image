@@ -32,6 +32,8 @@ mod capture;
 #[cfg(not(target_arch = "wasm32"))]
 mod ctx;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod denoise;
+#[cfg(not(target_arch = "wasm32"))]
 mod params;
 #[cfg(not(target_arch = "wasm32"))]
 mod primary;

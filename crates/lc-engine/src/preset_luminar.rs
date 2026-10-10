@@ -348,7 +348,11 @@ impl Acc {
             if matches!(layer.get("Enabled"), Some(Plist::Bool(false))) {
                 continue;
             }
-            let opacity = weight * layer.get("Amount").and_then(Plist::num).filter(|a| a.is_finite()).unwrap_or(1.0).clamp(0.0, 1.0);
+            let amount = layer.get("Amount").and_then(Plist::num);
+            if amount.is_some_and(|a| !a.is_finite()) {
+                continue;
+            }
+            let opacity = weight * amount.unwrap_or(1.0).clamp(0.0, 1.0);
             if opacity <= 0.0 {
                 continue;
             }
@@ -509,6 +513,15 @@ mod tests {
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
              <plist version=\"1.0\"><dict><key>AdjustmentLayers</key><array>{layers}</array>{extra}<key>group_identifier</key><string>Custom</string></dict></plist>"
         )
+    }
+
+    #[test]
+    fn ds_finding_nonfinite_layer_amount_is_skipped() {
+        let good = layer("Develop", 1.0, "Normal", &[("MIPLDevelopCommonEffectID", param("Exposure", 0.5))], "");
+        let bad = layer("Develop", f64::NEG_INFINITY, "Normal", &[("MIPLDevelopCommonEffectID", param("Exposure", 3.0))], "");
+        let baseline = read_presets("x.lmp", look(&good, "").as_bytes(), None).unwrap();
+        let imported = read_presets("x.lmp", look(&(good + &bad), "").as_bytes(), None).unwrap();
+        assert_eq!(serde_json::to_value(&imported[0].preset).unwrap(), serde_json::to_value(&baseline[0].preset).unwrap());
     }
 
     /// A newer-style look (develop sliders nested in sublayers) written for this test.

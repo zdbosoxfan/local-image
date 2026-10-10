@@ -235,7 +235,7 @@ impl Prepared {
         // the repaired region (in the photo's own light) and where it replaces the photo (0..1)
         let (out, alpha): (Vec<[f32; 3]>, Vec<f32>) = if local {
             ctl.set(0.1, "Healing");
-            (heal(&pixels, rw, rh, &cov, self.seed, ctl)?, cov)
+            heal(&pixels, rw, rh, &cov, self.seed, ctl)?
         } else {
             let host = self.host.as_ref().ok_or(NO_HOST)?;
             let view = AiView::new(&pixels, &info, s);
@@ -308,11 +308,11 @@ fn dilate(w: usize, h: usize, m: &[bool], r: usize) -> Vec<bool> {
 /// stroke from the texture around it, then a Poisson seamless blend into the surroundings. Works
 /// through a perceptual encoding (the area's bright end at 1, a 2.2 gamma) so the patch search
 /// weighs shadows as the eye does. Returns the region healed (as it was away from the stroke).
-pub(crate) fn heal(pixels: &[[f32; 3]], w: usize, h: usize, cov: &[f32], seed: u64, ctl: &JobCtl) -> Result<Vec<[f32; 3]>, String> {
+pub(crate) fn heal(pixels: &[[f32; 3]], w: usize, h: usize, cov: &[f32], seed: u64, ctl: &JobCtl) -> Result<(Vec<[f32; 3]>, Vec<f32>), String> {
     use photocraft_algo::inpaint::{CompleteParams, complete_with};
     use photocraft_algo::poisson;
     const GAMMA: f32 = 2.2;
-    let Some(hb) = bbox(cov, w, h) else { return Ok(pixels.to_vec()) };
+    let Some(hb) = bbox(cov, w, h) else { return Ok((pixels.to_vec(), vec![0.; pixels.len()])) };
     let hole: Vec<bool> = cov.iter().map(|c| *c > 0.004).collect();
     // the encoding: the area's 99th percentile at 1
     let mut peak: Vec<f32> = pixels.iter().map(|p| p[0].max(p[1]).max(p[2])).filter(|v| v.is_finite()).collect();
@@ -351,7 +351,7 @@ pub(crate) fn heal(pixels: &[[f32; 3]], w: usize, h: usize, cov: &[f32], seed: u
             }
         }
     }
-    Ok(out)
+    Ok((out, blend.into_iter().map(|covered| if covered { 1. } else { 0. }).collect()))
 }
 
 fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
@@ -520,7 +520,11 @@ mod tests {
             .collect();
         let cov: Vec<f32> =
             (0..w * h).map(|i| if ((i % w) as f32 - 48.0).powi(2) + ((i / w) as f32 - 48.0).powi(2) < 81.0 { 1.0 } else { 0.0 }).collect();
-        let out = heal(&px, w, h, &cov, 1, &JobCtl::default()).unwrap();
+        let (out, alpha) = heal(&px, w, h, &cov, 1, &JobCtl::default()).unwrap();
+        assert!(alpha.iter().zip(&cov).any(|(a, c)| *a > 0. && *c == 0.), "patch includes the solved border");
+        let border = bbox(&alpha, w, h).unwrap();
+        let stroke_box = bbox(&cov, w, h).unwrap();
+        assert!(border.x0 < stroke_box.x0 && border.x1 > stroke_box.x1);
         let centre: Vec<f32> = (44..52).flat_map(|y| (44..52).map(move |x| (x, y))).map(|(x, y)| out[y * w + x][1]).collect();
         let mean = centre.iter().sum::<f32>() / centre.len() as f32;
         assert!((mean - 0.3).abs() < 0.06, "the blob is gone: {mean}");

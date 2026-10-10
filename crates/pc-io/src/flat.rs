@@ -239,6 +239,189 @@ pub fn document_to_image(doc: &Document, warnings: &mut Vec<String>) -> Result<I
     Ok(img.with_icc(icc).with_meta(meta))
 }
 
+/// Flatten for replacement in the source format, profile, model and sample depth.
+/// The source metadata belongs to the photo, rather than the temporary Develop document.
+/// Camera raws and formats without a read/write pair are deliberately rejected.
+pub fn export_over_original(doc: &Document, original: &[u8], jpeg_quality: u8) -> Result<ExportResult, IoError> {
+    use photocraft_cms::{ColorSpace, Intent, Profile, Transform};
+    if crate::raw::is_raw(original) {
+        return Err(IoError::Unsupported("Raw files can't be overwritten; save a copy instead".into()));
+    }
+    let original_psd = if crate::is_psd(original) { Some(crate::import("original", original)?.document) } else { None };
+    let format = if original_psd.is_some() { Format::Tiff } else { codecs::detect(original).ok_or_else(|| IoError::UnknownFormat("original".into()))? };
+    if !matches!(format, Format::Jpeg | Format::Png | Format::Tiff | Format::WebP) || !format.caps().read || !format.caps().write {
+        return Err(IoError::Unsupported("This format can't be overwritten; save a copy instead".into()));
+    }
+    let source = if let Some(old) = &original_psd {
+        if !matches!(old.mode, ColorMode::Rgb | ColorMode::Grayscale | ColorMode::Cmyk) {
+            return Err(IoError::Unsupported("This PSD colour mode can't be overwritten; save a copy instead".into()));
+        }
+        Image::new(1, 1, layout_for(old.mode, true), csample(old.depth))?.with_icc(old.icc_profile.as_ref().map(|p| p.to_vec())).with_meta(codecs::Metadata {
+            exif: old.metadata.exif.as_ref().map(|p| p.to_vec()),
+            xmp: old.metadata.xmp.clone(),
+            dpi: Some((old.resolution_dpi, old.resolution_dpi)),
+            ..Default::default()
+        })
+    } else {
+        codecs::decode(original)?
+    };
+    if !source.warnings.is_empty() {
+        return Err(IoError::Unsupported("Animated, multi-page or damaged originals can't be overwritten; save a copy instead".into()));
+    }
+    let mut warnings = Vec::new();
+    let mut img = document_to_image(doc, &mut warnings)?;
+    if img.layout().has_alpha() && !source.layout().has_alpha() {
+        img = matte_over_white(&img)?;
+    }
+    let space = |l: ChannelLayout| {
+        if l.is_gray() {
+            ColorSpace::Gray
+        } else if l.is_cmyk() {
+            ColorSpace::Cmyk
+        } else {
+            ColorSpace::Rgb
+        }
+    };
+    let profile = |icc: &Option<Vec<u8>>, layout: ChannelLayout| -> Result<Profile, IoError> {
+        let cs = space(layout);
+        match icc {
+            Some(bytes) => {
+                let p = Profile::parse(bytes).map_err(|e| IoError::Unsupported(e.to_string()))?;
+                if p.color_space != cs {
+                    return Err(IoError::Unsupported("profile does not match the photo's colour model".into()));
+                }
+                Ok(p)
+            }
+            None => photocraft_cms::builtin::default_for(cs).cloned().ok_or_else(|| IoError::Unsupported("unknown colour space".into())),
+        }
+    };
+    let src = profile(&img.icc, img.layout())?;
+    let dst = profile(&source.icc, source.layout())?;
+    let layout = source.layout();
+    let sample = source.sample_type();
+    if !src.same_colors(&dst) || !img.layout().same_model(layout) {
+        let t = Transform::new(&src, &dst, Intent::RelativeColorimetric, true).map_err(|e| IoError::Unsupported(e.to_string()))?;
+        let ss = img.layout().channels();
+        let ds = layout.channels();
+        img = map_bands(&img, layout, sample, |vals| {
+            let mut out = vec![1.0; vals.len() / ss * ds];
+            t.convert_f32(&vals, ss, &mut out, ds, true);
+            out
+        })?;
+    } else {
+        img = img.convert(layout, sample);
+    }
+    img.icc = source.icc;
+    img.meta = source.meta;
+    if let Some(exif) = &mut img.meta.exif {
+        drop_exif_thumbnail(exif);
+    }
+    // The replacement is flattened: stale private layer data must not override the new pixels.
+    img.meta.photoshop_layers = None;
+    if let Some(old) = original_psd {
+        let mut flat = image_to_document(&doc.name, &img)?.document;
+        flat.metadata.psd_resources = old.metadata.psd_resources.into_iter().filter(|(id, _, _)| !matches!(id, 1033 | 1036)).collect();
+        let name = if original.get(4..6) == Some(&[0, 2]) { "psb" } else { "psd" };
+        let mut out = crate::export(&flat, name, &ExportOptions::default())?;
+        out.warnings.extend(warnings);
+        return Ok(out);
+    }
+    let opts = codecs::EncodeOptions {
+        tiff_bigtiff: original.starts_with(b"II+\0") || original.starts_with(b"MM\0+"),
+        jpeg_quality: jpeg_quality.clamp(1, 100),
+        embed_icc: true,
+        embed_metadata: true,
+        ..Default::default()
+    };
+    let bytes = codecs::encode(&img, format, &opts)?;
+    let bytes = if format == Format::Tiff {
+        lightcraft_meta::preserve_tiff_metadata(original, &bytes).map_err(|e| IoError::Unsupported(e.to_string()))?
+    } else if format == Format::Jpeg {
+        preserve_jpeg_metadata(original, &bytes)?
+    } else {
+        bytes
+    };
+    Ok(ExportResult { bytes, warnings })
+}
+
+/// IFD1 describes the old thumbnail. Leave camera/EXIF/GPS entries and their original offsets
+/// intact, but unlink that directory so fast thumbnail loaders decode the replacement pixels.
+fn drop_exif_thumbnail(exif: &mut [u8]) {
+    let little = exif.starts_with(b"II");
+    if !little && !exif.starts_with(b"MM") {
+        return;
+    }
+    let read = |at: usize, n: usize| -> Option<u64> {
+        let b = exif.get(at..at.checked_add(n)?)?;
+        Some(if little { b.iter().rev().fold(0, |v, b| (v << 8) | u64::from(*b)) } else { b.iter().fold(0, |v, b| (v << 8) | u64::from(*b)) })
+    };
+    let (header, count_size, entry_size, offset_size) = match read(2, 2) {
+        Some(42) => (4, 2, 12, 4),
+        Some(43) => (8, 8, 20, 8),
+        _ => return,
+    };
+    let Some(at) = read(header, offset_size).and_then(|v| usize::try_from(v).ok()) else { return };
+    let Some(count) = read(at, count_size).and_then(|v| usize::try_from(v).ok()) else { return };
+    let Some(next) = count.checked_mul(entry_size).and_then(|v| at.checked_add(count_size)?.checked_add(v)) else { return };
+    if let Some(bytes) = exif.get_mut(next..next.saturating_add(offset_size)) {
+        bytes.fill(0);
+    }
+}
+
+/// Keep opaque APP metadata (including IPTC, extended XMP and private camera blocks) that
+/// the raster codec doesn't model. Use the new encoder's JFIF/Adobe and pixel segments.
+fn preserve_jpeg_metadata(original: &[u8], encoded: &[u8]) -> Result<Vec<u8>, IoError> {
+    fn segments(bytes: &[u8]) -> Result<(Vec<&[u8]>, &[u8]), IoError> {
+        let mut at = 2;
+        let mut entries = Vec::new();
+        while let Some(header) = bytes.get(at..at + 4) {
+            if header[0] != 0xff {
+                break;
+            }
+            if header[1] == 0xda {
+                return Ok((entries, &bytes[at..]));
+            }
+            let len = usize::from(u16::from_be_bytes([header[2], header[3]]));
+            if len < 2 {
+                break;
+            }
+            let end = at.checked_add(2 + len).ok_or_else(|| IoError::Unsupported("JPEG segment overflow".into()))?;
+            let entry = bytes.get(at..end).ok_or_else(|| IoError::Unsupported("truncated JPEG metadata".into()))?;
+            entries.push(entry);
+            at = end;
+        }
+        Err(IoError::Unsupported("invalid JPEG metadata stream".into()))
+    }
+    let is_metadata = |s: &[u8]| matches!(s[1], 0xe1..=0xed | 0xef | 0xfe);
+    let (old, _) = segments(original)?;
+    let (new, pixels) = segments(encoded)?;
+    let mut out = vec![0xff, 0xd8];
+    for segment in new.into_iter().filter(|s| !is_metadata(s)) {
+        out.extend_from_slice(segment);
+    }
+    for segment in old.into_iter().filter(|s| is_metadata(s) && !(s[1] == 0xe2 && s[4..].starts_with(b"MPF\0"))) {
+        let mut segment = segment.to_vec();
+        if segment[1] == 0xe1 && segment[4..].starts_with(b"Exif\0\0") {
+            let upright = codecs::upright_exif(&segment[10..]);
+            let mut payload = upright.into_owned();
+            drop_exif_thumbnail(&mut payload);
+            segment[10..].copy_from_slice(&payload);
+        } else if segment[1] == 0xe1 && segment[4..].starts_with(b"http://ns.adobe.com/xap/1.0/\0") {
+            let begin = 4 + b"http://ns.adobe.com/xap/1.0/\0".len();
+            if let Ok(packet) = std::str::from_utf8(&segment[begin..]) {
+                let packet = codecs::upright_xmp(packet).into_owned();
+                segment.truncate(begin);
+                segment.extend_from_slice(packet.as_bytes());
+                let len = u16::try_from(segment.len() - 2).map_err(|_| IoError::Unsupported("JPEG XMP too large".into()))?;
+                segment[2..4].copy_from_slice(&len.to_be_bytes());
+            }
+        }
+        out.extend_from_slice(&segment);
+    }
+    out.extend_from_slice(pixels);
+    Ok(out)
+}
+
 /// An empty buffer with room for `pixels × bytes_per_pixel` bytes, or an error (not an abort)
 /// when that much memory can't be had.
 pub(crate) fn try_buffer(pixels: usize, bytes_per_pixel: usize) -> Result<Vec<u8>, IoError> {

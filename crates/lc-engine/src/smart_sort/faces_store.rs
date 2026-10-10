@@ -44,6 +44,7 @@ impl StoredFace {
 #[derive(Default)]
 pub struct FacesStore {
     dir: Option<PathBuf>,
+    revision: u64,
     models: BTreeMap<String, Records>,
 }
 #[derive(Default)]
@@ -56,6 +57,17 @@ struct Records {
 impl FacesStore {
     pub fn new(library: Option<&Path>) -> Self {
         Self { dir: library.map(|p| p.join("AI")), ..Default::default() }
+    }
+    /// Read-only detached snapshot for background grouping; it cannot save sensitive data.
+    pub fn snapshot(&self) -> Self {
+        Self {
+            dir: None,
+            revision: self.revision,
+            models: self.models.iter().map(|(id, records)| (id.clone(), Records { values: records.values.clone(), ..Default::default() })).collect(),
+        }
+    }
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
     pub fn ensure(&mut self, model: &str) -> Result<(), String> {
         if model.is_empty() || model.len() > 128 || !model.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
@@ -74,6 +86,7 @@ impl FacesStore {
             }
             _ => (BTreeMap::new(), false),
         };
+        self.revision = self.revision.wrapping_add(1);
         self.models.insert(model.into(), Records { values, append, ..Default::default() });
         Ok(())
     }
@@ -97,6 +110,7 @@ impl FacesStore {
         let m = self.models.get_mut(model).ok_or("face model cache was not loaded")?;
         m.values.insert(key.clone(), faces);
         m.pending.insert(key);
+        self.revision = self.revision.wrapping_add(1);
         Ok(())
     }
     pub fn save(&mut self) -> io::Result<()> {
@@ -112,17 +126,28 @@ impl FacesStore {
                 continue;
             }
             let path = dir.join(format!("faces-{model}.bin"));
+            let original = if m.append {
+                match std::fs::File::open(&path) {
+                    Ok(f) => Some(f),
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+                    Err(e) => return Err(e),
+                }
+            } else {
+                None
+            };
+            let append = original.is_some();
+            let keys: Vec<_> = if append { m.pending.iter().collect() } else { m.values.keys().collect() };
             lightcraft_catalog::safe_file::write_atomic_with(&path, &mut |w| {
-                if m.append {
-                    std::io::copy(&mut std::fs::File::open(&path)?, w)?;
+                if let Some(f) = &original {
+                    std::io::copy(&mut f.try_clone()?, w)?;
                 } else {
                     writeln!(w, "LIFACE1 {}", serde_json::json!({"model":model,"dim":DIM}))?;
                 }
-                for key in &m.pending {
+                for key in &keys {
                     w.write_all(&(key.len() as u16).to_le_bytes())?;
                     w.write_all(key.as_bytes())?;
-                    w.write_all(&[m.values[key].len() as u8])?;
-                    for face in &m.values[key] {
+                    w.write_all(&[m.values[*key].len() as u8])?;
+                    for face in &m.values[*key] {
                         for v in face.rect.iter().chain(std::iter::once(&face.score)).chain(&face.embedding) {
                             w.write_all(&v.to_le_bytes())?;
                         }
@@ -157,6 +182,7 @@ impl FacesStore {
             }
         }
         self.models.clear();
+        self.revision = self.revision.wrapping_add(1);
         Ok(())
     }
 }

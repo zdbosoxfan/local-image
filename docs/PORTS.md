@@ -9,8 +9,13 @@ full commit hash the port was made from (`git log -1 --format=%H -- <upstream pa
 the upstream licence as an SPDX identifier, and the date of the port (YYYY-MM-DD). When a port is
 updated to a newer upstream commit, update its row (commit and date) rather than adding another.
 
+| Our file | Upstream project | Upstream path | Upstream commit | Licence | Date | Used for |
+|---|---|---|---|---|---|---|
+| `crates/li-ai/src/builders.rs`, `crates/li-ai/examples/zimage_variety_check.rs` | [SplitMix64](https://github.com/svaarala/duktape) | `misc/splitmix64.c` | `84131700dfd32d9d1063f99b5b0a900f5935a613` | CC0-1.0 | 2026-10-10 | Stable seed-derived alternate conditioning for Z-Image Turbo Variety. |
+
 | Our file | Upstream project | Upstream path | Upstream commit | Licence | Date |
 |---|---|---|---|---|---|
+| `crates/li-seg/src/denoise.rs` | [darktable-ai](https://github.com/darktable-org/darktable-ai) | `models/rawdenoise-nind/demo.py` | `f1a46e2d3feebc917a94f14705d128316fcf8114` | GPL-3.0 | 2026-10-10 |
 | `crates/lc-pipeline/src/primary.rs`, `crates/lc-gpu/src/wgsl/primary.wgsl` | [vkdt](https://github.com/hanatos/vkdt) | `src/pipe/modules/llap/reduce.comp`, `assemble.comp` | `afc34256fb22bcaf6dcf6503d19d5f9a6f477af5` | BSD-2-Clause | 2026-10-09 |
 | `crates/li-seg/src/faces.rs` | [OpenCV](https://github.com/opencv/opencv) | `modules/objdetect/src/face_detect.cpp` | `52100328d82d0502534323e9524a701baa3a1e2a` | Apache-2.0 | 2026-10-09 |
 | `crates/li-seg/src/faces/geometry.rs` | [OpenCV](https://github.com/opencv/opencv) | `modules/objdetect/src/face_recognize.cpp` | `13c571a801ad5c67a752e5cd58a8a7e7725f99d2` | Apache-2.0 | 2026-10-09 |

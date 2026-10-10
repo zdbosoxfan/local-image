@@ -44,11 +44,13 @@ pub struct Params<'a> {
     pub batch: u32,
     /// Overrides of the family's sampler and scheduler.
     pub sampler: Option<(&'a str, &'a str)>,
+    /// Z-Image Turbo Create: 0 = Off, 100 = the tested maximum conditioning blend.
+    pub variety: f32,
 }
 
 impl<'a> Params<'a> {
     pub fn create(prompt: &'a str, width: u32, height: u32, seed: u64, steps: u32, cfg: f32) -> Self {
-        Self { task: Task::Create, prompt, negative: "", width, height, seed, steps, cfg, references: 0, loras: &[], batch: 1, sampler: None }
+        Self { task: Task::Create, prompt, negative: "", width, height, seed, steps, cfg, references: 0, loras: &[], batch: 1, sampler: None, variety: 0.0 }
     }
 }
 
@@ -93,6 +95,25 @@ fn file(files: &Files, role: Role) -> String {
 
 fn is_gguf(name: &str) -> bool {
     name.to_ascii_lowercase().ends_with(".gguf")
+}
+
+/// SplitMix64 integer steps keep alternate text independent of RNG crate versions and thread
+/// order. This is an alternate conditioning blend, not Gaussian tensor noise: core ComfyUI
+/// cannot create that conditioning. The model's own text encoder encodes the alternate text.
+/// Reference: Sebastiano Vigna, <https://prng.di.unimi.it/splitmix64.c> (public domain;
+/// pinned CC0 snapshot and notice in docs/PORTS.md and licenses/splitmix64-NOTICE.md).
+fn variety_text(seed: u64) -> String {
+    let mut state = seed;
+    (0..96)
+        .map(|_| {
+            state = state.wrapping_add(0x9e3779b97f4a7c15);
+            let mut n = state;
+            n = (n ^ (n >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+            n = (n ^ (n >> 27)).wrapping_mul(0x94d049bb133111eb);
+            format!("{:08x}", (n ^ (n >> 31)) as u32)
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The graph for `p` on family `f` (with the model's overrides applied) and the resolved files.
@@ -237,6 +258,22 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
             };
         }
     }
+    // Perturb only early conditioning, then restore the original prompt. The tested maximum
+    // blend is 35%, with a 20% schedule switchover (see CODEX-REPORT-zimage-variety.md). Off,
+    // Base Z-Image and every untested task/family keep their original graphs.
+    if f.id == "z-image" && file(files, Role::Unet).to_ascii_lowercase().contains("turbo") && p.task == Task::Create && p.variety.is_finite() && p.variety > 0.0
+    {
+        let alt = g.add("CLIPTextEncode", json!({"clip": clip, "text": variety_text(p.seed)}));
+        let mix = g.add(
+            "ConditioningAverage",
+            json!({"conditioning_to": pos, "conditioning_from": link(&alt,0),
+            "conditioning_to_strength": 1.0 - 0.35 * p.variety.clamp(0.0,100.0) / 100.0}),
+        );
+        let early = g.add("ConditioningSetTimestepRange", json!({"conditioning": link(&mix,0), "start": 0.0, "end": 0.2}));
+        let late = g.add("ConditioningSetTimestepRange", json!({"conditioning": pos, "start": 0.2, "end": 1.0}));
+        let combined = g.add("ConditioningCombine", json!({"conditioning_1": link(&early,0), "conditioning_2": link(&late,0)}));
+        pos = link(&combined, 0);
+    }
     if let Some(gv) = pl.flux_guidance {
         let fg = g.add(
             "FluxGuidance",
@@ -306,7 +343,8 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
         _ => 1.0,
     };
     let empty = |g: &mut G| {
-        let l = g.add(&pl.latent, json!({ "width": p.width, "height": p.height, "batch_size": p.batch.max(1) }));
+        let l =
+            g.add(&pl.latent, json!({ "width": p.width, "height": p.height, "batch_size": if matches!(p.task, Task::Create) { p.batch.max(1) } else { 1 } }));
         link(&l, 0)
     };
     let mut latent = match (p.task, &source) {
@@ -467,6 +505,9 @@ fn qwen21(files: &Files, p: &Params) -> Built {
 
 /// The node classes a family's plain Create graph uses (what ComfyUI must offer).
 pub fn required_nodes(f: &Family) -> Vec<String> {
+    if f.id == "restoration" {
+        return crate::restoration::NODES.iter().map(|n| (*n).to_owned()).collect();
+    }
     if f.kind != crate::family::FamilyKind::Image {
         return Vec::new();
     }
@@ -540,6 +581,79 @@ mod tests {
 
     fn upstream<'a>(b: &'a Built, n: &Value, input: &str) -> &'a Value {
         &b.graph[n["inputs"][input][0].as_str().unwrap()]
+    }
+
+    #[test]
+    fn zimage_variety_graph_restores_prompt_and_is_seed_deterministic() {
+        let f = registry().family("z-image").unwrap();
+        let mut files = files();
+        files.insert(Role::Unet, "z_image_turbo_bf16.safetensors".into());
+        let mut p = Params::create("a fox in a forest", 512, 288, 42, 8, 1.0);
+        assert_eq!(p.variety, 0.0);
+        let off = build(f, &files, &p);
+        assert!(!classes(&off).contains(&"ConditioningAverage".into()));
+        p.variety = 100.0;
+        let on = build(f, &files, &p);
+        closed(&on.graph);
+        assert_eq!(build(f, &files, &p).graph, on.graph);
+        let mix = node(&on, "ConditioningAverage");
+        assert!((mix["inputs"]["conditioning_to_strength"].as_f64().unwrap() - 0.65).abs() < 1e-6);
+        let original = mix["inputs"]["conditioning_to"].clone();
+        assert_eq!(upstream(&on, mix, "conditioning_to")["inputs"]["text"], p.prompt);
+        assert_eq!(upstream(&on, mix, "conditioning_from")["inputs"]["text"], variety_text(42));
+        let combined = upstream(&on, node(&on, "KSampler"), "positive");
+        assert_eq!(combined["class_type"], "ConditioningCombine");
+        let (early, late) = (upstream(&on, combined, "conditioning_1"), upstream(&on, combined, "conditioning_2"));
+        assert_eq!(early["inputs"]["end"], 0.2);
+        assert_eq!(late["inputs"]["start"], 0.2);
+        assert_eq!(late["inputs"]["conditioning"], original);
+        assert_eq!(node(&on, "ConditioningZeroOut")["inputs"]["conditioning"], original);
+        assert_eq!(variety_text(42).split_whitespace().next(), Some("2feb6e95"));
+        p.seed = 43;
+        let other = build(f, &files, &p);
+        assert_ne!(upstream(&other, node(&other, "ConditioningAverage"), "conditioning_from")["inputs"]["text"], variety_text(42));
+        p.seed = 42;
+        p.variety = 40.0;
+        assert_ne!(build(f, &files, &p).graph, on.graph);
+        p.variety = 0.0;
+        assert_eq!(build(f, &files, &p).graph, off.graph);
+    }
+
+    #[test]
+    fn zimage_variety_does_not_change_base_other_families_or_non_create_tasks() {
+        for (id, main) in [("z-image", "z_image_bf16.safetensors"), ("flux2-klein", "flux-2-klein-4b.safetensors")] {
+            let mut files = files();
+            files.insert(Role::Unet, main.into());
+            let f = registry().family(id).unwrap().resolved_for_file(main);
+            let mut p = Params::create("a fox", 512, 288, 42, 8, 1.0);
+            let off = build(&f, &files, &p);
+            p.variety = 100.0;
+            assert_eq!(build(&f, &files, &p).graph, off.graph);
+        }
+        let f = registry().family("z-image").unwrap();
+        let mut files = files();
+        files.insert(Role::Unet, "z_image_turbo_bf16.safetensors".into());
+        for task in [Task::Refine { denoise: 0.4 }, Task::Inpaint { denoise: 1.0 }, Task::Edit] {
+            let mut p = Params::create("a fox", 512, 288, 42, 8, 1.0);
+            p.task = task;
+            let off = build(f, &files, &p);
+            p.variety = 100.0;
+            assert_eq!(build(f, &files, &p).graph, off.graph);
+        }
+    }
+
+    #[test]
+    fn zimage_variety_request_defaults_off_and_rejects_invalid_levels() {
+        let mut req = crate::GenerateRequest::new(crate::ModelId::ZImageTurbo, "a fox");
+        assert_eq!(req.variety, 0.0);
+        for level in [0.0, 40.0, 100.0] {
+            req.variety = level;
+            req.validate().unwrap();
+        }
+        for level in [-1.0, 101.0, f32::NAN, f32::INFINITY] {
+            req.variety = level;
+            assert!(req.validate().unwrap_err().to_string().contains("Variety"));
+        }
     }
 
     #[test]
@@ -909,5 +1023,27 @@ mod tests {
         assert!(req.contains(&"ModelSamplingAuraFlow".into()) && req.contains(&"EmptySD3LatentImage".into()));
         let q = registry().model("qwen").unwrap();
         assert!(required_nodes(&q.0.resolved_for(q.1)).contains(&"TextEncodeQwenImage21".into()));
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_flux_refine_batch_is_not_squared() {
+    let family = crate::family::registry().family("flux2-klein").unwrap();
+    for task in [Task::Create, Task::Refine { denoise: 1.0 }, Task::Refine { denoise: 0.4 }] {
+        let mut p = Params::create("a cat", 128, 128, 3, 4, 1.0);
+        p.batch = 3;
+        p.task = task;
+        let built = build(family, &Files::default(), &p);
+        let nodes: Vec<_> = built.graph.as_object().unwrap().values().collect();
+        let empty = nodes.iter().find(|n| n["class_type"] == "EmptyFlux2LatentImage");
+        if let Some(empty) = empty {
+            assert_eq!(empty["inputs"]["batch_size"], if task == Task::Create { 3 } else { 1 });
+        }
+        let repeat: Vec<_> = nodes.iter().filter(|n| n["class_type"] == "RepeatLatentBatch").collect();
+        assert_eq!(repeat.len(), usize::from(task != Task::Create));
+        if let Some(repeat) = repeat.first() {
+            assert_eq!(repeat["inputs"]["amount"], 3);
+        }
     }
 }

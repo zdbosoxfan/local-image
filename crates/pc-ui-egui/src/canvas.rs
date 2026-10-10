@@ -655,7 +655,8 @@ pub fn navigator_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usiz
     let (snapshot, id) = app.session.documents().get(idx).map(|st| (std::sync::Arc::downgrade(&st.doc), st.doc.id))?;
     let navigator_key = egui::Id::new(("navigator", id.0));
     if app.drag.is_some()
-        && let Some((_, _, t)) = ctx.data(|d| d.get_temp::<(std::sync::Weak<Document>, u64, egui::TextureHandle)>(navigator_key))
+        && let Some((_, p, t)) = ctx.data(|d| d.get_temp::<(std::sync::Weak<Document>, u64, egui::TextureHandle)>(navigator_key))
+        && p != u64::MAX
     {
         return Some(t.id());
     }
@@ -950,14 +951,14 @@ fn ensure_gpu(app: &mut PhotocraftApp, idx: usize, visible: DRect) -> bool {
     if present && cache.revision == revision && cache.preview_key == preview_key {
         // An adjustment preview composited where the view was: catch up where it moved to.
         if let Some(r) = crate::adjust_preview::uncovered(app, id, raw_key, visible) {
-            let r = gpu.refresh(id.0, &doc, Some(r), display.as_deref());
+            let r = gpu.refresh_snapshot(id.0, &doc, Some(r), display.as_deref());
             app.perf.record(r.kind, r.px, r.composite_ms, r.upload_ms);
         }
         return true;
     }
     let partial = present && damage.is_some();
     gpu_budget(app, &gpu, idx, partial, visible);
-    let r = gpu.refresh(id.0, &doc, if partial { damage } else { None }, display.as_deref());
+    let r = gpu.refresh_snapshot(id.0, &doc, if partial { damage } else { None }, display.as_deref());
     if r.kind == "lost" {
         // The device is gone: draw this frame on the CPU path; `gpu_status` drops the GPU canvas.
         return false;
@@ -1052,7 +1053,7 @@ fn ensure_adjust_proxy(app: &mut PhotocraftApp, idx: usize, zoom: f32) -> Option
     if frame.stale || !gpu.has(key, size) {
         let doc = app.session.documents().get(idx)?.doc.clone();
         let (display, _) = canvas_display(app, &doc, None);
-        let r = gpu.refresh(key, &frame.doc, frame.damage, display.as_deref());
+        let r = gpu.refresh_snapshot(key, &frame.doc, frame.damage, display.as_deref());
         app.perf.record(if r.kind.starts_with("gpu") { "gpu-adjust-proxy" } else { "adjust-proxy" }, r.px, r.composite_ms, r.upload_ms);
         crate::adjust_preview::proxy_drawn(app, &frame);
     }

@@ -111,6 +111,13 @@ fn remove_confirmation_http_command_repairs_mask_in_one_undo_step() {
         }
         Err(e) => panic!("{e}"),
     };
+    struct ResetService;
+    impl Drop for ResetService {
+        fn drop(&mut self) {
+            li_ai::set_service_override(None);
+        }
+    }
+    let _reset = ResetService;
     li_ai::set_service_override(Some(server.host().into()));
     let mut h = harness();
     for action in 0..3 {
@@ -193,4 +200,41 @@ fn remove_confirmation_enter_click_and_immediate_submit_the_painted_mask_once() 
         h.state_mut().run("edit.undo", json!({})).unwrap();
     }
     TEST_REMOVE.with(|m| *m.borrow_mut() = None);
+}
+
+#[test]
+fn ds_finding_remove_bounds_and_partial_texture_follow_actual_strokes() {
+    let mut h = harness();
+    stroke(&mut h, 60., 70., Modifiers::NONE);
+    let id = h.state().ai_remove.as_ref().unwrap().texture.as_ref().unwrap().id();
+    paint(h.state_mut(), &[[190., 160., 1.], [215., 160., 1.]], false);
+    let xf = ViewXform::active(h.state()).unwrap();
+    let painter = h.ctx.layer_painter(egui::LayerId::background());
+    overlay(h.state_mut(), &painter, &xf);
+    // The kittest renderer consumes deltas before exposing FullOutput. Inspect the
+    // texture manager immediately after the same overlay path used by the canvas.
+    let mut updates = h.ctx.tex_manager().write().take_delta();
+    let delta = updates.set.iter().find(|(texture, _)| **texture == id).unwrap();
+    let delta = delta.1.last().unwrap();
+    assert!(delta.pos.is_some(), "a dab updates only its rectangle");
+    let size = delta.image.size();
+    assert!(size[0] < 100 && size[1] < 100);
+    updates.clear();
+    for subtract in [true, false, true] {
+        stroke(&mut h, 60., 70., if subtract { Modifiers::ALT } else { Modifiers::NONE });
+        let p = h.state().ai_remove.as_ref().unwrap();
+        assert_eq!(p.bounds, scan_bounds(p, Rect::from_xywh(0, 0, 320, 240)));
+    }
+    h.get_by_label("Remove immediately on release").click();
+    h.run_steps(2);
+    TEST_REMOVE.with(|m| *m.borrow_mut() = Some(Box::new(|_, _| panic!("unchanged paint must not submit removal"))));
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            TEST_REMOVE.with(|m| *m.borrow_mut() = None);
+        }
+    }
+    let _reset = Reset;
+    paint(h.state_mut(), &[[-100., -100., 1.]], false);
+    assert!(h.state().ai_remove.is_some());
 }

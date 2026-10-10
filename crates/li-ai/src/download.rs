@@ -277,6 +277,14 @@ pub fn listed_file(model_dir: &Path, folders: &[&str], name: &str) -> Option<Pat
 
 /// Downloads every missing file of `preset` into `model_dir`.
 pub fn download_preset(model_dir: &Path, preset: &Preset, ctl: &JobControl, on_progress: &dyn Fn(DownloadProgress)) -> Result<()> {
+    for f in &preset.files {
+        if crate::restoration::byo::external_only(&format!("{}/{}", f.url, f.name)) {
+            anyhow::bail!("This model is user-installed only; Local Image never downloads it");
+        }
+        if f.name.to_ascii_lowercase().ends_with(".pth") || crate::restoration::pinned_file(&f.name).is_some() {
+            crate::restoration::validate_download(&f.name, &f.folder, &f.url, f.bytes, &f.sha256)?;
+        }
+    }
     let total: u64 = preset.files.iter().map(|f| f.bytes).sum();
     let mut done = 0u64;
     for spec in &preset.files {
@@ -310,6 +318,9 @@ pub fn download_file(url: &str, dest: &Path, bytes: u64, sha256: &str, ctl: &Job
 
 /// [`download_file`] with an access token for the first host (Hugging Face, Civitai).
 pub fn download_file_with(url: &str, dest: &Path, bytes: u64, sha256: &str, token: Option<&str>, ctl: &JobControl, on_bytes: &dyn Fn(u64)) -> Result<()> {
+    if crate::restoration::byo::external_only(url) || dest.file_name().and_then(|s| s.to_str()).is_some_and(crate::restoration::byo::external_only) {
+        anyhow::bail!("This model is user-installed only; Local Image never downloads it");
+    }
     if dest.exists() {
         bail!("{} already exists", dest.display());
     }

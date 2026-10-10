@@ -18,6 +18,30 @@
       "intro": "Algorithms re-implemented in Rust from other projects (docs/PORTS.md). No C, C++ or Python from them is compiled or shipped.",
       "entries": [
         {
+          "name": "SplitMix64",
+          "used_for": "Stable seed-derived alternate conditioning for Z-Image Turbo Variety.",
+          "upstream": "misc/splitmix64.c",
+          "commit": "84131700dfd32d9d1063f99b5b0a900f5935a613",
+          "ours": "crates/li-ai/src/builders.rs, crates/li-ai/examples/zimage_variety_check.rs",
+          "licence": "CC0-1.0",
+          "licence_files": [
+            "licenses/splitmix64-NOTICE.md"
+          ],
+          "url": "https://github.com/svaarala/duktape/blob/84131700dfd32d9d1063f99b5b0a900f5935a613/misc/splitmix64.c"
+        },
+        {
+          "name": "darktable-ai",
+          "used_for": "AI Denoise: RawNIND UtNet2 (Bayer and linear Rec.2020) and NIND UNet from darktable-ai, run on the CPU with tract, using the tiler shared with WGSL GPU execution.",
+          "upstream": "models/rawdenoise-nind/demo.py",
+          "commit": "f1a46e2d3feebc917a94f14705d128316fcf8114",
+          "ours": "crates/li-seg/src/denoise.rs",
+          "licence": "GPL-3.0",
+          "licence_files": [
+            "licenses/darktable-ai-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable-ai/blob/f1a46e2d3feebc917a94f14705d128316fcf8114/models/rawdenoise-nind/demo.py"
+        },
+        {
           "name": "vkdt",
           "used_for": "Primary Develop tools.",
           "upstream": "src/pipe/modules/llap/reduce.comp, assemble.comp",
@@ -934,6 +958,26 @@
           "url": "https://github.com/darktable-org/darktable-ai"
         },
         {
+          "name": "RawNIND UtNet2",
+          "author": "RawNIND UtNet2; darktable-ai ONNX export",
+          "used_for": "AI Denoise in Develop.",
+          "licence": "GPL-3.0",
+          "licence_files": [
+            "licenses/darktable-ai-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable-ai"
+        },
+        {
+          "name": "NIND UNet",
+          "author": "NIND UNet; darktable-ai ONNX export",
+          "used_for": "AI Denoise in Develop.",
+          "licence": "GPL-3.0",
+          "licence_files": [
+            "licenses/darktable-ai-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable-ai"
+        },
+        {
           "name": "SAM 3 (Segment Anything 3)",
           "author": "Meta AI (facebook/sam3)",
           "used_for": "Object masks in Develop: click an object to select it.",
@@ -1020,6 +1064,12 @@
           "url": "https://github.com/dslisleedh/PLKSR"
         },
         {
+          "name": "Restoration",
+          "used_for": "Pinned 1× photo restoration using ComfyUI core nodes and main spandrel only.",
+          "upstream": "FBCNN · JPEG cleanup, SCUNet-real · Scan cleanup, NAFNet-SIDD · Denoise, DDColor · Colourise",
+          "licence": "Per model: Apache-2.0 or MIT"
+        },
+        {
           "name": "Stable Diffusion 1.5",
           "used_for": "The classic 512 px model and its thousands of fine-tunes. Light on memory; a huge choice of styles and LoRAs.",
           "licence": "CreativeML OpenRAIL-M",
@@ -1050,6 +1100,46 @@
           "upstream": "Z-Image Turbo",
           "licence": "Apache 2.0",
           "url": "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo"
+        },
+        {
+          "name": "FBCNN · JPEG cleanup",
+          "used_for": "FBCNN · JPEG cleanup at original resolution; applies on a new layer. Automatic quality-factor prediction; the core node has no quality-factor input.",
+          "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/restoration-fbcnn-LICENSE.txt"
+          ],
+          "url": "https://github.com/jiaxi-jiang/FBCNN/blob/main/LICENSE"
+        },
+        {
+          "name": "SCUNet-real · Scan cleanup",
+          "used_for": "SCUNet-real · Scan cleanup at original resolution; applies on a new layer. PSNR-trained real-image cleanup; no GAN weights.",
+          "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/restoration-scunet-LICENSE.txt"
+          ],
+          "url": "https://github.com/cszn/SCUNet/blob/main/LICENSE"
+        },
+        {
+          "name": "NAFNet-SIDD · Denoise",
+          "used_for": "NAFNet-SIDD · Denoise at original resolution; applies on a new layer. SIDD real smartphone denoising, width 64.",
+          "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json",
+          "licence": "MIT",
+          "licence_files": [
+            "licenses/restoration-nafnet-LICENSE.txt"
+          ],
+          "url": "https://github.com/megvii-research/NAFNet/blob/main/LICENSE"
+        },
+        {
+          "name": "DDColor · Colourise",
+          "used_for": "Apache-2.0 relicensed Hugging Face tiny weights only, pinned revision e9e7b527709c8aeb2f5e1bf701e72fd468a13baa. Requires detection in main spandrel; unavailable with the present extra-only architecture.",
+          "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/restoration-ddcolor-LICENSE.txt"
+          ],
+          "url": "https://huggingface.co/piddnad/DDColor-models/blob/e9e7b527709c8aeb2f5e1bf701e72fd468a13baa/README.md"
         }
       ]
     },
@@ -1058,14 +1148,44 @@
       "title": "Assets",
       "entries": [
         {
-          "name": "Original Local Image Glossy Duotone tool icons",
+          "name": "Local Image approved Glossy Duotone artwork and source adaptations",
           "author": "Local Image contributors",
-          "used_for": "Original colour and monochrome Compositing and Develop tools (assets/icons/color and assets/icons/tools), with 20/40 px contact sheets (docs/design/tool-icons.png and tool-icons-before-after.png). Hand-authored geometry in xtask/src/tool_art.rs; familiar editing-tool metaphors, no copied or traced vendor artwork. Shapes redrawn 2026-10-09; owner-selected glossy family/metal gradients, dark outline and restrained highlight restored 2026-10-10.",
+          "used_for": "Owner-approved Glossy Duotone base: 88 original glyphs retained exactly. Six reviewed replacements (Crop, Brush, Gradient, Eraser, Ellipse and Rectangle Marquee) use pinned upstream geometry with filled family/metal gradients, dark outlines and highlights. Colour/mono SVGs and review sheets; selection in assets/icons/SOURCES.md.",
           "licence": "GPL-3.0-or-later",
           "licence_files": [
             "LICENSE",
-            "assets/ATTRIBUTION-lightcraft.md"
+            "assets/icons/SOURCES.md"
           ]
+        },
+        {
+          "name": "Lucide sourced tool glyphs",
+          "version": "0.468.0",
+          "author": "Lucide contributors; Cole Bemis (Feather)",
+          "used_for": "Only the reviewed glyphs listed here are imported. Native path data and transforms are retained; fills, gradient paint, outline widths and highlights adapt them to the approved Glossy Duotone style. Modifications by Local Image contributors, GPL-3.0-or-later. See assets/icons/SOURCES.md.",
+          "upstream": "icons/crop.svg",
+          "commit": "f12b0de177fbc2a6795e99be065887e72b237123",
+          "ours": "assets/icons/upstream/lucide; assets/icons/color; assets/icons/tools",
+          "licence": "ISC AND MIT",
+          "licence_files": [
+            "licenses/lucide-ISC.txt",
+            "licenses/feather-MIT.txt"
+          ],
+          "url": "https://github.com/lucide-icons/lucide"
+        },
+        {
+          "name": "Krita sourced tool glyphs",
+          "version": "v5.2.6",
+          "author": "Andrei Rudenko; Timothée Giet",
+          "used_for": "Only the reviewed glyphs listed here are imported. Native path data and transforms are retained; fills, gradient paint, outline widths and highlights adapt them to the approved Glossy Duotone style. Modifications by Local Image contributors, GPL-3.0-or-later. See assets/icons/SOURCES.md.",
+          "upstream": "krita/pics/tools/SVG/16/dark_krita_tool_gradient.svg; krita/pics/tools/SVG/16/dark_krita_tool_freehand.svg; krita/pics/tools/SVG/16/dark_tool_elliptical_selection.svg; krita/pics/misc-dark/dark_draw-eraser.svg; krita/pics/tools/SVG/16/dark_tool_rect_selection.svg",
+          "commit": "ab3502b67a5b07771d3127aeaf9cc522af5d626a",
+          "ours": "assets/icons/upstream/krita; assets/icons/color; assets/icons/tools",
+          "licence": "CC-BY-SA-4.0",
+          "licence_files": [
+            "licenses/CC-BY-SA-4.0.txt",
+            "licenses/krita-icons-NOTICE.md"
+          ],
+          "url": "https://github.com/KDE/krita"
         },
         {
           "name": "Inter",
@@ -1112,7 +1232,7 @@
         {
           "name": "Magnetic Lasso Tool icon",
           "author": "Lil' Seal (Noun Project); adapted by PhotoCraft contributors",
-          "used_for": "The Magnetic Lasso tool glyph.",
+          "used_for": "Legacy bundled Magnetic Lasso SVG. Current tool rendering uses the owner-approved Local Image glyph; this notice covers the retained generic asset.",
           "licence": "CC-BY-3.0",
           "licence_files": [
             "assets/icons/LICENSE-noun-magnetic-lasso.txt"

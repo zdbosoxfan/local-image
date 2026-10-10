@@ -1,4 +1,4 @@
-//! Icon rendering. Generic SVGs (`icon_data.rs`) and original tools (`tool_icon_data.rs`)
+//! Icon rendering. Generic SVGs (`icon_data.rs`) and Glossy Duotone tools (`tool_icon_data.rs`)
 //! are embedded, recoloured to white, rasterized by the
 //! egui_extras SVG loader at the exact on-screen pixel size (crisp at any DPI), and tinted per use.
 //!
@@ -33,7 +33,7 @@ pub fn exists(name: &str) -> bool {
 
 /// An egui image for an icon, tinted.
 pub fn image(name: &str, size: f32, tint: Color32) -> egui::Image<'static> {
-    // Generic controls and the eyedropper cursor retain their legacy artwork/hotspots.
+    // Generic tool IDs embed the same sourced mono geometry; the cursor has its own ID.
     if !white_icons().contains_key(name)
         && let Some(image) = crate::mono_tool_icons::image(name, size, tint)
     {
@@ -53,6 +53,7 @@ pub fn paint(ui: &egui::Ui, rect: Rect, name: &str, size: f32, tint: Color32) {
 /// icon box) on `p`, white with a dark outline so it reads on any image. The caller hides the OS
 /// cursor (`CursorIcon::None`).
 pub fn cursor(ctx: &egui::Context, name: &str, p: egui::Pos2, hot: Vec2, size: f32) {
+    let name = if name == "pipette" { "cursor-pipette" } else { name };
     let rect = Rect::from_min_size(p - hot * size, Vec2::splat(size));
     let area = egui::Area::new(egui::Id::new("pc-icon-cursor")).order(egui::Order::Tooltip).fixed_pos(rect.min).constrain(false).interactable(false);
     area.show(ctx, |ui| {
@@ -179,6 +180,7 @@ pub fn tool_icon(ui: &egui::Ui, name: &str, size: f32) -> egui::Image<'static> {
 }
 
 pub fn paint_tool(ui: &egui::Ui, rect: Rect, name: &str, size: f32, tint: Color32) {
+    let tint = if ui.is_enabled() { tint } else { Tokens::get(ui.ctx()).text_faint };
     if crate::color_icons::enabled(ui.ctx())
         && let Some(image) = crate::color_icons::image(ui, name, size, !ui.is_enabled())
     {
@@ -205,12 +207,43 @@ mod tests {
     fn generic_cursor_artwork_and_tool_artwork_use_separate_sources() {
         let ctx = egui::Context::default();
         for (icon, expected) in [
-            (image("pipette", 20.0, Color32::WHITE), "bytes://icons/pipette.svg"),
-            (monochrome_tool_image("pipette", 20.0, Color32::WHITE), "bytes://original-tool-icons/pipette.svg"),
+            (image("cursor-pipette", 20.0, Color32::WHITE), "bytes://icons/cursor-pipette.svg"),
+            (monochrome_tool_image("pipette", 20.0, Color32::WHITE), "bytes://sourced-tool-icons/pipette.svg"),
         ] {
             match icon.source(&ctx) {
                 egui::ImageSource::Bytes { uri, .. } => assert_eq!(uri.as_ref(), expected),
                 other => panic!("unexpected source: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn ds_finding_disabled_monochrome_tool_has_faint_tint_and_ignores_click() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(120., 80.)).build_ui_state(
+            |ui, clicked: &mut bool| {
+                egui_extras::install_image_loaders(ui.ctx());
+                crate::color_icons::set_enabled(ui.ctx(), false);
+                ui.add_enabled_ui(false, |ui| {
+                    *clicked |= tool_button(ui, "crop", 40., false, "Disabled tool").clicked();
+                });
+            },
+            false,
+        );
+        h.run_steps(3);
+        let faint = Tokens::get(&h.ctx).text_faint;
+        let tint = h.output().shapes.iter().find_map(|s| if let egui::Shape::Rect(r) = &s.shape { r.brush.as_ref().map(|_| r.fill) } else { None }).unwrap();
+        assert_eq!(tint, faint.gamma_multiply(0.5), "egui also applies disabled UI opacity");
+        h.get_by_label("Disabled tool").click();
+        h.run_steps(2);
+        assert!(!h.state());
+    }
+
+    #[test]
+    fn generic_tool_ids_embed_the_same_sourced_monochrome_glyph() {
+        for (name, tool) in crate::tool_icon_data::TOOL_ICONS {
+            if let Some((_, generic)) = ICONS.iter().find(|(id, _)| id == name) {
+                assert_eq!(generic, tool, "generic tool ID uses a different silhouette: {name}");
             }
         }
     }

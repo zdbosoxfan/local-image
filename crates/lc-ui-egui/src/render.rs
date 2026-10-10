@@ -780,6 +780,27 @@ mod thumbnail_tests {
     }
 
     #[test]
+    fn ds2_missing_thumbnail_renders_committed_settings_once_during_interaction() {
+        let (mut app, work, ctx) = fixture();
+        app.session.execute("library.select", &serde_json::json!({"ids":[1],"active":1})).unwrap();
+        app.session.begin_interaction("Exposure").unwrap();
+        let original = app.session.interaction.as_ref().unwrap().original.clone();
+        let mut edited = (*original).clone();
+        edited.light.exposure = 2.0;
+        app.session.set_develop(PhotoId(1), edited, "Exposure").unwrap();
+        request(&mut app);
+        let (slot, job) = take_job(&work);
+        assert_eq!(*job.settings, *original);
+        assert!(job.cache.is_none());
+        finish(&mut app, &work, &ctx, slot, job.run());
+        assert!(app.renderer.thumb(PhotoId(1)).is_some());
+        for _ in 0..30 {
+            request(&mut app);
+        }
+        assert!(work.borrow().jobs.is_empty());
+    }
+
+    #[test]
     fn unchanged_ready_and_running_frames_build_no_jobs() {
         let (mut app, work, ctx) = fixture();
         request(&mut app);

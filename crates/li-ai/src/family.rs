@@ -45,6 +45,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("seedvr2", include_str!("../families/seedvr2.json")),
     ("realplksr", include_str!("../families/realplksr.json")),
     ("bsrgan", include_str!("../families/bsrgan.json")),
+    ("restoration", include_str!("../families/restoration.json")),
 ];
 
 /// Where newer profiles are published (this repository's `crates/li-ai/families/`).
@@ -542,6 +543,9 @@ pub fn build(raw: &BTreeMap<String, Value>) -> Result<Vec<Family>> {
 
 /// Rejects profiles a builder could not run.
 pub fn validate(f: &Family) -> Result<()> {
+    if f.id == "restoration" && f != crate::restoration::policy() {
+        bail!("Restoration profiles must match the immutable built-in policy");
+    }
     if f.id.is_empty() || f.label.is_empty() {
         bail!("a family needs an id and a label");
     }
@@ -570,7 +574,11 @@ pub fn validate(f: &Family) -> Result<()> {
                     bail!("{}: {} has no size", m.key, file.name);
                 }
                 let core_upscaler = f.kind == FamilyKind::Upscaler && f.pipeline.sampler == SamplerStyle::UpscaleModel && file.role == Role::Upscaler;
-                if !(file.name.ends_with(".safetensors") || file.name.ends_with(".gguf") || (core_upscaler && file.name.ends_with(".pth"))) {
+                if !(file.name.ends_with(".safetensors")
+                    || file.name.ends_with(".gguf")
+                    || (core_upscaler && file.name.ends_with(".pth"))
+                    || f.id == "restoration")
+                {
                     bail!("{}: {} is not a supported weights file", m.key, file.name);
                 }
             }
@@ -607,6 +615,11 @@ pub fn load(dir: &Path) -> Registry {
                 continue;
             }
             let Some(id) = p.file_stem().and_then(|s| s.to_str()).map(str::to_owned) else { continue };
+            // Restoration pins and licensing policy are vetted in the binary, never widened
+            // by an editable profile or an online update.
+            if id == "restoration" {
+                continue;
+            }
             let Ok(v) = std::fs::read(&p).map_err(anyhow::Error::from).and_then(|b| Ok(serde_json::from_slice::<Value>(&b)?)) else {
                 log::warn!("family profile {} is unreadable; skipped", p.display());
                 continue;

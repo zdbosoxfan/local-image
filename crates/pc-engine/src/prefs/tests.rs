@@ -301,3 +301,25 @@ fn tool_icon_preferences_default_validate_and_round_trip() {
     restored.execute("prefs.reset", json!({"path": "interface.toolIcons"})).unwrap();
     assert_eq!(restored.prefs().interface.tool_icons, "colour");
 }
+
+#[test]
+fn ds_finding_legacy_toolbar_batch_keeps_hidden_and_order() {
+    let mut s = Session::new();
+    s.execute("prefs.set", json!({"values":{"toolbar.hidden":["Move"],"toolbar.order":["Brush","Eraser"]}})).unwrap();
+    let tools = s.prefs().toolbar.active().tools;
+    assert_eq!(&tools[..2], &["Brush", "Eraser"]);
+    assert!(!tools.iter().any(|t| t == "Move"));
+}
+
+#[test]
+fn ds_finding_toolbar_edits_after_migration_and_unique_bindings() {
+    let mut s = Session::new();
+    s.execute("prefs.set", json!({"values":{"toolbar.order":["Brush","Eraser"],"toolbar.hidden":["Move"]}})).unwrap();
+    s.execute("prefs.set", json!({"path":"toolbar.hidden","value":["Brush"]})).unwrap();
+    assert!(!s.prefs().toolbar.active().tools.iter().any(|t| t == "Brush"));
+    assert_eq!(s.prefs().toolbar.active().tools[0], "Eraser");
+    let bindings: Vec<_> = super::bindable().collect();
+    assert_eq!(bindings.len(), bindings.iter().map(|b| b.0).collect::<std::collections::BTreeSet<_>>().len());
+    assert_eq!(bindings.iter().find(|b| b.0 == "tools.select.Move").unwrap().1, Some("V"));
+    assert!(super::conflicts([("same", "V"), ("same", "V")]).is_empty());
+}

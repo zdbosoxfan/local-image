@@ -22,8 +22,10 @@ use anyhow::{Context, Result, bail};
 use tract_onnx::prelude::*;
 use tract_onnx::tract_hir::infer::Factoid;
 
+pub mod denoise;
 pub mod enhance;
 pub mod faces;
+pub mod restoration_graph;
 
 /// Another file required by a multi-file model (weights or tokenizer data).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -64,10 +66,12 @@ pub enum Group {
     Depth,
     Tagging,
     Faces,
+    RawDenoise,
+    RgbDenoise,
 }
 
 impl Group {
-    pub const ALL: [Group; 5] = [Group::Subject, Group::Sky, Group::Depth, Group::Tagging, Group::Faces];
+    pub const ALL: [Group; 7] = [Group::Subject, Group::Sky, Group::Depth, Group::Tagging, Group::Faces, Group::RawDenoise, Group::RgbDenoise];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -76,6 +80,8 @@ impl Group {
             Group::Depth => "Depth",
             Group::Tagging => "Smart Sort (scenes)",
             Group::Faces => "Faces",
+            Group::RawDenoise => "Raw Denoise",
+            Group::RgbDenoise => "RGB Denoise",
         }
     }
 
@@ -87,12 +93,14 @@ impl Group {
             Group::Depth => "depth",
             Group::Tagging => "tagging",
             Group::Faces => "faces",
+            Group::RawDenoise => "raw-denoise",
+            Group::RgbDenoise => "rgb-denoise",
         }
     }
 
-    /// Only the mask/depth functions support user-picked single ONNX files.
+    /// Mask, depth and restoration functions support user-picked single ONNX files.
     pub fn supports_custom(self) -> bool {
-        matches!(self, Group::Subject | Group::Sky | Group::Depth)
+        matches!(self, Group::Subject | Group::Sky | Group::Depth | Group::RawDenoise | Group::RgbDenoise)
     }
 
     /// What the function does and where the app uses it.
@@ -105,6 +113,10 @@ impl Group {
             Group::Tagging => {
                 "Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer."
             }
+            Group::RawDenoise => {
+                "Removes noise from raw photos locally, using RawNIND UtNet2. Includes Bayer demosaic and linear Rec.2020 models. Uses the GPU when available, with a CPU fallback."
+            }
+            Group::RgbDenoise => "Removes noise from JPEG, TIFF and edited RGB images locally with NIND UNet.",
             Group::Faces => {
                 "Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library."
             }
@@ -122,6 +134,8 @@ impl Group {
             Group::Depth => "depth-anything-v2-small",
             Group::Tagging => "clip-b32-laion",
             Group::Faces => "sface",
+            Group::RawDenoise => denoise::DENOISE_ID,
+            Group::RgbDenoise => "denoise-nind",
         };
         MODELS.iter().find(|m| m.id == id).expect("the official model is in MODELS")
     }
@@ -199,6 +213,13 @@ pub enum Task {
     FaceEmbed,
     /// RGB restoration and enlargement, through the dedicated enhance API.
     Upscale,
+    /// A verified ONNX inside an official darktable-ai ZIP package.
+    Denoise {
+        companion_inners: &'static [&'static str],
+        inner: &'static str,
+        inner_bytes: u64,
+        inner_sha256: &'static str,
+    },
 }
 
 pub const MODELS: &[ModelSpec] = &[
@@ -381,6 +402,51 @@ pub const MODELS: &[ModelSpec] = &[
         group: None,
         about: "Enlarges photos and cleans noise, JPEG artefacts and mild blur. The download includes both scales; runs locally on the CPU.",
     },
+    ModelSpec {
+        id: denoise::DENOISE_ID,
+        label: "RawNIND UtNet2",
+        file: "rawdenoise-nind-linear.onnx",
+        companions: &[Companion {
+            file: "rawdenoise-nind-bayer.onnx",
+            url: "https://github.com/darktable-org/darktable-ai/releases/download/release-5.6.0/rawdenoise-nind.dtmodel",
+            bytes: 31056425,
+            sha256: "da27509dab6a2915da67e988acd86cf71f9d5bbc8d1aa0ed32933578a887b901",
+        }],
+        bytes: 57700134,
+        sha256: "d71b5f1e727c85a359e6f74dca9e2016c9d8fc3e2f7ac3e9b347d80ceca969af",
+        url: "https://github.com/darktable-org/darktable-ai/releases/download/release-5.6.0/rawdenoise-nind.dtmodel",
+        size: 512,
+        isnet: false,
+        licence: "GPL-3.0 (RawNIND UtNet2; darktable-ai ONNX export)",
+        task: Task::Denoise {
+            companion_inners: &["rawdenoise-nind/model_bayer.onnx"],
+            inner: "rawdenoise-nind/model_linear.onnx",
+            inner_bytes: 31053823,
+            inner_sha256: "df957efadcc152c007d5d3b0917bdff9e41c0d4a0efe56584ef30b36393cd181",
+        },
+        group: Some(Group::RawDenoise),
+        about: "Raw denoising and Bayer demosaic on the GPU, with CPU fallback. Linear Rec.2020 variant for other sensors.",
+    },
+    ModelSpec {
+        id: "denoise-nind",
+        label: "NIND UNet",
+        file: "denoise-nind.onnx",
+        companions: &[],
+        bytes: 55008210,
+        sha256: "825b3657cbb5193a67432a2f0b44ab86531cc7337f89e8e6c17d93db9665708a",
+        url: "https://github.com/darktable-org/darktable-ai/releases/download/release-5.6.0/denoise-nind.dtmodel",
+        size: 768,
+        isnet: false,
+        licence: "GPL-3.0 (NIND UNet; darktable-ai ONNX export)",
+        task: Task::Denoise {
+            companion_inners: &[],
+            inner: "denoise-nind/model.onnx",
+            inner_bytes: 59138823,
+            inner_sha256: "5d615c5026a3c579455b9082f72b91e109adb54f4125b5b5cde45983bd6776b2",
+        },
+        group: Some(Group::RgbDenoise),
+        about: "Local denoising for JPEG, TIFF and edited RGB images. Uses the GPU with a CPU fallback.",
+    },
 ];
 
 /// Files of models the app used to offer (U²-Net small and full, TinySkyNet, MiDaS small): no
@@ -440,7 +506,7 @@ impl Segmenter {
     }
 
     fn load_cfg(cfg: Config, path: &Path) -> Result<Self> {
-        if matches!(cfg.task, Task::ImageText | Task::FaceDetect | Task::FaceEmbed | Task::Upscale) {
+        if matches!(cfg.task, Task::ImageText | Task::FaceDetect | Task::FaceEmbed | Task::Upscale | Task::Denoise { .. }) {
             bail!("use the dedicated embedding or face inference API");
         }
         let s = cfg.size;
@@ -507,6 +573,7 @@ impl Segmenter {
     /// probabilities, not stretched: a photo without sky stays near zero.
     pub fn predict_sky(&self, rgba: &[u8], w: usize, h: usize) -> Result<Vec<f32>> {
         let Task::Sky { classes, class, margin } = self.cfg.task else { bail!("not a sky model") };
+        anyhow::ensure!(classes > 0 && class < classes, "sky class is outside the model output");
         let input = self.input(rgba, w, h, false)?;
         let out = (self.run)(input.into())?;
         let map = out[0].to_plain_array_view::<f32>()?;
@@ -638,11 +705,15 @@ pub fn companion_path(models_dir: &Path, file: &str) -> std::path::PathBuf {
 impl ModelSpec {
     /// Main weights first, then all companion files, in download order.
     pub fn files(&self) -> impl Iterator<Item = Companion> + '_ {
-        std::iter::once(Companion { file: self.file, url: self.url, bytes: self.bytes, sha256: self.sha256 }).chain(self.companions.iter().copied())
+        let (bytes, sha256) = match self.task {
+            Task::Denoise { inner_bytes, inner_sha256, .. } => (inner_bytes, inner_sha256),
+            _ => (self.bytes, self.sha256),
+        };
+        std::iter::once(Companion { file: self.file, url: self.url, bytes, sha256 }).chain(self.companions.iter().copied())
     }
 
     pub fn download_bytes(&self) -> u64 {
-        self.files().map(|f| f.bytes).sum()
+        if matches!(self.task, Task::Denoise { .. }) { self.bytes } else { self.files().map(|f| f.bytes).sum() }
     }
 }
 
@@ -661,9 +732,9 @@ pub struct Custom {
     pub size: usize,
     /// Subject models: how the input is normalised.
     pub norm: Norm,
-    /// Sky models: the number of output channels (1: a sigmoid map; otherwise class logits).
+    /// Sky output channels; restoration models persist three RGB channels here.
     pub classes: usize,
-    /// Sky models with class logits: the sky's class index.
+    /// Sky class index; restoration contract: 0 = display sRGB, 1 = linear Rec.2020.
     pub class: usize,
 }
 
@@ -680,6 +751,7 @@ impl Custom {
             Group::Depth => Task::Depth,
             Group::Tagging => Task::ImageText,
             Group::Faces => Task::FaceEmbed,
+            Group::RawDenoise | Group::RgbDenoise => self.group.official().task,
         };
         Config { id: format!("custom:{}", self.file), size: self.size, norm: self.norm, task }
     }
@@ -688,6 +760,8 @@ impl Custom {
 /// What the user chose besides the file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CustomOptions {
+    /// RGB restoration: use linear Rec.2020 instead of display sRGB. Raw always uses linear.
+    pub denoise_linear: bool,
     /// Subject models: the input normalisation.
     pub norm: Norm,
     /// Sky models with class logits: the sky's class index (ADE20K: 2).
@@ -696,7 +770,7 @@ pub struct CustomOptions {
 
 impl Default for CustomOptions {
     fn default() -> Self {
-        Self { norm: Norm::IsNet, sky_class: 2 }
+        Self { norm: Norm::IsNet, sky_class: 2, denoise_linear: false }
     }
 }
 
@@ -724,7 +798,7 @@ fn read_customs(models_dir: &Path) -> Vec<Custom> {
         .filter_map(|line| {
             let f: Vec<&str> = line.split('\t').collect();
             let [key, file, name, size, norm, classes, class] = f.as_slice() else { return None };
-            Some(Custom {
+            let custom = Custom {
                 group: Group::ALL.into_iter().find(|g| g.supports_custom() && g.key() == *key)?,
                 file: (*file).to_owned(),
                 name: (*name).to_owned(),
@@ -732,7 +806,8 @@ fn read_customs(models_dir: &Path) -> Vec<Custom> {
                 norm: Norm::from_key(norm)?,
                 classes: classes.parse().ok().filter(|c| *c > 0)?,
                 class: class.parse().ok()?,
-            })
+            };
+            (custom.group != Group::Sky || custom.class < custom.classes).then_some(custom)
         })
         .collect()
 }
@@ -746,7 +821,18 @@ fn write_customs(models_dir: &Path, customs: &[Custom]) -> Result<()> {
         return Ok(());
     }
     std::fs::create_dir_all(custom_dir(models_dir))?;
-    std::fs::write(&path, text).with_context(|| format!("Could not save {}", path.display()))
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let temp = path.with_extension(format!("tmp-{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+    let result = (|| -> std::io::Result<()> {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;
+        f.write_all(text.as_bytes())?;
+        f.sync_all()?;
+        drop(f);
+        std::fs::rename(&temp, &path)
+    })();
+    let _ = std::fs::remove_file(&temp);
+    result.with_context(|| format!("Could not save {}", path.display()))
 }
 
 /// A file name that is safe inside the custom folder.
@@ -856,10 +942,19 @@ fn synthetic(w: usize, h: usize) -> Vec<u8> {
 /// Checks that `path` can serve `group` as configured by `custom` (loads it and checks its first
 /// output shape). Errors say what doesn't fit.
 fn validate(custom: &Custom, path: &Path) -> Result<(), CustomModelError> {
+    if matches!(custom.group, Group::RawDenoise | Group::RgbDenoise) {
+        let kind = if custom.class == 1 { denoise::Variant::Linear } else { denoise::Variant::Rgb };
+        let model = denoise::Denoiser::load_at(path, kind, custom.size).map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
+        let out = model.run_tile(&vec![0.1; 3 * custom.size * custom.size]).map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
+        if out.len() != 3 * custom.size * custom.size || !out.iter().all(|v| v.is_finite()) {
+            return Err(CustomModelError::Other("Restoration output must be three finite channels at the input size".into()));
+        }
+        return Ok(());
+    }
     let seg = Segmenter::load_cfg(custom.config(), path).map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
     let shape = seg.output_shape().map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
     match custom.group {
-        Group::Tagging | Group::Faces => return Err(CustomModelError::UnsupportedFunction),
+        Group::Tagging | Group::Faces | Group::RawDenoise | Group::RgbDenoise => return Err(CustomModelError::UnsupportedFunction),
         Group::Subject => {
             if single_map(&shape).is_none() {
                 return Err(CustomModelError::NotSubjectModel);
@@ -886,6 +981,36 @@ fn validate(custom: &Custom, path: &Path) -> Result<(), CustomModelError> {
 /// custom folder and remembers it. A custom model already set is replaced; `dispose` puts its old
 /// file away (the Trash). Nothing changes when the model doesn't fit.
 pub fn add_custom(models_dir: &Path, group: Group, src: &Path, opts: CustomOptions, dispose: &dyn Fn(&Path) -> std::io::Result<()>) -> Result<Custom> {
+    add_custom_with(models_dir, group, src, opts, dispose, &write_customs)
+}
+
+fn identical_files(a: &Path, b: &Path) -> std::io::Result<bool> {
+    use std::io::Read;
+    if std::fs::metadata(a)?.len() != std::fs::metadata(b)?.len() {
+        return Ok(false);
+    }
+    let (mut a, mut b) = (std::io::BufReader::new(std::fs::File::open(a)?), std::io::BufReader::new(std::fs::File::open(b)?));
+    let (mut aa, mut bb) = ([0u8; 8192], [0u8; 8192]);
+    loop {
+        let n = a.read(&mut aa)?;
+        b.read_exact(&mut bb[..n])?;
+        if aa[..n] != bb[..n] {
+            return Ok(false);
+        }
+        if n == 0 {
+            return Ok(true);
+        }
+    }
+}
+
+fn add_custom_with(
+    models_dir: &Path,
+    group: Group,
+    src: &Path,
+    opts: CustomOptions,
+    dispose: &dyn Fn(&Path) -> std::io::Result<()>,
+    publish: &dyn Fn(&Path, &[Custom]) -> Result<()>,
+) -> Result<Custom> {
     if !group.supports_custom() {
         return Err(CustomModelError::UnsupportedFunction.into());
     }
@@ -913,22 +1038,48 @@ pub fn add_custom(models_dir: &Path, group: Group, src: &Path, opts: CustomOptio
         c.classes = classes;
         c.class = if classes > 1 { opts.sky_class } else { 0 };
     }
+    if matches!(group, Group::RawDenoise | Group::RgbDenoise) {
+        c.classes = 3;
+        c.class = usize::from(group == Group::RawDenoise || opts.denoise_linear);
+    }
     validate(&c, src)?;
     std::fs::create_dir_all(custom_dir(models_dir))?;
     let mut all = read_customs(models_dir);
     let old = all.iter().find(|o| o.group == group).cloned();
+    let original_dest = c.path(models_dir);
+    // A replacement with the same basename must not overwrite the registered file
+    // before its new metadata has been published.
+    let same_copy = src != original_dest
+        && original_dest.is_file()
+        && old.as_ref().is_some_and(|old| old.path(models_dir) == original_dest)
+        && identical_files(src, &original_dest)?;
+    if src != original_dest && original_dest.exists() && !same_copy {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        loop {
+            c.file = format!("{}-{}-{}-{}", group.key(), std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed), safe_name(&c.name));
+            if !c.path(models_dir).exists() {
+                break;
+            }
+        }
+    }
     let dest = c.path(models_dir);
-    if src != dest {
+    let copied = src != dest && !same_copy;
+    if copied {
         std::fs::copy(src, &dest).with_context(|| format!("Could not copy the model into {}", dest.display()))?;
+    }
+    all.retain(|o| o.group != group);
+    all.push(c.clone());
+    if let Err(error) = publish(models_dir, &all) {
+        if copied {
+            let _ = std::fs::remove_file(&dest);
+        }
+        return Err(error);
     }
     if let Some(old) = old
         && old.file != c.file
     {
         let _ = dispose(&old.path(models_dir));
     }
-    all.retain(|o| o.group != group);
-    all.push(c.clone());
-    write_customs(models_dir, &all)?;
     forget_group(group);
     Ok(c)
 }
@@ -1046,18 +1197,25 @@ pub fn file_installed(models_dir: &Path, file: Companion) -> bool {
 
 /// Size of the installed copy of `spec`, when it is installed.
 pub fn installed_bytes(models_dir: &Path, spec: &ModelSpec) -> Option<u64> {
+    bundle_bytes(models_dir, spec, !matches!(spec.task, Task::Denoise { .. }))
+}
+/// Restoration hashes run on the inference/download worker, never the Settings paint thread.
+pub fn verified_denoise_bytes(models_dir: &Path, spec: &ModelSpec) -> Option<u64> {
+    bundle_bytes(models_dir, spec, true)
+}
+fn bundle_bytes(models_dir: &Path, spec: &ModelSpec, verify: bool) -> Option<u64> {
     let mut total = 0;
     let mut stamp = Vec::new();
     for file in spec.files() {
         let path = companion_path(models_dir, file.file);
         let m = std::fs::metadata(&path).ok()?;
-        if !m.is_file() || ((!spec.companions.is_empty() || spec.task == Task::Upscale) && m.len() != file.bytes) {
+        if !m.is_file() || ((!spec.companions.is_empty() || matches!(spec.task, Task::Upscale | Task::Denoise { .. })) && m.len() != file.bytes) {
             return None;
         }
         total += m.len();
         stamp.push((path, m.len(), m.modified().ok(), file.sha256));
     }
-    if (!spec.companions.is_empty() || spec.task == Task::Upscale) && !stamp.into_iter().all(verified_file) {
+    if verify && (!spec.companions.is_empty() || matches!(spec.task, Task::Upscale | Task::Denoise { .. })) && !stamp.into_iter().all(verified_file) {
         return None;
     }
     Some(total)
@@ -1124,7 +1282,7 @@ fn slot(group: Group) -> Option<&'static Slot> {
         Group::Subject => Some(&SUBJECT),
         Group::Sky => Some(&SKY),
         Group::Depth => Some(&DEPTH),
-        Group::Tagging | Group::Faces => None,
+        Group::Tagging | Group::Faces | Group::RawDenoise | Group::RgbDenoise => None,
     }
 }
 

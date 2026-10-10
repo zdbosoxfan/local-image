@@ -64,8 +64,15 @@ fn label(sheet: &mut image::RgbaImage, x: u32, y: u32, text: &str, scale: u32) {
 }
 
 fn tile(sheet: &mut image::RgbaImage, x: u32, y: u32, size: u32, bg: [u8; 4], bytes: &[u8], mono: bool) {
-    let svg = String::from_utf8_lossy(bytes).replace("currentColor", if bg[0] < 128 { "#dedede" } else { "#343434" });
-    let icon = egui_extras::image::load_svg_bytes_with_size(svg.as_bytes(), egui::load::SizeHint::Width(size), &Default::default()).unwrap();
+    let svg = String::from_utf8_lossy(bytes).replace("currentColor", "#ffffff");
+    let mut icon = egui_extras::image::load_svg_bytes_with_size(svg.as_bytes(), egui::load::SizeHint::Width(size), &Default::default()).unwrap();
+    if mono {
+        // Match egui's foreground tint, including explicit white inside embedded source SVGs.
+        let shade = if bg[0] < 128 { 222 } else { 52 };
+        for pixel in &mut icon.pixels {
+            *pixel = egui::Color32::from_rgba_unmultiplied(shade, shade, shade, pixel.a());
+        }
+    }
     assert_eq!(icon.size, [size as usize; 2]);
     let pixels: Vec<_> = icon.pixels.iter().flat_map(|p| p.to_srgba_unmultiplied()).collect();
     let icon = image::RgbaImage::from_raw(size, size, pixels).unwrap();
@@ -91,13 +98,13 @@ fn pages(sheet: &image::RgbaImage, name: &str, root: &std::path::Path) {
 fn write_tool_icon_contact_sheet() {
     use crate::tool_icon_data::{TOOL_ICONS, TOOL_LABELS};
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let before: std::collections::BTreeMap<String, String> = serde_json::from_str(include_str!("../../../docs/design/tool-icons-before.json")).unwrap();
+    let before: std::collections::BTreeMap<String, String> = serde_json::from_str(include_str!("../../../docs/design/tool-icons-pre-sourced.json")).unwrap();
     assert_eq!(before.len(), COLOR_ICONS.len());
     assert_eq!(TOOL_ICONS.len(), COLOR_ICONS.len());
     let rows = COLOR_ICONS.len() as u32;
     let mut sheet = image::RgbaImage::from_pixel(912, rows * 80 + 88, image::Rgba([31, 32, 35, 255]));
     let mut comparison = image::RgbaImage::from_pixel(912, rows * 80 + 88, image::Rgba([31, 32, 35, 255]));
-    label(&mut sheet, 16, 16, "local image / original tool icons", 3);
+    label(&mut sheet, 16, 16, "local image / approved mixed icons", 3);
     label(&mut comparison, 16, 16, "local image / before and after", 3);
     label(&mut sheet, 224, 52, "dark 20 40 mono 20 40 / light 20 40 mono 20 40", 1);
     label(&mut comparison, 224, 48, "dark", 1);

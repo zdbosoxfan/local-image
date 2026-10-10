@@ -3,7 +3,7 @@
 //! card ([`Item`]) with its family, capabilities, download size, rough GPU memory and licence;
 //! plus install planning with Local Image's guardrails:
 //!
-//! - only `.safetensors` and `.gguf` files;
+//! - `.safetensors` and `.gguf`, plus the immutable restoration policy's pinned PTH files;
 //! - every file needs a known size and SHA-256 (Hugging Face's LFS hash from the repo tree;
 //!   Civitai's published SHA-256, size confirmed with a HEAD request) or it is refused;
 //! - downloads come only from the allow-listed hosts ([`crate::download::host_allowed`]);
@@ -647,6 +647,9 @@ pub struct Query {
 
 /// The catalogue URLs a query fetches.
 pub fn urls(cfg: &Config, reg: &Registry, q: &Query) -> Vec<(Source, String)> {
+    if matches!(&q.view, View::Family(f) if f == "restoration") {
+        return Vec::new();
+    }
     let enc = |s: &str| urlencode(s);
     let mut out = Vec::new();
     let family = match &q.view {
@@ -710,6 +713,16 @@ pub fn urlencode(s: &str) -> String {
 
 /// Turns fetched catalogue bodies into cards, filtered and sorted for the query.
 pub fn items(reg: &Registry, cfg: &Config, q: &Query, bodies: &[(Source, Value)]) -> Vec<Item> {
+    if matches!(&q.view, View::Family(f) if f == "restoration") {
+        if q.kind != Kind::Model {
+            return Vec::new();
+        }
+        let needle = q.search.trim().to_ascii_lowercase();
+        return restoration_items()
+            .into_iter()
+            .filter(|i| i.title.to_ascii_lowercase().contains(&needle) || i.description.to_ascii_lowercase().contains(&needle))
+            .collect();
+    }
     let mut out = Vec::new();
     for (src, v) in bodies {
         match src {
@@ -738,6 +751,7 @@ pub fn items(reg: &Registry, cfg: &Config, q: &Query, bodies: &[(Source, Value)]
         }
     }
     let needle = q.search.trim().to_ascii_lowercase();
+    out.retain(|i| !external_only_item(i));
     out.retain(|i| needle.is_empty() || i.title.to_ascii_lowercase().contains(&needle) || i.description.to_ascii_lowercase().contains(&needle));
     match &q.view {
         View::Family(f) => {
@@ -905,6 +919,44 @@ pub struct Plan {
     pub gated: bool,
 }
 
+/// Offline curated cards: the embedded restoration policy cannot be replaced by an online list.
+fn external_only_item(item: &Item) -> bool {
+    crate::restoration::byo::external_only(&format!("{}/{}/{}", item.id, item.title, item.page_url))
+        || item.files.iter().any(|f| crate::restoration::byo::external_only(&format!("{}/{}", f.url, f.name)))
+}
+
+/// Offline curated cards: the embedded restoration policy cannot be replaced by an online list.
+pub fn restoration_items() -> Vec<Item> {
+    crate::restoration::policy()
+        .models
+        .iter()
+        .map(|m| Item {
+            id: format!("restoration:{}", m.key),
+            kind: Some(Kind::Model),
+            title: m.label.clone(),
+            description: format!("{} {}", m.description, m.notes),
+            family: Some("restoration".into()),
+            license: m.license.clone().unwrap_or_default(),
+            license_url: m.license_url.clone(),
+            commercial: Some(true),
+            page_url: m.license_url.clone().unwrap_or_default(),
+            files: m.presets[0]
+                .files
+                .iter()
+                .map(|f| CatalogFile {
+                    name: f.name.clone(),
+                    folder: f.folder.clone(),
+                    url: f.url.clone(),
+                    bytes: Some(f.bytes),
+                    sha256: Some(f.sha256.clone()),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        })
+        .collect()
+}
+
 impl Plan {
     pub fn total(&self) -> u64 {
         self.files.iter().map(|f| f.bytes).sum()
@@ -930,6 +982,25 @@ fn installed(info: &ObjectInfo, folder: &str, name: &str) -> bool {
 /// Resolves exact sizes and hashes and adds the family's missing text encoders and VAE. Fails
 /// (with the reason) for anything Local Image won't install unverified.
 pub fn plan(item: &Item, files: &[CatalogFile], fam: Option<&Family>, info: &ObjectInfo, cfg: &Config, net: &dyn Net) -> Result<Plan> {
+    if external_only_item(item) || files.iter().any(|f| crate::restoration::byo::external_only(&format!("{}/{}", f.url, f.name))) {
+        bail!("This model is user-installed only; Local Image never downloads it");
+    }
+    if item.family.as_deref() == Some("restoration") || files.iter().any(|f| crate::restoration::pinned_file(&f.name).is_some()) {
+        let canonical = restoration_items().into_iter().find(|i| i.id == item.id).context("Unknown restoration browser card")?;
+        if files != canonical.files {
+            bail!("Restoration browser files differ from the built-in allowlist");
+        }
+        return Ok(Plan {
+            license: canonical.license,
+            license_url: canonical.license_url,
+            files: canonical
+                .files
+                .into_iter()
+                .map(|f| PlannedFile { name: f.name, folder: f.folder, url: f.url, bytes: f.bytes.unwrap(), sha256: f.sha256.unwrap() })
+                .collect(),
+            ..Default::default()
+        });
+    }
     let mut want: Vec<CatalogFile> = files.to_vec();
     // The family's components that ComfyUI doesn't have.
     if let Some(f) = fam
@@ -1019,6 +1090,14 @@ pub fn plan(item: &Item, files: &[CatalogFile], fam: Option<&Family>, info: &Obj
 /// Downloads a plan into `model_dir/<folder>/<name>` (verified, atomic). Tokens go only to their
 /// own hosts.
 pub fn install(plan: &Plan, model_dir: &Path, cfg: &Config, ctl: &crate::comfy::JobControl, on_progress: &dyn Fn(u64, u64, &str)) -> Result<()> {
+    for f in &plan.files {
+        if crate::restoration::byo::external_only(&format!("{}/{}", f.url, f.name)) {
+            bail!("This model is user-installed only; Local Image never downloads it");
+        }
+        if f.name.to_ascii_lowercase().ends_with(".pth") || crate::restoration::pinned_file(&f.name).is_some() {
+            crate::restoration::validate_download(&f.name, &f.folder, &f.url, f.bytes, &f.sha256)?;
+        }
+    }
     let total = plan.total();
     let mut done = 0u64;
     for f in &plan.files {

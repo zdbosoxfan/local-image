@@ -14,6 +14,8 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("file.save", "Save", &["File"], Some("Cmd+S")),
     ("file.saveAs", "Save As…", &["File"], Some("Cmd+Shift+S")),
     // local-image: save a photo from the Library beside its original and show it there, stacked.
+    (crate::overwrite_original::SAVE_ID, "Save Over Original…", &["File"], None),
+    (crate::overwrite_original::RETURN_ID, "Save Over Original and Return to Library…", &["File"], None),
     (crate::develop_layer::SAVE_RETURN_ID, "Save and Return to Library", &["File"], None),
     ("file.exit", "Exit", &["File"], Some("Cmd+Q")),
     ("edit.freeTransform", "Free Transform", &["Edit"], Some("Cmd+T")),
@@ -276,6 +278,11 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             }
         }
         crate::develop_layer::SAVE_RETURN_ID => crate::develop_layer::save_and_return(app, &params),
+        crate::overwrite_original::SAVE_ID | crate::overwrite_original::RETURN_ID => {
+            let doc = app.session.active().ok_or("no document")?.doc.id;
+            crate::overwrite_original::request(app, doc, id == crate::overwrite_original::RETURN_ID)?;
+            Ok(json!({"confirmation": app.overwrite_prompt.is_some()}))
+        }
         "file.saveAs" => app.save_as(params.get("path").and_then(Value::as_str).map(str::to_string)).map(|(p, w)| json!({"path": p, "warnings": w})),
         "view.zoomIn" | "view.zoomOut" | "view.fitOnScreen" | "view.actualPixels" => {
             let i = app.session.active_index().ok_or("no document")?;
@@ -513,6 +520,9 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
         i if crate::toolsets_ui::handles(i) => true,
         i if crate::links::url_for(i).is_some() => true,
         i if i.starts_with("window.theme.") => true,
+        crate::overwrite_original::SAVE_ID | crate::overwrite_original::RETURN_ID => {
+            app.session.active().is_some_and(|d| crate::overwrite_original::disabled_reason(app, d.doc.id).is_none())
+        }
         crate::develop_layer::SAVE_RETURN_ID => app.host_modes && app.services.export.is_some() && crate::develop_layer::library_original(app).is_some(),
         "file.save" | "file.saveAs" | "file.export.exportAs" | "file.export.quickExportAsPng" => {
             app.session.active().is_some() && app.services.export.is_some()
@@ -654,6 +664,8 @@ pub struct MenuItem {
     /// Edit › Menus colour (red, orange, …).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tooltip: Option<String>,
 }
 
 /// Is `id` implemented by the engine or the shell (a live menu item)? Shared by the menus and
@@ -676,8 +688,13 @@ pub fn is_live(id: &str) -> bool {
 }
 
 /// Commands outside the catalogue that belong right after a catalogue item: `(id, after)`.
-const PLACE_AFTER: &[(&str, &str)] =
-    &[("file.newFromClipboard", "file.new"), (crate::develop_layer::SAVE_RETURN_ID, "file.saveAs"), ("filter.render.relight", "filter.render.lightingEffects")];
+const PLACE_AFTER: &[(&str, &str)] = &[
+    (crate::overwrite_original::SAVE_ID, "file.saveAs"),
+    (crate::overwrite_original::RETURN_ID, crate::overwrite_original::SAVE_ID),
+    ("file.newFromClipboard", "file.new"),
+    (crate::develop_layer::SAVE_RETURN_ID, "file.saveAs"),
+    ("filter.render.relight", "filter.render.lightingEffects"),
+];
 
 pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
     // 1) Photoshop's full menu tree, in Photoshop order; live where we implement the command.
@@ -693,6 +710,11 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             shortcut: if known(id) { crate::shortcuts::default_shortcut(id) } else { sc.map(Into::into) },
             enabled: known(id) && is_enabled(app, id),
             checked: checked(app, id),
+            tooltip: if matches!(id, crate::overwrite_original::SAVE_ID | crate::overwrite_original::RETURN_ID) {
+                app.session.active().and_then(|d| crate::overwrite_original::disabled_reason(app, d.doc.id)).map(str::to_string)
+            } else {
+                None
+            },
             color: None,
         })
         .collect();
@@ -706,6 +728,11 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             shortcut: sc.map(Into::into),
             enabled: is_enabled(app, id),
             checked: checked(app, id),
+            tooltip: if matches!(id, crate::overwrite_original::SAVE_ID | crate::overwrite_original::RETURN_ID) {
+                app.session.active().and_then(|d| crate::overwrite_original::disabled_reason(app, d.doc.id)).map(str::to_string)
+            } else {
+                None
+            },
             color: None,
         });
     }
@@ -717,6 +744,7 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             shortcut: c.shortcut.map(Into::into),
             enabled: is_enabled(app, c.id),
             checked: None,
+            tooltip: None,
             color: None,
         });
     }
@@ -743,11 +771,29 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             .enumerate()
             .map(|(i, p)| {
                 let label = std::path::Path::new(p).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.clone());
-                MenuItem { id: format!("file.openRecent.{i}"), label, path: rp.clone(), shortcut: None, enabled: true, checked: None, color: None }
+                MenuItem {
+                    id: format!("file.openRecent.{i}"),
+                    label,
+                    path: rp.clone(),
+                    shortcut: None,
+                    enabled: true,
+                    checked: None,
+                    tooltip: None,
+                    color: None,
+                }
             })
             .collect();
         if !recent.is_empty() {
-            recent.push(MenuItem { id: "---".into(), label: "---".into(), path: rp.clone(), shortcut: None, enabled: false, checked: None, color: None });
+            recent.push(MenuItem {
+                id: "---".into(),
+                label: "---".into(),
+                path: rp.clone(),
+                shortcut: None,
+                enabled: false,
+                checked: None,
+                tooltip: None,
+                color: None,
+            });
         }
         recent.push(MenuItem {
             id: "file.clearRecent".into(),
@@ -756,6 +802,7 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             shortcut: None,
             enabled: !app.ui.recent_files.is_empty(),
             checked: None,
+            tooltip: None,
             color: None,
         });
         for (k, it) in recent.into_iter().enumerate() {
@@ -766,7 +813,16 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
     if let Some(at) = items.iter().position(|i| i.id == "help.systemInfo" || i.id == "help.about") {
         items.insert(
             at,
-            MenuItem { id: "---".into(), label: "---".into(), path: vec!["Help".into()], shortcut: None, enabled: false, checked: None, color: None },
+            MenuItem {
+                id: "---".into(),
+                label: "---".into(),
+                path: vec!["Help".into()],
+                shortcut: None,
+                enabled: false,
+                checked: None,
+                tooltip: None,
+                color: None,
+            },
         );
     }
     // Edit › Keyboard Shortcuts overrides, Edit › Menus hidden items and colours.
@@ -1018,6 +1074,7 @@ fn help_search(ui: &mut egui::Ui, items: &[MenuItem], clicked: &mut Option<Strin
             }
             let hit = nav.row(ui, 0, it.enabled, Some(&it.id), |ui, _| {
                 let r = ui.add_enabled(it.enabled, b);
+                let r = if let Some(tip) = &it.tooltip { r.on_disabled_hover_text(tip).on_hover_text(tip) } else { r };
                 let hit = r.clicked() || released_on(ui, &r);
                 (r, hit)
             });
@@ -1088,6 +1145,7 @@ fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: usize, click
                     "image.mode.bits32" => r.on_hover_text(crate::i18n::tr(lang, "Floating point")),
                     _ => r,
                 };
+                let r = if let Some(tip) = &it.tooltip { r.on_disabled_hover_text(tip).on_hover_text(tip) } else { r };
                 let hit = r.clicked() || released_on(ui, &r);
                 (r, hit)
             });

@@ -114,7 +114,7 @@ impl RawImage {
         if !self.can_bin(k) || !self.opcodes.list3.is_empty() {
             return Ok(None);
         }
-        let mut n = self.normalized()?;
+        let n = self.normalized_samples()?;
         let Some(cfa) = n.cfa.clone() else {
             return Ok(None);
         };
@@ -124,6 +124,7 @@ impl RawImage {
             return Ok(None);
         }
         if !cfa.is_bayer() {
+            let mut n = self.normalized()?;
             hook(&mut n, 1);
             return Ok(Some(bin_normalized(&n, &cfa, c, k, clip)));
         }
@@ -137,7 +138,7 @@ impl RawImage {
                 let (mut sum, mut max) = (0.0, f32::MIN);
                 for dy in 0..scale {
                     for dx in 0..scale {
-                        let v = n.data[(y0 + 2 * dy) * n.width + x0 + 2 * dx];
+                        let v = n.get(x0 + 2 * dx, y0 + 2 * dy, 0);
                         sum += v;
                         max = max.max(v);
                     }

@@ -48,6 +48,10 @@ impl DevelopSettings {
             o.entry("tone_eq").or_insert_with(|| serde_json::to_value(self.tone_eq).unwrap_or(Value::Null));
             o.entry("color_cal").or_insert_with(|| serde_json::to_value(self.color_cal).unwrap_or(Value::Null));
             o.entry("skin_tone").or_insert_with(|| serde_json::to_value(self.skin_tone).unwrap_or(Value::Null));
+            if let Some(Value::Object(e)) = o.get_mut("enhance") {
+                e.entry("denoise").or_insert_with(|| serde_json::json!(self.enhance.denoise));
+                e.entry("denoise_model").or_insert_with(|| serde_json::json!(self.enhance.denoise_model));
+            }
             if let Some(Value::Object(e)) = o.get_mut("effects") {
                 e.entry("structure").or_insert_with(|| serde_json::json!(self.effects.structure));
                 e.entry("clarity_mode").or_insert_with(|| serde_json::json!(self.effects.clarity_mode));

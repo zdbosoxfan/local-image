@@ -29,6 +29,30 @@ use crate::widgets;
 pub(crate) mod draft_refine;
 pub use draft_refine::Settings as DraftRefineSettings;
 
+#[cfg(not(test))]
+fn library() -> Library {
+    Library::default()
+}
+
+#[cfg(test)]
+fn library() -> Library {
+    struct TestLibrary(Library);
+    impl Drop for TestLibrary {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(self.0.root());
+        }
+    }
+    thread_local! {
+        static LIBRARY: TestLibrary = {
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/ds/test-libraries")
+                .join(format!("{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+            TestLibrary(Library::open(root))
+        };
+    }
+    LIBRARY.with(|l| l.0.clone())
+}
+
 pub const GENERATE_JOB: &str = "ai.generate";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,6 +141,8 @@ pub struct GenerateState {
     pub count: u32,
     pub steps: u32,
     pub guidance: f32,
+    /// Z-Image Turbo Create conditioning variety; old settings default to Off.
+    pub variety: f32,
     /// Fixed seed (🔒), else a new one each time.
     pub seed: Option<u64>,
     /// Strength for Edit (non-edit models), Fill, Refine and Upscale.
@@ -162,6 +188,7 @@ impl Default for GenerateState {
             count: 1,
             steps: m.info().steps.default as u32,
             guidance: m.info().guidance.default,
+            variety: 0.0,
             seed: None,
             denoise: 0.35,
             advanced: false,
@@ -195,7 +222,7 @@ struct Runtime {
     /// Newest first: finished entries and pending jobs.
     results: VecDeque<Tile>,
     textures: HashMap<String, TextureHandle>,
-    library: Vec<Entry>,
+    library: Arc<Vec<Entry>>,
     library_loaded: Option<Instant>,
     selected: Option<String>,
     focus_prompt: bool,
@@ -250,8 +277,19 @@ fn customs() -> Vec<li_ai::custom::CustomWorkflow> {
     rt(|r| r.customs.get_or_insert_with(|| li_ai::custom::list(&li_ai::custom::dir())).clone())
 }
 
+fn preset_path() -> PathBuf {
+    #[cfg(test)]
+    {
+        library().root().join("presets.json")
+    }
+    #[cfg(not(test))]
+    {
+        li_ai::presets::path()
+    }
+}
+
 fn presets() -> Vec<li_ai::presets::GenPreset> {
-    rt(|r| r.presets.get_or_insert_with(|| li_ai::presets::all(&li_ai::presets::path())).clone())
+    rt(|r| r.presets.get_or_insert_with(|| li_ai::presets::all(&preset_path())).clone())
 }
 
 fn custom_of(s: &GenerateState) -> Option<li_ai::custom::CustomWorkflow> {
@@ -315,7 +353,7 @@ fn fit_to_backend(s: &mut GenerateState, limits: Option<li_ai::comfy::SamplerLim
         s.denoise = if s.mode == Mode::Create { info.resolved.sampling.denoise } else { s.mode.default_strength(info.id) };
     }
     if let Some(l) = limits {
-        s.steps = s.steps.clamp(l.steps.0.max(1.0) as u32, l.steps.1.max(1.0) as u32);
+        s.steps = s.steps.clamp(l.steps.0.max(1.0) as u32, l.steps.1.max(l.steps.0).max(1.0) as u32);
         s.guidance = s.guidance.clamp(l.cfg.0, l.cfg.1.max(l.cfg.0));
         s.denoise = s.denoise.clamp(l.denoise.0, l.denoise.1.max(l.denoise.0));
     }
@@ -387,6 +425,24 @@ fn sampling_ui(ui: &mut egui::Ui, s: &mut GenerateState, limits: Option<li_ai::c
     );
     let (clo, chi) = limits.map_or((f32::MIN, f32::MAX), |l| l.cfg);
     guidance_row(ui, &mut s.guidance, clo, chi, Some(range_hint(info.guidance.min, info.guidance.max, info.guidance.default, 1)));
+    if info.id == ModelId::ZImageTurbo && s.mode == Mode::Create {
+        if !s.variety.is_finite() {
+            s.variety = 0.0;
+        }
+        s.variety = s.variety.clamp(0.0, 100.0);
+        ui.horizontal(|ui| {
+            label(ui, tl!("Variety"));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                widgets::value_field(ui, &mut s.variety, 0.0..=100.0, "%", 74.0);
+                if widgets::secondary_button(ui, tl!("Off"), 0.0).clicked() {
+                    s.variety = 0.0;
+                }
+            });
+        });
+        let r = widgets::slider(ui, &mut s.variety, 0.0..=100.0, None);
+        r.widget_info(|| egui::WidgetInfo::slider(ui.is_enabled(), s.variety as f64, tl!("Variety")));
+        r.on_hover_text(tl!("Higher Variety can change compositions and loosen prompt details. Set to 0 to turn it off."));
+    }
     if denoise {
         let (lo, hi) = limits.map_or((f32::MIN, f32::MAX), |l| l.denoise);
         denoise_row(ui, tl!("Denoise"), &mut s.denoise, lo, hi);
@@ -499,6 +555,7 @@ fn set_model(s: &mut GenerateState, m: ModelId) {
     s.model = m.key().into();
     s.variant = catalog::default_variant(m).into();
     s.steps = info.steps.default as u32;
+    s.variety = 0.0;
     s.guidance = info.guidance.default;
     if s.mode == Mode::Refine
         && let Some(d) = li_ai::refine::model_defaults(m)
@@ -645,6 +702,23 @@ fn tag(ui: &mut egui::Ui, text: &str, t: &Tokens) {
     ui.painter().galley(r.center() - galley.size() / 2.0, galley, t.text_dim);
 }
 
+fn model_variety_tip(model: ModelId) -> Option<&'static str> {
+    (model == ModelId::ZImageTurbo)
+        .then(|| tl!("Low variety by design: different seeds give similar layouts. Change the prompt (or raise Variety) for different compositions."))
+}
+
+/// Shared by Generate and Draft, scoped to the Turbo model rather than the Z-Image family.
+fn model_variety_note(ui: &mut egui::Ui, model: ModelId) {
+    if let Some(tip) = model_variety_tip(model) {
+        let t = Tokens::get(ui.ctx());
+        ui.horizontal_wrapped(|ui| {
+            let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
+            crate::icons::paint(ui, r, "info", 12.0, t.text_faint);
+            ui.add(egui::Label::new(RichText::new(tip).color(t.text_faint).size(11.0)).wrap());
+        });
+    }
+}
+
 /// Readiness of a model on the running engine: `Ok` ready, `Err(reason)` otherwise.
 fn readiness(st: &crate::ai_ui::EngineStatus, m: ModelId, variant: &str) -> Result<(), String> {
     st.ready(m, variant)
@@ -773,13 +847,17 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: (&str, &str), mode: Mode, 
                     }
                     _ => {}
                 }
-                let tip = if ok {
+                let mut tip = if ok {
                     format!("{}\n{}", m.best_for, m.tags().join(" · "))
                 } else if m.origin == catalog::Origin::Profile {
                     format!("{}\n{}", m.best_for, crate::i18n::fmt(tl!("Not installed: {reason}"), &[("reason", &reason)]))
                 } else {
                     format!("{}\n{}", m.best_for, reason)
                 };
+                if let Some(variety) = model_variety_tip(m.id) {
+                    tip.push('\n');
+                    tip.push_str(variety);
+                }
                 if row.inner.on_hover_text(tip).clicked() {
                     picked = Some(m.id.key().to_owned());
                 }
@@ -902,6 +980,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui.set_width(ui.available_width());
         ui.spacing_mut().item_spacing.y = 6.0;
         let has_doc = app.session.active().is_some();
+        let has_active_layer = app.session.active().is_some_and(|d| d.active_layer.is_some());
         let has_sel = app.session.active().is_some_and(|d| d.doc.selection.is_some());
         let st = crate::ai_ui::status();
         let s = &mut app.ui.ai.generate;
@@ -959,6 +1038,8 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             label(ui, tl!("Preset"));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let save = crate::icons::button(ui, "bookmark-plus", 22.0, false, tl!("Save these settings as a preset"));
+                #[cfg(test)]
+                ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("gen-save-preset-test"), save.rect));
                 if save.clicked() {
                     rt(|r| {
                         r.preset_name = crate::i18n::fmt(tl!("My preset {n}"), &[("n", &(all_presets.iter().filter(|p| !p.built_in).count() + 1).to_string())])
@@ -1077,6 +1158,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 ui.label(RichText::new(&info.best_for).color(t.text_faint).size(11.0));
             });
+            model_variety_note(ui, m);
         }
         // ---- Prompt.
         let wants_prompt = !upscaler && custom.as_ref().is_none_or(|w| w.has(&li_ai::custom::FieldKind::Prompt));
@@ -1329,6 +1411,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let blocker = match s.mode {
             _ if needs_prompt && s.prompt.trim().is_empty() => Some(tl!("Describe what you want first.")),
             Mode::Edit | Mode::Refine | Mode::Upscale if !has_doc => Some(tl!("Open an image first.")),
+            Mode::Refine if s.refine_input == RefineInput::SelectedLayer && !has_active_layer => Some(tl!("Select a layer first.")),
             Mode::Fill if !has_sel => Some(tl!("Make a selection to fill.")),
             _ => None,
         };
@@ -1477,6 +1560,7 @@ fn apply_preset(s: &mut GenerateState, p: &li_ai::presets::GenPreset) {
     if let Some(v) = p.cfg {
         s.guidance = v;
     }
+    s.variety = p.variety.filter(|v| v.is_finite()).unwrap_or(0.0).clamp(0.0, 100.0);
     if let Some((a, b)) = &p.sampler {
         s.sampler = a.clone();
         s.scheduler = b.clone();
@@ -1484,11 +1568,14 @@ fn apply_preset(s: &mut GenerateState, p: &li_ai::presets::GenPreset) {
     if !p.loras.is_empty() {
         s.loras = p.loras.iter().map(|l| LoraPick { name: l.name.clone(), strength: l.strength }).collect();
     }
+    s.refine_loras = p.refine_loras.iter().map(|l| LoraPick { name: l.name.clone(), strength: l.strength }).collect();
     if let Some(rm) = &p.refine_model {
         s.refine = true;
         s.refine_model = rm.clone();
         s.refine_variant = ModelId::from_key(rm).map(|m| catalog::default_variant(m).to_owned()).unwrap_or_default();
         s.refine_strength = p.refine_strength.unwrap_or_else(|| catalog::refine_default_denoise(ModelId::intern(rm)));
+        s.refine_steps = p.refine_steps;
+        s.refine_guidance = p.refine_guidance;
     }
 }
 
@@ -1502,16 +1589,24 @@ fn save_preset(s: &mut GenerateState, name: &str) {
         negative: s.negative.clone(),
         steps: Some(s.steps),
         cfg: Some(s.guidance),
+        variety: Some(s.variety),
         sampler: (!s.sampler.is_empty()).then(|| (s.sampler.clone(), if s.scheduler.is_empty() { "simple".into() } else { s.scheduler.clone() })),
         loras: s.loras.iter().map(|l| li_ai::presets::PresetLora { name: l.name.clone(), strength: l.strength }).collect(),
         refine_model: s.refine.then(|| s.refine_model.clone()),
         refine_strength: s.refine.then_some(s.refine_strength),
+        refine_steps: s.refine.then_some(s.refine_steps).flatten(),
+        refine_guidance: s.refine.then_some(s.refine_guidance).flatten(),
+        refine_loras: if s.refine {
+            s.refine_loras.iter().map(|l| li_ai::presets::PresetLora { name: l.name.clone(), strength: l.strength }).collect()
+        } else {
+            Vec::new()
+        },
         built_in: false,
     };
     let mut all = presets();
     all.retain(|p| p.name != preset.name || p.built_in);
     all.push(preset);
-    let _ = li_ai::presets::save_user(&li_ai::presets::path(), &all);
+    let _ = li_ai::presets::save_user(&preset_path(), &all);
     rt(|r| r.presets = None);
     s.preset = name.to_owned();
 }
@@ -1640,6 +1735,7 @@ pub(crate) fn regenerate_layer(app: &mut PhotocraftApp, ctx: &egui::Context, lay
     s.aspect = "custom".into();
     s.steps = uint("steps").unwrap_or(s.steps);
     s.guidance = g["guidance"].as_f64().map_or(s.guidance, |v| v as f32);
+    s.variety = g["variety"].as_f64().filter(|v| v.is_finite()).map_or(0.0, |v| v.clamp(0.0, 100.0) as f32);
     s.denoise = g["denoise"].as_f64().map_or(s.denoise, |v| v as f32);
     s.transparent = g["transparent"].as_bool().unwrap_or(false);
     s.loras = serde_json::from_value(g["loras"].clone()).unwrap_or_default();
@@ -1702,6 +1798,7 @@ fn local_request(
     fit_to_backend(&mut fitted, crate::ai_ui::status().limits);
     req.steps = fitted.steps;
     req.guidance = fitted.guidance;
+    req.variety = if m == ModelId::ZImageTurbo && s.mode == Mode::Create && s.variety.is_finite() { s.variety.clamp(0.0, 100.0) } else { 0.0 };
     req.negative = s.negative.clone();
     req.denoise = fitted.denoise;
     req.scale = s.upscale;
@@ -1776,6 +1873,10 @@ fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
         ctx.request_repaint();
         return;
     }
+    if s.mode == Mode::Refine && s.refine_input == RefineInput::SelectedLayer && app.session.active().is_none_or(|d| d.active_layer.is_none()) {
+        app.ui.status = tl!("Select a layer first.").into();
+        return;
+    }
     let preset = presets().into_iter().find(|p| p.name == s.preset);
     let prompt = preset.as_ref().map_or_else(|| s.prompt.trim().to_owned(), |p| p.apply(&s.prompt));
     let doc = app.session.active().and_then(|d| {
@@ -1848,7 +1949,7 @@ fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let name = format!("{}-{}", info.short.replace(' ', ""), r.seed);
         let meta = json!({
             "model": m.key(), "family": info.family, "variant": r.variant, "prompt": r.prompt, "negative_prompt": r.negative, "width": r.width, "height": r.height,
-            "seed": r.seed, "transparent": r.transparent, "steps": r.steps, "guidance": r.guidance, "denoise": r.denoise,
+            "seed": r.seed, "transparent": r.transparent, "steps": r.steps, "guidance": r.guidance, "denoise": r.denoise, "variety": r.variety,
             "loras": s.loras.iter().map(|l| json!({"name": l.name, "strength": l.strength})).collect::<Vec<_>>(),
             "refine": r.refine,
             "reference_count": r.references.len(), "mode": format!("{:?}", s.mode).to_lowercase(),
@@ -1976,6 +2077,7 @@ fn launch(
     work: impl FnOnce(&li_ai::JobControl) -> anyhow::Result<RgbaImage> + Send + 'static,
 ) -> bool {
     let params = json!({ "edit": edit, "name": name.clone(), "open": open });
+    let library = library();
     let started = app.session.start_job(
         GENERATE_JOB,
         params,
@@ -1984,7 +2086,7 @@ fn launch(
         move |ctx| {
             let img = photocraft_engine::ai_cmds::bridged(ctx, work)?;
             ctx.progress(0.98, "Saving to the library");
-            let entry = Library::default()
+            let entry = library
                 .add(&img, &name, Some(meta), None)
                 .map_err(|e| photocraft_engine::EngineError::Other(format!("Could not save to the library: {e:#}")))?;
             Ok(entry)
@@ -2032,7 +2134,7 @@ pub fn on_generated(app: &mut PhotocraftApp, e: &JobEvent) {
                 if let Some(doc) = edit_doc {
                     place_into(app, doc, &entry);
                 } else if open {
-                    let path = Library::default().image_path(&entry.id);
+                    let path = library().image_path(&entry.id);
                     if let Ok(bytes) = std::fs::read(&path)
                         && let Err(err) = app.open_bytes(&format!("{}.png", entry.name), &bytes)
                     {
@@ -2066,7 +2168,7 @@ fn place_into(app: &mut PhotocraftApp, doc_id: u64, entry: &Entry) {
     let Some(index) = app.session.documents().iter().position(|d| d.doc.id.0 == doc_id) else { return };
     app.session.set_active(index);
     app.sync_views();
-    let path = Library::default().image_path(&entry.id);
+    let path = library().image_path(&entry.id);
     let name = format!("Edit: {}", entry.prompt().chars().take(40).collect::<String>());
     if let Err(e) = app.run("ai.placeLayer", json!({ "path": path.display().to_string(), "name": name, "fit": "none", "generation": entry.generation })) {
         app.ui.status = e;
@@ -2105,7 +2207,7 @@ fn results_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 /// A grid of square tiles; `None` items draw `pending[i]` as text.
 fn tile_grid(app: &mut PhotocraftApp, ui: &mut egui::Ui, items: &[Option<Entry>], pending: &[String], salt: &str) {
     let t = Tokens::get(ui.ctx());
-    let lib = Library::default();
+    let lib = library();
     let cols = ((ui.available_width() + 6.0) / 96.0).floor().max(2.0) as usize;
     let size = ((ui.available_width() - 6.0 * (cols as f32 - 1.0)) / cols as f32).floor();
     let mut action: Option<(Entry, &'static str)> = None;
@@ -2204,7 +2306,7 @@ fn tile_grid(app: &mut PhotocraftApp, ui: &mut egui::Ui, items: &[Option<Entry>]
 }
 
 fn entry_action(app: &mut PhotocraftApp, ctx: &egui::Context, e: &Entry, act: &str) {
-    let lib = Library::default();
+    let lib = library();
     match act {
         "open" => match std::fs::read(lib.image_path(&e.id)) {
             Ok(bytes) => {
@@ -2270,7 +2372,7 @@ fn entry_action(app: &mut PhotocraftApp, ctx: &egui::Context, e: &Entry, act: &s
             let _ = lib.delete(std::slice::from_ref(&e.id));
             rt(|r| {
                 r.results.retain(|t| !matches!(t, Tile::Done(x) if x.id == e.id));
-                r.library.retain(|x| x.id != e.id);
+                Arc::make_mut(&mut r.library).retain(|x| x.id != e.id);
                 r.textures.remove(&e.id);
             });
         }
@@ -2282,9 +2384,9 @@ fn entry_action(app: &mut PhotocraftApp, ctx: &egui::Context, e: &Entry, act: &s
 pub fn library_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     if rt(|r| r.library_loaded.is_none_or(|t| t.elapsed() > Duration::from_secs(10))) {
-        let list = Library::default().list();
+        let list = library().list();
         rt(|r| {
-            r.library = list;
+            r.library = Arc::new(list);
             r.library_loaded = Some(Instant::now());
         });
     }
@@ -2672,6 +2774,45 @@ mod tests {
     }
 
     #[test]
+    fn ds_finding_selected_layer_refine_is_disabled_without_a_selected_layer() {
+        use egui_kittest::kittest::Queryable;
+        crate::ai_ui::TEST_STATUS.with(|s| {
+            *s.borrow_mut() = Some(crate::ai_ui::EngineStatus {
+                connected: true,
+                checked: true,
+                presets: catalog::presets().iter().map(|p| (p.id(), Ok(()))).collect(),
+                ..Default::default()
+            })
+        });
+        let mut session = photocraft_engine::Session::new();
+        session.execute("file.new", json!({"width":64,"height":64})).unwrap();
+        session.active_mut().unwrap().active_layer = None;
+        let mut app = PhotocraftApp::new(session, Default::default());
+        app.ui.ai.generate.mode = Mode::Refine;
+        app.ui.ai.generate.refine_input = RefineInput::SelectedLayer;
+        let mut initialized = false;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(420.0, 1600.0)).build_ui_state(
+            move |ui, app: &mut PhotocraftApp| {
+                if !initialized {
+                    PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Studio);
+                    initialized = true;
+                    return;
+                }
+                panel(app, ui);
+            },
+            app,
+        );
+        h.run_steps(4);
+        h.get_all_by_label("Refine").last().unwrap().click();
+        h.run_steps(3);
+        assert!(h.state().session.jobs().is_empty());
+        let ctx = h.ctx.clone();
+        start(h.state_mut(), &ctx);
+        assert_eq!(h.state().ui.status, "Select a layer first.");
+        assert!(h.state().session.jobs().is_empty());
+    }
+
+    #[test]
     fn refine_model_groups_exclude_upscalers_tools_and_video() {
         let mut models = catalog::catalog().models.clone();
         // Detected video/template-only models are represented by FamilyKind::Basic.
@@ -2977,5 +3118,134 @@ mod tests {
         browse_loras("no-such-model");
         assert!(crate::model_browser::showing().0);
         crate::model_browser::close();
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_refine_preset_persists_custom_sampler_and_loads_old_defaults() {
+    let mut state = GenerateState { refine: true, refine_steps: Some(17), refine_guidance: Some(2.5), ..Default::default() };
+    save_preset(&mut state, "DS refine regression");
+    let saved = li_ai::presets::all(&preset_path()).into_iter().find(|p| p.name == "DS refine regression").unwrap();
+    assert_eq!(saved.refine_steps, Some(17));
+    assert_eq!(saved.refine_guidance, Some(2.5));
+    let mut loaded = GenerateState::default();
+    apply_preset(&mut loaded, &saved);
+    assert_eq!((loaded.refine_steps, loaded.refine_guidance), (Some(17), Some(2.5)));
+    let old: li_ai::presets::GenPreset = serde_json::from_value(json!({"name":"old","refine_model":"flux2-klein-4b"})).unwrap();
+    apply_preset(&mut loaded, &old);
+    assert_eq!((loaded.refine_steps, loaded.refine_guidance), (None, None));
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_library_snapshots_share_entries_until_removal() {
+    let entry = li_ai::library::Entry {
+        id: "fixture".into(),
+        name: "large metadata".repeat(100),
+        created_at: 0.,
+        width: 1,
+        height: 1,
+        generation: Some(json!({"prompt":"prompt".repeat(100)})),
+        reference_attributions: vec![],
+        sha256: "hash".into(),
+        upscale: None,
+    };
+    rt(|r| {
+        r.library = Arc::new(vec![entry; 10_000]);
+        r.library_loaded = Some(Instant::now());
+    });
+    let a = rt(|r| r.library.clone());
+    for _ in 0..30 {
+        let b = rt(|r| r.library.clone());
+        assert!(Arc::ptr_eq(&a, &b));
+        assert_eq!(a.as_ptr(), b.as_ptr());
+    }
+    rt(|r| {
+        Arc::make_mut(&mut r.library).remove(0);
+    });
+    assert_eq!(a.len(), 10_000);
+    assert_eq!(rt(|r| r.library.len()), 9_999);
+    rt(|r| r.library = Arc::new(vec![]));
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_refine_lora_preset_roundtrip_and_invalid_step_limits() {
+    use egui_kittest::kittest::Queryable;
+    crate::ai_ui::TEST_STATUS.with(|s| {
+        *s.borrow_mut() = Some(crate::ai_ui::EngineStatus {
+            connected: true,
+            checked: true,
+            presets: catalog::presets().iter().map(|p| (p.id(), Ok(()))).collect(),
+            ..Default::default()
+        })
+    });
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    app.ui.ai.generate.refine = true;
+    app.ui.ai.generate.refine_loras = vec![LoraPick { name: "refine-style.safetensors".into(), strength: 0.65 }];
+    let mut initialized = false;
+    let mut h = egui_kittest::Harness::builder().with_size(vec2(420., 1800.)).build_ui_state(
+        move |ui, app: &mut PhotocraftApp| {
+            if !initialized {
+                PhotocraftApp::setup_context(ui.ctx(), Default::default());
+                initialized = true;
+                return;
+            }
+            panel(app, ui);
+        },
+        app,
+    );
+    h.run_steps(4);
+    let at = h.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new("gen-save-preset-test"))).unwrap().center();
+    h.hover_at(at);
+    h.step();
+    h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+    h.step();
+    h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+    h.step();
+    h.run_steps(3);
+    h.get_by_label("Save Preset").click();
+    h.run_steps(3);
+    let saved = li_ai::presets::all(&preset_path()).into_iter().find(|p| p.name == h.state().ui.ai.generate.preset).unwrap();
+    assert_eq!(saved.refine_loras.len(), 1);
+    assert_eq!(saved.refine_loras[0].name, "refine-style.safetensors");
+    let mut loaded = GenerateState::default();
+    apply_preset(&mut loaded, &saved);
+    assert_eq!(loaded.refine_loras[0].strength, 0.65);
+    let old = serde_json::from_value(json!({"name":"old"})).unwrap();
+    apply_preset(&mut loaded, &old);
+    assert!(loaded.refine_loras.is_empty());
+    fit_to_backend(&mut loaded, Some(li_ai::comfy::SamplerLimits { steps: (20., 4.), cfg: (0., 10.), denoise: (0., 1.) }));
+    assert_eq!(loaded.steps, 20);
+    crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = None);
+
+    #[test]
+    fn zimage_variety_settings_presets_and_requests_keep_old_defaults() {
+        let old: GenerateState = serde_json::from_value(json!({"model":"z-image-turbo"})).unwrap();
+        assert_eq!(old.variety, 0.0);
+        let old_draft: DraftRefineSettings = serde_json::from_value(json!({"draft":{"model":"z-image-turbo"}})).unwrap();
+        assert_eq!(old_draft.draft.variety, 0.0);
+        let mut s = GenerateState { variety: 75.0, ..old };
+        let restored: GenerateState = serde_json::from_value(serde_json::to_value(&s).unwrap()).unwrap();
+        assert_eq!(restored.variety, 75.0);
+        assert_eq!(local_request(&s, "a fox".into(), None, Vec::new()).unwrap().0.variety, 75.0);
+        s.variety = f32::NAN;
+        assert_eq!(local_request(&s, "a fox".into(), None, Vec::new()).unwrap().0.variety, 0.0);
+        s.variety = 75.0;
+        set_model(&mut s, ModelId::Ernie);
+        assert_eq!(s.variety, 0.0);
+        s.variety = 75.0;
+        assert_eq!(local_request(&s, "a fox".into(), None, Vec::new()).unwrap().0.variety, 0.0);
+        let old_preset: li_ai::presets::GenPreset = serde_json::from_value(json!({"model":"z-image-turbo"})).unwrap();
+        apply_preset(&mut s, &old_preset);
+        assert_eq!(s.variety, 0.0);
+        let preset = li_ai::presets::GenPreset { variety: Some(75.0), ..old_preset };
+        let restored: li_ai::presets::GenPreset = serde_json::from_value(serde_json::to_value(&preset).unwrap()).unwrap();
+        apply_preset(&mut s, &restored);
+        assert_eq!(s.variety, 75.0);
+        s.mode = Mode::Refine;
+        let source = RgbaImage::new(64, 64);
+        assert_eq!(local_request(&s, "a fox".into(), Some((photocraft_doc::DocId(1), source, None)), Vec::new()).unwrap().0.variety, 0.0);
     }
 }

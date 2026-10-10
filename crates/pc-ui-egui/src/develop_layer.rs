@@ -32,6 +32,8 @@ pub struct LibrarySave {
     pub photo: Option<u64>,
     /// File › Save and Return to Library: show the Library on the saved photo afterwards.
     pub show: bool,
+    /// Flattened replacement of the source, with its previous version in Trash.
+    pub overwritten: bool,
 }
 
 /// The Library photo a layer follows, when it is a Develop layer.
@@ -68,8 +70,13 @@ pub fn active_photo(app: &PhotocraftApp) -> Option<u64> {
 /// The Library photo the active document came from and the path of its original file: the photo
 /// [`active_photo`] names, when one of the document's Develop layers links it to a file.
 pub fn library_original(app: &PhotocraftApp) -> Option<(u64, String)> {
-    let photo = active_photo(app)?;
-    app.session.active()?.doc.walk().into_iter().find_map(|(_, _, l)| match &l.content {
+    original_of(&app.session.active()?.doc)
+}
+
+/// Source identity independent of the currently selected document tab.
+pub fn original_of(doc: &photocraft_doc::Document) -> Option<(u64, String)> {
+    let photo = photocraft_engine::develop_layer_cmds::develop_layers(doc).into_iter().find_map(|(_, p)| p)?;
+    doc.walk().into_iter().find_map(|(_, _, l)| match &l.content {
         LayerContent::Smart(SmartObject { develop: Some(d), source: SmartSource::Linked { path }, .. }) if d.photo == Some(photo) && !path.is_empty() => {
             Some((photo, path.clone()))
         }

@@ -188,59 +188,31 @@ fn toneeq_5090_fixture(dump: bool) {
     }
 }
 
-// Independent scalar reference, including upstream's order-sensitive pivot swap.
+// Independent order-statistic oracle, rather than repeating the shader partition.
 fn reference_select(mut v: Vec<f32>) -> f32 {
     if v.is_empty() {
         return 0.0;
     }
     let nth = ((v.len() as f32 * 0.95) as usize).min(v.len() - 1);
-    let (mut first, mut last) = (0, v.len());
-    while last > first + 1 {
-        let pivot = last - 1;
-        if v[first] >= v[pivot] {
-            v.swap(first, pivot);
-        }
-        if v[first] >= v[nth] {
-            v.swap(first, nth);
-        }
-        if v[pivot] >= v[nth] {
-            v.swap(pivot, nth);
-        }
-        let val = v[pivot];
-        let (mut a, mut b) = (first, last);
-        loop {
-            a += 1;
-            while a < b && v[a] < val {
-                a += 1;
-            }
-            b -= 1;
-            while a < b && v[b] > val {
-                b -= 1;
-            }
-            if a >= b {
-                break;
-            }
-            v.swap(a, b);
-        }
-        v.swap(pivot, a);
-        if nth == a {
-            break;
-        }
-        if nth < a {
-            last = a;
-        } else {
-            first = a + 1;
-        }
-    }
+    v.sort_unstable_by(f32::total_cmp);
     v[nth]
 }
 
 #[test]
-fn native_parallel_haze_partitions_preserve_reference_order_and_ties() {
-    let Some(g) = crate::test_device().or_else(device) else { return };
+fn ds_finding_native_haze_selection_matches_sorted_quantile() {
+    let g = crate::test_device().or_else(device).expect("a real GPU is required");
+    eprintln!("haze selection adapter: {:?}", g.info);
+    assert_ne!(g.info.device_type, wgpu::DeviceType::Cpu);
     let _scope = crate::ctx::RenderScope::new(g);
     let mut cx = Cx::new(g);
     let errors = crate::ctx::ErrorScopes::push(g);
+    for values in [vec![1., 4., 3., 2.], vec![1., 1., 1., 4.]] {
+        let scratch = g.upload(&values);
+        let zero = cx.zeroed(1);
+        let out = haze_select(&mut cx, &scratch, values.len(), 0, &zero);
+        let actual: Vec<f32> = cx.read(&out, 1);
+        assert_eq!(actual[0], reference_select(values));
+    }
     for n in [65537, 71003, 132097] {
         for mode in 0..5 {
             let v: Vec<f32> = (0..n)
@@ -452,4 +424,43 @@ fn native_calibration_negative_hdr_and_zero_luminance_match() {
             }
         }
     }
+}
+
+#[test]
+fn ds_finding_hidden_overlay_uses_primary_image() {
+    let g = crate::test_device().or_else(device).expect("a real GPU is required");
+    let _scope = crate::ctx::RenderScope::new(g);
+    let src = input(97, 73);
+    let mut s = DevelopSettings::default();
+    s.color.saturation = -70.;
+    let mut m = mask();
+    m.visible = false;
+    m.components[0].shape = MaskShape::ColorRange { samples: vec![[0.7, 0.35, 0.15]], refine: 50. };
+    let id = m.id;
+    s.masks.push(m);
+    let mut req = RenderRequest::fit(97, 73);
+    req.overlay = lightcraft_pipeline::Overlay::Mask { id: id as u16, view: lightcraft_pipeline::MaskView::Color, color: [255, 0, 0], opacity: 100 };
+    let info = SourceInfo::default();
+    let errors = crate::ctx::ErrorScopes::push(g);
+    let gpu = render(g, &src, &info, &s, &req, Some(&GpuStages::default()), None, HsMethod::LiTone).unwrap().image;
+    let cpu = lightcraft_pipeline::render(&src, &info, &s, &req).image;
+    let error: u64 = gpu.data.iter().zip(&cpu.data).flat_map(|(a, b)| (0..3).map(move |k| a[k].abs_diff(b[k]) as u64)).sum();
+    assert!(error as f64 / ((gpu.data.len() * 3) as f64) < 0.5);
+    assert!(errors.pop().is_none());
+}
+
+#[test]
+fn ds_finding_zero_skin_hue_range_is_finite_on_gpu() {
+    let g = crate::test_device().or_else(device).expect("a real GPU is required");
+    let _scope = crate::ctx::RenderScope::new(g);
+    let src = input(97, 73);
+    let mut s = DevelopSettings::default();
+    s.skin_tone.uniformity = 80.;
+    s.skin_tone.hue_range = 0.;
+    let j = lightcraft_pipeline::ucs::xyy_to_jch(
+        lightcraft_pipeline::ucs::xyz_to_xyy(lightcraft_pipeline::ucs::mul(&lightcraft_pipeline::ucs::mats().rgb_to_xyz, src.data[1000])),
+        lightcraft_pipeline::ucs::y_to_l_star(1.),
+    );
+    s.skin_tone.reference = Some([j[0] as f64, j[1] as f64, j[2].to_degrees() as f64]);
+    compare(g, &src, &SourceInfo::default(), &s, &RenderRequest::fit(97, 73), &GpuStages::default());
 }

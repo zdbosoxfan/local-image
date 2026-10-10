@@ -14,6 +14,11 @@ struct Module {
 }
 
 const MODULES: &[Module] = &[
+    Module {
+        src: include_str!("wgsl/denoise.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", false, "f32"), ("weights", false, "f32"), ("bias", false, "f32"), ("dst", true, "f32")],
+        entries: &["denoise_conv", "denoise_point"],
+    },
     #[cfg(test)]
     Module { src: include_str!("wgsl/toneeq_test.wgsl"), bindings: &[("a", false, "f32"), ("dst", true, "f32")], entries: &["teq_round_probe"] },
     Module {

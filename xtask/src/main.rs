@@ -23,7 +23,7 @@
 //! cargo xtask tool-icons
 //!     render both contact sheets with resvg at 20/40 px on dark/light backgrounds.
 //! cargo xtask redraw-tool-icons
-//!     regenerate original colour/monochrome SVGs from tool_art.rs.
+//!     regenerate the approved base and filled reviewed source replacements.
 //! cargo xtask attributions [--fetch]
 //!     regenerate assets/attributions.json (Settings › Attributions) from
 //!     assets/attributions-curated.json, docs/PORTS.md, the AI model tables and Cargo.lock.
@@ -467,25 +467,7 @@ fn main() -> Result<()> {
         Some("upstream-check") => upstream_check(flag("--offline")),
         Some("assets") => assets::run(&root()),
         Some("redraw-tool-icons") => tool_art::run(&root()),
-        Some("tool-icons") => run(
-            "render tool icon contact sheet",
-            Command::new("cargo").current_dir(root()).env("CARGO_BUILD_JOBS", "3").args([
-                "+1.98.1",
-                "test",
-                "--offline",
-                "--lib",
-                "-p",
-                "photocraft-ui-egui",
-                "-p",
-                "lightcraft-ui-egui",
-                "-p",
-                "xtask",
-                "write_tool_icon_contact_sheet",
-                "--",
-                "--ignored",
-                "--nocapture",
-            ]),
-        ),
+        Some("tool-icons") => run("render tool icon contact sheet", &mut tool_icon_command(&root())),
         Some("attributions") => attributions::run(&root(), flag("--fetch")),
         Some("sign") if args.len() > 1 => sign(&args[1..].iter().map(PathBuf::from).collect::<Vec<_>>()),
         _ => {
@@ -523,11 +505,15 @@ fn impure_crates(edges: &str) -> Vec<String> {
 }
 
 /// One `parent child` line per dependency edge of the whole workspace, from `cargo tree`.
+fn dependency_tree_command() -> Command {
+    let mut command = Command::new("cargo");
+    command
+        .args(["tree", "--offline", "--color", "never", "--workspace", "--target", "all", "-e", "normal,build", "--prefix", "depth", "--format", "{p}"])
+        .current_dir(root());
+    command
+}
 fn dependency_edges() -> Result<String> {
-    let out = Command::new("cargo")
-        .args(["tree", "--offline", "--workspace", "--target", "all", "-e", "normal,build", "--prefix", "depth", "--format", "{p}"])
-        .current_dir(root())
-        .output()?;
+    let out = dependency_tree_command().output()?;
     if !out.status.success() {
         bail!("cargo tree failed: {}", String::from_utf8_lossy(&out.stderr));
     }
@@ -564,6 +550,13 @@ mod deps_pure_tests {
     #[test]
     fn the_workspace_graph_has_no_new_c_building_crates() {
         assert_eq!(impure_crates(&dependency_edges().unwrap()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn ds_finding_dependency_audit_forces_plain_output() {
+        let command = dependency_tree_command();
+        let args: Vec<_> = command.get_args().collect();
+        assert!(args.windows(2).any(|a| a == ["--color", "never"]));
     }
 
     #[test]
@@ -721,4 +714,41 @@ fn xtask_agent() -> ureq::Agent {
         .unversioned_rustls_crypto_provider(std::sync::Arc::new(rustls_rustcrypto::provider()))
         .build();
     ureq::Agent::config_builder().tls_config(tls).build().into()
+}
+
+fn tool_icon_command(root: &Path) -> Command {
+    let mut command = Command::new("cargo");
+    command.current_dir(root).env("CARGO_BUILD_JOBS", "3").args([
+        "+1.98.1",
+        "test",
+        "--offline",
+        "--lib",
+        "-p",
+        "photocraft-ui-egui",
+        "-p",
+        "lightcraft-ui-egui",
+        "write_tool_icon_contact_sheet",
+        "--",
+        "--ignored",
+        "--nocapture",
+    ]);
+    command
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_contact_sheet_command_only_selects_packages_with_libraries() {
+    let root = root();
+    let command = tool_icon_command(&root);
+    let args: Vec<_> = command.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+    assert!(args.iter().any(|a| a == "--lib"));
+    assert!(args.iter().any(|a| a == "write_tool_icon_contact_sheet"));
+    for pair in args.windows(2).filter(|p| p[0] == "-p") {
+        let dir = match pair[1].as_str() {
+            "photocraft-ui-egui" => "pc-ui-egui",
+            "lightcraft-ui-egui" => "lc-ui-egui",
+            other => panic!("non-library package selected: {other}"),
+        };
+        assert!(root.join("crates").join(dir).join("src/lib.rs").is_file());
+    }
 }

@@ -197,7 +197,7 @@ pub const MAX_NAME: usize = 40;
 
 impl ToolbarCustomization {
     pub fn is_builtin(id: &str) -> bool {
-        builtins().iter().any(|b| b.id == id)
+        matches!(id, DEFAULT_ID | "photographer" | "essentials" | "retouching" | "ai")
     }
 
     /// Every set: the built-ins, then the user's.
@@ -209,9 +209,18 @@ impl ToolbarCustomization {
 
     /// The set in use (All Tools when the saved id no longer exists).
     pub fn active(&self) -> ToolSet {
-        let sets = self.all_sets();
         let want = if self.active_set.is_empty() { DEFAULT_ID } else { self.active_set.as_str() };
-        sets.iter().find(|s| s.id == want).or_else(|| sets.first()).cloned().unwrap_or_default()
+        if let Some(set) = self.sets.iter().find(|s| s.id == want) {
+            return set.clone();
+        }
+        let (name, tools) = match want {
+            "photographer" => ("Photographer", PHOTOGRAPHER),
+            "essentials" => ("Essentials", ESSENTIALS),
+            "retouching" => ("Retouching", RETOUCHING),
+            "ai" => ("AI", AI),
+            _ => return built(DEFAULT_ID, "All Tools", ALL_TOOLS),
+        };
+        built(want, name, tools)
     }
 
     /// Preferences saved before tool sets had a hidden list and an order: they become the custom
@@ -221,7 +230,8 @@ impl ToolbarCustomization {
         if self.hidden.is_empty() && self.order.is_empty() {
             return;
         }
-        if self.sets.is_empty() && self.active_set.is_empty() {
+        {
+            let active = self.active();
             let known = |t: &str| ALL_TOOLS.iter().any(|a| a.eq_ignore_ascii_case(t));
             let mut tools: Vec<String> = Vec::new();
             for t in self.order.iter().filter(|t| known(t)) {
@@ -230,16 +240,21 @@ impl ToolbarCustomization {
                     tools.push(canon);
                 }
             }
-            for t in ALL_TOOLS {
-                if !tools.iter().any(|x| x == t) {
-                    tools.push(t.to_string());
+            for t in &active.tools {
+                if !tools.contains(t) {
+                    tools.push(t.clone());
                 }
             }
             let hidden: Vec<String> = self.hidden.iter().map(|h| h.to_ascii_lowercase()).collect();
             tools.retain(|t| !hidden.contains(&t.to_ascii_lowercase()));
-            if !tools.iter().map(String::as_str).eq(ALL_TOOLS.iter().copied()) {
-                self.sets.push(ToolSet { id: "custom-1".into(), name: "My Tools".into(), persona: Persona::Pixel, tools });
-                self.active_set = "custom-1".into();
+            if tools != active.tools {
+                if let Some(set) = self.sets.iter_mut().find(|s| s.id == active.id) {
+                    set.tools = tools;
+                } else {
+                    let id = self.next_id();
+                    self.sets.push(ToolSet { id: id.clone(), name: "My Tools".into(), persona: active.persona, tools });
+                    self.active_set = id;
+                }
             }
         }
         self.hidden.clear();

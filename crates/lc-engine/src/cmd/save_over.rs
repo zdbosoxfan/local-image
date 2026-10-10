@@ -188,7 +188,10 @@ pub fn jpeg_chroma(bytes: &[u8]) -> Option<ChromaSubsampling> {
             }
             let factors = |c: usize| sof.get(6 + c * 3 + 1).map(|f| (f >> 4, f & 0x0F));
             let (y, cb, cr) = (factors(0)?, factors(1)?, factors(2)?);
-            if cb != cr || cb != (1, 1) {
+            if cb != cr {
+                return None;
+            }
+            if cb != (1, 1) {
                 return (y == cb).then_some(ChromaSubsampling::S444);
             }
             return Some(match y {
@@ -416,5 +419,17 @@ mod tests {
     #[test]
     fn stamps_are_folder_names() {
         assert_eq!(stamp("2026-09-30T12:00:00"), "2026-09-30T12-00-00");
+    }
+}
+
+#[cfg(test)]
+mod ds_sampling_tests {
+    use super::*;
+    #[test]
+    fn ds_finding_jpeg_requires_matching_chroma_components() {
+        let mut sof = vec![0xff, 0xd8, 0xff, 0xc0, 0, 17, 8, 0, 1, 0, 1, 3, 1, 0x21, 0, 2, 0x21, 0, 3, 0x11, 0];
+        assert_eq!(jpeg_chroma(&sof), None);
+        sof[19] = 0x21;
+        assert_eq!(jpeg_chroma(&sof), Some(ChromaSubsampling::S444));
     }
 }

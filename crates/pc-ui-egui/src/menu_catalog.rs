@@ -768,6 +768,7 @@ pub static CATALOG: &[(&[&str], &str, Option<&str>, &str)] = &[
     (&["Window"], "Draft / Refinement…", None, "li.draftRefine"),
     (&["Image", "AI"], "Draft / Refinement…", None, "li.draftRefine"),
     (&["Window"], "Model Browser…", None, "li.browseModels"),
+    (&["Filter", "AI"], "Restore…", None, "ai.restore"),
     (&["Window"], "Contextual Task Bar", None, "window.toggle.contextualTaskBar"),
     (&["Window"], "Gradients", None, "window.panel.gradients"),
     (&["Window"], "Histogram", None, "window.panel.histogram"),

@@ -19,7 +19,10 @@ use tract_onnx::prelude::*;
 mod geometry;
 pub use geometry::{Affine, Letterbox, REFERENCE_LANDMARKS, letterbox, similarity_transform, warp_affine_112};
 mod cluster;
-pub use cluster::{Assignment, Cluster, FaceNode, NamedPerson, NodeKey, assign_cluster, assign_person, chinese_whispers, cosine, normalise_embedding};
+pub use cluster::{
+    Assignment, Cluster, FaceNode, NamedPerson, NodeKey, assign_cluster, assign_person, chinese_whispers, chinese_whispers_cancellable, cosine,
+    normalise_embedding,
+};
 
 /// Pinned download metadata, also registered in the model manager’s Faces bundle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

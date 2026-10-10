@@ -54,21 +54,68 @@ pub fn cosine(a: &[f32; 128], b: &[f32; 128]) -> Result<f32> {
 /// exact ties choose the smallest label. Stop at stability or after 30 passes.
 /// Suggestions sort by descending size, then the smallest member key for equal sizes.
 pub fn chinese_whispers(nodes: &[FaceNode]) -> Result<Vec<Cluster>> {
+    chinese_whispers_cancellable(nodes, &|| false)
+}
+
+/// Exact grouping with bounded graph storage. Dense graphs fall back to streaming each
+/// neighbourhood in the same sorted order, preserving weights, ties and in-place updates.
+pub fn chinese_whispers_cancellable(nodes: &[FaceNode], cancelled: &impl Fn() -> bool) -> Result<Vec<Cluster>> {
+    cluster_with_budget(nodes, cancelled, 524_288)
+}
+
+fn cluster_with_budget(nodes: &[FaceNode], cancelled: &impl Fn() -> bool, edge_budget: usize) -> Result<Vec<Cluster>> {
+    ensure!(!cancelled(), "Face clustering cancelled");
     let mut nodes: Vec<_> = nodes.iter().collect();
     nodes.sort_by(|a, b| a.key.cmp(&b.key));
     ensure!(nodes.windows(2).all(|p| p[0].key != p[1].key), "Duplicate face node key");
     let embeddings = nodes.iter().map(|n| normalise_embedding(&n.embedding)).collect::<Result<Vec<_>>>()?;
-    let mut edges = vec![Vec::<(usize, f64)>::new(); nodes.len()];
-    for i in 0..nodes.len() {
+    let norms: Vec<_> = embeddings.iter().map(|e| e.iter().map(|v| f64::from(*v).powi(2)).sum::<f64>().sqrt()).collect();
+    let weight = |i: usize, j: usize| {
+        let dot = embeddings[i].iter().zip(&embeddings[j]).map(|(a, b)| f64::from(*a) * f64::from(*b)).sum::<f64>();
+        (dot / (norms[i] * norms[j])).clamp(-1.0, 1.0) as f32
+    };
+    let mut graph = vec![Vec::<(usize, f64)>::new(); nodes.len()];
+    let mut count = 0;
+    let mut dense = false;
+    'build: for i in 0..nodes.len() {
         for j in i + 1..nodes.len() {
-            let weight = cosine(&embeddings[i], &embeddings[j])?;
-            if weight >= CLUSTER_COSINE {
-                edges[i].push((j, f64::from(weight)));
-                edges[j].push((i, f64::from(weight)));
+            if j.is_multiple_of(256) {
+                ensure!(!cancelled(), "Face clustering cancelled");
+            }
+            let w = weight(i, j);
+            if w >= CLUSTER_COSINE {
+                if count == edge_budget {
+                    dense = true;
+                    break 'build;
+                }
+                graph[i].push((j, f64::from(w)));
+                graph[j].push((i, f64::from(w)));
+                count += 1;
             }
         }
+        ensure!(!cancelled(), "Face clustering cancelled");
     }
-    let labels = whisper_labels(&edges);
+    let graph = if dense { None } else { Some(graph) };
+    let labels = whisper_with(nodes.len(), cancelled, |i, labels, weights| {
+        if let Some(graph) = &graph {
+            for &(other, weight) in &graph[i] {
+                *weights.entry(labels[other]).or_default() += weight;
+            }
+        } else {
+            for j in 0..nodes.len() {
+                if j.is_multiple_of(256) {
+                    ensure!(!cancelled(), "Face clustering cancelled");
+                }
+                if j != i {
+                    let w = weight(i, j);
+                    if w >= CLUSTER_COSINE {
+                        *weights.entry(labels[j]).or_default() += f64::from(w);
+                    }
+                }
+            }
+        }
+        Ok(())
+    })?;
     let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
     for (index, label) in labels.into_iter().enumerate() {
         groups.entry(label).or_default().push(index);
@@ -89,18 +136,31 @@ pub fn chinese_whispers(nodes: &[FaceNode]) -> Result<Vec<Cluster>> {
     Ok(clusters)
 }
 
+#[cfg(test)]
 fn whisper_labels(edges: &[Vec<(usize, f64)>]) -> Vec<usize> {
-    let mut labels: Vec<_> = (0..edges.len()).collect();
+    whisper_with(edges.len(), &|| false, |i, labels, weights| {
+        for &(other, weight) in &edges[i] {
+            *weights.entry(labels[other]).or_default() += weight;
+        }
+        Ok(())
+    })
+    .expect("uncancelled graph")
+}
+
+fn whisper_with(
+    n: usize,
+    cancelled: &impl Fn() -> bool,
+    mut neighbours: impl FnMut(usize, &[usize], &mut BTreeMap<usize, f64>) -> Result<()>,
+) -> Result<Vec<usize>> {
+    let mut labels: Vec<_> = (0..n).collect();
     for _ in 0..CLUSTER_PASSES {
         let mut changed = false;
-        for (i, neighbours) in edges.iter().enumerate() {
+        for i in 0..n {
+            ensure!(!cancelled(), "Face clustering cancelled");
             let mut weights = BTreeMap::<usize, f64>::new();
-            for &(other, weight) in neighbours {
-                *weights.entry(labels[other]).or_default() += weight;
-            }
+            neighbours(i, &labels, &mut weights)?;
             let mut best = None;
             for (label, weight) in weights {
-                // Iteration is ascending label; equality deliberately preserves the first.
                 if best.is_none_or(|(_, current)| weight > current) {
                     best = Some((label, weight));
                 }
@@ -114,7 +174,7 @@ fn whisper_labels(edges: &[Vec<(usize, f64)>]) -> Vec<usize> {
             break;
         }
     }
-    labels
+    Ok(labels)
 }
 
 #[derive(Clone, Debug)]
@@ -157,6 +217,25 @@ fn assign(embedding: &[f32; 128], people: &[NamedPerson], rejected: impl Fn(&str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ds_finding_dense_streaming_is_exact_and_cancellable() {
+        let nodes: Vec<_> = (0..64)
+            .map(|i| {
+                let mut embedding = [0.; 128];
+                embedding[i % 4] = 1.;
+                embedding[(i + 1) % 4] = 0.7;
+                FaceNode { key: NodeKey { photo_date: i as i64, key: i.to_string(), face_index: 0 }, embedding }
+            })
+            .collect();
+        assert_eq!(cluster_with_budget(&nodes, &|| false, 0).unwrap(), cluster_with_budget(&nodes, &|| false, usize::MAX).unwrap());
+        let calls = std::cell::Cell::new(0);
+        let cancel = || {
+            calls.set(calls.get() + 1);
+            calls.get() > 80
+        };
+        assert!(cluster_with_budget(&nodes, &cancel, 0).unwrap_err().to_string().contains("cancelled"));
+    }
 
     #[test]
     fn whispers_sum_weights_choose_smallest_label_and_update_in_place() {

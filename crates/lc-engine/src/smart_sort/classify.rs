@@ -42,7 +42,7 @@ fn mean(vectors: &[Vec<f32>], dim: usize) -> Result<Vec<f32>, String> {
 pub fn prompt(text: &str) -> String {
     let text = text.trim();
     let lower = text.to_lowercase();
-    if ["a ", "an ", "the ", "photo"].iter().any(|p| lower.starts_with(p)) { text.into() } else { format!("a photo of {text}") }
+    if ["a ", "an ", "the ", "photo "].iter().any(|p| lower.starts_with(p)) { text.into() } else { format!("a photo of {text}") }
 }
 
 impl Classifier {

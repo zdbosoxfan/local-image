@@ -150,7 +150,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     let mut de: Vec<_> = a.data.iter().zip(&before.data).map(|(a, b)| metrics::delta_e(metrics::lab(*a), metrics::lab(*b))).collect();
                     let de = metrics::p95(&mut de);
                     // Explicit skin/colour patch ROIs, rather than folding them into a frame percentile.
-                    let patch_de = if *synth && idx == 2 {
+                    let patch_de = if has_patch_rois(name, *synth) {
                         Some(
                             (0..6)
                                 .map(|patch| {
@@ -231,4 +231,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err(format!("{failed_limits} comparisons exceeded hue/preview limits; see the metrics table").into());
     }
     Ok(())
+}
+
+fn has_patch_rois(name: &str, synthetic: bool) -> bool {
+    synthetic && name == "Synthetic saturated highlights / skin patches"
+}
+
+#[test]
+fn ds_finding_filtered_skin_scene_retains_rois() {
+    let mut scenes = vec![("Synthetic HDR window / interior", true), ("Synthetic saturated highlights / skin patches", true)];
+    scenes.retain(|(name, _)| name.contains("skin"));
+    assert!(has_patch_rois(scenes[0].0, scenes[0].1));
+    assert!(!has_patch_rois(scenes[0].0, false));
 }

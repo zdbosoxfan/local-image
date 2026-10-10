@@ -87,6 +87,11 @@ impl HeadlessView {
     }
 
     /// Frames run so far.
+    #[cfg(test)]
+    pub(crate) fn shapes(&self) -> &[egui::epaint::ClippedShape] {
+        &self.shapes
+    }
+
     pub fn frames(&self) -> u64 {
         self.frames
     }
@@ -2235,5 +2240,78 @@ mod tests {
             let back: crate::state::AppSettings = serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
             assert_eq!(back.tool_tips, mode);
         }
+    }
+    #[test]
+    fn ds_finding_camera_folder_focus_and_picker_do_not_keep_stale_text() {
+        let mut h = demo([1300., 820.]);
+        h.app.services.pick_folder = Some(Box::new(|| Some("target/ds-camera-picked".into())));
+        h.app.ui.dialog = Some(crate::state::Dialog::Settings { tab: "import".into() });
+        for _ in 0..4 {
+            h.step();
+        }
+        let timeout = Duration::from_secs(10);
+        assert_eq!(h.request("ui.clickWidget", json!({"id":"settings:cameraFolder"}), timeout)["ok"], true);
+        h.request("ui.key", json!({"key":"A","cmd":true}), timeout);
+        h.request("ui.text", json!({"text":"target/ds-camera-typed"}), timeout);
+        let before = h.app.session.import_defaults.camera_profiles_folder.clone();
+        let at = h.app.widgets.iter().find(|(id, _)| id == "settings:cameraFolderChoose").unwrap().1.center();
+        h.app.synthetic.push(egui::Event::PointerMoved(at));
+        h.app.synthetic.push(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.step();
+        h.step();
+        assert_eq!(h.app.session.import_defaults.camera_profiles_folder, before, "picker press must not commit the typed intermediate folder");
+        h.app.synthetic.push(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.step();
+        assert_eq!(h.app.session.import_defaults.camera_profiles_folder, "target/ds-camera-picked");
+        // An unchanged focus cycle must release the temporary edit, so external preferences show.
+        h.request("ui.clickWidget", json!({"id":"settings:cameraFolder"}), timeout);
+        h.request("ui.clickWidget", json!({"id":"check:settings.perCamera"}), timeout);
+        h.app.run("library.preferences", json!({"import":{"cameraProfilesFolder":"target/ds-camera-external"}})).unwrap();
+        h.step();
+        h.step();
+        assert!(h.view.shapes.iter().any(|s| matches!(&s.shape,egui::Shape::Text(t) if t.galley.job.text=="target/ds-camera-external")));
+    }
+
+    #[test]
+    fn ds_finding_simple_tooltips_release_rich_hover_state() {
+        use crate::panels::tool_tips::{ToolTipMode, shown};
+        let mut h = demo([1400., 900.]);
+        let timeout = Duration::from_secs(10);
+        h.request("ui.set", json!({"view":"detail"}), timeout);
+        h.app.ui.settings.tool_tips = ToolTipMode::Rich;
+        h.request("ui.hoverWidget", json!({"id":"icon:crop"}), timeout);
+        assert!(h.step_until(timeout, |h| shown(&h.view.ctx).is_some()));
+        h.app.ui.settings.tool_tips = ToolTipMode::Simple;
+        h.step();
+        assert!(shown(&h.view.ctx).is_none());
+        h.app.ui.settings.tool_tips = ToolTipMode::Rich;
+        h.step();
+        assert!(shown(&h.view.ctx).is_none(), "rich mode starts a fresh hover delay");
+    }
+
+    #[test]
+    fn ds_finding_never_spot_overlay_hides_the_selected_pin() {
+        let mut h = demo([1300., 820.]);
+        let timeout = Duration::from_secs(10);
+        h.request("ui.set", json!({"view":"detail","right":"remove"}), timeout);
+        h.app.run("spot.add", json!({"mode":"heal","points":[[0.5,0.5]],"source":[0.1,0.]})).unwrap();
+        h.app.ui.remove_overlay = crate::state::SpotOverlay::Never;
+        h.step();
+        h.step();
+        let pin_color = egui::Color32::from_rgb(1, 101, 221);
+        assert!(!h.view.shapes.iter().any(|s| matches!(&s.shape,egui::Shape::Circle(c) if c.fill==pin_color && c.radius==6.)));
+        h.app.ui.remove_overlay = crate::state::SpotOverlay::Always;
+        h.step();
+        assert!(h.view.shapes.iter().any(|s| matches!(&s.shape,egui::Shape::Circle(c) if c.fill==pin_color && c.radius==6.)));
     }
 }

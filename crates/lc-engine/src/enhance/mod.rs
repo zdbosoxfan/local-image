@@ -2,6 +2,7 @@
 //! The host supplies the inpainting engines; retouching composites patches in scene-linear RGB.
 
 pub(crate) mod cmds;
+pub mod denoise;
 pub mod remove;
 pub mod session;
 pub mod store;
@@ -152,6 +153,8 @@ pub struct RemoveDone {
 /// What a job produced.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
+    Denoise(denoise::DenoiseDone),
+    DenoiseExport(String),
     Remove(RemoveDone),
 }
 
@@ -159,10 +162,16 @@ pub enum Outcome {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum JobKind {
+    Denoise,
+    DenoiseExport,
     /// A new AI removal (its stroke, for the canvas to show while it runs).
-    Remove { stroke: AiStroke },
+    Remove {
+        stroke: AiStroke,
+    },
     /// A new variation of AI spot `spot`.
-    Regenerate { spot: usize },
+    Regenerate {
+        spot: usize,
+    },
 }
 
 /// A background AI job.
@@ -208,6 +217,8 @@ pub type Work = Box<dyn FnOnce(&JobCtl) -> Result<Outcome, String> + Send>;
 /// The session's AI state: the host's services and jobs.
 #[derive(Default)]
 pub struct Enhance {
+    /// Optional test/host override, used on worker threads only.
+    pub denoiser: Option<denoise::DenoiseFn>,
     /// Set by the app (Compositing's AI engines and model downloads). `None`: AI Remove is
     /// unavailable (CLI, web, tests without a mock).
     pub host: Option<Arc<dyn AiHost>>,

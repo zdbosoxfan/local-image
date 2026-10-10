@@ -38,6 +38,9 @@ pub fn contours(mask: &BinaryImage, budget: &mut usize, cancel: &impl Fn() -> bo
         let mut previous = (start.0 - 1, start.1);
         let mut points = Vec::new();
         loop {
+            if points.len() % 256 == 0 && cancel() {
+                return Err(crate::Error::Cancelled);
+            }
             points.push(Point::new(p.0 as f64, p.1 as f64));
             let Some(nexts) = edges.get_mut(&p) else {
                 break;
@@ -100,5 +103,22 @@ mod tests {
         assert!(matches!(contours(&mask, &mut 4, &|| true), Err(crate::Error::Cancelled)));
         let result = contours(&mask, &mut 4, &|| false);
         assert!(result.is_ok_and(|loops| loops.len() == 1 && loops[0].len() == 4));
+    }
+}
+
+#[cfg(test)]
+mod ds_tests {
+    use super::*;
+    #[test]
+    fn ds_finding_cancel_during_single_long_contour() {
+        let mut mask = BinaryImage::new_w_h(2048, 1);
+        mask.pixels.fill(true);
+        let calls = std::cell::Cell::new(0);
+        let result = contours(&mask, &mut 10_000, &|| {
+            calls.set(calls.get() + 1);
+            calls.get() >= 4
+        });
+        assert!(matches!(result, Err(crate::Error::Cancelled)));
+        assert_eq!(calls.get(), 4);
     }
 }

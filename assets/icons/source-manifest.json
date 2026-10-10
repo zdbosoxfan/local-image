@@ -1,0 +1,970 @@
+{
+  "schema": 2,
+  "sets": {
+    "krita": {
+      "commit": "ab3502b67a5b07771d3127aeaf9cc522af5d626a",
+      "tag": "v5.2.6",
+      "url": "https://github.com/KDE/krita",
+      "licence": "CC-BY-SA-4.0",
+      "author": "Timothée Giet"
+    },
+    "lucide": {
+      "commit": "f12b0de177fbc2a6795e99be065887e72b237123",
+      "tag": "0.468.0",
+      "url": "https://github.com/lucide-icons/lucide",
+      "licence": "ISC AND MIT",
+      "author": "Lucide contributors; Cole Bemis (Feather)"
+    }
+  },
+  "sources": {
+    "krita/krita/pics/tools/SVG/16/dark_krita_tool_gradient.svg": {
+      "set": "krita",
+      "path": "krita/pics/tools/SVG/16/dark_krita_tool_gradient.svg",
+      "file": "assets/icons/upstream/krita/krita/pics/tools/SVG/16/dark_krita_tool_gradient.svg",
+      "licence": "CC-BY-SA-4.0",
+      "author": "Andrei Rudenko",
+      "licence_evidence": "Embedded CC-BY-SA-4.0 metadata",
+      "sha256": "7b60bd12ca1d0fc03a1b175be8d1ce3f23f91b39ce965f9c9e2211e67b209bcd"
+    },
+    "krita/krita/pics/tools/SVG/16/dark_krita_tool_freehand.svg": {
+      "set": "krita",
+      "path": "krita/pics/tools/SVG/16/dark_krita_tool_freehand.svg",
+      "file": "assets/icons/upstream/krita/krita/pics/tools/SVG/16/dark_krita_tool_freehand.svg",
+      "licence": "CC-BY-SA-4.0",
+      "author": "Timothée Giet",
+      "licence_evidence": "Embedded CC-BY-SA-4.0 metadata",
+      "sha256": "bf1f26cd8e9a558ddf5e2f52a32c1b5a528add6b026e594a41f6c64e7e7515c8"
+    },
+    "krita/krita/pics/tools/SVG/16/dark_tool_elliptical_selection.svg": {
+      "set": "krita",
+      "path": "krita/pics/tools/SVG/16/dark_tool_elliptical_selection.svg",
+      "file": "assets/icons/upstream/krita/krita/pics/tools/SVG/16/dark_tool_elliptical_selection.svg",
+      "licence": "CC-BY-SA-4.0",
+      "author": "Andrei Rudenko",
+      "licence_evidence": "Embedded CC-BY-SA-4.0 metadata",
+      "sha256": "15f5c528f75d25e31307df5f1aaac7cceddac78130c62766ef8e1594faca70d3"
+    },
+    "lucide/icons/crop.svg": {
+      "set": "lucide",
+      "path": "icons/crop.svg",
+      "file": "assets/icons/upstream/lucide/icons/crop.svg",
+      "licence": "ISC AND MIT",
+      "author": "Lucide contributors; Cole Bemis (Feather)",
+      "licence_evidence": "repository LICENSE (ISC; Feather portions MIT)",
+      "sha256": "9229f7832445ee0caa15eecd6323397a3ebb5c9a124f923212605ad3529d64b8"
+    },
+    "krita/krita/pics/misc-dark/dark_draw-eraser.svg": {
+      "set": "krita",
+      "path": "krita/pics/misc-dark/dark_draw-eraser.svg",
+      "file": "assets/icons/upstream/krita/krita/pics/misc-dark/dark_draw-eraser.svg",
+      "licence": "CC-BY-SA-4.0",
+      "author": "Timothée Giet",
+      "licence_evidence": "Embedded CC-BY-SA-4.0 metadata",
+      "sha256": "a03a5be760feca566af0ca272bb2f7859bb5af99ff6dcea48c71efa83b8e0e62"
+    },
+    "krita/krita/pics/tools/SVG/16/dark_tool_rect_selection.svg": {
+      "set": "krita",
+      "path": "krita/pics/tools/SVG/16/dark_tool_rect_selection.svg",
+      "file": "assets/icons/upstream/krita/krita/pics/tools/SVG/16/dark_tool_rect_selection.svg",
+      "licence": "CC-BY-SA-4.0",
+      "author": "Andrei Rudenko",
+      "licence_evidence": "Embedded CC-BY-SA-4.0 metadata",
+      "sha256": "ff8e238967fec4196eb03bc59b7e6aac7f7f8e2c9786f7ffba59a712e9caef3e"
+    }
+  },
+  "tools": [
+    {
+      "id": "activity",
+      "label": "History",
+      "family": "grey",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "arrow-left-right",
+      "label": "Content Aware Move",
+      "family": "green",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "background-mask",
+      "label": "Background Mask",
+      "family": "blue",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "blend",
+      "label": "Gradient",
+      "family": "orange",
+      "components": [
+        {
+          "source": "krita/krita/pics/tools/SVG/16/dark_krita_tool_gradient.svg",
+          "badge": false
+        }
+      ],
+      "why": "Coordinator accepted this sourced glyph; retain its geometry with filled Glossy Duotone paint.",
+      "fallback": "",
+      "mode": "sourced",
+      "outline_width": 1.4,
+      "highlight_width": 0.5
+    },
+    {
+      "id": "bloat",
+      "label": "Bloat",
+      "family": "liquify",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "blur",
+      "label": "Blur",
+      "family": "green",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "brush",
+      "label": "Brush",
+      "family": "orange",
+      "components": [
+        {
+          "source": "krita/krita/pics/tools/SVG/16/dark_krita_tool_freehand.svg",
+          "badge": false
+        }
+      ],
+      "why": "Coordinator accepted this sourced glyph; retain its geometry with filled Glossy Duotone paint.",
+      "fallback": "",
+      "mode": "sourced",
+      "outline_width": 1.8,
+      "highlight_width": 0.75
+    },
+    {
+      "id": "circle",
+      "label": "Ellipse Shape",
+      "family": "cyan",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "circle-dashed",
+      "label": "Ellipse Marquee",
+      "family": "blue",
+      "components": [
+        {
+          "source": "krita/krita/pics/tools/SVG/16/dark_tool_elliptical_selection.svg",
+          "badge": false
+        }
+      ],
+      "why": "Coordinator accepted this sourced glyph; retain its geometry with filled Glossy Duotone paint.",
+      "fallback": "",
+      "mode": "sourced",
+      "outline_width": 0.85,
+      "highlight_width": 0.35
+    },
+    {
+      "id": "circle-dot",
+      "label": "Count",
+      "family": "measure",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "color-range",
+      "label": "Colour Range",
+      "family": "yellow",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "crop",
+      "label": "Crop",
+      "family": "purple",
+      "components": [
+        {
+          "source": "lucide/icons/crop.svg",
+          "badge": false
+        }
+      ],
+      "why": "Coordinator accepted this sourced glyph; retain its geometry with filled Glossy Duotone paint.",
+      "fallback": "",
+      "mode": "sourced",
+      "outline_width": 3.5,
+      "highlight_width": 0.5
+    },
+    {
+      "id": "custom-shape",
+      "label": "Custom Shape",
+      "family": "cyan",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "depth-range",
+      "label": "Depth Range",
+      "family": "blue",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "develop-edit",
+      "label": "Develop Edit",
+      "family": "grey",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "direct-select",
+      "label": "Direct Selection",
+      "family": "cyan",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "dodge",
+      "label": "Dodge",
+      "family": "green",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "edit-toolbar",
+      "label": "Edit Toolbar",
+      "family": "grey",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "eraser",
+      "label": "Eraser",
+      "family": "orange",
+      "components": [
+        {
+          "source": "krita/krita/pics/misc-dark/dark_draw-eraser.svg",
+          "badge": false
+        }
+      ],
+      "why": "Coordinator accepted this sourced glyph; retain its geometry with filled Glossy Duotone paint.",
+      "fallback": "",
+      "mode": "sourced",
+      "outline_width": 1.2,
+      "highlight_width": 0.5
+    },
+    {
+      "id": "eraser-background",
+      "label": "Background Eraser",
+      "family": "orange",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "eraser-magic",
+      "label": "Magic Eraser",
+      "family": "orange",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "flame",
+      "label": "Burn",
+      "family": "green",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "forward-warp",
+      "label": "Forward Warp",
+      "family": "liquify",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "freeze",
+      "label": "Freeze Mask",
+      "family": "liquify",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "freeze-all",
+      "label": "Freeze All",
+      "family": "liquify",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "freeze-lasso",
+      "label": "Freeze Lasso",
+      "family": "liquify",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "guided-upright",
+      "label": "Guided Upright",
+      "family": "purple",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "hand",
+      "label": "Hand",
+      "family": "grey",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "healing",
+      "label": "Healing",
+      "family": "green",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "history-brush",
+      "label": "History Brush",
+      "family": "orange",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "info",
+      "label": "Info",
+      "family": "grey",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "invert-freeze",
+      "label": "Invert Freeze",
+      "family": "liquify",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "keywords",
+      "label": "Keywords",
+      "family": "grey",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "landscape-mask",
+      "label": "Landscape Mask",
+      "family": "blue",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "lasso",
+      "label": "Lasso",
+      "family": "blue",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "lasso-magnetic",
+      "label": "Magnetic Lasso",
+      "family": "blue",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "lasso-select",
+      "label": "Patch",
+      "family": "green",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "linear-mask",
+      "label": "Linear Mask",
+      "family": "blue",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "luminance-range",
+      "label": "Luminance Range",
+      "family": "blue",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "mask",
+      "label": "Masking",
+      "family": "blue",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "message-square",
+      "label": "Note",
+      "family": "measure",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "more",
+      "label": "More",
+      "family": "grey",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "mouse-pointer-2",
+      "label": "Path Selection",
+      "family": "cyan",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "move",
+      "label": "Move",
+      "family": "purple",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "object-mask",
+      "label": "Object Mask",
+      "family": "blue",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "object-selection",
+      "label": "Object Selection",
+      "family": "blue",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "paint-bucket",
+      "label": "Paint Bucket",
+      "family": "orange",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "palette",
+      "label": "Mixer Brush",
+      "family": "orange",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "pen-tool",
+      "label": "Pen",
+      "family": "cyan",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "pencil",
+      "label": "Pencil",
+      "family": "orange",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "pentagon",
+      "label": "Polygonal Lasso",
+      "family": "blue",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "people-mask",
+      "label": "People Mask",
+      "family": "blue",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "perspective-crop",
+      "label": "Perspective Crop",
+      "family": "purple",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "pipette",
+      "label": "Eyedropper",
+      "family": "yellow",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "presets",
+      "label": "Presets",
+      "family": "grey",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "prompt-mask",
+      "label": "Prompt Mask",
+      "family": "blue",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "pucker",
+      "label": "Pucker",
+      "family": "liquify",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "push-left",
+      "label": "Push Left",
+      "family": "liquify",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "quick-mask",
+      "label": "Quick Mask",
+      "family": "blue",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "quick-selection",
+      "label": "Quick Selection",
+      "family": "blue",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "radial-mask",
+      "label": "Radial Mask",
+      "family": "blue",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "reconstruct",
+      "label": "Reconstruct",
+      "family": "liquify",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "reconstruct-all",
+      "label": "Reconstruct All",
+      "family": "liquify",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "rectangle-horizontal",
+      "label": "Rectangle Shape",
+      "family": "cyan",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "red-eye",
+      "label": "Red Eye",
+      "family": "green",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "remove",
+      "label": "Spot Removal",
+      "family": "green",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "ruler",
+      "label": "Ruler",
+      "family": "measure",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "scissors",
+      "label": "AI Cutout",
+      "family": "green",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "shape-polygon",
+      "label": "Polygon Shape",
+      "family": "cyan",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "shape-triangle",
+      "label": "Triangle Shape",
+      "family": "cyan",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "sharpen",
+      "label": "Sharpen",
+      "family": "green",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "sky-mask",
+      "label": "Sky Mask",
+      "family": "blue",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "slash",
+      "label": "Line Shape",
+      "family": "cyan",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "slice-knife",
+      "label": "Slice",
+      "family": "purple",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "slice-select",
+      "label": "Slice Select",
+      "family": "purple",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "smooth",
+      "label": "Smooth",
+      "family": "liquify",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "smudge",
+      "label": "Smudge",
+      "family": "green",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "sparkles",
+      "label": "AI Remove",
+      "family": "green",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "sponge",
+      "label": "Sponge",
+      "family": "green",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "spot-healing",
+      "label": "Spot Healing",
+      "family": "green",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "square-dashed",
+      "label": "Rectangle Marquee",
+      "family": "blue",
+      "components": [
+        {
+          "source": "krita/krita/pics/tools/SVG/16/dark_tool_rect_selection.svg",
+          "badge": false
+        }
+      ],
+      "why": "Coordinator accepted this sourced glyph; retain its geometry with filled Glossy Duotone paint.",
+      "fallback": "",
+      "mode": "sourced",
+      "outline_width": 1.4,
+      "highlight_width": 0.5
+    },
+    {
+      "id": "stamp",
+      "label": "Clone Stamp",
+      "family": "green",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "straighten",
+      "label": "Straighten",
+      "family": "purple",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "subject-mask",
+      "label": "Subject Mask",
+      "family": "blue",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "thaw",
+      "label": "Thaw Mask",
+      "family": "liquify",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "thaw-all",
+      "label": "Thaw All",
+      "family": "liquify",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "twirl-ccw",
+      "label": "Twirl CCW",
+      "family": "liquify",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "twirl-cw",
+      "label": "Twirl CW",
+      "family": "liquify",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "targeted-adjust",
+      "label": "Targeted Adjustment",
+      "family": "measure",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "type",
+      "label": "Type",
+      "family": "cyan",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "versions",
+      "label": "Versions",
+      "family": "grey",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "vertical-type",
+      "label": "Vertical Type",
+      "family": "cyan",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "wand-sparkles",
+      "label": "Magic Wand",
+      "family": "blue",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    },
+    {
+      "id": "zoom-in",
+      "label": "Zoom",
+      "family": "grey",
+      "components": [],
+      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
+      "fallback": "Approved Local Image glyph restored exactly.",
+      "mode": "approved"
+    }
+  ],
+  "approved": {
+    "commit": "2b3989c01b34a55ac9e908bdeed315cfb7ac2cb0",
+    "colour": "docs/design/tool-icons-pre-sourced.json",
+    "monochrome": "docs/design/tool-icons-approved-mono.json"
+  }
+}

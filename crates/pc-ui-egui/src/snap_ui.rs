@@ -67,11 +67,11 @@ fn snap_on(app: &PhotocraftApp) -> bool {
 }
 
 /// Targets of the active document (smart = layer alignments only).
-fn build(app: &PhotocraftApp, exclude: &[LayerId], smart: bool) -> SnapTargets {
+fn build(app: &PhotocraftApp, exclude: &[LayerId], smart: bool, moving: bool) -> SnapTargets {
     let Some(st) = app.session.active() else { return SnapTargets::default() };
     let mut opts =
         if smart { SnapOptions { guides: false, grid: false, layers: true, document: true, selection: false, grid_step: 0.0 } } else { options(app) };
-    if app.ui.tool == Tool::Move && st.doc.selection.is_some() {
+    if moving && app.ui.tool == Tool::Move && st.doc.selection.is_some() {
         opts.selection = false;
     }
     // A moving group carries its children; snapping to those children would snap to itself.
@@ -187,12 +187,12 @@ fn begin(app: &mut PhotocraftApp, p: [f64; 2]) {
         None
     };
     let Some((gesture, exclude)) = gesture else { return };
-    let mut targets = if snap_on(app) { build(app, &exclude, false) } else { SnapTargets::default() };
+    let mut targets = if snap_on(app) { build(app, &exclude, false, true) } else { SnapTargets::default() };
     if gesture == Gesture::Guide {
         // A guide never snaps to itself (or other guides).
         targets = targets.filtered(|k| k != SnapKind::Guide);
     }
-    let smart = if matches!(gesture, Gesture::Move { .. }) && smart_on(app) { build(app, &exclude, true) } else { SnapTargets::default() };
+    let smart = if matches!(gesture, Gesture::Move { .. }) && smart_on(app) { build(app, &exclude, true, true) } else { SnapTargets::default() };
     app.prefs_rt.snap = Some(ActiveSnap { gesture, start: p, targets, smart, disabled: false });
 }
 
@@ -280,7 +280,7 @@ pub fn snap_guide(app: &mut PhotocraftApp, vertical: bool, pos: f64) -> f64 {
     let Some(st) = app.session.active() else { return pos };
     let key = (st.doc.id, st.revision);
     if app.prefs_rt.guide_targets.as_ref().is_none_or(|(k, _)| *k != key) {
-        let t = build(app, &[], false).filtered(|k| k != SnapKind::Guide);
+        let t = build(app, &[], false, false).filtered(|k| k != SnapKind::Guide);
         app.prefs_rt.guide_targets = Some((key, t));
     }
     let tol = tolerance(app);
@@ -452,6 +452,17 @@ mod tests {
         assert!((q[1][0] - 350.0).abs() < 1e-6, "{q:?}");
         crate::transform_tool::commit(&mut app);
         assert_eq!(mover_bounds(&app).x0, 300);
+    }
+
+    #[test]
+    fn ds2_guides_snap_to_selection_with_move_tool_active() {
+        let mut app = app_with_box();
+        app.ui.tool = Tool::Move;
+        app.run("select.rect", json!({"x":177,"y":113,"width":20,"height":20})).unwrap();
+        assert_eq!(snap_guide(&mut app, true, 175.), 177.);
+        assert_eq!(snap_guide(&mut app, false, 111.), 113.);
+        app.ui.tool = Tool::Brush;
+        assert_eq!(snap_guide(&mut app, true, 175.), 177.);
     }
 
     #[test]

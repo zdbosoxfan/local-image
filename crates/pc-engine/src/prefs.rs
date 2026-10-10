@@ -1084,6 +1084,12 @@ impl Preferences {
 
     /// Set a value by dotted path, validating it. Unknown paths and wrong types are errors.
     pub fn set(&mut self, path: &str, value: Value) -> std::result::Result<(), String> {
+        self.set_unmigrated(path, value)?;
+        self.toolbar.migrate();
+        Ok(())
+    }
+
+    fn set_unmigrated(&mut self, path: &str, value: Value) -> std::result::Result<(), String> {
         let value = match (path.strip_prefix("shortcuts."), &value) {
             // Normalise shortcut spelling so conflicts compare equal.
             (Some(_), Value::String(s)) if !s.is_empty() => Value::String(normalize_shortcut(s).ok_or_else(|| format!("`{s}` is not a valid shortcut"))?),
@@ -1099,7 +1105,6 @@ impl Preferences {
         let mut root = self.to_json();
         set_path(&mut root, path, value)?;
         *self = serde_json::from_value(root).map_err(|e| format!("invalid value for `{path}`: {e}"))?;
-        self.toolbar.migrate();
         Ok(())
     }
 
@@ -1241,11 +1246,19 @@ pub const TOOL_SHORTCUTS: &[(&str, &str, Option<&str>)] = &[
 
 /// Every bindable id with its default: commands, then the temporary tools.
 fn bindable() -> impl Iterator<Item = (&'static str, Option<&'static str>)> {
-    crate::command_specs()
+    let mut ids = BTreeMap::new();
+    for (id, shortcut) in crate::command_specs()
         .iter()
         .map(|c| (c.id, c.shortcut))
         .chain(TEMPORARY_TOOLS.iter().map(|t| (t.0, Some(t.2))))
         .chain(TOOL_SHORTCUTS.iter().map(|t| (t.0, t.2)))
+    {
+        let current = ids.entry(id).or_insert(None);
+        if current.is_none() {
+            *current = shortcut;
+        }
+    }
+    ids.into_iter()
 }
 
 /// Shortcuts bound to more than one command: (shortcut, ids). `bindings` are (id, shortcut).
@@ -1253,7 +1266,10 @@ pub fn conflicts<'a>(bindings: impl IntoIterator<Item = (&'a str, &'a str)>) -> 
     let mut by: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (id, sc) in bindings {
         if let Some(n) = normalize_shortcut(sc) {
-            by.entry(n).or_default().push(id.to_string());
+            let ids = by.entry(n).or_default();
+            if !ids.iter().any(|i| i == id) {
+                ids.push(id.to_string());
+            }
         }
     }
     by.into_iter().filter(|(_, ids)| ids.len() > 1).collect()
@@ -1385,14 +1401,14 @@ impl Session {
                 }
                 if v.is_object() && !p.starts_with("shortcuts") && !p.ends_with(".colors") && next.get(&p).is_some_and(|c| c.is_object()) {
                     for (k2, v2) in v.as_object().into_iter().flatten() {
-                        next.set(&format!("{p}.{k2}"), v2.clone())?;
+                        next.set_unmigrated(&format!("{p}.{k2}"), v2.clone())?;
                     }
                 } else {
-                    next.set(&p, v.clone())?;
+                    next.set_unmigrated(&p, v.clone())?;
                 }
             }
         } else {
-            next.set(path, value)?;
+            next.set_unmigrated(path, value)?;
         }
         self.prefs.edit(|p| *p = next);
         Ok(())
@@ -1436,6 +1452,7 @@ fn prefs_set(s: &mut Session, p: &Value) -> Result<Value> {
             return Err(bad(cmd, e));
         }
     }
+    s.prefs.edit(|p| p.toolbar.migrate());
     s.apply_prefs();
     let view = s.prefs_view();
     let out: Map<String, Value> = changes.iter().map(|(k, _)| (k.clone(), get_path(&view, k).cloned().unwrap_or(Value::Null))).collect();
@@ -1497,7 +1514,7 @@ fn keyboard_shortcuts(s: &mut Session, p: &Value) -> Result<Value> {
             if !bindable().any(|(b, _)| b == id) && !p.get("allowUnknown").and_then(Value::as_bool).unwrap_or(false) {
                 return Err(bad(cmd, format!("unknown command `{id}`")));
             }
-            next.set(&format!("shortcuts.{id}"), v.clone()).map_err(|e| bad(cmd, e))?;
+            next.set_unmigrated(&format!("shortcuts.{id}"), v.clone()).map_err(|e| bad(cmd, e))?;
         }
         // Like Photoshop, a shortcut moved to a new command is taken away from the old one.
         if p.get("removeConflicts").and_then(Value::as_bool).unwrap_or(true) {

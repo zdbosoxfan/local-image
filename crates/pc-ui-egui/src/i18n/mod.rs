@@ -573,6 +573,27 @@ mod tests {
     // docs/wip/CODEX-TASK.md explicitly defers translations for AI Remove and
     // Draft/Refinement. These English additions intentionally use runtime fallback.
     // Remove entries as their translations land; all other labels remain required.
+    // Overwrite Original: English until the owner resumes translations.
+    const PENDING_OVERWRITE_TRANSLATIONS: &[&str] = &[
+        "Save Over Original…",
+        "Save Over Original and Return to Library…",
+        "Overwrite Original",
+        "Don't ask again",
+        "This document has no Library original",
+        "Raw files can't be overwritten; save a copy instead",
+        "This format can't be overwritten; save a copy instead",
+        "This PSD colour mode can't be overwritten; save a copy instead",
+        "Animated, multi-page or damaged originals can't be overwritten; save a copy instead",
+        "Couldn't keep the previous version in Trash: {error}",
+        "Overwrite requires a recoverable system Trash",
+        "This replaces the original file. The previous version will be kept in Trash so you can recover it.",
+        "Overwrite {name}?",
+        "Overwrote {path}; previous version kept in Trash",
+        "Couldn't overwrite the original: {error}",
+        "Overwrote {path}; updated {name} in the Library; previous version kept in Trash",
+        "The Library shows a preview of your layers. Save a copy or overwrite the original to keep this edit.",
+    ];
+
     const PENDING_AI_TRANSLATIONS: &[&str] = &[
         "AI Enhance…",
         "Faithful",
@@ -599,6 +620,59 @@ mod tests {
         "Download the CPU model first.",
         "Enlarges clean photos while preserving their detail. Fixed tiles with overlap blending; runs locally on the CPU.",
         "Enlarges photos and cleans noise, JPEG artefacts and mild blur. The download includes both scales; runs locally on the CPU.",
+        li_ai::restoration::byo::NOTICE,
+        li_ai::restoration::byo::DATA_NOTICE,
+        "Permissive models",
+        "Bring your own model",
+        "Bring your own model…",
+        "Use models you installed in ComfyUI. Local Image does not download these models or install their nodes.",
+        "Detect installed models",
+        "No supported user-installed models detected.",
+        "I have read the licence and understand the commercial-use restrictions",
+        "Choose your installed StableSR-compatible diffusion checkpoint",
+        "LED",
+        "Zero-DCE",
+        "Zero-DCE++",
+        "StableSR",
+        "CodeFormer",
+        "PromptIR",
+        "GFPGAN v1.4",
+        "RestoreFormer++",
+        li_ai::restoration::COLOURISE_UNAVAILABLE,
+        li_ai::restoration::OLD_PHOTO_UNAVAILABLE,
+        "Restoration",
+        "Restore…",
+        "Restore Photo",
+        "Task",
+        "Before",
+        "After",
+        "JPEG cleanup",
+        "Scan cleanup",
+        "Colourise",
+        "Old-photo preset",
+        "Before / after split",
+        "The image changed. Preview restoration again.",
+        "Preview restoration first.",
+        "Restoration returned unexpected dimensions.",
+        "Open an image to restore.",
+        "Original resolution. Apply creates a new layer and hides the source layers.",
+        "Preview time",
+        "Preview restoration",
+        "Apply as new layer",
+        "Install restoration models…",
+        "Restoration installs only vetted official weights with pinned size and SHA-256.",
+        "Use RawNIND linear variant",
+        "Linear Rec.2020 input (RawNIND)",
+        "Custom Raw Denoise models use three-channel linear Rec.2020 input and output.",
+        "Your selected restoration model, with CPU fallback.",
+        "Selected model · {size} · licence from its provider",
+        "{name} · {size} download · GPU with CPU fallback · {licence}",
+        "Raw Denoise",
+        "RGB Denoise",
+        "Removes noise from raw photos locally, using RawNIND UtNet2. Includes Bayer demosaic and linear Rec.2020 models. Uses the GPU when available, with a CPU fallback.",
+        "Removes noise from JPEG, TIFF and edited RGB images locally with NIND UNet.",
+        "Raw denoising and Bayer demosaic on the GPU, with CPU fallback. Linear Rec.2020 variant for other sensors.",
+        "Local denoising for JPEG, TIFF and edited RGB images. Uses the GPU with a CPU fallback.",
         "+",
         "Choose or generate an image.",
         "Compare with input",
@@ -617,6 +691,10 @@ mod tests {
         "Image models — refine by denoise",
         "Input",
         "Keep painting",
+        "Low variety by design: different seeds give similar layouts. Change the prompt (or raise Variety) for different compositions.",
+        "Higher Variety can change compositions and loosen prompt details. Set to 0 to turn it off.",
+        "Variety must be between 0 and 100.",
+        "Variety",
         "Open as new document",
         "Open image (composite)",
         "Paint to mark removal; Alt/Option-drag subtracts",
@@ -628,6 +706,7 @@ mod tests {
         "Refines by reference: the image guides the result",
         "Remove immediately on release",
         "Running…",
+        "Select a layer first.",
         "Selected layer",
         "Wheel to zoom; drag to pan",
         "−",
@@ -652,7 +731,10 @@ mod tests {
         strings.remove("---");
         for l in LANGUAGES.iter().filter(|l| l.complete_menus) {
             let cat = l.catalog();
-            let missing: Vec<_> = strings.iter().filter(|s| !PENDING_AI_TRANSLATIONS.contains(s) && cat.plain(s).is_none()).collect();
+            let missing: Vec<_> = strings
+                .iter()
+                .filter(|s| !PENDING_AI_TRANSLATIONS.contains(s) && !PENDING_OVERWRITE_TRANSLATIONS.contains(s) && cat.plain(s).is_none())
+                .collect();
             assert!(missing.is_empty(), "{}: untranslated menu strings: {missing:#?}", l.code);
         }
     }
@@ -718,6 +800,7 @@ mod tests {
                     !KEEP_AS_IS.contains(&s.as_str())
                         && !PENDING_BACKGROUND_TRANSLATIONS.contains(&s.as_str())
                         && !PENDING_AI_TRANSLATIONS.contains(&s.as_str())
+                        && !PENDING_OVERWRITE_TRANSLATIONS.contains(&s.as_str())
                         && cat.plain(s).is_none()
                 })
                 .collect();

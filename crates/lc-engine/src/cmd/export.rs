@@ -90,20 +90,28 @@ fn add_to_library(s: &mut Session, p: &Value) -> Result<Value> {
     if files.is_empty() {
         return Ok(json!({"imported": []}));
     }
-    s.execute("library.import", &json!({"paths": files.iter().map(|f| f.0.clone()).collect::<Vec<_>>()}))?;
-    let mut added = Vec::new();
-    for (path, from) in files {
-        let found = s.catalog.photos().find(|ph| match &ph.source {
-            lightcraft_catalog::Source::File { path: q } => {
-                *q == path || lightcraft_catalog::safe_file::same_file(std::path::Path::new(q), std::path::Path::new(&path))
+    let report = s.execute("library.import", &json!({"paths": files.iter().map(|f| f.0.clone()).collect::<Vec<_>>()}))?;
+    let added: Vec<u64> = serde_json::from_value(report["imported"].clone()).map_err(|e| bad(ID, e.to_string()))?;
+    // Resolve only newly imported paths once. Existing catalog entries were skipped by import.
+    let by_path: std::collections::BTreeMap<_, _> = added
+        .iter()
+        .filter_map(|id| {
+            let ph = s.catalog.photo(lightcraft_catalog::PhotoId(*id))?;
+            if let lightcraft_catalog::Source::File { path } = &ph.source {
+                Some((std::fs::canonicalize(path).unwrap_or_else(|_| path.into()), *id))
+            } else {
+                None
             }
-            _ => false,
-        });
-        let Some(new) = found.map(|ph| ph.id.0) else { continue };
-        if stack && let Some(from) = from.filter(|f| *f != new && s.catalog.photo(lightcraft_catalog::PhotoId(*f)).is_some()) {
-            let _ = s.execute("stack.group", &json!({"ids": [new, from], "top": new, "collapsed": false}));
+        })
+        .collect();
+    if stack {
+        for (path, from) in files {
+            let path = std::fs::canonicalize(&path).unwrap_or_else(|_| path.into());
+            let Some(&new) = by_path.get(&path) else { continue };
+            if let Some(from) = from.filter(|f| *f != new && s.catalog.photo(lightcraft_catalog::PhotoId(*f)).is_some()) {
+                s.execute("stack.group", &json!({"ids": [new, from], "top": new, "collapsed": false}))?;
+            }
         }
-        added.push(new);
     }
     Ok(json!({"imported": added}))
 }

@@ -293,6 +293,27 @@ pub const PENDING_ENHANCE_TRANSLATIONS: &[&str] = &[
     "AI enlargement uses local models. Download them in Settings › Local AI. Up to 4×; model input is sRGB 8-bit.",
 ];
 
+/// Owner deferred translations for this task (2026-10-10). Remove as translations land.
+pub const PENDING_AI_DENOISE_TRANSLATIONS: &[&str] = &[
+    "AI Denoise",
+    "AI Denoise model",
+    "Model",
+    "Auto",
+    "Raw",
+    "RGB",
+    "Strength",
+    "Preview",
+    "Apply AI Denoise",
+    "Denoise to new DNG/TIFF…",
+    "Download AI Denoise Model",
+    "Denoise to new file",
+    "Loading the photo",
+    "Denoising",
+    "Denoised image",
+    "Preview result — run full resolution before exporting.",
+    "Model downloads are available in Settings › Local AI.",
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;

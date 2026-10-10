@@ -204,3 +204,87 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
     }
 }
+
+/// Source-stage AI denoise. A quick proxy and a full result are distinct undoable operations.
+pub fn denoise_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
+    use lightcraft_develop::DenoiseModel;
+    let Some(id) = app.session.active() else {
+        return;
+    };
+    padded(ui, |ui| {
+        ui.label(RichText::new("AI Denoise").strong());
+        let mut model = d.enhance.denoise_model;
+        ui.horizontal(|ui| {
+            ui.label("Model");
+            let r = egui::ComboBox::from_id_salt("denoiseModel")
+                .selected_text(match model {
+                    DenoiseModel::Auto => "Auto",
+                    DenoiseModel::Raw => "Raw",
+                    DenoiseModel::Rgb => "RGB",
+                })
+                .show_ui(ui, |ui| {
+                    for (m, label) in [(DenoiseModel::Auto, "Auto"), (DenoiseModel::Raw, "Raw"), (DenoiseModel::Rgb, "RGB")] {
+                        let r = ui.selectable_value(&mut model, m, label);
+                        register(ui.ctx(), format!("button:denoiseModel{label}"), r.rect);
+                    }
+                });
+            register(ui.ctx(), "button:denoiseModel", r.response.rect);
+        });
+        if model != d.enhance.denoise_model {
+            let _ = app.run("develop.merge", json!({"settings":{"enhance":{"denoise_model":model}},"label":"AI Denoise model"}));
+        }
+        super::edit::control(app, ui, d, "enhance.denoise", true);
+        let jobs: Vec<_> = app
+            .session
+            .enhance
+            .running_for(id)
+            .filter(|j| matches!(j.kind, JobKind::Denoise | JobKind::DenoiseExport))
+            .map(|j| (j.id, j.ctl.progress(), j.label.clone()))
+            .collect();
+        if !jobs.is_empty() {
+            for (job, frac, label) in jobs {
+                progress(app, ui, &format!("denoiseJob{job}"), &label, frac, job);
+            }
+            return;
+        }
+        if d.enhance.ai.is_some_and(|a| a.preview) {
+            dim(ui, "Preview result — run full resolution before exporting.");
+        }
+        ui.horizontal(|ui| {
+            for (preview, key, label) in [(true, "denoisePreview", "Preview"), (false, "denoiseApply", "Apply AI Denoise")] {
+                if text_button(ui, key, label, false).clicked()
+                    && let Err(e) = app.run("enhance.denoise", json!({"preview":preview}))
+                {
+                    app.toast_error(ui.ctx(), e);
+                }
+            }
+        });
+        if text_button(ui, "denoiseNewFile", "Denoise to new DNG/TIFF…", false).clicked() {
+            let name = app
+                .session
+                .catalog
+                .photo(id)
+                .map(|p| format!("{}-Denoised.tiff", p.file_name.rsplit_once('.').map_or(p.file_name.as_str(), |(s, _)| s)))
+                .unwrap_or_else(|| "Denoised.tiff".into());
+            if let Some(path) = app.services.save_denoise_file.as_mut().and_then(|f| f(&name))
+                && let Err(e) = app.run("enhance.denoise", json!({"path":path}))
+            {
+                app.toast_error(ui.ctx(), e);
+            }
+        }
+        let family = if model == DenoiseModel::Rgb || (model == DenoiseModel::Auto && !app.session.source_info(id).raw) {
+            "denoise-nind"
+        } else {
+            "rawdenoise-nind"
+        };
+        if text_button(ui, "denoiseDownload", "Download AI Denoise Model", false).clicked() {
+            if let Some(download) = &app.services.download_models {
+                if let Err(e) = download(family, false) {
+                    app.toast_error(ui.ctx(), e);
+                }
+            } else {
+                app.toast(ui.ctx(), "Model downloads are available in Settings › Local AI.");
+            }
+        }
+    });
+}

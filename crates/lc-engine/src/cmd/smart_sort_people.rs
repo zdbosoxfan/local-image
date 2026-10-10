@@ -108,7 +108,7 @@ fn list(s: &mut Session, p: &Value) -> Result<Value> {
     let folder: Option<BTreeSet<PhotoId>> =
         p.get("folderIds").map(|v| serde_json::from_value(v.clone()).map_err(|_| bad("smartSort.people", "invalid folderIds"))).transpose()?;
     let mut data = s.smart.people.data.clone();
-    people::refresh(&s.catalog, &s.smart.people, &mut data, true).map_err(EngineError::Other)?;
+    people::refresh(&s.catalog, &s.smart.people, &mut data, p["cluster"].as_bool().unwrap_or(true)).map_err(EngineError::Other)?;
     s.commit_people("Smart Sort: suggest people", data)?;
     if let Some(n) = requested_min {
         let mut data = s.smart.people.data.clone();
@@ -167,8 +167,9 @@ fn find(s: &mut Session, p: &Value) -> Result<Value> {
                 data.people
                     .iter()
                     .find(|person| !person.ignored && person.name.eq_ignore_ascii_case(&requested))
-                    .map(|person| person.id)
+                    .map(|person| Ok(person.id))
                     .unwrap_or_else(|| data.add(requested))
+                    .map_err(EngineError::Other)?
             }
         }
     };
@@ -356,7 +357,7 @@ fn split(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad("smartSort.splitPerson", "face does not belong to this person"));
     }
     let mut data = s.smart.people.data.clone();
-    let new = data.add(p["name"].as_str().unwrap_or("").trim().into());
+    let new = data.add(p["name"].as_str().unwrap_or("").trim().into()).map_err(EngineError::Other)?;
     for key in keys {
         let person = data.person_mut(id).map_err(EngineError::Other)?;
         person.seed_faces.retain(|k| k != &key);
@@ -444,7 +445,7 @@ fn headshots(s: &mut Session, p: &Value) -> Result<Value> {
                 }
                 data.seed_sources.insert(key.clone(), path.to_string_lossy().into_owned());
                 s.smart.people.store.insert(&model, key, faces).map_err(EngineError::Other)?;
-                let id = data.add(path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or(label));
+                let id = data.add(path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or(label)).map_err(EngineError::Other)?;
                 data.person_mut(id).map_err(EngineError::Other)?.seed_faces.push(fk);
                 added.push(id);
             }

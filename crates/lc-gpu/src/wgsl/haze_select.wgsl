@@ -1,4 +1,4 @@
-// The CPU's median-of-three partition is order-sensitive on repeated window minima.
+// Exact median-of-three selection. Keep the pivot outside both interior scans.
 // Median preparation/commit are constant work. Large partitions run on all SMs;
 // this final scalar selector sees only the remaining interval after those passes.
 fn hs(i:u32)->u32{return bitcast<u32>(a[i]);}
@@ -10,8 +10,8 @@ fn haze_select_init(){
 }
 @compute @workgroup_size(1)
 fn haze_select_prepare(){
-    for(var j=0u;j<16u;j++){dst[j]=a[j];}if(hs(3u)!=0u){return;}let first=hs(0u);let pivot=hs(1u)-1u;let nth=hs(2u);
-    if(b[first]>=b[pivot]){swap_values(first,pivot);}if(b[first]>=b[nth]){swap_values(first,nth);}if(b[pivot]>=b[nth]){swap_values(pivot,nth);}dst[4]=b[pivot];
+    for(var j=0u;j<16u;j++){dst[j]=a[j];}if(hs(3u)!=0u){return;}let first=hs(0u);let pivot=hs(1u)-1u;let middle=first+(hs(1u)-first)/2u;
+    if(b[first]>=b[pivot]){swap_values(first,pivot);}if(b[first]>=b[middle]){swap_values(first,middle);}if(b[pivot]>=b[middle]){swap_values(pivot,middle);}dst[4]=b[pivot];
 }
 @compute @workgroup_size(256)
 fn haze_select_swap(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>){
@@ -30,14 +30,14 @@ fn haze_quick_select(){
     var nth=min(u32(f32(count)*0.95),count-1u);var first=0u;var last=count;
     if(pu(3u)!=0u){nth=hs(2u);first=hs(0u);last=hs(1u);if(hs(3u)!=0u){dst[0]=b[nth];return;}}
     while(last>first+1u){
-        let pivot=last-1u;
+        let pivot=last-1u;let middle=first+(last-first)/2u;
         if(b[first]>=b[pivot]){let v=b[first];b[first]=b[pivot];b[pivot]=v;}
-        if(b[first]>=b[nth]){let v=b[first];b[first]=b[nth];b[nth]=v;}
-        if(b[pivot]>=b[nth]){let v=b[pivot];b[pivot]=b[nth];b[nth]=v;}
-        let val=b[pivot];var aa=first;var bb=last;
+        if(b[first]>=b[middle]){let v=b[first];b[first]=b[middle];b[middle]=v;}
+        if(b[pivot]>=b[middle]){let v=b[pivot];b[pivot]=b[middle];b[middle]=v;}
+        let val=b[pivot];var aa=first;var bb=pivot;
         loop{
-            aa++;while(aa<bb && b[aa]<val){aa++;}
-            bb--;while(aa<bb && b[bb]>val){bb--;}
+            aa++;while(aa<pivot && b[aa]<val){aa++;}
+            bb--;while(bb>first && b[bb]>val){bb--;}
             if(aa>=bb){break;}let v=b[aa];b[aa]=b[bb];b[bb]=v;
         }
         let v=b[pivot];b[pivot]=b[aa];b[aa]=v;
