@@ -1,0 +1,97 @@
+{
+  "shapes": {
+    "shape_names": [
+      "rect",
+      "circle"
+    ]
+  },
+  "groups": {
+    "groups": [
+      "outer",
+      "inner"
+    ],
+    "shape_names": [
+      "box"
+    ]
+  },
+  "curves": {
+    "shape_names": [
+      "curve"
+    ]
+  },
+  "arcs": {
+    "shape_names": [
+      "arc"
+    ]
+  },
+  "holes": {
+    "shape_names": [
+      "hole"
+    ]
+  },
+  "closed-cubic": {
+    "shape_names": [
+      "loop"
+    ]
+  },
+  "transforms": {
+    "groups": [
+      "moved"
+    ],
+    "shape_names": [
+      "box"
+    ]
+  },
+  "linear-gradient": {
+    "shape_names": [
+      "gradient"
+    ]
+  },
+  "radial-gradient": {
+    "shape_names": [
+      "gradient"
+    ]
+  },
+  "clip": {
+    "groups": [
+      "clipped"
+    ],
+    "shape_names": [
+      "box"
+    ],
+    "vector_masks": 1
+  },
+  "mask": {
+    "groups": [
+      "masked"
+    ],
+    "shape_names": [
+      "box"
+    ],
+    "pixel_masks": 1
+  },
+  "css-use": {
+    "groups": [
+      "instance"
+    ],
+    "shape_count": 1
+  },
+  "viewbox-units": {
+    "shape_names": [
+      "box"
+    ]
+  },
+  "editable-text": {
+    "groups": [
+      "label"
+    ],
+    "text_names": [
+      "text"
+    ]
+  },
+  "embedded-image": {
+    "raster_names": [
+      "image"
+    ]
+  }
+}
