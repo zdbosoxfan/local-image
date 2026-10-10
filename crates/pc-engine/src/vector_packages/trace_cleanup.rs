@@ -1,7 +1,18 @@
-//! Package-owned trace cleanup command boundary. See docs/wip/vector-tasks/README.md.
-//! Previews are detached; commits use vector_api or Session::edit with journaled specs.
-//! No placeholder commands are exposed.
+//! Package 26's detached evaluator and guarded publication helper for package 28.
+//! Public layer.vectorize command IDs and dialog routing remain owned by package 28.
+mod transaction;
 use crate::commands::CommandSpec;
+pub use pc_trace::cleanup::{Options, Output, Stats, Upscale};
+pub use transaction::{Capture, Prepared, capture, commit, prepare};
+
+pub fn evaluate(
+    image: pc_trace::Image<'_>,
+    params: &pc_trace::Params,
+    options: &Options,
+    cancel: impl Fn() -> bool,
+) -> std::result::Result<Output, pc_trace::Error> {
+    pc_trace::cleanup::trace_with_cancel(image, params, options, cancel)
+}
 pub(crate) fn specs() -> Vec<CommandSpec> {
     Vec::new()
 }

@@ -3,6 +3,9 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 pub mod adapter;
+pub mod cleanup;
+#[cfg(test)]
+extern crate self as pc_trace;
 mod boundary;
 mod colorfit;
 mod error;
