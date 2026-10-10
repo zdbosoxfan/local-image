@@ -40,9 +40,6 @@ hex = { version = "0.4" }
 hayro-interpret = { version = "=0.7.0", default-features = false, features = ["embed-fonts", "embed-cmaps"] }
 hayro-syntax = { version = "=0.7.2", default-features = false, features = ["std", "images"] }
 krilla = { version = "=0.8.2", default-features = false, features = ["raster-images"] }
-kurbo = { version = "=0.13.1" }
-linesweeper = { version = "=0.4.0" }
-polycool = { version = "=0.4.0" }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff", "webp"] }
 image-webp = { version = "0.2" }
 jpeg-decoder = { version = "0.3", default-features = false }
