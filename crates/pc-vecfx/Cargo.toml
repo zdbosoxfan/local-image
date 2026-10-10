@@ -1,0 +1,16 @@
+[package]
+name = "photocraft-vecfx"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+photocraft-doc.workspace = true
+photocraft-geom.workspace = true
+photocraft-pathops.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
