@@ -3858,3 +3858,5 @@ ai	New	Neu
 	Recommended: {value}	Empfohlen: {value}
 	Recommended: {min}–{max} (default {default})	Empfohlen: {min}–{max} (Standard: {default})
 	Family unknown: may not work with this model	Unbekannte Familie: funktioniert möglicherweise nicht mit diesem Modell
+	Background removal options	Optionen zur Hintergrundentfernung
+	Remove the background using the chosen model and output	Hintergrund mit gewähltem Modell entfernen und ausgeben

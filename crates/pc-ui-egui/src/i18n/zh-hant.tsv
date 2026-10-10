@@ -3875,3 +3875,5 @@ ai	New	最新
 	Recommended: {value}	建議：{value}
 	Recommended: {min}–{max} (default {default})	建議：{min}–{max}（預設 {default}）
 	Family unknown: may not work with this model	系列未知：可能不適用於此模型
+	Background removal options	背景移除選項
+	Remove the background using the chosen model and output	使用所選模型移除背景並輸出

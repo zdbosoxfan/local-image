@@ -3898,3 +3898,5 @@ ai	New	Nové
 	Recommended: {value}	Doporučeno: {value}
 	Recommended: {min}–{max} (default {default})	Doporučeno: {min}–{max} (výchozí {default})
 	Family unknown: may not work with this model	Neznámá řada: nemusí s tímto modelem fungovat
+	Background removal options	Možnosti odstranění pozadí
+	Remove the background using the chosen model and output	Odstraňte pozadí pomocí zvoleného modelu a výstupu

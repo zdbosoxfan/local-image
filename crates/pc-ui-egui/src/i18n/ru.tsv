@@ -3980,3 +3980,5 @@ ai	New	Новые
 	Recommended: {value}	Рекомендуется: {value}
 	Recommended: {min}–{max} (default {default})	Рекомендуется: {min}–{max} (по умолчанию {default})
 	Family unknown: may not work with this model	Семейство неизвестно: может не работать с этой моделью
+	Background removal options	Параметры удаления фона
+	Remove the background using the chosen model and output	Удалить фон с помощью выбранной модели и вывода

@@ -3894,3 +3894,5 @@ ai	New	Nuovi
 	Recommended: {value}	Consigliato: {value}
 	Recommended: {min}–{max} (default {default})	Consigliato: {min}–{max} (predefinito {default})
 	Family unknown: may not work with this model	Famiglia sconosciuta: potrebbe non funzionare con questo modello
+	Background removal options	Opzioni rimozione sfondo
+	Remove the background using the chosen model and output	Rimuovi lo sfondo utilizzando il modello scelto e l'output

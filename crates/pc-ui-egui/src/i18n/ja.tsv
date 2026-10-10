@@ -3880,3 +3880,5 @@ ai	New	新着
 	Recommended: {value}	推奨: {value}
 	Recommended: {min}–{max} (default {default})	推奨: {min}–{max} (デフォルト: {default})
 	Family unknown: may not work with this model	ファミリー不明：このモデルでは動作しない可能性があります
+	Background removal options	背景削除オプション
+	Remove the background using the chosen model and output	選択したモデルを使用して背景を削除し、出力
