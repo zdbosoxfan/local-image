@@ -351,4 +351,84 @@ mod tests {
         assert!(!cmds.iter().any(|c| matches!(c, ViewportCommand::BeginResize(_))), "{cmds:?}");
         assert!(w.click(pos2(999.5, 0.5)).iter().any(|c| matches!(c, ViewportCommand::Close)));
     }
+
+    /// Drive the real Compositing UI with its host module switch, rather than an isolated bar.
+    #[test]
+    fn compositing_host_titlebar_drag_captions_and_resize_matrix() {
+        use egui_kittest::kittest::Queryable;
+        for size in [vec2(1800.0, 1000.0), vec2(1280.0, 800.0), vec2(2560.0, 1440.0)] {
+            for theme in crate::theme::ThemeKind::ALL {
+                let mut h = egui_kittest::Harness::builder().with_size(size).with_step_dt(1.0 / 60.0).build_eframe(move |cc| {
+                    PhotocraftApp::setup_context(&cc.egui_ctx, theme);
+                    let mut session = Session::new();
+                    session.execute("prefs.set", json!({"values": {"interface.theme": theme.id()}})).unwrap();
+                    let mut app = PhotocraftApp::new(session, crate::Services::default());
+                    app.custom_titlebar = true;
+                    app.host_modes = true;
+                    app
+                });
+                h.run_steps(6);
+                assert_eq!(crate::theme::Tokens::get(&h.ctx).kind, theme);
+                let gap = h.ctx.viewport(|v| {
+                    v.prev_pass
+                        .widgets
+                        .layers()
+                        .flat_map(|(_, ws)| ws.iter())
+                        .find(|w| w.rect.top() == 0.0 && w.sense.senses_click() && w.sense.senses_drag())
+                        .expect("the title bar's drag response")
+                        .rect
+                });
+                assert!(gap.width() > 100.0, "{theme:?}, {size:?}: {gap:?}");
+                let captions = ["Minimize", "Maximize", "Close"].map(|label| h.get_by_label(label).rect());
+                for (i, rect) in captions.into_iter().enumerate() {
+                    assert_eq!(rect.top(), 0.0, "nothing sits above the title bar");
+                    assert!(rect.is_positive());
+                    assert_eq!(rect.right(), size.x - (2 - i) as f32 * BUTTON_WIDTH);
+                    assert!(rect.left() >= gap.right());
+                }
+                let gesture = |h: &mut egui_kittest::Harness<'_, PhotocraftApp>, from, to| {
+                    let mut commands = vec![];
+                    for event in [Event::PointerMoved(from), button(from, true), Event::PointerMoved(to), button(to, false)] {
+                        h.event(event);
+                        h.run_steps(1);
+                        commands.extend(h.output().viewport_output[&ViewportId::ROOT].commands.clone());
+                    }
+                    commands
+                };
+                for x in [gap.left() + 2.0, gap.center().x, gap.right() - 2.0] {
+                    let p = pos2(x, gap.center().y);
+                    let cmds = gesture(&mut h, p, p + vec2(20.0, 8.0));
+                    assert_eq!(cmds.iter().filter(|c| **c == ViewportCommand::StartDrag).count(), 1, "{theme:?}, {size:?}: {cmds:?}");
+                }
+                let p = gap.center();
+                let mut cmds = gesture(&mut h, p, p);
+                cmds.extend(gesture(&mut h, p, p));
+                assert!(cmds.contains(&ViewportCommand::Maximized(true)), "{cmds:?}");
+                // Restore through the same double-click gesture.
+                h.input_mut().viewports.get_mut(&ViewportId::ROOT).unwrap().maximized = Some(true);
+                h.run_steps(60);
+                let mut cmds = gesture(&mut h, p, p);
+                cmds.extend(gesture(&mut h, p, p));
+                assert!(cmds.contains(&ViewportCommand::Maximized(false)), "{cmds:?}");
+                h.input_mut().viewports.get_mut(&ViewportId::ROOT).unwrap().maximized = Some(false);
+                assert!(gesture(&mut h, captions[0].center(), captions[0].center()).contains(&ViewportCommand::Minimized(true)));
+                assert!(gesture(&mut h, captions[1].center(), captions[1].center()).contains(&ViewportCommand::Maximized(true)));
+                let p = pos2(gap.center().x, 1.0);
+                let cmds = gesture(&mut h, p, p + vec2(20.0, 8.0));
+                assert_eq!(cmds, [ViewportCommand::BeginResize(egui::ResizeDirection::North)]);
+                // The menus and module buttons keep their gestures, including drag attempts.
+                for label in ["File", "Develop"] {
+                    let p = h.get_by_label(label).rect().center();
+                    assert!(!gesture(&mut h, p, p + vec2(20.0, 8.0)).contains(&ViewportCommand::StartDrag));
+                    h.key_press(egui::Key::Escape);
+                    h.run_steps(2);
+                }
+                h.get_by_label("Library").click();
+                h.run_steps(2);
+                assert_eq!(h.state().switch_module, Some(crate::Module::Library));
+                // Close remains reachable at the window's far right.
+                assert!(gesture(&mut h, captions[2].center(), captions[2].center()).contains(&ViewportCommand::Close));
+            }
+        }
+    }
 }

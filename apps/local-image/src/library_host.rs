@@ -1286,19 +1286,24 @@ mod tests {
     impl RoundTripUi {
         fn new(host: Host) -> Self {
             let view = lightcraft_ui_egui::headless::HeadlessView::new();
-            PhotocraftApp::setup_context(&view.ctx, Default::default());
+            PhotocraftApp::setup_context(&view.ctx, host.editor.ui.theme);
             Self { host, view, frame: eframe::Frame::_new_kittest(), frames: 0 }
         }
 
         fn step(&mut self, events: Vec<egui::Event>) {
+            self.step_at(egui::vec2(1200.0, 900.0), events);
+        }
+
+        fn step_at(&mut self, size: egui::Vec2, events: Vec<egui::Event>) -> Vec<egui::ViewportCommand> {
             use eframe::App;
-            let mut raw = lightcraft_ui_egui::headless::HeadlessView::raw_input(egui::vec2(1200.0, 900.0), 1.0, self.frames as f64 / 60.0, events);
+            let mut raw = lightcraft_ui_egui::headless::HeadlessView::raw_input(size, 1.0, self.frames as f64 / 60.0, events);
             self.host.raw_input_hook(&self.view.ctx, &mut raw);
-            self.view.run(raw, |ui| {
+            let commands = self.view.run(raw, |ui| {
                 self.host.logic(ui.ctx(), &mut self.frame);
                 self.host.ui(ui, &mut self.frame);
             });
             self.frames += 1;
+            commands
         }
 
         fn key(&mut self, key: egui::Key, modifiers: egui::Modifiers) {
@@ -1420,6 +1425,125 @@ mod tests {
     }
 
     #[test]
+    fn hosted_titlebars_drag_captions_and_top_resize_in_every_theme_and_size() {
+        use egui::{Event, PointerButton, ViewportCommand};
+        for size in [egui::vec2(1800.0, 1000.0), egui::vec2(1280.0, 800.0), egui::vec2(2560.0, 1440.0)] {
+            for mode in [Module::Library, Module::Develop] {
+                for theme in photocraft_ui_egui::theme::ThemeKind::ALL {
+                    let (dir, path, lib, orig) = library_with_photo("titlebar-tests");
+                    let mut host = host_with_round_trip(lib, orig, &path);
+                    host.editor.custom_titlebar = true;
+                    host.editor.ui.theme = theme;
+                    host.editor.run("prefs.set", json!({"values": {"interface.theme": theme.id()}})).unwrap();
+                    // Include the recently added CPU-mode pill in the right-hand controls.
+                    host.editor.perf.gpu_info.lost = Some("test graphics failure".into());
+                    host.mode = mode;
+                    set_library_view(host.library.as_mut().unwrap(), mode == Module::Develop);
+                    let mut h = RoundTripUi::new(host);
+                    for _ in 0..6 {
+                        h.step_at(size, vec![]);
+                    }
+                    let gap = h.view.ctx.viewport(|v| {
+                        v.prev_pass
+                            .widgets
+                            .layers()
+                            .flat_map(|(_, ws)| ws.iter())
+                            .find(|w| w.rect.top() == 0.0 && w.sense.senses_click() && w.sense.senses_drag())
+                            .expect("the title bar's drag response")
+                            .rect
+                    });
+                    assert!(gap.width() > 100.0, "{mode:?}, {theme:?}, {size:?}: {gap:?}");
+                    let height = if photocraft_ui_egui::theme::Tokens::get(&h.view.ctx).pro { 32.0 } else { 38.0 };
+                    assert_eq!(photocraft_ui_egui::theme::Tokens::get(&h.view.ctx).kind, theme);
+                    assert_eq!(gap.bottom(), height - 1.0, "the panel leaves one pixel for its bottom separator");
+                    let captions = [0u8, 1, 2].map(|c| h.view.ctx.read_response(egui::Id::new(("titlebar-caption", c))).expect("caption button present").rect);
+                    for rect in captions {
+                        assert_eq!(rect.top(), 0.0);
+                        assert_eq!(rect.height(), height);
+                        assert!(rect.width() >= 40.0);
+                        assert!(rect.left() >= gap.right());
+                    }
+                    assert_eq!(captions[2].right(), size.x);
+                    let button = |pos, pressed| Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+                    let gesture = |h: &mut RoundTripUi, from, to| {
+                        let mut cmds = h.step_at(size, vec![Event::PointerMoved(from)]);
+                        cmds.extend(h.step_at(size, vec![button(from, true)]));
+                        cmds.extend(h.step_at(size, vec![Event::PointerMoved(to)]));
+                        cmds.extend(h.step_at(size, vec![button(to, false)]));
+                        cmds
+                    };
+                    // Both ends and the middle of the free span, including the painted title.
+                    for x in [gap.left() + 2.0, gap.center().x, gap.right() - 2.0] {
+                        let p = egui::pos2(x, gap.center().y);
+                        let cmds = gesture(&mut h, p, p + egui::vec2(20.0, 8.0));
+                        assert_eq!(cmds.iter().filter(|c| **c == ViewportCommand::StartDrag).count(), 1, "{mode:?}, {theme:?}, {size:?}: {cmds:?}");
+                    }
+                    let p = gap.center();
+                    let mut cmds = gesture(&mut h, p, p);
+                    cmds.extend(gesture(&mut h, p, p));
+                    assert!(cmds.contains(&ViewportCommand::Maximized(true)), "{cmds:?}");
+                    assert!(gesture(&mut h, captions[0].center(), captions[0].center()).contains(&ViewportCommand::Minimized(true)));
+                    assert!(gesture(&mut h, captions[1].center(), captions[1].center()).contains(&ViewportCommand::Maximized(true)));
+                    let p = egui::pos2(gap.center().x, 1.0);
+                    let cmds = gesture(&mut h, p, p + egui::vec2(20.0, 8.0));
+                    assert_eq!(cmds, [ViewportCommand::BeginResize(egui::ResizeDirection::North)]);
+                    assert!(gesture(&mut h, captions[2].center(), captions[2].center()).contains(&ViewportCommand::Close));
+                    drop(h);
+                    std::fs::remove_dir_all(dir).unwrap();
+                }
+            }
+        }
+    }
+
+    /// Top 120 pixels of each saved full-window render, in ThemeKind::ALL order.
+    fn titlebar_overviews(out: &std::path::Path) {
+        for (w, h) in [(1800u32, 1000u32), (1280, 800), (2560, 1440)] {
+            for mode in Module::ALL {
+                let mut sheet = image::RgbImage::new(w, 600);
+                for (row, theme) in photocraft_ui_egui::theme::ThemeKind::ALL.into_iter().enumerate() {
+                    let img = image::open(out.join(format!("probe-{mode:?}-{}-{w}x{h}.png", theme.id()))).unwrap().to_rgb8();
+                    let top = image::imageops::crop_imm(&img, 0, 0, w, 120).to_image();
+                    image::imageops::overlay(&mut sheet, &top, 0, row as i64 * 120);
+                }
+                sheet.save(out.join(format!("overview-{mode:?}-{w}x{h}.png"))).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "writes the full host screenshot matrix to target/titlebar; run explicitly for visual QA"]
+    fn render_titlebars_probe() {
+        let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/titlebar");
+        std::fs::create_dir_all(&out).unwrap();
+        for (w, h) in [(1800.0f32, 1000.0f32), (1280.0, 800.0), (2560.0, 1440.0)] {
+            for mode in Module::ALL {
+                for theme in photocraft_ui_egui::theme::ThemeKind::ALL {
+                    let (dir, path, lib, orig) = library_with_photo("tb");
+                    let mut host = host_with_round_trip(lib, orig, &path);
+                    host.editor.custom_titlebar = true;
+                    host.editor.ui.theme = theme;
+                    host.editor.run("prefs.set", json!({"values": {"interface.theme": theme.id()}})).unwrap();
+                    host.mode = mode;
+                    set_library_view(host.library.as_mut().unwrap(), mode == Module::Develop);
+                    let mut ui = RoundTripUi::new(host);
+                    for _ in 0..6 {
+                        ui.step_at(egui::vec2(w, h), vec![]);
+                    }
+                    let img = ui.view.paint(&ui.host.library.as_ref().unwrap().renderer.cpu_textures());
+                    let buf: Vec<u8> = img.pixels.iter().flat_map(|p| [p.r(), p.g(), p.b()]).collect();
+                    image::RgbImage::from_raw(w as u32, h as u32, buf).unwrap().save(out.join(format!("probe-{mode:?}-{}-{w}x{h}.png", theme.id()))).unwrap();
+                    drop(ui);
+                    let _ = std::fs::remove_dir_all(dir);
+                }
+            }
+        }
+        titlebar_overviews(&out);
+        if out.join("before").is_dir() {
+            titlebar_overviews(&out.join("before"));
+        }
+    }
+
+    #[test]
     fn roundtrip_cpu_grid_loupe_and_save_shortcut_show_the_edited_pixels() {
         roundtrip_edited_pixels(None);
     }
@@ -1466,6 +1590,9 @@ mod tests {
         }
         let config = egui_wgpu::WgpuConfiguration { wgpu_setup: setup, ..Default::default() };
         let rs = block_on(egui_wgpu::RenderState::create(&config, &instance, None, Default::default())).unwrap();
+        let info = rs.adapter.get_info();
+        eprintln!("round-trip GPU test: {} ({:?}, {:?})", info.name, info.backend, info.device_type);
+        assert!(matches!(info.device_type, wgpu::DeviceType::DiscreteGpu | wgpu::DeviceType::IntegratedGpu));
         roundtrip_edited_pixels(Some(rs));
     }
 
