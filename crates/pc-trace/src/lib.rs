@@ -320,3 +320,10 @@ pub fn trace_with_cancel(image: Image<'_>, params: &Params, cancel: impl Fn() ->
     let nodes = layers.iter().flat_map(|l| &l.path.subpaths).map(|s| s.knots.len()).sum();
     Ok(Trace { width: image.width, height: image.height, layers, nodes })
 }
+
+// Package 27: shared-boundary cutout evaluator.
+pub mod cutout;
+
+// Shared T1 fixture/oracle helpers imported by the package 27 library tests.
+#[cfg(test)]
+extern crate self as pc_trace;
