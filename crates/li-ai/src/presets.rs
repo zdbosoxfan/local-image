@@ -28,6 +28,7 @@ pub struct GenPreset {
     pub negative: String,
     pub steps: Option<u32>,
     pub cfg: Option<f32>,
+    pub variety: Option<f32>,
     pub sampler: Option<(String, String)>,
     pub loras: Vec<PresetLora>,
     /// Draft → Refine: refine with this model at this strength.

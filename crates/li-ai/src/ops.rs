@@ -67,6 +67,8 @@ pub struct GenerateRequest {
     pub seed: u64,
     pub steps: u32,
     pub guidance: f32,
+    /// Seeded conditioning variety for Z-Image Turbo Create (0..100; 0 = Off).
+    pub variety: f32,
     pub transparent: bool,
     /// Strength for Refine, Inpaint, Upscale-refine and starting images (0.05..1).
     pub denoise: f32,
@@ -97,6 +99,7 @@ impl GenerateRequest {
             seed: new_seed(),
             steps: info.steps.default as u32,
             guidance: info.guidance.default,
+            variety: 0.0,
             transparent: false,
             denoise: 0.6,
             source: None,
@@ -120,6 +123,9 @@ impl GenerateRequest {
 
     /// Plain-language problems with the request, before anything is sent.
     pub fn validate(&self) -> Result<()> {
+        if !(0.0..=100.0).contains(&self.variety) {
+            bail!("Variety must be between 0 and 100.");
+        }
         let info = self.model.try_info().with_context(|| format!("The model {} is not installed or known.", self.model.key()))?;
         let f = &info.resolved;
         let (source, refs) = self.source_and_refs();
@@ -478,6 +484,7 @@ impl Ai {
             loras: &loras,
             batch: 1,
             sampler,
+            variety: req.variety,
         };
         match req.mode {
             GenerateMode::Create => {

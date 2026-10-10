@@ -117,6 +117,8 @@ pub struct GenerateState {
     pub count: u32,
     pub steps: u32,
     pub guidance: f32,
+    /// Z-Image Turbo Create conditioning variety; old settings default to Off.
+    pub variety: f32,
     /// Fixed seed (🔒), else a new one each time.
     pub seed: Option<u64>,
     /// Strength for Edit (non-edit models), Fill, Refine and Upscale.
@@ -160,6 +162,7 @@ impl Default for GenerateState {
             count: 1,
             steps: m.info().steps.default as u32,
             guidance: m.info().guidance.default,
+            variety: 0.0,
             seed: None,
             denoise: 0.35,
             advanced: false,
@@ -383,6 +386,24 @@ fn sampling_ui(ui: &mut egui::Ui, s: &mut GenerateState, limits: Option<li_ai::c
     );
     let (clo, chi) = limits.map_or((f32::MIN, f32::MAX), |l| l.cfg);
     guidance_row(ui, &mut s.guidance, clo, chi, Some(range_hint(info.guidance.min, info.guidance.max, info.guidance.default, 1)));
+    if info.id == ModelId::ZImageTurbo && s.mode == Mode::Create {
+        if !s.variety.is_finite() {
+            s.variety = 0.0;
+        }
+        s.variety = s.variety.clamp(0.0, 100.0);
+        ui.horizontal(|ui| {
+            label(ui, tl!("Variety"));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                widgets::value_field(ui, &mut s.variety, 0.0..=100.0, "%", 74.0);
+                if widgets::secondary_button(ui, tl!("Off"), 0.0).clicked() {
+                    s.variety = 0.0;
+                }
+            });
+        });
+        let r = widgets::slider(ui, &mut s.variety, 0.0..=100.0, None);
+        r.widget_info(|| egui::WidgetInfo::slider(ui.is_enabled(), s.variety as f64, tl!("Variety")));
+        r.on_hover_text(tl!("Higher Variety can change compositions and loosen prompt details. Set to 0 to turn it off."));
+    }
     if denoise {
         let (lo, hi) = limits.map_or((f32::MIN, f32::MAX), |l| l.denoise);
         denoise_row(ui, tl!("Denoise"), &mut s.denoise, lo, hi);
@@ -495,6 +516,7 @@ fn set_model(s: &mut GenerateState, m: ModelId) {
     s.model = m.key().into();
     s.variant = catalog::default_variant(m).into();
     s.steps = info.steps.default as u32;
+    s.variety = 0.0;
     s.guidance = info.guidance.default;
     if s.mode == Mode::Refine
         && let Some(d) = li_ai::refine::model_defaults(m)
@@ -642,6 +664,23 @@ fn tag(ui: &mut egui::Ui, text: &str, t: &Tokens) {
     ui.painter().galley(r.center() - galley.size() / 2.0, galley, t.text_dim);
 }
 
+fn model_variety_tip(model: ModelId) -> Option<&'static str> {
+    (model == ModelId::ZImageTurbo)
+        .then(|| tl!("Low variety by design: different seeds give similar layouts. Change the prompt (or raise Variety) for different compositions."))
+}
+
+/// Shared by Generate and Draft, scoped to the Turbo model rather than the Z-Image family.
+fn model_variety_note(ui: &mut egui::Ui, model: ModelId) {
+    if let Some(tip) = model_variety_tip(model) {
+        let t = Tokens::get(ui.ctx());
+        ui.horizontal_wrapped(|ui| {
+            let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
+            crate::icons::paint(ui, r, "info", 12.0, t.text_faint);
+            ui.add(egui::Label::new(RichText::new(tip).color(t.text_faint).size(11.0)).wrap());
+        });
+    }
+}
+
 /// Readiness of a model on the running engine: `Ok` ready, `Err(reason)` otherwise.
 fn readiness(st: &crate::ai_ui::EngineStatus, m: ModelId, variant: &str) -> Result<(), String> {
     st.ready(m, variant)
@@ -770,13 +809,17 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: (&str, &str), mode: Mode, 
                     }
                     _ => {}
                 }
-                let tip = if ok {
+                let mut tip = if ok {
                     format!("{}\n{}", m.best_for, m.tags().join(" · "))
                 } else if m.origin == catalog::Origin::Profile {
                     format!("{}\n{}", m.best_for, crate::i18n::fmt(tl!("Not installed: {reason}"), &[("reason", &reason)]))
                 } else {
                     format!("{}\n{}", m.best_for, reason)
                 };
+                if let Some(variety) = model_variety_tip(m.id) {
+                    tip.push('\n');
+                    tip.push_str(variety);
+                }
                 if row.inner.on_hover_text(tip).clicked() {
                     picked = Some(m.id.key().to_owned());
                 }
@@ -1058,6 +1101,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 ui.label(RichText::new(&info.best_for).color(t.text_faint).size(11.0));
             });
+            model_variety_note(ui, m);
         }
         // ---- Prompt.
         let wants_prompt = !upscaler && custom.as_ref().is_none_or(|w| w.has(&li_ai::custom::FieldKind::Prompt));
@@ -1458,6 +1502,7 @@ fn apply_preset(s: &mut GenerateState, p: &li_ai::presets::GenPreset) {
     if let Some(v) = p.cfg {
         s.guidance = v;
     }
+    s.variety = p.variety.filter(|v| v.is_finite()).unwrap_or(0.0).clamp(0.0, 100.0);
     if let Some((a, b)) = &p.sampler {
         s.sampler = a.clone();
         s.scheduler = b.clone();
@@ -1483,6 +1528,7 @@ fn save_preset(s: &mut GenerateState, name: &str) {
         negative: s.negative.clone(),
         steps: Some(s.steps),
         cfg: Some(s.guidance),
+        variety: Some(s.variety),
         sampler: (!s.sampler.is_empty()).then(|| (s.sampler.clone(), if s.scheduler.is_empty() { "simple".into() } else { s.scheduler.clone() })),
         loras: s.loras.iter().map(|l| li_ai::presets::PresetLora { name: l.name.clone(), strength: l.strength }).collect(),
         refine_model: s.refine.then(|| s.refine_model.clone()),
@@ -1621,6 +1667,7 @@ pub(crate) fn regenerate_layer(app: &mut PhotocraftApp, ctx: &egui::Context, lay
     s.aspect = "custom".into();
     s.steps = uint("steps").unwrap_or(s.steps);
     s.guidance = g["guidance"].as_f64().map_or(s.guidance, |v| v as f32);
+    s.variety = g["variety"].as_f64().filter(|v| v.is_finite()).map_or(0.0, |v| v.clamp(0.0, 100.0) as f32);
     s.denoise = g["denoise"].as_f64().map_or(s.denoise, |v| v as f32);
     s.transparent = g["transparent"].as_bool().unwrap_or(false);
     s.loras = serde_json::from_value(g["loras"].clone()).unwrap_or_default();
@@ -1683,6 +1730,7 @@ fn local_request(
     fit_to_backend(&mut fitted, crate::ai_ui::status().limits);
     req.steps = fitted.steps;
     req.guidance = fitted.guidance;
+    req.variety = if m == ModelId::ZImageTurbo && s.mode == Mode::Create && s.variety.is_finite() { s.variety.clamp(0.0, 100.0) } else { 0.0 };
     req.negative = s.negative.clone();
     req.denoise = fitted.denoise;
     req.scale = s.upscale;
@@ -1817,7 +1865,7 @@ fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let name = format!("{}-{}", info.short.replace(' ', ""), r.seed);
         let meta = json!({
             "model": m.key(), "family": info.family, "variant": r.variant, "prompt": r.prompt, "negative_prompt": r.negative, "width": r.width, "height": r.height,
-            "seed": r.seed, "transparent": r.transparent, "steps": r.steps, "guidance": r.guidance, "denoise": r.denoise,
+            "seed": r.seed, "transparent": r.transparent, "steps": r.steps, "guidance": r.guidance, "denoise": r.denoise, "variety": r.variety,
             "loras": s.loras.iter().map(|l| json!({"name": l.name, "strength": l.strength})).collect::<Vec<_>>(),
             "refine": r.refine,
             "reference_count": r.references.len(), "mode": format!("{:?}", s.mode).to_lowercase(),
@@ -2601,6 +2649,76 @@ fn start_batch(b: &BatchState) -> std::sync::Arc<std::sync::Mutex<BatchRun>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zimage_variety_settings_presets_and_requests_keep_old_defaults() {
+        let old: GenerateState = serde_json::from_value(json!({"model":"z-image-turbo"})).unwrap();
+        assert_eq!(old.variety, 0.0);
+        let old_draft: DraftRefineSettings = serde_json::from_value(json!({"draft":{"model":"z-image-turbo"}})).unwrap();
+        assert_eq!(old_draft.draft.variety, 0.0);
+        let mut s = GenerateState { variety: 75.0, ..old };
+        let restored: GenerateState = serde_json::from_value(serde_json::to_value(&s).unwrap()).unwrap();
+        assert_eq!(restored.variety, 75.0);
+        assert_eq!(local_request(&s, "a fox".into(), None, Vec::new()).unwrap().0.variety, 75.0);
+        s.variety = f32::NAN;
+        assert_eq!(local_request(&s, "a fox".into(), None, Vec::new()).unwrap().0.variety, 0.0);
+        s.variety = 75.0;
+        set_model(&mut s, ModelId::Ernie);
+        assert_eq!(s.variety, 0.0);
+        s.variety = 75.0;
+        assert_eq!(local_request(&s, "a fox".into(), None, Vec::new()).unwrap().0.variety, 0.0);
+        let old_preset: li_ai::presets::GenPreset = serde_json::from_value(json!({"model":"z-image-turbo"})).unwrap();
+        apply_preset(&mut s, &old_preset);
+        assert_eq!(s.variety, 0.0);
+        let preset = li_ai::presets::GenPreset { variety: Some(75.0), ..old_preset };
+        let restored: li_ai::presets::GenPreset = serde_json::from_value(serde_json::to_value(&preset).unwrap()).unwrap();
+        apply_preset(&mut s, &restored);
+        assert_eq!(s.variety, 75.0);
+        s.mode = Mode::Refine;
+        let source = RgbaImage::new(64, 64);
+        assert_eq!(local_request(&s, "a fox".into(), Some((photocraft_doc::DocId(1), source, None)), Vec::new()).unwrap().0.variety, 0.0);
+    }
+
+    #[test]
+    fn zimage_variety_generate_slider_drag_and_off_reach_the_request() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::Queryable;
+        let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        set_model(&mut app.ui.ai.generate, ModelId::ZImageTurbo);
+        app.ui.ai.generate.advanced = true;
+        let mut initialized = false;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(420.0, 1800.0)).with_max_steps(64).build_ui_state(
+            move |ui, app: &mut PhotocraftApp| {
+                if !initialized {
+                    PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Studio);
+                    initialized = true;
+                    ui.ctx().request_repaint();
+                    return;
+                }
+                panel(app, ui);
+            },
+            app,
+        );
+        h.run_steps(3);
+        let slider = h.get_by_role_and_label(Role::Slider, "Variety").rect();
+        let from = slider.left_center() + vec2(8.0, 0.0);
+        h.hover_at(from);
+        h.step();
+        h.event(egui::Event::PointerButton { pos: from, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+        h.step();
+        let to = from + vec2(slider.width() * 0.6, 0.0);
+        h.event(egui::Event::PointerMoved(to));
+        h.step();
+        h.event(egui::Event::PointerButton { pos: to, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+        h.run_steps(2);
+        let s = &h.state().ui.ai.generate;
+        assert!(s.variety > 0.0 && s.variety <= 100.0);
+        assert_eq!(local_request(s, "a fox".into(), None, Vec::new()).unwrap().0.variety, s.variety);
+        h.get_by_role_and_label(Role::Button, "Off").click();
+        h.run_steps(2);
+        assert_eq!(h.state().ui.ai.generate.variety, 0.0);
+    }
 
     #[test]
     fn refine_model_groups_exclude_upscalers_tools_and_video() {

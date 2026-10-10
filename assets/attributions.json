@@ -18,6 +18,18 @@
       "intro": "Algorithms re-implemented in Rust from other projects (docs/PORTS.md). No C, C++ or Python from them is compiled or shipped.",
       "entries": [
         {
+          "name": "SplitMix64",
+          "used_for": "Stable seed-derived alternate conditioning for Z-Image Turbo Variety.",
+          "upstream": "misc/splitmix64.c",
+          "commit": "84131700dfd32d9d1063f99b5b0a900f5935a613",
+          "ours": "crates/li-ai/src/builders.rs, crates/li-ai/examples/zimage_variety_check.rs",
+          "licence": "CC0-1.0",
+          "licence_files": [
+            "licenses/splitmix64-NOTICE.md"
+          ],
+          "url": "https://github.com/svaarala/duktape/blob/84131700dfd32d9d1063f99b5b0a900f5935a613/misc/splitmix64.c"
+        },
+        {
           "name": "vkdt",
           "used_for": "Primary Develop tools.",
           "upstream": "src/pipe/modules/llap/reduce.comp, assemble.comp",

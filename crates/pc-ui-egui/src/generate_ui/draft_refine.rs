@@ -296,6 +296,7 @@ fn content(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         }
                         let info = model_of(s).info();
                         variant_picker(ui, info.id, &mut s.variant);
+                        model_variety_note(ui, info.id);
                         ui.add(
                             egui::TextEdit::multiline(&mut s.prompt)
                                 .hint_text(if refine { tl!("Describe the image (optional)…") } else { tl!("Describe the draft…") })
@@ -461,7 +462,7 @@ fn start_stage(app: &mut PhotocraftApp, ctx: &egui::Context, refine: bool) {
     }
     let info = req.model.info();
     let meta = json!({"model": req.model.key(), "variant": req.variant, "mode": if refine { "refine" } else { "create" }, "prompt": req.prompt,
-        "width": req.width, "height": req.height, "steps": req.steps, "guidance": req.guidance, "denoise": req.denoise, "seed": req.seed, "loras": req.loras});
+        "width": req.width, "height": req.height, "steps": req.steps, "guidance": req.guidance, "denoise": req.denoise, "seed": req.seed, "loras": req.loras, "variety": req.variety});
     let name = format!("{}-{}", info.short, req.seed);
     let label = if refine { tl!("Refinement") } else { tl!("Draft") };
     if launch(app, label, label, name, meta, None, false, move |ctl| li_ai::service().generate(&req, ctl)) {
