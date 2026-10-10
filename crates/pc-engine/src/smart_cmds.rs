@@ -181,10 +181,32 @@ pub fn developed_image(file_name: &str, bytes: &[u8], fmt: PixelFormat, settings
         return Ok(img);
     }
     let doc = crate::develop_layer_cmds::developed_doc(file_name, bytes, settings)?;
-    let buf = photocraft_compose::flatten(&doc);
-    let img = SourceImage { surface: Arc::new(buffer_to_surface(&buf, fmt)), bounds: doc.bounds() };
+    let img = match plain_layer_surface(&doc, fmt) {
+        Some(surface) => SourceImage { surface: Arc::new(surface), bounds: doc.bounds() },
+        None => SourceImage { surface: Arc::new(buffer_to_surface(&photocraft_compose::flatten(&doc), fmt)), bounds: doc.bounds() },
+    };
     cache_put(key, img.clone());
     Ok(img)
+}
+
+/// A developed photo is one plain, opaque raster layer: in the document's own pixel format its
+/// composite is that layer's pixels. Taking them skips flattening and converting back (about
+/// 0.5 s of each re-develop of a 21 MP raw).
+fn plain_layer_surface(doc: &Document, fmt: PixelFormat) -> Option<Surface> {
+    let [l] = doc.layers.as_slice() else { return None };
+    let LayerContent::Raster(s) = &l.content else { return None };
+    let plain = l.visible
+        && l.opacity == 1.0
+        && l.fill_opacity == 1.0
+        && l.blend == photocraft_doc::BlendMode::Normal
+        && l.mask.is_none()
+        && l.vector_mask.is_none()
+        && !photocraft_compose::effects::has_effects(l)
+        && l.excluded_channels == 0
+        && l.blend_if == photocraft_doc::BlendIf::default()
+        && s.format() == fmt
+        && doc.pixel_format() == fmt;
+    plain.then(|| s.clone())
 }
 
 /// Layer › Smart Objects › Stack Mode: the source's layers (or, when it holds a single group, the

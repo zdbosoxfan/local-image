@@ -729,3 +729,25 @@ fn convert_to_layers_conforms_the_contents_to_the_document_mode_and_depth() {
     let fmt = s.active().unwrap().doc.pixel_format();
     assert!(matches!(&active_layer(&s).content, LayerContent::Raster(px) if px.format().mode == fmt.mode && px.format().sample == fmt.sample));
 }
+
+/// A developed photo's source taken straight from its one plain layer is exactly what flattening
+/// it gives, at the document's depth; at another depth it still flattens.
+#[test]
+fn developed_source_shortcut_matches_the_flatten() {
+    use photocraft_raw::testgen::{DngSpec, mosaic, scene};
+    let (w, h) = (40, 24);
+    let mut spec = DngSpec::cfa(w, h, mosaic(&scene(w, h), w, [0, 1, 1, 2], 0, 65535));
+    spec.as_shot_neutral = Some([0.6, 1.0, 0.8]);
+    let bytes = spec.build();
+    let settings = json!({ "light": { "exposure": 0.4 } });
+    let doc = crate::develop_layer_cmds::developed_doc("a.dng", &bytes, &settings).unwrap();
+    let fmt = doc.pixel_format();
+    let fast = plain_layer_surface(&doc, fmt).expect("a developed photo is one plain layer");
+    let slow = buffer_to_surface(&photocraft_compose::flatten(&doc), fmt);
+    assert_eq!(fast.read_region(doc.bounds()), slow.read_region(doc.bounds()));
+    let other = PixelFormat { sample: photocraft_color::SampleType::U8, ..fmt };
+    assert!(plain_layer_surface(&doc, other).is_none(), "another depth converts through the flatten");
+    let mut faded = doc.clone();
+    faded.layers[0].opacity = 0.5;
+    assert!(plain_layer_surface(&faded, fmt).is_none());
+}
