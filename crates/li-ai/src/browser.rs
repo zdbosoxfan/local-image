@@ -240,6 +240,33 @@ fn is_weights(name: &str) -> bool {
 // ------------------------------------------------------------------------------ parsers
 
 /// `GET {hf}/api/models?…` (a JSON array).
+/// Hugging Face pipeline tags of models the editor can't use (their LoRAs are hidden from the browser).
+const NON_IMAGE_PIPELINES: &[&str] = &[
+    "text-generation",
+    "text2text-generation",
+    "image-text-to-text",
+    "text-classification",
+    "token-classification",
+    "feature-extraction",
+    "sentence-similarity",
+    "automatic-speech-recognition",
+    "text-to-speech",
+    "text-to-audio",
+    "audio-to-audio",
+    "question-answering",
+    "summarization",
+    "translation",
+];
+
+/// The installed name of a Hugging Face LoRA file: `<repo>-<file>` (subfolders joined with `-`), unless the file is
+/// already named after its repo, so two repos' `adapter_model.safetensors` never collide in the LoRA folder.
+pub fn lora_file_name(repo_id: &str, path: &str) -> String {
+    let repo = repo_id.rsplit('/').next().unwrap_or(repo_id);
+    let flat = path.replace('/', "-");
+    let clean = |s: &str| s.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '_' }).collect::<String>();
+    if flat.to_ascii_lowercase().starts_with(&repo.to_ascii_lowercase()) { clean(&flat) } else { clean(&format!("{repo}-{flat}")) }
+}
+
 pub fn parse_hf_list(reg: &Registry, hf_base: &str, v: &Value, kind: Kind) -> Vec<Item> {
     let Some(arr) = v.as_array() else { return Vec::new() };
     arr.iter()
@@ -264,6 +291,11 @@ pub fn parse_hf_list(reg: &Registry, hf_base: &str, v: &Value, kind: Kind) -> Ve
             if (kind == Kind::Lora) != is_lora {
                 return None;
             }
+            // The editor runs image models only: LoRAs for language, speech or audio models never load in ComfyUI here.
+            let pipeline = m.get("pipeline_tag").and_then(Value::as_str).unwrap_or("");
+            if NON_IMAGE_PIPELINES.contains(&pipeline) || tags.iter().any(|t| NON_IMAGE_PIPELINES.contains(&t.as_str())) {
+                return None;
+            }
             let file_kind = if is_lora { crate::arch::FileKind::Lora } else { crate::arch::FileKind::DiffusionModel };
             let base = tags.iter().find_map(|t| t.strip_prefix("base_model:").map(|b| b.rsplit(':').next().unwrap_or(b).to_owned()));
             let family = tags
@@ -282,9 +314,12 @@ pub fn parse_hf_list(reg: &Registry, hf_base: &str, v: &Value, kind: Kind) -> Ve
             let files = weights
                 .iter()
                 .map(|&f| {
-                    let name = f.rsplit('/').next().unwrap_or(f).to_owned();
+                    let file = f.rsplit('/').next().unwrap_or(f);
                     // A LoRA shipped beside a model (a speed-up LoRA, say) goes to the LoRAs.
                     let folder = if is_lora || looks_lora(f) { "loras" } else { model_folder(reg, family.as_deref(), f) };
+                    // Every LoRA shares one folder and many repos use generic names (adapter_model.safetensors,
+                    // pytorch_lora_weights.safetensors), so a LoRA file is named after its repo (and subfolder).
+                    let name = if folder == "loras" { lora_file_name(&id, f) } else { file.to_owned() };
                     CatalogFile { name, folder: folder.into(), url: format!("{}/{id}/resolve/main/{f}", hf_base.trim_end_matches('/')), ..Default::default() }
                 })
                 .collect();
@@ -319,7 +354,11 @@ pub fn parse_hf_tree(v: &Value) -> BTreeMap<String, (u64, String)> {
         .filter_map(|e| {
             let path = e.get("path")?.as_str()?.to_owned();
             let lfs = e.get("lfs")?;
+            // A gated repo read without its token masks the hashes ("****…"): no hash, so the plan explains the gate.
             let sha = lfs.get("oid").or_else(|| lfs.get("sha256"))?.as_str()?.to_owned();
+            if sha.starts_with('*') {
+                return None;
+            }
             let size = lfs.get("size").or_else(|| e.get("size"))?.as_u64()?;
             Some((path, (size, sha)))
         })
@@ -963,6 +1002,12 @@ pub fn plan(item: &Item, files: &[CatalogFile], fam: Option<&Family>, info: &Obj
             bytes = exact;
         }
         let (Some(bytes), Some(sha)) = (bytes, sha.filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()))) else {
+            if item.gated && cfg.hf_token.as_deref().is_none_or(str::is_empty) && f.hf_path(&cfg.hf).is_some() {
+                bail!(
+                    "{} is gated: accept its terms on its Hugging Face page and add a Hugging Face token in Local AI › Accounts, then install again.",
+                    f.name
+                );
+            }
             bail!("{} has no published size and SHA-256, so it can't be verified; Local Image doesn't install unverified files.", f.name);
         };
         out.files.push(PlannedFile { name: f.name, folder: f.folder, url: f.url, bytes, sha256: sha.to_ascii_lowercase() });
@@ -1014,6 +1059,28 @@ mod tests {
     use super::*;
     use crate::family::registry;
     use serde_json::json;
+
+    #[test]
+    fn lora_files_are_named_after_their_repo() {
+        assert_eq!(lora_file_name("me/cool-style", "adapter_model.safetensors"), "cool-style-adapter_model.safetensors");
+        assert_eq!(lora_file_name("me/cool-style", "v2/pytorch_lora_weights.safetensors"), "cool-style-v2-pytorch_lora_weights.safetensors");
+        assert_eq!(lora_file_name("me/Cool-Style", "cool-style_v1.safetensors"), "cool-style_v1.safetensors");
+        assert_ne!(lora_file_name("a/x", "adapter_model.safetensors"), lora_file_name("b/y", "adapter_model.safetensors"));
+    }
+
+    #[test]
+    fn gated_and_text_loras() {
+        let tree =
+            json!([{"path": "a.safetensors", "size": 10, "lfs": {"oid": "****************************************************************", "size": 10}}]);
+        assert!(parse_hf_tree(&tree).is_empty(), "masked hashes are not hashes");
+        let list = json!([
+            {"id": "x/text-lora", "tags": ["lora"], "pipeline_tag": "text-generation", "siblings": [{"rfilename": "adapter_model.safetensors"}]},
+            {"id": "x/img-lora", "tags": ["lora"], "pipeline_tag": "text-to-image", "siblings": [{"rfilename": "adapter_model.safetensors"}]}
+        ]);
+        let items = parse_hf_list(registry(), "https://huggingface.co", &list, Kind::Lora);
+        assert_eq!(items.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(), ["img-lora"]);
+        assert_eq!(items[0].files[0].name, "img-lora-adapter_model.safetensors");
+    }
 
     fn hf_list() -> Value {
         json!([

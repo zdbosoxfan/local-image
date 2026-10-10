@@ -62,6 +62,11 @@ pub fn host_allowed(url: &str) -> bool {
     ALLOWED_HOSTS.contains(&host) || ALLOWED_SUFFIXES.iter().any(|s| host.ends_with(s))
 }
 
+/// The whole-body time budget for a download of `bytes`: two minutes plus the time at 256 KiB/s.
+fn body_timeout(bytes: u64) -> Duration {
+    Duration::from_secs(120 + bytes / (256 << 10))
+}
+
 fn download_agent(timeout_body: Duration) -> ureq::Agent {
     ureq::Agent::config_builder()
         .tls_config(crate::tls::config())
@@ -315,7 +320,9 @@ pub fn download_file_with(url: &str, dest: &Path, bytes: u64, sha256: &str, toke
     {
         bail!("Not enough disk space in {}: {} needed.", dir.display(), human_bytes(bytes + (256 << 20)));
     }
-    let (_, mut r) = open(&download_agent(Duration::from_secs(120)), url, token, false)?;
+    // ureq's body timeout is one budget for the whole body, not per read: give a slow connection (256 KiB/s) time
+    // for the full file instead of cutting every download that takes longer than two minutes.
+    let (_, mut r) = open(&download_agent(body_timeout(bytes)), url, token, false)?;
     let part = dir.join(format!(".{}.local-image-{}.part", dest.file_name().and_then(|n| n.to_str()).unwrap_or("file"), uuid::Uuid::new_v4().simple()));
     let result = (|| -> Result<()> {
         let mut out = std::fs::File::create(&part)?;
@@ -392,6 +399,13 @@ pub fn human_bytes(n: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn body_timeout_grows_with_the_file() {
+        assert_eq!(body_timeout(0), Duration::from_secs(120));
+        // a 1.2 GB LoRA gets well over an hour on a slow line, not two minutes
+        assert!(body_timeout(1_200_000_000) > Duration::from_secs(4000));
+    }
 
     #[test]
     fn host_allow_list() {
