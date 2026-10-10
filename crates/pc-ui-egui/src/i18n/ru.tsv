@@ -3979,3 +3979,4 @@ ai	New	Новые
 	GPU acceleration is off after a graphics failure.	Ускорение графического процессора отключено после сбоя графики.
 	Recommended: {value}	Рекомендуется: {value}
 	Recommended: {min}–{max} (default {default})	Рекомендуется: {min}–{max} (по умолчанию {default})
+	Family unknown: may not work with this model	Семейство неизвестно: может не работать с этой моделью

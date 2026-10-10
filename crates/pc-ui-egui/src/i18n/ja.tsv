@@ -3879,3 +3879,4 @@ ai	New	新着
 	GPU acceleration is off after a graphics failure.	グラフィック処理の失敗後、GPUアクセラレーションはオフです。
 	Recommended: {value}	推奨: {value}
 	Recommended: {min}–{max} (default {default})	推奨: {min}–{max} (デフォルト: {default})
+	Family unknown: may not work with this model	ファミリー不明：このモデルでは動作しない可能性があります

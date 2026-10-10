@@ -3897,3 +3897,4 @@ ai	New	Nové
 	GPU acceleration is off after a graphics failure.	Akcelerace GPU je po selhání grafiky vypnutá.
 	Recommended: {value}	Doporučeno: {value}
 	Recommended: {min}–{max} (default {default})	Doporučeno: {min}–{max} (výchozí {default})
+	Family unknown: may not work with this model	Neznámá řada: nemusí s tímto modelem fungovat

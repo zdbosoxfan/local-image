@@ -3857,3 +3857,4 @@ ai	New	Neu
 	GPU acceleration is off after a graphics failure.	GPU-Beschleunigung ist nach einem Grafikfehler deaktiviert.
 	Recommended: {value}	Empfohlen: {value}
 	Recommended: {min}–{max} (default {default})	Empfohlen: {min}–{max} (Standard: {default})
+	Family unknown: may not work with this model	Unbekannte Familie: funktioniert möglicherweise nicht mit diesem Modell

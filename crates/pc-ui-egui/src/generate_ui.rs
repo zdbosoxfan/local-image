@@ -1066,10 +1066,36 @@ fn loras_ui(ui: &mut egui::Ui, s: &mut GenerateState, fam: &li_ai::family::Famil
             let free: Vec<&(li_ai::inventory::InstalledLora, bool)> = available.iter().filter(|(l, _)| !s.loras.iter().any(|p| p.name == l.name)).collect();
             let can = s.loras.len() < max && !free.is_empty();
             let tip = if available.is_empty() { tl!("No LoRAs for this model family are installed (Find LoRAs…)") } else { tl!("Add a LoRA") };
-            if ui.add_enabled(can, egui::Button::new(tl!("+ Add"))).on_hover_text(tip).on_disabled_hover_text(tip).clicked()
-                && let Some((l, _)) = free.first()
-            {
-                s.loras.push(LoraPick { name: l.name.clone(), strength: 0.8 });
+            // "+ Add" lists the LoRAs to choose from (never picks one by itself): the ones that fit this model's
+            // family first, then those whose family couldn't be identified, under a warning.
+            let mut picked = None;
+            ui.add_enabled_ui(can, |ui| {
+                let r = ui.menu_button(tl!("+ Add"), |ui| {
+                    ui.set_min_width(220.0);
+                    let (sure, unsure): (Vec<&&(li_ai::inventory::InstalledLora, bool)>, Vec<_>) = free.iter().partition(|(_, sure)| *sure);
+                    for (l, _) in sure.iter().copied().copied() {
+                        if ui.button(li_ai::inventory::label_for(&l.name)).clicked() {
+                            picked = Some(l.name.clone());
+                            ui.close();
+                        }
+                    }
+                    if !unsure.is_empty() {
+                        if !sure.is_empty() {
+                            ui.separator();
+                        }
+                        ui.label(RichText::new(tl!("Family unknown: may not work with this model")).size(11.0).color(t.warning));
+                        for (l, _) in unsure.iter().copied().copied() {
+                            if ui.button(li_ai::inventory::label_for(&l.name)).clicked() {
+                                picked = Some(l.name.clone());
+                                ui.close();
+                            }
+                        }
+                    }
+                });
+                r.response.on_hover_text(tip).on_disabled_hover_text(tip);
+            });
+            if let Some(name) = picked {
+                s.loras.push(LoraPick { name, strength: 0.8 });
             }
             let browse = crate::icons::button(ui, "search", 22.0, false, tl!("Browse LoRAs for this model family"));
             browse.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Browse LoRAs…")));

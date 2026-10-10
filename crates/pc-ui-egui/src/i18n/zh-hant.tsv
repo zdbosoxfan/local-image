@@ -3874,3 +3874,4 @@ ai	New	最新
 	GPU acceleration is off after a graphics failure.	圖形處理失敗後，GPU 加速已關閉。
 	Recommended: {value}	建議：{value}
 	Recommended: {min}–{max} (default {default})	建議：{min}–{max}（預設 {default}）
+	Family unknown: may not work with this model	系列未知：可能不適用於此模型

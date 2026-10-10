@@ -3867,3 +3867,4 @@ ai	New	Baru
 	GPU acceleration is off after a graphics failure.	Akselerasi GPU nonaktif setelah kegagalan grafis.
 	Recommended: {value}	Direkomendasikan: {value}
 	Recommended: {min}–{max} (default {default})	Direkomendasikan: {min}–{max} (bawaan {default})
+	Family unknown: may not work with this model	Keluarga tidak dikenal: mungkin tidak berfungsi dengan model ini

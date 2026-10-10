@@ -3887,3 +3887,4 @@ ai	New	Novos
 	GPU acceleration is off after a graphics failure.	A aceleração de GPU está desativada após uma falha gráfica.
 	Recommended: {value}	Recomendado: {value}
 	Recommended: {min}–{max} (default {default})	Recomendado: {min}–{max} (padrão {default})
+	Family unknown: may not work with this model	Família desconhecida: pode não funcionar com este modelo
