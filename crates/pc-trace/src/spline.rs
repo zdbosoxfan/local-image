@@ -123,7 +123,10 @@ pub fn fit(points: &[Point], tolerance: f64) -> BezPath {
     refine(&path, tolerance)
 }
 pub fn refine(path: &BezPath, tolerance: f64) -> BezPath {
-    let options = kurbo::simplify::SimplifyOptions::default().opt_level(kurbo::simplify::SimplifyOptLevel::Optimize).angle_thresh(1e-3);
+    refine_with_angle(path, tolerance, 1e-3)
+}
+pub fn refine_with_angle(path: &BezPath, tolerance: f64, angle_thresh: f64) -> BezPath {
+    let options = kurbo::simplify::SimplifyOptions::default().opt_level(kurbo::simplify::SimplifyOptLevel::Optimize).angle_thresh(angle_thresh);
     let result = kurbo::simplify::simplify_bezpath(path, tolerance, &options);
     if result.elements().len() <= path.elements().len()
         && result.elements().iter().all(|e| match e {

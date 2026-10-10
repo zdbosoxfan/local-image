@@ -4,3 +4,8 @@ mod common;
 mod engine;
 mod gpu_parity;
 mod regenerate;
+
+#[path = "../centerline/benchmark.rs"]
+mod centerline_benchmark;
+#[path = "../centerline/routing.rs"]
+mod centerline_routing;
