@@ -21,6 +21,11 @@ pub fn apply_slider_out(
     out: SliderOut,
     mut set: impl FnMut(&mut LightcraftApp, f64) -> Result<Value, String>,
 ) {
+    if out.drag_stopped && !out.drag_started && app.ui.dragging_control.as_deref() != Some(spec.id) {
+        // egui also reports drag_stopped when a command stopped dragging (selection/undo).
+        // Its former widget must not apply the old pointer position to the new settings.
+        return;
+    }
     if out.drag_started && !out.reset {
         let _ = app.run("develop.beginInteraction", json!({"label": spec.label}));
         app.ui.dragging_control = Some(spec.id.to_string());
@@ -131,7 +136,7 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
         used_only,
         "color",
         "Color",
-        &["wb", "color", "mixer", "point_colors", "treatment", "bw_mix", "grading"],
+        &["wb", "color", "mixer", "point_colors", "treatment", "bw_mix", "grading", "skin_tone"],
         |app, ui, d| {
             if target.is_layer() {
                 // a layer can turn its area black & white
@@ -167,17 +172,9 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
                             });
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 let active = app.ui.tool == "wbPicker";
-                                if crate::widgets::icon_button(
-                                    ui,
-                                    "wbPicker",
-                                    Icon::Picker,
-                                    vec2(28.0, 28.0),
-                                    active,
-                                    true,
-                                    "White Balance Selector (W)",
-                                )
-                                .clicked()
-                                {
+                                let resp = crate::widgets::tool_button(ui, "wbPicker", Icon::Picker, vec2(28.0, 28.0), active, true, "");
+                                super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::WbPicker);
+                                if resp.clicked() {
                                     app.ui.tool = if active { String::new() } else { "wbPicker".into() };
                                 }
                             });
@@ -219,6 +216,32 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
                     point_color(app, ui, d, target);
                 }
             }
+            if shows("skin_tone") && !crate::is_bw(d) {
+                let key = target.key("skinTone");
+                let open = app.ui.flyout_open(&key);
+                if flyout_row(ui, &key, "Skin Tone", Icon::Picker, open).clicked() {
+                    app.ui.toggle_flyout(&key);
+                }
+                if open {
+                    let picking = app.ui.tool == "skinTone";
+                    if text_button(ui, &target.key("skinTonePick"), "Pick Skin Reference", picking).clicked() {
+                        app.ui.tool = if picking { String::new() } else { "skinTone".into() };
+                        app.ui.point_color_mask = match target {
+                            Target::Global => None,
+                            Target::Layer(id) => Some(id),
+                        };
+                    }
+                    for c in ["skinTone.uniformity", "skinTone.lightness", "skinTone.hueRange", "skinTone.chromaRange", "skinTone.lightnessRange"] {
+                        control_t(app, ui, d, c, d.skin_tone.reference.is_some(), target);
+                    }
+                    let mut protect = d.skin_tone.protect_lips;
+                    let r = ui.checkbox(&mut protect, "Protect Lips");
+                    register(ui.ctx(), target.key("skinProtectLips"), r.rect);
+                    if r.changed() {
+                        let _ = target.merge(app, json!({"skin_tone":{"protect_lips":protect}}), "Skin Tone");
+                    }
+                }
+            }
             if shows("grading") {
                 let open = app.ui.flyout_open(&target.key("grading"));
                 if flyout_row(ui, &target.key("grading"), crate::i18n::tr("Color Grading"), Icon::Presets, open).clicked() {
@@ -233,8 +256,22 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
     );
     tool_section(app, ui, d, target, tl, used_only, "effects", "Effects", &["effects", "vignette", "grain"], |app, ui, d| {
         if shows("effects") {
-            for c in ["effects.texture", "effects.clarity", "effects.dehaze"] {
+            for c in ["effects.structure", "effects.texture", "effects.clarity", "effects.dehaze"] {
                 control_t(app, ui, d, c, true, target);
+            }
+        }
+        if shows("effects") {
+            use lightcraft_develop::ClarityMode;
+            let modes = [ClarityMode::Natural, ClarityMode::Punch, ClarityMode::Neutral];
+            let selected = modes.iter().position(|m| *m == d.effects.clarity_mode);
+            if let Some(i) = crate::widgets::segmented(
+                ui,
+                &target.key("clarityMode"),
+                &[("Natural", "natural"), ("Punch", "punch"), ("Neutral", "neutral")],
+                selected,
+                3,
+            ) {
+                let _ = target.merge(app, json!({"effects":{"clarity_mode":modes[i]}}), "Clarity Mode");
             }
         }
         if shows("vignette") {
@@ -603,10 +640,11 @@ fn negative_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSetti
             ui.painter().rect_filled(r, 3.0, Color32::from_rgb(enc[0], enc[1], enc[2]));
             ui.painter().rect_stroke(r, 3.0, Stroke::new(1.0, t.button_border), egui::StrokeKind::Inside);
             let picking = app.ui.tool == "negDmin";
-            if text_button(ui, "negativePickBase", "Pick from the Film Rim", picking)
-                .on_hover_text(crate::i18n::tr("Drag over the unexposed film rim (or click it) to set the film base colour"))
-                .clicked()
-            {
+            let (icon_rect, icon_response) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
+            crate::icons::paint_tool(ui, icon_rect, "pipette", Icon::Picker, t.icon, true);
+            let resp = text_button(ui, "negativePickBase", "Pick from the Film Rim", picking).union(icon_response);
+            super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::FilmBase);
+            if resp.clicked() {
                 app.ui.tool = if picking { String::new() } else { "negDmin".into() };
             }
         });
@@ -1280,10 +1318,12 @@ fn channel_label(ch: &str) -> &'static str {
 }
 
 /// Toggle for a targeted-adjustment tool (`tool` = `tat:<target>`).
-fn tat_button(app: &mut LightcraftApp, ui: &mut egui::Ui, tool: &str, tip: &str) {
+fn tat_button(app: &mut LightcraftApp, ui: &mut egui::Ui, tool: &str, _tip: &str) {
     let active = app.ui.tool == tool;
     let id = tool.replace(':', "-");
-    if crate::widgets::icon_button(ui, &id, Icon::Target, vec2(26.0, 26.0), active, true, tip).clicked() {
+    let resp = crate::widgets::tool_button(ui, &id, Icon::Target, vec2(26.0, 26.0), active, true, "");
+    super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::Target);
+    if resp.clicked() {
         app.ui.tool = if active { String::new() } else { tool.to_string() };
     }
 }
@@ -1385,9 +1425,9 @@ fn point_color(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, 
             ui.spacing_mut().item_spacing.x = 5.0;
             let active = app.ui.tool == "pointColor" && app.ui.point_color_mask == layer;
             let full = n >= lightcraft_develop::MAX_POINT_COLORS;
-            if crate::widgets::icon_button(ui, "pointColorPicker", Icon::Picker, vec2(26.0, 26.0), active, !full, "Sample a colour on the photo")
-                .clicked()
-            {
+            let resp = crate::widgets::tool_button(ui, "pointColorPicker", Icon::Picker, vec2(26.0, 26.0), active, !full, "");
+            super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::PointColor);
+            if resp.clicked() {
                 app.ui.tool = if active { String::new() } else { "pointColor".into() };
                 app.ui.point_color_mask = layer;
             }

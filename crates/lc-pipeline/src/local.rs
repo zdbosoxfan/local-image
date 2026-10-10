@@ -329,7 +329,18 @@ pub(crate) fn prepare(
     );
     let base = base.unwrap_or_else(|| log_l.clone());
     let ev = s.light.exposure as f32;
-    let masks = timed("masks", || masks::evaluate(&s.masks, frame, img.width, img.height, &img, &log_l, ev));
+    let masks = timed("masks", || {
+        masks::evaluate_with_tone(
+            &s.masks,
+            frame,
+            img.width,
+            img.height,
+            &img,
+            &log_l,
+            ev,
+            &crate::tone2::tone_map(s, info, s.light.contrast, s.light.whites, s.light.blacks),
+        )
+    });
     let mut layer_sharp = Vec::new();
     let mut wanted = Vec::new();
     for (mask, m) in s.masks.iter().filter(|m| m.visible && !m.components.is_empty()).enumerate() {
@@ -356,11 +367,25 @@ pub(crate) fn prepare(
     let layer_nr = timed("layer nr", || crate::layers::nr_images(&img, s, info, src_long, px_per_long, &mut planes.layer_nr));
     let tone_eq = crate::toneeq::mask_wanted(s).then(|| {
         let (sg, eps) = crate::toneeq::mask_sigma_eps(s, px_per_long);
-        let k = (u64::from(sg.to_bits()) << 32) | u64::from(eps.to_bits());
+        let k = crate::hash_of((
+            sg.to_bits(),
+            eps.to_bits(),
+            s.light.exposure.to_bits(),
+            s.tone_eq.mask_exposure.to_bits(),
+            s.tone_eq.mask_contrast.to_bits(),
+        ));
         match &planes.tone_eq {
             Some((kk, p)) if *kk == k => p.clone(),
             _ => {
-                let p = Arc::new(timed("tone eq mask", || crate::toneeq::mask_plane(&img, sg, eps)));
+                let p = Arc::new(timed("tone eq mask", || {
+                    crate::toneeq::mask_plane_adjusted(
+                        &img,
+                        sg,
+                        eps,
+                        (s.light.exposure + s.tone_eq.mask_exposure) as f32,
+                        s.tone_eq.mask_contrast as f32,
+                    )
+                }));
                 planes.tone_eq = Some((k, p.clone()));
                 p
             }

@@ -413,7 +413,7 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
             }
             None => err("missing `dialog`"),
         },
-        "ui.dialog.cancel" => match u("dialog").and_then(|id| app.ui.close_dialog(id)) {
+        "ui.dialog.cancel" => match u("dialog").and_then(|id| crate::dialogs::cancel(app, id)) {
             Some(_) => ok(Value::Null),
             None => err("no such dialog"),
         },

@@ -22,4 +22,5 @@ flate2 = { workspace = true }
 tar = "0.4"
 zip = { version = "7", default-features = false, features = ["deflate-flate2"] }
 ureq = { workspace = true }
+rustls-rustcrypto = { workspace = true }
 quick-xml = { workspace = true }

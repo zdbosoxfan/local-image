@@ -251,7 +251,10 @@ pub fn scene_ev(ev: f32, contrast: f64, whites: f64, blacks: f64) -> f32 {
 /// stay put except what Whites + pushes past white (a short soft shoulder) and Blacks − crushes.
 pub fn display_tone(y: f32, contrast: f64, whites: f64, blacks: f64) -> f32 {
     if contrast == 0.0 && whites == 0.0 && blacks == 0.0 {
-        return y.clamp(0.0, 1.0);
+        // Not clamped to 1 here: the table is interpolated between log-spaced samples, and a hard
+        // corner at 1.0 between two samples would pull white down by up to a few thousandths.
+        // `ToneMap::apply` clamps the interpolated value, so 1.0 stays exactly 1.0.
+        return y.max(0.0);
     }
     let c = (contrast / 100.0) as f32;
     let w = (whites / 100.0) as f32;

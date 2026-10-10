@@ -5,24 +5,41 @@ use photocraft_pathops as ops;
 
 #[test]
 fn constructive_vector_geometry_matches_cpu() {
-    let instance = wgpu::Instance::default();
+    let required = std::env::var_os("REQUIRE_VECTOR_GPU").is_some();
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
+        assert!(!required, "required real GPU adapter unavailable");
         eprintln!("skipped: no GPU adapter");
         return;
     };
     if photocraft_gpu::Compositor::preferred_acc_format(&adapter) != wgpu::TextureFormat::Rgba32Float {
+        assert!(!required, "required Rgba32Float GPU target unavailable");
         eprintln!("skipped: no Rgba32Float GPU target");
         return;
+    }
+    let info = adapter.get_info();
+    println!("Vector geometry GPU: {} ({:?}, {:?})", info.name, info.device_type, info.backend);
+    if required {
+        assert!(info.name.contains("RTX 5090") && info.device_type == wgpu::DeviceType::DiscreteGpu);
     }
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
     let mut comp = photocraft_gpu::Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).unwrap();
     let a = photocraft_vector::shapes::ellipse(6.0, 6.0, 32.0, 32.0);
     let b = photocraft_vector::shapes::ellipse(18.0, 8.0, 32.0, 32.0);
-    let paths = [
+    let mut paths = vec![
+        ops::boolean(&a, &b, ops::BoolOp::Union).unwrap(),
+        ops::boolean(&a, &b, ops::BoolOp::Intersect).unwrap(),
+        ops::boolean(&a, &b, ops::BoolOp::Xor).unwrap(),
         ops::boolean(&a, &b, ops::BoolOp::Difference).unwrap(),
         ops::offset_path(&b, 2.0, ops::Join::Round, 4.0).unwrap(),
         ops::outline_stroke(&a, &ShapeStroke { width: 3.0, ..Default::default() }, 0.01).unwrap(),
     ];
+    paths.extend(
+        ops::pathfinder(ops::PathfinderOp::Divide, &[ops::Shape::new(a.clone(), 0), ops::Shape::new(b.clone(), 1)]).unwrap().into_iter().map(|s| s.path),
+    );
+    paths.push(ops::simplify(&a, 0.1).unwrap());
+    paths.push(ops::smooth(&a, 0.2).unwrap());
+    paths.push(ops::reverse(&a).unwrap());
     for path in paths {
         let mut doc = Document::new("V1 parity", Size::new(64, 48), ColorMode::Rgb, SampleType::F32);
         let mut sh = ShapeLayer { path, fill: Some(Fill::Solid(Color::rgba(0.7, 0.2, 0.1, 0.6))), ..Default::default() };

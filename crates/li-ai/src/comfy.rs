@@ -118,6 +118,16 @@ impl JobControl {
     }
 }
 
+/// Queue contention is transient; background checks must never persist it as unsupported.
+#[derive(Debug)]
+pub struct Busy;
+impl std::fmt::Display for Busy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ComfyUI is busy")
+    }
+}
+impl std::error::Error for Busy {}
+
 /// The error a cancelled job ends with (test with `err.is::<Cancelled>()`).
 #[derive(Debug, Clone, Copy)]
 pub struct Cancelled;
@@ -132,7 +142,26 @@ impl std::error::Error for Cancelled {}
 #[derive(Clone, Debug, Default)]
 pub struct ObjectInfo(pub Value);
 
+/// The limits ComfyUI's own sampler node reports for its inputs (`KSampler` in `/object_info`): what the backend accepts.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SamplerLimits {
+    pub steps: (f32, f32),
+    pub cfg: (f32, f32),
+    pub denoise: (f32, f32),
+}
+
 impl ObjectInfo {
+    /// The sampler's input limits as ComfyUI reports them (`KSampler`, else `KSamplerAdvanced`).
+    pub fn sampler_limits(&self) -> Option<SamplerLimits> {
+        let node = ["KSampler", "KSamplerAdvanced"].iter().find_map(|c| self.0.get(*c))?;
+        let input = |name: &str| -> Option<(f32, f32)> {
+            let spec = node.pointer("/input/required").and_then(|r| r.get(name)).or_else(|| node.pointer("/input/optional").and_then(|o| o.get(name)))?;
+            let opts = spec.get(1)?;
+            Some((opts.get("min")?.as_f64()? as f32, opts.get("max")?.as_f64()? as f32))
+        };
+        Some(SamplerLimits { steps: input("steps")?, cfg: input("cfg")?, denoise: input("denoise").unwrap_or((0.0, 1.0)) })
+    }
+
     pub fn has_node(&self, class: &str) -> bool {
         self.0.get(class).is_some()
     }
@@ -352,7 +381,16 @@ impl ComfyClient {
 
     /// Runs `graph`: uploads `images` (node id → PNG bytes) into those `LoadImage` nodes, queues,
     /// reports progress into `ctl`, and returns the first output image's bytes.
-    pub fn run(&self, mut graph: Value, images: &[(String, Vec<u8>)], ctl: &JobControl) -> Result<Vec<u8>> {
+    pub fn run(&self, graph: Value, images: &[(String, Vec<u8>)], ctl: &JobControl) -> Result<Vec<u8>> {
+        self.run_with_admission(graph, images, ctl, false)
+    }
+
+    /// Background checks repeat queue admission after uploads, immediately before submission.
+    pub fn run_when_idle(&self, graph: Value, images: &[(String, Vec<u8>)], ctl: &JobControl) -> Result<Vec<u8>> {
+        self.run_with_admission(graph, images, ctl, true)
+    }
+
+    fn run_with_admission(&self, mut graph: Value, images: &[(String, Vec<u8>)], ctl: &JobControl, idle_only: bool) -> Result<Vec<u8>> {
         ctl.check()?;
         ctl.set_stage(Stage::Uploading);
         for (node, png) in images {
@@ -360,6 +398,9 @@ impl ComfyClient {
             let slot = graph.get_mut(node).and_then(|n| n.get_mut("inputs")).ok_or_else(|| anyhow!("workflow has no node {node}"))?;
             slot["image"] = Value::String(name);
             ctl.check()?;
+        }
+        if idle_only && !crate::refine::queue_idle(self)? {
+            return Err(anyhow!(Busy));
         }
         let client_id = uuid::Uuid::new_v4().to_string();
         let socket = ProgressSocket::start(&self.host, &client_id, ctl.clone());

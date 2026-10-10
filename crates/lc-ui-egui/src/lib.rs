@@ -6,6 +6,10 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+#[path = "../../pc-ui-egui/src/color_icon_data.rs"]
+mod color_icon_data;
+#[path = "../../pc-ui-egui/src/color_icons.rs"]
+mod color_icons;
 pub mod control;
 pub mod credits;
 pub mod export_task;
@@ -17,13 +21,23 @@ pub mod links;
 pub mod menubar;
 pub mod menus;
 pub mod merge;
+#[rustfmt::skip] // Keep shared artwork code under Compositing's rustfmt configuration.
+#[path = "../../pc-ui-egui/src/mono_tool_icons.rs"]
+mod mono_tool_icons;
 pub mod panels;
+pub mod people_task;
 pub mod render;
 pub mod shortcuts;
+pub mod smart_sort_keys;
+pub mod smart_sort_task;
 pub mod softpaint;
 pub mod state;
 pub mod tasks;
 pub mod theme;
+#[path = "../../pc-ui-egui/src/tool_icon_data.rs"]
+mod tool_icon_data;
+#[cfg(test)]
+mod tool_icon_tests;
 pub mod widgets;
 
 #[cfg(test)]
@@ -45,9 +59,15 @@ mod tests_offline;
 #[cfg(test)]
 mod tests_panels;
 #[cfg(test)]
+mod tests_people;
+#[cfg(test)]
 mod tests_quit_unsaved;
 #[cfg(test)]
 mod tests_scroll;
+#[cfg(test)]
+mod tests_slider_speed;
+#[cfg(test)]
+mod tests_smart_sort;
 #[cfg(test)]
 mod tests_switch_library;
 #[cfg(test)]
@@ -104,6 +124,9 @@ pub struct Services {
     pub reveal: Option<RevealFn>,
     /// Choose a folder (Settings → General → Open Library…; desktop only).
     pub pick_folder: Option<PickFolder>,
+    /// Host bridge; UI stays independent of li-ai and its downloader.
+    pub download_models: Option<Box<dyn Fn(&str, bool) -> Result<(), String>>>,
+    pub model_download_status: Option<Box<dyn Fn(&str) -> ModelDownloadStatus>>,
     /// Open a web link in the browser (Help menu, About dialog).
     pub open_url: Option<OpenUrlFn>,
     /// Open a file in an external editor (Edit in External Editor; desktop only).
@@ -132,6 +155,14 @@ pub struct Perf {
     /// The slowest whole update since start.
     pub max_update_ms: f64,
     pub fps: f64,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ModelDownloadStatus {
+    pub running: bool,
+    pub done: u64,
+    pub total: u64,
+    pub error: Option<String>,
 }
 
 pub struct LightcraftApp {
@@ -197,6 +228,9 @@ pub struct LightcraftApp {
     pub scan: Option<import::ScanTask>,
     /// A background export in progress.
     pub export: Option<export_task::ExportTask>,
+    pub smart_sort: Option<smart_sort_task::SmartSortTask>,
+    pub people_task: Option<people_task::PeopleTask>,
+    pub people_images: people_task::SeedImages,
     /// Background file-system work of other commands (Find Missing Photos, auto import…).
     pub tasks: tasks::Tasks,
     /// The files of the last finished background export (`ui.inspect` → `export.last`).
@@ -206,7 +240,7 @@ pub struct LightcraftApp {
     pub hover_preview: Option<HoverPreview>,
     /// The window is in full screen (as last reported by the host, or as last requested).
     pub window_is_fullscreen: bool,
-    /// The GPU preference last applied (`app.gpu`), to apply Settings changes once.
+    /// The GPU preference last applied, to apply Settings changes once.
     gpu_applied: Option<bool>,
     /// The memory budget setting last applied (MB, 0 = automatic).
     memory_applied: Option<u32>,
@@ -223,6 +257,19 @@ pub struct LightcraftApp {
     pub host_composites: std::collections::HashMap<lightcraft_catalog::PhotoId, panels::host_composite::HostComposite>,
     /// local-image: "Open in Compositing" was clicked on such a photo: the host shows its document.
     pub host_composite_open: Option<lightcraft_catalog::PhotoId>,
+    // Rust drops fields in declaration order. Keep this last: renderer pools must stop and
+    // join their workers before we wait for compilation/queue idle, including in headless tests.
+    _gpu_exit: GpuExit,
+}
+
+struct GpuExit;
+
+impl Drop for GpuExit {
+    fn drop(&mut self) {
+        if !lightcraft_engine::gpu::quiesce(std::time::Duration::from_secs(120)) {
+            log::error!("GPU initialization/work did not finish before Library shutdown");
+        }
+    }
 }
 
 impl LightcraftApp {
@@ -265,6 +312,9 @@ impl LightcraftApp {
             import: None,
             scan: None,
             export: None,
+            smart_sort: None,
+            people_task: None,
+            people_images: Default::default(),
             tasks: Default::default(),
             last_export_result: None,
             hover_preview: None,
@@ -276,6 +326,7 @@ impl LightcraftApp {
             host_session: None,
             host_composites: Default::default(),
             host_composite_open: None,
+            _gpu_exit: GpuExit,
         }
     }
 
@@ -293,6 +344,8 @@ impl LightcraftApp {
         import::poll_scan(self, ctx);
         import::tick(self, ctx);
         tasks::poll(self, ctx);
+        smart_sort_task::poll(self, ctx);
+        people_task::poll(self, ctx);
         self.session.persist_if_dirty();
     }
 
@@ -666,6 +719,13 @@ impl LightcraftApp {
         }
         self.last_time = now;
         self.drain_control(ctx);
+        if self.ui.dragging_control.is_some() && self.session.interaction.is_none() {
+            // Selection, Undo or Cancel may finish the interaction through a command while
+            // the pointer is still held. Do not carry that gesture into another photo.
+            self.ui.dragging_control = None;
+            self.ui.sharpen_mask_preview = false;
+            ctx.stop_dragging();
+        }
         self.apply_settings(ctx);
         if !self.synthetic.is_empty() {
             ctx.request_repaint();
@@ -675,6 +735,7 @@ impl LightcraftApp {
         import::poll_scan(self, ctx);
         import::tick(self, ctx);
         tasks::poll(self, ctx);
+        people_task::poll(self, ctx);
         self.preview_build_status(ctx);
         self.save_status(ctx);
         self.slideshow_tick(ctx);
@@ -751,7 +812,9 @@ impl LightcraftApp {
     fn apply_settings(&mut self, ctx: &egui::Context) {
         if self.gpu_applied != Some(self.ui.settings.gpu) {
             self.gpu_applied = Some(self.ui.settings.gpu);
-            let _ = self.session.execute("app.gpu", &serde_json::json!({"enabled": self.ui.settings.gpu}));
+            // `app.gpu` is a synchronous diagnostic query: it creates the device. Applying a
+            // preference must only flip the flag here, leaving initialization to the worker.
+            lightcraft_engine::gpu::set_enabled(self.ui.settings.gpu);
             // GPU device + kernels off the UI thread, once the window is up and only when GPU
             // rendering is on: a broken driver must not keep the window from appearing (issue #136)
             if self.ui.settings.gpu {
@@ -816,8 +879,20 @@ impl LightcraftApp {
         self.perf.max_update_ms = self.perf.max_update_ms.max(self.perf.update_ms);
     }
 
+    fn finish_slider_if_released(&mut self, ctx: &egui::Context) {
+        // The dragged widget may disappear (panel closed, photo switched, focus lost). It then
+        // cannot report drag_stopped, but the session must still leave draft mode and commit.
+        if self.ui.dragging_control.is_some() && ctx.input(|i| !i.pointer.primary_down() || !i.focused) {
+            let _ = self.run("develop.endInteraction", serde_json::json!({}));
+            self.ui.dragging_control = None;
+            self.ui.sharpen_mask_preview = false;
+            ctx.request_repaint();
+        }
+    }
+
     /// Lay out the whole window.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        crate::color_icons::set_enabled(ui.ctx(), self.ui.settings.color_tool_icons);
         i18n::set_language(self.ui.language);
         let ctx = ui.ctx().clone();
         if !self.fonts_ready {
@@ -838,9 +913,11 @@ impl LightcraftApp {
             panels::second::show(self, &ctx);
             panels::notices::show(self, &ctx);
             panels::dialogs::show(self, &ctx);
+            panels::people_workspace::overlay(self, &ctx);
             panels::library_problem::show(self, &ctx);
             panels::toast(self, &ctx);
             self.widgets = widgets::take_registry(&ctx);
+            self.finish_slider_if_released(&ctx);
             self.end_frame(t0);
             return;
         }
@@ -885,13 +962,16 @@ impl LightcraftApp {
         panels::second::show(self, &ctx);
         panels::notices::show(self, &ctx);
         panels::dialogs::show(self, &ctx);
+        panels::people_workspace::overlay(self, &ctx);
         panels::library_problem::show(self, &ctx);
         import::progress(self, &ctx);
         import::scan_progress(self, &ctx);
         export_task::poll(self, &ctx);
+        smart_sort_task::poll(self, &ctx);
         panels::grid::drag_feedback(self, &ctx);
         panels::toast(self, &ctx);
         self.widgets = widgets::take_registry(&ctx);
+        self.finish_slider_if_released(&ctx);
         self.end_frame(t0);
     }
 }

@@ -164,6 +164,8 @@ impl InfoOverlay {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AppSettings {
+    /// Colour tool silhouettes; defaults on when loading older UI settings.
+    pub color_tool_icons: bool,
     /// Library opened at launch when no `--library` is given (empty = the default location).
     pub library_path: String,
     pub startup_view: StartupView,
@@ -185,11 +187,14 @@ pub struct AppSettings {
     pub film_badges: bool,
     /// Grid: when to show the rating / flag / edited badges.
     pub grid_badges: GridBadges,
+    /// Hover tips on the tool strip: rich, simple (name and shortcut) or off.
+    pub tool_tips: crate::panels::tool_tips::ToolTipMode,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         AppSettings {
+            color_tool_icons: true,
             library_path: String::new(),
             startup_view: StartupView::Last,
             confirm_delete: false,
@@ -201,6 +206,7 @@ impl Default for AppSettings {
             film_names: true,
             film_badges: true,
             grid_badges: GridBadges::Auto,
+            tool_tips: Default::default(),
         }
     }
 }
@@ -236,6 +242,8 @@ pub const MIN_PHOTO_WIDTH: f32 = 360.0;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct UiState {
+    #[serde(skip)]
+    pub people: crate::panels::people_workspace::PeopleUi,
     #[serde(default = "crate::i18n::default_language")]
     pub language: crate::i18n::Locale,
     /// The Build Previews run last announced (its identity, finished?).
@@ -455,6 +463,9 @@ impl Dialog {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Dialog {
+    SmartSort {
+        state: Box<crate::panels::smart_sort::SmartSortDialog>,
+    },
     NewAlbum {
         name: String,
         folder: bool,
@@ -624,6 +635,7 @@ pub enum Dialog {
 impl Default for UiState {
     fn default() -> Self {
         UiState {
+            people: Default::default(),
             language: crate::i18n::default_language(),
             preview_build_seen: None,
             unsaved_seen: false,

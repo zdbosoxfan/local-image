@@ -570,6 +570,44 @@ mod tests {
         }
     }
 
+    // docs/wip/CODEX-TASK.md explicitly defers translations for AI Remove and
+    // Draft/Refinement. These English additions intentionally use runtime fallback.
+    // Remove entries as their translations land; all other labels remain required.
+    const PENDING_AI_TRANSLATIONS: &[&str] = &[
+        "+",
+        "Choose or generate an image.",
+        "Compare with input",
+        "Comparison",
+        "Create a draft, then choose Draft result as the refinement input.",
+        "Denoise",
+        "Describe the draft…",
+        "Draft",
+        "Draft / Refinement",
+        "Draft / Refinement…",
+        "Draft preview",
+        "Draft result",
+        "Edit models — refine by reference",
+        "Generate draft",
+        "Grid: {multiple} px",
+        "Image models — refine by denoise",
+        "Input",
+        "Keep painting",
+        "Open as new document",
+        "Open image (composite)",
+        "Paint to mark removal; Alt/Option-drag subtracts",
+        "Refine image",
+        "Refinement",
+        "Refinement preview",
+        "Refinement uses the current pixels of the open image.",
+        "Refines by denoise: lower keeps more of the image",
+        "Refines by reference: the image guides the result",
+        "Remove immediately on release",
+        "Running…",
+        "Selected layer",
+        "Wheel to zoom; drag to pan",
+        "−",
+    ];
+
     /// Languages that claim complete menus have an entry for every label and path segment.
     #[test]
     fn complete_languages_translate_every_menu_string() {
@@ -589,7 +627,7 @@ mod tests {
         strings.remove("---");
         for l in LANGUAGES.iter().filter(|l| l.complete_menus) {
             let cat = l.catalog();
-            let missing: Vec<_> = strings.iter().filter(|s| cat.plain(s).is_none()).collect();
+            let missing: Vec<_> = strings.iter().filter(|s| !PENDING_AI_TRANSLATIONS.contains(s) && cat.plain(s).is_none()).collect();
             assert!(missing.is_empty(), "{}: untranslated menu strings: {missing:#?}", l.code);
         }
     }
@@ -599,7 +637,24 @@ mod tests {
     /// they are (names, units) are listed in `KEEP_AS_IS`.
     #[test]
     fn every_tl_literal_is_translated() {
-        const KEEP_AS_IS: &[&str] = &[];
+        // English until the next translation pass (GPU start-up recovery, October 2026).
+        // English until translations resume (owner, 2026-10-09: language work paused).
+        const KEEP_AS_IS: &[&str] =
+            &["Denoise", "Refine denoise", "Refine steps", "Refine guidance", "ComfyUI denoise: 1 regenerates the image, lower values keep more of it"];
+        // docs/wip/CODEX-TASK.md explicitly defers translation of the new background
+        // controls. Keep this exception scoped to their keys; remove it when translated.
+        const PENDING_BACKGROUND_TRANSLATIONS: &[&str] = &[
+            "Background blur amount",
+            "Background colour",
+            "Background removal options",
+            "Colour",
+            "IS-Net · CPU",
+            "Install a Subject & Background model to use Standard.",
+            "Keep…",
+            "Output",
+            "Remove the background using the chosen model and output",
+            "Subject & Background model: {model}",
+        ];
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut literals = std::collections::BTreeSet::new();
         let mut stack = vec![dir];
@@ -632,7 +687,15 @@ mod tests {
         assert!(literals.len() > 300, "scan found only {} literals", literals.len());
         for l in LANGUAGES.iter().filter(|l| l.complete_menus) {
             let cat = l.catalog();
-            let missing: Vec<_> = literals.iter().filter(|s| !KEEP_AS_IS.contains(&s.as_str()) && cat.plain(s).is_none()).collect();
+            let missing: Vec<_> = literals
+                .iter()
+                .filter(|s| {
+                    !KEEP_AS_IS.contains(&s.as_str())
+                        && !PENDING_BACKGROUND_TRANSLATIONS.contains(&s.as_str())
+                        && !PENDING_AI_TRANSLATIONS.contains(&s.as_str())
+                        && cat.plain(s).is_none()
+                })
+                .collect();
             assert!(missing.is_empty(), "{}: untranslated tl! strings: {missing:#?}", l.code);
         }
     }

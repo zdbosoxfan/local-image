@@ -2,7 +2,7 @@
 //! value), with nested groups. Field and operator lists come from `lightcraft_catalog::rules`.
 
 use egui::RichText;
-use lightcraft_catalog::rules::{FIELDS, Kind, field_kind, ops_for};
+use lightcraft_catalog::rules::{FIELDS, Kind, field_kind, ops_for_field};
 use lightcraft_catalog::{Match, Rule, RuleSet};
 use serde_json::{Value, json};
 
@@ -12,6 +12,7 @@ use crate::widgets::register;
 /// A sensible starting value for `field` / `op`.
 pub fn default_value(field: &str, op: &str) -> Value {
     match (field_kind(field), op) {
+        (_, "anyOf" | "allOf") if field == "person" => json!([]),
         (_, "isEmpty" | "isNotEmpty") => Value::Null,
         (Some(Kind::Date), "inLast" | "notInLast") => json!({"n": 30, "unit": "days"}),
         (Some(Kind::Date), "between") => json!(["", ""]),
@@ -71,7 +72,48 @@ fn number_value(ui: &mut egui::Ui, v: &mut Value, field: &str) {
 }
 
 /// The value editor for one rule.
-fn value_editor(ui: &mut egui::Ui, field: &str, op: &str, v: &mut Value, salt: &str) {
+fn person_picker(ui: &mut egui::Ui, op: &str, v: &mut Value, salt: &str, people: &[(u64, String)]) {
+    let multiple = v.is_array() || matches!(op, "anyOf" | "allOf");
+    let mut ids: Vec<_> = if let Some(a) = v.as_array() { a.iter().filter_map(Value::as_u64).collect() } else { v.as_u64().into_iter().collect() };
+    let names: Vec<_> = ids
+        .iter()
+        .map(|id| people.iter().find(|p| p.0 == *id).map(|p| p.1.clone()).unwrap_or_else(|| crate::i18n::tr_format!("Unnamed person {id}", id = id)))
+        .collect();
+    let label = if names.is_empty() { crate::i18n::tr("Choose people…").to_string() } else { names.join(", ") };
+    let t = Tokens::get(ui.ctx());
+    let r = crate::widgets::dropdown(ui, &format!("rule-person-{salt}"), &label, t.font(12.5), t.text);
+    register(ui.ctx(), format!("rulePerson:{salt}"), r.rect);
+    egui::Popup::menu(&r).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+        for (id, name) in people {
+            if multiple {
+                let mut selected = ids.contains(id);
+                let r = ui.checkbox(&mut selected, name);
+                register(ui.ctx(), format!("rulePerson:{salt}:{id}"), r.rect);
+                if r.changed() {
+                    if selected {
+                        ids.push(*id);
+                    } else {
+                        ids.retain(|p| p != id);
+                    }
+                    *v = json!(ids);
+                }
+            } else {
+                let r = ui.selectable_label(ids.contains(id), name);
+                register(ui.ctx(), format!("rulePerson:{salt}:{id}"), r.rect);
+                if r.clicked() {
+                    *v = json!(id);
+                    ui.close();
+                }
+            }
+        }
+    });
+}
+
+fn value_editor(ui: &mut egui::Ui, field: &str, op: &str, v: &mut Value, salt: &str, people: &[(u64, String)]) {
+    if field == "person" && (v.is_number() || v.is_array() || matches!(op, "anyOf" | "allOf")) {
+        person_picker(ui, op, v, salt, people);
+        return;
+    }
     match (field_kind(field), op) {
         (_, "isEmpty" | "isNotEmpty") => {}
         (Some(Kind::Date), "inLast" | "notInLast") => {
@@ -126,12 +168,17 @@ fn value_editor(ui: &mut egui::Ui, field: &str, op: &str, v: &mut Value, salt: &
             *v = json!(b);
         }
         (Some(Kind::Date), _) => text_value(ui, v, 120.0, "2026-04 or 2026-04-12", salt),
-        _ => text_value(ui, v, 140.0, "", salt),
+        _ => {
+            text_value(ui, v, 140.0, "", salt);
+            if field == "person" && matches!(op, "is" | "isNot") && !people.is_empty() {
+                person_picker(ui, op, v, salt, people);
+            }
+        }
     }
 }
 
 /// Edit `rs` in place; `salt` keeps widget ids apart between groups.
-pub fn edit(ui: &mut egui::Ui, rs: &mut RuleSet, salt: &str, depth: usize) {
+pub fn edit(ui: &mut egui::Ui, rs: &mut RuleSet, salt: &str, depth: usize, people: &[(u64, String)]) {
     let t = Tokens::get(ui.ctx());
     ui.horizontal(|ui| {
         ui.label(RichText::new(crate::i18n::tr("Match")).color(t.text_label));
@@ -149,7 +196,7 @@ pub fn edit(ui: &mut egui::Ui, rs: &mut RuleSet, salt: &str, depth: usize) {
                         if ui.small_button("−").on_hover_text(crate::i18n::tr("Remove this group")).clicked() {
                             remove = Some(i);
                         }
-                        ui.vertical(|ui| edit(ui, group, &rsalt, depth + 1));
+                        ui.vertical(|ui| edit(ui, group, &rsalt, depth + 1, people));
                     });
                 });
             }
@@ -157,30 +204,35 @@ pub fn edit(ui: &mut egui::Ui, rs: &mut RuleSet, salt: &str, depth: usize) {
                 ui.horizontal(|ui| {
                     let label = FIELDS.iter().find(|f| f.0 == field.as_str()).map_or(field.as_str(), |f| f.1).to_string();
                     egui::ComboBox::from_id_salt(format!("{rsalt}-field")).width(150.0).height(400.0).selected_text(label).show_ui(ui, |ui| {
-                        for (id, l, k) in FIELDS {
+                        for (id, l, _) in FIELDS {
                             if ui.selectable_label(field == id, *l).clicked() && field != id {
                                 *field = id.to_string();
-                                if !ops_for(*k).iter().any(|o| o.0 == op.as_str()) {
-                                    *op = ops_for(*k)[0].0.to_string();
+                                if !ops_for_field(field).iter().any(|o| o.0 == op.as_str()) {
+                                    *op = ops_for_field(field)[0].0.to_string();
                                 }
                                 *value = default_value(field, op);
                             }
                         }
                     });
-                    let kind = field_kind(field).unwrap_or(Kind::Text);
-                    let op_label = ops_for(kind).iter().find(|o| o.0 == op.as_str()).map_or(op.as_str(), |o| o.1).to_string();
-                    egui::ComboBox::from_id_salt(format!("{rsalt}-op")).width(110.0).selected_text(op_label).show_ui(ui, |ui| {
-                        for (id, l) in ops_for(kind) {
-                            if ui.selectable_label(op == id, *l).clicked() && op != id {
-                                let was_special = matches!(op.as_str(), "between" | "inLast" | "notInLast" | "isEmpty" | "isNotEmpty");
+                    let op_label = ops_for_field(field).iter().find(|o| o.0 == op.as_str()).map_or(op.as_str(), |o| o.1).to_string();
+                    egui::ComboBox::from_id_salt(format!("{rsalt}-op")).width(110.0).selected_text(crate::i18n::tr(&op_label)).show_ui(ui, |ui| {
+                        for (id, l) in ops_for_field(field) {
+                            if ui.selectable_label(op == id, crate::i18n::tr(l)).clicked() && op != id {
+                                let was_special =
+                                    matches!(op.as_str(), "between" | "inLast" | "notInLast" | "isEmpty" | "isNotEmpty" | "anyOf" | "allOf");
                                 *op = id.to_string();
-                                if was_special || matches!(*id, "between" | "inLast" | "notInLast" | "isEmpty" | "isNotEmpty") {
+                                if field == "person" && matches!(*id, "anyOf" | "allOf") {
+                                    *value = if value.is_array() { value.clone() } else { json!(value.as_u64().into_iter().collect::<Vec<_>>()) };
+                                } else if (field == "person" && !matches!(*id, "is" | "isNot") && (value.is_array() || value.is_number()))
+                                    || was_special
+                                    || matches!(*id, "between" | "inLast" | "notInLast" | "isEmpty" | "isNotEmpty" | "anyOf" | "allOf")
+                                {
                                     *value = default_value(field, op);
                                 }
                             }
                         }
                     });
-                    value_editor(ui, field, op, value, &rsalt);
+                    value_editor(ui, field, op, value, &rsalt, people);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let add = ui.small_button("+").on_hover_text(crate::i18n::tr("Add a rule (⌥-click: a group)"));
                         register(ui.ctx(), format!("button:ruleAdd-{rsalt}"), add.rect);
@@ -219,4 +271,17 @@ pub fn edit(ui: &mut egui::Ui, rs: &mut RuleSet, salt: &str, depth: usize) {
             }
         });
     }
+}
+
+/// The durable people known by this library, as readable choices for the rule editor.
+pub fn people_choices(app: &crate::LightcraftApp) -> Vec<(u64, String)> {
+    app.session
+        .smart
+        .people
+        .data
+        .people
+        .iter()
+        .filter(|p| !p.ignored)
+        .map(|p| (p.id, if p.name.is_empty() { crate::i18n::tr_format!("Unnamed person {id}", id = p.id) } else { p.name.clone() }))
+        .collect()
 }

@@ -22,4 +22,4 @@ pub use edit::{
 };
 pub use offset::{Cap, Join, offset_path, outline_stroke, stroke_region, try_offset_path};
 pub use pathfinder::{FaceMerger, PathfinderOp, Region, Shape, merge_regions, pathfinder, region_at, regions, try_pathfinder, try_regions};
-pub use planar::{BuilderArrangement, SHAPE_BUILDER_MAX_SEGMENTS, cut_out, encloses_area, interior_point, live_paint, shape_builder};
+pub use planar::{BuilderArrangement, SHAPE_BUILDER_MAX_SEGMENTS, cut_out, encloses_area, interior_point, live_paint, shape_builder, try_shape_builder};

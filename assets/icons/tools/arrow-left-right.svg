@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+<!-- Original Local Image tool artwork; GPL-3.0-or-later. Glossy Duotone, green family. -->
+<defs>
+<linearGradient id="a" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
+<linearGradient id="n" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
+<linearGradient id="aw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
+<linearGradient id="nw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
+<linearGradient id="shine" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="20"><stop stop-color="currentColor" stop-opacity=".28"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient>
+</defs>
+<g transform="translate(1.5 1.5) scale(.875)" fill="none" stroke="currentColor" stroke-width="1.43" stroke-linecap="round" stroke-linejoin="round">
+<g stroke-dasharray="2.2 2.5" stroke-linecap="butt"><g fill="none" stroke="currentColor" stroke-width="3.5"><rect x="2" y="2" width="20" height="20" rx=".6"/></g>
+<g fill="none" stroke="url(#nw)" stroke-width="2.2"><rect x="2" y="2" width="20" height="20" rx=".6"/></g>
+<g fill="none" stroke="url(#shine)" stroke-width="0.5"><rect x="2" y="2" width="20" height="20" rx=".6"/></g>
+</g>
+<g fill="url(#a)" stroke="currentColor" stroke-width="1.43" paint-order="stroke fill"><path d="M5 4H12L9.7 6.3L17.7 14.3L20 12V19H13L15.3 16.7L7.3 8.7L5 11Z" fill-rule="evenodd"/></g>
+<g fill="none" stroke="url(#shine)" stroke-width=".7" transform="translate(.2 .2)"><path d="M5 4H12L9.7 6.3L17.7 14.3L20 12V19H13L15.3 16.7L7.3 8.7L5 11Z" fill-rule="evenodd"/></g>
+<g fill="url(#a)" stroke="currentColor" stroke-width="1.43" paint-order="stroke fill"><path d="M20 4V11L17.7 8.7L9.7 16.7L12 19H5V12L7.3 14.3L15.3 6.3L13 4Z" fill-rule="evenodd"/></g>
+<g fill="none" stroke="url(#shine)" stroke-width=".7" transform="translate(.2 .2)"><path d="M20 4V11L17.7 8.7L9.7 16.7L12 19H5V12L7.3 14.3L15.3 6.3L13 4Z" fill-rule="evenodd"/></g>
+</g>
+</svg>

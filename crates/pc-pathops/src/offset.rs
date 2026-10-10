@@ -58,8 +58,8 @@ pub fn outline_stroke(path: &PathData, width: f64, cap: Cap, join: Join, miter_l
 /// The area covered by stroke outlines (each filled with the non-zero rule, open subpaths
 /// closed) as one clean path: overlaps removed and the stroker's pieces refitted.
 pub fn stroke_region(outlines: &[BezPath]) -> PathData {
-    let tidy = Tidy::free(DEFAULT_PRECISION);
     let parts: Vec<BezPath> = outlines.iter().map(close_all).filter(|o| !o.elements().is_empty()).collect();
+    let tidy = Tidy::free_for(DEFAULT_PRECISION, &parts);
     if let [one] = &parts[..] {
         return normalize_bez(one, FillRule::NonZero).map(|c| all_contours_to_path(&c, &tidy)).unwrap_or_default();
     }
@@ -101,6 +101,7 @@ pub fn try_offset_path(path: &PathData, delta: f64, join: Join, miter_limit: f64
     let ring = if d > 0.0 { stroke_bez(&closed.to_bezpath(), 2.0 * d, Cap::Butt, join, miter_limit) } else { BezPath::new() };
     let open_bp =
         if d > 0.0 && !open.is_empty() { stroke_bez(&PathData::new(open).to_bezpath(), 2.0 * d, Cap::Butt, join, miter_limit) } else { BezPath::new() };
+    let tidy = Tidy::free_for(DEFAULT_PRECISION, [&fill, &ring, &open_bp]);
     let arr = Arrangement::new(vec![(fill, FillRule::NonZero), (ring, FillRule::NonZero), (open_bp, FillRule::NonZero)])?;
     let c = if delta >= 0.0 { arr.contours(|m| m[0] || m[1] || m[2]) } else { arr.contours(|m| m[0] && !m[1]) };
     // When `d` exceeds a curvature radius the stroker's inner offset inverts and its loops cancel
@@ -112,10 +113,10 @@ pub fn try_offset_path(path: &PathData, delta: f64, join: Join, miter_limit: f64
     let spurious: Vec<bool> =
         c.contours().map(|k| k.outer == drop_outer && deep_point(&k.path).is_some_and(|p| dist_to(&src, p) < d * (1.0 - 1e-4) - 1e-6)).collect();
     if !spurious.contains(&true) {
-        return Ok(all_contours_to_path(&c, &Tidy::free(DEFAULT_PRECISION)));
+        return Ok(all_contours_to_path(&c, &tidy));
     }
     let keep = (0..spurious.len()).filter(|&i| !has_marked_ancestor(&c, i, &spurious)).map(ContourIdx);
-    Ok(contours_to_path(&c, keep, &Tidy::free(DEFAULT_PRECISION)))
+    Ok(contours_to_path(&c, keep, &tidy))
 }
 
 fn has_marked_ancestor(c: &Contours, mut i: usize, marked: &[bool]) -> bool {

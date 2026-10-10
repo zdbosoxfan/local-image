@@ -174,7 +174,13 @@ pub struct BuilderArrangement {
     pub edges: Vec<Shape>,
 }
 pub fn shape_builder(input: &[Shape], edges: bool) -> Result<BuilderArrangement> {
-    let a = kernel::shape_builder(&shapes(input, false)?, edges);
+    let shapes = shapes(input, false)?;
+    if shapes.iter().flat_map(|s| &s.path.subpaths).map(|s| s.segment_count()).sum::<usize>() > kernel::SHAPE_BUILDER_MAX_SEGMENTS
+        && shapes.iter().flat_map(|s| &s.path.subpaths).any(|s| !s.closed)
+    {
+        return Err(PathOpsError::Degenerate);
+    }
+    let a = kernel::try_shape_builder(&shapes, edges)?;
     Ok(BuilderArrangement {
         regions: a.regions.into_iter().map(|r| Region { path: from_geometry(&r.path), sources: r.sources }).collect(),
         lines: a.lines.into_iter().map(|s| Shape::new(from_geometry(&s.path), s.key)).collect(),
@@ -183,8 +189,11 @@ pub fn shape_builder(input: &[Shape], edges: bool) -> Result<BuilderArrangement>
 }
 pub fn merge_regions(input: &[Shape], faces: &[&Region]) -> Result<Path> {
     let shapes = shapes(input, false)?;
+    for region in faces {
+        validate(&region.path)?;
+    }
     let regions: Vec<kernel::Region> = faces.iter().map(|r| kernel::Region { path: to_geometry(&r.path), sources: r.sources.clone() }).collect();
-    Ok(from_geometry(&kernel::FaceMerger::new(&shapes).merge(&regions.iter().collect::<Vec<_>>())))
+    Ok(from_geometry(&kernel::FaceMerger::new(&shapes).try_merge(&regions.iter().collect::<Vec<_>>())?))
 }
 
 pub fn offset_path(path: &Path, delta: f64, join: crate::Join, miter: f64) -> Result<Path> {
@@ -249,6 +258,7 @@ pub fn outline_stroke(path: &Path, stroke: &ShapeStroke, tolerance: f64) -> Resu
 fn edit(path: &Path, f: impl FnOnce(&geom::PathData) -> geom::PathData) -> Result<Path> {
     validate(path)?;
     let mut out = from_geometry(&f(&to_geometry(path)));
+    validate(&out)?;
     out.fill_rule = path.fill_rule;
     out.inverted = path.inverted;
     for (s, old) in out.subpaths.iter_mut().zip(&path.subpaths) {
@@ -358,8 +368,41 @@ pub fn fit_path(points: &[Point], tolerance: f64) -> Result<Path> {
     let t1 = kernel::fit::unit(pts[pts.len() - 1] - pts[pts.len() - 2]).unwrap_or(t0);
     let mut bp = kurbo::BezPath::new();
     bp.move_to(pts[0]);
-    for c in kernel::fit::fit_cubics(&pts, t0, t1, tolerance) {
+    for c in kernel::fit::fit_cubics(&pts, t0, t1, tolerance * 0.5) {
         bp.curve_to(c.p1, c.p2, c.p3);
     }
-    Ok(from_geometry(&geom::PathData::from_bezpath(&bp)))
+    // VC's sampled-point fitter provides the initial regular cubics; kurbo optimizes
+    // their subdivision with the other half of the requested error budget.
+    let candidate = geom::PathData::from_bezpath(&bp);
+    let output = from_geometry(&kernel::simplify(&candidate, tolerance * 0.5));
+    validate(&output)?;
+    Ok(output)
+}
+
+/// Analytic bounds as a Path method without a pc-doc dependency on geometry libraries.
+/// Import `photocraft_pathops::PathBounds` to call `path.bounds()`.
+pub trait PathBounds {
+    fn bounds(&self) -> Option<(f64, f64, f64, f64)>;
+}
+impl PathBounds for Path {
+    fn bounds(&self) -> Option<(f64, f64, f64, f64)> {
+        bounds(self).ok().flatten()
+    }
+}
+/// Tight cubic-extrema bounds, including singleton anchors, excluding unused endpoint handles.
+pub fn bounds(path: &Path) -> Result<Option<(f64, f64, f64, f64)>> {
+    validate(path)?;
+    let mut result: Option<kurbo::Rect> = None;
+    for s in &path.subpaths {
+        for k in &s.knots {
+            let p = kurbo::Point::new(k.anchor.x, k.anchor.y);
+            result = Some(result.map_or(kurbo::Rect::from_points(p, p), |r| r.union_pt(p)));
+        }
+        for [p0, p1, p2, p3] in s.segments() {
+            let pt = |p: Point| kurbo::Point::new(p.x, p.y);
+            let b = kurbo::CubicBez::new(pt(p0), pt(p1), pt(p2), pt(p3)).bounding_box();
+            result = Some(result.map_or(b, |r| r.union(b)));
+        }
+    }
+    Ok(result.map(|r| (r.x0, r.y0, r.x1, r.y1)))
 }

@@ -108,6 +108,8 @@ pub enum Encode {
     QwenImage21,
     /// `TextEncodeQwenImageEditPlus` with up to three images (Qwen Image Edit 2509 / 2511).
     QwenEditPlus,
+    /// The original single-image Qwen Image Edit encoder.
+    QwenEdit,
 }
 
 /// Which sampler graph.
@@ -368,6 +370,17 @@ pub struct ModelDef {
     pub presets: Vec<PresetDef>,
 }
 
+/// Known weight variants within a family (e.g. HiDream Dev vs Full), resolved by installed
+/// filename. Patterns use the component rule's `*`-separated substrings; first matching rule wins.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FileOverride {
+    pub patterns: Vec<String>,
+    pub sampling: Option<Sampling>,
+    pub pipeline: Option<Value>,
+    pub capabilities: Option<Capabilities>,
+}
+
 /// A model family profile.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -396,9 +409,20 @@ pub struct Family {
     pub civitai_base_models: Vec<String>,
     pub hf_tags: Vec<String>,
     pub models: Vec<ModelDef>,
+    pub file_overrides: Vec<FileOverride>,
 }
 
 impl Family {
+    /// Defaults for an installed main-weights file, before any curated model overrides.
+    pub fn resolved_for_file(&self, name: &str) -> Family {
+        let name = name.replace('\\', "/");
+        let name = name.rsplit('/').next().unwrap_or(&name);
+        match self.file_overrides.iter().find(|r| r.patterns.iter().any(|p| crate::inventory::pattern_matches(p, name))) {
+            Some(r) => self.resolved_for(&ModelDef { sampling: r.sampling, pipeline: r.pipeline.clone(), capabilities: r.capabilities, ..Default::default() }),
+            None => self.clone(),
+        }
+    }
+
     /// The sampling, capabilities and pipeline `model` actually runs with.
     pub fn resolved_for(&self, model: &ModelDef) -> Family {
         let mut f = self.clone();

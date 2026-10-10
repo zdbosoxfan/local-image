@@ -257,6 +257,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         picker(app, ui, id, &shown, current.is_some(), items);
     }
 
+    super::people_workspace::facet(app, ui);
+
     // save / clear
     ui.add_space(14.0);
     let filtering = app.session.filter != Default::default();

@@ -3757,6 +3757,7 @@ dependencies = [
  "log",
  "rand 0.9.5",
  "rayon",
+ "rustls-rustcrypto",
  "serde",
  "serde_json",
  "sha2",
@@ -4102,6 +4103,7 @@ name = "lightcraft-ui-egui"
 version = "2.0.0-alpha.1"
 dependencies = [
  "egui",
+ "egui_extras",
  "li-attributions",
  "lightcraft-catalog",
  "lightcraft-codecs",
@@ -4114,6 +4116,7 @@ dependencies = [
  "lightcraft-preview",
  "lightcraft-raster",
  "log",
+ "rayon",
  "serde",
  "serde_json",
  "toml",
@@ -5196,6 +5199,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
 
 [[package]]
+name = "pc-trace"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "image",
+ "kurbo 0.13.1",
+ "photocraft-color",
+ "photocraft-compose",
+ "photocraft-doc",
+ "photocraft-geom",
+ "photocraft-gpu",
+ "photocraft-testkit",
+ "photocraft-vector",
+ "pollster 1.0.1",
+ "proptest",
+ "resvg",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "ttf-parser",
+ "wgpu",
+]
+
+[[package]]
 name = "pem-rfc7468"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5366,7 +5392,6 @@ dependencies = [
 name = "photocraft-doc"
 version = "2.0.0-alpha.1"
 dependencies = [
- "kurbo 0.13.1",
  "photocraft-color",
  "photocraft-geom",
  "photocraft-raster",
@@ -5384,6 +5409,7 @@ dependencies = [
  "image",
  "li-ai",
  "li-seg",
+ "pc-trace",
  "photocraft-algo",
  "photocraft-cms",
  "photocraft-codecs",
@@ -5517,6 +5543,7 @@ dependencies = [
  "linesweeper",
  "photocraft-doc",
  "photocraft-geom",
+ "photocraft-testkit",
  "photocraft-vector",
  "polycool",
  "proptest",
@@ -5586,10 +5613,15 @@ dependencies = [
 name = "photocraft-testkit"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "image",
+ "kurbo 0.13.1",
  "memory-stats",
  "photocraft-color",
+ "photocraft-doc",
  "photocraft-geom",
  "photocraft-raster",
+ "photocraft-vector",
+ "resvg",
  "serde_json",
 ]
 
@@ -6630,7 +6662,6 @@ checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
 dependencies = [
  "log",
  "once_cell",
- "ring",
  "rustls-pki-types",
  "rustls-webpki 0.103.15",
  "subtle",
@@ -9092,6 +9123,7 @@ dependencies = [
  "flate2",
  "hex",
  "quick-xml 0.38.4",
+ "rustls-rustcrypto",
  "serde",
  "serde_json",
  "sha2",

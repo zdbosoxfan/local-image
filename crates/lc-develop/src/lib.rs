@@ -47,6 +47,11 @@ impl DevelopSettings {
             o.entry("lens_db").or_insert_with(|| serde_json::to_value(&self.lens_db).unwrap_or(Value::Null));
             o.entry("tone_eq").or_insert_with(|| serde_json::to_value(self.tone_eq).unwrap_or(Value::Null));
             o.entry("color_cal").or_insert_with(|| serde_json::to_value(self.color_cal).unwrap_or(Value::Null));
+            o.entry("skin_tone").or_insert_with(|| serde_json::to_value(self.skin_tone).unwrap_or(Value::Null));
+            if let Some(Value::Object(e)) = o.get_mut("effects") {
+                e.entry("structure").or_insert_with(|| serde_json::json!(self.effects.structure));
+                e.entry("clarity_mode").or_insert_with(|| serde_json::json!(self.effects.clarity_mode));
+            }
             o.entry("look").or_insert_with(|| serde_json::to_value(self.look).unwrap_or(Value::Null));
             o.entry("look_options").or_insert_with(|| serde_json::to_value(self.look_options).unwrap_or(Value::Null));
             if let Some(Value::Object(c)) = o.get_mut("curve") {
@@ -118,6 +123,7 @@ impl DevelopSettings {
             }
             Section::LensDb => self.lens_db = LensDb { enabled: self.lens_db.enabled, ..LensDb::default() },
             Section::ToneEq => self.tone_eq = ToneEq { enabled: self.tone_eq.enabled, ..ToneEq::default() },
+            Section::SkinTone => self.skin_tone = SkinTone::default(),
             Section::ColorCal => self.color_cal = ColorCal { enabled: self.color_cal.enabled, ..ColorCal::default() },
             _ => {}
         }

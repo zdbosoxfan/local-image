@@ -21,7 +21,7 @@ pub use geometry::{Affine, Letterbox, REFERENCE_LANDMARKS, letterbox, similarity
 mod cluster;
 pub use cluster::{Assignment, Cluster, FaceNode, NamedPerson, NodeKey, assign_cluster, assign_person, chinese_whispers, cosine, normalise_embedding};
 
-/// Download metadata only; registration in the model manager belongs to Phase 3b.
+/// Pinned download metadata, also registered in the model manager’s Faces bundle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FaceModelFile {
     pub file: &'static str,

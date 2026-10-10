@@ -177,9 +177,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let max_edge = app.ui.settings.preview_edge.clamp(512, 8192) as f32;
     let native = [photo.width.max(1) as usize, photo.height.max(1) as usize];
     // two views (before, after): side by side or stacked
-    let split = matches!(app.ui.before_after, BeforeAfter::SideBySide | BeforeAfter::TopBottom);
-    let split_view = matches!(app.ui.before_after, BeforeAfter::Split | BeforeAfter::SplitTopBottom);
-    let areas: Vec<Rect> = match app.ui.before_after {
+    // A Library preview represents the whole layered document, regardless of remembered Develop
+    // before/after or preset-hover state. Develop itself still renders the original photo.
+    let composite = !right.is_edit_tool() && app.host_composites.contains_key(&id);
+    let split = !composite && matches!(app.ui.before_after, BeforeAfter::SideBySide | BeforeAfter::TopBottom);
+    let split_view = !composite && matches!(app.ui.before_after, BeforeAfter::Split | BeforeAfter::SplitTopBottom);
+    let areas: Vec<Rect> = match if composite { BeforeAfter::Off } else { app.ui.before_after } {
         BeforeAfter::SideBySide => {
             let half = area.width() / 2.0 - 6.0;
             vec![
@@ -202,9 +205,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     app.image_rect = Some(img_rect);
     // request renders: the loupe at display resolution (drafts during drags)
     let interacting = app.session.interaction.is_some();
-    let scale = if interacting { 0.6 } else { 1.0 };
     // render at the final size: a click-zoom animation only changes how the result is drawn
-    let want = (target_rect.width().max(target_rect.height()) * ppp * scale).min(max_edge) as usize;
+    let want = crate::render::view_edge(target_rect.width().max(target_rect.height()) * ppp, max_edge, interacting);
     let (rw, rh) = if aspect >= 1.0 { (want, (want as f32 / aspect) as usize) } else { ((want as f32 * aspect) as usize, want) };
     if let Some(job) = app.session.loupe_job(id, rw.max(8), rh.max(8), !crop_tool) {
         let job = if interacting { job.draft() } else { job };
@@ -279,7 +281,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     let shown;
     let mut composite_button = None;
-    if split {
+    if let Some(button) = composite.then(|| super::host_composite::loupe(app, ui, id, main_area)).flatten() {
+        composite_button = Some(button);
+        shown = "compositing";
+    } else if split {
         let br = fit_rect(areas[0], aspect, app.ui.zoom, native, ppp, app.ui.pan);
         draw(Slot::Before, br);
         shown = draw(Slot::Main, img_rect);
@@ -297,10 +302,6 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         p.rect_filled(bg, 4.0, Color32::from_black_alpha(160));
         p.galley(bg.min + vec2(8.0, 4.0), g, Color32::WHITE);
         shown = "hover";
-    } else if let Some(button) = (!right.is_edit_tool()).then(|| super::host_composite::loupe(app, ui, id, main_area)).flatten() {
-        // local-image: being edited in Compositing (unsaved): the Library shows it as it is there
-        composite_button = Some(button);
-        shown = "compositing";
     } else {
         shown = draw(Slot::Main, img_rect);
         if shown == "none" {
@@ -322,7 +323,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         }
     }
     app.loupe_shown = Some((id, shown));
-    if app.ui.before_after == BeforeAfter::Split {
+    if split_view && app.ui.before_after == BeforeAfter::Split {
         let mid = img_rect.center().x;
         if let Some(tex) = app.renderer.textures.get(&Slot::Before).filter(|t| t.photo == id) {
             let left = Rect::from_min_max(img_rect.min, pos2(mid, img_rect.bottom()));
@@ -330,7 +331,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         }
         p.line_segment([pos2(mid, img_rect.top()), pos2(mid, img_rect.bottom())], Stroke::new(1.5, Color32::WHITE));
     }
-    if app.ui.before_after == BeforeAfter::SplitTopBottom {
+    if split_view && app.ui.before_after == BeforeAfter::SplitTopBottom {
         let mid = img_rect.center().y;
         if let Some(tex) = app.renderer.textures.get(&Slot::Before).filter(|t| t.photo == id) {
             let top = Rect::from_min_max(img_rect.min, pos2(img_rect.right(), mid));
@@ -584,7 +585,7 @@ fn region_overlay(
 /// follow them, so a filter must never be invisible here. A click clears them all. It sits in the
 /// canvas margin, so the photo does not move.
 fn filter_pill(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect) {
-    let chips = lightcraft_engine::filter_chips(&app.session.filter, &app.session.catalog);
+    let chips = super::people_workspace::filter_chips(app);
     if chips.is_empty() {
         return;
     }
@@ -808,6 +809,23 @@ fn general_interaction(
             if let Err(e) = app.run("mask.sampleColor", json!({"x": n.x, "y": n.y, "add": add})) {
                 app.toast(ui.ctx(), e);
             }
+        }
+        return;
+    }
+    if app.ui.tool == "skinTone" {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+        if resp.clicked()
+            && let Some(q) = resp.interact_pointer_pos()
+        {
+            let n = map.norm(q);
+            let mut args = json!({"x":n.x,"y":n.y});
+            if let Some(id) = app.ui.point_color_mask {
+                args["mask"] = json!(id);
+            }
+            if let Err(e) = app.run("skinTone.pick", args) {
+                app.toast(ui.ctx(), e);
+            }
+            app.ui.tool.clear();
         }
         return;
     }

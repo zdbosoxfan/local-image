@@ -10,7 +10,7 @@ use crate::geom::{Anchor, PathData, SubPath};
 use kurbo::{CubicBez, ParamCurveArclen, Point, Rect, Vec2};
 
 use crate::kernel::boolean::{Seg, segs_to_subpath};
-use crate::kernel::fit::{end_tangent, fit_cubics, fit_single, fit_single_from, is_straight, sample, start_tangent};
+use crate::kernel::fit::{end_tangent, fit_single, fit_single_from, sample, start_tangent};
 
 /// Options for [`simplify_with`].
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -48,7 +48,7 @@ fn turn_deg(a: &Seg, b: &Seg) -> f64 {
     d.acos().to_degrees()
 }
 
-/// Least-squares Bézier refit of every subpath, keeping corners sharper than the threshold.
+/// Optimal kurbo refit of each smooth run, keeping VectorCraft corner boundaries.
 pub fn simplify_with(path: &PathData, opts: &SimplifyOptions) -> PathData {
     let tol = opts.tolerance.max(1e-6);
     let mut out = Vec::new();
@@ -83,23 +83,36 @@ pub fn simplify_with(path: &PathData, opts: &SimplifyOptions) -> PathData {
             if run.is_empty() {
                 continue;
             }
-            let mut pts = Vec::new();
-            for (k, s) in run.iter().enumerate() {
-                let len = s.c.arclen(1e-6);
-                let m = ((len / (tol * 0.5)).ceil() as usize).clamp(4, 256);
-                sample(&s.c, m, &mut pts, k == 0);
-            }
             if opts.straight_lines {
+                let mut pts = Vec::new();
+                for (k, s) in run.iter().enumerate() {
+                    let len = s.c.arclen(1e-6);
+                    let m = ((len / (tol * 0.5)).ceil() as usize).clamp(4, 256);
+                    sample(&s.c, m, &mut pts, k == 0);
+                }
                 let keep = rdp(&pts, tol);
                 result.extend(keep.windows(2).map(|p| Seg::line(p[0], p[1])));
                 continue;
             }
-            let t0 = start_tangent(&run[0].c);
-            let t1 = end_tangent(&run[run.len() - 1].c);
-            for c in fit_cubics(&pts, t0, t1, tol) {
-                let line = is_straight(&c, tol * 0.02);
-                result.push(if line { Seg::line(c.p0, c.p3) } else { Seg { c, line } });
+            let mut bp = kurbo::BezPath::new();
+            bp.move_to(run[0].c.p0);
+            for seg in run {
+                // kurbo documents zero endpoint derivatives as a limitation of SimplifyBezPath.
+                // Represent straight pieces as regular cubics with constant derivative.
+                let c = if seg.line {
+                    let d = (seg.c.p3 - seg.c.p0) / 3.0;
+                    CubicBez::new(seg.c.p0, seg.c.p0 + d, seg.c.p3 - d, seg.c.p3)
+                } else {
+                    seg.c
+                };
+                bp.curve_to(c.p1, c.p2, c.p3);
             }
+            let source = kurbo::simplify::SimplifyBezPath::new(bp.iter());
+            // kurbo's experimental optimizer estimates the fitting error. Reserve half
+            // the requested tolerance for its approximation (dense wobbly curves can
+            // exceed the nominal estimate); the persisted tolerance regression covers it.
+            let fitted = kurbo::fit_to_bezpath_opt(&source, tol * 0.5);
+            result.extend(fitted.segments().map(crate::kernel::boolean::to_seg));
         }
         if let Some(s) = segs_to_subpath(&result, sp.closed) {
             out.push(if opts.straight_lines { s } else { no_worse(sp, s) });

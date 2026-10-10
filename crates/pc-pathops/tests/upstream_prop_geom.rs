@@ -6,6 +6,7 @@
 // Integration tests: unwrapping and panicking on failure is fine here, unlike in shipped code (AGENTS.md › Robustness).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+mod common;
 mod support;
 use photocraft_pathops::geom::hit::{distance_to_outline, fill_contains, stroke_contains};
 use photocraft_pathops::geom::{Affine, BezPath, FillRule, PathData, PathEl, Point, Rect, Shape, Vec2, shapes};
@@ -54,7 +55,7 @@ fn crossing_winding(bp: &BezPath, p: Point) -> i32 {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 256, failure_persistence: None, ..ProptestConfig::default() })]
+    #![proptest_config(common::config(256))]
 
     /// PathData → BezPath → PathData → BezPath is the identity on the Bézier geometry.
     #[test]

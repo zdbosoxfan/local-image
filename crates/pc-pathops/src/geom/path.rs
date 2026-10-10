@@ -170,9 +170,11 @@ impl SubPath {
     /// screen (y down), negative when counter-clockwise.
     pub fn signed_area(&self) -> f64 {
         use kurbo::ParamCurveArea;
-        let a: f64 = (0..self.segment_count()).map(|i| self.segment(i).signed_area()).sum();
+        let origin = self.anchors.first().map_or(kurbo::Point::ZERO, |a| a.p);
+        let shift = kurbo::Affine::translate((-origin.x, -origin.y));
+        let a: f64 = (0..self.segment_count()).map(|i| (shift * self.segment(i)).signed_area()).sum();
         match (self.closed, self.anchors.first(), self.anchors.last()) {
-            (false, Some(f), Some(l)) => a + kurbo::Line::new(l.p, f.p).signed_area(),
+            (false, Some(f), Some(l)) => a + kurbo::Line::new(shift * l.p, shift * f.p).signed_area(),
             _ => a,
         }
     }

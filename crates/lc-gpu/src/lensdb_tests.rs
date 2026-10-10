@@ -249,7 +249,7 @@ fn lens_database_renders_reuse_uploaded_source() {
     for (i, strength) in [100.0, 0.0, 200.0, 100.0].into_iter().enumerate() {
         info.lens_db = Some(profiles()[i % 3]);
         let s = settings(Orientation::Normal, strength);
-        assert!(render(gpu, &src, &info, &s, &req, Some(&stages), None).is_some());
+        assert!(render(gpu, &src, &info, &s, &req, Some(&stages), None, lightcraft_pipeline::primary::DEFAULT_HS_METHOD).is_some());
         let source = stages.source.lock().unwrap_or_else(|e| e.into_inner());
         let b = source.as_ref().expect("lens frames upload the source rather than CPU resampling").uploaded.clone();
         if let Some(previous) = &uploaded {

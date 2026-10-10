@@ -32,13 +32,36 @@ pub fn evaluate(masks: &[Mask], frame: &Frame, w: usize, h: usize, img: &Rgb32f,
         .collect()
 }
 
+/// Range colours measured after this photo's tone map, in perceptual OkLab.
+#[allow(clippy::too_many_arguments)]
+pub fn evaluate_with_tone(
+    masks: &[Mask],
+    frame: &Frame,
+    w: usize,
+    h: usize,
+    img: &Rgb32f,
+    log_l: &Plane,
+    ev: f32,
+    tone: &crate::ToneMap,
+) -> Vec<Evaluated> {
+    masks
+        .iter()
+        .filter(|m| m.visible && !m.components.is_empty())
+        .map(|m| Evaluated { id: m.id, alpha: evaluate_one_tone(m, frame, w, h, img, log_l, ev, Some(tone)), adjust: m.adjust })
+        .collect()
+}
+
 /// The alpha plane of mask `m` (whether visible or not): its components combined, inverted and
 /// scaled by its amount and opacity ([`mask_scale`]).
 pub fn evaluate_one(m: &Mask, frame: &Frame, w: usize, h: usize, img: &Rgb32f, log_l: &Plane, ev: f32) -> Plane {
+    evaluate_one_tone(m, frame, w, h, img, log_l, ev, None)
+}
+#[allow(clippy::too_many_arguments)]
+pub fn evaluate_one_tone(m: &Mask, frame: &Frame, w: usize, h: usize, img: &Rgb32f, log_l: &Plane, ev: f32, tone: Option<&crate::ToneMap>) -> Plane {
     let mut alpha = Plane::new(w, h);
     let mut first = true;
     for comp in &m.components {
-        let mut c = shape_alpha(&comp.shape, frame, w, h, img, log_l, ev);
+        let mut c = shape_alpha_tone(&comp.shape, frame, w, h, img, log_l, ev, tone);
         if comp.invert {
             c.data.iter_mut().for_each(|v| *v = 1.0 - *v);
         }
@@ -95,6 +118,19 @@ fn for_each_pos(frame: &Frame, w: usize, h: usize, out: &mut Plane, f: impl Fn(P
 }
 
 pub fn shape_alpha(shape: &MaskShape, frame: &Frame, w: usize, h: usize, img: &Rgb32f, log_l: &Plane, ev: f32) -> Plane {
+    shape_alpha_tone(shape, frame, w, h, img, log_l, ev, None)
+}
+#[allow(clippy::too_many_arguments)]
+pub fn shape_alpha_tone(
+    shape: &MaskShape,
+    frame: &Frame,
+    w: usize,
+    h: usize,
+    img: &Rgb32f,
+    log_l: &Plane,
+    ev: f32,
+    tone: Option<&crate::ToneMap>,
+) -> Plane {
     let mut out = Plane::new(w, h);
     let to_long = |p: Point| frame.norm_to_long(p);
     // `img`/`log_l` are before exposure: range masks select on the exposed values.
@@ -136,7 +172,9 @@ pub fn shape_alpha(shape: &MaskShape, frame: &Frame, w: usize, h: usize, img: &R
             let tol = 0.04 + 0.16 * (*refine as f32 / 100.0);
             let samples: Vec<[f32; 3]> = samples.iter().map(|s| [s[0] as f32, s[1] as f32, s[2] as f32]).collect();
             for (v, c) in out.data.iter_mut().zip(&img.data) {
-                let lab = lightcraft_color::perceptual::oklab_from_2020(tonemap_for_select(c.map(|v| v * gain)));
+                let lab = lightcraft_color::perceptual::oklab_from_2020(
+                    tone.map_or_else(|| tonemap_for_select(c.map(|v| v * gain)), |t| crate::tone2::tone_px(t, &t.method(), c.map(|v| v * gain))),
+                );
                 let d = samples
                     .iter()
                     .map(|s| ((lab[1] - s[1]).powi(2) + (lab[2] - s[2]).powi(2) + 0.25 * (lab[0] - s[0]).powi(2)).sqrt())

@@ -62,7 +62,7 @@ impl SettingsHashes {
 }
 
 /// Bump when the pipeline's output changes, to invalidate cached thumbnails.
-pub const RENDER_CACHE_VERSION: u64 = 14;
+pub const RENDER_CACHE_VERSION: u64 = 15;
 
 /// Thumbnails render at one of these long edges (so window/cell size changes reuse the cache).
 pub const THUMB_SIZES: [usize; 4] = [128, 256, 384, 512];
@@ -647,22 +647,46 @@ impl RenderJob {
 /// the CPU, reusing `stages` either way. Both produce the same image within 1–3 LSB (see
 /// `docs/gpu-pipeline.md`); `LIGHTCRAFT_GPU=0` or [`lightcraft_gpu::set_enabled`] forces the CPU.
 pub fn develop(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: Option<&StageCache>, gpu: bool) -> Rendered {
-    // LUT profiles have no GPU stage: they render on the CPU
-    if gpu
-        && !lightcraft_pipeline::lut::is_lut_profile(&s.profile.id)
-        && !s.masks.iter().any(|m| m.visible && m.refine > 0.0)
-        // develop layer tools have no GPU kernels yet
-        && !lightcraft_pipeline::layers_need_cpu(s)
-        // nor the tone equalizer
-        && !lightcraft_pipeline::tools_need_cpu(s, req)
-        && req.proof.is_none()
-        && let Some(r) = lightcraft_gpu::render(src, info, s, req, stages)
-    {
-        return r;
+    if gpu {
+        let cpu_reason = if lightcraft_pipeline::lut::is_lut_profile(&s.profile.id) {
+            "the selected LUT profile requires CPU processing".to_string()
+        } else if s.masks.iter().any(|m| m.visible && m.refine > 0.0) {
+            "mask refinement requires CPU processing".to_string()
+        } else if req.proof.is_some() {
+            "soft proofing requires CPU processing".to_string()
+        } else if req.depth == lightcraft_pipeline::OutputDepth::F32Linear {
+            "linear float output requires CPU processing".to_string()
+        } else if let Some(r) = lightcraft_gpu::render(src, info, s, req, stages) {
+            log_develop_backend(&format!("GPU: {}", lightcraft_gpu::adapter_name().unwrap_or_default()));
+            return r;
+        } else {
+            lightcraft_gpu::unavailable_reason().or_else(lightcraft_gpu::last_fallback).unwrap_or_else(|| "GPU render unavailable".into())
+        };
+        log_develop_backend(&format!("CPU: {cpu_reason}"));
     }
     match stages {
         Some(st) => lightcraft_pipeline::render_cached(src, info, s, req, st),
         None => lightcraft_pipeline::render(src, info, s, req),
+    }
+}
+
+#[cfg(test)]
+thread_local! { static USED_GPU: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+#[cfg(test)]
+pub(crate) fn develop_used_gpu() -> bool {
+    USED_GPU.with(std::cell::Cell::get)
+}
+
+/// Log the backend actually used, including host-side refusals that never enter the GPU crate.
+/// Emit changes only: a slider must not flood the app log with a line for every preview step.
+fn log_develop_backend(backend: &str) {
+    #[cfg(test)]
+    USED_GPU.with(|c| c.set(backend.starts_with("GPU:")));
+    static LAST: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if *last != backend {
+        log::info!("Develop render backend: {backend}");
+        backend.clone_into(&mut last);
     }
 }
 

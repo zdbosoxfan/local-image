@@ -158,7 +158,7 @@ proptest! {
         let s = simplify(&c, tol);
         let (a, b) = (c.to_bezpath(), s.to_bezpath());
         let err = hausdorff(&a, &b, 24);
-        prop_assert!(err <= tol * 1.1 + 1e-6, "simplify error {err} > tol {tol}");
+        prop_assert!(err <= tol + 1e-6, "simplify error {err} > tol {tol}");
         // Endpoints are preserved on open paths.
         let (c0, s0) = (&c.subpaths[0], &s.subpaths[0]);
         prop_assert!(c0.anchors[0].p.distance(s0.anchors[0].p) < 1e-9);

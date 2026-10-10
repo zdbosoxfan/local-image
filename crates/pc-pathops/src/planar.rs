@@ -24,6 +24,7 @@
 
 use std::collections::HashMap;
 
+use crate::PathOpsError;
 use crate::geom::{FillRule, PathData, SubPath};
 use kurbo::{Affine, BezPath, CubicBez, ParamCurve, PathSeg, Point, Shape as _};
 use linesweeper::topology::{Topology, WindingNumber};
@@ -323,24 +324,29 @@ pub struct BuilderArrangement {
 /// [`SHAPE_BUILDER_MAX_SEGMENTS`] segments or a map that can't be built, only the filled areas
 /// count and there are no pieces.
 pub fn shape_builder(shapes: &[Shape], edges: bool) -> BuilderArrangement {
+    try_shape_builder(shapes, edges).unwrap_or_default()
+}
+
+/// Fallible shape-builder construction; failed sweeps must not become empty edits.
+pub fn try_shape_builder(shapes: &[Shape], edges: bool) -> Result<BuilderArrangement, PathOpsError> {
     let has_open = shapes.iter().flat_map(|s| &s.path.subpaths).any(|sp| !sp.closed && sp.anchors.len() >= 2);
     let segments: usize = shapes.iter().flat_map(|s| &s.path.subpaths).map(|sp| sp.segment_count()).sum();
-    let planar = ((has_open || edges) && segments <= SHAPE_BUILDER_MAX_SEGMENTS)
-        .then(|| {
-            let keyed: Vec<Shape> = shapes.iter().enumerate().map(|(i, s)| Shape::new(s.path.clone(), s.rule, i as u64)).collect();
-            live_paint(&keyed)
-        })
-        .filter(|(faces, pieces)| !faces.is_empty() || !pieces.is_empty());
-    let Some((faces, pieces)) = planar else {
-        return BuilderArrangement { regions: crate::kernel::regions(shapes), ..Default::default() };
+    let planar = if (has_open || edges) && segments <= SHAPE_BUILDER_MAX_SEGMENTS {
+        let keyed: Vec<Shape> = shapes.iter().enumerate().map(|(i, s)| Shape::new(s.path.clone(), s.rule, i as u64)).collect();
+        Some(build(&keyed)?)
+    } else {
+        None
+    };
+    let Some((faces, pieces)) = planar.filter(|(faces, pieces)| !faces.is_empty() || !pieces.is_empty()) else {
+        return Ok(BuilderArrangement { regions: crate::kernel::try_regions(shapes)?, ..Default::default() });
     };
     let is_line = |i: u64| shapes.get(i as usize).is_some_and(|s| !s.path.subpaths.iter().any(|sp| sp.closed));
     let (lines, outline): (Vec<Shape>, Vec<Shape>) = pieces.into_iter().partition(|e| is_line(e.key));
-    BuilderArrangement {
-        regions: if has_open { faces } else { crate::kernel::regions(shapes) },
+    Ok(BuilderArrangement {
+        regions: if has_open { faces } else { crate::kernel::try_regions(shapes)? },
         lines: if has_open { lines } else { Vec::new() },
         edges: if edges { outline } else { Vec::new() },
-    }
+    })
 }
 
 /// Does `sp`, closed, enclose an area (rather than retrace itself)? The Shape Builder closes the
@@ -469,7 +475,7 @@ fn span(sp: &SubPath, u0: f64, u1: f64) -> Option<SubPath> {
     segs_to_subpath(&segs, false)
 }
 
-fn build(shapes: &[Shape]) -> Option<(Vec<Region>, Vec<Shape>)> {
+fn build(shapes: &[Shape]) -> Result<(Vec<Region>, Vec<Shape>), PathOpsError> {
     let mut inputs: Vec<(BezPath, usize)> = Vec::new();
     for (i, s) in shapes.iter().enumerate() {
         let mut bp = BezPath::new();
@@ -488,13 +494,13 @@ fn build(shapes: &[Shape]) -> Option<(Vec<Region>, Vec<Shape>)> {
         }
     }
     if inputs.is_empty() {
-        return None;
+        return Ok((Vec::new(), Vec::new()));
     }
-    let eps = eps_for(inputs.iter().map(|p| &p.0)).ok()?;
+    let eps = eps_for(inputs.iter().map(|p| &p.0))?;
     snap_horizontals(&mut inputs.iter_mut().map(|p| &mut p.0).collect::<Vec<_>>(), eps);
     // The sweep can panic on rare near-degenerate input; that must never take the app down.
     let sweep = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Topology::<Crossings>::from_paths(inputs.iter().map(|(p, i)| (p, *i)), eps)));
-    let top = sweep.ok()?.ok()?;
+    let top = sweep.map_err(|_| PathOpsError::Degenerate)?.map_err(|_| PathOpsError::OpenPath)?;
     let tidy = Tidy::keeping(DEFAULT_PRECISION, inputs.iter().map(|p| &p.0));
 
     // The planar graph: vertices are the sweep's points, edges its segments. Points closer than
@@ -715,7 +721,7 @@ fn build(shapes: &[Shape]) -> Option<(Vec<Region>, Vec<Shape>)> {
             Some(Shape::new(unshear(PathData::new(vec![sp]), &anchors, snap), FillRule::NonZero, shapes.get(source)?.key))
         })
         .collect();
-    Some((regions, edge_shapes))
+    Ok((regions, edge_shapes))
 }
 
 /// A point strictly inside a filled path, well away from its edges where it can be (for re-finding

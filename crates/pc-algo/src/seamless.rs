@@ -287,11 +287,34 @@ fn inside_distance(mask: &[bool], w: usize, h: usize) -> Vec<f32> {
 
 /// The mean-value membrane of a patch: for every pixel of `mask` (row-major `w × h`), the
 /// interpolation of `diff` (`ch` values per pixel, read on the patch's boundary pixels) from the
-/// patch boundary. Pixels outside the mask get 0. `ch` is at most 8.
+/// patch boundary. Pixels outside the mask get 0. Any `ch` works; the solver handles 8 channels
+/// at a time, so wider inputs are computed in groups of 8 and interleaved back. Zero dimensions,
+/// zero channels or dimensions exceeding the representable buffer size return an empty vector.
 pub fn mvc_membrane(w: usize, h: usize, mask: &[bool], diff: &[f32], ch: usize) -> Vec<f32> {
-    let ch = ch.min(8);
-    let mut out = vec![0.0f32; w * h * ch];
-    if w == 0 || h == 0 || mask.len() < w * h || diff.len() < w * h * ch {
+    // Invalid dimensions must not overflow before the input-length checks (nor ask Vec for a
+    // capacity beyond Rust's isize byte limit). Zero channels have no membrane to evaluate.
+    let Some(pixels) = w.checked_mul(h) else { return Vec::new() };
+    let Some(len) = pixels.checked_mul(ch).filter(|len| *len <= isize::MAX as usize / std::mem::size_of::<f32>()) else { return Vec::new() };
+    if len == 0 {
+        return Vec::new();
+    }
+    if ch > 8 {
+        let mut out = vec![0.0f32; len];
+        if mask.len() < pixels || diff.len() < len {
+            return out;
+        }
+        for c0 in (0..ch).step_by(8) {
+            let n = (ch - c0).min(8);
+            let part: Vec<f32> = (0..w * h).flat_map(|i| diff[i * ch + c0..i * ch + c0 + n].iter().copied()).collect();
+            let m = mvc_membrane(w, h, mask, &part, n);
+            for i in 0..w * h {
+                out[i * ch + c0..i * ch + c0 + n].copy_from_slice(&m[i * n..(i + 1) * n]);
+            }
+        }
+        return out;
+    }
+    let mut out = vec![0.0f32; len];
+    if mask.len() < pixels || diff.len() < len {
         return out;
     }
     let (lab, count) = components4(mask, w, h);
@@ -422,16 +445,21 @@ pub fn mvc_membrane(w: usize, h: usize, mask: &[bool], diff: &[f32], ch: usize) 
 /// `colour` of the `n` channels per pixel (alpha and any further channels are kept from `src`).
 /// Outside the mask the result is `src`. Values are not clamped.
 pub fn seamless_blend(w: usize, h: usize, n: usize, colour: usize, src: &[f32], dst: &[f32], mask: &[bool]) -> Vec<f32> {
+    let pixels = w.saturating_mul(h);
+    let required = pixels.saturating_mul(n);
+    if src.len() < required || dst.len() < required || mask.len() < pixels {
+        return Vec::new();
+    }
     let colour = colour.min(n).min(8);
-    let mut diff = vec![0.0f32; w * h * colour];
-    for i in 0..w * h {
+    let mut diff = vec![0.0f32; pixels * colour];
+    for i in 0..pixels {
         for c in 0..colour {
             diff[i * colour + c] = dst[i * n + c] - src[i * n + c];
         }
     }
     let mem = mvc_membrane(w, h, mask, &diff, colour);
     let mut out = src.to_vec();
-    for i in 0..w * h {
+    for i in 0..pixels {
         if mask[i] {
             for c in 0..colour {
                 out[i * n + c] += mem[i * colour + c];

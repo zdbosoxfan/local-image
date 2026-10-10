@@ -41,7 +41,7 @@ pub enum GenerateMode {
 }
 
 /// The second step of Draft → Refine: any refine model resamples the draft.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RefineStep {
     pub model: ModelId,
     pub variant: String,
@@ -49,6 +49,8 @@ pub struct RefineStep {
     pub strength: f32,
     pub steps: Option<u32>,
     pub guidance: Option<f32>,
+    #[serde(default)]
+    pub loras: Vec<LoraUse>,
     /// Enlarge the draft first (1 = same size).
     pub scale: f32,
 }
@@ -148,8 +150,9 @@ impl GenerateRequest {
         if self.transparent && !info.transparent {
             bail!("{} cannot make transparent images; choose Qwen Image 2.1.", info.label);
         }
-        if (self.steps as f32) < info.steps.min || (self.steps as f32) > info.steps.max {
-            bail!("{} uses {}–{} steps.", info.label, info.steps.min, info.steps.max);
+        // No built-in step range: the model's numbers are recommendations, and ComfyUI checks its own limits.
+        if self.steps == 0 {
+            bail!("Steps must be at least 1.");
         }
         if self.loras.len() > f.lora.max.max(3) as usize {
             bail!("Choose at most {} styles (LoRAs).", f.lora.max.max(3));
@@ -158,6 +161,12 @@ impl GenerateRequest {
             let ri = r.model.try_info().with_context(|| format!("The refine model {} is not available.", r.model.key()))?;
             if ri.resolved.kind != crate::family::FamilyKind::Image {
                 bail!("{} cannot refine images.", ri.label);
+            }
+            if r.steps == Some(0) {
+                bail!("Steps must be at least 1.");
+            }
+            if r.loras.len() > ri.resolved.lora.max.max(3) as usize {
+                bail!("Choose at most {} styles (LoRAs).", ri.resolved.lora.max.max(3));
             }
         }
         Ok(())
@@ -211,6 +220,29 @@ impl Ai {
                     .with_context(|| format!("The style {} is not installed in ComfyUI. Refresh, or finish its download.", l.name))
             })
             .collect()
+    }
+
+    /// Both passes resolve installed names and check known families through the same path.
+    /// Unknown families remain usable, as in the UI's explicitly marked list.
+    fn validate_loras(info: &ObjectInfo, loras: &[LoraUse], family: &Family) -> Result<Vec<LoraUse>> {
+        if !loras.is_empty() && family.lora.loader.is_empty() {
+            bail!("{} does not support styles (LoRAs).", family.label);
+        }
+        let installed = crate::inventory::loras();
+        for lora in loras {
+            let name = lora.name.replace('\\', "/");
+            let identified = installed
+                .iter()
+                .find(|l| l.name.replace('\\', "/") == name)
+                .and_then(|l| l.family.clone())
+                .or_else(|| crate::inventory::family_of(&name, crate::arch::FileKind::Lora, None, None).map(|(f, _)| f));
+            if let Some(f) = identified
+                && !family.lora_fits(&f)
+            {
+                bail!("The style {} is for {f}, not {}.", lora.name, family.label);
+            }
+        }
+        Self::validate_lora_names(info, loras, &family.lora.loader)
     }
 
     /// Repairs the selected area of `image` (the visible composite). Returns the repaired image;
@@ -270,7 +302,7 @@ impl Ai {
         let instruction = "<image1> is the photograph to edit. <image2> is a black and white selection mask: white marks the unwanted object or area to remove and black marks the area to keep. Remove the selected object completely and reconstruct a natural empty continuation of the surrounding background in its place. Match the surrounding texture, perspective, lighting and color. Do not insert any new objects, people, text or symbols. Do not draw the mask in the result. Keep the original composition and all other areas unchanged. ";
         let rgba = image::DynamicImage::ImageRgb8(image.clone()).to_rgba8();
         let mask_rgba = image::DynamicImage::ImageLuma8(mask.clone()).to_rgba8();
-        let edited = self.qwen_edit(&[rgba, mask_rgba], instruction, "", variant, seed, 25, 1.0, &[], info, ctl)?;
+        let edited = self.qwen_edit(&[rgba, mask_rgba], instruction, "", variant, seed, 25, 1.0, 1.0, &[], info, ctl)?;
         let edited = image::DynamicImage::ImageRgba8(imaging::over_white(&edited)).to_rgb8();
         Ok(RgbImage::from_fn(image.width(), image.height(), |x, y| {
             let m = mask.get_pixel(x, y)[0] as u32;
@@ -299,7 +331,7 @@ impl Ai {
         );
         let rgba = image::DynamicImage::ImageRgb8(image.clone()).to_rgba8();
         let mask_rgba = image::DynamicImage::ImageLuma8(mask.clone()).to_rgba8();
-        let edited = self.qwen_edit(&[rgba, mask_rgba], &instruction, "", variant, seed, 25, 1.0, &[], &info, ctl)?;
+        let edited = self.qwen_edit(&[rgba, mask_rgba], &instruction, "", variant, seed, 25, 1.0, 1.0, &[], &info, ctl)?;
         let edited = image::DynamicImage::ImageRgba8(imaging::over_white(&edited)).to_rgb8();
         Ok(RgbImage::from_fn(image.width(), image.height(), |x, y| if mask.get_pixel(x, y)[0] > 0 { *edited.get_pixel(x, y) } else { *image.get_pixel(x, y) }))
     }
@@ -315,6 +347,7 @@ impl Ai {
         seed: u64,
         steps: u32,
         cfg: f32,
+        denoise: f32,
         loras: &[LoraUse],
         info: &ObjectInfo,
         ctl: &JobControl,
@@ -339,6 +372,7 @@ impl Ai {
                 seed,
                 steps,
                 cfg,
+                denoise,
                 references: refs.len(),
                 use_cache: info.has_node("QwenImage21Cache"),
                 loras: &loras,
@@ -358,7 +392,7 @@ impl Ai {
             "Remove the background from <image1> and preserve the subject exactly. Return an RGBA PNG with a transparent background and a real alpha channel. Keep the original subject position, scale, details and colors. {}",
             hint.trim()
         );
-        let out = self.qwen_edit(std::slice::from_ref(image), &prompt, "", variant, seed, 25, 1.0, &[], &info, ctl)?;
+        let out = self.qwen_edit(std::slice::from_ref(image), &prompt, "", variant, seed, 25, 1.0, 1.0, &[], &info, ctl)?;
         imaging::finish_cutout(&out)
     }
 
@@ -395,10 +429,36 @@ impl Ai {
     }
 
     fn generate_once(&self, req: &GenerateRequest, info: &ObjectInfo, ctl: &JobControl) -> Result<RgbaImage> {
+        if req.mode == GenerateMode::Refine {
+            let source = req.source_and_refs().0.context("Open an image first.")?;
+            let original = req.model.info();
+            let original_denoise = catalog::refine_default_denoise(req.model);
+            let recipe = crate::refine::ensure(&self.client, req.model, &req.variant, ctl)?;
+            let loras = recipe.filter_loras(&req.loras);
+            if let crate::refine::Recipe::Family { profile, .. } = &recipe {
+                Self::validate_loras(info, &loras, profile)?;
+            }
+            let defaults = recipe.defaults();
+            let denoise = if req.denoise == original_denoise { defaults.denoise } else { req.denoise };
+            let steps = if req.steps == original.steps.default as u32 { defaults.steps } else { req.steps };
+            let cfg = if req.guidance == original.guidance.default { defaults.cfg } else { req.guidance };
+            let (prompt, negative) = match &recipe {
+                crate::refine::Recipe::Family { profile, .. } => prompt_rules(profile, &req.prompt, &req.negative),
+                _ => (req.prompt.clone(), req.negative.clone()),
+            };
+            let p = Params {
+                task: Task::Refine { denoise },
+                negative: &negative,
+                loras: &loras,
+                sampler: req.sampler.as_ref().map(|(s, c)| (s.as_str(), c.as_str())),
+                ..Params::create(&prompt, source.width(), source.height(), req.seed, steps, cfg)
+            };
+            return recipe.run(&self.client, source, &p, ctl);
+        }
         let m = req.model.info();
         let f = &m.resolved;
         let a = self.resolve(req.model, &req.variant, info)?;
-        let loras = if m.lora { Self::validate_lora_names(info, &req.loras, &f.lora.loader)? } else { Vec::new() };
+        let loras = Self::validate_loras(info, &req.loras, f)?;
         let (prompt, negative) = prompt_rules(f, &req.prompt, &req.negative);
         let (source, refs) = req.source_and_refs();
         if f.pipeline.encode == Encode::QwenImage21 && matches!(req.mode, GenerateMode::Create | GenerateMode::Edit) {
@@ -438,15 +498,8 @@ impl Ai {
             }
             GenerateMode::Edit | GenerateMode::Refine => {
                 let src = source.context("Open an image first.")?;
-                let denoise = if req.mode == GenerateMode::Edit { req.denoise.max(0.3) } else { req.denoise };
-                self.refine_image(
-                    src,
-                    f,
-                    &a,
-                    Params { task: Task::Refine { denoise: denoise.clamp(0.05, 1.0) }, ..base },
-                    prepare_refs(f, refs, 1024, 1024)?,
-                    ctl,
-                )
+                let denoise = req.denoise;
+                self.refine_image(src, f, &a, Params { task: Task::Refine { denoise }, ..base }, prepare_refs(f, refs, 1024, 1024)?, ctl)
             }
             GenerateMode::Inpaint => {
                 let src = source.context("Open an image first.")?;
@@ -455,7 +508,7 @@ impl Ai {
             }
             GenerateMode::UpscaleRefine => {
                 let src = source.context("Open an image to enlarge.")?;
-                self.upscale_refine(src, req.scale, f, &a, Params { task: Task::Refine { denoise: req.denoise.clamp(0.05, 1.0) }, ..base }, ctl)
+                self.upscale_refine(src, req.scale, f, &a, Params { task: Task::Refine { denoise: req.denoise }, ..base }, ctl)
             }
         }
     }
@@ -529,7 +582,7 @@ impl Ai {
                 } else {
                     crop.clone()
                 };
-                (Task::Inpaint { denoise: denoise.clamp(0.05, 1.0) }, filled, Some(nmask.clone()))
+                (Task::Inpaint { denoise }, filled, Some(nmask.clone()))
             }
         };
         let source_png = imaging::encode_png(&scaled(&source_img))?;
@@ -608,40 +661,44 @@ impl Ai {
 
     /// Draft → Refine: the refine model resamples the draft (enlarged by `step.scale`).
     fn refine_pass(&self, draft: &RgbaImage, req: &GenerateRequest, step: &RefineStep, info: &ObjectInfo, ctl: &JobControl) -> Result<RgbaImage> {
-        let m = step.model.info();
-        let f = &m.resolved;
-        let a = self.resolve(step.model, &step.variant, info)?;
-        let (prompt, negative) = prompt_rules(f, &req.prompt, &req.negative);
+        let original = step.model.info();
+        let original_denoise = catalog::refine_default_denoise(step.model);
+        let recipe = crate::refine::ensure(&self.client, step.model, &step.variant, ctl)?;
+        let defaults = recipe.defaults();
         let src = if step.scale > 1.01 {
             let (w, h) = ((draft.width() as f32 * step.scale) as u32, (draft.height() as f32 * step.scale) as u32);
-            imageops::resize(draft, w, h, imageops::FilterType::Lanczos3)
+            imageops::resize(draft, w.min(8192), h.min(8192), imageops::FilterType::Lanczos3)
         } else {
             draft.clone()
         };
-        let p = Params {
-            task: Task::Refine { denoise: step.strength.clamp(0.05, 1.0) },
-            prompt: &prompt,
-            negative: &negative,
-            width: src.width(),
-            height: src.height(),
-            seed: req.seed.wrapping_add(1),
-            steps: step.steps.unwrap_or(m.steps.default as u32).clamp(m.steps.min as u32, m.steps.max as u32),
-            cfg: step.guidance.unwrap_or(m.guidance.default),
-            references: 0,
-            loras: &[],
-            batch: 1,
-            sampler: None,
+        let loras = recipe.filter_loras(&step.loras);
+        if let crate::refine::Recipe::Family { profile, .. } = &recipe {
+            Self::validate_loras(info, &loras, profile)?;
+        }
+        let (prompt, negative) = match &recipe {
+            crate::refine::Recipe::Family { profile, .. } => prompt_rules(profile, &req.prompt, &req.negative),
+            _ => (req.prompt.clone(), req.negative.clone()),
         };
-        if f.pipeline.encode == Encode::QwenImage21 {
-            // Qwen Image 2.1 refines as an instruction edit of the draft.
-            let out = self.qwen_edit(std::slice::from_ref(&src), &prompt, &negative, &step.variant, p.seed, p.steps, p.cfg, &[], info, ctl)?;
-            return Ok(imaging::over_white(&out));
+        let p = Params {
+            task: Task::Refine { denoise: if step.strength == original_denoise { defaults.denoise } else { step.strength } },
+            negative: &negative,
+            loras: &loras,
+            ..Params::create(
+                &prompt,
+                src.width(),
+                src.height(),
+                req.seed.wrapping_add(1),
+                step.steps.filter(|n| *n != original.steps.default as u32).unwrap_or(defaults.steps),
+                step.guidance.filter(|n| *n != original.guidance.default).unwrap_or(defaults.cfg),
+            )
+        };
+        if let crate::refine::Recipe::Family { profile, files, .. } = &recipe
+            && u64::from(src.width()) * u64::from(src.height()) > u64::from(profile.sizes.max).pow(2)
+        {
+            let availability = Availability { available: true, files: files.clone(), ..Default::default() };
+            return self.upscale_refine(&src, 1.0, profile, &availability, p, ctl);
         }
-        let (w, h) = (src.width().min(f.sizes.max.max(1024) * 2), src.height().min(f.sizes.max.max(1024) * 2));
-        if src.width() * src.height() > f.sizes.max * f.sizes.max {
-            return self.upscale_refine(&resize_to(&src, w, h), 1.0, f, &a, p, ctl);
-        }
-        self.refine_image(&src, f, &a, p, Vec::new(), ctl)
+        recipe.run(&self.client, &src, &p, ctl)
     }
 
     /// Qwen Image 2.1 create / edit, as in 0.7 (transparent output, reference canvas rules).
@@ -650,7 +707,7 @@ impl Ai {
         if req.mode == GenerateMode::Edit {
             let mut all = vec![source.context("Open an image to edit.")?.clone()];
             all.extend(refs.iter().cloned());
-            let out = self.qwen_edit(&all, &req.prompt, &req.negative, &req.variant, req.seed, req.steps, req.guidance, loras, info, ctl)?;
+            let out = self.qwen_edit(&all, &req.prompt, &req.negative, &req.variant, req.seed, req.steps, req.guidance, 1.0, loras, info, ctl)?;
             return Ok(imaging::over_white(&out));
         }
         let grid = if refs.is_empty() { 16 } else { 32 };
@@ -683,6 +740,7 @@ impl Ai {
                 seed: req.seed,
                 steps: req.steps,
                 cfg: req.guidance,
+                denoise: 1.0,
                 references: pngs.len(),
                 use_cache: info.has_node("QwenImage21Cache"),
                 loras,

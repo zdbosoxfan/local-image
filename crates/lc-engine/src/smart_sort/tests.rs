@@ -27,6 +27,38 @@ fn sort(prompts: &[(&str, &str)], sensitivity: Sensitivity) -> SortPreset {
         ..Default::default()
     }
 }
+
+#[test]
+fn both_legacy_folder_layouts_load_and_combined_preset_roundtrips() {
+    let tags: FolderDef = serde_json::from_value(json!({
+        "name":"Tags", "custom":true, "tags":["Stage","Speakers"], "combineAll":true, "personIds":[7]
+    }))
+    .unwrap();
+    assert!(tags.custom && tags.combine_all && tags.use_rules);
+    assert!(!tags.people_enabled && !tags.everyone && !tags.people_or && !tags.unsorted);
+    let people: FolderDef = serde_json::from_value(json!({
+        "name":"People", "peopleEnabled":true, "personIds":[7,8], "everyone":true, "peopleOr":true, "useRules":false
+    }))
+    .unwrap();
+    assert!(people.people_enabled && people.everyone && people.people_or);
+    assert!(!people.use_rules && !people.custom && !people.combine_all && !people.unsorted);
+    assert!(people.tags.is_empty());
+    let preset: SortPreset = serde_json::from_value(json!({
+        "name":"Combined", "firstMatch":true, "folders":[tags], "peopleLayout":[people], "folderPattern":"{event}/{folder}"
+    }))
+    .unwrap();
+    let back: SortPreset = serde_json::from_value(serde_json::to_value(&preset).unwrap()).unwrap();
+    assert_eq!(back, preset);
+    assert!(back.first_match);
+    assert_eq!(back.folders[0].tags, ["Stage", "Speakers"]);
+    assert_eq!(back.people_layout[0].person_ids, [7, 8]);
+    let old: SortPreset = serde_json::from_value(json!({"name":"Old", "peopleLayout":[people]})).unwrap();
+    assert!(!old.first_match);
+    assert!(old.folders.is_empty());
+    assert_eq!(old.folder_pattern, tokens::DEFAULT_FOLDER_PATTERN);
+    assert_eq!(old.people_layout, [people]);
+}
+
 fn insert(s: &mut Session, id: PhotoId, color: [u8; 4]) -> String {
     let t = s.smart.tagger.clone().unwrap();
     let key = crate::media::content_key(s.catalog.photo(id).unwrap());
@@ -436,4 +468,521 @@ fn analysis_retries_a_failed_save_even_when_every_photo_is_cached() {
     loaded.ensure("mock-tags", 8).unwrap();
     assert_eq!(loaded.len("mock-tags"), 1);
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn tag_any_all_use_max_min_and_each_tag_gets_exemplar_boost() {
+    let t = mock::MockTagger;
+    let mut store = Store::default();
+    store.ensure(t.model_id(), 8).unwrap();
+    let red = t.embed_image(&Rgba8::filled(1, 1, [255, 0, 0, 255])).unwrap();
+    let mut preset = sort(&[("Mixed", "red"), ("Blue", "blue")], Sensitivity::Balanced);
+    preset.categories[0].prompts.push("blue".into());
+    let any = classify::Classifier::new(&t, &store, &preset).unwrap().classify("r", Some(&red), None).unwrap();
+    assert_eq!(any.assigned, ["Mixed"]);
+    preset.categories[0].match_all = true;
+    let all = classify::Classifier::new(&t, &store, &preset).unwrap().classify("r", Some(&red), None).unwrap();
+    assert!(all.scores["Mixed"] < any.scores["Mixed"]);
+    for i in 0..10 {
+        store.insert(t.model_id(), format!("e{i}"), red.clone()).unwrap();
+        preset.categories[0].exemplars.push(format!("e{i}"));
+    }
+    let learned = classify::Classifier::new(&t, &store, &preset).unwrap().classify("r", Some(&red), None).unwrap();
+    assert_eq!(learned.assigned, ["Mixed"]);
+    let podium = t.embed_text("a photo of podium").unwrap();
+    let preset = sort(&[("Podium", "podium"), ("Crowd", "crowd")], Sensitivity::Balanced);
+    assert_eq!(classify::Classifier::new(&t, &store, &preset).unwrap().classify("podium", Some(&podium), None).unwrap().assigned, ["Podium"]);
+}
+
+#[test]
+fn tag_sets_and_folder_layout_persist_with_old_defaults() {
+    let dir = temp();
+    {
+        let mut s = demo();
+        s.open_library(&dir, true).unwrap();
+        s.execute("smartSort.saveTagSet", &json!({"name":"My speakers","tags":["podium","microphone","podium",""]})).unwrap();
+        s.execute("smartSort.renameTagSet", &json!({"name":"My speakers","to":"Speakers set"})).unwrap();
+        let mut preset = sort(&[("A", "red"), ("B", "blue")], Sensitivity::Loose);
+        preset.name = "Saved layout".into();
+        preset.first_match = true;
+        preset.categories[0].match_all = true;
+        preset.folders = plan::default_folders(&preset);
+        preset.folders[0].enabled = false;
+        preset.folders[1].name = "Blue photos".into();
+        preset.folders.push(FolderDef {
+            name: "Combined".into(),
+            custom: true,
+            tags: vec!["A".into(), "B".into()],
+            person_ids: vec![42],
+            rules: plan::tag_rules("Smart Sort", &["A".into(), "B".into()], false),
+            ..Default::default()
+        });
+        s.execute("smartSort.savePreset", &json!({"preset":preset})).unwrap();
+    }
+    {
+        let mut s = demo();
+        s.open_library(&dir, false).unwrap();
+        assert_eq!(s.smart.tag_sets[0].name, "Speakers set");
+        assert_eq!(s.smart.tag_sets[0].tags, ["podium", "microphone"]);
+        let saved = &s.smart.prefs.presets[0];
+        assert!(saved.first_match && saved.categories[0].match_all);
+        assert!(!saved.folders[0].enabled);
+        assert_eq!(saved.folders[1].name, "Blue photos");
+        assert_eq!(saved.folders[3].person_ids, [42]);
+        s.execute("smartSort.deleteTagSet", &json!({"name":"Speakers set"})).unwrap();
+        assert!(s.smart.tag_sets.is_empty());
+        assert!(s.execute("smartSort.deleteTagSet", &json!({"name":"Conference / Speakers"})).is_err());
+    }
+    let old: SortPreset = serde_json::from_value(json!({"name":"Old","categories":[{"name":"A","prompts":["a person on stage"]}]})).unwrap();
+    assert!(!old.first_match && old.folders.is_empty() && !old.categories[0].match_all);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn folder_export_overlap_unsorted_custom_rules_and_guards() {
+    let mut s = demo();
+    let ids: Vec<_> = s.catalog.photos().filter(|p| p.flag != Flag::Reject).map(|p| p.id).take(3).collect();
+    let preset = sort(&[("A", "red"), ("B", "blue")], Sensitivity::Balanced);
+    s.execute(
+        "smartSort.applyKeywords",
+        &json!({"preset":preset,"assignments":[{"id":ids[0],"categories":["A","B"]},{"id":ids[1],"categories":["A"]},{"id":ids[2],"categories":[]}]}),
+    )
+    .unwrap();
+    let mut folders = plan::default_folders(&preset);
+    folders[2].enabled = true;
+    let dir = temp();
+    for first in [false, true] {
+        let root = dir.join(if first { "first" } else { "each" });
+        let result =
+            s.execute("smartSort.export", &json!({"dir":root,"ids":ids,"folders":folders,"firstMatch":first,"format":"png","longEdge":64})).unwrap();
+        assert_eq!(result.as_array().unwrap().len(), if first { 3 } else { 4 });
+        assert!(result.as_array().unwrap().iter().all(|r| r.get("path").is_some()), "{result}");
+        assert_eq!(std::fs::read_dir(root.join("A")).unwrap().count(), 2);
+        if !first {
+            assert_eq!(std::fs::read_dir(root.join("B")).unwrap().count(), 1);
+        }
+        assert_eq!(std::fs::read_dir(root.join("Unsorted")).unwrap().count(), 1);
+    }
+    folders[0].enabled = false;
+    folders.push(FolderDef {
+        name: "Custom".into(),
+        custom: true,
+        tags: vec!["A".into(), "B".into()],
+        rules: plan::tag_rules("Smart Sort", &["A".into(), "B".into()], false),
+        ..Default::default()
+    });
+    let p = plan::plan(&s.catalog, &ids, &folders).unwrap();
+    assert!(!p.iter().any(|f| f.name == "A"));
+    assert_eq!(p.iter().find(|f| f.name == "Custom").unwrap().ids.len(), 2);
+    folders[3].rules = plan::tag_rules("Smart Sort", &["A".into(), "B".into()], true);
+    let p = plan::plan(&s.catalog, &ids, &folders).unwrap();
+    assert_eq!(p.iter().find(|f| f.name == "Custom").unwrap().ids, [ids[0]]);
+    folders[3].name = "../escape".into();
+    assert!(plan::plan(&s.catalog, &ids, &folders).is_err());
+    assert!(plan::sanitize("C:\\escape").is_err());
+    let lib = dir.join("library");
+    s.open_library(&lib, true).unwrap();
+    assert!(plan::check_destination(&s, &lib.join("out").to_string_lossy()).is_err());
+    assert!(plan::check_destination(&s, &lib.join("../library/out").to_string_lossy()).is_err());
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&lib, dir.join("link")).unwrap();
+        assert!(plan::check_destination(&s, &dir.join("link/out").to_string_lossy()).is_err());
+    }
+    drop(s);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn category_whitespace_keeps_keywords_and_folder_rules_consistent() {
+    let mut s = demo();
+    let id = s.catalog.photos().find(|p| p.flag != Flag::Reject).unwrap().id;
+    let preset = sort(&[("  Red  ", "red")], Sensitivity::Loose);
+    s.execute("smartSort.applyKeywords", &json!({"preset":preset,"assignments":[{"id":id,"categories":["  Red  "]}]})).unwrap();
+    let folders = plan::keyword_folders(&preset);
+    let planned = plan::plan(&s.catalog, &[id], &folders).unwrap();
+    assert_eq!(planned[0].name, "Red");
+    assert_eq!(planned[0].ids, [id]);
+    let duplicate = sort(&[("Red", "red"), (" Red ", "blue")], Sensitivity::Loose);
+    assert!(duplicate.validate().is_err());
+}
+
+#[test]
+fn sensitivity_and_exemplar_edits_reuse_text_inference() {
+    struct Counting(Arc<std::sync::atomic::AtomicUsize>);
+    impl Tagger for Counting {
+        fn model_id(&self) -> &str {
+            "mock-tags"
+        }
+        fn dim(&self) -> usize {
+            8
+        }
+        fn embed_image(&self, img: &Rgba8) -> Result<Vec<f32>, String> {
+            mock::MockTagger.embed_image(img)
+        }
+        fn embed_text(&self, text: &str) -> Result<Vec<f32>, String> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            mock::MockTagger.embed_text(text)
+        }
+    }
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let t = CachedTagger::new(Arc::new(Counting(calls.clone())));
+    let mut store = Store::default();
+    store.ensure(t.model_id(), t.dim()).unwrap();
+    let mut preset = sort(&[("Red", "red")], Sensitivity::Balanced);
+    classify::Classifier::new(&t, &store, &preset).unwrap();
+    let before = calls.load(Ordering::Relaxed);
+    preset.sensitivity = Sensitivity::Loose;
+    store.insert(t.model_id(), "example".into(), t.embed_image(&Rgba8::filled(1, 1, [255, 0, 0, 255])).unwrap()).unwrap();
+    preset.categories[0].exemplars.push("example".into());
+    classify::Classifier::new(&t, &store, &preset).unwrap();
+    assert_eq!(calls.load(Ordering::Relaxed), before);
+    preset.categories[0].prompts.push("blue".into());
+    classify::Classifier::new(&t, &store, &preset).unwrap();
+    assert_eq!(calls.load(Ordering::Relaxed), before + 1);
+}
+
+fn p2b_photos(s: &mut Session, times: &[Option<&str>]) -> Vec<PhotoId> {
+    times
+        .iter()
+        .enumerate()
+        .map(|(index, time)| {
+            let id = s.catalog.alloc_photo_id();
+            let mut photo =
+                lightcraft_catalog::Photo::new(id, Source::Demo { scene: 1 }, &format!("example-{index}.jpg"), "JPEG", 64, 48, "2026-10-09");
+            photo.captured = time.map(str::to_string);
+            photo.content_hash = Some(format!("p2b-{}", id.0));
+            s.commit("test photo", Op::AddPhoto { photo: Box::new(photo) }).unwrap();
+            id
+        })
+        .collect()
+}
+#[test]
+fn p2b_sessions_rename_preset_persistence_and_old_defaults() {
+    let dir = temp();
+    let mut s = demo();
+    s.open_library(&dir, true).unwrap();
+    let mut preset = sort(&[("A", "red")], Sensitivity::Balanced);
+    preset.name = "Sessions saved".into();
+    preset.sessions.enabled = true;
+    preset.sessions.export_folders = true;
+    preset.sessions.names.insert("2026-10-09T09:00:00".into(), "Morning keynote".into());
+    preset.event_name = "Conference".into();
+    preset.file_pattern = "{event}_{folder}_{seq:4}".into();
+    preset.bursts.enabled = true;
+    preset.bursts.strictness = bursts::BurstStrictness::Loose;
+    preset.bursts.also_stack_in_library = true;
+    preset.folders = plan::default_folders(&preset);
+    preset.folders[0].session = Some("2026-10-09T09:00:00".into());
+    s.execute("smartSort.savePreset", &json!({"preset":preset})).unwrap();
+    s.close_library().unwrap();
+    drop(s);
+    let mut reloaded = demo();
+    reloaded.open_library(&dir, false).unwrap();
+    assert_eq!(reloaded.smart.prefs.presets[0], preset);
+    let old: SortPreset = serde_json::from_value(json!({"name":"Old"})).unwrap();
+    assert!(!old.sessions.enabled && !old.bursts.enabled);
+    assert_eq!(old.folder_pattern, "{event}/{folder}");
+    assert!(old.file_pattern.is_empty() && old.event_name.is_empty());
+    drop(reloaded);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+#[test]
+fn p2b_sessions_commands_narrow_tag_custom_people_and_no_time_folders() {
+    let mut s = demo();
+    let ids = p2b_photos(&mut s, &[Some("2026-10-09T09:00:00"), Some("2026-10-09T09:10:00"), Some("2026-10-09T09:35:00"), None]);
+    let mut preset = sort(&[("A", "red")], Sensitivity::Loose);
+    preset.sessions.enabled = true;
+    preset.sessions.names.insert("2026-10-09T09:35:00".into(), "Afternoon".into());
+    let result = s.execute("smartSort.sessions", &json!({"preset":preset,"ids":ids})).unwrap();
+    assert_eq!(result["sessions"].as_array().unwrap().len(), 2);
+    assert_eq!(result["sessions"][0]["photos"], json!(&ids[..2]));
+    assert_eq!(result["sessions"][1]["name"], "Afternoon");
+    assert_eq!(result["noTime"], json!([ids[3]]));
+    let assignments: Vec<_> = ids.iter().map(|id| json!({"id":id,"categories":["A"]})).collect();
+    s.execute("smartSort.applyKeywords", &json!({"preset":preset,"assignments":assignments})).unwrap();
+    preset.folders = plan::default_folders(&preset);
+    preset.folders[0].session = Some("2026-10-09T09:35:00".into());
+    preset.folders.push(FolderDef {
+        name: "Custom".into(),
+        custom: true,
+        rules: plan::tag_rules("Smart Sort", &["A".into()], false),
+        session: Some(sessions::NO_TIME.into()),
+        ..Default::default()
+    });
+    let result = s.execute("smartSort.plan", &json!({"sortPreset":preset,"ids":ids})).unwrap();
+    assert_eq!(result["folders"][0]["ids"], json!([ids[2]]));
+    assert_eq!(result["folders"][1]["ids"], json!([ids[3]]));
+    preset.sessions.export_folders = true;
+    preset.folders.clear();
+    let result = s.execute("smartSort.plan", &json!({"sortPreset":preset,"ids":ids})).unwrap();
+    assert_eq!(result["folders"][2]["name"], "No time");
+    assert_eq!(result["folders"][2]["ids"], json!([ids[3]]));
+    // A saved session restriction is dormant when sessions are disabled.
+    preset.sessions.enabled = false;
+    preset.folders = vec![FolderDef { name: "All".into(), session: Some("stale".into()), ..Default::default() }];
+    assert_eq!(plan::plan_preset(&s.catalog, &ids, &preset).unwrap()[0].ids, ids);
+}
+#[test]
+fn p2b_three_example_photos_define_category_without_tags() {
+    let mut s = demo();
+    let ids = p2b_photos(&mut s, &[None; 5]);
+    s.smart.store.ensure("mock-tags", 8).unwrap();
+    for (index, id) in ids.iter().enumerate() {
+        let key = crate::media::content_key(s.catalog.photo(*id).unwrap());
+        let direction = if index < 4 {
+            mock::MockTagger.embed_image(&Rgba8::filled(16, 16, [255, 0, 0, 255])).unwrap()
+        } else {
+            mock::MockTagger.embed_text("blue").unwrap()
+        };
+        s.smart.store.insert("mock-tags", key, direction).unwrap();
+    }
+    let result = s
+        .execute(
+            "smartSort.folderFromExamples",
+            &json!({"preset":sort(&[("Other","blue")],Sensitivity::Balanced),"ids":&ids[..3],"name":"Red examples"}),
+        )
+        .unwrap();
+    let preset: SortPreset = serde_json::from_value(result["preset"].clone()).unwrap();
+    assert!(preset.categories[1].prompts.is_empty());
+    assert_eq!(preset.categories[1].exemplars.len(), 3);
+    let result = s.execute("smartSort.classify", &json!({"preset":preset,"ids":ids})).unwrap();
+    for p in &result["photos"].as_array().unwrap()[..4] {
+        assert_eq!(p["assigned"], json!(["Red examples"]));
+    }
+    assert_eq!(result["photos"][4]["assigned"], json!(["Other"]));
+    assert!(s.execute("smartSort.folderFromExamples", &json!({"ids":[]})).is_err());
+}
+#[test]
+fn p2b_nested_export_tokens_and_duplicate_resolved_folders() {
+    let mut s = demo();
+    let ids = p2b_photos(&mut s, &[Some("2026-10-09T09:00:00")]);
+    let mut preset = SortPreset {
+        event_name: "Launch:day".into(),
+        folder_pattern: "{event}/{date}".into(),
+        file_pattern: "{folder}_{seq:4}".into(),
+        ..Default::default()
+    };
+    preset.folders = vec![FolderDef { name: "A".into(), ..Default::default() }, FolderDef { name: "B".into(), ..Default::default() }];
+    let dir = temp();
+    let result = s.execute("smartSort.export", &json!({"sortPreset":preset,"ids":ids,"dir":dir,"format":"png","longEdge":32})).unwrap();
+    assert_eq!(result.as_array().unwrap().len(), 2);
+    assert!(dir.join("Launch_day/2026-10-09/A_0001.png").exists(), "{result}");
+    assert!(dir.join("Launch_day/2026-10-09 (2)/B_0001.png").exists(), "{result}");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+#[test]
+fn p2b_bursts_commands_best_all_and_catalog_one_undo() {
+    let mut s = demo();
+    let ids =
+        p2b_photos(&mut s, &[Some("2026-10-09T09:00:00"), Some("2026-10-09T09:00:01"), Some("2026-10-09T09:01:00"), Some("2026-10-09T09:01:01")]);
+    for (index, id) in ids.iter().enumerate() {
+        let key = insert(&mut s, *id, [255, 0, 0, 255]);
+        s.smart.store.set_sharpness(key, index as f32);
+    }
+    let mut preset = SortPreset { folders: vec![FolderDef { name: "All".into(), ..Default::default() }], ..Default::default() };
+    preset.bursts.enabled = true;
+    let groups = s.execute("smartSort.bursts", &json!({"preset":preset,"ids":ids})).unwrap();
+    assert_eq!(groups.as_array().unwrap().len(), 2);
+    assert_eq!(groups[0]["best"], json!(ids[1]));
+    assert_eq!(groups[1]["best"], json!(ids[3]));
+    let best = s.execute("smartSort.plan", &json!({"sortPreset":preset,"ids":ids})).unwrap();
+    assert_eq!(best["folders"][0]["ids"], json!([ids[1], ids[3]]));
+    preset.bursts.export = bursts::BurstExport::All;
+    let all = s.execute("smartSort.plan", &json!({"sortPreset":preset,"ids":ids})).unwrap();
+    assert_eq!(all["folders"][0]["ids"], json!(ids));
+    let undo = s.undo.len();
+    let selection = s.selection.clone();
+    let result = s.execute("smartSort.stackBursts", &json!({"preset":preset,"ids":ids})).unwrap();
+    assert_eq!(result["stacks"], 2);
+    assert_eq!(s.undo.len(), undo + 1);
+    assert_eq!(s.selection, selection);
+    assert_eq!(s.catalog.stacks().count(), 2);
+    s.undo_step().unwrap();
+    assert_eq!(s.catalog.stacks().count(), 0);
+    s.redo_step().unwrap();
+    assert_eq!(s.catalog.stacks().count(), 2);
+}
+#[test]
+fn p2b_analysis_sharpness_cache_survives_reload() {
+    let dir = temp();
+    let mut store = Store::new(Some(&dir));
+    store.ensure("mock", 2).unwrap();
+    store.insert("mock", "key".into(), vec![1.0, 0.0]).unwrap();
+    store.set_sharpness("key".into(), 12.0);
+    store.save().unwrap();
+    let mut reloaded = Store::new(Some(&dir));
+    reloaded.ensure("mock", 2).unwrap();
+    assert_eq!(reloaded.sharpness("key"), Some(12.0));
+    assert_eq!(reloaded.get("mock", "key"), Some(&[1.0, 0.0][..]));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+#[test]
+fn p2b_missing_embedding_breaks_consecutive_burst() {
+    let mut s = demo();
+    let ids = p2b_photos(&mut s, &[Some("2026-10-09T09:00:00"), Some("2026-10-09T09:00:01"), Some("2026-10-09T09:00:02")]);
+    insert(&mut s, ids[0], [255, 0, 0, 255]);
+    insert(&mut s, ids[2], [255, 0, 0, 255]);
+    assert_eq!(bursts::for_session(&mut s, &ids, bursts::BurstStrictness::Normal).unwrap().len(), 3);
+}
+
+#[test]
+fn p2b_legacy_embeddings_gain_sharpness_without_model_inference() {
+    struct CachedOnly;
+    impl Tagger for CachedOnly {
+        fn model_id(&self) -> &str {
+            "mock-tags"
+        }
+        fn dim(&self) -> usize {
+            8
+        }
+        fn embed_text(&self, text: &str) -> Result<Vec<f32>, String> {
+            mock::MockTagger.embed_text(text)
+        }
+        fn embed_image(&self, _: &Rgba8) -> Result<Vec<f32>, String> {
+            Err("cached vectors must be reused".into())
+        }
+    }
+    let mut s = demo();
+    let id = s.catalog.photos().find(|p| p.flag != Flag::Reject).unwrap().id;
+    let key = insert(&mut s, id, [255, 0, 0, 255]);
+    let before = s.smart.store.get("mock-tags", &key).unwrap().to_vec();
+    s.smart.tagger = Some(Arc::new(CachedOnly));
+    let result = s.execute("smartSort.analyze", &json!({"ids":[id]})).unwrap();
+    assert_eq!(result["analysed"], 1);
+    assert_eq!(result["failed"], json!([]));
+    assert!(s.smart.store.sharpness(&key).is_some());
+    let after = s.smart.store.get("mock-tags", &key).unwrap();
+    for (a, b) in before.iter().zip(after) {
+        assert!((a - b).abs() < 1e-6);
+    }
+    assert_eq!(s.execute("smartSort.analyze", &json!({"ids":[id]})).unwrap()["skipped"], 1);
+}
+
+#[test]
+fn tagging_model_switch_is_persisted_and_separates_cache_versions() {
+    let dir = temp();
+    let old: SmartSortPrefs = serde_json::from_value(json!({"facesEnabled":true})).unwrap();
+    assert_eq!(old.tagging_model, TaggingModel::Fast);
+    let mut smart = SmartSort { store: Store::new(Some(&dir)), ..Default::default() };
+    for model in TaggingModel::ALL {
+        smart.set_model(model);
+        let (id, dim) = smart.selected();
+        smart.store.ensure(&id, dim).unwrap();
+        assert!(smart.store.get(&id, "same-photo").is_none());
+        let mut v = vec![0.; dim];
+        v[0] = 1.;
+        smart.store.insert(&id, "same-photo".into(), v).unwrap();
+    }
+    smart.store.save().unwrap();
+    let mut reopened = Store::new(Some(&dir));
+    for model in TaggingModel::ALL {
+        reopened.ensure(model.id(), model.dim()).unwrap();
+        assert_eq!(reopened.get(model.id(), "same-photo").unwrap().len(), model.dim());
+        assert!(dir.join(format!("AI/embeddings-{}.bin", model.id())).exists());
+    }
+    let mut s = demo();
+    s.open_library(&dir, true).unwrap();
+    s.smart.prefs.tagging_model = TaggingModel::Accurate;
+    s.execute("smartSort.setModel", &json!({"model":"clip-b32-laion"})).unwrap();
+    assert!(s.smart.tagger.is_none());
+    assert_eq!(s.execute("smartSort.status", &json!({})).unwrap()["tagger"]["id"], "clip-b32-laion");
+    assert!(s.execute("smartSort.setModel", &json!({"model":"unknown"})).is_err());
+    let saved = serde_json::to_value(&s.smart.prefs).unwrap();
+    assert_eq!(serde_json::from_value::<SmartSortPrefs>(saved).unwrap().tagging_model, TaggingModel::Fast);
+    drop(s);
+    let mut library = Session::new();
+    library.open_library(&dir, false).unwrap();
+    assert_eq!(library.smart.prefs.tagging_model, TaggingModel::Fast);
+    drop(library);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn siglip_scores_are_independent_and_cached_tagger_preserves_scoring() {
+    struct Independent;
+    impl Tagger for Independent {
+        fn model_id(&self) -> &str {
+            "siglip-test"
+        }
+        fn dim(&self) -> usize {
+            2
+        }
+        fn scoring(&self) -> Scoring {
+            Scoring::Siglip
+        }
+        fn embed_image(&self, _: &Rgba8) -> Result<Vec<f32>, String> {
+            Ok(vec![1., 0.])
+        }
+        fn embed_text(&self, text: &str) -> Result<Vec<f32>, String> {
+            let c = if text.contains("second") {
+                0.5
+            } else if text.contains("first") {
+                0.4
+            } else if text.contains("strong") {
+                0.12
+            } else if text.contains("weak") {
+                0.1
+            } else {
+                -0.1
+            };
+            Ok(vec![c, (1.0 - c * c).sqrt()])
+        }
+    }
+    let tagger = CachedTagger::new(Arc::new(Independent));
+    assert_eq!(tagger.scoring(), Scoring::Siglip);
+    let store = Store::default();
+    let mut preset = sort(&[("Strong", "strong")], Sensitivity::Balanced);
+    let a = classify::Classifier::new(&tagger, &store, &preset).unwrap().classify("x", Some(&[1., 0.]), None).unwrap();
+    preset.categories.push(Category { name: "Weak".into(), prompts: vec!["weak".into()], ..Default::default() });
+    let b = classify::Classifier::new(&tagger, &store, &preset).unwrap().classify("x", Some(&[1., 0.]), None).unwrap();
+    assert_eq!(a.scores["Strong"], b.scores["Strong"]);
+    assert!((b.scores["Strong"] - li_seg::siglip::probability(0.12)).abs() < 1e-6);
+    assert_eq!(b.assigned, vec!["Strong"]);
+    preset.multi = true;
+    preset.categories[1].prompts = vec!["strong".into()];
+    let both = classify::Classifier::new(&tagger, &store, &preset).unwrap().classify("x", Some(&[1., 0.]), None).unwrap();
+    assert_eq!(both.assigned, vec!["Strong", "Weak"]);
+    let saturated = sort(&[("First", "first"), ("Second", "second")], Sensitivity::Balanced);
+    let row = classify::Classifier::new(&tagger, &store, &saturated).unwrap().classify("x", Some(&[1., 0.]), None).unwrap();
+    assert_eq!(row.scores["First"], 1.);
+    assert_eq!(row.scores["Second"], 1.);
+    assert_eq!(row.ranked, vec!["Second", "First"]);
+    assert_eq!(row.assigned, vec!["Second"]);
+}
+
+#[test]
+fn model_switch_reanalyzes_new_model_and_reuses_only_its_own_cache() {
+    struct Scoped(TaggingModel);
+    impl Tagger for Scoped {
+        fn model_id(&self) -> &str {
+            self.0.id()
+        }
+        fn dim(&self) -> usize {
+            self.0.dim()
+        }
+        fn embed_image(&self, _: &Rgba8) -> Result<Vec<f32>, String> {
+            let mut v = vec![0.; self.dim()];
+            v[0] = 1.;
+            Ok(v)
+        }
+        fn embed_text(&self, _: &str) -> Result<Vec<f32>, String> {
+            self.embed_image(&Rgba8::new(1, 1))
+        }
+    }
+    let mut s = Session::with_demo();
+    let ids: Vec<_> = s.catalog.photos().filter(|p| p.in_library()).take(2).map(|p| p.id).collect();
+    let cancel = AtomicBool::new(false);
+    for (model, count) in [(TaggingModel::Fast, 2), (TaggingModel::Accurate, 2), (TaggingModel::Fast, 0)] {
+        s.smart.set_model(model);
+        s.smart.tagger = Some(Arc::new(Scoped(model)));
+        assert_eq!(analyze(&mut s, &ids, &cancel, &|_, _| {}).unwrap().analysed, count);
+        for id in &ids {
+            let key = crate::media::content_key(s.catalog.photo(*id).unwrap());
+            assert_eq!(s.smart.store.get(model.id(), &key).unwrap().len(), model.dim());
+        }
+    }
+    for model in TaggingModel::ALL {
+        assert_eq!(s.smart.store.len(model.id()), 2);
+    }
 }

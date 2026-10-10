@@ -140,7 +140,7 @@ fn show_inner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let (hr, _) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::hover());
     ui.painter().rect_filled(hr, 0.0, t.canvas);
     let sel_n = app.session.selection.ids.len();
-    let chips = lightcraft_engine::filter_chips(&app.session.filter, &app.session.catalog);
+    let chips = super::people_workspace::filter_chips(app);
     let total = app.session.source_total();
     let counted = super::chips::count_text(ids.len(), total, !chips.is_empty());
     let cnt = if sel_n > 1 { crate::i18n::tr_format!("{sel_n} selected · {counted}", counted = counted, sel_n = sel_n) } else { counted };
@@ -437,6 +437,11 @@ fn group_header(app: &mut LightcraftApp, ui: &mut egui::Ui, run: &DateRun, ids: 
 /// first gets a stand-in (its cached thumbnail, else its embedded camera preview), and its real
 /// render then follows in the background.
 pub fn request_thumb(app: &mut LightcraftApp, id: PhotoId, size: usize, priority: u32) {
+    // Keep the filmstrip's existing pixels during a live edit. These CPU renders otherwise
+    // compete with every loupe step and populate the disk cache with transient slider values.
+    if app.session.interaction.as_ref().is_some_and(|i| i.photo == id) {
+        return;
+    }
     let bucket = lightcraft_engine::media::thumb_bucket(size);
     if let Some(photo) = app.session.catalog.photo(id)
         && app.renderer.thumb_current(photo, bucket, priority)
@@ -801,6 +806,12 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             Err(e) => app.toast(ui.ctx(), e),
         }
     }
+    let finder = ui.button(crate::i18n::tr("Find This Person…"));
+    register(ui.ctx(), "photo:findPerson", finder.rect);
+    if finder.clicked() {
+        super::people_workspace::finder(app, id);
+        ui.close();
+    }
     if ui.button(crate::i18n::tr("Set as Reference Photo")).clicked() {
         let _ = app.run("photo.setReference", json!({"id": id.0}));
     }
@@ -910,6 +921,12 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     }
     if ui.add_enabled(crate::menus::ui_enabled(app, "app.showInFinder"), egui::Button::new(crate::i18n::tr("Show in Finder"))).clicked() {
         let _ = app.run("app.showInFinder", json!({}));
+    }
+    let smart_sort = ui.button(crate::i18n::tr("Smart Sort Selected…"));
+    register(ui.ctx(), "menu:smartSortSelected", smart_sort.rect);
+    if smart_sort.clicked() {
+        let _ = app.run("dialog.smartSort", json!({"selectedOnly":true}));
+        ui.close();
     }
     if ui.button(crate::i18n::tr("Export…")).clicked() {
         let _ = app.run("dialog.export", json!({}));

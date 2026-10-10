@@ -19,13 +19,49 @@ const PAD: f32 = 20.0;
 const HEADER_H: f32 = 44.0;
 
 pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
+    // The focused workspace owns these controls while a dialog is open. Querying/clustering
+    // underneath it also changes the candidates of a confirmation queue.
+    if matches!(app.ui.dialog, Some(crate::state::Dialog::SmartSort { .. }))
+        || app.ui.people.queue.is_some()
+        || app.ui.people.finder.is_some()
+        || app.ui.people.merge.is_some()
+    {
+        return;
+    }
+    super::people_workspace::face_options(app, ui);
+    if app.session.smart.prefs.faces_enabled {
+        let scope = app.session.visible_cloned();
+        if app.people_task.is_none()
+            && ui.button(crate::i18n::tr("Analyse faces in this view")).clicked()
+            && let Err(e) = crate::people_task::start(app, &scope, None)
+        {
+            app.ui.people.error = e;
+        }
+        let body = egui::ScrollArea::vertical()
+            .id_salt("recognized-people")
+            .max_height(ui.available_height() * 0.8)
+            .show(ui, |ui| super::people_workspace::show(app, ui, &scope, None));
+        register(ui.ctx(), "people:body", body.inner_rect);
+    }
     let t = Tokens::get(ui.ctx());
-    let people = app.caches.people(&app.session.catalog, &app.session.filter);
+    let mut people = app.caches.people(&app.session.catalog, &app.session.filter).as_ref().clone();
+    if app.session.smart.prefs.faces_enabled {
+        people.retain(|p| !app.session.smart.people.data.people.iter().any(|known| known.name.eq_ignore_ascii_case(&p.name)));
+        if people.is_empty() {
+            return;
+        }
+    }
     let (head, _) = ui.allocate_exact_size(vec2(ui.available_width(), HEADER_H), Sense::hover());
-    ui.painter().text(pos2(head.left() + PAD, head.center().y), Align2::LEFT_CENTER, "Named People", t.semibold(15.0), t.text);
+    ui.painter().text(
+        pos2(head.left() + PAD, head.center().y),
+        Align2::LEFT_CENTER,
+        crate::i18n::tr(if app.session.smart.prefs.faces_enabled { "Imported people" } else { "Named People" }),
+        t.semibold(15.0),
+        t.text,
+    );
     ui.painter().text(pos2(head.right() - PAD, head.center().y), Align2::RIGHT_CENTER, people.len().to_string(), t.font(13.0), t.text_dim);
     // the filters narrowing the list (a date, a keyword…), removable here
-    let chips = lightcraft_engine::filter_chips(&app.session.filter, &app.session.catalog);
+    let chips = super::people_workspace::filter_chips(app);
     super::chips::show(app, ui, &chips);
     if people.is_empty() {
         let (title, body) = if chips.is_empty() {
@@ -38,7 +74,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     let ppp = ui.ctx().pixels_per_point();
     let active = app.session.filter.person.clone();
-    egui::ScrollArea::vertical().auto_shrink(false).show_viewport(ui, |ui, viewport| {
+    egui::ScrollArea::vertical().id_salt("imported-people").auto_shrink(false).show_viewport(ui, |ui, viewport| {
         let width = ui.available_width();
         let cols = (((width - PAD * 2.0 + GAP) / (CARD + GAP)).floor() as usize).max(1);
         let row_h = CARD + LABEL_H + GAP;

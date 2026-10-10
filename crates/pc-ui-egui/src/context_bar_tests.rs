@@ -315,6 +315,7 @@ fn path_and_selection_fill_prompts_open_accept_text_and_close() {
 
 #[test]
 fn path_and_selection_ai_and_generated_layer_buttons_work() {
+    let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     struct Reset;
     impl Drop for Reset {
         fn drop(&mut self) {
@@ -399,6 +400,11 @@ fn path_and_selection_ai_and_generated_layer_buttons_work() {
     assert_eq!(h.state().session.active().unwrap().doc.walk().len(), count + 1);
     let at = bar_widget(&h, "Remove");
     click_at(&mut h, at);
+    let d = h.state().session.active().unwrap();
+    assert_eq!(d.doc.walk().len(), count + 1, "selection removal waits for confirmation");
+    assert!(h.state().ai_remove.is_some());
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
     let d = h.state().session.active().unwrap();
     assert_eq!(d.doc.walk().len(), count + 2, "Remove created a repair layer: {}", h.state().ui.status);
     assert!(d.doc.layer(d.active_layer.unwrap()).unwrap().name.starts_with("AI Remove"));

@@ -258,7 +258,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 let _ = confirm(app, d.id);
             }
             Some(false) => {
-                app.ui.close_dialog(d.id);
+                cancel(app, d.id);
                 app.filter_preview = None;
                 app.color_range = None;
             }
@@ -300,6 +300,13 @@ pub fn title(d: &Dialog) -> String {
         DialogKind::Command => d.fields.get("__label").and_then(Value::as_str).unwrap_or("Command").trim_end_matches('…').to_string(),
         DialogKind::Error => "Error".into(),
     }
+}
+
+/// Cancel a dialog, including any toolbar preview. Used by the UI and automation.
+pub fn cancel(app: &mut PhotocraftApp, id: u64) -> Option<crate::state::Dialog> {
+    let dialog = app.ui.close_dialog(id)?;
+    crate::prefs_ui::cancel(app, &dialog.fields);
+    Some(dialog)
 }
 
 /// Confirm a dialog: run its action and close it. Used by the OK button and by automation.

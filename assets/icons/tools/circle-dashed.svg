@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+<!-- Original Local Image tool artwork; GPL-3.0-or-later. Glossy Duotone, blue family. -->
+<defs>
+<linearGradient id="a" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
+<linearGradient id="n" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
+<linearGradient id="aw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
+<linearGradient id="nw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
+<linearGradient id="shine" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="20"><stop stop-color="currentColor" stop-opacity=".28"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient>
+</defs>
+<g transform="translate(1.5 1.5) scale(.875)" fill="none" stroke="currentColor" stroke-width="1.43" stroke-linecap="round" stroke-linejoin="round">
+<g stroke-dasharray="2.2 2.5" stroke-linecap="butt"><g fill="none" stroke="currentColor" stroke-width="3.5"><ellipse cx="12" cy="12" rx="9" ry="8"/></g>
+<g fill="none" stroke="url(#aw)" stroke-width="2.2"><ellipse cx="12" cy="12" rx="9" ry="8"/></g>
+<g fill="none" stroke="url(#shine)" stroke-width="0.5"><ellipse cx="12" cy="12" rx="9" ry="8"/></g>
+</g>
+</g>
+</svg>

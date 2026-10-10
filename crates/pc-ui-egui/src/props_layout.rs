@@ -122,13 +122,7 @@ pub fn field_width(avail: f32, cols: usize, label_w: f32) -> f32 {
 /// subject selection, type layers its conversions, shapes and smart objects their own.
 pub fn quick_actions(content: &LayerContent) -> &'static [(&'static str, &'static str)] {
     match content {
-        // The editor's own (CPU) and the Qwen-powered versions side by side.
-        LayerContent::Raster(_) => &[
-            ("Remove Background", "layer.removeBackground"),
-            ("Remove Background (AI)", "ai.removeBackground"),
-            ("Select Subject", "select.subject"),
-            ("Select Subject (AI)", "ai.selectSubject"),
-        ],
+        LayerContent::Raster(_) => &[("Select Subject", "select.subject"), ("Select Subject (AI)", "ai.selectSubject")],
         LayerContent::Text(_) => &[
             ("Convert to Shape", "type.convertToShape"),
             ("Convert to Paragraph Text", "type.convertToParagraphText"),

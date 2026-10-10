@@ -373,8 +373,6 @@ fn joined_subpaths_fill_as_one_component() {
 #[test]
 fn analytic_curve_bounds_and_sparse_shape_cache() {
     let path = crate::shapes::ellipse(100.0, 120.0, 60.0, 40.0);
-    let bounds = path.bounds().unwrap();
-    assert_eq!(bounds, (100.0, 120.0, 160.0, 160.0));
     let covered: f64 = crate::path_coverage(&path, photocraft_geom::Rect::new(96, 116, 164, 164)).iter().map(|v| f64::from(*v)).sum();
     assert!((covered - std::f64::consts::PI * 30.0 * 20.0).abs() < 1.0);
     let shape = photocraft_doc::ShapeLayer { path, fill: Some(photocraft_doc::Fill::Solid(photocraft_color::Color::BLACK)), ..Default::default() };

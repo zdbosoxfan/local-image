@@ -243,3 +243,122 @@ fn ai_remove_is_in_the_gpu_render() {
     let v = views(&mut s, id, 480, &stages);
     assert_eq!(v.view, plain.view, "undone: the photo as before");
 }
+
+#[test]
+fn native_tone_equalizer_layers_and_depth_use_engine_gpu_stages() {
+    let _gpu = gpu_state();
+    if !gpu() {
+        return;
+    }
+    use lightcraft_develop::{DevelopSettings, Mask, MaskComponent, MaskOp, MaskShape, SegMask, ToneCurve};
+    let src = Arc::new(Rgb32f::from_fn(129, 91, |x, y| {
+        let v = 0.004 + x as f32 * 0.006;
+        [v, v * 0.6 + 0.02, v * 0.3 + y as f32 * 0.0002]
+    }));
+    let info = SourceInfo::default();
+    let mut s = DevelopSettings::default();
+    s.tone_eq.enabled = true;
+    s.tone_eq.ev5 = 1.0;
+    s.tone_eq.ev2 = -0.7;
+    s.masks.push(Mask {
+        components: vec![MaskComponent {
+            name: None,
+            op: MaskOp::Add,
+            invert: false,
+            shape: MaskShape::DepthRange {
+                lo: 0.2,
+                hi: 0.7,
+                feather: 0.1,
+                seg: Some(SegMask::from_logits(3, &[-3.0, -2.0, -1.0, 0.0, 0.5, 1.0, 2.0, 3.0, 4.0])),
+            },
+        }],
+        opacity: 70.0,
+        ..Default::default()
+    });
+    s.masks[0].tools.curve = Some(ToneCurve { darks: 40.0, ..Default::default() });
+    let stages = StageCache::default();
+    for overlay in [lightcraft_pipeline::Overlay::None, lightcraft_pipeline::Overlay::ToneEqMask] {
+        let req = RenderRequest { overlay, ..RenderRequest::fit(97, 97) };
+        let image = crate::media::develop(&src, &info, &s, &req, Some(&stages), true).image;
+        assert_close("native tools through engine", &lightcraft_pipeline::render(&src, &info, &s, &req).image, &image);
+        assert!(lightcraft_gpu::stage_bytes(&stages) > 0, "the engine used device stages");
+    }
+}
+
+fn measure_deep(src: Arc<Rgb32f>, info: &SourceInfo, s: &lightcraft_develop::DevelopSettings, req: RenderRequest) -> (u16, f64) {
+    let cpu = lightcraft_pipeline::render(&src, info, s, &req).deep.unwrap();
+    let direct = crate::media::develop(&src, info, s, &req, None, true).deep.unwrap();
+    assert!(
+        crate::media::develop_used_gpu(),
+        "media::develop used the CPU: {:?}; {:?}",
+        lightcraft_gpu::unavailable_reason(),
+        lightcraft_gpu::last_fallback()
+    );
+    let (lightcraft_pipeline::DeepSamples::U16(a), lightcraft_pipeline::DeepSamples::U16(b)) = (cpu.samples, direct.samples) else {
+        panic!("U16 output")
+    };
+    assert_eq!(a.len(), b.len());
+    let max = a.iter().zip(&b).map(|(p, q)| p.abs_diff(*q)).max().unwrap();
+    let mean = a.iter().zip(&b).map(|(p, q)| p.abs_diff(*q) as f64).sum::<f64>() / a.len() as f64;
+    eprintln!("deep raw {}x{}: mean {mean:.4}, max {max} U16 LSB, {:?}", cpu.width, cpu.height, lightcraft_gpu::adapter_name());
+    eprintln!("CPU stages: {:?}", lightcraft_gpu::last_cpu_stages());
+    let worst = a.iter().zip(&b).position(|(p, q)| p.abs_diff(*q) == max).unwrap();
+    eprintln!("worst at {},{} channel {}: {} / {}", (worst / 3) % cpu.width, (worst / 3) / cpu.width, worst % 3, a[worst], b[worst]);
+    (max, mean)
+}
+
+fn assert_deep_close(src: Arc<Rgb32f>, info: &SourceInfo, s: &lightcraft_develop::DevelopSettings, req: RenderRequest) {
+    let (max, mean) = measure_deep(src, info, s, req);
+    assert!(max <= 3 && mean < 0.5, "mean {mean:.4}, max {max} U16 LSB");
+}
+
+#[test]
+fn deep_raw_output_uses_the_gpu_with_raw_processing_options() {
+    let _gpu = gpu_state();
+    if !gpu() {
+        return;
+    }
+    let bytes = crate::tests_toolset::textured_dng();
+    let mut settings = lightcraft_develop::DevelopSettings::default();
+    settings.raw.demosaic = lightcraft_develop::Demosaic::Rcd;
+    settings.raw.highlights = lightcraft_develop::HighlightMode::Clip;
+    settings.light.exposure = 0.3;
+    settings.effects.clarity = 15.0;
+    let (src, info) = crate::files::load_bytes_with(&bytes, usize::MAX, &crate::files::RawOptions::of(&settings)).unwrap();
+    let req = RenderRequest {
+        space: lightcraft_pipeline::OutputSpace::ProPhoto,
+        depth: lightcraft_pipeline::OutputDepth::U16,
+        ..RenderRequest::fit(src.width, src.height)
+    };
+    assert_deep_close(Arc::new(src), &info, &settings, req);
+}
+
+/// Real-file corpus validation; kept separate from the small default suite.
+#[test]
+#[ignore = "set LOCAL_IMAGE_TEST_RAW to a corpus raw file"]
+fn deep_corpus_raw_gpu_matches_cpu() {
+    let _gpu = gpu_state();
+    assert!(gpu(), "a real GPU is required for this corpus check");
+    crate::memory::set_budget(1 << 30); // exercise the app's bounded GPU buffer pool
+    let bytes = std::fs::read(std::env::var("LOCAL_IMAGE_TEST_RAW").expect("LOCAL_IMAGE_TEST_RAW")).unwrap();
+    let (src, info) = crate::files::load_bytes(&bytes, usize::MAX).unwrap();
+    assert!(info.raw);
+    let src = Arc::new(src);
+    let req = RenderRequest {
+        space: lightcraft_pipeline::OutputSpace::ProPhoto,
+        depth: lightcraft_pipeline::OutputDepth::U16,
+        ..RenderRequest::fit(src.width, src.height)
+    };
+    let mut settings = lightcraft_develop::DevelopSettings::default();
+    assert_deep_close(src.clone(), &info, &settings, req);
+    settings.light.exposure = 0.3;
+    settings.light.highlights = -40.0;
+    settings.light.shadows = 30.0;
+    settings.effects.clarity = 15.0;
+    settings.effects.texture = 10.0;
+    settings.effects.dehaze = 10.0;
+    settings.detail.nr_luminance = 30.0;
+    settings.detail.nr_color = 25.0;
+    settings.detail.sharpen_amount = 40.0;
+    assert_deep_close(src, &info, &settings, req);
+}

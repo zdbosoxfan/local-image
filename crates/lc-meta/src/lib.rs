@@ -51,8 +51,8 @@ pub struct Flash {
 }
 
 /// A named region of interest on a photo (MWG Region Guidelines, `mwg-rs:Regions`): most often a face,
-/// drawn by Lightroom, digiKam, Picasa or similar tools. Read-only for now — LightCraft does not write
-/// regions yet (see `docs/xmp-interop.md`).
+/// drawn by Lightroom, digiKam, Picasa or similar tools, or named locally by Smart Sort.
+/// Interchange is read-only: LightCraft does not write MWG regions to XMP (see `docs/xmp-interop.md`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Region {
     /// Normalized to the image's full, oriented frame (`Metadata::width`/`height`), y-down, 0..1 on
@@ -62,6 +62,9 @@ pub struct Region {
     /// `mwg-rs:Name` (e.g. the person's name).
     pub name: Option<String>,
     pub description: Option<String>,
+    /// Added by Smart Sort; imported/manual regions remain false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto: bool,
 }
 
 /// `mwg-rs:Type`. Unrecognised values are kept verbatim rather than dropped.
@@ -337,5 +340,25 @@ mod tests {
         let m = Metadata { metering_mode: Some(5), exposure_program: Some(3), ..Default::default() };
         assert_eq!(m.metering_name(), Some("Pattern"));
         assert_eq!(m.exposure_program_name(), Some("Aperture-priority AE"));
+    }
+}
+
+#[cfg(test)]
+mod region_auto_tests {
+    use super::*;
+    #[test]
+    fn old_regions_default_to_manual_and_auto_flag_roundtrips() {
+        let old = serde_json::json!({"rect":{"x0":0.1,"y0":0.2,"x1":0.3,"y1":0.4},"kind":"Face","name":"Jane","description":null});
+        let mut region: Region = serde_json::from_value(old).unwrap();
+        assert!(!region.auto);
+        assert!(serde_json::to_value(&region).unwrap().get("auto").is_none());
+        region.auto = true;
+        let back: Region = serde_json::from_value(serde_json::to_value(&region).unwrap()).unwrap();
+        assert!(back.auto);
+        // The local provenance flag and region names are not emitted to interchange XMP.
+        let metadata = Metadata { regions: vec![region], ..Default::default() };
+        let xmp = write_xmp(&metadata, None);
+        assert!(!xmp.contains("Jane"));
+        assert!(!xmp.contains("auto"));
     }
 }

@@ -25,6 +25,8 @@ pub struct DevelopSettings {
     pub mixer: Mixer,
     /// Point Color: up to [`MAX_POINT_COLORS`] sampled colours, each with its own adjustment.
     pub point_colors: Vec<PointColor>,
+    #[serde(skip_serializing_if = "SkinTone::is_default")]
+    pub skin_tone: SkinTone,
     pub bw_mix: BwMix,
     pub grading: ColorGrading,
     pub effects: Effects,
@@ -78,6 +80,7 @@ impl Default for DevelopSettings {
             color: ColorAdj::default(),
             mixer: Mixer::default(),
             point_colors: Vec::new(),
+            skin_tone: SkinTone::default(),
             bw_mix: BwMix::default(),
             grading: ColorGrading::default(),
             effects: Effects::default(),
@@ -659,9 +662,50 @@ impl Negative {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ClarityMode {
+    #[default]
+    Natural,
+    Punch,
+    Neutral,
+}
+impl ClarityMode {
+    pub fn is_default(&self) -> bool {
+        *self == Self::Natural
+    }
+}
+
+/// Reference and window in darktable UCS 22 JCH (white Y=1); hue in degrees.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SkinTone {
+    pub reference: Option<[f64; 3]>,
+    pub uniformity: f64,
+    pub lightness: f64,
+    pub hue_range: f64,
+    pub chroma_range: f64,
+    pub lightness_range: f64,
+    pub protect_lips: bool,
+}
+impl Default for SkinTone {
+    fn default() -> Self {
+        Self { reference: None, uniformity: 0.0, lightness: 0.0, hue_range: 30.0, chroma_range: 50.0, lightness_range: 50.0, protect_lips: true }
+    }
+}
+impl SkinTone {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Effects {
+    #[serde(skip_serializing_if = "is_zero")]
+    pub structure: f64,
+    #[serde(skip_serializing_if = "ClarityMode::is_default")]
+    pub clarity_mode: ClarityMode,
     pub texture: f64,
     pub clarity: f64,
     pub dehaze: f64,
@@ -1166,6 +1210,8 @@ pub struct LayerTools {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effects: Option<Effects>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub skin_tone: Option<SkinTone>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub vignette: Option<Vignette>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub grain: Option<Grain>,
@@ -1174,8 +1220,22 @@ pub struct LayerTools {
 }
 
 /// The [`DevelopSettings`] keys a layer can hold (see [`LayerTools`]).
-pub const LAYER_KEYS: [&str; 13] =
-    ["wb", "light", "curve", "color", "mixer", "point_colors", "treatment", "bw_mix", "grading", "effects", "vignette", "grain", "detail"];
+pub const LAYER_KEYS: [&str; 14] = [
+    "wb",
+    "light",
+    "curve",
+    "color",
+    "mixer",
+    "point_colors",
+    "treatment",
+    "bw_mix",
+    "grading",
+    "effects",
+    "vignette",
+    "grain",
+    "detail",
+    "skin_tone",
+];
 
 impl LayerTools {
     pub fn is_empty(&self) -> bool {
@@ -1203,6 +1263,7 @@ impl LayerTools {
             self.vignette.is_some(),
             self.grain.is_some(),
             self.detail.is_some(),
+            self.skin_tone.is_some(),
         ];
         LAYER_KEYS.iter().zip(set).filter(|(_, s)| *s).map(|(k, _)| *k).collect()
     }
@@ -1224,6 +1285,7 @@ impl LayerTools {
             bw_mix: self.bw_mix.unwrap_or(d.bw_mix),
             grading: self.grading.unwrap_or(d.grading),
             effects: self.effects.unwrap_or(d.effects),
+            skin_tone: self.skin_tone.unwrap_or(d.skin_tone),
             vignette: self.vignette.unwrap_or(d.vignette),
             grain: self.grain.unwrap_or(d.grain),
             detail: self.detail.unwrap_or(d.detail),
@@ -1244,6 +1306,7 @@ impl LayerTools {
             "bw_mix" => self.bw_mix = Some(view.bw_mix),
             "grading" => self.grading = Some(view.grading),
             "effects" => self.effects = Some(view.effects),
+            "skin_tone" => self.skin_tone = Some(view.skin_tone),
             "vignette" => self.vignette = Some(view.vignette),
             "grain" => self.grain = Some(view.grain),
             "detail" => self.detail = Some(view.detail),
@@ -1265,6 +1328,7 @@ impl LayerTools {
             "bw_mix" => self.bw_mix = None,
             "grading" => self.grading = None,
             "effects" => self.effects = None,
+            "skin_tone" => self.skin_tone = None,
             "vignette" => self.vignette = None,
             "grain" => self.grain = None,
             "detail" => self.detail = None,

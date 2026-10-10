@@ -128,6 +128,18 @@ fn mul(m: &[[f32; 3]; 3], v: [f32; 3]) -> [f32; 3] {
 const WHITE_UV: [f32; 2] = [0.197_83, 0.468_32];
 
 impl ColorCal {
+    /// Resolved scalar and matrix metadata for the device transcription of `apply`.
+    pub fn gpu_words(&self) -> Vec<u32> {
+        let mut p = vec![self.clip as u32, self.compression.to_bits(), self.full.is_some() as u32];
+        for m in [self.matrix, self.to_xyz, self.from_xyz, self.lms, self.lms_inv] {
+            p.extend(m.into_iter().flatten().map(f32::to_bits));
+        }
+        let (src, exponent, dst) = self.full.unwrap_or(([1.0; 3], 1.0, [1.0; 3]));
+        p.extend(src.map(f32::to_bits));
+        p.push(exponent.to_bits());
+        p.extend(dst.map(f32::to_bits));
+        p
+    }
     /// Adapt from `illuminant` to D65 with `cat`; `gamut` 0..12 (darktable's slider: 0 = off,
     /// 1 = default), `clip` negative RGB.
     pub fn new(cat: Cat, illuminant: Xy, gamut: f64, clip: bool) -> ColorCal {
@@ -265,7 +277,7 @@ pub fn of(info: &crate::SourceInfo, s: &lightcraft_develop::DevelopSettings) -> 
 }
 
 /// Whether the colour calibration of `s` needs per-pixel work (non-linear Bradford, gamut
-/// compression, clipping): it then runs in the CPU part of the scene-linear stage.
+/// compression, clipping). The historical name is retained; the GPU now mirrors this work.
 pub fn needs_cpu(s: &lightcraft_develop::DevelopSettings) -> bool {
     let c = &s.color_cal;
     c.enabled && s.section_enabled("colorCal") && (c.gamut > 0.0 || c.clip || c.adaptation == lightcraft_develop::Adaptation::FullBradford)

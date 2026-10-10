@@ -3,11 +3,18 @@
 
 pub mod bursts;
 pub mod classify;
+pub mod examples;
+pub mod faces_store;
+pub mod people;
+pub use people::{FaceTagger, PeopleEngine};
 #[doc(hidden)]
 pub mod mock;
 pub mod plan;
 mod presets;
+pub mod sessions;
 pub mod store;
+pub mod tagsets;
+pub mod tokens;
 
 use crate::{RenderJob, Session};
 use lightcraft_catalog::{MediaKind, PhotoId, Source};
@@ -20,9 +27,49 @@ pub use store::Store;
 
 pub const DEFAULT_MODEL: &str = "clip-b32-laion";
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum TaggingModel {
+    #[default]
+    #[serde(rename = "clip-b32-laion")]
+    Fast,
+    #[serde(rename = "siglip-b16-224")]
+    Accurate,
+}
+impl TaggingModel {
+    pub const ALL: [Self; 2] = [Self::Fast, Self::Accurate];
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Fast => "clip-b32-laion",
+            Self::Accurate => "siglip-b16-224",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Fast => "Fast (CLIP)",
+            Self::Accurate => "Accurate (SigLIP)",
+        }
+    }
+    pub fn dim(self) -> usize {
+        match self {
+            Self::Fast => 512,
+            Self::Accurate => li_seg::siglip::DIM,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Scoring {
+    #[default]
+    Clip,
+    Siglip,
+}
+
 pub trait Tagger: Send + Sync {
     fn model_id(&self) -> &str;
     fn dim(&self) -> usize;
+    fn scoring(&self) -> Scoring {
+        Scoring::Clip
+    }
     fn embed_image(&self, img: &Rgba8) -> Result<Vec<f32>, String>;
     fn embed_text(&self, text: &str) -> Result<Vec<f32>, String>;
 }
@@ -34,7 +81,7 @@ pub struct ClipTagger {
 
 impl Tagger for ClipTagger {
     fn model_id(&self) -> &str {
-        DEFAULT_MODEL
+        "clip-b32-laion"
     }
     fn dim(&self) -> usize {
         self.model.dim()
@@ -48,19 +95,108 @@ impl Tagger for ClipTagger {
     }
 }
 
+pub struct SiglipTagger {
+    pub model: Arc<li_seg::siglip::Siglip>,
+}
+impl Tagger for SiglipTagger {
+    fn model_id(&self) -> &str {
+        li_seg::siglip::MODEL_ID
+    }
+    fn dim(&self) -> usize {
+        li_seg::siglip::DIM
+    }
+    fn scoring(&self) -> Scoring {
+        Scoring::Siglip
+    }
+    fn embed_image(&self, img: &Rgba8) -> Result<Vec<f32>, String> {
+        let rgba: Vec<u8> = img.data.iter().flatten().copied().collect();
+        self.model.embed_image(&rgba, img.width, img.height).map_err(|e| format!("{e:#}"))
+    }
+    fn embed_text(&self, text: &str) -> Result<Vec<f32>, String> {
+        self.model.embed_text(text).map_err(|e| format!("{e:#}"))
+    }
+}
+
+/// Text directions are reused while the dialog is open. Sensitivity changes and corrections
+/// need only the cached image/text vectors, rather than repeating dozens of text-model runs.
+pub struct CachedTagger {
+    inner: Arc<dyn Tagger>,
+    text: std::sync::Mutex<std::collections::BTreeMap<String, Vec<f32>>>,
+}
+impl CachedTagger {
+    pub fn new(inner: Arc<dyn Tagger>) -> Self {
+        Self { inner, text: Default::default() }
+    }
+}
+impl Tagger for CachedTagger {
+    fn model_id(&self) -> &str {
+        self.inner.model_id()
+    }
+    fn scoring(&self) -> Scoring {
+        self.inner.scoring()
+    }
+    fn dim(&self) -> usize {
+        self.inner.dim()
+    }
+    fn embed_image(&self, img: &Rgba8) -> Result<Vec<f32>, String> {
+        self.inner.embed_image(img)
+    }
+    fn embed_text(&self, text: &str) -> Result<Vec<f32>, String> {
+        if let Some(v) = self.text.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(text).cloned() {
+            return Ok(v);
+        }
+        let vector = self.inner.embed_text(text)?;
+        let mut cache = self.text.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if cache.len() >= 4096 {
+            cache.clear();
+        }
+        cache.insert(text.to_string(), vector.clone());
+        Ok(vector)
+    }
+}
+
 #[derive(Default)]
 pub struct SmartSort {
     pub tagger: Option<Arc<dyn Tagger>>,
     pub store: Store,
     pub prefs: SmartSortPrefs,
+    pub tag_sets: Vec<tagsets::TagSet>,
+    pub people: PeopleEngine,
 }
 
 impl SmartSort {
+    /// Test-injected taggers retain their own identity. Real models always follow preferences,
+    /// even if a caller changed those preferences without using the command boundary.
+    pub fn selected(&mut self) -> (String, usize) {
+        if self
+            .tagger
+            .as_ref()
+            .is_some_and(|t| TaggingModel::ALL.iter().any(|m| m.id() == t.model_id()) && t.model_id() != self.prefs.tagging_model.id())
+        {
+            self.tagger = None;
+        }
+        self.tagger.as_ref().map_or((self.prefs.tagging_model.id().into(), self.prefs.tagging_model.dim()), |t| (t.model_id().into(), t.dim()))
+    }
+    pub fn set_model(&mut self, model: TaggingModel) {
+        if self.prefs.tagging_model != model {
+            self.prefs.tagging_model = model;
+            self.tagger = None;
+        }
+    }
     pub fn tagger(&mut self, models_dir: Option<&std::path::Path>) -> Result<Arc<dyn Tagger>, String> {
+        self.selected();
         if self.tagger.is_none() {
             let dir = models_dir.ok_or("Smart Sort model folder is not configured")?;
-            let model = li_seg::shared_clip(dir).ok_or("Smart Sort needs its complete, verified CLIP model bundle")?;
-            self.tagger = Some(Arc::new(ClipTagger { model, crops: li_seg::Crops::Three }));
+            let tagger: Arc<dyn Tagger> = match self.prefs.tagging_model {
+                TaggingModel::Fast => Arc::new(ClipTagger {
+                    model: li_seg::shared_clip(dir).ok_or("Smart Sort needs its complete, verified CLIP model bundle")?,
+                    crops: li_seg::Crops::Three,
+                }),
+                TaggingModel::Accurate => Arc::new(SiglipTagger {
+                    model: li_seg::siglip::shared_siglip(dir).ok_or("Smart Sort needs its complete, verified SigLIP model bundle")?,
+                }),
+            };
+            self.tagger = Some(Arc::new(CachedTagger::new(tagger)));
         }
         self.tagger.clone().ok_or("Smart Sort model unavailable".into())
     }
@@ -74,9 +210,19 @@ pub struct InputJob {
     embedded: Option<(String, crate::media::PreviewLoader)>,
     render: RenderJob,
     fallback: Option<RenderJob>,
+    cached_embedding: Option<Vec<f32>>,
 }
 
+pub type InputResult = Result<(Vec<f32>, f32), String>;
+
 impl InputJob {
+    fn analyze(mut self, tagger: &dyn Tagger) -> InputResult {
+        let cached = self.cached_embedding.take();
+        self.run().and_then(|img| {
+            let vector = cached.map(Ok).unwrap_or_else(|| tagger.embed_image(&img))?;
+            Ok((vector, bursts::sharpness(&img)))
+        })
+    }
     pub fn run(self) -> Result<Rgba8, String> {
         if let Some((path, loader)) = self.embedded
             && let Some(img) = loader(&path, 1024)
@@ -94,6 +240,7 @@ impl InputJob {
 }
 
 pub fn prepare_inputs(session: &mut Session, ids: &[PhotoId]) -> Vec<InputJob> {
+    let (model, _) = session.smart.selected();
     ids.iter()
         .filter_map(|id| {
             let p = session.catalog.photo(*id)?.clone();
@@ -109,7 +256,8 @@ pub fn prepare_inputs(session: &mut Session, ids: &[PhotoId]) -> Vec<InputJob> {
             };
             let render = session.preview_job(*id, 1024, 1024, false, &p.develop)?;
             let fallback = session.thumb_job(*id, 512);
-            Some(InputJob { id: *id, key, embedded, render, fallback })
+            let cached_embedding = session.smart.store.get(&model, &key).map(<[f32]>::to_vec);
+            Some(InputJob { id: *id, key, embedded, render, fallback, cached_embedding })
         })
         .collect()
 }
@@ -148,7 +296,7 @@ pub fn analyze(s: &mut Session, ids: &[PhotoId], cancel: &std::sync::atomic::Ato
             continue;
         }
         let key = crate::media::content_key(p);
-        if s.smart.store.get(&model, &key).is_some() || !keys.insert(key) {
+        if (s.smart.store.get(&model, &key).is_some() && s.smart.store.sharpness(&key).is_some()) || !keys.insert(key) {
             result.skipped += 1;
             continue;
         }
@@ -175,7 +323,7 @@ pub fn analyze(s: &mut Session, ids: &[PhotoId], cancel: &std::sync::atomic::Ato
                     if cancel.load(Ordering::Relaxed) {
                         return (id, key, None);
                     }
-                    let v = input.run().and_then(|img| tagger.embed_image(&img));
+                    let v = input.analyze(tagger.as_ref());
                     (id, key, Some(v))
                 })
                 .collect()
@@ -184,7 +332,10 @@ pub fn analyze(s: &mut Session, ids: &[PhotoId], cancel: &std::sync::atomic::Ato
             let Some(v) = v else {
                 continue;
             };
-            match v.and_then(|v| s.smart.store.insert(&model, key, v)) {
+            match v.and_then(|(v, sharp)| {
+                s.smart.store.set_sharpness(key.clone(), sharp);
+                s.smart.store.insert(&model, key, v)
+            }) {
                 Ok(()) => result.analysed += 1,
                 Err(e) => result.failed.push((id, e)),
             }
@@ -197,4 +348,26 @@ pub fn analyze(s: &mut Session, ids: &[PhotoId], cancel: &std::sync::atomic::Ato
     s.smart.store.save().map_err(|e| crate::EngineError::Other(format!("Smart Sort cache save: {e}")))?;
     result.cancelled = cancel.load(Ordering::Relaxed);
     Ok(result)
+}
+
+/// Run prepared jobs without borrowing a Session. The UI applies each result and periodically
+/// flushes the cache, preserving completed work even when the dialog is cancelled.
+pub fn run_inputs(
+    inputs: Vec<InputJob>,
+    tagger: Arc<dyn Tagger>,
+    cancel: &std::sync::atomic::AtomicBool,
+    result: &(dyn Fn(PhotoId, String, InputResult) + Send + Sync),
+) -> Result<(), String> {
+    use rayon::prelude::*;
+    let threads = std::thread::available_parallelism().map_or(1, |n| (n.get() / 2).max(1));
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().map_err(|e| e.to_string())?;
+    pool.install(|| {
+        inputs.into_par_iter().for_each(|input| {
+            if !cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                let (id, key) = (input.id, input.key.clone());
+                result(id, key, input.analyze(tagger.as_ref()));
+            }
+        })
+    });
+    Ok(())
 }

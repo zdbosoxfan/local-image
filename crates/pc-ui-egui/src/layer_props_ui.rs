@@ -170,6 +170,9 @@ pub fn properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
     }
     // Re-read: a section above may have changed the layer (e.g. point to paragraph type).
     let content = app.session.active().and_then(|s| s.doc.layer(layer.id)).map_or_else(|| layer.content.clone(), |l| l.content.clone());
+    if matches!(content, LayerContent::Raster(_)) {
+        crate::background_ui::section(app, ui, layer.id.0);
+    }
     if let Some(id) = quick_actions_ui(app, ui, &content) {
         let ctx = ui.ctx().clone();
         if let Err(e) = crate::menus::invoke(app, &ctx, id, json!({})) {

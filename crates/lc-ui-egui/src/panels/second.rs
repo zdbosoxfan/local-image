@@ -37,15 +37,20 @@ fn body(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     };
     // a render sized for this window
     let ppp = ui.ctx().pixels_per_point();
-    let (w, h) = (((area.width() * ppp) as usize).clamp(64, 4096), ((area.height() * ppp) as usize).clamp(64, 4096));
-    if let Some(job) = app.session.loupe_job(id, w, h, true)
-        && app.renderer.textures.get(&Slot::Second).is_none_or(|t| t.key != job.key)
-        && !app.renderer.is_pending(Slot::Second)
-    {
+    let interacting = app.session.interaction.is_some();
+    let share_main = interacting && (app.ui.view == crate::state::ViewMode::Detail || app.ui.fullscreen);
+    let cap = app.ui.settings.preview_edge.clamp(512, 4096) as f32;
+    let (w, h) = (crate::render::view_edge(area.width() * ppp, cap, interacting), crate::render::view_edge(area.height() * ppp, cap, interacting));
+    if !share_main && let Some(job) = app.session.loupe_job(id, w, h, true) {
+        let job = if interacting { job.draft() } else { job };
         app.renderer.request(Slot::Second, job, 95);
     }
     let mine = |s: Slot| app.renderer.textures.get(&s).filter(|t| t.photo == id);
-    let tex = mine(Slot::Second).or_else(|| mine(Slot::Main)).or_else(|| app.renderer.thumb(id));
+    // Share the main view's live preview; a second independent render on every slider step
+    // doubles GPU work. Once released this window gets its own settled resolution again.
+    let first = if share_main { Slot::Main } else { Slot::Second };
+    let second = if share_main { Slot::Second } else { Slot::Main };
+    let tex = mine(first).or_else(|| mine(second)).or_else(|| app.renderer.thumb(id));
     if let Some(t) = tex {
         let [tw, th] = t.tex.size();
         let s = (area.width() / tw as f32).min(area.height() / th as f32);

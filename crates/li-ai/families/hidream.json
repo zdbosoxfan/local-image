@@ -122,5 +122,55 @@
   "hf_tags": [
     "hidream"
   ],
+  "file_overrides": [
+    {
+      "patterns": [
+        "hidream*dev"
+      ],
+      "sampling": {
+        "steps": {
+          "default": 28,
+          "min": 1,
+          "max": 100
+        },
+        "cfg": {
+          "default": 1,
+          "min": 1,
+          "max": 1
+        },
+        "denoise": 0.6
+      },
+      "pipeline": {
+        "model_sampling": {
+          "node": "ModelSamplingSD3",
+          "shift": 6.0
+        },
+        "sampler_name": "lcm",
+        "scheduler": "normal"
+      }
+    },
+    {
+      "patterns": [
+        "hidream*fast"
+      ],
+      "sampling": {
+        "steps": {
+          "default": 16,
+          "min": 1,
+          "max": 100
+        },
+        "cfg": {
+          "default": 1,
+          "min": 1,
+          "max": 1
+        },
+        "denoise": 0.6
+      },
+      "pipeline": {
+        "sampler_name": "lcm",
+        "scheduler": "normal"
+      }
+    }
+  ],
   "models": []
 }

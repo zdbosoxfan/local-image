@@ -68,9 +68,11 @@ pub mod adjust_dialog;
 pub mod adjust_editors;
 pub mod adjust_preview;
 pub mod adjust_ui;
+mod ai_remove_ui;
 pub mod ai_ui;
 pub mod analysis_ui;
 pub mod artboard_ui;
+mod background_ui;
 mod brand;
 pub mod brush_panel;
 pub mod brush_picker;
@@ -118,6 +120,8 @@ pub mod gallery_ui;
 pub mod generate_ui;
 pub mod perspective_crop_ui;
 // local-image: the Model Browser.
+mod color_icon_data;
+mod color_icons;
 pub mod gpu_canvas;
 pub mod gpu_status;
 pub mod gradient_ui;
@@ -144,6 +148,9 @@ pub mod menu_nav;
 pub mod menus;
 pub mod model_browser;
 pub mod monitor_status;
+mod mono_tool_icons;
+mod move_fast;
+mod move_input;
 pub mod move_mods;
 pub mod move_ui;
 pub mod native_menu;
@@ -161,6 +168,7 @@ pub mod plugin_ui;
 pub mod point_curve;
 pub mod prefs_ui;
 pub mod preset_files_ui;
+mod tool_icon_data;
 // local-image: Preferences › Tools › Pen pressure curve.
 pub mod preset_panels;
 pub mod pressure_curve_ui;
@@ -190,6 +198,8 @@ mod timeline_ui;
 mod titlebar;
 pub mod tone;
 pub mod tool_feedback;
+pub mod tool_tips;
+pub mod toolsets_ui;
 pub mod transform_tex;
 pub mod transform_tool;
 pub mod type_panels_ui;
@@ -372,8 +382,11 @@ pub struct PhotocraftApp {
     live_stroke: Option<canvas::LiveStroke>,
     /// Footprint trail of a retouching drag (see `stroke_trail`).
     trail: Option<stroke_trail::Trail>,
+    ai_remove: Option<ai_remove_ui::Pending>,
+    draft_refine: generate_ui::draft_refine::Runtime,
     /// Move tool drag shown live (`move_ui`).
     pub(crate) move_preview: Option<move_ui::MovePreview>,
+    pub(crate) move_fast: Option<move_fast::FastMove>,
     /// Patch Tool drag: the healed document at the pointer (`patch_preview`).
     pub(crate) patch_preview: Option<patch_preview::PatchPreview>,
     /// The pixels a Magnetic Lasso border follows (`magnetic_lasso_ui`).
@@ -550,7 +563,10 @@ impl PhotocraftApp {
             drag: None,
             live_stroke: None,
             trail: None,
+            ai_remove: None,
+            draft_refine: Default::default(),
             move_preview: None,
+            move_fast: None,
             patch_preview: None,
             magnetic: Default::default(),
             secondary_erase: false,
@@ -1061,6 +1077,14 @@ impl PhotocraftApp {
 }
 
 impl eframe::App for PhotocraftApp {
+    fn on_exit(&mut self) {
+        // Stop the ComfyUI we started (a user-started one is left running).
+        #[cfg(not(target_arch = "wasm32"))]
+        if ai_ui::shutdown_engine() {
+            log::info!("stopped the AI engine (ComfyUI) Local Image started");
+        }
+    }
+
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         i18n::set_current(i18n::Lang::from_pref(&self.session.prefs().interface.language));
         if !self.styled {
@@ -1103,6 +1127,7 @@ impl eframe::App for PhotocraftApp {
         discard_ui::guard_window_close(self, ctx);
         // Background jobs: apply finished ones, keep frames coming, Esc cancels (before the
         // shortcuts see Esc).
+        ai_remove_ui::keys(self, ctx);
         jobs_ui::tick(self, ctx);
         shortcuts::handle(self, ctx);
         let arrived: Vec<(String, Vec<u8>)> =
@@ -1188,6 +1213,7 @@ impl eframe::App for PhotocraftApp {
         preset_panels::windows(self, &ctx);
         // local-image: Local AI window and the AI prompt dialogs.
         ai_ui::windows(self, &ctx);
+        ai_remove_ui::show(self, &ctx);
         context_bar::show(self, &ctx);
         type_panels_ui::windows(self, &ctx);
         analysis_ui::windows(self, &ctx);
@@ -1581,6 +1607,12 @@ impl PhotocraftApp {
         true
     }
 }
+
+#[cfg(test)]
+mod tool_icon_sheet;
+
+#[cfg(test)]
+mod tool_icon_tests;
 
 #[cfg(test)]
 mod input_tests;

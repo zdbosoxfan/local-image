@@ -3,9 +3,11 @@
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
 //! See licenses/vectorcraft-NOTICE.
 //! V1 commands through the same journal/undo/format channel used by UI and automation.
+use photocraft_color::{Color, PixelFormat};
 use photocraft_doc::{Fill, LayerContent, Path, PathOp, Subpath};
 use photocraft_engine::Session;
 use photocraft_pathops as ops;
+use photocraft_pathops::PathBounds;
 use serde_json::{Value, json};
 
 fn session() -> Session {
@@ -271,4 +273,37 @@ fn checked_in_v1_fixture_with_missing_defaults_loads() {
     assert!(sh.path.subpaths[0].knots.iter().all(|k| !k.smooth));
     assert!((ops::area(&sh.path).unwrap() - 10000.0).abs() < 0.1);
     assert!(doc.layers.iter().any(|l| l.vector_mask.is_some()));
+}
+
+#[test]
+#[ignore = "interactive command performance on the owner machine"]
+fn interactive_thousand_node_boolean_includes_cache_and_history() {
+    let mut s = session();
+    let mut ids = Vec::new();
+    for x in [30.0, 70.0] {
+        let pts: Vec<_> = (0..1000)
+            .map(|i| {
+                let t = i as f64 * std::f64::consts::TAU / 1000.0;
+                (x + 25.0 * t.cos(), 60.0 + 25.0 * t.sin())
+            })
+            .collect();
+        let p = Path::new(vec![photocraft_doc::Subpath::polygon(&pts)]);
+        let mut sh = photocraft_doc::ShapeLayer { path: p, fill: Some(Fill::Solid(Color::rgba(0.2, 0.4, 0.7, 1.0))), ..Default::default() };
+        sh.cache = Some(photocraft_vector::render_shape(&sh, PixelFormat::RGBA32F, s.active().unwrap().doc.bounds()));
+        let layer = photocraft_doc::Layer::new("1000-node input", LayerContent::Shape(sh));
+        ids.push(layer.id.0);
+        s.edit("Add benchmark input", |doc, _| {
+            doc.layers.push(layer);
+            Ok(())
+        })
+        .unwrap();
+    }
+    let before = s.active().unwrap().doc.clone();
+    let start = std::time::Instant::now();
+    s.execute("path.boolean", json!({"layers":ids,"op":"add"})).unwrap();
+    let elapsed = start.elapsed();
+    println!("Interactive Session::execute boolean (2 × 1000 nodes, cache + journal + history): {elapsed:?}");
+    assert!(elapsed < std::time::Duration::from_millis(50), "{elapsed:?}");
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(s.active().unwrap().doc.as_ref(), before.as_ref());
 }

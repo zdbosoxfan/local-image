@@ -36,7 +36,7 @@ pub enum Overlay {
     /// The tone equalizer's mask: each pixel's luminance zone as a grey level (−8 EV black …
     /// 0 EV white).
     ToneEqMask,
-    /// Process 2026 sharpening's Masking (the Alt-drag preview): white where sharpening applies,
+    /// Detail sharpening's Masking (the Alt-drag preview): white where sharpening applies,
     /// black where the mask holds it back.
     SharpenMask,
 }

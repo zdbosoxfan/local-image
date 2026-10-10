@@ -3,7 +3,7 @@
 //! GPU, no external runtime), or a custom `.onnx` file the user picks for a function. Powers
 //! Select › Subject and Sky, Remove Background (Quick), the Object Selection tool's click mode,
 //! and the Library's Subject / Sky / Background / Depth masks — small, quick models that need no
-//! AI server. Smart Sort uses a paired CLIP image/text bundle through [`Clip`].
+//! AI server. Smart Sort uses paired CLIP or SigLIP image/text bundles through [`Clip`] or [`siglip::Siglip`].
 //!
 //! Pre- and post-processing follow the rembg conventions the models were trained for (and
 //! OmaPhoto's port of Compositor): premultiplied resize to the model size, normalisation by the
@@ -12,6 +12,8 @@
 
 pub mod bpe;
 pub mod clip;
+pub mod siglip;
+pub mod unigram;
 pub use clip::{Clip, Crops, shared_clip};
 
 use std::fmt;
@@ -62,10 +64,11 @@ pub enum Group {
     Sky,
     Depth,
     Tagging,
+    Faces,
 }
 
 impl Group {
-    pub const ALL: [Group; 4] = [Group::Subject, Group::Sky, Group::Depth, Group::Tagging];
+    pub const ALL: [Group; 5] = [Group::Subject, Group::Sky, Group::Depth, Group::Tagging, Group::Faces];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -73,6 +76,7 @@ impl Group {
             Group::Sky => "Sky",
             Group::Depth => "Depth",
             Group::Tagging => "Smart Sort (scenes)",
+            Group::Faces => "Faces",
         }
     }
 
@@ -83,6 +87,7 @@ impl Group {
             Group::Sky => "sky",
             Group::Depth => "depth",
             Group::Tagging => "tagging",
+            Group::Faces => "faces",
         }
     }
 
@@ -101,6 +106,9 @@ impl Group {
             Group::Tagging => {
                 "Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer."
             }
+            Group::Faces => {
+                "Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library."
+            }
             Group::Depth => {
                 "Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance)."
             }
@@ -114,6 +122,7 @@ impl Group {
             Group::Sky => "sky-mobileseg",
             Group::Depth => "depth-anything-v2-small",
             Group::Tagging => "clip-b32-laion",
+            Group::Faces => "sface",
         };
         MODELS.iter().find(|m| m.id == id).expect("the official model is in MODELS")
     }
@@ -177,12 +186,27 @@ pub enum Task {
     Subject,
     /// The sky. `classes` = 1: one logit map (sigmoid); otherwise ADE20K-style class logits where
     /// `class` is the sky and `margin` how far it must lead every other class.
-    Sky { classes: usize, class: usize, margin: f32 },
+    Sky {
+        classes: usize,
+        class: usize,
+        margin: f32,
+    },
     /// Monocular relative depth (Depth Anything V2): one map of relative inverse depth
     /// (larger = nearer), ImageNet-normalised input.
     Depth,
     /// Paired image/text embedding models; kept separate from mask inference.
-    ImageText,
+    ImageText {
+        family: ModelFamily,
+    },
+    FaceDetect,
+    FaceEmbed,
+}
+
+/// Preprocessing, tokenization and score calibration travel with the model family.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModelFamily {
+    Clip,
+    Siglip,
 }
 
 pub const MODELS: &[ModelSpec] = &[
@@ -238,7 +262,7 @@ pub const MODELS: &[ModelSpec] = &[
     },
     ModelSpec {
         id: "clip-b32-laion",
-        label: "CLIP ViT-B-32 LAION",
+        label: "CLIP ViT-B-32 LAION (Fast)",
         file: "clip-vit-b32-laion2b-visual.onnx",
         url: "https://huggingface.co/immich-app/ViT-B-32__laion2b-s34b-b79k/resolve/19a057a0fb927cf239541300e74237cd56c7ffe2/visual/model.onnx",
         companions: &[
@@ -266,9 +290,72 @@ pub const MODELS: &[ModelSpec] = &[
         size: 224,
         isnet: false,
         licence: "MIT (LAION CLIP weights; Immich ONNX export; OpenAI tokenizer)",
-        task: Task::ImageText,
+        task: Task::ImageText { family: ModelFamily::Clip },
         group: Some(Group::Tagging),
         about: "Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.",
+    },
+    ModelSpec {
+        id: "siglip-b16-224",
+        label: "SigLIP ViT-B/16 (Accurate)",
+        file: "siglip-vision.onnx",
+        companions: &[
+            Companion {
+                file: "siglip-text.onnx",
+                url: "https://huggingface.co/Xenova/siglip-base-patch16-224/resolve/4649052661e53c7000355844105f8a1792088239/onnx/text_model.onnx",
+                bytes: 441332132,
+                sha256: "3aa7fdbd20eaa8740cce17bf82913de641fcb632a768fed59f661cdcd0c32553",
+            },
+            Companion {
+                file: "siglip-tokenizer.json",
+                url: "https://huggingface.co/Xenova/siglip-base-patch16-224/resolve/4649052661e53c7000355844105f8a1792088239/tokenizer.json",
+                bytes: 2398744,
+                sha256: "4a17c975210be5ab4c36b47d8dae4eefb866dbfb1e676e394aad85dc30a3ae08",
+            },
+        ],
+        bytes: 371819850,
+        sha256: "f89d41bac7f4d4b87e010a467d93f98689d708916ed22f5a07f96fdfa26f475f",
+        url: "https://huggingface.co/Xenova/siglip-base-patch16-224/resolve/4649052661e53c7000355844105f8a1792088239/onnx/vision_model.onnx",
+        size: 224,
+        isnet: false,
+        licence: "Apache-2.0 (Google SigLIP; Xenova ONNX export)",
+        task: Task::ImageText { family: ModelFamily::Siglip },
+        group: Some(Group::Tagging),
+        about: "Accurate local scene recognition for Smart Sort. Includes its text model and tokenizer. Runs on the CPU; photos stay on this computer.",
+    },
+    ModelSpec {
+        id: "yunet",
+        label: "YuNet",
+        file: "face_detection_yunet_2023mar.onnx",
+        companions: &[],
+        bytes: 232589,
+        sha256: "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+        url: "https://huggingface.co/opencv/face_detection_yunet/resolve/3cc26e7f1014a5ee5d74a42acee58bafc9d0a310/face_detection_yunet_2023mar.onnx",
+        size: 640,
+        isnet: false,
+        licence: "MIT (YuNet, Shiqi Yu / OpenCV Zoo)",
+        task: Task::FaceDetect,
+        group: Some(Group::Faces),
+        about: "Finds faces and their landmarks, ready to recognise the same person in other photos. Runs locally on the CPU.",
+    },
+    ModelSpec {
+        id: "sface",
+        label: "YuNet + SFace",
+        file: "face_recognition_sface_2021dec.onnx",
+        companions: &[Companion {
+            file: "face_detection_yunet_2023mar.onnx",
+            url: "https://huggingface.co/opencv/face_detection_yunet/resolve/3cc26e7f1014a5ee5d74a42acee58bafc9d0a310/face_detection_yunet_2023mar.onnx",
+            bytes: 232589,
+            sha256: "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+        }],
+        bytes: 38696353,
+        sha256: "0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79",
+        url: "https://huggingface.co/opencv/face_recognition_sface/resolve/3d7082438a6e4551e840c9b2bb60b71e8da4b524/face_recognition_sface_2021dec.onnx",
+        size: 112,
+        isnet: false,
+        licence: "Apache-2.0 (SFace, OpenCV Zoo)",
+        task: Task::FaceEmbed,
+        group: Some(Group::Faces),
+        about: "Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.",
     },
 ];
 
@@ -329,8 +416,8 @@ impl Segmenter {
     }
 
     fn load_cfg(cfg: Config, path: &Path) -> Result<Self> {
-        if cfg.task == Task::ImageText {
-            bail!("use Clip to load an image/text model");
+        if matches!(cfg.task, Task::ImageText { .. } | Task::FaceDetect | Task::FaceEmbed) {
+            bail!("use the dedicated embedding or face inference API");
         }
         let s = cfg.size;
         // the dynamic-shape depth export declares symbolic intermediate shapes that conflict
@@ -567,7 +654,8 @@ impl Custom {
             Group::Subject => Task::Subject,
             Group::Sky => Task::Sky { classes: self.classes, class: self.class, margin: if self.classes == 1 { 0.0 } else { 2.0 } },
             Group::Depth => Task::Depth,
-            Group::Tagging => Task::ImageText,
+            Group::Tagging => Task::ImageText { family: ModelFamily::Clip },
+            Group::Faces => Task::FaceEmbed,
         };
         Config { id: format!("custom:{}", self.file), size: self.size, norm: self.norm, task }
     }
@@ -747,7 +835,7 @@ fn validate(custom: &Custom, path: &Path) -> Result<(), CustomModelError> {
     let seg = Segmenter::load_cfg(custom.config(), path).map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
     let shape = seg.output_shape().map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
     match custom.group {
-        Group::Tagging => return Err(CustomModelError::UnsupportedFunction),
+        Group::Tagging | Group::Faces => return Err(CustomModelError::UnsupportedFunction),
         Group::Subject => {
             if single_map(&shape).is_none() {
                 return Err(CustomModelError::NotSubjectModel);
@@ -980,8 +1068,9 @@ pub fn remove_with(models_dir: &Path, spec: &ModelSpec, dispose: &dyn Fn(&Path) 
 
 /// Drops the process-wide loaded copy of `spec` (after it is removed).
 fn forget(spec: &ModelSpec) {
-    if spec.task == Task::ImageText {
+    if matches!(spec.task, Task::ImageText { .. }) {
         clip::forget();
+        siglip::forget();
     }
     for slot in [&SUBJECT, &SKY, &DEPTH] {
         let mut g = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -995,6 +1084,7 @@ fn forget(spec: &ModelSpec) {
 fn forget_group(group: Group) {
     if group == Group::Tagging {
         clip::forget();
+        siglip::forget();
         return;
     }
     let Some(slot) = slot(group) else { return };
@@ -1012,7 +1102,7 @@ fn slot(group: Group) -> Option<&'static Slot> {
         Group::Subject => Some(&SUBJECT),
         Group::Sky => Some(&SKY),
         Group::Depth => Some(&DEPTH),
-        Group::Tagging => None,
+        Group::Tagging | Group::Faces => None,
     }
 }
 

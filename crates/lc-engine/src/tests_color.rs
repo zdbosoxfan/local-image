@@ -121,3 +121,23 @@ fn targeted_adjustment_on_curve_and_mixer() {
     assert!(o.values().all(|v| v.as_f64().unwrap() < 0.0));
     assert!(s.execute("develop.targeted", &json!({"target": "nope", "x": 0.5, "y": 0.5, "delta": 1})).is_err());
 }
+
+#[test]
+fn skin_reference_pick_controls_history_and_layers() {
+    let mut s = demo();
+    let r = s.execute("skinTone.pick", &json!({"x":0.5,"y":0.4})).unwrap();
+    let reference = active_dev(&s).skin_tone.reference.unwrap();
+    assert_eq!(r["reference"], json!(reference));
+    assert!(reference.iter().all(|v| v.is_finite()));
+    s.execute("develop.set", &json!({"values":{"skinTone.uniformity":75,"skinTone.lightness":30,"effects.structure":40}})).unwrap();
+    assert_eq!(active_dev(&s).skin_tone.uniformity, 75.);
+    let d = active_dev(&s);
+    assert_eq!(lightcraft_develop::DevelopSettings::from_json(&d.to_json()).unwrap(), d);
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(active_dev(&s).skin_tone.uniformity, 0.);
+    s.execute("mask.add", &json!({"kind":"linear"})).unwrap();
+    let mid = active_dev(&s).masks[0].id;
+    s.execute("skinTone.pick", &json!({"x":0.4,"y":0.4,"mask":mid})).unwrap();
+    assert!(active_dev(&s).masks[0].tools.skin_tone.unwrap().reference.is_some());
+    assert!(s.execute("skinTone.pick", &json!({"x":-1,"y":0.5})).is_err());
+}

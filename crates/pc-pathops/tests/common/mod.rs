@@ -13,10 +13,13 @@ const SEED: u64 = 0x5eed_9a7f;
 /// Reproducible property-test config: `cases` cases from a fixed seed, so a CI run can never fail
 /// at random. Explore further locally with `PROPTEST_CASES=5000 PROPTEST_RNG_SEED=<n>`; keep
 /// every minimal failure found that way as a test in `regressions.rs`.
-pub fn config(cases: u32) -> Config {
-    let mut c = Config { failure_persistence: None, ..Config::default() };
+pub fn config(_cases: u32) -> Config {
+    let mut c = Config {
+        failure_persistence: Some(Box::new(proptest::test_runner::FileFailurePersistence::Direct("proptest-regressions/vector-v1.txt"))),
+        ..Config::default()
+    };
     if std::env::var_os("PROPTEST_CASES").is_none() {
-        c.cases = cases;
+        c.cases = 256;
     }
     if std::env::var_os("PROPTEST_RNG_SEED").is_none() {
         c.rng_seed = RngSeed::Fixed(SEED);

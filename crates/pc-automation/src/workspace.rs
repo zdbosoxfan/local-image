@@ -599,6 +599,7 @@ mod tests {
                 | "layer.vectorMask.add"
                 | "layer.vectorMask.edit"
                 | "layer.vectorMask.info"
+                | "layer.vectorize.preview"
                 | "paint.symmetryFromPath"
                 | "edit.defineCustomShape"
                 | "layer.combineShapes.unite"

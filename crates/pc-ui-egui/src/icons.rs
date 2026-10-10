@@ -1,4 +1,5 @@
-//! Icon rendering. SVGs are embedded (see `icon_data.rs`), recoloured to white, rasterized by the
+//! Icon rendering. Generic SVGs (`icon_data.rs`) and original tools (`tool_icon_data.rs`)
+//! are embedded, recoloured to white, rasterized by the
 //! egui_extras SVG loader at the exact on-screen pixel size (crisp at any DPI), and tinted per use.
 //!
 //! (History: the first shell used Unicode glyphs; half of them rendered as tofu boxes because the
@@ -27,11 +28,17 @@ fn white_icons() -> &'static HashMap<&'static str, Arc<[u8]>> {
 }
 
 pub fn exists(name: &str) -> bool {
-    white_icons().contains_key(name)
+    crate::mono_tool_icons::exists(name) || white_icons().contains_key(name)
 }
 
 /// An egui image for an icon, tinted.
 pub fn image(name: &str, size: f32, tint: Color32) -> egui::Image<'static> {
+    // Generic controls and the eyedropper cursor retain their legacy artwork/hotspots.
+    if !white_icons().contains_key(name)
+        && let Some(image) = crate::mono_tool_icons::image(name, size, tint)
+    {
+        return image;
+    }
     let bytes = white_icons().get(name).or_else(|| white_icons().get("square")).cloned().unwrap_or_default();
     egui::Image::from_bytes(format!("bytes://icons/{name}.svg"), egui::load::Bytes::Shared(bytes)).fit_to_exact_size(Vec2::splat(size)).tint(tint)
 }
@@ -57,7 +64,7 @@ pub fn cursor(ctx: &egui::Context, name: &str, p: egui::Pos2, hot: Vec2, size: f
     });
 }
 
-pub fn tool_icon(t: Tool) -> &'static str {
+pub fn tool_icon_name(t: Tool) -> &'static str {
     match t {
         Tool::Move => "move",
         Tool::RectMarquee => "square-dashed",
@@ -79,35 +86,37 @@ pub fn tool_icon(t: Tool) -> &'static str {
         Tool::Crop => "crop",
         Tool::PerspectiveCrop => "perspective-crop",
         Tool::Slice => "slice-knife",
-        Tool::SliceSelect => "square-dashed-mouse-pointer",
+        Tool::SliceSelect => "slice-select",
         Tool::Gradient => "blend",
         Tool::PaintBucket => "paint-bucket",
-        Tool::Type | Tool::VerticalType => "type",
+        Tool::Type => "type",
+        Tool::VerticalType => "vertical-type",
         Tool::Hand => "hand",
         Tool::Zoom => "zoom-in",
-        Tool::SpotHealing | Tool::Healing => "bandage",
+        Tool::SpotHealing => "spot-healing",
+        Tool::Healing => "healing",
         Tool::Patch => "lasso-select",
         Tool::ContentAwareMove => "arrow-left-right",
-        Tool::RedEye => "eye",
+        Tool::RedEye => "red-eye",
         Tool::CloneStamp => "stamp",
-        Tool::HistoryBrush => "clock",
-        Tool::Blur => "droplet",
-        Tool::Sharpen => "triangle",
-        Tool::Smudge => "pointer",
-        Tool::Dodge => "lollipop",
+        Tool::HistoryBrush => "history-brush",
+        Tool::Blur => "blur",
+        Tool::Sharpen => "sharpen",
+        Tool::Smudge => "smudge",
+        Tool::Dodge => "dodge",
         Tool::Burn => "flame",
-        Tool::Sponge => "cloud",
-        Tool::QuickSelection => "circle-dashed",
-        Tool::ObjectSelection => "square-dashed-mouse-pointer",
+        Tool::Sponge => "sponge",
+        Tool::QuickSelection => "quick-selection",
+        Tool::ObjectSelection => "object-selection",
         Tool::Pen => "pen-tool",
         Tool::PathSelection => "mouse-pointer-2",
         Tool::DirectSelection => "direct-select",
         Tool::Rectangle => "rectangle-horizontal",
         Tool::EllipseShape => "circle",
-        Tool::Triangle => "triangle",
-        Tool::Polygon => "pentagon",
+        Tool::Triangle => "shape-triangle",
+        Tool::Polygon => "shape-polygon",
         Tool::Line => "slash",
-        Tool::CustomShape => "cloud",
+        Tool::CustomShape => "custom-shape",
         Tool::AiRemove => "sparkles",
         Tool::AiCutout => "scissors",
     }
@@ -154,14 +163,62 @@ pub fn rail_button(ui: &mut egui::Ui, name: &str, box_size: f32, on: bool, toolt
     resp.on_hover_text(tl!(tooltip))
 }
 
+fn monochrome_tool_image(name: &str, size: f32, tint: Color32) -> egui::Image<'static> {
+    crate::mono_tool_icons::image(name, size, tint).unwrap_or_else(|| image(name, size, tint))
+}
+
+/// Tool image for toolbar buttons and the rich tooltip's 32 px slot. Colour keeps its SVG
+/// colours; monochrome uses matching geometry with the existing theme tint. Set from preferences each frame.
+pub fn tool_icon(ui: &egui::Ui, name: &str, size: f32) -> egui::Image<'static> {
+    if crate::color_icons::enabled(ui.ctx())
+        && let Some(image) = crate::color_icons::image(ui, name, size, !ui.is_enabled())
+    {
+        return image;
+    }
+    monochrome_tool_image(name, size, if ui.is_enabled() { Tokens::get(ui.ctx()).icon } else { Tokens::get(ui.ctx()).text_faint })
+}
+
+pub fn paint_tool(ui: &egui::Ui, rect: Rect, name: &str, size: f32, tint: Color32) {
+    if crate::color_icons::enabled(ui.ctx())
+        && let Some(image) = crate::color_icons::image(ui, name, size, !ui.is_enabled())
+    {
+        image.paint_at(ui, Rect::from_center_size(rect.center(), Vec2::splat(size)));
+    } else {
+        monochrome_tool_image(name, size, tint).paint_at(ui, Rect::from_center_size(rect.center(), Vec2::splat(size)));
+    }
+}
+
+/// The same button chrome as other icons; only the tool image changes.
+pub fn tool_button(ui: &mut egui::Ui, name: &str, box_size: f32, selected: bool, tooltip: &str) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(box_size), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), selected, tl!(tooltip)));
+    let tint = button_chrome(ui, rect, selected, resp.hovered());
+    paint_tool(ui, rect, name, (box_size * 0.62).round().clamp(20.0, 24.0), tint);
+    if tooltip.is_empty() { resp } else { resp.on_hover_text(tl!(tooltip)) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
+    fn generic_cursor_artwork_and_tool_artwork_use_separate_sources() {
+        let ctx = egui::Context::default();
+        for (icon, expected) in [
+            (image("pipette", 20.0, Color32::WHITE), "bytes://icons/pipette.svg"),
+            (monochrome_tool_image("pipette", 20.0, Color32::WHITE), "bytes://original-tool-icons/pipette.svg"),
+        ] {
+            match icon.source(&ctx) {
+                egui::ImageSource::Bytes { uri, .. } => assert_eq!(uri.as_ref(), expected),
+                other => panic!("unexpected source: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
     fn every_tool_has_an_icon() {
         for t in Tool::ALL {
-            assert!(exists(tool_icon(t)), "{t:?}");
+            assert!(exists(tool_icon_name(t)), "{t:?}");
         }
     }
 

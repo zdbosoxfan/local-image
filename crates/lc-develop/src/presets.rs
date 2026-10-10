@@ -103,7 +103,7 @@ impl SettingsGroup {
             SettingsGroup::WhiteBalance => &["wb"],
             SettingsGroup::Light => &["light", "tone_eq"],
             SettingsGroup::ToneCurve => &["curve"],
-            SettingsGroup::Color => &["color"],
+            SettingsGroup::Color => &["color", "skin_tone"],
             SettingsGroup::ColorMixer => &["mixer", "bw_mix", "point_colors"],
             SettingsGroup::ColorGrading => &["grading"],
             SettingsGroup::Effects => &["effects"],

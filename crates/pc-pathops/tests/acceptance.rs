@@ -1,8 +1,10 @@
 use photocraft_doc::{FillRule, Knot, LineCap, LineJoin, Path, PathOp, ShapeStroke, StrokeAlign, Subpath};
 use photocraft_geom::{Affine, Point, Rect};
 use photocraft_pathops as ops;
+use photocraft_pathops::PathBounds;
 use photocraft_vector as vector;
 use proptest::prelude::*;
+mod common;
 
 fn close(a: f64, b: f64, t: f64) {
     assert!((a - b).abs() <= t, "{a} vs {b}, tolerance {t}");
@@ -184,7 +186,7 @@ fn aligned_strokes_and_empty_outline() {
     assert!(ops::outline_stroke(&Path::default(), &ShapeStroke::default(), 0.01).unwrap().is_empty());
 }
 proptest! {
-    #![proptest_config(ProptestConfig {cases:64,failure_persistence:None,..Default::default()})]
+    #![proptest_config(common::config(256))]
     #[test]
     fn degenerate_inputs_do_not_panic(points in prop::collection::vec((-10.0..10.0f64,-10.0..10.0f64),0..8),closed in any::<bool>()) {
         let path=Path::new(vec![Subpath {knots:points.iter().map(|&(x,y)|Knot::corner(x,y)).collect(),closed,op:PathOp::Combine}]);
@@ -297,4 +299,31 @@ fn closed_join_operands_keep_independent_psd_components() {
     let b = ops::reverse(&a).unwrap();
     let out = ops::join(&[a, b], 0.1).unwrap();
     close(ops::area(&out).unwrap(), 10000.0, 0.01);
+}
+
+#[test]
+fn analytic_bounds_ignore_unused_handles_and_include_singletons() {
+    let mut p = Path::new(vec![Subpath::polyline(&[(0.0, 0.0), (100.0, 0.0)])]);
+    p.subpaths[0].knots[0].in_ctrl = Point::new(-500.0, 500.0);
+    p.subpaths[0].knots[0].out_ctrl = Point::new(0.0, 100.0);
+    p.subpaths[0].knots[1].in_ctrl = Point::new(100.0, 100.0);
+    p.subpaths[0].knots[1].out_ctrl = Point::new(500.0, 500.0);
+    assert_eq!(p.bounds(), Some((0.0, 0.0, 100.0, 75.0)));
+    p.subpaths.push(Subpath::polyline(&[(200.0, 200.0)]));
+    assert_eq!(p.bounds(), Some((0.0, 0.0, 200.0, 200.0)));
+    assert_eq!(Path::default().bounds(), None);
+    p.subpaths[0].knots[0].anchor.x = f64::INFINITY;
+    assert_eq!(p.bounds(), None);
+    assert_eq!(ops::bounds(&p), Err(ops::PathOpsError::NonFinite));
+}
+
+#[test]
+fn builder_and_face_merger_reject_invalid_inputs_without_empty_success() {
+    let invalid = Path::new(vec![Subpath::polyline(&[(f64::NAN, 0.0), (1.0, 1.0)])]);
+    let shape = ops::Shape::new(invalid.clone(), 0);
+    assert_eq!(ops::shape_builder(&[shape], true), Err(ops::PathOpsError::NonFinite));
+    let face = ops::Region { path: invalid, sources: vec![0] };
+    assert_eq!(ops::merge_regions(&[ops::Shape::new(square(0.0, 0.0), 0)], &[&face]), Err(ops::PathOpsError::NonFinite));
+    let line = Path::new(vec![Subpath::polyline(&(0..=ops::kernel::SHAPE_BUILDER_MAX_SEGMENTS + 1).map(|i| (i as f64, 0.0)).collect::<Vec<_>>())]);
+    assert_eq!(ops::shape_builder(&[ops::Shape::new(line, 0)], false), Err(ops::PathOpsError::Degenerate));
 }

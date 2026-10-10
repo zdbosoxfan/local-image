@@ -53,6 +53,8 @@ pub struct TransformPreview {
     pub doc: Arc<Document>,
     pub texture: crate::transform_tex::PreviewTextures,
     pub opacity: f32,
+    /// Whole layers framed together by Show Transform Controls.
+    layers: Vec<u64>,
     gesture: Option<Gesture>,
     /// Warp-mode drag: (control point, pointer start, mesh points at the start).
     warp_drag: Option<(usize, [f64; 2], Vec<[f64; 2]>)>,
@@ -143,7 +145,12 @@ pub fn begin(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String>
     if matches!(layer.content, LayerContent::Adjustment(_)) && layer.mask.is_none() {
         return Err("Adjustment layers have nothing to transform".into());
     }
-    let b = photocraft_engine::transform_cmds::transform_bounds(&doc, layer);
+    let ids = if doc.selection.is_none() { photocraft_engine::layer_multi_cmds::move_targets(&doc, &st.selected_layers()) } else { vec![id] };
+    let b = ids
+        .iter()
+        .filter_map(|id| doc.layer(*id))
+        .map(|l| photocraft_engine::transform_cmds::transform_bounds(&doc, l))
+        .fold(photocraft_geom::Rect::EMPTY, |a, b| a.union(&b));
     if b.is_empty() {
         return Err("Could not transform: the layer is empty".into());
     }
@@ -159,18 +166,31 @@ pub fn begin(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String>
             *surf = rest;
             lifted = Some(l);
         }
-    } else if let Some(l) = pd.layer_mut(id) {
-        l.visible = false;
+    } else {
+        for id in &ids {
+            if let Some(l) = pd.layer_mut(*id) {
+                l.visible = false;
+            }
+        }
     }
     // egui reports the renderer's limit in the app; offscreen harnesses only through the device.
     let max_side = ctx.input(|i| i.max_texture_side).max(app.gpu.as_ref().map_or(1, |g| g.max_texture_side()));
-    let (image, uv) = preview_image(&doc, id, lifted.as_ref(), b, max_side);
+    let (image, uv) = if ids.len() > 1 {
+        let mut solo = (*doc).clone();
+        let group = photocraft_doc::Layer::group("Transform selection", ids.iter().filter_map(|id| doc.layer(*id).cloned()).collect());
+        let group_id = group.id;
+        solo.layers = vec![group];
+        preview_image(&solo, group_id, None, b, max_side)
+    } else {
+        preview_image(&doc, id, lifted.as_ref(), b, max_side)
+    };
     let texture = crate::transform_tex::PreviewTextures::new(ctx, format!("transform-{session}"), image, uv);
     app.transform_preview = Some(TransformPreview {
         session,
         doc: Arc::new(pd),
         texture,
-        opacity: layer.opacity * layer.fill_opacity,
+        opacity: if ids.len() > 1 { 1.0 } else { layer.opacity * layer.fill_opacity },
+        layers: ids.iter().map(|id| id.0).collect(),
         gesture: None,
         warp_drag: None,
         split_tool: None,
@@ -282,6 +302,7 @@ fn begin_lone(
     let (image, uv) = crate::transform_tex::read_surface(&lifted, None, b, max_side);
     let texture = crate::transform_tex::PreviewTextures::new(ctx, format!("transform-{session}"), image, uv);
     app.transform_preview = Some(TransformPreview {
+        layers: Vec::new(),
         session,
         doc: Arc::new(pd),
         texture,
@@ -341,6 +362,7 @@ pub fn begin_selection(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(
     let mut pd = (*doc).clone();
     pd.selection = None;
     app.transform_preview = Some(TransformPreview {
+        layers: Vec::new(),
         session,
         doc: Arc::new(pd),
         texture,
@@ -488,7 +510,7 @@ fn contains(l: &photocraft_doc::Layer, id: LayerId) -> bool {
 
 pub fn commit(app: &mut PhotocraftApp) {
     let Some(t) = app.ui.transform.take() else { return };
-    app.transform_preview = None;
+    let layers = app.transform_preview.take().map_or_else(Vec::new, |p| p.layers);
     if t.selection {
         let mut p = json!({"rect": t.rect, "interpolation": t.interpolation});
         match &t.warp {
@@ -507,7 +529,11 @@ pub fn commit(app: &mut PhotocraftApp) {
         if w.is_identity() {
             return;
         }
-        app.run("edit.transform.warp", json!({"layer": t.layer, "rect": t.rect, "warp": w, "interpolation": t.interpolation}))
+        if layers.len() > 1 {
+            Err("Warp needs one layer or group".into())
+        } else {
+            app.run("edit.transform.warp", json!({"layer": t.layer, "rect": t.rect, "warp": w, "interpolation": t.interpolation}))
+        }
     } else {
         if t.quad == corners(t.rect) {
             return; // untouched: nothing to do and no history step; a ⌥⌘T copy or a place stays
@@ -515,6 +541,9 @@ pub fn commit(app: &mut PhotocraftApp) {
         let mut p = json!({"layer": t.layer, "rect": t.rect, "quad": t.quad, "interpolation": t.interpolation});
         if let Some(target) = t.target {
             p["target"] = target;
+        }
+        if layers.len() > 1 {
+            p["layers"] = json!(layers);
         }
         app.run("edit.transform", p)
     };

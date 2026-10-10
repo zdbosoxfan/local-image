@@ -40,6 +40,7 @@ fn meta_of(m: &lightcraft_meta::Metadata) -> (Meta, Option<String>) {
         creator: m.artist.clone().unwrap_or_default(),
         keywords: m.keywords.clone(),
         regions: m.regions.clone(),
+        person_ids: Vec::new(),
     };
     (meta, m.capture_time.as_ref().map(|d| d.to_iso()))
 }
@@ -193,6 +194,41 @@ pub fn probe_bytes(name: &str, bytes: &[u8]) -> Result<ProbeInfo, String> {
 /// Sensor clip level (normalised) for highlight reconstruction.
 const HIGHLIGHT_CLIP: f32 = 0.99;
 
+/// Read the unmodified sensor before any reconstruction. Each CFA tile records the
+/// fraction of RGB channels whose samples are clipped (green samples averaged).
+fn sensor_clip_confidence(raw: &lightcraft_raw::RawImage) -> Option<lightcraft_raster::Plane> {
+    let n = raw.normalized().ok()?;
+    let crop = raw.crop.clipped(n.width, n.height);
+    let crop = if crop.width > 1 && crop.height > 1 { crop } else { lightcraft_raw::Rect { x: 0, y: 0, width: n.width, height: n.height } };
+    let tile = n.cfa.as_ref().map_or(1, |c| c.width.max(c.height));
+    let p = lightcraft_raster::Plane::from_fn(crop.width.div_ceil(tile), crop.height.div_ceil(tile), |x, y| {
+        let mut counts = [0usize; 3];
+        let mut clipped = [0usize; 3];
+        for dy in 0..tile {
+            for dx in 0..tile {
+                let xx = (crop.x + x * tile + dx).min(crop.x + crop.width - 1);
+                let yy = (crop.y + y * tile + dy).min(crop.y + crop.height - 1);
+                if n.cpp == 3 {
+                    for c in 0..3 {
+                        counts[c] += 1;
+                        clipped[c] += usize::from(n.data[(yy * n.width + xx) * 3 + c] >= HIGHLIGHT_CLIP);
+                    }
+                } else if let Some(cfa) = &n.cfa {
+                    let c = cfa.color_at(xx, yy).min(2) as usize;
+                    counts[c] += 1;
+                    clipped[c] += usize::from(n.data[yy * n.width + xx] >= HIGHLIGHT_CLIP);
+                } else {
+                    let v = usize::from(n.data[yy * n.width + xx] >= HIGHLIGHT_CLIP);
+                    counts = [1; 3];
+                    clipped = [v; 3];
+                }
+            }
+        }
+        (0..3).map(|c| clipped[c] as f32 / counts[c].max(1) as f32).sum::<f32>() / 3.
+    });
+    Some(p)
+}
+
 /// The largest block size to bin a raw's mosaic by for a source of at most `max_edge` pixels:
 /// the binned image must keep at least 90 % of `max_edge` (a 16 MP sensor still bins 2× for the
 /// 2560 px preview). X-Trans can only bin 3× (its 6×6 pattern), and its full demosaic is ~5× the
@@ -321,6 +357,7 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
         // Previews and thumbnails bin the mosaic straight to (about) the size they need; only
         // larger levels (exports, 1:1) demosaic the whole sensor.
         let t0 = web_time::Instant::now();
+        let clip_confidence = sensor_clip_confidence(&raw);
         // capture sharpening: the sensor's blur, measured on the mosaic when asked for
         let capture_radius = if opts.capture_radius { raw.normalized().ok().map(|n| lightcraft_raw::capture::capture_radius(&n)) } else { None };
         let capture_threshold = lightcraft_pipeline::capture::default_threshold(raw.white_at(0), raw.metadata.iso);
@@ -390,6 +427,10 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
         let img = fit(&img, max_edge, max_edge, Filter::Box);
         let sensor_scale = (sensor_long as f32 / img.width.max(img.height).max(1) as f32).max(1.0);
         stages.push(("fit", t0.elapsed()));
+        let clip_confidence = clip_confidence.map(|p| {
+            let p = lightcraft_raster::resample::resize(&p, img.width, img.height, Filter::Bilinear).into_oriented(raw.orientation);
+            Arc::new(lightcraft_pipeline::ClipConfidence { width: p.width, height: p.height, data: p.data })
+        });
         let img = img.into_oriented(raw.orientation);
         stages.push(("orient", t0.elapsed()));
         if lightcraft_pipeline::profiling() {
@@ -412,6 +453,8 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
             img,
             SourceInfo {
                 raw: true,
+                clip_confidence,
+                raw_clip_level: Some(HIGHLIGHT_CLIP),
                 as_shot_temp: temp,
                 as_shot_tint: tint,
                 lens,

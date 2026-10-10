@@ -281,7 +281,8 @@ pub fn build(reg: &crate::family::Registry, installed: &[InstalledModel]) -> Cat
         cat.models.push(info);
     }
     for im in installed {
-        let Some(f) = reg.family(&im.family) else { continue };
+        let unknown = crate::refine::unknown_profile_for(&im.key);
+        let f = reg.family(&im.family).unwrap_or(&unknown);
         // A curated model whose files these are is already listed.
         let main = im.files.get(&Role::Unet).or_else(|| im.files.get(&Role::Checkpoint));
         if let Some(main) = main
@@ -290,7 +291,8 @@ pub fn build(reg: &crate::family::Registry, installed: &[InstalledModel]) -> Cat
             continue;
         }
         let def = ModelDef { key: im.key.clone(), label: im.label.clone(), short: im.label.clone(), ..Default::default() };
-        let info = info_for(f, &def, Origin::Installed);
+        let resolved = f.resolved_for_file(main.map(String::as_str).unwrap_or_default());
+        let info = info_for(&resolved, &def, Origin::Installed);
         cat.presets.push(Preset {
             model: info.id,
             variant: "installed".into(),
@@ -328,7 +330,11 @@ pub fn catalog() -> &'static Catalog {
         if let Some(existing) = s.snapshot {
             return existing;
         }
-        s.snapshot = Some(c);
+        // An inventory scan may have replaced the installed models while this was building; caching it then would
+        // hide them until the next invalidation, so only a catalogue built from the current list is kept.
+        if s.installed == installed {
+            s.snapshot = Some(c);
+        }
     }
     c
 }
@@ -351,6 +357,18 @@ pub fn set_installed(installed: Vec<InstalledModel>) -> bool {
     true
 }
 
+/// The starting denoise for refining with `model`: 1.0 for native reference/edit conditioning
+/// (FLUX.2, Kontext, Qwen Edit and Qwen 2.1), a partial 0.35 for ordinary img2img families.
+pub fn refine_default_denoise(model: ModelId) -> f32 {
+    if let Some(d) = crate::refine::model_defaults(model) {
+        return d.denoise;
+    }
+    match model.try_info() {
+        Some(i) if matches!(i.resolved.pipeline.reference, crate::family::RefMethod::ReferenceLatent | crate::family::RefMethod::TextEncoder) => 1.0,
+        _ => 0.35,
+    }
+}
+
 pub fn presets() -> &'static [Preset] {
     &catalog().presets
 }
@@ -365,6 +383,25 @@ pub fn preset(model: ModelId, variant: &str) -> Option<&'static Preset> {
 
 pub fn default_variant(model: ModelId) -> &'static str {
     presets_for(model).next().map(|p| p.variant.as_str()).unwrap_or("bf16")
+}
+
+/// How an image guides refinement for this model.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RefineMethod {
+    Reference,
+    Img2Img,
+}
+
+pub fn refine_method(model: ModelId) -> RefineMethod {
+    if let Some(reference) = crate::refine::model_is_reference(model) {
+        return if reference { RefineMethod::Reference } else { RefineMethod::Img2Img };
+    }
+    match model.try_info() {
+        Some(i) if i.resolved.pipeline.reference == RefMethod::ReferenceLatent || i.edit && i.resolved.pipeline.reference == RefMethod::TextEncoder => {
+            RefineMethod::Reference
+        }
+        _ => RefineMethod::Img2Img,
+    }
 }
 
 /// Whether a preset can run on the connected ComfyUI, and the loader names to use.
@@ -446,6 +483,21 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn refine_method_and_default_follow_the_model_pipeline() {
+        for m in [ModelId::Klein4B, ModelId::Klein9B] {
+            assert_eq!(refine_method(m), RefineMethod::Reference);
+            assert_eq!(refine_default_denoise(m), 1.0);
+        }
+        // Text-encoder edit models refine by reference too, at full denoise (verified with real refines).
+        assert_eq!(refine_method(ModelId::Qwen), RefineMethod::Reference);
+        assert_eq!(refine_default_denoise(ModelId::Qwen), 1.0);
+        for m in [ModelId::ZImageTurbo, ModelId::Ernie, ModelId::intern("missing-refine-model")] {
+            assert_eq!(refine_method(m), RefineMethod::Img2Img);
+            assert_eq!(refine_default_denoise(m), 0.35);
+        }
+    }
+
+    #[test]
     fn every_original_model_has_a_preset_and_hashes_are_hex() {
         for m in ModelId::ORIGINAL {
             assert!(presets_for(m).next().is_some(), "{m:?}");
@@ -502,5 +554,27 @@ mod tests {
         assert!(m.lora && !m.tags().iter().any(|t| t.contains("LoRA")), "{:?}", m.tags());
         let p = cat.presets.iter().find(|p| p.model == m.id).unwrap();
         assert!(p.installed);
+    }
+
+    #[test]
+    fn installed_weight_variants_publish_their_official_sampling_defaults() {
+        let installed = [
+            ("hidream", "hidream_i1_dev_fp8.safetensors", 28.0, 1.0),
+            ("hidream", "hidream_i1_fast_fp8.safetensors", 16.0, 1.0),
+            ("z-image", "z_image_bf16.safetensors", 25.0, 4.0),
+            ("flux1", "flux1-schnell.safetensors", 4.0, 1.0),
+            ("flux2-klein", "flux-2-klein-base-9b.safetensors", 20.0, 5.0),
+        ];
+        for (family, file, steps, cfg) in installed {
+            let im = InstalledModel { key: format!("unet:{file}"), family: family.into(), label: file.into(), files: [(Role::Unet, file.into())].into() };
+            let cat = build(crate::family::registry(), std::slice::from_ref(&im));
+            let model = cat.models.iter().find(|m| m.id.key() == im.key).unwrap();
+            assert_eq!(model.steps.default, steps);
+            assert_eq!(model.guidance.default, cfg);
+        }
+        // Existing schema-1 profiles without the optional field retain their defaults.
+        let sd15 = crate::family::registry().family("sd15").unwrap();
+        assert!(sd15.file_overrides.is_empty());
+        assert_eq!(sd15.resolved_for_file("custom.safetensors"), sd15.clone());
     }
 }

@@ -129,7 +129,14 @@ proptest! {
             for k in 0..=4 {
                 let q = seg.eval(k as f64 / 4.0);
                 let d = s.nearest(q).unwrap().4;
-                prop_assert!(d <= tol * 1.01 + 1e-6, "deviation {d} > {tol}");
+                prop_assert!(d <= tol + 1e-6, "deviation {d} > {tol}");
+            }
+        }
+        for seg in s.to_bezpath().segments() {
+            for k in 0..=16 {
+                let q = seg.eval(k as f64 / 16.0);
+                let d = p.nearest(q).unwrap().4;
+                prop_assert!(d <= tol + 1e-6, "reverse deviation {d} > {tol}");
             }
         }
     }

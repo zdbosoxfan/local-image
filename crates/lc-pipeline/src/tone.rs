@@ -172,7 +172,9 @@ impl ToneMap {
         let i = (f as usize).min(LUT_N - 2);
         let t = f - i as f32;
         let v = self.lut[i] + (self.lut[i + 1] - self.lut[i]) * t;
-        if ev < LUT_MIN_EV { v * (y / (GREY * 2f32.powf(LUT_MIN_EV))) } else { v }
+        // (a neutral rendered-source table runs past 1 so that white is not cut off by the
+        // interpolation; the output never exceeds 1)
+        if ev < LUT_MIN_EV { v * (y / (GREY * 2f32.powf(LUT_MIN_EV))) } else { v.min(1.0) }
     }
 }
 

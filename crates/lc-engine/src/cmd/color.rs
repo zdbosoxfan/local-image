@@ -170,6 +170,42 @@ fn index(p: &Value, c: &str) -> Result<usize> {
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(
+            "skinTone.pick",
+            "Pick Skin Tone",
+            [],
+            None,
+            "{x,y} normalized image coords, mask?: layer id — select a scene-linear UCS22 reference",
+            has_active,
+            |s, p| {
+                let c = "skinTone.pick";
+                let x = f64_req(p, "x", c)?;
+                let y = f64_req(p, "y", c)?;
+                if !(0.0..=1.0).contains(&x) || !(0.0..=1.0).contains(&y) {
+                    return Err(bad(c, "coordinates must be in 0..1"));
+                }
+                let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
+                let mask = mask_param(s, p, c)?;
+                let src = s.source_now(id, SourceLevel::Thumb).map_err(|e| bad(c, e))?;
+                let info = s.source_info(id);
+                let mut d = (*s.develop_of(id).unwrap_or_default()).clone();
+                let reference = lightcraft_pipeline::skin_reference_sample(
+                    &src,
+                    &info,
+                    &d,
+                    &lightcraft_pipeline::RenderRequest::fit(PROBE_EDGE, PROBE_EDGE),
+                    Point::new(x, y),
+                )
+                .ok_or_else(|| bad(c, "point outside image"))?;
+                let skin = match mask {
+                    Some(i) => d.masks[i].tools.skin_tone.get_or_insert_with(Default::default),
+                    None => &mut d.skin_tone,
+                };
+                skin.reference = Some(reference);
+                s.set_develop(id, d, "Pick Skin Tone")?;
+                Ok(json!({"reference":reference}))
+            }
+        ),
+        cmd!(
             "pointColor.pick",
             "Add Point Color Sample",
             [],

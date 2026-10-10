@@ -127,6 +127,7 @@ pub(crate) fn fill_bezpath(p: &PathData) -> BezPath {
 /// Sweep tolerance for a set of paths (same scaling rule as linesweeper's own `binary_op`).
 pub(crate) fn eps_for<'a>(paths: impl IntoIterator<Item = &'a BezPath>) -> Result<f64, PathOpsError> {
     let mut m: f64 = 0.0;
+    let mut bounds: Option<kurbo::Rect> = None;
     for p in paths {
         for el in p.elements() {
             for pt in el_points(el) {
@@ -134,10 +135,15 @@ pub(crate) fn eps_for<'a>(paths: impl IntoIterator<Item = &'a BezPath>) -> Resul
                     return Err(PathOpsError::NonFinite);
                 }
                 m = m.max(pt.x.abs()).max(pt.y.abs());
+                bounds = Some(bounds.map_or(kurbo::Rect::from_points(pt, pt), |r| r.union_pt(pt)));
             }
         }
     }
-    Ok((m * f64::EPSILON * 64.0).max(1e-6))
+    let span = bounds.map_or(0.0, |r| r.width().max(r.height()));
+    // Keep the upstream document-scale tolerance; scale its floor for tiny/huge
+    // drawings to avoid collapsed tiny contours or excessive root subdivisions.
+    let floor = if !(0.01..=1e4).contains(&span) { (span * 1e-8).max(1e-12) } else { 1e-6 };
+    Ok((m * f64::EPSILON * 64.0).max(floor))
 }
 
 fn el_points(el: &kurbo::PathEl) -> impl Iterator<Item = Point> {
@@ -237,6 +243,8 @@ pub(crate) struct Arrangement {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Tidy {
     pub(crate) precision: f64,
+    sliver_precision: f64,
+    optimal_refit: bool,
     keep: Vec<Point>,
     /// Input curves (with inflated bounds) used to rebuild split pieces exactly.
     curves: Vec<(kurbo::Rect, CubicBez)>,
@@ -245,10 +253,16 @@ pub(crate) struct Tidy {
 impl Tidy {
     /// Merge any smooth joint.
     pub(crate) fn free(precision: f64) -> Self {
-        Self { precision, keep: Vec::new(), curves: Vec::new() }
+        Self { precision, sliver_precision: precision, optimal_refit: false, keep: Vec::new(), curves: Vec::new() }
+    }
+    /// Refit freely, but discard only sweep-scale debris, not legitimate thin contours.
+    pub(crate) fn free_for<'a>(precision: f64, paths: impl IntoIterator<Item = &'a BezPath>) -> Self {
+        Self { sliver_precision: eps_for(paths).unwrap_or(precision).min(precision), ..Self::free(precision) }
     }
     /// Keep every on-curve point of `paths`.
     pub(crate) fn keeping<'a>(precision: f64, paths: impl IntoIterator<Item = &'a BezPath>) -> Self {
+        let paths: Vec<&BezPath> = paths.into_iter().collect();
+        let sliver_precision = eps_for(paths.iter().copied()).unwrap_or(precision).min(precision);
         let mut keep = Vec::new();
         let mut curves = Vec::new();
         for p in paths {
@@ -262,7 +276,7 @@ impl Tidy {
             }
         }
         keep.sort_by(|a, b| a.x.total_cmp(&b.x));
-        Self { precision, keep, curves }
+        Self { precision, sliver_precision, optimal_refit: false, keep, curves }
     }
     fn is_kept(&self, p: Point) -> bool {
         let tol = 1e-6 * (1.0 + p.x.abs().max(p.y.abs()));
@@ -275,12 +289,88 @@ impl Arrangement {
     pub(crate) fn new(mut paths: Vec<(BezPath, FillRule)>) -> Result<Self, PathOpsError> {
         let eps = eps_for(paths.iter().map(|p| &p.0))?;
         snap_horizontals(&mut paths.iter_mut().map(|p| &mut p.0).collect::<Vec<_>>(), eps);
-        // The sweep can panic on rare near-degenerate input; that must never take the app down,
-        // so it becomes an error (callers fall back to leaving the art unchanged).
-        let sweep =
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Topology::<Multi>::from_paths(paths.iter().enumerate().map(|(i, (p, _))| (p, i)), eps)));
-        let top = sweep.map_err(|_| PathOpsError::Degenerate)?.map_err(|_| PathOpsError::OpenPath)?;
-        let tidy = Tidy::keeping(DEFAULT_PRECISION, paths.iter().map(|p| &p.0));
+        let sweep = |paths: &[(BezPath, FillRule)]| {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Topology::<Multi>::from_paths(paths.iter().enumerate().map(|(i, (p, _))| (p, i)), eps)))
+                .map_err(|_| PathOpsError::Degenerate)?
+                .map_err(|_| PathOpsError::OpenPath)
+        };
+        let mut flattened_fallback = false;
+        let top = match sweep(&paths) {
+            Ok(top) => top,
+            Err(_) => {
+                // Quality-plan retry ladder: snap-round, then sweep flattened polygons.
+                // Never retry invalid coordinates. Keep the original input untouched.
+                let extent = paths
+                    .iter()
+                    .map(|(p, _)| {
+                        let r = p.bounding_box();
+                        r.width().max(r.height())
+                    })
+                    .fold(0.0, f64::max);
+                let grid = (DEFAULT_PRECISION * 10.0).min(extent * 1e-6).max(eps);
+                let snapped: Vec<_> = paths
+                    .iter()
+                    .map(|(p, r)| {
+                        let mut p = p.clone();
+                        for el in p.elements_mut() {
+                            let round = |q: &mut Point| {
+                                q.x = (q.x / grid).round() * grid;
+                                q.y = (q.y / grid).round() * grid;
+                            };
+                            match el {
+                                kurbo::PathEl::MoveTo(p) | kurbo::PathEl::LineTo(p) => round(p),
+                                kurbo::PathEl::QuadTo(a, b) => {
+                                    round(a);
+                                    round(b);
+                                }
+                                kurbo::PathEl::CurveTo(a, b, c) => {
+                                    round(a);
+                                    round(b);
+                                    round(c);
+                                }
+                                kurbo::PathEl::ClosePath => {}
+                            }
+                        }
+                        (p, *r)
+                    })
+                    .collect();
+                match sweep(&snapped) {
+                    Ok(top) => {
+                        paths = snapped;
+                        top
+                    }
+                    Err(_) => {
+                        // Bound the fallback arrangement: pathological self-crossing curves can
+                        // otherwise create millions of polygon intersections and exhaust RAM.
+                        let mut segments = 0usize;
+                        let flattened: Vec<_> = paths
+                            .iter()
+                            .map(|(p, r)| {
+                                let mut flat = BezPath::new();
+                                kurbo::flatten(p.iter(), (DEFAULT_PRECISION * 0.1).max(extent * 1e-6), |el| {
+                                    if matches!(el, kurbo::PathEl::LineTo(_)) {
+                                        segments += 1;
+                                    }
+                                    if segments <= 1024 {
+                                        flat.push(el);
+                                    }
+                                });
+                                (flat, *r)
+                            })
+                            .collect();
+                        if segments > 1024 {
+                            return Err(PathOpsError::Degenerate);
+                        }
+                        let top = sweep(&flattened)?;
+                        paths = flattened;
+                        flattened_fallback = true;
+                        top
+                    }
+                }
+            }
+        };
+        let mut tidy = Tidy::keeping(DEFAULT_PRECISION, paths.iter().map(|p| &p.0));
+        tidy.optimal_refit = flattened_fallback;
         Ok(Self { top, rules: paths.iter().map(|p| p.1).collect(), tidy })
     }
 
@@ -326,14 +416,15 @@ impl Arrangement {
 pub(crate) fn contours_to_path(c: &Contours, idx: impl IntoIterator<Item = ContourIdx>, tidy: &Tidy) -> PathData {
     let mut subpaths = Vec::new();
     for i in idx {
-        if is_sliver(&c[i].path, tidy.precision) {
+        if is_sliver(&c[i].path, tidy.precision.min(tidy.sliver_precision)) {
             continue;
         }
         if let Some(sp) = tidy_bezpath(&c[i].path, tidy) {
             subpaths.push(sp);
         }
     }
-    PathData::new(subpaths)
+    let result = PathData::new(subpaths);
+    if tidy.optimal_refit { crate::kernel::edit::simplify(&result, tidy.precision) } else { result }
 }
 
 pub(crate) fn all_contours_to_path(c: &Contours, tidy: &Tidy) -> PathData {
@@ -344,7 +435,8 @@ pub(crate) fn all_contours_to_path(c: &Contours, tidy: &Tidy) -> PathData {
 /// (e.g. the lens left between two coincident curves) and are dropped, like Illustrator's
 /// Pathfinder precision setting does.
 pub(crate) fn is_sliver(bp: &BezPath, precision: f64) -> bool {
-    let a = bp.area().abs();
+    let bounds = bp.bounding_box();
+    let a = (kurbo::Affine::translate((-bounds.x0, -bounds.y0)) * bp).area().abs();
     let per = bp.perimeter(1e-6);
     per <= 0.0 || 2.0 * a / per < precision
 }
@@ -528,17 +620,13 @@ pub fn normalize(path: &PathData, rule: FillRule) -> PathData {
 /// Fallible [`normalize`].
 pub fn try_normalize(path: &PathData, rule: FillRule) -> Result<PathData, PathOpsError> {
     let bp = fill_bezpath(path);
-    let c = normalize_bez(&bp, rule)?;
-    Ok(all_contours_to_path(&c, &Tidy::keeping(DEFAULT_PRECISION, [&bp])))
+    let arr = Arrangement::new(vec![(bp, rule)])?;
+    Ok(all_contours_to_path(&arr.contours(|m| m[0]), &arr.tidy))
 }
 
 pub(crate) fn normalize_bez(bp: &BezPath, rule: FillRule) -> Result<Contours, PathOpsError> {
-    let eps = eps_for([bp])?;
-    let mut bp = bp.clone();
-    snap_horizontals(&mut [&mut bp], eps);
-    let sweep = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Topology::<i32>::from_path(&bp, eps)));
-    let top = sweep.map_err(|_| PathOpsError::Degenerate)?.map_err(|_| PathOpsError::OpenPath)?;
-    Ok(top.contours(|w| inside(rule, *w)))
+    let arr = Arrangement::new(vec![(bp.clone(), rule)])?;
+    Ok(arr.contours(|m| m[0]))
 }
 
 /// Boolean operation between two filled paths. Returns an empty path on invalid (non-finite) input.
@@ -548,10 +636,44 @@ pub fn boolean(a: &PathData, a_rule: FillRule, b: &PathData, b_rule: FillRule, o
 
 /// Boolean operation with an explicit refit `precision`; errors on non-finite input.
 pub fn try_boolean(a: &PathData, a_rule: FillRule, b: &PathData, b_rule: FillRule, op: BoolOp, precision: f64) -> Result<PathData, PathOpsError> {
-    let arr = Arrangement::new(vec![(fill_bezpath(a), a_rule), (fill_bezpath(b), b_rule)])?;
+    if !precision.is_finite() || precision <= 0.0 {
+        return Err(PathOpsError::InvalidOption);
+    }
+    let abp = fill_bezpath(a);
+    let bbp = fill_bezpath(b);
+    eps_for([&abp, &bbp])?;
+    // Exact coincident paths are set identities. Avoid asking the young sweep engine
+    // to distinguish two copies of the same cubic at extrema (a known sliver source).
+    if a_rule == b_rule && same_boundary(&abp, &bbp) {
+        return match op {
+            BoolOp::Difference | BoolOp::Xor => Ok(PathData::default()),
+            BoolOp::Union | BoolOp::Intersect => try_normalize(a, a_rule),
+        };
+    }
+    let arr = Arrangement::new(vec![(abp, a_rule), (bbp, b_rule)])?;
     let c = arr.contours(|m| op.apply(m[0], m[1]));
     let tidy = Tidy { precision, ..arr.tidy };
     Ok(all_contours_to_path(&c, &tidy))
+}
+
+fn same_boundary(a: &BezPath, b: &BezPath) -> bool {
+    let key = |p: &BezPath, reverse: bool| {
+        let mut segments: Vec<[[u64; 2]; 4]> = p
+            .segments()
+            .map(|s| {
+                let c = s.to_cubic();
+                let mut pts = [c.p0, c.p1, c.p2, c.p3];
+                if reverse {
+                    pts.reverse();
+                }
+                pts.map(|p| [if p.x == 0.0 { 0 } else { p.x.to_bits() }, if p.y == 0.0 { 0 } else { p.y.to_bits() }])
+            })
+            .collect();
+        segments.sort_unstable();
+        segments
+    };
+    let a = key(a, false);
+    a == key(b, false) || a == key(b, true)
 }
 
 /// N-ary boolean: the area where `pred(inside_flags)` holds, `inside_flags[i]` telling whether a

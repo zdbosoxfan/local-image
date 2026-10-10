@@ -950,7 +950,15 @@ pub fn apply_tiled_with(
     let fmt = surface.format();
     let ctx = Ctx { bounds, mode: fmt.mode, alpha: fmt.alpha };
     let halo = params.halo();
-    let shared = (halo == Halo::Bounds).then(|| Image::read(surface, bounds.union(&area)));
+    // Global filters read the bounds once; beyond `extent` the edge pixels repeat (as for the
+    // halo reads below), and beyond the read rectangle the samplers clamp to its edge.
+    let shared = (halo == Halo::Bounds).then(|| {
+        let rect = bounds.union(&area);
+        match extent {
+            Some(e) => Image::read_clamped(surface, rect, e),
+            None => Image::read(surface, rect),
+        }
+    });
     let mut tiles = Vec::new();
     let mut y = area.y0;
     while y < area.y1 {

@@ -11,8 +11,8 @@ let union = boolean(&back_path, &front_path, BoolOp::Union)?;
 The document APIs return `Result` for invalid coordinates/options. They include
 `finish_compound`, `boolean`, `pathfinder`, `regions`, `shape_builder`, `merge_regions`,
 `offset_path`, `outline_stroke`, `simplify`, `smooth`, `reverse`, `join`, `split_at`,
-`fit_path`, `area`, `contains`, and `nearest`. `Path::bounds()` is in `pc-doc` and computes
-curve extrema with kurbo. Flattening uses the existing pc-vector tolerance contract.
+`fit_path`, `area`, `contains`, and `nearest`. `bounds(&Path)` computes curve extrema with kurbo; importing `PathBounds` also
+provides `path.bounds()` without adding a geometry dependency to pc-doc. Flattening uses the existing pc-vector tolerance contract.
 
 `geom` and `kernel` expose the adapted upstream calculation types and algorithms for
 specialized callers and ported tests. They are transient data, never a document tree or
@@ -24,7 +24,12 @@ holes would fill them in the PSD-calibrated rasterizer. Inverted geometry requir
 finite clip; the engine supplies the document rectangle. Open fills close with a
 straight edge, matching pc-vector; unused endpoint handles remain intact for editing.
 The document adapter uses fallible kernel operations so sweep failures propagate as
-errors before a command mutates its input layers.
+errors before a command mutates its input layers. Sweep tolerance scales for tiny/huge
+geometry. Failed sweeps retry on snap-rounded cubics and then flattened polygons, with
+kurbo optimal refitting after the polygon retry. The polygon fallback is limited to
+1,024 edges and returns `Degenerate` when exceeded. Refitting precision and numerical
+sliver cleanup use separate thresholds, retaining legitimate thin contours. Exact
+coincident boundaries use set identities to avoid numerical sweep debris.
 
 The native `outline_stroke` adapter uses pc-vector's stroke polygons, including its
 PSD width-relative dashes, cap/join tessellation and closed-path alignment. The

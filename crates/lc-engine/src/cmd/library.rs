@@ -692,7 +692,7 @@ pub fn specs() -> Vec<CommandSpec> {
             }
         ),
         cmd!(query "album.ruleFields", "Smart Album Rule Fields", [], None, "{} → [{field, label, kind, ops: [{op, label}], choices?}] for ruleSet rules", always, |_, _| {
-            use lightcraft_catalog::rules::{FIELDS, Kind, ops_for};
+            use lightcraft_catalog::rules::{FIELDS, Kind, ops_for_field};
             Ok(json!(FIELDS
                 .iter()
                 .map(|(id, label, kind)| {
@@ -704,7 +704,7 @@ pub fn specs() -> Vec<CommandSpec> {
                         Kind::Choice(_) => "choice",
                         Kind::Bool => "bool",
                     };
-                    let mut v = json!({"field": id, "label": label, "kind": k, "ops": ops_for(*kind).iter().map(|(o, l)| json!({"op": o, "label": l})).collect::<Vec<_>>()});
+                    let mut v = json!({"field": id, "label": label, "kind": k, "ops": ops_for_field(id).iter().map(|(o, l)| json!({"op": o, "label": l})).collect::<Vec<_>>()});
                     if let Kind::Choice(c) = kind {
                         v["choices"] = json!(c);
                     }
@@ -1059,7 +1059,7 @@ fn view_rules(s: &Session) -> lightcraft_catalog::Filter {
         LibrarySource::Album(a) => s.catalog.album(a).and_then(|a| a.smart.as_deref().cloned()),
         _ => None,
     };
-    match smart {
+    let mut filter = match smart {
         Some(base) => {
             // overlay the fields the filter bar changed
             let cur = serde_json::to_value(&s.filter).unwrap_or_default();
@@ -1079,7 +1079,9 @@ fn view_rules(s: &Session) -> lightcraft_catalog::Filter {
             f.deleted = false;
             f
         }
-    }
+    };
+    crate::smart_sort::people::resolve_filter_ids(&mut filter, &s.smart.people.data);
+    filter
 }
 
 impl Session {

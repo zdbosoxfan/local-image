@@ -302,7 +302,15 @@ impl FaceMerger {
 
     /// The union of `faces`.
     pub fn merge(&self, faces: &[&Region]) -> PathData {
-        self.exact(faces).filter(|p| !p.is_empty()).unwrap_or_else(|| merge_regions(faces))
+        self.try_merge(faces).unwrap_or_default()
+    }
+
+    /// Fallible merger: a failed fallback union is distinct from an empty selection.
+    pub fn try_merge(&self, faces: &[&Region]) -> Result<PathData, crate::PathOpsError> {
+        if let Some(path) = self.exact(faces).filter(|p| !p.is_empty()) {
+            return Ok(path);
+        }
+        crate::kernel::try_unite_all(&faces.iter().map(|r| (&r.path, FillRule::NonZero)).collect::<Vec<_>>())
     }
 
     fn exact(&self, faces: &[&Region]) -> Option<PathData> {
