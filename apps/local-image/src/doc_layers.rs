@@ -33,6 +33,8 @@ fn kind(l: &Layer) -> LayerKind {
         LayerContent::Shape(_) => LayerKind::Shape,
         LayerContent::Smart(sm) if sm.develop.is_some() => LayerKind::Develop,
         LayerContent::Smart(_) => LayerKind::Smart,
+        // A symbol instance is a placed, linked copy: closest to a smart object in the Library summary.
+        LayerContent::Symbol(_) => LayerKind::Smart,
     }
 }
 

@@ -63,6 +63,8 @@ impl Module {
 }
 
 pub mod actions;
+#[path = "vector_packages/symbols.rs"]
+pub mod symbols;
 // local-image: Local Image's AI tools, Generate panel and filmstrip.
 pub mod adjust_dialog;
 pub mod adjust_editors;
@@ -1200,6 +1202,7 @@ impl eframe::App for PhotocraftApp {
         if chrome {
             filmstrip_ui::panel(self, ui);
         }
+        crate::symbols::frame(self, &ctx);
         let t = theme::Tokens::get(&ctx);
         let backdrop = if chrome { prefs_ui::pasteboard_color(self).unwrap_or(t.canvas) } else { egui::Color32::BLACK };
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(backdrop)).show(ui, |ui| {

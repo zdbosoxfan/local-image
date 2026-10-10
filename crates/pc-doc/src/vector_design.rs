@@ -62,3 +62,9 @@ mod tests {
         assert_eq!(serde_json::to_string(&old).unwrap(), "{}");
     }
 }
+
+// Package 15 owned provider source; relocate to pc-doc after the serial merge if desired.
+#[path = "../../pc-engine/src/vector_packages/symbols/validation.rs"]
+pub mod symbol_validation;
+#[path = "../../pc-engine/src/vector_packages/symbols/expansion.rs"]
+pub mod symbol_expansion;

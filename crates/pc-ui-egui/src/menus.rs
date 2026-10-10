@@ -199,6 +199,10 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
         app.run("view.proofSetup", json!({"profile": profile}))?;
         return app.run("view.proofColors", json!({"on": true}));
     }
+    if id == "window.panel.symbols" {
+        crate::symbols::open_panel(app);
+        return Ok(json!({}));
+    }
     if let Some(alias) = panel_alias(id) {
         return invoke(app, ctx, alias, params);
     }
@@ -508,7 +512,7 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
         return e;
     }
     match id {
-        "file.open" | "file.exit" | "file.clearRecent" | "help.about" | "help.systemInfo" | "edit.search" => true,
+        "window.panel.symbols" | "file.open" | "file.exit" | "file.clearRecent" | "help.about" | "help.systemInfo" | "edit.search" => true,
         i if i.starts_with("file.openRecent.") => true,
         i if crate::toolsets_ui::handles(i) => true,
         i if crate::links::url_for(i).is_some() => true,
@@ -561,6 +565,11 @@ const MODE_CHECKS: [&str; 11] = ["rgb", "grayscale", "cmyk", "lab", "multichanne
 /// Is a UI-level panel toggle currently on (for checkmarks)?
 fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
     use photocraft_doc::{ColorMode, SampleType};
+    if id == "window.panel.symbols" {
+        return Some(
+            app.ui.panels.layers && crate::dock::active_tab(app, crate::dock::Place::Docked(crate::dock::Group::Layers)) == Some(crate::dock::Tab::Symbols),
+        );
+    }
     if let Some(name) = id.strip_prefix("window.theme.").filter(|n| *n != "toggle") {
         return Some(crate::theme::ThemeKind::from_name(name) == Some(app.ui.theme));
     }
@@ -664,6 +673,7 @@ pub fn is_live(id: &str) -> bool {
         || panel_alias(id).is_some()
         || workspace_name(id).is_some()
         || proof_preset(id).is_some()
+        || id == "window.panel.symbols"
         || id == "view.proofSetup.custom"
         || crate::view_cmds::handles(id)
         || crate::analysis_ui::handles(id)

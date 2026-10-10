@@ -42,6 +42,11 @@ pub(crate) fn for_each_surface(layers: &mut [Layer], masks: bool, f: &mut dyn Fn
                     f(c, false)
                 }
             }
+            LayerContent::Symbol(s) => {
+                if let Some(cache) = &mut s.cache {
+                    f(cache, false);
+                }
+            }
             LayerContent::Group(g) => for_each_surface(&mut g.children, masks, f),
             _ => {}
         }
@@ -378,6 +383,9 @@ fn convert_depth(s: &mut Session, depth: SampleType) -> Result<Value> {
     }
     s.edit("Bit Depth", |doc, _| {
         convert_layers_depth(&mut doc.layers, depth);
+        for def in &mut doc.symbols {
+            convert_layers_depth(&mut def.layers, depth);
+        }
         for ch in doc.channels.iter_mut().chain(doc.quick_mask.as_mut()) {
             let f = ch.surface.format().with_sample(depth);
             ch.surface = ch.surface.convert(f);

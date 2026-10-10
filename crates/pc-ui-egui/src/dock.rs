@@ -244,12 +244,13 @@ pub enum Tab {
     Layers,
     Channels,
     Paths,
+    Symbols,
     Generate,
     Library,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 19] = [
+    pub const ALL: [Tab; 20] = [
         Tab::Color,
         Tab::Swatches,
         Tab::Gradients,
@@ -267,6 +268,7 @@ impl Tab {
         Tab::Layers,
         Tab::Channels,
         Tab::Paths,
+        Tab::Symbols,
         Tab::Generate,
         Tab::Library,
     ];
@@ -291,6 +293,7 @@ impl Tab {
             Tab::Layers => "Layers",
             Tab::Channels => "Channels",
             Tab::Paths => "Paths",
+            Tab::Symbols => "Symbols",
             Tab::Generate => "Generate",
             Tab::Library => "Library",
         }
@@ -304,7 +307,7 @@ impl Tab {
             Tab::Character | Tab::Paragraph => Group::Character,
             Tab::Navigator | Tab::Histogram | Tab::Info => Group::Navigator,
             Tab::History | Tab::Actions | Tab::LayerComps => Group::History,
-            Tab::Layers | Tab::Channels | Tab::Paths => Group::Layers,
+            Tab::Layers | Tab::Channels | Tab::Paths | Tab::Symbols => Group::Layers,
             Tab::Generate | Tab::Library => Group::Generate,
         }
     }

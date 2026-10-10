@@ -8,6 +8,8 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+extern crate self as photocraft_doc;
+
 pub mod adjust;
 pub mod analysis;
 pub mod blend_if;
@@ -454,6 +456,7 @@ pub enum LayerContent {
     Text(TextLayer),
     Shape(ShapeLayer),
     Smart(SmartObject),
+    Symbol(SymbolInstance),
 }
 
 impl LayerContent {
@@ -466,6 +469,7 @@ impl LayerContent {
             LayerContent::Text(_) => "Type",
             LayerContent::Shape(_) => "Shape",
             LayerContent::Smart(_) => "Smart Object",
+            LayerContent::Symbol(_) => "Symbol",
         }
     }
 }
@@ -578,6 +582,7 @@ impl Layer {
             LayerContent::Text(t) => t.cache.as_ref(),
             LayerContent::Shape(s) => s.cache.as_ref(),
             LayerContent::Smart(s) => s.cache.as_ref(),
+            LayerContent::Symbol(s) => s.cache.as_ref(),
             _ => None,
         }
     }

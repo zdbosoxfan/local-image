@@ -749,6 +749,8 @@ pub struct ColorPanelState {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UiState {
+    #[serde(default)]
+    pub symbols: crate::symbols::State,
     pub tool: Tool,
     /// local-image: AI tool options and the Generate panel (ai_ui.rs, generate_ui.rs).
     #[serde(default)]
@@ -895,6 +897,7 @@ pub struct UiState {
 impl Default for UiState {
     fn default() -> Self {
         Self {
+            symbols: Default::default(),
             tool: Tool::Brush,
             ai: Default::default(),
             recent_files: Vec::new(),

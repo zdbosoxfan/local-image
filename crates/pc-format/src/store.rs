@@ -513,6 +513,9 @@ impl PcraftWriter {
         for symbol in &doc.symbols {
             convert::check_nesting(&symbol.layers)?;
         }
+        if !doc.symbols.is_empty() || doc.walk().iter().any(|(_, _, l)| matches!(l.content, photocraft_doc::LayerContent::Symbol(_))) {
+            photocraft_doc::vector_design::symbol_validation::document(doc).map_err(|e| crate::FormatError::corrupt(e.to_string()))?;
+        }
         let mut c = Collect { hash_cache: Some(&mut self.hash_cache), ..Default::default() };
         let document = convert::doc_m(doc, &mut c);
         let mut previews = Vec::new();

@@ -124,6 +124,14 @@ impl PlanCache {
                         key.push('-');
                     }
                 }
+                LayerContent::Symbol(s) => {
+                    let _ = write!(key, "symbol{:?}{:?}", s.symbol, s.transform);
+                    if let Some(cache) = &s.cache {
+                        self.surface(cache, key, true);
+                    } else {
+                        key.push('-');
+                    }
+                }
                 LayerContent::Smart(s) => {
                     key.push('o');
                     if let Some(s) = &s.cache {

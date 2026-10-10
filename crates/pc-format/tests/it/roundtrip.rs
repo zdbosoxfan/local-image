@@ -269,7 +269,7 @@ fn manifest_is_human_readable_json() {
     let r = zip::ZipReader::new(&bytes).unwrap();
     assert_eq!(r.entries[0].name, "manifest.json");
     let text = String::from_utf8(r.read_by_name("manifest.json", usize::MAX).unwrap()).unwrap();
-    assert!(text.contains("\"format_version\": 1"));
+    assert!(text.contains(&format!("\"format_version\": {FORMAT_VERSION}")));
     assert!(text.contains("\"Hue/Sat\""));
     assert!(text.contains("filter.blur.gaussian"));
     assert!(r.entries.iter().any(|e| e.name.starts_with("tiles/") && e.name.ends_with(".zst")));

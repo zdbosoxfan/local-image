@@ -492,6 +492,14 @@ impl ProjectionCache {
                         LayerContent::Group(g)
                     }
                     LayerContent::Adjustment(a) => LayerContent::Adjustment(a.clone()),
+                    // Package 15 instances: resample the rendered instance cache like Smart objects.
+                    // Integration may replace this with a vector projection of the expanded master.
+                    LayerContent::Symbol(s) => {
+                        let mut s = s.clone();
+                        s.cache = s.cache.as_ref().map(|c| sample_surface(c, scale, clip)).transpose()?;
+                        s.transform = Affine::scale(scale).mul(&s.transform);
+                        LayerContent::Symbol(s)
+                    }
                 };
                 // Bake masks over the bounded apron once. Retaining the full vector path here
                 // would make the GPU mask planner allocate a document-size scaled surface.

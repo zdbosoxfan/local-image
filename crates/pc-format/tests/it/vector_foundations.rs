@@ -7,7 +7,7 @@ use photocraft_format::*;
 fn old_v1_documents_load() {
     let bytes = include_bytes!("../fixtures/vector-v1.pcraft");
     let m = read_manifest(bytes).unwrap();
-    assert_eq!(m.format_version, 1);
+    assert_eq!(m.format_version, FORMAT_VERSION);
     let d = load_from_bytes(bytes).unwrap();
     assert!(d.symbols.is_empty());
     assert_eq!(d.design_units, DesignUnits::Pixels);
@@ -84,7 +84,7 @@ fn vector_foundations_empty_fields_are_absent_in_v1_output() {
     assert!(json["document"].get("symbols").is_none());
     assert!(json["document"].get("design_units").is_none());
     assert!(json["document"]["layers"][0].get("vector").is_none());
-    assert_eq!(FORMAT_VERSION, 1); // no new ContentM variant is written by the foundations
+    assert_eq!(FORMAT_VERSION, 2); // Symbol content is atomically activated in package 15
 }
 #[test]
 fn vector_foundations_symbol_depth_uses_the_existing_limit() {

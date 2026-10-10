@@ -782,6 +782,7 @@ pub static CATALOG: &[(&[&str], &str, Option<&str>, &str)] = &[
     (&["Window"], "Paragraph", None, "window.panel.paragraph"),
     (&["Window"], "Paragraph Styles", None, "window.panel.paragraphStyles"),
     (&["Window"], "Paths", None, "window.panel.paths"),
+    (&["Window"], "Symbols", None, "window.panel.symbols"),
     (&["Window"], "Patterns", None, "window.panel.patterns"),
     (&["Window"], "Properties", None, "window.panel.properties"),
     (&["Window"], "Shapes", None, "window.panel.shapes"),

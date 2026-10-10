@@ -215,6 +215,10 @@ pub(crate) fn transform_layer_map(doc_sel: Option<&Surface>, group: Locks, l: &m
             };
             crate::vector_cmds::transform_shape(sh, &a);
         }
+        LayerContent::Symbol(s) => {
+            let a = affine.ok_or_else(|| EngineError::Other("Perspective needs detached or rasterized symbols".into()))?;
+            crate::vector_packages::symbols::transform_cached_instance(s, a)?;
+        }
         LayerContent::Smart(sm) => {
             let Some(h) = m.homography() else {
                 return Err(EngineError::Other(
@@ -307,6 +311,11 @@ pub(crate) fn refresh_text(doc: &Document, l: &mut Layer) {
             let _ = crate::smart_cmds::refresh_layer(doc, l);
         }
         LayerContent::Group(g) => g.children.iter_mut().for_each(|c| refresh_text(doc, c)),
+        LayerContent::Symbol(s) => {
+            if let Ok(cache) = crate::vector_packages::symbols::render_instance(doc, s) {
+                s.cache = Some(cache);
+            }
+        }
         _ => {}
     }
 }

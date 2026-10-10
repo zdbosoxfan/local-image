@@ -215,7 +215,7 @@ fn v1_bundle_with_shapes_masks_and_paths_loads() {
     let raster = s.active().unwrap().doc.layers.iter().find(|l| matches!(l.content, LayerContent::Raster(_))).unwrap().id.0;
     s.execute("layer.vectorMask.add", json!({"layer":raster,"path":p})).unwrap();
     let bytes = photocraft_format::save_to_bytes(&s.active().unwrap().doc, &Default::default()).unwrap();
-    assert_eq!(photocraft_format::read_manifest(&bytes).unwrap().format_version, 1);
+    assert_eq!(photocraft_format::read_manifest(&bytes).unwrap().format_version, photocraft_format::FORMAT_VERSION);
     let back = photocraft_format::load_from_bytes(&bytes).unwrap();
     assert_eq!(back.paths.len(), 1);
     assert!(back.layer(photocraft_doc::LayerId(raster)).unwrap().vector_mask.is_some());
@@ -255,7 +255,7 @@ fn empty_operand_live_compound_keeps_its_set_semantics() {
 #[test]
 fn checked_in_v1_fixture_with_missing_defaults_loads() {
     let bytes = include_bytes!("fixtures/vector-v1.pcraft");
-    assert_eq!(photocraft_format::read_manifest(bytes).unwrap().format_version, 1);
+    assert_eq!(photocraft_format::read_manifest(bytes).unwrap().format_version, photocraft_format::FORMAT_VERSION);
     let doc = photocraft_format::load_from_bytes(bytes).unwrap();
     assert_eq!(doc.paths.len(), 1);
     assert_eq!(doc.paths[0].name, "Saved");

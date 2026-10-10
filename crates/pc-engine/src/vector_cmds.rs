@@ -447,6 +447,10 @@ pub fn translate_vectors(doc: &Document, l: &mut Layer, dx: f64, dy: f64) {
             transform_shape(sh, &a);
             refresh_shape(doc, sh);
         }
+        LayerContent::Symbol(s) => {
+            s.transform = a.mul(&s.transform);
+            s.cache = s.cache.as_ref().map(|cache| crate::layer_multi_cmds::shift_surface(cache, dx.round() as i32, dy.round() as i32));
+        }
         LayerContent::Group(g) => {
             for c in &mut g.children {
                 translate_vectors(doc, c, dx, dy);

@@ -20,3 +20,6 @@ static GPU_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 fn gpu_lock() -> std::sync::MutexGuard<'static, ()> {
     GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
+
+#[path = "../../src/vector_packages/symbols/app_gpu.rs"]
+mod symbol_instances;

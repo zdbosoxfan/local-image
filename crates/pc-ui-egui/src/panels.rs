@@ -1310,6 +1310,10 @@ fn dock_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, tab: crate::dock::Tab) 
         Tab::Layers => layers(app, ui),
         Tab::Channels => channels(app, ui),
         Tab::Paths => crate::vector_ui::paths_panel(app, ui),
+        Tab::Symbols => {
+            let ids = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();
+            crate::symbols::panel(ui, &mut app.session, &mut app.ui.symbols, &ids, |s| crate::i18n::t(s).to_owned());
+        }
         Tab::Generate => crate::generate_ui::panel(app, ui),
         Tab::Library => crate::generate_ui::library_panel(app, ui),
     }
@@ -1604,6 +1608,7 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 ("adjustment", "contrast", tl!("Filter for adjustment layers")),
                 ("type", "type", tl!("Filter for type layers")),
                 ("shape", "square", tl!("Filter for shape layers")),
+                ("symbol", "copy", tl!("Filter for symbols")),
                 ("smart", "app-window", tl!("Filter for smart objects")),
             ] {
                 let on = app.ui.layer_filter.iter().any(|k| k == kind);
@@ -1716,6 +1721,7 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         LayerContent::Shape(_) => "shape",
                         LayerContent::Smart(_) => "smart",
                         LayerContent::Group(_) => "",
+                        LayerContent::Symbol(_) => "symbol",
                     };
                     if !filter.iter().any(|k| k == kind) {
                         continue;

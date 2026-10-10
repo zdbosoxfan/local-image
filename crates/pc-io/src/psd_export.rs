@@ -472,7 +472,7 @@ impl Ex {
                     self.smart_blocks(l, sm, parsed, &mut raw);
                 }
             }
-            LayerContent::Raster(_) | LayerContent::Group(_) => {}
+            LayerContent::Raster(_) | LayerContent::Group(_) | LayerContent::Symbol(_) => {}
         }
         // Effects reference point: written from the field (in place, keeping block order).
         match l.effects.reference {
@@ -803,6 +803,10 @@ impl Ex {
                 }
                 LayerContent::Smart(sm) => {
                     let r = self.record(l, extra, sm.cache.as_ref());
+                    self.records.push(r);
+                }
+                LayerContent::Symbol(s) => {
+                    let r = self.record(l, extra, s.cache.as_ref());
                     self.records.push(r);
                 }
             }

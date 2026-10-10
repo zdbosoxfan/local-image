@@ -566,6 +566,9 @@ pub(crate) const GPU_OUTPUT: u32 = u32::MAX;
 
 /// The document to render: the committed one, or a clone with the live adjustment preview applied.
 fn display_doc(app: &mut PhotocraftApp, idx: usize) -> (std::sync::Arc<Document>, u64) {
+    if let Some(shown) = crate::symbols::display_doc(&app.session, &app.ui.symbols, idx) {
+        return shown;
+    }
     // Puppet / Perspective Warp previews hide the layer they draw on a mesh.
     if let Some(shown) = crate::distort_ui::display_doc(app, idx) {
         return shown;
@@ -1763,7 +1766,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     let pixel_grid = app.ui.view.shows(app.ui.view.show.pixel_grid);
     let response = ui.allocate_rect(rect, Sense::click_and_drag());
     let painter = ui.painter_at(rect);
-    let move_input = primary && crate::move_input::canvas_input(app, &response, &xf);
+    let symbol_input = primary && crate::symbols::canvas_input(app, &response, &xf);
+    let move_input = symbol_input || (primary && crate::move_input::canvas_input(app, &response, &xf));
     let doc = if move_input { app.session.documents()[idx].doc.clone() } else { doc };
 
     match crate::prefs_ui::pasteboard_color(app) {
@@ -2757,6 +2761,15 @@ fn tool_move(app: &mut PhotocraftApp, x: f64, y: f64, pressure: f32, mods: egui:
 
 /// Tool state machine. Shared by mouse input and automation.
 pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) {
+    let ids = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();
+    let symbol_event = match ev {
+        ToolEvent::Down { x, y, .. } => crate::symbols::Event::Down(x, y),
+        ToolEvent::Move { x, y, .. } => crate::symbols::Event::Move(x, y),
+        ToolEvent::Up { x, y } => crate::symbols::Event::Up(x, y),
+    };
+    if crate::symbols::pointer(&mut app.session, &mut app.ui.symbols, symbol_event, &ids) {
+        return;
+    }
     // An Alt+right-drag armed for this press (`paint_mouse`): taken before anything else can
     // consume the event, so it never outlives the press it was armed for (#297).
     let armed = std::mem::take(&mut app.brush_resize_armed);
