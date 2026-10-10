@@ -1567,5 +1567,22 @@
   "−7 EV": "−7 EV",
   "−8 EV": "−8 EV",
   "日本語": "Japonština",
-  "繁體中文（台灣）": "Tradiční čínština (Tchaj-wan)"
+  "繁體中文（台灣）": "Tradiční čínština (Tchaj-wan)",
+  "Destination folder pattern": "Vzor cílové složky",
+  "All photos": "Všechny fotografie",
+  "photos": "fotografie",
+  "+ Folder from Examples…": "+ Složka z příkladů…",
+  "Also stack in the Library": "Také seskupit v Knihovně",
+  "Folder tokens: {event}, {folder}, {person}, {session}, {date}, {camera}. File names also accept {original} and {seq:4}.": "Tokeny složek: {event}, {folder}, {person}, {session}, {date}, {camera}. Názvy souborů také přijímají {original} a {seq:4}.",
+  "Best of each burst": "Nejlepší z každé série",
+  " minutes": " min",
+  "Normal": "Normální",
+  "Event name": "Název události",
+  "No time": "Bez času",
+  "File name pattern (optional)": "Vzor názvu souboru (volitelné)",
+  "Group bursts and near-duplicates": "Seskupit série a téměř duplicitní fotografie",
+  "Only in session": "Pouze v relaci",
+  "Split into sessions when there is a gap of more than": "Rozdělit na relace, pokud je mezera větší než",
+  "All sessions": "Všechny relace",
+  "Export sessions as folders": "Exportovat relace jako složky"
 }

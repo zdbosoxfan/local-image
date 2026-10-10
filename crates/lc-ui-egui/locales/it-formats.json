@@ -129,5 +129,6 @@
   "· {dups} already in the library": "· {dups} già nella libreria",
   "· {n} photo{}": "· {n} foto{0:.0}",
   "… and {more} more": "… e altri {more}",
-  "{n} change{} saved in memory but not written to disk: {e}\nLocal Image retries automatically; quitting now would lose {}.": "{n} modifiche{:.0} salvate in memoria ma non scritte su disco: {e}\nLocal Image riprova automaticamente; uscendo ora andrebbero perse{:.0}."
+  "{n} change{} saved in memory but not written to disk: {e}\nLocal Image retries automatically; quitting now would lose {}.": "{n} modifiche{:.0} salvate in memoria ma non scritte su disco: {e}\nLocal Image riprova automaticamente; uscendo ora andrebbero perse{:.0}.",
+  "{start}–{end} · {n} photos": "{start}–{end} · {n} foto"
 }

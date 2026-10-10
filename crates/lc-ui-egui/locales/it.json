@@ -1567,5 +1567,22 @@
   "−7 EV": "−7 EV",
   "−8 EV": "−8 EV",
   "日本語": "日本語",
-  "繁體中文（台灣）": "繁體中文（台灣）"
+  "繁體中文（台灣）": "繁體中文（台灣）",
+  "Destination folder pattern": "Modello cartella di destinazione",
+  "All photos": "Tutte le foto",
+  "photos": "foto",
+  "+ Folder from Examples…": "+ Cartella da esempi…",
+  "Also stack in the Library": "Crea pile anche nella Libreria",
+  "Folder tokens: {event}, {folder}, {person}, {session}, {date}, {camera}. File names also accept {original} and {seq:4}.": "Token cartella: {event}, {folder}, {person}, {session}, {date}, {camera}. I nomi file accettano anche {original} e {seq:4}.",
+  "Best of each burst": "Migliore di ogni raffica",
+  " minutes": " minuti",
+  "Normal": "Normale",
+  "Event name": "Nome evento",
+  "No time": "Nessuna ora",
+  "File name pattern (optional)": "Modello nome file (facoltativo)",
+  "Group bursts and near-duplicates": "Raggruppa raffiche e quasi duplicati",
+  "Only in session": "Solo in sessione",
+  "Split into sessions when there is a gap of more than": "Dividi in sessioni quando c'è un intervallo superiore a",
+  "All sessions": "Tutte le sessioni",
+  "Export sessions as folders": "Esporta sessioni come cartelle"
 }

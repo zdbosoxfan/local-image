@@ -129,5 +129,6 @@
   "{files} files into {folders} folders ({photos} photos)": "{photos}枚の写真から{files}ファイルを{folders}フォルダーに書き出し",
   "{n} already analysed": "{n}枚は解析済み",
   "{n} photos from {source}": "{source}の写真{n}枚",
-  "{n} videos skipped": "動画{n}件をスキップ"
+  "{n} videos skipped": "動画{n}件をスキップ",
+  "{start}–{end} · {n} photos": "{start}～{end} · 写真{n}枚"
 }

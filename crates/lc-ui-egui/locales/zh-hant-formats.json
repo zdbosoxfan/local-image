@@ -129,5 +129,6 @@
   "{files} files into {folders} folders ({photos} photos)": "{files}個檔案匯出至{folders}個資料夾（{photos}張照片）",
   "{n} already analysed": "{n}張已分析",
   "{n} photos from {source}": "來自{source}的{n}張照片",
-  "{n} videos skipped": "已略過{n}個影片"
+  "{n} videos skipped": "已略過{n}個影片",
+  "{start}–{end} · {n} photos": "{start}–{end} · {n} 張照片"
 }

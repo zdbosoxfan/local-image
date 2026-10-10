@@ -129,5 +129,6 @@
   "{} spot(s) on this photo": "{} noda pada foto ini",
   "· {dups} already in the library": "· {dups} sudah ada di perpustakaan",
   "· {n} photo{}": "· {n} foto{0:.0}",
-  "… and {more} more": "… dan {more} lainnya"
+  "… and {more} more": "… dan {more} lainnya",
+  "{start}–{end} · {n} photos": "{start}–{end} · {n} foto"
 }

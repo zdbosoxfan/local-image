@@ -129,5 +129,6 @@
   "{} spot(s) on this photo": "{} Fleck(en) auf diesem Foto",
   "· {dups} already in the library": "· {dups} bereits in der Bibliothek",
   "· {n} photo{}": "· {n} Foto{0:.0}",
-  "… and {more} more": "… und {more} weitere"
+  "… and {more} more": "… und {more} weitere",
+  "{start}–{end} · {n} photos": "{start}–{end} · {n} Fotos"
 }

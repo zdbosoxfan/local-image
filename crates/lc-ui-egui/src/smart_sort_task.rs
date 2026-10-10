@@ -12,7 +12,7 @@ use std::sync::{
 
 enum Event {
     Model(Arc<dyn Tagger>),
-    Row(PhotoId, String, Result<Vec<f32>, String>),
+    Row(PhotoId, String, Result<(Vec<f32>, f32), String>),
     Done(Result<(), String>),
 }
 pub struct SmartSortTask {
@@ -48,7 +48,7 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId]) -> Result<(), String> {
                 continue;
             }
             let key = lightcraft_engine::media::content_key(p);
-            if app.session.smart.store.get(&model, &key).is_some() || !keys.insert(key) {
+            if (app.session.smart.store.get(&model, &key).is_some() && app.session.smart.store.sharpness(&key).is_some()) || !keys.insert(key) {
                 skipped += 1;
             } else {
                 todo.push(*id);
@@ -101,7 +101,10 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
                 app.session.smart.tagger = Some(tagger);
             }
             Ok(Event::Row(id, key, value)) => {
-                let value = value.and_then(|v| app.session.smart.store.insert(&task.model, key, v));
+                let value = value.and_then(|(v, sharp)| {
+                    app.session.smart.store.set_sharpness(key.clone(), sharp);
+                    app.session.smart.store.insert(&task.model, key, v)
+                });
                 if let Some(Dialog::SmartSort { state }) = &mut app.ui.dialog {
                     match value {
                         Ok(()) => state.analysed += 1,

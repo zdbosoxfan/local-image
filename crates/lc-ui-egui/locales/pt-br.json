@@ -1567,5 +1567,22 @@
   "Analysis is already running": "Uma análise já está em andamento",
   "Could not prepare photo": "Não foi possível preparar a foto",
   "Also in this group:": "Também neste grupo:",
-  "sRGB (AVIF)": "sRGB (AVIF)"
+  "sRGB (AVIF)": "sRGB (AVIF)",
+  "Destination folder pattern": "Padrão da pasta de destino",
+  "All photos": "Todas as fotos",
+  "photos": "fotos",
+  "+ Folder from Examples…": "+ Pasta de exemplos…",
+  "Also stack in the Library": "Também empilhar na Biblioteca",
+  "Folder tokens: {event}, {folder}, {person}, {session}, {date}, {camera}. File names also accept {original} and {seq:4}.": "Tokens de pasta: {event}, {folder}, {person}, {session}, {date}, {camera}. Nomes de arquivo também aceitam {original} e {seq:4}.",
+  "Best of each burst": "Melhor de cada sequência",
+  " minutes": " minutos",
+  "Normal": "Normal",
+  "Event name": "Nome do evento",
+  "No time": "Sem hora",
+  "File name pattern (optional)": "Padrão do nome do arquivo (opcional)",
+  "Group bursts and near-duplicates": "Agrupar sequências e quase duplicatas",
+  "Only in session": "Somente na sessão",
+  "Split into sessions when there is a gap of more than": "Dividir em sessões quando houver um intervalo de mais de",
+  "All sessions": "Todas as sessões",
+  "Export sessions as folders": "Exportar sessões como pastas"
 }

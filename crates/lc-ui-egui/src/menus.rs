@@ -253,6 +253,9 @@ pub fn parse_rgb(v: &Value) -> Option<[u8; 3]> {
 
 /// Handle UI commands; `None` means "not a UI command — send it to the engine".
 pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Result<Value, String>> {
+    if let Some(result) = crate::panels::smart_sort::review_history_command(app, id) {
+        return Some(result);
+    }
     if let Some(language) = language_from_command(id) {
         app.ui.language = language;
         // Immediately, not on the next frame: the reply and anything else run this frame
@@ -1379,7 +1382,7 @@ pub fn menu_entries(app: &LightcraftApp) -> Vec<MenuEntry> {
                 label: c.label.into(),
                 menu: c.menu.iter().map(|s| s.to_string()).collect(),
                 shortcut: c.shortcut.map(str::to_string),
-                enabled: c.enabled,
+                enabled: crate::panels::smart_sort::review_history_enabled(app, c.id).unwrap_or(c.enabled),
             });
         }
     }

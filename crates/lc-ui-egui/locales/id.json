@@ -1567,5 +1567,22 @@
   "−7 EV": "−7 EV",
   "−8 EV": "−8 EV",
   "日本語": "Jepang",
-  "繁體中文（台灣）": "Tionghoa Tradisional (Taiwan)"
+  "繁體中文（台灣）": "Tionghoa Tradisional (Taiwan)",
+  "Destination folder pattern": "Pola folder tujuan",
+  "All photos": "Semua foto",
+  "photos": "foto",
+  "+ Folder from Examples…": "+ Folder dari Contoh…",
+  "Also stack in the Library": "Juga susun di Library",
+  "Folder tokens: {event}, {folder}, {person}, {session}, {date}, {camera}. File names also accept {original} and {seq:4}.": "Token folder: {event}, {folder}, {person}, {session}, {date}, {camera}. Nama file juga menerima {original} dan {seq:4}.",
+  "Best of each burst": "Terbaik dari setiap burst",
+  " minutes": " menit",
+  "Normal": "Normal",
+  "Event name": "Nama acara",
+  "No time": "Tanpa waktu",
+  "File name pattern (optional)": "Pola nama file (opsional)",
+  "Group bursts and near-duplicates": "Kelompokkan burst dan hampir duplikat",
+  "Only in session": "Hanya dalam sesi",
+  "Split into sessions when there is a gap of more than": "Pisahkan menjadi sesi ketika ada jeda lebih dari",
+  "All sessions": "Semua sesi",
+  "Export sessions as folders": "Ekspor sesi sebagai folder"
 }

@@ -1567,5 +1567,22 @@
   "Analysis is already running": "分析已在进行中",
   "Could not prepare photo": "无法准备照片",
   "Also in this group:": "此组中还有：",
-  "sRGB (AVIF)": "sRGB (AVIF)"
+  "sRGB (AVIF)": "sRGB (AVIF)",
+  "Destination folder pattern": "目标文件夹模式",
+  "All photos": "所有照片",
+  "photos": "照片",
+  "+ Folder from Examples…": "+ 从示例添加文件夹…",
+  "Also stack in the Library": "也在图库中堆叠",
+  "Folder tokens: {event}, {folder}, {person}, {session}, {date}, {camera}. File names also accept {original} and {seq:4}.": "文件夹令牌: {event}, {folder}, {person}, {session}, {date}, {camera}. 文件名还接受 {original} 和 {seq:4}.",
+  "Best of each burst": "每组连拍的最佳照片",
+  " minutes": " 分钟",
+  "Normal": "正常",
+  "Event name": "事件名称",
+  "No time": "无时间",
+  "File name pattern (optional)": "文件名模式 (可选)",
+  "Group bursts and near-duplicates": "将连拍和近似重复项分组",
+  "Only in session": "仅在会话内",
+  "Split into sessions when there is a gap of more than": "间隔超过以下时长时拆分为会话",
+  "All sessions": "所有会话",
+  "Export sessions as folders": "将会话导出为文件夹"
 }

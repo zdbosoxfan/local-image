@@ -54,7 +54,8 @@ fn both_legacy_folder_layouts_load_and_combined_preset_roundtrips() {
     assert_eq!(back.people_layout[0].person_ids, [7, 8]);
     let old: SortPreset = serde_json::from_value(json!({"name":"Old", "peopleLayout":[people]})).unwrap();
     assert!(!old.first_match);
-    assert!(old.folders.is_empty() && old.folder_pattern.is_empty());
+    assert!(old.folders.is_empty());
+    assert_eq!(old.folder_pattern, tokens::DEFAULT_FOLDER_PATTERN);
     assert_eq!(old.people_layout, [people]);
 }
 
@@ -639,4 +640,221 @@ fn sensitivity_and_exemplar_edits_reuse_text_inference() {
     preset.categories[0].prompts.push("blue".into());
     classify::Classifier::new(&t, &store, &preset).unwrap();
     assert_eq!(calls.load(Ordering::Relaxed), before + 1);
+}
+
+fn p2b_photos(s: &mut Session, times: &[Option<&str>]) -> Vec<PhotoId> {
+    times
+        .iter()
+        .enumerate()
+        .map(|(index, time)| {
+            let id = s.catalog.alloc_photo_id();
+            let mut photo =
+                lightcraft_catalog::Photo::new(id, Source::Demo { scene: 1 }, &format!("example-{index}.jpg"), "JPEG", 64, 48, "2026-10-09");
+            photo.captured = time.map(str::to_string);
+            photo.content_hash = Some(format!("p2b-{}", id.0));
+            s.commit("test photo", Op::AddPhoto { photo: Box::new(photo) }).unwrap();
+            id
+        })
+        .collect()
+}
+#[test]
+fn p2b_sessions_rename_preset_persistence_and_old_defaults() {
+    let dir = temp();
+    let mut s = demo();
+    s.open_library(&dir, true).unwrap();
+    let mut preset = sort(&[("A", "red")], Sensitivity::Balanced);
+    preset.name = "Sessions saved".into();
+    preset.sessions.enabled = true;
+    preset.sessions.export_folders = true;
+    preset.sessions.names.insert("2026-10-09T09:00:00".into(), "Morning keynote".into());
+    preset.event_name = "Conference".into();
+    preset.file_pattern = "{event}_{folder}_{seq:4}".into();
+    preset.bursts.enabled = true;
+    preset.bursts.strictness = bursts::BurstStrictness::Loose;
+    preset.bursts.also_stack_in_library = true;
+    preset.folders = plan::default_folders(&preset);
+    preset.folders[0].session = Some("2026-10-09T09:00:00".into());
+    s.execute("smartSort.savePreset", &json!({"preset":preset})).unwrap();
+    s.close_library().unwrap();
+    drop(s);
+    let mut reloaded = demo();
+    reloaded.open_library(&dir, false).unwrap();
+    assert_eq!(reloaded.smart.prefs.presets[0], preset);
+    let old: SortPreset = serde_json::from_value(json!({"name":"Old"})).unwrap();
+    assert!(!old.sessions.enabled && !old.bursts.enabled);
+    assert_eq!(old.folder_pattern, "{event}/{folder}");
+    assert!(old.file_pattern.is_empty() && old.event_name.is_empty());
+    drop(reloaded);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+#[test]
+fn p2b_sessions_commands_narrow_tag_custom_people_and_no_time_folders() {
+    let mut s = demo();
+    let ids = p2b_photos(&mut s, &[Some("2026-10-09T09:00:00"), Some("2026-10-09T09:10:00"), Some("2026-10-09T09:35:00"), None]);
+    let mut preset = sort(&[("A", "red")], Sensitivity::Loose);
+    preset.sessions.enabled = true;
+    preset.sessions.names.insert("2026-10-09T09:35:00".into(), "Afternoon".into());
+    let result = s.execute("smartSort.sessions", &json!({"preset":preset,"ids":ids})).unwrap();
+    assert_eq!(result["sessions"].as_array().unwrap().len(), 2);
+    assert_eq!(result["sessions"][0]["photos"], json!(&ids[..2]));
+    assert_eq!(result["sessions"][1]["name"], "Afternoon");
+    assert_eq!(result["noTime"], json!([ids[3]]));
+    let assignments: Vec<_> = ids.iter().map(|id| json!({"id":id,"categories":["A"]})).collect();
+    s.execute("smartSort.applyKeywords", &json!({"preset":preset,"assignments":assignments})).unwrap();
+    preset.folders = plan::default_folders(&preset);
+    preset.folders[0].session = Some("2026-10-09T09:35:00".into());
+    preset.folders.push(FolderDef {
+        name: "Custom".into(),
+        custom: true,
+        rules: plan::tag_rules("Smart Sort", &["A".into()], false),
+        session: Some(sessions::NO_TIME.into()),
+        ..Default::default()
+    });
+    let result = s.execute("smartSort.plan", &json!({"sortPreset":preset,"ids":ids})).unwrap();
+    assert_eq!(result["folders"][0]["ids"], json!([ids[2]]));
+    assert_eq!(result["folders"][1]["ids"], json!([ids[3]]));
+    preset.sessions.export_folders = true;
+    preset.folders.clear();
+    let result = s.execute("smartSort.plan", &json!({"sortPreset":preset,"ids":ids})).unwrap();
+    assert_eq!(result["folders"][2]["name"], "No time");
+    assert_eq!(result["folders"][2]["ids"], json!([ids[3]]));
+    // A saved session restriction is dormant when sessions are disabled.
+    preset.sessions.enabled = false;
+    preset.folders = vec![FolderDef { name: "All".into(), session: Some("stale".into()), ..Default::default() }];
+    assert_eq!(plan::plan_preset(&s.catalog, &ids, &preset).unwrap()[0].ids, ids);
+}
+#[test]
+fn p2b_three_example_photos_define_category_without_tags() {
+    let mut s = demo();
+    let ids = p2b_photos(&mut s, &[None; 5]);
+    s.smart.store.ensure("mock-tags", 8).unwrap();
+    for (index, id) in ids.iter().enumerate() {
+        let key = crate::media::content_key(s.catalog.photo(*id).unwrap());
+        let direction = if index < 4 {
+            mock::MockTagger.embed_image(&Rgba8::filled(16, 16, [255, 0, 0, 255])).unwrap()
+        } else {
+            mock::MockTagger.embed_text("blue").unwrap()
+        };
+        s.smart.store.insert("mock-tags", key, direction).unwrap();
+    }
+    let result = s
+        .execute(
+            "smartSort.folderFromExamples",
+            &json!({"preset":sort(&[("Other","blue")],Sensitivity::Balanced),"ids":&ids[..3],"name":"Red examples"}),
+        )
+        .unwrap();
+    let preset: SortPreset = serde_json::from_value(result["preset"].clone()).unwrap();
+    assert!(preset.categories[1].prompts.is_empty());
+    assert_eq!(preset.categories[1].exemplars.len(), 3);
+    let result = s.execute("smartSort.classify", &json!({"preset":preset,"ids":ids})).unwrap();
+    for p in &result["photos"].as_array().unwrap()[..4] {
+        assert_eq!(p["assigned"], json!(["Red examples"]));
+    }
+    assert_eq!(result["photos"][4]["assigned"], json!(["Other"]));
+    assert!(s.execute("smartSort.folderFromExamples", &json!({"ids":[]})).is_err());
+}
+#[test]
+fn p2b_nested_export_tokens_and_duplicate_resolved_folders() {
+    let mut s = demo();
+    let ids = p2b_photos(&mut s, &[Some("2026-10-09T09:00:00")]);
+    let mut preset = SortPreset {
+        event_name: "Launch:day".into(),
+        folder_pattern: "{event}/{date}".into(),
+        file_pattern: "{folder}_{seq:4}".into(),
+        ..Default::default()
+    };
+    preset.folders = vec![FolderDef { name: "A".into(), ..Default::default() }, FolderDef { name: "B".into(), ..Default::default() }];
+    let dir = temp();
+    let result = s.execute("smartSort.export", &json!({"sortPreset":preset,"ids":ids,"dir":dir,"format":"png","longEdge":32})).unwrap();
+    assert_eq!(result.as_array().unwrap().len(), 2);
+    assert!(dir.join("Launch_day/2026-10-09/A_0001.png").exists(), "{result}");
+    assert!(dir.join("Launch_day/2026-10-09 (2)/B_0001.png").exists(), "{result}");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+#[test]
+fn p2b_bursts_commands_best_all_and_catalog_one_undo() {
+    let mut s = demo();
+    let ids =
+        p2b_photos(&mut s, &[Some("2026-10-09T09:00:00"), Some("2026-10-09T09:00:01"), Some("2026-10-09T09:01:00"), Some("2026-10-09T09:01:01")]);
+    for (index, id) in ids.iter().enumerate() {
+        let key = insert(&mut s, *id, [255, 0, 0, 255]);
+        s.smart.store.set_sharpness(key, index as f32);
+    }
+    let mut preset = SortPreset { folders: vec![FolderDef { name: "All".into(), ..Default::default() }], ..Default::default() };
+    preset.bursts.enabled = true;
+    let groups = s.execute("smartSort.bursts", &json!({"preset":preset,"ids":ids})).unwrap();
+    assert_eq!(groups.as_array().unwrap().len(), 2);
+    assert_eq!(groups[0]["best"], json!(ids[1]));
+    assert_eq!(groups[1]["best"], json!(ids[3]));
+    let best = s.execute("smartSort.plan", &json!({"sortPreset":preset,"ids":ids})).unwrap();
+    assert_eq!(best["folders"][0]["ids"], json!([ids[1], ids[3]]));
+    preset.bursts.export = bursts::BurstExport::All;
+    let all = s.execute("smartSort.plan", &json!({"sortPreset":preset,"ids":ids})).unwrap();
+    assert_eq!(all["folders"][0]["ids"], json!(ids));
+    let undo = s.undo.len();
+    let selection = s.selection.clone();
+    let result = s.execute("smartSort.stackBursts", &json!({"preset":preset,"ids":ids})).unwrap();
+    assert_eq!(result["stacks"], 2);
+    assert_eq!(s.undo.len(), undo + 1);
+    assert_eq!(s.selection, selection);
+    assert_eq!(s.catalog.stacks().count(), 2);
+    s.undo_step().unwrap();
+    assert_eq!(s.catalog.stacks().count(), 0);
+    s.redo_step().unwrap();
+    assert_eq!(s.catalog.stacks().count(), 2);
+}
+#[test]
+fn p2b_analysis_sharpness_cache_survives_reload() {
+    let dir = temp();
+    let mut store = Store::new(Some(&dir));
+    store.ensure("mock", 2).unwrap();
+    store.insert("mock", "key".into(), vec![1.0, 0.0]).unwrap();
+    store.set_sharpness("key".into(), 12.0);
+    store.save().unwrap();
+    let mut reloaded = Store::new(Some(&dir));
+    reloaded.ensure("mock", 2).unwrap();
+    assert_eq!(reloaded.sharpness("key"), Some(12.0));
+    assert_eq!(reloaded.get("mock", "key"), Some(&[1.0, 0.0][..]));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+#[test]
+fn p2b_missing_embedding_breaks_consecutive_burst() {
+    let mut s = demo();
+    let ids = p2b_photos(&mut s, &[Some("2026-10-09T09:00:00"), Some("2026-10-09T09:00:01"), Some("2026-10-09T09:00:02")]);
+    insert(&mut s, ids[0], [255, 0, 0, 255]);
+    insert(&mut s, ids[2], [255, 0, 0, 255]);
+    assert_eq!(bursts::for_session(&mut s, &ids, bursts::BurstStrictness::Normal).unwrap().len(), 3);
+}
+
+#[test]
+fn p2b_legacy_embeddings_gain_sharpness_without_model_inference() {
+    struct CachedOnly;
+    impl Tagger for CachedOnly {
+        fn model_id(&self) -> &str {
+            "mock-tags"
+        }
+        fn dim(&self) -> usize {
+            8
+        }
+        fn embed_text(&self, text: &str) -> Result<Vec<f32>, String> {
+            mock::MockTagger.embed_text(text)
+        }
+        fn embed_image(&self, _: &Rgba8) -> Result<Vec<f32>, String> {
+            Err("cached vectors must be reused".into())
+        }
+    }
+    let mut s = demo();
+    let id = s.catalog.photos().find(|p| p.flag != Flag::Reject).unwrap().id;
+    let key = insert(&mut s, id, [255, 0, 0, 255]);
+    let before = s.smart.store.get("mock-tags", &key).unwrap().to_vec();
+    s.smart.tagger = Some(Arc::new(CachedOnly));
+    let result = s.execute("smartSort.analyze", &json!({"ids":[id]})).unwrap();
+    assert_eq!(result["analysed"], 1);
+    assert_eq!(result["failed"], json!([]));
+    assert!(s.smart.store.sharpness(&key).is_some());
+    let after = s.smart.store.get("mock-tags", &key).unwrap();
+    for (a, b) in before.iter().zip(after) {
+        assert!((a - b).abs() < 1e-6);
+    }
+    assert_eq!(s.execute("smartSort.analyze", &json!({"ids":[id]})).unwrap()["skipped"], 1);
 }

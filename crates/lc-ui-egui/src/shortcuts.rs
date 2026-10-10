@@ -88,6 +88,9 @@ pub fn shortcut_label(command: &str) -> Option<String> {
 }
 
 pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
+    if matches!(app.ui.dialog, Some(crate::state::Dialog::SmartSort { .. })) {
+        return;
+    }
     // don't steal keys from text fields
     if ctx.egui_wants_keyboard_input() {
         return;

@@ -129,5 +129,6 @@
   "Delete \"{label}\"": "\"{label}\" 삭제",
   "Delete \"{label}\" (and the mask)": "\"{label}\" 삭제 (마스크 포함)",
   "Duplicate \"{label}\"": "\"{label}\" 복제",
-  "{n} change{} saved in memory but not written to disk: {e}\nLocal Image retries automatically; quitting now would lose {}.": "{n}개의 변경 사항{0:.0}이 메모리에만 있고 디스크에 기록되지 않았습니다: {e}\nLocal Image가 자동으로 다시 시도합니다. 지금 종료하면 변경 사항이 손실됩니다.{1:.0}"
+  "{n} change{} saved in memory but not written to disk: {e}\nLocal Image retries automatically; quitting now would lose {}.": "{n}개의 변경 사항{0:.0}이 메모리에만 있고 디스크에 기록되지 않았습니다: {e}\nLocal Image가 자동으로 다시 시도합니다. 지금 종료하면 변경 사항이 손실됩니다.{1:.0}",
+  "{start}–{end} · {n} photos": "{start}–{end} · 사진 {n}장"
 }
