@@ -32,6 +32,9 @@ use eframe::wgpu;
 
 pub use photocraft_gpu::{DeviceHealth, Fault};
 
+#[path = "vector_packages/view.rs"]
+pub mod scaled_view;
+
 /// Default tile side; documents up to this size (and the device limit) use a single texture.
 pub const DEFAULT_TILE: u32 = 8192;
 const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -44,7 +47,7 @@ const FORMAT_HIGH: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 pub const F16_BUDGET_PX: u64 = 100_000_000;
 const VIEW_UNIFORM_SIZE: u64 = 128;
 const VIEW_FLOATS: usize = 32;
-const TILE_UNIFORM_SIZE: u64 = 16;
+const TILE_UNIFORM_SIZE: u64 = 32;
 
 /// Parameters for drawing one document view. Positions are in egui points.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -185,6 +188,8 @@ impl GpuCanvas {
             res.compositor = None;
             res.encode_pool.clear();
             res.docs.clear();
+            res.scaled_sources.clear();
+            res.scaled_frames.clear();
             res.move_frames.clear();
         }
         true
@@ -199,6 +204,8 @@ impl GpuCanvas {
             res.compositor_failed = Some(photocraft_gpu::Unsupported(self.fault().map_or_else(|| "GPU canvas released".into(), |f| f.to_string())));
             res.encode_pool.clear();
             res.docs.clear();
+            res.scaled_sources.clear();
+            res.scaled_frames.clear();
             res.luts.clear();
             res.move_frames.clear();
             res.display_lut_signatures.clear();
@@ -255,6 +262,19 @@ impl GpuCanvas {
     pub fn memory_budget(&self) -> Option<u64> {
         let r = self.rs.renderer.read();
         r.callback_resources.get::<Resources>()?.compositor_budget
+    }
+
+    /// Relevant font/master/appearance generations, folded per dependent layer by feature
+    /// projection. A CMS change uses the existing LUT and does not rebuild geometry.
+    pub fn set_scaled_dependencies(&self, doc: u64, dependencies: HashMap<photocraft_doc::LayerId, u64>) {
+        let mut renderer = self.rs.renderer.write();
+        if let Some(res) = renderer.callback_resources.get_mut::<Resources>()
+            && let Some(source) = res.scaled_sources.get_mut(&doc)
+            && source.dependencies != dependencies
+        {
+            source.dependencies = dependencies;
+            source.generation = source.generation.wrapping_add(1);
+        }
     }
 
     /// The document area the view shows: full refreshes composite it last, so its layer pages
@@ -576,6 +596,15 @@ impl GpuCanvas {
             // Nothing reaches the GPU any more; the app switches to the CPU canvas.
             return Refresh { kind: "lost", fallback: Some(f.to_string()), ..Default::default() };
         }
+        {
+            let mut renderer = self.rs.renderer.write();
+            if let Some(res) = renderer.callback_resources.get_mut::<Resources>() {
+                let generation = res.scaled_sources.get(&key).map_or(1, |s| s.generation.wrapping_add(1));
+                let dependencies = res.scaled_sources.get(&key).map(|s| s.dependencies.clone()).unwrap_or_default();
+                res.scaled_sources
+                    .insert(key, ScaledSource { doc: doc.clone(), encode_srgb: display.is_some_and(|d| d.encode_srgb), generation, dependencies });
+            }
+        }
         let bounds = doc.bounds();
         let size = [doc.size.width, doc.size.height];
         let format = self.format_for(doc.depth, size);
@@ -681,6 +710,8 @@ impl GpuCanvas {
         }
         // LUTs and identity-transform signatures can outlive document textures. Prune both,
         // or a preserved-ID reopen can skip rebuilding a missing LUT.
+        res.scaled_sources.retain(|k, _| live.contains(k));
+        res.scaled_frames.retain(|_, f| live.contains(&f.source));
         res.luts.retain(|k, _| live.contains(&k.0));
         res.display_lut_signatures.retain(|k, _| live.contains(&k.0));
         // Per-drag plane uniforms and the viewport target must leave with their source planes.
@@ -1215,7 +1246,29 @@ fn detect_physical_memory() -> Option<u64> {
 
 type EncodePool = Vec<(wgpu::Buffer, Option<(wgpu::TextureView, wgpu::BindGroup)>)>;
 
+struct ScaledSource {
+    doc: photocraft_doc::Document,
+    encode_srgb: bool,
+    generation: u64,
+    dependencies: HashMap<photocraft_doc::LayerId, u64>,
+}
+
+struct ScaledFrame {
+    source: u64,
+    previous: photocraft_doc::Document,
+    dependencies: HashMap<photocraft_doc::LayerId, u64>,
+    generation: u64,
+    scale: f64,
+    rect: photocraft_geom::Rect,
+    textures: DocTextures,
+    projection: scaled_view::cpu::ProjectionCache,
+    uploads: u64,
+    rebuilds: u64,
+}
+
 struct Resources {
+    scaled_sources: HashMap<u64, ScaledSource>,
+    scaled_frames: HashMap<u64, ScaledFrame>,
     encode_pool: EncodePool,
     retry_cpu: bool,
     view_bgl: wgpu::BindGroupLayout,
@@ -1500,6 +1553,8 @@ impl Resources {
         let encode_pipeline_high = high.then(|| pipeline(device, "pc_encode_16f", &encode_layout, &encode_module, ("vs", "fs"), FORMAT_HIGH, None));
         let identity_lut = lut_bind_group(device, queue, &lut_bgl, 2, &identity_lut_bytes());
         Self {
+            scaled_sources: HashMap::new(),
+            scaled_frames: HashMap::new(),
             encode_pool: Vec::new(),
             retry_cpu: false,
             lut_bgl,
@@ -1565,10 +1620,24 @@ fn init_buffer(device: &wgpu::Device, label: &str, contents: &[u8], usage: wgpu:
 
 impl DocTextures {
     fn new(device: &wgpu::Device, res: &Resources, size: [u32; 2], tile: u32, format: wgpu::TextureFormat) -> Self {
+        Self::region(device, res, size, tile, format, photocraft_geom::Rect::from_xywh(0, 0, size[0], size[1]), 0)
+    }
+
+    fn region(
+        device: &wgpu::Device,
+        res: &Resources,
+        size: [u32; 2],
+        tile: u32,
+        format: wgpu::TextureFormat,
+        region: photocraft_geom::Rect,
+        gutter: u32,
+    ) -> Self {
         let mut tiles = Vec::new();
-        for ty in (0..size[1]).step_by(tile as usize) {
-            for tx in (0..size[0]).step_by(tile as usize) {
-                let (w, h) = (tile.min(size[0] - tx), tile.min(size[1] - ty));
+        for ty in (region.y0 as u32..region.y1 as u32).step_by(tile as usize) {
+            for tx in (region.x0 as u32..region.x1 as u32).step_by(tile as usize) {
+                let (cw, ch) = (tile.min(region.x1 as u32 - tx), tile.min(region.y1 as u32 - ty));
+                let (sx, sy) = (tx.saturating_sub(gutter), ty.saturating_sub(gutter));
+                let (w, h) = ((tx + cw + gutter).min(size[0]) - sx, (ty + ch + gutter).min(size[1]) - sy);
                 let levels_n = mip_count(w, h);
                 let texture = device.create_texture(&wgpu::TextureDescriptor {
                     label: Some("pc_canvas_tile"),
@@ -1601,7 +1670,12 @@ impl DocTextures {
                     })
                     .collect();
                 let full = texture.create_view(&wgpu::TextureViewDescriptor::default());
-                let uniform = init_buffer(device, "pc_canvas_tile", &f32_bytes(&[tx as f32, ty as f32, w as f32, h as f32]), wgpu::BufferUsages::UNIFORM);
+                let uniform = init_buffer(
+                    device,
+                    "pc_canvas_tile",
+                    &f32_bytes(&[tx as f32, ty as f32, cw as f32, ch as f32, sx as f32, sy as f32, w as f32, h as f32]),
+                    wgpu::BufferUsages::UNIFORM,
+                );
                 let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("pc_canvas_tile"),
                     layout: &res.tile_bgl,
@@ -1610,7 +1684,7 @@ impl DocTextures {
                         wgpu::BindGroupEntry { binding: 1, resource: uniform.as_entire_binding() },
                     ],
                 });
-                tiles.push(Tile { rect: [tx, ty, w, h], texture, levels, mip_groups, bind_group, _uniform: uniform });
+                tiles.push(Tile { rect: [sx, sy, w, h], texture, levels, mip_groups, bind_group, _uniform: uniform });
             }
         }
         Self { size, format, tiles }
@@ -1751,7 +1825,8 @@ impl CallbackTrait for MoveCallback {
                 view_formats: &[],
             });
             let view = texture.create_view(&Default::default());
-            let tile = init_buffer(device, "pc_move_viewport_tile", &f32_bytes(&[0.0, 0.0, size[0] as f32, size[1] as f32]), wgpu::BufferUsages::UNIFORM);
+            let r = [0.0, 0.0, size[0] as f32, size[1] as f32];
+            let tile = init_buffer(device, "pc_move_viewport_tile", &f32_bytes(&[r, r].concat()), wgpu::BufferUsages::UNIFORM);
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("pc_move_viewport"),
                 layout: &res.tile_bgl,
@@ -1864,6 +1939,230 @@ fn filter_mode(scale: f32) -> (f32, f32) {
 }
 
 impl CanvasCallback {
+    fn prepare_scaled(&self, device: &wgpu::Device, queue: &wgpu::Queue, screen: &ScreenDescriptor, res: &mut Resources) -> f64 {
+        use photocraft_geom::Rect;
+        use scaled_view::cpu::{ProjectionCache, ViewRequest, scaled_rect};
+        let physical = f64::from(self.params.zoom) * f64::from(screen.pixels_per_point);
+        if !physical.is_finite() || physical <= 1.0 || !self.params.center.iter().all(|v| v.is_finite()) {
+            return 1.0;
+        }
+        let Some(source) = res.scaled_sources.get(&self.params.doc) else { return 1.0 };
+        if !source
+            .doc
+            .walk()
+            .iter()
+            .any(|(_, _, l)| l.visible && matches!(l.content, photocraft_doc::LayerContent::Shape(_) | photocraft_doc::LayerContent::Text(_)))
+        {
+            return 1.0;
+        }
+        let (origin, screen_scale) = self.placement(screen.pixels_per_point);
+        let x = |p: f32| (p * screen.pixels_per_point - origin[0]) / screen_scale * if self.params.flip { -1.0 } else { 1.0 };
+        let y = |p: f32| (p * screen.pixels_per_point - origin[1]) / screen_scale;
+        let (a, b) = (x(self.rect.left()), x(self.rect.right()));
+        let visible = Rect::new(a.min(b).floor() as i32, y(self.rect.top()).floor() as i32, a.max(b).ceil() as i32, y(self.rect.bottom()).ceil() as i32)
+            .intersect(&source.doc.bounds());
+        let request = ViewRequest {
+            document: source.doc.id,
+            revision: source.generation,
+            view_key: self.params.view_key,
+            logical_zoom: f64::from(self.params.zoom),
+            pixels_per_point: f64::from(screen.pixels_per_point),
+            visible,
+            display_generation: 0,
+            dependencies: HashMap::new(),
+        };
+        let Ok(scale) = request.scale() else { return 1.0 };
+        let (Ok(mut rect), Ok(canvas)) = (scaled_rect(visible, scale), scaled_rect(source.doc.bounds(), scale)) else { return 1.0 };
+        if rect.is_empty() {
+            return 1.0;
+        }
+        let required = rect.inflate(1).intersect(&canvas);
+        // Global tile cells plus one cell of sampling apron. Panning within this region is warm.
+        const SIDE: i32 = 256;
+        rect = Rect::new(
+            rect.x0.div_euclid(SIDE) * SIDE,
+            rect.y0.div_euclid(SIDE) * SIDE,
+            (-(-rect.x1).div_euclid(SIDE)) * SIDE,
+            (-(-rect.y1).div_euclid(SIDE)) * SIDE,
+        )
+        .inflate(SIDE)
+        .intersect(&canvas);
+        if u64::from(rect.width()) * u64::from(rect.height()) > scaled_view::cpu::MAX_VIEW_PIXELS {
+            return 1.0;
+        }
+        let key = self.params.view_key;
+        let mut frame = res.scaled_frames.remove(&key);
+        if let Some(f) = &frame
+            && f.source == self.params.doc
+            && f.generation == source.generation
+            && f.scale == scale
+            && f.rect.contains_rect(&required)
+        {
+            if let Some(frame) = frame.take() {
+                res.scaled_frames.insert(key, frame);
+            }
+            return scale;
+        }
+        let source_doc = source.doc.clone();
+        let dependencies = source.dependencies.clone();
+        let generation = source.generation;
+        let encode_srgb = source.encode_srgb;
+        // Keep composite coverage until final screen quantization, including 8-bit docs.
+        let format = if res.encode_pipeline_high.is_some() { FORMAT_HIGH } else { FORMAT };
+        let fresh = frame.as_ref().is_none_or(|f| {
+            f.source != self.params.doc
+                || f.scale != scale
+                || !f.rect.contains_rect(&required)
+                || f.textures.format != format
+                || f.textures.size != [canvas.width(), canvas.height()]
+        });
+        if fresh {
+            let textures = DocTextures::region(device, res, [canvas.width(), canvas.height()], SIDE as u32, format, rect, 1);
+            frame = Some(ScaledFrame {
+                source: self.params.doc,
+                previous: source_doc.clone(),
+                dependencies: HashMap::new(),
+                generation: 0,
+                scale,
+                rect,
+                textures,
+                projection: ProjectionCache::default(),
+                uploads: 0,
+                rebuilds: 0,
+            });
+        }
+        let Some(mut frame) = frame else { return 1.0 };
+        let mut changed = if fresh {
+            frame.rect
+        } else {
+            scaled_view::damage(&frame.previous, &source_doc).and_then(|r| scaled_rect(r, scale).ok()).unwrap_or(frame.rect).intersect(&frame.rect)
+        };
+        let dependencies_changed = !fresh && frame.dependencies != dependencies;
+        if dependencies_changed {
+            for (_, _, layer) in source_doc.walk() {
+                if frame.dependencies.get(&layer.id) != dependencies.get(&layer.id) {
+                    let r = scaled_view::source_change_bounds(layer, source_doc.bounds()).and_then(|r| scaled_rect(r, scale).ok()).unwrap_or(frame.rect);
+                    changed = changed.union(&r.intersect(&frame.rect));
+                }
+            }
+        }
+        if changed.is_empty() && !dependencies_changed {
+            frame.dependencies = dependencies;
+            frame.generation = generation;
+            frame.previous = source_doc;
+            res.scaled_frames.insert(key, frame);
+            return scale;
+        }
+        // Every displayed tile owns a one-pixel sampling gutter. Update both copies at
+        // shared edges; only the core rectangle is drawn, so translucent tiles do not overlap.
+        changed = changed.inflate(1).intersect(&canvas);
+        let inverse = Rect::new(
+            (f64::from(frame.rect.x0) / scale).floor() as i32,
+            (f64::from(frame.rect.y0) / scale).floor() as i32,
+            (f64::from(frame.rect.x1) / scale).ceil() as i32,
+            (f64::from(frame.rect.y1) / scale).ceil() as i32,
+        );
+        let projected = match frame.projection.project_at(&source_doc, inverse, scale, &dependencies, scaled_view::project) {
+            Ok(p) => p,
+            Err(e) => {
+                log::warn!("scaled canvas: {e}");
+                return 1.0;
+            }
+        };
+        if dependencies_changed {
+            // A font/master/appearance generation can expand ink while the persisted 1x
+            // cache stays unchanged (including previously missing/empty glyphs). Include
+            // the newly projected coverage, not just the old source bounds.
+            let padding = projected
+                .walk()
+                .iter()
+                .filter(|(_, _, l)| photocraft_compose::effects::has_effects(l))
+                .map(|(_, _, l)| photocraft_compose::effects::margin(l))
+                .fold(1i32, i32::saturating_add);
+            for (_, _, layer) in projected.walk() {
+                if frame.dependencies.get(&layer.id) != dependencies.get(&layer.id) {
+                    let r = photocraft_compose::change_bounds(layer, projected.bounds()).unwrap_or(frame.rect);
+                    changed = changed.union(&r.inflate(padding).intersect(&frame.rect.inflate(1).intersect(&canvas)));
+                }
+            }
+        }
+        let pipe = res.encode_pipeline(format).cloned();
+        let mut compositor = res.compositor.take().or_else(|| photocraft_gpu::Compositor::try_new_with_format(device, wgpu::TextureFormat::Rgba32Float).ok());
+        let mut ok = false;
+        if let (Some(comp), Some(pipe)) = (&mut compositor, pipe) {
+            comp.set_health(res.health.clone());
+            if let Some(b) = res.compositor_budget {
+                comp.set_memory_budget(b);
+            }
+            let bgl = &res.encode_bgl;
+            let textures = &frame.textures;
+            let result = scaled_view::gpu::render_scaled(comp, device, queue, &projected, changed, |encoder, out| {
+                for tile in &textures.tiles {
+                    let [tx, ty, tw, th] = tile.rect.map(|v| v as i32);
+                    let r = out.rect.intersect(&Rect::from_xywh(tx, ty, tw as u32, th as u32));
+                    if r.is_empty() {
+                        continue;
+                    }
+                    let offset = [out.rect.x0 - tx, out.rect.y0 - ty, i32::from(encode_srgb), i32::from(format == FORMAT_HIGH)];
+                    let ub =
+                        init_buffer(device, "pc_scaled_encode", &offset.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<_>>(), wgpu::BufferUsages::UNIFORM);
+                    let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("pc_scaled_encode"),
+                        layout: bgl,
+                        entries: &[
+                            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(out.view) },
+                            wgpu::BindGroupEntry { binding: 1, resource: ub.as_entire_binding() },
+                        ],
+                    });
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("pc_scaled_encode"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &tile.levels[0],
+                            resolve_target: None,
+                            depth_slice: None,
+                            ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    pass.set_pipeline(&pipe);
+                    pass.set_bind_group(0, &bg, &[]);
+                    pass.set_scissor_rect((r.x0 - tx) as u32, (r.y0 - ty) as u32, r.width(), r.height());
+                    pass.draw(0..3, 0..1);
+                }
+            });
+            match result {
+                Ok(s) => {
+                    frame.uploads += s.tiles_uploaded as u64;
+                    ok = true;
+                }
+                Err(e) => log::warn!("scaled canvas GPU fallback: {e}"),
+            }
+        }
+        res.compositor = compositor;
+        if !ok {
+            let buffer = photocraft_compose::render(&projected, changed);
+            let mut pixels = buffer.px;
+            if encode_srgb {
+                for p in &mut pixels {
+                    for c in p.iter_mut().take(3) {
+                        *c = photocraft_color::convert::linear_to_srgb(*c);
+                    }
+                }
+            }
+            frame.textures.write(queue, [changed.x0 as u32, changed.y0 as u32], [changed.width(), changed.height()], changed.width(), &texels(format, &pixels));
+        }
+        frame.textures.regenerate_mips(device, queue, res, [changed.x0 as u32, changed.y0 as u32, changed.x1 as u32, changed.y1 as u32]);
+        frame.rebuilds = frame.projection.rebuilds;
+        frame.dependencies = dependencies;
+        frame.generation = generation;
+        frame.previous = source_doc;
+        res.scaled_frames.insert(key, frame);
+        scale
+    }
+
     /// Screen-pixel origin of document (0, 0) (snapped to whole pixels) and device px per doc px.
     /// Document x maps to `origin.x + x · scale`, or `origin.x − x · scale` when flipped.
     fn placement(&self, ppp: f32) -> ([f32; 2], f32) {
@@ -1922,7 +2221,7 @@ impl CanvasCallback {
             g[2],
             inv_gamma,
             if p.flip { -1.0 } else { 1.0 },
-            0.0,
+            1.0,
             0.0,
             0.0,
         ]
@@ -1942,7 +2241,14 @@ impl CallbackTrait for CanvasCallback {
         if !res.health.is_ok() {
             return Vec::new();
         }
-        let data = self.uniforms(screen.size_in_pixels, screen.pixels_per_point, res.out_linear, &res.style);
+        let scaled = self.prepare_scaled(device, queue, screen, res);
+        let mut data = self.uniforms(screen.size_in_pixels, screen.pixels_per_point, res.out_linear, &res.style);
+        data[29] = scaled as f32;
+        let (mode, lod) = filter_mode(data[2] / data[29]);
+        // Buckets oversample by at most a quarter octave. Sample level zero with its
+        // shared gutter instead of mixing independently generated per-tile mip edges.
+        data[8] = if scaled > 1.0 && mode == 0.0 { 1.0 } else { mode };
+        data[9] = if scaled > 1.0 { 0.0 } else { lod };
         let (bgl, sampler) = (&res.view_bgl, &res.sampler);
         let v = res.views.entry(self.params.view_key).or_insert_with(|| {
             let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -1987,8 +2293,9 @@ impl CallbackTrait for CanvasCallback {
             pass.set_pipeline(&res.shadow_pipeline);
             pass.draw(0..6, 0..1);
         }
-        let Some(doc) = res.docs.get(&self.params.doc) else { return };
-        if doc.size != self.params.doc_size {
+        let scaled = res.scaled_frames.get(&self.params.view_key).filter(|f| f.source == self.params.doc && view.frame_data[29] > 1.0);
+        let Some(doc) = scaled.map(|f| &f.textures).or_else(|| res.docs.get(&self.params.doc)) else { return };
+        if scaled.is_none() && doc.size != self.params.doc_size {
             return;
         }
         let (origin, scale) = self.placement(info.pixels_per_point);
@@ -1997,7 +2304,8 @@ impl CallbackTrait for CanvasCallback {
         pass.set_pipeline(&res.tile_pipeline);
         pass.set_bind_group(2, res.luts.get(&(self.params.doc, self.params.output)).unwrap_or(&res.identity_lut), &[]);
         for t in &doc.tiles {
-            let [tx, ty, tw, th] = t.rect.map(|v| v as f32);
+            let raster_scale = view.frame_data[29];
+            let [tx, ty, tw, th] = t.rect.map(|v| v as f32 / raster_scale);
             let (x0, x1) = self.screen_x(origin[0], scale, tx, tx + tw);
             let (y0, y1) = (origin[1] + ty * scale, origin[1] + (ty + th) * scale);
             if x1 < cx0 || y1 < cy0 || x0 > cx1 || y0 > cy1 {
@@ -2018,9 +2326,9 @@ struct View {
     e: vec4<f32>, // checker light rgb, gamut warning opacity
     f: vec4<f32>, // checker dark rgb, 32-bit preview gain (2^exposure; 0 = off)
     g: vec4<f32>, // gamut warning rgb, 32-bit preview 1 / gamma
-    h: vec4<f32>, // x direction (1, or -1 for View › Flip Horizontal), unused
+    h: vec4<f32>, // x direction (1, or -1 for View › Flip Horizontal), raster scale, unused
 };
-struct Tile { r: vec4<f32> }; // x, y, w, h in doc px
+struct Tile { r: vec4<f32>, s: vec4<f32> }; // core and sampling rect: x, y, w, h
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var samp: sampler;
@@ -2100,7 +2408,7 @@ fn fs_shadow(in: VOut) -> @location(0) vec4<f32> {
 
 @vertex
 fn vs_tile(@builtin(vertex_index) vi: u32) -> VOut {
-    let p = doc_to_px(tile.r.xy + tile.r.zw * corner(vi));
+    let p = doc_to_px((tile.r.xy + tile.r.zw * corner(vi)) / view.h.y);
     return VOut(px_to_clip(p));
 }
 
@@ -2114,17 +2422,31 @@ fn checker(p: vec2<f32>) -> vec3<f32> {
 }
 
 fn sample_tile(p: vec2<f32>) -> vec4<f32> {
-    let scale = view.a.z;
-    let d = px_to_doc(p);                  // document pixel coordinates
-    let size = tile.r.zw;
-    let t = d - tile.r.xy;                 // texel coordinates within this tile
+    let scale = view.a.z / view.h.y;
+    let d = px_to_doc(p) * view.h.y;                  // document pixel coordinates
+    let size = tile.s.zw;
+    let t = d - tile.s.xy;                 // texel coordinates within this tile
     let mode = view.c.x;
     var col: vec4<f32>;
     if (mode < 0.5) {
         // Zoomed out: trilinear through the mip chain.
         col = textureSampleLevel(tex, samp, t / size, view.c.y);
     } else if (mode < 1.5) {
-        col = textureSampleLevel(tex, samp, t / size, 0.0);
+        if (view.h.y > 1.0) {
+            // Scaled geometry needs float interpolation: the hardware sampler's finite
+            // subtexel weights can add another byte of error along fractional-zoom edges.
+            let q = t - 0.5;
+            let i = vec2<i32>(floor(q));
+            let f = fract(q);
+            let hi = vec2<i32>(textureDimensions(tex, 0)) - vec2<i32>(1);
+            let a = textureLoad(tex, clamp(i, vec2<i32>(0), hi), 0);
+            let b = textureLoad(tex, clamp(i + vec2<i32>(1, 0), vec2<i32>(0), hi), 0);
+            let c = textureLoad(tex, clamp(i + vec2<i32>(0, 1), vec2<i32>(0), hi), 0);
+            let d = textureLoad(tex, clamp(i + vec2<i32>(1, 1), vec2<i32>(0), hi), 0);
+            col = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        } else {
+            col = textureSampleLevel(tex, samp, t / size, 0.0);
+        }
     } else {
         // Crisp texels with a one-device-pixel anti-aliased edge ("sharp bilinear").
         let tt = t - 0.5;
@@ -2309,3 +2631,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "gpu_canvas_view_tests.rs"]
+mod view_tests;
