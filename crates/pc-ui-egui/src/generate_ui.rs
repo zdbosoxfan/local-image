@@ -117,6 +117,9 @@ pub struct GenerateState {
     pub refine_model: String,
     pub refine_variant: String,
     pub refine_strength: f32,
+    /// The refine pass's steps and guidance (None: the refine model's defaults).
+    pub refine_steps: Option<u32>,
+    pub refine_guidance: Option<f32>,
     pub refine_scale: f32,
     pub upscale: f32,
     /// Sampler / scheduler instead of the family's (empty = the family's).
@@ -150,6 +153,8 @@ impl Default for GenerateState {
             refine_model: String::new(),
             refine_variant: String::new(),
             refine_strength: 0.35,
+            refine_steps: None,
+            refine_guidance: None,
             refine_scale: 1.0,
             upscale: 2.0,
             sampler: String::new(),
@@ -310,9 +315,24 @@ fn number_row(ui: &mut egui::Ui, label: &str, v: &mut u32, lo: u32, hi: u32, hin
 }
 
 fn guidance_row(ui: &mut egui::Ui, v: &mut f32, lo: f32, hi: f32, hint: Option<String>) {
+    guidance_row_labeled(ui, tl!("Guidance"), v, lo, hi, hint);
+}
+
+/// ComfyUI's denoise as a 0.00–1.00 field (ComfyUI's reported range).
+fn denoise_row(ui: &mut egui::Ui, label: &str, v: &mut f32, lo: f32, hi: f32) {
     let t = Tokens::get(ui.ctx());
     ui.horizontal(|ui| {
-        ui.label(RichText::new(tl!("Guidance")).color(t.text_dim));
+        ui.label(RichText::new(label).color(t.text_dim)).on_hover_text(tl!("ComfyUI denoise: 1 regenerates the image, lower values keep more of it"));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add(egui::DragValue::new(v).range(lo..=hi).speed(0.005).fixed_decimals(2));
+        });
+    });
+}
+
+fn guidance_row_labeled(ui: &mut egui::Ui, label: &str, v: &mut f32, lo: f32, hi: f32, hint: Option<String>) {
+    let t = Tokens::get(ui.ctx());
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(label).color(t.text_dim));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add(egui::DragValue::new(v).range(lo..=hi).speed(0.05).fixed_decimals(1));
         });
@@ -853,13 +873,9 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             }
         };
         if strength_shown {
-            let mut pct = s.denoise * 100.0;
-            if widgets::slider_row(ui, tl!("Strength"), &mut pct, 5.0..=100.0, "%", None)
-                .on_hover_text(tl!("How much may change: 100 % regenerates, lower keeps more of the image"))
-                .changed()
-            {
-                s.denoise = (pct / 100.0).clamp(0.05, 1.0);
-            }
+            // ComfyUI's denoise, in ComfyUI's own range: 1 regenerates, lower keeps more of the image.
+            let (lo, hi) = crate::ai_ui::status().limits.map_or((0.0, 1.0), |l| l.denoise);
+            denoise_row(ui, tl!("Denoise"), &mut s.denoise, lo, hi);
         }
         if s.mode == Mode::Upscale {
             let scales = [("1.5×", 1.5f32), ("2×", 2.0), ("3×", 3.0), ("4×", 4.0)];
@@ -911,11 +927,37 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     } else if let Some(m) = ModelId::from_key(&k) {
                         s.refine_model = k;
                         s.refine_variant = catalog::default_variant(m).into();
+                        s.refine_steps = None;
+                        s.refine_guidance = None;
                     }
                 }
-                let mut pct = s.refine_strength * 100.0;
-                if widgets::slider_row(ui, tl!("Refine strength"), &mut pct, 5.0..=100.0, "%", None).changed() {
-                    s.refine_strength = pct / 100.0;
+                // The refine pass's own sampler settings, bounded only by what ComfyUI reports.
+                let limits = crate::ai_ui::status().limits;
+                let (dlo, dhi) = limits.map_or((0.0, 1.0), |l| l.denoise);
+                denoise_row(ui, tl!("Refine denoise"), &mut s.refine_strength, dlo, dhi);
+                if let Some(ri) = ModelId::from_key(&s.refine_model).and_then(|m| m.try_info()) {
+                    let (slo, shi) = limits.map_or((1.0, f32::MAX), |l| l.steps);
+                    let mut steps = s.refine_steps.unwrap_or(ri.steps.default as u32);
+                    let hint = range_hint(ri.steps.min, ri.steps.max, ri.steps.default, 0);
+                    let before = steps;
+                    number_row(ui, tl!("Refine steps"), &mut steps, slo.max(1.0) as u32, shi.max(1.0) as u32, Some(hint));
+                    if steps != before {
+                        s.refine_steps = Some(steps);
+                    }
+                    let (clo, chi) = limits.map_or((0.0, f32::MAX), |l| l.cfg);
+                    let mut cfg = s.refine_guidance.unwrap_or(ri.guidance.default);
+                    let before = cfg;
+                    guidance_row_labeled(
+                        ui,
+                        tl!("Refine guidance"),
+                        &mut cfg,
+                        clo,
+                        chi,
+                        Some(range_hint(ri.guidance.min, ri.guidance.max, ri.guidance.default, 1)),
+                    );
+                    if cfg != before {
+                        s.refine_guidance = Some(cfg);
+                    }
                 }
                 let scales = [("1×", 1.0f32), ("1.5×", 1.5), ("2×", 2.0)];
                 let items: Vec<&str> = scales.iter().map(|(l, _)| *l).collect();
@@ -1430,8 +1472,8 @@ fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     model: rm,
                     variant: s.refine_variant.clone(),
                     strength: s.refine_strength,
-                    steps: None,
-                    guidance: None,
+                    steps: s.refine_steps,
+                    guidance: s.refine_guidance,
                     scale: s.refine_scale,
                 });
             }

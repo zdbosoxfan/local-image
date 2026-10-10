@@ -444,7 +444,7 @@ impl Ai {
                     src,
                     f,
                     &a,
-                    Params { task: Task::Refine { denoise: denoise.clamp(0.05, 1.0) }, ..base },
+                    Params { task: Task::Refine { denoise: denoise.clamp(0.0, 1.0) }, ..base },
                     prepare_refs(f, refs, 1024, 1024)?,
                     ctl,
                 )
@@ -456,7 +456,7 @@ impl Ai {
             }
             GenerateMode::UpscaleRefine => {
                 let src = source.context("Open an image to enlarge.")?;
-                self.upscale_refine(src, req.scale, f, &a, Params { task: Task::Refine { denoise: req.denoise.clamp(0.05, 1.0) }, ..base }, ctl)
+                self.upscale_refine(src, req.scale, f, &a, Params { task: Task::Refine { denoise: req.denoise.clamp(0.0, 1.0) }, ..base }, ctl)
             }
         }
     }
@@ -530,7 +530,7 @@ impl Ai {
                 } else {
                     crop.clone()
                 };
-                (Task::Inpaint { denoise: denoise.clamp(0.05, 1.0) }, filled, Some(nmask.clone()))
+                (Task::Inpaint { denoise: denoise.clamp(0.0, 1.0) }, filled, Some(nmask.clone()))
             }
         };
         let source_png = imaging::encode_png(&scaled(&source_img))?;
@@ -620,7 +620,7 @@ impl Ai {
             draft.clone()
         };
         let p = Params {
-            task: Task::Refine { denoise: step.strength.clamp(0.05, 1.0) },
+            task: Task::Refine { denoise: step.strength.clamp(0.0, 1.0) },
             prompt: &prompt,
             negative: &negative,
             width: src.width(),

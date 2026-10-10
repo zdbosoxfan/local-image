@@ -600,7 +600,14 @@ mod tests {
     #[test]
     fn every_tl_literal_is_translated() {
         // English until the next translation pass (GPU start-up recovery, October 2026).
-        const KEEP_AS_IS: &[&str] = &[];
+        // English until translations resume (owner, 2026-10-09: language work paused).
+        const KEEP_AS_IS: &[&str] = &[
+            "Denoise",
+            "Refine denoise",
+            "Refine steps",
+            "Refine guidance",
+            "ComfyUI denoise: 1 regenerates the image, lower values keep more of it",
+        ];
         // docs/wip/CODEX-TASK.md explicitly defers translation of the new background
         // controls. Keep this exception scoped to their keys; remove it when translated.
         const PENDING_BACKGROUND_TRANSLATIONS: &[&str] = &[
