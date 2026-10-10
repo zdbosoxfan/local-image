@@ -657,9 +657,8 @@ impl<'a> Planner<'a> {
             return self.effects(layer, &visible_clipped, backdrop, false);
         }
 
-        if let LayerContent::Shape(sh) = &layer.content
-            && !visible_clipped.is_empty()
-            && let Some((fill, stroke)) = photocraft_compose::shape_split::split(sh, self.cx.canvas, self.cx.depth)
+        if !visible_clipped.is_empty()
+            && let Some((fill, stroke)) = photocraft_compose::shape_split::split_layer(layer, self.cx.canvas, self.cx.depth)
         {
             // The vector stroke goes above the clipped layers: the fill is the clipping base,
             // the stroke is laid over the clipped result, then the masks apply to both
@@ -923,10 +922,7 @@ impl<'a> Planner<'a> {
         let clip = if bounds::transparent_outside(layer) { region } else { canvas };
         // A stroked shape's vector stroke goes above its clipped layers and interior effects
         // (compose::split_parts): the fill and the stroke unmasked, the masks applied after.
-        let split = match &layer.content {
-            LayerContent::Shape(sh) if sh.stroke.is_some() => photocraft_compose::shape_split::split(sh, canvas, self.cx.depth),
-            _ => None,
-        };
+        let split = photocraft_compose::shape_split::split_layer(layer, canvas, self.cx.depth);
         let (mut content, vstroke) = match split {
             Some((fill, stroke)) => {
                 let f = self.shape_part(layer, Role::Content, fill);

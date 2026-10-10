@@ -8,8 +8,8 @@ use std::hash::{Hash, Hasher};
 use std::sync::{Mutex, OnceLock};
 
 use photocraft_color::{Color, PixelFormat, SampleType};
-use photocraft_doc::Fill;
 use photocraft_doc::vector::{LiveShape, ShapeLayer};
+use photocraft_doc::{Fill, Layer, LayerContent};
 use photocraft_geom::{Rect, TILE_SIZE};
 use photocraft_raster::Surface;
 use photocraft_vector::{CompiledShape, DEFAULT_TOLERANCE};
@@ -231,6 +231,23 @@ fn placed(s: &Surface, bounds: Rect, dx: i32, dy: i32, canvas: Rect) -> Surface 
     Surface::from_interleaved(s.format(), clip, &s.to_interleaved(source))
 }
 
+/// Appearance items are already merged in the shape cache in their explicit paint order.
+/// Splitting the mirrored PSD stroke would lift it above clipping/effects a second time.
+/// CPU and GPU callers must use this layer-aware boundary, not `split` on the PSD mirror.
+pub fn split_layer(layer: &Layer, canvas: Rect, depth: SampleType) -> Option<(Surface, Surface)> {
+    if layer.vector.appearance.is_some() {
+        return None;
+    }
+    let LayerContent::Shape(shape) = &layer.content else { return None };
+    split(shape, canvas, depth)
+}
+
+/// Stack effects use the merged cache's alpha, including explicit empty stacks. Legacy
+/// filled shape effects may continue to use their analytic outline, as before.
+pub fn uses_legacy_outline(layer: &Layer) -> bool {
+    layer.vector.appearance.is_none()
+}
+
 /// (fill only, stroke only), RGBA at the document sample depth. `None` without a stroke.
 /// Fitted strokes retain the shape cache's coverage and edge colour (psd-tools double-stroke).
 pub fn split(sh: &ShapeLayer, canvas: Rect, depth: SampleType) -> Option<(Surface, Surface)> {
@@ -356,8 +373,8 @@ fn fit_stroke(fill: &Surface, stroke: &mut Surface, cache: &Surface, canvas: Rec
 mod tests {
     use super::*;
     use photocraft_color::Color;
-    use photocraft_doc::Fill;
     use photocraft_doc::vector::{Path, ShapeStroke, Subpath};
+    use photocraft_doc::{Fill, LayerContent};
 
     /// More stroked shapes than the old 32 entries: the second pass over them (the next plan
     /// rebuild) must rasterise none of them again.
@@ -648,6 +665,27 @@ mod tests {
             }
             assert_eq!(RENDERS.with(std::cell::Cell::get), n, "each depth still reuses integer moves");
         }
+    }
+
+    #[test]
+    fn appearance_stacks_never_split_the_psd_mirror_or_supply_legacy_effect_outline() {
+        let shape = ShapeLayer {
+            path: Path::new(vec![Subpath::polygon(&[(4., 4.), (12., 4.), (12., 12.), (4., 12.)])]),
+            fill: Some(Fill::Solid(Color::WHITE)),
+            stroke: Some(ShapeStroke::default()),
+            ..Default::default()
+        };
+        let mut layer = photocraft_doc::Layer::new("Appearance", LayerContent::Shape(shape));
+        let canvas = Rect::new(0, 0, 16, 16);
+        assert!(split_layer(&layer, canvas, SampleType::U8).is_some());
+        assert!(uses_legacy_outline(&layer));
+        layer.vector.appearance = Some(Default::default());
+        assert!(split_layer(&layer, canvas, SampleType::U8).is_none());
+        assert!(!uses_legacy_outline(&layer));
+        layer.vector.appearance.as_mut().unwrap().items.push(photocraft_doc::vector_design::appearance::AppearanceItem::Fill(
+            photocraft_doc::vector_design::appearance::FillItem::new(Fill::Solid(Color::BLACK)),
+        ));
+        assert!(split_layer(&layer, canvas, SampleType::F32).is_none());
     }
 
     #[test]
