@@ -8,10 +8,12 @@ license.workspace = true
 workspace = true
 
 [features]
+svg-import-integrated = ["photocraft-svg/svg-import-integrated"]
 # Real-file corpus tests (opt-in; `cargo xtask test-corpus`). Fail when the corpus is missing.
 corpus = []
 
 [dependencies]
+photocraft-svg.workspace = true
 pc-trace.workspace = true
 # local-image: AI services (ComfyUI client, workflows) and the image buffers they use.
 li-ai = { workspace = true }

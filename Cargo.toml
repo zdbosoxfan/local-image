@@ -14,6 +14,7 @@ rust-version = "1.95"
 repository = "https://github.com/zdbosoxfan/local-image"
 
 [workspace.dependencies]
+photocraft-svg = { path = "crates/pc-svg" }
 kurbo = { version = "=0.13.1" }
 linesweeper = { version = "=0.4.0" }
 polycool = { version = "=0.4.0" }
