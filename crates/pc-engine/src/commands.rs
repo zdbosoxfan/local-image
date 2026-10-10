@@ -1204,3 +1204,20 @@ pub(crate) fn translate_layer(doc: &Document, l: &mut Layer, dx: i32, dy: i32) {
 fn contains_layer(l: &Layer, target: LayerId) -> bool {
     l.id == target || l.children().is_some_and(|c| c.iter().any(|c| contains_layer(c, target)))
 }
+
+#[cfg(test)]
+mod registration_tests {
+    #[test]
+    fn integrated_command_ids_are_unique_and_findable() {
+        let specs = super::command_specs();
+        let mut ids = std::collections::BTreeSet::new();
+        for spec in specs {
+            assert!(ids.insert(spec.id), "duplicate command ID: {}", spec.id);
+            assert!(std::ptr::eq(super::find(spec.id).expect("registered command"), spec));
+        }
+        // Registration must retain the existing edit, AI and vector transaction routes.
+        for id in ["shape.create", "path.moveAnchors", "shape.applyPaths", "layer.vectorize", "toolset.list", "file.new"] {
+            assert!(ids.contains(id), "missing existing route: {id}");
+        }
+    }
+}
