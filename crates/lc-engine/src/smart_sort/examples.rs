@@ -65,8 +65,13 @@ pub fn rank(prototype: &[f32], candidates: &[&[f32]]) -> Vec<(usize, f32)> {
 pub fn suggest_name(keywords_per_photo: &[Vec<String>]) -> String {
     let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
     for photo in keywords_per_photo {
-        for keyword in photo {
-            *counts.entry(keyword.to_lowercase()).or_insert(0) += 1;
+        let keywords: std::collections::BTreeSet<_> = photo
+            .iter()
+            .map(|keyword| keyword.rsplit('|').next().unwrap_or_default().trim().to_lowercase())
+            .filter(|keyword| !keyword.is_empty() && keyword != "unsorted")
+            .collect();
+        for keyword in keywords {
+            *counts.entry(keyword).or_insert(0) += 1;
         }
     }
     let max = counts.values().copied().max().unwrap_or(0);
@@ -158,6 +163,13 @@ mod tests {
         assert_eq!(ranked[0].1, 1.0);
         assert_eq!(ranked[1].1, 1.0);
         assert!(ranked[2].1 > ranked[3].1);
+    }
+
+    #[test]
+    fn suggest_name_hierarchical_keywords_are_valid_category_names() {
+        let keywords = vec![vec!["Topics|Speakers".into(), "speakers".into(), "Topics|Unsorted".into()], vec!["Topics|Speakers".into(), "".into()]];
+        assert_eq!(suggest_name(&keywords), "speakers");
+        assert_eq!(suggest_name(&[vec!["Unsorted".into(), "".into()]]), "New Folder");
     }
 
     #[test]

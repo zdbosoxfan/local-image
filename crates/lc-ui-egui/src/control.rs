@@ -54,7 +54,17 @@ fn wrap(r: Result<Value, String>) -> Outcome {
 }
 
 pub fn all_commands(app: &LightcraftApp) -> Value {
-    let mut v: Vec<Value> = app.session.commands().into_iter().map(|c| serde_json::to_value(c).unwrap_or_default()).collect();
+    let mut v: Vec<Value> = app
+        .session
+        .commands()
+        .into_iter()
+        .map(|c| {
+            let enabled = crate::panels::smart_sort::review_history_enabled(app, c.id).unwrap_or(c.enabled);
+            let mut value = serde_json::to_value(c).unwrap_or_default();
+            value["enabled"] = json!(enabled);
+            value
+        })
+        .collect();
     for (id, label, sc, menu) in crate::menus::ui_commands() {
         v.push(json!({"id": id, "label": label, "shortcut": sc, "menu": [menu], "enabled": crate::menus::ui_enabled(app, id), "ui": true}));
     }

@@ -34,8 +34,11 @@ pub struct SortPreset {
     pub multi: bool,
     pub first_match: bool,
     pub folders: Vec<super::FolderDef>,
-    /// Reserved for Phase 2b name tokens.
     pub folder_pattern: String,
+    pub event_name: String,
+    pub file_pattern: String,
+    pub sessions: super::sessions::SessionSettings,
+    pub bursts: super::bursts::BurstSettings,
     /// People layout stores library identities, never names. Unknown IDs are skipped on reuse.
     pub people_layout: Vec<super::FolderDef>,
 }
@@ -50,7 +53,11 @@ impl Default for SortPreset {
             multi: false,
             first_match: false,
             folders: Vec::new(),
-            folder_pattern: String::new(),
+            folder_pattern: super::tokens::DEFAULT_FOLDER_PATTERN.into(),
+            event_name: String::new(),
+            file_pattern: String::new(),
+            sessions: Default::default(),
+            bursts: Default::default(),
             people_layout: Vec::new(),
         }
     }
@@ -136,6 +143,8 @@ impl SortPreset {
         if lightcraft_catalog::keywords::clean(&self.keyword_parent).is_empty() {
             return Err("keyword parent is empty".into());
         }
+        super::tokens::validate(&self.folder_pattern, false)?;
+        super::tokens::validate(&self.file_pattern, true)?;
         let mut names = std::collections::BTreeSet::new();
         for c in &self.categories {
             if c.name.trim().is_empty() || c.name.contains('|') || c.name.trim().eq_ignore_ascii_case("Unsorted") {

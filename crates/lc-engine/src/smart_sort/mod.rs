@@ -118,9 +118,19 @@ pub struct InputJob {
     embedded: Option<(String, crate::media::PreviewLoader)>,
     render: RenderJob,
     fallback: Option<RenderJob>,
+    cached_embedding: Option<Vec<f32>>,
 }
 
+pub type InputResult = Result<(Vec<f32>, f32), String>;
+
 impl InputJob {
+    fn analyze(mut self, tagger: &dyn Tagger) -> InputResult {
+        let cached = self.cached_embedding.take();
+        self.run().and_then(|img| {
+            let vector = cached.map(Ok).unwrap_or_else(|| tagger.embed_image(&img))?;
+            Ok((vector, bursts::sharpness(&img)))
+        })
+    }
     pub fn run(self) -> Result<Rgba8, String> {
         if let Some((path, loader)) = self.embedded
             && let Some(img) = loader(&path, 1024)
@@ -153,7 +163,9 @@ pub fn prepare_inputs(session: &mut Session, ids: &[PhotoId]) -> Vec<InputJob> {
             };
             let render = session.preview_job(*id, 1024, 1024, false, &p.develop)?;
             let fallback = session.thumb_job(*id, 512);
-            Some(InputJob { id: *id, key, embedded, render, fallback })
+            let model = session.smart.tagger.as_ref().map_or(DEFAULT_MODEL, |t| t.model_id());
+            let cached_embedding = session.smart.store.get(model, &key).map(<[f32]>::to_vec);
+            Some(InputJob { id: *id, key, embedded, render, fallback, cached_embedding })
         })
         .collect()
 }
@@ -192,7 +204,7 @@ pub fn analyze(s: &mut Session, ids: &[PhotoId], cancel: &std::sync::atomic::Ato
             continue;
         }
         let key = crate::media::content_key(p);
-        if s.smart.store.get(&model, &key).is_some() || !keys.insert(key) {
+        if (s.smart.store.get(&model, &key).is_some() && s.smart.store.sharpness(&key).is_some()) || !keys.insert(key) {
             result.skipped += 1;
             continue;
         }
@@ -219,7 +231,7 @@ pub fn analyze(s: &mut Session, ids: &[PhotoId], cancel: &std::sync::atomic::Ato
                     if cancel.load(Ordering::Relaxed) {
                         return (id, key, None);
                     }
-                    let v = input.run().and_then(|img| tagger.embed_image(&img));
+                    let v = input.analyze(tagger.as_ref());
                     (id, key, Some(v))
                 })
                 .collect()
@@ -228,7 +240,10 @@ pub fn analyze(s: &mut Session, ids: &[PhotoId], cancel: &std::sync::atomic::Ato
             let Some(v) = v else {
                 continue;
             };
-            match v.and_then(|v| s.smart.store.insert(&model, key, v)) {
+            match v.and_then(|(v, sharp)| {
+                s.smart.store.set_sharpness(key.clone(), sharp);
+                s.smart.store.insert(&model, key, v)
+            }) {
                 Ok(()) => result.analysed += 1,
                 Err(e) => result.failed.push((id, e)),
             }
@@ -249,7 +264,7 @@ pub fn run_inputs(
     inputs: Vec<InputJob>,
     tagger: Arc<dyn Tagger>,
     cancel: &std::sync::atomic::AtomicBool,
-    result: &(dyn Fn(PhotoId, String, Result<Vec<f32>, String>) + Send + Sync),
+    result: &(dyn Fn(PhotoId, String, InputResult) + Send + Sync),
 ) -> Result<(), String> {
     use rayon::prelude::*;
     let threads = std::thread::available_parallelism().map_or(1, |n| (n.get() / 2).max(1));
@@ -258,7 +273,7 @@ pub fn run_inputs(
         inputs.into_par_iter().for_each(|input| {
             if !cancel.load(std::sync::atomic::Ordering::Relaxed) {
                 let (id, key) = (input.id, input.key.clone());
-                result(id, key, input.run().and_then(|img| tagger.embed_image(&img)));
+                result(id, key, input.analyze(tagger.as_ref()));
             }
         })
     });
