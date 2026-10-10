@@ -1,6 +1,6 @@
 //! local-image: Local Image's AI in the editor.
 //!
-//! - **AI Remove Brush** (R): paint over a distraction; on release the stroke is removed by the
+//! - **AI Remove Brush** (R): paint over a distraction; after confirmation the painted mask is removed by the
 //!   local model and the repair lands on its own layer (`ai.remove`).
 //! - **AI Cutout** (K): Remove Background makes a layer mask from the AI matte
 //!   (`ai.removeBackground`); dragging paints that mask (Erase hides, Restore reveals; X swaps);
@@ -35,6 +35,8 @@ use crate::widgets;
 pub struct AiOptions {
     /// AI Remove engine: `klein`, `qwen-int8` or `qwen-bf16`.
     pub remove_engine: String,
+    /// Opt in to the original release-to-remove behavior.
+    pub remove_immediately: bool,
     /// AI Cutout engine: `qwen-int8`, `qwen-bf16` or `quick` (PhotoCraft's CPU subject finder).
     pub cutout_engine: String,
     /// What to keep, passed to the cutout model ("the red car").
@@ -47,18 +49,21 @@ pub struct AiOptions {
     pub fill_prompt: String,
     /// The Generate panel.
     pub generate: crate::generate_ui::GenerateState,
+    pub draft_refine: crate::generate_ui::DraftRefineSettings,
 }
 
 impl Default for AiOptions {
     fn default() -> Self {
         Self {
             remove_engine: "klein".into(),
+            remove_immediately: false,
             cutout_engine: "qwen-int8".into(),
             cutout_hint: String::new(),
             cutout_restore: false,
             background_prompt: String::new(),
             fill_prompt: String::new(),
             generate: Default::default(),
+            draft_refine: Default::default(),
         }
     }
 }
@@ -134,6 +139,9 @@ pub fn status() -> EngineStatus {
     }
     shared().status.lock().map(|s| s.clone()).unwrap_or_default()
 }
+
+#[cfg(test)]
+pub(crate) static AI_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 // UI tests use the real mock server for commands, with deterministic readiness on their
 // own thread rather than racing the asynchronous status poller.
@@ -842,13 +850,10 @@ pub fn downloads() -> BTreeMap<String, Download> {
 // ------------------------------------------------------------------------------ tools
 
 /// Finish a stroke with an AI tool. Returns false for other tools.
-pub fn finish_stroke(app: &mut PhotocraftApp, tool: Tool, points: &[[f64; 3]]) -> bool {
+pub fn finish_stroke(app: &mut PhotocraftApp, tool: Tool, points: &[[f64; 3]], mods: egui::Modifiers) -> bool {
     match tool {
         Tool::AiRemove => {
-            let b = &app.session.tools.brush;
-            let p = json!({ "points": points, "size": b.size, "hardness": b.hardness * 100.0, "engine": app.ui.ai.remove_engine });
-            let r = app.run("ai.remove", p);
-            report(app, r);
+            crate::ai_remove_ui::paint(app, points, mods.alt);
             true
         }
         Tool::AiCutout => {
@@ -880,7 +885,7 @@ fn opt(ui: &mut egui::Ui, s: &str) {
     ui.label(RichText::new(s).color(t.text_dim));
 }
 
-const REMOVE_ENGINES: [(&str, &str, ModelId, &str); 3] = [
+pub(crate) const REMOVE_ENGINES: [(&str, &str, ModelId, &str); 3] = [
     ("klein", "FLUX.2 Klein", ModelId::KleinRemove, "bf16"),
     ("qwen-int8", "Qwen Compact", ModelId::Qwen, "int8"),
     ("qwen-bf16", "Qwen Full", ModelId::Qwen, "bf16"),
@@ -903,7 +908,7 @@ fn engine_for(key: &str) -> (ModelId, &'static str) {
 }
 
 /// An engine problem as a one-line warning with the button that fixes it.
-fn readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui, model: ModelId, variant: &str) {
+pub(crate) fn readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui, model: ModelId, variant: &str) {
     let st = status();
     if let Err(why) = st.ready(model, variant) {
         let t = Tokens::get(ui.ctx());
@@ -922,25 +927,7 @@ fn readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui, model: ModelId, variant
 pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bool {
     match tool {
         Tool::AiRemove => {
-            opt(ui, tl!("Engine:"));
-            let opts: Vec<(String, &str)> = REMOVE_ENGINES.iter().map(|(k, l, _, _)| ((*k).to_owned(), *l)).collect();
-            widgets::dropdown(ui, "ai-remove-engine", &mut app.ui.ai.remove_engine, &opts, 130.0);
-            let has_sel = app.session.active().is_some_and(|d| d.doc.selection.is_some());
-            if has_sel {
-                widgets::vline(ui, 22.0);
-                if widgets::secondary_button(ui, tl!("Remove Selection"), 0.0).clicked() {
-                    let e = app.ui.ai.remove_engine.clone();
-                    let r = app.run("ai.remove", json!({ "engine": e }));
-                    report(app, r);
-                }
-            }
-            let (m, v) = engine_for(&app.ui.ai.remove_engine);
-            if status().ready(m, v).is_ok() {
-                widgets::vline(ui, 22.0);
-                opt(ui, tl!("Paint over a distraction; it's removed when you release"));
-            } else {
-                readiness(app, ui, m, v);
-            }
+            crate::ai_remove_ui::options(app, ui);
             true
         }
         Tool::AiCutout => {
@@ -1163,6 +1150,7 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if dialogs_mut(|d| d.enhance) {
         enhance_dialog(app, ctx);
     }
+    crate::generate_ui::draft_refine::window(app, ctx);
     crate::generate_ui::batch_window(app, ctx);
     crate::model_browser::window(app, ctx);
     remove_confirm(app, ctx);
@@ -1552,10 +1540,13 @@ const IDS: &[&str] = &[
     "li.newFromPrompt",
     "li.openFolder",
     "li.batchRemoveBackgrounds",
+    "li.removeSelection",
+    "ai.remove",
     "li.generativeFill",
     "li.enhance",
     "li.generateBackground",
     "li.panel.generate",
+    "li.draftRefine",
     "li.localAi",
     "li.aiModels",
     "li.browseModels",
@@ -1571,7 +1562,7 @@ pub fn handles(id: &str) -> bool {
 pub fn is_enabled(app: &PhotocraftApp, id: &str) -> Option<bool> {
     let has_doc = app.session.active().is_some();
     Some(match id {
-        "li.generativeFill" => app.session.active().is_some_and(|d| d.doc.selection.is_some()),
+        "ai.remove" | "li.removeSelection" | "li.generativeFill" => app.session.active().is_some_and(|d| d.doc.selection.is_some()),
         "li.enhance" | "li.generateBackground" => has_doc,
         "li.filmstrip" => crate::filmstrip_ui::has_folder(),
         crate::develop_layer::DEVELOP_ID => crate::develop_layer::active_photo(app).is_some(),
@@ -1608,7 +1599,9 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Val
                 None => crate::generate_ui::open_folder(app),
             });
         }
+        "li.draftRefine" => crate::generate_ui::draft_refine::open(app),
         "li.batchRemoveBackgrounds" => crate::generate_ui::open_batch(),
+        "ai.remove" | "li.removeSelection" => crate::ai_remove_ui::selection(app),
         "li.generativeFill" => dialogs_mut(|d| d.fill = true),
         "li.generateBackground" => dialogs_mut(|d| d.background = true),
         "li.enhance" => dialogs_mut(|d| d.enhance = true),

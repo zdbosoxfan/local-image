@@ -26,6 +26,9 @@ use crate::PhotocraftApp;
 use crate::theme::Tokens;
 use crate::widgets;
 
+pub(crate) mod draft_refine;
+pub use draft_refine::Settings as DraftRefineSettings;
+
 pub const GENERATE_JOB: &str = "ai.generate";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,6 +81,13 @@ impl Mode {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RefineInput {
+    #[default]
+    Composite,
+    SelectedLayer,
+}
+
 /// A LoRA picked for the next generations.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LoraPick {
@@ -90,6 +100,7 @@ pub struct LoraPick {
 #[serde(default)]
 pub struct GenerateState {
     pub mode: Mode,
+    pub refine_input: RefineInput,
     pub prompt: String,
     pub negative: String,
     /// A model key (`flux2-klein-4b`, `ckpt:…`) or `custom:<workflow name>`.
@@ -129,6 +140,7 @@ impl Default for GenerateState {
         let m = ModelId::Klein4B;
         Self {
             mode: Mode::Create,
+            refine_input: RefineInput::Composite,
             prompt: String::new(),
             negative: String::new(),
             model: m.key().into(),
@@ -572,6 +584,9 @@ fn browse_loras(model: &str) {
 pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let ctx = ui.ctx().clone();
+    if widgets::secondary_button(ui, tl!("Draft / Refinement…"), ui.available_width()).clicked() {
+        draft_refine::open(app);
+    }
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.spacing_mut().item_spacing.y = 6.0;
@@ -794,6 +809,14 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     .color(t.text_faint)
                     .size(11.0),
             );
+        }
+        if s.mode == Mode::Refine {
+            ui.horizontal(|ui| {
+                label(ui, tl!("Input"));
+                let choices = [(RefineInput::Composite, tl!("Open image (composite)")), (RefineInput::SelectedLayer, tl!("Selected layer"))];
+                widgets::dropdown(ui, "refine-input", &mut s.refine_input, &choices, ui.available_width());
+            });
+            ui.label(tl!("Refinement uses the current pixels of the open image."));
         }
         // ---- Strength.
         let strength_shown = match (&custom, cloud) {
@@ -1274,12 +1297,96 @@ pub(crate) fn regenerate_layer(app: &mut PhotocraftApp, ctx: &egui::Context, lay
     Ok(())
 }
 
+/// Snapshot the chosen open-image input; references never replace it in Refine mode.
+fn document_input(app: &PhotocraftApp, input: RefineInput) -> Option<RgbaImage> {
+    let d = app.session.active()?;
+    match input {
+        RefineInput::Composite => Some(photocraft_engine::ai_cmds::flatten_rgba(&d.doc)),
+        RefineInput::SelectedLayer => {
+            let l = d.doc.layer(d.active_layer?)?;
+            let buf = photocraft_compose::render_layer(l, d.doc.bounds());
+            let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+            Some(RgbaImage::from_fn(d.doc.size.width, d.doc.size.height, |x, y| {
+                let p = buf.px[(y * d.doc.size.width + x) as usize];
+                image::Rgba([q(p[0]), q(p[1]), q(p[2]), q(p[3])])
+            }))
+        }
+    }
+}
+
+fn local_request(
+    s: &GenerateState,
+    prompt: String,
+    doc: Option<(photocraft_doc::DocId, RgbaImage, Option<image::GrayImage>)>,
+    refs: Vec<RgbaImage>,
+) -> Option<(GenerateRequest, Option<photocraft_doc::DocId>, bool)> {
+    let m = model_of(s);
+    let info = m.info();
+    let mut req = GenerateRequest::new(m, prompt);
+    req.variant = s.variant.clone();
+    req.width = s.width;
+    req.height = s.height;
+    req.transparent = s.transparent && info.transparent;
+    req.steps = s.steps;
+    req.guidance = s.guidance;
+    req.negative = s.negative.clone();
+    req.denoise = s.denoise;
+    req.scale = s.upscale;
+    req.loras = s.loras.iter().map(|l| li_ai::workflows::LoraUse { name: l.name.clone(), strength: l.strength }).collect();
+    if !s.sampler.is_empty() {
+        req.sampler = Some((s.sampler.clone(), if s.scheduler.is_empty() { info.resolved.pipeline.scheduler.clone() } else { s.scheduler.clone() }));
+    }
+    // Refine/Upscale cannot accept the Create panel's reference slots. They were kept in
+    // runtime while hidden in these modes, causing validation to reject open-image jobs.
+    req.references = if matches!(s.mode, Mode::Refine | Mode::Upscale) { Vec::new() } else { refs };
+    let (mut target_doc, mut open) = (None, false);
+    match s.mode {
+        Mode::Create => {
+            if s.refine
+                && let Some(rm) = ModelId::from_key(&s.refine_model)
+            {
+                req.refine = Some(li_ai::RefineStep {
+                    model: rm,
+                    variant: s.refine_variant.clone(),
+                    strength: s.refine_strength,
+                    steps: None,
+                    guidance: None,
+                    scale: s.refine_scale,
+                });
+            }
+        }
+        mode => {
+            let (id, img, sel) = doc?;
+            req.mode = match mode {
+                Mode::Edit => GenerateMode::Edit,
+                Mode::Fill => GenerateMode::Inpaint,
+                Mode::Refine => GenerateMode::Refine,
+                _ => GenerateMode::UpscaleRefine,
+            };
+            (req.width, req.height) = (img.width(), img.height());
+            req.source = Some(img);
+            if mode == Mode::Fill {
+                req.mask = sel;
+            }
+            if mode == Mode::Upscale {
+                open = true;
+            } else {
+                target_doc = Some(id);
+            }
+        }
+    }
+    Some((req, target_doc, open))
+}
+
 /// Starts the generation jobs for the current settings.
 fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let s = app.ui.ai.generate.clone();
     let preset = presets().into_iter().find(|p| p.name == s.preset);
     let prompt = preset.as_ref().map_or_else(|| s.prompt.trim().to_owned(), |p| p.apply(&s.prompt));
-    let doc = app.session.active().map(|d| (d.doc.id, photocraft_engine::ai_cmds::flatten_rgba(&d.doc), photocraft_engine::ai_cmds::selection_gray(&d.doc)));
+    let doc = app.session.active().and_then(|d| {
+        let input = if s.mode == Mode::Refine { s.refine_input } else { RefineInput::Composite };
+        Some((d.doc.id, document_input(app, input)?, photocraft_engine::ai_cmds::selection_gray(&d.doc)))
+    });
     let refs: Vec<RgbaImage> = rt(|r| r.references.iter().map(|x| (*x.image).clone()).collect());
     // Custom workflows.
     if let Some(w) = custom_of(&s) {
@@ -1330,57 +1437,7 @@ fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
         ctx.request_repaint();
         return;
     }
-    let mut req = GenerateRequest::new(m, prompt);
-    req.variant = s.variant.clone();
-    req.width = s.width;
-    req.height = s.height;
-    req.transparent = s.transparent && info.transparent;
-    req.steps = s.steps;
-    req.guidance = s.guidance;
-    req.negative = s.negative.clone();
-    req.denoise = s.denoise;
-    req.scale = s.upscale;
-    req.loras = s.loras.iter().map(|l| li_ai::workflows::LoraUse { name: l.name.clone(), strength: l.strength }).collect();
-    if !s.sampler.is_empty() {
-        req.sampler = Some((s.sampler.clone(), if s.scheduler.is_empty() { info.resolved.pipeline.scheduler.clone() } else { s.scheduler.clone() }));
-    }
-    req.references = refs;
-    let (mut target_doc, mut open) = (None, false);
-    match s.mode {
-        Mode::Create => {
-            if s.refine
-                && let Some(rm) = ModelId::from_key(&s.refine_model)
-            {
-                req.refine = Some(li_ai::RefineStep {
-                    model: rm,
-                    variant: s.refine_variant.clone(),
-                    strength: s.refine_strength,
-                    steps: None,
-                    guidance: None,
-                    scale: s.refine_scale,
-                });
-            }
-        }
-        mode => {
-            let Some((id, img, sel)) = doc else { return };
-            req.mode = match mode {
-                Mode::Edit => GenerateMode::Edit,
-                Mode::Fill => GenerateMode::Inpaint,
-                Mode::Refine => GenerateMode::Refine,
-                _ => GenerateMode::UpscaleRefine,
-            };
-            (req.width, req.height) = (img.width(), img.height());
-            req.source = Some(img);
-            if mode == Mode::Fill {
-                req.mask = sel;
-            }
-            if mode == Mode::Upscale {
-                open = true;
-            } else {
-                target_doc = Some(id);
-            }
-        }
-    }
+    let Some((req, target_doc, open)) = local_request(&s, prompt, doc, refs) else { return };
     if let Err(e) = req.validate() {
         app.ui.status = e.to_string();
         app.ui.status_error = true;
@@ -1560,6 +1617,7 @@ fn launch(
 
 /// A generation job ended.
 pub fn on_generated(app: &mut PhotocraftApp, e: &JobEvent) {
+    draft_refine::on_generated(app, e);
     let tile = match &e.outcome {
         JobOutcome::Done(v) => match serde_json::from_value::<Entry>(v.clone()) {
             Ok(entry) => {

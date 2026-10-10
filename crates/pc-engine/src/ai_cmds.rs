@@ -222,7 +222,8 @@ fn add_layer_above(doc: &mut Document, active: &mut Option<LayerId>, layer: Laye
 }
 
 /// The stroke's coverage (brush footprint) from `points` and the brush params.
-fn stroke_mask(s: &Session, p: &Value, cmd: &str) -> Result<(Rect, Vec<f32>)> {
+/// Brush coverage used by the removal preview and the final command.
+pub fn stroke_mask(s: &Session, p: &Value, cmd: &str) -> Result<(Rect, Vec<f32>)> {
     let pts: Vec<StrokePoint> = p
         .get("points")
         .and_then(Value::as_array)
@@ -264,7 +265,20 @@ fn removal_mask(s: &Session, p: &Value, cmd: &str) -> Result<(Rect, Size, Vec<u8
             mask[i] = mask[i].max((v.clamp(0.0, 1.0) * 255.0).round() as u8);
         }
     };
-    if p.get("points").is_some() {
+    if let Some(bytes) = p.get("mask") {
+        let bytes: Vec<u8> = serde_json::from_value(bytes.clone()).map_err(|_| bad(cmd, "invalid removal mask"))?;
+        if bytes.len() != mask.len() {
+            return Err(bad(cmd, "removal mask must match the document size"));
+        }
+        mask = bytes;
+        for y in 0..size.height {
+            for x in 0..size.width {
+                if mask[(y * size.width + x) as usize] > 0 {
+                    bbox = bbox.union(&Rect::from_xywh(x as i32, y as i32, 1, 1));
+                }
+            }
+        }
+    } else if p.get("points").is_some() {
         let (r, cov) = stroke_mask(s, p, cmd)?;
         for y in r.y0..r.y1 {
             for x in r.x0..r.x1 {
@@ -724,6 +738,22 @@ pub fn specs() -> Vec<CommandSpec> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_removal_mask_matches_document_and_preserves_subtracted_holes() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 40, "height": 30})).unwrap();
+        let mut bytes = vec![0u8; 40 * 30];
+        bytes[10 * 40 + 10] = 255;
+        bytes[10 * 40 + 12] = 128;
+        let (bounds, size, mask) = removal_mask(&s, &json!({"mask":bytes}), "ai.remove").unwrap();
+        assert_eq!(size, Size::new(40, 30));
+        assert_eq!(bounds, Rect::from_xywh(10, 10, 3, 1));
+        assert_eq!(mask[10 * 40 + 11], 0, "the subtraction hole stays empty");
+        assert_eq!(mask[10 * 40 + 12], 128);
+        assert!(removal_mask(&s, &json!({"mask":[255]}), "ai.remove").is_err());
+        assert!(removal_mask(&s, &json!({"mask":vec![0u8;1200]}), "ai.remove").is_err());
+    }
 
     #[test]
     fn generation_size_keeps_proportions() {

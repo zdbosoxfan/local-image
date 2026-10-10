@@ -570,6 +570,39 @@ mod tests {
         }
     }
 
+    // docs/wip/CODEX-TASK.md explicitly defers translations for AI Remove and
+    // Draft/Refinement. These English additions intentionally use runtime fallback.
+    // Remove entries as their translations land; all other labels remain required.
+    const PENDING_AI_TRANSLATIONS: &[&str] = &[
+        "+",
+        "Choose or generate an image.",
+        "Compare with input",
+        "Comparison",
+        "Create a draft, then choose Draft result as the refinement input.",
+        "Denoise",
+        "Describe the draft…",
+        "Draft",
+        "Draft / Refinement",
+        "Draft / Refinement…",
+        "Draft preview",
+        "Draft result",
+        "Generate draft",
+        "Input",
+        "Keep painting",
+        "Open as new document",
+        "Open image (composite)",
+        "Paint to mark removal; Alt/Option-drag subtracts",
+        "Refine image",
+        "Refinement",
+        "Refinement preview",
+        "Refinement uses the current pixels of the open image.",
+        "Remove immediately on release",
+        "Running…",
+        "Selected layer",
+        "Wheel to zoom; drag to pan",
+        "−",
+    ];
+
     /// Languages that claim complete menus have an entry for every label and path segment.
     #[test]
     fn complete_languages_translate_every_menu_string() {
@@ -589,7 +622,7 @@ mod tests {
         strings.remove("---");
         for l in LANGUAGES.iter().filter(|l| l.complete_menus) {
             let cat = l.catalog();
-            let missing: Vec<_> = strings.iter().filter(|s| cat.plain(s).is_none()).collect();
+            let missing: Vec<_> = strings.iter().filter(|s| !PENDING_AI_TRANSLATIONS.contains(s) && cat.plain(s).is_none()).collect();
             assert!(missing.is_empty(), "{}: untranslated menu strings: {missing:#?}", l.code);
         }
     }
@@ -632,7 +665,10 @@ mod tests {
         assert!(literals.len() > 300, "scan found only {} literals", literals.len());
         for l in LANGUAGES.iter().filter(|l| l.complete_menus) {
             let cat = l.catalog();
-            let missing: Vec<_> = literals.iter().filter(|s| !KEEP_AS_IS.contains(&s.as_str()) && cat.plain(s).is_none()).collect();
+            let missing: Vec<_> = literals
+                .iter()
+                .filter(|s| !KEEP_AS_IS.contains(&s.as_str()) && !PENDING_AI_TRANSLATIONS.contains(&s.as_str()) && cat.plain(s).is_none())
+                .collect();
             assert!(missing.is_empty(), "{}: untranslated tl! strings: {missing:#?}", l.code);
         }
     }

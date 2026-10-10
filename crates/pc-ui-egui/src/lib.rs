@@ -68,6 +68,7 @@ pub mod adjust_dialog;
 pub mod adjust_editors;
 pub mod adjust_preview;
 pub mod adjust_ui;
+mod ai_remove_ui;
 pub mod ai_ui;
 pub mod analysis_ui;
 pub mod artboard_ui;
@@ -376,6 +377,8 @@ pub struct PhotocraftApp {
     live_stroke: Option<canvas::LiveStroke>,
     /// Footprint trail of a retouching drag (see `stroke_trail`).
     trail: Option<stroke_trail::Trail>,
+    ai_remove: Option<ai_remove_ui::Pending>,
+    draft_refine: generate_ui::draft_refine::Runtime,
     /// Move tool drag shown live (`move_ui`).
     pub(crate) move_preview: Option<move_ui::MovePreview>,
     /// Patch Tool drag: the healed document at the pointer (`patch_preview`).
@@ -554,6 +557,8 @@ impl PhotocraftApp {
             drag: None,
             live_stroke: None,
             trail: None,
+            ai_remove: None,
+            draft_refine: Default::default(),
             move_preview: None,
             patch_preview: None,
             magnetic: Default::default(),
@@ -1107,6 +1112,7 @@ impl eframe::App for PhotocraftApp {
         discard_ui::guard_window_close(self, ctx);
         // Background jobs: apply finished ones, keep frames coming, Esc cancels (before the
         // shortcuts see Esc).
+        ai_remove_ui::keys(self, ctx);
         jobs_ui::tick(self, ctx);
         shortcuts::handle(self, ctx);
         let arrived: Vec<(String, Vec<u8>)> =
@@ -1192,6 +1198,7 @@ impl eframe::App for PhotocraftApp {
         preset_panels::windows(self, &ctx);
         // local-image: Local AI window and the AI prompt dialogs.
         ai_ui::windows(self, &ctx);
+        ai_remove_ui::show(self, &ctx);
         context_bar::show(self, &ctx);
         type_panels_ui::windows(self, &ctx);
         analysis_ui::windows(self, &ctx);
