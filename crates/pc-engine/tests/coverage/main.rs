@@ -1,11 +1,13 @@
 //! DeepSeek-written coverage tests, one module per source module; a single test binary per crate keeps link time down.
 
 mod ds_adjust_cmds_coverage;
+mod ds_ai_cmds_coverage;
 mod ds_analysis_cmds_coverage;
 mod ds_artboard_cmds_coverage;
 mod ds_brush_cmds_coverage;
 mod ds_channel_cmds_coverage;
 mod ds_commands_coverage;
+mod ds_cutout_cmds_coverage;
 mod ds_display_color_coverage;
 mod ds_distort_cmds_coverage;
 mod ds_edit_menu_cmds_coverage;
@@ -23,6 +25,7 @@ mod ds_presets_coverage;
 mod ds_retouch_cmds_coverage;
 mod ds_slice_cmds_coverage;
 mod ds_smart_cmds_coverage;
+mod ds_toolsets_coverage;
 mod ds_type_extra_cmds_coverage;
 mod ds_type_spell_cmds_coverage;
 mod ds_type_styles_cmds_coverage;
