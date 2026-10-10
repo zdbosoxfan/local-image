@@ -106,7 +106,7 @@ impl JobControl {
             p.message = message.into();
         }
     }
-    fn set_step(&self, value: u32, max: u32) {
+    pub fn set_step(&self, value: u32, max: u32) {
         if let Ok(mut p) = self.progress.lock() {
             p.stage = Stage::Sampling;
             p.step = Some((value, max));

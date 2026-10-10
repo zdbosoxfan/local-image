@@ -29,6 +29,42 @@ fn engine(key: &str) -> li_ai::RemoveEngine {
 }
 
 impl AiHost for DevelopAi {
+    fn upscale(&self, req: &lightcraft_engine::enhance::UpscaleRequest, ctl: &JobCtl) -> Result<Vec<[u8; 4]>, String> {
+        if req.rgba.len() != req.width * req.height {
+            return Err("image buffer size mismatch".into());
+        }
+        let method = li_ai::enhance::Method::parse(&req.method).ok_or("unknown enhancement method")?;
+        let input = image::RgbaImage::from_fn(req.width as u32, req.height as u32, |x, y| image::Rgba(req.rgba[y as usize * req.width + x as usize]));
+        let lctl = li_ai::JobControl::new();
+        let done = AtomicBool::new(false);
+        let out = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                while !done.load(Ordering::Relaxed) {
+                    if ctl.cancelled() {
+                        lctl.cancel();
+                    }
+                    let progress = lctl.progress();
+                    ctl.set(progress.fraction().unwrap_or(0.0), progress.stage.label());
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            });
+            let r = li_ai::service().enhance(
+                &input,
+                req.target.0 as u32,
+                req.target.1 as u32,
+                method,
+                li_ai::enhance::Backend::Auto,
+                &photocraft_engine::seg::models_dir(),
+                0,
+                &lctl,
+            );
+            done.store(true, Ordering::Relaxed);
+            r
+        })
+        .map_err(|e| if e.is::<li_ai::Cancelled>() { lightcraft_engine::enhance::CANCELLED.into() } else { format!("{e:#}") })?;
+        Ok(out.pixels().map(|p| p.0).collect())
+    }
+
     fn remove_engines(&self) -> Vec<RemoveEngine> {
         let st = ai_ui::status();
         ENGINES

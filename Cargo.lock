@@ -3750,6 +3750,7 @@ dependencies = [
  "dirs",
  "hex",
  "image",
+ "li-seg",
  "log",
  "rand 0.9.5",
  "rayon",

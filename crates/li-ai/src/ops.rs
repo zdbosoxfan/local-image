@@ -7,7 +7,7 @@ use image::{GrayImage, Luma, RgbImage, RgbaImage, imageops};
 use crate::builders::{self, Params, Slot, Task};
 use crate::catalog::{self, Availability, ModelId};
 use crate::comfy::{ComfyClient, JobControl, ObjectInfo, Stage};
-use crate::family::{Encode, Family, InpaintMethod, RefMethod};
+use crate::family::{Encode, Family, InpaintMethod, RefMethod, Role};
 use crate::imaging::{self, Rect};
 use crate::workflows::{self, LoraUse};
 
@@ -805,6 +805,18 @@ impl Ai {
 
     /// SeedVR2 enhancement to `width × height` (same aspect, larger, even). Keeps the alpha.
     pub fn upscale(&self, image: &RgbaImage, width: u32, height: u32, seed: u64, ctl: &JobControl) -> Result<RgbaImage> {
+        self.upscale_with_files(image, width, height, seed, ctl, None)
+    }
+
+    pub(crate) fn upscale_with_files(
+        &self,
+        image: &RgbaImage,
+        width: u32,
+        height: u32,
+        seed: u64,
+        ctl: &JobControl,
+        custom: Option<&workflows::Files>,
+    ) -> Result<RgbaImage> {
         let (sw, sh) = image.dimensions();
         if !width.is_multiple_of(2) || !height.is_multiple_of(2) || width <= sw || height <= sh {
             bail!("Choose a larger, even size to enhance to.");
@@ -815,10 +827,26 @@ impl Ai {
         }
         ctl.set_stage(Stage::Preparing);
         let info = self.inventory()?;
-        let a = self.resolve(ModelId::SeedVr2, "fp16", &info)?;
+        let files = if let Some(files) = custom {
+            let preset = catalog::preset(ModelId::SeedVr2, "fp16").context("SeedVR2 profile missing")?;
+            for node in &preset.required_nodes {
+                if !info.has_node(node) {
+                    bail!("SeedVR2 needs the ComfyUI core node {node}");
+                }
+            }
+            for (role, node, input) in [(Role::Unet, "UNETLoader", "unet_name"), (Role::Vae, "VAELoader", "vae_name")] {
+                let name = files.get(&role).context("Custom SeedVR2 file missing")?;
+                if !info.choices(node, input).contains(name) {
+                    bail!("Custom SeedVR2 file is not installed: {name}");
+                }
+            }
+            files.clone()
+        } else {
+            self.resolve(ModelId::SeedVr2, "fp16", &info)?.files
+        };
         let resized = imageops::resize(image, width, height, imageops::FilterType::Lanczos3);
         let png = imaging::encode_png(&imaging::over_white(&resized))?;
-        let built = workflows::seedvr2(&a.files, seed);
+        let built = workflows::seedvr2(&files, seed);
         let out = image::load_from_memory(&self.client.run(built.graph, &[(built.image_nodes[0].clone(), png)], ctl)?)?.to_rgba8();
         let out = if out.dimensions() != (width, height) { imageops::resize(&out, width, height, imageops::FilterType::Lanczos3) } else { out };
         // Restore transparency: blend by alpha⁴ so soft edges keep the source colour.

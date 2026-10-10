@@ -22,6 +22,7 @@ use anyhow::{Context, Result, bail};
 use tract_onnx::prelude::*;
 use tract_onnx::tract_hir::infer::Factoid;
 
+pub mod enhance;
 pub mod faces;
 
 /// Another file required by a multi-file model (weights or tokenizer data).
@@ -196,6 +197,8 @@ pub enum Task {
     ImageText,
     FaceDetect,
     FaceEmbed,
+    /// RGB restoration and enlargement, through the dedicated enhance API.
+    Upscale,
 }
 
 pub const MODELS: &[ModelSpec] = &[
@@ -318,6 +321,66 @@ pub const MODELS: &[ModelSpec] = &[
         group: Some(Group::Faces),
         about: "Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.",
     },
+    ModelSpec {
+        id: "realplksr-2x",
+        label: "Faithful · RealPLKSR 2×",
+        file: "realplksr-2x.onnx",
+        companions: &[],
+        bytes: 29627920,
+        sha256: "d7abb65092f3808d3aa255ffdab42b1d672883915d90adbdd321204168b9f293",
+        url: "https://huggingface.co/darktable-org/upscale-realplksr-onnx/resolve/0bb636eeeed5fffd256571c3cc440d9fdf62467e/onnx/model_x2.onnx",
+        size: 512,
+        isnet: false,
+        licence: "MIT (RealPLKSR, Dongheon Lee et al.; darktable ONNX export)",
+        task: Task::Upscale,
+        group: None,
+        about: "Enlarges clean photos while preserving their detail. Fixed tiles with overlap blending; runs locally on the CPU.",
+    },
+    ModelSpec {
+        id: "realplksr-4x",
+        label: "Faithful · RealPLKSR 4×",
+        file: "realplksr-4x.onnx",
+        companions: &[],
+        bytes: 29711010,
+        sha256: "8ce692652494e2e5c31e1f7c7ab61eb084e9a450cde727a374f5d6746cfe054b",
+        url: "https://huggingface.co/darktable-org/upscale-realplksr-onnx/resolve/0bb636eeeed5fffd256571c3cc440d9fdf62467e/onnx/model_x4.onnx",
+        size: 256,
+        isnet: false,
+        licence: "MIT (RealPLKSR, Dongheon Lee et al.; darktable ONNX export)",
+        task: Task::Upscale,
+        group: None,
+        about: "Enlarges clean photos while preserving their detail. Fixed tiles with overlap blending; runs locally on the CPU.",
+    },
+    ModelSpec {
+        id: "bsrgan-2x",
+        label: "Rescue · BSRGAN 2×",
+        file: "upscale-bsrgan.dtmodel",
+        companions: &[],
+        bytes: 124072128,
+        sha256: "e90621e12fea12098ad6abd701bf67f50cea6c633bad98a19a4ccebba94404a6",
+        url: "https://github.com/darktable-org/darktable-ai/releases/download/release-5.6.0/upscale-bsrgan.dtmodel",
+        size: 512,
+        isnet: false,
+        licence: "Apache-2.0 (BSRGAN, Kai Zhang et al.; darktable ONNX export)",
+        task: Task::Upscale,
+        group: None,
+        about: "Enlarges photos and cleans noise, JPEG artefacts and mild blur. The download includes both scales; runs locally on the CPU.",
+    },
+    ModelSpec {
+        id: "bsrgan-4x",
+        label: "Rescue · BSRGAN 4×",
+        file: "upscale-bsrgan.dtmodel",
+        companions: &[],
+        bytes: 124072128,
+        sha256: "e90621e12fea12098ad6abd701bf67f50cea6c633bad98a19a4ccebba94404a6",
+        url: "https://github.com/darktable-org/darktable-ai/releases/download/release-5.6.0/upscale-bsrgan.dtmodel",
+        size: 256,
+        isnet: false,
+        licence: "Apache-2.0 (BSRGAN, Kai Zhang et al.; darktable ONNX export)",
+        task: Task::Upscale,
+        group: None,
+        about: "Enlarges photos and cleans noise, JPEG artefacts and mild blur. The download includes both scales; runs locally on the CPU.",
+    },
 ];
 
 /// Files of models the app used to offer (U²-Net small and full, TinySkyNet, MiDaS small): no
@@ -377,7 +440,7 @@ impl Segmenter {
     }
 
     fn load_cfg(cfg: Config, path: &Path) -> Result<Self> {
-        if matches!(cfg.task, Task::ImageText | Task::FaceDetect | Task::FaceEmbed) {
+        if matches!(cfg.task, Task::ImageText | Task::FaceDetect | Task::FaceEmbed | Task::Upscale) {
             bail!("use the dedicated embedding or face inference API");
         }
         let s = cfg.size;
@@ -988,13 +1051,13 @@ pub fn installed_bytes(models_dir: &Path, spec: &ModelSpec) -> Option<u64> {
     for file in spec.files() {
         let path = companion_path(models_dir, file.file);
         let m = std::fs::metadata(&path).ok()?;
-        if !m.is_file() || (!spec.companions.is_empty() && m.len() != file.bytes) {
+        if !m.is_file() || ((!spec.companions.is_empty() || spec.task == Task::Upscale) && m.len() != file.bytes) {
             return None;
         }
         total += m.len();
         stamp.push((path, m.len(), m.modified().ok(), file.sha256));
     }
-    if !spec.companions.is_empty() && !stamp.into_iter().all(verified_file) {
+    if (!spec.companions.is_empty() || spec.task == Task::Upscale) && !stamp.into_iter().all(verified_file) {
         return None;
     }
     Some(total)

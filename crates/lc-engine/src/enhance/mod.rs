@@ -48,8 +48,22 @@ pub struct RemoveResult {
     pub alpha: Vec<u8>,
 }
 
+/// Restoration of an already developed sRGB image for export.
+#[derive(Clone, Debug)]
+pub struct UpscaleRequest {
+    pub width: usize,
+    pub height: usize,
+    pub rgba: Vec<[u8; 4]>,
+    pub target: (usize, usize),
+    pub method: String,
+}
+
 /// AI services the app provides to Develop. Everything here may be called from worker threads.
 pub trait AiHost: Send + Sync {
+    /// Upscale export pixels. Hosts without restoration retain their existing behaviour.
+    fn upscale(&self, _req: &UpscaleRequest, _ctl: &JobCtl) -> Result<Vec<[u8; 4]>, String> {
+        Err("AI enlargement is not available in this host".into())
+    }
     /// The AI Remove engines, in menu order.
     fn remove_engines(&self) -> Vec<RemoveEngine>;
     /// Repair the masked area (blocking; poll `ctl` for cancellation and report progress on it).

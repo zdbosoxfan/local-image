@@ -137,6 +137,8 @@ pub struct GenerateState {
     pub refine_guidance: Option<f32>,
     pub refine_scale: f32,
     pub upscale: f32,
+    pub enhance_method: li_ai::enhance::Method,
+    pub enhance_backend: li_ai::enhance::Backend,
     /// Sampler / scheduler instead of the family's (empty = the family's).
     pub sampler: String,
     pub scheduler: String,
@@ -175,6 +177,8 @@ impl Default for GenerateState {
             refine_guidance: None,
             refine_scale: 1.0,
             upscale: 2.0,
+            enhance_method: Default::default(),
+            enhance_backend: Default::default(),
             sampler: String::new(),
             scheduler: String::new(),
         }
@@ -541,13 +545,12 @@ fn fits_mode_with(info: &catalog::ModelInfo, mode: Mode, any_upscaler: bool) -> 
     }
 }
 
-/// An official upscaler (SeedVR2): runs through AI Enhance rather than a diffusion refine.
-/// (ESRGAN-type `upscale_models` files have no workflow builder yet, so they aren't offered.)
+/// A supported upscaler: runs through the shared Enhance service.
 fn is_upscaler(info: &catalog::ModelInfo) -> bool {
     info.upscale
 }
 
-/// Upscale with an official upscaler goes to `ai.enhance` (SeedVR2), not a diffusion
+/// Upscale with a supported restoration model goes to `ai.enhance`, not a diffusion
 /// refine-upscale.
 fn runs_as_enhance(info: &catalog::ModelInfo, mode: Mode) -> bool {
     mode == Mode::Upscale && is_upscaler(info)
@@ -933,6 +936,22 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     set_model(s, n);
                 }
             }
+        }
+        if s.mode == Mode::Upscale && !upscale_any() {
+            crate::ai_ui::enhance_controls(ui, &mut s.enhance_method, &mut s.enhance_backend, &mut s.upscale);
+            let ready = crate::ai_ui::enhance_ready(s.enhance_method, s.enhance_backend, s.upscale as u32);
+            if let Err(why) = &ready {
+                ui.label(RichText::new(why).color(t.warning));
+            }
+            let clicked = ui.add_enabled_ui(has_doc && ready.is_ok(), |ui| widgets::primary_button(ui, tl!("Upscale"), ui.available_width())).inner.clicked();
+            if widgets::secondary_button(ui, tl!("Choose another model…"), ui.available_width()).clicked() {
+                rt(|r| r.upscale_any = true);
+            }
+            if clicked {
+                start(app, &ctx);
+            }
+            results_ui(app, ui);
+            return;
         }
         // ---- Preset.
         let all_presets = presets();
@@ -1745,6 +1764,18 @@ fn local_request(
 /// Starts the generation jobs for the current settings.
 fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let s = app.ui.ai.generate.clone();
+    if s.mode == Mode::Upscale && !upscale_any() {
+        if app.session.active().is_none() {
+            return;
+        }
+        let seed = s.seed.unwrap_or_else(li_ai::ops::new_seed);
+        if let Err(e) = app.run("ai.enhance", json!({"scale": s.upscale, "seed": seed, "method": s.enhance_method, "backend": s.enhance_backend})) {
+            app.ui.status = e;
+            app.ui.status_error = true;
+        }
+        ctx.request_repaint();
+        return;
+    }
     let preset = presets().into_iter().find(|p| p.name == s.preset);
     let prompt = preset.as_ref().map_or_else(|| s.prompt.trim().to_owned(), |p| p.apply(&s.prompt));
     let doc = app.session.active().and_then(|d| {
@@ -1788,13 +1819,13 @@ fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
     let m = model_of(&s);
     let info = m.info();
-    // An official upscaler runs as AI Enhance (SeedVR2); the result opens as a new document.
+    // Official restoration models share ai.enhance.
     if runs_as_enhance(info, s.mode) {
         if doc.is_none() {
             return;
         }
         let seed = s.seed.unwrap_or_else(li_ai::ops::new_seed);
-        if let Err(e) = app.run("ai.enhance", json!({ "scale": s.upscale, "seed": seed })) {
+        if let Err(e) = app.run("ai.enhance", json!({ "scale": s.upscale, "seed": seed, "model": m.key(), "method": if info.id == ModelId::SeedVr2 { li_ai::enhance::Method::Generative } else if info.family == "bsrgan" { li_ai::enhance::Method::Rescue } else { li_ai::enhance::Method::Faithful }, "backend": s.enhance_backend })) {
             app.ui.status = e;
             app.ui.status_error = true;
         }
@@ -2603,6 +2634,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn enhance_generate_upscale_clicks_three_methods_and_scale() {
+        use egui_kittest::kittest::Queryable;
+        let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        rt(|r| r.upscale_any = false);
+        let mut session = photocraft_engine::Session::new();
+        session.execute("file.new", json!({"width": 32, "height": 24})).unwrap();
+        let mut app = PhotocraftApp::new(session, crate::Services::default());
+        app.ui.ai.generate.mode = Mode::Upscale;
+        let mut initialized = false;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(620.0, 900.0)).build_ui_state(
+            move |ui, app: &mut PhotocraftApp| {
+                if !initialized {
+                    PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Studio);
+                    initialized = true;
+                    ui.ctx().request_repaint();
+                    return;
+                }
+                panel(app, ui);
+            },
+            app,
+        );
+        h.run_steps(3);
+        h.get_by_label("Faithful").click();
+        h.run_steps(2);
+        assert_eq!(h.state().ui.ai.generate.enhance_method, li_ai::enhance::Method::Faithful);
+        h.get_by_label("4×").click();
+        h.run_steps(2);
+        assert_eq!(h.state().ui.ai.generate.upscale, 4.0);
+        h.get_by_label("Rescue").click();
+        h.run_steps(2);
+        assert_eq!(h.state().ui.ai.generate.enhance_method, li_ai::enhance::Method::Rescue);
+        h.get_by_label("Generative (SeedVR2)").click();
+        h.run_steps(2);
+        assert_eq!(h.state().ui.ai.generate.enhance_method, li_ai::enhance::Method::Generative);
+        assert_eq!(serde_json::from_value::<GenerateState>(json!({})).unwrap().enhance_method, li_ai::enhance::Method::Generative);
+    }
+
+    #[test]
     fn refine_model_groups_exclude_upscalers_tools_and_video() {
         let mut models = catalog::catalog().models.clone();
         // Detected video/template-only models are represented by FamilyKind::Basic.
@@ -2852,7 +2921,7 @@ mod tests {
     #[test]
     fn upscale_offers_the_official_upscalers_first() {
         let official: Vec<&str> = catalog::catalog().models.iter().filter(|m| fits_mode_with(m, Mode::Upscale, false)).map(|m| m.id.key()).collect();
-        assert_eq!(official, vec![ModelId::SeedVr2.key()]);
+        assert_eq!(official, vec![ModelId::SeedVr2.key(), "realplksr-2x", "realplksr-4x", "bsrgan-2x", "bsrgan-4x"]);
         let any: Vec<ModelId> = catalog::catalog().models.iter().filter(|m| fits_mode_with(m, Mode::Upscale, true)).map(|m| m.id).collect();
         assert!(any.contains(&ModelId::Klein4B) && any.contains(&ModelId::Qwen) && !any.contains(&ModelId::SeedVr2), "{any:?}");
         // other modes never offer the upscaler

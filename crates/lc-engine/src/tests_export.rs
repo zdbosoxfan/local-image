@@ -6,6 +6,59 @@ use crate::Session;
 use crate::export::{ExportFormat, ExportOptions, export_photo};
 use crate::tests_xmp::{synthetic_dng_with, temp_dir};
 
+struct EnhanceHost(std::sync::Arc<std::sync::Mutex<Vec<crate::enhance::UpscaleRequest>>>);
+impl crate::enhance::AiHost for EnhanceHost {
+    fn remove_engines(&self) -> Vec<crate::enhance::RemoveEngine> {
+        vec![]
+    }
+    fn remove(&self, _: &crate::enhance::RemoveRequest, _: &crate::enhance::JobCtl) -> Result<crate::enhance::RemoveResult, String> {
+        Err("unused".into())
+    }
+    fn upscale(&self, req: &crate::enhance::UpscaleRequest, ctl: &crate::enhance::JobCtl) -> Result<Vec<[u8; 4]>, String> {
+        ctl.check()?;
+        self.0.lock().unwrap().push(req.clone());
+        Ok(vec![[50, 120, 200, 255]; req.target.0 * req.target.1])
+    }
+}
+
+#[test]
+fn enhance_export_restores_native_pixels_before_encoding_and_defaults_load() {
+    let mut s = Session::with_demo();
+    let id = s.active().unwrap();
+    // Small native fixture exercises the same export path without three full-photo encodes.
+    let mut photo = (**s.catalog.photo(id).unwrap()).clone();
+    let reduction = f64::from(photo.width.max(photo.height)) / 96.0;
+    photo.width = (f64::from(photo.width) / reduction).round() as u32;
+    photo.height = (f64::from(photo.height) / reduction).round() as u32;
+    s.catalog.apply(lightcraft_catalog::Op::RemovePhoto { id }).unwrap();
+    s.catalog.apply(lightcraft_catalog::Op::AddPhoto { photo: Box::new(photo) }).unwrap();
+    let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    s.enhance.host = Some(std::sync::Arc::new(EnhanceHost(calls.clone())));
+    let native = crate::export::output_size(s.catalog.photo(id).unwrap(), &ExportOptions::default());
+    for method in ["faithful", "rescue", "generative"] {
+        let opts = ExportOptions::from_json(
+            &json!({"format": "png", "percent": 200, "dontEnlarge": false, "enhance": method, "bitDepth": 16, "colorSpace": "displayP3"}),
+        );
+        let out = export_photo(&mut s, id, &opts, 1).unwrap();
+        assert_eq!((out.width, out.height), (native.0 * 2, native.1 * 2));
+        let last = calls.lock().unwrap().last().unwrap().clone();
+        assert_eq!((last.width, last.height), native);
+        assert_eq!(last.rgba.len(), native.0 * native.1);
+        assert_eq!(last.method, method);
+        assert_eq!(ExportOptions::from_json(&opts.to_json()).enhance, opts.enhance);
+    }
+    assert_eq!(serde_json::from_value::<ExportOptions>(json!({})).unwrap().enhance, None);
+    let old_count = calls.lock().unwrap().len();
+    let smaller = ExportOptions::from_json(&json!({"percent": 50, "enhance": "rescue"}));
+    export_photo(&mut s, id, &smaller, 1).unwrap();
+    assert_eq!(calls.lock().unwrap().len(), old_count);
+    let ctl = crate::enhance::JobCtl::new();
+    ctl.cancel();
+    let opts = ExportOptions::from_json(&json!({"percent": 200, "dontEnlarge": false, "enhance": "faithful"}));
+    let prepared = crate::export::prepare_export(&mut s, id, &opts, 1).unwrap();
+    assert_eq!(prepared.run_with_ctl(&ctl).err().unwrap(), crate::enhance::CANCELLED);
+}
+
 #[test]
 fn full_size_export_of_a_cropped_photo_is_not_upscaled() {
     let mut s = Session::with_demo();

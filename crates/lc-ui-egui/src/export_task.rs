@@ -11,7 +11,7 @@ use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 
 use egui::Align2;
-use lightcraft_engine::export::{Destination, ExportOptions, PreparedExport, run_batch};
+use lightcraft_engine::export::{Destination, ExportOptions, PreparedExport, run_batch_with_ctl};
 use serde_json::{Value, json};
 
 use crate::LightcraftApp;
@@ -22,6 +22,7 @@ pub struct ExportTask {
     /// Photos started so far and the file in progress.
     pub progress: Arc<Mutex<(usize, String)>>,
     pub cancel: Arc<AtomicBool>,
+    enhance_ctl: Arc<lightcraft_engine::enhance::JobCtl>,
     rx: Receiver<Result<Vec<Value>, String>>,
     /// What to do with the files once they are written (add to the library, show the folder…).
     after: crate::control::AfterExport,
@@ -50,23 +51,34 @@ pub fn start(
     let total = items.len();
     let progress = Arc::new(Mutex::new((0, String::new())));
     let cancel = Arc::new(AtomicBool::new(false));
+    let enhance_ctl = lightcraft_engine::enhance::JobCtl::new();
+    let worker_ctl = enhance_ctl.clone();
     let (tx, rx) = channel();
     let (p, c) = (progress.clone(), cancel.clone());
     let work = move || {
         let mut w = |path: &str, bytes: &[u8]| write(path, bytes);
-        let r = run_batch(items, &opts, &to, &mut w, &|path| std::path::Path::new(path).exists(), false, &mut |done, name| {
-            if let Ok(mut g) = p.lock() {
-                *g = (done, name.to_string());
-            }
-            !c.load(Ordering::Relaxed)
-        });
+        let r = run_batch_with_ctl(
+            items,
+            &opts,
+            &to,
+            &mut w,
+            &|path| std::path::Path::new(path).exists(),
+            false,
+            &mut |done, name| {
+                if let Ok(mut g) = p.lock() {
+                    *g = (done, name.to_string());
+                }
+                !c.load(Ordering::Relaxed)
+            },
+            &worker_ctl,
+        );
         let _ = tx.send(r);
     };
     #[cfg(not(target_arch = "wasm32"))]
     std::thread::Builder::new().name("export".into()).spawn(work).map_err(|e| e.to_string())?;
     #[cfg(target_arch = "wasm32")]
     work();
-    app.export = Some(ExportTask { total, progress, cancel, rx, after });
+    app.export = Some(ExportTask { total, progress, cancel, enhance_ctl, rx, after });
     Ok(json!({"background": true, "total": total}))
 }
 
@@ -107,7 +119,7 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
         }
         Err(std::sync::mpsc::TryRecvError::Empty) => {
             let (done, current) = task.progress.lock().map(|g| g.clone()).unwrap_or_default();
-            let (total, cancel) = (task.total, task.cancel.clone());
+            let (total, cancel, enhance_ctl) = (task.total, task.cancel.clone(), task.enhance_ctl.clone());
             let t = Tokens::get(ctx);
             egui::Window::new(crate::i18n::tr("Exporting"))
                 .title_bar(false)
@@ -124,6 +136,7 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
                             let stopping = cancel.load(Ordering::Relaxed);
                             if crate::widgets::text_button(ui, "exportCancel", if stopping { "Stopping…" } else { "Cancel" }, false).clicked() {
                                 cancel.store(true, Ordering::Relaxed);
+                                enhance_ctl.cancel();
                             }
                         });
                     });

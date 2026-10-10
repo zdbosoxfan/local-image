@@ -280,6 +280,19 @@ pub fn display_time(iso: &str) -> String {
     }
 }
 
+/// Owner paused translations, 2026-10-10: new Enhance export strings remain English.
+pub const PENDING_ENHANCE_TRANSLATIONS: &[&str] = &[
+    "Enlarges clean photos while preserving their detail.",
+    "Enlarges photos and cleans noise, JPEG artefacts and mild blur.",
+    "Adds detail with SeedVR2. The result may change textures.",
+    "AI Enhancement:",
+    "Standard resize",
+    "Faithful",
+    "Rescue",
+    "Generative (SeedVR2)",
+    "AI enlargement uses local models. Download them in Settings › Local AI. Up to 4×; model input is sRGB 8-bit.",
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;

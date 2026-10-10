@@ -10,6 +10,7 @@ pub mod cloud;
 pub mod comfy;
 pub mod custom;
 pub mod download;
+pub mod enhance;
 pub mod family;
 pub mod imaging;
 pub mod inpaint;

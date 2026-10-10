@@ -43,6 +43,8 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("ernie", include_str!("../families/ernie.json")),
     ("hidream", include_str!("../families/hidream.json")),
     ("seedvr2", include_str!("../families/seedvr2.json")),
+    ("realplksr", include_str!("../families/realplksr.json")),
+    ("bsrgan", include_str!("../families/bsrgan.json")),
 ];
 
 /// Where newer profiles are published (this repository's `crates/li-ai/families/`).
@@ -123,6 +125,8 @@ pub enum SamplerStyle {
     Flux2Custom,
     /// The SeedVR2 upscaler graph.
     SeedVr2,
+    /// ComfyUI core ImageUpscaleWithModel (no diffusion sampler).
+    UpscaleModel,
 }
 
 /// How reference images condition a generation.
@@ -565,8 +569,9 @@ pub fn validate(f: &Family) -> Result<()> {
                 if file.bytes == 0 {
                     bail!("{}: {} has no size", m.key, file.name);
                 }
-                if !(file.name.ends_with(".safetensors") || file.name.ends_with(".gguf")) {
-                    bail!("{}: {} is not a .safetensors or .gguf file", m.key, file.name);
+                let core_upscaler = f.kind == FamilyKind::Upscaler && f.pipeline.sampler == SamplerStyle::UpscaleModel && file.role == Role::Upscaler;
+                if !(file.name.ends_with(".safetensors") || file.name.ends_with(".gguf") || (core_upscaler && file.name.ends_with(".pth"))) {
+                    bail!("{}: {} is not a supported weights file", m.key, file.name);
                 }
             }
         }

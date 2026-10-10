@@ -359,6 +359,7 @@ fn li_seg_entries(root: &Path) -> Result<Vec<Entry>> {
                 "ImageText" => "Smart Sort: sorting photos into folders by what they show.",
                 "FaceDetect" | "FaceEmbed" => "Smart Sort: finding faces and recognising people (opt-in).",
                 "Denoise" => "AI Denoise in Develop.",
+                "Upscale" => "Faithful and Rescue enlargement in Compositing, Generate and Library/Develop export.",
                 _ => "Masks and image analysis.",
             };
             let needle = author.as_deref().and_then(|a| a.split([',', ';']).next()).unwrap_or("").trim().to_string();
@@ -367,7 +368,14 @@ fn li_seg_entries(root: &Path) -> Result<Vec<Entry>> {
                 author,
                 used_for: Some(used_for.into()),
                 licence,
-                licence_files: notices_mentioning(root, &needle),
+                licence_files: if task == "Upscale" {
+                    vec![
+                        "licenses/ai-enhance-NOTICE.md".into(),
+                        if label.contains("BSRGAN") { "licenses/bsrgan-Apache-2.0.txt".into() } else { "licenses/realplksr-MIT.txt".into() },
+                    ]
+                } else {
+                    notices_mentioning(root, &needle)
+                },
                 url: Some(project_page(&url)),
                 ..Default::default()
             });
@@ -446,7 +454,11 @@ fn family_entries(root: &Path) -> Result<Vec<Entry>> {
             used_for: s("description"),
             upstream: (!models.is_empty()).then(|| models.join(", ")),
             licence: licence.to_string(),
-            licence_files: vec![],
+            licence_files: match v.get("id").and_then(|id| id.as_str()) {
+                Some("realplksr") => vec!["licenses/ai-enhance-NOTICE.md".into(), "licenses/realplksr-MIT.txt".into()],
+                Some("bsrgan") => vec!["licenses/ai-enhance-NOTICE.md".into(), "licenses/bsrgan-Apache-2.0.txt".into()],
+                _ => vec![],
+            },
             url: s("license_url"),
             ..Default::default()
         });

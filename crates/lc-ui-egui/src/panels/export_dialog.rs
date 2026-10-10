@@ -759,6 +759,34 @@ fn sizing(ui: &mut Ui, dlg: &mut Dialog) {
     });
     if fit {
         size_values(ui, resize);
+        if !resize.dont_enlarge {
+            use lightcraft_engine::export::EnhanceMethod;
+            row(ui, "AI Enhancement:", |ui| {
+                combo(
+                    ui,
+                    "exportEnhanceMethod",
+                    220.0,
+                    &[
+                        (None, "Standard resize"),
+                        (Some(EnhanceMethod::Faithful), "Faithful"),
+                        (Some(EnhanceMethod::Rescue), "Rescue"),
+                        (Some(EnhanceMethod::Generative), "Generative (SeedVR2)"),
+                    ],
+                    &mut opts.enhance,
+                );
+            });
+            if opts.enhance.is_some() {
+                dim(
+                    ui,
+                    match opts.enhance {
+                        Some(EnhanceMethod::Faithful) => "Enlarges clean photos while preserving their detail.",
+                        Some(EnhanceMethod::Rescue) => "Enlarges photos and cleans noise, JPEG artefacts and mild blur.",
+                        _ => "Adds detail with SeedVR2. The result may change textures.",
+                    },
+                );
+                dim(ui, "AI enlargement uses local models. Download them in Settings › Local AI. Up to 4×; model input is sRGB 8-bit.");
+            }
+        }
     }
     row(ui, "Resolution:", |ui| {
         let r = ui.add(egui::DragValue::new(&mut opts.ppi).range(1..=1200));

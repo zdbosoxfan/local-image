@@ -304,6 +304,7 @@ pub fn object_info_with(model_dir: Option<&std::path::Path>) -> Value {
             ("text_encoders", Role::Clip),
             ("clip", Role::Clip),
             ("vae", Role::Vae),
+            ("upscale_models", Role::Upscaler),
         ] {
             for f in files_in(&dir.join(folder)) {
                 add(role, &f);
@@ -342,6 +343,7 @@ pub fn object_info_with(model_dir: Option<&std::path::Path>) -> Value {
     for n in nodes {
         info.insert(n, json!({ "input": { "required": {} } }));
     }
+    info.insert("UpscaleModelLoader".into(), json!({"input": {"required": {"model_name": combo(files.remove(&Role::Upscaler).unwrap_or_default())}}}));
     let clips = files.remove(&Role::Clip).unwrap_or_default();
     info.insert("UNETLoader".into(), json!({ "input": { "required": { "unet_name": combo(files.remove(&Role::Unet).unwrap_or_default()) } } }));
     info.insert(
@@ -604,6 +606,14 @@ fn render(graph: &Value, uploads: &HashMap<String, Vec<u8>>) -> Vec<u8> {
             Rgba([p[0], p[1], p[2], if d > 60 { 255 } else { 0 }])
         });
         return png(&out);
+    }
+    // Core restoration uses a model's native scale, without a prompt or diffusion sampler.
+    if input_of(graph, "ImageUpscaleWithModel").is_some()
+        && let Some(src) = uploaded(graph, uploads, 0)
+    {
+        let name = input_of(graph, "UpscaleModelLoader").and_then(|i| i["model_name"].as_str()).unwrap_or("");
+        let scale = if name.contains("2x") || name.contains("x2") { 2 } else { 4 };
+        return png(&image::imageops::resize(&src, src.width() * scale, src.height() * scale, image::imageops::FilterType::Nearest));
     }
     // Instruction edits and upscales: return the (first) input, tinted slightly.
     if (input_of(graph, "SeedVR2Preprocess").is_some() || input_of(graph, "TextEncodeQwenImage21").is_some_and(|i| i["resolution"] == json!(0)))

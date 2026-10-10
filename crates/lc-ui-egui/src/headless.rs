@@ -709,6 +709,36 @@ mod tests {
     }
 
     #[test]
+    fn enhance_export_size_clicks_restore_methods_and_persists() {
+        let mut h = demo([1300.0, 1100.0]);
+        h.request("engine.execute", json!({"command": "dialog.export"}), Duration::from_secs(10));
+        h.settle(SETTLE);
+        for section in ["location", "naming", "file"] {
+            export_click(&mut h, &format!("exportSection:{section}"));
+        }
+        if matches!(h.app.ui.dialog, Some(crate::state::Dialog::Export { full_size: true, .. })) {
+            export_click(&mut h, "check:exportResize");
+        }
+        if matches!(&h.app.ui.dialog, Some(crate::state::Dialog::Export { resize, .. }) if resize.dont_enlarge) {
+            export_click(&mut h, "check:exportDontEnlarge");
+        }
+        export_click(&mut h, "combo:exportResizeMode");
+        export_click(&mut h, "option:exportResizeMode:5");
+        export_type(&mut h, "field:exportSizePercent", "200");
+        for (i, expected) in [(1, "faithful"), (2, "rescue"), (3, "generative")] {
+            export_click(&mut h, "combo:exportEnhanceMethod");
+            export_click(&mut h, &format!("option:exportEnhanceMethod:{i}"));
+            let params = crate::panels::export_dialog::export_dialog_params(h.app.ui.dialog.as_ref().unwrap());
+            assert_eq!(params["enhance"], expected);
+            assert_eq!(params["resize"]["value"].as_f64(), Some(200.0));
+        }
+        export_click(&mut h, "combo:exportEnhanceMethod");
+        export_click(&mut h, "option:exportEnhanceMethod:0");
+        let params = crate::panels::export_dialog::export_dialog_params(h.app.ui.dialog.as_ref().unwrap());
+        assert!(params["enhance"].is_null());
+    }
+
+    #[test]
     fn export_presets_sections_and_live_filename_are_interactive() {
         let mut h = demo([1400.0, 1100.0]);
         let t = Duration::from_secs(10);

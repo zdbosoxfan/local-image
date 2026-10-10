@@ -221,7 +221,7 @@ pub static CATALOG: &[(&[&str], &str, Option<&str>, &str)] = &[
     (&["Image"], "---", None, "---"),
     (&["Image"], "Image Size…", Some("Cmd+Alt+I"), "image.imageSize"),
     (&["Image"], "Canvas Size…", Some("Cmd+Alt+C"), "image.canvasSize"),
-    (&["Image"], "AI Enhance (SeedVR2)…", None, "li.enhance"),
+    (&["Image"], "AI Enhance…", None, "li.enhance"),
     (&["Image", "Image Rotation"], "180°", None, "image.imageRotation.180"),
     (&["Image", "Image Rotation"], "90° Clockwise", None, "image.imageRotation.90cw"),
     (&["Image", "Image Rotation"], "90° Counter Clockwise", None, "image.imageRotation.90ccw"),

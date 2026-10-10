@@ -890,11 +890,66 @@
           "url": "https://huggingface.co/opencv/face_recognition_sface"
         },
         {
+          "name": "Faithful · RealPLKSR 2×",
+          "author": "RealPLKSR, Dongheon Lee et al.; darktable ONNX export",
+          "used_for": "Faithful and Rescue enlargement in Compositing, Generate and Library/Develop export.",
+          "licence": "MIT",
+          "licence_files": [
+            "licenses/ai-enhance-NOTICE.md",
+            "licenses/realplksr-MIT.txt"
+          ],
+          "url": "https://huggingface.co/darktable-org/upscale-realplksr-onnx"
+        },
+        {
+          "name": "Faithful · RealPLKSR 4×",
+          "author": "RealPLKSR, Dongheon Lee et al.; darktable ONNX export",
+          "used_for": "Faithful and Rescue enlargement in Compositing, Generate and Library/Develop export.",
+          "licence": "MIT",
+          "licence_files": [
+            "licenses/ai-enhance-NOTICE.md",
+            "licenses/realplksr-MIT.txt"
+          ],
+          "url": "https://huggingface.co/darktable-org/upscale-realplksr-onnx"
+        },
+        {
+          "name": "Rescue · BSRGAN 2×",
+          "author": "BSRGAN, Kai Zhang et al.; darktable ONNX export",
+          "used_for": "Faithful and Rescue enlargement in Compositing, Generate and Library/Develop export.",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/ai-enhance-NOTICE.md",
+            "licenses/bsrgan-Apache-2.0.txt"
+          ],
+          "url": "https://github.com/darktable-org/darktable-ai"
+        },
+        {
+          "name": "Rescue · BSRGAN 4×",
+          "author": "BSRGAN, Kai Zhang et al.; darktable ONNX export",
+          "used_for": "Faithful and Rescue enlargement in Compositing, Generate and Library/Develop export.",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/ai-enhance-NOTICE.md",
+            "licenses/bsrgan-Apache-2.0.txt"
+          ],
+          "url": "https://github.com/darktable-org/darktable-ai"
+        },
+        {
           "name": "SAM 3 (Segment Anything 3)",
           "author": "Meta AI (facebook/sam3)",
           "used_for": "Object masks in Develop: click an object to select it.",
           "licence": "SAM License (Meta)",
           "url": "https://github.com/facebookresearch/sam3"
+        },
+        {
+          "name": "Rescue · BSRGAN",
+          "used_for": "Rescue · BSRGAN local restoration on the GPU through ComfyUI core nodes.",
+          "upstream": "Rescue · BSRGAN 2×, Rescue · BSRGAN 4×",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/ai-enhance-NOTICE.md",
+            "licenses/bsrgan-Apache-2.0.txt"
+          ],
+          "url": "https://github.com/cszn/BSRGAN"
         },
         {
           "name": "ERNIE-Image",
@@ -952,6 +1007,17 @@
           "used_for": "Alibaba's Qwen Image (20B MMDiT): excellent text rendering and prompt following.",
           "licence": "Apache 2.0",
           "url": "https://huggingface.co/Qwen/Qwen-Image"
+        },
+        {
+          "name": "Faithful · RealPLKSR",
+          "used_for": "Faithful · RealPLKSR local restoration on the GPU through ComfyUI core nodes.",
+          "upstream": "Faithful · RealPLKSR 2×, Faithful · RealPLKSR 4×",
+          "licence": "MIT",
+          "licence_files": [
+            "licenses/ai-enhance-NOTICE.md",
+            "licenses/realplksr-MIT.txt"
+          ],
+          "url": "https://github.com/dslisleedh/PLKSR"
         },
         {
           "name": "Stable Diffusion 1.5",

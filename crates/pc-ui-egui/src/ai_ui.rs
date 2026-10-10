@@ -13,6 +13,8 @@
 //!
 //! The engine commands are in `photocraft_engine::ai_cmds`; the ComfyUI client in `li-ai`.
 
+mod enhance_settings;
+
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -55,6 +57,8 @@ pub struct AiOptions {
     /// The Generate panel.
     pub generate: crate::generate_ui::GenerateState,
     pub draft_refine: crate::generate_ui::DraftRefineSettings,
+    pub enhance_method: li_ai::enhance::Method,
+    pub enhance_backend: li_ai::enhance::Backend,
 }
 
 impl Default for AiOptions {
@@ -72,6 +76,8 @@ impl Default for AiOptions {
             fill_prompt: String::new(),
             generate: Default::default(),
             draft_refine: Default::default(),
+            enhance_method: Default::default(),
+            enhance_backend: Default::default(),
         }
     }
 }
@@ -488,6 +494,9 @@ fn start_custom(dir: std::path::PathBuf, group: li_seg::Group, src: std::path::P
 fn seg_rows(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>, dir: &std::path::Path) {
     for group in li_seg::Group::ALL {
         function_row(ui, t, dls, dir, group);
+    }
+    for method in li_ai::enhance::Method::ALL {
+        enhance_settings::row(ui, t, dls, dir, method);
     }
     let old = li_seg::legacy_installed(dir);
     if !old.is_empty() {
@@ -1224,6 +1233,73 @@ fn prompt_dialog(app: &mut PhotocraftApp, ctx: &egui::Context, title: &str, hint
     }
 }
 
+pub(crate) fn enhance_controls(ui: &mut egui::Ui, method: &mut li_ai::enhance::Method, backend: &mut li_ai::enhance::Backend, scale: &mut f32) {
+    use li_ai::enhance::{Backend, Method};
+    ui.horizontal(|ui| {
+        for m in Method::ALL {
+            ui.selectable_value(method, m, tl!(m.label()));
+        }
+    });
+    ui.label(tl!(method.about()));
+    ui.horizontal(|ui| {
+        ui.label(tl!("Scale"));
+        ui.selectable_value(scale, 2.0, "2×");
+        ui.selectable_value(scale, 4.0, "4×");
+    });
+    if !matches!(*scale, 2.0 | 4.0) {
+        *scale = 2.0;
+    }
+    if *method == Method::Generative {
+        *backend = Backend::Auto;
+    } else {
+        ui.horizontal(|ui| {
+            for (b, label) in [(Backend::Auto, tl!("Auto")), (Backend::Cpu, "CPU"), (Backend::Gpu, "GPU")] {
+                ui.selectable_value(backend, b, label);
+            }
+        });
+        let Some(spec) = enhance_settings::selected_spec(&photocraft_engine::seg::models_dir(), *method) else { return };
+        if li_seg::installed_bytes(&photocraft_engine::seg::models_dir(), spec).is_none()
+            && widgets::secondary_button(ui, tl!("Download CPU model"), 0.0).clicked()
+        {
+            start_seg_download(spec);
+        }
+        if status().ready(ModelId::intern(spec.id), "default").is_err() && widgets::secondary_button(ui, tl!("Download GPU model"), 0.0).clicked() {
+            start_download(&format!("{}:default", spec.id));
+        }
+    }
+}
+
+pub(crate) fn enhance_ready(method: li_ai::enhance::Method, backend: li_ai::enhance::Backend, _scale: u32) -> Result<(), String> {
+    use li_ai::enhance::{Backend, Method};
+    if method == Method::Generative {
+        let choice = li_ai::enhance::selection::load(&photocraft_engine::seg::models_dir(), method);
+        if choice != li_ai::enhance::selection::default_choice(method) {
+            return if status().connected { Ok(()) } else { Err(tl!("Start ComfyUI to use the custom SeedVR2 models.").into()) };
+        }
+        return status().ready(ModelId::SeedVr2, "fp16");
+    }
+    let dir = photocraft_engine::seg::models_dir();
+    let choice = li_ai::enhance::selection::load(&dir, method);
+    let Some(spec) = enhance_settings::selected_spec(&dir, method) else {
+        if backend == Backend::Gpu {
+            return Err(tl!("Custom ONNX restoration models run on the CPU.").into());
+        }
+        return li_ai::enhance::selection::custom_path(&dir, &choice)
+            .ok()
+            .filter(|p| p.is_file())
+            .map(|_| ())
+            .ok_or_else(|| tl!("Choose the custom model again in Settings › Local AI.").into());
+    };
+    let cpu = li_seg::installed_bytes(&dir, spec).is_some();
+    if backend != Backend::Gpu && cpu {
+        return Ok(());
+    }
+    if backend != Backend::Cpu {
+        return status().ready(ModelId::intern(spec.id), "default");
+    }
+    Err(tl!("Download the CPU model first.").to_owned())
+}
+
 fn enhance_dialog(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let mut open = true;
     let mut close = false;
@@ -1236,22 +1312,23 @@ fn enhance_dialog(app: &mut PhotocraftApp, ctx: &egui::Context) {
         .anchor(egui::Align2::CENTER_CENTER, vec2(0.0, -80.0))
         .show(ctx, |ui| {
             ui.set_width(360.0);
-            ui.label(tl!("Enhances detail and enlarges the image with SeedVR2. The result opens as a new document."));
+            ui.label(tl!("Enlarges the image. The result opens as a new document."));
             ui.add_space(8.0);
             let mut scale = dialogs_mut(|d| d.enhance_scale);
-            widgets::slider_row(ui, tl!("Scale"), &mut scale, 1.25..=4.0, "×", None);
+            enhance_controls(ui, &mut app.ui.ai.enhance_method, &mut app.ui.ai.enhance_backend, &mut scale);
             dialogs_mut(|d| d.enhance_scale = scale);
             if let Some((w, h)) = size {
-                let (nw, nh) = (((w as f32 * scale) as u32) & !1, ((h as f32 * scale) as u32) & !1);
+                let (nw, nh) = ((w as f32 * scale) as u32, (h as f32 * scale) as u32);
                 ui.label(RichText::new(format!("{w} × {h}  →  {nw} × {nh} px")).color(Tokens::get(ctx).text_dim));
             }
-            if let Err(why) = status().ready(ModelId::SeedVr2, "fp16") {
+            let ready = enhance_ready(app.ui.ai.enhance_method, app.ui.ai.enhance_backend, scale as u32);
+            if let Err(why) = &ready {
                 ui.label(RichText::new(why).color(Tokens::get(ctx).warning));
             }
             ui.add_space(8.0);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if widgets::primary_button(ui, tl!("Enhance"), 96.0).clicked() {
-                    let r = app.run("ai.enhance", json!({ "scale": scale }));
+                if ui.add_enabled_ui(ready.is_ok(), |ui| widgets::primary_button(ui, tl!("Enhance"), 96.0)).inner.clicked() {
+                    let r = app.run("ai.enhance", json!({ "scale": scale, "method": app.ui.ai.enhance_method, "backend": app.ui.ai.enhance_backend }));
                     report(app, r);
                     close = true;
                 }
@@ -1662,6 +1739,45 @@ mod tests {
     use super::*;
     use egui_kittest::kittest::{NodeT, Queryable};
 
+    #[test]
+    fn enhance_dialog_clicks_method_scale_and_backend() {
+        let _lock = AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut session = photocraft_engine::Session::new();
+        session.execute("file.new", json!({"width": 31, "height": 19})).unwrap();
+        let app = PhotocraftApp::new(session, crate::Services::default());
+        let mut initialized = false;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(900.0, 700.0)).build_ui_state(
+            move |ui, app: &mut PhotocraftApp| {
+                if !initialized {
+                    PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Studio);
+                    initialized = true;
+                    ui.ctx().request_repaint();
+                    return;
+                }
+                enhance_dialog(app, ui.ctx());
+            },
+            app,
+        );
+        h.run_steps(3);
+        h.get_by_label("Faithful").click();
+        h.run_steps(2);
+        assert_eq!(h.state().ui.ai.enhance_method, li_ai::enhance::Method::Faithful);
+        h.get_by_label("CPU").click();
+        h.run_steps(2);
+        assert_eq!(h.state().ui.ai.enhance_backend, li_ai::enhance::Backend::Cpu);
+        h.get_by_label("4×").click();
+        h.run_steps(2);
+        assert_eq!(dialogs_mut(|d| d.enhance_scale), 4.0);
+        h.get_by_label("Rescue").click();
+        h.run_steps(2);
+        assert_eq!(h.state().ui.ai.enhance_method, li_ai::enhance::Method::Rescue);
+        h.get_by_label("Generative (SeedVR2)").click();
+        h.run_steps(2);
+        assert_eq!(h.state().ui.ai.enhance_method, li_ai::enhance::Method::Generative);
+        assert_eq!(serde_json::from_value::<AiOptions>(json!({})).unwrap().enhance_method, li_ai::enhance::Method::Generative);
+        dialogs_mut(|d| d.enhance_scale = 2.0);
+    }
+
     /// Quitting stops the ComfyUI Local Image started (the backlog item: it kept running after
     /// the app closed, holding 29-46 GB of RAM).
     #[cfg(unix)]
@@ -1690,7 +1806,7 @@ mod tests {
     /// Echoes its RGB input: not a single map (so not a subject model), but 3 class channels.
     const ECHO_32: &[u8] = include_bytes!("test_fixtures/echo_32.onnx");
 
-    fn temp_dir(tag: &str) -> std::path::PathBuf {
+    pub(super) fn temp_dir(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("li-seg-ui-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("segmentation")).unwrap();
@@ -1712,7 +1828,7 @@ mod tests {
     /// A harness drawing the on-device model rows (all of them, or one function's) for `dir`.
     fn seg_harness(dir: &std::path::Path, only: Option<li_seg::Group>) -> egui_kittest::Harness<'static> {
         let dir = dir.to_path_buf();
-        let mut h = egui_kittest::Harness::builder().with_size(vec2(760.0, 1100.0)).build_ui(move |ui| {
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(760.0, 1800.0)).build_ui(move |ui| {
             // fonts set on the context only apply from the next frame
             if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("semibold".into()))) {
                 return;
@@ -1758,6 +1874,9 @@ mod tests {
         }
         assert_eq!(h.get_all_by_label("Custom model…").count(), 3);
         assert_eq!(h.get_all_by_label("Download").count(), 5);
+        for title in ["Upscale Faithful", "Upscale Rescue", "Generative"] {
+            h.get_by_label(title);
+        }
         assert!(h.query_by_label_contains("Remove old models").is_none());
         assert!(h.query_by_label_contains("Finds the main subject").is_some());
         assert!(h.query_by_label_contains("Finds the sky.").is_some());

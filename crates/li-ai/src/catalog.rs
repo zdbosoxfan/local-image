@@ -507,8 +507,14 @@ mod tests {
             for f in &p.files {
                 assert_eq!(f.sha256.len(), 64);
                 assert!(f.sha256.bytes().all(|b| b.is_ascii_hexdigit()));
-                assert!(f.url.starts_with("https://huggingface.co/"));
-                assert!(f.url.ends_with(".safetensors"));
+                let family = &p.model.info().resolved;
+                let core_upscaler =
+                    family.kind == FamilyKind::Upscaler && family.pipeline.sampler == crate::family::SamplerStyle::UpscaleModel && f.role == Role::Upscaler;
+                assert!(
+                    f.url.starts_with("https://huggingface.co/")
+                        || (core_upscaler && f.url.starts_with("https://github.com/cszn/KAIR/releases/download/v1.0/"))
+                );
+                assert!(f.url.ends_with(".safetensors") || (core_upscaler && f.url.ends_with(".pth")));
             }
         }
         assert_eq!(ModelId::Qwen.info().label, "Qwen Image 2.1");

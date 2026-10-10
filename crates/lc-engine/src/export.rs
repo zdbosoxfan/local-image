@@ -164,6 +164,24 @@ pub fn builtin_presets() -> Vec<ExportPreset> {
     ]
 }
 
+/// Restoration method for export enlargement. Absent in old settings: ordinary resizing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EnhanceMethod {
+    Faithful,
+    Rescue,
+    Generative,
+}
+impl EnhanceMethod {
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Faithful => "faithful",
+            Self::Rescue => "rescue",
+            Self::Generative => "generative",
+        }
+    }
+}
+
 /// Output sharpening target (applied after resizing, in display-encoded values).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -506,6 +524,8 @@ pub struct ExportOptions {
     pub quality: u8,
     /// Output size (`None` = full size).
     pub resize: Option<Resize>,
+    /// AI method used only when resizing enlarges the developed image (sRGB model input).
+    pub enhance: Option<EnhanceMethod>,
     /// Print resolution written into the file (pixels per inch).
     pub ppi: u16,
     /// JPEG only: largest quality whose file fits in this many KB.
@@ -572,6 +592,7 @@ impl Default for ExportOptions {
             format: ExportFormat::Jpeg,
             quality: 90,
             resize: None,
+            enhance: None,
             ppi: 240,
             limit_kb: None,
             sharpen: SharpenFor::None,
@@ -614,6 +635,7 @@ impl ExportOptions {
             format: s("format").and_then(ExportFormat::parse).unwrap_or(d.format),
             quality: u("quality").map_or(d.quality, |q| q.clamp(1, 100) as u8),
             resize: Self::resize_from_json(p),
+            enhance: enm(p, "enhance"),
             ppi: u("ppi").filter(|v| *v > 0).map_or(d.ppi, |v| v.min(u16::MAX as u64) as u16),
             limit_kb: u("limitKb").filter(|v| *v > 0).map(|v| v.min(u32::MAX as u64) as u32),
             sharpen: enm(p, "sharpen").unwrap_or(d.sharpen),
@@ -1124,6 +1146,7 @@ pub struct PreparedExport {
 
 struct RenderWork {
     job: crate::media::RenderJob,
+    upscale: Option<(std::sync::Arc<dyn crate::enhance::AiHost>, (usize, usize))>,
     meta: Option<Metadata>,
     opts: ExportOptions,
 }
@@ -1191,8 +1214,19 @@ pub(crate) fn prepare_guarded(
         }
         let (space, depth) =
             if o.source_encoding.is_some() { (OutputSpace::Rec2020, OutputDepth::F32Linear) } else { (o.effective_space(), o.effective_depth()) };
-        let job = session.export_job(id, w, h, space, depth)?;
-        Work::Render(Box::new(RenderWork { job, meta, opts: o.clone() }))
+        let (nw, nh) = lightcraft_pipeline::native_output_size(p.width.max(1) as usize, p.height.max(1) as usize, &p.develop);
+        let native = (nw.round().max(1.0) as usize, nh.round().max(1.0) as usize);
+        let upscale = if o.enhance.is_some() && w > native.0 && h > native.1 {
+            Some((session.enhance.host.clone().ok_or("AI enlargement is not available in this host")?, (w, h)))
+        } else {
+            None
+        };
+        let job = if upscale.is_some() {
+            session.export_job(id, native.0, native.1, OutputSpace::Srgb, OutputDepth::U8)?
+        } else {
+            session.export_job(id, w, h, space, depth)?
+        };
+        Work::Render(Box::new(RenderWork { job, upscale, meta, opts: o.clone() }))
     } else {
         let lightcraft_catalog::Source::File { path } = &p.source else {
             return Err(format!("{} is a generated demo photo: it has no original file to export", p.file_name));
@@ -1217,11 +1251,36 @@ pub(crate) fn prepare_guarded(
 
 impl PreparedExport {
     pub fn run(self) -> Result<Exported, String> {
+        self.run_with_ctl(&crate::enhance::JobCtl::new())
+    }
+
+    pub fn run_with_ctl(self, ctl: &crate::enhance::JobCtl) -> Result<Exported, String> {
+        if ctl.cancelled() {
+            return Err(crate::enhance::CANCELLED.to_owned());
+        }
         let file_name = self.file_name;
         match self.work {
             Work::Render(w) => {
-                let RenderWork { job, meta, opts } = *w;
-                let r = job.run().rendered?;
+                let RenderWork { job, upscale, meta, opts } = *w;
+                let mut r = job.run().rendered?;
+                if let Some((host, target)) = upscale {
+                    let request = crate::enhance::UpscaleRequest {
+                        width: r.image.width,
+                        height: r.image.height,
+                        rgba: r.image.data.clone(),
+                        target,
+                        method: opts.enhance.ok_or("missing enhancement method")?.key().into(),
+                    };
+                    let pixels = host.upscale(&request, ctl)?;
+                    if pixels.len() != target.0 * target.1 {
+                        return Err("AI enlargement returned an unexpected size".into());
+                    }
+                    r.image = Rgba8 { width: target.0, height: target.1, data: pixels };
+                    r.deep = enhanced_samples(&mut r.image, &opts);
+                }
+                if ctl.cancelled() {
+                    return Err(crate::enhance::CANCELLED.to_owned());
+                }
                 let bytes = encode_rendered(&r, &opts, meta.as_ref())?;
                 Ok(Exported { file_name, bytes, width: r.image.width, height: r.image.height, sidecars: Vec::new() })
             }
@@ -1339,6 +1398,34 @@ fn write_with(path: &str, bytes: &[u8], durable: bool) -> Result<(), String> {
     if durable { write_atomic(p, bytes) } else { write_atomic_nosync(p, bytes) }.map_err(|e| format!("{path}: {e}"))
 }
 
+/// The model emits sRGB8; preserve the requested output primaries, curve and container depth.
+/// Restoration has 8-bit source precision even in 16/32-bit exports.
+fn enhanced_samples(image: &mut Rgba8, opts: &ExportOptions) -> Option<DeepImage> {
+    let (space, depth) = if opts.source_encoding.is_some() {
+        (OutputSpace::Rec2020, OutputDepth::F32Linear)
+    } else {
+        (opts.effective_space(), opts.effective_depth())
+    };
+    let matrix = lightcraft_color::SRGB.to_space(&space.rgb_space());
+    let trc = space.trc();
+    let mut values = Vec::with_capacity(image.data.len() * 3);
+    let linear = depth == OutputDepth::F32Linear;
+    for pixel in &mut image.data {
+        let rgb = matrix.apply([pixel[0], pixel[1], pixel[2]].map(|v| lightcraft_color::transfer::decode_srgb8(v) as f64));
+        for c in 0..3 {
+            let encoded = trc.encode(rgb[c] as f32).clamp(0.0, 1.0);
+            values.push(if linear { rgb[c] as f32 } else { encoded });
+            pixel[c] = (encoded * 255.0).round() as u8;
+        }
+    }
+    let samples = match depth {
+        OutputDepth::U8 => return None,
+        OutputDepth::U16 => DeepSamples::U16(values.into_iter().map(|v| (v * 65535.0).round() as u16).collect()),
+        OutputDepth::F32Linear => DeepSamples::F32(values),
+    };
+    Some(DeepImage { width: image.width, height: image.height, space, samples })
+}
+
 /// The path of the sidecar with extension `ext` of the exported file `main`.
 fn sidecar_path(main: &str, ext: &str) -> String {
     std::path::Path::new(main).with_extension(ext).to_string_lossy().to_string()
@@ -1360,6 +1447,20 @@ pub fn run_batch(
     stop_on_error: bool,
     progress: &mut dyn FnMut(usize, &str) -> bool,
 ) -> Result<Vec<serde_json::Value>, String> {
+    run_batch_with_ctl(items, o, to, write, exists, stop_on_error, progress, &crate::enhance::JobCtl::new())
+}
+
+/// The background export uses this control for cancellation within a restoration tile/job.
+pub fn run_batch_with_ctl(
+    items: Vec<PreparedExport>,
+    o: &ExportOptions,
+    to: &Destination,
+    write: &mut dyn FnMut(&str, &[u8]) -> Result<(), String>,
+    exists: &dyn Fn(&str) -> bool,
+    stop_on_error: bool,
+    progress: &mut dyn FnMut(usize, &str) -> bool,
+    ctl: &crate::enhance::JobCtl,
+) -> Result<Vec<serde_json::Value>, String> {
     use serde_json::json;
     let join = |a: &str, b: &str| if a.is_empty() { b.to_string() } else { format!("{}/{b}", a.trim_end_matches('/')) };
     let in_sub = |d: &str| if o.subfolder.is_empty() { d.to_string() } else { join(d, &o.subfolder) };
@@ -1368,7 +1469,7 @@ pub fn run_batch(
     let mut taken = std::collections::HashSet::new();
     let mut out = Vec::new();
     for (i, item) in items.into_iter().enumerate() {
-        if !progress(i, &item.file_name) {
+        if ctl.cancelled() || !progress(i, &item.file_name) {
             break;
         }
         let (photo, name, guard) = (item.photo, item.file_name.clone(), item.guard.clone());
@@ -1390,7 +1491,7 @@ pub fn run_batch(
             let sub = crate::smart_sort::plan::sanitize(sub)?;
             dir = join(&dir, &sub);
         }
-        let e = match item.run() {
+        let e = match item.run_with_ctl(ctl) {
             Ok(e) => e,
             Err(err) if stop_on_error => return Err(err),
             Err(err) => {
@@ -1423,6 +1524,9 @@ pub fn run_batch(
                 }
             }
         };
+        if ctl.cancelled() {
+            break;
+        }
         let file = path.clone().unwrap_or_else(|_| name.clone());
         let written = path.and_then(|path| {
             let files = group(&path);
@@ -1649,6 +1753,24 @@ mod tests {
         assert_eq!(orig.file_name_for(&named("DSC_1.NEF"), 2), "DSC_1-002.NEF");
         assert_eq!(orig.file_name_for(&named("noext"), 1), "noext-001");
         assert_eq!(ExportOptions { format: ExportFormat::Dng, ..Default::default() }.file_name_for(&named("a.cr2"), 1), "a.dng");
+    }
+
+    #[test]
+    fn enhance_samples_keep_source_profile_float_encoding() {
+        let profile = icc::write_matrix_trc(&lightcraft_color::DISPLAY_P3, &lightcraft_codecs::Trc::Gamma(2.0));
+        let Some(icc::IccInfo { kind: icc::IccKind::MatrixTrc { to_xyz_d50, trc }, .. }) = icc::parse(&profile) else { panic!("matrix profile") };
+        let source = lightcraft_codecs::SourceSpace { named: None, to_xyz_d50, trc: Some(trc), origin: lightcraft_codecs::SpaceOrigin::IccMatrixTrc };
+        let options = ExportOptions { source_encoding: Some(Box::new(SourceEncoding { space: source, profile })), ..Default::default() };
+        let mut image = Rgba8::from_fn(1, 1, |_, _| [50, 120, 200, 255]);
+        let deep = enhanced_samples(&mut image, &options).unwrap();
+        assert_eq!(deep.space, OutputSpace::Rec2020);
+        let DeepSamples::F32(values) = deep.samples else { panic!("source encoding requires linear floats") };
+        let expected = lightcraft_color::SRGB
+            .to_space(&lightcraft_color::REC2020)
+            .apply([50, 120, 200].map(|v| lightcraft_color::transfer::decode_srgb8(v) as f64));
+        for (actual, expected) in values.iter().zip(expected) {
+            assert!((*actual as f64 - expected).abs() < 1e-6);
+        }
     }
 
     #[test]

@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "version": 1,
+  "id": "realplksr",
+  "kind": "upscaler",
+  "label": "Faithful \u00b7 RealPLKSR",
+  "group": "Upscalers",
+  "description": "Faithful \u00b7 RealPLKSR local restoration on the GPU through ComfyUI core nodes.",
+  "license": "MIT",
+  "license_url": "https://github.com/dslisleedh/PLKSR",
+  "pipeline": {
+    "loader": "checkpoint",
+    "vae": "file",
+    "encode": "clip_text",
+    "latent": "none",
+    "sampler": "upscale_model"
+  },
+  "capabilities": {
+    "create": false,
+    "edit": false,
+    "references": 1,
+    "upscale": true
+  },
+  "models": [
+    {
+      "key": "realplksr-2x",
+      "label": "Faithful \u00b7 RealPLKSR 2\u00d7",
+      "short": "Faithful \u00b7 RealPLKSR 2\u00d7",
+      "best_for": "Clean photos",
+      "tool": true,
+      "presets": [
+        {
+          "variant": "default",
+          "label": "2\u00d7 GPU",
+          "files": [
+            {
+              "role": "upscaler",
+              "folder": "upscale_models",
+              "name": "2x_realplksr_mssim_pretrain.pth",
+              "bytes": 29595266,
+              "sha256": "0214b82d20a2b7d524c9f70828c7a9b0113a3058ff3eb3cabe2b11783645c381",
+              "url": "https://huggingface.co/darktable-org/upscale-realplksr-onnx/resolve/0bb636eeeed5fffd256571c3cc440d9fdf62467e/checkpoints/2x_realplksr_mssim_pretrain.pth"
+            }
+          ],
+          "required_nodes": [
+            "UpscaleModelLoader",
+            "ImageUpscaleWithModel",
+            "LoadImage",
+            "SaveImage"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "realplksr-4x",
+      "label": "Faithful \u00b7 RealPLKSR 4\u00d7",
+      "short": "Faithful \u00b7 RealPLKSR 4\u00d7",
+      "best_for": "Clean photos",
+      "tool": true,
+      "presets": [
+        {
+          "variant": "default",
+          "label": "4\u00d7 GPU",
+          "files": [
+            {
+              "role": "upscaler",
+              "folder": "upscale_models",
+              "name": "4x_realplksr_mssim_pretrain.pth",
+              "bytes": 29678402,
+              "sha256": "37a1a6245ea29dc17655b1df64ba5090b0d5ed9d4b50525a722c53e378d552f1",
+              "url": "https://huggingface.co/darktable-org/upscale-realplksr-onnx/resolve/0bb636eeeed5fffd256571c3cc440d9fdf62467e/checkpoints/4x_realplksr_mssim_pretrain.pth"
+            }
+          ],
+          "required_nodes": [
+            "UpscaleModelLoader",
+            "ImageUpscaleWithModel",
+            "LoadImage",
+            "SaveImage"
+          ]
+        }
+      ]
+    }
+  ]
+}

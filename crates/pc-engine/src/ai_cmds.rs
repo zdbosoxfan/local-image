@@ -10,7 +10,7 @@
 //! | `ai.selectSubject` | the subject as the selection |
 //! | `ai.generativeFill` | the selection regenerated from a prompt, as a new layer |
 //! | `ai.generateBackground` | an empty background plate as a new layer below the active one |
-//! | `ai.enhance` | the flattened image enhanced and enlarged (SeedVR2) as a new document |
+//! | `ai.enhance` | the flattened image enhanced and enlarged (Faithful / Rescue / Generative) as a new document |
 //!
 //! This file is Local Image's addition to the vendored PhotoCraft engine (new file: never
 //! conflicts on upstream merges). Hook: `lib.rs` (`pub mod ai_cmds`) and `commands.rs`
@@ -570,6 +570,30 @@ fn generate_background(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn enhance(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "ai.enhance";
+    let method = p
+        .get("method")
+        .and_then(Value::as_str)
+        .map(|v| li_ai::enhance::Method::parse(v).ok_or_else(|| bad(CMD, "unknown enhancement method")))
+        .transpose()?
+        .unwrap_or_default();
+    let backend = p
+        .get("backend")
+        .cloned()
+        .map(serde_json::from_value::<li_ai::enhance::Backend>)
+        .transpose()
+        .map_err(|_| bad(CMD, "unknown enhancement backend"))?
+        .unwrap_or_default();
+    let models_dir = crate::seg::models_dir();
+    let choice = p.get("model").and_then(Value::as_str).map(|id| {
+        if id == "seedvr2" {
+            li_ai::enhance::selection::default_choice(li_ai::enhance::Method::Generative)
+        } else {
+            li_ai::enhance::selection::Choice::Curated { id: id.into() }
+        }
+    });
+    if let Some(choice) = &choice {
+        li_ai::enhance::selection::validate(method, choice).map_err(|e| bad(CMD, &e.to_string()))?;
+    }
     let doc = s.active().ok_or(EngineError::NoDocument)?.doc.clone();
     let (sw, sh) = (doc.size.width, doc.size.height);
     let (mut w, mut h) = match (p.get("width").and_then(Value::as_u64), p.get("height").and_then(Value::as_u64)) {
@@ -579,11 +603,11 @@ fn enhance(s: &mut Session, p: &Value) -> Result<Value> {
             ((sw as f64 * factor) as u32, (sh as f64 * factor) as u32)
         }
     };
-    w -= w % 2;
-    h -= h % 2;
-    if w <= sw || h <= sh || w > 8192 || h > 8192 {
-        return Err(bad(CMD, "choose a larger size, up to 8192 px per side"));
+    if method == li_ai::enhance::Method::Generative {
+        w -= w % 2;
+        h -= h % 2;
     }
+    li_ai::enhance::native_scale((sw, sh), (w, h)).map_err(|e| bad(CMD, &e.to_string()))?;
     let name = format!("{} (enhanced)", doc.name.trim_end_matches(".png").trim_end_matches(".jpg"));
     let seed = seed(p);
     crate::jobs::run(
@@ -598,7 +622,10 @@ fn enhance(s: &mut Session, p: &Value) -> Result<Value> {
                 let p = buf.px[(y * sw + x) as usize];
                 image::Rgba([q(p[0]), q(p[1]), q(p[2]), q(p[3])])
             });
-            let out = bridged(ctx, |ctl| li_ai::service().upscale(&img, w, h, seed, ctl))?;
+            let out = bridged(ctx, |ctl| match &choice {
+                Some(choice) => li_ai::service().enhance_with_choice(&img, w, h, method, backend, &models_dir, seed, ctl, choice),
+                None => li_ai::service().enhance(&img, w, h, method, backend, &models_dir, seed, ctl),
+            })?;
             Ok(out)
         },
         move |s, out| {
@@ -720,7 +747,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "AI Enhance",
             menu: &[],
             shortcut: None,
-            params: r#"{"scale"?: 1.1-4 | "width"+"height", "seed"?: int}"#,
+            params: r#"{"scale"?: 1.1-4 | "width"+"height", "method"?: "faithful"|"rescue"|"generative", "backend"?: "auto"|"cpu"|"gpu", "model"?: curated-upscaler-id, "seed"?: int}"#,
             enabled: has_doc,
             run: enhance,
             journal: true,
@@ -864,6 +891,14 @@ mod tests {
         let before = s.documents().len();
         s.execute("ai.enhance", json!({"scale": 2.0})).expect("enhance");
         assert_eq!(s.documents().len(), before + 1);
+        // Advanced Generate's explicit checkpoint must override the function's default.
+        s.execute("file.new", json!({"width": 67, "height": 49})).unwrap();
+        s.execute("ai.enhance", json!({"method": "faithful", "backend": "gpu", "model": "realplksr-4x", "scale": 2})).unwrap();
+        assert_eq!(s.active().unwrap().doc.size, Size::new(134, 98));
+        assert_eq!(server.prompts().last().unwrap()["1"]["inputs"]["model_name"], "4x_realplksr_mssim_pretrain.pth");
+        let before = s.documents().len();
+        assert!(s.execute("ai.enhance", json!({"method": "faithful", "model": "not-an-upscaler"})).is_err());
+        assert_eq!(s.documents().len(), before);
         li_ai::set_service_override(None);
     }
 }
