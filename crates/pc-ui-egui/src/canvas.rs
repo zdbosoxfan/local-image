@@ -1117,6 +1117,9 @@ pub(crate) fn retain_gpu_documents(app: &mut PhotocraftApp) {
         // retaining only document ids freed the previews every frame (blank canvas while previewing).
         let mut live: Vec<u64> = app.session.documents().iter().flat_map(|st| [st.doc.id.0, st.doc.id.0 ^ (1u64 << 61), st.doc.id.0 ^ (1u64 << 62)]).collect();
         live.extend(crate::adjust_preview::gpu_keys(app));
+        if let Some(f) = &app.move_fast {
+            live.extend(f.keys());
+        }
         gpu.retain(&live);
     }
     // Upload markers must not outlive the resources they describe: native reopen can reuse
@@ -1760,6 +1763,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     let pixel_grid = app.ui.view.shows(app.ui.view.show.pixel_grid);
     let response = ui.allocate_rect(rect, Sense::click_and_drag());
     let painter = ui.painter_at(rect);
+    let move_input = primary && crate::move_input::canvas_input(app, &response, &xf);
+    let doc = if move_input { app.session.documents()[idx].doc.clone() } else { doc };
 
     match crate::prefs_ui::pasteboard_color(app) {
         Some(c) => {
@@ -1773,8 +1778,29 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     let img_rect = xf.doc_rect(doc.bounds());
     // Live adjustment previews on big documents use a downsampled proxy (see proxy.rs).
     let mut on_gpu = false;
+    let move_planes = crate::move_fast::planes(app, idx);
     // A flipped view mirrors in the GPU canvas shader (`ViewParams::flip`).
-    if app.gpu.is_some()
+    if let Some(planes) = move_planes {
+        on_gpu = true;
+        app.perf.gpu = true;
+        app.perf.record("gpu-move-offset", (rect.width() * rect.height() * ctx.pixels_per_point().powi(2)) as u64, 0.0, 0.0);
+        app.perf.gpu_uploads = 0;
+        app.perf.gpu_fallback = None;
+        let params = crate::gpu_canvas::ViewParams {
+            doc: doc.id.0,
+            doc_size: size,
+            zoom: view.zoom,
+            center: view.center,
+            shadow: !crate::theme::Tokens::get(&ctx).bevel && !crate::theme::Tokens::get(&ctx).pro && drop_shadow,
+            pixel_grid,
+            view_key: egui::Id::new(("pc-canvas-move", ctx.viewport_id(), idx)).value(),
+            display: sync_display_lut(app, &doc, doc.id.0, output),
+            output: output.unwrap_or(0),
+            hdr: hdr_preview(app, &doc),
+            flip,
+        };
+        crate::gpu_canvas::GpuCanvas::paint_move(&painter, rect, params, planes);
+    } else if app.gpu.is_some()
         && let Some((k, key)) = ensure_adjust_proxy(app, idx, view.zoom * ctx.pixels_per_point())
             .or_else(|| ensure_filter_preview(app, idx))
             .or_else(|| ensure_proxy_preview(app, idx))
@@ -1983,7 +2009,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     let temporary = crate::hold_keys::for_frame(app, &ctx, drawing);
     let space_pan = temporary == Some(crate::hold_keys::Temporary::Hand);
     let middle = ui.input(|i| i.pointer.middle_down());
-    let tool = match temporary {
+    let tool = match temporary.filter(|_| !crate::move_input::captured(&ctx)) {
         Some(t) => t.tool(),
         None if middle => Tool::Hand,
         None => app.ui.tool,
@@ -2024,12 +2050,16 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         let d = response.drag_delta();
         view.center[0] -= d.x / view.zoom * if flip { -1.0 } else { 1.0 };
         view.center[1] -= d.y / view.zoom;
+        ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
     } else if primary {
         let mods = ui.input(|i| i.modifiers);
         // Tools follow the left button; the right one opens the Brush Preset picker or erases
         // (Preferences › Tools, `paint_mouse`).
         crate::paint_mouse::sync_tool_smoothing(app);
         let mut buttons = crate::paint_mouse::canvas_buttons(app, &response, tool);
+        if move_input {
+            buttons = crate::paint_mouse::Buttons::default();
+        }
         // Right-click while transforming: switch the box's mode (Free Transform, Scale, Rotate,
         // Skew, Distort, Perspective).
         let transforming = app.ui.transform.as_ref().is_some_and(|t| t.warp.is_none());
@@ -2201,23 +2231,27 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         crate::analysis_ui::draw_overlay(app, &painter, &xf);
         crate::gradient_ui::draw_overlay(app, &painter, &xf);
         crate::slice_ui::draw_overlay(app, &painter, &xf);
+        // Move/Hand hover survives a canvas widget ID changing during relayout.
+        let cursor_pos = response.hover_pos().or_else(|| {
+            ctx.pointer_hover_pos().filter(|p| matches!(tool, Tool::Move | Tool::Hand) && rect.contains(*p) && ctx.layer_id_at(*p) == Some(response.layer_id))
+        });
         // Tool cursors (Photoshop-style).
-        let guide_hover = response.hover_pos().filter(|_| tool == Tool::Move).and_then(|p| {
+        let guide_hover = cursor_pos.filter(|_| tool == Tool::Move).and_then(|p| {
             let d = xf.to_doc(p);
             crate::rulers::guide_at(app, d[0], d[1])
         });
         if let Some((vertical, _)) = guide_hover {
             ui.ctx().set_cursor_icon(if vertical { egui::CursorIcon::ResizeHorizontal } else { egui::CursorIcon::ResizeVertical });
-        } else if let Some(c) = response.hover_pos().and_then(|p| crate::transform_tool::cursor(app, xf.to_doc(p), ui.input(|i| i.modifiers.alt))) {
+        } else if let Some(c) = cursor_pos.and_then(|p| crate::transform_tool::cursor(app, xf.to_doc(p), ui.input(|i| i.modifiers.alt))) {
             ui.ctx().set_cursor_icon(c);
-        } else if let Some(c) = response.hover_pos().filter(|_| tool == Tool::Crop).and_then(|p| crate::crop_ui::cursor(app, xf.to_doc(p))) {
+        } else if let Some(c) = cursor_pos.filter(|_| tool == Tool::Crop).and_then(|p| crate::crop_ui::cursor(app, xf.to_doc(p))) {
             ui.ctx().set_cursor_icon(c);
         } else if app.drag.as_ref().is_some_and(|d| d.sel_move.is_some())
-            || response.hover_pos().is_some_and(|p| app.drag.is_none() && selection_drag_kind(app, tool, xf.to_doc(p), ui.input(|i| i.modifiers)).is_some())
+            || cursor_pos.is_some_and(|p| app.drag.is_none() && selection_drag_kind(app, tool, xf.to_doc(p), ui.input(|i| i.modifiers)).is_some())
         {
             // Over the ants with a marquee or lasso: a press drags the selection.
             ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
-        } else if let Some(p) = response.hover_pos() {
+        } else if let Some(p) = cursor_pos {
             let alt = ui.input(|i| i.modifiers.alt);
             let icon = match tool {
                 // Resizing the brush: the circle stays where the drag began (`brush_resize`).
@@ -2310,6 +2344,9 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             }
             // ⇧ after a stroke: the straight line a click would paint (#257).
             crate::stroke_constraint::draw_line_preview(app, &painter, &xf, p, tool, held.shift);
+        }
+        if crate::move_input::captured(&ctx) && app.drag.as_ref().is_some_and(|d| d.tool == Tool::Move) {
+            ctx.set_cursor_icon(egui::CursorIcon::Move);
         }
     }
     // Scrollbars (scrollbars.rs): drawn over the canvas edges, they take the pointer there.
@@ -2497,9 +2534,10 @@ fn draw_tool_state(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform,
     }
 }
 
-/// Move tool › Show Transform Controls: the active layer's transform bounds.
+/// Move tool › Show Transform Controls: the selected layers' shared transform bounds.
 fn transform_controls_rect(app: &PhotocraftApp, xf: &ViewXform) -> Option<Rect> {
-    if app.ui.tool != Tool::Move || !app.ui.tool_options.move_show_transform || app.ui.transform.is_some() || app.drag.is_some() {
+    let dragging_box = app.drag.as_ref().is_some_and(|d| d.tool == Tool::Move) && app.session.prefs().interface.show_bounding_box_when_dragging_layer;
+    if app.ui.tool != Tool::Move || !(app.ui.tool_options.move_show_transform || dragging_box) || app.ui.transform.is_some() {
         return None;
     }
     let st = app.session.active()?;
@@ -2507,7 +2545,17 @@ fn transform_controls_rect(app: &PhotocraftApp, xf: &ViewXform) -> Option<Rect> 
     if crate::doc_props_ui::is_background(&st.doc, l) {
         return None;
     }
-    let b = photocraft_engine::transform_cmds::transform_bounds(&st.doc, l);
+    let b = if let Some(sel) = &st.doc.selection {
+        photocraft_compose::bounds::content_bounds(sel)
+    } else {
+        photocraft_engine::layer_multi_cmds::move_targets(&st.doc, &st.selected_layers())
+            .into_iter()
+            .filter_map(|id| st.doc.layer(id))
+            .map(|l| photocraft_engine::transform_cmds::transform_bounds(&st.doc, l))
+            .fold(DRect::EMPTY, |a, b| a.union(&b))
+    };
+    let (dx, dy) = crate::move_ui::drag_offset(app).unwrap_or((0, 0));
+    let b = b.translate(dx, dy);
     if b.is_empty() {
         return None;
     }
@@ -2523,7 +2571,7 @@ fn transform_controls_hit(r: Rect, p: Pos2) -> bool {
 }
 
 /// Enter the existing Free Transform session when a Move-tool transform control is pressed.
-fn begin_transform_controls_at(app: &mut PhotocraftApp, ctx: &egui::Context, xf: &ViewXform, p: Pos2) -> bool {
+pub(crate) fn begin_transform_controls_at(app: &mut PhotocraftApp, ctx: &egui::Context, xf: &ViewXform, p: Pos2) -> bool {
     let Some(r) = transform_controls_rect(app, xf) else { return false };
     if !transform_controls_hit(r, p) {
         return false;
@@ -2537,7 +2585,7 @@ fn begin_transform_controls_at(app: &mut PhotocraftApp, ctx: &egui::Context, xf:
     }
 }
 
-/// Move tool › Show Transform Controls: the active layer's bounding box with its eight handles.
+/// Move tool › Show Transform Controls: the selection's bounding box with its eight handles.
 fn draw_transform_controls(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewXform) {
     let Some(r) = transform_controls_rect(app, xf) else { return };
     let accent = crate::theme::Tokens::get(painter.ctx()).accent;
@@ -2715,6 +2763,18 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
     crate::transform_tool::end_if_left(app);
     // View › Snap / Snap To and smart guides (snap_ui.rs).
     let raw = ev;
+    // Pick before building snap targets: the clicked layer may differ from the old selection.
+    if let ToolEvent::Down { x, y, .. } = ev
+        && app.ui.tool == Tool::Move
+        && app.ui.transform.is_none()
+        && crate::rulers::guide_at(app, x, y).is_none()
+        && app.session.active().is_some_and(|s| s.doc.selection.is_none())
+        && app.ui.tool_options.move_auto_select != (mods.command || mods.ctrl)
+    {
+        let target = app.ui.tool_options.move_target.clone();
+        let mode = if mods.shift { "add" } else { "replace" };
+        let _ = app.run("layer.pickAt", json!({"x": x, "y": y, "target": target, "mode": mode}));
+    }
     // A press anywhere but on the floating piece (or with ⇧ / ⌥, to draw) drops it first.
     if let ToolEvent::Down { x, y, .. } = raw
         && app.session.active().is_some_and(|st| photocraft_engine::float_cmds::floating(st).is_some())
@@ -2797,12 +2857,6 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
             if let Some((vertical, i)) = crate::rulers::guide_at(app, x, y) {
                 app.guide_drag = Some(crate::rulers::GuideDrag { vertical, index: Some(i), pos: if vertical { x } else { y } });
                 return;
-            }
-            // Auto-Select (or ⌘-click while it is off) picks the layer under the pointer first.
-            if app.ui.tool_options.move_auto_select != mods.command {
-                let target = app.ui.tool_options.move_target.clone();
-                let mode = if mods.shift { "add" } else { "replace" };
-                let _ = app.run("layer.pickAt", json!({"x": x, "y": y, "target": target, "mode": mode}));
             }
         }
         ToolEvent::Move { x, y, .. } => {
@@ -2904,6 +2958,9 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
                 points.insert(0, [p[0], p[1], pressure as f64]);
             }
             app.drag = Some(Drag::new(tool, from.unwrap_or([x, y]), points, mods, erase));
+            if tool == Tool::Move {
+                crate::move_ui::begin_pixels(app, mods.alt);
+            }
             app.trail = None;
             app.stylus.begin_stroke();
             if from.is_some() {

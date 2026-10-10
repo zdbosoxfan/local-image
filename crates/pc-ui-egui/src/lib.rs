@@ -148,6 +148,8 @@ pub mod menu_nav;
 pub mod menus;
 pub mod model_browser;
 pub mod monitor_status;
+mod move_fast;
+mod move_input;
 pub mod move_mods;
 pub mod move_ui;
 pub mod native_menu;
@@ -382,6 +384,7 @@ pub struct PhotocraftApp {
     draft_refine: generate_ui::draft_refine::Runtime,
     /// Move tool drag shown live (`move_ui`).
     pub(crate) move_preview: Option<move_ui::MovePreview>,
+    pub(crate) move_fast: Option<move_fast::FastMove>,
     /// Patch Tool drag: the healed document at the pointer (`patch_preview`).
     pub(crate) patch_preview: Option<patch_preview::PatchPreview>,
     /// The pixels a Magnetic Lasso border follows (`magnetic_lasso_ui`).
@@ -561,6 +564,7 @@ impl PhotocraftApp {
             ai_remove: None,
             draft_refine: Default::default(),
             move_preview: None,
+            move_fast: None,
             patch_preview: None,
             magnetic: Default::default(),
             secondary_erase: false,

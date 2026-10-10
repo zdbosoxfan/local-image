@@ -22,6 +22,40 @@ fn alpha(d: &Document, id: LayerId, x: i32, y: i32) -> f32 {
 }
 
 #[test]
+fn move_pixels_cut_and_copy_commit_pixels_and_selection_in_one_step() {
+    for copy in [false, true] {
+        let (mut s, id) = session();
+        let before = s.active().unwrap().doc.clone();
+        let steps = s.active().unwrap().history.past_len();
+        s.execute("select.movePixels", json!({"dx": 30, "dy": 5, "copy": copy})).unwrap();
+        let st = s.active().unwrap();
+        assert_eq!(st.history.past_len(), steps + 1);
+        assert_eq!(alpha(&st.doc, id, 12, 12), if copy { 1.0 } else { 0.0 });
+        assert_eq!(alpha(&st.doc, id, 42, 17), 1.0);
+        assert_eq!(st.doc.selection.as_ref().unwrap().content_bounds(), Rect::new(40, 15, 60, 35));
+        s.undo();
+        assert_eq!(*s.active().unwrap().doc, *before);
+        s.redo();
+        assert_eq!(alpha(&s.active().unwrap().doc, id, 42, 17), 1.0);
+    }
+}
+
+#[test]
+fn move_pixels_respects_locks_and_zero_delta_is_not_an_edit() {
+    let (mut s, id) = session();
+    let steps = s.active().unwrap().history.past_len();
+    s.execute("select.movePixels", json!({"dx": 0, "dy": 0})).unwrap();
+    assert_eq!(s.active().unwrap().history.past_len(), steps);
+    s.edit("lock", |d, _| {
+        d.layer_mut(id).unwrap().locks.position = true;
+        Ok(())
+    })
+    .unwrap();
+    assert!(s.execute("select.movePixels", json!({"dx": 5})).is_err());
+    assert_eq!(alpha(&s.active().unwrap().doc, id, 12, 12), 1.0);
+}
+
+#[test]
 fn float_moves_a_cut_piece_without_touching_the_document_until_dropped() {
     let (mut s, id) = session();
     let steps = s.active().unwrap().history.past_len();

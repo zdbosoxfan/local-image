@@ -302,6 +302,10 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
         }
     }
     // Move tool / Free Transform: arrows nudge (⇧ ×10, ⌥ duplicates first).
+    if crate::move_input::captured(ctx) && ctx.input_mut(|i| i.consume_key(i.modifiers, Key::Escape) || i.consume_key(Modifiers::NONE, Key::Escape)) {
+        crate::move_input::cancel(app, ctx);
+        return;
+    }
     if focus == Focus::None && crate::move_mods::arrow_keys(app, ctx) {
         return;
     }

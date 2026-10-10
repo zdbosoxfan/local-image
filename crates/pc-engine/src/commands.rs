@@ -738,7 +738,7 @@ fn build() -> Vec<CommandSpec> {
             "Move Layer",
             [],
             None,
-            r##"{"layer":id?,"dx":i32,"dy":i32} (no layer: every selected layer; linked layers follow)"##,
+            r##"{"layer":id?,"dx":i32,"dy":i32,"copy":bool=false} (no layer: every selected layer; linked layers follow; copy: duplicate and move atomically)"##,
             has_layer,
             crate::layer_multi_cmds::translate
         ),
