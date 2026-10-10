@@ -139,13 +139,18 @@ fn pro_panel(ui: &mut Ui, id: &str, tabs: &[&str], selected: &mut usize, collaps
 }
 
 pub fn pill_tab(ui: &mut Ui, label: &str, selected: bool) -> Response {
+    pill_tab_translated(ui, tl!(label), selected)
+}
+
+/// [`pill_tab`] for a label already in the UI language (see [`slider_row_translated`]).
+pub fn pill_tab_translated(ui: &mut Ui, label: &str, selected: bool) -> Response {
     let t = Tokens::get(ui.ctx());
     let font = theme::medium(12.5);
-    let galley = ui.painter().layout_no_wrap(tl!(label).to_owned(), font, t.text);
+    let galley = ui.painter().layout_no_wrap(label.to_owned(), font, t.text);
     let size = vec2(galley.size().x + 20.0, 24.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     // the label is painted, not a widget: tell accessibility (and kittest) what the tab says
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, ui.is_enabled(), selected, tl!(label)));
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, ui.is_enabled(), selected, label));
     if selected {
         surface(ui, rect, t.hover, true);
         if !t.bevel {
@@ -288,10 +293,23 @@ pub fn slider(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>
 
 /// Labelled slider row: `Label ........ [value field]` above a full-width thin slider.
 pub fn slider_row(ui: &mut Ui, label: &str, value: &mut f32, range: std::ops::RangeInclusive<f32>, suffix: &str, gradient: Option<&[Color32]>) -> Response {
+    slider_row_translated(ui, tl!(label), value, range, suffix, gradient)
+}
+
+/// [`slider_row`] for a label that is already in the UI language (e.g. a contextual translation): it is shown as is,
+/// never looked up again, so a translation that happens to equal another English message keeps its own text.
+pub fn slider_row_translated(
+    ui: &mut Ui,
+    label: &str,
+    value: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+    suffix: &str,
+    gradient: Option<&[Color32]>,
+) -> Response {
     let t = Tokens::get(ui.ctx());
     let mut changed_resp = None;
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(tl!(label)).color(t.text_dim));
+        ui.label(egui::RichText::new(label).color(t.text_dim));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             changed_resp = Some(value_field(ui, value, range.clone(), suffix, 74.0));
         });
@@ -497,8 +515,13 @@ pub fn rgb_histogram(ui: &mut Ui, histogram: &photocraft_algo::histogram::RgbHis
 
 /// Small caps section label.
 pub fn section_label(ui: &mut Ui, text: &str) {
+    section_label_translated(ui, tl!(text));
+}
+
+/// [`section_label`] for text already in the UI language (see [`slider_row_translated`]).
+pub fn section_label_translated(ui: &mut Ui, text: &str) {
     let t = Tokens::get(ui.ctx());
-    ui.label(egui::RichText::new(tl!(text)).font(theme::medium(11.5)).color(t.text_faint));
+    ui.label(egui::RichText::new(text).font(theme::medium(11.5)).color(t.text_faint));
 }
 
 /// Hairline separator.
