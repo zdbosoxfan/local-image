@@ -7,8 +7,8 @@ Full workspace + GPU (RTX 5090) suites, benchmarks and these items are handled i
 - Verify PSD v7 slice descriptor enum names (horizontal Left/Cntr/Rght, vertical Top /Cntr/Btom, `bgColorType` "Clr ") against a PSD saved by Photoshop — written from memory in the bug-fix run (`crates/pc-psd`).
 - pc-algo features: `ransac` panics when src and dst lengths differ (ignored test in `crates/pc-algo/tests/coverage/ds_features_coverage.rs`).
 - pc-algo inpaint: `mvc_membrane` caps channels at 8 (test ignored; low impact).
-- Translation review (DeepSeek, ~1,850 guarded fixes) parked on `wip/ds-i18n-review`; 2 pinned-term tests to reconcile.
-  Owner: translations are lowest priority.
+- Translations: complete in all 12 languages for both apps (2026-10-09, DeepSeek). Native-speaker spot checks would
+  still help; Camera Raw contextual labels elsewhere (AI panel `tr_ctx` + shared widgets) may double-translate too.
 - `scripts/generate-trace-stage-fixtures.py` (pc-trace golden regeneration helper) was lost with its worktree; recreate
   from `crates/pc-trace/tests/golden/SOURCES.md`.
 - GPU validation pending on the 5090 for: colour icons,
