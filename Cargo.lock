@@ -5448,6 +5448,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "photocraft-affinity"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "crc32fast",
+ "flate2",
+ "image",
+ "photocraft-color",
+ "photocraft-doc",
+ "photocraft-geom",
+ "photocraft-text",
+ "photocraft-vector",
+ "proptest",
+ "ruzstd",
+]
+
+[[package]]
 name = "photocraft-algo"
 version = "2.0.0-alpha.1"
 dependencies = [
@@ -5554,6 +5570,7 @@ dependencies = [
  "li-ai",
  "li-seg",
  "pc-trace",
+ "photocraft-affinity",
  "photocraft-algo",
  "photocraft-cms",
  "photocraft-codecs",
