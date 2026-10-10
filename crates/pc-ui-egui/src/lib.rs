@@ -158,6 +158,7 @@ pub mod new_doc_ui;
 pub mod notices;
 mod opacity_keys;
 pub mod outline;
+pub mod overwrite_original;
 pub mod paint_mouse;
 pub mod palette;
 pub mod panels;
@@ -168,9 +169,9 @@ pub mod plugin_ui;
 pub mod point_curve;
 pub mod prefs_ui;
 pub mod preset_files_ui;
+pub mod preset_panels;
 mod tool_icon_data;
 // local-image: Preferences › Tools › Pen pressure curve.
-pub mod preset_panels;
 pub mod pressure_curve_ui;
 pub mod props_layout;
 pub mod proxy;
@@ -258,6 +259,8 @@ pub type PickOpenFn = Box<dyn FnMut() -> Option<(String, Result<Vec<u8>, String>
 /// File › Open's multi-file picker: the selected paths, `None` when cancelled.
 pub type PickOpenPathsFn = Box<dyn FnMut() -> Option<Vec<String>>>;
 pub type PickSaveFn = Box<dyn FnMut(&str) -> Option<String>>;
+/// Flatten, preserve the source in Trash, and atomically replace it.
+pub type OverwriteFn = Box<dyn FnMut(&Document, &str, u8) -> Result<Vec<String>, String>>;
 pub type WriteFn = Box<dyn FnMut(&str, &[u8]) -> Result<(), String>>;
 /// Read bytes through the desktop control session's authorized read root.
 pub type AutomationReadFn = Box<dyn FnMut(&str) -> Result<(String, Vec<u8>), String>>;
@@ -312,6 +315,7 @@ pub struct Services {
     pub import: Option<ImportFn>,
     /// Encode a document for a file name (format chosen by extension).
     pub export: Option<ExportFn>,
+    pub overwrite_original: Option<OverwriteFn>,
     /// Show a single-file picker for commands that import one file (Open As, presets, scripts).
     pub pick_open: Option<PickOpenFn>,
     /// Show File › Open's multi-file picker; returns the selected paths.
@@ -537,6 +541,7 @@ pub struct PhotocraftApp {
     pub(crate) discard: Option<discard_ui::Prompt>,
     /// A Save As to a layered TIFF parked behind the TIFF Options prompt (see `tiff_options_ui`).
     pub(crate) tiff_options: Option<tiff_options_ui::Prompt>,
+    pub overwrite_prompt: Option<overwrite_original::Prompt>,
     /// Set once the user has agreed to quit, so the resulting close request goes through.
     pub(crate) allow_close: bool,
     /// Pen pressure/tilt from the platform (see `stylus`).
@@ -637,6 +642,7 @@ impl PhotocraftApp {
             prefs_rt: Default::default(),
             discard: None,
             tiff_options: None,
+            overwrite_prompt: None,
             allow_close: false,
             stylus: Default::default(),
             background_jobs: false,
@@ -985,7 +991,7 @@ impl PhotocraftApp {
         // local-image: the Library picks the file up (adds it stacked on its photo, or reloads it).
         if self.host_modes {
             let photo = develop_layer::active_photo(self);
-            self.library_saves.push(develop_layer::LibrarySave { path: path.clone(), photo, show: false });
+            self.library_saves.push(develop_layer::LibrarySave { path: path.clone(), photo, show: false, overwritten: false });
         }
         self.sync_views();
         Ok((path, warnings))
@@ -1224,6 +1230,7 @@ impl eframe::App for PhotocraftApp {
         jobs_ui::dialog(self, &ctx);
         discard_ui::show(self, &ctx);
         tiff_options_ui::show(self, &ctx);
+        overwrite_original::show(self, &ctx);
         distort_ui::show(self, &ctx);
         camera_raw_ui::show(self, &ctx);
         develop_filter_ui::show(self, &ctx);
@@ -1457,6 +1464,7 @@ impl PhotocraftApp {
             return;
         }
         jobs_ui::tick_background(self, ctx);
+        prefs_ui::persist_background(self, ctx);
         // local-image: the control channel keeps answering while another module is shown
         // (screenshots capture the whole window; `app.module` switches modules).
         self.collect_screenshots(ctx);

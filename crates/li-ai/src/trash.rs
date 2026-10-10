@@ -2,7 +2,7 @@
 //! specification 1.0 (Linux and the BSDs): the file goes to `files/` of the home trash
 //! (`$XDG_DATA_HOME/Trash`) when it is on the same filesystem, else to `$topdir/.Trash-$uid` of
 //! its own filesystem, with a `.trashinfo` record in `info/` so file managers can show and
-//! restore it. Nothing is copied: a rename either moves the file or fails.
+//! restore it. Moves use rename; atomic-overwrite backups copy a version into the home Trash.
 //!
 //! Other platforms have no Trash here ([`available`] is false); callers delete permanently after
 //! saying so.
@@ -77,6 +77,25 @@ fn topdir_trash(_path: &Path) -> io::Result<PathBuf> {
 /// Records and moves `path` into `trash` (`files/` and `info/`); on failure the record is
 /// removed again and the file stays where it was.
 fn trash_into(path: &Path, trash: &Path) -> io::Result<PathBuf> {
+    record_into(path, trash, false)
+}
+
+/// Keeps the current version recoverable while an atomic replacement leaves the path in place.
+/// The Trash record still names the original path, so the desktop can restore it.
+pub fn copy_to_trash(path: &Path) -> io::Result<PathBuf> {
+    if !available() {
+        return Err(io::Error::new(io::ErrorKind::Unsupported, "this system has no Trash Local Image can use"));
+    }
+    let trash = home_trash().ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no home folder"))?;
+    copy_to_trash_in(path, &trash)
+}
+
+/// Explicit Trash destination for hosts and isolated tests; never changes the source file.
+pub fn copy_to_trash_in(path: &Path, trash: &Path) -> io::Result<PathBuf> {
+    record_into(&std::path::absolute(path)?, trash, true)
+}
+
+fn record_into(path: &Path, trash: &Path, copy: bool) -> io::Result<PathBuf> {
     let (files, info) = (trash.join("files"), trash.join("info"));
     create_private_dir(&files)?;
     create_private_dir(&info)?;
@@ -98,9 +117,32 @@ fn trash_into(path: &Path, trash: &Path) -> io::Result<PathBuf> {
         }
         let written = io::Write::write_all(&mut f, record.as_bytes()).and_then(|()| f.sync_all());
         drop(f);
-        let moved = written.and_then(|()| std::fs::rename(path, &dest));
+        let moved = written.and_then(|()| {
+            if copy {
+                let mut source = std::fs::File::open(path)?;
+                let mut target = std::fs::OpenOptions::new().write(true).create_new(true).open(&dest)?;
+                let result = io::copy(&mut source, &mut target).and_then(|_| {
+                    std::fs::set_permissions(&dest, source.metadata()?.permissions())?;
+                    target.sync_all()
+                });
+                if result.is_err() {
+                    let _ = std::fs::remove_file(&dest);
+                }
+                result
+            } else {
+                std::fs::rename(path, &dest)
+            }
+        });
         return match moved {
-            Ok(()) => Ok(dest),
+            Ok(()) => {
+                #[cfg(unix)]
+                if copy {
+                    // Make the recoverable version durable before a caller replaces its source.
+                    std::fs::File::open(&files)?.sync_all()?;
+                    std::fs::File::open(&info)?.sync_all()?;
+                }
+                Ok(dest)
+            }
             Err(e) => {
                 let _ = std::fs::remove_file(&info_path);
                 Err(e)
@@ -163,6 +205,25 @@ mod tests {
         assert_eq!(deletion_date(t), "2025-10-09T08:53:20");
         assert_eq!(deletion_date(std::time::UNIX_EPOCH), "1970-01-01T00:00:00");
         assert_eq!(encode_path(Path::new("/a b/ü.onnx")), "/a%20b/%C3%BC.onnx");
+    }
+
+    #[test]
+    fn overwrite_trash_copies_keep_source_and_reserve_versions() {
+        let root = std::env::temp_dir().join(format!("li-trash-copy-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("photo.png");
+        let trash = root.join("Trash");
+        for bytes in [b"first".as_slice(), b"second".as_slice()] {
+            std::fs::write(&path, bytes).unwrap();
+            let dest = copy_to_trash_in(&path, &trash).unwrap();
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+            assert_eq!(std::fs::read(&dest).unwrap(), bytes);
+            let record = std::fs::read_to_string(trash.join("info").join(format!("{}.trashinfo", dest.file_name().unwrap().to_string_lossy()))).unwrap();
+            assert!(record.contains(&format!("Path={}\n", encode_path(&path))));
+        }
+        assert!(copy_to_trash_in(&root.join("missing.png"), &trash).is_err());
+        assert!(!trash.join("info/missing.png.trashinfo").exists());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// Into a trash folder of our own (never the user's): the file moves, the record names it,

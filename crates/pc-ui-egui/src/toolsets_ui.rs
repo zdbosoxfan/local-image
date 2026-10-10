@@ -85,12 +85,20 @@ pub fn menu_items(app: &PhotocraftApp, items: &mut Vec<MenuItem>) {
             shortcut: None,
             enabled: true,
             checked: Some(s.id == active),
+            tooltip: None,
             color: None,
         })
         .collect();
-    add.push(MenuItem { id: "---".into(), label: "---".into(), path: path.clone(), shortcut: None, enabled: false, checked: None, color: None });
+    add.push(MenuItem { id: "---".into(), label: "---".into(), path: path.clone(), shortcut: None, enabled: false, checked: None, tooltip: None, color: None });
     add.push(MenuItem {
-        id: "edit.toolbar".into(), label: tl!("Edit Toolbar…").to_string(), path, shortcut: None, enabled: true, checked: None, color: None
+        id: "edit.toolbar".into(),
+        label: tl!("Edit Toolbar…").to_string(),
+        path,
+        shortcut: None,
+        enabled: true,
+        checked: None,
+        tooltip: None,
+        color: None,
     });
     // The Edit menu has its own Toolbar… entry; this one only repeats it under Tool Set.
     for (k, it) in add.into_iter().enumerate() {

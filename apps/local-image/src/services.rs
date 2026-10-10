@@ -71,6 +71,22 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     photocraft_format::atomic_write(path, bytes).map_err(|e| e.to_string())
 }
 
+/// Production overwrite path; the injected Trash destination keeps host tests isolated.
+pub(crate) fn overwrite_original(
+    doc: &Document,
+    path: &Path,
+    quality: u8,
+    trash: impl FnOnce(&Path) -> std::io::Result<PathBuf>,
+) -> Result<Vec<String>, String> {
+    let original = photocraft_format::read_file(path).map_err(|e| e.to_string())?;
+    let result = photocraft_io::export_over_original(doc, &original, quality).map_err(|e| e.to_string())?;
+    // Finish encoding before touching Trash. Leave the original present until the replacing
+    // rename; copying it into Trash avoids a missing-file window and preserves restore identity.
+    trash(path).map_err(|e| format!("Couldn't keep the previous version in Trash: {e}"))?;
+    write_atomic(path, &result.bytes)?;
+    Ok(result.warnings)
+}
+
 type SharedRecovery = Rc<RefCell<Option<RecoveryStore>>>;
 
 /// Run `f` on the recovery store (`Err` without a config directory). The service closures never
@@ -163,6 +179,10 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             opts.xmp = if settings.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
             crate::crash_guard::guard("Export", || photocraft_io::export(doc, path, &opts).map(|r| (r.bytes, r.warnings)).map_err(|e| e.to_string()))
         })),
+        overwrite_original: li_ai::trash::available().then(|| {
+            Box::new(|doc: &Document, path: &str, quality: u8| overwrite_original(doc, Path::new(path), quality, li_ai::trash::copy_to_trash))
+                as photocraft_ui_egui::OverwriteFn
+        }),
         pick_open: Some(Box::new(|| {
             let path = rfd::FileDialog::new().add_filter("All Formats", OPEN_EXTS).add_filter("Local Image", &["pcraft"]).pick_file()?;
             // A read failure goes back to the app, which reports it like any other open failure.

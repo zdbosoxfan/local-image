@@ -152,7 +152,14 @@ impl Host {
                 }
                 Ok(Some(LibraryUpdate::Reloaded(id))) => {
                     let name = lib.session.catalog.photo(id).map(|p| p.file_name.clone()).unwrap_or_default();
-                    (Some(id), format!("Saved {}; updated {name} in the Library", save.path))
+                    (
+                        Some(id),
+                        if save.overwritten {
+                            format!("Overwrote {}; updated {name} in the Library; previous version kept in Trash", save.path)
+                        } else {
+                            format!("Saved {}; updated {name} in the Library", save.path)
+                        },
+                    )
                 }
                 Ok(None) => (None, String::new()),
                 Err(e) => {
@@ -281,6 +288,10 @@ impl Host {
             self.round_trip_notice = None;
             return;
         }
+        let overwrite_reason = match &notice {
+            RoundTripNotice::Unsaved { doc, .. } => photocraft_ui_egui::overwrite_original::disabled_reason(&self.editor, *doc),
+            _ => None,
+        };
         let mut action = None;
         let t = lightcraft_ui_egui::theme::Tokens::get(ctx);
         egui::Area::new(egui::Id::new("library-round-trip-notice"))
@@ -288,11 +299,11 @@ impl Host {
             .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -48.0))
             .show(ctx, |ui| {
                 egui::Frame::NONE.fill(t.chrome).stroke(egui::Stroke::new(1.0, t.button_border)).corner_radius(6.0).inner_margin(12).show(ui, |ui| {
-                    ui.set_width(360.0);
+                    ui.set_width(440.0);
                     match &notice {
                         RoundTripNotice::Unsaved { destination, .. } => {
                             ui.label(egui::RichText::new("Edited in Compositing · unsaved").strong());
-                            ui.label("The Library shows a preview of your layers. Save to keep this edit; your original photo is preserved.");
+                            ui.label("The Library shows a preview of your layers. Save a copy or overwrite the original to keep this edit.");
                             ui.label(format!("Save as {destination} and stack it with the original in the Library."));
                         }
                         RoundTripNotice::Saved(message) | RoundTripNotice::Error(message) => {
@@ -301,11 +312,17 @@ impl Host {
                     }
                     ui.horizontal(|ui| {
                         for (id, label, choice) in if matches!(notice, RoundTripNotice::Unsaved { .. }) {
-                            vec![("roundTripSave", "Save", 0), ("roundTripEdit", "Keep Editing", 1), ("roundTripDismiss", "Dismiss", 2)]
+                            vec![
+                                ("roundTripSave", "Save", 0),
+                                ("roundTripOverwrite", "Overwrite Original", 3),
+                                ("roundTripEdit", "Keep Editing", 1),
+                                ("roundTripDismiss", "Dismiss", 2),
+                            ]
                         } else {
                             vec![("roundTripDismiss", "Dismiss", 2)]
                         } {
-                            let r = ui.button(label);
+                            let r = ui.add_enabled(choice != 3 || overwrite_reason.is_none(), egui::Button::new(label));
+                            let r = if choice == 3 { r.on_disabled_hover_text(overwrite_reason.unwrap_or("")) } else { r };
                             lightcraft_ui_egui::widgets::register(ctx, format!("button:{id}"), r.rect);
                             if r.clicked() {
                                 action = Some(choice);
@@ -316,6 +333,11 @@ impl Host {
             });
         match (action, notice) {
             (Some(0), RoundTripNotice::Unsaved { doc, .. }) => self.save_preview(ctx, doc),
+            (Some(3), RoundTripNotice::Unsaved { doc, .. }) => {
+                if let Err(e) = photocraft_ui_egui::overwrite_original::request(&mut self.editor, doc, true) {
+                    self.library().toast_error(ctx, e);
+                }
+            }
             (Some(1), RoundTripNotice::Unsaved { doc, photo, .. }) => {
                 if let Some(i) = self.editor.session.documents().iter().position(|d| d.doc.id == doc) {
                     self.editor.session.set_active(i);
@@ -779,6 +801,12 @@ impl eframe::App for Host {
         // The switched-to-CPU warning appears in every module, not only once Compositing is open.
         photocraft_ui_egui::gpu_status::show_fallback(&mut self.editor, ui.ctx());
         self.round_trip_notice_ui(ui.ctx());
+        let status = self.editor.ui.status.clone();
+        photocraft_ui_egui::overwrite_original::show(&mut self.editor, ui.ctx());
+        if self.editor.ui.status_error && self.editor.ui.status != status {
+            let message = self.editor.ui.status.clone();
+            self.library().toast_error(ui.ctx(), message);
+        }
         if let Some(lib) = self.library.as_mut() {
             lib.widgets.extend(lightcraft_ui_egui::widgets::take_registry(ui.ctx()));
         }
@@ -1091,10 +1119,14 @@ mod tests {
 
     /// A folder with `photo.png` in it, and a Library that has the photo.
     fn library_with_photo(tag: &str) -> (PathBuf, String, LightcraftApp, lightcraft_catalog::PhotoId) {
+        library_with_photo_format(tag, "png")
+    }
+
+    fn library_with_photo_format(tag: &str, ext: &str) -> (PathBuf, String, LightcraftApp, lightcraft_catalog::PhotoId) {
         let dir = std::env::temp_dir().join(format!("li-roundtrip-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("photo.png");
+        let path = dir.join(format!("photo.{ext}"));
         image::RgbImage::from_fn(40, 30, |x, y| image::Rgb([(x * 6) as u8, (y * 8) as u8, 60])).save(&path).unwrap();
         let path = path.to_string_lossy().to_string();
         let mut s = lightcraft_engine::Session::new().with_fs();
@@ -1146,7 +1178,7 @@ mod tests {
         let saved = dir.join("photo-Edit.psd").to_string_lossy().to_string();
         assert_eq!(r["path"], saved.as_str(), "beside the original, without a dialog");
         assert!(std::path::Path::new(&saved).is_file());
-        assert_eq!(host.editor.library_saves, vec![LibrarySave { path: saved.clone(), photo: Some(orig.0), show: false }]);
+        assert_eq!(host.editor.library_saves, vec![LibrarySave { path: saved.clone(), photo: Some(orig.0), show: false, overwritten: false }]);
 
         host.take_library_saves(Some(&ctx));
         assert!(host.editor.library_saves.is_empty());
@@ -1338,6 +1370,227 @@ mod tests {
             let img = self.view.paint(&self.host.library.as_ref().unwrap().renderer.cpu_textures());
             img.pixels[pos.y as usize * img.size[0] + pos.x as usize]
         }
+    }
+
+    fn click_overwrite(h: &mut RoundTripUi, id: &str) {
+        // Modal responses use the same egui rectangles on either hosted module.
+        h.step(vec![]);
+        let pos = h.view.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(id))).expect("modal control").center();
+        h.step(vec![egui::Event::PointerMoved(pos)]);
+        for pressed in [true, false] {
+            h.step(vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }]);
+        }
+        h.step(vec![]);
+    }
+
+    fn overwrite_host(tag: &str, ext: &str) -> (PathBuf, String, lightcraft_catalog::PhotoId, RoundTripUi) {
+        let (dir, path, lib, photo) = library_with_photo_format(tag, ext);
+        let mut host = host_with_round_trip(lib, photo, &path);
+        let trash = dir.join("Trash");
+        host.editor.services.overwrite_original = Some(Box::new(move |doc, path, quality| {
+            crate::services::overwrite_original(doc, std::path::Path::new(path), quality, |p| li_ai::trash::copy_to_trash_in(p, &trash))
+        }));
+        host.editor.run("edit.fill", json!({"color": [1.0, 0.0, 0.0, 1.0]})).unwrap();
+        (dir, path, photo, RoundTripUi::new(host))
+    }
+
+    fn overwrite_pixels(ext: &str, rs: Option<eframe::egui_wgpu::RenderState>) {
+        use lightcraft_ui_egui::state::ViewMode;
+        let (dir, path, photo, mut h) = overwrite_host(&format!("overwrite-{ext}-{}", rs.is_some()), ext);
+        let previous = std::fs::read(&path).unwrap();
+        let mut old_handle = std::fs::File::open(&path).unwrap();
+        let history = h.host.editor.session.active().unwrap().history.past_len();
+        let develop = catalog(&h.host).catalog.photo(photo).unwrap().develop.clone();
+        if let Some(rs) = rs {
+            let probe = photocraft_ui_egui::gpu_canvas::GpuCanvas::new(&rs);
+            h.host.editor.session.prefs.edit(|p| p.performance.rendering_mode = Some(photocraft_engine::prefs::RenderingMode::Gpu));
+            h.host.editor.set_wgpu(rs.clone());
+            h.frame.wgpu_render_state = Some(rs);
+            h.wait_for(|h| probe.read_texels(h.editor.session.active().unwrap().doc.id.0).is_some());
+            assert!(h.host.editor.gpu_active());
+            let (_, _, px) = probe.read_texels(h.host.editor.session.active().unwrap().doc.id.0).unwrap();
+            assert!(px.iter().all(|p| p[0] > 0.95 && p[1] < 0.05 && p[2] < 0.05));
+        }
+        h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        h.wait_for(|h| h.library.as_ref().unwrap().host_composites.contains_key(&photo));
+        h.click("button:roundTripOverwrite");
+        assert!(h.host.editor.overwrite_prompt.is_some());
+        assert_eq!(std::fs::read(&path).unwrap(), previous, "asking changes no bytes");
+        let undo = catalog(&h.host).undo.len();
+        let started = std::time::Instant::now();
+        click_overwrite(&mut h, "overwriteConfirm");
+        eprintln!("overwrite {ext}: real host confirm → atomic write/catalog reload {:?}", started.elapsed());
+        assert!(h.host.editor.overwrite_prompt.is_none());
+        let new = std::fs::read(&path).unwrap();
+        assert_ne!(new, previous);
+        assert!(std::fs::read_dir(&dir).unwrap().all(|e| !e.unwrap().file_name().to_string_lossy().ends_with(".pcsave.tmp")));
+        use std::io::Read;
+        let mut held_bytes = Vec::new();
+        old_handle.read_to_end(&mut held_bytes).unwrap();
+        assert_eq!(held_bytes, previous, "atomic rename leaves open old version intact");
+        assert_eq!(std::fs::read(dir.join("Trash/files").join(format!("photo.{ext}"))).unwrap(), previous);
+        let info = std::fs::read_to_string(dir.join("Trash/info").join(format!("photo.{ext}.trashinfo"))).unwrap();
+        assert!(info.contains(&format!("Path={}\n", li_ai::trash::encode_path(std::path::Path::new(&path)))));
+        assert_eq!(catalog(&h.host).undo.len(), undo + 1, "one catalog reload step");
+        assert_eq!(catalog(&h.host).catalog.len(), 1);
+        assert_eq!(catalog(&h.host).catalog.photo(photo).unwrap().develop, develop);
+        assert_eq!(h.host.editor.session.active().unwrap().history.past_len(), history);
+        assert!(!h.host.editor.has_unsaved());
+        assert!(h.host.library.as_ref().unwrap().host_composites.is_empty());
+        assert!(
+            matches!(&h.host.round_trip_notice, Some(RoundTripNotice::Saved(msg)) if msg.contains("Overwrote") && msg.contains(&path) && msg.contains("Trash"))
+        );
+        let decoded = photocraft_codecs::decode(&new).unwrap().convert(photocraft_codecs::ChannelLayout::Rgb, photocraft_codecs::SampleType::U8);
+        assert!(decoded.data().as_chunks::<3>().0.iter().all(|p| p[0] > 240 && p[1] < 12 && p[2] < 12));
+        let slot = lightcraft_ui_egui::render::Slot::Thumb(photo);
+        let wanted = h.host.library.as_ref().unwrap().renderer.wanted(slot).unwrap();
+        h.wait_for(|h| h.library.as_ref().unwrap().renderer.thumb(photo).is_some_and(|t| t.key == wanted));
+        eprintln!("overwrite {ext}: real host confirm → refreshed grid {:?}", started.elapsed());
+        let thumb = h.host.library.as_ref().unwrap().widgets.iter().find(|(w, _)| w == &format!("thumb:{}", photo.0)).unwrap().1;
+        let pixel = h.pixel_at(thumb.center());
+        assert!(pixel.r() > 230 && pixel.g() < 80 && pixel.b() < 80, "new grid: {pixel:?}");
+        h.key(egui::Key::D, egui::Modifiers::NONE);
+        assert_eq!(h.host.library.as_ref().unwrap().ui.view, ViewMode::Detail);
+        h.wait_for(|h| h.library.as_ref().unwrap().renderer.textures.get(&lightcraft_ui_egui::render::Slot::Main).is_some_and(|t| t.photo == photo));
+        let image = h.host.library.as_ref().unwrap().image_rect.unwrap();
+        let pixel = h.pixel_at(image.center());
+        assert!(pixel.r() > 230 && pixel.g() < 80 && pixel.b() < 80, "new loupe: {pixel:?}");
+        h.host.editor.session.undo();
+        assert!(h.host.editor.has_unsaved(), "Compositing history survives overwrite");
+        assert_eq!(std::fs::read(&path).unwrap(), new, "Compositing undo never writes to disk");
+        drop(h);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn overwrite_original_jpeg_png_pixels_trash_atomic_reload_and_history() {
+        for ext in ["png", "jpg"] {
+            overwrite_pixels(ext, None);
+        }
+    }
+
+    #[test]
+    fn overwrite_original_cancel_and_dont_ask_again_persist() {
+        let (dir, path, photo, mut h) = overwrite_host("overwrite-confirm", "png");
+        let stored: Arc<Mutex<Option<String>>> = Arc::default();
+        let (read, write) = (stored.clone(), stored.clone());
+        h.host.editor.services.load_prefs = Some(Box::new(move || read.lock().unwrap().clone()));
+        h.host.editor.services.save_prefs = Some(Box::new(move |s| {
+            *write.lock().unwrap() = Some(s.into());
+            Ok(())
+        }));
+        h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        h.wait_for(|h| h.library.as_ref().unwrap().host_composites.contains_key(&photo));
+        let old = std::fs::read(&path).unwrap();
+        let doc = h.host.editor.session.active().unwrap().doc.clone();
+        let undo = catalog(&h.host).undo.len();
+        h.click("button:roundTripOverwrite");
+        click_overwrite(&mut h, "overwriteDontAsk");
+        click_overwrite(&mut h, "overwriteCancel");
+        assert_eq!(std::fs::read(&path).unwrap(), old);
+        assert!(Arc::ptr_eq(&doc, &h.host.editor.session.active().unwrap().doc));
+        assert_eq!(catalog(&h.host).undo.len(), undo);
+        assert!(!dir.join("Trash").exists());
+        assert!(!h.host.editor.session.prefs().dialogs.contains_key("file.saveOverOriginal"));
+        h.click("button:roundTripOverwrite");
+        click_overwrite(&mut h, "overwriteDontAsk");
+        click_overwrite(&mut h, "overwriteConfirm");
+        // The background preferences writer persists in every hosted module.
+        for _ in 0..4 {
+            h.step(vec![]);
+        }
+        let read = stored.clone();
+        let reloaded = PhotocraftApp::new(
+            photocraft_engine::Session::new(),
+            photocraft_ui_egui::Services { load_prefs: Some(Box::new(move || read.lock().unwrap().clone())), ..Default::default() },
+        );
+        assert_eq!(reloaded.session.prefs().dialogs["file.saveOverOriginal"]["dontAskAgain"], true);
+        h.host.editor.run("edit.fill", json!({"color": [0.0, 1.0, 0.0, 1.0]})).unwrap();
+        photocraft_ui_egui::overwrite_original::request(&mut h.host.editor, doc.id, false).unwrap();
+        assert!(h.host.editor.overwrite_prompt.is_none());
+        assert!(dir.join("Trash/files/photo.png.2").exists());
+        drop(h);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn overwrite_original_raw_disabled_and_failed_trash_preserves_edit() {
+        let (dir, path, photo, mut h) = overwrite_host("overwrite-raw-failure", "png");
+        let raw = dir.join("photo.ARW");
+        std::fs::write(&raw, b"raw original").unwrap();
+        h.host
+            .editor
+            .session
+            .edit("raw source", |doc, _| {
+                let photocraft_doc::LayerContent::Smart(s) = &mut doc.layers[0].content else { panic!("Develop layer") };
+                s.source = photocraft_doc::SmartSource::Linked { path: raw.to_string_lossy().into() };
+                Ok(())
+            })
+            .unwrap();
+        h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        h.wait_for(|h| h.library.as_ref().unwrap().host_composites.contains_key(&photo));
+        h.click("button:roundTripOverwrite");
+        assert!(h.host.editor.overwrite_prompt.is_none(), "disabled card cannot be activated");
+        let item = photocraft_ui_egui::menus::menu_items(&h.host.editor).into_iter().find(|i| i.id == photocraft_ui_egui::overwrite_original::SAVE_ID).unwrap();
+        assert!(!item.enabled);
+        assert_eq!(item.tooltip.as_deref(), Some("Raw files can't be overwritten; save a copy instead"));
+        assert_eq!(std::fs::read(&raw).unwrap(), b"raw original");
+        h.host.editor.session.undo();
+        h.host.editor.services.overwrite_original = Some(Box::new(|doc, path, q| {
+            crate::services::overwrite_original(doc, std::path::Path::new(path), q, |_| Err(std::io::Error::other("test Trash unavailable")))
+        }));
+        let old = std::fs::read(&path).unwrap();
+        let undo = catalog(&h.host).undo.len();
+        h.click("button:roundTripOverwrite");
+        click_overwrite(&mut h, "overwriteConfirm");
+        assert_eq!(std::fs::read(&path).unwrap(), old);
+        assert_eq!(catalog(&h.host).undo.len(), undo);
+        assert!(h.host.editor.has_unsaved());
+        assert!(h.host.editor.ui.status.contains("test Trash unavailable"));
+        assert!(h.host.library.as_ref().unwrap().host_composites.contains_key(&photo));
+        drop(h);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn overwrite_original_notice_saves_its_document_when_another_tab_is_active() {
+        let (dir, path, photo, mut h) = overwrite_host("overwrite-other-tab", "png");
+        let target = h.host.editor.session.active().unwrap().doc.id;
+        h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        h.wait_for(|h| h.library.as_ref().unwrap().host_composites.contains_key(&photo));
+        h.host.editor.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        let other = h.host.editor.session.active().unwrap().doc.clone();
+        h.click("button:roundTripOverwrite");
+        assert_eq!(h.host.editor.overwrite_prompt.as_ref().unwrap().doc, target);
+        click_overwrite(&mut h, "overwriteConfirm");
+        assert!(Arc::ptr_eq(&other, &h.host.editor.session.active().unwrap().doc));
+        let state = h.host.editor.session.documents().iter().find(|d| d.doc.id == target).unwrap();
+        assert!(!state.is_dirty());
+        assert!(h.host.library.as_ref().unwrap().host_composites.is_empty());
+        let img = photocraft_codecs::decode(&std::fs::read(&path).unwrap())
+            .unwrap()
+            .convert(photocraft_codecs::ChannelLayout::Rgb, photocraft_codecs::SampleType::U8);
+        assert!(img.data().as_chunks::<3>().0.iter().all(|p| p[0] > 240 && p[1] < 12 && p[2] < 12));
+        drop(h);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn overwrite_original_gpu_real_canvas_and_library_reload() {
+        use eframe::{egui_wgpu, wgpu};
+        let setup = photocraft_ui_egui::gpu_canvas::wgpu_setup();
+        let egui_wgpu::WgpuSetup::CreateNew(new) = &setup else { panic!("GPU setup") };
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: new.instance_descriptor.backends,
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        let config = egui_wgpu::WgpuConfiguration { wgpu_setup: setup, ..Default::default() };
+        let rs = block_on(egui_wgpu::RenderState::create(&config, &instance, None, Default::default())).expect("real GPU required");
+        let info = rs.adapter.get_info();
+        assert_eq!(info.backend, wgpu::Backend::Vulkan);
+        assert_eq!(info.device_type, wgpu::DeviceType::DiscreteGpu);
+        eprintln!("overwrite GPU: {} ({:?})", info.name, info.backend);
+        overwrite_pixels("png", Some(rs));
     }
 
     #[test]

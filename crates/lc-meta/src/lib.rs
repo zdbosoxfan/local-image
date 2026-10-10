@@ -12,6 +12,8 @@
 #![forbid(unsafe_code)]
 
 mod container;
+mod tiff_replace;
+pub use tiff_replace::preserve_tiff_metadata;
 pub mod cr3;
 mod datetime;
 mod exif;
