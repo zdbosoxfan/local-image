@@ -22,6 +22,7 @@
 
 mod app_dirs;
 mod app_icon;
+mod app_log;
 #[cfg(target_os = "macos")]
 mod apple_events;
 mod control_server;
@@ -182,6 +183,17 @@ fn main() -> eframe::Result {
         }
     }
 
+    // The log file (stderr is lost when launched from the desktop menu): GPU start-up, warnings,
+    // errors and panics. Opened after the arguments so `--version` doesn't rotate it.
+    let log_path = app_log::init();
+    log::info!(
+        "Local Image {} starting (pid {}); settings in {:?}; log file {:?}",
+        photocraft_engine::build_info::long_version(),
+        std::process::id(),
+        app_dirs::config_dir(),
+        log_path
+    );
+
     // A malformed control port must not silently drop the control server (issue #701): name the
     // bad value and fail the launch, like `local-image-cli serve --port` does for the same typo.
     // Exit status 2 is the usual command-line usage error, so a launcher sees the failure.
@@ -259,9 +271,35 @@ fn main() -> eframe::Result {
         None => (gpu_startup::Previous::Clean, None),
     };
     let env_backend = std::env::var("WGPU_BACKEND").ok();
+    // Why GPU acceleration is reduced or off after an earlier failure, while that still applies
+    // (choosing GPU again in Preferences or the CPU-mode notice makes it stale).
+    let config_dir = services::config_dir();
+    let mut recovery = config_dir.as_deref().and_then(gpu_startup::Recovery::load);
+    if recovery.is_some() && !gpu_startup::Recovery::applies(pref, mode, os) {
+        if let Some(dir) = config_dir.as_deref() {
+            gpu_startup::Recovery::clear(dir);
+        }
+        recovery = None;
+    }
     let plan = gpu_startup::plan_with_mode(pref, mode, previous.crashed(), env_backend.as_deref(), safe_gpu, os);
+    // A process re-launched after its parent's renderer couldn't initialise (see the end of main).
+    let retry_env = std::env::var(gpu_startup::RETRY_ENV).ok();
+    let retry_reason = std::env::var(gpu_startup::RETRY_REASON_ENV).ok();
+    let plan = gpu_startup::with_init_retry(plan, retry_env.as_deref(), retry_reason.as_deref(), os);
+    let plan = gpu_startup::with_recovery(plan, recovery.as_ref(), os);
     if let Some(m) = previous.crashed() {
-        log::warn!("the previous start didn't finish (GPU backend {}, adapter {:?}); {}", m.backend, m.adapter, plan.reason.as_deref().unwrap_or(""));
+        log::warn!(
+            "the previous start didn't finish (GPU backend {}, adapter {:?} on {:?}, driver {:?}, attempt {}); {}",
+            m.backend,
+            m.adapter,
+            m.adapter_backend,
+            m.driver,
+            m.attempt,
+            plan.reason.as_deref().unwrap_or("")
+        );
+    }
+    if let Some(r) = &recovery {
+        log::info!("GPU recovery in effect: {}", r.reason);
     }
     let sentinel: gpu_startup::SharedSentinel = std::sync::Arc::new(std::sync::Mutex::new(sentinel));
     if let Some(s) = sentinel.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut() {
@@ -269,7 +307,8 @@ fn main() -> eframe::Result {
             Some(v) => format!("env:{v}"),
             None => plan.backend.name().to_string(),
         };
-        let marker = gpu_startup::Marker { backend, version: photocraft_engine::build_info::long_version().to_string(), ..Default::default() };
+        let marker =
+            gpu_startup::Marker { backend, version: photocraft_engine::build_info::long_version().to_string(), attempt: plan.attempt, ..Default::default() };
         if let Err(e) = s.write(marker) {
             log::warn!("GPU startup marker: {e}");
         }
@@ -278,8 +317,13 @@ fn main() -> eframe::Result {
     // The adapter's real texture limits (egui asks for 8192 px), so big documents stay on the GPU.
     gpu_startup::configure(&mut options.wgpu_options.wgpu_setup, &plan, os, sentinel.clone(), gpu_note.clone());
     let sentinel_ms = t_sentinel.elapsed().as_secs_f64() * 1000.0;
-    log::info!("GPU startup: {:?} ({sentinel_ms:.2} ms)", plan);
+    log::info!("GPU startup: {:?}, preference {} / {:?} ({sentinel_ms:.2} ms)", plan, pref.name(), mode);
     let retry_cpu = !safe_gpu && plan.backend != photocraft_engine::prefs::GpuBackend::Cpu;
+    let startup_failure = std::env::var("LOCAL_IMAGE_GPU_STARTUP_FAILURE").ok().filter(|r| !r.trim().is_empty());
+    let saved_recovery = recovery.clone();
+    // For the re-launch after a renderer initialisation failure (the closure below takes `plan`).
+    let planned_backend = plan.backend;
+    let next_after_failure = gpu_startup::after_init_failure(&plan, os);
     let app_created = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let created_in_callback = app_created.clone();
     let started_sentinel = sentinel.clone();
@@ -345,22 +389,41 @@ fn main() -> eframe::Result {
                     let _ = photocraft_ui_egui::gpu_canvas::DeviceHealth::watch(&rs.device);
                 }
             }
-            let fallback_reason = std::env::var("LOCAL_IMAGE_GPU_STARTUP_FAILURE").ok().or_else(|| {
+            let fallback_reason = startup_failure.clone().or_else(|| {
                 (app.perf.gpu_info.canvas == "cpu" && mode != photocraft_engine::prefs::RenderingMode::Cpu)
                     .then(|| app.perf.gpu_info.fallback.clone())
                     .flatten()
             });
-            if let Some(reason) = fallback_reason {
-                photocraft_ui_egui::gpu_status::queue_fallback_notice(&mut app, &reason);
+            if let Some(reason) = &fallback_reason {
+                log::warn!("GPU acceleration is off for this launch: {reason}");
+                photocraft_ui_egui::gpu_status::queue_fallback_notice(&mut app, reason);
             }
+            // Keep saying why while the app stays in CPU mode after a failure (status bar, title
+            // bar and Preferences › Performance), not just in the one-time warning.
+            app.perf.gpu_info.recovery =
+                fallback_reason.clone().or_else(|| (app.perf.gpu_info.canvas == "cpu").then(|| saved_recovery.as_ref().map(|r| r.reason.clone())).flatten());
             app.perf.span("gpuSentinel", sentinel_ms);
             // Once the first frames rendered: clear the marker, and keep a crash fallback.
-            let remember_cpu =
-                std::env::var_os("LOCAL_IMAGE_GPU_STARTUP_FAILURE").is_some() || (plan.remember && plan.backend == photocraft_engine::prefs::GpuBackend::Cpu);
+            let remember_cpu = startup_failure.is_some() || (plan.remember && plan.backend == photocraft_engine::prefs::GpuBackend::Cpu);
             let remember = plan.remember.then_some(plan.backend);
+            // What to write to `gpu-recovery.json` once this start has worked.
+            let new_recovery = if remember_cpu {
+                fallback_reason.clone().or_else(|| plan.reason.clone()).map(|reason| gpu_startup::Recovery { reason, avoid: None })
+            } else if plan.remember && plan.backend == photocraft_engine::prefs::GpuBackend::Gl && os == gpu_startup::Os::Other {
+                plan.reason.clone().map(|reason| gpu_startup::Recovery { reason, avoid: plan.avoid.clone() })
+            } else {
+                None
+            };
+            let recovery_dir = config_dir.clone();
             app.on_started(move |app| {
                 if let Some(s) = started_sentinel.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
                     s.finish();
+                }
+                log::info!("GPU startup finished: {} canvas on {:?}", app.perf.gpu_info.canvas, app.perf.gpu_info.adapter);
+                if let (Some(r), Some(dir)) = (&new_recovery, recovery_dir.as_deref())
+                    && let Err(e) = r.save(dir)
+                {
+                    log::warn!("couldn't save the GPU recovery note: {e}");
                 }
                 if remember_cpu
                     && let Err(error) = app.run(
@@ -417,26 +480,47 @@ fn main() -> eframe::Result {
     {
         s.finish();
     }
+    if let Err(e) = &result {
+        log::error!("the window couldn't start: {e}");
+    }
     // Retry in a fresh process: winit event loops cannot be recreated reliably in-process.
     // Only renderer initialization failures qualify; never restart after editing has begun.
+    // Linux tries the compatible GPU set first (`gpu_startup::after_init_failure`), then the CPU.
     if retry_cpu && !app_created.load(std::sync::atomic::Ordering::Relaxed) && matches!(&result, Err(eframe::Error::Wgpu(_))) {
-        let reason = result.as_ref().err().map(ToString::to_string).unwrap_or_default();
+        let error = result.as_ref().err().map(ToString::to_string).unwrap_or_default();
+        // The whole chain's reasons, so the CPU-mode notice says what each step hit.
+        let reason = match retry_reason.as_deref().map(str::trim).filter(|r| !r.is_empty()) {
+            Some(earlier) => format!("{earlier}; then on {}: {error}", planned_backend.name()),
+            None => format!("{}: {error}", planned_backend.name()),
+        };
         if let Some(s) = sentinel.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
             s.finish();
         }
         if let Ok(exe) = std::env::current_exe() {
-            let launched = std::process::Command::new(exe)
+            let mut command = std::process::Command::new(exe);
+            command
                 .args(std::env::args_os().skip(1))
-                .arg("--safe-gpu")
                 .env_remove("WGPU_BACKEND")
-                .env("LOCAL_IMAGE_GPU_STARTUP_FAILURE", &reason)
-                .spawn();
-            match launched {
+                .env_remove(gpu_startup::RETRY_ENV)
+                .env_remove(gpu_startup::RETRY_REASON_ENV)
+                .env(app_log::APPEND_ENV, "1");
+            match next_after_failure {
+                Some(b) => {
+                    log::warn!("the renderer couldn't start on {}; retrying with {}", planned_backend.name(), gpu_startup::describe(b, os));
+                    command.env(gpu_startup::RETRY_ENV, b.name()).env(gpu_startup::RETRY_REASON_ENV, &reason);
+                }
+                None => {
+                    log::warn!("the renderer couldn't start on {}; retrying in CPU compatibility mode", planned_backend.name());
+                    command.arg("--safe-gpu").env("LOCAL_IMAGE_GPU_STARTUP_FAILURE", &reason);
+                }
+            }
+            match command.spawn() {
                 Ok(_) => return Ok(()),
-                Err(error) => log::error!("could not start CPU compatibility mode: {error}"),
+                Err(error) => log::error!("could not re-launch after the GPU start-up failure: {error}"),
             }
         }
     }
+    log::logger().flush();
     result
 }
 

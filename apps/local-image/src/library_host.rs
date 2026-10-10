@@ -540,6 +540,13 @@ impl eframe::App for Host {
             self.editor.logic(ctx, frame);
         } else {
             self.editor.background_tick(ctx);
+            // Started in the Library or Develop: the editor's frames (which run the started hook)
+            // don't happen, so the GPU start-up marker stayed for the whole session and any later
+            // exit that wasn't clean (out-of-memory killer, logout, a crash elsewhere) read as a
+            // GPU driver crash next launch. The window has presented by now: start-up is done.
+            if self.frames >= 3 {
+                photocraft_ui_egui::gpu_status::finish_startup(&mut self.editor);
+            }
         }
         // Quitting from the Library with unsaved documents: the editor asks about them.
         if self.quit_review(ctx) {
@@ -635,6 +642,8 @@ impl eframe::App for Host {
         if let Some(lib) = self.library.as_mut() {
             lib.ui(ui);
         }
+        // The switched-to-CPU warning appears in every module, not only once Compositing is open.
+        photocraft_ui_egui::gpu_status::show_fallback(&mut self.editor, ui.ctx());
         photocraft_ui_egui::panels::host_resize_zones(&self.editor, ui);
     }
 

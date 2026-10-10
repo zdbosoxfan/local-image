@@ -505,6 +505,8 @@ pub fn library_title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, title: &str
                 let group = egui::Rect::from_min_max(egui::pos2(ui.cursor().left() + TITLE_GAP, full.top()), egui::pos2(right_edge, full.bottom()));
                 let mut g = ui.new_child(egui::UiBuilder::new().max_rect(group).layout(egui::Layout::right_to_left(egui::Align::Center)));
                 go = mode_switch(&mut g, &t, current);
+                // CPU mode after a GPU failure, visible in the Library and Develop too.
+                crate::gpu_status::status_pill(app, &mut g);
                 controls_left = g.min_rect().left();
             });
             // The free space drags the window; a double click maximizes.
@@ -1119,6 +1121,8 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // local-image: the AI engine status pill.
                         crate::ai_ui::status_pill(app, ui);
+                        // CPU mode after a GPU failure: why, and Retry GPU.
+                        crate::gpu_status::status_pill(app, ui);
                         // Stop generation and unload models, left of the GPU stats.
                         crate::ai_ui::status_controls(app, ui);
                         crate::jobs_ui::status_progress(app, ui)
@@ -1148,6 +1152,7 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     ui.label(RichText::new(&app.ui.status).color(if is_err { t.warning } else { t.text_faint }));
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    crate::gpu_status::status_pill(app, ui);
                     if app.session.active().is_some()
                         && !t.pro
                         && widgets::secondary_button(ui, tl!("Fit"), 0.0).clicked()

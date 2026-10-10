@@ -908,6 +908,9 @@ pub struct GpuInfo {
     pub canvas: String,
     /// Why the GPU canvas was dropped during this session (device lost or a GPU error).
     pub lost: Option<String>,
+    /// Why the app is in CPU mode because of a GPU failure (this launch's or an earlier one's
+    /// that left CPU mode on). The status bar and Preferences › Performance keep showing it.
+    pub recovery: Option<String>,
 }
 
 impl GpuInfo {
@@ -953,7 +956,19 @@ impl GpuInfo {
         if let Some(l) = &self.lost {
             v.push(format!("This session: {l}"));
         }
+        if let Some(r) = self.recovery.as_ref().filter(|r| self.fallback.as_ref() != Some(*r)) {
+            v.push(format!("CPU mode after a GPU failure: {r}"));
+        }
         v
+    }
+
+    /// Why GPU acceleration is off because of a failure, when it is (`None` when the GPU canvas
+    /// is in use or the user chose CPU rendering).
+    pub fn failure(&self) -> Option<&str> {
+        if self.canvas == "gpu" {
+            return None;
+        }
+        self.lost.as_deref().or(self.recovery.as_deref())
     }
 }
 

@@ -770,6 +770,7 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
     match f.get("__prefsui").and_then(Value::as_str).unwrap_or("") {
         "prefs" => {
             f.insert("__gpuInfo".into(), json!(app.perf.gpu_info.lines()));
+            f.insert("__gpuFailure".into(), json!(app.perf.gpu_info.failure()));
             prefs_body(ui, f);
             crate::attributions::open_pending(app, ui.ctx(), f);
         }
@@ -903,7 +904,7 @@ fn prefs_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                 } else if let Some(obj) = values.get_mut(&section).and_then(Value::as_object_mut) {
                     section_fields(ui, &section, obj, &order, lang);
                     if section == "performance" {
-                        gpu_status_rows(ui, f.get("__gpuInfo"), obj);
+                        gpu_status_rows(ui, f.get("__gpuInfo"), f.get("__gpuFailure").and_then(Value::as_str), obj);
                     }
                     ui.add_space(8.0);
                 }
@@ -922,10 +923,22 @@ fn prefs_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
 
 /// Preferences › Performance: what the app renders with now, and a reset of the GPU backend
 /// (a crashed start may have moved it to a safer choice).
-fn gpu_status_rows(ui: &mut egui::Ui, info: Option<&Value>, obj: &mut Map<String, Value>) {
+fn gpu_status_rows(ui: &mut egui::Ui, info: Option<&Value>, failure: Option<&str>, obj: &mut Map<String, Value>) {
     let t = Tokens::get(ui.ctx());
     ui.add_space(10.0);
     ui.label(RichText::new(tl!("Graphics")).font(crate::theme::semibold(12.5)).color(t.text));
+    // CPU mode because of a GPU failure: say so first, with the way back.
+    if let Some(reason) = failure {
+        ui.label(RichText::new(tl!("GPU acceleration is off after a graphics failure.")).color(t.warning));
+        ui.label(RichText::new(reason).color(t.text_dim));
+        let retry_chosen = rendering_mode_value(obj) != "cpu" && obj.get("gpuBackend").and_then(Value::as_str).unwrap_or("auto") == "auto";
+        if !retry_chosen && crate::widgets::secondary_button(ui, tl!("Retry GPU"), 120.0).clicked() {
+            obj.insert("renderingMode".into(), json!("gpu"));
+            obj.insert("useGpu".into(), json!(true));
+            obj.insert("gpuBackend".into(), json!("auto"));
+        }
+        ui.add_space(4.0);
+    }
     for line in info.and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
         ui.label(RichText::new(line).color(t.text_dim));
     }
