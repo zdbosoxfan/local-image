@@ -1,0 +1,14 @@
+{
+  "shapes.afdesign": {
+    "bytes": 342,
+    "sha256": "07f3905c233106c792cac716009818d7aabaf495b072818ba34649ba03d4cba1"
+  },
+  "warnings.afphoto": {
+    "bytes": 404,
+    "sha256": "cb74786acf102bb519bcba76cb0c5dcf53f63e5d0c4affbae066b30f69b1318c"
+  },
+  "preview.afphoto": {
+    "bytes": 304,
+    "sha256": "a8be527e698383019fed7b3674cc15d87e09b344311f14e288066be96a15328e"
+  }
+}
