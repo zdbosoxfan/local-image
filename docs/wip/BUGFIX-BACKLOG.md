@@ -4,41 +4,12 @@ Until every planned feature is merged, merges are gated on: compiles, clippy cle
 Full workspace + GPU (RTX 5090) suites, benchmarks and these items are handled in the final bug-fixing run.
 
 ## Known issues
-- **NVIDIA driver segfault at process exit (2026-10-09):** `lightcraft-ui-egui --lib` passes all tests, then crashes in
-  `libnvidia-glvkspirv.so` (driver shader-compiler thread) while exiting. Driver teardown race; if the app does the
-  same on quit, the GPU start-up marker is already cleared (fa739578). Consider waiting for device idle before exit.
+- NVIDIA exit crash: reproduced SIGABRT after 209 Library tests; warm-up/queue barriers repaired, but the driver compiler remains active during Vulkan unload; use `LIGHTCRAFT_GPU=0` (full-suite validation recorded in CODEX-REPORT-backlog.md).
 - **ComfyUI left running after V2 quits (owner, 2026-10-09):** the auto-started ComfyUI (`auto_start_comfy`) kept
   running after Local Image V2 closed and held 29–46 GB of RAM (and ~20 GB VRAM), nearly exhausting the 60 GB PC. Stop
   the ComfyUI the app started on quit (not one the user started themselves); consider unloading models when idle.
-- Verify PSD v7 slice descriptor enum names (horizontal Left/Cntr/Rght, vertical Top /Cntr/Btom, `bgColorType` "Clr ") against a PSD saved by Photoshop — written from memory in the bug-fix run (`crates/pc-psd`).
-- pc-algo features: `ransac` panics when src and dst lengths differ (ignored test in `crates/pc-algo/tests/coverage/ds_features_coverage.rs`).
-- pc-algo inpaint: `mvc_membrane` caps channels at 8 (test ignored; low impact).
+- PSD v7 nondefault slice alignments: writer follows Adobe SDK terminology and retains legacy read aliases; Photoshop CS6 fixture confirms defaults/color, but a Photoshop-saved nondefault-alignment fixture remains unavailable.
 - Translations: complete in all 12 languages for both apps (2026-10-09, DeepSeek). Native-speaker spot checks would
   still help; Camera Raw contextual labels elsewhere (AI panel `tr_ctx` + shared widgets) may double-translate too.
-- `scripts/generate-trace-stage-fixtures.py` (pc-trace golden regeneration helper) was lost with its worktree; recreate
-  from `crates/pc-trace/tests/golden/SOURCES.md`.
-- GPU validation pending on the 5090 for: colour icons,
-  any compositor/vector rendering changes since the last 5090 run.
 - Vectorizer competitor gates (vtracer/potrace/Inkscape references) — results pending.
-- Flaky/unknown: occasional NVIDIA shader-compiler hang (`banded_full_size_render_matches`), crashes logged in
-  `libnvidia-glcore` from test processes.
-- Coverage tests from the DeepSeek dispatcher: any `#[ignore = "BUG: …"]` they add is a backlog item.
-
-## Suspected bugs from DeepSeek coverage tests (verify first; each is an `#[ignore = "BUG: …"]` test)
-- text contains with empty value should not match everything, but current code matches all — `crates/lc-catalog/tests/coverage/ds_rules_coverage.rs`
-- encode panics on width=0 due to chunks_mut(0) — `crates/lc-codecs/tests/coverage/ds_jpeg_par_coverage.rs`
-- RawProcessing accepts malformed JSON array — `crates/lc-develop/tests/coverage/ds_tools_coverage.rs`
-- read_lmp accepts NaN and produces 'NaN' string in settings — `crates/lc-engine/tests/coverage/ds_preset_luminar_coverage.rs`
-- parse_sidecar accepts arbitrary non-XMP input — `crates/lc-engine/tests/coverage/ds_sidecar_coverage.rs`
-- dl(0, level) panics for level > 0 due to unsigned subtraction underflow — `crates/lc-pipeline/tests/coverage/ds_llf_coverage.rs`
-- curve_at panics on empty LUT — `crates/lc-pipeline/tests/coverage/ds_llf_coverage.rs`
-- num_levels(0,0) panics due to integer underflow — `crates/lc-pipeline/tests/coverage/ds_llf_coverage.rs`
-- installed model built with default ModelDef loses required nodes, so availability incorrectly reports available with empty ObjectInfo — `crates/li-ai/tests/coverage/ds_catalog_coverage.rs`
-- ransac panics when src and dst lengths differ — `crates/pc-algo/tests/coverage/ds_features_coverage.rs`
-- subsample max=0 panics due to div_ceil(0) — `crates/pc-algo/tests/coverage/ds_segment_coverage.rs`
-- display_at does not handle NaN rect coordinates — `crates/pc-engine/tests/coverage/ds_display_color_coverage.rs`
-- path_from_resource accepts truncated data and returns empty path instead of None — `crates/pc-io/tests/coverage/ds_vector_map_coverage.rs`
-- seed multiplication overflows u64 for large seeds — `crates/pc-paint/tests/coverage/ds_procedural_coverage.rs`
-- v6 origin=1 with layer_id=None roundtrips as Some(0) — `crates/pc-psd/tests/coverage/ds_slices_coverage.rs`
-- v7 descriptor does not preserve horizontal/vertical align and color — `crates/pc-psd/tests/coverage/ds_slices_coverage.rs`
-- utf16_to_byte_lengths returns 2 bytes for an ASCII character — `crates/pc-text/tests/coverage/ds_psd_styles_coverage.rs`
+- NVIDIA banded-render compiler hang: not reproduced in five RTX 5090 runs, including three with disk caching requested off; compute-off fallback `LIGHTCRAFT_GPU=0` avoids this path; intermittent driver cause remains unknown.

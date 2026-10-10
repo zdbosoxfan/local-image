@@ -6,7 +6,10 @@ use serde_json::json;
 
 use crate::{PhotocraftApp, color_icon_data, color_icons, icons, state::Tool};
 
-#[allow(dead_code)] // Reuse Develop's CPU painter for these windowless pixel checks.
+// Reuse Develop's CPU painter for these windowless pixel checks.
+// Format this shared module in its home crate, which uses a different line width.
+#[allow(dead_code)]
+#[rustfmt::skip]
 #[path = "../../lc-ui-egui/src/softpaint.rs"]
 pub(super) mod cpu;
 
@@ -168,4 +171,64 @@ fn clicking_preferences_switches_the_real_toolbar_pixels_and_saves() {
     assert_eq!(h.state().session.prefs().interface.tool_icons, "colour");
     let colour_2x = toolbar_pixels(h.state_mut(), 2.0);
     assert!(saturated_toolbar_pixels(&colour_2x, 2.0) > colour_count * 2);
+}
+
+#[test]
+fn hardware_gpu_renders_compositing_and_develop_colour_icons_at_both_scales() {
+    use eframe::wgpu;
+    use egui_kittest::wgpu::{WgpuTestRenderer, create_render_state};
+
+    for scale in [1.0, 2.0] {
+        let rs = create_render_state(crate::gpu_canvas::wgpu_setup(), Default::default());
+        let info = rs.adapter.get_info();
+        if info.device_type == wgpu::DeviceType::Cpu {
+            assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "hardware GPU required, got {}", info.name);
+            eprintln!("skipped: hardware GPU unavailable ({})", info.name);
+            return;
+        }
+        eprintln!("colour icons: {} ({:?}), scale {scale}", info.name, info.backend);
+        let renderer = WgpuTestRenderer::from_render_state(rs.clone());
+        let mut h = Harness::builder().with_size(vec2(800.0, 700.0)).with_pixels_per_point(scale).renderer(renderer).build_ui_state(
+            |ui, rects: &mut Vec<(Rect, Rect)>| {
+                ui.painter().rect_filled(ui.max_rect(), 0.0, Color32::from_gray(31));
+                rects.clear();
+                // These are the same embedded SVGs, rasterizer and texture cache used by both
+                // Compositing and Develop. Exercise every enabled and disabled texture upload.
+                for row in color_icon_data::COLOR_ICONS.chunks(10) {
+                    ui.horizontal(|ui| {
+                        for (name, _) in row {
+                            let enabled = ui.add(color_icons::image(ui, name, 28.0, false).unwrap()).rect;
+                            let disabled = ui.add(color_icons::image(ui, name, 28.0, true).unwrap()).rect;
+                            rects.push((enabled, disabled));
+                        }
+                    });
+                }
+            },
+            Vec::new(),
+        );
+        h.run_steps(3);
+        let pixels = h.render().unwrap();
+        let counts = |rect: Rect| {
+            let mut visible = 0;
+            let mut saturated = 0;
+            for y in (rect.top() * scale).ceil() as u32..(rect.bottom() * scale).floor() as u32 {
+                for x in (rect.left() * scale).ceil() as u32..(rect.right() * scale).floor() as u32 {
+                    let p = pixels.get_pixel(x, y).0;
+                    visible += usize::from(p[0].max(p[1]).max(p[2]) > 45);
+                    saturated += usize::from(p[0].max(p[1]).max(p[2]) - p[0].min(p[1]).min(p[2]) > 40);
+                }
+            }
+            (visible, saturated)
+        };
+        assert_eq!(h.state().len(), color_icon_data::COLOR_ICONS.len());
+        for ((name, _), (enabled, disabled)) in color_icon_data::COLOR_ICONS.iter().zip(h.state()) {
+            assert!(counts(*enabled).0 > 10, "{name} vanished on the GPU at scale {scale}");
+            assert_eq!(counts(*disabled).1, 0, "{name} disabled texture retained colour");
+        }
+        assert!(h.state().iter().map(|(enabled, _)| counts(*enabled).1).sum::<usize>() > 1000);
+        // Drop all renderer/texture owners before the final device/queue handles.
+        drop(h);
+        rs.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(std::time::Duration::from_secs(30)) }).unwrap();
+        drop(rs);
+    }
 }

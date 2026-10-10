@@ -861,3 +861,22 @@ pub fn build_tysh(layer: &TextLayer, dpi: f32, ink: Option<[f32; 4]>) -> Vec<u8>
     let bounds = [l.floor() as i32, t.floor() as i32, r.ceil() as i32, b.ceil() as i32];
     write_tysh(&TySh { transform: layer.transform, text, warp, bounds })
 }
+
+#[cfg(test)]
+mod run_length_tests {
+    use super::utf16_to_byte_lengths;
+
+    #[test]
+    fn utf16_runs_count_utf8_bytes_and_photoshops_final_return() {
+        assert_eq!(utf16_to_byte_lengths("a", &[1.0]), [1]);
+        assert_eq!(utf16_to_byte_lengths("éa\r", &[1.0, 2.0]), [2, 2]);
+        assert_eq!(utf16_to_byte_lengths("a😀漢\r", &[1.0, 2.0, 2.0]), [1, 4, 4]);
+    }
+
+    #[test]
+    fn malformed_utf16_runs_stay_on_scalar_boundaries_and_stop_at_text_end() {
+        assert_eq!(utf16_to_byte_lengths("😀a", &[1.0, 1.0, 10.0]), [4, 1, 0]);
+        assert_eq!(utf16_to_byte_lengths("a", &[f64::NAN, -1.0, 0.0, f64::INFINITY]), [0, 0, 0, 1]);
+        assert_eq!(utf16_to_byte_lengths("", &[f64::INFINITY]), [0]);
+    }
+}
