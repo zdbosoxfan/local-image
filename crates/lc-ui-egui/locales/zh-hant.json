@@ -1565,5 +1565,7 @@
   "An export is already running": "匯出已在進行中",
   "No export writer is available": "沒有可用的匯出寫入器",
   "Analysis is already running": "分析已在進行中",
-  "Could not prepare photo": "無法準備照片"
+  "Could not prepare photo": "無法準備照片",
+  "Also in this group:": "同樣在此群組中：",
+  "sRGB (AVIF)": "sRGB (AVIF)"
 }

@@ -2877,3 +2877,1019 @@ ai	New	Nové
 	Choose Erase or Restore in the options bar, then paint to refine the mask.	Na panelu voleb vyberte Vymazat nebo Obnovit a poté malováním upravte masku.
 	Tool Set Name	Název sady nástrojů
 	You can also drag with the middle mouse button to pan.	K posouvání můžete také táhnout prostředním tlačítkem myši.
+	10 fps	10 sn./s
+	15 fps	15 sn./s
+	24 fps	24 sn./s
+	25 fps	25 sn./s
+	30 fps	30 sn./s
+	32-bit Preview Options	Možnosti 32bitového náhledu
+	3D	3D
+	3D…	3D…
+	ACES	ACES
+	AI Integrations	Integrace AI
+	Accented Edges	Zvýrazněné okraje
+	Accurate	Přesný
+	Actual Color	Skutečná barva
+	Adaptive Wide Angle	Adaptivní širokoúhlý
+	Add Noise	Přidat šum
+	Add Pins	Přidat špendlíky
+	Add a mask  (from the selection; ⌥ inverts)	Přidat masku  (z výběru; ⌥ invertuje)
+	Add to	Přidat do
+	Add to selection  (⇧)	Přidat k výběru  (⇧)
+	Adds grain to the soft edges of the brush tip.	Přidává zrno měkkým okrajům špičky štětce.
+	Adjust Interval For Loops	Upravit interval pro smyčky
+	Adjustment	Úprava
+	Adjustment Layer	Vrstva úprav
+	Adobe Every-line Composer	Adobe skládání každého řádku
+	Adobe PDF Presets…	Předvolby Adobe PDF…
+	Adobe RGB (1998)	Adobe RGB (1998)
+	Adobe Single-line Composer	Adobe skládání jednoho řádku
+	Advanced Blending	Pokročilé prolnutí
+	Advanced Controls	Pokročilé ovládání
+	After (X)	Po (X)
+	Airbrush: keeps painting while the pointer rests.	Airbrush: maluje, i když je ukazatel v klidu.
+	Alignment	Zarovnání
+	Alpha	Alfa
+	Alternates for Current Selection	Alternativy pro aktuální výběr
+	Alternative	Alternativní
+	Ambience	Atmosféra
+	Ambient	Okolní
+	Amplitude Max	Amplituda max
+	Amplitude Min	Amplituda min
+	Angled Strokes	Šikmé tahy
+	Anisotropic	Anizotropní
+	Aperture	Clona
+	Apple RGB	Apple RGB
+	Apply Data Set	Použít datovou sadu
+	Apply Image	Použít obrázek
+	Apply Layer Comp	Použít kompozici vrstev
+	Arbitrary	Libovolný
+	Arc	Oblouk
+	Arch	Oblouk
+	Area	Oblast
+	Around Center	Kolem středu
+	Arrangement	Uspořádání
+	Art History Brush	Umělecký štětec historie
+	Artboard from Group	Kreslicí plátno ze skupiny
+	Artboard from Layers	Kreslicí plátno z vrstev
+	Artboards to Files	Kreslicí plátna do souborů
+	Artboards to PDF	Kreslicí plátna do PDF
+	Artist	Autor
+	Artistic	Umělecké
+	Ask Before Saving Saved Embedded	Dotázat se před uložením uložených vložených
+	Ask When Pasting	Dotázat se při vkládání
+	Aspect Ratio	Poměr stran
+	Assign Profile	Přiřadit profil
+	At	Na
+	Audio	Zvuk
+	Author	Autor
+	Auto Clean Brush	Automatické čištění štětce
+	Auto Scale	Automatické měřítko
+	Auto-Align Layers	Automaticky zarovnat vrstvy
+	Auto-Blend Layers	Automaticky prolnout vrstvy
+	Auto-Hide	Automaticky skrýt
+	Auto-Leading	Automatický proklad
+	Auto-leading %	Automatický proklad %
+	Automatically Create First Snapshot	Automaticky vytvořit první snímek
+	Automatically Create New Snapshot When Saving	Automaticky vytvořit nový snímek při uložení
+	Avoid Widows/Orphans	Zabránit vdovám a sirotkům
+	Background Level	Úroveň pozadí
+	Background from Layer	Pozadí z vrstvy
+	Bamboo	Bambus
+	Bas Relief	Basreliéf
+	Base Tree Type	Základní typ stromu
+	Baseline Shift	Posun účaří
+	Batch	Dávka
+	Berries	Bobule
+	Black Clip	Ořez černé
+	Black Intensity	Intenzita černé
+	Blade Curvature	Zakřivení čepele
+	Blast	Výbuch
+	Bleach Bypass	Bleach Bypass
+	Blend	Prolnutí
+	Blend RGB Colors Using Gamma 1.0	Prolnout barvy RGB pomocí gama 1.0
+	Blocks	Bloky
+	Blue Yellow	Modrá žlutá
+	Blur Angle	Úhel rozostření
+	Bold Italic	Tučná kurzíva
+	Border	Ohraničení
+	Border Thickness	Tloušťka ohraničení
+	Bottom Left	Dolní levý
+	Bottom Right	Dolní pravý
+	Box Blur	Rozostření obdélníkem
+	Branches Color	Barva větví
+	Branches Height	Výška větví
+	Branches Thickness	Tloušťka větví
+	Brick	Cihla
+	Bristle Detail	Detail štětin
+	Browse	Procházet
+	Brush Detail	Detail štětce
+	Brush Size	Velikost štětce
+	Brush Strokes	Tahy štětcem
+	Brush Tip	Špička štětce
+	Brush Type	Typ štětce
+	Bulge	Vyboulení
+	Burlap	Pytlovina
+	Burn	Ztmavit
+	Byline	Autor
+	Byline Title	Titul autora
+	CIE RGB	CIE RGB
+	CMYK:	CMYK:
+	Calculations	Výpočty
+	Camera Calibration	Kalibrace fotoaparátu
+	Camera Data	Data fotoaparátu
+	Camera Make	Výrobce fotoaparátu
+	Camera Model	Model fotoaparátu
+	Camera Raw	Camera Raw
+	Candle Light	Světlo svíčky
+	Canvas Size	Velikost plátna
+	Canvas rotation	Otočení plátna
+	Caption	Popisek
+	Caption Credits	Popisek a zásluhy
+	Capture Comp	Kompenzace snímání
+	Category	Kategorie
+	Cell Size	Velikost buňky
+	Center X	Střed X
+	Center Y	Střed Y
+	Chalk & Charcoal	Křída a uhel
+	Chalk Area	Plocha křídy
+	Channel	Kanál
+	Channel1	Kanál 1
+	Channel2	Kanál 2
+	Channel3	Kanál 3
+	Channel4	Kanál 4
+	Charcoal	Uhel
+	Charcoal Area	Plocha uhlu
+	Charcoal Thickness	Tloušťka uhlu
+	Chrome	Chrom
+	Circle	Kruh
+	Circularity	Kruhovitost
+	City	Město
+	Cleanliness	Čistota
+	Clear Amount	Míra vyčištění
+	Clear History	Vymazat historii
+	Click the first point or press ↵ to close · Esc cancels	Klikněte na první bod nebo stiskněte ↵ pro uzavření · Esc zruší
+	Click to add a point · drag off or ⌘/Ctrl-click or Delete to remove	Kliknutím přidejte bod · přetažením mimo, ⌘/Ctrl‑kliknutím nebo klávesou Delete bod odeberete
+	Click to apply, ⌥-click to clear overrides, double-click for Style Options	Kliknutím použijete, ⌥‑kliknutím vymažete přepsání, dvojitým kliknutím otevřete Možnosti stylu
+	Click to zoom in  ·  ⌥-click to zoom out	Kliknutím přiblížíte · ⌥‑kliknutím oddálíte
+	Click: corner · Drag: smooth · Click first point: close · ↩ finish · Esc cancel	Kliknutí: roh · Přetažení: vyhlazení · Kliknutí na první bod: zavřít · ↩ dokončit · Esc zrušit
+	Clipping Path	Ořezová cesta
+	Clone	Klonovat
+	Clone Stamp	Klonovací razítko
+	Clumped	Shluklý
+	Coarse Dots	Hrubé tečky
+	Coerce to sRGB	Převést na sRGB
+	Collapse group  (⌥-click: all groups)	Sbalit skupinu (⌥‑kliknutí: všechny skupiny)
+	Color Adaptation	Přizpůsobení barev
+	Color Decontaminate	Dekontaminace barev
+	Color Halftone	Barevný půltón
+	Color Lookup Tables	Vyhledávací tabulky barev
+	Color Management Policies	Zásady správy barev
+	Color Noise Reduction	Redukce barevného šumu
+	Color Profile	Barevný profil
+	Color Range	Barevný rozsah
+	Color Replacement	Náhrada barvy
+	Color Settings	Nastavení barev
+	Color Table	Tabulka barev
+	Color indicates	Barva označuje
+	ColorMatch RGB	ColorMatch RGB
+	ColorSync	ColorSync
+	Colored Pencil	Pastelka
+	Columns	Sloupce
+	Commit Perspective Warp (↩)	Potvrdit perspektivní deformaci (↩)
+	Commit Puppet Warp (↩)	Potvrdit loutkovou deformaci (↩)
+	Commit any current edits (⌘↩)	Potvrdit všechny aktuální úpravy (⌘↩)
+	Commit current crop operation  (↵)	Potvrdit aktuální oříznutí (↵)
+	Commit transform (↩)	Potvrdit transformaci (↩)
+	Commit warp (↩)	Potvrdit deformaci (↩)
+	Compatibility	Kompatibilita
+	Compose	Sestavit
+	Condensed	Zúžený
+	Conditional Mode Change	Podmíněná změna režimu
+	Cone	Kužel
+	Constraints	Omezení
+	Content-Aware Move	Přesun s ohledem na obsah
+	Contract	Zúžit
+	Contrasty	Kontrastní
+	Conté Crayon	Pastelka Conté
+	Convert Frames > Video Layers	Převést snímky > vrstvy videa
+	Convert to Grayscale	Převést na odstíny šedi
+	Convert to Linked	Převést na propojené
+	Convert to Profile	Převést do profilu
+	Cool	Chladné
+	Cooling L B B	Chladicí L B B
+	Cooling80	Chladicí 80
+	Cooling82	Chladicí 82
+	Copyright Info URL	URL informací o autorských právech
+	Copyright Status	Stav autorských práv
+	Copyrighted	Chráněno autorským právem
+	Correct C A	Opravit CA
+	Correct Distortion	Opravit zkreslení
+	Correct Vignette	Opravit vinětaci
+	Country	Země
+	Crack Brightness	Jas prasklin
+	Crack Depth	Hloubka prasklin
+	Crack Spacing	Rozestup prasklin
+	Craquelure	Krakeláž
+	Create By	Vytvořil
+	Create Date	Datum vytvoření
+	Create Multiple Picture Packages	Vytvořit více obrazových balíčků
+	Create Plane	Vytvořit rovinu
+	Create Snapshot	Vytvořit snímek
+	Create a new layer  (⇧⌘N)	Vytvořit novou vrstvu (⇧⌘N)
+	Create new count group	Vytvořit novou skupinu počítání
+	Create new layer	Vytvořit novou vrstvu
+	Create new set	Vytvořit novou sadu
+	Credit	Zásluhy
+	Cross	Kříž
+	Cross Process	Křížový proces
+	Crosshatch	Šrafování
+	Crystallize	Krystalizace
+	Current	Aktuální
+	Current Time	Aktuální čas
+	Curve Darks	Křivka tmavých tónů
+	Curve Highlights	Křivka světel
+	Curve Lights	Křivka světlých tónů
+	Curve Shadows	Křivka stínů
+	Curve Splits	Křivka rozdělení
+	Custom Branch Color	Vlastní barva větve
+	Custom Pixel Aspect Ratio	Vlastní poměr stran pixelu
+	Custom pattern	Vlastní vzorek
+	Cutout	Vystřihovánka
+	Daisies	Sedmikrásky
+	Dark Intensity	Intenzita tmavých
+	Dark Rough	Tmavé hrubé
+	Dark Strokes	Tmavé tahy
+	Darken Only	Pouze ztmavit
+	Darkness	Tmavost
+	Data	Data
+	Data Sets as Files	Sady dat jako soubory
+	Date Created	Datum vytvoření
+	Date and Time	Datum a čas
+	DateTime Original	Původní datum a čas
+	Day For Night	Den za noc
+	De-Interlace	Odstranit prokládání
+	Deep Blue	Tmavomodrá
+	Deep Emerald	Tmavě smaragdová
+	Deep Red	Tmavě červená
+	Deep Yellow	Tmavě žlutá
+	Default Leaves	Výchozí listy
+	Defaults restored.	Výchozí nastavení obnoveno.
+	Define Brush Preset	Definovat přednastavení štětce
+	Define Custom Shape	Definovat vlastní tvar
+	Define Pattern	Definovat vzorek
+	Definition	Definice
+	Defringe	Odstranit barevný lem
+	Delete Layer…	Odstranit vrstvu…
+	Delete Path	Odstranit cestu
+	Delete Pins	Odstranit špendlíky
+	Delete Preset…	Odstranit přednastavení…
+	Delete Smart Filters	Odstranit inteligentní filtry
+	Depth Map	Mapa hloubky
+	Depth Mode	Režim hloubky
+	Desaturate Monitor Colors By	Snížit sytost barev monitoru o
+	Detect Faces	Detekovat obličeje
+	Diffuse	Rozptýlit
+	Diffuse Glow	Difuzní záře
+	Digits	Číslice
+	Direction Balance	Vyvážení směru
+	Direction of Stroke	Směr tahu
+	Displace	Posunout
+	Distortion	Zkreslení
+	Distribution	Rozložení
+	Do you want to save you made to “{name}” before quitting?	Chcete uložit provedené změny v „{name}“ před ukončením?
+	Document Size	Velikost dokumentu
+	Dodge	Zesvětlit
+	Dodge/Burn	Zesvětlit/Ztmavit
+	Dot	Tečka
+	Double Line	Dvojitá čára
+	Draft	Koncept
+	Drag (lasso) or click points (polygonal) · {add} add · {sub} subtract	Přetáhněte (laso) nebo klikněte body (polygonální) · {add} přidat · {sub} odebrat
+	Drag to move the layer	Přetažením přesunete vrstvu
+	Dry Brush	Suchý štětec
+	Duplicate Layer	Duplikovat vrstvu
+	Duplicate Layer Comp	Duplikovat kompozici vrstev
+	Duplicate Layers	Duplikovat vrstvy
+	Duplicate Path	Duplikovat cestu
+	Duplicated selection name	Název duplikovaného výběru
+	Duplication	Duplikace
+	Duration	Doba trvání
+	Dust & Scratches	Prach a škrábance
+	Dynamics	Dynamika
+	EXIF	EXIF
+	EXIF Version	Verze EXIF
+	Edge Brightness	Jas okrajů
+	Edge Extension	Rozšíření okrajů
+	Edge Fidelity	Věrnost okrajů
+	Edge Intensity	Intenzita okrajů
+	Edge Only	Pouze okraje
+	Edge Simplicity	Jednoduchost okrajů
+	Edge Thickness	Tloušťka okrajů
+	Edge Width	Šířka okrajů
+	Edit Plane	Upravit rovinu
+	Edit Toolbar	Upravit panel nástrojů
+	Elevation	Výška
+	Eliminate	Odstranit
+	Email	E-mail
+	Embed profiles	Vložit profily
+	Enable Smart Filters	Povolit inteligentní filtry
+	Enable Timeline Quick Config	Povolit rychlou konfiguraci časové osy
+	End X	Konec X
+	End Y	Konec Y
+	Enlarged	Zvětšeno
+	Enter description…	Zadejte popis…
+	Error File	Chybový soubor
+	Errors	Chyby
+	Even Fields	Sudé půlsnímky
+	Expand All Groups	Rozbalit všechny skupiny
+	Expand group  (⌥-click: all groups)	Rozbalit skupinu  (⌥-kliknutí: všechny skupiny)
+	Export As	Exportovat jako
+	Export Contents	Exportovat obsah
+	Export Preferences	Exportovat předvolby
+	Export/Import Presets	Exportovat/importovat přednastavení
+	Exposure Program	Expoziční program
+	Extensions	Rozšíření
+	Extra Bold	Extra tučné
+	Extra Light	Extra tenké
+	Extrude	Vysunout
+	F	F
+	Faded Film	Vybledlý film
+	Fast	Rychlé
+	Fiber Length	Délka vlákna
+	Fibers	Vlákna
+	Field Blur	Rozostření pole
+	File Info	Informace o souboru
+	File Naming	Pojmenování souborů
+	Fill Light	Doplňkové světlo
+	Fill Path	Vyplnit cestu
+	Film Grain	Filmové zrno
+	Filter Gallery	Galerie filtrů
+	Find and Replace Text	Najít a nahradit text
+	Fine	Jemné
+	Fine Dots	Jemné tečky
+	First Color Readout	První měření barev
+	First Line Indent	Odsazení prvního řádku
+	Fish	Ryba
+	Fit Image	Přizpůsobit obraz
+	Flag	Příznak
+	Flame	Plamen
+	Flame Bottom Alignment	Zarovnání spodní části plamene
+	Flame Lines	Linie plamene
+	Flame Shape	Tvar plamene
+	Flame Style	Styl plamene
+	Flame Type	Typ plamene
+	Flash	Blesk
+	Flat	Plochý
+	Flat Shading	Ploché stínování
+	Flatten Frames Into Clips	Sloučit snímky do klipů
+	Flatten Frames Into Layers	Sloučit snímky do vrstev
+	Flower Color	Barva květu
+	Focal Distance	Ohnisková vzdálenost
+	Focal Length35mm	Ohnisková vzdálenost 35mm
+	Focus	Ostření
+	Focus Area	Oblast ostření
+	Foreground Level	Úroveň popředí
+	Frame	Snímek
+	Frame Duration	Doba trvání snímku
+	Frame Sync	Synchronizace snímků
+	Fresco	Freska
+	From Left	Zleva
+	From Right	Zprava
+	Frosted	Matný
+	Fuzziness	Nepřesnost
+	GPS	GPS
+	Gamma	Gama
+	Gaussian	Gaussovské
+	Gaussian Blur	Gaussovské rozostření
+	General Blend	Obecné prolnutí
+	General Brushes	Obecné štětce
+	Generators	Generátory
+	Generic	Obecný
+	Glass	Sklo
+	Global Light	Globální světlo
+	Gloss	Lesk
+	Glow Amount	Množství záře
+	Glow Brightness	Jas záře
+	Glow Size	Velikost záře
+	Glowing Edges	Zářící hrany
+	Glyph	Glyf
+	Glyph Scaling	Měřítko glyfů
+	Go to Layer	Přejít na vrstvu
+	Grade Balance	Vyvážení gradace
+	Grade Blending	Prolnutí gradace
+	Grade Global	Globální gradace
+	Grade Highlights	Gradace světel
+	Grade Midtones	Gradace středních tónů
+	Grade Shadows	Gradace stínů
+	Grain Amount	Množství zrna
+	Grain Roughness	Drsnost zrna
+	Grain Size	Velikost zrna
+	Grain Type	Typ zrna
+	Graininess	Zrnitost
+	Grainy Dots	Zrnitý bodový vzor
+	Graphic Pen	Grafické pero
+	Graphic and web	Grafika a web
+	Gray Value (Maximum)	Hodnota šedé (maximum)
+	Gray Value (Mean)	Hodnota šedé (průměr)
+	Gray Value (Median)	Hodnota šedé (medián)
+	Gray Value (Minimum)	Hodnota šedé (minimum)
+	Gray:	Šedá:
+	Grayscale Slider	Posuvník stupňů šedi
+	Grid  (⌘')	Mřížka  (⌘')
+	Group from Layers	Skupina z vrstev
+	Group · {n} layer	Skupina · {n} vrstva
+	Grout Width	Šířka spáry
+	H	H
+	HDR Toning	Tónování HDR
+	HDTV (Rec. 709)	HDTV (Rec. 709)
+	HSB Color	Barva HSB
+	HSL/Grayscale	HSL/stupně šedi
+	Halftone Pattern	Půltónový vzor
+	Hand	Ruka
+	Hanging Punctuation	Přečnívající interpunkce
+	Heal	Retušovat
+	Heal Auto	Automatická retuš
+	Heal Color	Barva retuše
+	Heal Off	Retuš vypnuta
+	Heal On	Retuš zapnuta
+	Healing	Retušování
+	Hearts	Srdce
+	Heptagon	Sedmiúhelník
+	Hexagon	Šestiúhelník
+	Hide	Skrýt
+	Hide the layer's effects  (⌥-click: all layers)	Skrýt efekty vrstvy  (⌥-kliknutí: všechny vrstvy)
+	High	Vysoká
+	High Pass	Horní propust
+	Highlight	Světla
+	Highlight Amount	Množství světel
+	Highlight Area	Oblast světel
+	Highlight Radius	Poloměr světel
+	Highlight Strength	Síla světel
+	Highlight Tone	Tón světel
+	History Brush	Štětec historie
+	Horizontal Only	Pouze vodorovně
+	Hotspot	Aktivní bod
+	Hsb	HSB
+	Hsl	HSL
+	Hsl Hue	Odstín HSL
+	Hsl Lum	Světlost HSL
+	Hsl Sat	Sytost HSL
+	Humidity	Vlhkost
+	ISO	ISO
+	ISO Speed	Citlivost ISO
+	Image Balance	Vyvážení obrazu
+	Image Processor	Zpracování obrazu
+	Import Brushes	Importovat štětce
+	Import…	Importovat…
+	In	Uvnitř
+	In Black	Vstupní černá
+	In White	Vstupní bílá
+	Include ICC Profile	Zahrnout ICC profil
+	Industry Standard	Průmyslový standard
+	Infinite	Nekonečno
+	Inflate	Nafouknout
+	Info Options…	Možnosti informací…
+	Initial Direction of Stroke	Počáteční směr tahu
+	Ink Outlines	Obrysy inkoustem
+	Input Mode	Režim vstupu
+	Install Plug-in	Instalovat zásuvný modul
+	Integrated Density	Integrovaná hustota
+	Intensity	Intenzita
+	Interpolation	Interpolace
+	Interpret Footage	Interpretovat záznam
+	Intersect with	Protínat s
+	Intersect with selection  (⇧⌥)	Protínat s výběrem  (⇧⌥)
+	Interval	Interval
+	Iris Blur	Rozmazání clony
+	Ivy	Břečťan
+	Jag	Jag
+	Join the ArtCraft Discord	Připojte se k Discordu ArtCraft
+	Justification	Zarovnání
+	Justify	Zarovnat
+	Keep proportions	Zachovat proporce
+	Keep view in sync	Synchronizovat zobrazení
+	Keeps the current texture when switching presets.	Zachová aktuální texturu při přepínání předvoleb.
+	Kernel	Jádro
+	Keywords	Klíčová slova
+	Label	Popisek
+	Last Modified	Poslední změna
+	Layer Comp	Kompozice vrstev
+	Layer Comps to Files	Kompozice vrstev do souborů
+	Layer Content Options	Možnosti obsahu vrstvy
+	Layer From Background	Vrstva z pozadí
+	Layer from Background	Vrstva z pozadí
+	Layers to Files	Vrstvy do souborů
+	Leaf Color	Barva listů
+	Leaves Amount	Množství listů
+	Leaves Color	Barva listů
+	Leaves Size	Velikost listů
+	Left Diagonal	Levá diagonála
+	Legacy	Starší
+	Length	Délka
+	Lens	Objektiv
+	Lens Blur	Rozmazání objektivu
+	Lens Correction	Korekce objektivu
+	Lens Corrections	Korekce objektivu
+	Lens Flare	Záblesk objektivu
+	Lens Info	Informace o objektivu
+	Letter Spacing	Prostrkání
+	Level Based	Na základě úrovní
+	Libraries	Knihovny
+	Ligature	Ligatura
+	Light Dark Balance	Vyvážení světla a stínů
+	Light Direction	Směr světla
+	Light Intensity	Intenzita světla
+	Light Rough	Drsnost světla
+	Light Source	Zdroj světla
+	Light Type	Typ světla
+	Light X	Světlo X
+	Light Y	Světlo Y
+	Light Z	Světlo Z
+	Lighten Grout	Zesvětlit spáry
+	Lighten Only	Pouze zesvětlit
+	Lighting	Osvětlení
+	Lighting Effects	Světelné efekty
+	Limit Playback	Omezit přehrávání
+	Liquify	Zkapalnit
+	List	Seznam
+	Load 3D LUT	Načíst 3D LUT
+	Load Files into Stack	Načíst soubory do zásobníku
+	Load Selection	Načíst výběr
+	Localize Color Clusters	Lokalizovat barevné shluky
+	Location	Umístění
+	Lock Layers	Zamknout vrstvy
+	Log Errors To File	Protokolovat chyby do souboru
+	Long Lines	Dlouhé čáry
+	Long Strokes	Dlouhé tahy
+	Loop	Smyčka
+	Low	Nízká
+	Lower	Nižší
+	Lum	Jas
+	Luminance Smoothness	Vyhlazení jasu
+	Lut	LUT
+	Mac Crisp	Mac Crisp
+	Mac LCD	Mac LCD
+	Mac OS	Mac OS
+	Mac Sharp	Mac Sharp
+	Mac Smooth	Mac Smooth
+	Mac Strong	Mac Strong
+	Magnetic Lasso	Magnetické laso
+	Make	Výrobce
+	Make Work Path	Vytvořit pracovní cestu
+	Map Document	Mapovat dokument
+	Map Layer	Mapovat vrstvu
+	Map Path	Mapovat cestu
+	Margin	Okraj
+	Mask Incomplete Blocks	Maskovat neúplné bloky
+	Masked Areas	Maskované oblasti
+	Match Color	Sladit barvy
+	Max Offset	Maximální posun
+	Max Radius	Maximální poloměr
+	Measure	Měření
+	Medium Dots	Střední tečky
+	Medium Lines	Střední čáry
+	Medium Strokes	Střední tahy
+	Merge to HDR Pro	Sloučit do HDR Pro
+	Metallic	Kovový
+	Metering Mode	Režim měření
+	Method	Metoda
+	Mezzotint	Mezzotinta
+	Midtone	Střední tón
+	Minimalistic	Minimalistický
+	Missing Profiles: Ask When Opening	Chybějící profily: Dotázat se při otevření
+	Modify Date	Datum změny
+	Mono Contrast	Monochromatický kontrast
+	Monochromatic	Monochromatický
+	Mosaic	Mozaika
+	Mosaic Tiles	Mozaikové dlaždice
+	Motion Blur	Rozmazání pohybem
+	Mouse Controls	Ovládání myší
+	Mouse Coordinates	Souřadnice myši
+	Movie Prime	Movie Prime
+	Multiple Flames Along Path	Více plamenů podél cesty
+	Multiple Flames One Direction	Více plamenů jedním směrem
+	Multiple Flames Path Directions	Více plamenů ve směrech cesty
+	Multiple Flames Various Length	Více plamenů různé délky
+	NTSC (1953)	NTSC (1953)
+	Neon Glow	Neonová záře
+	Neutralize	Neutralizovat
+	New Brush	Nový štětec
+	New Channel	Nový kanál
+	New Group	Nová skupina
+	New Guide	Nové vodítko
+	New Guide Layout	Nové rozvržení vodítek
+	New Layer	Nová vrstva
+	New Layer Comp	Nová kompozice vrstev
+	New Layer from Brush	Nová vrstva ze štětce
+	New Layer…	Nová vrstva…
+	New Path	Nová cesta
+	New Selection	Nový výběr
+	New Snapshot	Nový snímek
+	New Tool Preset	Nová předvolba nástroje
+	New Video Group	Nová skupina videa
+	New Video Layer	Nová vrstva videa
+	New Video Layer from File	Nová vrstva videa ze souboru
+	New channel only	Pouze nový kanál
+	New document	Nový dokument
+	New document…     ⌘N	Nový dokument…     ⌘N
+	Newspaper	Noviny
+	No Layer Comps	Žádné kompozice vrstev
+	Noise Color	Barevný šum
+	Noise Color Detail	Detail barevného šumu
+	Noise Luminance	Jasový šum
+	Noise Luminance Detail	Detail jasového šumu
+	Nonlinear History	Nelineární historie
+	Note Paper	Poznámkový papír
+	Note tool	Nástroj poznámka
+	Number Of Levels	Počet úrovní
+	Object Name / Title	Název objektu / název
+	Ocean Ripple	Vlnění oceánu
+	Octagon	Osmiúhelník
+	Odd Fields	Lichá pole
+	Oil Paint	Olejomalba
+	One Flame Along Path	Jeden plamen podél cesty
+	Opacity Mask	Maska krytí
+	Open As	Otevřít jako
+	Opening	Otevírání
+	Open…     ⌘O	Otevřít…     ⌘O
+	Operation	Operace
+	Out	Výstup
+	Out Black	Výstupní černá
+	Out From Center	Od středu
+	Out White	Výstupní bílá
+	Oval	Ovál
+	Overlay Edge	Hrana překrytí
+	Override Action "Save" Commands	Přepsat příkazy akce „Uložit“
+	PAL/SECAM	PAL/SECAM
+	PDF Presentation…	Prezentace PDF…
+	Package	Balíček
+	Paint Daubs	Malířské šmouhy
+	Palette Knife	Špachtle
+	Panel Options…	Možnosti panelu…
+	Paper Brightness	Jas papíru
+	Parallel	Paralelní
+	Patch	Záplata
+	Patchwork	Patchwork
+	Path Blur	Rozmazání cesty
+	Path to Illustrator…	Cesta do Illustratoru…
+	Path:	Cesta:
+	Paths to Illustrator	Cesty do Illustratoru
+	Pattern Stamp	Razítko se vzorkem
+	Pattern Type	Typ vzorku
+	Pen	Pero
+	Pencil	Tužka
+	Pencil Tool	Nástroj tužka
+	Pencil Width	Šířka tužky
+	Pentagon	Pětiúhelník
+	Perimeter	Obvod
+	Perspective Crop	Oříznutí s perspektivou
+	Phone	Telefon
+	Photo (2 × 3 in)	Fotografie (2 × 3 palce)
+	Photo (4 × 6 in)	Fotografie (4 × 6 palce)
+	Photo (5 × 7 in)	Fotografie (5 × 7 palce)
+	Photo (8 × 10 in)	Fotografie (8 × 10 palce)
+	Photocopy	Fotokopie
+	Photomerge	Photomerge
+	Picture Frame	Rámeček obrázku
+	Picture Package…	Obrazový balíček…
+	Pinch	Stlačení
+	Pins	Špendlíky
+	Pixel	Pixel
+	Place Embedded	Umístit vložený
+	Place Linked	Umístit propojený
+	Place Scale Marker	Umístit měřítko
+	Plane	Rovina
+	Planes	Roviny
+	Plaster	Omítka
+	Plastic Wrap	Plastový obal
+	Play Once	Přehrát jednou
+	Point	Bod
+	Point Curve	Bodová křivka
+	Point Curve Blue	Bodová křivka modrá
+	Point Curve Green	Bodová křivka zelená
+	Point Curve Red	Bodová křivka červená
+	Pointed	Špičatý
+	Pointillize	Pointilismus
+	Polar Coordinates	Polární souřadnice
+	Polar To Rectangular	Polární na pravoúhlé
+	Pond Ripples	Vlnky na rybníce
+	Poster Edges	Posterizační hrany
+	Posterization	Posterizace
+	Preserve	Zachovat
+	Preserve Transparency	Zachovat průhlednost
+	Preset Manager	Správce předvoleb
+	Preset Name:	Název předvolby:
+	Press keys	Stiskněte klávesy
+	Prime105	Prime105
+	Prime35	Prime35
+	ProPhoto	ProPhoto
+	ProPhoto RGB	ProPhoto RGB
+	Profile	Profil
+	Profile Mismatches: Ask When Opening	Neshody profilů: Dotázat se při otevírání
+	Province / State	Kraj / stát
+	Public Domain	Veřejné vlastnictví
+	Punctuation	Interpunkce
+	Pyramids	Pyramidy
+	Quick Selection	Rychlý výběr
+	Quick Sync	Quick Sync
+	RGB	RGB
+	RGB:	RGB:
+	Radial Blur	Radiální rozostření
+	Radius X	Poloměr X
+	Radius Y	Poloměr Y
+	Random	Náhodný
+	Randomize Length	Náhodná délka
+	Randomize Shapes	Náhodné tvary
+	Raw Data	Data RAW
+	Raw Defaults	Výchozí hodnoty RAW
+	Reading	Čtení
+	Recent Items	Nedávné položky
+	Recovery	Obnova
+	Rectangle	Obdélník
+	Rectangular To Polar	Obdélníkové na polární
+	Red Cyan	Červená azurová
+	Red Eye	Červené oči
+	Reduce Color Noise	Omezit barevný šum
+	Reduce Noise	Omezit šum
+	Reference point location	Umístění referenčního bodu
+	Relief	Reliéf
+	Relink to File	Znovu propojit se souborem
+	Remove Jpeg Artifact	Odstranit artefakty JPEG
+	Rename Brush	Přejmenovat štětec
+	Rename Group	Přejmenovat skupinu
+	Rename Layer Comp	Přejmenovat kompozici vrstev
+	Rename Tool Preset	Přejmenovat předvolbu nástroje
+	Render Video	Vykreslit video
+	Repeat	Opakovat
+	Replace Color	Nahradit barvu
+	Replace Contents	Nahradit obsah
+	Replace Footage	Nahradit záznam
+	Report an Issue	Nahlásit problém
+	Reset	Obnovit
+	Resolve Missing Fonts	Vyřešit chybějící písma
+	Restore last viewed comp	Obnovit naposledy zobrazenou kompozici
+	Result	Výsledek
+	Reticulation	Retikulace
+	Rgb	RGB
+	Ridges	Hřebeny
+	Right Diagonal	Pravá úhlopříčka
+	Ring	Prstenec
+	Ripple	Zvlnění
+	Ripple Magnitude	Velikost zvlnění
+	Ripple Size	Velikost vln
+	Rise	Zvýšení
+	Roman	Roman
+	Roman Hanging Punctuation	Předsazená interpunkce
+	Rope	Lano
+	Roses	Růže
+	Rotate Auto	Automaticky otočit
+	Rotate Fixed	Pevné otočení
+	Rotate View	Otočit zobrazení
+	Rough Pastels	Hrubé pastely
+	Row Order	Pořadí řádků
+	Ruler	Pravítko
+	Ruler Units	Jednotky pravítka
+	Rulers  (⌘R)	Pravítka  (⌘R)
+	SMPTE C	SMPTE C
+	Sampler	Vzorkovník
+	Sandstone	Pískovec
+	Sat	Syt.
+	Save As	Uložit jako
+	Save Preset…	Uložit předvolbu…
+	Save Selection	Uložit výběr
+	Save a Copy	Uložit kopii
+	Save for Web (Legacy)	Uložit pro web (starší)
+	Saved	Uloženo
+	Saved Multichannel	Uložený vícekanálový
+	Scale Effects	Měřítko efektů
+	Scale Factor	Faktor měřítka
+	Scale Horizontally	Měřítko vodorovně
+	Scale Units	Jednotky měřítka
+	Scale Vertically	Měřítko svisle
+	Scaling	Změna měřítka
+	Scallops	Hřebenatky
+	Script Events Manager	Správce událostí skriptů
+	Search commands (⌘K)	Hledat příkazy (⌘K)
+	Search commands, tools and panels	Hledat příkazy, nástroje a panely
+	Second Color Readout	Druhý údaj o barvě
+	Select All Layers	Vybrat všechny vrstvy
+	Select Folder…	Vybrat složku…
+	Select Plane	Vybrat rovinu
+	Select Similar Colors	Vybrat podobné barvy
+	Select and Mask	Vybrat a maskovat
+	Selected Areas	Vybrané oblasti
+	Semi Bold	Polotučné
+	Sepia	Sépie
+	Set Measurement Scale	Nastavit měřítko měření
+	Set New Snapshot as Default	Nastavit nový snímek jako výchozí
+	Set Start Timecode…	Nastavit počáteční časový kód…
+	Settings	Nastavení
+	Settings:	Nastavení:
+	Shadow	Stín
+	Shadow Amount	Množství stínu
+	Shadow Intensity	Intenzita stínu
+	Shadow Radius	Poloměr stínu
+	Shadow Tone	Tón stínů
+	Shadows/Highlights	Stíny/Světla
+	Shape Blur	Rozostření tvaru
+	Sharpen Amount	Míra zostření
+	Sharpen Detail	Detail zostření
+	Sharpen Details	Zostřit detaily
+	Sharpen Masking	Maskování zostření
+	Sharpen Radius	Poloměr zostření
+	Sharpness	Ostrost
+	Shear	Zkosení
+	Shell Lower	Spodní skořepina
+	Shell Upper	Horní skořepina
+	Shine	Lesk
+	Short Lines	Krátké čáry
+	Short Strokes	Krátké tahy
+	Show Guides  (⌘;)	Zobrazit vodítka  (⌘;)
+	Show New Snapshot Dialog by Default	Ve výchozím nastavení zobrazovat dialog nového snímku
+	Show the layer's effects  (⌥-click: all layers)	Zobrazit efekty vrstvy  (⌥-kliknutí: všechny vrstvy)
+	Shutter Speed	Rychlost závěrky
+	Simple	Jednoduché
+	Sine	Sinus
+	Single Word Justification	Zarovnání jednoho slova
+	Sketch	Skica
+	Slice Options	Možnosti řezu
+	Smart Blur	Chytré rozostření
+	Smart Sharpen	Chytré zostření
+	Smoothness	Hladkost
+	Smudge Stick	Rozmazání
+	Snapshot 1	Snímek 1
+	Snapshots	Snímky
+	Snowflakes	Sněhové vločky
+	Softness	Měkkost
+	Software	Software
+	Solid Front Faces	Plné přední plochy
+	Source Layer	Zdrojová vrstva
+	Spacing:	Rozestup:
+	Sparkle	Třpyt
+	Spatter	Stříkance
+	Speckle	Skvrny
+	Speed	Rychlost
+	Spherize	Zkulacení
+	Spin	Otáčení
+	Spin Blur	Rozmazání otáčením
+	Split Toning	Rozdělené tónování
+	Split at Playhead	Rozdělit v přehrávací hlavě
+	Sponge	Houba
+	Spot	Bod
+	Spot Channel	Přímý kanál
+	Spot Color	Přímá barva
+	Spot Healing	Bodové retušování
+	Spot:	Bod:
+	Spray Radius	Poloměr stříkání
+	Sprayed Strokes	Stříkané tahy
+	Sprinkles	Posypky
+	Square Size	Velikost čtverce
+	Squareness	Hranatost
+	Squeeze	Stlačení
+	Stagger	Střídání
+	Stained Glass	Vitráž
+	Stamp	Razítko
+	Star	Hvězda
+	Stars	Hvězdy
+	Start X	Počáteční X
+	Start Y	Počáteční Y
+	Statistics	Statistika
+	Status Information	Informace o stavu
+	Step Backward	Krok zpět
+	Step Forward	Krok vpřed
+	Stippled	Tečkovaný
+	Stop For Errors	Zastavit při chybách
+	Stops	EV
+	Stretch	Roztažení
+	Stroke Detail	Detail tahu
+	Stroke Direction	Směr tahu
+	Stroke Length	Délka tahu
+	Stroke Path	Obrys cesty
+	Stroke Pressure	Tlak tahu
+	Stroke Size	Velikost tahu
+	Stroke Width	Šířka tahu
+	Strokes	Tahy
+	Stylization	Stylizace
+	Subject Distance	Vzdálenost objektu
+	Subscript	Dolní index
+	Subtract from	Odečíst od
+	Subtract from selection  (⌥)	Odečíst od výběru (⌥)
+	Sumi-e	Sumi-e
+	Superscript	Horní index
+	Supplemental Categories	Doplňkové kategorie
+	Surface Blur	Rozmazání povrchu
+	Symbols	Symboly
+	Taper	Zúžení
+	Target X	Cílové X
+	Target Y	Cílové Y
+	Teal Orange	Tyrkysová a oranžová
+	Technology Previews	Náhledy technologií
+	Technology Previews…	Náhledy technologií…
+	Texture Coverage	Pokrytí texturou
+	Texturizer	Texturizér
+	Thickness	Tloušťka
+	Tile Size	Velikost dlaždice
+	Tiles	Dlaždice
+	Tilt	Naklonění
+	Tilt-Shift	Tilt-Shift
+	Time	Čas
+	Timecode	Časový kód
+	Timing	Časování
+	Tint Color	Barva odstínu
+	Tiny Lens	Malá čočka
+	To Center	Do středu
+	Toggle reference point	Přepnout referenční bod
+	Tone Curve	Tónová křivka
+	Tool	Nástroj
+	Toolbars	Panely nástrojů
+	Top Left	Levý horní
+	Top Right	Pravý horní
+	Torn Edges	Roztrhané okraje
+	Total Ink	Celkový inkoust
+	Trace Contour	Obkreslení obrysu
+	Transition	Přechod
+	Transmission Reference	Referenční přenos
+	Trap	Přetisk
+	Tree	Strom
+	Trim	Oříznout
+	Turbulent	Turbulentní
+	Twirl	Vír
+	Twist	Zkroucení
+	URLs	Adresy URL
+	Ultra Bold	Ultra tučné
+	Ultra Light	Ultra tenké
+	Unaltered	Nezměněné
+	Uncoated CMYK	CMYK nenatíraný
+	Undefined Areas	Nedefinované oblasti
+	Underpainting	Podmalba
+	Underwater	Pod vodou
+	Uniform	Rovnoměrné
+	Units	Jednotky
+	Unix	Unix
+	Unknown	Neznámé
+	Unsharp Mask	Doostření maskou
+	Update Layer Comp	Aktualizovat složení vrstev
+	Upper	Horní
+	Urgency	Naléhavost
+	Use Custom Color	Použít vlastní barvu
+	Use Selection In Source	Použít výběr ve zdroji
+	Use Selection In Target	Použít výběr v cíli
+	Uses the foreground and background colors.	Používá barvy popředí a pozadí.
+	Vanishing Point	Úběžný bod
+	Variable Data Sets	Sady proměnných dat
+	Vertical Only	Pouze svisle
+	Vertical Type Tool	Svislý text
+	Video Frames to Layers	Snímky videa do vrstev
+	View menu	Nabídka Zobrazení
+	Vignette Amount	Míra vinětace
+	Vignette Feather	Prolnutí vinětace
+	Vignette Highlights	Světla vinětace
+	Vignette Midpoint	Střed vinětace
+	Vignette Roundness	Kulatost vinětace
+	Vignette Style	Styl vinětace
+	Vine Color	Barva révy
+	Vine With Flowers	Réva s květy
+	Vine With Leaves	Réva s listy
+	Violent	Násilný
+	Violet	Fialová
+	W	W
+	WIA Support	Podpora WIA
+	Wand	Hůlka
+	Warm	Teplý
+	Warming L B A	Zahřívací L B A
+	Warming81	Zahřívací 81
+	Warming85	Zahřívací 85
+	Warmth	Teplota
+	Warp Text	Deformovat text
+	Water Paper	Vodní papír
+	Watercolor	Akvarel
+	Watercolour look: lighter interior, darker rims.	Vzhled akvarelu: světlejší vnitřek, tmavší okraje.
+	Wave	Vlna
+	Wavelength Max	Max. vlnová délka
+	Wavelength Min	Min. vlnová délka
+	Waves	Vlny
+	Web Color	Webová barva
+	Web Photo Gallery…	Webová galerie fotografií…
+	White Clip	Ořez bílé
+	White Intensity	Intenzita bílé
+	White Is High	Bílá je vysoká
+	Wide Blurry	Široký rozmazaný
+	Wide Gamut RGB	Široký gamut RGB
+	Wide Sharp	Široký ostrý
+	Width and Height	Šířka a výška
+	Wind	Vítr
+	Word Spacing	Mezery mezi slovy
+	Working	Pracovní
+	Working Gray Plate	Pracovní šedá deska
+	Working Space	Pracovní prostor
+	Working Spaces	Pracovní prostory
+	Wrap	Obtékání
+	X	X
+	Y	Y
+	ZigZag	Cikcak
+	Zigzag	Cikcak
+	sRGB	sRGB
+	sRGB IEC61966-2.1	sRGB IEC61966-2.1
+	shortcut	Zkratka
+	{zoom}%	{zoom}%
+	↑↓ navigate   ↵ run   esc close	↑↓ procházet   ↵ spustit   esc zavřít

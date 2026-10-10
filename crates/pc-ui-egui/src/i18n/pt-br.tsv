@@ -3305,3 +3305,581 @@ ai	New	Novos
 	Choose Erase or Restore in the options bar, then paint to refine the mask.	Escolha Apagar ou Restaurar na barra de opções e pinte para refinar a máscara.
 	Tool Set Name	Nome do conjunto de ferramentas
 	You can also drag with the middle mouse button to pan.	Você também pode arrastar com o botão do meio do mouse para mover a visualização.
+	32-bit Preview Options	Opções de Visualização de 32 bits
+	AI Integrations	Integrações de IA
+	Accented Edges	Arestas Acentuadas
+	Add Noise	Adicionar Ruído
+	Adjust Interval For Loops	Ajustar Intervalo para Loops
+	Ambience	Ambientação
+	Ambient	Ambiente
+	Amplitude Max	Amplitude Máx.
+	Amplitude Min	Amplitude Mín.
+	Angled Strokes	Pinceladas Angulares
+	Anisotropic	Anisotrópico
+	Apply Data Set	Aplicar Conjunto de Dados
+	Apply Image	Aplicar Imagem
+	Arbitrary	Arbitrário
+	Area	Área
+	Around Center	Ao Redor do Centro
+	Arrangement	Disposição
+	Artboard from Group	Prancheta do Grupo
+	Artboard from Layers	Prancheta das Camadas
+	Artboards to Files	Pranchetas para Arquivos
+	Artboards to PDF	Pranchetas para PDF
+	Artistic	Artístico
+	Assign Profile	Atribuir Perfil
+	At	Em
+	Auto Scale	Escala Automática
+	Auto-Align Layers	Alinhar Camadas Automaticamente
+	Auto-Blend Layers	Mesclar Camadas Automaticamente
+	Background Level	Nível de Fundo
+	Bamboo	Bambu
+	Bas Relief	Baixo-relevo
+	Base Tree Type	Tipo de Árvore Base
+	Batch	Lote
+	Berries	Bagas
+	Black Clip	Recorte de Preto
+	Black Intensity	Intensidade de Preto
+	Blade Curvature	Curvatura da Lâmina
+	Blast	Explosão
+	Bleach Bypass	Bleach Bypass
+	Blocks	Blocos
+	Blue Yellow	Azul Amarelo
+	Blur Angle	Ângulo de Desfoque
+	Border	Borda
+	Border Thickness	Espessura da Borda
+	Bottom Left	Inferior Esquerdo
+	Bottom Right	Inferior Direito
+	Box Blur	Desfoque de Caixa
+	Branches Color	Cor dos Galhos
+	Branches Height	Altura dos Galhos
+	Branches Thickness	Espessura dos Galhos
+	Brick	Tijolo
+	Bristle Detail	Detalhe da Cerda
+	Browse	Procurar
+	Brush Detail	Detalhe do Pincel
+	Brush Strokes	Pinceladas
+	Brush Type	Tipo de Pincel
+	Burlap	Estopa
+	Calculations	Cálculos
+	Camera Raw	Camera Raw
+	Candle Light	Luz de Vela
+	Canvas Size	Tamanho da Tela
+	Cell Size	Tamanho da Célula
+	Center X	Centro X
+	Center Y	Centro Y
+	Chalk Area	Área de Giz
+	Channel1	Canal 1
+	Channel2	Canal 2
+	Channel3	Canal 3
+	Channel4	Canal 4
+	Charcoal Area	Área de Carvão
+	Charcoal Thickness	Espessura do Carvão
+	Circle	Círculo
+	Circularity	Circularidade
+	Cleanliness	Limpeza
+	Clear Amount	Quantidade de Limpeza
+	Clone	Clonar
+	Clumped	Agrupado
+	Coarse Dots	Pontos Grossos
+	Color Decontaminate	Descontaminar Cor
+	Color Halftone	Meio-tom Colorido
+	Color Lookup Tables	Tabelas de Pesquisa de Cores
+	Color Settings	Configurações de Cor
+	Color Table	Tabela de Cores
+	Colored Pencil	Lápis de Cor
+	Conditional Mode Change	Mudança de Modo Condicional
+	Cone	Cone
+	Constraints	Restrições
+	Contract	Contrair
+	Contrasty	Contrastado
+	Convert to Linked	Converter em Vinculado
+	Convert to Profile	Converter em Perfil
+	Cool	Frio
+	Cooling L B B	Resfriamento L B B
+	Cooling80	Resfriamento 80
+	Cooling82	Resfriamento 82
+	Correct C A	Corrigir AC
+	Correct Distortion	Corrigir Distorção
+	Correct Vignette	Corrigir Vinheta
+	Crack Brightness	Brilho da Rachadura
+	Crack Depth	Profundidade da Rachadura
+	Crack Spacing	Espaçamento da Rachadura
+	Craquelure	Craquelê
+	Create By	Criar por
+	Cross	Cruz
+	Cross Process	Processamento Cruzado
+	Crosshatch	Hachura Cruzada
+	Crystallize	Cristalizar
+	Curve Darks	Curva de Escuros
+	Curve Highlights	Curva de Realces
+	Curve Lights	Curva de Luzes
+	Curve Shadows	Curva de Sombras
+	Curve Splits	Divisões da Curva
+	Custom Branch Color	Cor de Galho Personalizada
+	Custom Pixel Aspect Ratio	Proporção de Pixel Personalizada
+	Cutout	Recorte
+	Daisies	Margaridas
+	Dark Intensity	Intensidade de Escuro
+	Dark Rough	Escuro Áspero
+	Dark Strokes	Pinceladas Escuras
+	Darken Only	Somente Escurecer
+	Darkness	Escuridão
+	Data	Dados
+	Data Sets as Files	Conjuntos de dados como arquivos
+	Date and Time	Data e hora
+	Day For Night	Dia para noite
+	De-Interlace	Desentrelaçar
+	Deep Blue	Azul profundo
+	Deep Emerald	Esmeralda profundo
+	Deep Red	Vermelho profundo
+	Deep Yellow	Amarelo profundo
+	Default Leaves	Folhas padrão
+	Define Brush Preset	Definir predefinição de pincel
+	Define Custom Shape	Definir forma personalizada
+	Define Pattern	Definir padrão
+	Definition	Definição
+	Defringe	Remover franja
+	Depth Map	Mapa de profundidade
+	Depth Mode	Modo de profundidade
+	Diffuse	Difusão
+	Diffuse Glow	Brilho difuso
+	Direction Balance	Equilíbrio de direção
+	Displace	Deslocamento
+	Distortion	Distorção
+	Distribution	Distribuição
+	Dot	Ponto
+	Double Line	Linha dupla
+	Draft	Rascunho
+	Dry Brush	Pincel seco
+	Duplicate Layer	Duplicar camada
+	Duplicate Layers	Duplicar camadas
+	Duplication	Duplicação
+	Dust & Scratches	Poeira e arranhões
+	Edge Brightness	Brilho da borda
+	Edge Extension	Extensão da borda
+	Edge Fidelity	Fidelidade da borda
+	Edge Intensity	Intensidade da borda
+	Edge Only	Somente bordas
+	Edge Simplicity	Simplicidade da borda
+	Edge Thickness	Espessura da borda
+	Edge Width	Largura da borda
+	Edit Toolbar	Editar barra de ferramentas
+	Elevation	Elevação
+	Eliminate	Eliminar
+	End X	X final
+	End Y	Y final
+	Enlarged	Ampliado
+	Even Fields	Campos pares
+	Export As	Exportar como
+	Export Contents	Exportar conteúdo
+	Export Preferences	Exportar preferências
+	Export/Import Presets	Exportar/Importar predefinições
+	Extrude	Extrusão
+	Faded Film	Filme desbotado
+	Fiber Length	Comprimento das fibras
+	Fibers	Fibras
+	Field Blur	Desfoque de campo
+	File Info	Informações do arquivo
+	Film Grain	Granulação de filme
+	Filter Gallery	Galeria de filtros
+	Find and Replace Text	Localizar e substituir texto
+	Fine	Fino
+	Fine Dots	Pontos finos
+	Fit Image	Ajustar imagem
+	Flame	Chama
+	Flame Bottom Alignment	Alinhamento inferior da chama
+	Flame Lines	Linhas da chama
+	Flame Shape	Forma da chama
+	Flame Style	Estilo da chama
+	Flame Type	Tipo de chama
+	Flat	Plano
+	Flat Shading	Sombreamento plano
+	Flower Color	Cor da flor
+	Focal Distance	Distância focal
+	Focus	Foco
+	Focus Area	Área de foco
+	Foreground Level	Nível de primeiro plano
+	Frame	Moldura
+	Fresco	Afresco
+	From Left	Da esquerda
+	From Right	Da direita
+	Frosted	Fosco
+	Fuzziness	Tolerância
+	Gamma	Gama
+	Gaussian	Gaussiano
+	Gaussian Blur	Desfoque gaussiano
+	Generators	Geradores
+	Generic	Genérico
+	Glass	Vidro
+	Global Light	Luz global
+	Gloss	Brilho
+	Glow Amount	Quantidade de brilho
+	Glow Brightness	Brilho do brilho
+	Glow Size	Tamanho do brilho
+	Glowing Edges	Bordas brilhantes
+	Grade Balance	Equilíbrio de gradação
+	Grade Blending	Mistura de gradação
+	Grade Global	Global de gradação
+	Grade Highlights	Realces de gradação
+	Grade Midtones	Meios-tons de gradação
+	Grade Shadows	Sombras de gradação
+	Grain Amount	Quantidade de grão
+	Grain Roughness	Rugosidade do grão
+	Grain Size	Tamanho do grão
+	Grain Type	Tipo de grão
+	Graininess	Granulação
+	Grainy Dots	Pontos granulados
+	Gray Value (Maximum)	Valor de cinza (máximo)
+	Gray Value (Mean)	Valor de cinza (médio)
+	Gray Value (Median)	Valor de cinza (mediano)
+	Gray Value (Minimum)	Valor de cinza (mínimo)
+	Group from Layers	Agrupar camadas
+	Grout Width	Largura do rejunte
+	HDR Toning	Mapeamento de tom HDR
+	Hearts	Corações
+	Heptagon	Heptágono
+	Hexagon	Hexágono
+	High Pass	Passa-alta
+	Highlight	Realce
+	Highlight Amount	Quantidade de realce
+	Highlight Area	Área de realce
+	Highlight Radius	Raio de realce
+	Highlight Strength	Intensidade dos realces
+	Highlight Tone	Tom do realce
+	Horizontal Only	Somente horizontal
+	Hotspot	Ponto de acesso
+	Hsb	HSB
+	Hsl	HSL
+	Hsl Hue	Matiz HSL
+	Hsl Lum	Luminosidade HSL
+	Hsl Sat	Saturação HSL
+	Image Balance	Equilíbrio de imagem
+	Image Processor	Processador de imagens
+	Import Brushes	Importar pincéis
+	In Black	Preto de entrada
+	In White	Branco de entrada
+	Infinite	Infinito
+	Ink Outlines	Contornos de tinta
+	Input Mode	Modo de entrada
+	Install Plug-in	Instalar plug-in
+	Integrated Density	Densidade integrada
+	Intensity	Intensidade
+	Interpret Footage	Interpretar filmagem
+	Interval	Intervalo
+	Iris Blur	Desfoque de íris
+	Ivy	Hera
+	Jag	Jag
+	Join the ArtCraft Discord	Junte-se ao Discord do ArtCraft
+	Kernel	Núcleo
+	Label	Rótulo
+	Layer Comps to Files	Composições de camada para arquivos
+	Layer Content Options	Opções de conteúdo da camada
+	Layer From Background	Camada a partir do plano de fundo
+	Layer from Background	Camada a partir do plano de fundo
+	Layers to Files	Camadas para arquivos
+	Leaf Color	Cor da folha
+	Leaves Amount	Quantidade de folhas
+	Leaves Color	Cor das folhas
+	Leaves Size	Tamanho das folhas
+	Left Diagonal	Diagonal esquerda
+	Legacy	Legado
+	Length	Comprimento
+	Lens Blur	Desfoque de lente
+	Lens Correction	Correção de lente
+	Lens Flare	Clarão da lente
+	Level Based	Baseado em níveis
+	Light Dark Balance	Equilíbrio claro-escuro
+	Light Direction	Direção da luz
+	Light Intensity	Intensidade da luz
+	Light Rough	Rugosidade da luz
+	Light Type	Tipo de luz
+	Light X	X da luz
+	Light Y	Y da luz
+	Light Z	Z da luz
+	Lighten Grout	Clarear rejunte
+	Lighten Only	Somente clarear
+	Lighting	Iluminação
+	Lighting Effects	Efeitos de iluminação
+	Liquify	Liquificar
+	List	Lista
+	Load 3D LUT	Carregar LUT 3D
+	Load Files into Stack	Carregar arquivos em pilha
+	Lock Layers	Bloquear camadas
+	Long Lines	Linhas longas
+	Long Strokes	Traços longos
+	Lower	Inferior
+	Lum	Lum
+	Lut	LUT
+	Map Document	Mapear documento
+	Map Layer	Mapear camada
+	Map Path	Mapear caminho
+	Margin	Margem
+	Mask Incomplete Blocks	Mascarar blocos incompletos
+	Match Color	Corresponder cor
+	Max Offset	Deslocamento máximo
+	Max Radius	Raio máximo
+	Medium Dots	Pontos médios
+	Medium Lines	Linhas médias
+	Medium Strokes	Traços médios
+	Merge to HDR Pro	Mesclar para HDR Pro
+	Metallic	Metálico
+	Mezzotint	Mezzotinta
+	Midtone	Meio-tom
+	Mono Contrast	Contraste mono
+	Monochromatic	Monocromático
+	Mosaic	Mosaico
+	Mosaic Tiles	Mosaico de pastilhas
+	Motion Blur	Desfoque de movimento
+	Movie Prime	Prime de filme
+	Multiple Flames Along Path	Múltiplas chamas ao longo do caminho
+	Multiple Flames One Direction	Múltiplas chamas em uma direção
+	Multiple Flames Path Directions	Múltiplas chamas nas direções do caminho
+	Multiple Flames Various Length	Múltiplas chamas de comprimentos variados
+	Neon Glow	Brilho de neon
+	Neutralize	Neutralizar
+	New Guide	Nova guia
+	New Guide Layout	Novo layout de guias
+	New Layer	Nova camada
+	New Video Layer from File	Nova camada de vídeo a partir de arquivo
+	New document	Novo documento
+	Noise Color	Cor do ruído
+	Noise Color Detail	Detalhe da cor do ruído
+	Noise Luminance	Luminância do ruído
+	Noise Luminance Detail	Detalhe da luminância do ruído
+	Number Of Levels	Número de níveis
+	Ocean Ripple	Ondulação do oceano
+	Octagon	Octógono
+	Odd Fields	Campos ímpares
+	Oil Paint	Pintura a óleo
+	One Flame Along Path	Uma chama ao longo do caminho
+	Open As	Abrir como
+	Opening	Abertura
+	Out Black	Preto de saída
+	Out From Center	Do centro para fora
+	Out White	Branco de saída
+	Oval	Oval
+	Overlay Edge	Borda de sobreposição
+	Package	Pacote
+	Paint Daubs	Pinceladas
+	Palette Knife	Espátula
+	Paper Brightness	Brilho do papel
+	Parallel	Paralelo
+	Patchwork	Patchwork
+	Path Blur	Desfoque de caminho
+	Paths to Illustrator	Caminhos para o Illustrator
+	Pattern Type	Tipo de padrão
+	Pencil Width	Largura do lápis
+	Pentagon	Pentágono
+	Perimeter	Perímetro
+	Photomerge	Photomerge
+	Picture Frame	Moldura
+	Pinch	Pinçar
+	Pins	Alfinetes
+	Place Embedded	Inserir incorporado
+	Place Linked	Inserir vinculado
+	Place Scale Marker	Inserir marcador de escala
+	Plane	Plano
+	Planes	Planos
+	Plastic Wrap	Embrulho de plástico
+	Point	Ponto
+	Point Curve	Curva de ponto
+	Point Curve Blue	Curva de ponto azul
+	Point Curve Green	Curva de ponto verde
+	Point Curve Red	Curva de ponto vermelho
+	Pointed	Pontiagudo
+	Pointillize	Pontilhado
+	Polar Coordinates	Coordenadas polares
+	Polar To Rectangular	Polar para retangular
+	Pond Ripples	Ondulações de lagoa
+	Poster Edges	Bordas de pôster
+	Posterization	Posterização
+	Preserve	Preservar
+	Preset Manager	Gerenciador de predefinições
+	Press keys	Pressione as teclas
+	Prime105	Prime105
+	Prime35	Prime35
+	Profile	Perfil
+	Pyramids	Pirâmides
+	Radial Blur	Desfoque radial
+	Radius X	Raio X
+	Radius Y	Raio Y
+	Random	Aleatório
+	Randomize Length	Aleatorizar comprimento
+	Randomize Shapes	Aleatorizar formas
+	Raw Defaults	Padrões de Raw
+	Reading	Leitura
+	Rectangular To Polar	Retangular para polar
+	Red Cyan	Vermelho/Ciano
+	Reduce Color Noise	Reduzir ruído de cor
+	Reduce Noise	Reduzir ruído
+	Relief	Relevo
+	Relink to File	Revincular ao arquivo
+	Remove Jpeg Artifact	Remover artefato JPEG
+	Rename Brush	Renomear pincel
+	Rename Group	Renomear grupo
+	Rename Tool Preset	Renomear predefinição de ferramenta
+	Render Video	Renderizar vídeo
+	Replace Color	Substituir cor
+	Replace Contents	Substituir conteúdo
+	Replace Footage	Substituir filmagem
+	Report an Issue	Relatar um problema
+	Resolve Missing Fonts	Resolver fontes ausentes
+	Rgb	RGB
+	Ridges	Ranhuras
+	Right Diagonal	Diagonal direita
+	Ring	Anel
+	Ripple	Ondulação
+	Ripple Magnitude	Magnitude da ondulação
+	Ripple Size	Tamanho da ondulação
+	Rope	Corda
+	Roses	Rosas
+	Rough Pastels	Pastéis ásperos
+	Row Order	Ordem das linhas
+	Sandstone	Arenito
+	Sat	Saturação
+	Save As	Salvar como
+	Save a Copy	Salvar uma cópia
+	Save for Web (Legacy)	Salvar para a web (legado)
+	Scale Effects	Efeitos de escala
+	Scale Factor	Fator de escala
+	Scale Units	Unidades de escala
+	Scaling	Dimensionamento
+	Scallops	Vieiras
+	Script Events Manager	Gerenciador de eventos de script
+	Search commands, tools and panels	Pesquisar comandos, ferramentas e painéis
+	Select and Mask	Selecionar e mascarar
+	Sepia	Sépia
+	Set Measurement Scale	Definir escala de medição
+	Shadow	Sombra
+	Shadow Amount	Quantidade de sombra
+	Shadow Intensity	Intensidade da sombra
+	Shadow Radius	Raio da sombra
+	Shadow Tone	Tom de sombra
+	Shadows/Highlights	Sombras/Realces
+	Shape Blur	Desfoque de forma
+	Sharpen Amount	Quantidade de nitidez
+	Sharpen Detail	Detalhe de nitidez
+	Sharpen Details	Detalhes de nitidez
+	Sharpen Masking	Máscara de nitidez
+	Sharpen Radius	Raio de nitidez
+	Shear	Cisalhamento
+	Shine	Brilho
+	Short Lines	Linhas curtas
+	Short Strokes	Traços curtos
+	Simple	Simples
+	Sine	Seno
+	Sketch	Esboço
+	Slice Options	Opções de fatia
+	Smart Blur	Desfoque inteligente
+	Smart Sharpen	Nitidez inteligente
+	Smoothness	Suavidade
+	Smudge Stick	Bastão de esfumar
+	Snowflakes	Flocos de neve
+	Softness	Suavidade
+	Solid Front Faces	Faces frontais sólidas
+	Source Layer	Camada de origem
+	Sparkle	Cintilação
+	Spatter	Respingos
+	Speckle	Pontilhado
+	Speed	Velocidade
+	Spherize	Esferizar
+	Spin	Girar
+	Spin Blur	Desfoque de rotação
+	Sponge	Esponja
+	Spot	Mancha
+	Spray Radius	Raio de pulverização
+	Sprayed Strokes	Pinceladas pulverizadas
+	Sprinkles	Salpicos
+	Square Size	Tamanho do quadrado
+	Squareness	Quadratura
+	Stagger	Oscilação
+	Stained Glass	Vitral
+	Star	Estrela
+	Stars	Estrelas
+	Start X	X inicial
+	Start Y	Y inicial
+	Statistics	Estatísticas
+	Stippled	Pontilhado
+	Stops	Paradas
+	Stretch	Esticamento
+	Stroke Detail	Detalhe do traço
+	Stroke Direction	Direção do traço
+	Stroke Length	Comprimento do traço
+	Stroke Pressure	Pressão do traço
+	Stroke Size	Tamanho do traço
+	Stroke Width	Largura do traço
+	Strokes	Traços
+	Stylization	Estilização
+	Sumi-e	Sumi-e
+	Surface Blur	Desfoque de superfície
+	Taper	Afinamento
+	Target X	X de destino
+	Target Y	Y de destino
+	Teal Orange	Azul-petróleo e laranja
+	Texture Coverage	Cobertura de textura
+	Texturizer	Texturizador
+	Thickness	Espessura
+	Tile Size	Tamanho do bloco
+	Tiles	Blocos
+	Tilt-Shift	Tilt-shift
+	Tint Color	Cor de matiz
+	Tiny Lens	Lente minúscula
+	To Center	Para o centro
+	Tool	Ferramenta
+	Top Left	Superior esquerdo
+	Top Right	Superior direito
+	Trace Contour	Traçar contorno
+	Transition	Transição
+	Trap	Armadilha
+	Tree	Árvore
+	Trim	Aparar
+	Turbulent	Turbulento
+	Twirl	Redemoinho
+	Unaltered	Inalterado
+	Undefined Areas	Áreas indefinidas
+	Underpainting	Pintura de base
+	Underwater	Subaquático
+	Uniform	Uniforme
+	Unsharp Mask	Máscara de nitidez
+	Upper	Superior
+	Use Custom Color	Usar cor personalizada
+	Use Selection In Source	Usar seleção na origem
+	Use Selection In Target	Usar seleção no destino
+	Vanishing Point	Ponto de fuga
+	Variable Data Sets	Conjuntos de dados variáveis
+	Vertical Only	Somente vertical
+	Vertical Type Tool	Ferramenta Texto vertical
+	Video Frames to Layers	Quadros de vídeo para camadas
+	Vignette Amount	Quantidade de vinheta
+	Vignette Feather	Suavização da vinheta
+	Vignette Highlights	Realces da vinheta
+	Vignette Midpoint	Ponto médio da vinheta
+	Vignette Roundness	Arredondamento da vinheta
+	Vignette Style	Estilo da vinheta
+	Vine Color	Cor da videira
+	Vine With Flowers	Videira com flores
+	Vine With Leaves	Videira com folhas
+	Violent	Violento
+	Violet	Violeta
+	WIA Support	Suporte a WIA
+	Warm	Quente
+	Warming L B A	Warming L B A
+	Warming81	Warming81
+	Warming85	Warming85
+	Warmth	Calor
+	Warp Text	Deformar texto
+	Watercolor	Aquarela
+	Wavelength Max	Comprimento de onda máx.
+	Wavelength Min	Comprimento de onda mín.
+	Waves	Ondas
+	White Clip	Corte de branco
+	White Intensity	Intensidade do branco
+	White Is High	Branco é alto
+	Wide Blurry	Amplo desfocado
+	Wide Sharp	Amplo nítido
+	Wind	Vento
+	Working	Trabalhando
+	Wrap	Envolver
+	ZigZag	Zigue-zague
+	Zigzag	Zigue-zague

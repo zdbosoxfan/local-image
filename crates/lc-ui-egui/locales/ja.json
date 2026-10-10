@@ -1561,5 +1561,11 @@
   "An export is already running": "書き出しはすでに実行中です",
   "No export writer is available": "書き出し機能を利用できません",
   "Analysis is already running": "解析はすでに実行中です",
-  "Could not prepare photo": "写真を準備できませんでした"
+  "Could not prepare photo": "写真を準備できませんでした",
+  "Also in this group:": "このグループの他の項目:",
+  "Crop Aspect": "切り抜き縦横比",
+  "H:": "高さ:",
+  "sRGB (AVIF)": "sRGB (AVIF)",
+  "日本語": "日本語",
+  "繁體中文（台灣）": "繁體中文（台灣）"
 }

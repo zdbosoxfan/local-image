@@ -1565,5 +1565,7 @@
   "An export is already running": "Uma exportação já está em andamento",
   "No export writer is available": "Nenhum gravador de exportação está disponível",
   "Analysis is already running": "Uma análise já está em andamento",
-  "Could not prepare photo": "Não foi possível preparar a foto"
+  "Could not prepare photo": "Não foi possível preparar a foto",
+  "Also in this group:": "Também neste grupo:",
+  "sRGB (AVIF)": "sRGB (AVIF)"
 }

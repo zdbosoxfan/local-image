@@ -2319,7 +2319,7 @@
 	Show Skin Tone Indicator	Показывать ориентир тона кожи
 	Tone Histogram	Тональная гистограмма
 	Show Selected Region	Показать выделенную область
-cameraRaw	Light	Светлый
+cameraRaw	Light	Свет
 # Camera Raw: contextual controls and window title
 	Camera Raw Filter ({layer})	Фильтр Camera Raw ({layer})
 	Aqua	Голубые
@@ -3211,3 +3211,767 @@ ai	New	Новые
 	Choose Erase or Restore in the options bar, then paint to refine the mask.	Выберите Стереть или Восстановить на панели параметров, затем рисуйте для уточнения маски.
 	Tool Set Name	Название набора инструментов
 	You can also drag with the middle mouse button to pan.	Также можно перемещать вид, перетаскивая средней кнопкой мыши.
+	(coming soon)	(скоро)
+	32-bit Preview Options	Параметры просмотра 32-бит
+	3D…	3D…
+	AI Integrations	Интеграции ИИ
+	Accented Edges	Акцентированные края
+	Add Noise	Добавить шум
+	Add a mask  (from the selection; ⌥ inverts)	Добавить маску  (из выделения; ⌥ инвертирует)
+	Add space after paragraph	Добавить интервал после абзаца
+	Add space before paragraph	Добавить интервал перед абзацем
+	Add to selection  (⇧)	Добавить к выделению  (⇧)
+	Add vector mask	Добавить векторную маску
+	Adds grain to the soft edges of the brush tip.	Добавляет зернистость мягким краям кончика кисти.
+	Adjust Interval For Loops	Настроить интервал для циклов
+	Adjustment layers have nothing to transform	Корректирующим слоям нечего трансформировать
+	Adobe PDF Presets…	Наборы параметров Adobe PDF…
+	Airbrush: keeps painting while the pointer rests.	Аэрограф: продолжает рисовать, пока указатель неподвижен.
+	Altitude	Высота
+	Ambience	Атмосфера
+	Ambient	Окружающий
+	Amplitude Max	Макс. амплитуда
+	Amplitude Min	Мин. амплитуда
+	Android 1080p	Android 1080p
+	Angled Strokes	Наклонные штрихи
+	Anisotropic	Анизотропный
+	Apple Watch 45mm	Apple Watch 45mm
+	Apply Data Set	Применить набор данных
+	Apply Image	Внешний канал
+	Arbitrary	Произвольно
+	Area	Область
+	Around Center	Вокруг центра
+	Arrangement	Расположение
+	Artboard from Group	Монтажная область из группы
+	Artboard from Layers	Монтажная область из слоев
+	Artboards to Files	Монтажные области в файлы
+	Artboards to PDF	Монтажные области в PDF
+	Artistic	Имитация
+	Assign Profile	Назначить профиль
+	At	В
+	Auto Scale	Автомасштаб
+	Auto-Align Layers	Автовыравнивание слоев
+	Auto-Blend Layers	Автоналожение слоев
+	Background Level	Уровень фона
+	Background from Layer	Фон из слоя
+	Bamboo	Бамбук
+	Bas Relief	Барельеф
+	Base Tree Type	Базовый тип дерева
+	Baseline shift	Смещение базовой линии
+	Batch	Пакет
+	Berries	Ягоды
+	Bevel & Emboss	Тиснение
+	Black Clip	Отсечение черного
+	Black Intensity	Интенсивность черного
+	Blade Curvature	Кривизна лезвия
+	Blast	Взрыв
+	Bleach Bypass	Блич-байпасс
+	Blocks	Блоки
+	Blue Yellow	Сине-желтый
+	Blues	Синие
+	Blur Angle	Угол размытия
+	Border	Граница
+	Border Thickness	Толщина границы
+	Bottom Left	Нижний левый
+	Bottom Right	Нижний правый
+	Box Blur	Размытие по рамке
+	Branches Color	Цвет ветвей
+	Branches Height	Высота ветвей
+	Branches Thickness	Толщина ветвей
+	Brick	Кирпич
+	Bristle Detail	Детализация щетины
+	Browse	Обзор
+	Brush Detail	Детализация кисти
+	Brush Settings…  (F5): every option of this brush	Параметры кисти…  (F5): все параметры этой кисти
+	Brush Strokes	Штрихи
+	Brush Type	Тип кисти
+	Burlap	Мешковина
+	Calculations	Вычисления
+	Camera Raw	Camera Raw
+	Candle Light	Свет свечи
+	Canvas Size	Размер холста
+	Cell Size	Размер ячейки
+	Center X	Центр X
+	Center Y	Центр Y
+	Chalk Area	Область мела
+	Channel1	Канал 1
+	Channel2	Канал 2
+	Channel3	Канал 3
+	Channel4	Канал 4
+	Charcoal Area	Область угля
+	Charcoal Thickness	Толщина угля
+	Choke	Сжатие
+	Circle	Круг
+	Circularity	Округлость
+	Cleanliness	Чистота
+	Clear Amount	Степень очистки
+	Click the first point or press ↵ to close · Esc cancels	Щелкните первую точку или нажмите ↵, чтобы замкнуть · Esc отменяет
+	Click to add a point · drag off or ⌘/Ctrl-click or Delete to remove	Щелкните, чтобы добавить точку · перетащите за пределы, щелкните ⌘/Ctrl или нажмите Delete, чтобы удалить
+	Click to apply, ⌥-click to clear overrides, double-click for Style Options	Щелкните, чтобы применить, ⌥-щелкните, чтобы сбросить переопределения, дважды щелкните для параметров стиля
+	Click to zoom in  ·  ⌥-click to zoom out	Щелкните для увеличения  ·  ⌥-щелкните для уменьшения
+	Click: corner · Drag: smooth · Click first point: close · ↩ finish · Esc cancel	Щелчок: угол · Перетаскивание: сглаживание · Щелчок по первой точке: замкнуть · ↩ завершить · Esc отмена
+	Clone	Клонировать
+	Clumped	Сгруппированный
+	Coarse Dots	Крупные точки
+	Collapse group  (⌥-click: all groups)	Свернуть группу  (⌥-щелчок: все группы)
+	Color Decontaminate	Очистка цвета
+	Color Halftone	Цветные полутона
+	Color Lookup Tables	Таблицы цветопоиска
+	Color Overlay	Перекрытие цвета
+	Color Settings	Настройка цветов
+	Color Table	Таблица цветов
+	Colored Pencil	Цветной карандаш
+	Comic Book	Комикс
+	Command	Команда
+	Commit Perspective Warp (↩)	Подтвердить перспективную деформацию (↩)
+	Commit Puppet Warp (↩)	Подтвердить марионеточную деформацию (↩)
+	Commit any current edits (⌘↩)	Подтвердить текущие изменения (⌘↩)
+	Commit current crop operation  (↵)	Подтвердить текущую операцию кадрирования  (↵)
+	Commit transform (↩)	Подтвердить трансформирование (↩)
+	Commit warp (↩)	Подтвердить деформацию (↩)
+	Conditional Mode Change	Условное изменение режима
+	Cone	Конус
+	Conform	Согласовать
+	Constraints	Ограничения
+	Content-Aware Fill needs a selection on a pixel layer	Для заливки с учетом содержимого требуется выделение на пиксельном слое
+	Contract	Сократить
+	Contrasty	Контрастный
+	Convert to Linked	Преобразовать в связанный
+	Convert to Profile	Преобразовать в профиль
+	Cool	Холодный
+	Cooling L B B	Охлаждение L B B
+	Cooling80	Охлаждение80
+	Cooling82	Охлаждение82
+	Correct C A	Коррекция CA
+	Correct Distortion	Коррекция дисторсии
+	Correct Vignette	Коррекция виньетирования
+	Could not transform: the layer is empty	Не удалось трансформировать: слой пуст
+	Could not use Perspective Warp: the layer is empty	Не удалось использовать перспективную деформацию: слой пуст
+	Could not use Puppet Warp: no opaque pixels	Не удалось использовать марионеточную деформацию: нет непрозрачных пикселей
+	Could not use Puppet Warp: the layer is empty	Не удалось использовать марионеточную деформацию: слой пуст
+	Crack Brightness	Яркость трещин
+	Crack Depth	Глубина трещин
+	Crack Spacing	Расстояние между трещинами
+	Craquelure	Кракелюры
+	Create By	Создать по
+	Create Warped Text	Создать деформированный текст
+	Create a new layer  (⇧⌘N)	Создать новый слой  (⇧⌘N)
+	Create new brush from the current settings	Создать новую кисть из текущих настроек
+	Create new brush preset from the current settings	Создать новый набор параметров кисти из текущих настроек
+	Cross	Крест
+	Cross Process	Кросс-процесс
+	Crosshatch	Перекрестная штриховка
+	Crosswise	Поперечно
+	Crystallize	Кристаллизация
+	Curve Darks	Кривая темных
+	Curve Highlights	Кривая светов
+	Curve Lights	Кривая светлых
+	Curve Shadows	Кривая теней
+	Curve Splits	Разбиение кривой
+	Custom Branch Color	Пользовательский цвет ветви
+	Custom Pixel Aspect Ratio	Пользовательское соотношение пикселей
+	Custom pattern	Пользовательский узор
+	Cutout	Аппликация
+	Cyans	Голубые
+	Daisies	Маргаритки
+	Dark Intensity	Интенсивность темных
+	Dark Rough	Темная шероховатость
+	Dark Strokes	Темные штрихи
+	Darken Only	Только затемнение
+	Darkness	Темнота
+	Data	Данные
+	Data Sets as Files	Наборы данных как файлы
+	Date and Time	Дата и время
+	Day For Night	День под ночь
+	De-Interlace	Деинтерлейсинг
+	Deep Blue	Глубокий синий
+	Deep Emerald	Глубокий изумрудный
+	Deep Red	Глубокий красный
+	Deep Yellow	Глубокий желтый
+	Default Leaves	Листья по умолчанию
+	Define Brush Preset	Определить набор параметров кисти
+	Define Custom Shape	Определить произвольную фигуру
+	Define Pattern	Определить узор
+	Definition	Четкость
+	Defringe	Устранение окантовки
+	Delete Workspace	Удалить рабочую среду
+	Delete brush	Удалить кисть
+	Delete path	Удалить контур
+	Delete vector mask	Удалить векторную маску
+	Depth Map	Карта глубины
+	Depth Mode	Режим глубины
+	Diamond	Ромб
+	Diffuse	Диффузия
+	Diffuse Glow	Рассеянное свечение
+	Direction	Направление
+	Direction Balance	Баланс направления
+	Displace	Смещение
+	Distance	Расстояние
+	Distortion	Дисторсия
+	Distribution	Распределение
+	Document Sizes	Размеры документа
+	Dot	Точка
+	Double Line	Двойная линия
+	Draft	Черновик
+	Drop Shadow	Тень
+	Dry Brush	Сухая кисть
+	Duplicate Layer	Дублировать слой
+	Duplicate Layers	Дублировать слои
+	Duplication	Дублирование
+	Dust & Scratches	Пыль и царапины
+	Edge	Край
+	Edge Brightness	Яркость краев
+	Edge Extension	Расширение краев
+	Edge Fidelity	Точность краев
+	Edge Intensity	Интенсивность краев
+	Edge Only	Только края
+	Edge Simplicity	Упрощение краев
+	Edge Thickness	Толщина краев
+	Edge Width	Ширина края
+	Edit Toolbar	Изменить панель инструментов
+	Elevation	Высота
+	Eliminate	Устранить
+	Emboss	Тиснение
+	End X	Конец X
+	End Y	Конец Y
+	Enlarged	Увеличенный
+	Error	Ошибка
+	Even Fields	Четные поля
+	Expand group  (⌥-click: all groups)	Развернуть группу  (⌥-щелчок: все группы)
+	Export As	Экспортировать как
+	Export Contents	Экспорт содержимого
+	Export Preferences	Экспорт настроек
+	Export/Import Presets	Экспорт/Импорт пресетов
+	ExtraBold	Сверхжирный
+	ExtraLight	Сверхсветлый
+	Extrude	Экструзия
+	Fade	Затухание
+	Faded Film	Выцветшая пленка
+	Fiber Length	Длина волокна
+	Fibers	Волокна
+	Field Blur	Размытие поля
+	File Info	Информация о файле
+	Fill Opacity	Непрозрачность заливки
+	Fill path with foreground color	Залить контур основным цветом
+	Film Grain	Зернистость фотопленки
+	Filter Gallery	Галерея фильтров
+	Find and Replace Text	Найти и заменить текст
+	Fine	Мелкое
+	Fine Dots	Мелкие точки
+	Fit Image	Вписать изображение
+	Flame	Пламя
+	Flame Bottom Alignment	Выравнивание низа пламени
+	Flame Lines	Линии пламени
+	Flame Shape	Форма пламени
+	Flame Style	Стиль пламени
+	Flame Type	Тип пламени
+	Flat	Плоский
+	Flat Shading	Плоское затенение
+	Flower Color	Цвет цветка
+	Focal Distance	Фокусное расстояние
+	Focus	Фокус
+	Focus Area	Область фокуса
+	Font size	Размер шрифта
+	Foreground Level	Уровень переднего плана
+	Frame	Кадр
+	Frame {current} / {total}	Кадр {current} / {total}
+	Fresco	Фреска
+	From	От
+	From Left	Слева
+	From Right	Справа
+	Frosted	Матовый
+	Fuzziness	Разброс
+	Gamma	Гамма
+	Gaussian	Гауссово
+	Gaussian Blur	Размытие по Гауссу
+	General Brushes	Основные кисти
+	Generators	Генераторы
+	Generic	Общий
+	Glass	Стекло
+	Global Light	Глобальный свет
+	Gloss	Глянец
+	Glow Amount	Величина свечения
+	Glow Brightness	Яркость свечения
+	Glow Size	Размер свечения
+	Glowing Edges	Свечение краев
+	Grade Balance	Баланс цветокоррекции
+	Grade Blending	Смешивание цветокоррекции
+	Grade Global	Общая цветокоррекция
+	Grade Highlights	Цветокоррекция светов
+	Grade Midtones	Цветокоррекция средних тонов
+	Grade Shadows	Цветокоррекция теней
+	Gradient Options	Параметры градиента
+	Gradient Overlay	Перекрытие градиентом
+	Grain Amount	Количество зерна
+	Grain Roughness	Шероховатость зерна
+	Grain Size	Размер зерна
+	Grain Type	Тип зерна
+	Graininess	Зернистость
+	Grainy Dots	Зернистые точки
+	Gray Value (Maximum)	Значение серого (максимум)
+	Gray Value (Mean)	Значение серого (среднее)
+	Gray Value (Median)	Значение серого (медиана)
+	Gray Value (Minimum)	Значение серого (минимум)
+	Greens	Зеленые
+	Grid  (⌘')	Сетка  (⌘')
+	Grid view	Вид сетки
+	Group from Layers	Сгруппировать слои
+	Grout Width	Ширина шва
+	HDR Toning	Тонирование HDR
+	Hard	Жесткий
+	Hearts	Сердца
+	Heptagon	Семиугольник
+	Hexagon	Шестиугольник
+	Hide the layer's effects  (⌥-click: all layers)	Скрыть эффекты слоя  (⌥-щелчок: все слои)
+	High Pass	Цветовой контраст
+	Highlight	Света
+	Highlight Amount	Величина светов
+	Highlight Area	Область светов
+	Highlight Radius	Радиус светов
+	Highlight Strength	Сила светов
+	Highlight Tone	Тон светов
+	Highlights from:	Света из:
+	Horizontal Only	Только по горизонтали
+	Horizontal scale	Масштаб по горизонтали
+	Horizontal type	Горизонтальный текст
+	Hotspot	Горячая точка
+	Hsb	HSB
+	Hsl	HSL
+	Hsl Hue	HSL: тон
+	Hsl Lum	HSL: яркость
+	Hsl Sat	HSL: насыщенность
+	Image Balance	Баланс изображения
+	Image Processor	Обработчик изображений
+	Import Brushes	Импорт кистей
+	Import Brushes…	Импорт кистей…
+	Import Brushes… (.abr)	Импорт кистей… (.abr)
+	In Black	В черном
+	In White	В белом
+	Indent first line	Отступ первой строки
+	Indent left margin	Отступ слева
+	Indent right margin	Отступ справа
+	Indexed	Индексированный
+	Infinite	Бесконечный
+	Initial Direction	Начальное направление
+	Ink Outlines	Обводка тушью
+	Inner Bevel	Внутренний скос
+	Inner Glow	Внутреннее свечение
+	Inner Shadow	Внутренняя тень
+	Input Mode	Режим ввода
+	Inside	Внутри
+	Install Plug-in	Установить плагин
+	Integrated Density	Интегральная плотность
+	Intensity	Интенсивность
+	Interpret Footage	Интерпретировать материал
+	Intersect with selection  (⇧⌥)	Пересечение с выделением  (⇧⌥)
+	Interval	Интервал
+	Iris Blur	Размытие диафрагмы
+	Ivy	Плющ
+	Jag	Зубчатый
+	Join the ArtCraft Discord	Присоединиться к Discord ArtCraft
+	Keeps the current texture when switching presets.	Сохраняет текущую текстуру при переключении пресетов.
+	Kernel	Ядро
+	Lab	Lab
+	Label	Метка
+	Landscape, 10 x 8	Альбомная, 10 x 8
+	Landscape, 6 x 4	Альбомная, 6 x 4
+	Landscape, 7 x 5	Альбомная, 7 x 5
+	Layer Comps to Files	Композиции слоёв в файлы
+	Layer Content Options	Параметры содержимого слоя
+	Layer Count	Количество слоёв
+	Layer From Background	Слой из фона
+	Layer Knocks Out Drop Shadow	Слой выбивает тень
+	Layer from Background	Слой из фона
+	Layers to Files	Слои в файлы
+	Layout	Макет
+	Leading (set to the font size × auto-leading when Auto)	Интерлиньяж (равен размеру шрифта × автозначению при «Авто»)
+	Leaf Color	Цвет листвы
+	Leaves Amount	Количество листвы
+	Leaves Color	Цвет листьев
+	Leaves Size	Размер листвы
+	Left Diagonal	Диагональ влево
+	Legacy	Устаревшее
+	Legal	Legal
+	Length	Длина
+	Lens Blur	Размытие при малой глубине резкости
+	Lens Correction	Коррекция объектива
+	Lens Flare	Блик
+	Letter	Letter
+	Level Based	На основе уровней
+	Light Dark Balance	Баланс света и тени
+	Light Direction	Направление света
+	Light Intensity	Интенсивность света
+	Light Rough	Шероховатость света
+	Light Type	Тип источника света
+	Light X	Свет X
+	Light Y	Свет Y
+	Light Z	Свет Z
+	Lighten Grout	Осветлить затирку
+	Lighten Only	Только осветление
+	Lighting	Освещение
+	Lighting Effects	Эффекты освещения
+	Linear Height	Линейная высота
+	Link with Layer	Связать со слоем
+	Liquify	Пластика
+	List	Список
+	List view	Вид списком
+	Load 3D LUT	Загрузить 3D LUT
+	Load Files into Stack	Загрузить файлы в стек
+	Load Photoshop brushes (.abr)	Загрузить кисти Photoshop (.abr)
+	Load path as a selection	Загрузить контур как выделение
+	Lock Layers	Заблокировать слои
+	Long Lines	Длинные линии
+	Long Strokes	Длинные штрихи
+	Lorem Ipsum	Lorem Ipsum
+	Lower	Нижний
+	Lum	Яркость
+	Lut	LUT
+	Magentas	Пурпурные
+	Make work path from selection	Создать рабочий контур из выделения
+	Map Document	Карта документа
+	Map Layer	Карта слоя
+	Map Path	Карта контура
+	Margin	Поле
+	Mask Incomplete Blocks	Маскировать неполные блоки
+	Match Color	Подобрать цвет
+	Max Offset	Макс. смещение
+	Max Radius	Макс. радиус
+	Measurement Scale	Масштаб измерений
+	Measurement Scale Marker	Маркер масштаба измерений
+	Medium Dots	Средние точки
+	Medium Lines	Средние линии
+	Medium Strokes	Средние штрихи
+	Merge to HDR Pro	Объединить в HDR Pro
+	Metallic	Металлик
+	Metrics	Метрики
+	Mezzotint	Меццо-тинто
+	Midtone	Средние тона
+	Mono Contrast	Монохромный контраст
+	Monochromatic	Монохромный
+	Mosaic	Мозаика
+	Mosaic Tiles	Мозаичные плитки
+	Motion Blur	Размытие в движении
+	Movie Prime	Movie Prime
+	Multiple Flames Along Path	Несколько языков пламени вдоль контура
+	Multiple Flames One Direction	Несколько языков пламени, одно направление
+	Multiple Flames Path Directions	Несколько языков пламени, направления контура
+	Multiple Flames Various Length	Несколько языков пламени, разная длина
+	My Brushes	Мои кисти
+	Neon Glow	Неоновое свечение
+	Neutralize	Нейтрализовать
+	Neutrals	Нейтральные
+	New Guide	Новая направляющая
+	New Guide Layout	Новый макет направляющих
+	New Layer	Новый слой
+	New Video Layer from File	Новый видеослой из файла
+	New Workspace	Новое рабочее пространство
+	New document	Новый документ
+	New document…	Новый документ…
+	New document…     ⌘N	Новый документ…     ⌘N
+	Noise Color	Цветовой шум
+	Noise Color Detail	Детализация цветового шума
+	Noise Luminance	Яркостный шум
+	Noise Luminance Detail	Детализация яркостного шума
+	Number Of Levels	Число уровней
+	Ocean Ripple	Океанские волны
+	Octagon	Восьмиугольник
+	Odd Fields	Нечетные поля
+	Oil Paint	Масляная краска
+	One Flame Along Path	Один язык пламени вдоль контура
+	Open As	Открыть как
+	Opening	Открытие
+	Open…     ⌘O	Открыть…     ⌘O
+	Optical	Оптический
+	Original Ratio	Исходное соотношение
+	Out Black	Выход черного
+	Out From Center	Из центра
+	Out Of Gamut	Вне цветового охвата
+	Out White	Выход белого
+	Outer Bevel	Внешний скос
+	Outer Glow	Внешнее свечение
+	Outside	Снаружи
+	Oval	Овал
+	Overlay Edge	Край наложения
+	Overlay: Rule of Thirds	Наложение: правило третей
+	PSD	PSD
+	Package	Упаковать
+	Paint Daubs	Мазня
+	Paints from the document's opening state	Краски из состояния документа при открытии
+	Palette Knife	Шпатель
+	Paper	Бумага
+	Paper Brightness	Яркость бумаги
+	Parallel	Параллельно
+	Patchwork	Лоскутное одеяло
+	Path Blur	Размытие по контуру
+	Paths to Illustrator	Контуры в Illustrator
+	Pattern Overlay	Наложение узора
+	Pattern Type	Тип узора
+	Pencil Width	Ширина карандаша
+	Pentagon	Пятиугольник
+	Perimeter	Периметр
+	Photomerge	Photomerge
+	Picture Frame	Рамка
+	Pillow Emboss	Тиснение подушкой
+	Pinch	Сжатие
+	Pins	Булавки
+	Place Embedded	Поместить встроенные
+	Place Linked	Поместить связанные
+	Place Scale Marker	Поместить масштабную линейку
+	Plane	Плоскость
+	Planes	Плоскости
+	Plastic Wrap	Целлофановая упаковка
+	Point	Точка
+	Point Curve	Точечная кривая
+	Point Curve Blue	Точечная кривая — синий
+	Point Curve Green	Точечная кривая — зеленый
+	Point Curve Red	Точечная кривая — красный
+	Pointed	Заостренный
+	Pointillize	Пуантилизм
+	Polar Coordinates	Полярные координаты
+	Polar To Rectangular	Полярные в прямоугольные
+	Pond Ripples	Рябь на пруду
+	Portrait, 4 x 6	Портрет, 4 x 6
+	Portrait, 5 x 7	Портрет, 5 x 7
+	Postcard	Почтовая открытка
+	Poster	Плакат
+	Poster Edges	Плакатные края
+	Posterization	Постеризация
+	Preserve	Сохранить
+	Preset Manager	Управление наборами
+	Press keys	Нажмите клавиши
+	Prime105	Prime105
+	Prime35	Prime35
+	Pro (Dark)	Pro (темный)
+	Pro (Medium Gray)	Pro (средне-серый)
+	Profile	Профиль
+	Pyramids	Пирамиды
+	Quick Actions	Быстрые действия
+	Quick Mask	Быстрая маска
+	Radial	Радиальный
+	Radial Blur	Радиальное размытие
+	Radius X	Радиус X
+	Radius Y	Радиус Y
+	Random	Случайный
+	Randomize Length	Случайная длина
+	Randomize Shapes	Случайные фигуры
+	Rasterize Fill Content	Растрировать заливку
+	Rasterize Layer	Растрировать слой
+	Rasterize Smart Object	Растрировать смарт-объект
+	Ratio	Пропорция
+	Raw Defaults	Настройки Raw по умолчанию
+	Reading	Чтение
+	Rectangular To Polar	Прямоугольные в полярные
+	Red Cyan	Красный/голубой
+	Reds	Красные
+	Reduce Color Noise	Уменьшить цветовой шум
+	Reduce Noise	Уменьшить шум
+	Reflected	Отраженный
+	Relief	Рельеф
+	Relink to File	Пересвязать с файлом
+	Remove Jpeg Artifact	Удалить артефакты JPEG
+	Rename Brush	Переименовать кисть
+	Rename Group	Переименовать группу
+	Rename Tool Preset	Переименовать набор параметров инструмента
+	Render Video	Рендеринг видео
+	Replace Color	Заменить цвет
+	Replace Contents	Заменить содержимое
+	Replace Footage	Заменить видеоматериал
+	Report an Issue	Сообщить о проблеме
+	Reset Alignment	Сбросить выравнивание
+	Resolve Missing Fonts	Разрешить отсутствующие шрифты
+	Rgb	RGB
+	Ridges	Гребни
+	Right Diagonal	Правая диагональ
+	Ring	Кольцо
+	Ripple	Рябь
+	Ripple Magnitude	Величина ряби
+	Ripple Size	Размер ряби
+	Rope	Веревка
+	Roses	Розы
+	Rough Pastels	Грубая пастель
+	Row Order	Порядок строк
+	Rulers  (⌘R)	Линейки  (⌘R)
+	Sampled Colors	По образцу
+	Sandstone	Песчаник
+	Sat	Насыщ.
+	Satin	Атлас
+	Save As	Сохранить как
+	Save Pixel Aspect Ratio	Сохранить пропорцию пикселя
+	Save a Copy	Сохранить копию
+	Save for Web (Legacy)	Сохранить для Web (прежняя версия)
+	Scale Effects	Масштабировать эффекты
+	Scale Factor	Коэффициент масштабирования
+	Scale Units	Единицы масштаба
+	Scaling	Масштабирование
+	Scallops	Фестоны
+	Script Events Manager	Управление событиями сценариев
+	Search commands	Поиск команд
+	Search commands (⌘K)	Поиск команд (⌘K)
+	Search commands, tools and panels	Поиск команд, инструментов и панелей
+	Select Data Points	Выбрать точки данных
+	Select and Mask	Выделение и маска
+	SemiBold	Полужирный
+	Sepia	Сепия
+	Set Measurement Scale	Установить шкалу измерений
+	Shadow	Тень
+	Shadow Amount	Количество тени
+	Shadow Intensity	Интенсивность тени
+	Shadow Radius	Радиус тени
+	Shadow Tone	Тон тени
+	Shadows up to:	Тени до:
+	Shadows/Highlights	Тени/Света
+	Shape Blur	Размытие по фигуре
+	Sharpen Amount	Степень резкости
+	Sharpen Detail	Детализация резкости
+	Sharpen Details	Детали резкости
+	Sharpen Masking	Маскирование резкости
+	Sharpen Radius	Радиус резкости
+	Shear	Искривление
+	Shine	Сияние
+	Short Lines	Короткие линии
+	Short Strokes	Короткие штрихи
+	Show Extras Options	Показать параметры дополнительных элементов
+	Show Guides	Показать направляющие
+	Show Guides  (⌘;)	Показать направляющие  (⌘;)
+	Show the layer's effects  (⌥-click: all layers)	Показать эффекты слоя  (⌥-щелчок: все слои)
+	Simple	Простой
+	Sine	Синус
+	Sketch	Эскиз
+	Slice Options	Параметры фрагмента
+	Smart Blur	Умное размытие
+	Smart Sharpen	Умная резкость
+	Smoothness	Гладкость
+	Smudge Stick	Растушевка
+	Snowflakes	Снежинки
+	Soften	Смягчение
+	Softness	Мягкость
+	Solid Front Faces	Сплошные передние грани
+	Source Layer	Исходный слой
+	Source: set	Источник: задать
+	Sparkle	Искры
+	Spatter	Разбрызгивание
+	Speckle	Крапинки
+	Speed	Скорость
+	Spherize	Сферизация
+	Spin	Вращение
+	Spin Blur	Вращательное размытие
+	Sponge	Губка
+	Spot	Пятно
+	Spray Radius	Радиус разбрызгивания
+	Sprayed Strokes	Аэрограф
+	Spread	Распространение
+	Sprinkles	Брызги
+	Square Size	Размер квадрата
+	Square, 12 x 12	Квадрат, 12 x 12
+	Square, 5 x 5	Квадрат, 5 x 5
+	Squareness	Квадратность
+	Stagger	Чередование
+	Stained Glass	Витраж
+	Star	Звезда
+	Stars	Звезды
+	Start X	Начало X
+	Start Y	Начало Y
+	Statistics	Статистика
+	Stippled	Точечный
+	Stops	Остановки
+	Stretch	Растяжение
+	Stroke Detail	Детализация штриха
+	Stroke Direction	Направление штриха
+	Stroke Length	Длина штриха
+	Stroke Pressure	Нажим штриха
+	Stroke Size	Размер штриха
+	Stroke Width	Ширина штриха
+	Stroke path with brush	Обводка контура кистью
+	Strokes	Штрихи
+	Studio (Dark)	Студия (темная)
+	Studio (Light)	Студия (светлая)
+	Stylization	Стилизация
+	Subtract from selection  (⌥)	Вычитание из выделенной области  (⌥)
+	Sumi-e	Суми-э
+	Surface Blur	Размытие по поверхности
+	System Info	Сведения о системе
+	Tabloid	Таблоид
+	Taper	Конусность
+	Target X	Цель X
+	Target Y	Цель Y
+	Teal Orange	Бирюзово-оранжевый
+	Technology Previews…	Предварительный просмотр технологий…
+	Texture Coverage	Покрытие текстурой
+	Texturizer	Текстуризатор
+	Thickness	Толщина
+	Tile Size	Размер плитки
+	Tiles	Плитки
+	Tilt-Shift	Наклон-сдвиг
+	Tint Color	Цвет тонирования
+	Tiny Lens	Крошечная линза
+	To Center	К центру
+	Toggle the Brush Settings panel  (F5)	Переключить панель параметров кисти  (F5)
+	Tool	Инструмент
+	Top Left	Верхний левый
+	Top Right	Верхний правый
+	Trace Contour	Оконтуривание
+	Tracking (1/1000 em)	Трекинг (1/1000 em)
+	Transition	Переход
+	Trap	Треппинг
+	Tree	Дерево
+	Trim	Обрезка
+	Turbulent	Турбулентный
+	Twirl	Скручивание
+	Type Options	Параметры текста
+	Unaltered	Без изменений
+	Undefined Areas	Неопределенные области
+	Underpainting	Подмалевок
+	Underwater	Подводный
+	Uniform	Равномерный
+	Unsharp Mask	Контурная резкость
+	Upper	Верхний
+	Use Custom Color	Использовать пользовательский цвет
+	Use Selection In Source	Использовать выделение в источнике
+	Use Selection In Target	Использовать выделение в цели
+	Uses the foreground and background colors.	Использует цвета переднего плана и фона.
+	Vanishing Point	Точка схода
+	Variable Data Sets	Наборы переменных данных
+	Vertical Only	Только вертикально
+	Vertical Type Tool	Инструмент «Вертикальный текст»
+	Vertical scale	Вертикальный масштаб
+	Vertical type	Вертикальный текст
+	Video Frames to Layers	Видеокадры в слои
+	Vignette Amount	Эффект виньетки
+	Vignette Feather	Растушевка виньетки
+	Vignette Highlights	Света виньетки
+	Vignette Midpoint	Средняя точка виньетки
+	Vignette Roundness	Округлость виньетки
+	Vignette Style	Стиль виньетки
+	Vine Color	Цвет лозы
+	Vine With Flowers	Лоза с цветами
+	Vine With Leaves	Лоза с листьями
+	Violent	Резкий
+	Violet	Фиолетовый
+	WIA Support	Поддержка WIA
+	Warm	Тёплый
+	Warming L B A	Тёплый L B A
+	Warming81	Тёплый 81
+	Warming85	Тёплый 85
+	Warmth	Теплота
+	Warp Text	Деформация текста
+	Watercolor	Акварель
+	Watercolour look: lighter interior, darker rims.	Акварельный вид: светлее внутри, темнее по краям.
+	Wavelength Max	Макс. длина волны
+	Wavelength Min	Мин. длина волны
+	Waves	Волны
+	Web Large	Большой (веб)
+	Web Minimum	Минимальный (веб)
+	Web Most Common	Наиболее распространённый (веб)
+	WebP (lossless)	WebP (без потерь)
+	White Clip	Отсечка белого
+	White Intensity	Интенсивность белого
+	White Is High	Белый — высокий
+	Wide Blurry	Широкое размытие
+	Wide Sharp	Широкая резкость
+	Wind	Ветер
+	Working	Выполняется
+	Wrap	Перенос
+	Yellows	Жёлтые
+	ZigZag	Зигзаг
+	Zigzag	Зигзаг
+	↑↓ navigate   ↵ run   esc close	↑↓ навигация   ↵ выполнить   esc закрыть

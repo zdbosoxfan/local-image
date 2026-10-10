@@ -3453,3 +3453,414 @@ ai	New	새 항목
 	Choose Erase or Restore in the options bar, then paint to refine the mask.	옵션 막대에서 지우기 또는 복원을 선택한 다음 칠하여 마스크를 다듬으세요.
 	Tool Set Name	도구 세트 이름
 	You can also drag with the middle mouse button to pan.	마우스 가운데 버튼으로 드래그하여 화면을 이동할 수도 있습니다.
+	10 fps	10fps
+	15 fps	15fps
+	24 fps	24fps
+	25 fps	25fps
+	30 fps	30fps
+	3D	3D
+	3D…	3D…
+	ACES	ACES
+	Accurate	정확하게
+	Actual Color	실제 색상
+	Add Pins	핀 추가
+	Add a mask  (from the selection; ⌥ inverts)	마스크 추가 (선택 영역에서, ⌥ 누르면 반전)
+	Add to	추가
+	Add to selection  (⇧)	선택 영역에 추가 (⇧)
+	Adds grain to the soft edges of the brush tip.	브러시 팁의 부드러운 가장자리에 그레인을 추가합니다.
+	Adjustment	조정
+	Adjustment Layer	조정 레이어
+	Adobe Every-line Composer	Adobe 줄 단위 컴포저
+	Adobe PDF Presets…	Adobe PDF 사전 설정…
+	Adobe RGB (1998)	Adobe RGB (1998)
+	Adobe Single-line Composer	Adobe 한 줄 컴포저
+	Advanced Blending	고급 혼합
+	Advanced Controls	고급 컨트롤
+	After (X)	이후 (X)
+	Airbrush: keeps painting while the pointer rests.	에어브러시: 포인터를 멈춘 동안 계속 페인팅합니다.
+	Alignment	정렬
+	Alternates for Current Selection	현재 선택 항목의 대체 항목
+	Alternative	대체
+	Aperture	조리개
+	Apple RGB	Apple RGB
+	Apply Layer Comp	레이어 컴프 적용
+	Arc	호
+	Arch	아치
+	Art History Brush	아트 히스토리 브러시
+	Artist	아티스트
+	Ask Before Saving Saved Embedded	저장된 임베드 저장 전에 확인
+	Ask When Pasting	붙여넣을 때 확인
+	Aspect Ratio	가로 세로 비율
+	Audio	오디오
+	Author	작성자
+	Auto Clean Brush	브러시 자동 청소
+	Auto-Hide	자동 숨김
+	Auto-Leading	자동 행간
+	Auto-leading %	자동 행간 %
+	Automatically Create First Snapshot	첫 스냅샷 자동 생성
+	Automatically Create New Snapshot When Saving	저장할 때 자동으로 새 스냅샷 만들기
+	Avoid Widows/Orphans	외톨이 줄 방지
+	Background from Layer	배경으로 변환
+	Baseline Shift	기준선 이동
+	Blend	혼합
+	Blend RGB Colors Using Gamma 1.0	감마 1.0을 사용하여 RGB 색상 혼합
+	Bold Italic	굵은 기울임꼴
+	Brush Tip	브러시 팁
+	Bulge	볼록
+	Burn	번
+	Byline	바이라인
+	Byline Title	바이라인 제목
+	CIE RGB	CIE RGB
+	CMYK:	CMYK:
+	Camera Calibration	카메라 보정
+	Camera Data	카메라 데이터
+	Camera Make	카메라 제조사
+	Camera Model	카메라 모델
+	Canvas rotation	캔버스 회전
+	Caption	설명
+	Caption Credits	캡션 크레딧
+	Capture Comp	컴프 캡처
+	Category	범주
+	Channel	채널
+	City	도시
+	Clear History	기록 지우기
+	Click the first point or press ↵ to close · Esc cancels	첫 번째 점을 클릭하거나 ↵를 눌러 닫습니다 · Esc는 취소합니다.
+	Click to add a point · drag off or ⌘/Ctrl-click or Delete to remove	클릭하여 점 추가 · 밖으로 드래그하거나 ⌘/Ctrl-클릭 또는 Delete로 제거합니다.
+	Click to apply, ⌥-click to clear overrides, double-click for Style Options	클릭하여 적용, ⌥-클릭하여 재정의 지우기, 스타일 옵션은 더블 클릭
+	Click to zoom in  ·  ⌥-click to zoom out	확대하려면 클릭 · 축소하려면 ⌥-클릭
+	Click: corner · Drag: smooth · Click first point: close · ↩ finish · Esc cancel	클릭: 모서리 · 드래그: 부드럽게 · 첫 번째 점 클릭: 닫기 · ↩ 완료 · Esc 취소
+	Clipping Path	클리핑 패스
+	Clone Stamp	복제 도장
+	Coerce to sRGB	sRGB로 강제 변환
+	Collapse group  (⌥-click: all groups)	그룹 접기 (⌥-클릭: 모든 그룹)
+	Color Adaptation	색상 적응
+	Color Management Policies	색상 관리 정책
+	Color Noise Reduction	색상 노이즈 감소
+	Color Profile	색상 프로필
+	Color Replacement	색상 대체
+	Color indicates	색상 표시
+	ColorMatch RGB	ColorMatch RGB
+	ColorSync	ColorSync
+	Columns	열
+	Commit Perspective Warp (↩)	원근 뒤틀기 적용 (↩)
+	Commit Puppet Warp (↩)	퍼펫 뒤틀기 적용 (↩)
+	Commit any current edits (⌘↩)	현재 편집 내용 적용 (⌘↩)
+	Commit current crop operation  (↵)	현재 자르기 작업 적용 (↵)
+	Commit transform (↩)	변형 적용 (↩)
+	Commit warp (↩)	뒤틀기 적용 (↩)
+	Compatibility	호환성
+	Compose	작성
+	Condensed	좁게
+	Content-Aware Move	내용 인식 이동
+	Convert Frames > Video Layers	프레임 > 비디오 레이어로 변환
+	Convert to Grayscale	회색 음영으로 변환
+	Copyright Info URL	저작권 정보 URL
+	Copyright Status	저작권 상태
+	Copyrighted	저작권 있음
+	Country	국가
+	Create Date	만든 날짜
+	Create Multiple Picture Packages	여러 사진 패키지 만들기
+	Create Plane	평면 만들기
+	Create Snapshot	스냅샷 만들기
+	Create a new layer  (⇧⌘N)	새 레이어 만들기 (⇧⌘N)
+	Create new count group	새 카운트 그룹 만들기
+	Create new layer	새 레이어 만들기
+	Create new set	새 세트 만들기
+	Credit	크레딧
+	Current	현재
+	Current Time	현재 시간
+	Custom pattern	사용자 정의 패턴
+	Date Created	만든 날짜
+	DateTime Original	원본 날짜 시간
+	Defaults restored.	기본값이 복원되었습니다.
+	Delete Layer…	레이어 삭제…
+	Delete Path	패스 삭제
+	Delete Pins	핀 삭제
+	Delete Preset…	사전 설정 삭제…
+	Delete Smart Filters	고급 필터 삭제
+	Desaturate Monitor Colors By	모니터 색상 채도 낮추기
+	Detect Faces	얼굴 감지
+	Digits	자릿수
+	Direction of Stroke	획 방향
+	Do you want to save you made to “{name}” before quitting?	종료하기 전에 “{name}”에 변경 내용을 저장하시겠습니까?
+	Document Size	문서 크기
+	Dodge	닷지
+	Dodge/Burn	닷지/번
+	Drag (lasso) or click points (polygonal) · {add} add · {sub} subtract	드래그(올가미) 또는 점 클릭(다각형) · {add} 추가 · {sub} 빼기
+	Drag to move the layer	레이어를 이동하려면 드래그
+	Duplicate Layer Comp	레이어 컴프 복제
+	Duplicate Path	패스 복제
+	Duplicated selection name	복제된 선택 영역 이름
+	Duration	지속 시간
+	Dynamics	다이내믹
+	EXIF	EXIF
+	EXIF Version	EXIF 버전
+	Edit Plane	평면 편집
+	Email	이메일
+	Embed profiles	프로필 포함
+	Enable Smart Filters	고급 필터 활성화
+	Enable Timeline Quick Config	타임라인 빠른 구성 활성화
+	Enter description…	설명 입력…
+	Error File	오류 파일
+	Errors	오류
+	Expand All Groups	모든 그룹 확장
+	Expand group  (⌥-click: all groups)	그룹 확장  (⌥-클릭: 모든 그룹)
+	Exposure Program	노출 프로그램
+	Extensions	확장 프로그램
+	Extra Bold	매우 굵게
+	Extra Light	매우 가늘게
+	F	F
+	Fast	빠르게
+	File Naming	파일 이름 지정
+	Fill Light	필 라이트
+	Fill Path	패스 채우기
+	First Color Readout	첫 번째 색상 판독
+	First Line Indent	첫 줄 들여쓰기
+	Fish	물고기
+	Flag	플래그
+	Flash	플래시
+	Flatten Frames Into Clips	프레임을 클립으로 병합
+	Flatten Frames Into Layers	프레임을 레이어로 병합
+	Focal Length35mm	35mm 초점 거리
+	Frame Duration	프레임 지속 시간
+	Frame Sync	프레임 동기화
+	GPS	GPS
+	General Blend	일반 혼합
+	General Brushes	일반 브러시
+	Glyph	글리프
+	Glyph Scaling	글리프 비율
+	Go to Layer	레이어로 이동
+	Graphic and web	그래픽 및 웹
+	Gray:	회색:
+	Grayscale Slider	회색 음영 슬라이더
+	Grid  (⌘')	격자  (⌘')
+	Group · {n} layer	그룹 · 레이어 {n}개
+	H	H
+	HDTV (Rec. 709)	HDTV (Rec. 709)
+	HSB Color	HSB 색상
+	HSL/Grayscale	HSL/회색 음영
+	Hand	손
+	Hanging Punctuation	행잉 문장 부호
+	Heal	복구
+	Heal Auto	자동 복구
+	Heal Color	색상 복구
+	Heal Off	복구 끔
+	Heal On	복구 켬
+	Healing	복구
+	Hide	숨기기
+	Hide the layer's effects  (⌥-click: all layers)	레이어 효과 숨기기  (⌥-클릭: 모든 레이어)
+	History Brush	히스토리 브러시
+	Humidity	습도
+	ISO	ISO
+	ISO Speed	ISO 감도
+	Import…	가져오기…
+	In	안쪽
+	Include ICC Profile	ICC 프로필 포함
+	Industry Standard	업계 표준
+	Inflate	부풀리기
+	Info Options…	정보 옵션…
+	Initial Direction of Stroke	획 초기 방향
+	Intersect with	교차
+	Intersect with selection  (⇧⌥)	선택 영역에 교차  (⇧⌥)
+	Justification	정렬
+	Justify	양쪽 정렬
+	Keep proportions	비율 유지
+	Keep view in sync	보기 동기화 유지
+	Keeps the current texture when switching presets.	사전 설정을 전환할 때 현재 텍스처를 유지합니다.
+	Keywords	키워드
+	Last Modified	마지막으로 수정한 날짜
+	Layer Comp	레이어 컴프
+	Lens Corrections	렌즈 교정
+	Lens Info	렌즈 정보
+	Letter Spacing	자간
+	Libraries	라이브러리
+	Ligature	합자
+	Light Source	광원
+	Limit Playback	재생 제한
+	Localize Color Clusters	색상 클러스터 지역화
+	Location	위치
+	Log Errors To File	오류를 파일에 기록
+	Loop	반복
+	Luminance Smoothness	휘도 평활도
+	Mac Crisp	Mac Crisp
+	Mac LCD	Mac LCD
+	Mac OS	Mac OS
+	Mac Sharp	Mac Sharp
+	Mac Smooth	Mac Smooth
+	Mac Strong	Mac Strong
+	Magnetic Lasso	자석 올가미
+	Make	만들기
+	Make Work Path	작업 패스 만들기
+	Masked Areas	마스크된 영역
+	Measure	측정
+	Metering Mode	측광 모드
+	Minimalistic	미니멀리즘
+	Missing Profiles: Ask When Opening	누락된 프로필: 열 때 확인
+	Modify Date	수정 날짜
+	Mouse Controls	마우스 컨트롤
+	Mouse Coordinates	마우스 좌표
+	NTSC (1953)	NTSC (1953)
+	New Brush	새 브러시
+	New Channel	새 채널
+	New Group	새 그룹
+	New Layer Comp	새 레이어 컴프
+	New Layer from Brush	브러시로 새 레이어
+	New Layer…	새 레이어…
+	New Path	새 패스
+	New Selection	새 선택
+	New Snapshot	새 스냅샷
+	New Tool Preset	새 도구 사전 설정
+	New Video Group	새 비디오 그룹
+	New Video Layer	새 비디오 레이어
+	New channel only	새 채널만
+	New document…     ⌘N	새 문서…     ⌘N
+	Newspaper	신문
+	No Layer Comps	레이어 컴프 없음
+	Nonlinear History	비선형 기록
+	Note tool	메모 도구
+	Object Name / Title	개체 이름 / 제목
+	Opacity Mask	불투명도 마스크
+	Open…     ⌘O	열기…     ⌘O
+	Operation	작업
+	Out	아웃
+	Override Action "Save" Commands	\\"저장\\" 명령 재정의
+	PAL/SECAM	PAL/SECAM
+	PDF Presentation…	PDF 프레젠테이션…
+	Panel Options…	패널 옵션…
+	Patch	패치
+	Path to Illustrator…	Illustrator로 패스 보내기…
+	Path:	패스:
+	Pattern Stamp	패턴 스탬프
+	Pen	펜
+	Pencil	연필
+	Pencil Tool	연필 도구
+	Perspective Crop	원근 자르기
+	Phone	전화
+	Photo (2 × 3 in)	사진 (2 × 3인치)
+	Photo (4 × 6 in)	사진 (4 × 6인치)
+	Photo (5 × 7 in)	사진 (5 × 7인치)
+	Photo (8 × 10 in)	사진 (8 × 10인치)
+	Picture Package…	사진 패키지…
+	Pixel	픽셀
+	Play Once	한 번 재생
+	Preserve Transparency	투명도 유지
+	Preset Name:	사전 설정 이름:
+	ProPhoto	ProPhoto
+	ProPhoto RGB	ProPhoto RGB
+	Profile Mismatches: Ask When Opening	프로필 불일치: 열 때 확인
+	Province / State	시/도
+	Public Domain	퍼블릭 도메인
+	Punctuation	문장 부호
+	Quick Selection	빠른 선택
+	Quick Sync	빠른 동기화
+	RGB	RGB
+	RGB:	RGB:
+	Raw Data	Raw 데이터
+	Recent Items	최근 항목
+	Recovery	복구
+	Rectangle	사각형
+	Red Eye	적목
+	Reference point location	기준점 위치
+	Rename Layer Comp	레이어 컴프 이름 바꾸기
+	Reset	재설정
+	Restore last viewed comp	마지막으로 본 컴프 복원
+	Result	결과
+	Rise	올림
+	Roman	로마자
+	Roman Hanging Punctuation	로마자 매달린 문장 부호
+	Rotate Auto	자동 회전
+	Rotate Fixed	고정 회전
+	Rotate View	보기 회전
+	Ruler	눈금자
+	Ruler Units	눈금자 단위
+	Rulers  (⌘R)	눈금자  (⌘R)
+	SMPTE C	SMPTE C
+	Sampler	샘플러
+	Save Preset…	사전 설정 저장…
+	Saved	저장됨
+	Saved Multichannel	저장된 다중 채널
+	Scale Horizontally	가로로 비율 조정
+	Scale Vertically	세로로 비율 조정
+	Search commands (⌘K)	명령 검색 (⌘K)
+	Second Color Readout	두 번째 색상 판독
+	Select All Layers	모든 레이어 선택
+	Select Folder…	폴더 선택…
+	Select Plane	평면 선택
+	Select Similar Colors	유사한 색상 선택
+	Selected Areas	선택한 영역
+	Semi Bold	세미볼드
+	Set New Snapshot as Default	새 스냅샷을 기본값으로 설정
+	Set Start Timecode…	시작 타임코드 설정…
+	Settings:	설정:
+	Shell Lower	아래 첨자
+	Shell Upper	위 첨자
+	Show Guides  (⌘;)	안내선 표시  (⌘;)
+	Show New Snapshot Dialog by Default	기본적으로 새 스냅샷 대화 상자 표시
+	Show the layer's effects  (⌥-click: all layers)	레이어 효과 표시  (⌥-클릭: 모든 레이어)
+	Shutter Speed	셔터 속도
+	Single Word Justification	단어 단위 균등 배분
+	Snapshot 1	스냅샷 1
+	Snapshots	스냅샷
+	Software	소프트웨어
+	Spacing:	간격:
+	Split Toning	분할 토닝
+	Split at Playhead	재생 헤드에서 분할
+	Spot Channel	별색 채널
+	Spot Color	별색
+	Spot Healing	스팟 복구
+	Spot:	스팟:
+	Squeeze	압축
+	Status Information	상태 정보
+	Step Backward	뒤로 한 단계
+	Step Forward	앞으로 한 단계
+	Stop For Errors	오류 시 중지
+	Stroke Path	패스 획
+	Subject Distance	피사체 거리
+	Subscript	아래 첨자
+	Subtract from	다음에서 빼기
+	Subtract from selection  (⌥)	선택 영역에서 빼기  (⌥)
+	Superscript	위 첨자
+	Supplemental Categories	보조 카테고리
+	Symbols	기호
+	Technology Previews	기술 미리보기
+	Technology Previews…	기술 미리보기…
+	Tilt	기울기
+	Time	시간
+	Timecode	타임코드
+	Timing	타이밍
+	Toggle reference point	기준점 전환
+	Tone Curve	톤 커브
+	Toolbars	도구 모음
+	Total Ink	총 잉크
+	Transmission Reference	투과 기준
+	Twist	비틀기
+	URLs	URL
+	Ultra Bold	울트라 볼드
+	Ultra Light	울트라 라이트
+	Uncoated CMYK	비코팅 CMYK
+	Units	단위
+	Unix	Unix
+	Unknown	알 수 없음
+	Update Layer Comp	레이어 컴프 업데이트
+	Urgency	긴급도
+	Uses the foreground and background colors.	전경색과 배경색을 사용합니다.
+	Vertical Type Tool	세로 문자 도구
+	View menu	보기 메뉴
+	W	W
+	Wand	마법봉
+	Watercolour look: lighter interior, darker rims.	수채화 느낌: 밝은 내부, 어두운 가장자리.
+	Web Color	웹 색상
+	Web Photo Gallery…	웹 사진 갤러리…
+	Wide Gamut RGB	광색역 RGB
+	Width and Height	너비 및 높이
+	Word Spacing	단어 간격
+	Working Gray Plate	작업 회색 플레이트
+	Working Space	작업 공간
+	Working Spaces	작업 공간
+	X	X
+	Y	Y
+	sRGB	sRGB
+	sRGB IEC61966-2.1	sRGB IEC61966-2.1
+	shortcut	단축키
+	{zoom}%	{zoom}%
+	↑↓ navigate   ↵ run   esc close	↑↓ 탐색   ↵ 실행   esc 닫기

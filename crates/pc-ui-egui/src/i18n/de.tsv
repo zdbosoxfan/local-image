@@ -2910,3 +2910,946 @@ ai	New	Neu
 	Choose Erase or Restore in the options bar, then paint to refine the mask.	Wähle in der Optionsleiste Löschen oder Wiederherstellen und male, um die Maske zu verfeinern.
 	Tool Set Name	Name des Werkzeugsatzes
 	You can also drag with the middle mouse button to pan.	Du kannst auch mit der mittleren Maustaste ziehen, um die Ansicht zu verschieben.
+	10 fps	10 fps
+	15 fps	15 fps
+	24 fps	24 fps
+	25 fps	25 fps
+	30 fps	30 fps
+	32-bit Preview Options	32-Bit-Vorschauoptionen
+	3D	3D
+	3D…	3D…
+	ACES	ACES
+	AI Integrations	KI-Integrationen
+	Accented Edges	Akzentuierte Kanten
+	Accurate	Genau
+	Actual Color	Tatsächliche Farbe
+	Add Noise	Rauschen hinzufügen
+	Add Pins	Pins hinzufügen
+	Add a mask  (from the selection; ⌥ inverts)	Maske hinzufügen  (aus Auswahl; ⌥ invertiert)
+	Add to	Hinzufügen zu
+	Add to selection  (⇧)	Zur Auswahl hinzufügen  (⇧)
+	Adds grain to the soft edges of the brush tip.	Fügt den weichen Kanten der Pinselspitze Körnung hinzu.
+	Adjust Interval For Loops	Intervall für Schleifen anpassen
+	Adjustment Layer	Einstellungsebene
+	Adobe Every-line Composer	Adobe Absatzkomponist
+	Adobe PDF Presets…	Adobe-PDF-Vorgaben…
+	Adobe RGB (1998)	Adobe RGB (1998)
+	Adobe Single-line Composer	Adobe Einzelzeilenkomponist
+	Advanced Blending	Erweiterte Füllmethoden
+	Advanced Controls	Erweiterte Steuerung
+	After (X)	Nachher (X)
+	Airbrush: keeps painting while the pointer rests.	Airbrush: Baut Farbe auf, solange der Zeiger stillsteht.
+	Alignment	Ausrichtung
+	Alternates for Current Selection	Alternativen für aktuelle Auswahl
+	Alternative	Alternative
+	Ambience	Ambiente
+	Ambient	Umgebungslicht
+	Amplitude Max	Maximale Amplitude
+	Amplitude Min	Minimale Amplitude
+	Angled Strokes	Winkelstriche
+	Anisotropic	Anisotrop
+	Aperture	Blende
+	Apple RGB	Apple RGB
+	Apply Data Set	Datensatz anwenden
+	Apply Image	Bildberechnung
+	Arbitrary	Beliebig
+	Area	Bereich
+	Around Center	Um Mittelpunkt
+	Arrangement	Anordnung
+	Art History Brush	Kunstgeschichte-Pinsel
+	Artboard from Group	Zeichenfläche aus Gruppe
+	Artboard from Layers	Zeichenfläche aus Ebenen
+	Artboards to Files	Zeichenflächen in Dateien
+	Artboards to PDF	Zeichenflächen in PDF
+	Artistic	Künstlerisch
+	Ask Before Saving Saved Embedded	Vor dem Speichern von eingebetteten Inhalten fragen
+	Ask When Pasting	Beim Einfügen fragen
+	Aspect Ratio	Seitenverhältnis
+	Assign Profile	Profil zuweisen
+	At	Bei
+	Audio	Audio
+	Auto Clean Brush	Pinsel automatisch reinigen
+	Auto Scale	Automatisch skalieren
+	Auto-Align Layers	Ebenen automatisch ausrichten
+	Auto-Blend Layers	Ebenen automatisch überblenden
+	Auto-Hide	Automatisch ausblenden
+	Auto-Leading	Automatischer Zeilenabstand
+	Auto-leading %	Automatischer Zeilenabstand %
+	Automatically Create First Snapshot	Ersten Schnappschuss automatisch erstellen
+	Automatically Create New Snapshot When Saving	Beim Speichern automatisch neuen Schnappschuss erstellen
+	Avoid Widows/Orphans	Hurenkinder und Schusterjungen vermeiden
+	Background Level	Hintergrundwert
+	Background from Layer	Hintergrund aus Ebene
+	Bamboo	Bambus
+	Bas Relief	Bassrelief
+	Base Tree Type	Grundbaumtyp
+	Baseline Shift	Grundlinienversatz
+	Batch	Stapel
+	Berries	Beeren
+	Black Clip	Schwarz-Clipping
+	Black Intensity	Schwarzintensität
+	Blade Curvature	Klingenkrümmung
+	Blast	Stoß
+	Bleach Bypass	Bleach Bypass
+	Blend	Mischen
+	Blend RGB Colors Using Gamma 1.0	RGB-Farben mit Gamma 1,0 mischen
+	Blocks	Blöcke
+	Blue Yellow	Blau-Gelb
+	Blur Angle	Weichzeichnungswinkel
+	Border	Rand
+	Border Thickness	Randstärke
+	Bottom Left	Unten links
+	Bottom Right	Unten rechts
+	Box Blur	Box Weichzeichner
+	Branches Color	Zweigfarbe
+	Branches Height	Zweighöhe
+	Branches Thickness	Zweigdicke
+	Brick	Ziegel
+	Bristle Detail	Borstendetail
+	Browse	Durchsuchen
+	Brush Detail	Pinseldetail
+	Brush Size	Pinselgröße
+	Brush Strokes	Pinselstriche
+	Brush Tip	Pinselspitze
+	Brush Type	Pinseltyp
+	Burlap	Jute
+	Byline	Verfasserzeile
+	Byline Title	Titel der Verfasserzeile
+	CIE RGB	CIE RGB
+	CMYK:	CMYK:
+	Calculations	Berechnungen
+	Camera Calibration	Kamerakalibrierung
+	Camera Data	Kameradaten
+	Camera Make	Kamerahersteller
+	Camera Model	Kameramodell
+	Camera Raw	Camera Raw
+	Candle Light	Kerzenlicht
+	Canvas Size	Arbeitsfläche
+	Canvas rotation	Drehung der Arbeitsfläche
+	Caption	Beschriftung
+	Caption Credits	Bildunterschrift-Credits
+	Capture Comp	Aufnahme-Komposition
+	Category	Kategorie
+	Cell Size	Zellengröße
+	Center X	Mitte X
+	Center Y	Mitte Y
+	Chalk Area	Kreidefläche
+	Channel1	Kanal1
+	Channel2	Kanal2
+	Channel3	Kanal3
+	Channel4	Kanal4
+	Charcoal Area	Kohlefläche
+	Charcoal Thickness	Kohlestärke
+	Circle	Kreis
+	Circularity	Rundheit
+	City	Stadt
+	Cleanliness	Sauberkeit
+	Clear Amount	Löschbetrag
+	Clear History	Verlauf löschen
+	Click the first point or press ↵ to close · Esc cancels	Klicken Sie auf den ersten Punkt oder drücken Sie ↵ zum Schließen · Esc bricht ab
+	Click to add a point · drag off or ⌘/Ctrl-click or Delete to remove	Klicken Sie, um einen Punkt hinzuzufügen · ziehen Sie weg oder ⌘/Strg-Klick oder Entf zum Entfernen
+	Click to apply, ⌥-click to clear overrides, double-click for Style Options	Klicken zum Anwenden, ⌥-Klicken zum Löschen von Überschreibungen, Doppelklick für Stiloptionen
+	Click to zoom in  ·  ⌥-click to zoom out	Klicken zum Vergrößern  ·  ⌥-Klicken zum Verkleinern
+	Click: corner · Drag: smooth · Click first point: close · ↩ finish · Esc cancel	Klicken: Ecke · Ziehen: glatt · Ersten Punkt klicken: schließen · ↩ Fertig · Esc abbrechen
+	Clipping Path	Beschneidungspfad
+	Clone	Klonen
+	Clumped	Klumpig
+	Coarse Dots	Grobe Punkte
+	Coerce to sRGB	In sRGB konvertieren
+	Collapse group  (⌥-click: all groups)	Gruppe reduzieren  (⌥-Klicken: alle Gruppen)
+	Color Decontaminate	Farbreinigung
+	Color Halftone	Farbraster
+	Color Lookup Tables	Farbsuchtabellen
+	Color Management Policies	Farbmanagement-Richtlinien
+	Color Noise Reduction	Farbrauschreduzierung
+	Color Profile	Farbprofil
+	Color Settings	Farbeinstellungen
+	Color Table	Farbtabelle
+	Color indicates	Farbe zeigt an
+	ColorMatch RGB	ColorMatch RGB
+	ColorSync	ColorSync
+	Colored Pencil	Buntstift
+	Columns	Spalten
+	Commit Perspective Warp (↩)	Perspektivisches Verzerren übernehmen (↩)
+	Commit Puppet Warp (↩)	Puppet Warp übernehmen (↩)
+	Commit any current edits (⌘↩)	Aktuelle Bearbeitungen übernehmen (⌘↩)
+	Commit current crop operation  (↵)	Aktuellen Zuschnitt übernehmen  (↵)
+	Commit transform (↩)	Transformation übernehmen (↩)
+	Commit warp (↩)	Verzerren übernehmen (↩)
+	Compatibility	Kompatibilität
+	Compose	Komponieren
+	Condensed	Schmal
+	Conditional Mode Change	Bedingter Moduswechsel
+	Cone	Kegel
+	Constraints	Einschränkungen
+	Content-Aware Move	Inhaltsbasiertes Verschieben
+	Contract	Kontrahieren
+	Contrasty	Kontrastreich
+	Convert Frames > Video Layers	Frames > Videoebenen konvertieren
+	Convert to Grayscale	In Graustufen konvertieren
+	Convert to Linked	In verknüpftes Objekt konvertieren
+	Convert to Profile	In Profil konvertieren
+	Cool	Kühl
+	Cooling L B B	Kühlung L B B
+	Cooling80	Kühlung80
+	Cooling82	Kühlung82
+	Copyright Info URL	URL der Copyright-Informationen
+	Copyright Status	Copyright-Status
+	Copyrighted	Urheberrechtlich geschützt
+	Correct C A	CA korrigieren
+	Correct Distortion	Verzeichnung korrigieren
+	Correct Vignette	Vignettierung korrigieren
+	Country	Land
+	Crack Brightness	Risshelligkeit
+	Crack Depth	Risstiefe
+	Crack Spacing	Rissabstand
+	Craquelure	Craquelure
+	Create By	Erstellt von
+	Create Date	Erstellungsdatum
+	Create Multiple Picture Packages	Mehrere Bildpakete erstellen
+	Create Plane	Ebene erstellen
+	Create Snapshot	Schnappschuss erstellen
+	Create a new layer  (⇧⌘N)	Neue Ebene erstellen  (⇧⌘N)
+	Create new count group	Neue Zählgruppe erstellen
+	Create new layer	Neue Ebene erstellen
+	Create new set	Neuen Satz erstellen
+	Credit	Bildnachweis
+	Cross	Kreuz
+	Cross Process	Cross Process
+	Crosshatch	Kreuzschraffur
+	Crystallize	Kristallisieren
+	Current	Aktuell
+	Current Time	Aktuelle Zeit
+	Curve Darks	Kurve Tiefen
+	Curve Highlights	Kurve Lichter
+	Curve Lights	Kurve Lichter
+	Curve Shadows	Kurve Schatten
+	Curve Splits	Kurventeilungen
+	Custom Branch Color	Benutzerdefinierte Zweigfarbe
+	Custom Pixel Aspect Ratio	Benutzerdefiniertes Pixel-Seitenverhältnis
+	Custom pattern	Benutzerdefiniertes Muster
+	Cutout	Ausschnitt
+	Daisies	Gänseblümchen
+	Dark Intensity	Dunkle Intensität
+	Dark Rough	Dunkel rau
+	Dark Strokes	Dunkle Striche
+	Darken Only	Nur abdunkeln
+	Darkness	Dunkelheit
+	Data	Daten
+	Data Sets as Files	Datensätze als Dateien
+	Date Created	Erstellungsdatum
+	Date and Time	Datum und Uhrzeit
+	DateTime Original	Aufnahmedatum
+	Day For Night	Tag für Nacht
+	De-Interlace	Zeilenentflechtung
+	Deep Blue	Tiefblau
+	Deep Emerald	Tiefes Smaragdgrün
+	Deep Red	Tiefrot
+	Deep Yellow	Tiefgelb
+	Default Leaves	Standardblätter
+	Defaults restored.	Standardeinstellungen wiederhergestellt.
+	Define Brush Preset	Pinselvorgabe definieren
+	Define Custom Shape	Benutzerdefinierte Form definieren
+	Define Pattern	Muster definieren
+	Definition	Definition
+	Defringe	Farbsäume entfernen
+	Delete Layer…	Ebene löschen…
+	Delete Pins	Pins löschen
+	Delete Preset…	Vorgabe löschen…
+	Delete Smart Filters	Smartfilter löschen
+	Depth Map	Tiefenkarte
+	Depth Mode	Tiefenmodus
+	Desaturate Monitor Colors By	Monitorfarben entsättigen um
+	Detect Faces	Gesichter erkennen
+	Diffuse	Diffundieren
+	Diffuse Glow	Diffuses Leuchten
+	Digits	Ziffern
+	Direction Balance	Richtungsbalance
+	Direction of Stroke	Strichrichtung
+	Displace	Versetzen
+	Distortion	Verzerrung
+	Distribution	Verteilung
+	Do you want to save you made to “{name}” before quitting?	Möchten Sie die an „{name}“ vorgenommenen Änderungen vor dem Beenden speichern?
+	Document Size	Dokumentgröße
+	Dodge/Burn	Abwedler/Nachbelichter
+	Dot	Punkt
+	Double Line	Doppellinie
+	Draft	Entwurf
+	Drag to move the layer	Ziehen, um die Ebene zu verschieben
+	Dry Brush	Trockener Pinsel
+	Duplicate Layer	Ebene duplizieren
+	Duplicate Layers	Ebenen duplizieren
+	Duplicate Path	Pfad duplizieren
+	Duplicated selection name	Duplizierter Auswahlname
+	Duplication	Duplizierung
+	Duration	Dauer
+	Dust & Scratches	Staub und Kratzer
+	Dynamics	Dynamik
+	EXIF	EXIF
+	EXIF Version	EXIF-Version
+	Edge Brightness	Kantenhelligkeit
+	Edge Extension	Kantenerweiterung
+	Edge Fidelity	Kantentreue
+	Edge Intensity	Kantenintensität
+	Edge Only	Nur Kanten
+	Edge Simplicity	Kanteneinfachheit
+	Edge Thickness	Kantenstärke
+	Edge Width	Kantenbreite
+	Edit Plane	Ebene bearbeiten
+	Edit Toolbar	Werkzeugleiste anpassen
+	Elevation	Erhebung
+	Eliminate	Entfernen
+	Email	E-Mail
+	Embed profiles	Profile einbetten
+	Enable Smart Filters	Smartfilter aktivieren
+	Enable Timeline Quick Config	Schnellkonfiguration der Zeitleiste aktivieren
+	End X	Ende X
+	End Y	Ende Y
+	Enlarged	Vergrößert
+	Enter description…	Beschreibung eingeben…
+	Error File	Fehlerdatei
+	Errors	Fehler
+	Even Fields	Gerade Halbbilder
+	Expand All Groups	Alle Gruppen erweitern
+	Expand group  (⌥-click: all groups)	Gruppe erweitern  (⌥-Klick: alle Gruppen)
+	Export As	Exportieren als
+	Export Contents	Inhalte exportieren
+	Export Preferences	Exporteinstellungen
+	Export/Import Presets	Vorgaben exportieren/importieren
+	Exposure Program	Belichtungsprogramm
+	Extensions	Erweiterungen
+	Extra Bold	Extra Fett
+	Extra Light	Extra Leicht
+	Extrude	Extrudieren
+	Faded Film	Verblasster Film
+	Fast	Schnell
+	Fiber Length	Faserlänge
+	Fibers	Fasern
+	Field Blur	Feldweichzeichnung
+	File Info	Dateiinformationen
+	File Naming	Dateibenennung
+	Fill Light	Aufhellen
+	Film Grain	Filmkörnung
+	Filter Gallery	Filtergalerie
+	Find and Replace Text	Text suchen und ersetzen
+	Fine	Fein
+	Fine Dots	Feine Punkte
+	First Color Readout	Erste Farbanzeige
+	First Line Indent	Einzug erste Zeile
+	Fit Image	Bild einpassen
+	Flame	Flamme
+	Flame Bottom Alignment	Untere Flammenausrichtung
+	Flame Lines	Flammenlinien
+	Flame Shape	Flammenform
+	Flame Style	Flammenstil
+	Flame Type	Flammetyp
+	Flash	Blitz
+	Flat	Flach
+	Flat Shading	Flache Schattierung
+	Flatten Frames Into Clips	Frames zu Clips reduzieren
+	Flatten Frames Into Layers	Frames zu Ebenen reduzieren
+	Flower Color	Blütenfarbe
+	Focal Distance	Fokusentfernung
+	Focal Length35mm	Brennweite 35mm
+	Focus	Fokus
+	Focus Area	Fokusbereich
+	Foreground Level	Vordergrundstufe
+	Frame	Frame
+	Frame Duration	Frame-Dauer
+	Frame Sync	Frame-Synchronisierung
+	Fresco	Fresko
+	From Left	Von links
+	From Right	Von rechts
+	Frosted	Matiert
+	Fuzziness	Farbtoleranz
+	GPS	GPS
+	Gamma	Gamma
+	Gaussian	Gauß
+	Gaussian Blur	Gaußscher Weichzeichner
+	General Blend	Allgemeine Mischung
+	General Brushes	Allgemeine Pinsel
+	Generators	Generatoren
+	Generic	Generisch
+	Glass	Glas
+	Global Light	Globales Licht
+	Gloss	Glanz
+	Glow Amount	Leuchtstärke
+	Glow Brightness	Leuchthelligkeit
+	Glow Size	Leuchtgröße
+	Glowing Edges	Leuchtende Kanten
+	Glyph	Glyphe
+	Glyph Scaling	Glyphenskalierung
+	Go to Layer	Zu Ebene wechseln
+	Grade Balance	Farbabstufungsbalance
+	Grade Blending	Farbabstufungsmischung
+	Grade Global	Globale Farbabstufung
+	Grade Highlights	Farbabstufung Lichter
+	Grade Midtones	Farbabstufung Mitteltöne
+	Grade Shadows	Farbabstufung Tiefen
+	Grain Amount	Körnungsstärke
+	Grain Roughness	Körnungsrauheit
+	Grain Size	Körnungsgröße
+	Grain Type	Körnungstyp
+	Graininess	Körnigkeit
+	Grainy Dots	Körnige Punkte
+	Graphic and web	Grafik und Web
+	Gray Value (Maximum)	Grauwert (Maximum)
+	Gray Value (Mean)	Grauwert (Mittelwert)
+	Gray Value (Median)	Grauwert (Median)
+	Gray Value (Minimum)	Grauwert (Minimum)
+	Gray:	Grau:
+	Grayscale Slider	Graustufenregler
+	Grid  (⌘')	Raster  (⌘')
+	Group from Layers	Aus Ebenen gruppieren
+	Group · {n} layer	Gruppe · {n} Ebenen
+	Grout Width	Fugenbreite
+	HDR Toning	HDR-Tonung
+	HDTV (Rec. 709)	HDTV (Rec. 709)
+	HSB Color	HSB-Farbe
+	HSL/Grayscale	HSL/Graustufen
+	Hand	Hand
+	Hanging Punctuation	Hängende Interpunktion
+	Heal	Reparieren
+	Heal Auto	Automatisch reparieren
+	Heal Color	Farbe reparieren
+	Heal Off	Reparieren aus
+	Heal On	Reparieren ein
+	Healing	Reparatur
+	Hearts	Herzen
+	Heptagon	Siebeneck
+	Hexagon	Sechseck
+	Hide	Ausblenden
+	Hide the layer's effects  (⌥-click: all layers)	Effekte der Ebene ausblenden  (⌥-Klick: alle Ebenen)
+	High	Hoch
+	High Pass	Hochpass
+	Highlight	Lichter
+	Highlight Amount	Lichterstärke
+	Highlight Area	Lichterbereich
+	Highlight Radius	Lichterradius
+	Highlight Strength	Lichterintensität
+	Highlight Tone	Lichterton
+	Horizontal Only	Nur horizontal
+	Hotspot	Hotspot
+	Hsb	HSB
+	Hsl	HSL
+	Hsl Hue	HSL-Farbton
+	Hsl Lum	HSL-Luminanz
+	Hsl Sat	HSL-Sättigung
+	Humidity	Luftfeuchtigkeit
+	ISO	ISO
+	ISO Speed	ISO-Empfindlichkeit
+	Image Balance	Bildbalance
+	Image Processor	Bildprozessor
+	Import Brushes	Pinsel importieren
+	Import…	Importieren…
+	In	In
+	In Black	Schwarzpunkt
+	In White	Weißpunkt
+	Include ICC Profile	ICC-Profil einbetten
+	Industry Standard	Industriestandard
+	Infinite	Unendlich
+	Info Options…	Info-Optionen…
+	Initial Direction of Stroke	Anfangsrichtung des Strichs
+	Ink Outlines	Tintenkonturen
+	Input Mode	Eingabemodus
+	Install Plug-in	Plug-in installieren
+	Integrated Density	Integrierte Dichte
+	Intensity	Intensität
+	Interpolation	Interpolation
+	Interpret Footage	Footage interpretieren
+	Intersect with	Überschneiden mit
+	Intersect with selection  (⇧⌥)	Mit Auswahl überschneiden  (⇧⌥)
+	Interval	Intervall
+	Iris Blur	Irisweichzeichnung
+	Ivy	Efeu
+	Jag	Zacke
+	Join the ArtCraft Discord	Dem ArtCraft-Discord beitreten
+	Justify	Blocksatz
+	Keep proportions	Proportionen beibehalten
+	Keep view in sync	Ansicht synchron halten
+	Keeps the current texture when switching presets.	Behält die aktuelle Textur beim Wechseln der Voreinstellungen bei.
+	Kernel	Kernel
+	Keywords	Schlüsselwörter
+	Label	Beschriftung
+	Last Modified	Zuletzt geändert
+	Layer Comps to Files	Ebenenkompositionen in Dateien
+	Layer Content Options	Optionen für Ebeneninhalte
+	Layer From Background	Ebene aus Hintergrund
+	Layer from Background	Ebene aus Hintergrund
+	Layers to Files	Ebenen in Dateien
+	Leaf Color	Blattfarbe
+	Leaves Amount	Blättermenge
+	Leaves Color	Blätterfarbe
+	Leaves Size	Blättergröße
+	Left Diagonal	Linke Diagonale
+	Legacy	Veraltet
+	Length	Länge
+	Lens	Objektiv
+	Lens Blur	Objektivunschärfe
+	Lens Correction	Objektivkorrektur
+	Lens Corrections	Objektivkorrekturen
+	Lens Flare	Linsenreflexion
+	Lens Info	Objektivinfo
+	Letter Spacing	Zeichenabstand
+	Level Based	Stufenbasiert
+	Libraries	Bibliotheken
+	Ligature	Ligatur
+	Light Dark Balance	Licht-Dunkel-Balance
+	Light Direction	Lichtrichtung
+	Light Intensity	Lichtintensität
+	Light Rough	Lichtrauheit
+	Light Source	Lichtquelle
+	Light Type	Lichttyp
+	Light X	Licht X
+	Light Y	Licht Y
+	Light Z	Licht Z
+	Lighten Grout	Fugen aufhellen
+	Lighten Only	Nur aufhellen
+	Lighting	Beleuchtung
+	Lighting Effects	Beleuchtungseffekte
+	Limit Playback	Wiedergabe begrenzen
+	Liquify	Verflüssigen
+	List	Liste
+	Load 3D LUT	3D-LUT laden
+	Load Files into Stack	Dateien in Stapel laden
+	Localize Color Clusters	Farbcluster lokalisieren
+	Location	Ort
+	Lock Layers	Ebenen sperren
+	Log Errors To File	Fehler in Datei protokollieren
+	Long Lines	Lange Linien
+	Long Strokes	Lange Striche
+	Loop	Schleife
+	Low	Niedrig
+	Lower	Niedriger
+	Lum	Lum
+	Luminance Smoothness	Luminanzglättung
+	Lut	LUT
+	Mac Crisp	Mac Knackig
+	Mac LCD	Mac LCD
+	Mac OS	Mac OS
+	Mac Sharp	Mac Scharf
+	Mac Smooth	Mac Weich
+	Mac Strong	Mac Stark
+	Magnetic Lasso	Magnetisches Lasso
+	Map Document	Dokument zuordnen
+	Map Layer	Ebene zuordnen
+	Map Path	Pfad zuordnen
+	Margin	Rand
+	Mask Incomplete Blocks	Unvollständige Blöcke maskieren
+	Masked Areas	Maskierte Bereiche
+	Match Color	Farbe angleichen
+	Max Offset	Max. Versatz
+	Max Radius	Max. Radius
+	Measure	Messen
+	Medium Dots	Mittlere Punkte
+	Medium Lines	Mittlere Linien
+	Medium Strokes	Mittlere Striche
+	Merge to HDR Pro	Zu HDR Pro zusammenführen
+	Metallic	Metallisch
+	Metering Mode	Messmodus
+	Mezzotint	Mezzotint
+	Midtone	Mittelton
+	Minimalistic	Minimalistisch
+	Missing Profiles: Ask When Opening	Fehlende Profile: Beim Öffnen nachfragen
+	Modify Date	Änderungsdatum
+	Mono Contrast	Mono-Kontrast
+	Monochromatic	Monochrom
+	Mosaic	Mosaik
+	Mosaic Tiles	Mosaikfliesen
+	Motion Blur	Bewegungsunschärfe
+	Mouse Controls	Maussteuerung
+	Mouse Coordinates	Mauskoordinaten
+	Movie Prime	Film Prime
+	Multiple Flames Along Path	Mehrere Flammen entlang Pfad
+	Multiple Flames One Direction	Mehrere Flammen eine Richtung
+	Multiple Flames Path Directions	Mehrere Flammen Pfadrichtungen
+	Multiple Flames Various Length	Mehrere Flammen unterschiedliche Länge
+	NTSC (1953)	NTSC (1953)
+	Neon Glow	Neonglühen
+	Neutralize	Neutralisieren
+	New Brush	Neuer Pinsel
+	New Guide	Neue Hilfslinie
+	New Guide Layout	Neues Hilfslinienlayout
+	New Layer	Neue Ebene
+	New Layer from Brush	Neue Ebene aus Pinsel
+	New Layer…	Neue Ebene…
+	New Path	Neuer Pfad
+	New Selection	Neue Auswahl
+	New Snapshot	Neuer Schnappschuss
+	New Tool Preset	Neue Werkzeugvorgabe
+	New Video Group	Neue Videogruppe
+	New Video Layer	Neue Videoebene
+	New Video Layer from File	Neue Videoebene aus Datei
+	New channel only	Nur neuer Kanal
+	New document	Neues Dokument
+	New document…     ⌘N	Neues Dokument…     ⌘N
+	Newspaper	Zeitungspapier
+	No Layer Comps	Keine Ebenenkompositionen
+	Noise Color	Farbrauschen
+	Noise Color Detail	Farbrauschen-Details
+	Noise Luminance	Luminanzrauschen
+	Noise Luminance Detail	Luminanzrauschen-Details
+	Nonlinear History	Nichtlineare Chronik
+	Note tool	Notiz-Werkzeug
+	Number Of Levels	Anzahl der Stufen
+	Object Name / Title	Objektname / Titel
+	Ocean Ripple	Ozeanwellen
+	Octagon	Achteck
+	Odd Fields	Ungerade Halbbilder
+	Oil Paint	Ölfarbe
+	One Flame Along Path	Eine Flamme entlang Pfad
+	Opacity Mask	Deckkraftmaske
+	Open As	Öffnen als
+	Opening	Wird geöffnet
+	Open…     ⌘O	Öffnen…     ⌘O
+	Operation	Vorgang
+	Out	Ausgang
+	Out Black	Schwarzausgang
+	Out From Center	Von der Mitte aus
+	Out White	Weißausgang
+	Oval	Oval
+	Overlay Edge	Kantenüberlagerung
+	Override Action "Save" Commands	Aktion "Speichern"-Befehle überschreiben
+	PAL/SECAM	PAL/SECAM
+	PDF Presentation…	PDF-Präsentation…
+	Package	Paket
+	Paint Daubs	Farbe auftragen
+	Palette Knife	Palettemesser
+	Panel Options…	Bedienfeldoptionen…
+	Paper Brightness	Papierhelligkeit
+	Parallel	Parallel
+	Patch	Patch
+	Patch Tool	Bereichsreparatur-Werkzeug
+	Patchwork	Patchwork
+	Path Blur	Pfadweichzeichnung
+	Path to Illustrator…	Pfad an Illustrator…
+	Path:	Pfad:
+	Paths to Illustrator	Pfade an Illustrator
+	Pattern Stamp	Musterstempel
+	Pattern Type	Mustertyp
+	Pen	Zeichenstift
+	Pencil Width	Stiftbreite
+	Pentagon	Fünfeck
+	Perimeter	Umfang
+	Perspective Crop	Perspektivisches Freistellungswerkzeug
+	Phone	Telefon
+	Photo (2 × 3 in)	Foto (2 × 3 Zoll)
+	Photo (4 × 6 in)	Foto (4 × 6 Zoll)
+	Photo (5 × 7 in)	Foto (5 × 7 Zoll)
+	Photo (8 × 10 in)	Foto (8 × 10 Zoll)
+	Photomerge	Photomerge
+	Picture Frame	Bilderrahmen
+	Picture Package…	Bildpaket…
+	Pinch	Verbiegen
+	Pins	Stecknadeln
+	Place Embedded	Eingebettet platzieren
+	Place Linked	Verknüpft platzieren
+	Place Scale Marker	Skalierungsmarker platzieren
+	Plane	Ebene
+	Planes	Ebenen
+	Plastic Wrap	Plastische Folie
+	Play Once	Einmal abspielen
+	Point	Punkt
+	Point Curve	Punktkurve
+	Point Curve Blue	Punktkurve Blau
+	Point Curve Green	Punktkurve Grün
+	Point Curve Red	Punktkurve Rot
+	Pointed	Spitz
+	Pointillize	Punktieren
+	Polar Coordinates	Polarkoordinaten
+	Polar To Rectangular	Polar zu rechteckig
+	Pond Ripples	Teichwellen
+	Poster Edges	Posterkanten
+	Posterization	Posterisierung
+	Preserve	Beibehalten
+	Preset Manager	Vorgaben-Manager
+	Preset Name:	Vorgabename:
+	Press keys	Tasten drücken
+	Prime105	Prime105
+	Prime35	Prime35
+	ProPhoto	ProPhoto
+	ProPhoto RGB	ProPhoto RGB
+	Profile	Profil
+	Profile Mismatches: Ask When Opening	Profilkonflikte: Beim Öffnen fragen
+	Province / State	Bundesland / Kanton
+	Public Domain	Gemeinfrei
+	Pyramids	Pyramiden
+	Quick Sync	Quick Sync
+	RGB	RGB
+	RGB:	RGB:
+	Radial Blur	Radialer Weichzeichner
+	Radius X	Radius X
+	Radius Y	Radius Y
+	Random	Zufällig
+	Randomize Length	Länge zufällig
+	Randomize Shapes	Formen zufällig
+	Raw Data	Raw-Daten
+	Raw Defaults	Raw-Standardwerte
+	Reading	Lesen
+	Recent Items	Zuletzt verwendet
+	Recovery	Wiederherstellung
+	Rectangular To Polar	Rechteckig zu polar
+	Red Cyan	Rot Cyan
+	Red Eye	Rote Augen
+	Reduce Color Noise	Farbrauschen reduzieren
+	Reduce Noise	Rauschen reduzieren
+	Reference point location	Position des Referenzpunkts
+	Relief	Relief
+	Relink to File	Mit Datei neu verknüpfen
+	Remove Jpeg Artifact	JPEG-Artefakte entfernen
+	Rename Brush	Pinsel umbenennen
+	Rename Group	Gruppe umbenennen
+	Rename Tool Preset	Werkzeugvorgabe umbenennen
+	Render Video	Video rendern
+	Repeat	Wiederholen
+	Replace Color	Farbe ersetzen
+	Replace Contents	Inhalt ersetzen
+	Replace Footage	Footage ersetzen
+	Report an Issue	Problem melden
+	Reset	Zurücksetzen
+	Resolve Missing Fonts	Fehlende Schriften auflösen
+	Restore last viewed comp	Zuletzt betrachtete Komposition wiederherstellen
+	Result	Ergebnis
+	Rgb	Rgb
+	Ridges	Grate
+	Right Diagonal	Rechte Diagonale
+	Ring	Ring
+	Ripple	Wellen
+	Ripple Magnitude	Wellenstärke
+	Ripple Size	Wellengröße
+	Roman Hanging Punctuation	Hängende Interpunktion (römisch)
+	Rope	Seil
+	Roses	Rosen
+	Rotate Auto	Automatisch drehen
+	Rotate Fixed	Fest drehen
+	Rotate View	Ansicht drehen
+	Rough Pastels	Grobes Pastell
+	Row Order	Zeilenreihenfolge
+	Ruler Units	Linealeinheiten
+	Rulers  (⌘R)	Lineale  (⌘R)
+	SMPTE C	SMPTE C
+	Sampler	Farbaufnehmer
+	Sandstone	Sandstein
+	Sat	Sättigung
+	Save As	Speichern unter
+	Save Preset…	Vorgabe speichern…
+	Save a Copy	Kopie speichern
+	Save for Web (Legacy)	Für Web speichern (Legacy)
+	Saved Multichannel	Gespeichertes Mehrkanal
+	Scale Effects	Effekte skalieren
+	Scale Factor	Skalierungsfaktor
+	Scale Horizontally	Horizontal skalieren
+	Scale Units	Skalierungseinheiten
+	Scale Vertically	Vertikal skalieren
+	Scaling	Skalierung
+	Scallops	Muscheln
+	Script Events Manager	Skriptereignisse-Manager
+	Search commands (⌘K)	Befehle suchen (⌘K)
+	Search commands, tools and panels	Befehle, Werkzeuge und Bedienfelder durchsuchen
+	Second Color Readout	Zweiter Farbmesswert
+	Select All Layers	Alle Ebenen auswählen
+	Select Folder…	Ordner auswählen…
+	Select Plane	Ebene auswählen
+	Select Similar Colors	Ähnliche Farben auswählen
+	Select and Mask	Auswählen und maskieren
+	Selected Areas	Ausgewählte Bereiche
+	Semi Bold	Halbfett
+	Sepia	Sepia
+	Set Measurement Scale	Messskala festlegen
+	Set New Snapshot as Default	Neue Momentaufnahme als Standard festlegen
+	Set Start Timecode…	Start-Timecode festlegen…
+	Settings	Einstellungen
+	Settings:	Einstellungen:
+	Shadow	Schatten
+	Shadow Amount	Schattenmenge
+	Shadow Intensity	Schattenintensität
+	Shadow Radius	Schattenradius
+	Shadow Tone	Schattenton
+	Shadows/Highlights	Tiefen/Lichter
+	Shape Blur	Formweichzeichnung
+	Sharpen Amount	Schärfungsstärke
+	Sharpen Detail	Schärfungsdetails
+	Sharpen Details	Schärfungsdetails
+	Sharpen Masking	Schärfungsmaskierung
+	Sharpen Radius	Schärfungsradius
+	Sharpness	Schärfe
+	Shear	Scherung
+	Shine	Glanz
+	Short Lines	Kurze Linien
+	Short Strokes	Kurze Striche
+	Show Guides  (⌘;)	Hilfslinien einblenden  (⌘;)
+	Show New Snapshot Dialog by Default	Dialog „Neue Momentaufnahme“ standardmäßig anzeigen
+	Show the layer's effects  (⌥-click: all layers)	Ebeneneffekte anzeigen  (⌥-Klick: alle Ebenen)
+	Shutter Speed	Belichtungszeit
+	Simple	Einfach
+	Sine	Sinus
+	Single Word Justification	Einzelwortausrichtung
+	Sketch	Skizze
+	Slice Options	Slice-Optionen
+	Smart Blur	Intelligentes Weichzeichnen
+	Smart Sharpen	Intelligentes Scharfzeichnen
+	Smoothness	Glätte
+	Smudge Stick	Wischstift
+	Snapshot 1	Momentaufnahme 1
+	Snapshots	Momentaufnahmen
+	Snowflakes	Schneeflocken
+	Softness	Weichheit
+	Solid Front Faces	Volle Vorderflächen
+	Source Layer	Quellebene
+	Spacing:	Abstand:
+	Sparkle	Glitzern
+	Spatter	Spritzer
+	Speckle	Sprenkel
+	Speed	Geschwindigkeit
+	Spherize	Sphärisch
+	Spin	Drehen
+	Spin Blur	Drehbewegungsunschärfe
+	Split Toning	Teiltonung
+	Split at Playhead	An Wiedergabeposition teilen
+	Sponge	Schwamm
+	Spot	Punkt
+	Spot Channel	Sonderfarbenkanal
+	Spot Healing	Bereichsreparatur
+	Spot:	Sonderfarbe:
+	Spray Radius	Sprühradius
+	Sprayed Strokes	Gesprühte Striche
+	Sprinkles	Streusel
+	Square Size	Quadratgröße
+	Squareness	Eckigkeit
+	Stagger	Versatz
+	Stained Glass	Glasmosaik
+	Star	Stern
+	Stars	Sterne
+	Start X	Start X
+	Start Y	Start Y
+	Statistics	Statistik
+	Status Information	Statusinformationen
+	Step Backward	Schritt zurück
+	Step Forward	Schritt vorwärts
+	Stippled	Punktiert
+	Stop For Errors	Bei Fehlern anhalten
+	Stops	Stopps
+	Stretch	Strecken
+	Stroke Detail	Strichdetail
+	Stroke Direction	Strichrichtung
+	Stroke Length	Strichlänge
+	Stroke Pressure	Strichdruck
+	Stroke Size	Strichgröße
+	Stroke Width	Strichbreite
+	Strokes	Striche
+	Stylization	Stilisierung
+	Subject Distance	Motivabstand
+	Subscript	Tiefgestellt
+	Subtract from	Abziehen von
+	Subtract from selection  (⌥)	Von Auswahl abziehen  (⌥)
+	Sumi-e	Sumi-e
+	Superscript	Hochgestellt
+	Supplemental Categories	Zusätzliche Kategorien
+	Surface Blur	Oberflächenweichzeichnung
+	Taper	Verjüngung
+	Target X	Ziel X
+	Target Y	Ziel Y
+	Teal Orange	Blaugrün/Orange
+	Technology Previews	Technologievorschau
+	Technology Previews…	Technologievorschau…
+	Texture Coverage	Texturüberdeckung
+	Texturizer	Texturisierer
+	Thickness	Stärke
+	Tile Size	Kachelgröße
+	Tiles	Kacheln
+	Tilt	Neigen
+	Tilt-Shift	Tilt-Shift
+	Time	Zeit
+	Timecode	Timecode
+	Timing	Timing
+	Tint Color	Farbtonfarbe
+	Tiny Lens	Winziges Objektiv
+	To Center	Zur Mitte
+	Toggle reference point	Referenzpunkt umschalten
+	Tone Curve	Gradationskurve
+	Tool	Werkzeug
+	Toolbars	Werkzeugleisten
+	Top Left	Oben links
+	Top Right	Oben rechts
+	Total Ink	Gesamtfarbauftrag
+	Trace Contour	Konturen nachzeichnen
+	Transition	Übergang
+	Transmission Reference	Transmissionsreferenz
+	Trap	Überfüllung
+	Tree	Baum
+	Trim	Trimmen
+	Turbulent	Turbulent
+	Twirl	Wirbel
+	URLs	URLs
+	Ultra Bold	Ultrafett
+	Ultra Light	Ultralight
+	Unaltered	Unverändert
+	Uncoated CMYK	Ungestrichenes CMYK
+	Undefined Areas	Nicht definierte Bereiche
+	Underpainting	Untermalung
+	Underwater	Unterwasser
+	Uniform	Einheitlich
+	Units	Einheiten
+	Unix	Unix
+	Unknown	Unbekannt
+	Unsharp Mask	Unscharf maskieren
+	Upper	Oberer
+	Urgency	Dringlichkeit
+	Use Custom Color	Benutzerdefinierte Farbe verwenden
+	Use Selection In Source	Auswahl in Quelle verwenden
+	Use Selection In Target	Auswahl in Ziel verwenden
+	Uses the foreground and background colors.	Verwendet die Vordergrund- und Hintergrundfarbe.
+	Vanishing Point	Fluchtpunkt
+	Variable Data Sets	Variable Datensätze
+	Vertical Only	Nur vertikal
+	Vertical Type Tool	Vertikales Text-Werkzeug
+	Video Frames to Layers	Videoframes in Ebenen
+	View menu	Menü Ansicht
+	Vignette Amount	Vignettenstärke
+	Vignette Feather	Vignettenweichzeichnung
+	Vignette Highlights	Vignettenlichter
+	Vignette Midpoint	Vignettenmittelpunkt
+	Vignette Roundness	Vignettenrundung
+	Vignette Style	Vignettenstil
+	Vine Color	Rankenfarbe
+	Vine With Flowers	Ranke mit Blumen
+	Vine With Leaves	Ranke mit Blättern
+	Violent	Heftig
+	Violet	Violett
+	WIA Support	WIA-Unterstützung
+	Wand	Zauberstab
+	Warm	Warm
+	Warming L B A	Warming L B A
+	Warming81	Warming81
+	Warming85	Warming85
+	Warmth	Wärme
+	Warp Text	Text verzerren
+	Watercolor	Aquarell
+	Watercolour look: lighter interior, darker rims.	Aquarell-Look: hellerer Innenbereich, dunklere Ränder.
+	Wavelength Max	Maximale Wellenlänge
+	Wavelength Min	Minimale Wellenlänge
+	Waves	Wellen
+	Web Color	Webfarbe
+	Web Photo Gallery…	Web-Fotogalerie…
+	White Clip	Weiß-Clipping
+	White Intensity	Weißintensität
+	White Is High	Weiß ist hoch
+	Wide Blurry	Breit unscharf
+	Wide Gamut RGB	Wide Gamut RGB
+	Wide Sharp	Breit scharf
+	Width and Height	Breite und Höhe
+	Wind	Wind
+	Word Spacing	Wortabstand
+	Working	Arbeitet
+	Working Gray Plate	Arbeits-Grau-Platte
+	Working Space	Arbeitsfarbraum
+	Working Spaces	Arbeitsfarbräume
+	Wrap	Umbruch
+	X	X
+	Y	Y
+	ZigZag	Zickzack
+	Zigzag	Zickzack
+	sRGB	sRGB
+	sRGB IEC61966-2.1	sRGB IEC61966-2.1
+	{zoom}%	{zoom}%
+	↑↓ navigate   ↵ run   esc close	↑↓ navigieren   ↵ ausführen   esc schließen
