@@ -8,9 +8,12 @@ use crate::{FormatError, Result};
 
 pub(crate) type Step = fn(&mut Value) -> Result<()>;
 
-/// `STEPS[i]` upgrades version `i + 1` to `i + 2`. Empty while version 1 is
-/// the only version.
-pub(crate) const STEPS: &[Step] = &[];
+/// `STEPS[i]` upgrades version `i + 1` to `i + 2`. V1 needs no data changes:
+/// all additions have serde defaults; v2 guards the new Symbol content variant.
+pub(crate) const STEPS: &[Step] = &[v1_to_v2];
+fn v1_to_v2(_: &mut Value) -> Result<()> {
+    Ok(())
+}
 
 /// Upgrade `v` in place to `target` using `steps`.
 pub(crate) fn migrate_with(v: &mut Value, steps: &[Step], target: u32) -> Result<u32> {
@@ -76,6 +79,19 @@ mod tests {
         assert!(migrate_with(&mut json!({"format_version": 1}), &[], 2).is_err());
     }
 
+    #[test]
+    fn symbols_v1_migration_preserves_every_document_field() {
+        let mut v: Value = serde_json::from_str(include_str!("../tests/fixtures/vector-v1.json")).unwrap();
+        let before = v["document"].clone();
+        assert_eq!(migrate(&mut v).unwrap(), 1);
+        assert_eq!(v["format_version"], 2);
+        assert_eq!(v["document"], before);
+    }
+    #[test]
+    fn symbols_simulated_v1_reader_refuses_v2_before_content_deserialization() {
+        let mut v = json!({"format_version":2,"document":{"layers":[{"content":{"kind":"symbol","symbol":1}}]}});
+        assert!(matches!(migrate_with(&mut v, &[], 1), Err(FormatError::TooNew { found: 2, supported: 1 })));
+    }
     #[test]
     fn current_version_is_noop() {
         let mut v = json!({"format_version": FORMAT_VERSION});

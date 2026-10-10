@@ -15,7 +15,7 @@ use photocraft_geom::{Affine, Size};
 use serde::{Deserialize, Serialize};
 
 /// Current manifest version written by this build.
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 /// Hex-encoded BLAKE3 hash (64 chars).
 pub type Hash = String;
@@ -241,6 +241,13 @@ pub struct LayerM {
 pub enum ContentM {
     Raster {
         surface: SurfaceM,
+    },
+    Symbol {
+        symbol: photocraft_doc::SymbolId,
+        #[serde(default)]
+        transform: Affine,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache: Option<SurfaceM>,
     },
     Group {
         children: Vec<LayerM>,
