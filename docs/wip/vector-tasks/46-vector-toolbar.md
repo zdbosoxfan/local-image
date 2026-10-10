@@ -68,3 +68,6 @@ Use pinned sources and official docs linked by the architecture. Retain copyrigh
   `docs/PORTS.md`, `docs/upstream/`, `crates/*/tests/references/`), and other reputable open-source code online. Cite
   what you followed in your report. Work things out yourself only when there's no obvious existing solution, and say so.
 
+
+## Owner decision (2026-10-10)
+Shortcut clashes (Cmd+D, Cmd+J, Cmd+Y, Cmd+U, Cmd+B, Cmd+T, Cmd+Shift+O): **per persona** — Photoshop meanings in the pixel personas, Illustrator meanings in the Vector persona. Confirmed by the owner.
