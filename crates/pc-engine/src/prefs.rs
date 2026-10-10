@@ -756,6 +756,16 @@ pub struct ToolbarCustomization {
     pub active_set: String,
     /// The user's own tool sets (the built-ins are in [`crate::toolsets`]).
     pub sets: Vec<crate::toolsets::ToolSet>,
+    /// Global Compositing persona. Old settings start in Pixel.
+    #[serde(default, skip_serializing_if = "crate::toolsets::Persona::is_pixel")]
+    pub persona: crate::toolsets::Persona,
+    /// Vector's last set; `active_set` continues to store Pixel's original set id.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub vector_set: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub pixel_tool: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub vector_tool: String,
 }
 
 /// All preferences. JSON keys are the `edit.preferences.<section>` ids.

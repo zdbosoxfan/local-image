@@ -63,6 +63,16 @@ pub fn visible_sections(app: &PhotocraftApp) -> Vec<Vec<(usize, Vec<Tool>)>> {
         set.tools.iter().enumerate().filter_map(|(i, name)| Tool::from_name(name).map(|tool| (tool, i))).collect();
     let rank = |tool: &Tool| ranks.get(tool).copied().unwrap_or(usize::MAX);
     let current = app.ui.tool;
+    if set.persona == photocraft_engine::toolsets::Persona::Vector {
+        let mut slots = crate::toolsets_ui::persona::vector_slots();
+        for (_, tools) in &mut slots {
+            tools.retain(|t| rank(t) != usize::MAX || *t == current);
+            tools.sort_by_key(rank);
+        }
+        slots.retain(|(_, tools)| !tools.is_empty());
+        slots.sort_by_key(|(slot, tools)| (tools.iter().map(rank).min().unwrap_or(usize::MAX), *slot));
+        return vec![slots];
+    }
     let mut index = 0usize;
     let mut ordered = Vec::new();
     for (section_index, section) in TOOL_SECTIONS.iter().enumerate() {
@@ -95,12 +105,13 @@ pub fn visible_sections(app: &PhotocraftApp) -> Vec<Vec<(usize, Vec<Tool>)>> {
 }
 
 pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    crate::toolsets_ui::persona::frame(app, ui.ctx());
     let t = Tokens::get(ui.ctx());
     let (w1, bx, m) = if t.pro { (40.0, 30.0, 5i8) } else { (50.0, 36.0, 7i8) };
     // Photoshop switches to a double-column toolbar only when one column doesn't fit.
     let sections = visible_sections(app);
     let slots: usize = sections.iter().map(|g| g.len()).sum();
-    let double = toolbar_needs_double(slots + 1, sections.len(), bx, t.pro, ui.available_rect_before_wrap().height());
+    let double = toolbar_needs_double(slots + 2, sections.len(), bx, t.pro, ui.available_rect_before_wrap().height());
     let w = if double { w1 + bx + 2.0 } else { w1 };
     egui::Panel::left("toolbar").resizable(false).exact_size(w).frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(m, 8))).show(
         ui,
@@ -114,6 +125,7 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 ui.add_space(4.0);
             }
             // Tool set switcher (Window › Tool Set).
+            crate::toolsets_ui::persona::switcher(app, ui);
             crate::toolsets_ui::switcher(app, ui, if t.pro { bx } else { bx * 0.8 });
             ui.add_space(4.0);
             // Subtle violet wash at the bottom of the toolbar.
@@ -167,7 +179,7 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                 ui.painter().add(egui::Shape::convex_polygon(tri, t.text_faint, Stroke::NONE));
                             }
                             if resp.clicked() && ui.data(|d| d.get_temp::<egui::Id>(held_id)) != Some(key) {
-                                app.ui.tool = tool;
+                                crate::toolsets_ui::persona::select_tool(app, ui.ctx(), tool);
                             }
                             // Right-click or long-press opens the flyout (Photoshop).
                             let held_for = resp.is_pointer_button_down_on().then(|| ui.input(|i| i.pointer.press_start_time().map(|t0| i.time - t0))).flatten();
@@ -241,7 +253,7 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                                     );
                                                 }
                                                 if ir.clicked() {
-                                                    app.ui.tool = item;
+                                                    crate::toolsets_ui::persona::select_tool(app, ui.ctx(), item);
                                                     ui.data_mut(|d| d.remove::<(egui::Id, Rect)>(flyout_id));
                                                 }
                                             }
@@ -597,6 +609,7 @@ fn paint_mode_dropdown(ui: &mut egui::Ui, id: &str, b: &mut photocraft_engine::B
 // ----------------------------------------------------------------------------- options bar
 
 pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    crate::toolsets_ui::persona::frame(app, ui.ctx());
     let t = Tokens::get(ui.ctx());
     egui::Panel::top("options_bar")
         .exact_size(if t.pro { 36.0 } else { 42.0 })
@@ -620,6 +633,10 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     icons::paint(ui, r, "chevron-down", 10.0, t.text_faint);
                 }
                 widgets::vline(ui, 22.0);
+                if app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector {
+                    crate::toolsets_ui::persona::geometry_bar(app, ui);
+                    widgets::vline(ui, 22.0);
+                }
                 if app.ui.transform.is_some() {
                     crate::transform_tool::options_bar(app, ui);
                     return;
