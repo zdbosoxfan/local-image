@@ -108,9 +108,9 @@
       "title": "Assets",
       "entries": [
         {
-          "name": "Glossy Duotone tool icons",
+          "name": "Original Local Image Glossy Duotone tool icons",
           "author": "Local Image contributors",
-          "used_for": "Original full-colour Compositing and Develop tools (assets/icons/color) and their contact sheet (docs/design/tool-icons.png). Hand-drawn SVG; style direction explored with OpenAI image generation. Added 2026-10-09.",
+          "used_for": "Original colour and monochrome Compositing and Develop tools (assets/icons/color and assets/icons/tools), with 20/40 px contact sheets (docs/design/tool-icons.png and tool-icons-before-after.png). Hand-authored geometry in xtask/src/tool_art.rs; familiar editing-tool metaphors, no copied or traced vendor artwork. Shapes redrawn 2026-10-09; owner-selected glossy family/metal gradients, dark outline and restrained highlight restored 2026-10-10.",
           "licence": "GPL-3.0-or-later",
           "licence_files": [
             "LICENSE",

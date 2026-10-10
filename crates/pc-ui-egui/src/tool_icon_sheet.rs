@@ -63,30 +63,75 @@ fn label(sheet: &mut image::RgbaImage, x: u32, y: u32, text: &str, scale: u32) {
     }
 }
 
+fn tile(sheet: &mut image::RgbaImage, x: u32, y: u32, size: u32, bg: [u8; 4], bytes: &[u8], mono: bool) {
+    let svg = String::from_utf8_lossy(bytes).replace("currentColor", if bg[0] < 128 { "#dedede" } else { "#343434" });
+    let icon = egui_extras::image::load_svg_bytes_with_size(svg.as_bytes(), egui::load::SizeHint::Width(size), &Default::default()).unwrap();
+    assert_eq!(icon.size, [size as usize; 2]);
+    let pixels: Vec<_> = icon.pixels.iter().flat_map(|p| p.to_srgba_unmultiplied()).collect();
+    let icon = image::RgbaImage::from_raw(size, size, pixels).unwrap();
+    let mut tile = image::RgbaImage::from_pixel(52, 54, image::Rgba(bg));
+    image::imageops::overlay(&mut tile, &icon, i64::from((52 - size) / 2), i64::from((54 - size) / 2));
+    image::imageops::overlay(sheet, &tile, i64::from(x), i64::from(y));
+    if mono {
+        assert!(icon.pixels().all(|p| p[0].abs_diff(p[1]) < 12 && p[1].abs_diff(p[2]) < 12));
+    }
+}
+
+fn pages(sheet: &image::RgbaImage, name: &str, root: &std::path::Path) {
+    // Unscaled inspection panels: each row retains its actual 20/40 px raster sizes.
+    let dir = root.join("target/icon-review");
+    std::fs::create_dir_all(&dir).unwrap();
+    for (i, y) in (0..sheet.height()).step_by(640).enumerate() {
+        image::imageops::crop_imm(sheet, 0, y, sheet.width(), 640.min(sheet.height() - y)).to_image().save(dir.join(format!("{name}-{i:02}.png"))).unwrap();
+    }
+}
+
 #[test]
-#[ignore = "writes docs/design/tool-icons.png; run cargo xtask tool-icons"]
+#[ignore = "writes both review sheets; run cargo xtask tool-icons"]
 fn write_tool_icon_contact_sheet() {
-    let cols = 4u32;
-    let rows = COLOR_ICONS.len().div_ceil(cols as usize) as u32;
-    let mut sheet = image::RgbaImage::from_pixel(cols * 360 + 32, rows * 104 + 88, image::Rgba([31, 32, 35, 255]));
-    label(&mut sheet, 24, 20, "local image / glossy duotone tools", 3);
-    label(&mut sheet, 24, 55, "each tool - dark 24 48 / light 24 48 - resvg actual pixels", 2);
-    for (i, (name, _)) in COLOR_ICONS.iter().enumerate() {
-        let x = 16 + (i as u32 % cols) * 360;
-        let y = 88 + (i as u32 / cols) * 104;
-        label(&mut sheet, x + 8, y, name, 2);
-        for (j, size) in [24, 48, 24, 48].into_iter().enumerate() {
-            let bg = if j < 2 { [31, 32, 35, 255] } else { [242, 242, 244, 255] };
-            let mut tile = image::RgbaImage::from_pixel(80, 72, image::Rgba(bg));
-            let icon = crate::color_icons::raster(name, size, false).unwrap();
-            let pixels: Vec<_> = icon.pixels.iter().flat_map(|p| p.to_srgba_unmultiplied()).collect();
-            let icon = image::RgbaImage::from_raw(size, size, pixels).unwrap();
-            image::imageops::overlay(&mut tile, &icon, i64::from((80 - size) / 2), i64::from((72 - size) / 2));
-            image::imageops::overlay(&mut sheet, &tile, i64::from(x + j as u32 * 80), i64::from(y + 20));
+    use crate::tool_icon_data::{TOOL_ICONS, TOOL_LABELS};
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let before: std::collections::BTreeMap<String, String> = serde_json::from_str(include_str!("../../../docs/design/tool-icons-before.json")).unwrap();
+    assert_eq!(before.len(), COLOR_ICONS.len());
+    assert_eq!(TOOL_ICONS.len(), COLOR_ICONS.len());
+    let rows = COLOR_ICONS.len() as u32;
+    let mut sheet = image::RgbaImage::from_pixel(912, rows * 80 + 88, image::Rgba([31, 32, 35, 255]));
+    let mut comparison = image::RgbaImage::from_pixel(912, rows * 80 + 88, image::Rgba([31, 32, 35, 255]));
+    label(&mut sheet, 16, 16, "local image / original tool icons", 3);
+    label(&mut comparison, 16, 16, "local image / before and after", 3);
+    label(&mut sheet, 224, 52, "dark 20 40 mono 20 40 / light 20 40 mono 20 40", 1);
+    label(&mut comparison, 224, 48, "dark", 1);
+    label(&mut comparison, 564, 48, "light", 1);
+    for start in [224, 564] {
+        for (i, text) in ["old20", "new20", "mono20", "old40", "new40", "mono40"].into_iter().enumerate() {
+            label(&mut comparison, start + i as u32 * 52 + 6, 66, text, 1);
         }
     }
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/design/tool-icons.png");
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    sheet.save(&path).unwrap();
-    println!("{} icons, 24/48 px on dark/light: {}", COLOR_ICONS.len(), path.display());
+    for (i, (name, colour)) in COLOR_ICONS.iter().enumerate() {
+        let y = 88 + i as u32 * 80;
+        let title = TOOL_LABELS.iter().find(|(n, _)| n == name).unwrap().1;
+        let mono = TOOL_ICONS.iter().find(|(n, _)| n == name).unwrap().1;
+        let old = before.get(*name).unwrap().as_bytes();
+        for out in [&mut sheet, &mut comparison] {
+            label(out, 12, y + 20, title, 1);
+            label(out, 12, y + 37, name, 1);
+        }
+        for (theme, bg) in [[31, 32, 35, 255], [242, 242, 244, 255]].into_iter().enumerate() {
+            let x = 224 + theme as u32 * 340;
+            for (j, (size, bytes, is_mono)) in [(20, *colour, false), (40, *colour, false), (20, mono, true), (40, mono, true)].into_iter().enumerate() {
+                tile(&mut sheet, x + j as u32 * 52, y + 8, size, bg, bytes, is_mono);
+            }
+            for (j, (size, bytes, is_mono)) in
+                [(20, old, false), (20, *colour, false), (20, mono, true), (40, old, false), (40, *colour, false), (40, mono, true)].into_iter().enumerate()
+            {
+                tile(&mut comparison, x + j as u32 * 52, y + 8, size, bg, bytes, is_mono);
+            }
+        }
+    }
+    for (name, out) in [("tool-icons", sheet), ("tool-icons-before-after", comparison)] {
+        let path = root.join(format!("docs/design/{name}.png"));
+        out.save(&path).unwrap();
+        pages(&out, name, &root);
+        println!("{} tools, 20/40 px on dark/light: {}", rows, path.display());
+    }
 }

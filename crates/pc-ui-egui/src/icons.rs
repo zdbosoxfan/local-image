@@ -1,4 +1,5 @@
-//! Icon rendering. SVGs are embedded (see `icon_data.rs`), recoloured to white, rasterized by the
+//! Icon rendering. Generic SVGs (`icon_data.rs`) and original tools (`tool_icon_data.rs`)
+//! are embedded, recoloured to white, rasterized by the
 //! egui_extras SVG loader at the exact on-screen pixel size (crisp at any DPI), and tinted per use.
 //!
 //! (History: the first shell used Unicode glyphs; half of them rendered as tofu boxes because the
@@ -26,52 +27,18 @@ fn white_icons() -> &'static HashMap<&'static str, Arc<[u8]>> {
     })
 }
 
-fn monochrome_name(name: &str) -> &str {
-    match name {
-        "vertical-type" => "type",
-        "spot-healing" => "bandage",
-        "healing" => "bandage",
-        "slice-select" => "square-dashed-mouse-pointer",
-        "red-eye" => "eye",
-        "history-brush" => "clock",
-        "blur" => "droplet",
-        "sharpen" => "triangle",
-        "smudge" => "pointer",
-        "dodge" => "lollipop",
-        "sponge" => "cloud",
-        "quick-selection" => "circle-dashed",
-        "object-selection" => "square-dashed-mouse-pointer",
-        "shape-triangle" => "triangle",
-        "shape-polygon" => "pentagon",
-        "custom-shape" => "cloud",
-        "forward-warp" => "pointer",
-        "reconstruct" => "brush-cleaning",
-        "smooth" => "droplet",
-        "twirl-cw" => "rotate-cw",
-        "twirl-ccw" => "undo-2",
-        "pucker" => "scan",
-        "bloat" => "maximize-2",
-        "push-left" => "chevrons-left",
-        "freeze" => "lock",
-        "thaw" => "lock-open",
-        "freeze-lasso" => "lasso",
-        "reconstruct-all" => "brush-cleaning",
-        "freeze-all" => "lock",
-        "thaw-all" => "lock-open",
-        "invert-freeze" => "circle",
-        "edit-toolbar" => "ellipsis",
-        "quick-mask" => "square-dashed",
-        name => name,
-    }
-}
-
 pub fn exists(name: &str) -> bool {
-    white_icons().contains_key(monochrome_name(name))
+    crate::mono_tool_icons::exists(name) || white_icons().contains_key(name)
 }
 
 /// An egui image for an icon, tinted.
 pub fn image(name: &str, size: f32, tint: Color32) -> egui::Image<'static> {
-    let name = monochrome_name(name);
+    // Generic controls and the eyedropper cursor retain their legacy artwork/hotspots.
+    if !white_icons().contains_key(name)
+        && let Some(image) = crate::mono_tool_icons::image(name, size, tint)
+    {
+        return image;
+    }
     let bytes = white_icons().get(name).or_else(|| white_icons().get("square")).cloned().unwrap_or_default();
     egui::Image::from_bytes(format!("bytes://icons/{name}.svg"), egui::load::Bytes::Shared(bytes)).fit_to_exact_size(Vec2::splat(size)).tint(tint)
 }
@@ -196,15 +163,19 @@ pub fn rail_button(ui: &mut egui::Ui, name: &str, box_size: f32, on: bool, toolt
     resp.on_hover_text(tl!(tooltip))
 }
 
+fn monochrome_tool_image(name: &str, size: f32, tint: Color32) -> egui::Image<'static> {
+    crate::mono_tool_icons::image(name, size, tint).unwrap_or_else(|| image(name, size, tint))
+}
+
 /// Tool image for toolbar buttons and the rich tooltip's 32 px slot. Colour keeps its SVG
-/// materials; monochrome uses the existing theme tint. Set from preferences each frame.
+/// colours; monochrome uses matching geometry with the existing theme tint. Set from preferences each frame.
 pub fn tool_icon(ui: &egui::Ui, name: &str, size: f32) -> egui::Image<'static> {
     if crate::color_icons::enabled(ui.ctx())
         && let Some(image) = crate::color_icons::image(ui, name, size, !ui.is_enabled())
     {
         return image;
     }
-    image(name, size, if ui.is_enabled() { Tokens::get(ui.ctx()).icon } else { Tokens::get(ui.ctx()).text_faint })
+    monochrome_tool_image(name, size, if ui.is_enabled() { Tokens::get(ui.ctx()).icon } else { Tokens::get(ui.ctx()).text_faint })
 }
 
 pub fn paint_tool(ui: &egui::Ui, rect: Rect, name: &str, size: f32, tint: Color32) {
@@ -213,7 +184,7 @@ pub fn paint_tool(ui: &egui::Ui, rect: Rect, name: &str, size: f32, tint: Color3
     {
         image.paint_at(ui, Rect::from_center_size(rect.center(), Vec2::splat(size)));
     } else {
-        paint(ui, rect, name, size, tint);
+        monochrome_tool_image(name, size, tint).paint_at(ui, Rect::from_center_size(rect.center(), Vec2::splat(size)));
     }
 }
 
@@ -229,6 +200,20 @@ pub fn tool_button(ui: &mut egui::Ui, name: &str, box_size: f32, selected: bool,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generic_cursor_artwork_and_tool_artwork_use_separate_sources() {
+        let ctx = egui::Context::default();
+        for (icon, expected) in [
+            (image("pipette", 20.0, Color32::WHITE), "bytes://icons/pipette.svg"),
+            (monochrome_tool_image("pipette", 20.0, Color32::WHITE), "bytes://original-tool-icons/pipette.svg"),
+        ] {
+            match icon.source(&ctx) {
+                egui::ImageSource::Bytes { uri, .. } => assert_eq!(uri.as_ref(), expected),
+                other => panic!("unexpected source: {other:?}"),
+            }
+        }
+    }
 
     #[test]
     fn every_tool_has_an_icon() {

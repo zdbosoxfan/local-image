@@ -21,6 +21,9 @@ pub mod links;
 pub mod menubar;
 pub mod menus;
 pub mod merge;
+#[rustfmt::skip] // Keep shared artwork code under Compositing's rustfmt configuration.
+#[path = "../../pc-ui-egui/src/mono_tool_icons.rs"]
+mod mono_tool_icons;
 pub mod panels;
 pub mod render;
 pub mod shortcuts;
@@ -30,6 +33,8 @@ pub mod softpaint;
 pub mod state;
 pub mod tasks;
 pub mod theme;
+#[path = "../../pc-ui-egui/src/tool_icon_data.rs"]
+mod tool_icon_data;
 #[cfg(test)]
 mod tool_icon_tests;
 pub mod widgets;

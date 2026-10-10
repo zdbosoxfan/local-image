@@ -148,6 +148,7 @@ pub mod menu_nav;
 pub mod menus;
 pub mod model_browser;
 pub mod monitor_status;
+mod mono_tool_icons;
 pub mod move_mods;
 pub mod move_ui;
 pub mod native_menu;
@@ -165,6 +166,7 @@ pub mod plugin_ui;
 pub mod point_curve;
 pub mod prefs_ui;
 pub mod preset_files_ui;
+mod tool_icon_data;
 // local-image: Preferences › Tools › Pen pressure curve.
 pub mod preset_panels;
 pub mod pressure_curve_ui;
