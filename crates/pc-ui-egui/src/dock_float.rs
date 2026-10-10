@@ -91,7 +91,10 @@ fn gaps(rects: &[(Group, Rect)], area: Rect) -> Vec<(f32, Option<Group>)> {
 /// The drop target for a panel dragged to `p` (`exclude`: the floating panel being dragged).
 pub fn target_at(ctx: &egui::Context, p: Pos2, exclude: Option<u32>) -> Option<Target> {
     // Floating panels are drawn over the dock: their strips first.
-    for f in last_floats(ctx).iter().rev() {
+    let mut floats = last_floats(ctx);
+    let top = ctx.layer_id_at(p);
+    floats.sort_by_key(|f| top == Some(LayerId::new(Order::Middle, area_id(f.id))));
+    for f in floats.iter().rev() {
         if Some(f.id) == exclude {
             continue;
         }
@@ -432,10 +435,20 @@ pub fn show_floating(app: &mut PhotocraftApp, ctx: &egui::Context, mut body: imp
                 ui.close();
             }
         });
-        drawn.push(out.rects);
+        if app.ui.dock.floating(id).is_some_and(|f| !f.hidden && !f.tabs.is_empty()) {
+            drawn.push(out.rects);
+        }
     }
     if let Some(id) = app.ui.dock.live.raise.take() {
         ctx.move_to_top(LayerId::new(Order::Middle, area_id(id)));
+        if let Some(index) = drawn.iter().position(|f| f.id == id) {
+            let raised = drawn.remove(index);
+            drawn.push(raised);
+        }
+        if let Some(index) = app.ui.dock.floating.iter().position(|f| f.id == id) {
+            let raised = app.ui.dock.floating.remove(index);
+            app.ui.dock.floating.push(raised);
+        }
     }
     ctx.data_mut(|d| d.insert_temp(floats_id(), drawn));
 }

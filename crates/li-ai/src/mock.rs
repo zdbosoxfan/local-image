@@ -40,6 +40,8 @@ pub struct MockComfy {
     stop: Arc<AtomicBool>,
     /// Milliseconds each job takes (so progress and cancel can be observed).
     pub delay_ms: Arc<AtomicU64>,
+    /// Delay for `/free`, allowing UI tests to observe an idle worker completion.
+    pub free_delay_ms: Arc<AtomicU64>,
     fail_next: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -57,14 +59,16 @@ impl MockComfy {
         let stop = Arc::new(AtomicBool::new(false));
         let delay_ms = Arc::new(AtomicU64::new(150));
         let fail_next = Arc::new(AtomicBool::new(false));
+        let free_delay_ms = Arc::new(AtomicU64::new(0));
+        let free_delay = free_delay_ms.clone();
         let (st, sp, dl, fl) = (state.clone(), stop.clone(), delay_ms.clone(), fail_next.clone());
         let thread = std::thread::Builder::new().name("mock-comfy".into()).spawn(move || {
             while !sp.load(Ordering::SeqCst) {
                 let Ok(Some(req)) = server.recv_timeout(Duration::from_millis(100)) else { continue };
-                handle(req, &st, &dl, &fl);
+                handle(req, &st, &dl, &fl, &free_delay);
             }
         })?;
-        Ok(Self { host, state, stop, delay_ms, fail_next, thread: Some(thread) })
+        Ok(Self { host, state, stop, delay_ms, free_delay_ms, fail_next, thread: Some(thread) })
     }
 
     pub fn host(&self) -> &str {
@@ -406,7 +410,7 @@ fn json_resp(req: tiny_http::Request, status: u16, v: Value) {
     respond(req, status, v.to_string().into_bytes(), "application/json");
 }
 
-fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<AtomicU64>, fail: &Arc<AtomicBool>) {
+fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<AtomicU64>, fail: &Arc<AtomicBool>, free_delay: &Arc<AtomicU64>) {
     let url = req.url().to_owned();
     let path = url.split('?').next().unwrap_or("").to_owned();
     let mut body = Vec::new();
@@ -437,7 +441,10 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
             }
             json_resp(req, 200, json!({}))
         }
-        ("POST", "/free") => json_resp(req, 200, json!({})),
+        ("POST", "/free") => {
+            std::thread::sleep(Duration::from_millis(free_delay.load(Ordering::SeqCst)));
+            json_resp(req, 200, json!({}));
+        }
         ("POST", "/upload/image") => {
             let (name, data) = parse_multipart(&body);
             if let Ok(mut s) = st.lock() {
@@ -488,12 +495,18 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
         }
         ("POST", p) if p.starts_with("/api/jobs/") && p.ends_with("/cancel") => {
             let id = p.trim_start_matches("/api/jobs/").trim_end_matches("/cancel").to_owned();
+            let mut cancelled = false;
             if let Ok(mut s) = st.lock() {
-                s.running.retain(|r| *r != id);
-                s.history
-                    .insert(id, json!({ "status": { "status_str": "error", "completed": false, "messages": [["execution_interrupted", {}]] }, "outputs": {} }));
+                cancelled = s.running.iter().any(|r| r == &id);
+                if cancelled {
+                    s.running.retain(|r| *r != id);
+                    s.history.insert(
+                        id,
+                        json!({ "status": { "status_str": "error", "completed": false, "messages": [["execution_interrupted", {}]] }, "outputs": {} }),
+                    );
+                }
             }
-            json_resp(req, 200, json!({ "cancelled": true }))
+            json_resp(req, 200, json!({ "cancelled": cancelled }))
         }
         (m @ ("GET" | "HEAD" | "POST"), _) => {
             let host = st.lock().map(|s| s.host.clone()).unwrap_or_default();
@@ -761,9 +774,9 @@ mod tests {
         }
         assert_eq!(crate::comfy::our_prompts(server.host()).len(), 1);
         assert!(client.interrupt_ours().unwrap());
-        assert_eq!(server.interrupts(), 1);
+        assert_eq!(server.interrupts(), 0);
         let err = job.join().unwrap().unwrap_err();
-        assert!(err.to_string().to_lowercase().contains("interrupt") || err.to_string().contains("stopped"), "{err:#}");
+        assert!(err.downcast_ref::<crate::comfy::Cancelled>().is_some(), "{err:#}");
         assert!(t.elapsed() < Duration::from_secs(4), "stopped well before the job would end");
         // Finished prompts are no longer ours.
         assert!(crate::comfy::our_prompts(server.host()).is_empty());

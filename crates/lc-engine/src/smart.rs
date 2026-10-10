@@ -24,6 +24,18 @@ pub fn file_name(p: &Photo) -> String {
 /// The most header [`is_valid`] reads (the JSON line before the JPEG).
 const HEADER_MAX: u64 = 64 * 1024 * 1024;
 
+fn header_fits(len: u64) -> bool {
+    len.saturating_add(MAGIC.len() as u64 + 3) <= HEADER_MAX
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_header_limit_includes_jpeg_start() {
+    assert!(header_fits(HEADER_MAX - MAGIC.len() as u64 - 3));
+    assert!(!header_fits(HEADER_MAX - MAGIC.len() as u64 - 2));
+    assert!(!header_fits(u64::MAX));
+}
+
 /// Encode a source image (and the decoder's camera tone curve, if any) as a smart preview.
 #[cfg(test)]
 pub fn encode(img: &Rgb32f, tone: Option<&CameraTone>) -> Result<Vec<u8>, String> {
@@ -73,7 +85,7 @@ fn encode_with_info(img: &Rgb32f, tone: Option<&CameraTone>, info: Option<&light
         head["source"] = serde_json::to_value(info).map_err(|e| e.to_string())?;
     }
     let header = head.to_string();
-    if header.len() as u64 + MAGIC.len() as u64 + 1 >= HEADER_MAX {
+    if !header_fits(header.len() as u64) {
         return Err("smart preview colour metadata is too large".into());
     }
     out.extend_from_slice(header.as_bytes());

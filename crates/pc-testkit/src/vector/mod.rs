@@ -266,28 +266,29 @@ pub fn hausdorff(a: &Path, b: &Path, samples: usize) -> Result<f64, String> {
 /// Brute-force flattened cubic intersections; shares no tracing/region code.
 /// Adjacent endpoints and tangent contacts are excluded; proper crossings are returned.
 pub fn self_intersections(path: &Path) -> Vec<(usize, usize, f64, f64)> {
+    if !is_finite(path) {
+        return Vec::new();
+    }
     let mut lines = Vec::new();
-    let mut segment = 0;
+    let mut curves = Vec::new();
     for s in &path.subpaths {
         for p in s.segments() {
             let c = CubicBez::new((p[0].x, p[0].y), (p[1].x, p[1].y), (p[2].x, p[2].y), (p[3].x, p[3].y));
-            let mut last = (0., c.p0);
-            let mut bez = kurbo::BezPath::new();
-            bez.move_to(c.p0);
-            bez.curve_to(c.p1, c.p2, c.p3);
-            let mut pts = Vec::new();
-            kurbo::flatten(bez, 0.05, |el| {
-                if let kurbo::PathEl::LineTo(p) = el {
-                    pts.push(p)
+            let segment = curves.len();
+            curves.push(c);
+            let mut todo = vec![(c, 0., 1., 0)];
+            while let Some((part, t0, t1, depth)) = todo.pop() {
+                let chord = kurbo::Line::new(part.p0, part.p3);
+                let flat = chord.nearest(part.p1, 1e-8).distance_sq.max(chord.nearest(part.p2, 1e-8).distance_sq) <= 0.05 * 0.05;
+                if flat || depth >= 24 {
+                    lines.push((segment, part.p0, part.p3, t0, t1));
+                } else {
+                    let (left, right) = part.subdivide();
+                    let mid = (t0 + t1) * 0.5;
+                    todo.push((right, mid, t1, depth + 1));
+                    todo.push((left, t0, mid, depth + 1));
                 }
-            });
-            let count = pts.len();
-            for (i, p) in pts.into_iter().enumerate() {
-                let t = (i + 1) as f64 / count as f64;
-                lines.push((segment, last.1, p, last.0, t));
-                last = (t, p);
             }
-            segment += 1;
         }
     }
     let mut out = Vec::new();
@@ -305,7 +306,13 @@ pub fn self_intersections(path: &Path) -> Vec<(usize, usize, f64, f64)> {
             let t = ac.cross(cd) / det;
             let u = ac.cross(ab) / det;
             if t > 1e-7 && t < 1. - 1e-7 && u > 1e-7 && u < 1. - 1e-7 {
-                out.push((ia, ib, ta + (tb - ta) * t, tc + (td - tc) * u));
+                let point = a + ab * t;
+                // Chord distance is linear in space, not in Bézier parameter, even
+                // for a straight cubic with retracted handles. Recover parameters
+                // on each known subinterval using kurbo's independent nearest solver.
+                let first = curves[ia].subsegment(ta..tb).nearest(point, 1e-8).t;
+                let second = curves[ib].subsegment(tc..td).nearest(point, 1e-8).t;
+                out.push((ia, ib, ta + (tb - ta) * first, tc + (td - tc) * second));
             }
         }
     }

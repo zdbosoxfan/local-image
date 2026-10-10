@@ -319,6 +319,13 @@ pub fn classify(h: &Header, file_name: &str) -> Detected {
             return Detected::new(kind, Some(&refine_by_name(fam, file_name)), format!("modelspec.architecture = {a}"));
         }
     }
+    if let Some(v) = h.meta("ss_base_model_version")
+        && let Some(fam) = family_from_kohya(v)
+    {
+        let fam = if fam == "sdxl" { sdxl_flavour(h, file_name) } else { fam };
+        let kind = if is_lora(h) { FileKind::Lora } else { kind_of(h) };
+        return Detected::new(kind, Some(&refine_by_name(fam, file_name)), format!("ss_base_model_version = {v}"));
+    }
     if h.gguf {
         let arch = h.meta("general.architecture").unwrap_or("");
         let fam = match arch {

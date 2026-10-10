@@ -191,8 +191,15 @@ pub fn drop_floating(s: &mut Session) -> Result<Value> {
 }
 
 /// Commands that leave a floating piece floating: its own, and ones that don't touch documents.
+fn can_move_pixels(s: &Session) -> std::result::Result<(), String> {
+    if s.active().is_some_and(|st| floating(st).is_some()) {
+        return Err("drop the floating selection before moving selected pixels".into());
+    }
+    can_float(s)
+}
+
 fn keeps_floating(id: &str) -> bool {
-    matches!(id, "select.float" | "select.drop") || ["view.", "window.", "help.", "prefs."].iter().any(|p| id.starts_with(p))
+    matches!(id, "select.float" | "select.drop" | "select.movePixels") || ["view.", "window.", "help.", "prefs."].iter().any(|p| id.starts_with(p))
 }
 
 /// Before any command (`Session::dispatch`): Undo puts a floating piece back (and is used up:
@@ -221,7 +228,7 @@ pub fn specs() -> Vec<CommandSpec> {
             menu: &[],
             shortcut: None,
             params: r##"{"dx":px=0,"dy":px=0,"copy":false} (Move tool: move/copy selected pixels and selection, one undo step)"##,
-            enabled: can_float,
+            enabled: can_move_pixels,
             journal: true,
             run: move_pixels,
         },

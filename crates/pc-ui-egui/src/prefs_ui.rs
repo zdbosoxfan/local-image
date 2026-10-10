@@ -487,7 +487,7 @@ pub fn shortcut_items(app: &PhotocraftApp) -> Vec<(String, String, Vec<String>, 
     }
     for tool in photocraft_algo::liquify::LiquifyTool::ALL {
         out.push((
-            crate::liquify_ui::shortcut_id(tool),
+            crate::liquify_ui::shortcut_id(tool).to_owned(),
             tool.label().to_string(),
             vec!["Tools".into(), "Liquify".into()],
             (!crate::liquify_ui::shortcut(tool).is_empty()).then(|| crate::liquify_ui::shortcut(tool).to_string()),

@@ -77,12 +77,13 @@ pub fn p95(values: &mut [f64]) -> f64 {
 }
 /// Lightness-order error: deterministic spatial sample (at most 256), all sample pairs.
 pub fn lightness_order(a: &Rgb32f, b: &Rgb32f) -> f64 {
-    let n = a.len().min(256);
+    let shared = a.len().min(b.len());
+    let n = shared.min(256);
     let mut wrong = 0usize;
     let mut pairs = 0usize;
     for i in 0..n {
         for j in i + 1..n {
-            let (i, j) = (i * a.len() / n, j * a.len() / n);
+            let (i, j) = (i * shared / n, j * shared / n);
             let x = crate::primary::log_light(a.data[i]) - crate::primary::log_light(a.data[j]);
             let y = crate::primary::log_light(b.data[i]) - crate::primary::log_light(b.data[j]);
             if x.abs() > 1e-5 {
@@ -104,6 +105,10 @@ pub struct Halo {
 /// Width measures connected 10%-peak support around each side's peak; energy is |EV|·px.
 pub fn halo(before: &Plane, after: &Plane, y: usize, edge: usize) -> Halo {
     let w = before.width;
+    if w == 0 || y >= before.height || before.width != after.width || before.height != after.height {
+        return Halo::default();
+    }
+    let edge = edge.min(w - 1);
     let radius = (w / 4).max(1);
     let gain: Vec<_> = (0..w).map(|x| (after.get(x, y) - before.get(x, y)) as f64).collect();
     let left = gain[..(edge / 2).max(1)].iter().sum::<f64>() / (edge / 2).max(1) as f64;
@@ -141,6 +146,27 @@ pub fn halo(before: &Plane, after: &Plane, y: usize, edge: usize) -> Halo {
 }
 #[cfg(test)]
 mod tests {
+    use lightcraft_raster::Plane;
+    #[test]
+    fn ds_finding_lightness_order_shared_samples() {
+        let a = lightcraft_raster::Rgb32f::from_fn(8, 1, |x, _| [x as f32 / 8.0; 3]);
+        let b = lightcraft_raster::Rgb32f::from_fn(4, 1, |x, _| [x as f32 / 8.0; 3]);
+        assert_eq!(super::lightness_order(&a, &b), 0.0);
+        assert_eq!(super::lightness_order(&a, &lightcraft_raster::Rgb32f::new(0, 0)), 0.0);
+    }
+
+    #[test]
+    fn review_halo_empty_and_outside_edges() {
+        let empty = Plane::new(0, 0);
+        assert_eq!(super::halo(&empty, &empty, 0, 0).energy, 0.0);
+        let p = Plane::from_fn(8, 1, |_, _| 0.2);
+        assert_eq!(super::halo(&p, &p, 1, 4).energy, 0.0);
+        assert_eq!(super::halo(&p, &Plane::new(4, 1), 0, 4).energy, 0.0);
+        for edge in [0, 8, usize::MAX] {
+            assert_eq!(super::halo(&p, &p, 0, edge).energy, 0.0);
+        }
+    }
+
     #[test]
     fn sharma_published_pairs() {
         let cases = [

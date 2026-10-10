@@ -375,6 +375,8 @@ fn plans_use_whole_keywords_case_insensitively_and_clean_names() {
 #[test]
 fn prompts_defaults_and_empty_categories() {
     assert_eq!(classify::prompt("red"), "a photo of red");
+    assert_eq!(classify::prompt("photographer"), "a photo of photographer");
+    assert_eq!(classify::prompt("photographs"), "a photo of photographs");
     assert_eq!(classify::prompt("an audience"), "an audience");
     assert_eq!(classify::prompt("the stage"), "the stage");
     assert_eq!(classify::prompt("photo of a cat"), "photo of a cat");
@@ -857,4 +859,30 @@ fn p2b_legacy_embeddings_gain_sharpness_without_model_inference() {
         assert!((a - b).abs() < 1e-6);
     }
     assert_eq!(s.execute("smartSort.analyze", &json!({"ids":[id]})).unwrap()["skipped"], 1);
+}
+
+#[test]
+fn ds_finding_deleted_embedding_cache_is_rebuilt_completely() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/ds-cache-embeddings");
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut store = Store::new(Some(&dir));
+    store.ensure("mock", 2).unwrap();
+    store.insert("mock", "a".into(), vec![1.0, 0.0]).unwrap();
+    store.save().unwrap();
+    std::fs::remove_file(dir.join("AI/embeddings-mock.bin")).unwrap();
+    store.insert("mock", "b".into(), vec![0.0, 1.0]).unwrap();
+    store.save().unwrap();
+    let mut loaded = Store::new(Some(&dir));
+    loaded.ensure("mock", 2).unwrap();
+    assert!(loaded.get("mock", "a").is_some());
+    assert!(loaded.get("mock", "b").is_some());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn ds_finding_cancelled_analysis_does_not_load_model() {
+    let mut s = Session { quick_seg_dir: Some("target/ds-no-such-model".into()), ..Default::default() };
+    let result = analyze(&mut s, &[PhotoId(999)], &AtomicBool::new(true), &|_, _| panic!("cancelled analysis reported progress")).unwrap();
+    assert!(result.cancelled && result.failed.is_empty());
+    assert!(s.smart.tagger.is_none());
 }

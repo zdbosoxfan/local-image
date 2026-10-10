@@ -941,7 +941,8 @@ fn encode_in_source_space(
     let matrix = source.space.to_working().inverse().ok_or("the original's colour matrix is singular")?;
     let curves = source.space.trc.as_ref().ok_or("the original's encoding curves are unknown")?;
     let mut converted = Vec::with_capacity(samples.len());
-    let float = o.bit_depth == Some(32);
+    let depth = o.effective_depth();
+    let float = depth == OutputDepth::F32Linear;
     for pixel in samples.as_chunks::<3>().0 {
         let linear = matrix.apply([pixel[0] as f64, pixel[1] as f64, pixel[2] as f64]);
         for (i, value) in linear.into_iter().enumerate() {
@@ -956,7 +957,7 @@ fn encode_in_source_space(
     let u8s;
     let samples = if float {
         Samples::F32(&converted)
-    } else if o.bit_depth == Some(16) {
+    } else if depth == OutputDepth::U16 {
         u16s = converted.iter().map(|v| (v * 65535.0 + 0.5) as u16).collect::<Vec<_>>();
         Samples::U16(&u16s)
     } else {
@@ -1200,13 +1201,7 @@ pub(crate) fn prepare_guarded(
         Work::File {
             path: path.clone(),
             read: session.media.file_bytes.clone(),
-            packet: {
-                let mut copy = (**p).clone();
-                if o.include_people_names {
-                    add_people_keywords(&mut copy.meta.keywords, &copy.meta.regions);
-                }
-                crate::sidecar::sidecar_packet(&copy, &session.catalog)
-            },
+            packet: { crate::sidecar::sidecar_packet(&photo_for_sidecar(p, o.include_people_names), &session.catalog) },
             dng: (o.format == ExportFormat::Dng).then_some(o.dng_compression),
             label: p.file_name.clone(),
             size: (p.width as usize, p.height as usize),
@@ -1683,6 +1678,14 @@ mod tests {
         assert!(loaded.source_encoding.is_none());
         let old: ExportOptions = serde_json::from_value(json!({"format": "jpeg", "quality": 80})).unwrap();
         assert!(!old.same_folder);
+        for (format, bit_depth, expected_depth) in
+            [(ExportFormat::Tiff, None, 16), (ExportFormat::Png, Some(32), 16), (ExportFormat::Jpeg, Some(16), 8), (ExportFormat::Webp, Some(32), 8)]
+        {
+            let options = ExportOptions { format, bit_depth, ..options.clone() };
+            let bytes = encode_rendered(&render, &options, None).unwrap();
+            let decoded = lightcraft_codecs::decode(&bytes, Default::default()).unwrap();
+            assert_eq!(decoded.bit_depth, expected_depth, "{format:?} {bit_depth:?}");
+        }
     }
 
     fn named(file_name: &str) -> lightcraft_catalog::Photo {
@@ -1942,4 +1945,33 @@ mod tests {
             Err(e) => assert!(e.contains("not available"), "{e}"),
         }
     }
+}
+
+fn photo_for_sidecar(photo: &lightcraft_catalog::Photo, include_people_names: bool) -> std::borrow::Cow<'_, lightcraft_catalog::Photo> {
+    let mut photo = std::borrow::Cow::Borrowed(photo);
+    if include_people_names {
+        let copy = photo.to_mut();
+        add_people_keywords(&mut copy.meta.keywords, &copy.meta.regions);
+    }
+    photo
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_original_export_borrows_photo_unless_people_keywords_are_requested() {
+    let photo = lightcraft_catalog::Photo::new(
+        lightcraft_catalog::PhotoId(1),
+        lightcraft_catalog::Source::Demo { scene: 1 },
+        "fixture.jpg",
+        "JPEG",
+        8,
+        8,
+        "2026-10-10",
+    );
+    let borrowed = photo_for_sidecar(&photo, false);
+    assert!(matches!(borrowed, std::borrow::Cow::Borrowed(_)));
+    assert!(std::ptr::eq(borrowed.as_ref(), &photo));
+    let augmented = photo_for_sidecar(&photo, true);
+    assert!(matches!(augmented, std::borrow::Cow::Owned(_)));
+    assert_eq!(augmented.meta.keywords, photo.meta.keywords);
 }

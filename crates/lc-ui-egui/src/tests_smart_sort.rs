@@ -4,6 +4,22 @@ use lightcraft_engine::{Session, smart_sort::mock::MockTagger};
 use serde_json::json;
 use std::{sync::Arc, time::Duration};
 const T: Duration = Duration::from_secs(30);
+
+#[test]
+fn ds_finding_smart_sort_frames_keep_analyzed_rows() {
+    let mut h = harness([1400.0, 1000.0]);
+    click(&mut h, "smartSort:analyze");
+    assert!(h.step_until(T, |h| h.app.smart_sort.is_none() && state(h).step == 1));
+    h.step();
+    h.step();
+    assert!(!state(&h).rows.is_empty());
+    let rows = state(&h).rows.as_ptr();
+    h.step();
+    assert_eq!(state(&h).rows.as_ptr(), rows);
+    click(&mut h, "smartSort:step:sort");
+    assert_eq!(state(&h).step, 0);
+    assert_eq!(state(&h).rows.as_ptr(), rows);
+}
 fn click(h: &mut Headless, id: &str) {
     let result = h.request("ui.clickWidget", json!({"id":id}), T);
     assert_eq!(result["ok"], true, "{id}: {result}");
@@ -574,4 +590,82 @@ fn smart_sort_p2b_sessions_bursts_layout_at_both_sizes() {
             std::fs::write(dir.join(format!("{step}-features-{}.png", size[0] as u32)), png).unwrap();
         }
     }
+}
+
+#[test]
+fn ds_finding_preset_change_reclassifies_and_replaces_stale_review_folder() {
+    let mut h = harness([1400., 1000.]);
+    setup(&mut h);
+    state_mut(&mut h).review_folder = "B".into();
+    click(&mut h, "smartSort:step:sort");
+    click(&mut h, "smartSort:preset");
+    click(&mut h, "smartSort:preset:0");
+    click(&mut h, "smartSort:step:review");
+    assert_ne!(state(&h).review_folder, "B");
+    let folder = state(&h).review_folder.clone();
+    assert!(folder == "Unsorted" || state(&h).preset.categories.iter().any(|c| c.name == folder));
+    click(&mut h, "smartSort:step:review");
+    assert!(h.app.widgets.iter().any(|(id, _)| id == &format!("smartSort:reviewFolder:{folder}")));
+}
+
+#[test]
+fn ds_finding_explicit_preset_destination_exports_without_conflict_dialog() {
+    let mut h = harness([1400., 1000.]);
+    h.app.ui.dialog = None;
+    h.app.services.write_shared = Some(Arc::new(|_, _| Ok(())));
+    let result = h.request(
+        "ui.menu.invoke",
+        json!({"id":"app.export","params":{"preset":"JPEG (Small)","dir":"target/ds-explicit-export","conflict":"rename","background":true}}),
+        T,
+    );
+    assert_eq!(result["ok"], true, "{result}");
+    assert!(h.app.ui.dialog.is_none(), "an explicit destination never opens the conflict chooser");
+    assert!(h.step_until(T, |h| h.app.export.is_none()));
+    assert!(h.app.last_export_result.as_ref().is_some_and(|r| r["files"].as_array().is_some_and(|files| !files.is_empty())));
+}
+
+#[test]
+fn ds2_people_folder_switch_survives_back_navigation() {
+    let mut h = harness([1400., 1100.]);
+    click(&mut h, "smartSort:analyze");
+    assert!(h.step_until(T, |h| h.app.smart_sort.is_none() && state(h).step == 1));
+    h.app.session.smart.people.tagger = Some(Arc::new(lightcraft_engine::smart_sort::people::MockFaces));
+    h.app.session.smart.prefs.faces_enabled = true;
+    h.app.session.smart.people.ready().unwrap();
+    let id = h.app.session.smart.people.data.add("Jane".into()).unwrap();
+    h.app.session.smart.people.data.person_mut(id).unwrap().folder_enabled = true;
+    state_mut(&mut h).step = 2;
+    state_mut(&mut h).people_folders = true;
+    h.step();
+    h.step();
+    click(&mut h, "smartSort:peopleFolders");
+    assert!(!state(&h).people_folders);
+    click(&mut h, "smartSort:back");
+    assert_eq!(state(&h).step, 1);
+    h.step();
+    assert!(!state(&h).people_folders);
+    click(&mut h, "smartSort:step:export");
+    assert_eq!(state(&h).step, 2);
+    assert!(!state(&h).people_folders);
+}
+
+#[test]
+fn ds2_smart_sort_setup_failure_does_not_start_face_worker() {
+    let mut h = harness([1400., 1100.]);
+    h.app.session.smart.people.tagger = Some(Arc::new(lightcraft_engine::smart_sort::people::MockFaces));
+    h.app.session.smart.prefs.faces_enabled = true;
+    h.app.session.smart.people.ready().unwrap();
+    h.app.session.smart.store = Default::default();
+    h.app.session.smart.store.ensure("mock-tags", 7).unwrap();
+    let ids = state(&h).source.clone();
+    assert!(crate::smart_sort_task::start(&mut h.app, &ids).is_err());
+    assert!(h.app.people_task.is_none());
+    assert!(h.app.smart_sort.is_none());
+    h.step();
+    h.step();
+    // Status rejects the same invalid cache, so Analyse is disabled; clicking it
+    // must not bypass that guard or start either worker.
+    click(&mut h, "smartSort:analyze");
+    assert!(h.app.people_task.is_none());
+    assert!(h.app.smart_sort.is_none());
 }

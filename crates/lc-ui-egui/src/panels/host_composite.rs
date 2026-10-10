@@ -61,7 +61,10 @@ pub fn loupe(app: &LightcraftApp, ui: &egui::Ui, id: PhotoId, area: Rect) -> Opt
     p.rect_filled(badge, 4.0, Color32::from_rgba_unmultiplied(40, 90, 170, 220));
     p.galley(badge.min + vec2(8.0, 4.0), g, Color32::WHITE);
     let bg = p.layout_no_wrap(crate::i18n::tr("Open in Compositing").to_string(), t.font(12.0), Color32::WHITE);
-    let button = Rect::from_min_size(pos2(badge.right() + 6.0, badge.top()), bg.size() + vec2(16.0, 8.0));
+    let button = Rect::from_min_size(pos2(badge.right() + 6.0, badge.top()), bg.size() + vec2(16.0, 8.0)).intersect(area);
+    if !button.is_positive() {
+        return None;
+    }
     register(ui.ctx(), "hostComposite:open", button);
     Some(button)
 }
@@ -70,7 +73,7 @@ pub fn loupe(app: &LightcraftApp, ui: &egui::Ui, id: PhotoId, area: Rect) -> Opt
 pub fn button(ui: &egui::Ui, id: PhotoId, rect: Rect) -> bool {
     let t = Tokens::get(ui.ctx());
     let resp = ui.interact(rect, egui::Id::new(("host-composite-open", id.0)), Sense::click());
-    let p = ui.painter();
+    let p = ui.painter_at(rect);
     let g = p.layout_no_wrap(crate::i18n::tr("Open in Compositing").to_string(), t.font(12.0), Color32::WHITE);
     p.rect_filled(rect, 4.0, if resp.hovered() { Color32::from_black_alpha(220) } else { Color32::from_black_alpha(160) });
     p.galley(rect.min + vec2(8.0, 4.0), g, Color32::WHITE);

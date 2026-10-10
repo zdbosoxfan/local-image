@@ -504,6 +504,7 @@ fn main() -> eframe::Result {
                 .env_remove(gpu_startup::RETRY_ENV)
                 .env_remove(gpu_startup::RETRY_REASON_ENV)
                 .env(app_log::APPEND_ENV, "1");
+            clear_gpu_retry_environment(&mut command);
             match next_after_failure {
                 Some(b) => {
                     log::warn!("the renderer couldn't start on {}; retrying with {}", planned_backend.name(), gpu_startup::describe(b, os));
@@ -572,4 +573,20 @@ mod tests {
         // eframe shrinks the start size to the monitor, so the centred position is on-screen.
         assert_ne!(o.viewport.clamp_size_to_monitor_size, Some(false));
     }
+}
+
+fn clear_gpu_retry_environment(command: &mut std::process::Command) {
+    command.env_remove("LOCAL_IMAGE_GPU_STARTUP_FAILURE");
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_gpu_retry_clears_inherited_cpu_failure_reason() {
+    let mut child = std::process::Command::new("unused");
+    child.env("LOCAL_IMAGE_GPU_STARTUP_FAILURE", "old failure");
+    clear_gpu_retry_environment(&mut child);
+    assert!(child.get_envs().any(|(key, value)| key == "LOCAL_IMAGE_GPU_STARTUP_FAILURE" && value.is_none()));
+    // A deliberate CPU retry can subsequently record this attempt's reason.
+    child.env("LOCAL_IMAGE_GPU_STARTUP_FAILURE", "current failure");
+    assert!(child.get_envs().any(|(key, value)| key == "LOCAL_IMAGE_GPU_STARTUP_FAILURE" && value == Some(std::ffi::OsStr::new("current failure"))));
 }

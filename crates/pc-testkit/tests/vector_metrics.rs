@@ -51,3 +51,25 @@ fn geometry_oracles_detect_crossing_and_distance() -> TestResult {
     assert_eq!(iou(&[0., 1., 1.], &[1., 1., 0.], 0.5)?, 1. / 3.);
     Ok(())
 }
+
+#[test]
+fn ds_finding_intersection_parameters_locate_original_cubics() {
+    use kurbo::{CubicBez, ParamCurve};
+    use photocraft_doc::Knot;
+    use photocraft_geom::Point;
+    let mut curved = Subpath::polyline(&[(0., 0.), (100., 100.)]);
+    curved.knots[0].out_ctrl = Point::new(0., 100.);
+    curved.knots[1].in_ctrl = Point::new(100., 0.);
+    let path = Path::new(vec![curved, Subpath { knots: vec![Knot::corner(-10., 40.), Knot::corner(110., 40.)], ..Default::default() }]);
+    let curves: Vec<_> = path
+        .subpaths
+        .iter()
+        .flat_map(|s| s.segments())
+        .map(|p| CubicBez::new((p[0].x, p[0].y), (p[1].x, p[1].y), (p[2].x, p[2].y), (p[3].x, p[3].y)))
+        .collect();
+    let intersections = self_intersections(&path);
+    assert!(!intersections.is_empty());
+    for (a, b, ta, tb) in intersections {
+        assert!(curves[a].eval(ta).distance(curves[b].eval(tb)) < 0.1, "parameters {ta}, {tb} do not locate the crossing");
+    }
+}

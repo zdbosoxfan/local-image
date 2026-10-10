@@ -900,7 +900,7 @@ pub fn render(
         // a hidden mask: evaluate it on the CPU
         Err(m) => {
             crate::record_cpu_stage("mask overlay");
-            let img = host.lin.get_or_insert_with(|| Arc::new(cx.read_rgb(&lin, w, h))).clone();
+            let img = host.lin.get_or_insert_with(|| Arc::new(cx.read_rgb(&prepared_lin, w, h))).clone();
             let l = host.log_l.get_or_insert_with(|| Arc::new(cx.read_plane(&prep.log_l, w, h))).clone();
             lightcraft_pipeline::masks::evaluate_one(m, &plan.frame, w, h, &img, &l, s.light.exposure as f32)
         }

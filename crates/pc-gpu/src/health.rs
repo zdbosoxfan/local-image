@@ -66,10 +66,8 @@ struct Inner {
     fault: Mutex<Option<Fault>>,
     errors: AtomicU64,
     /// Frame counter advanced by [`DeviceHealth::tick`].
-    frame: AtomicU64,
-    /// Frames with errors since the last decay, and the last such frame (+1; 0 = none).
-    strikes: AtomicU64,
-    strike_frame: AtomicU64,
+    /// (current frame, strikes since decay, last error frame + 1).
+    strike_state: Mutex<(u64, u64, u64)>,
     last_error: Mutex<Option<String>>,
 }
 
@@ -136,9 +134,13 @@ impl DeviceHealth {
         }
         // One strike per frame, however many errors the frame raised (an invalid object makes
         // every later use of it an error too).
-        let frame = self.0.frame.load(Ordering::Acquire) + 1;
-        if self.0.strike_frame.swap(frame, Ordering::AcqRel) != frame {
-            let strikes = self.0.strikes.fetch_add(1, Ordering::AcqRel) + 1;
+        let mut state = self.0.strike_state.lock().unwrap_or_else(PoisonError::into_inner);
+        let frame = state.0.saturating_add(1);
+        if state.2 != frame {
+            state.2 = frame;
+            state.1 = state.1.saturating_add(1);
+            let strikes = state.1;
+            drop(state);
             if strikes >= STRIKE_LIMIT {
                 self.mark(Fault::Error(format!("{line} (errors in {strikes} frames)")));
             } else {
@@ -147,20 +149,19 @@ impl DeviceHealth {
         }
     }
 
-    /// Advance the frame counter (once per UI frame): errors in later frames are separate
-    /// strikes, and [`DECAY_FRAMES`] clean frames forget earlier ones.
+    /// Advance a UI frame; strike recording and decay share one state transition.
     pub fn tick(&self) {
-        let frame = self.0.frame.fetch_add(1, Ordering::AcqRel) + 1;
-        let last = self.0.strike_frame.load(Ordering::Acquire);
-        if last != 0 && frame.saturating_add(1).saturating_sub(last) >= DECAY_FRAMES {
-            self.0.strikes.store(0, Ordering::Release);
-            self.0.strike_frame.store(0, Ordering::Release);
+        let mut state = self.0.strike_state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.0 = state.0.saturating_add(1);
+        if state.2 != 0 && state.0.saturating_add(1).saturating_sub(state.2) >= DECAY_FRAMES {
+            state.1 = 0;
+            state.2 = 0;
         }
     }
 
     /// Frames with errors not yet forgotten (see [`STRIKE_LIMIT`]).
     pub fn strikes(&self) -> u64 {
-        self.0.strikes.load(Ordering::Acquire)
+        self.0.strike_state.lock().unwrap_or_else(PoisonError::into_inner).1
     }
 
     /// The last uncaptured error's first line.
@@ -305,5 +306,28 @@ mod tests {
         assert_eq!(Fault::Error("x".into()).to_string(), "GPU error: x");
         assert_eq!(first_line("\n  Buffer 'pc' is invalid\nmore"), "Buffer 'pc' is invalid");
         assert_eq!(first_line(&"a".repeat(300)).chars().count(), 201);
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_error_and_decay_are_serialized() {
+    for _ in 0..100 {
+        let h = DeviceHealth::new();
+        h.error_text("validation");
+        for _ in 0..DECAY_FRAMES - 1 {
+            h.tick();
+        }
+        std::thread::scope(|scope| {
+            scope.spawn(|| h.tick());
+            scope.spawn(|| h.error_text("validation"));
+        });
+        assert!((1..=2).contains(&h.strikes()));
+        h.tick();
+        h.error_text("validation");
+        h.tick();
+        h.error_text("validation");
+        assert!(!h.is_ok());
+        assert_eq!(h.errors(), 4);
     }
 }

@@ -93,18 +93,22 @@ fn prefs(s: &mut Session, p: &Value) -> Result<Value> {
         }
         changed = true;
     }
+    // Validate the whole command before changing defaults, registries or caches.
+    let days = p
+        .get("forgetLocalDays")
+        .map(|v| v.as_u64().ok_or_else(|| bad(ID, "forgetLocalDays must be a whole number of days (0 = never)")))
+        .transpose()?;
+    let mb = p.get("cacheMb").map(|v| v.as_u64().ok_or_else(|| bad(ID, "cacheMb must be a number of megabytes"))).transpose()?;
     if d.camera_profiles_folder != s.import_defaults.camera_profiles_folder {
         crate::dcp_profiles::configure(&d.camera_profiles_folder);
         s.media.clear_sources();
     }
     s.import_defaults = d;
-    if let Some(v) = p.get("forgetLocalDays") {
-        let days = v.as_u64().ok_or_else(|| bad(ID, "forgetLocalDays must be a whole number of days (0 = never)"))?;
+    if let Some(days) = days {
         s.forget_local_days = days.min(36_500) as u32;
         changed = true;
     }
-    if let Some(mb) = p.get("cacheMb") {
-        let mb = mb.as_u64().ok_or_else(|| bad(ID, "cacheMb must be a number of megabytes"))?;
+    if let Some(mb) = mb {
         s.set_cache_mb(mb.clamp(0, 1 << 20) as u32)?;
     } else if changed {
         s.save_prefs()?;
@@ -122,4 +126,20 @@ pub fn specs() -> Vec<CommandSpec> {
         always,
         prefs
     )]
+}
+
+#[cfg(test)]
+mod ds_tests {
+    use super::*;
+    #[test]
+    fn ds_finding_invalid_preferences_have_no_partial_effects() {
+        let mut s = Session::default();
+        let before = current(&s);
+        for extra in [json!({"forgetLocalDays":-1}), json!({"cacheMb":"bad"})] {
+            let mut p = extra;
+            p["import"] = json!({"copyright":"changed","cameraProfilesFolder":"invalid-folder"});
+            assert!(prefs(&mut s, &p).is_err());
+            assert_eq!(current(&s), before);
+        }
+    }
 }

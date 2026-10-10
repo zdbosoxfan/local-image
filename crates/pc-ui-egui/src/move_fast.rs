@@ -124,6 +124,9 @@ pub(crate) fn planes(app: &mut PhotocraftApp, idx: usize) -> Option<Vec<MovePlan
     // leaves the immutable document intact, so a press can reuse the ready textures.
     let fresh = app.move_fast.as_ref().is_some_and(|f| std::sync::Arc::ptr_eq(&f.source, &doc) && f.ids == ids);
     if !fresh {
+        if app.drag.is_some() {
+            return None;
+        }
         let t = crate::gpu_canvas::now_ms();
         let planes = build(app, &doc, &ids).unwrap_or_default();
         app.move_fast = Some(FastMove { source: doc, ids, planes });

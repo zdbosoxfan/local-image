@@ -87,7 +87,12 @@ impl Sink {
     }
 
     fn write_line(&mut self, line: &str) {
-        if self.written + line.len() as u64 > MAX_BYTES {
+        let mut end = line.len().min(MAX_BYTES as usize);
+        while !line.is_char_boundary(end) {
+            end -= 1;
+        }
+        let line = &line[..end];
+        if self.written.saturating_add(line.len() as u64) > MAX_BYTES {
             self.file = None;
             let _ = rotate(&self.path);
             self.file = OpenOptions::new().create(true).append(true).open(&self.path).ok();
@@ -258,6 +263,7 @@ mod tests {
         for _ in 0..5 {
             s.write_line(&big);
         }
+        s.write_line(&"ü".repeat(MAX_BYTES as usize));
         let len = |n: &str| std::fs::metadata(dir.join(n)).map(|m| m.len()).unwrap_or(0);
         assert!(len(LOG_FILE) <= MAX_BYTES && len(PREVIOUS_LOG_FILE) <= MAX_BYTES, "{} {}", len(LOG_FILE), len(PREVIOUS_LOG_FILE));
         let _ = std::fs::remove_dir_all(&dir);

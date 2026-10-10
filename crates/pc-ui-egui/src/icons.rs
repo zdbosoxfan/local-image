@@ -179,6 +179,7 @@ pub fn tool_icon(ui: &egui::Ui, name: &str, size: f32) -> egui::Image<'static> {
 }
 
 pub fn paint_tool(ui: &egui::Ui, rect: Rect, name: &str, size: f32, tint: Color32) {
+    let tint = if ui.is_enabled() { tint } else { Tokens::get(ui.ctx()).text_faint };
     if crate::color_icons::enabled(ui.ctx())
         && let Some(image) = crate::color_icons::image(ui, name, size, !ui.is_enabled())
     {
@@ -213,6 +214,28 @@ mod tests {
                 other => panic!("unexpected source: {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn ds_finding_disabled_monochrome_tool_has_faint_tint_and_ignores_click() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(120., 80.)).build_ui_state(
+            |ui, clicked: &mut bool| {
+                egui_extras::install_image_loaders(ui.ctx());
+                crate::color_icons::set_enabled(ui.ctx(), false);
+                ui.add_enabled_ui(false, |ui| {
+                    *clicked |= tool_button(ui, "crop", 40., false, "Disabled tool").clicked();
+                });
+            },
+            false,
+        );
+        h.run_steps(3);
+        let faint = Tokens::get(&h.ctx).text_faint;
+        let tint = h.output().shapes.iter().find_map(|s| if let egui::Shape::Rect(r) = &s.shape { r.brush.as_ref().map(|_| r.fill) } else { None }).unwrap();
+        assert_eq!(tint, faint.gamma_multiply(0.5), "egui also applies disabled UI opacity");
+        h.get_by_label("Disabled tool").click();
+        h.run_steps(2);
+        assert!(!h.state());
     }
 
     #[test]

@@ -886,13 +886,20 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 /// bound to the layer like the Type options bar. False when no type layer is the target.
 pub fn quick_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
     let Some((id, _)) = target(app) else { return false };
-    let Some((mut fam, color)) = app.session.active().and_then(|st| text_layer(&st.doc, LayerId(id))).map(|tl| (tl.font_family.clone(), tl.color)) else {
+    let Some((mut fam, color, layer_size, layer_style)) =
+        app.session.active().and_then(|st| text_layer(&st.doc, LayerId(id))).map(|tl| {
+            (tl.font_family.clone(), tl.color, tl.size_pt, tl.char_runs().first().map_or_else(|| "Regular".to_owned(), |r| r.style.font_style.clone()))
+        })
+    else {
         return false;
     };
     let t = crate::theme::Tokens::get(ui.ctx());
-    let mut size = styles_at(app).map_or(12.0, |(c, _)| c.size_pt) * shown_scale(app);
+    let selected = styles_at(app);
+    let style = selected.as_ref().map_or(layer_style, |(c, _)| c.font_style.clone());
+    let mut size = selected.map_or(layer_size, |(c, _)| c.size_pt) * shown_scale(app);
     if font_picker(ui, &mut fam, 140.0) {
-        let st = styles(&fam).first().cloned().unwrap_or_else(|| "Regular".into());
+        let available = styles(&fam);
+        let st = if available.contains(&style) { style } else { available.first().cloned().unwrap_or_else(|| "Regular".into()) };
         apply(app, ui.ctx(), json!({"font": fam, "fontStyle": st}));
     }
     if crate::widgets::value_field(ui, &mut size, 1.0..=1296.0, "pt", 62.0).on_hover_text(tl!("Set the font size")).changed() {
@@ -1504,6 +1511,46 @@ mod tests {
         insert(&mut app, "");
         commit(&mut app);
         assert_eq!(app.session.active().unwrap().doc.layers.len(), n - 1);
+    }
+
+    #[test]
+    fn ds_finding_type_quick_bar_uses_layer_size_and_preserves_available_style() {
+        use egui_kittest::kittest::Queryable;
+        let mut app = app();
+        let id = app.run("type.create", json!({"text":"","size":47})).unwrap()["layer"].as_u64().unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(600.0, 120.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                quick_bar(app, ui);
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(3);
+        h.get_by_value("47").click();
+        h.run_steps(2);
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        // Pick two installed families with a shared non-Regular style.
+        let pair = families().iter().find_map(|a| {
+            styles(a)
+                .into_iter()
+                .filter(|s| s != "Regular")
+                .find_map(|style| families().iter().find(|b| *b != a && styles(b).contains(&style)).map(|b| (a.clone(), b.clone(), style)))
+        });
+        let (a, b, style) = pair.expect("test system has at least two families sharing a style");
+        h.state_mut().run("type.edit", json!({"layer":id,"text":"styled"})).unwrap();
+        h.state_mut().run("type.setStyle", json!({"layer":id,"font":a,"fontStyle":style})).unwrap();
+        h.run_steps(3);
+        h.get_by_value(&a).click();
+        h.run_steps(2);
+        h.event(egui::Event::Text(b.clone()));
+        h.run_steps(2);
+        h.get_by_label(&b).click();
+        h.run_steps(3);
+        let st = h.state().session.active().unwrap();
+        let layer = text_layer(&st.doc, LayerId(id)).unwrap();
+        assert_eq!(layer.font_family, b);
+        assert_eq!(layer.char_runs()[0].style.font_style, style);
     }
 
     #[test]

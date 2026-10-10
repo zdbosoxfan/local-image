@@ -187,7 +187,7 @@ This avoids an artificial mean-brightness reduction. Wide deterministic variance
 summation replaces upstream's parallel f32 sum. Tiny images use safe clamped taps;
 colour-only output preserves Rec.2020 luminance, luminance-only preserves RGB ratios.
 
-Haze retains modern `_quick_select` ordering, 95% dark/brightness airlight selection,
+Haze retains the modern percentile indices and 95% dark/brightness airlight selection,
 depth estimate, adaptive windows, normalized dark channel, transmission closing,
 RGB covariance/Cramer's solve, cropped Kahan boxes and scene-linear inversion.
 `Dehaze/100` maps to strength; its absolute value maps to distance. Both signs'
@@ -195,6 +195,10 @@ dark-channel planes are cached. Linearity of RGB guidance lets the normalized
 plane be filtered before applying strength. Airlight summation uses f64; zero
 airlight is guarded at 1e-6 so black images stay finite. GPU buffer-limit fallback
 is confined to haze preparation. No clipping is introduced into scene-linear output.
+The inherited `_quick_select` partition was corrected on 2026-10-10: Rust uses
+`select_nth_unstable_by`, and the GPU keeps the pivot outside the partition scan.
+An independent C `qsort` rank oracle checks the corrected selection while the
+remaining upstream haze kernels and reference tolerances stay unchanged.
 Sharpening is Local Image's own log-luminance USM with local-range halo control.
 
 Independent extracted C/C++ fixtures and complete regeneration instructions are

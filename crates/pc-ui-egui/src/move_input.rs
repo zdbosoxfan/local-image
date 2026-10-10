@@ -52,7 +52,7 @@ pub(crate) fn canvas_input(app: &mut PhotocraftApp, response: &Response, xf: &Vi
         )
     });
     if let Some(c) = capture {
-        if app.session.active().is_none_or(|s| s.doc.id != c.doc) || app.ui.tool != Tool::Move || !focused {
+        if app.session.active().is_none_or(|s| s.doc.id != c.doc) || app.ui.tool != Tool::Move || !focused || !app.ui.dialogs.is_empty() {
             cancel(app, ctx);
             return true;
         }

@@ -174,6 +174,19 @@ fn extend(p: &mut [f32], w: usize, h: usize, b: usize) {
         }
     }
 }
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+
+    #[test]
+    fn ds_finding_narrow_recovery_plane() {
+        let mut n = crate::demosaic::mosaic_from_rgb(&crate::Rgb32f::filled(4, 60, [2.0; 3]), &Cfa::bayer("RGGB").unwrap());
+        let options = SegmentationOptions { recovery: Recovery::Small, strength: 1.0, ..Default::default() };
+        assert!(segmentation(&mut n, [1.0; 3], 0.99, &options) > 0);
+        assert!(n.data.iter().all(|v| v.is_finite()));
+    }
+}
 fn plane_rows<T: Send>(planes: &mut [Vec<T>; 3], w: usize) -> impl IndexedParallelIterator<Item = [&mut [T]; 3]> {
     let [a, b, c] = planes;
     a.par_chunks_mut(w).zip(b.par_chunks_mut(w)).zip(c.par_chunks_mut(w)).map(|((a, b), c)| [a, b, c])
@@ -495,7 +508,9 @@ pub fn segmentation(n: &mut Normalized, wb: [f32; 3], clip: f32, opts: &Segmenta
         return 0;
     }
     let mut output = opposed(&input, w, h, cfa, clips);
-    let (pw, ph) = ((w / 3).next_multiple_of(2) + 2 * BORDER, (h / 3).next_multiple_of(2) + 2 * BORDER);
+    // Recovery uses Seg's BORDER+1 apron, so even a narrow sensor needs an interior.
+    let plane_size = |n: usize| ((n / 3).next_multiple_of(2) + 2 * BORDER).max(2 * (BORDER + 1) + 2);
+    let (pw, ph) = (plane_size(w), plane_size(h));
     let size = pw * ph;
     let slots = w * h / 4000;
     let mut planes: [Vec<f32>; 3] = std::array::from_fn(|_| vec![0.0; size]);

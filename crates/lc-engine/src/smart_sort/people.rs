@@ -164,11 +164,12 @@ impl PeopleData {
     pub fn person_mut(&mut self, id: u64) -> std::result::Result<&mut Person, String> {
         self.people.iter_mut().find(|p| p.id == id).ok_or("unknown person".into())
     }
-    pub fn add(&mut self, name: String) -> u64 {
+    pub fn add(&mut self, name: String) -> std::result::Result<u64, String> {
         let id = self.next_id;
-        self.next_id += 1;
+        let next = id.checked_add(1).filter(|n| *n < u64::MAX).ok_or("people identity space exhausted")?;
+        self.next_id = next;
         self.people.push(Person { id, name, ..Default::default() });
-        id
+        Ok(id)
     }
     fn validate(&self) -> std::result::Result<(), String> {
         if self.version != 1 || !(1..=10).contains(&self.min_photos) || self.next_id == u64::MAX {
@@ -204,6 +205,10 @@ pub struct PeopleEngine {
 impl PeopleEngine {
     pub fn new(library: Option<&Path>) -> Self {
         Self { dir: library.map(|d| d.join("AI")), store: FacesStore::new(library), ..Default::default() }
+    }
+    /// Detached in-memory view for queries. Persisting results remains a session-thread action.
+    pub fn snapshot(&self) -> Self {
+        Self { tagger: self.tagger.clone(), store: self.store.snapshot(), data: self.data.clone(), dir: None, loaded: self.loaded }
     }
     pub fn ensure(&mut self) -> std::result::Result<(), String> {
         if self.loaded {
@@ -320,47 +325,71 @@ pub struct FaceMatch {
 }
 /// Rank against all identities, including rejected best matches (never force second place).
 pub fn matches(cat: &Catalog, engine: &PeopleEngine, data: &PeopleData, id: u64) -> std::result::Result<Vec<FaceMatch>, String> {
-    let person = data.person(id)?;
+    data.person(id)?;
+    Ok(all_matches(cat, engine, data).remove(&id).unwrap_or_default())
+}
+
+/// Score each face against each identity once; folder projection and bubbles share this
+/// pass instead of repeating the complete ranking for every requested person.
+fn all_matches(cat: &Catalog, engine: &PeopleEngine, data: &PeopleData) -> BTreeMap<u64, Vec<FaceMatch>> {
     let model = engine.model_id();
-    let mut out = Vec::new();
+    let mut out = BTreeMap::<u64, Vec<FaceMatch>>::new();
     for photo in cat.photos().filter(|p| p.in_library()) {
-        let key = crate::media::content_key(photo);
-        for (i, face) in engine.store.get(model, &key).unwrap_or(&[]).iter().enumerate() {
-            let key = FaceKey(key.clone(), i);
-            if person.rejected_faces.contains(&key) {
-                continue;
+        let content = crate::media::content_key(photo);
+        for (i, face) in engine.store.get(model, &content).unwrap_or(&[]).iter().enumerate() {
+            let key = FaceKey(content.clone(), i);
+            let scores: Vec<_> = data.people.iter().map(|p| similarity(&face.embedding, &p.centroid)).collect();
+            let mut best = (usize::MAX, -1.0f32);
+            let mut second = -1.0f32;
+            for (j, &score) in scores.iter().enumerate() {
+                if score > best.1 {
+                    second = best.1;
+                    best = (j, score);
+                } else {
+                    second = second.max(score);
+                }
             }
-            let confirmed = person.confirmed_faces.contains(&key) || person.seed_faces.contains(&key);
-            // Explicit confirmation owns the face even if another centroid is closer.
-            if !confirmed && data.people.iter().any(|p| p.id != id && (p.confirmed_faces.contains(&key) || p.seed_faces.contains(&key))) {
-                continue;
-            }
-            let score = similarity(&face.embedding, &person.centroid);
-            let other = data.people.iter().filter(|p| p.id != id).map(|p| similarity(&face.embedding, &p.centroid)).fold(-1., f32::max);
-            if confirmed || (score >= li_seg::faces::ASSIGN_COSINE && score - other >= li_seg::faces::ASSIGN_MARGIN) {
-                out.push(FaceMatch {
-                    photo: photo.id,
-                    face: i,
-                    rect: face.rect,
-                    similarity: score,
-                    confirmed,
-                    sure: confirmed || score >= SURE_COSINE,
-                });
+            let confirmed: Vec<_> = data.people.iter().map(|p| p.confirmed_faces.contains(&key) || p.seed_faces.contains(&key)).collect();
+            let owned = confirmed.iter().any(|c| *c);
+            for (j, person) in data.people.iter().enumerate() {
+                if person.rejected_faces.contains(&key) || (!confirmed[j] && owned) {
+                    continue;
+                }
+                let score = scores[j];
+                let other = if j == best.0 { second } else { best.1 };
+                if confirmed[j] || (score >= li_seg::faces::ASSIGN_COSINE && score - other >= li_seg::faces::ASSIGN_MARGIN) {
+                    out.entry(person.id).or_default().push(FaceMatch {
+                        photo: photo.id,
+                        face: i,
+                        rect: face.rect,
+                        similarity: score,
+                        confirmed: confirmed[j],
+                        sure: confirmed[j] || score >= SURE_COSINE,
+                    });
+                }
             }
         }
     }
-    out.sort_by(|a, b| b.similarity.total_cmp(&a.similarity).then(a.photo.cmp(&b.photo)).then(a.face.cmp(&b.face)));
-    Ok(out)
+    for rows in out.values_mut() {
+        rows.sort_by(|a, b| b.similarity.total_cmp(&a.similarity).then(a.photo.cmp(&b.photo)).then(a.face.cmp(&b.face)));
+    }
+    out
 }
 
-fn nodes(cat: &Catalog, engine: &PeopleEngine, data: &PeopleData) -> Vec<FaceNode> {
+fn nodes(cat: &Catalog, engine: &PeopleEngine, data: &PeopleData, cancelled: &impl Fn() -> bool) -> Vec<FaceNode> {
     let mut dates = BTreeMap::new();
     for p in cat.photos().filter(|p| p.in_library()) {
+        if cancelled() {
+            return Vec::new();
+        }
         let date = p.captured.as_deref().and_then(lightcraft_meta::DateTime::parse_iso).map(|d| d.unix_seconds()).unwrap_or(i64::MAX);
         dates.entry(crate::media::content_key(p)).and_modify(|d: &mut i64| *d = (*d).min(date)).or_insert(date);
     }
     let mut out = Vec::new();
     for (key, date) in dates {
+        if cancelled() {
+            return Vec::new();
+        }
         for (i, face) in engine.store.get(engine.model_id(), &key).unwrap_or(&[]).iter().enumerate() {
             let fk = FaceKey(key.clone(), i);
             if data.people.iter().any(|p| p.seed_faces.contains(&fk) || p.confirmed_faces.contains(&fk) || p.cluster_faces.contains(&fk)) {
@@ -387,8 +416,21 @@ fn nodes(cat: &Catalog, engine: &PeopleEngine, data: &PeopleData) -> Vec<FaceNod
 
 /// XMP names are seeds only for imported/manual regions, never our own speculative regions.
 pub fn refresh(cat: &Catalog, engine: &PeopleEngine, data: &mut PeopleData, cluster: bool) -> std::result::Result<(), String> {
+    refresh_cancellable(cat, engine, data, cluster, &|| false)
+}
+
+pub fn refresh_cancellable(
+    cat: &Catalog,
+    engine: &PeopleEngine,
+    data: &mut PeopleData,
+    cluster: bool,
+    cancelled: &impl Fn() -> bool,
+) -> std::result::Result<(), String> {
     let model = engine.model_id();
     for photo in cat.photos().filter(|p| p.in_library()) {
+        if cancelled() {
+            return Err("face grouping cancelled".into());
+        }
         let key = crate::media::content_key(photo);
         for region in photo.meta.regions.iter().filter(|r| !r.auto && r.kind == lightcraft_meta::RegionKind::Face) {
             let Some(name) = region.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) else {
@@ -405,7 +447,7 @@ pub fn refresh(cat: &Catalog, engine: &PeopleEngine, data: &mut PeopleData, clus
                 if data.people.iter().any(|p| p.confirmed_faces.contains(&fk) || p.seed_faces.contains(&fk)) {
                     continue;
                 }
-                let id = data.people.iter().find(|p| p.name.eq_ignore_ascii_case(name)).map(|p| p.id).unwrap_or_else(|| data.add(name.into()));
+                let id = data.people.iter().find(|p| p.name.eq_ignore_ascii_case(name)).map(|p| Ok(p.id)).unwrap_or_else(|| data.add(name.into()))?;
                 let p = data.person_mut(id)?;
                 if !p.rejected_faces.contains(&fk) {
                     p.confirmed_faces.push(fk);
@@ -415,11 +457,11 @@ pub fn refresh(cat: &Catalog, engine: &PeopleEngine, data: &mut PeopleData, clus
     }
     refresh_centroids(data, &engine.store, model);
     if cluster {
-        let mut unassigned = nodes(cat, engine, data);
-        let groups = li_seg::faces::chinese_whispers(&unassigned).map_err(|_| "could not cluster faces")?;
+        let mut unassigned = nodes(cat, engine, data, cancelled);
+        let groups = li_seg::faces::chinese_whispers_cancellable(&unassigned, cancelled).map_err(|_| "could not cluster faces")?;
         let mut grouped = BTreeSet::new();
         for group in groups {
-            let id = data.add(String::new());
+            let id = data.add(String::new())?;
             grouped.extend(group.members.iter().map(|k| FaceKey(k.key.clone(), k.face_index)));
             data.person_mut(id)?.cluster_faces = group.members.into_iter().map(|k| FaceKey(k.key, k.face_index)).collect();
         }
@@ -427,9 +469,12 @@ pub fn refresh(cat: &Catalog, engine: &PeopleEngine, data: &mut PeopleData, clus
         // minimum of one must also expose people seen in only one photo, with stable IDs.
         unassigned.sort_by(|a, b| a.key.cmp(&b.key));
         for node in unassigned {
+            if cancelled() {
+                return Err("face grouping cancelled".into());
+            }
             let key = FaceKey(node.key.key, node.key.face_index);
             if !grouped.contains(&key) {
-                let id = data.add(String::new());
+                let id = data.add(String::new())?;
                 data.person_mut(id)?.cluster_faces.push(key);
             }
         }
@@ -442,11 +487,12 @@ pub fn refresh(cat: &Catalog, engine: &PeopleEngine, data: &mut PeopleData, clus
 /// permits normal People search and rules to work for unnamed identities as well as names.
 pub fn region_ops(cat: &Catalog, engine: &PeopleEngine, data: &PeopleData) -> std::result::Result<Vec<Op>, String> {
     let mut accepted: BTreeMap<PhotoId, Vec<(u64, String, FaceMatch)>> = BTreeMap::new();
+    let mut matches = all_matches(cat, engine, data);
     for person in &data.people {
         if person.ignored {
             continue;
         }
-        for row in matches(cat, engine, data, person.id)?.into_iter().filter(|r| r.sure) {
+        for row in matches.remove(&person.id).unwrap_or_default().into_iter().filter(|r| r.sure) {
             accepted.entry(row.photo).or_default().push((person.id, person.name.clone(), row));
         }
     }
@@ -455,6 +501,17 @@ pub fn region_ops(cat: &Catalog, engine: &PeopleEngine, data: &PeopleData) -> st
         let mut meta = photo.meta.clone();
         meta.regions.retain(|r| !r.auto);
         meta.person_ids.clear();
+        for region in &meta.regions {
+            if region.kind != lightcraft_meta::RegionKind::Face {
+                continue;
+            }
+            let Some(name) = region.name.as_deref().map(str::trim).filter(|name| !name.is_empty()) else { continue };
+            for person in &data.people {
+                if !person.ignored && person.name.trim().eq_ignore_ascii_case(name) {
+                    meta.person_ids.push(person.id);
+                }
+            }
+        }
         for (id, name, row) in accepted.get(&photo.id).into_iter().flatten() {
             if !meta.person_ids.contains(id) {
                 meta.person_ids.push(*id);
@@ -474,6 +531,7 @@ pub fn region_ops(cat: &Catalog, engine: &PeopleEngine, data: &PeopleData) -> st
             }
         }
         meta.person_ids.sort_unstable();
+        meta.person_ids.dedup();
         if meta != photo.meta {
             ops.push(Op::SetMeta { id: photo.id, meta: Box::new(meta) });
         }
@@ -738,8 +796,9 @@ pub struct Bubble {
 }
 pub fn bubbles(cat: &Catalog, engine: &PeopleEngine, folder: Option<&BTreeSet<PhotoId>>) -> std::result::Result<Vec<Bubble>, String> {
     let mut out = Vec::new();
+    let mut matches = all_matches(cat, engine, &engine.data);
     for p in &engine.data.people {
-        let rows = matches(cat, engine, &engine.data, p.id)?;
+        let rows = matches.remove(&p.id).unwrap_or_default();
         let total: BTreeSet<_> = rows.iter().map(|r| r.photo).collect();
         let pending: BTreeSet<_> = rows.iter().filter(|r| !r.confirmed).map(|r| r.photo).collect();
         let mut covers = Vec::new();

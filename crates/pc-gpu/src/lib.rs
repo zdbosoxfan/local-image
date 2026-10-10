@@ -749,6 +749,20 @@ impl Compositor {
         self.cached_plan(doc).map(|_| ())
     }
 
+    /// Cache an immutable app document snapshot for subsequent support/render queries.
+    pub fn prepare_snapshot(&self, doc: &Arc<Document>) -> Result<(), Unsupported> {
+        let space = photocraft_compose::cmyk_space(doc);
+        photocraft_color::convert::with_cmyk_space(space.as_ref(), || {
+            self.plans
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .entry(doc.id)
+                .or_default()
+                .get_snapshot(doc, |p| self.check_fx(doc, p))
+                .map(|_| ())
+        })
+    }
+
     /// Number of structure changes that rebuilt the cached pass list (profiling/tests).
     pub fn plan_builds(&self) -> u64 {
         self.plans.lock().unwrap_or_else(std::sync::PoisonError::into_inner).values().map(|p| p.builds).sum()

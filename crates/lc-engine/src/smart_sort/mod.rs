@@ -187,6 +187,10 @@ pub struct Analysis {
 pub fn analyze(s: &mut Session, ids: &[PhotoId], cancel: &std::sync::atomic::AtomicBool, progress: &dyn Fn(usize, usize)) -> crate::Result<Analysis> {
     use rayon::prelude::*;
     use std::sync::atomic::Ordering;
+    if cancel.load(Ordering::Relaxed) {
+        s.smart.store.save().map_err(|e| crate::EngineError::Other(format!("Smart Sort cache save: {e}")))?;
+        return Ok(Analysis { cancelled: true, ..Default::default() });
+    }
     let tagger = s.smart.tagger(s.quick_seg_dir.as_deref()).map_err(crate::EngineError::Other)?;
     let model = tagger.model_id().to_string();
     s.smart.store.ensure(&model, tagger.dim()).map_err(crate::EngineError::Other)?;
@@ -194,6 +198,9 @@ pub fn analyze(s: &mut Session, ids: &[PhotoId], cancel: &std::sync::atomic::Ato
     let mut keys = std::collections::BTreeSet::new();
     let mut todo = Vec::new();
     for id in ids {
+        if cancel.load(Ordering::Relaxed) {
+            break;
+        }
         let Some(p) = s.catalog.photo(*id) else {
             result.failed.push((*id, "unknown photo".into()));
             continue;

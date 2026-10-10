@@ -121,7 +121,7 @@ pub fn filter(input: &Plane, p: Params) -> Plane {
                 if p.quantization == 0.0 {
                     *v
                 } else {
-                    ((v.log2() / p.quantization).floor() * p.quantization).exp2().clamp(p.quantize_min, p.quantize_max)
+                    ((v.max(p.quantize_min).log2() / p.quantization).floor() * p.quantization).exp2().clamp(p.quantize_min, p.quantize_max)
                 }
             })
             .collect();
@@ -153,14 +153,16 @@ pub fn filter(input: &Plane, p: Params) -> Plane {
         for (i, v) in out.data.iter_mut().enumerate() {
             let m = &av[i * nc..(i + 1) * nc];
             let ng = (m[0] * *v).max(1e-6);
-            let var = m[1] / ng;
+            // Roundoff can make a constant guide's variance slightly negative.
+            let var = m[1].max(0.0) / ng;
+            let denom = var + p.feathering.max(0.0);
             let (a, b) = if nc == 2 {
-                let a = var / (var + p.feathering);
+                let a = if denom > 0.0 { var / denom } else { 0.0 };
                 (a, m[0] - a * m[0])
             } else {
                 let nm = (m[2] * mask[i]).max(1e-6);
                 let cov = m[3] / (ng * nm).sqrt();
-                let a = cov / (var + p.feathering);
+                let a = if denom > 0.0 { cov / denom } else { 0.0 };
                 (a, m[2] - a * m[0])
             };
             let q = (*v * a + b).max(2f32.powi(-16));
@@ -168,4 +170,27 @@ pub fn filter(input: &Plane, p: Params) -> Plane {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+
+    #[test]
+    fn ds_finding_quantized_negative_guide_stays_finite() {
+        let input = Plane::from_fn(8, 8, |_, _| -0.5);
+        let p = Params { quantization: 1.0, ..Params::new(2.0, 0.1) };
+        let out = filter(&input, p);
+        assert!(out.data.iter().all(|v| v.is_finite() && *v >= 0.0));
+    }
+
+    #[test]
+    fn review_zero_feathering_keeps_constant_planes() {
+        let input = Plane::from_fn(8, 8, |_, _| 0.5);
+        for quantization in [0.0, 1.0] {
+            let p = Params { quantization, ..Params::new(2.0, 0.0) };
+            let out = filter(&input, p);
+            assert!(out.data.iter().all(|v| v.is_finite() && (*v - 0.5).abs() < 1e-5));
+        }
+    }
 }

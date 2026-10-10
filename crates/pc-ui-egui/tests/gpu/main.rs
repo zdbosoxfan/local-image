@@ -8,6 +8,7 @@ mod canvas_16f;
 mod canvas_flip_gpu;
 mod color_managed_canvas;
 mod drag_preview_canvas;
+mod ds_findings;
 mod gpu_canvas_perf;
 mod gpu_device_loss;
 mod layout_perf;

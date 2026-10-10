@@ -147,6 +147,9 @@ impl SortPreset {
         super::tokens::validate(&self.file_pattern, true)?;
         let mut names = std::collections::BTreeSet::new();
         for c in &self.categories {
+            if c.min_faces.zip(c.max_faces).is_some_and(|(min, max)| min > max) {
+                return Err("minimum faces must not exceed maximum faces".into());
+            }
             if c.name.trim().is_empty() || c.name.contains('|') || c.name.trim().eq_ignore_ascii_case("Unsorted") {
                 return Err("invalid category name".into());
             }
@@ -155,5 +158,18 @@ impl SortPreset {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod ds_tests {
+    #[test]
+    fn ds_finding_contradictory_face_gate_is_rejected() {
+        let mut p = super::builtin_presets().remove(0);
+        p.categories[0].min_faces = Some(5);
+        p.categories[0].max_faces = Some(2);
+        assert!(p.validate().is_err());
+        p.categories[0].max_faces = Some(5);
+        assert!(p.validate().is_ok());
     }
 }

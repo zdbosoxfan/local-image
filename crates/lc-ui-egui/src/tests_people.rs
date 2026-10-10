@@ -105,6 +105,21 @@ fn list(s: &mut Session) -> Value {
     s.execute("smartSort.people", &json!({"showEveryone":true})).unwrap()
 }
 #[test]
+fn ds_finding_large_people_query_keeps_ui_cancellable() {
+    let mut s = session();
+    for _ in 0..5000 {
+        add(&mut s, &[[255, 0, 0]], true);
+    }
+    let started = std::time::Instant::now();
+    let mut h = harness(s);
+    assert!(started.elapsed() < Duration::from_secs(2), "People frames waited for clustering");
+    assert!(h.app.widgets.iter().any(|(id, _)| id == "people:groupCancel"));
+    click(&mut h, "people:groupCancel");
+    assert!(h.app.session.smart.people.data.people.is_empty());
+    assert!(!h.app.widgets.iter().any(|(id, _)| id == "people:groupCancel"));
+}
+
+#[test]
 fn people_ui_threshold_names_ignore_restore_pin_and_grid_filter() {
     let mut s = session();
     let a = add(&mut s, &[[255, 0, 0]], true);
@@ -472,7 +487,7 @@ fn people_ui_probable_merge_prompt_different_and_queue_merge_undo() {
     let b = add(&mut s, &[[255, 0, 0]], true);
     let first = named(&mut s, a, "Jane");
     let mut data = s.smart.people.data.clone();
-    let second = data.add("Jane again".into());
+    let second = data.add("Jane again".into()).unwrap();
     let face_key = lightcraft_engine::smart_sort::people::FaceKey(lightcraft_engine::media::content_key(s.catalog.photo(b).unwrap()), 0);
     data.person_mut(second).unwrap().confirmed_faces.push(face_key);
     lightcraft_engine::smart_sort::people::update_centroids(&mut data, &s.smart.people);
@@ -582,7 +597,7 @@ fn people_ui_smart_rule_picker_preserves_identity_sets_and_ignores_hidden_people
     let both = add(&mut s, &[[255, 0, 0], [0, 255, 0]], true);
     let jane = named(&mut s, a, "Jane");
     let john = named(&mut s, b, "John");
-    let hidden = s.smart.people.data.add("Ignored stranger".into());
+    let hidden = s.smart.people.data.add("Ignored stranger".into()).unwrap();
     s.smart.people.data.person_mut(hidden).unwrap().ignored = true;
     let mut h = harness(s);
     h.app.ui.view = ViewMode::PhotoGrid;
@@ -616,7 +631,7 @@ fn people_ui_minimum_range_and_top_sixty_show_all() {
     for n in 0..62 {
         let key = format!("headshot-seed-{n}");
         s.smart.people.store.insert("mock-faces", key.clone(), faces.clone()).unwrap();
-        let id = s.smart.people.data.add(format!("Speaker {n}"));
+        let id = s.smart.people.data.add(format!("Speaker {n}")).unwrap();
         let person = s.smart.people.data.person_mut(id).unwrap();
         person.seed_faces = vec![FaceKey(key, 0)];
         person.centroid = faces[0].embedding.clone();
@@ -630,4 +645,84 @@ fn people_ui_minimum_range_and_top_sixty_show_all() {
     reveal_widget(&mut h, "people:body", "smartSort:showAll");
     click(&mut h, "smartSort:showAll");
     assert_eq!(h.app.ui.people.list["people"].as_array().unwrap().len(), 62);
+}
+
+fn ds2_painted_text(h: &Headless) -> String {
+    fn text(shape: &egui::Shape, out: &mut String) {
+        match shape {
+            egui::Shape::Text(t) => {
+                out.push_str(t.galley.text());
+                out.push('\n');
+            }
+            egui::Shape::Vec(v) => {
+                for s in v {
+                    text(s, out)
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut result = String::new();
+    for shape in h.view.shapes() {
+        text(&shape.shape, &mut result)
+    }
+    result
+}
+
+#[test]
+fn ds2_finder_retains_download_error_and_settings_owns_input() {
+    let mut s = Session::new();
+    let id = add(&mut s, &[], false);
+    let mut h = harness(s);
+    h.app.services.download_models = Some(Box::new(|_, _| Err("DS download failed".into())));
+    h.app.ui.people.finder = Some(id);
+    h.step();
+    h.step();
+    click(&mut h, "smartSort:facesDownload");
+    assert_eq!(h.app.ui.people.error, "DS download failed");
+    assert!(ds2_painted_text(&h).contains("DS download failed"));
+    h.app.ui.dialog = Some(Dialog::Settings { tab: "general".into() });
+    h.step();
+    h.step();
+    assert!(!h.app.widgets.iter().any(|(id, _)| id == "people:overlay"));
+    click(&mut h, "button:settingsTab-import");
+    assert!(matches!(&h.app.ui.dialog,Some(Dialog::Settings {tab}) if tab=="import"));
+    assert_eq!(h.app.ui.people.finder, Some(id));
+}
+
+#[test]
+fn ds2_clear_face_data_failure_is_displayed_in_settings() {
+    let dir = std::env::temp_dir().join(format!("ds2-face-clear-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("AI/faces-blocked.bin")).unwrap();
+    let mut s = Session::new();
+    s.smart.people = lightcraft_engine::smart_sort::PeopleEngine::new(Some(&dir));
+    let mut h = harness(s);
+    h.app.ui.dialog = Some(Dialog::Settings { tab: "general".into() });
+    h.step();
+    h.step();
+    click(&mut h, "button:settingsClearFaces");
+    click(&mut h, "smartSort:clearFaceData");
+    assert!(h.app.ui.people.error.contains("could not delete face cache"));
+    assert!(ds2_painted_text(&h).contains(&h.app.ui.people.error));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn ds2_imported_people_cache_shares_snapshots_and_empty_filter_remains_actionable() {
+    let mut s = session();
+    add(&mut s, &[], false);
+    let id = s.smart.people.data.add("Jane".into()).unwrap();
+    s.smart.people.data.person_mut(id).unwrap().ignored = true;
+    let mut h = harness(s);
+    let (_, a) = h.app.session.visible_shared();
+    let (_, b) = h.app.session.visible_shared();
+    assert!(Arc::ptr_eq(&a, &b));
+    let a = h.app.caches.imported_people(&h.app.session.catalog, &h.app.session.filter, &h.app.session.smart.people.data);
+    let b = h.app.caches.imported_people(&h.app.session.catalog, &h.app.session.filter, &h.app.session.smart.people.data);
+    assert!(Arc::ptr_eq(&a, &b));
+    h.app.session.execute("library.filter", &json!({"personIds":[id]})).unwrap();
+    h.step();
+    h.step();
+    assert!(ds2_painted_text(&h).contains("No named people in these photos"));
+    assert!(h.app.widgets.iter().any(|(name, _)| name.starts_with("chip:")), "active filter must still offer a removable chip");
 }

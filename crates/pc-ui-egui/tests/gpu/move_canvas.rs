@@ -244,3 +244,71 @@ fn move_canvas_bench_8000x6000_real_app() {
     h.render().unwrap();
     eprintln!("release + real composite + readback: {:.3} ms", t.elapsed().as_secs_f64() * 1000.0);
 }
+
+#[test]
+fn ds2_move_cold_press_defers_cache_and_release_or_recovery_frees_viewport_resources() {
+    let _gpu = crate::gpu_lock();
+    let mut h = harness(1.0);
+    setup(&mut h, 400, 300, 1.0);
+    let a = layer(&mut h, "left", Rect::new(80, 100, 120, 140), [1., 0., 0., 1.]);
+    layer(&mut h, "right", Rect::new(240, 100, 280, 140), [0., 0., 1., 1.]);
+    h.state_mut().ui.tool_options.move_auto_select = true;
+    h.run_steps(4);
+    h.render().unwrap();
+    let p = screen(&h, 100., 120.);
+    pointer(&mut h, p);
+    h.state_mut().perf.spans.remove("move cache");
+    button(&mut h, p, true);
+    assert_eq!(h.state().session.active().unwrap().active_layer, Some(a));
+    assert!(!h.state().perf.spans.contains_key("move cache"), "no synchronous plane construction on a cold press");
+    pointer(&mut h, p + egui::vec2(12., 0.));
+    h.render().unwrap();
+    assert!(!h.state().perf.spans.contains_key("move cache"));
+    button(&mut h, p + egui::vec2(12., 0.), false);
+    h.run_steps(3);
+    h.render().unwrap();
+    // The next drag reuses the idle cache and exercises the native Move render target.
+    let p = screen(&h, 112., 120.);
+    pointer(&mut h, p);
+    button(&mut h, p, true);
+    let baseline = h.state().gpu_move_resources();
+    let mut times = vec![];
+    for n in 1..=20 {
+        let start = Instant::now();
+        pointer(&mut h, p + egui::vec2(n as f32, 2.));
+        h.render().unwrap();
+        times.push(start.elapsed().as_secs_f64() * 1000.);
+    }
+    assert!(h.state().gpu_move_resources().0 > 0, "native Move callback must allocate its viewport");
+    button(&mut h, p + egui::vec2(20., 2.), false);
+    assert_eq!(h.state().gpu_move_resources().0, 0, "release frees viewport targets immediately");
+    assert!(h.state().gpu_move_resources().1 <= baseline.1, "per-plane uniforms leave with the viewport");
+    h.run_steps(3);
+    h.render().unwrap();
+    let p = screen(&h, 130., 122.);
+    pointer(&mut h, p);
+    button(&mut h, p, true);
+    pointer(&mut h, p + egui::vec2(3., 1.));
+    h.render().unwrap();
+    let before = h.state().gpu_move_resources();
+    assert!(before.0 > 0);
+    h.state()
+        .gpu_health()
+        .unwrap()
+        .uncaptured(&eframe::wgpu::Error::Validation { source: Box::new(std::io::Error::other("ds2")), description: "ds2 transient error".into() });
+    let ctx = h.ctx.clone();
+    h.state_mut().check_gpu(&ctx);
+    assert!(h.state().gpu_active());
+    let after = h.state().gpu_move_resources();
+    assert_eq!(after.0, 0);
+    assert!(after.1 < before.1, "recovery drops associated view bind groups");
+    times.sort_by(f64::total_cmp);
+    eprintln!(
+        "DS2 actual Move app on {}: {} rendered/readback frames, median {:.2} ms, max {:.2} ms",
+        h.state().perf.gpu_info.adapter,
+        times.len(),
+        times[times.len() / 2],
+        times[times.len() - 1]
+    );
+    button(&mut h, p + egui::vec2(3., 1.), false);
+}

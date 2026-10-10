@@ -722,25 +722,29 @@ pub fn kind_controls(ui: &mut egui::Ui, sh: &photocraft_doc::vector::ShapeLayer,
 /// Options bar for the selected shape layer: Fill, Stroke (colour, width, type), W/H/X/Y and
 /// the shape's own parameters, all editing the layer. False when no shape layer is selected.
 pub fn shape_layer_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
-    let Some((id, sh)) = active_shape(app) else { return false };
+    let Some(st) = app.session.active() else { return false };
+    let Some(id) = st.active_layer else { return false };
+    let doc = st.doc.clone();
+    let Some(layer) = doc.layer(id) else { return false };
+    let LayerContent::Shape(sh) = &layer.content else { return false };
     let mut edit = None;
     dim(ui, tl!("Fill:"));
-    edit = fill_control(ui, &sh, id).or(edit);
+    edit = fill_control(ui, sh, id).or(edit);
     dim(ui, tl!("Stroke:"));
-    edit = stroke_color_control(ui, &sh, id).or(edit);
-    edit = stroke_width_control(ui, &sh, id, 58.0).or(edit);
-    edit = stroke_type_control(ui, &sh, id).or(edit);
+    edit = stroke_color_control(ui, sh, id).or(edit);
+    edit = stroke_width_control(ui, sh, id, 58.0).or(edit);
+    edit = stroke_type_control(ui, sh, id).or(edit);
     crate::widgets::vline(ui, 22.0);
-    edit = box_controls(ui, &sh, id, 62.0).or(edit);
+    edit = box_controls(ui, sh, id, 62.0).or(edit);
     if sh.live.as_ref().is_some_and(|l| !matches!(l, photocraft_doc::vector::LiveShape::Ellipse { .. })) {
         crate::widgets::vline(ui, 22.0);
-        edit = kind_controls(ui, &sh, id, false).or(edit);
+        edit = kind_controls(ui, sh, id, false).or(edit);
         if matches!(sh.live, Some(photocraft_doc::vector::LiveShape::Rect { .. })) {
             let corners = ui.button(tl!("Corners"));
             egui::Popup::menu(&corners).show(|ui| {
                 ui.set_min_width(190.0);
                 ui.horizontal_wrapped(|ui| {
-                    edit = kind_controls(ui, &sh, id, true).or(edit.take());
+                    edit = kind_controls(ui, sh, id, true).or(edit.take());
                 });
             });
         }
@@ -1163,6 +1167,52 @@ mod tests {
         let layer = PathEntry { kind: PathRow::Layer, ..work };
         let entries = path_context_actions(&layer, doc);
         assert!(!entries.iter().any(|(_, id, _)| *id == "path.delete"));
+    }
+
+    #[test]
+    fn ds_finding_borrowed_shape_options_allow_corner_editing() {
+        use egui_kittest::kittest::Queryable;
+        let mut app = app();
+        finish_shape(&mut app, Tool::Rectangle, [10., 10.], [110., 90.], egui::Modifiers::NONE);
+        let doc = app.session.active().unwrap().doc.clone();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1400., 160.)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                ui.horizontal(|ui| {
+                    assert!(shape_layer_bar(app, ui));
+                });
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(3);
+        h.get_by_label("Corners").click();
+        h.run_steps(2);
+        let at = h.get_by_label("Top-left corner radius").rect().center();
+        h.hover_at(at);
+        h.run_steps(1);
+        h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+        h.run_steps(1);
+        h.event(egui::Event::PointerMoved(at + egui::vec2(25., 0.)));
+        h.run_steps(1);
+        h.event(egui::Event::PointerButton {
+            pos: at + egui::vec2(25., 0.),
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(2);
+        let radius = |doc: &photocraft_doc::Document| {
+            let sh = match &doc.layers.last().unwrap().content {
+                LayerContent::Shape(sh) => sh,
+                _ => panic!("shape"),
+            };
+            match sh.live.as_ref().unwrap() {
+                photocraft_doc::vector::LiveShape::Rect { radii, .. } => radii[0],
+                _ => panic!("rect"),
+            }
+        };
+        assert_eq!(radius(&doc), 0.);
+        assert!(radius(&h.state().session.active().unwrap().doc) > 0.);
     }
 
     #[test]

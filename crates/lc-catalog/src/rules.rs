@@ -428,9 +428,16 @@ impl RuleSet {
         for r in &self.rules {
             match r {
                 Rule::Group { group } => out.extend(group.problems()),
-                Rule::Field { field, op, .. } => match field_kind(field) {
+                Rule::Field { field, op, value } => match field_kind(field) {
                     None => out.push(format!("unknown field `{field}`")),
                     Some(_) if !ops_for_field(field).iter().any(|o| o.0 == op) => out.push(format!("`{field}` has no operator `{op}`")),
+                    Some(_)
+                        if field == "person"
+                            && matches!(op.as_str(), "anyOf" | "allOf")
+                            && !(value.as_u64().is_some() || value.as_array().is_some_and(|v| v.iter().all(|id| id.as_u64().is_some()))) =>
+                    {
+                        out.push("person anyOf/allOf needs a person ID or an array of person IDs".into())
+                    }
                     _ => {}
                 },
             }
@@ -579,6 +586,21 @@ mod tests {
         // every field has a kind with operators
         for (f, _, k) in FIELDS {
             assert!(!ops_for(*k).is_empty(), "{f}");
+        }
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_person_set_operators_validate_value_types() {
+    for op in ["anyOf", "allOf"] {
+        for value in [serde_json::json!("Alice"), serde_json::json!([1, "Alice"]), serde_json::json!(-1), serde_json::json!(1.5)] {
+            let rules = RuleSet { rules: vec![Rule::Field { field: "person".into(), op: op.into(), value }], ..Default::default() };
+            assert_eq!(rules.problems().len(), 1);
+        }
+        for value in [serde_json::json!(1), serde_json::json!([1, 2]), serde_json::json!([])] {
+            let rules = RuleSet { rules: vec![Rule::Field { field: "person".into(), op: op.into(), value }], ..Default::default() };
+            assert!(rules.problems().is_empty());
         }
     }
 }

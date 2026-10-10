@@ -125,6 +125,9 @@ fn drag_to(app: &mut PhotocraftApp, p: [f64; 2], mods: egui::Modifiers) -> [f64;
 
 /// Discard the transient source after the release command has committed.
 pub fn finish(app: &mut PhotocraftApp) {
+    if let Some(gpu) = &app.gpu {
+        gpu.clear_move_frames();
+    }
     app.move_mods = MoveDrag::default();
 }
 

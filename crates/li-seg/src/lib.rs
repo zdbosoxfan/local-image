@@ -444,6 +444,7 @@ impl Segmenter {
     /// probabilities, not stretched: a photo without sky stays near zero.
     pub fn predict_sky(&self, rgba: &[u8], w: usize, h: usize) -> Result<Vec<f32>> {
         let Task::Sky { classes, class, margin } = self.cfg.task else { bail!("not a sky model") };
+        anyhow::ensure!(classes > 0 && class < classes, "sky class is outside the model output");
         let input = self.input(rgba, w, h, false)?;
         let out = (self.run)(input.into())?;
         let map = out[0].to_plain_array_view::<f32>()?;
@@ -661,7 +662,7 @@ fn read_customs(models_dir: &Path) -> Vec<Custom> {
         .filter_map(|line| {
             let f: Vec<&str> = line.split('\t').collect();
             let [key, file, name, size, norm, classes, class] = f.as_slice() else { return None };
-            Some(Custom {
+            let custom = Custom {
                 group: Group::ALL.into_iter().find(|g| g.supports_custom() && g.key() == *key)?,
                 file: (*file).to_owned(),
                 name: (*name).to_owned(),
@@ -669,7 +670,8 @@ fn read_customs(models_dir: &Path) -> Vec<Custom> {
                 norm: Norm::from_key(norm)?,
                 classes: classes.parse().ok().filter(|c| *c > 0)?,
                 class: class.parse().ok()?,
-            })
+            };
+            (custom.group != Group::Sky || custom.class < custom.classes).then_some(custom)
         })
         .collect()
 }
@@ -683,7 +685,18 @@ fn write_customs(models_dir: &Path, customs: &[Custom]) -> Result<()> {
         return Ok(());
     }
     std::fs::create_dir_all(custom_dir(models_dir))?;
-    std::fs::write(&path, text).with_context(|| format!("Could not save {}", path.display()))
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let temp = path.with_extension(format!("tmp-{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+    let result = (|| -> std::io::Result<()> {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;
+        f.write_all(text.as_bytes())?;
+        f.sync_all()?;
+        drop(f);
+        std::fs::rename(&temp, &path)
+    })();
+    let _ = std::fs::remove_file(&temp);
+    result.with_context(|| format!("Could not save {}", path.display()))
 }
 
 /// A file name that is safe inside the custom folder.
@@ -823,6 +836,36 @@ fn validate(custom: &Custom, path: &Path) -> Result<(), CustomModelError> {
 /// custom folder and remembers it. A custom model already set is replaced; `dispose` puts its old
 /// file away (the Trash). Nothing changes when the model doesn't fit.
 pub fn add_custom(models_dir: &Path, group: Group, src: &Path, opts: CustomOptions, dispose: &dyn Fn(&Path) -> std::io::Result<()>) -> Result<Custom> {
+    add_custom_with(models_dir, group, src, opts, dispose, &write_customs)
+}
+
+fn identical_files(a: &Path, b: &Path) -> std::io::Result<bool> {
+    use std::io::Read;
+    if std::fs::metadata(a)?.len() != std::fs::metadata(b)?.len() {
+        return Ok(false);
+    }
+    let (mut a, mut b) = (std::io::BufReader::new(std::fs::File::open(a)?), std::io::BufReader::new(std::fs::File::open(b)?));
+    let (mut aa, mut bb) = ([0u8; 8192], [0u8; 8192]);
+    loop {
+        let n = a.read(&mut aa)?;
+        b.read_exact(&mut bb[..n])?;
+        if aa[..n] != bb[..n] {
+            return Ok(false);
+        }
+        if n == 0 {
+            return Ok(true);
+        }
+    }
+}
+
+fn add_custom_with(
+    models_dir: &Path,
+    group: Group,
+    src: &Path,
+    opts: CustomOptions,
+    dispose: &dyn Fn(&Path) -> std::io::Result<()>,
+    publish: &dyn Fn(&Path, &[Custom]) -> Result<()>,
+) -> Result<Custom> {
     if !group.supports_custom() {
         return Err(CustomModelError::UnsupportedFunction.into());
     }
@@ -854,18 +897,40 @@ pub fn add_custom(models_dir: &Path, group: Group, src: &Path, opts: CustomOptio
     std::fs::create_dir_all(custom_dir(models_dir))?;
     let mut all = read_customs(models_dir);
     let old = all.iter().find(|o| o.group == group).cloned();
+    let original_dest = c.path(models_dir);
+    // A replacement with the same basename must not overwrite the registered file
+    // before its new metadata has been published.
+    let same_copy = src != original_dest
+        && original_dest.is_file()
+        && old.as_ref().is_some_and(|old| old.path(models_dir) == original_dest)
+        && identical_files(src, &original_dest)?;
+    if src != original_dest && original_dest.exists() && !same_copy {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        loop {
+            c.file = format!("{}-{}-{}-{}", group.key(), std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed), safe_name(&c.name));
+            if !c.path(models_dir).exists() {
+                break;
+            }
+        }
+    }
     let dest = c.path(models_dir);
-    if src != dest {
+    let copied = src != dest && !same_copy;
+    if copied {
         std::fs::copy(src, &dest).with_context(|| format!("Could not copy the model into {}", dest.display()))?;
+    }
+    all.retain(|o| o.group != group);
+    all.push(c.clone());
+    if let Err(error) = publish(models_dir, &all) {
+        if copied {
+            let _ = std::fs::remove_file(&dest);
+        }
+        return Err(error);
     }
     if let Some(old) = old
         && old.file != c.file
     {
         let _ = dispose(&old.path(models_dir));
     }
-    all.retain(|o| o.group != group);
-    all.push(c.clone());
-    write_customs(models_dir, &all)?;
     forget_group(group);
     Ok(c)
 }

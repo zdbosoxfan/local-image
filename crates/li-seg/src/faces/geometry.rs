@@ -43,9 +43,9 @@ pub fn letterbox(image: FaceImage<'_>) -> Result<(Vec<f32>, Letterbox)> {
     let plane = layout.pad_w * layout.pad_h;
     let mut data = vec![0.0f32; plane * 3];
     for y in 0..layout.resized_h {
-        let fy = ((y as f64 + 0.5) / f64::from(layout.scale) - 0.5).clamp(0.0, (image.height - 1) as f64);
+        let fy = sample_coordinate(y, image.height, layout.resized_h, layout.scale);
         for x in 0..layout.resized_w {
-            let fx = ((x as f64 + 0.5) / f64::from(layout.scale) - 0.5).clamp(0.0, (image.width - 1) as f64);
+            let fx = sample_coordinate(x, image.width, layout.resized_w, layout.scale);
             for c in 0..3 {
                 data[c * plane + y * layout.pad_w + x] = bilinear(image, fx, fy, 2 - c, false);
             }
@@ -125,4 +125,22 @@ fn bilinear(image: FaceImage<'_>, x: f64, y: f64, channel: usize, black_border: 
     let top = sample(x0, y0) * (1.0 - tx) + sample(x0 + 1.0, y0) * tx;
     let bottom = sample(x0, y0 + 1.0) * (1.0 - tx) + sample(x0 + 1.0, y0 + 1.0) * tx;
     top * (1.0 - ty) + bottom * ty
+}
+
+fn sample_coordinate(pixel: usize, source: usize, resized: usize, scale: f32) -> f64 {
+    if resized == 1 { (source - 1) as f64 / 2.0 } else { ((pixel as f64 + 0.5) / f64::from(scale) - 0.5).clamp(0.0, (source - 1) as f64) }
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_extreme_letterbox_samples_center() {
+    use crate::faces::RgbPixels;
+    for (w, h) in [(30_000, 5), (5, 30_000)] {
+        let pixels: Vec<u8> = (0..w * h).flat_map(|i| [((if w > h { i / w } else { i % w }) * 40) as u8; 3]).collect();
+        let (tensor, layout) = letterbox(FaceImage { pixels: RgbPixels::U8(&pixels), width: w, height: h }).unwrap();
+        assert!((tensor[0] - 80.).abs() < 1e-4);
+        let point = [2., 2.];
+        let roundtrip = layout.to_original(layout.to_input(point));
+        assert!((roundtrip[0] - point[0]).abs() < 1e-4 && (roundtrip[1] - point[1]).abs() < 1e-4);
+    }
 }

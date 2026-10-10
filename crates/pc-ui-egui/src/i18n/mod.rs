@@ -603,6 +603,7 @@ mod tests {
         "Refines by reference: the image guides the result",
         "Remove immediately on release",
         "Running…",
+        "Select a layer first.",
         "Selected layer",
         "Wheel to zoom; drag to pan",
         "−",

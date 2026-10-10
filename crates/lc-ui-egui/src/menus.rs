@@ -1273,7 +1273,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         "app.export" => {
             // File → Export with Preset uses the same Ask choice as the dialog. Explicit
             // control-channel destinations/selections are handled directly by export_active.
-            if p.get("preset").is_some() && p.get("ids").is_none() && p.get("path").is_none() {
+            if p.get("preset").is_some() && p.get("ids").is_none() && p.get("path").is_none() && p.get("dir").is_none() {
                 let params = match app.session.export_params(p) {
                     Ok(params) => params,
                     Err(e) => return Some(Err(e)),

@@ -121,17 +121,27 @@ impl Store {
                 continue;
             }
             let path = dir.join(format!("embeddings-{model}.bin"));
+            let original = if m.append {
+                match std::fs::File::open(&path) {
+                    Ok(f) => Some(f),
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+                    Err(e) => return Err(e),
+                }
+            } else {
+                None
+            };
+            let append = original.is_some();
+            let keys: Vec<_> = if append { m.pending.iter().collect() } else { m.values.keys().collect() };
             lightcraft_catalog::safe_file::write_atomic_with(&path, &mut |w| {
-                if m.append {
-                    let mut original = std::fs::File::open(&path)?;
-                    std::io::copy(&mut original, w)?;
+                if let Some(f) = &original {
+                    std::io::copy(&mut f.try_clone()?, w)?;
                 } else {
                     writeln!(w, "LIEMB1 {}", serde_json::json!({"model":model,"dim":m.dim}))?;
                 }
-                for key in &m.pending {
+                for key in &keys {
                     w.write_all(&(key.len() as u16).to_le_bytes())?;
                     w.write_all(key.as_bytes())?;
-                    for v in &m.values[key] {
+                    for v in &m.values[*key] {
                         w.write_all(&v.to_le_bytes())?;
                     }
                 }

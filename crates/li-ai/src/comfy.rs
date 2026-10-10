@@ -3,8 +3,8 @@
 //!
 //! Behaviour follows the 0.7 Python client (`local_comfy_client.py`): submit once, poll
 //! `/history/{id}` (0.15 s for 10 s, then 0.5 s, then 1 s, 20 min deadline), use the WebSocket for
-//! progress only, and cancel only our own prompt (the global `/interrupt` only for an explicit
-//! Stop, and only while one of our prompts is the one running: [`ComfyClient::interrupt_ours`]).
+//! progress only, and cancel only our own prompt (explicit Stop signals local controls as well as the job-specific API:
+//! [`ComfyClient::interrupt_ours`]).
 
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -343,12 +343,15 @@ impl ComfyClient {
         Ok(())
     }
 
-    /// Stops the prompt ComfyUI is executing right now (`POST /interrupt`), but only when it is
-    /// one of ours (queued by this process): the global interrupt would otherwise stop someone
-    /// else's work. Returns whether it interrupted. For an explicit "Stop generation"; ordinary
-    /// cancellation uses [`Self::cancel`].
+    /// Stops this process's running prompts using atomic job-specific cancellation, and
+    /// signals their local job controls. Ordinary cancellation uses [`Self::cancel`].
     pub fn interrupt_ours(&self) -> Result<bool> {
-        self.interrupt_if_running(&our_prompts(&self.host))
+        let prompts = OURS.lock().map(|v| v.iter().filter(|(host, _, _)| host == &self.host).cloned().collect::<Vec<_>>()).unwrap_or_default();
+        let ids = prompts.iter().map(|(_, id, _)| id.clone()).collect::<Vec<_>>();
+        for (_, _, control) in prompts {
+            control.cancel();
+        }
+        self.interrupt_if_running(&ids)
     }
 
     /// [`Self::interrupt_ours`] for prompts noted earlier with [`our_prompts`] (before their jobs
@@ -358,15 +361,19 @@ impl ComfyClient {
             return Ok(false);
         }
         let q = self.queue_state()?;
-        let running = q.get("queue_running").and_then(Value::as_array).is_some_and(|items| items.iter().any(|i| ours.iter().any(|id| item_has(i, id))));
-        if !running {
-            return Ok(false);
+        let running = q.get("queue_running").and_then(Value::as_array);
+        let mut stopped = false;
+        for id in ours.iter().filter(|id| running.is_some_and(|items| items.iter().any(|i| item_has(i, id)))) {
+            // ComfyUI's job endpoint checks and interrupts under the queue lock. A stale
+            // snapshot can only become a harmless no-op, never an interrupt of another job.
+            let mut response = self.quick.post(&self.url(&format!("/api/jobs/{}/cancel", enc(id)))).send_json(json!({}))?;
+            if !response.status().is_success() {
+                bail!("This ComfyUI version cannot stop a single running job. Update ComfyUI, or wait for it to finish.");
+            }
+            let result: Value = response.body_mut().read_json()?;
+            stopped |= result["cancelled"].as_bool().unwrap_or(false);
         }
-        let r = self.quick.post(&self.url("/interrupt")).send_json(json!({}))?;
-        if !r.status().is_success() {
-            bail!("ComfyUI refused to stop ({})", r.status());
-        }
-        Ok(true)
+        Ok(stopped)
     }
 
     /// Runs `graph`: uploads `images` (node id → PNG bytes) into those `LoadImage` nodes, queues,
@@ -384,7 +391,7 @@ impl ComfyClient {
         let socket = ProgressSocket::start(&self.host, &client_id, ctl.clone());
         ctl.set_stage(Stage::Queued);
         let prompt_id = self.queue_prompt(&graph, &client_id)?;
-        let _ours = OurPrompt::new(&self.host, &prompt_id);
+        let _ours = OurPrompt::new(&self.host, &prompt_id, ctl);
         if let Some(s) = &socket {
             s.set_prompt(&prompt_id, &graph);
         }
@@ -447,20 +454,20 @@ impl ComfyClient {
 }
 
 /// Prompts this process queued and still waits for, as `(host, prompt id)`.
-static OURS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+static OURS: Mutex<Vec<(String, String, JobControl)>> = Mutex::new(Vec::new());
 
 /// The prompts this process is waiting for on `host`.
 pub fn our_prompts(host: &str) -> Vec<String> {
-    OURS.lock().map(|v| v.iter().filter(|(h, _)| h == host).map(|(_, id)| id.clone()).collect()).unwrap_or_default()
+    OURS.lock().map(|v| v.iter().filter(|(h, _, _)| h == host).map(|(_, id, _)| id.clone()).collect()).unwrap_or_default()
 }
 
 /// Lists a prompt in [`OURS`] while [`ComfyClient::run`] waits for it.
 struct OurPrompt(String, String);
 
 impl OurPrompt {
-    fn new(host: &str, id: &str) -> Self {
+    fn new(host: &str, id: &str, ctl: &JobControl) -> Self {
         if let Ok(mut v) = OURS.lock() {
-            v.push((host.to_owned(), id.to_owned()));
+            v.push((host.to_owned(), id.to_owned(), ctl.clone()));
         }
         Self(host.to_owned(), id.to_owned())
     }
@@ -469,7 +476,7 @@ impl OurPrompt {
 impl Drop for OurPrompt {
     fn drop(&mut self) {
         if let Ok(mut v) = OURS.lock() {
-            v.retain(|(h, id)| !(*h == self.0 && *id == self.1));
+            v.retain(|(h, id, _)| !(*h == self.0 && *id == self.1));
         }
     }
 }

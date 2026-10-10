@@ -377,3 +377,47 @@ fn move_input_a_click_does_not_snap_or_edit_and_batched_tiny_drag_moves() {
     assert_eq!(bounds(&h, a), Rect::new(81, 100, 121, 140));
     assert_eq!(history(&h), steps + 1);
 }
+
+#[test]
+fn ds2_move_escape_uses_event_modifiers_and_dialog_open_cancels_capture() {
+    for dialog in [false, true] {
+        let (mut h, a, _) = harness();
+        let p = screen(&h, 100., 120.);
+        pointer(&mut h, p, Modifiers::NONE);
+        button(&mut h, p, true, Modifiers::NONE);
+        pointer(&mut h, p + vec2(20., 0.), Modifiers::NONE);
+        assert!(super::captured(&h.ctx));
+        let steps = history(&h);
+        if dialog {
+            h.event(Event::Key { key: Key::L, physical_key: Some(Key::L), pressed: true, repeat: false, modifiers: Modifiers::COMMAND });
+        } else {
+            h.event(Event::Key { key: Key::Escape, physical_key: Some(Key::Escape), pressed: true, repeat: false, modifiers: Modifiers::CTRL });
+        }
+        h.event(Event::ModifiersChanged(Modifiers::NONE));
+        h.step();
+        if dialog {
+            assert!(!h.state().ui.dialogs.is_empty());
+        }
+        assert!(!super::captured(&h.ctx));
+        assert!(h.state().drag.is_none());
+        button(&mut h, p + vec2(20., 0.), false, Modifiers::NONE);
+        assert_eq!(bounds(&h, a), Rect::new(80, 100, 120, 140));
+        assert_eq!(history(&h), steps);
+    }
+}
+
+#[test]
+fn ds2_repeated_move_frames_reuse_target_list_and_preview_document() {
+    let (mut h, a, _) = harness();
+    let p = screen(&h, 100., 120.);
+    pointer(&mut h, p, Modifiers::NONE);
+    button(&mut h, p, true, Modifiers::NONE);
+    pointer(&mut h, p + vec2(20., 0.), Modifiers::NONE);
+    let (shown, key) = crate::move_ui::display_doc(h.state_mut(), 0).unwrap();
+    for _ in 0..30 {
+        let (again, k) = crate::move_ui::display_doc(h.state_mut(), 0).unwrap();
+        assert_eq!(k, key);
+        assert!(std::sync::Arc::ptr_eq(&shown, &again));
+    }
+    assert_eq!(shown.layer(a).unwrap().surface().unwrap().content_bounds(), Rect::new(100, 100, 140, 140));
+}

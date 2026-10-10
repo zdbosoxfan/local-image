@@ -5,6 +5,28 @@ use lightcraft_meta::{Rect, Region, RegionKind};
 use serde_json::{Value, json};
 use std::sync::atomic::AtomicUsize;
 
+#[test]
+fn ds_finding_manual_region_keeps_identity_without_detection() {
+    let mut s = session();
+    let photo = add(&mut s, &[]);
+    let alice = s.smart.people.data.add("Alice".into()).unwrap();
+    let mut meta = s.catalog.photo(photo).unwrap().meta.clone();
+    meta.person_ids.push(alice);
+    meta.regions.push(Region {
+        kind: RegionKind::Face,
+        name: Some("alice".into()),
+        rect: Rect::from_xywh(0.1, 0.1, 0.2, 0.2),
+        description: None,
+        auto: false,
+    });
+    s.catalog.apply(Op::SetMeta { id: photo, meta: Box::new(meta) }).unwrap();
+    for op in region_ops(&s.catalog, &s.smart.people, &s.smart.people.data).unwrap() {
+        s.catalog.apply(op).unwrap();
+    }
+    assert_eq!(s.catalog.photo(photo).unwrap().meta.person_ids, [alice]);
+    assert_eq!(s.catalog.photo(photo).unwrap().meta.regions.len(), 1);
+}
+
 fn temp() -> PathBuf {
     static N: AtomicUsize = AtomicUsize::new(0);
     let dir = std::env::temp_dir().join(format!("people-engine-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
@@ -515,8 +537,14 @@ fn face_gates_unknown_counts_manual_override_and_zero_faces() {
     let r = run(&mut s, "smartSort.classify", json!({"ids":[id],"preset":preset}));
     assert_eq!(r["photos"][0]["assigned"], json!(["Red"]));
     s.smart.prefs.faces_enabled = true;
-    preset.categories[0].max_faces = Some(0);
+    preset.categories[0].max_faces = Some(2);
+    let r = run(&mut s, "smartSort.classify", json!({"ids":[id],"preset":preset}));
+    assert_eq!(r["photos"][0]["assigned"], json!([]));
     let r = run(&mut s, "smartSort.classify", json!({"ids":[id],"preset":preset,"overrides":[{"id":id,"categories":["Red"]}]}));
+    assert_eq!(r["photos"][0]["assigned"], json!(["Red"]));
+    preset.categories[0].min_faces = None;
+    preset.categories[0].max_faces = Some(0);
+    let r = run(&mut s, "smartSort.classify", json!({"ids":[id],"preset":preset}));
     assert_eq!(r["photos"][0]["assigned"], json!(["Red"]));
 }
 
@@ -924,4 +952,46 @@ fn merged_identity_keeps_library_filters_and_smart_albums_working_and_undoable()
     run(&mut s, "edit.undo", json!({}));
     assert_eq!(s.visible_cloned(), vec![b]);
     assert_eq!(s.catalog.album_count(album), 1);
+}
+
+#[test]
+fn ds_finding_identity_exhaustion_is_an_error_without_mutation() {
+    let mut data = PeopleData { next_id: u64::MAX - 1, ..Default::default() };
+    let before = data.clone();
+    assert!(data.add("Overflow".into()).is_err());
+    assert_eq!(data, before);
+}
+
+#[test]
+fn ds_finding_deleted_face_cache_is_rebuilt_completely() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/ds-cache-faces");
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut store = FacesStore::new(Some(&dir));
+    store.ensure("mock").unwrap();
+    store.insert("mock", "a".into(), Vec::new()).unwrap();
+    store.save().unwrap();
+    std::fs::remove_file(dir.join("AI/faces-mock.bin")).unwrap();
+    store.insert("mock", "b".into(), Vec::new()).unwrap();
+    store.save().unwrap();
+    let mut loaded = FacesStore::new(Some(&dir));
+    loaded.ensure("mock").unwrap();
+    assert!(loaded.get("mock", "a").is_some());
+    assert!(loaded.get("mock", "b").is_some());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn ds_finding_people_shared_pass_preserves_margins_and_rejections() {
+    let mut s = session();
+    let a = add(&mut s, &[[255, 0, 0]]);
+    let b = add(&mut s, &[[250, 5, 0]]);
+    let c = add(&mut s, &[[0, 255, 0]]);
+    let alice = pick(&mut s, a, "Alice");
+    let bob = pick(&mut s, c, "Bob");
+    let key = FaceKey(crate::media::content_key(s.catalog.photo(b).unwrap()), 0);
+    s.smart.people.data.person_mut(alice).unwrap().rejected_faces.push(key);
+    let shared = all_matches(&s.catalog, &s.smart.people, &s.smart.people.data);
+    assert_eq!(shared[&bob].iter().filter(|r| r.sure).map(|r| r.photo).collect::<Vec<_>>(), [c]);
+    assert!(!shared[&alice].iter().any(|r| r.photo == b && r.sure));
+    assert!(shared[&alice].iter().any(|r| r.photo == a && r.sure));
 }

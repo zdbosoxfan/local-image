@@ -11,7 +11,7 @@ pub(crate) struct Pending {
     mask: Vec<u8>,
     bounds: Rect,
     texture: Option<TextureHandle>,
-    dirty: bool,
+    dirty: Rect,
     show_bar: bool,
 }
 
@@ -26,19 +26,33 @@ fn sync(app: &mut PhotocraftApp) {
 fn new(app: &PhotocraftApp) -> Option<Pending> {
     let d = app.session.active()?;
     let size = [d.doc.size.width, d.doc.size.height];
-    Some(Pending { doc: d.doc.id.0, size, mask: vec![0; size[0] as usize * size[1] as usize], bounds: Rect::EMPTY, texture: None, dirty: true, show_bar: true })
+    Some(Pending {
+        doc: d.doc.id.0,
+        size,
+        mask: vec![0; size[0] as usize * size[1] as usize],
+        bounds: Rect::EMPTY,
+        texture: None,
+        dirty: Rect::from_xywh(0, 0, size[0], size[1]),
+        show_bar: true,
+    })
 }
 
-fn changed(p: &mut Pending) {
-    p.bounds = Rect::EMPTY;
-    for y in 0..p.size[1] {
-        for x in 0..p.size[0] {
-            if p.mask[(y * p.size[0] + x) as usize] > 0 {
-                p.bounds = p.bounds.union(&Rect::from_xywh(x as i32, y as i32, 1, 1));
+fn scan_bounds(p: &Pending, area: Rect) -> Rect {
+    let mut bounds = Rect::EMPTY;
+    for y in area.y0..area.y1 {
+        for x in area.x0..area.x1 {
+            if p.mask[y as usize * p.size[0] as usize + x as usize] > 0 {
+                bounds = bounds.union(&Rect::from_xywh(x, y, 1, 1));
             }
         }
     }
-    p.dirty = true;
+    bounds
+}
+
+fn changed(p: &mut Pending) {
+    let full = Rect::from_xywh(0, 0, p.size[0], p.size[1]);
+    p.bounds = scan_bounds(p, full);
+    p.dirty = full;
     p.show_bar = true;
 }
 
@@ -52,14 +66,39 @@ pub(crate) fn paint(app: &mut PhotocraftApp, points: &[[f64; 3]], subtract: bool
     }
     let Some(p) = app.ai_remove.as_mut() else { return };
     let clipped = r.intersect(&Rect::from_xywh(0, 0, p.size[0], p.size[1]));
+    let previous = p.bounds;
+    let mut dirty = Rect::EMPTY;
+    let mut removed_edge = false;
     for y in clipped.y0..clipped.y1 {
         for x in clipped.x0..clipped.x1 {
-            let v = (coverage[((y - r.y0) as u32 * r.width() + (x - r.x0) as u32) as usize].clamp(0.0, 1.0) * 255.0).round() as u8;
+            let v = (coverage[(y - r.y0) as usize * r.width() as usize + (x - r.x0) as usize].clamp(0.0, 1.0) * 255.0).round() as u8;
             let pixel = &mut p.mask[y as usize * p.size[0] as usize + x as usize];
-            *pixel = if subtract { pixel.saturating_sub(v) } else { (*pixel).max(v) };
+            let next = if subtract { pixel.saturating_sub(v) } else { (*pixel).max(v) };
+            if next == *pixel {
+                continue;
+            }
+            if next == 0 && (x == previous.x0 || x + 1 == previous.x1 || y == previous.y0 || y + 1 == previous.y1) {
+                removed_edge = true;
+            }
+            *pixel = next;
+            let cell = Rect::from_xywh(x, y, 1, 1);
+            dirty = dirty.union(&cell);
+            if next > 0 {
+                p.bounds = p.bounds.union(&cell);
+            }
         }
     }
-    changed(p);
+    if dirty.is_empty() {
+        if p.bounds.is_empty() {
+            app.ai_remove = None;
+        }
+        return;
+    }
+    if removed_edge {
+        p.bounds = scan_bounds(p, previous);
+    }
+    p.dirty = p.dirty.union(&dirty);
+    p.show_bar = true;
     if p.bounds.is_empty() {
         app.ai_remove = None;
     } else if app.ui.ai.remove_immediately && !subtract {
@@ -155,17 +194,22 @@ pub(crate) fn options(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 pub(crate) fn overlay(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewXform) {
     sync(app);
     let Some(p) = &mut app.ai_remove else { return };
-    if p.dirty {
-        let image = egui::ColorImage::new(
-            [p.size[0] as usize, p.size[1] as usize],
-            p.mask.iter().map(|v| Color32::from_rgba_unmultiplied(255, 40, 60, (u16::from(*v) * 110 / 255) as u8)).collect(),
-        );
+    if !p.dirty.is_empty() {
+        let area = if p.texture.is_some() { p.dirty } else { Rect::from_xywh(0, 0, p.size[0], p.size[1]) };
+        let pixels = (area.y0..area.y1)
+            .flat_map(|y| {
+                p.mask[y as usize * p.size[0] as usize + area.x0 as usize..y as usize * p.size[0] as usize + area.x1 as usize]
+                    .iter()
+                    .map(|v| Color32::from_rgba_unmultiplied(255, 40, 60, (u16::from(*v) * 110 / 255) as u8))
+            })
+            .collect();
+        let image = egui::ColorImage::new([area.width() as usize, area.height() as usize], pixels);
         if let Some(t) = &mut p.texture {
-            t.set(image, egui::TextureOptions::LINEAR);
+            t.set_partial([area.x0 as usize, area.y0 as usize], image, egui::TextureOptions::LINEAR);
         } else {
             p.texture = Some(painter.ctx().load_texture("remove-mask", image, egui::TextureOptions::LINEAR));
         }
-        p.dirty = false;
+        p.dirty = Rect::EMPTY;
     }
     if let Some(t) = &p.texture {
         let uv = if xf.flip {

@@ -197,7 +197,7 @@ const HIGHLIGHT_CLIP: f32 = 0.99;
 /// Read the unmodified sensor before any reconstruction. Each CFA tile records the
 /// fraction of RGB channels whose samples are clipped (green samples averaged).
 fn sensor_clip_confidence(raw: &lightcraft_raw::RawImage) -> Option<lightcraft_raster::Plane> {
-    let n = raw.normalized().ok()?;
+    let n = raw.normalized_samples().ok()?;
     let crop = raw.crop.clipped(n.width, n.height);
     let crop = if crop.width > 1 && crop.height > 1 { crop } else { lightcraft_raw::Rect { x: 0, y: 0, width: n.width, height: n.height } };
     let tile = n.cfa.as_ref().map_or(1, |c| c.width.max(c.height));
@@ -211,14 +211,14 @@ fn sensor_clip_confidence(raw: &lightcraft_raw::RawImage) -> Option<lightcraft_r
                 if n.cpp == 3 {
                     for c in 0..3 {
                         counts[c] += 1;
-                        clipped[c] += usize::from(n.data[(yy * n.width + xx) * 3 + c] >= HIGHLIGHT_CLIP);
+                        clipped[c] += usize::from(n.get(xx, yy, c) >= HIGHLIGHT_CLIP);
                     }
                 } else if let Some(cfa) = &n.cfa {
                     let c = cfa.color_at(xx, yy).min(2) as usize;
                     counts[c] += 1;
-                    clipped[c] += usize::from(n.data[yy * n.width + xx] >= HIGHLIGHT_CLIP);
+                    clipped[c] += usize::from(n.get(xx, yy, 0) >= HIGHLIGHT_CLIP);
                 } else {
-                    let v = usize::from(n.data[yy * n.width + xx] >= HIGHLIGHT_CLIP);
+                    let v = usize::from(n.get(xx, yy, 0) >= HIGHLIGHT_CLIP);
                     counts = [1; 3];
                     clipped = [v; 3];
                 }
@@ -615,6 +615,25 @@ impl crate::Session {
 mod tests {
     use super::*;
     use lightcraft_codecs::{ChromaSubsampling, EncodeImage, EncodeMeta, Samples, encode_jpeg};
+
+    #[test]
+    fn ds_finding_sensor_confidence_matches_normalized_active_samples() {
+        let bytes = crate::tests_xmp::synthetic_dng_with(None, Default::default());
+        let mut raw = lightcraft_raw::decode(&bytes).unwrap();
+        raw.black.delta_h = vec![1.0; raw.active_area.width];
+        let n = raw.normalized().unwrap();
+        let samples = raw.normalized_samples().unwrap();
+        for y in 0..n.height {
+            for x in 0..n.width {
+                assert_eq!(samples.get(x, y, 0), n.data[y * n.width + x]);
+            }
+        }
+        let confidence = sensor_clip_confidence(&raw).unwrap();
+        assert!(confidence.data.iter().all(|v| (0.0..=1.0).contains(v)));
+        // Exercise the real decode path used by render workers, including clipping metadata.
+        let (_, info) = load_bytes(&bytes, 16).unwrap();
+        assert!(info.clip_confidence.is_some());
+    }
 
     /// A CR3-shaped file (not decodable yet) whose only content is a `PRVW` preview box.
     fn cr3_with_preview(w: u32, h: u32) -> Vec<u8> {

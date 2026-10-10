@@ -46,6 +46,11 @@ impl PreviewTextures {
         Self { name, images: Mutex::new(vec![image]), base_uv, uploaded: Mutex::new(vec![Level { level: 0, nearest: false, tex, uv: base_uv }]) }
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_image(&self) -> Arc<ColorImage> {
+        self.images.lock().unwrap_or_else(PoisonError::into_inner)[0].clone()
+    }
+
     /// Size of the full-resolution level in texels.
     pub fn size(&self) -> [usize; 2] {
         self.images.lock().unwrap_or_else(PoisonError::into_inner).first().map_or([0, 0], |i| i.size)

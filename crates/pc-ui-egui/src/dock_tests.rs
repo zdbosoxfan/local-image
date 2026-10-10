@@ -896,3 +896,39 @@ fn choosing_a_moved_tab_keeps_what_its_home_group_shows() {
     sync(&mut app);
     assert_eq!(active_tab(&app, Place::Floating(1)), Some(Tab::Color));
 }
+
+#[test]
+fn ds_finding_self_drop_preserves_panel_geometry_and_custom_group_order() {
+    let mut d = DockLayout::default();
+    let id = d.float(&[Tab::Channels], Some(Tab::Channels), egui::pos2(333.0, 222.0), vec2(345.0, 456.0), true);
+    let before = d.floating(id).unwrap().clone();
+    d.merge_into_floating(&[Tab::Channels], id, 0, true);
+    assert_eq!(d.floating(id).unwrap(), &before);
+    let g = d.new_group(&[Tab::Paths], Tab::Paths, Some(Group::Color), true);
+    d.heights.insert(g, 271.0);
+    let order = d.order();
+    d.insert(&[Tab::Paths], g, 0, true);
+    assert_eq!(d.order(), order);
+    assert_eq!(d.height(g), 271.0);
+}
+
+#[test]
+fn ds_finding_floating_drop_targets_follow_raise_and_close_in_same_frame() {
+    let (mut app, _, _) = app_with_layers();
+    let a = app.ui.dock.float(&[Tab::Channels], Some(Tab::Channels), egui::pos2(220.0, 200.0), vec2(300.0, 300.0), true);
+    let b = app.ui.dock.float(&[Tab::Paths], Some(Tab::Paths), egui::pos2(220.0, 200.0), vec2(300.0, 300.0), true);
+    let mut h = float_harness(app, vec2(1400.0, 900.0), ThemeKind::ProMedium);
+    h.state_mut().ui.dock.live.raise = Some(a);
+    h.run_steps(2);
+    let r = last_floats(&h.ctx).into_iter().find(|r| r.id == a).unwrap();
+    assert!(matches!(target_at(&h.ctx,r.grip.center(),None),Some(Target::Floating(id,_)) if id == a));
+    // One release frame: a closed panel must already have left the drop-target list.
+    h.hover_at(r.close.center());
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton { pos: r.close.center(), button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton { pos: r.close.center(), button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+    h.run_steps(1);
+    assert!(!last_floats(&h.ctx).iter().any(|r| r.id == a));
+    assert!(last_floats(&h.ctx).iter().any(|r| r.id == b));
+}

@@ -465,6 +465,10 @@ pub fn attach(mode: ToolTipMode, ui: &egui::Ui, resp: &Response, tool: StripTool
         return;
     }
     if mode == ToolTipMode::Simple {
+        ui.ctx().data_mut(|d| {
+            d.remove::<Hover>(Id::new("lc-tool-tip-hover"));
+            d.remove::<Shown>(Id::new("lc-tool-tip-shown"));
+        });
         let tip = match tool.shortcut() {
             Some(k) => format!("{title} ({k})"),
             None => title.to_string(),

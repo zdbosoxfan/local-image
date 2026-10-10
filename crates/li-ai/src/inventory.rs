@@ -128,8 +128,19 @@ pub fn family_of(name: &str, kind: FileKind, local: Option<&Path>, metadata: Opt
         }
     }
     if let Some(m) = metadata.and_then(|m| m.as_object()) {
-        let meta: BTreeMap<String, String> = m.iter().map(|(k, v)| (k.clone(), v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string()))).collect();
-        let h = arch::Header { metadata: meta, ..Default::default() };
+        // /view_metadata may expose flat string metadata or an entire safetensors
+        // header. Preserve tensor shapes and nested __metadata__ in the latter.
+        let header = m.contains_key("__metadata__") || m.values().any(|v| v.get("shape").is_some());
+        let mut h = if header {
+            serde_json::to_vec(m).ok().and_then(|bytes| arch::parse_safetensors_json(&bytes).ok()).unwrap_or_default()
+        } else {
+            arch::Header::default()
+        };
+        h.metadata.extend(
+            m.iter()
+                .filter(|(k, v)| k.as_str() != "__metadata__" && !v.is_object())
+                .map(|(k, v)| (k.clone(), v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string()))),
+        );
         let d = arch::classify(&h, name);
         if wants_model && d.kind == FileKind::Lora {
             return None;
@@ -314,5 +325,39 @@ mod tests {
         let (models, _) = scan(&info(), Some(&dir), crate::family::registry());
         assert_eq!(models.iter().find(|m| m.key == "ckpt:mystery.safetensors").map(|m| m.family.as_str()), Some("sdxl"));
         let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[cfg(test)]
+mod ds_metadata_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn ds2_metadata_flat_modelspecific_and_kohya_classification() {
+        for (metadata, expected) in [
+            (json!({"modelspec.architecture":"stable-diffusion-xl-v1-base"}), "sdxl"),
+            (json!({"ss_base_model_version":"sdxl_base_v1-0"}), "sdxl"),
+            (json!({"ss_base_model_version":"sd_v1"}), "sd15"),
+        ] {
+            let got = family_of("unknown.safetensors", FileKind::Checkpoint, None, Some(&metadata));
+            assert_eq!(got.map(|x| x.0).as_deref(), Some(expected), "{metadata}");
+        }
+    }
+
+    #[test]
+    fn ds2_metadata_safetensors_header_keeps_tensor_shapes_and_metadata() {
+        for metadata in [
+            json!({"model.diffusion_model.input_blocks.0.0.weight":{"dtype":"F16","shape":[320,4,3,3]},
+                   "model.diffusion_model.label_emb.0.0.weight":{"dtype":"F16","shape":[1280,2816]},
+                   "conditioner.embedders.0.transformer.text_model.final_layer_norm.weight":{"dtype":"F16","shape":[768]}}),
+            json!({"__metadata__":{"modelspec.architecture":"stable-diffusion-xl-v1-base"}}),
+            json!({"__metadata__":{"ss_base_model_version":"sdxl_base_v1-0"}}),
+        ] {
+            assert_eq!(family_of("unknown.safetensors", FileKind::Checkpoint, None, Some(&metadata)).map(|x| x.0).as_deref(), Some("sdxl"), "{metadata}");
+        }
+        let lora = json!({"__metadata__":{"modelspec.architecture":"stable-diffusion-xl-v1-base/lora"}});
+        assert!(family_of("unknown.safetensors", FileKind::Checkpoint, None, Some(&lora)).is_none());
+        assert_eq!(family_of("unknown.safetensors", FileKind::Lora, None, Some(&lora)).unwrap().0, "sdxl");
     }
 }

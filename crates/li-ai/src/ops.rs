@@ -157,7 +157,16 @@ impl GenerateRequest {
         if self.loras.len() > f.lora.max.max(3) as usize {
             bail!("Choose at most {} styles (LoRAs).", f.lora.max.max(3));
         }
+        if !self.denoise.is_finite() || !(0.0..=1.0).contains(&self.denoise) {
+            bail!("Denoise must be a finite value between 0 and 1.");
+        }
         if let Some(r) = &self.refine {
+            if !r.scale.is_finite() || !(1.0..=4.0).contains(&r.scale) {
+                bail!("Refine scale must be a finite value between 1 and 4.");
+            }
+            if !r.strength.is_finite() || !(0.0..=1.0).contains(&r.strength) {
+                bail!("Refine strength must be a finite value between 0 and 1.");
+            }
             let ri = r.model.try_info().with_context(|| format!("The refine model {} is not available.", r.model.key()))?;
             if ri.resolved.kind != crate::family::FamilyKind::Image {
                 bail!("{} cannot refine images.", ri.label);
@@ -849,4 +858,29 @@ fn prepare_refs(f: &Family, refs: &[RgbaImage], w: u32, h: u32) -> Result<Vec<Ve
             imaging::encode_png(&img)
         })
         .collect()
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_refinement_request_rejects_nonfinite_and_out_of_range_parameters() {
+    let mut r = GenerateRequest::new(ModelId::Klein4B, "a test");
+    assert!(r.validate().is_ok());
+    for value in [-0.1, 1.1, f32::NAN, f32::INFINITY] {
+        r.denoise = value;
+        assert!(r.validate().is_err());
+    }
+    r.denoise = 0.35;
+    r.refine = Some(RefineStep { model: ModelId::Klein4B, variant: String::new(), strength: 0.4, steps: None, guidance: None, loras: vec![], scale: 1.0 });
+    assert!(r.validate().is_ok());
+    for value in [0.0, 1e6, f32::NAN, f32::INFINITY] {
+        r.refine.as_mut().unwrap().scale = value;
+        assert!(r.validate().is_err());
+    }
+    r.refine.as_mut().unwrap().scale = 4.0;
+    for value in [-0.1, 2.0, f32::NAN, f32::INFINITY] {
+        r.refine.as_mut().unwrap().strength = value;
+        assert!(r.validate().is_err());
+    }
+    r.refine.as_mut().unwrap().strength = 1.0;
+    assert!(r.validate().is_ok());
 }
