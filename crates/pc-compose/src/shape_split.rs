@@ -1,12 +1,13 @@
 //! A stroked shape split into fill and stroke, cached independently of integer translation.
 //! Parts are rasterised over their compiled geometry bounds and clipped to the canvas on use.
 //! Photoshop draws the vector stroke above clipped layers and interior effects.
+//! Document-depth rendering follows PhotoCraft #1495 (5355221f81e325a8682c7e3a7e03dd66cc00b5e6).
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Mutex, OnceLock};
 
-use photocraft_color::{Color, PixelFormat};
+use photocraft_color::{Color, PixelFormat, SampleType};
 use photocraft_doc::Fill;
 use photocraft_doc::vector::{LiveShape, ShapeLayer};
 use photocraft_geom::{Rect, TILE_SIZE};
@@ -20,8 +21,8 @@ struct Entry {
     tick: u64,
     shape: ShapeLayer,
     pixels: Option<(u64, i64, i64)>,
-    /// Huge geometry is clipped before allocating; such entries can only serve that canvas
-    /// at that position, since pixels outside it were deliberately not rasterised.
+    /// Huge geometry is clipped before allocating; canvas-anchored paint also depends on
+    /// the exact frame. Both can only serve that canvas at that position.
     canvas: Option<Rect>,
 }
 
@@ -83,10 +84,19 @@ fn hash_fill(f: &Fill, h: &mut impl Hasher) {
     }
 }
 
+fn paints(sh: &ShapeLayer) -> impl Iterator<Item = &Fill> {
+    sh.fill.iter().chain(sh.stroke.iter().map(|s| &s.paint))
+}
+
+fn canvas_dependent(sh: &ShapeLayer) -> bool {
+    sh.path.inverted || paints(sh).any(|f| matches!(f, Fill::Gradient { align: false, .. }))
+}
+
 /// Integer origin only: fractional position remains part of the cache state.
-/// Inverted fills cover the canvas, so they use an absolute, canvas-specific cache entry.
+/// Inversion, canvas-anchored gradients and world-coordinate dither cannot reuse translated
+/// pixels. Layer-aligned gradients without dither retain the group-move cache.
 fn origin(sh: &ShapeLayer) -> (i32, i32) {
-    if sh.path.inverted {
+    if canvas_dependent(sh) || paints(sh).any(|f| matches!(f, Fill::Gradient { dither: true, .. })) {
         return (0, 0);
     }
     sh.path.control_bounds().map_or((0, 0), |b| (b.0.floor() as i32, b.1.floor() as i32))
@@ -100,8 +110,11 @@ fn pixel_identity(sh: &ShapeLayer, origin: (i32, i32)) -> Option<(u64, i64, i64)
     })
 }
 
-fn key(sh: &ShapeLayer, canvas: Rect, origin: (i32, i32)) -> u64 {
-    state_key_at(sh, canvas, origin, true)
+fn key(sh: &ShapeLayer, canvas: Rect, origin: (i32, i32), depth: SampleType) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    state_key_at(sh, canvas, origin, true).hash(&mut h);
+    depth.hash(&mut h);
+    h.finish()
 }
 
 /// Exact absolute shape state for the GPU plan key. Integer translations invalidate a plan's
@@ -163,7 +176,7 @@ fn state_key_at(sh: &ShapeLayer, canvas: Rect, origin: (i32, i32), bucket: bool)
         }
     }
     pixel_identity(sh, origin).hash(&mut h);
-    if sh.path.inverted {
+    if canvas_dependent(sh) {
         (canvas.x0, canvas.y0, canvas.x1, canvas.y1).hash(&mut h);
     }
     h.finish()
@@ -218,19 +231,20 @@ fn placed(s: &Surface, bounds: Rect, dx: i32, dy: i32, canvas: Rect) -> Surface 
     Surface::from_interleaved(s.format(), clip, &s.to_interleaved(source))
 }
 
-/// (fill only, stroke only), RGBA8 as in the CPU compositor. `None` without a stroke.
+/// (fill only, stroke only), RGBA at the document sample depth. `None` without a stroke.
 /// Fitted strokes retain the shape cache's coverage and edge colour (psd-tools double-stroke).
-pub fn split(sh: &ShapeLayer, canvas: Rect) -> Option<(Surface, Surface)> {
+pub fn split(sh: &ShapeLayer, canvas: Rect, depth: SampleType) -> Option<(Surface, Surface)> {
     sh.stroke.as_ref()?;
     let origin = origin(sh);
     let pixels = pixel_identity(sh, origin);
-    let key = key(sh, canvas, origin);
+    let key = key(sh, canvas, origin, depth);
     {
         let mut c = cache().lock().unwrap_or_else(|e| e.into_inner());
         c.1 += 1;
         let tick = c.1;
         if let Some(e) = c.0.get_mut(&key)
             && let (Some(dx), Some(dy)) = (origin.0.checked_sub(e.origin.0), origin.1.checked_sub(e.origin.1))
+            && e.parts.0.format().sample == depth
             && matches_translation(&e.shape, sh, dx, dy)
             && e.pixels == pixels
             && e.canvas.is_none_or(|clip| dx == 0 && dy == 0 && clip == canvas)
@@ -244,9 +258,10 @@ pub fn split(sh: &ShapeLayer, canvas: Rect) -> Option<(Surface, Surface)> {
     }
     #[cfg(test)]
     RENDERS.with(|r| r.set(r.get() + 1));
+    let fmt = PixelFormat::RGBA8.with_sample(depth);
     let fill_only = ShapeLayer { stroke: None, cache: None, ..sh.clone() };
     let stroke_only = ShapeLayer { fill: None, cache: None, ..sh.clone() };
-    let (fill, stroke) = (CompiledShape::new(&fill_only, DEFAULT_TOLERANCE), CompiledShape::new(&stroke_only, DEFAULT_TOLERANCE));
+    let (fill, stroke) = (CompiledShape::new(&fill_only, DEFAULT_TOLERANCE, canvas), CompiledShape::new(&stroke_only, DEFAULT_TOLERANCE, canvas));
     let fb = fill.bounds().unwrap_or(Rect::EMPTY);
     let sb = stroke.bounds().unwrap_or(Rect::EMPTY);
     let cb = sh.cache.as_ref().map_or(Rect::EMPTY, crate::bounds::content_bounds);
@@ -256,10 +271,10 @@ pub fn split(sh: &ShapeLayer, canvas: Rect) -> Option<(Surface, Surface)> {
     // The fitter also holds three float-RGBA inputs and an output buffer. A small path with
     // distant cached pixels must not make their union allocate a huge intermediate rectangle.
     let scoped = sh.path.inverted
-        || area_pixels(fb).saturating_add(area_pixels(sb)) > (BUDGET_BYTES / 4) as u64
+        || area_pixels(fb).saturating_add(area_pixels(sb)) > (BUDGET_BYTES / fmt.bytes_per_pixel()) as u64
         || (sh.cache.is_some() && area_pixels(cb.union(&sb)) > (BUDGET_BYTES / 64) as u64);
     let (fb, sb) = if scoped { (fb.intersect(&canvas), sb.intersect(&canvas)) } else { (fb, sb) };
-    let mut parts = (fill.render(PixelFormat::RGBA8, fb), stroke.render(PixelFormat::RGBA8, sb));
+    let mut parts = (fill.render(fmt, fb), stroke.render(fmt, sb));
     if let Some(cache) = &sh.cache {
         let region = if cb.is_empty() {
             sb
@@ -275,7 +290,7 @@ pub fn split(sh: &ShapeLayer, canvas: Rect) -> Option<(Surface, Surface)> {
     let mut c = cache().lock().unwrap_or_else(|e| e.into_inner());
     let tick = c.1;
     let shape = ShapeLayer { cache: None, psd_raw: None, ..sh.clone() };
-    c.0.insert(key, Entry { parts, bounds, origin, tick, shape, pixels, canvas: scoped.then_some(canvas) });
+    c.0.insert(key, Entry { parts, bounds, origin, tick, shape, pixels, canvas: (scoped || canvas_dependent(sh)).then_some(canvas) });
     let mut bytes: usize = c.0.values().map(entry_bytes).sum();
     while c.0.len() > 1 && (c.0.len() > CAPACITY || bytes > BUDGET_BYTES) {
         let Some(old) = c.0.iter().filter(|e| *e.0 != key).min_by_key(|e| e.1.tick).map(|e| *e.0) else { break };
@@ -313,6 +328,7 @@ fn fit_stroke(fill: &Surface, stroke: &mut Surface, cache: &Surface, canvas: Rec
     stroke.read_rgba_into(r, &mut s);
     cache.read_rgba_into(r, &mut c);
     let mut out = Vec::with_capacity(n * 4);
+    let float = stroke.format().sample == SampleType::F32;
     for ((fp, sp), cp) in f.iter().zip(&s).zip(&c) {
         let mut p = *sp;
         if fp[3] < 1.0 - 1e-3 {
@@ -322,7 +338,10 @@ fn fit_stroke(fill: &Surface, stroke: &mut Surface, cache: &Surface, canvas: Rec
             } else if a > 1e-3 {
                 // Normal over the fill: a·p + f·(1 - a)·fill = pixels (premultiplied).
                 let k = fp[3] * (1.0 - a);
-                let un = |i: usize| ((cp[3] * cp[i] - k * fp[i]) / a).clamp(0.0, 1.0);
+                let un = |i: usize| {
+                    let v = (cp[3] * cp[i] - k * fp[i]) / a;
+                    if float { v } else { v.clamp(0.0, 1.0) }
+                };
                 [un(0), un(1), un(2), a]
             } else {
                 [sp[0], sp[1], sp[2], a]
@@ -358,11 +377,11 @@ mod tests {
         let renders = || RENDERS.with(std::cell::Cell::get);
         let n0 = renders();
         for sh in &shapes {
-            split(sh, canvas).expect("stroked");
+            split(sh, canvas, SampleType::U8).expect("stroked");
         }
         assert_eq!(renders() - n0, shapes.len());
         for sh in &shapes {
-            split(sh, canvas).expect("stroked");
+            split(sh, canvas, SampleType::U8).expect("stroked");
         }
         assert_eq!(renders() - n0, shapes.len(), "the second rebuild hits the cache for every shape");
     }
@@ -444,12 +463,12 @@ mod tests {
                     sh.cache = Some(photocraft_vector::render_shape(&sh, fmt, canvas));
                 }
                 let n0 = RENDERS.with(std::cell::Cell::get);
-                assert_parts(&split(&sh, canvas).unwrap(), &fresh(&sh, canvas), canvas);
+                assert_parts(&split(&sh, canvas, SampleType::U8).unwrap(), &fresh(&sh, canvas), canvas);
                 let n1 = RENDERS.with(std::cell::Cell::get);
                 assert_eq!(n1, n0 + 1);
                 for (dx, dy) in [(37, 23), (-29, -35), (256, 256), (-256, 0), (300, -300), (0, 0)] {
                     let moved = translated(&sh, dx, dy);
-                    assert_parts(&split(&moved, canvas).unwrap(), &fresh(&moved, canvas), canvas);
+                    assert_parts(&split(&moved, canvas, SampleType::U8).unwrap(), &fresh(&moved, canvas), canvas);
                     assert_eq!(RENDERS.with(std::cell::Cell::get), n1, "integer move ({dx}, {dy}) hits");
                 }
             }
@@ -466,11 +485,11 @@ mod tests {
             ..ShapeLayer::default()
         };
         sh.cache = Some(photocraft_vector::render_shape(&sh, PixelFormat::RGBA8, canvas));
-        split(&sh, canvas).unwrap();
+        split(&sh, canvas, SampleType::U8).unwrap();
         let n = RENDERS.with(std::cell::Cell::get);
         for (dx, dy) in [(37, 23), (-20, -17), (256, 256), (0, 0)] {
             let moved = translated(&sh, dx, dy);
-            let (actual, expected) = (split(&moved, canvas).unwrap(), fresh(&moved, canvas));
+            let (actual, expected) = (split(&moved, canvas, SampleType::U8).unwrap(), fresh(&moved, canvas));
             assert!(actual.0.to_interleaved(canvas) == expected.0.to_interleaved(canvas), "all fill bytes at ({dx}, {dy})");
             assert!(actual.1.to_interleaved(canvas) == expected.1.to_interleaved(canvas), "all stroke bytes at ({dx}, {dy})");
             assert_eq!(RENDERS.with(std::cell::Cell::get), n, "integer move hits the split cache");
@@ -486,12 +505,12 @@ mod tests {
             stroke: Some(ShapeStroke::default()),
             ..ShapeLayer::default()
         };
-        split(&sh, canvas).unwrap();
+        split(&sh, canvas, SampleType::U8).unwrap();
         let n = RENDERS.with(std::cell::Cell::get);
-        let old_key = key(&sh, canvas, origin(&sh));
+        let old_key = key(&sh, canvas, origin(&sh), SampleType::U8);
         sh.path.subpaths[0].knots[1].anchor.x += 1e-8;
-        assert_eq!(old_key, key(&sh, canvas, origin(&sh)), "the test deliberately uses the same coordinate bucket");
-        assert_parts(&split(&sh, canvas).unwrap(), &fresh(&sh, canvas), canvas);
+        assert_eq!(old_key, key(&sh, canvas, origin(&sh), SampleType::U8), "the test deliberately uses the same coordinate bucket");
+        assert_parts(&split(&sh, canvas, SampleType::U8).unwrap(), &fresh(&sh, canvas), canvas);
         assert_eq!(RENDERS.with(std::cell::Cell::get), n + 1, "exact coordinates reject the old entry");
     }
 
@@ -504,11 +523,11 @@ mod tests {
             stroke: Some(ShapeStroke { width: 7.25, ..ShapeStroke::default() }),
             ..ShapeLayer::default()
         };
-        assert_parts(&split(&sh, canvas).unwrap(), &fresh(&sh, canvas), canvas);
+        assert_parts(&split(&sh, canvas, SampleType::U8).unwrap(), &fresh(&sh, canvas), canvas);
         let n = RENDERS.with(std::cell::Cell::get);
         let larger = Rect::new(-40, -40, 100, 100);
         let moved = translated(&sh, 20, 25);
-        assert_parts(&split(&moved, larger).unwrap(), &fresh(&moved, larger), larger);
+        assert_parts(&split(&moved, larger, SampleType::U8).unwrap(), &fresh(&moved, larger), larger);
         assert_eq!(RENDERS.with(std::cell::Cell::get), n);
     }
 
@@ -524,21 +543,21 @@ mod tests {
         let mut pixels = Surface::new(PixelFormat::RGBA16);
         pixels.fill_rect(Rect::new(10, 12, 64, 62), &[0.6, 0.7, 0.8, 1.0]);
         sh.cache = Some(pixels);
-        assert_parts(&split(&sh, canvas).unwrap(), &fresh(&sh, canvas), canvas);
+        assert_parts(&split(&sh, canvas, SampleType::U8).unwrap(), &fresh(&sh, canvas), canvas);
         let n = RENDERS.with(std::cell::Cell::get);
         let mut moved = translated(&sh, 7, -5);
-        assert_parts(&split(&moved, canvas).unwrap(), &fresh(&moved, canvas), canvas);
+        assert_parts(&split(&moved, canvas, SampleType::U8).unwrap(), &fresh(&moved, canvas), canvas);
         assert_eq!(RENDERS.with(std::cell::Cell::get), n);
         moved.cache.as_mut().unwrap().write_pixel(17, 20, &[0.1, 0.2, 0.3, 0.5]);
-        assert_parts(&split(&moved, canvas).unwrap(), &fresh(&moved, canvas), canvas);
+        assert_parts(&split(&moved, canvas, SampleType::U8).unwrap(), &fresh(&moved, canvas), canvas);
         assert_eq!(RENDERS.with(std::cell::Cell::get), n + 1);
         sh.path = sh.path.transform(&photocraft_geom::Affine::translate(0.25, 0.0));
-        assert_parts(&split(&sh, canvas).unwrap(), &fresh(&sh, canvas), canvas);
+        assert_parts(&split(&sh, canvas, SampleType::U8).unwrap(), &fresh(&sh, canvas), canvas);
         assert_eq!(RENDERS.with(std::cell::Cell::get), n + 2);
         // The cache must move with the path, rather than retain pixels at its old position.
         let mut unlinked = translated(&sh, 5, 3);
         unlinked.cache = sh.cache.clone();
-        assert_parts(&split(&unlinked, canvas).unwrap(), &fresh(&unlinked, canvas), canvas);
+        assert_parts(&split(&unlinked, canvas, SampleType::U8).unwrap(), &fresh(&unlinked, canvas), canvas);
         assert_eq!(RENDERS.with(std::cell::Cell::get), n + 3);
     }
 
@@ -553,7 +572,7 @@ mod tests {
         };
         sh.path.inverted = true;
         for (sh, canvas) in [(sh.clone(), canvas), (translated(&sh, 7, -3), canvas), (sh.clone(), Rect::new(-10, -10, 95, 80))] {
-            assert_parts(&split(&sh, canvas).unwrap(), &fresh(&sh, canvas), canvas);
+            assert_parts(&split(&sh, canvas, SampleType::U8).unwrap(), &fresh(&sh, canvas), canvas);
         }
     }
 
@@ -566,15 +585,15 @@ mod tests {
             stroke: Some(ShapeStroke::default()),
             ..ShapeLayer::default()
         };
-        let parts = split(&sh, canvas).unwrap();
+        let parts = split(&sh, canvas, SampleType::U8).unwrap();
         assert_parts(&parts, &fresh(&sh, canvas), canvas);
         assert!(parts.0.tile_count() <= 1);
         let n = RENDERS.with(std::cell::Cell::get);
         let moved = translated(&sh, 7, 3);
-        assert_parts(&split(&moved, canvas).unwrap(), &fresh(&moved, canvas), canvas);
+        assert_parts(&split(&moved, canvas, SampleType::U8).unwrap(), &fresh(&moved, canvas), canvas);
         assert_eq!(RENDERS.with(std::cell::Cell::get), n + 1);
         let larger = canvas.inflate(5);
-        assert_parts(&split(&moved, larger).unwrap(), &fresh(&moved, larger), larger);
+        assert_parts(&split(&moved, larger, SampleType::U8).unwrap(), &fresh(&moved, larger), larger);
         assert_eq!(RENDERS.with(std::cell::Cell::get), n + 2);
     }
 
@@ -591,10 +610,78 @@ mod tests {
             cache: Some(pixels),
             ..ShapeLayer::default()
         };
-        assert_parts(&split(&sh, canvas).unwrap(), &fresh(&sh, canvas), canvas);
+        assert_parts(&split(&sh, canvas, SampleType::U8).unwrap(), &fresh(&sh, canvas), canvas);
         let n = RENDERS.with(std::cell::Cell::get);
         let moved = translated(&sh, 7, 3);
-        assert_parts(&split(&moved, canvas).unwrap(), &fresh(&moved, canvas), canvas);
+        assert_parts(&split(&moved, canvas, SampleType::U8).unwrap(), &fresh(&moved, canvas), canvas);
         assert_eq!(RENDERS.with(std::cell::Cell::get), n + 1, "a clipped entry cannot supply another position");
+    }
+
+    #[test]
+    fn translated_parts_keep_document_depth_and_hdr_edge_colours() {
+        let canvas = Rect::new(0, 0, 120, 90);
+        let mut sh = ShapeLayer {
+            path: Path::new(vec![Subpath::polygon(&[(13.25, 15.5), (65.75, 15.5), (65.75, 53.5), (13.25, 53.5)])]),
+            fill: Some(Fill::gradient(vec![(0.0, Color::BLACK), (1.0, Color::WHITE)], 0.0, 1.0, photocraft_doc::GradientStyle::Linear, false)),
+            stroke: Some(ShapeStroke { width: 2.75, paint: Fill::Solid(Color::rgb(1.7, 0.25, 0.5)), ..ShapeStroke::default() }),
+            ..ShapeLayer::default()
+        };
+        // Identical pixel lineage at every depth: depth alone must distinguish entries.
+        sh.cache = Some(photocraft_vector::render_shape(&sh, PixelFormat::RGBA32F, canvas));
+        for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+            let fmt = PixelFormat::RGBA8.with_sample(depth);
+            let parts = split(&sh, canvas, depth).unwrap();
+            assert_eq!(parts.0.format(), fmt);
+            assert_eq!(parts.1.format(), fmt);
+            if depth == SampleType::F32 {
+                assert!(parts.1.pixel(12, 30)[0] > 1.5, "fitted HDR edge colour must not clamp");
+            }
+            let n = RENDERS.with(std::cell::Cell::get);
+            let moved = translated(&sh, 17, 11);
+            let actual = split(&moved, canvas, depth).unwrap();
+            let fill = ShapeLayer { stroke: None, cache: None, ..moved.clone() };
+            let stroke = ShapeLayer { fill: None, cache: None, ..moved.clone() };
+            let mut expected = (photocraft_vector::render_shape(&fill, fmt, canvas), photocraft_vector::render_shape(&stroke, fmt, canvas));
+            fit_stroke(&expected.0, &mut expected.1, moved.cache.as_ref().unwrap(), canvas);
+            for (a, b) in [(&actual.0, &expected.0), (&actual.1, &expected.1)] {
+                assert_eq!(a.to_interleaved(canvas), b.to_interleaved(canvas), "{depth:?}: moved bytes match fresh rendering");
+            }
+            assert_eq!(RENDERS.with(std::cell::Cell::get), n, "each depth still reuses integer moves");
+        }
+    }
+
+    #[test]
+    fn canvas_gradients_and_dither_repaint_at_their_world_position() {
+        let canvas = Rect::new(0, 0, 140, 100);
+        for stroke_paint in [false, true] {
+            for (align, dither) in [(false, false), (true, true), (false, true)] {
+                let paint = Fill::Gradient {
+                    stops: vec![(0.0, Color::BLACK), (1.0, Color::WHITE)],
+                    angle: 0.0,
+                    scale: 1.0,
+                    style: photocraft_doc::GradientStyle::Linear,
+                    reverse: false,
+                    opacity_stops: vec![(0.0, 0.9), (1.0, 0.3)],
+                    midpoints: vec![0.35],
+                    offset: (0.1, 0.0),
+                    dither,
+                    align,
+                };
+                let sh = ShapeLayer {
+                    path: Path::new(vec![Subpath::polygon(&[(17.25, 19.5), (69.75, 19.5), (69.75, 58.5), (17.25, 58.5)])]),
+                    fill: Some(if stroke_paint { Fill::Solid(Color::rgb(0.15, 0.35, 0.55)) } else { paint.clone() }),
+                    stroke: Some(ShapeStroke { width: 4.5, paint: if stroke_paint { paint } else { Fill::Solid(Color::BLACK) }, ..ShapeStroke::default() }),
+                    ..ShapeLayer::default()
+                };
+                assert_parts(&split(&sh, canvas, SampleType::U8).unwrap(), &fresh(&sh, canvas), canvas);
+                let n = RENDERS.with(std::cell::Cell::get);
+                let moved = translated(&sh, 23, 11);
+                assert_parts(&split(&moved, canvas, SampleType::U8).unwrap(), &fresh(&moved, canvas), canvas);
+                assert_eq!(RENDERS.with(std::cell::Cell::get), n + 1, "world-position paint invalidates an integer move");
+                let larger = Rect::new(-20, -10, 180, 130);
+                assert_parts(&split(&moved, larger, SampleType::U8).unwrap(), &fresh(&moved, larger), larger);
+                assert_eq!(RENDERS.with(std::cell::Cell::get), n + 1 + usize::from(!align), "canvas anchoring follows a changed canvas");
+            }
+        }
     }
 }
