@@ -1,11 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-  <!-- Original Local Image SVG; GPL-3.0-or-later. Glossy Duotone, liquify family. -->
-  <defs>
-    <linearGradient id="a" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="#EF91BD"/><stop offset="1" stop-color="#A24779"/></linearGradient>
-    <linearGradient id="n" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="#CCD3DF"/><stop offset="1" stop-color="#66717F"/></linearGradient>
-  </defs>
-  <g transform="translate(1.5 1.5) scale(.875)">
-  <g stroke="#1b1c20" stroke-width="1.43" stroke-linecap="round" stroke-linejoin="round"><path d="M18 4l4 6h-8l2-2q-7-6-10 2-3 10 8 10 5 0 5-5-1-5-5-3 3 4-1 5-6-1-2-6 7-6 11 2 3 10-9 10Q0 23 2 11 4 0 16 5Z" fill="url(#a)" /></g>
-  <g stroke-linecap="round" stroke-linejoin="round"><path d="M4 11q2-7 9-6" fill="none" stroke="#F7F9FC" stroke-opacity=".28" stroke-width="1.5"/></g>
-  </g>
+<!-- Original Local Image tool artwork; GPL-3.0-or-later. Glossy Duotone, liquify family. -->
+<defs>
+<linearGradient id="a" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="#EF91BD"/><stop offset="1" stop-color="#A24779"/></linearGradient>
+<linearGradient id="n" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="#CCD3DF"/><stop offset="1" stop-color="#66717F"/></linearGradient>
+<linearGradient id="aw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="#EF91BD"/><stop offset="1" stop-color="#A24779"/></linearGradient>
+<linearGradient id="nw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="#CCD3DF"/><stop offset="1" stop-color="#66717F"/></linearGradient>
+<linearGradient id="shine" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="20"><stop stop-color="#F7F9FC" stop-opacity=".28"/><stop offset="1" stop-color="#F7F9FC" stop-opacity="0"/></linearGradient>
+</defs>
+<g transform="translate(1.5 1.5) scale(.875)" fill="none" stroke="#1b1c20" stroke-width="1.43" stroke-linecap="round" stroke-linejoin="round">
+<g fill="none" stroke="#1b1c20" stroke-width="3.5"><path d="M20 8C18 1 7 1 4 8C0 17 9 24 17 19C23 15 18 7 12 8C7 9 8 16 12 16C16 16 15 12 13 12"/></g>
+<g fill="none" stroke="url(#aw)" stroke-width="2.2"><path d="M20 8C18 1 7 1 4 8C0 17 9 24 17 19C23 15 18 7 12 8C7 9 8 16 12 16C16 16 15 12 13 12"/></g>
+<g fill="none" stroke="url(#shine)" stroke-width="0.5"><path d="M20 8C18 1 7 1 4 8C0 17 9 24 17 19C23 15 18 7 12 8C7 9 8 16 12 16C16 16 15 12 13 12"/></g>
+<g fill="none" stroke="#1b1c20" stroke-width="3.5"><path d="M20 3V8H15"/></g>
+<g fill="none" stroke="url(#aw)" stroke-width="2.2"><path d="M20 3V8H15"/></g>
+<g fill="none" stroke="url(#shine)" stroke-width="0.5"><path d="M20 3V8H15"/></g>
+</g>
 </svg>

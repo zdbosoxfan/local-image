@@ -1,11 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-  <!-- Original Local Image SVG; GPL-3.0-or-later. Glossy Duotone, liquify family. -->
-  <defs>
-    <linearGradient id="a" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="#EF91BD"/><stop offset="1" stop-color="#A24779"/></linearGradient>
-    <linearGradient id="n" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="#CCD3DF"/><stop offset="1" stop-color="#66717F"/></linearGradient>
-  </defs>
-  <g transform="translate(1.5 1.5) scale(.875)">
-  <g stroke="#1b1c20" stroke-width="1.43" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="16" rx="2" fill="url(#a)"/><path d="M8 13C8 8 11 8 12 12S16 16 16 10M8 17h8" fill="none"/></g>
-  <g stroke-linecap="round" stroke-linejoin="round"><path d="M7 7V6h10" fill="none" stroke="#F7F9FC" stroke-opacity=".28" stroke-width="1.5"/></g>
-  </g>
+<!-- Original Local Image tool artwork; GPL-3.0-or-later. Glossy Duotone, liquify family. -->
+<defs>
+<linearGradient id="a" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="#EF91BD"/><stop offset="1" stop-color="#A24779"/></linearGradient>
+<linearGradient id="n" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="#CCD3DF"/><stop offset="1" stop-color="#66717F"/></linearGradient>
+<linearGradient id="aw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="#EF91BD"/><stop offset="1" stop-color="#A24779"/></linearGradient>
+<linearGradient id="nw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="#CCD3DF"/><stop offset="1" stop-color="#66717F"/></linearGradient>
+<linearGradient id="shine" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="20"><stop stop-color="#F7F9FC" stop-opacity=".28"/><stop offset="1" stop-color="#F7F9FC" stop-opacity="0"/></linearGradient>
+</defs>
+<g transform="translate(1.5 1.5) scale(.875)" fill="none" stroke="#1b1c20" stroke-width="1.43" stroke-linecap="round" stroke-linejoin="round">
+<g transform="translate(0 4) scale(.72)"><g fill="url(#n)" stroke="#1b1c20" stroke-width="1.43" paint-order="stroke fill"><path d="M11 13L18 3Q19 1.5 20.5 3Q22 4 20 6L14 15Z" fill-rule="evenodd"/></g>
+<g fill="none" stroke="url(#shine)" stroke-width=".7" transform="translate(.2 .2)"><path d="M11 13L18 3Q19 1.5 20.5 3Q22 4 20 6L14 15Z" fill-rule="evenodd"/></g>
+<g fill="url(#a)" stroke="#1b1c20" stroke-width="1.43" paint-order="stroke fill"><path d="M10 12Q15 13 14 16Q12.5 21 3 21Q6.5 18.5 7 15.5Q7.5 12.5 10 12Z" fill-rule="evenodd"/></g>
+<g fill="none" stroke="url(#shine)" stroke-width=".7" transform="translate(.2 .2)"><path d="M10 12Q15 13 14 16Q12.5 21 3 21Q6.5 18.5 7 15.5Q7.5 12.5 10 12Z" fill-rule="evenodd"/></g>
+</g>
+<g fill="none" stroke="#1b1c20" stroke-width="3.5"><path d="M15 13C23 13 24 3 18 3H14"/></g>
+<g fill="none" stroke="url(#aw)" stroke-width="2.2"><path d="M15 13C23 13 24 3 18 3H14"/></g>
+<g fill="none" stroke="url(#shine)" stroke-width="0.5"><path d="M15 13C23 13 24 3 18 3H14"/></g>
+<g fill="none" stroke="#1b1c20" stroke-width="3.5"><path d="M16 1L14 3L16 5"/></g>
+<g fill="none" stroke="url(#aw)" stroke-width="2.2"><path d="M16 1L14 3L16 5"/></g>
+<g fill="none" stroke="url(#shine)" stroke-width="0.5"><path d="M16 1L14 3L16 5"/></g>
+</g>
 </svg>

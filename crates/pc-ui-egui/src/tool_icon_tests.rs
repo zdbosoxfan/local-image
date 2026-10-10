@@ -6,10 +6,8 @@ use serde_json::json;
 
 use crate::{PhotocraftApp, color_icon_data, color_icons, icons, state::Tool};
 
-// Reuse Develop's CPU painter for these windowless pixel checks.
-// Format this shared module in its home crate, which uses a different line width.
-#[allow(dead_code)]
-#[rustfmt::skip]
+#[allow(dead_code)] // Reuse Develop's CPU painter for these windowless pixel checks.
+#[rustfmt::skip] // The source is formatted with Develop's own rustfmt configuration.
 #[path = "../../lc-ui-egui/src/softpaint.rs"]
 pub(super) mod cpu;
 
@@ -19,6 +17,7 @@ fn every_tool_and_group_member_has_a_distinct_colour_icon_and_none_are_unused() 
     for t in Tool::ALL {
         let name = icons::tool_icon_name(t);
         assert!(color_icons::exists(name), "{t:?}: {name}");
+        assert!(crate::mono_tool_icons::exists(name), "{t:?}: monochrome {name}");
         assert!(used.insert(name), "distinct tools share {name}");
     }
     use photocraft_algo::liquify::LiquifyTool as L;
@@ -40,17 +39,46 @@ fn every_tool_and_group_member_has_a_distinct_colour_icon_and_none_are_unused() 
         .collect();
     let embedded: HashSet<_> = color_icon_data::COLOR_ICONS.iter().map(|(n, _)| n.to_string()).collect();
     assert_eq!(disk, embedded, "every SVG must be embedded");
+    let mono_disk: HashSet<_> = std::fs::read_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/icons/tools"))
+        .unwrap()
+        .map(|e| e.unwrap().path().file_stem().unwrap().to_str().unwrap().to_owned())
+        .collect();
+    let mono_embedded: HashSet<_> = crate::tool_icon_data::TOOL_ICONS.iter().map(|(n, _)| n.to_string()).collect();
+    assert_eq!(mono_disk, embedded, "every colour icon has matching monochrome artwork");
+    assert_eq!(mono_disk, mono_embedded, "every monochrome SVG is embedded");
 }
 
 #[test]
 fn formerly_shared_glyphs_have_distinct_rendered_silhouettes() {
-    for (a, b) in [("blur", "smooth"), ("smudge", "forward-warp"), ("healing", "spot-healing"), ("linear-mask", "luminance-range")] {
+    for (a, b) in [
+        ("blur", "smooth"),
+        ("smudge", "forward-warp"),
+        ("healing", "spot-healing"),
+        ("linear-mask", "luminance-range"),
+        ("dodge", "zoom-in"),
+        ("arrow-left-right", "move"),
+        ("mouse-pointer-2", "direct-select"),
+    ] {
         for size in [20, 24, 48] {
             let a_image = color_icons::raster(a, size, false).unwrap();
             let b_image = color_icons::raster(b, size, false).unwrap();
             // Alpha compares the artwork's silhouette, independent of family colour.
             let different = a_image.pixels.iter().zip(&b_image.pixels).filter(|(a, b)| a.a().abs_diff(b.a()) > 50).count();
             assert!(different > (size * size / 8) as usize, "{a}/{b} look alike at {size}px: {different} silhouette pixels differ");
+        }
+    }
+}
+
+#[test]
+fn dodge_tool_icon_has_a_solid_paddle_head_in_both_styles() {
+    for size in [16, 20, 40] {
+        let center = ((1.5 + 8.0 * 0.875) * f64::from(size) / 24.0).floor() as usize;
+        for image in [color_icons::raster("dodge", size, false).unwrap(), crate::mono_tool_icons::raster("dodge", size).unwrap()] {
+            for y in center - 1..=center + 1 {
+                for x in center - 1..=center + 1 {
+                    assert_eq!(image.pixels[y * size as usize + x].a(), 255, "Dodge must have a filled paddle head at {size}px");
+                }
+            }
         }
     }
 }
@@ -171,6 +199,68 @@ fn clicking_preferences_switches_the_real_toolbar_pixels_and_saves() {
     assert_eq!(h.state().session.prefs().interface.tool_icons, "colour");
     let colour_2x = toolbar_pixels(h.state_mut(), 2.0);
     assert!(saturated_toolbar_pixels(&colour_2x, 2.0) > colour_count * 2);
+}
+
+/// Exercise SVG loading, texture upload, theme tint and real tool-button clicks with egui-wgpu.
+/// Explicitly requires Vulkan hardware: software rendering and adapter skips cannot pass it.
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+#[ignore = "requires a real Vulkan GPU; run explicitly with LOCAL_IMAGE_TEST_ADAPTER"]
+fn gpu_tool_icons_upload_and_switch_styles_on_hardware() {
+    use eframe::{egui_wgpu, wgpu};
+    let mut setup = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
+    setup.instance_descriptor.backends = wgpu::Backends::VULKAN;
+    setup.native_adapter_selector = Some(std::sync::Arc::new(|adapters, _| {
+        let requested = std::env::var("LOCAL_IMAGE_TEST_ADAPTER").unwrap_or_default().to_lowercase();
+        let adapter = adapters
+            .iter()
+            .find(|a| {
+                let info = a.get_info();
+                info.backend == wgpu::Backend::Vulkan && info.device_type == wgpu::DeviceType::DiscreteGpu && info.name.to_lowercase().contains(&requested)
+            })
+            .ok_or_else(|| format!("required discrete Vulkan adapter is unavailable: {requested}"))?;
+        eprintln!("tool icon GPU test: {:?}", adapter.get_info());
+        Ok(adapter.clone())
+    }));
+    for scale in [1.0, 2.0] {
+        let mut h = Harness::builder()
+            .with_size(vec2(600.0, 480.0))
+            .with_pixels_per_point(scale)
+            .wgpu_setup(egui_wgpu::WgpuSetup::CreateNew(setup.clone()))
+            .build_ui_state(
+                |ui, (colour, clicked)| {
+                    egui_extras::install_image_loaders(ui.ctx());
+                    color_icons::set_enabled(ui.ctx(), *colour);
+                    if ui.button("Switch tool style").clicked() {
+                        *colour = !*colour;
+                    }
+                    egui::Grid::new("all-tool-artwork").show(ui, |ui| {
+                        for (i, (name, _)) in color_icon_data::COLOR_ICONS.iter().enumerate() {
+                            if icons::tool_button(ui, name, 40.0, false, name).clicked() {
+                                *clicked = true;
+                            }
+                            if i % 12 == 11 {
+                                ui.end_row();
+                            }
+                        }
+                    });
+                },
+                (true, false),
+            );
+        h.run_steps(4);
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "brush").click();
+        h.run_steps(2);
+        assert!(h.state().1, "GPU-backed tool button remains clickable");
+        let colour = h.render().unwrap();
+        let saturation = |img: &image::RgbaImage| img.pixels().filter(|p| p[0].max(p[1]).max(p[2]) - p[0].min(p[1]).min(p[2]) > 40).count();
+        let colourful = saturation(&colour);
+        assert!(colourful > (2000.0 * scale * scale) as usize, "missing GPU colour textures: {colourful}");
+        h.get_by_label("Switch tool style").click();
+        h.run_steps(4);
+        let mono = h.render().unwrap();
+        assert!(!h.state().0);
+        assert!(saturation(&mono) < colourful / 10, "monochrome textures must use theme tint");
+    }
 }
 
 #[test]

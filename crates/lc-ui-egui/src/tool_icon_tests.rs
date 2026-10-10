@@ -36,6 +36,12 @@ fn all_develop_tools_panels_and_mask_variants_have_icons() {
     for (tool, name) in color_icon_data::DEVELOP_TOOL_ICONS {
         assert_eq!(icons::tool_name(tool), Some(*name));
         assert!(color_icons::exists(name), "{tool}: {name}");
+        assert!(crate::mono_tool_icons::exists(name), "{tool}: monochrome {name}");
+    }
+    assert_eq!(icons::tool_name("target"), Some("targeted-adjust"));
+    assert_eq!(icons::tool_name("pointColorPicker"), Some("color-range"));
+    for tool in crate::panels::tool_tips::StripTool::ALL {
+        assert!(icons::tool_name(tool.id()).is_some(), "{}", tool.id());
     }
     // An exhaustive match protects against additions to the panel enum.
     let panel_name = |panel| match panel {
