@@ -5705,6 +5705,8 @@ dependencies = [
 name = "photocraft-pdf"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "flate2",
+ "hayro-interpret",
  "hayro-syntax",
  "image",
  "krilla",
@@ -5716,6 +5718,7 @@ dependencies = [
  "photocraft-testkit",
  "photocraft-text",
  "photocraft-vector",
+ "proptest",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

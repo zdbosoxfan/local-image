@@ -18,10 +18,16 @@ kurbo.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-[dev-dependencies]
 hayro-syntax.workspace = true
+hayro-interpret.workspace = true
+flate2.workspace = true
 image.workspace = true
+[dev-dependencies]
+proptest.workspace = true
 photocraft-testkit.workspace = true
 [[test]]
 name = "export"
 path = "tests/export/main.rs"
+[[test]]
+name = "import"
+path = "tests/import/main.rs"
