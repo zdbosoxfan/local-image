@@ -1,7 +1,7 @@
 //! Integration coverage for the public `inpaint` and `seamless` APIs.
 //!
 //! The tests exercise edge cases, deterministic behaviour, invariants,
-//! error paths and a couple of known limitations (marked `#[ignore]`).
+//! error paths, including arbitrary channel counts and malformed dimensions.
 
 use photocraft_algo::inpaint::{self, CompleteParams};
 use photocraft_algo::seamless;
@@ -195,6 +195,29 @@ fn mvc_membrane_ch_greater_than_eight_respects_requested_length() {
     // A constant boundary value is reproduced in every channel, including those past the 8th.
     for v in &m {
         assert!((v - 0.5).abs() < 0.01, "channel value {v}");
+    }
+}
+
+#[test]
+fn mvc_membrane_many_channels_match_individual_channel_membranes() {
+    let (w, h, ch) = (9, 7, 19);
+    let mask: Vec<bool> = (0..w * h).map(|i| i % w > 0 && i % w < w - 1 && i / w > 0 && i / w < h - 1).collect();
+    let diff: Vec<f32> = (0..w * h).flat_map(|i| (0..ch).map(move |c| c as f32 * 0.3 + (i % w) as f32 * 0.02 + (i / w) as f32 * 0.05)).collect();
+    let all = seamless::mvc_membrane(w, h, &mask, &diff, ch);
+    assert_eq!(all.len(), w * h * ch);
+    for c in 0..ch {
+        let input: Vec<f32> = (0..w * h).map(|i| diff[i * ch + c]).collect();
+        let single = seamless::mvc_membrane(w, h, &mask, &input, 1);
+        for i in 0..w * h {
+            assert!((all[i * ch + c] - single[i]).abs() < 1e-5, "pixel {i}, channel {c}");
+        }
+    }
+}
+
+#[test]
+fn mvc_membrane_overflow_and_zero_channels_return_empty() {
+    for (w, h, ch) in [(usize::MAX, 2, 1), (2, 2, usize::MAX), (1, 1, isize::MAX as usize), (usize::MAX, 0, 10), (2, 2, 0)] {
+        assert!(seamless::mvc_membrane(w, h, &[], &[], ch).is_empty());
     }
 }
 

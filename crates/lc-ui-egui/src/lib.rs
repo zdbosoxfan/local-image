@@ -252,6 +252,19 @@ pub struct LightcraftApp {
     pub host_composites: std::collections::HashMap<lightcraft_catalog::PhotoId, panels::host_composite::HostComposite>,
     /// local-image: "Open in Compositing" was clicked on such a photo: the host shows its document.
     pub host_composite_open: Option<lightcraft_catalog::PhotoId>,
+    // Rust drops fields in declaration order. Keep this last: renderer pools must stop and
+    // join their workers before we wait for compilation/queue idle, including in headless tests.
+    _gpu_exit: GpuExit,
+}
+
+struct GpuExit;
+
+impl Drop for GpuExit {
+    fn drop(&mut self) {
+        if !lightcraft_engine::gpu::quiesce(std::time::Duration::from_secs(120)) {
+            log::error!("GPU initialization/work did not finish before Library shutdown");
+        }
+    }
 }
 
 impl LightcraftApp {
@@ -308,6 +321,7 @@ impl LightcraftApp {
             host_session: None,
             host_composites: Default::default(),
             host_composite_open: None,
+            _gpu_exit: GpuExit,
         }
     }
 

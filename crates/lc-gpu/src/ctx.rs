@@ -302,7 +302,7 @@ impl Drop for RenderScope<'_> {
     }
 }
 
-/// Renders running on any thread, and the condvar [`quiesce`] waits on.
+/// Renders and background kernel initialization, and the condvar [`quiesce`] waits on.
 static RUNNING: (std::sync::Mutex<u32>, std::sync::Condvar) = (std::sync::Mutex::new(0), std::sync::Condvar::new());
 
 /// Counts a render out when it ends.
@@ -316,8 +316,8 @@ impl Drop for RenderEnd {
     }
 }
 
-/// Wait (at most `timeout`) for every running render, then for the device to finish its queue.
-/// Returns false when renders were still running at the deadline.
+/// Wait (at most `timeout`) for initialization and every running render, then for the queue.
+/// Returns false when work exceeds the deadline or the device poll fails.
 pub(crate) fn quiesce(timeout: std::time::Duration) -> bool {
     let deadline = std::time::Instant::now() + timeout;
     let mut n = RUNNING.0.lock().unwrap_or_else(|e| e.into_inner());
@@ -327,9 +327,27 @@ pub(crate) fn quiesce(timeout: std::time::Duration) -> bool {
     }
     drop(n);
     if let Some(g) = crate::existing_device() {
-        let _ = g.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(timeout) });
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        return g.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(left) }).is_ok();
     }
     true
+}
+
+/// Count background device/kernel initialization before spawning its thread, so even an
+/// immediate exit waits for it. Like renders, compilation must finish before driver teardown.
+pub(crate) struct InitWork;
+
+impl InitWork {
+    pub(crate) fn new() -> Self {
+        *RUNNING.0.lock().unwrap_or_else(|e| e.into_inner()) += 1;
+        Self
+    }
+}
+
+impl Drop for InitWork {
+    fn drop(&mut self) {
+        drop(RenderEnd);
+    }
 }
 
 /// A device buffer, counted in [`ALLOCATED`] while it exists.
@@ -960,5 +978,15 @@ mod shader_validation {
                 .validate(&parsed)
                 .unwrap_or_else(|e| panic!("entry points {:?}: {e:?}", module.entries));
         }
+    }
+}
+
+#[cfg(test)]
+mod exit_barrier_tests {
+    #[test]
+    fn initialization_is_counted_before_the_worker_runs() {
+        let work = super::InitWork::new();
+        assert!(!super::quiesce(std::time::Duration::ZERO), "initialization is still in flight");
+        drop(work);
     }
 }

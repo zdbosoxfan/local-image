@@ -288,11 +288,19 @@ fn inside_distance(mask: &[bool], w: usize, h: usize) -> Vec<f32> {
 /// The mean-value membrane of a patch: for every pixel of `mask` (row-major `w × h`), the
 /// interpolation of `diff` (`ch` values per pixel, read on the patch's boundary pixels) from the
 /// patch boundary. Pixels outside the mask get 0. Any `ch` works; the solver handles 8 channels
-/// at a time, so wider inputs are computed in groups of 8 and interleaved back.
+/// at a time, so wider inputs are computed in groups of 8 and interleaved back. Zero dimensions,
+/// zero channels or dimensions exceeding the representable buffer size return an empty vector.
 pub fn mvc_membrane(w: usize, h: usize, mask: &[bool], diff: &[f32], ch: usize) -> Vec<f32> {
+    // Invalid dimensions must not overflow before the input-length checks (nor ask Vec for a
+    // capacity beyond Rust's isize byte limit). Zero channels have no membrane to evaluate.
+    let Some(pixels) = w.checked_mul(h) else { return Vec::new() };
+    let Some(len) = pixels.checked_mul(ch).filter(|len| *len <= isize::MAX as usize / std::mem::size_of::<f32>()) else { return Vec::new() };
+    if len == 0 {
+        return Vec::new();
+    }
     if ch > 8 {
-        let mut out = vec![0.0f32; w * h * ch];
-        if w == 0 || h == 0 || mask.len() < w * h || diff.len() < w * h * ch {
+        let mut out = vec![0.0f32; len];
+        if mask.len() < pixels || diff.len() < len {
             return out;
         }
         for c0 in (0..ch).step_by(8) {
@@ -305,8 +313,8 @@ pub fn mvc_membrane(w: usize, h: usize, mask: &[bool], diff: &[f32], ch: usize) 
         }
         return out;
     }
-    let mut out = vec![0.0f32; w * h * ch];
-    if w == 0 || h == 0 || mask.len() < w * h || diff.len() < w * h * ch {
+    let mut out = vec![0.0f32; len];
+    if mask.len() < pixels || diff.len() < len {
         return out;
     }
     let (lab, count) = components4(mask, w, h);

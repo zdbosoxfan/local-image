@@ -7,6 +7,31 @@ use serde_json::json;
 use crate::{LightcraftApp, color_icon_data, color_icons, headless::Headless, icons, state::RightPanel};
 
 #[test]
+fn library_shutdown_waits_for_kernel_warm_up_even_without_a_photo() {
+    let mut h = Headless::new(LightcraftApp::new(lightcraft_engine::Session::new(), Default::default()), [900.0, 600.0], 1.0);
+    for _ in 0..3 {
+        h.step();
+    }
+    h.request("ui.key", json!({"key": "Q", "cmd": true}), Duration::from_secs(10));
+    assert!(h.quit_requested());
+    // No photo/renderer job joins the kernel compiler for us. App destruction is the barrier.
+    drop(h);
+    if !lightcraft_engine::gpu::ready() {
+        assert!(
+            !lightcraft_engine::gpu::enabled() && std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(),
+            "Library shutdown left the detached shader compiler running"
+        );
+        eprintln!("skipped: GPU disabled");
+        return;
+    }
+    if let Some(adapter) = lightcraft_engine::gpu::adapter_name() {
+        eprintln!("Library shutdown completed on {adapter}");
+    } else {
+        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "hardware GPU required for the Library exit regression");
+    }
+}
+
+#[test]
 fn all_develop_tools_panels_and_mask_variants_have_icons() {
     for (tool, name) in color_icon_data::DEVELOP_TOOL_ICONS {
         assert_eq!(icons::tool_name(tool), Some(*name));

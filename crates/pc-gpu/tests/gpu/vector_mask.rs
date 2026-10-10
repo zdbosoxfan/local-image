@@ -8,6 +8,11 @@ use photocraft_geom::Rect;
 fn gpu() -> Option<(wgpu::Device, wgpu::Queue, photocraft_gpu::Compositor)> {
     let instance = wgpu::Instance::default();
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
+    let info = adapter.get_info();
+    if std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_some() {
+        assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "hardware GPU required for vector masks");
+    }
+    eprintln!("vector-mask adapter: {info:?}");
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
     // Exact comparison needs 32-bit float targets (see parity.rs); skip on adapters without them.
     if photocraft_gpu::Compositor::preferred_acc_format(&adapter) != wgpu::TextureFormat::Rgba32Float {
@@ -46,7 +51,11 @@ fn painted(name: &str, fmt: PixelFormat, rgba: [f32; 4]) -> Layer {
 #[test]
 fn vector_masks_match_the_cpu() {
     let _lock = crate::GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some(mut g) = gpu() else { return };
+    let Some(mut g) = gpu() else {
+        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "hardware GPU required for vector-mask validation");
+        eprintln!("skipped: no supported vector-mask GPU");
+        return;
+    };
     for depth in [SampleType::U8, SampleType::U16] {
         for (inverted, density) in [(false, 1.0), (true, 1.0), (false, 0.6)] {
             let mut d = Document::with_background("v", Size::new(44, 34), ColorMode::Rgb, depth, Color::WHITE);
