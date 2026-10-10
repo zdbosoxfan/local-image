@@ -18,8 +18,18 @@ use crate::menus::MenuItem;
 use crate::state::Tool;
 use crate::theme::Tokens;
 
+#[path = "vector_packages/persona.rs"]
+pub mod persona;
+
 /// The prefix of the Window › Tool Set item ids (`window.toolSet.<set id>`).
 const MENU_PREFIX: &str = "window.toolSet.";
+
+fn ordered_label(name: &str) -> &'static str {
+    Tool::from_name(name)
+        .map(Tool::label)
+        .or_else(|| photocraft_engine::toolsets::VECTOR_TOOLS.iter().find(|t| t.id == name).map(|t| t.label))
+        .unwrap_or("Tool")
+}
 
 /// A set's name in the UI language: the built-ins are translated, the user's own are theirs.
 pub fn display_name(set: &ToolSet) -> String {
@@ -27,11 +37,13 @@ pub fn display_name(set: &ToolSet) -> String {
         return set.name.clone();
     }
     match set.id.as_str() {
-        "allTools" => tl!("All Tools"),
-        "photographer" => tl!("Photographer"),
-        "essentials" => tl!("Essentials"),
+        "allTools" | "vector.allTools" => tl!("All Tools"),
+        "photographer" | "vector.photographer" => tl!("Photographer"),
+        "essentials" | "vector.essentials" => tl!("Essentials"),
         "retouching" => tl!("Retouching"),
         "ai" => tl!("AI"),
+        "vector.illustration" => tl!("Illustration"),
+        "vector.layout" => tl!("Layout & Type"),
         _ => set.name.as_str(),
     }
     .to_string()
@@ -39,7 +51,7 @@ pub fn display_name(set: &ToolSet) -> String {
 
 fn sets(app: &PhotocraftApp) -> (String, Vec<ToolSet>) {
     let c = &app.session.prefs().toolbar;
-    (c.active().id, c.all_sets())
+    (c.active().id, c.sets_for(c.persona))
 }
 
 /// The switcher button at the top of the toolbar: a menu of the sets and a way to edit them.
@@ -69,6 +81,38 @@ pub fn switcher(app: &mut PhotocraftApp, ui: &mut egui::Ui, size: f32) {
 
 /// Window › Tool Set › <each set>, then Edit Toolbar…: inserted after Window › Tools.
 pub fn menu_items(app: &PhotocraftApp, items: &mut Vec<MenuItem>) {
+    let active_persona = app.session.prefs().toolbar.persona;
+    let mut personas = Vec::new();
+    for (id, label, shortcut, family) in [
+        ("view.persona.pixel", tl!("Pixel persona"), "Cmd+Shift+1", photocraft_engine::toolsets::Persona::Pixel),
+        ("view.persona.vector", tl!("Vector persona"), "Cmd+Shift+2", photocraft_engine::toolsets::Persona::Vector),
+    ] {
+        personas.push(MenuItem {
+            id: id.into(),
+            label: label.into(),
+            path: vec!["View".into(), "Persona".into()],
+            shortcut: app.session.prefs().shortcut(id, Some(shortcut)).map(str::to_string),
+            enabled: true,
+            checked: Some(family == active_persona),
+            color: None,
+        });
+    }
+    insert_section(items, "View", personas);
+    let mut geometry = Vec::new();
+    for op in persona::Geometry::ALL {
+        let id = format!("layer.geometry.{}", op.op());
+        let enabled = persona::GeometryRequest::capture(app, op, false).is_ok_and(|r| app.session.is_enabled_with(op.command(), &r.params()));
+        geometry.push(MenuItem {
+            id,
+            label: tl!(op.label()).into(),
+            path: vec!["Layer".into(), "Geometry".into()],
+            shortcut: None,
+            enabled,
+            checked: None,
+            color: None,
+        });
+    }
+    insert_section(items, "Layer", geometry);
     let Some(after) =
         items.iter().position(|i| i.id == "window.toggle.toolbar").or_else(|| items.iter().rposition(|i| i.path.first().is_some_and(|p| p == "Window")))
     else {
@@ -98,23 +142,44 @@ pub fn menu_items(app: &PhotocraftApp, items: &mut Vec<MenuItem>) {
     }
 }
 
+/// The shortcut editor uses contiguous top-level sections from the menu order.
+fn insert_section(items: &mut Vec<MenuItem>, section: &str, add: Vec<MenuItem>) {
+    let at = items.iter().rposition(|item| item.path.first().is_some_and(|p| p == section)).map_or(items.len(), |i| i + 1);
+    items.splice(at..at, add);
+}
+
 pub fn handles(id: &str) -> bool {
-    id.starts_with(MENU_PREFIX)
+    id.starts_with(MENU_PREFIX) || matches!(id, "view.persona.pixel" | "view.persona.vector") || id.starts_with("layer.geometry.")
 }
 
 /// Run a Window › Tool Set item.
 pub fn run(app: &mut PhotocraftApp, id: &str) -> Option<Result<Value, String>> {
+    if let Some(family) = id.strip_prefix("view.persona.") {
+        return Some(app.run("persona.select", json!({"persona": family})));
+    }
+    if let Some(key) = id.strip_prefix("layer.geometry.") {
+        let op = persona::Geometry::ALL.into_iter().find(|op| op.op() == key)?;
+        return Some(persona::GeometryRequest::capture(app, op, false).and_then(|r| r.execute(app)));
+    }
     let set = id.strip_prefix(MENU_PREFIX)?;
     Some(app.run("toolset.select", json!({"id": set})))
 }
 
 pub fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
+    if let Some(family) = id.strip_prefix("view.persona.") {
+        return Some(match family {
+            "pixel" => app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Pixel,
+            "vector" => app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector,
+            _ => return None,
+        });
+    }
     let set = id.strip_prefix(MENU_PREFIX)?;
     Some(app.session.prefs().toolbar.active().id == set)
 }
 
 /// The Toolbar tab of Edit › Toolbar…. `f` is the dialog's field map (the rename box).
 pub fn tab(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) {
+    persona::switcher(app, ui);
     let t = Tokens::get(ui.ctx());
     let (active_id, all) = sets(app);
     let active = all.iter().find(|s| s.id == active_id).cloned().unwrap_or_default();
@@ -193,16 +258,21 @@ pub fn tab(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value
                 egui::Grid::new("toolbar-grid").num_columns(3).spacing([16.0, 4.0]).show(ui, |ui| {
                     let mut tools: Vec<String> = active.tools.clone();
                     let mut changed = false;
-                    let mut ordered = Tool::ALL.to_vec();
-                    let ranks: std::collections::HashMap<Tool, usize> =
-                        active.tools.iter().enumerate().filter_map(|(i, name)| Tool::from_name(name).map(|tool| (tool, i))).collect();
-                    ordered.sort_by_key(|tool| ranks.get(tool).copied().unwrap_or(usize::MAX));
+                    let mut ordered: Vec<(String, &'static str)> = if active.persona == photocraft_engine::toolsets::Persona::Vector {
+                        photocraft_engine::toolsets::VECTOR_TOOLS.iter().map(|tool| (tool.id.to_string(), tool.label)).collect()
+                    } else {
+                        Tool::ALL
+                            .iter()
+                            .filter(|tool| photocraft_engine::toolsets::supports(&format!("{tool:?}"), active.persona))
+                            .map(|tool| (format!("{tool:?}"), tool.label()))
+                            .collect()
+                    };
+                    ordered.sort_by_key(|(name, _)| active.tools.iter().position(|n| n == name).unwrap_or(usize::MAX));
                     let mut reorder = None;
-                    for tool in ordered {
-                        let name = format!("{tool:?}");
+                    for (name, label) in ordered {
                         let mut on = tools.contains(&name);
                         let was = on;
-                        ui.add_enabled_ui(!builtin, |ui| crate::widgets::checkbox(ui, &mut on, tl!(tool.label())));
+                        ui.add_enabled_ui(!builtin, |ui| crate::widgets::checkbox(ui, &mut on, tl!(label)));
                         if on != was && !builtin {
                             if on {
                                 tools.push(name.clone());
@@ -211,14 +281,15 @@ pub fn tab(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value
                             }
                             changed = true;
                         }
-                        ui.label(crate::tool_tips::shortcut(&app.session, tool).unwrap_or_default());
+                        ui.label(Tool::from_name(&name).and_then(|tool| crate::tool_tips::shortcut(&app.session, tool)).unwrap_or_default());
                         ui.horizontal(|ui| {
                             let index = tools.iter().position(|n| *n == name);
                             for (delta, label) in [(-1isize, tl!("Up")), (1isize, tl!("Down"))] {
                                 let enabled = !builtin && index.is_some_and(|i| (i as isize + delta) >= 0 && (i as isize + delta) < tools.len() as isize);
                                 let response = ui.add_enabled(enabled, egui::Button::new(label).small());
-                                response
-                                    .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, format!("{}: {}", tl!(tool.label()), label)));
+                                response.widget_info(|| {
+                                    egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, format!("{}: {}", tl!(ordered_label(&name)), label))
+                                });
                                 if response.clicked() {
                                     reorder = index.map(|i| (i, (i as isize + delta) as usize));
                                 }
