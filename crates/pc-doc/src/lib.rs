@@ -20,6 +20,7 @@ pub mod text;
 pub mod text_styles;
 pub mod variables;
 pub mod vector;
+pub mod vector_design;
 pub mod video;
 
 use std::sync::Arc;
@@ -45,6 +46,8 @@ pub use variables::{DataSet, DataValue, PixelAlign, PixelMethod, VarKind, Variab
 pub use vector::{
     ClippingPath, FillRule, Knot, LineCap, LineJoin, LiveShape, NamedPath, Path, PathOp, ShapeLayer, ShapeStroke, StrokeAlign, Subpath, VectorMask,
 };
+pub use vector_design::VectorData;
+pub use vector_design::structure::{DesignUnits, SymbolDef, SymbolId, SymbolInstance};
 pub use video::{Timeline, VideoData, VideoSource};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -469,6 +472,8 @@ impl LayerContent {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Layer {
+    /// Additive vector-persona metadata; empty for legacy layers.
+    pub vector: VectorData,
     pub id: LayerId,
     pub name: String,
     pub visible: bool,
@@ -520,6 +525,7 @@ pub struct Layer {
 impl Layer {
     pub fn new(name: impl Into<String>, content: LayerContent) -> Self {
         Layer {
+            vector: VectorData::default(),
             id: LayerId::fresh(),
             name: name.into(),
             visible: true,
@@ -662,6 +668,10 @@ pub struct Metadata {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Document {
+    /// Vector symbol masters. Instance content is activated with format v2 in V8.
+    pub symbols: Vec<SymbolDef>,
+    /// Display units only; geometry remains pixels and resolution_dpi converts physical units.
+    pub design_units: DesignUnits,
     pub id: DocId,
     pub name: String,
     pub size: Size,
@@ -721,6 +731,8 @@ pub type LayerPath = Vec<usize>;
 impl Document {
     pub fn new(name: impl Into<String>, size: Size, mode: ColorMode, depth: SampleType) -> Self {
         Document {
+            symbols: Vec::new(),
+            design_units: DesignUnits::Pixels,
             id: DocId::fresh(),
             name: name.into(),
             size,

@@ -772,6 +772,34 @@
           "url": "https://potrace.sourceforge.net/"
         },
         {
+          "name": "VectorCraft",
+          "used_for": "Appearance data adapted to Local Image's Fill/ShapeStroke model, informed by VectorCraft crates/doc/src/appearance.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/doc/src/appearance.rs (data design, adapted to Local Image)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-doc/src/vector_design/appearance.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/doc/src/appearance.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Live group data informed by VectorCraft crates/doc/src/live.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/doc/src/live.rs (data design, adapted to Local Image)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-doc/src/vector_design/live.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/doc/src/live.rs"
+        },
+        {
           "name": "vkdt",
           "author": "Johannes Hanika",
           "used_for": "The local-Laplacian reduce/assemble stencils and sampled construction in LI Tone, with Local Image's exposure remapping and rectangular pyramid extensions.",
@@ -1161,6 +1189,20 @@
             "licenses/photocraft-ATTRIBUTION.md"
           ],
           "url": "https://github.com/storytold/photocraft"
+        },
+        {
+          "name": "VectorCraft",
+          "author": "ArtCraft Team and the VectorCraft contributors",
+          "used_for": "The vector appearance and live-group data designs, adapted to Local Image's layers and paint model.",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-NOTICE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "assets/ATTRIBUTION-vectorcraft.md"
+          ],
+          "url": "https://github.com/storytold/vectorcraft"
         }
       ]
     },

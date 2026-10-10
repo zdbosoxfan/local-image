@@ -1,0 +1,522 @@
+{
+  "format_version": 1,
+  "generator": "photocraft-format 2.0.0-alpha.1",
+  "document": {
+    "id": 1,
+    "name": "Legacy vector fixture",
+    "size": {
+      "width": 32,
+      "height": 24
+    },
+    "resolution_dpi": 72.0,
+    "mode": "Rgb",
+    "depth": "U8",
+    "icc_profile": null,
+    "layers": [
+      {
+        "id": 2,
+        "name": "Rectangle",
+        "visible": true,
+        "locks": {
+          "transparency": false,
+          "pixels": false,
+          "position": false,
+          "artboard": false,
+          "all": false
+        },
+        "blend": "Normal",
+        "opacity": 1.0,
+        "fill_opacity": 1.0,
+        "clipped": false,
+        "mask": null,
+        "vector_mask": {
+          "path": {
+            "subpaths": [
+              {
+                "closed": true,
+                "knots": [
+                  {
+                    "anchor": {
+                      "x": 2.0,
+                      "y": 2.0
+                    },
+                    "in_ctrl": {
+                      "x": 2.0,
+                      "y": 2.0
+                    },
+                    "out_ctrl": {
+                      "x": 2.0,
+                      "y": 2.0
+                    },
+                    "smooth": false
+                  },
+                  {
+                    "anchor": {
+                      "x": 18.0,
+                      "y": 2.0
+                    },
+                    "in_ctrl": {
+                      "x": 18.0,
+                      "y": 2.0
+                    },
+                    "out_ctrl": {
+                      "x": 18.0,
+                      "y": 2.0
+                    },
+                    "smooth": false
+                  },
+                  {
+                    "anchor": {
+                      "x": 18.0,
+                      "y": 16.0
+                    },
+                    "in_ctrl": {
+                      "x": 18.0,
+                      "y": 16.0
+                    },
+                    "out_ctrl": {
+                      "x": 18.0,
+                      "y": 16.0
+                    },
+                    "smooth": false
+                  },
+                  {
+                    "anchor": {
+                      "x": 2.0,
+                      "y": 16.0
+                    },
+                    "in_ctrl": {
+                      "x": 2.0,
+                      "y": 16.0
+                    },
+                    "out_ctrl": {
+                      "x": 2.0,
+                      "y": 16.0
+                    },
+                    "smooth": false
+                  }
+                ],
+                "op": "Combine"
+              }
+            ],
+            "fill_rule": "NonZero",
+            "inverted": false
+          },
+          "enabled": true,
+          "linked": true,
+          "density": 1.0,
+          "feather": 0.0
+        },
+        "effects": {
+          "enabled": true,
+          "items": [],
+          "psd_raw": null,
+          "reference": null
+        },
+        "label": "None",
+        "content": {
+          "kind": "shape",
+          "fill": {
+            "Solid": {
+              "mode": "Rgb",
+              "c": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "alpha": 1.0
+            }
+          },
+          "cache": null,
+          "psd_raw": null,
+          "path": {
+            "subpaths": [
+              {
+                "closed": true,
+                "knots": [
+                  {
+                    "anchor": {
+                      "x": 2.0,
+                      "y": 2.0
+                    },
+                    "in_ctrl": {
+                      "x": 2.0,
+                      "y": 2.0
+                    },
+                    "out_ctrl": {
+                      "x": 2.0,
+                      "y": 2.0
+                    },
+                    "smooth": false
+                  },
+                  {
+                    "anchor": {
+                      "x": 18.0,
+                      "y": 2.0
+                    },
+                    "in_ctrl": {
+                      "x": 18.0,
+                      "y": 2.0
+                    },
+                    "out_ctrl": {
+                      "x": 18.0,
+                      "y": 2.0
+                    },
+                    "smooth": false
+                  },
+                  {
+                    "anchor": {
+                      "x": 18.0,
+                      "y": 16.0
+                    },
+                    "in_ctrl": {
+                      "x": 18.0,
+                      "y": 16.0
+                    },
+                    "out_ctrl": {
+                      "x": 18.0,
+                      "y": 16.0
+                    },
+                    "smooth": false
+                  },
+                  {
+                    "anchor": {
+                      "x": 2.0,
+                      "y": 16.0
+                    },
+                    "in_ctrl": {
+                      "x": 2.0,
+                      "y": 16.0
+                    },
+                    "out_ctrl": {
+                      "x": 2.0,
+                      "y": 16.0
+                    },
+                    "smooth": false
+                  }
+                ],
+                "op": "Combine"
+              }
+            ],
+            "fill_rule": "NonZero",
+            "inverted": false
+          },
+          "stroke": {
+            "width": 3.0,
+            "paint": {
+              "Solid": {
+                "mode": "Rgb",
+                "c": [
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "alpha": 1.0
+              }
+            },
+            "opacity": 1.0,
+            "align": "Center",
+            "cap": "Butt",
+            "join": "Miter",
+            "miter_limit": 100.0,
+            "dashes": [],
+            "dash_offset": 0.0
+          },
+          "live": {
+            "kind": "rect",
+            "rect": [
+              2.0,
+              2.0,
+              16.0,
+              14.0
+            ],
+            "radii": [
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "psd_blocks": [],
+        "psd_id": null,
+        "fill_cache": null,
+        "link_group": null,
+        "video": null
+      },
+      {
+        "id": 3,
+        "name": "Legacy text",
+        "visible": true,
+        "locks": {
+          "transparency": false,
+          "pixels": false,
+          "position": false,
+          "artboard": false,
+          "all": false
+        },
+        "blend": "Normal",
+        "opacity": 1.0,
+        "fill_opacity": 1.0,
+        "clipped": false,
+        "mask": null,
+        "vector_mask": null,
+        "effects": {
+          "enabled": true,
+          "items": [],
+          "psd_raw": null,
+          "reference": null
+        },
+        "label": "None",
+        "content": {
+          "kind": "text",
+          "text": "Old",
+          "font_family": "",
+          "size_pt": 12.0,
+          "color": {
+            "mode": "Rgb",
+            "c": [
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "alpha": 1.0
+          },
+          "transform": {
+            "m": [
+              1.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "cache": null,
+          "psd_raw": null,
+          "runs": [],
+          "paragraphs": [],
+          "shape": "Point",
+          "orientation": "Horizontal",
+          "antialias": "Smooth",
+          "warp": null
+        },
+        "psd_blocks": [],
+        "psd_id": null,
+        "fill_cache": null,
+        "link_group": null,
+        "video": null
+      }
+    ],
+    "channels": [],
+    "guides": {
+      "horizontal": [],
+      "vertical": []
+    },
+    "selection": null,
+    "metadata": {
+      "xmp": null,
+      "exif": null,
+      "psd_resources": [],
+      "psd_global_blocks": []
+    },
+    "global_light": {
+      "angle": 120.0,
+      "altitude": 30.0
+    },
+    "paths": [
+      {
+        "name": "Saved outline",
+        "path": {
+          "subpaths": [
+            {
+              "closed": true,
+              "knots": [
+                {
+                  "anchor": {
+                    "x": 2.0,
+                    "y": 2.0
+                  },
+                  "in_ctrl": {
+                    "x": 2.0,
+                    "y": 2.0
+                  },
+                  "out_ctrl": {
+                    "x": 2.0,
+                    "y": 2.0
+                  },
+                  "smooth": false
+                },
+                {
+                  "anchor": {
+                    "x": 18.0,
+                    "y": 2.0
+                  },
+                  "in_ctrl": {
+                    "x": 18.0,
+                    "y": 2.0
+                  },
+                  "out_ctrl": {
+                    "x": 18.0,
+                    "y": 2.0
+                  },
+                  "smooth": false
+                },
+                {
+                  "anchor": {
+                    "x": 18.0,
+                    "y": 16.0
+                  },
+                  "in_ctrl": {
+                    "x": 18.0,
+                    "y": 16.0
+                  },
+                  "out_ctrl": {
+                    "x": 18.0,
+                    "y": 16.0
+                  },
+                  "smooth": false
+                },
+                {
+                  "anchor": {
+                    "x": 2.0,
+                    "y": 16.0
+                  },
+                  "in_ctrl": {
+                    "x": 2.0,
+                    "y": 16.0
+                  },
+                  "out_ctrl": {
+                    "x": 2.0,
+                    "y": 16.0
+                  },
+                  "smooth": false
+                }
+              ],
+              "op": "Combine"
+            }
+          ],
+          "fill_rule": "NonZero",
+          "inverted": false
+        },
+        "psd_raw": null
+      }
+    ],
+    "work_path": {
+      "subpaths": [
+        {
+          "closed": true,
+          "knots": [
+            {
+              "anchor": {
+                "x": 2.0,
+                "y": 2.0
+              },
+              "in_ctrl": {
+                "x": 2.0,
+                "y": 2.0
+              },
+              "out_ctrl": {
+                "x": 2.0,
+                "y": 2.0
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 18.0,
+                "y": 2.0
+              },
+              "in_ctrl": {
+                "x": 18.0,
+                "y": 2.0
+              },
+              "out_ctrl": {
+                "x": 18.0,
+                "y": 2.0
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 18.0,
+                "y": 16.0
+              },
+              "in_ctrl": {
+                "x": 18.0,
+                "y": 16.0
+              },
+              "out_ctrl": {
+                "x": 18.0,
+                "y": 16.0
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 2.0,
+                "y": 16.0
+              },
+              "in_ctrl": {
+                "x": 2.0,
+                "y": 16.0
+              },
+              "out_ctrl": {
+                "x": 2.0,
+                "y": 16.0
+              },
+              "smooth": false
+            }
+          ],
+          "op": "Combine"
+        }
+      ],
+      "fill_rule": "NonZero",
+      "inverted": false
+    },
+    "clipping_path": {
+      "name": "Saved outline",
+      "flatness": 0.0
+    },
+    "quick_mask": null,
+    "patterns": [],
+    "color_table": null,
+    "duotone": null,
+    "layer_comps": [],
+    "last_applied_comp": null,
+    "last_document_state": null,
+    "variables": {
+      "defs": [],
+      "data_sets": [],
+      "active": null
+    },
+    "timeline": null,
+    "measurement": {
+      "scale": {
+        "pixel_length": 1.0,
+        "logical_length": 1.0,
+        "units": "pixels"
+      },
+      "count_groups": [],
+      "active_count_group": 0,
+      "ruler": null
+    },
+    "notes": [],
+    "text_styles": {
+      "character": [],
+      "paragraph": [],
+      "basic": {
+        "id": 0,
+        "name": "Basic Paragraph",
+        "para_attrs": {},
+        "char_attrs": {}
+      },
+      "psd_raw": null
+    }
+  },
+  "thumbnail": null,
+  "composite": null
+}

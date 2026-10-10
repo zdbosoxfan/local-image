@@ -168,6 +168,7 @@ fn layer_m(l: &Layer, sink: &mut dyn Sink) -> LayerM {
         },
     };
     LayerM {
+        vector: l.vector.clone(),
         id: l.id.0,
         name: l.name.clone(),
         visible: l.visible,
@@ -211,6 +212,8 @@ fn channel_m(c: &AlphaChannel, sink: &mut dyn Sink) -> ChannelM {
 
 pub(crate) fn doc_m(d: &Document, sink: &mut dyn Sink) -> DocM {
     DocM {
+        design_units: d.design_units,
+        symbols: d.symbols.iter().map(|s| SymbolDefM { id: s.id, name: s.name.clone(), layers: s.layers.iter().map(|l| layer_m(l, sink)).collect() }).collect(),
         id: d.id.0,
         name: d.name.clone(),
         size: d.size,
@@ -467,6 +470,7 @@ impl Loader<'_> {
             psd_blocks.push((key4(k)?, self.fetch.blob(h)?));
         }
         Ok(Layer {
+            vector: m.vector.clone(),
             id: self.id(m.id),
             name: m.name.clone(),
             visible: m.visible,
@@ -538,6 +542,18 @@ impl Loader<'_> {
             DocId::fresh()
         };
         Ok(Document {
+            design_units: m.design_units,
+            symbols: m
+                .symbols
+                .iter()
+                .map(|s| {
+                    Ok(photocraft_doc::SymbolDef {
+                        id: s.id,
+                        name: s.name.clone(),
+                        layers: s.layers.iter().map(|l| self.layer(l, 0)).collect::<Result<Vec<_>>>()?,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?,
             id,
             name: m.name.clone(),
             size: m.size,

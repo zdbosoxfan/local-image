@@ -1002,6 +1002,8 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::type_cmds::specs());
     v.extend(crate::transform_cmds::specs());
     v.extend(crate::float_cmds::specs());
+    v.extend(crate::vector_api::specs());
+    v.extend(crate::vector_packages::specs());
     v.extend(crate::vector_cmds::specs());
     v.extend(crate::vectorize_cmds::specs());
     v.extend(crate::path_edit_cmds::specs());
