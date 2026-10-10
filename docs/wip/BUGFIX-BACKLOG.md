@@ -7,7 +7,10 @@ Full workspace + GPU (RTX 5090) suites, benchmarks and these items are handled i
 - **NVIDIA driver segfault at process exit (2026-10-09):** `lightcraft-ui-egui --lib` passes all tests, then crashes in
   `libnvidia-glvkspirv.so` (driver shader-compiler thread) while exiting. Driver teardown race; if the app does the
   same on quit, the GPU start-up marker is already cleared (fa739578). Consider waiting for device idle before exit.
-- **ComfyUI left running after V2 quits (owner, 2026-10-09):** the auto-started ComfyUI (`auto_start_comfy`) kept
+- **FIXED (opus-scan 17ce7e28): ComfyUI left running after V2 quits (owner, 2026-10-09):** quitting now kills
+  and reaps the ComfyUI Local Image started (never a user-started one). Still open: a crash/kill of
+  Local Image itself leaves it running; idle model unloading not done.
+  Original report: the auto-started ComfyUI (`auto_start_comfy`) kept
   running after Local Image V2 closed and held 29–46 GB of RAM (and ~20 GB VRAM), nearly exhausting the 60 GB PC. Stop
   the ComfyUI the app started on quit (not one the user started themselves); consider unloading models when idle.
 - Verify PSD v7 slice descriptor enum names (horizontal Left/Cntr/Rght, vertical Top /Cntr/Btom, `bgColorType` "Clr ") against a PSD saved by Photoshop — written from memory in the bug-fix run (`crates/pc-psd`).
@@ -25,6 +28,8 @@ Full workspace + GPU (RTX 5090) suites, benchmarks and these items are handled i
 - Coverage tests from the DeepSeek dispatcher: any `#[ignore = "BUG: …"]` they add is a backlog item.
 
 ## Suspected bugs from DeepSeek coverage tests (verify first; each is an `#[ignore = "BUG: …"]` test)
+(opus-scan 2026-10-09: no `#[ignore = "BUG…"]` tests remain in the tree; the lc-pipeline and pc-algo items were fixed in
+5085dcc9 / cfb3873c; the other items were not re-verified one by one, but their ignored tests are gone (ds-fix merges).)
 - text contains with empty value should not match everything, but current code matches all — `crates/lc-catalog/tests/coverage/ds_rules_coverage.rs`
 - encode panics on width=0 due to chunks_mut(0) — `crates/lc-codecs/tests/coverage/ds_jpeg_par_coverage.rs`
 - RawProcessing accepts malformed JSON array — `crates/lc-develop/tests/coverage/ds_tools_coverage.rs`

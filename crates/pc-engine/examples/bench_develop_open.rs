@@ -4,8 +4,11 @@
 //! `develop.syncPhoto` (re-develops the layer) — both on the UI thread today.
 //!
 //! ```sh
-//! cargo run --release -p photocraft-engine --example bench_develop_open -- <photo.ARW|.jpg|…> [--reps 3]
+//! cargo run --release -p photocraft-engine --example bench_develop_open -- <photo.ARW|.jpg|…> [--reps 3] [--typical]
 //! ```
+//!
+//! `--typical` opens with the edits `lightcraft-engine`'s `render_bench` calls typical (exposure,
+//! highlights/shadows, clarity, texture, dehaze, noise reduction, sharpening) instead of none.
 
 use std::time::Instant;
 
@@ -19,10 +22,19 @@ fn main() {
         std::process::exit(2);
     };
     let reps: usize = args.iter().position(|a| a == "--reps").and_then(|i| args.get(i + 1)).and_then(|v| v.parse().ok()).unwrap_or(3).max(1);
+    let base = if args.iter().any(|a| a == "--typical") {
+        json!({ "light": { "exposure": 0.3, "highlights": -40.0, "shadows": 30.0 },
+                "effects": { "clarity": 15.0, "texture": 10.0, "dehaze": 10.0 },
+                "detail": { "nr_luminance": 30.0, "nr_color": 25.0, "sharpen_amount": 40.0 } })
+    } else {
+        json!({})
+    };
+    let mut changed = base.clone();
+    changed["light"]["exposure"] = json!(0.5);
     for rep in 0..reps {
         let mut s = Session::new();
         let t = Instant::now();
-        let r = s.execute("develop.openPhoto", json!({ "path": path, "photo": 1, "settings": {}, "name": "photo" }));
+        let r = s.execute("develop.openPhoto", json!({ "path": path, "photo": 1, "settings": base, "name": "photo" }));
         let open = t.elapsed().as_secs_f64() * 1000.0;
         if let Err(e) = r {
             eprintln!("develop.openPhoto: {e}");
@@ -30,7 +42,7 @@ fn main() {
         }
         let size = s.active().map(|d| (d.doc.size.width, d.doc.size.height)).unwrap_or_default();
         let t = Instant::now();
-        let r = s.execute("develop.syncPhoto", json!({ "photo": 1, "settings": { "light": { "exposure": 0.5 } } }));
+        let r = s.execute("develop.syncPhoto", json!({ "photo": 1, "settings": changed }));
         let sync = t.elapsed().as_secs_f64() * 1000.0;
         if let Err(e) = r {
             eprintln!("develop.syncPhoto: {e}");
