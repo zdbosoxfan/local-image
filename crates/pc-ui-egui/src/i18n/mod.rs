@@ -601,6 +601,20 @@ mod tests {
     fn every_tl_literal_is_translated() {
         // English until the next translation pass (GPU start-up recovery, October 2026).
         const KEEP_AS_IS: &[&str] = &[];
+        // docs/wip/CODEX-TASK.md explicitly defers translation of the new background
+        // controls. Keep this exception scoped to their keys; remove it when translated.
+        const PENDING_BACKGROUND_TRANSLATIONS: &[&str] = &[
+            "Background blur amount",
+            "Background colour",
+            "Background removal options",
+            "Colour",
+            "IS-Net · CPU",
+            "Install a Subject & Background model to use Standard.",
+            "Keep…",
+            "Output",
+            "Remove the background using the chosen model and output",
+            "Subject & Background model: {model}",
+        ];
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut literals = std::collections::BTreeSet::new();
         let mut stack = vec![dir];
@@ -633,7 +647,10 @@ mod tests {
         assert!(literals.len() > 300, "scan found only {} literals", literals.len());
         for l in LANGUAGES.iter().filter(|l| l.complete_menus) {
             let cat = l.catalog();
-            let missing: Vec<_> = literals.iter().filter(|s| !KEEP_AS_IS.contains(&s.as_str()) && cat.plain(s).is_none()).collect();
+            let missing: Vec<_> = literals
+                .iter()
+                .filter(|s| !KEEP_AS_IS.contains(&s.as_str()) && !PENDING_BACKGROUND_TRANSLATIONS.contains(&s.as_str()) && cat.plain(s).is_none())
+                .collect();
             assert!(missing.is_empty(), "{}: untranslated tl! strings: {missing:#?}", l.code);
         }
     }

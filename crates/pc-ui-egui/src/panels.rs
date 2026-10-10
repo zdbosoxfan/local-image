@@ -2305,8 +2305,9 @@ pub fn properties_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let Some(st) = app.session.active() else { return };
     let Some(id) = st.active_layer else { return };
     let Some(layer) = st.doc.layer(id) else { return };
-    // The floating card appears for adjustment, fill, shape and type layers (their controls live here).
-    if !matches!(layer.content, LayerContent::Adjustment(_) | LayerContent::Fill(_) | LayerContent::Shape(_) | LayerContent::Text(_)) {
+    // Pixel layers also need their background-removal controls in Studio's floating card.
+    if !matches!(layer.content, LayerContent::Adjustment(_) | LayerContent::Fill(_) | LayerContent::Shape(_) | LayerContent::Text(_) | LayerContent::Raster(_))
+    {
         return;
     }
     let layer = layer.clone();
@@ -2377,6 +2378,7 @@ pub fn properties_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     match &layer.content {
                         LayerContent::Shape(_) => crate::vector_ui::shape_properties(app, ui, id),
                         LayerContent::Text(_) => crate::type_tool::type_properties(app, ui),
+                        LayerContent::Raster(_) => crate::background_ui::section(app, ui, id.0),
                         _ => {}
                     }
                 }
@@ -2449,7 +2451,11 @@ fn properties_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     };
     // Photoshop shows the Document properties when nothing or the Background layer is selected.
     if crate::doc_props_ui::shows_document(&st.doc, st.active_layer) {
+        let background = st.active_layer;
         crate::doc_props_ui::properties(app, ui);
+        if let Some(id) = background {
+            crate::background_ui::section(app, ui, id.0);
+        }
         return;
     }
     let Some(id) = st.active_layer else { return };
@@ -2477,6 +2483,9 @@ fn properties_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             ui.add_space(6.0);
         }
         layer_controls(app, ui, layer);
+        if matches!(layer.content, LayerContent::Raster(_)) {
+            crate::background_ui::section(app, ui, layer.id.0);
+        }
         if matches!(layer.content, LayerContent::Text(_)) {
             crate::type_tool::type_properties(app, ui);
         }
