@@ -1,0 +1,13 @@
+{
+  "nodes": [
+    {"id": 1, "type": "CheckpointLoaderSimple", "inputs": [], "widgets_values": ["new-model.safetensors"], "properties": {"models": [{"name": "new-model.safetensors", "directory": "checkpoints", "url": "https://huggingface.co/example/new/resolve/main/new-model.safetensors"}]}},
+    {"id": 2, "type": "LoadImage", "inputs": [], "widgets_values": ["input.png", "image"]},
+    {"id": 3, "type": "VAEEncode", "inputs": [{"name": "pixels", "link": 1}, {"name": "vae", "link": 2}], "widgets_values": []},
+    {"id": 4, "type": "CLIPTextEncode", "inputs": [{"name": "clip", "link": 3}], "widgets_values": ["a landscape"]},
+    {"id": 5, "type": "CLIPTextEncode", "inputs": [{"name": "clip", "link": 4}], "widgets_values": ["bad quality"]},
+    {"id": 6, "type": "KSampler", "inputs": [{"name": "model", "link": 5}, {"name": "positive", "link": 6}, {"name": "negative", "link": 7}, {"name": "latent_image", "link": 8}], "widgets_values": [42, "fixed", 12, 5.0, "euler", "simple", 0.3]},
+    {"id": 7, "type": "VAEDecode", "inputs": [{"name": "samples", "link": 9}, {"name": "vae", "link": 10}], "widgets_values": []},
+    {"id": 8, "type": "SaveImage", "inputs": [{"name": "images", "link": 11}], "widgets_values": ["Refine"]}
+  ],
+  "links": [[1,2,0,3,0,"IMAGE"],[2,1,2,3,1,"VAE"],[3,1,1,4,0,"CLIP"],[4,1,1,5,0,"CLIP"],[5,1,0,6,0,"MODEL"],[6,4,0,6,1,"CONDITIONING"],[7,5,0,6,2,"CONDITIONING"],[8,3,0,6,3,"LATENT"],[9,6,0,7,0,"LATENT"],[10,1,2,7,1,"VAE"],[11,7,0,8,0,"IMAGE"]]
+}

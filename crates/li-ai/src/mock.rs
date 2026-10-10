@@ -394,6 +394,10 @@ pub fn object_info_with(model_dir: Option<&std::path::Path>) -> Value {
     for (class, req, opt) in NODE_DEFS {
         info.insert((*class).into(), node_def(req, opt, &lists));
     }
+    // ComfyUI's live defaults, used by architecture-independent img2img discovery.
+    info["KSampler"]["input"]["required"]["steps"] = json!(["INT", {"default":20,"min":1,"max":10000}]);
+    info["KSampler"]["input"]["required"]["cfg"] = json!(["FLOAT", {"default":8.0,"min":0.0,"max":100.0}]);
+    info["KSampler"]["input"]["required"]["denoise"] = json!(["FLOAT", {"default":1.0,"min":0.0,"max":1.0}]);
     Value::Object(info)
 }
 
@@ -616,7 +620,8 @@ fn render(graph: &Value, uploads: &HashMap<String, Vec<u8>>) -> Vec<u8> {
     // Refine, inpaint and generic edits (a source image, no empty latent): the source, tinted;
     // green-filled areas (instruction inpainting) are painted with the prompt colour.
     let empty_latent = ["EmptyLatentImage", "EmptyFlux2LatentImage", "EmptySD3LatentImage"].iter().any(|c| input_of(graph, c).is_some());
-    let edits = input_of(graph, "SetLatentNoiseMask").is_some()
+    let edits = input_of(graph, "ReferenceLatent").is_some()
+        || input_of(graph, "SetLatentNoiseMask").is_some()
         || input_of(graph, "InpaintModelConditioning").is_some()
         || input_of(graph, "TextEncodeQwenImageEditPlus").is_some()
         || (!empty_latent && input_of(graph, "VAEEncode").is_some());
@@ -653,7 +658,7 @@ fn render(graph: &Value, uploads: &HashMap<String, Vec<u8>>) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     /// Tests that refresh the shared installed-model inventory take turns (it is process-global).
-    static INVENTORY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    use crate::inventory::TEST_LOCK as INVENTORY_LOCK;
 
     use super::*;
     use crate::catalog::ModelId;
@@ -798,20 +803,20 @@ mod tests {
         req.refine = Some(step.clone());
         ai.generate(&req, &ctl).unwrap();
         let prompts = server.prompts();
-        assert_eq!(prompts.len(), 2);
+        assert_eq!(prompts.len(), 3);
         assert!(!classes_of(&prompts[0]).contains(&"LoraLoader".into()), "the draft keeps its own styles");
-        let loader = prompts[1].as_object().unwrap().values().find(|n| n["class_type"] == "LoraLoader").unwrap();
+        let loader = prompts[2].as_object().unwrap().values().find(|n| n["class_type"] == "LoraLoader").unwrap();
         assert_eq!(loader["inputs"]["lora_name"], "sdxl_detail_tweaker.safetensors");
         assert!((loader["inputs"]["strength_model"].as_f64().unwrap() - 0.65).abs() < 1e-6);
         assert!((loader["inputs"]["strength_clip"].as_f64().unwrap() - 0.65).abs() < 1e-6);
-        let sampler = prompts[1].as_object().unwrap().values().find(|n| n["class_type"] == "KSampler").unwrap();
+        let sampler = prompts[2].as_object().unwrap().values().find(|n| n["class_type"] == "KSampler").unwrap();
         assert_eq!(sampler["inputs"]["steps"], 31);
         assert_eq!(sampler["inputs"]["cfg"], 7.5);
         let mut invalid = step.clone();
         invalid.loras[0].name = "flux_realism_lora.safetensors".into();
         req.refine = Some(invalid);
-        let error = ai.generate(&req, &ctl).unwrap_err().to_string();
-        assert!(error.contains("for flux1"), "{error}");
+        ai.generate(&req, &ctl).unwrap();
+        assert!(!classes_of(server.prompts().last().unwrap()).contains(&"LoraLoader".into()), "wrong-family styles are filtered from refinement");
         let mut invalid = step.clone();
         invalid.loras[0].strength = f32::NAN;
         req.refine = Some(invalid);
@@ -937,7 +942,7 @@ mod tests {
         let before = server.prompts().len();
         let out = ai.generate(&req, &ctl).unwrap();
         assert_eq!(out.dimensions(), (768, 768));
-        assert_eq!(server.prompts().len(), before + 2);
+        assert_eq!(server.prompts().len(), before + 3);
         // Upscale-refine: tiles cover a 2× enlargement.
         let mut req = GenerateRequest::new(sdxl, "");
         req.variant = "installed".into();

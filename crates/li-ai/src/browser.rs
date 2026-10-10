@@ -579,6 +579,7 @@ pub fn template_files(template: &Value) -> Vec<CatalogFile> {
                     folder: dir.to_owned(),
                     url: url.to_owned(),
                     sha256: sha.map(str::to_ascii_lowercase),
+                    bytes: m.get("size").or_else(|| m.get("bytes")).and_then(Value::as_u64),
                     ..Default::default()
                 });
             }

@@ -33,6 +33,7 @@ fn harness_render(size: egui::Vec2, gpu: bool) -> Harness<'static, PhotocraftApp
     let st = crate::ai_ui::EngineStatus {
         connected: true,
         checked: true,
+        host: li_ai::service().client.host().into(),
         presets: catalog::presets().iter().map(|p| (p.id(), Ok(()))).collect(),
         ..Default::default()
     };
@@ -529,4 +530,95 @@ fn draft_refine_shared_aspect_presets_lock_and_model_grid() {
     assert_eq!((s.width % grid, s.height % grid), (0, 0));
     let old: GenerateState = serde_json::from_value(json!({"width": 320, "height": 240})).unwrap();
     assert!(old.aspect_locked, "old settings load with linked dimensions");
+}
+
+#[test]
+fn autodetect_refine_picker_disables_failure_and_click_retest_verifies_on_worker_gpu() {
+    use egui::accesskit::Role;
+    use li_ai::refine::{Status, Verdict};
+    let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/autodetect-ui");
+    std::fs::create_dir_all(dir.join("checkpoints")).unwrap();
+    std::fs::write(dir.join("checkpoints/autodetect-ui-new.safetensors"), b"fake installed weights").unwrap();
+    let server = li_ai::mock::MockComfy::start().unwrap();
+    server.set_model_dir(&dir);
+    server.delay_ms.store(1, std::sync::atomic::Ordering::SeqCst);
+    li_ai::set_service_override(Some(server.host().into()));
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            li_ai::set_service_override(None);
+            li_ai::catalog::set_installed(Vec::new());
+        }
+    }
+    let _reset = Reset;
+    let client = li_ai::ComfyClient::new(server.host());
+    li_ai::inventory::refresh(&client.object_info().unwrap(), Some(&dir));
+    let model = ModelId::from_key("ckpt:autodetect-ui-new.safetensors").unwrap();
+    server.fail_next();
+    let checker = li_ai::refine::checker();
+    let result = checker.check_in(&client, model, "installed", &dir, true, &li_ai::JobControl::new()).unwrap().unwrap();
+    assert!(matches!(result, Verdict::Failed { .. }));
+    let mut h = harness_render(vec2(1280.0, 800.0), true);
+    open_from_menu(&mut h);
+    let current = format!("{} · {}", ModelId::Klein9B.info().label, ModelId::Klein9B.info().family_label);
+    h.get_by_value(&current).click();
+    h.run_steps(3);
+    h.get_by_role_and_label(Role::Button, &model.info().label).scroll_to_me();
+    h.run_steps(3);
+    assert!(h.get_by_role_and_label(Role::Button, &model.info().label).accesskit_node().is_disabled());
+    h.render().unwrap().save(dir.join("unsupported-picker.png")).unwrap();
+    // This is the actual Re-test button and actual worker, including HTTP queue execution.
+    server.delay_ms.store(600, std::sync::atomic::Ordering::SeqCst);
+    h.get_by_label("Re-test").click();
+    h.run_steps(2);
+    assert_eq!(checker.status(&client, model), Status::Testing);
+    // The UI keeps accepting input while the slow mock job runs.
+    if h.query_by_label("testing…").is_none() {
+        h.get_by_value(&current).click();
+        h.run_steps(3);
+    }
+    h.get_by_label("testing…");
+    let frame_started = Instant::now();
+    h.run_steps(1);
+    h.render().unwrap().save(dir.join("testing-picker.png")).unwrap();
+    let frame_ms = frame_started.elapsed().as_secs_f64() * 1000.0;
+    std::fs::write(dir.join("testing-frame-ms.txt"), format!("{frame_ms:.3}\n")).unwrap();
+    eprintln!("Refine picker update and Vulkan render while checking: {frame_ms:.3} ms (includes screenshot encoding)");
+    let start = Instant::now();
+    while checker.status(&client, model) == Status::Testing && start.elapsed() < Duration::from_secs(10) {
+        std::thread::sleep(Duration::from_millis(10));
+        h.run_steps(1);
+    }
+    assert_eq!(checker.status(&client, model), Status::Verified);
+    h.run_steps(3);
+    let label = model.info().label.clone();
+    let row = h.get_by_role_and_label(Role::Button, &label);
+    assert!(!row.accesskit_node().is_disabled());
+    row.click();
+    h.run_steps(3);
+    assert_eq!(h.state().ui.ai.draft_refine.refinement.model, model.key());
+    h.render().unwrap().save(dir.join("verified-selection.png")).unwrap();
+    assert_eq!(server.prompts().len(), 2, "one failed check and one successful re-test");
+    server.delay_ms.store(2000, std::sync::atomic::Ordering::SeqCst);
+    let current = format!("{} · {}", model.info().label, model.info().family_label);
+    h.get_by_value(&current).click();
+    h.run_steps(2);
+    h.get_by_role_and_label(Role::Button, &label).scroll_to_me();
+    h.run_steps(2);
+    h.get_by_label("Re-test").click();
+    h.run_steps(2);
+    if h.query_by_label("Cancel test").is_none() {
+        h.get_by_value(&current).click();
+        h.run_steps(2);
+    }
+    h.get_by_label("Cancel test").click();
+    h.run_steps(2);
+    let start = Instant::now();
+    while checker.status(&client, model) == Status::Testing && start.elapsed() < Duration::from_secs(10) {
+        std::thread::sleep(Duration::from_millis(10));
+        h.run_steps(1);
+    }
+    assert_eq!(checker.status(&client, model), Status::Unchecked, "cancellation is transient");
+    assert_eq!(server.interrupts(), 0, "the checker never sends a global interrupt");
 }

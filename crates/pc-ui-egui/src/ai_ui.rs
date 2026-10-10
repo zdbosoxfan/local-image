@@ -194,6 +194,7 @@ fn poll_loop(s: Arc<Shared>) {
                     let settings = AiSettings::load();
                     let model_dir = settings.model_dir();
                     li_ai::inventory::refresh(&info, model_dir.is_dir().then_some(model_dir.as_path()));
+                    li_ai::refine::checker().invalidate_changed_files();
                     limits = info.sampler_limits();
                     presets = catalog::presets()
                         .iter()

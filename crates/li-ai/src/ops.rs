@@ -429,6 +429,32 @@ impl Ai {
     }
 
     fn generate_once(&self, req: &GenerateRequest, info: &ObjectInfo, ctl: &JobControl) -> Result<RgbaImage> {
+        if req.mode == GenerateMode::Refine {
+            let source = req.source_and_refs().0.context("Open an image first.")?;
+            let original = req.model.info();
+            let original_denoise = catalog::refine_default_denoise(req.model);
+            let recipe = crate::refine::ensure(&self.client, req.model, &req.variant, ctl)?;
+            let loras = recipe.filter_loras(&req.loras);
+            if let crate::refine::Recipe::Family { profile, .. } = &recipe {
+                Self::validate_loras(info, &loras, profile)?;
+            }
+            let defaults = recipe.defaults();
+            let denoise = if req.denoise == original_denoise { defaults.denoise } else { req.denoise };
+            let steps = if req.steps == original.steps.default as u32 { defaults.steps } else { req.steps };
+            let cfg = if req.guidance == original.guidance.default { defaults.cfg } else { req.guidance };
+            let (prompt, negative) = match &recipe {
+                crate::refine::Recipe::Family { profile, .. } => prompt_rules(profile, &req.prompt, &req.negative),
+                _ => (req.prompt.clone(), req.negative.clone()),
+            };
+            let p = Params {
+                task: Task::Refine { denoise },
+                negative: &negative,
+                loras: &loras,
+                sampler: req.sampler.as_ref().map(|(s, c)| (s.as_str(), c.as_str())),
+                ..Params::create(&prompt, source.width(), source.height(), req.seed, steps, cfg)
+            };
+            return recipe.run(&self.client, source, &p, ctl);
+        }
         let m = req.model.info();
         let f = &m.resolved;
         let a = self.resolve(req.model, &req.variant, info)?;
@@ -635,42 +661,44 @@ impl Ai {
 
     /// Draft → Refine: the refine model resamples the draft (enlarged by `step.scale`).
     fn refine_pass(&self, draft: &RgbaImage, req: &GenerateRequest, step: &RefineStep, info: &ObjectInfo, ctl: &JobControl) -> Result<RgbaImage> {
-        let m = step.model.info();
-        let f = &m.resolved;
-        let a = self.resolve(step.model, &step.variant, info)?;
-        let loras = Self::validate_loras(info, &step.loras, f)?;
-        let (prompt, negative) = prompt_rules(f, &req.prompt, &req.negative);
+        let original = step.model.info();
+        let original_denoise = catalog::refine_default_denoise(step.model);
+        let recipe = crate::refine::ensure(&self.client, step.model, &step.variant, ctl)?;
+        let defaults = recipe.defaults();
         let src = if step.scale > 1.01 {
             let (w, h) = ((draft.width() as f32 * step.scale) as u32, (draft.height() as f32 * step.scale) as u32);
-            imageops::resize(draft, w, h, imageops::FilterType::Lanczos3)
+            imageops::resize(draft, w.min(8192), h.min(8192), imageops::FilterType::Lanczos3)
         } else {
             draft.clone()
         };
-        let p = Params {
-            task: Task::Refine { denoise: step.strength },
-            prompt: &prompt,
-            negative: &negative,
-            width: src.width(),
-            height: src.height(),
-            seed: req.seed.wrapping_add(1),
-            steps: step.steps.unwrap_or(m.steps.default as u32).max(1),
-            cfg: step.guidance.unwrap_or(m.guidance.default),
-            references: 0,
-            loras: &loras,
-            batch: 1,
-            sampler: None,
+        let loras = recipe.filter_loras(&step.loras);
+        if let crate::refine::Recipe::Family { profile, .. } = &recipe {
+            Self::validate_loras(info, &loras, profile)?;
+        }
+        let (prompt, negative) = match &recipe {
+            crate::refine::Recipe::Family { profile, .. } => prompt_rules(profile, &req.prompt, &req.negative),
+            _ => (req.prompt.clone(), req.negative.clone()),
         };
-        if f.pipeline.encode == Encode::QwenImage21 {
-            // Qwen Image 2.1 refines as an instruction edit of the draft.
-            let out =
-                self.qwen_edit(std::slice::from_ref(&src), &prompt, &negative, &step.variant, p.seed, p.steps, p.cfg, step.strength, &loras, info, ctl)?;
-            return Ok(imaging::over_white(&out));
+        let p = Params {
+            task: Task::Refine { denoise: if step.strength == original_denoise { defaults.denoise } else { step.strength } },
+            negative: &negative,
+            loras: &loras,
+            ..Params::create(
+                &prompt,
+                src.width(),
+                src.height(),
+                req.seed.wrapping_add(1),
+                step.steps.filter(|n| *n != original.steps.default as u32).unwrap_or(defaults.steps),
+                step.guidance.filter(|n| *n != original.guidance.default).unwrap_or(defaults.cfg),
+            )
+        };
+        if let crate::refine::Recipe::Family { profile, files, .. } = &recipe
+            && u64::from(src.width()) * u64::from(src.height()) > u64::from(profile.sizes.max).pow(2)
+        {
+            let availability = Availability { available: true, files: files.clone(), ..Default::default() };
+            return self.upscale_refine(&src, 1.0, profile, &availability, p, ctl);
         }
-        let (w, h) = (src.width().min(f.sizes.max.max(1024) * 2), src.height().min(f.sizes.max.max(1024) * 2));
-        if src.width() * src.height() > f.sizes.max * f.sizes.max {
-            return self.upscale_refine(&resize_to(&src, w, h), 1.0, f, &a, p, ctl);
-        }
-        self.refine_image(&src, f, &a, p, Vec::new(), ctl)
+        recipe.run(&self.client, &src, &p, ctl)
     }
 
     /// Qwen Image 2.1 create / edit, as in 0.7 (transparent output, reference canvas rules).

@@ -442,7 +442,7 @@ fn scan_finds_models_and_loras_by_name() {
     assert_eq!(fam("ckpt:juggernautXL_v9.safetensors").as_deref(), Some("sdxl"));
     assert_eq!(fam("unet:flux1-dev-fp8.safetensors").as_deref(), Some("flux1"));
     assert_eq!(fam("unet:qwen_image_edit_2511_bf16.safetensors").as_deref(), Some("qwen-edit"));
-    assert!(fam("ckpt:mystery.safetensors").is_none());
+    assert_eq!(fam("ckpt:mystery.safetensors").as_deref(), Some(""));
     assert!(fam("ckpt:sdxl_detail_LoRA.safetensors").is_none());
 
     assert_eq!(loras.iter().find(|l| l.name == "pony_style.safetensors").unwrap().family.as_deref(), Some("pony"));
