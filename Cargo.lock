@@ -5898,6 +5898,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "photocraft-vecfx"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "photocraft-doc",
+ "photocraft-geom",
+ "photocraft-pathops",
+ "photocraft-vector",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "photocraft-vector"
 version = "2.0.0-alpha.1"
 dependencies = [
