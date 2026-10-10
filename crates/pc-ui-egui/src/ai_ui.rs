@@ -325,7 +325,17 @@ pub fn start_seg_download(spec: &'static li_seg::ModelSpec) {
 
 /// Fetch a bundle in order, with one cumulative progress counter. Kept separate from the
 /// thread so tests can verify sequencing and cancellation without any network.
-fn download_seg_files(spec: &li_seg::ModelSpec, dir: &std::path::Path, ctl: &JobControl, progress: &dyn Fn(u64)) -> anyhow::Result<()> {
+pub fn download_seg_files(spec: &li_seg::ModelSpec, dir: &std::path::Path, ctl: &JobControl, progress: &dyn Fn(u64)) -> anyhow::Result<()> {
+    if matches!(spec.task, li_seg::Task::Denoise { .. }) {
+        let package = dir.join("segmentation").join(format!("{}.dtmodel", spec.id));
+        li_ai::download::download_file(spec.url, &package, spec.bytes, spec.sha256, ctl, progress)?;
+        if ctl.is_cancelled() {
+            anyhow::bail!("download cancelled");
+        }
+        let r = li_seg::denoise::install_bundle(&package, spec, dir);
+        let _ = std::fs::remove_file(&package);
+        return r;
+    }
     download_seg_files_with(spec, dir, ctl, progress, &|file, path, on_bytes| {
         li_ai::download::download_file(file.url, path, file.bytes, file.sha256, ctl, on_bytes)
     })
@@ -397,6 +407,7 @@ fn set_custom_job(dir: &std::path::Path, group: li_seg::Group, job: Option<Custo
 /// What the custom-model options of one function currently show.
 #[derive(Clone, Debug, Default, PartialEq)]
 struct SegOpts {
+    denoise_linear: bool,
     open: bool,
     /// Subject: U²-Net / ImageNet normalisation (else IS-Net style).
     imagenet: bool,
@@ -406,7 +417,11 @@ struct SegOpts {
 
 impl SegOpts {
     fn options(&self) -> li_seg::CustomOptions {
-        li_seg::CustomOptions { norm: if self.imagenet { li_seg::Norm::ImageNet } else { li_seg::Norm::IsNet }, sky_class: self.sky_class.unwrap_or(2) }
+        li_seg::CustomOptions {
+            norm: if self.imagenet { li_seg::Norm::ImageNet } else { li_seg::Norm::IsNet },
+            sky_class: self.sky_class.unwrap_or(2),
+            denoise_linear: self.denoise_linear,
+        }
     }
 }
 
@@ -527,7 +542,11 @@ fn function_row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>,
             ui.horizontal(|ui| {
                 ui.label(RichText::new(crate::i18n::fmt(tl!("Custom: {name}"), &[("name", &c.name)])).strong());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let r = widgets::secondary_button(ui, tl!("Use official model"), 0.0);
+                    let r = widgets::secondary_button(
+                        ui,
+                        if matches!(group, li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise) { tl!("Use default") } else { tl!("Use official model") },
+                        0.0,
+                    );
                     if r.clicked() {
                         match li_seg::clear_custom(dir, group, &dispose) {
                             Ok(_) => set_custom_job(dir, group, None),
@@ -537,7 +556,23 @@ fn function_row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>,
                     ui.label(RichText::new(tl!("In use")).color(Color32::from_rgb(70, 190, 110)));
                 });
             });
-            ui.label(RichText::new(tl!("Your own model, run on the CPU instead of the official one.")).color(t.text_faint).size(11.0));
+            ui.label(
+                RichText::new(if matches!(group, li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise) {
+                    tl!("Your selected restoration model, with CPU fallback.")
+                } else {
+                    tl!("Your own model, run on the CPU instead of the official one.")
+                })
+                .color(t.text_faint)
+                .size(11.0),
+            );
+            if matches!(group, li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise) {
+                let size = c.path(dir).metadata().map(|m| li_ai::download::human_bytes(m.len())).unwrap_or_default();
+                ui.label(
+                    RichText::new(crate::i18n::fmt(tl!("Selected model · {size} · licence from its provider"), &[("size", &size)]))
+                        .color(t.text_faint)
+                        .size(11.0),
+                );
+            }
             ui.add_space(4.0);
         }
         // the official model
@@ -571,7 +606,11 @@ fn function_row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>,
         ui.label(RichText::new(tl!(spec.about)).color(t.text_dim).size(11.5));
         ui.label(
             RichText::new(crate::i18n::fmt(
-                tl!("{name} · {size} download · runs on the CPU · {licence}"),
+                if matches!(group, li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise) {
+                    tl!("{name} · {size} download · GPU with CPU fallback · {licence}")
+                } else {
+                    tl!("{name} · {size} download · runs on the CPU · {licence}")
+                },
                 &[
                     ("name", spec.label),
                     ("size", &li_ai::download::human_bytes(spec.download_bytes())),
@@ -606,7 +645,13 @@ fn custom_controls(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, group: 
         o.open = false;
         job = None;
     }
-    if widgets::secondary_button(ui, tl!("Custom model…"), 0.0).clicked() {
+    if widgets::secondary_button(
+        ui,
+        if matches!(group, li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise) { tl!("Change…") } else { tl!("Custom model…") },
+        0.0,
+    )
+    .clicked()
+    {
         o.open = !o.open;
         if !o.open && matches!(job, Some(CustomJob::Failed(_))) {
             set_custom_job(dir, group, None);
@@ -614,6 +659,12 @@ fn custom_controls(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, group: 
         }
     }
     if o.open {
+        if matches!(group, li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise) {
+            let path = li_seg::companion_path(dir, li_seg::denoise::Variant::Linear.file());
+            if path.is_file() && widgets::secondary_button(ui, tl!("Use RawNIND linear variant"), 0.0).clicked() {
+                start_custom(dir.to_path_buf(), group, path, li_seg::CustomOptions { denoise_linear: true, ..Default::default() });
+            }
+        }
         ui.add_space(2.0);
         ui.label(
             RichText::new(tl!("Pick any .onnx model that does this. It is copied into the models folder and used instead of the official one."))
@@ -641,6 +692,12 @@ fn custom_controls(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, group: 
                     }
                     ui.label(RichText::new(tl!("Only used when the model gives one map per class (ADE20K: 2).")).color(t.text_faint).size(11.0));
                 });
+            }
+            li_seg::Group::RgbDenoise => {
+                ui.checkbox(&mut o.denoise_linear, tl!("Linear Rec.2020 input (RawNIND)"));
+            }
+            li_seg::Group::RawDenoise => {
+                ui.label(tl!("Custom Raw Denoise models use three-channel linear Rec.2020 input and output."));
             }
             li_seg::Group::Depth | li_seg::Group::Tagging | li_seg::Group::Faces => {}
         }
@@ -1716,7 +1773,9 @@ mod tests {
     /// A harness drawing the on-device model rows (all of them, or one function's) for `dir`.
     fn seg_harness(dir: &std::path::Path, only: Option<li_seg::Group>) -> egui_kittest::Harness<'static> {
         let dir = dir.to_path_buf();
-        let mut h = egui_kittest::Harness::builder().with_size(vec2(760.0, 1100.0)).build_ui(move |ui| {
+        // Unlike the actual Settings scroll area, this fixture lays every function out at
+        // once. Leave enough height for the new denoise rows and the legacy-model action.
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(760.0, 1600.0)).build_ui(move |ui| {
             // fonts set on the context only apply from the next frame
             if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("semibold".into()))) {
                 return;
@@ -1751,7 +1810,7 @@ mod tests {
     fn settings_lists_one_row_per_function() {
         let dir = temp_dir("rows");
         let h = seg_harness(&dir, None);
-        for title in ["Subject & Background", "Sky", "Depth", "Smart Sort (scenes)", "Faces"] {
+        for title in ["Subject & Background", "Sky", "Depth", "Smart Sort (scenes)", "Faces", "Raw Denoise", "RGB Denoise"] {
             h.get_by_label(title);
         }
         for model in ["IS-Net general", "PP-MobileSeg", "Depth Anything V2 Small", "CLIP ViT-B-32 LAION", "YuNet + SFace"] {
@@ -1761,12 +1820,33 @@ mod tests {
             assert!(h.query_by_label(gone).is_none(), "{gone} is still listed");
         }
         assert_eq!(h.get_all_by_label("Custom model…").count(), 3);
-        assert_eq!(h.get_all_by_label("Download").count(), 5);
+        assert_eq!(h.get_all_by_label("Change…").count(), 2);
+        assert_eq!(h.get_all_by_label("Download").count(), 7);
         assert!(h.query_by_label_contains("Remove old models").is_none());
         assert!(h.query_by_label_contains("Finds the main subject").is_some());
         assert!(h.query_by_label_contains("Finds the sky.").is_some());
         assert!(h.query_by_label_contains("Estimates how far away").is_some());
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn ai_denoise_settings_change_custom_and_use_default_clicks() {
+        for group in [li_seg::Group::RawDenoise, li_seg::Group::RgbDenoise] {
+            let dir = temp_dir(group.key());
+            let mut h = seg_harness(&dir, Some(group));
+            h.get_by_label(group.label());
+            h.get_by_label("Change…").click();
+            h.run_steps(2);
+            will_pick(Some(pick_file(&dir, "restore.onnx", ECHO_32)));
+            h.get_by_label("Choose an ONNX file…").click();
+            settle(&mut h, &dir, group);
+            assert!(li_seg::custom(&dir, group).is_some());
+            h.get_by_label("Custom: restore.onnx");
+            h.get_by_label("Use default").click();
+            h.run_steps(3);
+            assert!(li_seg::custom(&dir, group).is_none());
+            let _ = std::fs::remove_dir_all(dir);
+        }
     }
 
     /// Picking a model sets it; its row says "Custom: <file>" and offers the way back.

@@ -21,6 +21,7 @@ use lightcraft_raster::Rgb32f;
 /// What a stored result is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Kind {
+    Denoise,
     Remove,
 }
 
@@ -28,6 +29,7 @@ impl Kind {
     fn dir(self) -> &'static str {
         match self {
             Kind::Remove => "remove",
+            Kind::Denoise => "denoise",
         }
     }
 }

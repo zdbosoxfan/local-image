@@ -979,6 +979,13 @@ fn open_library_app(opens: Opens, prefs_writer: &mut PrefsWriter) -> LightcraftA
 
 fn services(opens: Opens) -> Services {
     Services {
+        save_denoise_file: Some(Box::new(|name| {
+            rfd::FileDialog::new()
+                .set_file_name(name)
+                .add_filter("Denoised image", &["tiff", "tif", "dng"])
+                .save_file()
+                .map(|p| p.to_string_lossy().into_owned())
+        })),
         download_models: Some(Box::new(|id, cancel| {
             let spec = li_seg::spec(id).ok_or("unknown model")?;
             if cancel {

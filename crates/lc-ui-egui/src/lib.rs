@@ -111,6 +111,8 @@ pub struct Services {
     pub pick_tracklog: Option<PickFiles>,
     /// Save dialog for an exported `.lcpreset` file.
     pub save_preset_file: Option<SaveFile>,
+    /// Save a denoised copy to a new DNG or TIFF file.
+    pub save_denoise_file: Option<SaveFile>,
     /// Open dialog for point-curve preset files (`.lccurve`).
     pub pick_curve_preset_files: Option<PickFiles>,
     /// Save dialog for an exported `.lccurve` file.
