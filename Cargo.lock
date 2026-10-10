@@ -5750,6 +5750,7 @@ name = "photocraft-svg"
 version = "2.0.0-alpha.1"
 dependencies = [
  "base64 0.22.1",
+ "flate2",
  "image",
  "kurbo 0.13.1",
  "photocraft-compose",
@@ -5764,7 +5765,10 @@ dependencies = [
  "roxmltree",
  "serde",
  "serde_json",
+ "simplecss",
+ "svgtypes",
  "thiserror 2.0.21",
+ "usvg",
 ]
 
 [[package]]

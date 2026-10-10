@@ -3,6 +3,7 @@ name = "photocraft-svg"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
 [lints]
 workspace = true
 [dependencies]
@@ -18,9 +19,13 @@ base64 = "=0.22.1"
 serde.workspace = true
 thiserror.workspace = true
 serde_json.workspace = true
+flate2.workspace = true
+usvg = { version = "=0.45.1", default-features = false }
+svgtypes = "=0.15.3"
+roxmltree = "=0.20.0"
+simplecss = "=0.2.2"
 [dev-dependencies]
 resvg = { version = "=0.45.1", default-features = false }
-roxmltree = "=0.20.0"
 photocraft-testkit.workspace = true
 proptest.workspace = true
 serde_json.workspace = true
@@ -29,3 +34,6 @@ svg-import-integrated = []
 [[test]]
 name = "export"
 path = "tests/export/main.rs"
+[[test]]
+name = "import"
+path = "tests/import/main.rs"
