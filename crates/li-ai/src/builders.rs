@@ -19,7 +19,7 @@ use crate::workflows::{Built, Files, LoraUse};
 pub enum Task {
     /// Text (and references) to new images.
     Create,
-    /// Re-noise an image by `denoise` (0..1) and resample: img2img, refine, Draft → Refine.
+    /// Refine at the chosen denoise, using a reference latent or a starting image by family.
     Refine { denoise: f32 },
     /// Regenerate the masked part of an image (`denoise` 1 = from scratch).
     Inpaint { denoise: f32 },
@@ -223,10 +223,10 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
         );
         pos = link(&fg, 0);
     }
-    // Reference latents: the edited image first, then each reference.
+    // Reference latents: the edited/refined image first, then each reference.
     if pl.reference == RefMethod::ReferenceLatent {
         let mut chain: Vec<String> = Vec::new();
-        if matches!(p.task, Task::Edit)
+        if matches!(p.task, Task::Edit | Task::Refine { .. })
             && let Some(s) = &source
         {
             chain.push(s.clone());
@@ -276,7 +276,7 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
     }
     // ---- Latent.
     let denoise = match p.task {
-        Task::Refine { denoise } | Task::Inpaint { denoise } => denoise.clamp(0.01, 1.0),
+        Task::Refine { denoise } | Task::Inpaint { denoise } => denoise,
         _ => 1.0,
     };
     let empty = |g: &mut G| {
@@ -284,6 +284,7 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
         link(&l, 0)
     };
     let mut latent = match (p.task, &source) {
+        (Task::Refine { .. }, _) if pl.reference == RefMethod::ReferenceLatent => empty(&mut g),
         (Task::Create, _) => {
             // A starting image (Z-Image variations) is the first reference.
             if pl.reference == RefMethod::InitImage && !refs.is_empty() {
@@ -386,6 +387,10 @@ fn qwen21(files: &Files, p: &Params) -> Built {
             seed: p.seed,
             steps: p.steps,
             cfg: p.cfg,
+            denoise: match p.task {
+                Task::Refine { denoise } | Task::Inpaint { denoise } => denoise,
+                _ => 1.0,
+            },
             references: refs,
             use_cache: false,
             loras: p.loras,
@@ -462,6 +467,57 @@ mod tests {
             .into_iter()
             .map(|r| (r, format!("{r:?}.safetensors")))
             .collect()
+    }
+
+    #[test]
+    fn refine_denoise_reaches_the_graph_without_built_in_limits() {
+        for f in [crate::family::registry().family("sdxl").unwrap(), &crate::catalog::ModelId::Qwen.info().resolved] {
+            let files = [(Role::Checkpoint, "sdxl.safetensors".into()), (Role::Unet, "model.safetensors".into())].into();
+            for denoise in [0.0, 0.005, 0.35, 1.25] {
+                let mut p = Params::create("p", 512, 512, 1, 20, 7.0);
+                p.task = Task::Refine { denoise };
+                let graph = build(f, &files, &p).graph;
+                let sampler = graph.as_object().unwrap().values().find(|n| n["class_type"] == "KSampler").unwrap();
+                assert_eq!(sampler["inputs"]["denoise"], json!(denoise), "{}", f.id);
+            }
+        }
+    }
+
+    #[test]
+    fn reference_latent_refine_conditions_on_source_and_samples_an_empty_latent() {
+        for family in ["flux2-klein", "flux2", "flux1-kontext"] {
+            let f = registry().family(family).unwrap();
+            for denoise in [1.0, 0.65] {
+                let mut p = Params::create("preserve the composition, add detail", 512, 512, 1, 4, 1.0);
+                p.task = Task::Refine { denoise };
+                let b = build(f, &files(), &p);
+                closed(&b.graph);
+                assert_eq!(b.slots, vec![Slot::Source]);
+                let nodes = b.graph.as_object().unwrap();
+                let source = link(&b.image_nodes[0], 0);
+                let refs: Vec<_> = nodes.values().filter(|n| n["class_type"] == "ReferenceLatent").collect();
+                assert_eq!(refs.len(), 2, "source must condition both positive and negative: {family}");
+                assert_eq!(refs[0]["inputs"]["latent"], refs[1]["inputs"]["latent"]);
+                let encoded = &nodes[refs[0]["inputs"]["latent"][0].as_str().unwrap()];
+                assert_eq!(encoded["class_type"], "VAEEncode");
+                let pixels = &encoded["inputs"]["pixels"];
+                if family == "flux1-kontext" {
+                    let scale = &nodes[pixels[0].as_str().unwrap()];
+                    assert_eq!(scale["class_type"], "FluxKontextImageScale");
+                    assert_eq!(scale["inputs"]["image"], source);
+                } else {
+                    assert_eq!(*pixels, source);
+                }
+                let sampler = nodes.values().find(|n| n["class_type"] == "KSampler" || n["class_type"] == "SamplerCustomAdvanced").unwrap();
+                let latent = &nodes[sampler["inputs"]["latent_image"][0].as_str().unwrap()];
+                assert_eq!(latent["class_type"], f.pipeline.latent, "{family}: sample noise, keep the image in reference conditioning");
+                if sampler["class_type"] == "KSampler" {
+                    assert_eq!(sampler["inputs"]["denoise"], json!(denoise));
+                } else {
+                    assert_eq!(classes(&b).contains(&"SplitSigmasDenoise".into()), denoise < 1.0);
+                }
+            }
+        }
     }
 
     #[test]

@@ -71,8 +71,9 @@ impl Mode {
             Mode::Upscale => tl!("Enlarge the open image and add detail, tile by tile"),
         }
     }
-    fn default_strength(self) -> f32 {
+    fn default_strength(self, model: ModelId) -> f32 {
         match self {
+            Mode::Refine => catalog::refine_default_denoise(model),
             Mode::Fill => 1.0,
             Mode::Upscale => 0.3,
             Mode::Edit => 0.5,
@@ -108,6 +109,8 @@ pub struct GenerateState {
     pub variant: String,
     /// `1:1`, `4:3`, `3:2`, `16:9`, `9:16`, `2:3`, `3:4`, `custom`.
     pub aspect: String,
+    /// Keep width and height linked while editing the model-grid dimensions.
+    pub aspect_locked: bool,
     pub width: u32,
     pub height: u32,
     pub transparent: bool,
@@ -127,6 +130,7 @@ pub struct GenerateState {
     pub refine: bool,
     pub refine_model: String,
     pub refine_variant: String,
+    pub refine_loras: Vec<LoraPick>,
     pub refine_strength: f32,
     /// The refine pass's steps and guidance (None: the refine model's defaults).
     pub refine_steps: Option<u32>,
@@ -149,6 +153,7 @@ impl Default for GenerateState {
             model: m.key().into(),
             variant: catalog::default_variant(m).into(),
             aspect: "1:1".into(),
+            aspect_locked: true,
             width: 1024,
             height: 1024,
             transparent: false,
@@ -164,7 +169,8 @@ impl Default for GenerateState {
             refine: false,
             refine_model: String::new(),
             refine_variant: String::new(),
-            refine_strength: 0.35,
+            refine_loras: Vec::new(),
+            refine_strength: catalog::refine_default_denoise(m),
             refine_steps: None,
             refine_guidance: None,
             refine_scale: 1.0,
@@ -292,13 +298,21 @@ fn model_of(s: &GenerateState) -> ModelId {
     ModelId::from_key(&s.model).filter(|m| m.try_info().is_some()).unwrap_or(ModelId::Klein4B)
 }
 
-/// Keeps steps and guidance inside what the connected ComfyUI accepts (its sampler's reported limits); with no
+/// Keeps sampling inside what the connected ComfyUI accepts (its sampler's reported limits); with no
 /// engine connected only "at least one step" applies.
 fn fit_to_backend(s: &mut GenerateState, limits: Option<li_ai::comfy::SamplerLimits>) {
+    let info = model_of(s).info();
     s.steps = s.steps.max(1);
+    if !s.guidance.is_finite() {
+        s.guidance = info.guidance.default;
+    }
+    if !s.denoise.is_finite() {
+        s.denoise = if s.mode == Mode::Create { info.resolved.sampling.denoise } else { s.mode.default_strength(info.id) };
+    }
     if let Some(l) = limits {
         s.steps = s.steps.clamp(l.steps.0.max(1.0) as u32, l.steps.1.max(1.0) as u32);
         s.guidance = s.guidance.clamp(l.cfg.0, l.cfg.1.max(l.cfg.0));
+        s.denoise = s.denoise.clamp(l.denoise.0, l.denoise.1.max(l.denoise.0));
     }
 }
 
@@ -312,45 +326,135 @@ fn range_hint(min: f32, max: f32, default: f32, decimals: usize) -> String {
     }
 }
 
-/// A labelled whole-number field bounded only by `lo..=hi`, with an optional hint underneath.
+/// Number fields use the Properties value field; model recommendations never become slider ranges.
 fn number_row(ui: &mut egui::Ui, label: &str, v: &mut u32, lo: u32, hi: u32, hint: Option<String>) {
+    *v = (*v).clamp(lo, hi.max(lo));
+    value_row(ui, label, v, lo..=hi.max(lo), hint, 0);
+}
+
+fn value_row<T: egui::emath::Numeric>(
+    ui: &mut egui::Ui,
+    label: &str,
+    v: &mut T,
+    range: std::ops::RangeInclusive<T>,
+    hint: Option<String>,
+    decimals: usize,
+) -> egui::Response {
     let t = Tokens::get(ui.ctx());
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(label).color(t.text_dim));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add(egui::DragValue::new(v).range(lo..=hi).speed(0.2));
-        });
-    });
+    let response = ui
+        .horizontal(|ui| {
+            let label = ui.label(RichText::new(label).color(t.text_dim));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                widgets::value_field_with_precision(ui, v, range, "", 92.0, decimals).labelled_by(label.id)
+            })
+            .inner
+        })
+        .inner;
     if let Some(h) = hint {
-        ui.label(RichText::new(h).size(11.0).color(t.text_faint));
+        ui.label(RichText::new(h).font(crate::theme::medium(11.0)).color(t.text_faint));
     }
+    response
 }
 
 fn guidance_row(ui: &mut egui::Ui, v: &mut f32, lo: f32, hi: f32, hint: Option<String>) {
     guidance_row_labeled(ui, tl!("Guidance"), v, lo, hi, hint);
 }
 
-/// ComfyUI's denoise as a 0.00–1.00 field (ComfyUI's reported range).
 fn denoise_row(ui: &mut egui::Ui, label: &str, v: &mut f32, lo: f32, hi: f32) {
-    let t = Tokens::get(ui.ctx());
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(label).color(t.text_dim)).on_hover_text(tl!("ComfyUI denoise: 1 regenerates the image, lower values keep more of it"));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add(egui::DragValue::new(v).range(lo..=hi).speed(0.005).fixed_decimals(2));
-        });
-    });
+    value_row(ui, label, v, lo..=hi.max(lo), None, 2).on_hover_text(tl!("ComfyUI denoise: 1 regenerates the image, lower values keep more of it"));
 }
 
 fn guidance_row_labeled(ui: &mut egui::Ui, label: &str, v: &mut f32, lo: f32, hi: f32, hint: Option<String>) {
+    value_row(ui, label, v, lo..=hi.max(lo), hint, 1);
+}
+
+fn sampling_ui(ui: &mut egui::Ui, s: &mut GenerateState, limits: Option<li_ai::comfy::SamplerLimits>, denoise: bool) {
+    fit_to_backend(s, limits);
+    let info = model_of(s).info();
+    let (slo, shi) = limits.map_or((1.0, u32::MAX as f32), |l| l.steps);
+    number_row(
+        ui,
+        tl!("Steps"),
+        &mut s.steps,
+        slo.max(1.0) as u32,
+        shi.max(1.0) as u32,
+        Some(range_hint(info.steps.min, info.steps.max, info.steps.default, 0)),
+    );
+    let (clo, chi) = limits.map_or((f32::MIN, f32::MAX), |l| l.cfg);
+    guidance_row(ui, &mut s.guidance, clo, chi, Some(range_hint(info.guidance.min, info.guidance.max, info.guidance.default, 1)));
+    if denoise {
+        let (lo, hi) = limits.map_or((f32::MIN, f32::MAX), |l| l.denoise);
+        denoise_row(ui, tl!("Denoise"), &mut s.denoise, lo, hi);
+    }
+}
+
+/// The Generate size component used by both the panel and Draft / Refinement.
+/// Presets and edited dimensions use the selected model's pixel grid; merely opening an image
+/// never changes its dimensions.
+fn size_controls(ui: &mut egui::Ui, s: &mut GenerateState) {
     let t = Tokens::get(ui.ctx());
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(label).color(t.text_dim));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add(egui::DragValue::new(v).range(lo..=hi).speed(0.05).fixed_decimals(1));
-        });
+    let sizes = model_of(s).info().resolved.sizes;
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = vec2(crate::theme::ROW_GAP, crate::theme::ROW_GAP);
+        for (aspect, _) in ASPECTS {
+            if widgets::pill_tab(ui, aspect, s.aspect == aspect).clicked() {
+                s.aspect = aspect.into();
+                s.aspect_locked = true;
+                (s.width, s.height) = size_for(aspect, s, sizes.native);
+            }
+        }
     });
-    if let Some(h) = hint {
-        ui.label(RichText::new(h).size(11.0).color(t.text_faint));
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = crate::theme::ROW_GAP;
+        let (mut w, mut h) = (s.width, s.height);
+        let lo = if s.mode == Mode::Refine { 1 } else { sizes.min };
+        let hi = sizes.max.max(w).max(h);
+        let fw = ((ui.available_width() - 70.0) / 2.0).clamp(56.0, 112.0);
+        ui.label(RichText::new("W").font(crate::theme::medium(11.0)).color(t.text_dim));
+        let width = widgets::value_field_with_precision(ui, &mut w, lo..=hi, "px", fw, 0).on_hover_text(tl!("Width"));
+        width.widget_info(|| egui::WidgetInfo { label: Some(tl!("Width").into()), ..egui::WidgetInfo::drag_value(ui.is_enabled(), w as f64) });
+        let lock = crate::icons::button(ui, if s.aspect_locked { "link" } else { "unlink" }, 22.0, s.aspect_locked, tl!("Link width and height"));
+        lock.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), s.aspect_locked, tl!("Link width and height")));
+        if lock.clicked() {
+            s.aspect_locked = !s.aspect_locked;
+        }
+        ui.label(RichText::new("H").font(crate::theme::medium(11.0)).color(t.text_dim));
+        let height = widgets::value_field_with_precision(ui, &mut h, lo..=hi, "px", fw, 0).on_hover_text(tl!("Height"));
+        height.widget_info(|| egui::WidgetInfo { label: Some(tl!("Height").into()), ..egui::WidgetInfo::drag_value(ui.is_enabled(), h as f64) });
+        if width.changed() || height.changed() {
+            if s.aspect_locked {
+                let ratio = ASPECTS.iter().find(|(k, _)| *k == s.aspect).map_or(s.width as f32 / s.height.max(1) as f32, |(_, r)| *r);
+                if width.changed() {
+                    h = (w as f32 / ratio).round().max(1.0) as u32;
+                } else {
+                    w = (h as f32 * ratio).round().max(1.0) as u32;
+                }
+            } else {
+                s.aspect = "custom".into();
+            }
+            (s.width, s.height) = (w, h);
+        }
+        if ((width.changed() || height.changed()) && !(width.has_focus() || height.has_focus())) || width.lost_focus() || height.lost_focus() {
+            (s.width, s.height) = li_ai::imaging::snap_size(s.width, s.height, sizes.multiple.max(8));
+        }
+    });
+    ui.label(
+        RichText::new(crate::i18n::fmt(tl!("Grid: {multiple} px"), &[("multiple", &sizes.multiple.max(8).to_string())]))
+            .font(crate::theme::medium(11.0))
+            .color(t.text_faint),
+    );
+}
+
+fn variant_picker(ui: &mut egui::Ui, model: ModelId, variant: &mut String) {
+    let presets: Vec<_> = catalog::presets_for(model).collect();
+    if presets.len() > 1 {
+        ui.horizontal(|ui| {
+            label(ui, tl!("Precision"));
+            let opts: Vec<_> = presets.iter().map(|p| (p.variant.clone(), p.label.as_str())).collect();
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                widgets::dropdown(ui, "gen-variant", variant, &opts, ui.available_width().min(240.0));
+            });
+        });
     }
 }
 
@@ -360,6 +464,7 @@ fn set_model(s: &mut GenerateState, m: ModelId) {
     s.variant = catalog::default_variant(m).into();
     s.steps = info.steps.default as u32;
     s.guidance = info.guidance.default;
+    s.denoise = if s.mode == Mode::Create { info.resolved.sampling.denoise } else { s.mode.default_strength(m) };
     s.sampler.clear();
     s.scheduler.clear();
     if !info.transparent {
@@ -371,6 +476,7 @@ fn set_model(s: &mut GenerateState, m: ModelId) {
     s.loras.retain(|l| fits.contains(&l.name));
     if s.mode == Mode::Create && !info.text_to_image {
         s.mode = Mode::Refine;
+        s.denoise = s.mode.default_strength(m);
     }
 }
 
@@ -392,7 +498,8 @@ fn fits_mode_with(info: &catalog::ModelInfo, mode: Mode, any_upscaler: bool) -> 
     match mode {
         Mode::Create => info.text_to_image,
         Mode::Fill => info.inpaint,
-        Mode::Edit | Mode::Refine | Mode::Upscale => true,
+        Mode::Refine => !info.upscale && (info.text_to_image || info.edit),
+        Mode::Edit | Mode::Upscale => true,
     }
 }
 
@@ -415,10 +522,10 @@ fn upscale_any() -> bool {
 
 fn size_for(aspect: &str, s: &GenerateState, native: u32) -> (u32, u32) {
     let Some((_, r)) = ASPECTS.iter().find(|(k, _)| *k == aspect) else { return (s.width, s.height) };
-    // About the model's native pixel count, snapped to a 16 px grid.
+    // About the model's native pixel count, snapped to its pixel grid.
     let area = native as f32 * native as f32;
     let h = (area / r).sqrt();
-    li_ai::imaging::snap_size((h * r) as u32, h as u32, 16)
+    li_ai::imaging::snap_size((h * r) as u32, h as u32, model_of(s).info().resolved.sizes.multiple.max(8))
 }
 
 fn thumb_texture(ctx: &egui::Context, key: &str, path: &std::path::Path) -> Option<TextureHandle> {
@@ -502,9 +609,52 @@ fn readiness(st: &crate::ai_ui::EngineStatus, m: ModelId, variant: &str) -> Resu
     st.ready(m, variant)
 }
 
+/// Shared readiness hint and the action that resolves it in either Generate surface.
+fn readiness_warning(app: &mut PhotocraftApp, ui: &mut egui::Ui, why: &str, st: &crate::ai_ui::EngineStatus, cloud: bool) {
+    let t = Tokens::get(ui.ctx());
+    ui.horizontal_wrapped(|ui| {
+        ui.label(RichText::new(why).font(crate::theme::medium(11.5)).color(t.warning));
+        if cloud {
+            if widgets::secondary_button(ui, tl!("Add Key…"), 0.0).clicked() {
+                crate::ai_ui::open_local_ai(app);
+            }
+        } else if !st.connected {
+            if widgets::secondary_button(ui, tl!("Set up AI…"), 0.0).clicked() {
+                crate::ai_ui::open_local_ai(app);
+            }
+        } else if widgets::secondary_button(ui, tl!("Get models…"), 0.0).clicked() {
+            crate::model_browser::open();
+        }
+    });
+}
+
 /// The model picker: models grouped by family group, each with a readiness dot and its capability
 /// tags; custom workflows last; Browse Models… and Import Workflow… at the bottom. Returns the
 /// chosen key.
+fn model_groups(models: &[catalog::ModelInfo], mode: Mode) -> Vec<(&str, Vec<&catalog::ModelInfo>)> {
+    if mode == Mode::Refine {
+        let mut groups = vec![(tl!("Edit models — refine by reference"), Vec::new()), (tl!("Image models — refine by denoise"), Vec::new())];
+        for m in models.iter().filter(|m| fits_mode(m, mode)) {
+            let group = match catalog::refine_method(m.id) {
+                catalog::RefineMethod::Reference => 0,
+                catalog::RefineMethod::Img2Img => 1,
+            };
+            groups[group].1.push(m);
+        }
+        groups.retain(|(_, models)| !models.is_empty());
+        groups
+    } else {
+        let mut groups: Vec<(&str, Vec<&catalog::ModelInfo>)> = Vec::new();
+        for m in models.iter().filter(|m| fits_mode(m, mode)) {
+            match groups.iter_mut().find(|(g, _)| *g == m.group) {
+                Some((_, v)) => v.push(m),
+                None => groups.push((m.group.as_str(), vec![m])),
+            }
+        }
+        groups
+    }
+}
+
 fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &crate::ai_ui::EngineStatus, allow_custom: bool) -> Option<String> {
     let t = Tokens::get(ui.ctx());
     let custom = current.strip_prefix("custom:");
@@ -517,19 +667,13 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &cra
     };
     let mut picked = None;
     let width = ui.available_width();
-    egui::ComboBox::from_id_salt(id).selected_text(current_label).width(width).height(460.0).icon(widgets::chevron_icon).show_ui(ui, |ui| {
+    widgets::dropdown_menu(ui, id, &current_label, width, |ui| {
         ui.set_min_width(width.max(300.0));
         let cat = catalog::catalog();
-        let mut groups: Vec<(&str, Vec<&catalog::ModelInfo>)> = Vec::new();
-        for m in cat.models.iter().filter(|m| fits_mode(m, mode)) {
-            match groups.iter_mut().find(|(g, _)| *g == m.group) {
-                Some((_, v)) => v.push(m),
-                None => groups.push((m.group.as_str(), vec![m])),
-            }
-        }
-        for (g, models) in groups {
+        for (g, models) in model_groups(&cat.models, mode) {
             ui.add_space(4.0);
-            ui.label(RichText::new(g.to_uppercase()).size(10.5).color(t.text_faint).strong());
+            let heading = if mode == Mode::Refine { g.to_owned() } else { g.to_uppercase() };
+            ui.label(RichText::new(heading).size(10.5).color(t.text_faint).strong());
             for m in models {
                 let variant = catalog::default_variant(m.id);
                 let ok = catalog::presets_for(m.id).any(|p| readiness(st, m.id, &p.variant).is_ok());
@@ -537,7 +681,7 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &cra
                 let row = ui.horizontal(|ui| {
                     let (dot, _) = ui.allocate_exact_size(vec2(10.0, 16.0), Sense::hover());
                     let colour = if ok {
-                        Color32::from_rgb(70, 190, 110)
+                        t.accent
                     } else if m.origin == catalog::Origin::Installed {
                         t.warning
                     } else {
@@ -564,7 +708,7 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &cra
                 }
             }
         }
-        if allow_custom {
+        if allow_custom && mode != Mode::Refine {
             let clouds: Vec<_> = li_ai::cloud::MODELS.iter().filter(|m| cloud_fits(m, mode)).collect();
             if !clouds.is_empty() {
                 ui.add_space(4.0);
@@ -575,7 +719,7 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &cra
                     let has_key = keys.contains(&m.provider);
                     let row = ui.horizontal(|ui| {
                         let (dot, _) = ui.allocate_exact_size(vec2(10.0, 16.0), Sense::hover());
-                        ui.painter().circle_filled(dot.center(), 3.5, if has_key { Color32::from_rgb(70, 190, 110) } else { t.text_faint });
+                        ui.painter().circle_filled(dot.center(), 3.5, if has_key { t.accent } else { t.text_faint });
                         let resp = ui.add(egui::Button::selectable(current == key, RichText::new(m.label).color(if has_key { t.text } else { t.text_dim })));
                         ui.label(RichText::new(m.provider.label()).size(10.5).color(t.text_faint));
                         for (on, tg) in [(m.create, tl!("Create")), (m.edit, tl!("Edit")), (m.fill, tl!("Fill"))] {
@@ -624,18 +768,27 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &cra
             }
         }
         ui.separator();
-        ui.horizontal(|ui| {
-            if ui.button(tl!("Browse Models…")).clicked() {
+        ui.horizontal_wrapped(|ui| {
+            if widgets::secondary_button(ui, tl!("Browse Models…"), 0.0).clicked() {
                 picked = Some("browse:".into());
             }
-            if ui.button(tl!("Browse LoRAs…")).on_hover_text(tl!("Find LoRAs (styles) for the chosen model's family")).clicked() {
+            if widgets::secondary_button(ui, tl!("Browse LoRAs…"), 0.0).on_hover_text(tl!("Find LoRAs (styles) for the chosen model's family")).clicked() {
                 picked = Some("browse-loras:".into());
             }
-            if allow_custom && ui.button(tl!("Import Workflow…")).clicked() {
+            if allow_custom && mode != Mode::Refine && widgets::secondary_button(ui, tl!("Import Workflow…"), 0.0).clicked() {
                 picked = Some("import:".into());
             }
         });
     });
+    if mode == Mode::Refine
+        && let Some(m) = picked.as_deref().and_then(ModelId::from_key).or_else(|| ModelId::from_key(current))
+    {
+        let hint = match catalog::refine_method(m) {
+            catalog::RefineMethod::Reference => tl!("Refines by reference: the image guides the result"),
+            catalog::RefineMethod::Img2Img => tl!("Refines by denoise: lower keeps more of the image"),
+        };
+        ui.label(RichText::new(hint).size(11.0).color(t.text_faint));
+    }
     picked
 }
 
@@ -676,7 +829,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let cur = Mode::ALL.iter().position(|m| *m == s.mode).unwrap_or(0);
         if let Some(i) = chips_with(ui, &labels, cur, &tips, &disabled) {
             s.mode = Mode::ALL[i];
-            s.denoise = s.mode.default_strength();
+            s.denoise = s.mode.default_strength(model_of(s));
             // A model that can't run the new mode gives way to one that can.
             let m = model_of(s);
             let cloud_ok = cloud_of(s).map(|c| cloud_fits(c, s.mode));
@@ -787,16 +940,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 );
             });
         } else if custom.is_none() {
-            let presets_m: Vec<_> = catalog::presets_for(m).collect();
-            if presets_m.len() > 1 {
-                ui.horizontal(|ui| {
-                    label(ui, tl!("Precision"));
-                    let opts: Vec<(String, &str)> = presets_m.iter().map(|p| (p.variant.clone(), p.label.as_str())).collect();
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        widgets::dropdown(ui, "gen-variant", &mut s.variant, &opts, ui.available_width().min(200.0));
-                    });
-                });
-            }
+            variant_picker(ui, m, &mut s.variant);
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 ui.label(RichText::new(&info.best_for).color(t.text_faint).size(11.0));
@@ -831,39 +975,10 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         if wants_negative {
             ui.add(egui::TextEdit::singleline(&mut s.negative).hint_text(tl!("Avoid… (negative prompt)")).desired_width(f32::INFINITY));
         }
-        // ---- Size (Create): one row, aspect then pixels.
+        // ---- Size (Create): shared aspect presets and linked model-grid dimensions.
         let custom_size = custom.as_ref().is_some_and(|w| w.has(&li_ai::custom::FieldKind::Width));
         if (s.mode == Mode::Create && custom.is_none()) || custom_size {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                let mut aspect = if ASPECTS.iter().any(|(k, _)| *k == s.aspect) { s.aspect.clone() } else { "custom".to_owned() };
-                let opts: Vec<(String, &str)> = ASPECTS.iter().map(|(k, _)| ((*k).to_owned(), *k)).chain([("custom".to_owned(), tl!("Custom"))]).collect();
-                if widgets::dropdown(ui, "gen-aspect", &mut aspect, &opts, 76.0) {
-                    s.aspect = aspect.clone();
-                    if aspect != "custom" {
-                        let (w, h) = size_for(&s.aspect, s, info.resolved.sizes.native);
-                        s.width = w;
-                        s.height = h;
-                    }
-                }
-                let (mut w, mut h) = (s.width as f32, s.height as f32);
-                let max = info.resolved.sizes.max.max(1024) as f32 * 2.0;
-                let fw = ((ui.available_width() - 16.0) / 2.0).clamp(56.0, 84.0);
-                let cw = widgets::value_field(ui, &mut w, 256.0..=max, "px", fw).on_hover_text(tl!("Width"));
-                ui.label(RichText::new("×").color(t.text_faint));
-                let ch = widgets::value_field(ui, &mut h, 256.0..=max, "px", fw).on_hover_text(tl!("Height"));
-                if cw.changed() || ch.changed() {
-                    s.aspect = "custom".into();
-                }
-                if cw.lost_focus() || ch.lost_focus() || !(cw.has_focus() || ch.has_focus()) {
-                    let (sw, sh) = li_ai::imaging::snap_size(w as u32, h as u32, info.resolved.sizes.multiple.max(8));
-                    s.width = sw;
-                    s.height = sh;
-                } else {
-                    s.width = w as u32;
-                    s.height = h as u32;
-                }
-            });
+            size_controls(ui, s);
         }
         if s.mode == Mode::Create && info.transparent && custom.is_none() && cloud.is_none() {
             widgets::checkbox(ui, &mut s.transparent, tl!("Transparent background"));
@@ -897,7 +1012,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         };
         if strength_shown {
             // ComfyUI's denoise, in ComfyUI's own range: 1 regenerates, lower keeps more of the image.
-            let (lo, hi) = crate::ai_ui::status().limits.map_or((0.0, 1.0), |l| l.denoise);
+            let (lo, hi) = crate::ai_ui::status().limits.map_or((f32::MIN, f32::MAX), |l| l.denoise);
             denoise_row(ui, tl!("Denoise"), &mut s.denoise, lo, hi);
         }
         if s.mode == Mode::Upscale {
@@ -932,7 +1047,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let s = &mut app.ui.ai.generate;
         // ---- LoRAs.
         if custom.is_none() && cloud.is_none() && info.lora {
-            loras_ui(ui, s, &info.resolved, &t);
+            loras_ui(ui, &mut s.loras, &info.resolved, &t);
         }
         // ---- Draft → Refine.
         if s.mode == Mode::Create && custom.is_none() && cloud.is_none() {
@@ -950,13 +1065,24 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     } else if let Some(m) = ModelId::from_key(&k) {
                         s.refine_model = k;
                         s.refine_variant = catalog::default_variant(m).into();
+                        s.refine_strength = catalog::refine_default_denoise(m);
                         s.refine_steps = None;
                         s.refine_guidance = None;
+                        let fits: Vec<_> = li_ai::inventory::loras_for(&m.info().resolved).into_iter().map(|(l, _)| l.name).collect();
+                        s.refine_loras.retain(|l| fits.contains(&l.name));
                     }
+                }
+                if let Some(rm) = ModelId::from_key(&s.refine_model).filter(|m| m.try_info().is_some()) {
+                    ui.push_id("refine-pass", |ui| {
+                        variant_picker(ui, rm, &mut s.refine_variant);
+                        if rm.info().lora {
+                            loras_ui(ui, &mut s.refine_loras, &rm.info().resolved, &t);
+                        }
+                    });
                 }
                 // The refine pass's own sampler settings, bounded only by what ComfyUI reports.
                 let limits = crate::ai_ui::status().limits;
-                let (dlo, dhi) = limits.map_or((0.0, 1.0), |l| l.denoise);
+                let (dlo, dhi) = limits.map_or((f32::MIN, f32::MAX), |l| l.denoise);
                 denoise_row(ui, tl!("Refine denoise"), &mut s.refine_strength, dlo, dhi);
                 if let Some(ri) = ModelId::from_key(&s.refine_model).and_then(|m| m.try_info()) {
                     let (slo, shi) = limits.map_or((1.0, f32::MAX), |l| l.steps);
@@ -967,7 +1093,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     if steps != before {
                         s.refine_steps = Some(steps);
                     }
-                    let (clo, chi) = limits.map_or((0.0, f32::MAX), |l| l.cfg);
+                    let (clo, chi) = limits.map_or((f32::MIN, f32::MAX), |l| l.cfg);
                     let mut cfg = s.refine_guidance.unwrap_or(ri.guidance.default);
                     let before = cfg;
                     guidance_row_labeled(
@@ -1000,15 +1126,19 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             // shown as recommendations, never enforced (every model, fixed-step ones included, can change steps).
             let limits = crate::ai_ui::status().limits;
             fit_to_backend(s, limits);
-            if cloud.is_none() && custom.as_ref().is_none_or(|w| w.has(&li_ai::custom::FieldKind::Steps)) {
-                let (lo, hi) = limits.map_or((1.0, f32::MAX), |l| l.steps);
-                let recommended = (custom.is_none()).then(|| range_hint(steps_range.min, steps_range.max, steps_range.default, 0));
-                number_row(ui, tl!("Steps"), &mut s.steps, lo as u32, hi as u32, recommended);
-            }
-            if cloud.is_none() && custom.as_ref().is_none_or(|w| w.has(&li_ai::custom::FieldKind::Cfg)) {
-                let (lo, hi) = limits.map_or((0.0, f32::MAX), |l| l.cfg);
-                let recommended = (custom.is_none()).then(|| range_hint(cfg_range.min, cfg_range.max, cfg_range.default, 1));
-                guidance_row(ui, &mut s.guidance, lo, hi, recommended);
+            if custom.is_none() && cloud.is_none() {
+                sampling_ui(ui, s, limits, false);
+            } else {
+                if cloud.is_none() && custom.as_ref().is_none_or(|w| w.has(&li_ai::custom::FieldKind::Steps)) {
+                    let (lo, hi) = limits.map_or((1.0, f32::MAX), |l| l.steps);
+                    let recommended = (custom.is_none()).then(|| range_hint(steps_range.min, steps_range.max, steps_range.default, 0));
+                    number_row(ui, tl!("Steps"), &mut s.steps, lo as u32, hi as u32, recommended);
+                }
+                if cloud.is_none() && custom.as_ref().is_none_or(|w| w.has(&li_ai::custom::FieldKind::Cfg)) {
+                    let (lo, hi) = limits.map_or((f32::MIN, f32::MAX), |l| l.cfg);
+                    let recommended = (custom.is_none()).then(|| range_hint(cfg_range.min, cfg_range.max, cfg_range.default, 1));
+                    guidance_row(ui, &mut s.guidance, lo, hi, recommended);
+                }
             }
             if info.init_image && custom.is_none() && cloud.is_none() && s.mode == Mode::Create {
                 let mut pct = s.denoise * 100.0;
@@ -1052,11 +1182,11 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             (_, Some(c)) => cloud_ready(c),
             (Some(_), _) if st.connected => Ok(()),
             (Some(_), _) => Err(tl!("The AI engine (ComfyUI) is not running.").to_owned()),
-            (None, None) => st.ready(m, &variant),
+            (None, None) => readiness(&st, m, &variant),
         };
         let refine_ready = if s.refine && s.mode == Mode::Create && custom.is_none() && cloud.is_none() {
             match ModelId::from_key(&s.refine_model) {
-                Some(rm) => st.ready(rm, &s.refine_variant).map_err(|e| crate::i18n::fmt(tl!("Refine model: {why}"), &[("why", &e)])),
+                Some(rm) => readiness(&st, rm, &s.refine_variant).map_err(|e| crate::i18n::fmt(tl!("Refine model: {why}"), &[("why", &e)])),
                 None => Err(tl!("Choose a model to refine with.").into()),
             }
         } else {
@@ -1071,20 +1201,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         };
         ui.add_space(4.0);
         for why in [ready.as_ref().err(), refine_ready.as_ref().err()].into_iter().flatten() {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(why).color(t.warning).size(11.5));
-                if cloud.is_some() {
-                    if widgets::secondary_button(ui, tl!("Add Key…"), 0.0).clicked() {
-                        crate::ai_ui::open_local_ai(app);
-                    }
-                } else if !st.connected {
-                    if widgets::secondary_button(ui, tl!("Set up AI…"), 0.0).clicked() {
-                        crate::ai_ui::open_local_ai(app);
-                    }
-                } else if widgets::secondary_button(ui, tl!("Get models…"), 0.0).clicked() {
-                    crate::model_browser::open();
-                }
-            });
+            readiness_warning(app, ui, why, &st, cloud.is_some());
         }
         let s = &app.ui.ai.generate;
         let label_text = match s.mode {
@@ -1122,24 +1239,25 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     });
 }
 
-fn loras_ui(ui: &mut egui::Ui, s: &mut GenerateState, fam: &li_ai::family::Family, t: &Tokens) {
+fn loras_ui(ui: &mut egui::Ui, picks: &mut Vec<LoraPick>, fam: &li_ai::family::Family, t: &Tokens) {
     let available = li_ai::inventory::loras_for(fam);
     let max = fam.lora.max.max(1) as usize;
     ui.horizontal(|ui| {
-        label(ui, &crate::i18n::fmt(tl!("Styles (LoRA) · {n}/{max}"), &[("n", &s.loras.len().to_string()), ("max", &max.to_string())]));
+        label(ui, &crate::i18n::fmt(tl!("Styles (LoRA) · {n}/{max}"), &[("n", &picks.len().to_string()), ("max", &max.to_string())]));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let free: Vec<&(li_ai::inventory::InstalledLora, bool)> = available.iter().filter(|(l, _)| !s.loras.iter().any(|p| p.name == l.name)).collect();
-            let can = s.loras.len() < max && !free.is_empty();
+            let free: Vec<&(li_ai::inventory::InstalledLora, bool)> = available.iter().filter(|(l, _)| !picks.iter().any(|p| p.name == l.name)).collect();
+            let can = picks.len() < max && !free.is_empty();
             let tip = if available.is_empty() { tl!("No LoRAs for this model family are installed (Find LoRAs…)") } else { tl!("Add a LoRA") };
             // "+ Add" lists the LoRAs to choose from (never picks one by itself): the ones that fit this model's
             // family first, then those whose family couldn't be identified, under a warning.
             let mut picked = None;
             ui.add_enabled_ui(can, |ui| {
-                let r = ui.menu_button(tl!("+ Add"), |ui| {
+                let r = widgets::secondary_button(ui, tl!("+ Add"), 0.0).on_hover_text(tip).on_disabled_hover_text(tip);
+                egui::Popup::menu(&r).show(|ui| {
                     ui.set_min_width(220.0);
                     let (sure, unsure): (Vec<&&(li_ai::inventory::InstalledLora, bool)>, Vec<_>) = free.iter().partition(|(_, sure)| *sure);
                     for (l, _) in sure.iter().copied().copied() {
-                        if ui.button(li_ai::inventory::label_for(&l.name)).clicked() {
+                        if widgets::secondary_button(ui, &li_ai::inventory::label_for(&l.name), 0.0).clicked() {
                             picked = Some(l.name.clone());
                             ui.close();
                         }
@@ -1150,17 +1268,16 @@ fn loras_ui(ui: &mut egui::Ui, s: &mut GenerateState, fam: &li_ai::family::Famil
                         }
                         ui.label(RichText::new(tl!("Family unknown: may not work with this model")).size(11.0).color(t.warning));
                         for (l, _) in unsure.iter().copied().copied() {
-                            if ui.button(li_ai::inventory::label_for(&l.name)).clicked() {
+                            if widgets::secondary_button(ui, &li_ai::inventory::label_for(&l.name), 0.0).clicked() {
                                 picked = Some(l.name.clone());
                                 ui.close();
                             }
                         }
                     }
                 });
-                r.response.on_hover_text(tip).on_disabled_hover_text(tip);
             });
             if let Some(name) = picked {
-                s.loras.push(LoraPick { name, strength: 0.8 });
+                picks.push(LoraPick { name, strength: 0.8 });
             }
             let browse = crate::icons::button(ui, "search", 22.0, false, tl!("Browse LoRAs for this model family"));
             browse.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Browse LoRAs…")));
@@ -1170,7 +1287,7 @@ fn loras_ui(ui: &mut egui::Ui, s: &mut GenerateState, fam: &li_ai::family::Famil
         });
     });
     let mut remove = None;
-    for (i, pick) in s.loras.iter_mut().enumerate() {
+    for (i, pick) in picks.iter_mut().enumerate() {
         ui.horizontal(|ui| {
             let opts: Vec<(String, String)> = available
                 .iter()
@@ -1181,16 +1298,20 @@ fn loras_ui(ui: &mut egui::Ui, s: &mut GenerateState, fam: &li_ai::family::Famil
                 .collect();
             let refs: Vec<(String, &str)> = opts.iter().map(|(k, l)| (k.clone(), l.as_str())).collect();
             widgets::dropdown(ui, &format!("gen-lora-{i}"), &mut pick.name, &refs, (ui.available_width() - 110.0).max(80.0));
-            widgets::value_field(ui, &mut pick.strength, -2.0..=2.0, "", 52.0).on_hover_text(tl!("Strength"));
+            let strength = widgets::value_field(ui, &mut pick.strength, -2.0..=2.0, "", 52.0).on_hover_text(tl!("Strength"));
+            strength.widget_info(|| egui::WidgetInfo {
+                label: Some(tl!("Strength").into()),
+                ..egui::WidgetInfo::drag_value(ui.is_enabled(), pick.strength as f64)
+            });
             if crate::icons::button(ui, "x", 20.0, false, tl!("Remove")).clicked() {
                 remove = Some(i);
             }
         });
     }
     if let Some(i) = remove {
-        s.loras.remove(i);
+        picks.remove(i);
     }
-    if s.loras.is_empty() && available.is_empty() {
+    if picks.is_empty() && available.is_empty() {
         ui.horizontal(|ui| {
             ui.label(RichText::new(tl!("No compatible LoRAs installed.")).color(t.text_faint).size(11.0));
             if ui.link(RichText::new(tl!("Find LoRAs…")).size(11.0)).clicked() {
@@ -1234,7 +1355,7 @@ fn apply_preset(s: &mut GenerateState, p: &li_ai::presets::GenPreset) {
         s.refine = true;
         s.refine_model = rm.clone();
         s.refine_variant = ModelId::from_key(rm).map(|m| catalog::default_variant(m).to_owned()).unwrap_or_default();
-        s.refine_strength = p.refine_strength.unwrap_or(0.35);
+        s.refine_strength = p.refine_strength.unwrap_or_else(|| catalog::refine_default_denoise(ModelId::intern(rm)));
     }
 }
 
@@ -1449,7 +1570,7 @@ fn local_request(
     req.steps = fitted.steps;
     req.guidance = fitted.guidance;
     req.negative = s.negative.clone();
-    req.denoise = s.denoise;
+    req.denoise = fitted.denoise;
     req.scale = s.upscale;
     req.loras = s.loras.iter().map(|l| li_ai::workflows::LoraUse { name: l.name.clone(), strength: l.strength }).collect();
     if !s.sampler.is_empty() {
@@ -1464,12 +1585,22 @@ fn local_request(
             if s.refine
                 && let Some(rm) = ModelId::from_key(&s.refine_model)
             {
+                let mut refine = GenerateState {
+                    mode: Mode::Refine,
+                    model: s.refine_model.clone(),
+                    steps: s.refine_steps.unwrap_or(rm.info().steps.default as u32),
+                    guidance: s.refine_guidance.unwrap_or(rm.info().guidance.default),
+                    denoise: s.refine_strength,
+                    ..Default::default()
+                };
+                fit_to_backend(&mut refine, crate::ai_ui::status().limits);
                 req.refine = Some(li_ai::RefineStep {
                     model: rm,
                     variant: s.refine_variant.clone(),
-                    strength: s.refine_strength,
-                    steps: s.refine_steps,
-                    guidance: s.refine_guidance,
+                    strength: refine.denoise,
+                    steps: Some(refine.steps),
+                    guidance: Some(refine.guidance),
+                    loras: s.refine_loras.iter().map(|l| li_ai::workflows::LoraUse { name: l.name.clone(), strength: l.strength }).collect(),
                     scale: s.refine_scale,
                 });
             }
@@ -1574,7 +1705,7 @@ fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
             "model": m.key(), "family": info.family, "variant": r.variant, "prompt": r.prompt, "negative_prompt": r.negative, "width": r.width, "height": r.height,
             "seed": r.seed, "transparent": r.transparent, "steps": r.steps, "guidance": r.guidance, "denoise": r.denoise,
             "loras": s.loras.iter().map(|l| json!({"name": l.name, "strength": l.strength})).collect::<Vec<_>>(),
-            "refine": r.refine.as_ref().map(|x| json!({"model": x.model.key(), "strength": x.strength, "scale": x.scale})),
+            "refine": r.refine,
             "reference_count": r.references.len(), "mode": format!("{:?}", s.mode).to_lowercase(),
         });
         let mask = r.mask.clone();
@@ -2358,6 +2489,112 @@ mod tests {
     use super::*;
 
     #[test]
+    fn refine_model_groups_exclude_upscalers_tools_and_video() {
+        let mut models = catalog::catalog().models.clone();
+        // Detected video/template-only models are represented by FamilyKind::Basic.
+        let mut video = ModelId::Klein4B.info().clone();
+        video.id = ModelId::intern("video:refine-picker-test");
+        video.resolved.kind = li_ai::family::FamilyKind::Basic;
+        models.push(video);
+        let mut upscale = ModelId::Klein4B.info().clone();
+        upscale.id = ModelId::intern("upscale:refine-picker-test");
+        upscale.upscale = true;
+        models.push(upscale);
+        let groups = model_groups(&models, Mode::Refine);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].0, "Edit models — refine by reference");
+        assert_eq!(groups[1].0, "Image models — refine by denoise");
+        let ids = |group: usize| groups[group].1.iter().map(|m| m.id).collect::<Vec<_>>();
+        assert!(ids(0).contains(&ModelId::Klein9B));
+        assert!(ids(0).contains(&ModelId::Qwen));
+        assert!(ids(1).contains(&ModelId::ZImageTurbo));
+        for excluded in [ModelId::SeedVr2, ModelId::KleinRemove, ModelId::intern("video:refine-picker-test"), ModelId::intern("upscale:refine-picker-test")] {
+            assert!(!ids(0).contains(&excluded) && !ids(1).contains(&excluded), "{excluded:?}");
+        }
+    }
+
+    #[test]
+    fn refine_panel_mode_and_second_pass_use_model_defaults_and_grouped_picker() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::Queryable;
+        let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut session = photocraft_engine::Session::new();
+        session.execute("file.new", json!({"width": 64, "height": 64})).unwrap();
+        let app = PhotocraftApp::new(session, crate::Services::default());
+        assert_eq!(app.ui.ai.generate.refine_strength, 1.0);
+        crate::ai_ui::TEST_STATUS.with(|s| {
+            *s.borrow_mut() = Some(crate::ai_ui::EngineStatus {
+                connected: true,
+                checked: true,
+                presets: catalog::presets().iter().map(|p| (p.id(), Ok(()))).collect(),
+                ..Default::default()
+            });
+        });
+        let mut initialized = false;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(420.0, 1800.0)).with_max_steps(64).build_ui_state(
+            move |ui, app: &mut PhotocraftApp| {
+                if !initialized {
+                    PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Studio);
+                    initialized = true;
+                    ui.ctx().request_repaint();
+                    return;
+                }
+                panel(app, ui);
+            },
+            app,
+        );
+        h.run_steps(3);
+        h.get_by_role_and_label(Role::Button, "Refine").click();
+        h.run_steps(3);
+        assert_eq!(h.state().ui.ai.generate.denoise, 1.0);
+        h.get_by_label("Refines by reference: the image guides the result");
+        h.get_by_value(&format!("{} · {}", ModelId::Klein4B.info().label, ModelId::Klein4B.info().family_label)).click();
+        h.run_steps(2);
+        h.get_by_label("Edit models — refine by reference");
+        h.get_by_label("Image models — refine by denoise");
+        for excluded in [ModelId::SeedVr2, ModelId::KleinRemove] {
+            assert!(h.query_by_role_and_label(Role::Button, &excluded.info().label).is_none());
+        }
+        h.get_by_role_and_label(Role::Button, &ModelId::ZImageTurbo.info().label).click();
+        h.run_steps(3);
+        assert_eq!(h.state().ui.ai.generate.denoise, 0.35);
+        h.get_by_label("Refines by denoise: lower keeps more of the image");
+        h.state_mut().ui.ai.generate.denoise = 0.72;
+        h.get_by_value(&format!("{} · {}", ModelId::ZImageTurbo.info().label, ModelId::ZImageTurbo.info().family_label)).click();
+        h.run_steps(2);
+        h.get_by_role_and_label(Role::Button, &ModelId::Klein9B.info().label).click();
+        h.run_steps(3);
+        assert_eq!(h.state().ui.ai.generate.denoise, 1.0);
+        h.get_by_role_and_label(Role::Button, "Create").click();
+        h.run_steps(3);
+        h.get_by_label("Refine with").click();
+        h.run_steps(2);
+        h.get_by_value("Choose a model").click();
+        h.run_steps(2);
+        h.get_by_role_and_label(Role::Button, &ModelId::Klein9B.info().label).click();
+        h.run_steps(3);
+        assert_eq!(h.state().ui.ai.generate.refine_strength, 1.0);
+        h.state_mut().ui.ai.generate.refine_strength = 0.72;
+        h.get_all_by_value(&format!("{} · {}", ModelId::Klein9B.info().label, ModelId::Klein9B.info().family_label)).last().unwrap().click();
+        h.run_steps(2);
+        h.get_by_role_and_label(Role::Button, &ModelId::ZImageTurbo.info().label).click();
+        h.run_steps(3);
+        assert_eq!(h.state().ui.ai.generate.refine_strength, 0.35);
+        h.get_by_label("Refines by denoise: lower keeps more of the image");
+        // Missing preset strengths and non-finite request values also use the selected model.
+        let s = &mut h.state_mut().ui.ai.generate;
+        let mut preset = li_ai::presets::GenPreset { refine_model: Some(ModelId::Klein9B.key().into()), ..Default::default() };
+        apply_preset(s, &preset);
+        assert_eq!(s.refine_strength, 1.0);
+        s.refine_strength = f32::NAN;
+        let (req, _, _) = local_request(s, "detail".into(), None, Vec::new()).unwrap();
+        assert_eq!(req.refine.unwrap().strength, 1.0);
+        preset.refine_strength = Some(0.6);
+        apply_preset(s, &preset);
+        assert_eq!(s.refine_strength, 0.6, "an explicit saved strength stays editable");
+    }
+
+    #[test]
     fn steps_and_guidance_follow_the_backend_limits_only() {
         let limits = li_ai::comfy::SamplerLimits { steps: (1.0, 10000.0), cfg: (0.0, 100.0), denoise: (0.0, 1.0) };
         // well outside every model's recommendation, but inside what ComfyUI accepts: kept as typed
@@ -2375,6 +2612,107 @@ mod tests {
             "steps": ["INT", {"default": 20, "min": 1, "max": 10000}], "cfg": ["FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0}],
             "denoise": ["FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0}]}}}}));
         assert_eq!(real.sampler_limits(), Some(limits));
+    }
+
+    #[test]
+    fn refine_with_lora_picker_and_precision_carry_the_second_pass_settings() {
+        use egui_kittest::kittest::Queryable;
+        let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        li_ai::inventory::refresh(
+            &li_ai::comfy::ObjectInfo(
+                json!({"LoraLoader": {"input": {"required": {"lora_name": [["qwen_image_2.1_style.safetensors", "flux_realism_lora.safetensors"]]}}}}),
+            ),
+            None,
+        );
+        struct Reset;
+        impl Drop for Reset {
+            fn drop(&mut self) {
+                li_ai::inventory::refresh(&li_ai::comfy::ObjectInfo(json!({})), None);
+            }
+        }
+        let _reset = Reset;
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.ui.ai.generate.prompt = "a castle".into();
+        let st = crate::ai_ui::EngineStatus {
+            connected: true,
+            checked: true,
+            presets: catalog::presets().iter().map(|p| (p.id(), Ok(()))).collect(),
+            ..Default::default()
+        };
+        crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = Some(st));
+        // Render the real panel with enough room for the expanded second-pass controls.
+        let mut initialized = false;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(420.0, 1600.0)).with_max_steps(64).build_ui_state(
+            move |ui, app: &mut PhotocraftApp| {
+                if !initialized {
+                    PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Studio);
+                    initialized = true;
+                    ui.ctx().request_repaint();
+                    return;
+                }
+                panel(app, ui);
+            },
+            app,
+        );
+        h.run_steps(3);
+        // The panel exposes the same size component as the Refinement workspace.
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "4:3").click();
+        h.run_steps(2);
+        assert_eq!(h.state().ui.ai.generate.aspect, "4:3");
+        assert!(h.state().ui.ai.generate.aspect_locked);
+        let grid = model_of(&h.state().ui.ai.generate).info().resolved.sizes.multiple.max(8);
+        assert_eq!((h.state().ui.ai.generate.width % grid, h.state().ui.ai.generate.height % grid), (0, 0));
+        h.get_by_label("Link width and height").click();
+        h.run_steps(2);
+        assert!(!h.state().ui.ai.generate.aspect_locked);
+        h.get_by_label("Refine with").click();
+        h.run_steps(2);
+        h.get_by_value("Choose a model").click();
+        h.run_steps(2);
+        h.get_by_role_and_label(egui::accesskit::Role::Button, &ModelId::Qwen.info().label).click();
+        h.run_steps(3);
+        let current_variant = h.state().ui.ai.generate.refine_variant.clone();
+        let current_label = catalog::presets_for(ModelId::Qwen).find(|p| p.variant == current_variant).unwrap().label.clone();
+        let alternate = catalog::presets_for(ModelId::Qwen).find(|p| p.variant != current_variant).unwrap();
+        h.get_all_by_value(&current_label).last().unwrap().click();
+        h.run_steps(2);
+        h.get_by_role_and_label(egui::accesskit::Role::Button, &alternate.label).click();
+        h.run_steps(2);
+        assert_eq!(h.state().ui.ai.generate.refine_variant, alternate.variant);
+        h.get_all_by_label("+ Add").last().unwrap().click();
+        h.run_steps(2);
+        assert!(h.query_by_label("flux realism lora").is_none());
+        h.get_by_label("qwen image 2.1 style").click();
+        h.run_steps(3);
+        let s = &h.state().ui.ai.generate;
+        assert!(s.loras.is_empty());
+        assert_eq!(s.refine_loras, vec![LoraPick { name: "qwen_image_2.1_style.safetensors".into(), strength: 0.8 }]);
+        let (req, _, _) = local_request(s, s.prompt.clone(), None, Vec::new()).unwrap();
+        let refine = req.refine.unwrap();
+        assert_eq!(refine.variant, alternate.variant);
+        assert_eq!(refine.loras, vec![li_ai::workflows::LoraUse { name: "qwen_image_2.1_style.safetensors".into(), strength: 0.8 }]);
+        let steps = h.get_by_role_and_label(egui::accesskit::Role::SpinButton, "Refine steps").rect();
+        h.hover_at(steps.center());
+        h.event(egui::Event::PointerButton { pos: steps.center(), button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() });
+        h.step();
+        h.event(egui::Event::PointerMoved(steps.center() + vec2(20.0, 0.0)));
+        h.step();
+        h.event(egui::Event::PointerButton {
+            pos: steps.center() + vec2(20.0, 0.0),
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        });
+        h.run_steps(2);
+        let s = &mut h.state_mut().ui.ai.generate;
+        assert!(s.refine_steps.is_some());
+        let (req, _, _) = local_request(s, s.prompt.clone(), None, Vec::new()).unwrap();
+        assert_eq!(req.refine.unwrap().steps, s.refine_steps);
+        s.refine_strength = f32::NAN;
+        let (req, _, _) = local_request(s, s.prompt.clone(), None, Vec::new()).unwrap();
+        assert_eq!(req.refine.unwrap().strength, catalog::refine_default_denoise(ModelId::Qwen), "a second-pass fallback follows its model");
+        let old: GenerateState = serde_json::from_value(json!({"refine": true})).unwrap();
+        assert!(old.refine_loras.is_empty());
     }
 
     #[test]
@@ -2431,14 +2769,20 @@ mod tests {
     fn styles_row_opens_the_lora_browser() {
         use egui_kittest::kittest::Queryable;
         let fam = ModelId::Klein4B.info().resolved.clone();
+        let mut initialized = false;
         let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(360.0, 200.0)).build_ui_state(
             move |ui, s: &mut GenerateState| {
+                if !initialized {
+                    PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Studio);
+                    initialized = true;
+                    ui.ctx().request_repaint();
+                    return;
+                }
                 let t = Tokens::get(ui.ctx());
-                loras_ui(ui, s, &fam, &t);
+                loras_ui(ui, &mut s.loras, &fam, &t);
             },
             GenerateState::default(),
         );
-        crate::PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
         h.run_steps(2);
         crate::model_browser::close();
         h.get_by_label("Browse LoRAs…").click();

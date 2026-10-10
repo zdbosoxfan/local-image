@@ -769,6 +769,72 @@ mod tests {
     }
 
     #[test]
+    fn refine_step_loras_reach_the_comfy_graph_and_validate_the_refine_family() {
+        let server = MockComfy::start().unwrap();
+        server.delay_ms.store(1, Ordering::SeqCst);
+        // Official Qwen uses the model-only loader; the checkpoint pass uses LoraLoader.
+        crate::inventory::refresh(&crate::comfy::ObjectInfo(object_info()), None);
+        let sdxl = ModelId::from_key("ckpt:juggernautXL_v9.safetensors").unwrap();
+        let ai = Ai::new(server.host());
+        let ctl = JobControl::new();
+        let mut req = GenerateRequest::new(ModelId::Klein4B, "a castle");
+        req.width = 512;
+        req.height = 512;
+        let step = crate::ops::RefineStep {
+            model: sdxl,
+            variant: "installed".into(),
+            strength: 0.35,
+            steps: Some(31),
+            guidance: Some(7.5),
+            scale: 1.0,
+            loras: vec![crate::workflows::LoraUse { name: "sdxl_detail_tweaker.safetensors".into(), strength: 0.65 }],
+        };
+        req.refine = Some(step.clone());
+        ai.generate(&req, &ctl).unwrap();
+        let prompts = server.prompts();
+        assert_eq!(prompts.len(), 2);
+        assert!(!classes_of(&prompts[0]).contains(&"LoraLoader".into()), "the draft keeps its own styles");
+        let loader = prompts[1].as_object().unwrap().values().find(|n| n["class_type"] == "LoraLoader").unwrap();
+        assert_eq!(loader["inputs"]["lora_name"], "sdxl_detail_tweaker.safetensors");
+        assert!((loader["inputs"]["strength_model"].as_f64().unwrap() - 0.65).abs() < 1e-6);
+        assert!((loader["inputs"]["strength_clip"].as_f64().unwrap() - 0.65).abs() < 1e-6);
+        let sampler = prompts[1].as_object().unwrap().values().find(|n| n["class_type"] == "KSampler").unwrap();
+        assert_eq!(sampler["inputs"]["steps"], 31);
+        assert_eq!(sampler["inputs"]["cfg"], 7.5);
+        let mut invalid = step.clone();
+        invalid.loras[0].name = "flux_realism_lora.safetensors".into();
+        req.refine = Some(invalid);
+        let error = ai.generate(&req, &ctl).unwrap_err().to_string();
+        assert!(error.contains("for flux1"), "{error}");
+        let mut invalid = step.clone();
+        invalid.loras[0].strength = f32::NAN;
+        req.refine = Some(invalid);
+        assert!(ai.generate(&req, &ctl).unwrap_err().to_string().contains("Style strength"));
+        let mut old = serde_json::to_value(step).unwrap();
+        old.as_object_mut().unwrap().remove("loras");
+        let old: crate::ops::RefineStep = serde_json::from_value(old).unwrap();
+        assert!(old.loras.is_empty());
+        // The Qwen special instruction-refine path must receive the second pass's styles too.
+        req.refine = Some(crate::ops::RefineStep {
+            model: ModelId::Qwen,
+            variant: crate::catalog::default_variant(ModelId::Qwen).into(),
+            strength: 0.35,
+            steps: None,
+            guidance: None,
+            scale: 1.0,
+            loras: vec![crate::workflows::LoraUse { name: "local-image/qwen-watercolor.safetensors".into(), strength: 0.45 }],
+        });
+        ai.generate(&req, &ctl).unwrap();
+        let graph = server.prompts().last().unwrap().clone();
+        let loader = graph.as_object().unwrap().values().find(|n| n["class_type"] == "LoraLoaderModelOnly").unwrap();
+        assert_eq!(loader["inputs"]["lora_name"], "local-image/qwen-watercolor.safetensors");
+        assert!((loader["inputs"]["strength_model"].as_f64().unwrap() - 0.45).abs() < 1e-6);
+        let sampler = graph.as_object().unwrap().values().find(|n| n["class_type"] == "KSampler").unwrap();
+        assert!((sampler["inputs"]["denoise"].as_f64().unwrap() - 0.35).abs() < 1e-6);
+        crate::catalog::set_installed(Vec::new());
+    }
+
+    #[test]
     fn every_family_runs_against_the_mock() {
         let server = MockComfy::start().unwrap();
         server.delay_ms.store(10, Ordering::SeqCst);
@@ -852,7 +918,15 @@ mod tests {
         let mut req = GenerateRequest::new(ModelId::Klein4B, "a castle");
         req.width = 512;
         req.height = 512;
-        req.refine = Some(crate::ops::RefineStep { model: sdxl, variant: "installed".into(), strength: 0.35, steps: None, guidance: None, scale: 1.5 });
+        req.refine = Some(crate::ops::RefineStep {
+            model: sdxl,
+            variant: "installed".into(),
+            strength: 0.35,
+            steps: None,
+            guidance: None,
+            loras: Vec::new(),
+            scale: 1.5,
+        });
         let before = server.prompts().len();
         let out = ai.generate(&req, &ctl).unwrap();
         assert_eq!(out.dimensions(), (768, 768));
