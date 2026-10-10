@@ -130,5 +130,13 @@
   "· {n} photo{}": "· {n} foto{}",
   "… and {more} more": "… y {more} más",
   "{n} change{} saved in memory but not written to disk: {e}\nLocal Image retries automatically; quitting now would lose {}.": "{n} cambio(s){0:.0} en memoria sin escribir en disco: {e}\nLocal Image reintenta automáticamente; si sale ahora, se perderán.{1:.0}",
-  "{start}–{end} · {n} photos": "{start}–{end} · {n} fotos"
+  "{start}–{end} · {n} photos": "{start}–{end} · {n} fotos",
+  "Skipped {n} headshots without exactly one face": "Skipped {n} headshots without exactly one face",
+  "Faces: {done} of {total}": "Faces: {done} of {total}",
+  "{folder} / {total} photos": "{folder} / {total} photos",
+  "? {n} matches to review": "? {n} matches to review",
+  "Show everyone ({n} more)": "Show everyone ({n} more)",
+  "Restore {name}": "Restore {name}",
+  "Unnamed person {id}": "Unnamed person {id}",
+  "Merge with {name}?": "Merge with {name}?"
 }

@@ -130,5 +130,13 @@
   "· {dups} already in the library": "· {dups} bereits in der Bibliothek",
   "· {n} photo{}": "· {n} Foto{0:.0}",
   "… and {more} more": "… und {more} weitere",
-  "{start}–{end} · {n} photos": "{start}–{end} · {n} Fotos"
+  "{start}–{end} · {n} photos": "{start}–{end} · {n} Fotos",
+  "Skipped {n} headshots without exactly one face": "Skipped {n} headshots without exactly one face",
+  "Faces: {done} of {total}": "Faces: {done} of {total}",
+  "{folder} / {total} photos": "{folder} / {total} photos",
+  "? {n} matches to review": "? {n} matches to review",
+  "Show everyone ({n} more)": "Show everyone ({n} more)",
+  "Restore {name}": "Restore {name}",
+  "Unnamed person {id}": "Unnamed person {id}",
+  "Merge with {name}?": "Merge with {name}?"
 }

@@ -162,7 +162,14 @@ fn find(s: &mut Session, p: &Value) -> Result<Value> {
             .map(|p| p.id)
         {
             Some(id) => id,
-            None => data.add(name(p)?),
+            None => {
+                let requested = name(p)?;
+                data.people
+                    .iter()
+                    .find(|person| !person.ignored && person.name.eq_ignore_ascii_case(&requested))
+                    .map(|person| person.id)
+                    .unwrap_or_else(|| data.add(requested))
+            }
         }
     };
     if let Some(keys) = keys {

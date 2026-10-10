@@ -586,7 +586,7 @@ fn region_overlay(
 /// follow them, so a filter must never be invisible here. A click clears them all. It sits in the
 /// canvas margin, so the photo does not move.
 fn filter_pill(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect) {
-    let chips = lightcraft_engine::filter_chips(&app.session.filter, &app.session.catalog);
+    let chips = super::people_workspace::filter_chips(app);
     if chips.is_empty() {
         return;
     }

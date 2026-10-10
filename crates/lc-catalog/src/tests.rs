@@ -481,3 +481,26 @@ fn person_rules_use_stable_ids_any_all_names_and_negative_ops() {
     assert!(old.person_ids.is_empty());
     assert!(serde_json::to_value(old).unwrap().get("person_ids").is_none());
 }
+
+#[test]
+fn people_filter_any_everyone_and_old_filter_defaults() {
+    let mut c = Catalog::new();
+    let a = photo(&mut c, "jane.jpg", "2026-10-09");
+    let b = photo(&mut c, "john.jpg", "2026-10-09");
+    let both = photo(&mut c, "together.jpg", "2026-10-09");
+    for (id, people) in [(a, vec![1]), (b, vec![2]), (both, vec![1, 2])] {
+        let mut meta = c.photo(id).unwrap().meta.clone();
+        meta.person_ids = people;
+        c.apply(Op::SetMeta { id, meta: Box::new(meta) }).unwrap();
+    }
+    let mut f = Filter { person_ids: vec![1, 2], ..Default::default() };
+    assert_eq!(c.query(&f, &Default::default()).len(), 3);
+    f.people_everyone = true;
+    assert_eq!(c.query(&f, &Default::default()), vec![both]);
+    let old: Filter = serde_json::from_value(serde_json::json!({"person":"Jane"})).unwrap();
+    assert!(old.person_ids.is_empty());
+    assert!(!old.people_everyone);
+    let saved = serde_json::to_value(&f).unwrap();
+    let loaded: Filter = serde_json::from_value(saved).unwrap();
+    assert_eq!(loaded, f);
+}

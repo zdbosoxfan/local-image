@@ -41,6 +41,10 @@ pub struct Filter {
     pub keyword: Option<String>,
     /// A person: photos with a named face region of this name (case-insensitive), as read from XMP.
     pub person: Option<String>,
+    /// Local face identities selected in the People facet; names remain independent XMP filters.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub person_ids: Vec<u64>,
+    pub people_everyone: bool,
     pub camera: Option<String>,
     /// Lens (case-insensitive substring).
     pub lens: Option<String>,
@@ -300,6 +304,15 @@ impl Filter {
         {
             return false;
         }
+        if !self.person_ids.is_empty()
+            && !if self.people_everyone {
+                self.person_ids.iter().all(|id| p.meta.person_ids.contains(id))
+            } else {
+                self.person_ids.iter().any(|id| p.meta.person_ids.contains(id))
+            }
+        {
+            return false;
+        }
         if let Some(n) = &self.person
             && !has_person(p, n)
         {
@@ -382,7 +395,7 @@ impl Catalog {
     /// People view offers while other filters (a date, a rating, an album…) are active, so picking
     /// a person never ends in an empty grid.
     pub fn people_in(&self, filter: &Filter) -> Vec<Person> {
-        let filter = Filter { person: None, ..filter.clone() };
+        let filter = Filter { person: None, person_ids: Vec::new(), people_everyone: false, ..filter.clone() };
         let mut m: std::collections::HashMap<String, (Person, f64)> = Default::default();
         for p in self.photos().filter(|p| filter.matches(p, self)) {
             let mut seen: Vec<String> = Vec::new();

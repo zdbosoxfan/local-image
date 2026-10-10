@@ -170,6 +170,10 @@ pub fn filter_chips(f: &Filter, cat: &Catalog) -> Vec<FilterChip> {
             add(format!("{name}: {x}"), json!({key: Null}));
         }
     }
+    if !f.person_ids.is_empty() {
+        let ids = f.person_ids.iter().map(u64::to_string).collect::<Vec<_>>().join(if f.people_everyone { " and " } else { " or " });
+        add(format!("People: {ids}"), json!({"personIds": [], "peopleEveryone": false}));
+    }
     if let Some(d) = &f.date {
         add(format!("Date: {}", date_label(d)), json!({"date": Null}));
     }

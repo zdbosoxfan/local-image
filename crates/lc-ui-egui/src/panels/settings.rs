@@ -116,6 +116,30 @@ fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             hint(ui, t, crate::i18n::tr("not available here"));
         }
     });
+    heading(ui, t, "Face recognition");
+    hint(ui, t, "Face data stays in this library. Clearing it does not load face models.");
+    if crate::widgets::text_button(ui, "settingsClearFaces", crate::i18n::tr("Clear face data…"), false).clicked() {
+        app.ui.people.clear = true;
+    }
+    if app.ui.people.clear {
+        check(ui, "removeFaceNames", &mut app.ui.people.remove_names, "Also remove names Smart Sort added");
+        hint(ui, t, "Delete stored faces, headshot embeddings and person matches?");
+        let r = ui.add_enabled(app.people_task.is_none() && app.smart_sort.is_none(), egui::Button::new(crate::i18n::tr("Clear face data")));
+        register(ui.ctx(), "smartSort:clearFaceData", r.rect);
+        if r.clicked() {
+            match app.session.execute("smartSort.clearFaceData", &json!({"removeNames":app.ui.people.remove_names})) {
+                Ok(_) => {
+                    app.ui.people = Default::default();
+                    app.people_images = Default::default();
+                    app.session.smart.people.tagger = None;
+                }
+                Err(e) => app.ui.people.error = e.to_string(),
+            }
+        }
+        if crate::widgets::text_button(ui, "settingsClearFacesCancel", crate::i18n::tr("Cancel"), false).clicked() {
+            app.ui.people.clear = false;
+        }
+    }
     heading(ui, t, crate::i18n::tr("Startup"));
     row(ui, t, crate::i18n::tr("Open in"), |ui| {
         choices(
@@ -581,6 +605,10 @@ pub fn open_library(app: &mut LightcraftApp, p: &Value) -> Result<Value, String>
     app.session.close_library().map_err(|e| e.to_string())?;
     app.session.open_library(&path, false).map_err(|e| e.to_string())?;
     app.renderer.forget_all();
+    app.people_task = None;
+    app.smart_sort = None;
+    app.people_images = Default::default();
+    app.ui.people = Default::default();
     app.ui.compare = None;
     app.ui.settings.library_path = path.clone();
     Ok(json!({"path": path, "photos": app.session.catalog.len()}))

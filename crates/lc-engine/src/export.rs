@@ -535,6 +535,9 @@ pub struct ExportOptions {
     pub metadata: MetadataPolicy,
     /// Strip GPS / location even when the policy would include it.
     pub remove_location: bool,
+    /// Explicit opt-in: project named face regions into People keywords on exported copies.
+    #[serde(default)]
+    pub include_people_names: bool,
     /// Text watermark (none when absent or the text is empty).
     pub watermark: Option<Watermark>,
     /// Output colour space (AVIF is always sRGB: its muxer cannot embed a profile).
@@ -582,6 +585,7 @@ impl Default for ExportOptions {
             dng_compression: DngCompression::Lossless,
             metadata: MetadataPolicy::All,
             remove_location: false,
+            include_people_names: false,
             watermark: None,
             color_space: OutputSpace::Srgb,
             bit_depth: None,
@@ -628,6 +632,7 @@ impl ExportOptions {
             dng_compression: enm(p, "dngCompression").unwrap_or(d.dng_compression),
             metadata: enm(p, "metadata").unwrap_or(d.metadata),
             remove_location: p.get("removeLocation").and_then(Value::as_bool).unwrap_or(d.remove_location),
+            include_people_names: p.get("includePeopleNames").and_then(Value::as_bool).unwrap_or(false),
             watermark: match p.get("watermark") {
                 Some(Value::String(t)) => Some(Watermark { text: t.clone(), ..Default::default() }),
                 Some(v @ Value::Object(_)) => serde_json::from_value(v.clone()).ok(),
@@ -1038,6 +1043,9 @@ pub fn export_metadata(photo: &lightcraft_catalog::Photo, o: &ExportOptions) -> 
         out.country = text(&m.country);
     }
     out.keywords = m.keywords.clone();
+    if o.include_people_names {
+        add_people_keywords(&mut out.keywords, &m.regions);
+    }
     out.capture_time = photo.captured.as_deref().and_then(DateTime::parse_iso);
     out.rating = (photo.rating > 0).then_some(photo.rating as i8);
     // Pixels are exported upright: orientation is baked in.
@@ -1054,6 +1062,22 @@ pub fn export_metadata(photo: &lightcraft_catalog::Photo, o: &ExportOptions) -> 
         out.iso = m.iso;
     }
     Some(out)
+}
+
+/// Names leave the face store only as explicit export metadata; never include IDs or vectors.
+fn add_people_keywords(keywords: &mut Vec<String>, regions: &[lightcraft_meta::Region]) {
+    for name in regions
+        .iter()
+        .filter(|r| r.kind == lightcraft_meta::RegionKind::Face)
+        .filter_map(|r| r.name.as_deref())
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+    {
+        let keyword = format!("People|{name}");
+        if !keywords.iter().any(|k| k.eq_ignore_ascii_case(&keyword)) {
+            keywords.push(keyword);
+        }
+    }
 }
 
 /// One exported file.
@@ -1176,7 +1200,13 @@ pub(crate) fn prepare_guarded(
         Work::File {
             path: path.clone(),
             read: session.media.file_bytes.clone(),
-            packet: crate::sidecar::sidecar_packet(p, &session.catalog),
+            packet: {
+                let mut copy = (**p).clone();
+                if o.include_people_names {
+                    add_people_keywords(&mut copy.meta.keywords, &copy.meta.regions);
+                }
+                crate::sidecar::sidecar_packet(&copy, &session.catalog)
+            },
             dng: (o.format == ExportFormat::Dng).then_some(o.dng_compression),
             label: p.file_name.clone(),
             size: (p.width as usize, p.height as usize),

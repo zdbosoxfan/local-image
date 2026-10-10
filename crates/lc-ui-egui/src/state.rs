@@ -242,6 +242,8 @@ pub const MIN_PHOTO_WIDTH: f32 = 360.0;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct UiState {
+    #[serde(skip)]
+    pub people: crate::panels::people_workspace::PeopleUi,
     #[serde(default = "crate::i18n::default_language")]
     pub language: crate::i18n::Locale,
     /// The Build Previews run last announced (its identity, finished?).
@@ -633,6 +635,7 @@ pub enum Dialog {
 impl Default for UiState {
     fn default() -> Self {
         UiState {
+            people: Default::default(),
             language: crate::i18n::default_language(),
             preview_build_seen: None,
             unsaved_seen: false,

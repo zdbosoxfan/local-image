@@ -8,6 +8,7 @@ use li_seg::faces::{FaceImage, FaceModels, FaceNode, NodeKey, RgbPixels};
 use lightcraft_catalog::{Catalog, Op, PhotoId};
 use lightcraft_raster::Rgba8;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -480,6 +481,38 @@ pub fn region_ops(cat: &Catalog, engine: &PeopleEngine, data: &PeopleData) -> st
     Ok(ops)
 }
 
+/// Follow merged identities without changing the user's active filter, so Undo can restore
+/// its original identity. Saved album rules use this same projection within the merge's undo.
+pub fn resolve_filter_ids(filter: &mut lightcraft_catalog::Filter, data: &PeopleData) {
+    for id in &mut filter.person_ids {
+        *id = data.resolve_id(*id);
+    }
+    filter.person_ids.sort_unstable();
+    filter.person_ids.dedup();
+    fn rules(rs: &mut lightcraft_catalog::RuleSet, data: &PeopleData) {
+        for rule in &mut rs.rules {
+            match rule {
+                lightcraft_catalog::Rule::Group { group } => rules(group, data),
+                lightcraft_catalog::Rule::Field { field, value, .. } if field == "person" => {
+                    if let Some(id) = value.as_u64() {
+                        *value = json!(data.resolve_id(id));
+                    } else if let Some(array) = value.as_array_mut() {
+                        for id in array {
+                            if let Some(n) = id.as_u64() {
+                                *id = json!(data.resolve_id(n));
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    if let Some(rs) = &mut filter.rule_set {
+        rules(rs, data);
+    }
+}
+
 impl Session {
     pub fn require_faces(&self) -> Result<()> {
         if self.smart.prefs.faces_enabled { Ok(()) } else { Err(EngineError::Other("face recognition is disabled for this library".into())) }
@@ -487,7 +520,18 @@ impl Session {
     /// Persist identity changes and catalog regions together in the same history entry.
     pub fn commit_people(&mut self, label: &str, data: PeopleData) -> Result<()> {
         let before = self.smart.people.data.clone();
-        let ops = region_ops(&self.catalog, &self.smart.people, &data).map_err(EngineError::Other)?;
+        let mut ops = region_ops(&self.catalog, &self.smart.people, &data).map_err(EngineError::Other)?;
+        if data.merged_ids != before.merged_ids {
+            for album in self.catalog.albums() {
+                if let Some(old) = album.smart.as_deref() {
+                    let mut rules = old.clone();
+                    resolve_filter_ids(&mut rules, &data);
+                    if &rules != old {
+                        ops.push(Op::SetAlbumRules { id: album.id, rules: Box::new(rules) });
+                    }
+                }
+            }
+        }
         if data == before && ops.is_empty() {
             return Ok(());
         }
