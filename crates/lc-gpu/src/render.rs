@@ -172,6 +172,8 @@ pub(crate) struct Cx<'a> {
     /// Kernel invocations recorded since the last submit.
     pending: u64,
     primary_dispatches: usize,
+    /// U16 needs exact weight boundaries and the CPU's variance-transform powers.
+    precise_nr: bool,
 }
 
 /// Kernel invocations recorded before a render submits them (under one full-size pass over a
@@ -183,7 +185,7 @@ const BAND_PIXELS: usize = 4 << 20;
 
 impl<'a> Cx<'a> {
     pub fn new(gpu: &'a Gpu) -> Cx<'a> {
-        Cx { gpu, enc: Some(gpu.encoder()), pending: 0, primary_dispatches: 0 }
+        Cx { gpu, enc: Some(gpu.encoder()), pending: 0, primary_dispatches: 0, precise_nr: false }
     }
 
     /// Record kernel `name` (see [`Gpu::run`]).
@@ -619,6 +621,7 @@ pub fn render(
         return None;
     }
     let mut cx = Cx::new(gpu);
+    cx.precise_nr = req.depth == lightcraft_pipeline::OutputDepth::U16;
     // The CPU plans automatic Upright and detects pupils AFTER capture. These
     // uncommon source analyses need the same sharpened pixels; ordinary renders
     // plan from dimensions/settings alone and leave the source entirely on device.
@@ -635,6 +638,9 @@ pub fn render(
         return None;
     }
     let mut plan = lightcraft_pipeline::plan(analysis_src.as_ref().unwrap_or(src), info, s, req);
+    if cx.precise_nr {
+        plan.lin_key = cache_key((plan.lin_key, "deep NR"));
+    }
     let (w, h) = (plan.w, plan.h);
     // checked: an absurd request (e.g. a fit into `usize::MAX`) must not wrap into a size that
     // passes the check and then dispatches bands forever
@@ -823,7 +829,11 @@ pub fn render(
     }
     let aux = gpu.upload(&aux);
     // cleared, so that work which never ran cannot pass for an image (see the check below)
-    let out = cx.zeroed(n);
+    let deep_output = req.depth == lightcraft_pipeline::OutputDepth::U16;
+    if let Some(i) = crate::params::index("DEPTH") {
+        p[i] = u32::from(deep_output);
+    }
+    let out = cx.zeroed(if deep_output { 3 * n } else { n });
     if fault == Some(crate::Fault::Validation) {
         // a dispatch the device rejects (too many workgroups)
         cx.run("box_h", &[0; 5], &[Some(&aux), Some(&out)], [gpu.device.limits().max_compute_workgroups_per_dimension + 1, 1, 1]);
@@ -872,7 +882,16 @@ pub fn render(
             }
         })
     };
-    let data: Vec<[u8; 4]> = cx.read(&out, n);
+    let words: Vec<u32> = cx.read(&out, if deep_output { 3 * n } else { n });
+    let data = words.iter().take(n).map(|p| p.to_le_bytes()).collect();
+    let deep = deep_output.then(|| lightcraft_pipeline::DeepImage {
+        width: w,
+        height: h,
+        space: req.space,
+        samples: lightcraft_pipeline::DeepSamples::U16(
+            words[n..].as_chunks::<2>().0.iter().flat_map(|p| [p[0] as u16, (p[0] >> 16) as u16, p[1] as u16]).collect(),
+        ),
+    });
     let image = Rgba8 { width: w, height: h, data };
     lap("finish + readback", &mut t, &mut cx);
     if crate::ctx::failed() {
@@ -906,7 +925,7 @@ pub fn render(
         }
     });
     lightcraft_pipeline::visualize::apply(&mut image, req.overlay, &plan, overlay_mask.as_ref());
-    Some(Rendered { image, histogram, deep: None })
+    Some(Rendered { image, histogram, deep })
 }
 
 fn source_buffer(cx: &mut Cx<'_>, src: &Arc<Rgb32f>, capture: Option<CaptureParams>, stages: Option<&GpuStages>) -> Arc<Buf> {
@@ -980,22 +999,44 @@ fn denoise(cx: &mut Cx<'_>, img: Buf, plan: &Plan<'_>, sensor_scale: f32) -> Buf
 fn denoise_native(cx: &mut Cx<'_>, img: Buf, w: usize, h: usize, p: &lightcraft_pipeline::detail::nr::NrParams) -> Buf {
     use lightcraft_pipeline::detail::nr::*;
     let n = w * h;
-    let samples = cx.gpu.buffer(16 * 16384);
-    map(cx, "nr_samples", 16 * 16384, &[w as u32, h as u32], [Some(&img), None, None], &samples);
-    let slopes = cx.gpu.buffer(16);
-    cx.run("nr_median", &[], &[Some(&samples), None, None, Some(&slopes)], [16, 1, 1]);
-    let vst = cx.gpu.buffer(24);
-    let (to, from) = conversion_matrices([1.0; 3]);
-    let mut metadata = vec![p.scale.to_bits(), p.lum.max(p.col).to_bits()];
-    metadata.extend(to.into_iter().flatten().chain(from.into_iter().flatten()).map(f32::to_bits));
-    map(cx, "nr_vst", 1, &metadata, [Some(&slopes), None, None], &vst);
-    let mut coarse = cx.gpu.buffer(n * 3);
-    map(cx, "nr_forward", n, &[], [Some(&img), Some(&vst), None], &coarse);
+    let mut profile = None;
+    let mut vst = None;
+    let mut coarse = if cx.precise_nr {
+        // Native power approximations amplify at EAW's discontinuous bit-interpolated
+        // weights. Only the forward/backward transform uses the host; wavelets stay native.
+        crate::record_cpu_stage("NR variance transform");
+        let pixels = cx.read_rgb(&img, w, h);
+        let transform = Vst::new(estimate_noise(&pixels), p);
+        let forward = pixels.map(|v| transform.forward(v));
+        profile = Some(transform);
+        cx.gpu.upload(rgb_words(&forward))
+    } else {
+        let samples = cx.gpu.buffer(16 * 16384);
+        map(cx, "nr_samples", 16 * 16384, &[w as u32, h as u32], [Some(&img), None, None], &samples);
+        let slopes = cx.gpu.buffer(16);
+        cx.run("nr_median", &[], &[Some(&samples), None, None, Some(&slopes)], [16, 1, 1]);
+        let native = cx.gpu.buffer(24);
+        let (to, from) = conversion_matrices([1.0; 3]);
+        let mut metadata = vec![p.scale.to_bits(), p.lum.max(p.col).to_bits()];
+        metadata.extend(to.into_iter().flatten().chain(from.into_iter().flatten()).map(f32::to_bits));
+        map(cx, "nr_vst", 1, &metadata, [Some(&slopes), None, None], &native);
+        let out = cx.gpu.buffer(n * 3);
+        map(cx, "nr_forward", n, &[], [Some(&img), Some(&native), None], &out);
+        vst = Some(native);
+        out
+    };
     let mut acc = cx.zeroed(n * 3);
     let levels = max_scale(w, h, p.scale);
     for level in 0..levels {
         let next = cx.gpu.buffer(n * 3);
-        map(cx, "nr_eaw", n, &[w as u32, h as u32, level as u32, (1.0 / VARF.powi(2 * level as i32)).to_bits()], [Some(&coarse), None, None], &next);
+        map(
+            cx,
+            "nr_eaw",
+            n,
+            &[w as u32, h as u32, level as u32, (1.0 / VARF.powi(2 * level as i32)).to_bits(), cx.precise_nr as u32],
+            [Some(&coarse), None, None],
+            &next,
+        );
         let det = cx.gpu.buffer(n * 3);
         map(cx, "nr_detail", n, &[], [Some(&coarse), Some(&next), None], &det);
         let groups = groups1(n);
@@ -1023,8 +1064,14 @@ fn denoise_native(cx: &mut Cx<'_>, img: Buf, w: usize, h: usize, p: &lightcraft_
     }
     let joined = cx.gpu.buffer(n * 3);
     map(cx, "nr_residual", n, &[], [Some(&acc), Some(&coarse), None], &joined);
-    let back = cx.gpu.buffer(n * 3);
-    map(cx, "nr_backward", n, &[], [Some(&joined), Some(&vst), None], &back);
+    let back = if let Some(profile) = profile {
+        let pixels = cx.read_rgb(&joined, w, h).map(|v| profile.backward(v));
+        cx.gpu.upload(rgb_words(&pixels))
+    } else {
+        let back = cx.gpu.buffer(n * 3);
+        map(cx, "nr_backward", n, &[], [Some(&joined), vst.as_ref(), None], &back);
+        back
+    };
     let out = cx.gpu.buffer(n * 3);
     map(cx, "nr_join", n, &[(p.lum > 0.0) as u32, (p.col > 0.0) as u32], [Some(&img), Some(&back), None], &out);
     out
@@ -1395,12 +1442,23 @@ fn box_mean(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize, r: usize)
 }
 fn guided_rgb(cx: &mut Cx<'_>, guide: &Buf, guide_stats: &Buf, input: &Buf, w: usize, h: usize, r: usize) -> Buf {
     let n = w * h;
-    let input_stats = cx.gpu.buffer(n * 4);
-    map(cx, "haze_input_moments", n, &[], [Some(guide), Some(input), None], &input_stats);
-    let input_stats = box_mean(cx, &input_stats, w, h, 4, r);
-    let coeff = cx.gpu.buffer(n * 4);
-    map(cx, "haze_solve_shared", n, &[lightcraft_pipeline::detail::haze::HAZE_EPS.to_bits()], [Some(guide_stats), Some(&input_stats), None], &coeff);
-    let coeff = box_mean(cx, &coeff, w, h, 4, r);
+    let moments = cx.gpu.buffer(n * 4);
+    map(cx, "haze_input_moments", n, &[], [Some(guide), Some(input), None], &moments);
+    let input_stats = box_mean(cx, &moments, w, h, 4, r);
+    drop(moments);
+    let raw_coeff = cx.gpu.buffer(n * 4);
+    map(
+        cx,
+        "haze_solve_shared",
+        n,
+        &[lightcraft_pipeline::detail::haze::HAZE_EPS.to_bits()],
+        [Some(guide_stats), Some(&input_stats), None],
+        &raw_coeff,
+    );
+    drop(input_stats);
+    let coeff = box_mean(cx, &raw_coeff, w, h, 4, r);
+    drop(raw_coeff);
+    cx.flush();
     let out = cx.gpu.buffer(n);
     map(cx, "haze_apply", n, &[], [Some(guide), Some(&coeff), None], &out);
     out
@@ -1438,15 +1496,20 @@ fn haze_planes(cx: &mut Cx<'_>, lin: &Buf, w: usize, h: usize, scale: f32) -> (A
     let sums = reduce_haze(cx, sums, count, 4, "haze_air_reduce");
     let air = cx.gpu.buffer(4);
     map(cx, "haze_air_finish", 1, &[], [Some(&sums), Some(&crit), None], &air);
+    drop((raw_dark, dark, crit, crit_b, criteria, sums));
     let raw = cx.gpu.buffer(n);
     map(cx, "haze_dark", n, &[1], [Some(lin), Some(&air), None], &raw);
     let low = extrema(cx, &raw, w, h, w1, false);
     let positive = extrema(cx, &low, w, h, w1, true);
     let high = extrema(cx, &raw, w, h, w1, true);
     let negative = extrema(cx, &high, w, h, w1, false);
-    let guide_stats = cx.gpu.buffer(n * 9);
-    map(cx, "haze_guide_moments", n, &[], [Some(lin), None, None], &guide_stats);
-    let guide_stats = box_mean(cx, &guide_stats, w, h, 9, w2);
+    drop((raw, low, high));
+    cx.flush();
+    let guide_moments = cx.gpu.buffer(n * 9);
+    map(cx, "haze_guide_moments", n, &[], [Some(lin), None, None], &guide_moments);
+    let guide_stats = box_mean(cx, &guide_moments, w, h, 9, w2);
+    drop(guide_moments);
+    cx.flush();
     let positive = guided_rgb(cx, lin, &guide_stats, &positive, w, h, w2);
     let negative = guided_rgb(cx, lin, &guide_stats, &negative, w, h, w2);
     let buf = cx.gpu.buffer(n * 2);

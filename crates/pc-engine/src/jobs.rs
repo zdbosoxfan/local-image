@@ -174,6 +174,8 @@ struct Running {
     command: String,
     label: String,
     params: Value,
+    /// Requests with overlapping keys supersede this job (Develop layers).
+    latest_keys: Vec<String>,
     journal: bool,
     doc: Option<DocId>,
     /// The document as the job saw it: applying fails if it was edited meanwhile.
@@ -252,18 +254,28 @@ pub enum Started {
 /// Commands that never edit the active document, allowed while a job runs on it.
 fn independent_of_document(id: &str) -> bool {
     const PREFIXES: &[&str] = &["jobs.", "tools.", "view.", "window.", "help.", "brush.presets.", "gradient.presets."];
-    const IDS: &[&str] = &["file.new", "file.close", "file.closeAll", "edit.preferences", "edit.colorSettings", "edit.keyboardShortcuts", "edit.menus"];
+    const IDS: &[&str] = &[
+        "develop.openPhoto",
+        "develop.syncPhoto",
+        "file.new",
+        "file.close",
+        "file.closeAll",
+        "edit.preferences",
+        "edit.colorSettings",
+        "edit.keyboardShortcuts",
+        "edit.menus",
+    ];
     PREFIXES.iter().any(|p| id.starts_with(p)) || IDS.contains(&id)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn read_path(path: &str) -> Result<Vec<u8>> {
+pub(crate) fn read_path(path: &str) -> Result<Vec<u8>> {
     // Bounded reads, and a clear error for a file larger than memory (#375).
     photocraft_format::read_file(std::path::Path::new(path)).map_err(|e| EngineError::Other(format!("{path}: {e}")))
 }
 
 #[cfg(target_arch = "wasm32")]
-fn read_path(path: &str) -> Result<Vec<u8>> {
+pub(crate) fn read_path(path: &str) -> Result<Vec<u8>> {
     Err(EngineError::Other(format!("cannot open paths on the web: {path}")))
 }
 
@@ -326,6 +338,7 @@ pub fn run<T: Send + 'static>(
         command: String::new(),
         label: label.to_string(),
         params: Value::Null,
+        latest_keys: Vec::new(),
         journal: true,
         doc,
         snapshot,
@@ -339,6 +352,35 @@ pub fn run<T: Send + 'static>(
         handle,
     });
     Ok(json!({"job": id.0}))
+}
+
+/// Like `run`, but a newer request cancels any pending result with an overlapping key.
+/// These jobs do not lock documents: their apply closure validates only the affected layers,
+/// so painting on other layers can continue while the old Develop pixels remain visible.
+pub(crate) fn run_latest<T: Send + 'static>(
+    s: &mut Session,
+    label: &str,
+    keys: Vec<String>,
+    work: impl FnOnce(&JobCtx) -> Result<T> + Send + 'static,
+    apply: impl FnOnce(&mut Session, T) -> Result<Value> + Send + 'static,
+) -> Result<Value> {
+    cancel_latest(s, &keys);
+    let result = run(s, label, false, work, apply);
+    if let Some(job) = &mut s.jobs.pending {
+        job.latest_keys = keys;
+    }
+    result
+}
+
+pub(crate) fn latest(s: &Session, keys: &[String], settings: &Value) -> Option<JobId> {
+    s.jobs.running.iter().find(|j| j.latest_keys == keys && j.params.get("settings") == Some(settings)).map(|j| j.id)
+}
+
+pub(crate) fn cancel_latest(s: &mut Session, keys: &[String]) {
+    let ids: Vec<_> = s.jobs.running.iter().filter(|j| j.latest_keys.iter().any(|k| keys.contains(k))).map(|j| j.id).collect();
+    for id in ids {
+        s.cancel_job(id);
+    }
 }
 
 /// A document edit whose body is the job: like [`Session::edit`] (one undo step named `label`),

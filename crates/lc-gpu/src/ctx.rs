@@ -449,7 +449,11 @@ fn module_source(m: &Module, consts: &str) -> String {
         s += &format!("@group(0) @binding({}) var<storage, {access}> {name}: array<{ty}>;\n", i + 1);
     }
     s += include_str!("wgsl/common.wgsl");
-    if m.entries.contains(&"p_deriche") || m.entries.contains(&"toneeq_lum") || m.entries.contains(&"teq_round_probe") {
+    if m.entries.contains(&"p_deriche")
+        || m.entries.contains(&"toneeq_lum")
+        || m.entries.contains(&"teq_round_probe")
+        || m.entries.contains(&"nr_eaw")
+    {
         s += include_str!("wgsl/toneeq_round.wgsl");
     }
     if m.entries.first().is_some_and(|e| e.starts_with("p_")) {

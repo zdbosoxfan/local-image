@@ -938,3 +938,40 @@ fn both_hs_candidates_match_cpu_and_do_not_share_cached_gains() {
         assert!(mean < 0.5 && max <= 3, "{method:?}: mean {mean} max {max}");
     }
 }
+
+/// Deep exports use exact transfer curves and 16-bit rounding, not the 8-bit preview LUT.
+#[test]
+fn deep_output_matches_cpu() {
+    if !gpu() {
+        return;
+    }
+    eprintln!("adapter: {:?}", lightcraft_gpu::adapter_name());
+    let src = scene(3, 320, 240);
+    let info = SourceInfo { raw: true, ..Default::default() };
+    for space in lightcraft_pipeline::OutputSpace::ALL {
+        for edited in [false, true] {
+            let mut s = DevelopSettings::default();
+            if edited {
+                typical(&mut s);
+            }
+            let req = RenderRequest { space, depth: lightcraft_pipeline::OutputDepth::U16, ..RenderRequest::fit(320, 240) };
+            let cache = StageCache::default();
+            let preview_req = RenderRequest { depth: lightcraft_pipeline::OutputDepth::U8, ..req };
+            // A preview's native NR must not become the deep render's precise NR cache entry.
+            lightcraft_gpu::render(&src, &info, &s, &preview_req, Some(&cache)).expect("cached preview");
+            let cpu = render(&src, &info, &s, &req);
+            let gpu = lightcraft_gpu::render(&src, &info, &s, &req, Some(&cache)).expect("16-bit GPU render");
+            let cpu = cpu.deep.expect("CPU deep");
+            let gpu = gpu.deep.expect("GPU deep");
+            assert_eq!((gpu.width, gpu.height, gpu.space), (cpu.width, cpu.height, cpu.space));
+            let (lightcraft_pipeline::DeepSamples::U16(a), lightcraft_pipeline::DeepSamples::U16(b)) = (cpu.samples, gpu.samples) else {
+                panic!("16-bit samples")
+            };
+            assert_eq!(a.len(), b.len());
+            let max = a.iter().zip(&b).map(|(p, q)| p.abs_diff(*q)).max().unwrap();
+            let mean = a.iter().zip(&b).map(|(p, q)| p.abs_diff(*q) as f64).sum::<f64>() / a.len() as f64;
+            eprintln!("{space:?}, edited {edited}: mean {mean:.4}, max {max} U16 LSB");
+            assert!(max <= 3 && mean < 0.5, "{space:?}: mean {mean:.4}, max {max} U16 LSB");
+        }
+    }
+}

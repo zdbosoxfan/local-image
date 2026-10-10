@@ -654,8 +654,8 @@ pub fn develop(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &
             "mask refinement requires CPU processing".to_string()
         } else if req.proof.is_some() {
             "soft proofing requires CPU processing".to_string()
-        } else if req.depth != lightcraft_pipeline::OutputDepth::U8 {
-            "high bit depth output requires CPU processing".to_string()
+        } else if req.depth == lightcraft_pipeline::OutputDepth::F32Linear {
+            "linear float output requires CPU processing".to_string()
         } else if let Some(r) = lightcraft_gpu::render(src, info, s, req, stages) {
             log_develop_backend(&format!("GPU: {}", lightcraft_gpu::adapter_name().unwrap_or_default()));
             return r;
@@ -670,9 +670,18 @@ pub fn develop(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &
     }
 }
 
+#[cfg(test)]
+thread_local! { static USED_GPU: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+#[cfg(test)]
+pub(crate) fn develop_used_gpu() -> bool {
+    USED_GPU.with(std::cell::Cell::get)
+}
+
 /// Log the backend actually used, including host-side refusals that never enter the GPU crate.
 /// Emit changes only: a slider must not flood the app log with a line for every preview step.
 fn log_develop_backend(backend: &str) {
+    #[cfg(test)]
+    USED_GPU.with(|c| c.set(backend.starts_with("GPU:")));
     static LAST: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
     let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
     if *last != backend {

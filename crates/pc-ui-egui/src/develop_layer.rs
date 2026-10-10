@@ -137,33 +137,28 @@ pub fn save_and_return(app: &mut PhotocraftApp, params: &Value) -> Result<Value,
 /// Develop layers following `photo` take `settings` (one undo step per document that changed).
 pub fn sync(app: &mut PhotocraftApp, photo: u64, settings: &Value) {
     match app.run("develop.syncPhoto", json!({ "photo": photo, "settings": settings })) {
-        // A document with compositing work keeps it: the new develop is a new layer on top.
-        Ok(r) if r["added"].as_array().is_some_and(|a| !a.is_empty()) => {
-            for a in r["added"].as_array().into_iter().flatten() {
-                let name = a["name"].as_str().unwrap_or("Develop");
-                let msg = crate::i18n::fmt(tl!("Added your new Develop edits as layer {name}"), &[("name", name)]);
-                crate::notices::post(
-                    app,
-                    msg.clone(),
-                    vec![tl!("The layers below are unchanged; hide or delete the new layer to go back.").into()],
-                    false,
-                    None,
-                );
-                app.ui.status = msg;
-            }
-            app.ui.status_error = false;
-            app.sync_views();
-        }
-        Ok(r) if r["updated"].as_u64().unwrap_or(0) > 0 => {
-            app.ui.status = tl!("Updated from Develop").into();
-            app.ui.status_error = false;
-            app.sync_views();
-        }
-        Ok(_) => {}
+        Ok(r) => finish_sync(app, &r),
         Err(e) => {
             app.ui.status = e;
             app.ui.status_error = true;
         }
+    }
+}
+
+pub(crate) fn finish_sync(app: &mut PhotocraftApp, r: &Value) {
+    if let Some(added) = r["added"].as_array().filter(|a| !a.is_empty()) {
+        for a in added {
+            let name = a["name"].as_str().unwrap_or("Develop");
+            let msg = crate::i18n::fmt(tl!("Added your new Develop edits as layer {name}"), &[("name", name)]);
+            crate::notices::post(app, msg.clone(), vec![tl!("The layers below are unchanged; hide or delete the new layer to go back.").into()], false, None);
+            app.ui.status = msg;
+        }
+        app.ui.status_error = false;
+        app.sync_views();
+    } else if r["updated"].as_u64().unwrap_or(0) > 0 {
+        app.ui.status = tl!("Updated from Develop").into();
+        app.ui.status_error = false;
+        app.sync_views();
     }
 }
 
@@ -172,7 +167,7 @@ pub fn sync(app: &mut PhotocraftApp, photo: u64, settings: &Value) {
 pub fn open_photo(app: &mut PhotocraftApp, photo: u64, path: &str, settings: &Value, name: &str) -> Result<(), String> {
     let r = app.run("develop.openPhoto", json!({ "path": path, "photo": photo, "settings": settings, "name": name }))?;
     app.sync_views();
-    if !r["existing"].as_bool().unwrap_or(false) {
+    if r["pending"].as_bool() != Some(true) && !r["existing"].as_bool().unwrap_or(false) {
         app.ui.status = crate::i18n::fmt(tl!("{name} · Develop layer (double-click it to return to Develop)"), &[("name", name)]);
         app.ui.status_error = false;
     }
@@ -304,6 +299,62 @@ mod tests {
         // without the Library (no host), File › Save asks as usual
         app.host_modes = false;
         assert_eq!(library_save_path(&app), None);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// Real opening UI, driven by clicks, with the renderer gated on the worker thread.
+    #[test]
+    fn develop_opening_tab_keeps_frames_running_and_cancel_click_discards_it() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        use photocraft_engine::develop_layer_cmds::{gate_next_work, work_count_on_thread};
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        let (dir, path, mut app) = photo_app("background-ui");
+        app.session = photocraft_engine::Session::new();
+        app.background_jobs = true;
+        let mut h = Harness::builder().with_size(egui::vec2(1280.0, 800.0)).with_max_steps(8).build_eframe(|cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+            app
+        });
+        let gate = Arc::new(AtomicBool::new(false));
+        gate_next_work(gate.clone());
+        let count = work_count_on_thread();
+        open_photo(h.state_mut(), 7, &path, &json!({}), "photo.png").unwrap();
+        assert_eq!(work_count_on_thread(), count);
+        assert_eq!(h.state().jobs.opens.len(), 1);
+        assert!(h.state().session.documents().is_empty());
+        let job = h.state().jobs.opens[0].job;
+        h.state_mut().jobs.last_started = None;
+        open_photo(h.state_mut(), 7, &path, &json!({}), "photo.png").unwrap();
+        assert_eq!(h.state().jobs.opens.len(), 1);
+        assert_eq!(h.state().jobs.last_started, Some(job), "automation waits on the reused job");
+        h.run_steps(3);
+        assert!(h.query_all_by_label("Opening photo.png").next().is_some());
+        h.get_all_by_label("Cancel").next().unwrap().click();
+        h.run_steps(3);
+        gate.store(true, Ordering::Relaxed);
+        h.state_mut().session.join_cancelled_jobs();
+        assert!(h.state().session.documents().is_empty());
+        assert!(h.state().jobs.opens.is_empty());
+        let gate = Arc::new(AtomicBool::new(false));
+        gate_next_work(gate.clone());
+        open_photo(h.state_mut(), 7, &path, &json!({}), "photo.png").unwrap();
+        h.run_steps(2);
+        assert!(h.query_all_by_label("Opening photo.png").next().is_some());
+        gate.store(true, Ordering::Relaxed);
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while h.state().session.has_jobs() && std::time::Instant::now() < until {
+            h.step();
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        h.run_steps(2);
+        assert_eq!(h.state().session.documents().len(), 1);
+        assert!(h.state().jobs.opens.is_empty());
+        assert_eq!(active_photo(h.state()), Some(7));
+        assert!(h.state().session.active().unwrap().path.is_none(), "Save must not overwrite the raw original");
+        assert_eq!(work_count_on_thread(), count);
         std::fs::remove_dir_all(dir).ok();
     }
 }
