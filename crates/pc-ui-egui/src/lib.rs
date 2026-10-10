@@ -69,6 +69,8 @@ pub mod library_vectorize;
 pub mod symbols;
 #[path = "vector_packages/trace_dialog.rs"]
 pub mod trace_dialog;
+#[path = "vector_packages/width.rs"]
+pub mod width;
 // local-image: Local Image's AI tools, Generate panel and filmstrip.
 pub mod adjust_dialog;
 pub mod adjust_editors;

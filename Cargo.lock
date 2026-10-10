@@ -5591,6 +5591,7 @@ dependencies = [
  "photocraft-raw",
  "photocraft-svg",
  "photocraft-text",
+ "photocraft-vecfx",
  "photocraft-vector",
  "pollster 1.0.1",
  "rayon",
@@ -5895,6 +5896,19 @@ dependencies = [
  "serde_json",
  "sys-locale",
  "toml",
+]
+
+[[package]]
+name = "photocraft-vecfx"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "kurbo 0.13.1",
+ "photocraft-doc",
+ "photocraft-geom",
+ "photocraft-pathops",
+ "photocraft-vector",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

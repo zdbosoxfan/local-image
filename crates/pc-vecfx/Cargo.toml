@@ -1,0 +1,21 @@
+[package]
+name = "photocraft-vecfx"
+description = "Pure document-space vector feature projections"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+photocraft-doc.workspace = true
+photocraft-geom.workspace = true
+photocraft-pathops.workspace = true
+photocraft-vector.workspace = true
+kurbo.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
