@@ -3882,3 +3882,6 @@ ai	New	新着
 	Family unknown: may not work with this model	ファミリー不明：このモデルでは動作しない可能性があります
 	Background removal options	背景削除オプション
 	Remove the background using the chosen model and output	選択したモデルを使用して背景を削除し、出力
+	Cancel test	テストをキャンセル
+	Re-test	再テスト
+	testing…	テスト中…

@@ -281,7 +281,8 @@ pub fn build(reg: &crate::family::Registry, installed: &[InstalledModel]) -> Cat
         cat.models.push(info);
     }
     for im in installed {
-        let Some(f) = reg.family(&im.family) else { continue };
+        let unknown = crate::refine::unknown_profile_for(&im.key);
+        let f = reg.family(&im.family).unwrap_or(&unknown);
         // A curated model whose files these are is already listed.
         let main = im.files.get(&Role::Unet).or_else(|| im.files.get(&Role::Checkpoint));
         if let Some(main) = main
@@ -359,6 +360,9 @@ pub fn set_installed(installed: Vec<InstalledModel>) -> bool {
 /// The starting denoise for refining with `model`: 1.0 for native reference/edit conditioning
 /// (FLUX.2, Kontext, Qwen Edit and Qwen 2.1), a partial 0.35 for ordinary img2img families.
 pub fn refine_default_denoise(model: ModelId) -> f32 {
+    if let Some(d) = crate::refine::model_defaults(model) {
+        return d.denoise;
+    }
     match model.try_info() {
         Some(i) if matches!(i.resolved.pipeline.reference, crate::family::RefMethod::ReferenceLatent | crate::family::RefMethod::TextEncoder) => 1.0,
         _ => 0.35,
@@ -389,6 +393,9 @@ pub enum RefineMethod {
 }
 
 pub fn refine_method(model: ModelId) -> RefineMethod {
+    if let Some(reference) = crate::refine::model_is_reference(model) {
+        return if reference { RefineMethod::Reference } else { RefineMethod::Img2Img };
+    }
     match model.try_info() {
         Some(i) if i.resolved.pipeline.reference == RefMethod::ReferenceLatent || i.edit && i.resolved.pipeline.reference == RefMethod::TextEncoder => {
             RefineMethod::Reference

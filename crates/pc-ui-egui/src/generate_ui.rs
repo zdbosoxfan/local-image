@@ -201,6 +201,7 @@ struct Runtime {
     preset_name: String,
     /// Upscale lists every image model, not just the official upscalers.
     upscale_any: bool,
+    learned_refine: HashMap<&'static str, (ModelId, String, li_ai::refine::Defaults)>,
 }
 
 struct Reference {
@@ -458,12 +459,49 @@ fn variant_picker(ui: &mut egui::Ui, model: ModelId, variant: &mut String) {
     }
 }
 
+/// Apply a newly verified recipe's recommendations once, preserving values the user edited
+/// while the checker ran. This matters when fallback changes full-reference denoise to img2img.
+fn inherit_refine_defaults(id: &'static str, s: &mut GenerateState) {
+    let model = model_of(s);
+    let Some(defaults) = li_ai::refine::model_defaults(model) else { return };
+    let changed = rt(|r| {
+        let value = (model, s.variant.clone(), defaults.clone());
+        if r.learned_refine.get(id) == Some(&value) {
+            return false;
+        }
+        r.learned_refine.insert(id, value);
+        true
+    });
+    if !changed {
+        return;
+    }
+    let info = model.info();
+    let original = if info.family == "unknown" { li_ai::refine::unknown_profile() } else { info.resolved.clone() };
+    let denoise =
+        if matches!(original.pipeline.reference, li_ai::family::RefMethod::ReferenceLatent | li_ai::family::RefMethod::TextEncoder) { 1.0 } else { 0.35 };
+    if s.steps == original.sampling.steps.default as u32 {
+        s.steps = defaults.steps;
+    }
+    if s.guidance == original.sampling.cfg.default {
+        s.guidance = defaults.cfg;
+    }
+    if s.denoise == denoise {
+        s.denoise = defaults.denoise;
+    }
+}
+
 fn set_model(s: &mut GenerateState, m: ModelId) {
     let info = m.info();
     s.model = m.key().into();
     s.variant = catalog::default_variant(m).into();
     s.steps = info.steps.default as u32;
     s.guidance = info.guidance.default;
+    if s.mode == Mode::Refine
+        && let Some(d) = li_ai::refine::model_defaults(m)
+    {
+        s.steps = d.steps;
+        s.guidance = d.cfg;
+    }
     s.denoise = if s.mode == Mode::Create { info.resolved.sampling.denoise } else { s.mode.default_strength(m) };
     s.sampler.clear();
     s.scheduler.clear();
@@ -498,7 +536,7 @@ fn fits_mode_with(info: &catalog::ModelInfo, mode: Mode, any_upscaler: bool) -> 
     match mode {
         Mode::Create => info.text_to_image,
         Mode::Fill => info.inpaint,
-        Mode::Refine => !info.upscale && (info.text_to_image || info.edit),
+        Mode::Refine => !info.upscale && (info.text_to_image || info.edit || info.family == "unknown"),
         Mode::Edit | Mode::Upscale => true,
     }
 }
@@ -609,6 +647,15 @@ fn readiness(st: &crate::ai_ui::EngineStatus, m: ModelId, variant: &str) -> Resu
     st.ready(m, variant)
 }
 
+fn refine_readiness(st: &crate::ai_ui::EngineStatus, m: ModelId, variant: &str) -> Result<(), String> {
+    readiness(st, m, variant)?;
+    match li_ai::refine::checker().status_for_variant(&st.host, m, variant) {
+        li_ai::refine::Status::Failed(reason) => Err(format!("Refine not supported ({reason})")),
+        li_ai::refine::Status::Testing => Err("testing…".into()),
+        _ => Ok(()),
+    }
+}
+
 /// Shared readiness hint and the action that resolves it in either Generate surface.
 fn readiness_warning(app: &mut PhotocraftApp, ui: &mut egui::Ui, why: &str, st: &crate::ai_ui::EngineStatus, cloud: bool) {
     let t = Tokens::get(ui.ctx());
@@ -655,7 +702,8 @@ fn model_groups(models: &[catalog::ModelInfo], mode: Mode) -> Vec<(&str, Vec<&ca
     }
 }
 
-fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &crate::ai_ui::EngineStatus, allow_custom: bool) -> Option<String> {
+fn model_picker(ui: &mut egui::Ui, id: &str, current: (&str, &str), mode: Mode, st: &crate::ai_ui::EngineStatus, allow_custom: bool) -> Option<String> {
+    let (current, selected_variant) = current;
     let t = Tokens::get(ui.ctx());
     let custom = current.strip_prefix("custom:");
     let current_label = match custom {
@@ -675,9 +723,13 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &cra
             let heading = if mode == Mode::Refine { g.to_owned() } else { g.to_uppercase() };
             ui.label(RichText::new(heading).size(10.5).color(t.text_faint).strong());
             for m in models {
-                let variant = catalog::default_variant(m.id);
+                let variant = if current == m.id.key() { selected_variant } else { catalog::default_variant(m.id) };
                 let ok = catalog::presets_for(m.id).any(|p| readiness(st, m.id, &p.variant).is_ok());
                 let reason = readiness(st, m.id, variant).err().unwrap_or_default();
+                let refine_status =
+                    if mode == Mode::Refine { li_ai::refine::checker().status_for_variant(&st.host, m.id, variant) } else { li_ai::refine::Status::Unchecked };
+                let failed = matches!(refine_status, li_ai::refine::Status::Failed(_));
+                let ok = ok && !failed && refine_status != li_ai::refine::Status::Testing;
                 let row = ui.horizontal(|ui| {
                     let (dot, _) = ui.allocate_exact_size(vec2(10.0, 16.0), Sense::hover());
                     let colour = if ok {
@@ -689,13 +741,35 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &cra
                     };
                     ui.painter().circle_filled(dot.center(), 3.5, colour);
                     let sel = current == m.id.key();
-                    let resp = ui.add(egui::Button::selectable(sel, RichText::new(&m.label).color(if ok || !st.connected { t.text } else { t.text_dim })));
+                    let resp = ui.add_enabled(
+                        !failed,
+                        egui::Button::selectable(sel, RichText::new(&m.label).color(if ok || !st.connected { t.text } else { t.text_dim })),
+                    );
+                    if mode == Mode::Refine && refine_status != li_ai::refine::Status::Unchecked {
+                        if refine_status == li_ai::refine::Status::Testing {
+                            if ui.small_button(tl!("Cancel test")).clicked() {
+                                li_ai::refine::checker().cancel_variant(&li_ai::ComfyClient::new(&st.host), m.id, variant);
+                            }
+                        } else if ui.small_button(tl!("Re-test")).clicked() {
+                            li_ai::refine::checker().request(li_ai::ComfyClient::new(&st.host), m.id, variant.into(), true);
+                        }
+                    }
                     ui.label(RichText::new(&m.family_label).size(10.5).color(t.text_faint));
                     for tg in m.tags().iter().take(4) {
                         tag(ui, tg, &t);
                     }
                     resp
                 });
+                match &refine_status {
+                    li_ai::refine::Status::Testing => {
+                        ui.label(tl!("testing…"));
+                    }
+                    li_ai::refine::Status::Failed(reason) => {
+                        ui.add(egui::Label::new(RichText::new(format!("Refine not supported ({reason})")).size(10.5).color(t.warning)).truncate())
+                            .on_hover_text(reason);
+                    }
+                    _ => {}
+                }
                 let tip = if ok {
                     format!("{}\n{}", m.best_for, m.tags().join(" · "))
                 } else if m.origin == catalog::Origin::Profile {
@@ -780,6 +854,20 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: &str, mode: Mode, st: &cra
             }
         });
     });
+    if mode == Mode::Refine
+        && st.connected
+        && let Some(m) = ModelId::from_key(current)
+    {
+        let variant = selected_variant;
+        if st.ready(m, variant).is_ok() {
+            #[cfg(not(test))]
+            li_ai::refine::checker().request(li_ai::ComfyClient::new(&st.host), m, variant.into(), false);
+        }
+        if li_ai::refine::checker().status_for_variant(&st.host, m, variant) == li_ai::refine::Status::Testing {
+            ui.label(tl!("testing…"));
+            ui.ctx().request_repaint_after(Duration::from_millis(200));
+        }
+    }
     if mode == Mode::Refine
         && let Some(m) = picked.as_deref().and_then(ModelId::from_key).or_else(|| ModelId::from_key(current))
     {
@@ -877,6 +965,31 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 }
             });
         });
+        if s.mode == Mode::Refine {
+            inherit_refine_defaults("generate-main", s);
+        }
+        if s.refine
+            && s.mode == Mode::Create
+            && let Some(model) = ModelId::from_key(&s.refine_model)
+        {
+            let mut refinement = GenerateState {
+                model: s.refine_model.clone(),
+                variant: s.refine_variant.clone(),
+                steps: s.refine_steps.unwrap_or(model.info().steps.default as u32),
+                guidance: s.refine_guidance.unwrap_or(model.info().guidance.default),
+                denoise: s.refine_strength,
+                mode: Mode::Refine,
+                ..Default::default()
+            };
+            inherit_refine_defaults("generate-second-pass", &mut refinement);
+            s.refine_strength = refinement.denoise;
+            if s.refine_steps.is_some() {
+                s.refine_steps = Some(refinement.steps);
+            }
+            if s.refine_guidance.is_some() {
+                s.refine_guidance = Some(refinement.guidance);
+            }
+        }
         // ---- Model.
         // Upscale offers the official upscalers; a diffusion model chosen earlier (saved
         // settings) keeps the full list.
@@ -888,7 +1001,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         {
             rt(|r| r.upscale_any = true);
         }
-        let picked = model_picker(ui, "gen-model", &s.model.clone(), s.mode, &st, true);
+        let picked = model_picker(ui, "gen-model", (&s.model, &s.variant), s.mode, &st, true);
         if s.mode == Mode::Upscale {
             let any = upscale_any();
             ui.horizontal(|ui| {
@@ -1057,7 +1170,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 ));
             });
             if s.refine {
-                if let Some(k) = model_picker(ui, "gen-refine-model", &s.refine_model.clone(), Mode::Refine, &st, false) {
+                if let Some(k) = model_picker(ui, "gen-refine-model", (&s.refine_model, &s.refine_variant), Mode::Refine, &st, false) {
                     if k == "browse:" {
                         crate::model_browser::open();
                     } else if k == "browse-loras:" {
@@ -1068,7 +1181,6 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         s.refine_strength = catalog::refine_default_denoise(m);
                         s.refine_steps = None;
                         s.refine_guidance = None;
-                        s.refine_strength = catalog::refine_default_denoise(m);
                         let fits: Vec<_> = li_ai::inventory::loras_for(&m.info().resolved).into_iter().map(|(l, _)| l.name).collect();
                         s.refine_loras.retain(|l| fits.contains(&l.name));
                     }
@@ -1183,11 +1295,12 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             (_, Some(c)) => cloud_ready(c),
             (Some(_), _) if st.connected => Ok(()),
             (Some(_), _) => Err(tl!("The AI engine (ComfyUI) is not running.").to_owned()),
+            (None, None) if s.mode == Mode::Refine => refine_readiness(&st, m, &variant),
             (None, None) => readiness(&st, m, &variant),
         };
         let refine_ready = if s.refine && s.mode == Mode::Create && custom.is_none() && cloud.is_none() {
             match ModelId::from_key(&s.refine_model) {
-                Some(rm) => readiness(&st, rm, &s.refine_variant).map_err(|e| crate::i18n::fmt(tl!("Refine model: {why}"), &[("why", &e)])),
+                Some(rm) => refine_readiness(&st, rm, &s.refine_variant).map_err(|e| crate::i18n::fmt(tl!("Refine model: {why}"), &[("why", &e)])),
                 None => Err(tl!("Choose a model to refine with.").into()),
             }
         } else {

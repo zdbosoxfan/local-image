@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use image::{Rgb, RgbImage, imageops::FilterType};
 use li_ai::builders::{self, Params, Task};
 use li_ai::catalog::{self, InstalledModel};
 use li_ai::comfy::{ComfyClient, JobControl, ObjectInfo};
@@ -14,37 +13,7 @@ use li_ai::workflows::Files;
 
 const WIDTH: u32 = 512;
 const HEIGHT: u32 = 288;
-const PROMPT: &str = "A simple landscape painting: blue sky, a yellow sun in the upper right, green rolling hills, a red house with a dark roof on the left and a blue pond on the right. Preserve the image composition, shapes and colors exactly; refine only subtle surface detail.";
-
-/// Large recognizable regions make spatial/color loss visible at the requested 64x36 scale.
-fn test_image() -> RgbImage {
-    RgbImage::from_fn(WIDTH, HEIGHT, |x, y| {
-        let u = x as f64 / WIDTH as f64;
-        let v = y as f64 / HEIGHT as f64;
-        let hill = 0.55 + 0.06 * (u * 9.0).sin();
-        let color = if (u - 0.78).powi(2) + (v - 0.23).powi(2) < 0.075_f64.powi(2) {
-            [244, 207, 80]
-        } else if v < hill {
-            [105 + (v * 25.0) as u8, 166 + (v * 22.0) as u8, 205 + (v * 25.0) as u8]
-        } else if (u - 0.76).powi(2) / 0.15_f64.powi(2) + (v - 0.79).powi(2) / 0.09_f64.powi(2) < 1.0 {
-            [73, 135, 177]
-        } else if (0.19..0.38).contains(&u) && (0.57..0.77).contains(&v) {
-            if (0.26..0.30).contains(&u) && v > 0.65 { [79, 57, 47] } else { [180, 82, 62] }
-        } else if (0.17..0.40).contains(&u) && v > 0.44 + (u - 0.285).abs() * 1.05 && v < 0.58 {
-            [76, 65, 62]
-        } else {
-            [86 + (v * 18.0) as u8, 136 + (v * 14.0) as u8, 65 + (v * 13.0) as u8]
-        };
-        Rgb(color)
-    })
-}
-
-fn mean_abs_difference(a: &RgbImage, b: &RgbImage) -> f64 {
-    let a = image::imageops::resize(a, 64, 36, FilterType::Triangle);
-    let b = image::imageops::resize(b, 64, 36, FilterType::Triangle);
-    let total: u64 = a.as_raw().iter().zip(b.as_raw()).map(|(a, b)| u64::from(a.abs_diff(*b))).sum();
-    total as f64 / (64 * 36 * 3) as f64
-}
+use li_ai::refine::{PROMPT, mean_abs_difference, test_image};
 
 fn queue_idle(client: &ComfyClient) -> Result<bool> {
     let q = client.queue_state()?;
@@ -211,6 +180,7 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::{Rgb, RgbImage};
 
     #[test]
     fn metric_detects_color_and_spatial_changes() {

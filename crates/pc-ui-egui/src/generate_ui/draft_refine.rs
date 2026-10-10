@@ -213,6 +213,7 @@ fn window_frame(ctx: &egui::Context) -> egui::Frame {
 }
 
 fn content(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    inherit_refine_defaults("draft-refinement", &mut app.ui.ai.draft_refine.refinement);
     let t = Tokens::get(ui.ctx());
     ui.spacing_mut().item_spacing = vec2(crate::theme::ROW_GAP * 2.0, crate::theme::ROW_GAP);
     let height = ui.available_height();
@@ -282,7 +283,7 @@ fn content(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 s.refine = false;
                 egui::Frame::NONE.fill(t.card).inner_margin(8).corner_radius(t.radius_sm).show(&mut cols[0], |ui| {
                     if crate::props_layout::section(ui, if refine { "refinement-model" } else { "draft-model" }, tl!("Model")) {
-                        if let Some(k) = model_picker(ui, "model", &s.model, s.mode, &st, false) {
+                        if let Some(k) = model_picker(ui, "model", (&s.model, &s.variant), s.mode, &st, false) {
                             match k.as_str() {
                                 "browse:" => crate::model_browser::open(),
                                 "browse-loras:" => browse_loras(&s.model),
@@ -351,7 +352,7 @@ fn content(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     });
     widgets::hairline(ui);
     let s = if refine { &app.ui.ai.draft_refine.refinement } else { &app.ui.ai.draft_refine.draft };
-    let ready = readiness(&st, model_of(s), &s.variant);
+    let ready = if refine { refine_readiness(&st, model_of(s), &s.variant) } else { readiness(&st, model_of(s), &s.variant) };
     let busy = app.draft_refine.jobs.values().any(|job| job.refine == refine);
     let has_source = match app.ui.ai.draft_refine.input {
         Input::Draft => app.draft_refine.draft.image.is_some(),
