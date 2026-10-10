@@ -71,6 +71,7 @@ pub mod adjust_ui;
 pub mod ai_ui;
 pub mod analysis_ui;
 pub mod artboard_ui;
+mod background_ui;
 mod brand;
 pub mod brush_panel;
 pub mod brush_picker;

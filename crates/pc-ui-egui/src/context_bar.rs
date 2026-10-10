@@ -564,12 +564,19 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                             {
                                 go("selectSubject");
                             }
-                            if bar_button(ui, "eraser-background", tl!("Remove Background"), false, true, &t)
-                                .on_hover_text(tl!("Mask out the background with AI"))
+                            if bar_button(ui, "eraser-background", tl!("Remove Background"), false, crate::background_ui::can_remove(app), &t)
+                                .on_hover_text(tl!("Remove the background using the chosen model and output"))
                                 .clicked()
                             {
                                 go("removeBackground");
                             }
+                            let choices = crate::icons::button(ui, "chevron-down", 20.0, false, tl!("Background removal options"));
+                            choices.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Background removal options")));
+                            egui::Popup::menu(&choices).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+                                ui.set_min_width(240.0);
+                                crate::background_ui::menu(app, ui);
+                                crate::background_ui::readiness(app, ui);
+                            });
                             if bar_button(ui, "move", tl!("Transform"), false, true, &t).on_hover_text(tl!("Free Transform")).clicked() {
                                 go("transform");
                             }
@@ -671,7 +678,7 @@ fn run(app: &mut PhotocraftApp, ctx: &egui::Context, what: Context, a: &str, pro
         "develop" => crate::menus::invoke(app, ctx, crate::develop_layer::DEVELOP_ID, json!({})),
         "regenerate" | "variations" => regenerate(app, ctx, layer, generation, a == "variations"),
         "selectSubject" => app.run("ai.selectSubject", json!({})),
-        "removeBackground" => app.run("ai.removeBackground", json!({ "layer": layer })),
+        "removeBackground" => crate::background_ui::run(app, layer),
         "transform" => crate::menus::invoke(app, ctx, "edit.freeTransform", json!({})),
         "hide" => {
             app.session.prefs.edit(|p| p.interface.contextual_task_bar = false);

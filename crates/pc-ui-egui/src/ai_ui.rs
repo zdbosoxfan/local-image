@@ -35,10 +35,15 @@ use crate::widgets;
 pub struct AiOptions {
     /// AI Remove engine: `klein`, `qwen-int8` or `qwen-bf16`.
     pub remove_engine: String,
-    /// AI Cutout engine: `qwen-int8`, `qwen-bf16` or `quick` (PhotoCraft's CPU subject finder).
+    /// AI Cutout engine: `qwen-int8`, `qwen-bf16` or `quick` (on-device Subject & Background model).
     pub cutout_engine: String,
     /// What to keep, passed to the cutout model ("the red car").
     pub cutout_hint: String,
+    /// Shared output for Properties, the AI Cutout options bar and the contextual task bar.
+    pub cutout_output: String,
+    pub cutout_color: [f32; 3],
+    /// Gaussian blur radius in pixels.
+    pub cutout_blur: f32,
     /// Cutout refine strokes reveal (true) or hide (false) the layer.
     pub cutout_restore: bool,
     /// Last background description (Generate Background).
@@ -55,6 +60,9 @@ impl Default for AiOptions {
             remove_engine: "klein".into(),
             cutout_engine: "qwen-int8".into(),
             cutout_hint: String::new(),
+            cutout_output: "mask".into(),
+            cutout_color: [1.0; 3],
+            cutout_blur: 12.0,
             cutout_restore: false,
             background_prompt: String::new(),
             fill_prompt: String::new(),
@@ -885,10 +893,6 @@ const REMOVE_ENGINES: [(&str, &str, ModelId, &str); 3] = [
     ("qwen-int8", "Qwen Compact", ModelId::Qwen, "int8"),
     ("qwen-bf16", "Qwen Full", ModelId::Qwen, "bf16"),
 ];
-/// Qwen-powered removal (a real alpha matte, on the GPU through ComfyUI) or the editor's own
-/// Remove Background (Select Subject plus edge refinement, on the CPU, no AI engine needed).
-const CUTOUT_ENGINES: [(&str, &str); 3] = [("qwen-int8", "Qwen AI · Compact"), ("qwen-bf16", "Qwen AI · Full"), ("quick", "Standard (CPU)")];
-
 /// The model behind an AI Remove engine key (`klein`, `qwen-int8`, `qwen-bf16`).
 pub fn remove_engine(key: &str) -> (ModelId, &'static str) {
     engine_for(key)
@@ -903,18 +907,32 @@ fn engine_for(key: &str) -> (ModelId, &'static str) {
 }
 
 /// An engine problem as a one-line warning with the button that fixes it.
-fn readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui, model: ModelId, variant: &str) {
+pub(crate) fn readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui, model: ModelId, variant: &str) {
     let st = status();
     if let Err(why) = st.ready(model, variant) {
-        let t = Tokens::get(ui.ctx());
-        widgets::vline(ui, 22.0);
-        let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
+        readiness_warning(app, ui, &why, st.connected);
+    }
+}
+
+pub(crate) fn readiness_warning(app: &mut PhotocraftApp, ui: &mut egui::Ui, why: &str, connected: bool) {
+    let t = Tokens::get(ui.ctx());
+    let compact = ui.layout().main_dir().is_horizontal();
+    let mut warning = |ui: &mut egui::Ui| {
+        let (r, resp) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
         crate::icons::paint(ui, r, "triangle-alert", 14.0, t.warning);
-        ui.label(RichText::new(why).color(t.warning));
-        let label = if st.connected { tl!("Get models…") } else { tl!("Set up AI…") };
+        resp.on_hover_text(why);
+        if !compact {
+            ui.label(RichText::new(why).color(t.warning));
+        }
+        let label = if connected { tl!("Get models…") } else { tl!("Set up AI…") };
         if widgets::secondary_button(ui, label, 0.0).clicked() {
             open_local_ai(app);
         }
+    };
+    if compact {
+        warning(ui);
+    } else {
+        ui.horizontal_wrapped(warning);
     }
 }
 
@@ -944,21 +962,9 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
             true
         }
         Tool::AiCutout => {
-            let quick = app.ui.ai.cutout_engine == "quick";
-            if widgets::primary_button(ui, tl!("Remove Background"), 0.0).clicked() {
-                let r = if quick {
-                    app.run("layer.removeBackground", json!({}))
-                } else {
-                    let p = json!({ "engine": app.ui.ai.cutout_engine, "hint": app.ui.ai.cutout_hint });
-                    app.run("ai.removeBackground", p)
-                };
-                report(app, r);
-            }
-            let opts: Vec<(String, &str)> = CUTOUT_ENGINES.iter().map(|(k, l)| ((*k).to_owned(), *l)).collect();
-            widgets::dropdown(ui, "ai-cutout-engine", &mut app.ui.ai.cutout_engine, &opts, 140.0);
-            if !quick {
-                ui.add(egui::TextEdit::singleline(&mut app.ui.ai.cutout_hint).hint_text(tl!("Keep… (optional)")).desired_width(120.0));
-            }
+            crate::background_ui::remove_button(app, ui, None, 0.0);
+            crate::background_ui::readiness(app, ui);
+            crate::background_ui::settings(app, ui, true);
             widgets::vline(ui, 22.0);
             opt(ui, tl!("Refine:"));
             let mut erase = !app.ui.ai.cutout_restore;
@@ -988,10 +994,6 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
                     ui.close();
                 }
             });
-            if !quick {
-                let v = if app.ui.ai.cutout_engine == "qwen-bf16" { "bf16" } else { "int8" };
-                readiness(app, ui, ModelId::Qwen, v);
-            }
             true
         }
         _ => false,
