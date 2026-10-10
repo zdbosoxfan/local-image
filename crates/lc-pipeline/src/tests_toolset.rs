@@ -101,11 +101,11 @@ fn cases() -> Vec<(&'static str, Value)> {
 
 /// (case/source kind, render hash, settings hash), x86_64 Linux.
 const GOLDEN: [(&str, u64, u64); 14] = [
-    ("default/rendered", 0x9c4d1d077ec4855f, 0x97d20305a4beb718),
+    ("default/rendered", 0x9ab6df6ab933abe6, 0x97d20305a4beb718),
     ("default/raw", 0xe4cadb152e11a72a, 0x97d20305a4beb718),
     ("raw defaults + edits/rendered", 0x35b2897296c0abde, 0x15c51fec88c0f59f),
     ("raw defaults + edits/raw", 0x27515ff61c81ba78, 0x15c51fec88c0f59f),
-    ("optics + geometry + crop/rendered", 0xc0c59a4c8cd4a92a, 0x0d608f6981034f4f),
+    ("optics + geometry + crop/rendered", 0x611da93f49c17e07, 0x0d608f6981034f4f),
     ("optics + geometry + crop/raw", 0xded90c5d0013a5d1, 0x0d608f6981034f4f),
     ("profile look/rendered", 0x3afbb0e76b323622, 0x67aea33bdcc2fa0b),
     ("profile look/raw", 0x8352318c42cfb5c8, 0x67aea33bdcc2fa0b),
@@ -113,7 +113,7 @@ const GOLDEN: [(&str, u64, u64); 14] = [
     ("b&w profile/raw", 0xc3d16db57db48b3d, 0xb6159ee7a2d437b0),
     ("negative/rendered", 0x30b5bb6ca4d2340b, 0xb00a5805f4d46110),
     ("negative/raw", 0xd4e80f8f014fb4b0, 0xb00a5805f4d46110),
-    ("layers/rendered", 0x707864fed6cf7fd2, 0x72a3db4f1a1900ec),
+    ("layers/rendered", 0x9e4387b7ce70062f, 0x72a3db4f1a1900ec),
     ("layers/raw", 0x7a6a3c0ba4313a72, 0x72a3db4f1a1900ec),
 ];
 

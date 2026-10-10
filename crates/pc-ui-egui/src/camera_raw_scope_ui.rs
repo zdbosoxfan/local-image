@@ -678,9 +678,14 @@ pub(crate) fn preview(ui: &mut egui::Ui, d: &mut CameraRawDialog, view: &mut Cam
     }
 }
 
-pub(crate) fn shortcuts(ctx: &egui::Context, view: &mut CameraRawScopeState) {
+pub(crate) fn shortcuts(session: &photocraft_engine::Session, ctx: &egui::Context, view: &mut CameraRawScopeState) {
     if ctx.text_edit_focused() {
         return;
+    }
+    if let Some(sc) = crate::tool_tips::CameraRawTool::Sampler.binding(session).as_deref().and_then(crate::shortcuts::parse)
+        && crate::shortcuts::consume(ctx, &sc)
+    {
+        view.sampler_tool = !view.sampler_tool;
     }
     ctx.input_mut(|i| {
         if i.consume_key(egui::Modifiers::NONE, egui::Key::U) {
@@ -688,9 +693,6 @@ pub(crate) fn shortcuts(ctx: &egui::Context, view: &mut CameraRawScopeState) {
         }
         if i.consume_key(egui::Modifiers::NONE, egui::Key::O) {
             view.highlights = !view.highlights;
-        }
-        if i.consume_key(egui::Modifiers::NONE, egui::Key::S) {
-            view.sampler_tool = !view.sampler_tool;
         }
     });
 }

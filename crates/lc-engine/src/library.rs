@@ -335,6 +335,7 @@ impl Session {
         let prefs = settings.read::<PrefsFile>(files.as_mut(), "prefs.json").unwrap_or_default();
         self.xmp = prefs.xmp;
         self.smart.prefs = prefs.smart_sort;
+        self.smart.tag_sets = settings.read::<Vec<crate::smart_sort::tagsets::TagSet>>(files.as_mut(), "smart-sort-tagsets.json").unwrap_or_default();
         self.smart.store = crate::smart_sort::Store::new(on_disk.then_some(dir.as_path()));
         self.smart.people = crate::smart_sort::PeopleEngine::new(on_disk.then_some(dir.as_path()));
         self.last_export = prefs.last_export;
@@ -535,6 +536,15 @@ impl Session {
     }
 
     /// Save the library preferences (no-op for in-memory sessions).
+    pub fn save_smart_tag_sets(&mut self) -> Result<()> {
+        let v = serde_json::to_vec_pretty(&self.smart.tag_sets).map_err(|e| EngineError::Other(e.to_string()))?;
+        let Some(lib) = self.library.as_mut() else { return Ok(()) };
+        if lib.blocked.contains(&"smart-sort-tagsets.json") {
+            return Err(EngineError::Other("tag sets file could not be read; reopen the library before saving".into()));
+        }
+        lib.files.write_atomic("smart-sort-tagsets.json", &v).map_err(|e| EngineError::Other(e.to_string()))
+    }
+
     pub fn save_prefs(&mut self) -> Result<()> {
         let v = serde_json::to_vec_pretty(&PrefsFile {
             xmp: self.xmp,

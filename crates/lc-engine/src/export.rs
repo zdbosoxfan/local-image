@@ -535,6 +535,9 @@ pub struct ExportOptions {
     pub metadata: MetadataPolicy,
     /// Strip GPS / location even when the policy would include it.
     pub remove_location: bool,
+    /// Explicit opt-in: project named face regions into People keywords on exported copies.
+    #[serde(default)]
+    pub include_people_names: bool,
     /// Text watermark (none when absent or the text is empty).
     pub watermark: Option<Watermark>,
     /// Output colour space (AVIF is always sRGB: its muxer cannot embed a profile).
@@ -582,6 +585,7 @@ impl Default for ExportOptions {
             dng_compression: DngCompression::Lossless,
             metadata: MetadataPolicy::All,
             remove_location: false,
+            include_people_names: false,
             watermark: None,
             color_space: OutputSpace::Srgb,
             bit_depth: None,
@@ -628,6 +632,7 @@ impl ExportOptions {
             dng_compression: enm(p, "dngCompression").unwrap_or(d.dng_compression),
             metadata: enm(p, "metadata").unwrap_or(d.metadata),
             remove_location: p.get("removeLocation").and_then(Value::as_bool).unwrap_or(d.remove_location),
+            include_people_names: p.get("includePeopleNames").and_then(Value::as_bool).unwrap_or(false),
             watermark: match p.get("watermark") {
                 Some(Value::String(t)) => Some(Watermark { text: t.clone(), ..Default::default() }),
                 Some(v @ Value::Object(_)) => serde_json::from_value(v.clone()).ok(),
@@ -1038,6 +1043,9 @@ pub fn export_metadata(photo: &lightcraft_catalog::Photo, o: &ExportOptions) -> 
         out.country = text(&m.country);
     }
     out.keywords = m.keywords.clone();
+    if o.include_people_names {
+        add_people_keywords(&mut out.keywords, &m.regions);
+    }
     out.capture_time = photo.captured.as_deref().and_then(DateTime::parse_iso);
     out.rating = (photo.rating > 0).then_some(photo.rating as i8);
     // Pixels are exported upright: orientation is baked in.
@@ -1054,6 +1062,22 @@ pub fn export_metadata(photo: &lightcraft_catalog::Photo, o: &ExportOptions) -> 
         out.iso = m.iso;
     }
     Some(out)
+}
+
+/// Names leave the face store only as explicit export metadata; never include IDs or vectors.
+fn add_people_keywords(keywords: &mut Vec<String>, regions: &[lightcraft_meta::Region]) {
+    for name in regions
+        .iter()
+        .filter(|r| r.kind == lightcraft_meta::RegionKind::Face)
+        .filter_map(|r| r.name.as_deref())
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+    {
+        let keyword = format!("People|{name}");
+        if !keywords.iter().any(|k| k.eq_ignore_ascii_case(&keyword)) {
+            keywords.push(keyword);
+        }
+    }
 }
 
 /// One exported file.
@@ -1088,6 +1112,8 @@ pub fn export_photo(session: &mut crate::Session, id: lightcraft_catalog::PhotoI
 pub struct PreparedExport {
     pub photo: lightcraft_catalog::PhotoId,
     pub file_name: String,
+    /// Relative folder within a batch destination (Smart Sort). Validated before rendering.
+    pub subfolder: Option<String>,
     work: Work,
     /// The library's originals, which [`run_batch`] never writes over (shared by a batch).
     guard: std::sync::Arc<crate::originals::OriginalGuard>,
@@ -1134,7 +1160,7 @@ pub fn prepare_batch(session: &mut crate::Session, ids: &[lightcraft_catalog::Ph
     ids.iter().enumerate().map(|(i, id)| prepare_guarded(session, *id, o, i + 1, guard.clone())).collect()
 }
 
-fn prepare_guarded(
+pub(crate) fn prepare_guarded(
     session: &mut crate::Session,
     id: lightcraft_catalog::PhotoId,
     o: &ExportOptions,
@@ -1174,13 +1200,19 @@ fn prepare_guarded(
         Work::File {
             path: path.clone(),
             read: session.media.file_bytes.clone(),
-            packet: crate::sidecar::sidecar_packet(p, &session.catalog),
+            packet: {
+                let mut copy = (**p).clone();
+                if o.include_people_names {
+                    add_people_keywords(&mut copy.meta.keywords, &copy.meta.regions);
+                }
+                crate::sidecar::sidecar_packet(&copy, &session.catalog)
+            },
             dng: (o.format == ExportFormat::Dng).then_some(o.dng_compression),
             label: p.file_name.clone(),
             size: (p.width as usize, p.height as usize),
         }
     };
-    Ok(PreparedExport { photo: id, file_name, work, guard, source_dir })
+    Ok(PreparedExport { photo: id, file_name, subfolder: None, work, guard, source_dir })
 }
 
 impl PreparedExport {
@@ -1341,7 +1373,8 @@ pub fn run_batch(
         }
         let (photo, name, guard) = (item.photo, item.file_name.clone(), item.guard.clone());
         // the batch's folder, or (Same folder as original photo) the photo's own
-        let dir = match (o.same_folder, &item.source_dir) {
+        let has_subfolder = item.subfolder.is_some();
+        let mut dir = match (o.same_folder && !has_subfolder, &item.source_dir) {
             (false, _) => batch_dir.clone(),
             (true, Some(d)) => in_sub(d),
             (true, None) => {
@@ -1353,6 +1386,10 @@ pub fn run_batch(
                 continue;
             }
         };
+        if let Some(sub) = &item.subfolder {
+            let sub = crate::smart_sort::plan::sanitize(sub)?;
+            dir = join(&dir, &sub);
+        }
         let e = match item.run() {
             Ok(e) => e,
             Err(err) if stop_on_error => return Err(err),
@@ -1363,7 +1400,7 @@ pub fn run_batch(
         };
         // the exported file and its sidecars
         let group = |main: &str| std::iter::once(main.to_string()).chain(e.sidecars.iter().map(|(x, _)| sidecar_path(main, x))).collect::<Vec<_>>();
-        let path = match to.exact.as_deref().filter(|_| single) {
+        let path = match to.exact.as_deref().filter(|_| single && !has_subfolder) {
             Some(p) => Ok(p.to_string()),
             None => {
                 let path = join(&dir, &e.file_name);

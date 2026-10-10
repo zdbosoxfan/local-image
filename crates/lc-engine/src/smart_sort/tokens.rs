@@ -187,7 +187,9 @@ fn token_value(token: &str, v: &TokenValues, allow_file: bool) -> Result<String,
 
 fn capture_date(captured: Option<&str>) -> String {
     match captured {
-        Some(s) if s.len() >= 10 && s.as_bytes().get(4) == Some(&b'-') && s.as_bytes().get(7) == Some(&b'-') => s[..10].to_string(),
+        Some(s) if s.len() >= 10 && s.as_bytes().get(4) == Some(&b'-') && s.as_bytes().get(7) == Some(&b'-') => {
+            s.get(..10).unwrap_or("No date").to_string()
+        }
         _ => "No date".into(),
     }
 }
@@ -254,6 +256,8 @@ mod tests {
     fn date_and_camera_defaults() {
         let v = TokenValues { event: "E".into(), folder: "F".into(), ..Default::default() };
         assert_eq!(norm(&expand_folder("{date}/{camera}", &v).unwrap()), "No date/Unknown camera");
+        let malformed = TokenValues { captured: Some("2026-10-0é".into()), ..v };
+        assert_eq!(norm(&expand_folder("{date}", &malformed).unwrap()), "No date");
     }
 
     #[test]

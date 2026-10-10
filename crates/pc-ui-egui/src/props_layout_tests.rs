@@ -66,7 +66,8 @@ fn quick_actions_fit_the_layer_kind() {
         match kind {
             "pixel" => {
                 assert!(all.contains(&"select.subject"));
-                assert!(all.contains(&"layer.removeBackground"));
+                assert!(!all.contains(&"layer.removeBackground"));
+                assert!(!all.contains(&"ai.removeBackground"));
             }
             _ => assert!(!all.contains(&"select.subject"), "{kind}: Select Subject is for pixel layers"),
         }
@@ -106,17 +107,20 @@ fn type_layer_sections_share_one_header_style_and_actions_fit() {
 }
 
 #[test]
-fn pixel_layer_shows_remove_background_quick_action() {
+fn pixel_layer_shows_remove_background_section() {
     let (s, layers) = kinds();
     let pixel = layers.iter().find(|(k, _)| *k == "pixel").unwrap().1;
     let mut h = harness(s, 1.0, 320.0);
     select(&mut h, pixel);
     let app = h.state();
     let shown: Vec<&str> = visible_quick_actions(app, &layer_of(app, pixel).content).iter().map(|(_, id)| *id).collect();
-    assert!(shown.contains(&"layer.removeBackground"), "{shown:?}");
+    assert_eq!(shown, ["select.subject", "ai.selectSubject"]);
     assert!(crate::menus::is_live("layer.removeBackground"));
-    let quick = headers(&h).into_iter().find(|(name, _)| name == "Quick Actions").unwrap().1;
-    assert!(h.query_all(egui_kittest::kittest::by().label("Remove Background")).any(|n| n.rect().left() >= quick.left() && n.rect().top() > quick.bottom()));
+    let removal = headers(&h).into_iter().find(|(name, _)| name == "Remove Background").unwrap().1;
+    assert!(
+        h.query_all(egui_kittest::kittest::by().label("Remove Background")).any(|n| n.rect().left() >= removal.left() && n.rect().top() > removal.bottom())
+    );
+    assert!(h.query_by_label("Remove Background (AI)").is_none());
 }
 
 #[test]

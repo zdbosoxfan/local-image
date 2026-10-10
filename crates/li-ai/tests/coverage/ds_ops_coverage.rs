@@ -128,12 +128,15 @@ fn mask_size_mismatch_is_rejected() {
     assert!(err.to_string().contains("does not match the image size"));
 }
 
+/// Steps have no built-in range (ComfyUI checks its own limits); only zero is refused.
 #[test]
-fn steps_out_of_range_high_is_rejected() {
+fn steps_beyond_the_model_recommendation_are_accepted_and_zero_is_rejected() {
     let mut req = qwen_request("a cat");
-    req.steps = u32::MAX;
+    req.steps = 500;
+    req.validate().unwrap();
+    req.steps = 0;
     let err = req.validate().unwrap_err();
-    assert!(err.to_string().contains("steps"));
+    assert!(err.to_string().contains("Steps"));
 }
 
 #[test]

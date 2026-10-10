@@ -84,6 +84,7 @@ pub mod proof_sim;
 pub mod redeye_cmds;
 pub mod render_cmds;
 pub mod retouch_cmds;
+pub mod toolsets;
 // local-image: Edit › Paste Special › Paste Seamless.
 pub mod seamless_cmds;
 pub mod select_extra_cmds;

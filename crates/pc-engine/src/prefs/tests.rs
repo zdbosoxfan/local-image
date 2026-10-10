@@ -192,7 +192,10 @@ fn menus_and_toolbar_customisation_persist() {
     assert!(s.prefs().menus.hidden.is_empty() && s.prefs().menus.colors.is_empty());
     s.execute("edit.toolbar", json!({"hidden": ["Sponge"]})).unwrap();
     let back: Preferences = serde_json::from_str(&s.prefs_to_json()).unwrap();
-    assert_eq!(back.toolbar.hidden, vec!["Sponge".to_string()]);
+    // Hiding a tool edits a custom copy of the active (built-in) set.
+    let set = back.toolbar.active();
+    assert_eq!(set.name, "My Tools");
+    assert!(!set.tools.iter().any(|t| t == "Sponge") && set.tools.iter().any(|t| t == "Dodge"));
 }
 
 #[test]
@@ -283,4 +286,18 @@ fn pen_pressure_curve_pref() {
     // Preferences saved before the option existed load with the linear curve.
     let old: Tools = serde_json::from_value(json!({"showTooltips": false})).unwrap();
     assert_eq!(old.pen_pressure_curve, photocraft_paint::pressure::LINEAR.to_vec());
+}
+
+#[test]
+fn tool_icon_preferences_default_validate_and_round_trip() {
+    let old: Preferences = serde_json::from_value(json!({"interface": {"theme": "studio"}})).unwrap();
+    assert_eq!(old.interface.tool_icons, "colour");
+    let mut s = session();
+    s.execute("prefs.set", json!({"path": "interface.toolIcons", "value": "monochrome"})).unwrap();
+    assert!(s.execute("prefs.set", json!({"path": "interface.toolIcons", "value": "invalid"})).is_err());
+    let mut restored = Session::new();
+    restored.load_prefs_json(&s.prefs_to_json()).unwrap();
+    assert_eq!(restored.prefs().interface.tool_icons, "monochrome");
+    restored.execute("prefs.reset", json!({"path": "interface.toolIcons"})).unwrap();
+    assert_eq!(restored.prefs().interface.tool_icons, "colour");
 }

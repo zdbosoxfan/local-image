@@ -17,6 +17,7 @@ rayon = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 ureq = { workspace = true }
+rustls-rustcrypto = { workspace = true }
 tungstenite = { workspace = true }
 uuid = { workspace = true }
 rand = { workspace = true }

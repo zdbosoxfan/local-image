@@ -143,7 +143,7 @@ pub fn group_bursts(
     s: BurstStrictness,
 ) -> Vec<Burst> {
     let mut seen = HashSet::new();
-    let mut timed: Vec<(i64, PhotoId, Vec<f32>)> = Vec::new();
+    let mut timed: Vec<(i64, PhotoId, Option<Vec<f32>>)> = Vec::new();
     let mut untimed: Vec<PhotoId> = Vec::new();
     for &id in ids {
         if !seen.insert(id) {
@@ -151,7 +151,7 @@ pub fn group_bursts(
         }
         let t = cat.photo(id).and_then(|p| iso_seconds(p.captured.as_deref()?));
         match (t, embedding(id)) {
-            (Some(t), Some(e)) => timed.push((t, id, e)),
+            (Some(t), e) => timed.push((t, id, e)),
             _ => untimed.push(id),
         }
     }
@@ -162,14 +162,14 @@ pub fn group_bursts(
     let mut prev: Option<(i64, &[f32])> = None;
     for (t, id, emb) in &timed {
         let joins = match prev {
-            Some((pt, pe)) => *t - pt <= s.window_secs() && cosine(pe, emb).is_some_and(|c| c >= s.min_cosine()),
+            Some((pt, pe)) => *t - pt <= s.window_secs() && emb.as_ref().and_then(|emb| cosine(pe, emb)).is_some_and(|c| c >= s.min_cosine()),
             None => false,
         };
         match runs.last_mut() {
             Some(r) if joins => r.push((*t, *id)),
             _ => runs.push(vec![(*t, *id)]),
         }
-        prev = Some((*t, emb));
+        prev = emb.as_deref().map(|emb| (*t, emb));
     }
 
     let mut out: Vec<(i64, Burst)> = runs
@@ -206,6 +206,29 @@ pub fn export_ids(bursts: &[Burst], mode: BurstExport) -> Vec<PhotoId> {
         BurstExport::BestOnly => bursts.iter().map(|b| b.best).collect(),
         BurstExport::All => bursts.iter().flat_map(|b| b.photos.iter().copied()).collect(),
     }
+}
+
+/// Shared command/UI grouping uses the exact analysis images' cached sharpness.
+pub fn for_session(session: &mut crate::Session, ids: &[PhotoId], strictness: BurstStrictness) -> Result<Vec<Burst>, String> {
+    let tagger = session.smart.tagger(session.quick_seg_dir.as_deref())?;
+    session.smart.store.ensure(tagger.model_id(), tagger.dim())?;
+    let sharp = ids
+        .iter()
+        .filter_map(|id| {
+            let key = crate::media::content_key(session.catalog.photo(*id)?);
+            Some((*id, session.smart.store.sharpness(&key)?))
+        })
+        .collect();
+    Ok(group_bursts(
+        &session.catalog,
+        ids,
+        &|id| {
+            let key = crate::media::content_key(session.catalog.photo(id)?);
+            session.smart.store.get(tagger.model_id(), &key).map(<[f32]>::to_vec)
+        },
+        &sharp,
+        strictness,
+    ))
 }
 
 #[cfg(test)]

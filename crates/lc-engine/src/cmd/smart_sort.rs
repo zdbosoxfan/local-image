@@ -1,15 +1,15 @@
-//! The Phase 1 command surface shared by CLI, automation and future UI. Long analysis is
+//! Commands shared by CLI, automation and the Smart Sort dialog. Long analysis is
 //! synchronous here; prepared input jobs and cancellation are also available to workers.
 
 use super::{CommandSpec, always, bad, cmd};
-use crate::smart_sort::{DEFAULT_MODEL, FolderDef, SortPreset, builtin_presets, classify::Classifier};
+use crate::smart_sort::{FolderDef, SortPreset, builtin_presets, classify::Classifier};
 use crate::{EngineError, Result, Session};
 use lightcraft_catalog::{Flag, MediaKind, Op, PhotoId};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
-fn source(s: &mut Session, p: &Value) -> Result<Vec<PhotoId>> {
+pub(crate) fn source(s: &mut Session, p: &Value) -> Result<Vec<PhotoId>> {
     let ids = if let Some(ids) = p.get("ids") {
         serde_json::from_value::<Vec<PhotoId>>(ids.clone()).map_err(|e| bad("smartSort", e.to_string()))?
     } else if s.selection.ids.len() > 1 {
@@ -41,10 +41,10 @@ fn preset(s: &Session, p: &Value, id: &str) -> Result<SortPreset> {
 }
 
 fn status(s: &mut Session, _: &Value) -> Result<Value> {
-    let (model, dim) = s.smart.tagger.as_ref().map_or((DEFAULT_MODEL.to_string(), 512), |t| (t.model_id().to_string(), t.dim()));
+    let (model, dim) = s.smart.selected();
     s.smart.store.ensure(&model, dim).map_err(EngineError::Other)?;
-    let spec = li_seg::spec(DEFAULT_MODEL).ok_or_else(|| EngineError::Other("missing CLIP specification".into()))?;
-    let injected = model != DEFAULT_MODEL && s.smart.tagger.is_some();
+    let injected = li_seg::spec(&model).is_none() && s.smart.tagger.is_some();
+    let spec = li_seg::spec(&model).unwrap_or_else(|| li_seg::Group::Tagging.official());
     let missing: Vec<_> = if injected {
         Vec::new()
     } else {
@@ -55,6 +55,13 @@ fn status(s: &mut Session, _: &Value) -> Result<Value> {
     let face_count = faces["analysed"].clone();
     Ok(json!({"tagger":{"id":model,"installed":installed,"bytes":if injected {0} else {spec.download_bytes()},"missing":missing},
         "faces":faces,"analysed":{"tags":s.smart.store.len(&model),"faces":face_count},"total":s.catalog.photos().filter(|p| p.in_library()).count()}))
+}
+
+fn set_model(s: &mut Session, p: &Value) -> Result<Value> {
+    let model = serde_json::from_value(p.get("model").cloned().unwrap_or(Value::Null)).map_err(|e| bad("smartSort.setModel", e.to_string()))?;
+    s.smart.set_model(model);
+    s.save_prefs()?;
+    status(s, &Value::Null)
 }
 
 fn list(s: &mut Session, _: &Value) -> Result<Value> {
@@ -73,6 +80,7 @@ fn save(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(name) = p.get("name").and_then(Value::as_str) {
         preset.name = name.trim().into();
     }
+    preset.name = preset.name.trim().to_string();
     preset.validate().map_err(|e| bad(ID, e))?;
     if builtin_presets().iter().any(|b| b.name.eq_ignore_ascii_case(&preset.name)) {
         return Err(bad(ID, "choose a name other than a built-in preset"));
@@ -221,16 +229,282 @@ fn keywords(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn plan(s: &mut Session, p: &Value) -> Result<Value> {
+    let ids = source(s, p)?;
+    if let Some(value) = p.get("sortPreset") {
+        let mut preset = preset(s, &json!({"preset":value}), "smartSort.plan")?;
+        if let Some(folders) = p.get("folders") {
+            preset.folders = serde_json::from_value(folders.clone()).map_err(|e| bad("smartSort.plan", e.to_string()))?;
+        }
+        let notices = super::smart_sort_people::prepare_folders(s, &mut preset.folders)?;
+        let mut folders = crate::smart_sort::plan::plan_preset(&s.catalog, &ids, &preset).map_err(EngineError::Other)?;
+        if preset.bursts.enabled && preset.bursts.export == crate::smart_sort::bursts::BurstExport::BestOnly {
+            let best: BTreeSet<_> = crate::smart_sort::bursts::for_session(s, &ids, preset.bursts.strictness)
+                .map_err(EngineError::Other)?
+                .iter()
+                .map(|b| b.best)
+                .collect();
+            for folder in &mut folders {
+                folder.ids.retain(|id| best.contains(id));
+            }
+        }
+        let sessions = crate::smart_sort::sessions::split_sessions(&s.catalog, &ids, &preset.sessions);
+        let paths = crate::smart_sort::plan::resolve_tokens(&s.catalog, &folders, &preset, &sessions).map_err(EngineError::Other)?;
+        return Ok(json!({"folders":folders,"paths":paths,"notices":notices}));
+    }
     let mut folders: Vec<FolderDef> = serde_json::from_value(p.get("folders").cloned().ok_or_else(|| bad("smartSort.plan", "missing folders"))?)
         .map_err(|e| bad("smartSort.plan", e.to_string()))?;
-    let ids = source(s, p)?;
     let notices = super::smart_sort_people::prepare_folders(s, &mut folders)?;
-    let folders = crate::smart_sort::plan::plan(&s.catalog, &ids, &folders).map_err(|e| bad("smartSort.plan", e))?;
+    let folders = crate::smart_sort::plan::plan_with_options(
+        &s.catalog,
+        &ids,
+        &folders,
+        p.get("firstMatch").and_then(Value::as_bool).unwrap_or(false),
+        p.get("unsorted").and_then(Value::as_str),
+    )
+    .map_err(|e| bad("smartSort.plan", e))?;
     Ok(json!({"folders":folders,"notices":notices}))
+}
+
+fn sessions(s: &mut Session, p: &Value) -> Result<Value> {
+    let preset = preset(s, p, "smartSort.sessions")?;
+    let ids = source(s, p)?;
+    Ok(json!(crate::smart_sort::sessions::split_sessions(&s.catalog, &ids, &preset.sessions)))
+}
+
+fn folder_from_examples(s: &mut Session, p: &Value) -> Result<Value> {
+    let mut preset = preset(s, p, "smartSort.folderFromExamples")?;
+    let ids = p
+        .get("ids")
+        .and_then(Value::as_array)
+        .filter(|ids| !ids.is_empty())
+        .ok_or_else(|| bad("smartSort.folderFromExamples", "select example photos"))?;
+    let tagger = s.smart.tagger(s.quick_seg_dir.as_deref()).map_err(EngineError::Other)?;
+    s.smart.store.ensure(tagger.model_id(), tagger.dim()).map_err(EngineError::Other)?;
+    let mut keys = Vec::new();
+    let mut keywords = Vec::new();
+    for id in ids {
+        let id = id.as_u64().map(PhotoId).ok_or_else(|| bad("smartSort.folderFromExamples", "invalid photo"))?;
+        let photo = s
+            .catalog
+            .photo(id)
+            .filter(|p| p.kind != MediaKind::Video)
+            .ok_or_else(|| bad("smartSort.folderFromExamples", "unknown photo or video"))?;
+        let key = crate::media::content_key(photo);
+        if s.smart.store.get(tagger.model_id(), &key).is_none() {
+            return Err(bad("smartSort.folderFromExamples", "analyse the example photos first"));
+        }
+        if !keys.contains(&key) {
+            keys.push(key);
+            keywords.push(photo.meta.keywords.clone());
+        }
+    }
+    let embeddings: Vec<_> = keys.iter().filter_map(|key| s.smart.store.get(tagger.model_id(), key)).collect();
+    if crate::smart_sort::examples::exemplar_prototype(&embeddings).is_none() {
+        return Err(bad("smartSort.folderFromExamples", "examples have no common direction"));
+    }
+    let base = p
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|n| !n.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| crate::smart_sort::examples::suggest_name(&keywords));
+    let mut name = base.clone();
+    let mut n = 2;
+    while preset.categories.iter().any(|c| c.name.eq_ignore_ascii_case(&name)) {
+        name = format!("{base} ({n})");
+        n += 1;
+    }
+    preset.categories.push(crate::smart_sort::Category { name, exemplars: keys, ..Default::default() });
+    preset.validate().map_err(EngineError::Other)?;
+    if !preset.folders.is_empty() {
+        let folder =
+            crate::smart_sort::plan::keyword_folders(&preset).pop().ok_or_else(|| bad("smartSort.folderFromExamples", "missing category"))?;
+        let at = preset.folders.iter().position(|f| f.unsorted).unwrap_or(preset.folders.len());
+        preset.folders.insert(at, folder);
+    }
+    s.smart.prefs.last = Some(preset.clone());
+    s.save_prefs()?;
+    Ok(json!({"preset":preset}))
+}
+
+fn bursts(s: &mut Session, p: &Value) -> Result<Value> {
+    let preset = preset(s, p, "smartSort.bursts")?;
+    let ids = source(s, p)?;
+    Ok(json!(crate::smart_sort::bursts::for_session(s, &ids, preset.bursts.strictness).map_err(EngineError::Other)?))
+}
+fn stack_bursts(s: &mut Session, p: &Value) -> Result<Value> {
+    let preset = preset(s, p, "smartSort.stackBursts")?;
+    let ids = source(s, p)?;
+    let bursts = crate::smart_sort::bursts::for_session(s, &ids, preset.bursts.strictness).map_err(EngineError::Other)?;
+    let selection = s.selection.clone();
+    let mut count = 0;
+    for burst in bursts.iter().filter(|b| b.photos.len() > 1) {
+        s.selection = crate::Selection::single(burst.best);
+        let result = s.execute("stack.group", &json!({"ids":burst.photos,"top":burst.best,"collapsed":true}));
+        s.selection = selection.clone();
+        result?;
+        count += 1;
+    }
+    if count > 0 {
+        s.merge_undo(count, "Smart Sort bursts");
+    }
+    s.selection = selection;
+    Ok(json!({"stacks":count}))
+}
+
+fn tag_sets(s: &mut Session, _: &Value) -> Result<Value> {
+    Ok(Value::Array(
+        crate::smart_sort::tagsets::builtins()
+            .into_iter()
+            .map(|set| json!({"name":set.name,"tags":set.tags,"builtin":true}))
+            .chain(s.smart.tag_sets.iter().map(|set| json!({"name":set.name,"tags":set.tags,"builtin":false})))
+            .collect(),
+    ))
+}
+fn set_name(p: &Value, key: &str) -> Result<String> {
+    p.get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| bad("smartSort.tagSets", "missing tag set name"))
+}
+fn check_set_name(name: &str) -> Result<()> {
+    if crate::smart_sort::tagsets::builtins().iter().any(|t| t.name.eq_ignore_ascii_case(name)) {
+        return Err(bad("smartSort.tagSets", "choose a name other than a built-in tag set"));
+    }
+    Ok(())
+}
+fn save_tag_set(s: &mut Session, p: &Value) -> Result<Value> {
+    let name = set_name(p, "name")?;
+    check_set_name(&name)?;
+    let tags: Vec<String> =
+        serde_json::from_value(p.get("tags").cloned().unwrap_or(Value::Null)).map_err(|e| bad("smartSort.saveTagSet", e.to_string()))?;
+    let mut cleaned = Vec::new();
+    for tag in tags {
+        let tag = tag.trim().to_string();
+        if !tag.is_empty() && !cleaned.contains(&tag) {
+            cleaned.push(tag);
+        }
+    }
+    let set = crate::smart_sort::tagsets::TagSet { name, tags: cleaned };
+    let old = s.smart.tag_sets.clone();
+    if let Some(existing) = s.smart.tag_sets.iter_mut().find(|t| t.name.eq_ignore_ascii_case(&set.name)) {
+        *existing = set;
+    } else {
+        s.smart.tag_sets.push(set);
+    }
+    if let Err(e) = s.save_smart_tag_sets() {
+        s.smart.tag_sets = old;
+        return Err(e);
+    }
+    tag_sets(s, &Value::Null)
+}
+fn delete_tag_set(s: &mut Session, p: &Value) -> Result<Value> {
+    let name = set_name(p, "name")?;
+    let old = s.smart.tag_sets.clone();
+    s.smart.tag_sets.retain(|t| !t.name.eq_ignore_ascii_case(&name));
+    if old.len() == s.smart.tag_sets.len() {
+        return Err(bad("smartSort.deleteTagSet", "unknown user tag set"));
+    }
+    if let Err(e) = s.save_smart_tag_sets() {
+        s.smart.tag_sets = old;
+        return Err(e);
+    }
+    tag_sets(s, &Value::Null)
+}
+fn rename_tag_set(s: &mut Session, p: &Value) -> Result<Value> {
+    let name = set_name(p, "name")?;
+    let to = set_name(p, "to")?;
+    check_set_name(&to)?;
+    if s.smart.tag_sets.iter().any(|t| !t.name.eq_ignore_ascii_case(&name) && t.name.eq_ignore_ascii_case(&to)) {
+        return Err(bad("smartSort.renameTagSet", "duplicate tag set name"));
+    }
+    let old = s.smart.tag_sets.clone();
+    let set = s
+        .smart
+        .tag_sets
+        .iter_mut()
+        .find(|t| t.name.eq_ignore_ascii_case(&name))
+        .ok_or_else(|| bad("smartSort.renameTagSet", "unknown user tag set"))?;
+    set.name = to;
+    if let Err(e) = s.save_smart_tag_sets() {
+        s.smart.tag_sets = old;
+        return Err(e);
+    }
+    tag_sets(s, &Value::Null)
+}
+fn export(s: &mut Session, p: &Value) -> Result<Value> {
+    let result = plan(s, p)?;
+    let folders: Vec<crate::smart_sort::plan::Folder> =
+        serde_json::from_value(result["folders"].clone()).map_err(|e| bad("smartSort.export", e.to_string()))?;
+    let dir = p.get("dir").and_then(Value::as_str).ok_or_else(|| bad("smartSort.export", "missing destination"))?;
+    let params = s.export_params(p).map_err(EngineError::Other)?;
+    let mut opts = crate::export::ExportOptions::from_json(&params);
+    opts.same_folder = false;
+    opts.subfolder.clear();
+    let sort = p.get("sortPreset").map(|v| preset(s, &json!({"preset":v}), "smartSort.export")).transpose()?;
+    let items = if let Some(sort) = &sort {
+        let ids = source(s, p)?;
+        let sessions = crate::smart_sort::sessions::split_sessions(&s.catalog, &ids, &sort.sessions);
+        crate::smart_sort::plan::prepare_preset(s, &folders, &opts, dir, sort, &sessions)
+    } else {
+        crate::smart_sort::plan::prepare(s, &folders, &opts, dir)
+    }
+    .map_err(EngineError::Other)?;
+    if sort.as_ref().is_some_and(|p| p.bursts.enabled && p.bursts.also_stack_in_library) {
+        let ids = source(s, p)?;
+        stack_bursts(s, &json!({"preset":sort,"ids":ids}))?;
+    }
+    let files = crate::export::run_batch(
+        items,
+        &opts,
+        &crate::export::Destination { dir: dir.into(), exact: None },
+        &mut crate::export::write_file,
+        &|p| std::path::Path::new(p).exists(),
+        false,
+        &mut |_, _| true,
+    )
+    .map_err(EngineError::Other)?;
+    Ok(Value::Array(files))
 }
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
+        cmd!(query "smartSort.sessions", "Smart Sort Sessions", [], None, "{preset?: SortPreset|name, ids?, includeRejected?} → {sessions:[{index,name,start,end,photos}],noTime}", always, sessions),
+        cmd!(
+            "smartSort.folderFromExamples",
+            "Folder from Examples",
+            [],
+            None,
+            "{preset?: SortPreset|name, ids:[photoId], name?} → {preset}; cached exemplars only",
+            always,
+            folder_from_examples
+        ),
+        cmd!(query "smartSort.bursts", "Smart Sort Bursts", [], None, "{preset?: SortPreset|name, ids?, includeRejected?} → [{photos,best}]", always, bursts),
+        cmd!(
+            "smartSort.stackBursts",
+            "Stack Smart Sort Bursts",
+            [],
+            None,
+            "{preset?: SortPreset|name, ids?, includeRejected?} → {stacks}; one undo step",
+            always,
+            stack_bursts
+        ),
+        cmd!(query "smartSort.tagSets", "Smart Sort Tag Sets", [], None, "{} → [{name, tags, builtin}]", always, tag_sets),
+        cmd!("smartSort.saveTagSet", "Save Tag Set", [], None, "{name, tags}", always, save_tag_set),
+        cmd!("smartSort.renameTagSet", "Rename Tag Set", [], None, "{name, to}", always, rename_tag_set),
+        cmd!("smartSort.deleteTagSet", "Delete Tag Set", [], None, "{name}", always, delete_tag_set),
+        cmd!(
+            "smartSort.export",
+            "Export Smart Sort",
+            [],
+            None,
+            "{dir, sortPreset?: SortPreset|name, folders?, ids?, firstMatch?, unsorted?, preset? | export params}",
+            always,
+            export
+        ),
+        cmd!("smartSort.setModel", "Smart Sort Model", [], None, "{model} → status", always, set_model),
         cmd!(query "smartSort.status","Smart Sort Status",[],None,"{} → {tagger, faces, analysed, total}",always,status),
         cmd!(query "smartSort.presets","Smart Sort Presets",[],None,"{} → [{name, builtin, preset}]",always,list),
         cmd!("smartSort.savePreset", "Save Smart Sort Preset", [], None, "{name?, preset: SortPreset}", always, save),
@@ -240,7 +514,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Analyse Smart Sort",
             [],
             None,
-            "{ids?, faces?: false, includeRejected?: false} → {analysed, skipped, videos, failed}",
+            "{ids?, faces?: bool, includeRejected?: false} → {analysed, skipped, videos, failed, faces?}",
             always,
             analyze
         ),
@@ -262,6 +536,6 @@ pub fn specs() -> Vec<CommandSpec> {
             always,
             keywords
         ),
-        cmd!(query "smartSort.plan","Plan Smart Sort Folders",[],None,"{folders: [{name, rules, enabled}], ids?, includeRejected?: false} → {folders: [{name, ids}]} (keywords only, overlap included)",always,plan),
+        cmd!(query "smartSort.plan","Plan Smart Sort Folders",[],None,"{sortPreset?: SortPreset|name, folders?: [FolderDef], ids?, firstMatch?: false, unsorted?: string|null, includeRejected?: false} → {folders: [{name, ids}], paths?: [{name, ids}], notices: [string]}",always,plan),
     ]
 }

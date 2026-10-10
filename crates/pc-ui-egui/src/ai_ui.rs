@@ -1,6 +1,6 @@
 //! local-image: Local Image's AI in the editor.
 //!
-//! - **AI Remove Brush** (R): paint over a distraction; on release the stroke is removed by the
+//! - **AI Remove Brush** (R): paint over a distraction; after confirmation the painted mask is removed by the
 //!   local model and the repair lands on its own layer (`ai.remove`).
 //! - **AI Cutout** (K): Remove Background makes a layer mask from the AI matte
 //!   (`ai.removeBackground`); dragging paints that mask (Erase hides, Restore reveals; X swaps);
@@ -35,10 +35,17 @@ use crate::widgets;
 pub struct AiOptions {
     /// AI Remove engine: `klein`, `qwen-int8` or `qwen-bf16`.
     pub remove_engine: String,
-    /// AI Cutout engine: `qwen-int8`, `qwen-bf16` or `quick` (PhotoCraft's CPU subject finder).
+    /// Opt in to the original release-to-remove behavior.
+    pub remove_immediately: bool,
+    /// AI Cutout engine: `qwen-int8`, `qwen-bf16` or `quick` (on-device Subject & Background model).
     pub cutout_engine: String,
     /// What to keep, passed to the cutout model ("the red car").
     pub cutout_hint: String,
+    /// Shared output for Properties, the AI Cutout options bar and the contextual task bar.
+    pub cutout_output: String,
+    pub cutout_color: [f32; 3],
+    /// Gaussian blur radius in pixels.
+    pub cutout_blur: f32,
     /// Cutout refine strokes reveal (true) or hide (false) the layer.
     pub cutout_restore: bool,
     /// Last background description (Generate Background).
@@ -47,18 +54,24 @@ pub struct AiOptions {
     pub fill_prompt: String,
     /// The Generate panel.
     pub generate: crate::generate_ui::GenerateState,
+    pub draft_refine: crate::generate_ui::DraftRefineSettings,
 }
 
 impl Default for AiOptions {
     fn default() -> Self {
         Self {
             remove_engine: "klein".into(),
+            remove_immediately: false,
             cutout_engine: "qwen-int8".into(),
             cutout_hint: String::new(),
+            cutout_output: "mask".into(),
+            cutout_color: [1.0; 3],
+            cutout_blur: 12.0,
             cutout_restore: false,
             background_prompt: String::new(),
             fill_prompt: String::new(),
             generate: Default::default(),
+            draft_refine: Default::default(),
         }
     }
 }
@@ -78,6 +91,8 @@ pub struct EngineStatus {
     pub error: String,
     /// ComfyUI was started by us and is still loading.
     pub starting: bool,
+    /// The sampler limits the connected ComfyUI reports (steps, guidance, denoise).
+    pub limits: Option<li_ai::comfy::SamplerLimits>,
 }
 
 impl EngineStatus {
@@ -92,10 +107,13 @@ impl EngineStatus {
     }
 }
 
+/// The ComfyUI process Local Image started (never one the user started themselves). Kept outside
+/// [`Shared`] so quitting can stop it without starting the status poller.
+static CHILD: Mutex<Option<std::process::Child>> = Mutex::new(None);
+
 struct Shared {
     status: Mutex<EngineStatus>,
     refresh: std::sync::atomic::AtomicBool,
-    child: Mutex<Option<std::process::Child>>,
     downloads: Mutex<BTreeMap<String, Download>>,
     ctx: Mutex<Option<egui::Context>>,
 }
@@ -116,7 +134,6 @@ fn shared() -> &'static Arc<Shared> {
         let s = Arc::new(Shared {
             status: Mutex::new(EngineStatus::default()),
             refresh: std::sync::atomic::AtomicBool::new(true),
-            child: Mutex::new(None),
             downloads: Mutex::new(BTreeMap::new()),
             ctx: Mutex::new(None),
         });
@@ -134,6 +151,9 @@ pub fn status() -> EngineStatus {
     }
     shared().status.lock().map(|s| s.clone()).unwrap_or_default()
 }
+
+#[cfg(test)]
+pub(crate) static AI_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 // UI tests use the real mock server for commands, with deterministic readiness on their
 // own thread rather than racing the asynchronous status poller.
@@ -165,6 +185,7 @@ fn poll_loop(s: Arc<Shared>) {
         let connected = stats.is_some();
         let gpu = stats.as_ref().and_then(|st| li_ai::setup::gpus_from_stats(st).into_iter().next());
         let mut presets = s.status.lock().map(|x| x.presets.clone()).unwrap_or_default();
+        let mut limits = s.status.lock().ok().and_then(|x| x.limits);
         let mut error = String::new();
         if connected && (forced || !connected_before || last_inventory.is_none_or(|t| t.elapsed() > Duration::from_secs(30))) {
             match ai.client.object_info() {
@@ -173,6 +194,8 @@ fn poll_loop(s: Arc<Shared>) {
                     let settings = AiSettings::load();
                     let model_dir = settings.model_dir();
                     li_ai::inventory::refresh(&info, model_dir.is_dir().then_some(model_dir.as_path()));
+                    li_ai::refine::checker().invalidate_changed_files();
+                    limits = info.sampler_limits();
                     presets = catalog::presets()
                         .iter()
                         .map(|p| {
@@ -189,13 +212,14 @@ fn poll_loop(s: Arc<Shared>) {
         }
         if !connected {
             presets.clear();
+            limits = None;
             last_inventory = None;
         }
-        let child_alive = s.child.lock().ok().and_then(|mut c| c.as_mut().map(|c| c.try_wait().map(|st| st.is_none()).unwrap_or(false))).unwrap_or(false);
+        let child_alive = CHILD.lock().ok().and_then(|mut c| c.as_mut().map(|c| c.try_wait().map(|st| st.is_none()).unwrap_or(false))).unwrap_or(false);
         let changed;
         if let Ok(mut st) = s.status.lock() {
-            let new = EngineStatus { checked: true, connected, host, gpu, presets, error, starting: child_alive && !connected };
-            changed = st.connected != new.connected || st.presets != new.presets || st.starting != new.starting || !st.checked;
+            let new = EngineStatus { checked: true, connected, host, gpu, presets, error, starting: child_alive && !connected, limits };
+            changed = st.connected != new.connected || st.presets != new.presets || st.starting != new.starting || st.limits != new.limits || !st.checked;
             *st = new;
         } else {
             changed = false;
@@ -212,7 +236,7 @@ pub fn start_engine() -> Result<String, String> {
     let found = li_ai::setup::detect(&settings);
     let inst = found.first().ok_or(tl!("No ComfyUI installation found. Choose its folder in Local AI, or install ComfyUI first."))?;
     let child = li_ai::setup::start(inst, &settings).map_err(|e| format!("{e:#}"))?;
-    if let Ok(mut c) = shared().child.lock() {
+    if let Ok(mut c) = CHILD.lock() {
         *c = Some(child);
     }
     refresh();
@@ -221,9 +245,20 @@ pub fn start_engine() -> Result<String, String> {
 
 /// Stops ComfyUI if Local Image started it.
 pub fn stop_engine() -> bool {
-    let stopped = shared().child.lock().ok().and_then(|mut c| c.take()).map(|mut c| c.kill().is_ok() && c.wait().is_ok()).unwrap_or(false);
+    let stopped = kill_child();
     refresh();
     stopped
+}
+
+/// Called when the app quits: stops the ComfyUI Local Image started, so it doesn't keep holding
+/// tens of GB of RAM and VRAM after the window closes. A ComfyUI the user started is left alone.
+pub fn shutdown_engine() -> bool {
+    kill_child()
+}
+
+fn kill_child() -> bool {
+    let child = CHILD.lock().map(|mut c| c.take()).unwrap_or_else(|p| p.into_inner().take());
+    child.map(|mut c| c.kill().is_ok() && c.wait().is_ok()).unwrap_or(false)
 }
 
 /// Downloads a preset's missing files in the background (progress via [`downloads`]).
@@ -476,17 +511,37 @@ fn seg_rows(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>, dir
 
 /// One function: its name and what it does, the model in use, and the custom-model controls.
 fn function_row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>, dir: &std::path::Path, group: li_seg::Group) {
-    let spec = group.official();
+    if group == li_seg::Group::Tagging {
+        ui.label(RichText::new(tl!(group.label())).size(13.0).strong().color(t.text));
+        ui.label(RichText::new(tl!(group.about())).color(t.text_dim).size(11.5));
+        for spec in li_seg::MODELS.iter().filter(|m| m.group == Some(group)) {
+            tagging_model_row(ui, t, dls, dir, group, spec);
+        }
+    } else {
+        tagging_model_row(ui, t, dls, dir, group, group.official());
+    }
+}
+
+fn tagging_model_row(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    dls: &BTreeMap<String, Download>,
+    dir: &std::path::Path,
+    group: li_seg::Group,
+    spec: &'static li_seg::ModelSpec,
+) {
     let key = format!("seg:{}", spec.id);
     let dl = dls.get(&key);
     let installed = li_seg::installed_bytes(dir, spec);
     let custom = li_seg::custom(dir, group);
-    let official_in_use = custom.is_none() && installed.is_some();
+    let official_in_use = custom.is_none() && installed.is_some() && group != li_seg::Group::Tagging;
     let frame = egui::Frame::NONE.fill(t.field).corner_radius(t.radius).inner_margin(egui::Margin::symmetric(10, 8));
     frame.show(ui, |ui| {
         ui.set_width(ui.available_width());
-        ui.label(RichText::new(tl!(group.label())).size(13.0).strong().color(t.text));
-        ui.label(RichText::new(tl!(group.about())).color(t.text_dim).size(11.5));
+        if group != li_seg::Group::Tagging {
+            ui.label(RichText::new(tl!(group.label())).size(13.0).strong().color(t.text));
+            ui.label(RichText::new(tl!(group.about())).color(t.text_dim).size(11.5));
+        }
         ui.add_space(4.0);
         if let Some(c) = &custom {
             ui.horizontal(|ui| {
@@ -842,13 +897,10 @@ pub fn downloads() -> BTreeMap<String, Download> {
 // ------------------------------------------------------------------------------ tools
 
 /// Finish a stroke with an AI tool. Returns false for other tools.
-pub fn finish_stroke(app: &mut PhotocraftApp, tool: Tool, points: &[[f64; 3]]) -> bool {
+pub fn finish_stroke(app: &mut PhotocraftApp, tool: Tool, points: &[[f64; 3]], mods: egui::Modifiers) -> bool {
     match tool {
         Tool::AiRemove => {
-            let b = &app.session.tools.brush;
-            let p = json!({ "points": points, "size": b.size, "hardness": b.hardness * 100.0, "engine": app.ui.ai.remove_engine });
-            let r = app.run("ai.remove", p);
-            report(app, r);
+            crate::ai_remove_ui::paint(app, points, mods.alt);
             true
         }
         Tool::AiCutout => {
@@ -880,15 +932,11 @@ fn opt(ui: &mut egui::Ui, s: &str) {
     ui.label(RichText::new(s).color(t.text_dim));
 }
 
-const REMOVE_ENGINES: [(&str, &str, ModelId, &str); 3] = [
+pub(crate) const REMOVE_ENGINES: [(&str, &str, ModelId, &str); 3] = [
     ("klein", "FLUX.2 Klein", ModelId::KleinRemove, "bf16"),
     ("qwen-int8", "Qwen Compact", ModelId::Qwen, "int8"),
     ("qwen-bf16", "Qwen Full", ModelId::Qwen, "bf16"),
 ];
-/// Qwen-powered removal (a real alpha matte, on the GPU through ComfyUI) or the editor's own
-/// Remove Background (Select Subject plus edge refinement, on the CPU, no AI engine needed).
-const CUTOUT_ENGINES: [(&str, &str); 3] = [("qwen-int8", "Qwen AI · Compact"), ("qwen-bf16", "Qwen AI · Full"), ("quick", "Standard (CPU)")];
-
 /// The model behind an AI Remove engine key (`klein`, `qwen-int8`, `qwen-bf16`).
 pub fn remove_engine(key: &str) -> (ModelId, &'static str) {
     engine_for(key)
@@ -903,18 +951,32 @@ fn engine_for(key: &str) -> (ModelId, &'static str) {
 }
 
 /// An engine problem as a one-line warning with the button that fixes it.
-fn readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui, model: ModelId, variant: &str) {
+pub(crate) fn readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui, model: ModelId, variant: &str) {
     let st = status();
     if let Err(why) = st.ready(model, variant) {
-        let t = Tokens::get(ui.ctx());
-        widgets::vline(ui, 22.0);
-        let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
+        readiness_warning(app, ui, &why, st.connected);
+    }
+}
+
+pub(crate) fn readiness_warning(app: &mut PhotocraftApp, ui: &mut egui::Ui, why: &str, connected: bool) {
+    let t = Tokens::get(ui.ctx());
+    let compact = ui.layout().main_dir().is_horizontal();
+    let mut warning = |ui: &mut egui::Ui| {
+        let (r, resp) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
         crate::icons::paint(ui, r, "triangle-alert", 14.0, t.warning);
-        ui.label(RichText::new(why).color(t.warning));
-        let label = if st.connected { tl!("Get models…") } else { tl!("Set up AI…") };
+        resp.on_hover_text(why);
+        if !compact {
+            ui.label(RichText::new(why).color(t.warning));
+        }
+        let label = if connected { tl!("Get models…") } else { tl!("Set up AI…") };
         if widgets::secondary_button(ui, label, 0.0).clicked() {
             open_local_ai(app);
         }
+    };
+    if compact {
+        warning(ui);
+    } else {
+        ui.horizontal_wrapped(warning);
     }
 }
 
@@ -922,43 +984,13 @@ fn readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui, model: ModelId, variant
 pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bool {
     match tool {
         Tool::AiRemove => {
-            opt(ui, tl!("Engine:"));
-            let opts: Vec<(String, &str)> = REMOVE_ENGINES.iter().map(|(k, l, _, _)| ((*k).to_owned(), *l)).collect();
-            widgets::dropdown(ui, "ai-remove-engine", &mut app.ui.ai.remove_engine, &opts, 130.0);
-            let has_sel = app.session.active().is_some_and(|d| d.doc.selection.is_some());
-            if has_sel {
-                widgets::vline(ui, 22.0);
-                if widgets::secondary_button(ui, tl!("Remove Selection"), 0.0).clicked() {
-                    let e = app.ui.ai.remove_engine.clone();
-                    let r = app.run("ai.remove", json!({ "engine": e }));
-                    report(app, r);
-                }
-            }
-            let (m, v) = engine_for(&app.ui.ai.remove_engine);
-            if status().ready(m, v).is_ok() {
-                widgets::vline(ui, 22.0);
-                opt(ui, tl!("Paint over a distraction; it's removed when you release"));
-            } else {
-                readiness(app, ui, m, v);
-            }
+            crate::ai_remove_ui::options(app, ui);
             true
         }
         Tool::AiCutout => {
-            let quick = app.ui.ai.cutout_engine == "quick";
-            if widgets::primary_button(ui, tl!("Remove Background"), 0.0).clicked() {
-                let r = if quick {
-                    app.run("layer.removeBackground", json!({}))
-                } else {
-                    let p = json!({ "engine": app.ui.ai.cutout_engine, "hint": app.ui.ai.cutout_hint });
-                    app.run("ai.removeBackground", p)
-                };
-                report(app, r);
-            }
-            let opts: Vec<(String, &str)> = CUTOUT_ENGINES.iter().map(|(k, l)| ((*k).to_owned(), *l)).collect();
-            widgets::dropdown(ui, "ai-cutout-engine", &mut app.ui.ai.cutout_engine, &opts, 140.0);
-            if !quick {
-                ui.add(egui::TextEdit::singleline(&mut app.ui.ai.cutout_hint).hint_text(tl!("Keep… (optional)")).desired_width(120.0));
-            }
+            crate::background_ui::remove_button(app, ui, None, 0.0);
+            crate::background_ui::readiness(app, ui);
+            crate::background_ui::settings(app, ui, true);
             widgets::vline(ui, 22.0);
             opt(ui, tl!("Refine:"));
             let mut erase = !app.ui.ai.cutout_restore;
@@ -988,10 +1020,6 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
                     ui.close();
                 }
             });
-            if !quick {
-                let v = if app.ui.ai.cutout_engine == "qwen-bf16" { "bf16" } else { "int8" };
-                readiness(app, ui, ModelId::Qwen, v);
-            }
             true
         }
         _ => false,
@@ -1163,6 +1191,7 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if dialogs_mut(|d| d.enhance) {
         enhance_dialog(app, ctx);
     }
+    crate::generate_ui::draft_refine::window(app, ctx);
     crate::generate_ui::batch_window(app, ctx);
     crate::model_browser::window(app, ctx);
     remove_confirm(app, ctx);
@@ -1339,7 +1368,7 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                             dialogs_mut(|d| d.message = tl!("That folder has no ComfyUI (main.py and a Python environment).").into());
                         }
                     }
-                    let running_ours = shared().child.lock().map(|c| c.is_some()).unwrap_or(false);
+                    let running_ours = CHILD.lock().map(|c| c.is_some()).unwrap_or(false);
                     if !st.connected && !st.starting && widgets::primary_button(ui, tl!("Start AI Engine"), 0.0).clicked() {
                         let _ = settings.save();
                         let m = match start_engine() {
@@ -1552,10 +1581,13 @@ const IDS: &[&str] = &[
     "li.newFromPrompt",
     "li.openFolder",
     "li.batchRemoveBackgrounds",
+    "li.removeSelection",
+    "ai.remove",
     "li.generativeFill",
     "li.enhance",
     "li.generateBackground",
     "li.panel.generate",
+    "li.draftRefine",
     "li.localAi",
     "li.aiModels",
     "li.browseModels",
@@ -1571,7 +1603,7 @@ pub fn handles(id: &str) -> bool {
 pub fn is_enabled(app: &PhotocraftApp, id: &str) -> Option<bool> {
     let has_doc = app.session.active().is_some();
     Some(match id {
-        "li.generativeFill" => app.session.active().is_some_and(|d| d.doc.selection.is_some()),
+        "ai.remove" | "li.removeSelection" | "li.generativeFill" => app.session.active().is_some_and(|d| d.doc.selection.is_some()),
         "li.enhance" | "li.generateBackground" => has_doc,
         "li.filmstrip" => crate::filmstrip_ui::has_folder(),
         crate::develop_layer::DEVELOP_ID => crate::develop_layer::active_photo(app).is_some(),
@@ -1608,7 +1640,9 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Val
                 None => crate::generate_ui::open_folder(app),
             });
         }
+        "li.draftRefine" => crate::generate_ui::draft_refine::open(app),
         "li.batchRemoveBackgrounds" => crate::generate_ui::open_batch(),
+        "ai.remove" | "li.removeSelection" => crate::ai_remove_ui::selection(app),
         "li.generativeFill" => dialogs_mut(|d| d.fill = true),
         "li.generateBackground" => dialogs_mut(|d| d.background = true),
         "li.enhance" => dialogs_mut(|d| d.enhance = true),
@@ -1647,6 +1681,21 @@ pub fn on_job_event(app: &mut PhotocraftApp, e: &JobEvent) -> bool {
 mod tests {
     use super::*;
     use egui_kittest::kittest::{NodeT, Queryable};
+
+    /// Quitting stops the ComfyUI Local Image started (the backlog item: it kept running after
+    /// the app closed, holding 29-46 GB of RAM).
+    #[cfg(unix)]
+    #[test]
+    fn quitting_stops_the_engine_we_started() {
+        let _g = AI_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let child = std::process::Command::new("sleep").arg("60").spawn().expect("sleep");
+        let pid = child.id();
+        *CHILD.lock().unwrap() = Some(child);
+        assert!(shutdown_engine(), "the started engine is stopped");
+        assert!(CHILD.lock().unwrap().is_none());
+        assert!(!std::path::Path::new(&format!("/proc/{pid}")).exists(), "process {pid} is gone (reaped)");
+        assert!(!shutdown_engine(), "nothing to stop the second time (a user-started ComfyUI is never touched)");
+    }
 
     /// Every local CPU model Settings offers must come from a host the downloader accepts (the
     /// sky models' host was missing, so both refused to download).
@@ -1712,8 +1761,8 @@ mod tests {
         h.run_steps(3);
     }
 
-    /// One row per function, titled by what it does, each with its single official model and a
-    /// "Custom model…" button; none of the retired models is offered.
+    /// One heading per function; tagging offers both families, and the three mask functions
+    /// retain custom-model buttons. None of the retired models is offered.
     #[test]
     fn settings_lists_one_row_per_function() {
         let dir = temp_dir("rows");
@@ -1721,14 +1770,15 @@ mod tests {
         for title in ["Subject & Background", "Sky", "Depth", "Smart Sort (scenes)", "Faces"] {
             h.get_by_label(title);
         }
-        for model in ["IS-Net general", "PP-MobileSeg", "Depth Anything V2 Small", "CLIP ViT-B-32 LAION", "YuNet + SFace"] {
+        for model in ["IS-Net general", "PP-MobileSeg", "Depth Anything V2 Small", "CLIP ViT-B-32 LAION (Fast)", "SigLIP ViT-B/16 (Accurate)", "YuNet + SFace"]
+        {
             h.get_by_label(model);
         }
         for gone in ["U²-Net small", "U²-Net", "TinySkyNet", "MiDaS v2.1 small"] {
             assert!(h.query_by_label(gone).is_none(), "{gone} is still listed");
         }
         assert_eq!(h.get_all_by_label("Custom model…").count(), 3);
-        assert_eq!(h.get_all_by_label("Download").count(), 5);
+        assert_eq!(h.get_all_by_label("Download").count(), 6);
         assert!(h.query_by_label_contains("Remove old models").is_none());
         assert!(h.query_by_label_contains("Finds the main subject").is_some());
         assert!(h.query_by_label_contains("Finds the sky.").is_some());
@@ -1855,8 +1905,11 @@ mod tests {
             assert_eq!(std::fs::read(li_seg::companion_path(&dir, file.file)).unwrap(), b"clip file");
         }
         assert!(h.query_by_label_contains("Remove old models").is_none());
-        let note = REMOVE_NOTE.lock().unwrap().take().expect("a status note");
-        assert!(!note.1 && note.0.contains("the old models"), "{note:?}");
+        // The status note is process-global; another test drawing the full app (which shows and consumes it) may run
+        // in parallel and take it first. The removal itself is asserted above; check the wording when it is still here.
+        if let Some(note) = REMOVE_NOTE.lock().unwrap().take() {
+            assert!(!note.1 && note.0.contains("the old models"), "{note:?}");
+        }
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -1925,8 +1978,8 @@ mod tests {
         let dir = temp_dir("tagging");
         let h = seg_harness(&dir, Some(li_seg::Group::Tagging));
         h.get_by_label("Smart Sort (scenes)");
-        h.get_by_label("CLIP ViT-B-32 LAION");
-        h.get_by_label("Download");
+        h.get_by_label("CLIP ViT-B-32 LAION (Fast)");
+        h.get_by_label("SigLIP ViT-B/16 (Accurate)");
         assert!(h.query_by_label("Custom model…").is_none());
         assert!(h.query_by_label("Use official model").is_none());
         assert!(h.query_by_label("Choose an ONNX file…").is_none());
@@ -1972,6 +2025,31 @@ mod tests {
         .unwrap();
         assert_eq!(files.borrow().len(), 2);
         assert_eq!(files.borrow()[1].1, li_seg::faces::SFACE.bytes);
+    }
+
+    #[test]
+    fn smart_sort_siglip_option_cancel_click_stops_selected_download() {
+        let dir = temp_dir("siglip-option");
+        let ctl = JobControl::new();
+        let observed = ctl.clone();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(760.0, 600.0)).build_ui(move |ui| {
+            if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("semibold".into()))) {
+                return;
+            }
+            let t = Tokens::get(ui.ctx());
+            let mut dls = BTreeMap::new();
+            dls.insert(
+                "seg:siglip-b16-224".into(),
+                Download { total: li_seg::spec("siglip-b16-224").unwrap().download_bytes(), done: 100, ctl: ctl.clone(), ..Default::default() },
+            );
+            function_row(ui, &t, &dls, &dir, li_seg::Group::Tagging);
+        });
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(3);
+        h.get_by_label("SigLIP ViT-B/16 (Accurate)");
+        h.get_by_label("Cancel").click();
+        h.run_steps(2);
+        assert!(observed.is_cancelled());
     }
 
     #[test]

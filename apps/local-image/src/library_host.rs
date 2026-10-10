@@ -28,6 +28,9 @@
 //! a file the Library already has is reloaded (its thumbnail follows); a new file from a Library
 //! photo is imported and stacked on top of the original, as Edit in External Editor does
 //! ([`add_saved_file`]). File › Save and Return to Library then shows the Library on it.
+//! Unsaved edits appear in the Library grid and loupe as a worker-rendered composite. Returning
+//! to Library shows a non-blocking notice with Save and Keep Editing actions; saves report their
+//! destination and Library stack in both modules.
 //!
 //! The library opens lazily, the first time Library or Develop is shown.
 
@@ -56,6 +59,15 @@ pub struct Host {
     camera_raw: Option<CameraRawSession>,
     /// Composites of unsaved Compositing documents, rendered for the Library.
     composites: Composites,
+    /// One non-blocking round-trip notice, also visible while its preview is rendering.
+    round_trip_notice: Option<RoundTripNotice>,
+}
+
+#[derive(Clone)]
+enum RoundTripNotice {
+    Unsaved { doc: photocraft_doc::DocId, photo: lightcraft_catalog::PhotoId, destination: String },
+    Saved(String),
+    Error(String),
 }
 
 /// What a Library photo looks like in Compositing, rendered on worker threads for the Library's
@@ -101,6 +113,7 @@ impl Host {
             left_compositing_with: None,
             camera_raw: None,
             composites: Composites::default(),
+            round_trip_notice: None,
         }
     }
 
@@ -135,22 +148,27 @@ impl Host {
             let (id, msg) = match add_saved_file(&mut lib.session, &save.path, save.photo) {
                 Ok(Some(LibraryUpdate::Added { id, original })) => {
                     let name = lib.session.catalog.photo(original).map(|p| p.file_name.clone()).unwrap_or_default();
-                    (Some(id), format!("Saved to Library, stacked with {name}"))
+                    (Some(id), format!("Saved {}; added to the Library, stacked with {name}", save.path))
                 }
                 Ok(Some(LibraryUpdate::Reloaded(id))) => {
                     let name = lib.session.catalog.photo(id).map(|p| p.file_name.clone()).unwrap_or_default();
-                    (Some(id), format!("Saved {name}; updated in the Library"))
+                    (Some(id), format!("Saved {}; updated {name} in the Library", save.path))
                 }
                 Ok(None) => (None, String::new()),
                 Err(e) => {
-                    self.editor.ui.status = format!("Saved, but the Library couldn't add it: {e}");
+                    self.editor.ui.status = format!("Saved {}, but the Library couldn't add it: {e}", save.path);
                     self.editor.ui.status_error = true;
+                    self.round_trip_notice = Some(RoundTripNotice::Error(self.editor.ui.status.clone()));
                     continue;
                 }
             };
             if !msg.is_empty() {
                 self.editor.ui.status = msg.clone();
                 self.editor.ui.status_error = false;
+                self.round_trip_notice = Some(RoundTripNotice::Saved(msg.clone()));
+                if ctx.is_some() {
+                    photocraft_ui_egui::notices::post(&mut self.editor, msg.clone(), vec![], false, None);
+                }
             }
             let Some(ctx) = ctx.filter(|_| save.show) else { continue };
             self.switch(ctx, Module::Library);
@@ -214,6 +232,103 @@ impl Host {
         // the photo is the one Compositing shows: switching doesn't open it again
         self.left_compositing_with = Some(id.0);
         self.switch(ctx, Module::Compositing);
+    }
+
+    /// Save the document named by the notice, even if another editor tab is active now.
+    fn save_preview(&mut self, ctx: &egui::Context, doc: photocraft_doc::DocId) {
+        let Some(i) = self.editor.session.documents().iter().position(|d| d.doc.id == doc) else {
+            self.round_trip_notice = None;
+            return;
+        };
+        self.editor.session.set_active(i);
+        self.editor.sync_views();
+        match photocraft_ui_egui::menus::invoke(&mut self.editor, ctx, photocraft_ui_egui::develop_layer::SAVE_RETURN_ID, serde_json::json!({})) {
+            Ok(_) => {
+                self.take_library_saves(Some(ctx));
+                self.update_composites(ctx);
+            }
+            Err(e) => {
+                // Keep Save / Keep Editing available after a failed write.
+                self.library().toast_error(ctx, format!("Couldn't save the Compositing edit: {e}"));
+            }
+        }
+    }
+
+    /// Library's ⌘S saves its selected unsaved preview through the same editor save path.
+    fn preview_save_key(&mut self, ctx: &egui::Context) {
+        if self.mode != Module::Library || ctx.egui_wants_keyboard_input() {
+            return;
+        }
+        let doc = self.library.as_ref().and_then(|lib| {
+            let id = lib.session.active()?;
+            unsaved_composites(&self.editor, &lib.session).into_iter().find(|(p, _, _)| *p == id).map(|(_, _, d)| d.id)
+        });
+        if let Some(doc) = doc
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S))
+        {
+            self.save_preview(ctx, doc);
+        }
+    }
+
+    fn round_trip_notice_ui(&mut self, ctx: &egui::Context) {
+        if self.mode != Module::Library {
+            return;
+        }
+        let Some(notice) = self.round_trip_notice.clone() else { return };
+        if let RoundTripNotice::Unsaved { doc, .. } = &notice
+            && !self.editor.session.documents().iter().any(|d| d.doc.id == *doc && d.is_dirty())
+        {
+            self.round_trip_notice = None;
+            return;
+        }
+        let mut action = None;
+        let t = lightcraft_ui_egui::theme::Tokens::get(ctx);
+        egui::Area::new(egui::Id::new("library-round-trip-notice"))
+            .order(egui::Order::Foreground)
+            .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -48.0))
+            .show(ctx, |ui| {
+                egui::Frame::NONE.fill(t.chrome).stroke(egui::Stroke::new(1.0, t.button_border)).corner_radius(6.0).inner_margin(12).show(ui, |ui| {
+                    ui.set_width(360.0);
+                    match &notice {
+                        RoundTripNotice::Unsaved { destination, .. } => {
+                            ui.label(egui::RichText::new("Edited in Compositing · unsaved").strong());
+                            ui.label("The Library shows a preview of your layers. Save to keep this edit; your original photo is preserved.");
+                            ui.label(format!("Save as {destination} and stack it with the original in the Library."));
+                        }
+                        RoundTripNotice::Saved(message) | RoundTripNotice::Error(message) => {
+                            ui.label(message);
+                        }
+                    }
+                    ui.horizontal(|ui| {
+                        for (id, label, choice) in if matches!(notice, RoundTripNotice::Unsaved { .. }) {
+                            vec![("roundTripSave", "Save", 0), ("roundTripEdit", "Keep Editing", 1), ("roundTripDismiss", "Dismiss", 2)]
+                        } else {
+                            vec![("roundTripDismiss", "Dismiss", 2)]
+                        } {
+                            let r = ui.button(label);
+                            lightcraft_ui_egui::widgets::register(ctx, format!("button:{id}"), r.rect);
+                            if r.clicked() {
+                                action = Some(choice);
+                            }
+                        }
+                    });
+                });
+            });
+        match (action, notice) {
+            (Some(0), RoundTripNotice::Unsaved { doc, .. }) => self.save_preview(ctx, doc),
+            (Some(1), RoundTripNotice::Unsaved { doc, photo, .. }) => {
+                if let Some(i) = self.editor.session.documents().iter().position(|d| d.doc.id == doc) {
+                    self.editor.session.set_active(i);
+                    self.editor.sync_views();
+                    self.left_compositing_with = Some(photo.0);
+                    self.library().session.selection = lightcraft_engine::Selection::single(photo);
+                    self.switch(ctx, Module::Compositing);
+                }
+                self.round_trip_notice = None;
+            }
+            (Some(2), _) => self.round_trip_notice = None,
+            _ => {}
+        }
     }
 
     /// Quitting from Library or Develop with unsaved documents: Compositing comes forward (as it
@@ -344,11 +459,24 @@ impl Host {
         }
         if from == Module::Compositing {
             self.left_compositing_with = self.library.as_ref().and_then(|l| l.session.active()).map(|id| id.0);
-            // A Develop layer's photo becomes the Library's active photo, so Develop opens on it.
-            if let Some(id) = photocraft_ui_egui::develop_layer::active_photo(&self.editor) {
+            // Library shows the document's saved file when it has one; Develop follows its
+            // Develop layer's source. Otherwise a plain Save followed by Library selects the
+            // original again and hides the newly saved layers.
+            let saved = (to == Module::Library)
+                .then(|| self.editor.session.active()?.path.as_deref().and_then(|p| self.library.as_ref().and_then(|l| photo_at_path(&l.session, p))))
+                .flatten()
+                .map(|p| p.0);
+            if let Some(id) = saved.or_else(|| photocraft_ui_egui::develop_layer::active_photo(&self.editor)) {
                 let lib = self.library();
                 let _ = lib.run("library.select", serde_json::json!({ "ids": [id], "active": id }));
                 self.left_compositing_with = Some(id);
+            }
+            if to == Module::Library
+                && let (Some(lib), Some(active)) = (&self.library, self.editor.session.active())
+                && let Some((photo, _, _)) = unsaved_composites(&self.editor, &lib.session).into_iter().find(|(_, _, d)| d.id == active.doc.id)
+            {
+                let destination = active.path.clone().or_else(|| photocraft_ui_egui::develop_layer::library_save_path(&self.editor)).unwrap_or_default();
+                self.round_trip_notice = Some(RoundTripNotice::Unsaved { doc: active.doc.id, photo, destination });
             }
         }
         self.mode = to;
@@ -431,13 +559,14 @@ fn document_of(editor: &PhotocraftApp, s: &lightcraft_engine::Session, id: light
 }
 
 /// The Library photos Compositing has unsaved work on: (photo, version key, document). A document
-/// counts once it is more than its one Develop layer and has unsaved changes; it stands for the
+/// counts once it has unsaved changes (a one-layer document can have a mask, filter or retouching);
+/// it stands for the
 /// photo whose file it was saved to (a `-Edit.psd` in the Library), else the photo its Develop
 /// layer follows.
 fn unsaved_composites(editor: &PhotocraftApp, s: &lightcraft_engine::Session) -> Vec<(lightcraft_catalog::PhotoId, u64, Arc<photocraft_doc::Document>)> {
     let mut out: Vec<(lightcraft_catalog::PhotoId, u64, Arc<photocraft_doc::Document>)> = Vec::new();
     for d in editor.session.documents() {
-        if !d.is_dirty() || photocraft_engine::develop_layer_cmds::is_untouched(&d.doc) {
+        if !d.is_dirty() {
             continue;
         }
         let photo = d.path.as_deref().and_then(|p| photo_at_path(s, p)).or_else(|| {
@@ -455,11 +584,15 @@ fn unsaved_composites(editor: &PhotocraftApp, s: &lightcraft_engine::Session) ->
 
 /// The Library photo whose file is `path` (a master: virtual copies share its file).
 fn photo_at_path(s: &lightcraft_engine::Session, path: &str) -> Option<lightcraft_catalog::PhotoId> {
-    let file = |p: &lightcraft_catalog::Photo| match &p.source {
-        lightcraft_catalog::Source::File { path } if p.copy_of.is_none() => Some(path.clone()),
-        _ => None,
-    };
-    if let Some(p) = s.catalog.photos().find(|p| file(p).as_deref() == Some(path)) {
+    // Runs every Library frame for each unsaved Compositing document (`unsaved_composites`):
+    // borrow the paths, no String per catalog photo (85,000 allocations a frame on big libraries).
+    fn file(p: &lightcraft_catalog::Photo) -> Option<&str> {
+        match &p.source {
+            lightcraft_catalog::Source::File { path } if p.copy_of.is_none() => Some(path.as_str()),
+            _ => None,
+        }
+    }
+    if let Some(p) = s.catalog.photos().find(|p| file(p) == Some(path)) {
         return Some(p.id);
     }
     // The same file by another spelling (a symlinked folder, `..`): compare only same-named files.
@@ -535,11 +668,19 @@ impl eframe::App for Host {
         self.frames += 1;
         self.editor.current_module = self.mode;
         self.module_keys(ctx);
+        self.preview_save_key(ctx);
         // The editor installs the fonts (a superset of the Library's) on its first frame.
         if self.frames == 1 || self.mode == Module::Compositing {
             self.editor.logic(ctx, frame);
         } else {
             self.editor.background_tick(ctx);
+            // Started in the Library or Develop: the editor's frames (which run the started hook)
+            // don't happen, so the GPU start-up marker stayed for the whole session and any later
+            // exit that wasn't clean (out-of-memory killer, logout, a crash elsewhere) read as a
+            // GPU driver crash next launch. The window has presented by now: start-up is done.
+            if self.frames >= 3 {
+                photocraft_ui_egui::gpu_status::finish_startup(&mut self.editor);
+            }
         }
         // Quitting from the Library with unsaved documents: the editor asks about them.
         if self.quit_review(ctx) {
@@ -635,6 +776,12 @@ impl eframe::App for Host {
         if let Some(lib) = self.library.as_mut() {
             lib.ui(ui);
         }
+        // The switched-to-CPU warning appears in every module, not only once Compositing is open.
+        photocraft_ui_egui::gpu_status::show_fallback(&mut self.editor, ui.ctx());
+        self.round_trip_notice_ui(ui.ctx());
+        if let Some(lib) = self.library.as_mut() {
+            lib.widgets.extend(lightcraft_ui_egui::widgets::take_registry(ui.ctx()));
+        }
         photocraft_ui_egui::panels::host_resize_zones(&self.editor, ui);
     }
 
@@ -724,7 +871,7 @@ struct PrefsWriter {
 
 impl PrefsWriter {
     fn save(&mut self, app: &LightcraftApp) -> Result<(), String> {
-        if std::env::var_os("LOCAL_IMAGE_NO_PREFS").is_some() {
+        if cfg!(test) || std::env::var_os("LOCAL_IMAGE_NO_PREFS").is_some() {
             return Ok(());
         }
         let Some(d) = config_dir() else { return Ok(()) };
@@ -804,6 +951,23 @@ fn open_library_app(opens: Opens, prefs_writer: &mut PrefsWriter) -> LightcraftA
 
 fn services(opens: Opens) -> Services {
     Services {
+        download_models: Some(Box::new(|id, cancel| {
+            let spec = li_seg::spec(id).ok_or("unknown model")?;
+            if cancel {
+                if let Some(dl) = photocraft_ui_egui::ai_ui::downloads().get(&format!("seg:{id}")) {
+                    dl.ctl.cancel();
+                }
+            } else {
+                photocraft_ui_egui::ai_ui::start_seg_download(spec);
+            }
+            Ok(())
+        })),
+        model_download_status: Some(Box::new(|id| {
+            photocraft_ui_egui::ai_ui::downloads()
+                .get(&format!("seg:{id}"))
+                .map(|dl| lightcraft_ui_egui::ModelDownloadStatus { running: !dl.finished, done: dl.done, total: dl.total, error: dl.error.clone() })
+                .unwrap_or_default()
+        })),
         pick_folder: Some(Box::new(|| rfd::FileDialog::new().set_title("Choose a Library Folder").pick_folder().map(|p| p.to_string_lossy().to_string()))),
         open_with: Some(Box::new(move |path: &str, app: &str| {
             let app = app.trim();
@@ -934,9 +1098,15 @@ mod tests {
         image::RgbImage::from_fn(40, 30, |x, y| image::Rgb([(x * 6) as u8, (y * 8) as u8, 60])).save(&path).unwrap();
         let path = path.to_string_lossy().to_string();
         let mut s = lightcraft_engine::Session::new().with_fs();
+        s.open_library(dir.join("library"), false).unwrap();
         s.execute("library.import", &json!({ "paths": [path] })).unwrap();
         let id = s.catalog.photos().next().map(|p| p.id).unwrap();
-        (dir, path, LightcraftApp::new(s, lightcraft_ui_egui::Services::default()), id)
+        let mut app = LightcraftApp::new(s, lightcraft_ui_egui::Services::default());
+        app.host_fonts = true;
+        app.integrated_titlebar = false;
+        set_library_view(&mut app, false);
+        app.ui.settings.gpu = false;
+        (dir, path, app, id)
     }
 
     /// A host whose editor writes real PSDs, with `library` open and the photo in Compositing as a
@@ -987,8 +1157,11 @@ mod tests {
         assert_eq!(stack.photos, vec![edit, orig], "on top of the original");
         assert!(!stack.collapsed);
         assert_eq!(s.active(), Some(edit));
-        assert_eq!(host.editor.ui.status, "Saved to Library, stacked with photo.png");
+        assert_eq!(host.editor.ui.status, format!("Saved {saved}; added to the Library, stacked with photo.png"));
         assert_eq!(host.mode, Module::Compositing, "a plain save stays in Compositing");
+        host.switch(&ctx, Module::Library);
+        assert_eq!(catalog(&host).active(), Some(edit), "a normal module switch must show the saved layers too");
+        host.switch(&ctx, Module::Compositing);
 
         // more work, saved again: in place, and the Library re-reads the same photo
         host.editor.run("layer.new.layer", json!({})).unwrap();
@@ -998,7 +1171,7 @@ mod tests {
         let s = catalog(&host);
         assert_eq!(s.catalog.len(), 2, "reloaded, not imported again");
         assert_eq!(photo_at_path(s, &saved), Some(edit));
-        assert!(host.editor.ui.status.contains("updated in the Library"), "{}", host.editor.ui.status);
+        assert!(host.editor.ui.status.contains("in the Library"), "{}", host.editor.ui.status);
 
         // a second round trip of the same photo doesn't overwrite the first edit
         assert_eq!(develop_layer::edit_path(&path), dir.join("photo-Edit-2.psd").to_string_lossy());
@@ -1104,5 +1277,576 @@ mod tests {
         host.switch(&ctx, Module::Compositing);
         assert_eq!(host.editor.session.active().unwrap().doc.layers.len(), 3);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Drive the real host logic and UI without a window, mirroring Library's headless harness.
+    struct RoundTripUi {
+        host: Host,
+        view: lightcraft_ui_egui::headless::HeadlessView,
+        frame: eframe::Frame,
+        frames: u64,
+    }
+
+    impl RoundTripUi {
+        fn new(host: Host) -> Self {
+            let view = lightcraft_ui_egui::headless::HeadlessView::new();
+            PhotocraftApp::setup_context(&view.ctx, host.editor.ui.theme);
+            Self { host, view, frame: eframe::Frame::_new_kittest(), frames: 0 }
+        }
+
+        fn step(&mut self, events: Vec<egui::Event>) {
+            self.step_at(egui::vec2(1200.0, 900.0), events);
+        }
+
+        fn step_at(&mut self, size: egui::Vec2, events: Vec<egui::Event>) -> Vec<egui::ViewportCommand> {
+            use eframe::App;
+            let mut raw = lightcraft_ui_egui::headless::HeadlessView::raw_input(size, 1.0, self.frames as f64 / 60.0, events);
+            self.host.raw_input_hook(&self.view.ctx, &mut raw);
+            let commands = self.view.run(raw, |ui| {
+                self.host.logic(ui.ctx(), &mut self.frame);
+                self.host.ui(ui, &mut self.frame);
+            });
+            self.frames += 1;
+            commands
+        }
+
+        fn key(&mut self, key: egui::Key, modifiers: egui::Modifiers) {
+            self.step(vec![egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers }]);
+            self.step(vec![egui::Event::Key { key, physical_key: None, pressed: false, repeat: false, modifiers }]);
+        }
+
+        fn click(&mut self, id: &str) {
+            let pos = self.host.library.as_ref().unwrap().widgets.iter().find(|(w, _)| w == id).unwrap().1.center();
+            self.step(vec![egui::Event::PointerMoved(pos)]);
+            for pressed in [true, false] {
+                self.step(vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }]);
+            }
+            self.step(vec![]);
+        }
+
+        fn wait_for(&mut self, ready: impl Fn(&Host) -> bool) {
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while !ready(&self.host) && std::time::Instant::now() < until {
+                self.step(vec![]);
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            assert!(ready(&self.host), "background render did not finish");
+            self.step(vec![]);
+        }
+
+        fn pixel_at(&self, pos: egui::Pos2) -> egui::Color32 {
+            let img = self.view.paint(&self.host.library.as_ref().unwrap().renderer.cpu_textures());
+            img.pixels[pos.y as usize * img.size[0] + pos.x as usize]
+        }
+    }
+
+    #[test]
+    fn background_develop_round_trip_keeps_switches_free_of_render_work() {
+        use photocraft_engine::develop_layer_cmds::{gate_next_work, work_count_on_thread};
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        let (dir, path, lib, photo) = library_with_photo("background-develop");
+        let mut host = host_with_round_trip(lib, photo, &path);
+        host.editor.session = photocraft_engine::Session::new();
+        host.editor.background_jobs = true;
+        host.mode = Module::Library;
+        host.library.as_mut().unwrap().run("library.select", json!({"ids": [photo.0]})).unwrap();
+        let mut h = RoundTripUi::new(host);
+        h.step(vec![]);
+        let gate = Arc::new(AtomicBool::new(false));
+        gate_next_work(gate.clone());
+        let count = work_count_on_thread();
+        h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        assert_eq!(h.host.mode, Module::Compositing);
+        assert_eq!(work_count_on_thread(), count, "the module switch never develops on the UI thread");
+        assert!(h.host.editor.session.documents().is_empty());
+        assert_eq!(h.host.editor.jobs.opens.len(), 1);
+        gate.store(true, Ordering::Relaxed);
+        h.wait_for(|host| !host.editor.session.has_jobs());
+        assert_eq!(h.host.editor.session.documents().len(), 1);
+        assert!(h.host.editor.jobs.opens.is_empty());
+        let initial = h.host.editor.session.active().unwrap().doc.clone();
+        let steps = h.host.editor.session.active().unwrap().history.past_len();
+        h.key(egui::Key::Num2, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        h.host.library.as_mut().unwrap().run("develop.set", json!({"control": "light.exposure", "value": 1.0})).unwrap();
+        let gate = Arc::new(AtomicBool::new(false));
+        gate_next_work(gate.clone());
+        h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        assert_eq!(h.host.mode, Module::Compositing);
+        assert_eq!(work_count_on_thread(), count);
+        assert!(Arc::ptr_eq(&h.host.editor.session.active().unwrap().doc, &initial), "old pixels until the worker finishes");
+        assert!(h.host.editor.jobs.opens.is_empty(), "already-open path keeps the document visible");
+        gate.store(true, Ordering::Relaxed);
+        h.wait_for(|host| !host.editor.session.has_jobs());
+        assert_eq!(h.host.editor.session.active().unwrap().history.past_len(), steps + 1);
+        assert_ne!(&*h.host.editor.session.active().unwrap().doc, &*initial);
+        h.host.editor.run("layer.new.layer", json!({})).unwrap();
+        let before = h.host.editor.session.active().unwrap().doc.layers.clone();
+        let steps = h.host.editor.session.active().unwrap().history.past_len();
+        h.key(egui::Key::Num2, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        h.host.library.as_mut().unwrap().run("develop.set", json!({"control": "light.exposure", "value": 2.0})).unwrap();
+        h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        h.wait_for(|host| !host.editor.session.has_jobs());
+        let state = h.host.editor.session.active().unwrap();
+        assert_eq!(&state.doc.layers[..2], &before);
+        assert_eq!(state.doc.layers[2].name, "Develop 2");
+        assert_eq!(state.history.past_len(), steps + 1);
+        assert_eq!(work_count_on_thread(), count);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The interactive path from the task's benchmark, using a real source without a window.
+    #[test]
+    #[ignore = "set LOCAL_IMAGE_TEST_RAW to a corpus raw file"]
+    fn bench_develop_host_switch() {
+        let path = std::env::var("LOCAL_IMAGE_TEST_RAW").expect("LOCAL_IMAGE_TEST_RAW");
+        let dir = std::env::temp_dir().join(format!("li-develop-host-bench-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let ctx = egui::Context::default();
+        PhotocraftApp::setup_context(&ctx, Default::default());
+        for typical in [false, true] {
+            let mut session = lightcraft_engine::Session::new().with_fs();
+            session.open_library(dir.join(if typical { "typical" } else { "plain" }), false).unwrap();
+            session.xmp.auto_write = false; // the corpus source is read-only
+            let r = session.execute("library.import", &json!({"paths": [path]})).unwrap();
+            let photo = r["imported"][0].as_u64().unwrap();
+            session.execute("library.select", &json!({"ids": [photo]})).unwrap();
+            session.execute("develop.reset", &json!({})).unwrap();
+            let base = if typical {
+                json!({"light": {"exposure": 0.3, "highlights": -40.0, "shadows": 30.0},
+                       "effects": {"clarity": 15.0, "texture": 10.0, "dehaze": 10.0},
+                       "detail": {"nr_luminance": 30.0, "nr_color": 25.0, "sharpen_amount": 40.0}})
+            } else {
+                json!({})
+            };
+            session.execute("develop.merge", &json!({"settings": base})).unwrap();
+            let library = LightcraftApp::new(session, Default::default());
+            let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+            editor.host_modes = true;
+            editor.background_jobs = true;
+            let mut host = Host::new(editor);
+            host.library = Some(library);
+            host.mode = Module::Library;
+            let count = photocraft_engine::develop_layer_cmds::work_count_on_thread();
+            let t = std::time::Instant::now();
+            host.switch(&ctx, Module::Compositing);
+            let dispatch = t.elapsed();
+            let id = host.editor.session.jobs()[0].id;
+            host.editor.session.wait_job(id).unwrap();
+            photocraft_ui_egui::jobs_ui::tick_background(&mut host.editor, &ctx);
+            let complete = t.elapsed();
+            // The return arm is the real Host::switch path; preparation is excluded from timing.
+            host.mode = Module::Develop;
+            host.library.as_mut().unwrap().run("develop.set", json!({"control": "light.exposure", "value": 0.5})).unwrap();
+            let t = std::time::Instant::now();
+            host.switch(&ctx, Module::Compositing);
+            let sync_dispatch = t.elapsed();
+            let id = host.editor.session.jobs()[0].id;
+            host.editor.session.wait_job(id).unwrap();
+            photocraft_ui_egui::jobs_ui::tick_background(&mut host.editor, &ctx);
+            let sync_complete = t.elapsed();
+            assert_eq!(photocraft_engine::develop_layer_cmds::work_count_on_thread(), count);
+            assert_eq!(host.editor.session.active().unwrap().history.past_len(), 1);
+            eprintln!(
+                "Host::switch typical={typical}: open dispatch {dispatch:?} / complete {complete:?}; sync dispatch {sync_dispatch:?} / complete {sync_complete:?}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn roundtrip_edited_pixels(render_state: Option<eframe::egui_wgpu::RenderState>) {
+        use lightcraft_ui_egui::state::{BeforeAfter, ViewMode};
+        let (dir, path, lib, orig) = library_with_photo(if render_state.is_some() { "gpu-pixels" } else { "cpu-pixels" });
+        let mut host = host_with_round_trip(lib, orig, &path);
+        // Open through the module switch, as the owner does, rather than injecting a composite.
+        host.editor.session = photocraft_engine::Session::new();
+        let mode = if render_state.is_some() { photocraft_engine::prefs::RenderingMode::Gpu } else { photocraft_engine::prefs::RenderingMode::Cpu };
+        host.editor.session.prefs.edit(|p| p.performance.rendering_mode = Some(mode));
+        // The probe reads the same renderer resources that set_wgpu installs for the app.
+        let probe = render_state.as_ref().map(photocraft_ui_egui::gpu_canvas::GpuCanvas::new);
+        if let Some(rs) = &render_state {
+            host.editor.set_wgpu(rs.clone());
+            host.library.as_mut().unwrap().ui.settings.gpu = true;
+        }
+        host.mode = Module::Library;
+        host.library.as_mut().unwrap().run("library.select", json!({"ids": [orig.0]})).unwrap();
+        let mut h = RoundTripUi::new(host);
+        h.frame.wgpu_render_state = render_state;
+        for _ in 0..4 {
+            h.step(vec![]);
+        }
+        h.wait_for(|h| h.library.as_ref().unwrap().renderer.thumb(orig).is_some());
+        let thumb = h.host.library.as_ref().unwrap().widgets.iter().find(|(w, _)| w == &format!("thumb:{}", orig.0)).unwrap().1;
+        let original = h.pixel_at(thumb.center());
+        h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        assert_eq!(h.host.mode, Module::Compositing);
+        h.host.editor.run("layer.new.layer", json!({})).unwrap();
+        h.host.editor.run("edit.fill", json!({"color": [1.0, 0.0, 0.0, 1.0]})).unwrap();
+        h.step(vec![]);
+        if let Some(gpu) = &probe {
+            assert!(h.host.editor.gpu_active());
+            let d = &h.host.editor.session.active().unwrap().doc;
+            // Check the actual GPU canvas before the host hands the composite to Library.
+            let (_, _, pixels) = gpu.read_texels(d.id.0).expect("GPU canvas readback");
+            assert!(pixels.iter().all(|p| p[0] > 0.95 && p[1] < 0.05 && p[2] < 0.05));
+        } else {
+            assert!(!h.host.editor.gpu_active());
+            assert_eq!(mode, photocraft_engine::prefs::RenderingMode::Cpu);
+        }
+        h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        h.wait_for(|h| h.library.as_ref().unwrap().host_composites.contains_key(&orig));
+        let lib = h.host.library.as_ref().unwrap();
+        assert_eq!(lib.host_composites[&orig].label, "Edited in Compositing · unsaved");
+        assert!(matches!(h.host.round_trip_notice, Some(RoundTripNotice::Unsaved { .. })));
+        assert!(lib.widgets.iter().any(|(w, _)| w == "button:roundTripSave"));
+        let edited = h.pixel_at(thumb.center());
+        assert!(edited.r() > 240 && edited.g() < 10 && edited.b() < 10, "grid: {edited:?}");
+        assert_ne!(edited, original);
+        // A remembered Before view must not hide the composite in Library.
+        h.host.library.as_mut().unwrap().ui.before_after = BeforeAfter::Original;
+        h.click(&format!("thumb:{}", orig.0));
+        h.key(egui::Key::D, egui::Modifiers::NONE);
+        assert_eq!(h.host.library.as_ref().unwrap().ui.view, ViewMode::Detail);
+        let image = h.host.library.as_ref().unwrap().image_rect.unwrap();
+        let edited = h.pixel_at(image.center());
+        assert!(edited.r() > 240 && edited.g() < 10 && edited.b() < 10, "loupe: {edited:?}");
+        assert_eq!(h.host.library.as_ref().unwrap().loupe_shown, Some((orig, "compositing")));
+        // Return, save using the real editor shortcut, and switch back normally.
+        h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        h.key(egui::Key::S, egui::Modifiers::COMMAND);
+        let saved = dir.join("photo-Edit.psd");
+        assert!(saved.is_file());
+        h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        let edit = photo_at_path(catalog(&h.host), &saved.to_string_lossy()).unwrap();
+        assert_eq!(catalog(&h.host).active(), Some(edit), "return to the saved composite");
+        assert_eq!(catalog(&h.host).catalog.stack_of(edit).unwrap().photos, vec![edit, orig]);
+        assert!(h.host.library.as_ref().unwrap().host_composites.is_empty());
+        assert!(
+            matches!(&h.host.round_trip_notice, Some(RoundTripNotice::Saved(msg)) if msg.contains(saved.to_str().unwrap()) && msg.contains("stacked with photo.png"))
+        );
+        assert!(h.host.editor.ui.notices.iter().any(|n| n.title.contains(saved.to_str().unwrap()) && n.title.contains("stacked")));
+        h.wait_for(|h| h.library.as_ref().unwrap().renderer.thumb(edit).is_some());
+        let thumb =
+            h.host.library.as_ref().unwrap().widgets.iter().find(|(w, _)| w == &format!("thumb:{}", edit.0)).expect("the saved edit is visible in the grid").1;
+        let pixel = h.pixel_at(thumb.center());
+        assert!(pixel.r() > 230 && pixel.g() < 120 && pixel.b() < 140, "saved grid: {pixel:?}");
+        assert_ne!(pixel, original);
+        h.key(egui::Key::D, egui::Modifiers::NONE);
+        h.wait_for(|h| h.library.as_ref().unwrap().renderer.textures.get(&lightcraft_ui_egui::render::Slot::Main).is_some_and(|t| t.photo == edit));
+        let image = h.host.library.as_ref().unwrap().image_rect.unwrap();
+        let pixel = h.pixel_at(image.center());
+        // PSD import colour-converts the stored composite; the filled red layer still dominates.
+        assert!(pixel.r() > 230 && pixel.g() < 120 && pixel.b() < 140, "saved loupe: {pixel:?}");
+        assert_ne!(pixel, original);
+        drop(h);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn hosted_titlebars_drag_captions_and_top_resize_in_every_theme_and_size() {
+        use egui::{Event, PointerButton, ViewportCommand};
+        for size in [egui::vec2(1800.0, 1000.0), egui::vec2(1280.0, 800.0), egui::vec2(2560.0, 1440.0)] {
+            for mode in [Module::Library, Module::Develop] {
+                for theme in photocraft_ui_egui::theme::ThemeKind::ALL {
+                    let (dir, path, lib, orig) = library_with_photo("titlebar-tests");
+                    let mut host = host_with_round_trip(lib, orig, &path);
+                    host.editor.custom_titlebar = true;
+                    host.editor.ui.theme = theme;
+                    host.editor.run("prefs.set", json!({"values": {"interface.theme": theme.id()}})).unwrap();
+                    // Include the recently added CPU-mode pill in the right-hand controls.
+                    host.editor.perf.gpu_info.lost = Some("test graphics failure".into());
+                    host.mode = mode;
+                    set_library_view(host.library.as_mut().unwrap(), mode == Module::Develop);
+                    let mut h = RoundTripUi::new(host);
+                    for _ in 0..6 {
+                        h.step_at(size, vec![]);
+                    }
+                    let gap = h.view.ctx.viewport(|v| {
+                        v.prev_pass
+                            .widgets
+                            .layers()
+                            .flat_map(|(_, ws)| ws.iter())
+                            .find(|w| w.rect.top() == 0.0 && w.sense.senses_click() && w.sense.senses_drag())
+                            .expect("the title bar's drag response")
+                            .rect
+                    });
+                    assert!(gap.width() > 100.0, "{mode:?}, {theme:?}, {size:?}: {gap:?}");
+                    let height = if photocraft_ui_egui::theme::Tokens::get(&h.view.ctx).pro { 32.0 } else { 38.0 };
+                    assert_eq!(photocraft_ui_egui::theme::Tokens::get(&h.view.ctx).kind, theme);
+                    assert_eq!(gap.bottom(), height - 1.0, "the panel leaves one pixel for its bottom separator");
+                    let captions = [0u8, 1, 2].map(|c| h.view.ctx.read_response(egui::Id::new(("titlebar-caption", c))).expect("caption button present").rect);
+                    for rect in captions {
+                        assert_eq!(rect.top(), 0.0);
+                        assert_eq!(rect.height(), height);
+                        assert!(rect.width() >= 40.0);
+                        assert!(rect.left() >= gap.right());
+                    }
+                    assert_eq!(captions[2].right(), size.x);
+                    let button = |pos, pressed| Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+                    let gesture = |h: &mut RoundTripUi, from, to| {
+                        let mut cmds = h.step_at(size, vec![Event::PointerMoved(from)]);
+                        cmds.extend(h.step_at(size, vec![button(from, true)]));
+                        cmds.extend(h.step_at(size, vec![Event::PointerMoved(to)]));
+                        cmds.extend(h.step_at(size, vec![button(to, false)]));
+                        cmds
+                    };
+                    // Both ends and the middle of the free span, including the painted title.
+                    for x in [gap.left() + 2.0, gap.center().x, gap.right() - 2.0] {
+                        let p = egui::pos2(x, gap.center().y);
+                        let cmds = gesture(&mut h, p, p + egui::vec2(20.0, 8.0));
+                        assert_eq!(cmds.iter().filter(|c| **c == ViewportCommand::StartDrag).count(), 1, "{mode:?}, {theme:?}, {size:?}: {cmds:?}");
+                    }
+                    let p = gap.center();
+                    let mut cmds = gesture(&mut h, p, p);
+                    cmds.extend(gesture(&mut h, p, p));
+                    assert!(cmds.contains(&ViewportCommand::Maximized(true)), "{cmds:?}");
+                    assert!(gesture(&mut h, captions[0].center(), captions[0].center()).contains(&ViewportCommand::Minimized(true)));
+                    assert!(gesture(&mut h, captions[1].center(), captions[1].center()).contains(&ViewportCommand::Maximized(true)));
+                    let p = egui::pos2(gap.center().x, 1.0);
+                    let cmds = gesture(&mut h, p, p + egui::vec2(20.0, 8.0));
+                    assert_eq!(cmds, [ViewportCommand::BeginResize(egui::ResizeDirection::North)]);
+                    assert!(gesture(&mut h, captions[2].center(), captions[2].center()).contains(&ViewportCommand::Close));
+                    drop(h);
+                    std::fs::remove_dir_all(dir).unwrap();
+                }
+            }
+        }
+    }
+
+    /// Top 120 pixels of each saved full-window render, in ThemeKind::ALL order.
+    fn titlebar_overviews(out: &std::path::Path) {
+        for (w, h) in [(1800u32, 1000u32), (1280, 800), (2560, 1440)] {
+            for mode in Module::ALL {
+                let mut sheet = image::RgbImage::new(w, 600);
+                for (row, theme) in photocraft_ui_egui::theme::ThemeKind::ALL.into_iter().enumerate() {
+                    let img = image::open(out.join(format!("probe-{mode:?}-{}-{w}x{h}.png", theme.id()))).unwrap().to_rgb8();
+                    let top = image::imageops::crop_imm(&img, 0, 0, w, 120).to_image();
+                    image::imageops::overlay(&mut sheet, &top, 0, row as i64 * 120);
+                }
+                sheet.save(out.join(format!("overview-{mode:?}-{w}x{h}.png"))).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "writes the full host screenshot matrix to target/titlebar; run explicitly for visual QA"]
+    fn render_titlebars_probe() {
+        let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/titlebar");
+        std::fs::create_dir_all(&out).unwrap();
+        for (w, h) in [(1800.0f32, 1000.0f32), (1280.0, 800.0), (2560.0, 1440.0)] {
+            for mode in Module::ALL {
+                for theme in photocraft_ui_egui::theme::ThemeKind::ALL {
+                    let (dir, path, lib, orig) = library_with_photo("tb");
+                    let mut host = host_with_round_trip(lib, orig, &path);
+                    host.editor.custom_titlebar = true;
+                    host.editor.ui.theme = theme;
+                    host.editor.run("prefs.set", json!({"values": {"interface.theme": theme.id()}})).unwrap();
+                    host.mode = mode;
+                    set_library_view(host.library.as_mut().unwrap(), mode == Module::Develop);
+                    let mut ui = RoundTripUi::new(host);
+                    for _ in 0..6 {
+                        ui.step_at(egui::vec2(w, h), vec![]);
+                    }
+                    let img = ui.view.paint(&ui.host.library.as_ref().unwrap().renderer.cpu_textures());
+                    let buf: Vec<u8> = img.pixels.iter().flat_map(|p| [p.r(), p.g(), p.b()]).collect();
+                    image::RgbImage::from_raw(w as u32, h as u32, buf).unwrap().save(out.join(format!("probe-{mode:?}-{}-{w}x{h}.png", theme.id()))).unwrap();
+                    drop(ui);
+                    let _ = std::fs::remove_dir_all(dir);
+                }
+            }
+        }
+        titlebar_overviews(&out);
+        if out.join("before").is_dir() {
+            titlebar_overviews(&out.join("before"));
+        }
+    }
+
+    #[test]
+    fn roundtrip_cpu_grid_loupe_and_save_shortcut_show_the_edited_pixels() {
+        roundtrip_edited_pixels(None);
+    }
+
+    /// No new executor dependency: wake the polling thread for adapter/device creation.
+    fn block_on<T>(future: impl std::future::Future<Output = T>) -> T {
+        struct WakeThread(std::thread::Thread);
+        impl std::task::Wake for WakeThread {
+            fn wake(self: Arc<Self>) {
+                self.0.unpark();
+            }
+        }
+        let waker = std::task::Waker::from(Arc::new(WakeThread(std::thread::current())));
+        let mut cx = std::task::Context::from_waker(&waker);
+        let mut future = std::pin::pin!(future);
+        loop {
+            match future.as_mut().poll(&mut cx) {
+                std::task::Poll::Ready(value) => return value,
+                std::task::Poll::Pending => std::thread::park(),
+            }
+        }
+    }
+
+    #[test]
+    fn roundtrip_gpu_grid_loupe_and_save_shortcut_show_the_edited_pixels() {
+        use eframe::{egui_wgpu, wgpu};
+        // Some installed Vulkan drivers crash during enumeration inside a device-less sandbox.
+        // Skip before loading those drivers; on the coordinator's GPU host enumerate normally.
+        #[cfg(target_os = "linux")]
+        if !std::path::Path::new("/dev/dri").is_dir() && !std::path::Path::new("/dev/nvidiactl").exists() {
+            eprintln!("skipped: no GPU adapter for Compositing → Library round trip");
+            return;
+        }
+        let setup = photocraft_ui_egui::gpu_canvas::wgpu_setup();
+        let egui_wgpu::WgpuSetup::CreateNew(new) = &setup else { panic!("expected GPU setup") };
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: new.instance_descriptor.backends,
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        let adapters = block_on(instance.enumerate_adapters(new.instance_descriptor.backends));
+        if !adapters.iter().any(|a| matches!(a.get_info().device_type, wgpu::DeviceType::DiscreteGpu | wgpu::DeviceType::IntegratedGpu)) {
+            eprintln!("skipped: no GPU adapter for Compositing → Library round trip");
+            return;
+        }
+        let config = egui_wgpu::WgpuConfiguration { wgpu_setup: setup, ..Default::default() };
+        let rs = block_on(egui_wgpu::RenderState::create(&config, &instance, None, Default::default())).unwrap();
+        let info = rs.adapter.get_info();
+        eprintln!("round-trip GPU test: {} ({:?}, {:?})", info.name, info.backend, info.device_type);
+        assert!(matches!(info.device_type, wgpu::DeviceType::DiscreteGpu | wgpu::DeviceType::IntegratedGpu));
+        roundtrip_edited_pixels(Some(rs));
+    }
+
+    #[test]
+    fn roundtrip_notice_actions_keep_editing_retry_save_and_dismiss() {
+        let (dir, path, lib, orig) = library_with_photo("notice-actions");
+        let mut host = host_with_round_trip(lib, orig, &path);
+        host.editor.run("edit.fill", json!({"color": [1.0, 0.0, 0.0, 1.0]})).unwrap();
+        let doc = host.editor.session.active().unwrap().doc.id;
+        let mut h = RoundTripUi::new(host);
+        h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        for _ in 0..4 {
+            h.step(vec![]);
+        }
+        h.click("button:roundTripEdit");
+        assert_eq!(h.host.mode, Module::Compositing);
+        assert_eq!(h.host.editor.session.active().unwrap().doc.id, doc);
+        assert!(h.host.editor.has_unsaved());
+        h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        for _ in 0..4 {
+            h.step(vec![]);
+        }
+        let writer = h.host.editor.services.write.take();
+        h.host.editor.services.write = Some(Box::new(|_, _| Err("test disk full".into())));
+        h.click("button:roundTripSave");
+        assert!(h.host.editor.has_unsaved());
+        assert_eq!(catalog(&h.host).catalog.len(), 1);
+        assert!(matches!(h.host.round_trip_notice, Some(RoundTripNotice::Unsaved { .. })));
+        assert!(h.host.library.as_ref().unwrap().ui.toast.as_ref().unwrap().0.contains("test disk full"));
+        h.host.editor.services.write = writer;
+        h.host.editor.session.open_document(
+            photocraft_doc::Document::new("Other tab", photocraft_doc::Size::new(4, 4), photocraft_color::ColorMode::Rgb, photocraft_color::SampleType::U8),
+            None,
+        );
+        h.click("button:roundTripSave");
+        assert_eq!(h.host.editor.session.active().unwrap().doc.id, doc, "Save targets the notice's document");
+        assert_eq!(h.host.mode, Module::Library);
+        assert!(!h.host.editor.has_unsaved());
+        let edit = photo_at_path(catalog(&h.host), &dir.join("photo-Edit.psd").to_string_lossy()).unwrap();
+        assert_eq!(catalog(&h.host).active(), Some(edit));
+        assert!(h.host.library.as_ref().unwrap().host_composites.is_empty());
+        for _ in 0..4 {
+            h.step(vec![]);
+        }
+        assert!(matches!(&h.host.round_trip_notice, Some(RoundTripNotice::Saved(msg)) if msg.contains("photo-Edit.psd") && msg.contains("stacked")));
+        h.click("button:roundTripDismiss");
+        assert!(h.host.round_trip_notice.is_none());
+        // Editing the saved PSD, saving the preview from Library with ⌘S, reloads in place.
+        h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        h.host.editor.run("edit.fill", json!({"color": [0.0, 1.0, 0.0, 1.0]})).unwrap();
+        h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        h.key(egui::Key::S, egui::Modifiers::COMMAND);
+        assert!(!h.host.editor.has_unsaved());
+        assert_eq!(catalog(&h.host).catalog.len(), 2);
+        assert_eq!(catalog(&h.host).active(), Some(edit));
+        assert!(matches!(&h.host.round_trip_notice, Some(RoundTripNotice::Saved(msg)) if msg.contains("updated") && msg.contains("photo-Edit.psd")));
+        drop(h);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn roundtrip_single_layer_edits_are_previewed_and_closing_drops_the_preview() {
+        let (dir, path, lib, orig) = library_with_photo("single-layer");
+        let mut host = host_with_round_trip(lib, orig, &path);
+        // A clean Develop layer needs no unsaved stand-in.
+        host.editor.session = photocraft_engine::Session::new();
+        develop_layer::open_photo(&mut host.editor, orig.0, &path, &json!({}), "photo.png").unwrap();
+        assert!(unsaved_composites(&host.editor, catalog(&host)).is_empty());
+        host.editor.run("layer.setProps", json!({"opacity": 0.5})).unwrap();
+        let mut h = RoundTripUi::new(host);
+        h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        h.wait_for(|h| h.library.as_ref().unwrap().host_composites.contains_key(&orig));
+        assert_eq!(h.host.editor.session.active().unwrap().doc.layers.len(), 1);
+        assert!(matches!(h.host.round_trip_notice, Some(RoundTripNotice::Unsaved { .. })));
+        h.click("button:roundTripEdit");
+        h.host.editor.session.close(0);
+        h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        assert!(h.host.library.as_ref().unwrap().host_composites.is_empty());
+        assert!(h.host.round_trip_notice.is_none());
+        drop(h);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The Library checks every unsaved Compositing document against the catalog each frame
+    /// (`unsaved_composites`): on a big library that must stay cheap (it cloned every photo's path
+    /// per frame) and still find the photo by its exact path, or by another spelling of it.
+    #[test]
+    fn unsaved_composites_on_a_big_library_find_the_photo_cheaply() {
+        let dir = std::env::temp_dir().join(format!("li-bigcat-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut s = lightcraft_engine::Session::new();
+        let n = 50_000u64;
+        for i in 1..=n {
+            let path = format!("/photos/shoot/IMG_{i:05}.CR3");
+            let p = lightcraft_catalog::Photo::new(
+                lightcraft_catalog::PhotoId(i),
+                lightcraft_catalog::Source::File { path },
+                "IMG.CR3",
+                "cr3",
+                6000,
+                4000,
+                "2026-10-09",
+            );
+            s.catalog.apply(lightcraft_catalog::Op::AddPhoto { photo: Box::new(p) }).unwrap();
+        }
+        let real = dir.join("edit.psd");
+        std::fs::write(&real, b"x").unwrap();
+        let p = lightcraft_catalog::Photo::new(
+            lightcraft_catalog::PhotoId(n + 1),
+            lightcraft_catalog::Source::File { path: real.to_string_lossy().into() },
+            "edit.psd",
+            "psd",
+            4,
+            4,
+            "2026-10-09",
+        );
+        s.catalog.apply(lightcraft_catalog::Op::AddPhoto { photo: Box::new(p) }).unwrap();
+        let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), photocraft_ui_egui::Services::default());
+        let doc = || photocraft_doc::Document::new("d", photocraft_doc::Size::new(4, 4), photocraft_color::ColorMode::Rgb, photocraft_color::SampleType::U8);
+        // the photo by its exact path, another spelling of it, and a file the Library doesn't have
+        let other_spelling = dir.join(".").join("edit.psd").to_string_lossy().to_string();
+        for path in [real.to_string_lossy().to_string(), other_spelling, "/elsewhere/new.psd".to_string()] {
+            editor.session.open_document(doc(), Some(path));
+            editor.session.active_mut().unwrap().revision += 1;
+        }
+        assert_eq!(photo_at_path(&s, &real.to_string_lossy()), Some(lightcraft_catalog::PhotoId(n + 1)));
+        assert_eq!(photo_at_path(&s, &dir.join(".").join("edit.psd").to_string_lossy()), Some(lightcraft_catalog::PhotoId(n + 1)));
+        let t = std::time::Instant::now();
+        let reps = 20;
+        for _ in 0..reps {
+            let found = unsaved_composites(&editor, &s);
+            assert_eq!(found.len(), 1, "both spellings are the same photo, shown once; the unknown file is skipped");
+        }
+        eprintln!("unsaved_composites, 3 dirty documents, {n} photos: {:.2} ms/frame", t.elapsed().as_secs_f64() * 1000.0 / reps as f64);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

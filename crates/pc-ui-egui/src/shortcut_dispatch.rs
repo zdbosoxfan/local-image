@@ -69,6 +69,9 @@ pub fn bindings(app: &PhotocraftApp) -> Vec<(String, KeyboardShortcut)> {
                 && photocraft_engine::commands::find(id).is_none()
                 && !crate::menus::UI_COMMANDS.iter().any(|c| c.0 == id.as_str())
                 && !crate::hold_keys::is_temporary(id)
+                && !id.starts_with("tools.select.")
+                && !id.starts_with("tools.liquify.")
+                && !id.starts_with("tools.cameraRaw.")
         })
         .map(|(id, sc)| (id.as_str(), Some(sc.as_str())));
     // Photoshop's second shortcuts, kept while the command's main one is the default.

@@ -540,7 +540,7 @@ fn row(ui: &mut egui::Ui, dirty: &mut bool, label: &str, v: &mut f32, range: std
 }
 
 fn slider(ui: &mut egui::Ui, dirty: &mut bool, label: &str, v: &mut f32, range: std::ops::RangeInclusive<f32>, grad: Option<&[Color32]>) -> egui::Response {
-    let r = widgets::slider_row(ui, crate::i18n::tr_ctx(crate::i18n::current(), "cameraRaw", label), v, range, "", grad);
+    let r = widgets::slider_row_translated(ui, crate::i18n::tr_ctx(crate::i18n::current(), "cameraRaw", label), v, range, "", grad);
     if r.changed() {
         *dirty = true;
     }
@@ -567,7 +567,7 @@ fn section(ui: &mut egui::Ui, title: &str, open: bool, body: impl FnOnce(&mut eg
 }
 
 fn wheel(ui: &mut egui::Ui, dirty: &mut bool, title: &str, w: &mut Wheel) {
-    widgets::section_label(ui, crate::i18n::tr_ctx(crate::i18n::current(), "cameraRaw", title));
+    widgets::section_label_translated(ui, crate::i18n::tr_ctx(crate::i18n::current(), "cameraRaw", title));
     let hs = widgets::hue_stops();
     row(ui, dirty, "Hue", &mut w.hue, 0.0..=360.0, Some(&hs));
     row(ui, dirty, "Saturation", &mut w.sat, 0.0..=100.0, None);
@@ -648,7 +648,8 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let mut preview = ui.new_child(egui::UiBuilder::new().max_rect(view));
         preview.set_clip_rect(view.intersect(ui.clip_rect()));
         preview.painter().rect_filled(view, 0.0, t.canvas);
-        let (r, response, panning, zoom_box) = super::camera_raw_preview_ui::interact(&mut preview, navigation, view, size, &mut scope.sampler_tool);
+        let (r, response, panning, zoom_box) =
+            super::camera_raw_preview_ui::interact(&app.session, &mut preview, navigation, view, size, &mut scope.sampler_tool);
         let tex = if d.show_before { d.before_tex.as_ref() } else { d.tex.as_ref() };
         if let Some(tex) = tex {
             // Never tile a checker across the offscreen extent of a highly zoomed image.
@@ -668,7 +669,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let toolbar = ERect::from_min_max(pos2(preview_body.left() + 16.0, view.bottom() + 8.0), preview_body.right_bottom() - vec2(16.0, 4.0));
         let mut nav_ui = ui.new_child(egui::UiBuilder::new().max_rect(toolbar).layout(egui::Layout::left_to_right(egui::Align::Center)));
         nav_ui.set_clip_rect(preview_body.intersect(ui.clip_rect()));
-        super::camera_raw_preview_ui::toolbar(&mut nav_ui, navigation, view, size, &mut scope.sampler_tool);
+        super::camera_raw_preview_ui::toolbar(&app.session, &mut nav_ui, navigation, view, size, &mut scope.sampler_tool);
         if d.detail.pending() {
             nav_ui.spinner();
         }
@@ -746,7 +747,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 ui.horizontal_wrapped(|ui| {
                     for (i, source) in ["Hue", "Saturation", "Luminance"].iter().enumerate() {
                         let name = crate::i18n::tr_ctx(crate::i18n::current(), "cameraRaw", source);
-                        let response = widgets::pill_tab(ui, name, d.mixer_tab == i);
+                        let response = widgets::pill_tab_translated(ui, name, d.mixer_tab == i);
                         response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, ui.is_enabled(), d.mixer_tab == i, name));
                         if response.clicked() {
                             d.mixer_tab = i;
@@ -787,7 +788,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             });
         });
         super::camera_raw_scope_ui::floating(ctx, d, scope, right);
-        super::camera_raw_scope_ui::shortcuts(ctx, scope);
+        super::camera_raw_scope_ui::shortcuts(&app.session, ctx, scope);
         d.dirty |= dirty;
         if d.dirty {
             ctx.request_repaint();

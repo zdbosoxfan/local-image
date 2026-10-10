@@ -18,6 +18,14 @@ pub const LANGUAGE_COMMANDS: &[UiCommand] = &[
     ("app.language.traditionalChinese", crate::i18n::Locale::ZhHant.name(), None, "Edit>Language"),
     ("app.language.japanese", crate::i18n::Locale::Ja.name(), None, "Edit>Language"),
     ("app.language.portuguese", crate::i18n::Locale::PtBr.name(), None, "Edit>Language"),
+    ("app.language.korean", crate::i18n::Locale::Ko.name(), None, "Edit>Language"),
+    ("app.language.german", crate::i18n::Locale::De.name(), None, "Edit>Language"),
+    ("app.language.french", crate::i18n::Locale::Fr.name(), None, "Edit>Language"),
+    ("app.language.spanish", crate::i18n::Locale::Es.name(), None, "Edit>Language"),
+    ("app.language.italian", crate::i18n::Locale::It.name(), None, "Edit>Language"),
+    ("app.language.russian", crate::i18n::Locale::Ru.name(), None, "Edit>Language"),
+    ("app.language.czech", crate::i18n::Locale::Cs.name(), None, "Edit>Language"),
+    ("app.language.indonesian", crate::i18n::Locale::Id.name(), None, "Edit>Language"),
 ];
 
 /// Every UI command: the languages, then everything else. `xtask parity` reads both tables from
@@ -35,6 +43,14 @@ pub fn language_from_command(id: &str) -> Option<crate::i18n::Locale> {
         "app.language.traditionalChinese" => Some(crate::i18n::Locale::ZhHant),
         "app.language.japanese" => Some(crate::i18n::Locale::Ja),
         "app.language.portuguese" => Some(crate::i18n::Locale::PtBr),
+        "app.language.korean" => Some(crate::i18n::Locale::Ko),
+        "app.language.german" => Some(crate::i18n::Locale::De),
+        "app.language.french" => Some(crate::i18n::Locale::Fr),
+        "app.language.spanish" => Some(crate::i18n::Locale::Es),
+        "app.language.italian" => Some(crate::i18n::Locale::It),
+        "app.language.russian" => Some(crate::i18n::Locale::Ru),
+        "app.language.czech" => Some(crate::i18n::Locale::Cs),
+        "app.language.indonesian" => Some(crate::i18n::Locale::Id),
         _ => None,
     }
 }
@@ -134,6 +150,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("dialog.pasteSettings", "Paste Selected Settings…", Some("Cmd+Shift+V"), "Edit"),
     ("view.focusSearch", "Find…", Some("Cmd+F"), "Edit"),
     ("dialog.export", "Export…", None, "File"),
+    ("dialog.smartSort", "Smart Sort & Export…", None, "File"),
     // replace the original with the edited render (asks first; raws get a JPEG beside them)
     ("dialog.saveOverOriginal", "Save Over Original…", Some("Cmd+Alt+S"), "File"),
     ("photo.editInExternal", "Edit in External Editor", Some("Cmd+Shift+E"), "Photo"),
@@ -236,6 +253,9 @@ pub fn parse_rgb(v: &Value) -> Option<[u8; 3]> {
 
 /// Handle UI commands; `None` means "not a UI command — send it to the engine".
 pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Result<Value, String>> {
+    if let Some(result) = crate::panels::smart_sort::review_history_command(app, id) {
+        return Some(result);
+    }
     if let Some(language) = language_from_command(id) {
         app.ui.language = language;
         // Immediately, not on the next frame: the reply and anything else run this frame
@@ -865,6 +885,10 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             app.ui.dialog = Some(Dialog::CopySettings { groups });
             Ok(Value::Null)
         }
+        "dialog.smartSort" => {
+            crate::panels::smart_sort::open(app, p["selectedOnly"] == true);
+            Ok(Value::Null)
+        }
         "dialog.export" => {
             let prev = app.session.last_export.clone().unwrap_or_default();
             let dir = prev.get("dir").and_then(Value::as_str).map(str::to_string).unwrap_or_else(crate::control::default_export_dir);
@@ -1358,7 +1382,7 @@ pub fn menu_entries(app: &LightcraftApp) -> Vec<MenuEntry> {
                 label: c.label.into(),
                 menu: c.menu.iter().map(|s| s.to_string()).collect(),
                 shortcut: c.shortcut.map(str::to_string),
-                enabled: c.enabled,
+                enabled: crate::panels::smart_sort::review_history_enabled(app, c.id).unwrap_or(c.enabled),
             });
         }
     }

@@ -98,9 +98,9 @@ pub fn detect_file(path: &Path) -> Option<arch::Detected> {
 }
 
 /// Finds `name` (as ComfyUI lists it, maybe with a subfolder) under the model folder.
-fn local_path(model_dir: Option<&Path>, folders: &[&str], name: &str) -> Option<PathBuf> {
+pub fn local_path(model_dir: Option<&Path>, folders: &[&str], name: &str) -> Option<PathBuf> {
     let dir = model_dir?;
-    folders.iter().map(|f| dir.join(f).join(name)).find(|p| p.is_file())
+    [dir.to_path_buf(), dir.join("models")].into_iter().flat_map(|base| folders.iter().map(move |f| base.join(f).join(name))).find(|p| p.is_file())
 }
 
 /// A readable label from a file name (`juggernautXL_v9Rdphoto2Lightning.safetensors` →
@@ -158,7 +158,7 @@ pub struct InstalledLora {
     pub evidence: String,
 }
 
-/// The installed models (main weights with a recognised family) and LoRAs.
+/// The installed main weights and LoRAs. An empty family leaves recipe discovery to the refine checker.
 pub fn scan(info: &ObjectInfo, model_dir: Option<&Path>, reg: &Registry) -> (Vec<InstalledModel>, Vec<InstalledLora>) {
     let mut models = Vec::new();
     for (class, input, role, folders) in MAIN_LOADERS {
@@ -169,11 +169,10 @@ pub fn scan(info: &ObjectInfo, model_dir: Option<&Path>, reg: &Registry) -> (Vec
             if listed_as_model_but_lora(&name, local.as_deref()) {
                 continue;
             }
-            let Some((family, _)) = family_of(&name, kind, local.as_deref(), None) else { continue };
+            let family = family_of(&name, kind, local.as_deref(), None).map(|f| f.0).unwrap_or_default();
             // A checkpoint-loading family found as a bare diffusion model (or the reverse) is still
             // listed; the loader follows the file.
-            let Some(f) = reg.family(&family) else { continue };
-            if f.kind != crate::family::FamilyKind::Image {
+            if reg.family(&family).is_some_and(|f| f.kind != crate::family::FamilyKind::Image) {
                 continue;
             }
             let prefix = if *role == Role::Checkpoint { "ckpt" } else { "unet" };
@@ -224,6 +223,9 @@ pub fn loras_for(f: &Family) -> Vec<(InstalledLora, bool)> {
 }
 
 #[cfg(test)]
+pub(crate) static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
@@ -240,13 +242,13 @@ mod tests {
     }
 
     #[test]
-    fn scan_finds_models_by_name_and_skips_unknown_files() {
+    fn scan_finds_models_by_name_and_keeps_unknown_files() {
         let (models, loras) = scan(&info(), None, crate::family::registry());
         let fam = |k: &str| models.iter().find(|m| m.key == k).map(|m| m.family.clone());
         assert_eq!(fam("ckpt:juggernautXL_v9.safetensors").as_deref(), Some("sdxl"));
         assert_eq!(fam("unet:flux1-dev-fp8.safetensors").as_deref(), Some("flux1"));
         assert_eq!(fam("unet:qwen_image_edit_2511_bf16.safetensors").as_deref(), Some("qwen-edit"));
-        assert!(fam("ckpt:mystery.safetensors").is_none());
+        assert_eq!(fam("ckpt:mystery.safetensors").as_deref(), Some(""));
         assert_eq!(loras.iter().find(|l| l.name == "pony_style.safetensors").unwrap().family.as_deref(), Some("pony"));
     }
 

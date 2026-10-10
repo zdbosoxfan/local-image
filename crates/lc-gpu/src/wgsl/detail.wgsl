@@ -34,7 +34,7 @@ fn dmexp(x:f32)->f32 {
     let i1=f32(0x3f800000u);let i2=f32(0x3f000000u);let k=i1+x*(i2-i1);
     if(k<f32(0x800000u)){return 0.0;}return bitcast<f32>(u32(k));
 }
-// P:n,w,h,level,inv_sigma2; 5x5 nonseparable EAW.
+// P:n,w,h,level,inv_sigma2,precise; 5x5 nonseparable EAW.
 @compute @workgroup_size(256)
 fn nr_eaw(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {
     let i=lin_index(g,nw);if(i>=pu(0u)){return;}
@@ -43,10 +43,25 @@ fn nr_eaw(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw
     var sum=vec3<f32>(0.0);var weight=0.0;
     for(var j=0u;j<5u;j++) {let yy=u32(clamp(y+(i32(j)-2)*step,0,i32(h)-1));
         for(var k=0u;k<5u;k++) {let xx=u32(clamp(x+(i32(k)-2)*step,0,i32(w)-1));
-            let v=drgb(yy*w+xx);let sq=(center-v)*(center-v);let d=(sq.x+sq.y+sq.z)*pf(4u);
-            let ww=f[j]*f[k]*dmexp(max(d*0.02-9.0,0.0));weight+=ww;sum+=ww*v;
+            let v=drgb(yy*w+xx);
+            if(pu(5u)!=0u){
+                let delta=vec3<f32>(teq_add(center.x,-v.x),teq_add(center.y,-v.y),teq_add(center.z,-v.z));
+                let sq=vec3<f32>(teq_mul(delta.x,delta.x),teq_mul(delta.y,delta.y),teq_mul(delta.z,delta.z));
+                let d=teq_mul(teq_add(teq_add(sq.x,sq.y),sq.z),pf(4u));
+                let x=max(teq_add(teq_mul(d,0.02),-9.0),0.0);
+                let bits=teq_add(f32(0x3f800000u),teq_mul(x,-8388608.0));
+                let ew=select(0.0,bitcast<f32>(u32(bits)),bits>=f32(0x800000u));
+                let ww=teq_mul(f[j]*f[k],ew);
+                weight=teq_add(weight,ww);
+                sum=vec3<f32>(teq_add(sum.x,teq_mul(ww,v.x)),teq_add(sum.y,teq_mul(ww,v.y)),teq_add(sum.z,teq_mul(ww,v.z)));
+            }else{
+                let sq=(center-v)*(center-v);let d=(sq.x+sq.y+sq.z)*pf(4u);
+                let ww=f[j]*f[k]*dmexp(max(d*0.02-9.0,0.0));weight+=ww;sum+=ww*v;
+            }
         }
-    } dput(i,sum/weight);
+    }
+    if(pu(5u)!=0u){dput(i,vec3<f32>(teq_div(sum.x,weight),teq_div(sum.y,weight),teq_div(sum.z,weight)));}
+    else{dput(i,sum/weight);}
 }
 @compute @workgroup_size(256)
 fn nr_detail(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {

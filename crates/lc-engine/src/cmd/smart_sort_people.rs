@@ -162,7 +162,14 @@ fn find(s: &mut Session, p: &Value) -> Result<Value> {
             .map(|p| p.id)
         {
             Some(id) => id,
-            None => data.add(name(p)?),
+            None => {
+                let requested = name(p)?;
+                data.people
+                    .iter()
+                    .find(|person| !person.ignored && person.name.eq_ignore_ascii_case(&requested))
+                    .map(|person| person.id)
+                    .unwrap_or_else(|| data.add(requested))
+            }
         }
     };
     if let Some(keys) = keys {
@@ -476,6 +483,7 @@ fn clear(s: &mut Session, p: &Value) -> Result<Value> {
 
 /// Reusing a preset across libraries drops unknown/ignored IDs and returns a notice. A People
 /// toggle with no known IDs stays an empty people condition, rather than matching everyone.
+/// Inactive rows and conditions do not require face opt-in or produce unknown-ID notices.
 pub(super) fn prepare_folders(s: &mut Session, folders: &mut [FolderDef]) -> Result<Vec<String>> {
     fn has_ids(rules: &lightcraft_catalog::RuleSet) -> bool {
         rules.rules.iter().any(|rule| match rule {
@@ -483,7 +491,7 @@ pub(super) fn prepare_folders(s: &mut Session, folders: &mut [FolderDef]) -> Res
             lightcraft_catalog::Rule::Field { field, value, .. } => field == "person" && (value.is_number() || value.is_array()),
         })
     }
-    if !folders.iter().any(|f| f.people_enabled || has_ids(&f.rules)) {
+    if !folders.iter().any(|f| f.enabled && !f.unsorted && (f.people_enabled || (f.use_rules && has_ids(&f.rules)))) {
         return Ok(Vec::new());
     }
     ready(s)?;
@@ -520,9 +528,13 @@ pub(super) fn prepare_folders(s: &mut Session, folders: &mut [FolderDef]) -> Res
             }
         }
     }
-    for folder in folders {
-        resolve(&mut folder.person_ids);
-        fix(&mut folder.rules, &mut resolve);
+    for folder in folders.iter_mut().filter(|f| f.enabled && !f.unsorted) {
+        if folder.people_enabled {
+            resolve(&mut folder.person_ids);
+        }
+        if folder.use_rules {
+            fix(&mut folder.rules, &mut resolve);
+        }
     }
     Ok(missing.into_iter().map(|id| format!("Skipped unknown or ignored person {id}")).collect())
 }

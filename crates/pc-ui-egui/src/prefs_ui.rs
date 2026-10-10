@@ -197,6 +197,7 @@ pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
         load(app);
     }
     sync_display_scale(app, ctx);
+    crate::color_icons::set_enabled(ctx, app.session.prefs().interface.tool_icons != "monochrome");
     // Interface theme: a preference change applies to the UI; a theme picked from the Window
     // menu is stored as the preference.
     let pref = app.session.prefs().interface.theme;
@@ -481,6 +482,20 @@ pub fn shortcut_items(app: &PhotocraftApp) -> Vec<(String, String, Vec<String>, 
     let at = out.iter().rposition(|i| i.2.first().map(String::as_str) == Some("Layer")).map_or(out.len(), |i| i + 1);
     out.splice(at..at, layer);
     out.extend(tools);
+    for (id, label, def) in prefs::TOOL_SHORTCUTS {
+        out.push((id.to_string(), label.to_string(), vec!["Tools".into()], def.map(str::to_string)));
+    }
+    for tool in photocraft_algo::liquify::LiquifyTool::ALL {
+        out.push((
+            crate::liquify_ui::shortcut_id(tool),
+            tool.label().to_string(),
+            vec!["Tools".into(), "Liquify".into()],
+            (!crate::liquify_ui::shortcut(tool).is_empty()).then(|| crate::liquify_ui::shortcut(tool).to_string()),
+        ));
+    }
+    for tool in crate::tool_tips::CameraRawTool::ALL {
+        out.push((tool.shortcut_id().into(), tool.title().into(), vec!["Tools".into(), "Camera Raw".into()], Some(tool.default_shortcut().into())));
+    }
     for (id, label, def) in prefs::TEMPORARY_TOOLS {
         if seen.insert(id.to_string()) {
             out.push((id.to_string(), label.to_string(), vec!["Tools".into(), "Temporary".into()], Some(def.to_string())));
@@ -626,6 +641,15 @@ fn open_kind(app: &mut PhotocraftApp, kind: &str, label: &str, fields: Value) ->
     app.ui.open_dialog(DialogKind::Command, f)
 }
 
+/// Revert the toolbar preview when the Shortcuts/Toolbar dialog is cancelled.
+pub(crate) fn cancel(app: &mut PhotocraftApp, fields: &Map<String, Value>) {
+    if fields.get("__prefsui").and_then(Value::as_str) == Some("shortcuts")
+        && let Some(original) = fields.get("toolbarOriginal").and_then(|v| serde_json::from_value(v.clone()).ok())
+    {
+        app.session.edit_prefs(|p| p.toolbar = original);
+    }
+}
+
 /// Is this a dialog rendered by this module?
 pub fn owns(fields: &Map<String, Value>) -> bool {
     fields.contains_key("__prefsui")
@@ -707,7 +731,7 @@ pub fn open_shortcuts(app: &mut PhotocraftApp, tab: u64) -> u64 {
         "overrides": p.shortcuts,
         "hidden": p.menus.hidden,
         "colors": p.menus.colors,
-        "toolbarHidden": p.toolbar.hidden,
+        "toolbarOriginal": p.toolbar,
         "selected": "",
         "capture": false,
         "message": "",
@@ -746,6 +770,7 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
     match f.get("__prefsui").and_then(Value::as_str).unwrap_or("") {
         "prefs" => {
             f.insert("__gpuInfo".into(), json!(app.perf.gpu_info.lines()));
+            f.insert("__gpuFailure".into(), json!(app.perf.gpu_info.failure()));
             prefs_body(ui, f);
             crate::attributions::open_pending(app, ui.ctx(), f);
         }
@@ -774,11 +799,15 @@ fn humanize(key: &str) -> String {
 
 fn choice_label(v: &str) -> String {
     match v {
+        "colour" => "Colour (default)".into(),
+        "monochrome" => "Monochrome".into(),
         "cm" => "Centimeters".into(),
         "editedFolder" => "A copy in the Edited folder (originals untouched)".into(),
         "original" => "The original file".into(),
         "saveAs" => "Ask each time (Save As)".into(),
         "mm" => "Millimeters".into(),
+        "rich" => "Rich (name, shortcut and how to use)".into(),
+        "simple" => "Simple (name and shortcut)".into(),
         "75" | "100" | "125" | "150" | "175" | "200" | "250" | "300" => format!("{v}%"),
         "8" => "8 Bits/Channel".into(),
         "16" => "16 Bits/Channel".into(),
@@ -875,7 +904,7 @@ fn prefs_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                 } else if let Some(obj) = values.get_mut(&section).and_then(Value::as_object_mut) {
                     section_fields(ui, &section, obj, &order, lang);
                     if section == "performance" {
-                        gpu_status_rows(ui, f.get("__gpuInfo"), obj);
+                        gpu_status_rows(ui, f.get("__gpuInfo"), f.get("__gpuFailure").and_then(Value::as_str), obj);
                     }
                     ui.add_space(8.0);
                 }
@@ -894,10 +923,22 @@ fn prefs_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
 
 /// Preferences › Performance: what the app renders with now, and a reset of the GPU backend
 /// (a crashed start may have moved it to a safer choice).
-fn gpu_status_rows(ui: &mut egui::Ui, info: Option<&Value>, obj: &mut Map<String, Value>) {
+fn gpu_status_rows(ui: &mut egui::Ui, info: Option<&Value>, failure: Option<&str>, obj: &mut Map<String, Value>) {
     let t = Tokens::get(ui.ctx());
     ui.add_space(10.0);
     ui.label(RichText::new(tl!("Graphics")).font(crate::theme::semibold(12.5)).color(t.text));
+    // CPU mode because of a GPU failure: say so first, with the way back.
+    if let Some(reason) = failure {
+        ui.label(RichText::new(tl!("GPU acceleration is off after a graphics failure.")).color(t.warning));
+        ui.label(RichText::new(reason).color(t.text_dim));
+        let retry_chosen = rendering_mode_value(obj) != "cpu" && obj.get("gpuBackend").and_then(Value::as_str).unwrap_or("auto") == "auto";
+        if !retry_chosen && crate::widgets::secondary_button(ui, tl!("Retry GPU"), 120.0).clicked() {
+            obj.insert("renderingMode".into(), json!("gpu"));
+            obj.insert("useGpu".into(), json!(true));
+            obj.insert("gpuBackend".into(), json!("auto"));
+        }
+        ui.add_space(4.0);
+    }
     for line in info.and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
         ui.label(RichText::new(line).color(t.text_dim));
     }
@@ -953,6 +994,16 @@ fn has_visible_fields(values: &Value, section: &str) -> bool {
 /// number fields with the preference's range, text fields.
 fn section_fields(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>, order: &[String], lang: crate::i18n::Lang) {
     let t = Tokens::get(ui.ctx());
+    if section == "interface" {
+        let mut current = obj.get("toolIcons").and_then(Value::as_str).unwrap_or("colour").to_string();
+        ui.horizontal(|ui| {
+            ui.label(tl!("Tool icons"));
+            let choices = [("colour".to_string(), tl!("Colour (default)")), ("monochrome".to_string(), tl!("Monochrome"))];
+            crate::widgets::dropdown(ui, "pref-interface.toolIcons", &mut current, &choices, 220.0);
+        });
+        obj.insert("toolIcons".into(), json!(current));
+        ui.add_space(8.0);
+    }
     if section == "performance" {
         rendering_mode_row(ui, obj);
     }
@@ -963,7 +1014,10 @@ fn section_fields(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>
             let path = format!("{section}.{k}");
             // Settings nothing reads yet stay out of the dialog (issue #204); their stored values
             // pass through untouched.
-            if prefs::is_hidden(&path) || (section == "performance" && matches!(k.as_str(), "useGpu" | "gpuBackend" | "renderingMode")) {
+            if (section == "interface" && k == "toolIcons")
+                || prefs::is_hidden(&path)
+                || (section == "performance" && matches!(k.as_str(), "useGpu" | "gpuBackend" | "renderingMode"))
+            {
                 continue;
             }
             let v = obj.get(&k).cloned().unwrap_or(Value::Null);
@@ -1077,7 +1131,7 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
     f.insert("tab".into(), json!(tab));
     ui.add_space(6.0);
     if tab == 2 {
-        toolbar_tab(ui, f);
+        crate::toolsets_ui::tab(app, ui, f);
         return;
     }
     let mut filter = f.get("filter").and_then(Value::as_str).unwrap_or("").to_string();
@@ -1239,31 +1293,6 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
     f.insert("message".into(), json!(message));
 }
 
-fn toolbar_tab(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
-    let mut hidden: Vec<String> = f.get("toolbarHidden").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
-    egui::ScrollArea::vertical().max_height(380.0).id_salt("toolbar-scroll").show(ui, |ui| {
-        egui::Grid::new("toolbar-grid").num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
-            for tool in crate::state::Tool::ALL {
-                let name = format!("{tool:?}");
-                let mut on = !hidden.contains(&name);
-                crate::widgets::checkbox(ui, &mut on, tl!(tool.label()));
-                if on {
-                    hidden.retain(|h| *h != name);
-                } else if !hidden.contains(&name) {
-                    hidden.push(name);
-                }
-                let k = tool.key();
-                ui.label(if k == '\0' { String::new() } else { k.to_string() });
-                ui.end_row();
-            }
-        });
-    });
-    if ui.button(tl!("Restore Defaults")).clicked() {
-        hidden.clear();
-    }
-    f.insert("toolbarHidden".into(), json!(hidden));
-}
-
 fn presets_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     let t = Tokens::get(ui.ctx());
     let mut kind = f.get("kind").and_then(Value::as_str).unwrap_or("brushes").to_string();
@@ -1380,9 +1409,8 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
             }
             let hidden = f.get("hidden").cloned().unwrap_or(json!([]));
             let colors = f.get("colors").cloned().unwrap_or(json!({}));
-            let toolbar = f.get("toolbarHidden").cloned().unwrap_or(json!([]));
             app.run("edit.keyboardShortcuts", json!({"reset": true, "set": ov, "allowUnknown": true, "removeConflicts": false}))?;
-            app.run("prefs.set", json!({"values": {"menus": {"hidden": hidden, "colors": colors}, "toolbar": {"hidden": toolbar}}}))
+            app.run("prefs.set", json!({"values": {"menus": {"hidden": hidden, "colors": colors}}}))
         }
         "presets" => Ok(Value::Null),
         "presetsIO" => {

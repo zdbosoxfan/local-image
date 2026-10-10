@@ -1,4 +1,5 @@
-//! Our own vector icons, drawn in code on a 20×20 design grid (1.5 px strokes, rounded caps).
+//! Generic vector icons, drawn on a 20×20 grid (1.5 px strokes, rounded caps).
+//! Tool controls use the shared original 24×24 colour/monochrome SVG family.
 //! Original work (see assets/ATTRIBUTION.md) — not derived from any third-party icon set.
 
 use egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, pos2, vec2};
@@ -483,6 +484,60 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 pen.dot(x, 8.5, 1.1);
             }
         }
+    }
+}
+
+/// Matching colour or theme-tinted original tool image for rich tooltips.
+pub fn tool_icon(ui: &egui::Ui, name: &str, size: f32) -> Option<egui::Image<'static>> {
+    egui_extras::install_image_loaders(ui.ctx());
+    if crate::color_icons::enabled(ui.ctx()) {
+        crate::color_icons::image(ui, name, size, !ui.is_enabled())
+    } else {
+        let t = crate::theme::Tokens::get(ui.ctx());
+        crate::mono_tool_icons::image(name, size, if ui.is_enabled() { t.icon } else { t.text_disabled })
+    }
+}
+
+/// Only tool controls opt into colour; the rest of the interface keeps its vector glyphs.
+pub fn paint_tool(ui: &egui::Ui, rect: Rect, name: &str, fallback: Icon, tint: Color32, enabled: bool) {
+    egui_extras::install_image_loaders(ui.ctx());
+    let size = rect.width().min(rect.height());
+    if crate::color_icons::enabled(ui.ctx())
+        && let Some(image) = crate::color_icons::image(ui, name, size, !enabled || !ui.is_enabled())
+    {
+        image.paint_at(ui, rect);
+    } else if let Some(image) = crate::mono_tool_icons::image(name, size, tint) {
+        image.paint_at(ui, rect);
+    } else {
+        paint(ui.painter(), rect, fallback, tint);
+    }
+}
+
+/// Named tool controls in Develop (the app uses string tools and RightPanel, not a Tool enum).
+pub fn tool_name(tool: &str) -> Option<&'static str> {
+    crate::color_icon_data::DEVELOP_TOOL_ICONS
+        .iter()
+        .find(|(name, _)| *name == tool)
+        .filter(|(_, icon)| crate::mono_tool_icons::exists(icon))
+        .map(|(_, icon)| *icon)
+}
+
+pub fn mask_name(shape: &lightcraft_develop::MaskShape) -> &'static str {
+    use lightcraft_develop::MaskShape::*;
+    match shape {
+        Brush { .. } => "brush",
+        Linear { .. } => "linear-mask",
+        Radial { .. } => "radial-mask",
+        ColorRange { .. } => "color-range",
+        LuminanceRange { .. } => "luminance-range",
+        DepthRange { .. } => "depth-range",
+        Subject { .. } => "subject-mask",
+        Sky { .. } => "sky-mask",
+        Background { .. } => "background-mask",
+        Object { .. } => "object-mask",
+        Prompt { .. } => "prompt-mask",
+        People { .. } => "people-mask",
+        Landscape { .. } => "landscape-mask",
     }
 }
 

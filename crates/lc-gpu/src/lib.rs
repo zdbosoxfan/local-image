@@ -3,8 +3,8 @@
 //! The CPU pipeline (`lightcraft-pipeline`) is the reference: every kernel here is a port of a CPU
 //! stage, both read the same resolved parameters ([`lightcraft_pipeline::Plan`],
 //! [`lightcraft_pipeline::finish::FinishParams`]), and the equivalence tests (`tests/`) render the
-//! same settings on both and bound the difference in 8-bit sRGB. Stages without a kernel run on the
-//! CPU inside the same render (per-stage hybrid); see `docs/gpu-pipeline.md`.
+//! same settings on both and bound the difference in 8-bit previews and 16-bit output. Stages
+//! without a kernel run on the CPU inside the same render (per-stage hybrid); see `docs/gpu-pipeline.md`.
 //!
 //! Which backends wgpu may load (DX12 only on Windows; `LIGHTCRAFT_GPU_BACKEND`, `WGPU_BACKEND`) and
 //! the crash sentinel around device creation: [`backend`] (issue #136).
@@ -216,11 +216,43 @@ pub(crate) fn existing_device() -> Option<&'static ctx::Gpu> {
 /// while GPU rendering is turned off.
 pub fn warm_up() {
     #[cfg(not(target_arch = "wasm32"))]
-    if !env_disabled() && ENABLED.load(Ordering::Relaxed) && GPU.get().is_none() {
-        let _ = std::thread::Builder::new().name("lc-gpu-init".into()).spawn(|| {
-            let _ = device();
-        });
+    {
+        // Several views/tests can request warm-up before OnceLock publishes the device.
+        // Spawn only one compiler thread, and include it in the exit barrier from the moment
+        // it is requested (not only once a render starts or the worker is scheduled).
+        static STARTED: AtomicBool = AtomicBool::new(false);
+        if !env_disabled()
+            && ENABLED.load(Ordering::Relaxed)
+            && GPU.get().is_none()
+            && STARTED.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok()
+        {
+            struct Started(&'static AtomicBool);
+            impl Drop for Started {
+                fn drop(&mut self) {
+                    self.0.store(false, Ordering::Release);
+                }
+            }
+            let started = Started(&STARTED);
+            let _ = spawn_init_worker(move || {
+                let _started = started;
+                let _ = device();
+            });
+        }
     }
+}
+
+/// The counted waiter never touches the driver. Its compiler child is fully joined (including
+/// thread-local destruction) before InitWork ends, so the timed exit barrier covers teardown
+/// without entering an unbounded join on the exiting UI thread.
+#[cfg(not(target_arch = "wasm32"))]
+fn spawn_init_worker(init: impl FnOnce() + Send + 'static) -> std::io::Result<std::thread::JoinHandle<()>> {
+    let work = ctx::InitWork::new();
+    std::thread::Builder::new().name("lc-gpu-init".into()).spawn(move || {
+        let _work = work;
+        if let Ok(compiler) = std::thread::Builder::new().name("lc-gpu-compile".into()).spawn(init) {
+            let _ = compiler.join();
+        }
+    })
 }
 
 /// Has device creation finished (successfully or not)? Never blocks — for status displays.
@@ -235,8 +267,9 @@ pub fn ready() -> bool {
     }
 }
 
-/// Wait (up to `timeout`) until no GPU render is running on any thread and the device's queue is
-/// empty; false if renders were still running. Call it before the process (or a test) exits:
+/// Wait (up to `timeout`) for background device initialization, every running GPU render and
+/// the device's queue; false if work remains or polling fails. Stop scheduling work first,
+/// then call it before the process (or a test) exits:
 /// NVIDIA's driver crashes (SIGSEGV in `libnvidia-glcore`, GPU Xid 13 "Illegal Instruction
 /// Encoding") when it is torn down while a background thread is still recording or submitting.
 pub fn quiesce(timeout: std::time::Duration) -> bool {
@@ -353,8 +386,8 @@ pub fn render_hs_candidate(
     CPU_STAGES.with(|stages| stages.borrow_mut().clear());
     #[cfg(not(target_arch = "wasm32"))]
     {
-        // the kernel writes 8-bit output: high-bit-depth exports (and soft proofs) render on the CPU
-        if !enabled() || req.depth != lightcraft_pipeline::OutputDepth::U8 || req.proof.is_some() {
+        // Linear float exports and soft proofs still use the CPU.
+        if !enabled() || req.depth == lightcraft_pipeline::OutputDepth::F32Linear || req.proof.is_some() {
             return None;
         }
         let gpu = device()?;
@@ -384,6 +417,17 @@ pub fn render_hs_candidate(
                 // the view's cached device stages may hold results of the failed passes
                 if let Some(e) = &ext {
                     e.clear();
+                }
+                // A shared device can run out of memory on full-size spatial scratch even
+                // though every buffer fits its advertised limits. Retry deep output once with
+                // smaller bindings: existing hybrid stages (notably haze) then prepare on CPU.
+                // The cap also bounds recursion and preserves the usual CPU fallback if retry
+                // cannot fit. No device failure is latched for an allocation failure.
+                const RETRY_BINDING_BYTES: u64 = 512 << 20;
+                if f.kind == ctx::FailKind::OutOfMemory && req.depth == lightcraft_pipeline::OutputDepth::U16 && gpu.limit() > RETRY_BINDING_BYTES {
+                    gpu.trim(0);
+                    let _limit = ctx::LimitOverride::new(RETRY_BINDING_BYTES);
+                    return render_hs_candidate(src, info, s, req, stages, method);
                 }
                 let what = match &r {
                     Some(r) => format!("{}×{}", r.image.width, r.image.height),
@@ -419,5 +463,48 @@ pub fn render_hs_candidate(
     {
         let _ = (src, info, s, req, stages, method);
         None
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod warm_up_exit_tests {
+    #[test]
+    fn quiesce_includes_worker_thread_local_destruction() {
+        use std::cell::RefCell;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{Arc, mpsc};
+        use std::time::Duration;
+
+        struct Teardown {
+            entered: mpsc::Sender<()>,
+            release: mpsc::Receiver<()>,
+            done: Arc<AtomicBool>,
+        }
+        impl Drop for Teardown {
+            fn drop(&mut self) {
+                let _ = self.entered.send(());
+                let _ = self.release.recv_timeout(Duration::from_secs(10));
+                self.done.store(true, Ordering::Release);
+            }
+        }
+        thread_local! {
+            static EXIT: RefCell<Option<Teardown>> = const { RefCell::new(None) };
+        }
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let done = Arc::new(AtomicBool::new(false));
+        let teardown = Teardown { entered: entered_tx, release: release_rx, done: done.clone() };
+        let worker = super::spawn_init_worker(move || {
+            EXIT.with(|exit| *exit.borrow_mut() = Some(teardown));
+        })
+        .unwrap();
+        // The compiler function has ended; thread-local cleanup is still blocked.
+        entered_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert!(!super::quiesce(Duration::ZERO));
+        assert!(!done.load(Ordering::Acquire));
+        release_tx.send(()).unwrap();
+        assert!(super::quiesce(Duration::from_secs(20)));
+        assert!(done.load(Ordering::Acquire));
+        worker.join().unwrap();
     }
 }

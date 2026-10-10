@@ -6,6 +6,9 @@ use lightcraft_geom::Point;
 use lightcraft_pipeline::primary::HsMethod;
 
 fn compare(g: &Gpu, src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: &GpuStages) -> Rgba8 {
+    compare_or_dump(g, src, info, s, req, stages, false)
+}
+fn compare_or_dump(g: &Gpu, src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: &GpuStages, dump: bool) -> Rgba8 {
     crate::CPU_STAGES.with(|stages| stages.borrow_mut().clear());
     let errors = crate::ctx::ErrorScopes::push(g);
     let image = render(g, src, info, s, req, Some(stages), None, HsMethod::LiTone).unwrap().image;
@@ -28,7 +31,35 @@ fn compare(g: &Gpu, src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, r
             eprintln!("pixel ({}, {}) CPU={p:?} GPU={q:?}", i % cpu.width, i / cpu.width);
         }
     }
-    assert!(mean < 0.5 && max <= 3, "{}x{}: mean={mean}, max={max}", cpu.width, cpu.height);
+    if dump {
+        eprintln!("toneeq final {}x{}: mean={mean:.12}, max={max}", cpu.width, cpu.height);
+        let mut pixels: Vec<_> = cpu
+            .data
+            .iter()
+            .zip(&image.data)
+            .enumerate()
+            .filter_map(|(i, (p, q))| {
+                let d = (0..3).map(|ch| p[ch].abs_diff(q[ch])).max().unwrap_or(0);
+                (d != 0).then_some((d, i, p, q))
+            })
+            .collect();
+        pixels.sort_unstable_by_key(|(d, i, _, _)| (std::cmp::Reverse(*d), *i));
+        eprintln!("toneeq final: {} differing pixels (largest 32 follow)", pixels.len());
+        let mut points = Vec::new();
+        for (d, i, p, q) in pixels.iter().take(32) {
+            let (x, y) = (i % cpu.width, i / cpu.width);
+            eprintln!("  pixel ({x}, {y}) CPU={p:?} GPU={q:?} max={d}");
+            points.push((x, y));
+        }
+        // Include the original failing guidance coordinate even on a passing driver.
+        let known = (333 * cpu.width / 641, 52 * cpu.height / 427);
+        if !points.contains(&known) {
+            points.push(known);
+        }
+        crate::primary::trace::dump(cpu.width, cpu.height, &points);
+    } else {
+        assert!(mean < 0.5 && max <= 3, "{}x{}: mean={mean}, max={max}", cpu.width, cpu.height);
+    }
     image
 }
 fn input(w: usize, h: usize) -> Arc<Rgb32f> {
@@ -92,7 +123,19 @@ fn native_toneeq_filter_extremes_and_cached_overlay_match() {
 
 #[test]
 fn native_toneeq_5090_extreme_fixture_matches() {
+    toneeq_5090_fixture(false);
+}
+
+#[test]
+#[ignore = "5090 diagnostic: prints final differences, inputs, bin decisions and intermediate float words"]
+fn native_toneeq_5090_dump() {
+    let _trace = crate::primary::trace::Scope::new();
+    toneeq_5090_fixture(true);
+}
+
+fn toneeq_5090_fixture(dump: bool) {
     let Some(g) = crate::test_device().or_else(device) else { return };
+    eprintln!("toneeq fixture adapter: {:?}", g.info);
     let _scope = crate::ctx::RenderScope::new(g);
     let (w, h) = (641, 427);
     let src = Arc::new(Rgb32f::from_fn(w, h, |x, y| {
@@ -133,7 +176,14 @@ fn native_toneeq_5090_extreme_fixture_matches() {
         s.tone_eq.mask_exposure = exposure;
         s.tone_eq.mask_contrast = contrast;
         for edge in [w, w / 2] {
-            compare(g, &src, &info, &s, &RenderRequest::fit(edge, edge), &cache);
+            let req = RenderRequest::fit(edge, edge);
+            if dump {
+                eprintln!("toneeq fixture settings: {:?}, request={req:?}", s.tone_eq);
+                // Always prepare spatial buffers so every case has complete snapshots.
+                compare_or_dump(g, &src, &info, &s, &req, &GpuStages::default(), true);
+            } else {
+                compare(g, &src, &info, &s, &req, &cache);
+            }
         }
     }
 }

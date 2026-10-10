@@ -211,6 +211,7 @@ const NODE_DEFS: &[(&str, &str, &str)] = &[
     ("ModelSamplingSD3", "model:MODEL shift:FLOAT", ""),
     ("PreviewAny", "source:*", ""),
     ("PreviewImage", "images:IMAGE", ""),
+    ("ImageScaleToTotalPixels", "image:IMAGE upscale_method:(nearest-exact|bilinear|area|bicubic|lanczos) megapixels:FLOAT resolution_steps:INT", ""),
     ("PrimitiveBoolean", "value:BOOLEAN", ""),
     ("PrimitiveFloat", "value:FLOAT", ""),
     ("PrimitiveInt", "value:INT*", ""),
@@ -220,6 +221,7 @@ const NODE_DEFS: &[(&str, &str, &str)] = &[
     ("ResolutionSelector", "aspect_ratio:(1:1 (Square)|4:3|3:2|16:9) megapixels:FLOAT multiple_of:INT", ""),
     ("SamplerCustomAdvanced", "noise:NOISE guider:GUIDER sampler:SAMPLER sigmas:SIGMAS latent_image:LATENT", ""),
     ("SaveImage", "images:IMAGE filename_prefix:STRING", ""),
+    ("SplitSigmasDenoise", "sigmas:SIGMAS denoise:FLOAT", ""),
     ("SaveImageAdvanced", "images:IMAGE filename_prefix:STRING format:(png|jpg|webp) bit_depth:(8-bit|16-bit) color_space:(sRGB|linear)", ""),
     ("StringReplace", "string:STRING find:STRING replace:STRING", ""),
     ("T5TokenizerOptions", "clip:CLIP min_padding:INT min_length:INT", ""),
@@ -392,6 +394,10 @@ pub fn object_info_with(model_dir: Option<&std::path::Path>) -> Value {
     for (class, req, opt) in NODE_DEFS {
         info.insert((*class).into(), node_def(req, opt, &lists));
     }
+    // ComfyUI's live defaults, used by architecture-independent img2img discovery.
+    info["KSampler"]["input"]["required"]["steps"] = json!(["INT", {"default":20,"min":1,"max":10000}]);
+    info["KSampler"]["input"]["required"]["cfg"] = json!(["FLOAT", {"default":8.0,"min":0.0,"max":100.0}]);
+    info["KSampler"]["input"]["required"]["denoise"] = json!(["FLOAT", {"default":1.0,"min":0.0,"max":1.0}]);
     Value::Object(info)
 }
 
@@ -614,7 +620,8 @@ fn render(graph: &Value, uploads: &HashMap<String, Vec<u8>>) -> Vec<u8> {
     // Refine, inpaint and generic edits (a source image, no empty latent): the source, tinted;
     // green-filled areas (instruction inpainting) are painted with the prompt colour.
     let empty_latent = ["EmptyLatentImage", "EmptyFlux2LatentImage", "EmptySD3LatentImage"].iter().any(|c| input_of(graph, c).is_some());
-    let edits = input_of(graph, "SetLatentNoiseMask").is_some()
+    let edits = input_of(graph, "ReferenceLatent").is_some()
+        || input_of(graph, "SetLatentNoiseMask").is_some()
         || input_of(graph, "InpaintModelConditioning").is_some()
         || input_of(graph, "TextEncodeQwenImageEditPlus").is_some()
         || (!empty_latent && input_of(graph, "VAEEncode").is_some());
@@ -650,6 +657,9 @@ fn render(graph: &Value, uploads: &HashMap<String, Vec<u8>>) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    /// Tests that refresh the shared installed-model inventory take turns (it is process-global).
+    use crate::inventory::TEST_LOCK as INVENTORY_LOCK;
+
     use super::*;
     use crate::catalog::ModelId;
     use crate::ops::{Ai, GenerateMode, GenerateRequest, RemoveEngine};
@@ -769,7 +779,75 @@ mod tests {
     }
 
     #[test]
+    fn refine_step_loras_reach_the_comfy_graph_and_validate_the_refine_family() {
+        let _inventory = INVENTORY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let server = MockComfy::start().unwrap();
+        server.delay_ms.store(1, Ordering::SeqCst);
+        // Official Qwen uses the model-only loader; the checkpoint pass uses LoraLoader.
+        crate::inventory::refresh(&crate::comfy::ObjectInfo(object_info()), None);
+        let sdxl = ModelId::from_key("ckpt:juggernautXL_v9.safetensors").unwrap();
+        let ai = Ai::new(server.host());
+        let ctl = JobControl::new();
+        let mut req = GenerateRequest::new(ModelId::Klein4B, "a castle");
+        req.width = 512;
+        req.height = 512;
+        let step = crate::ops::RefineStep {
+            model: sdxl,
+            variant: "installed".into(),
+            strength: 0.35,
+            steps: Some(31),
+            guidance: Some(7.5),
+            scale: 1.0,
+            loras: vec![crate::workflows::LoraUse { name: "sdxl_detail_tweaker.safetensors".into(), strength: 0.65 }],
+        };
+        req.refine = Some(step.clone());
+        ai.generate(&req, &ctl).unwrap();
+        let prompts = server.prompts();
+        assert_eq!(prompts.len(), 3);
+        assert!(!classes_of(&prompts[0]).contains(&"LoraLoader".into()), "the draft keeps its own styles");
+        let loader = prompts[2].as_object().unwrap().values().find(|n| n["class_type"] == "LoraLoader").unwrap();
+        assert_eq!(loader["inputs"]["lora_name"], "sdxl_detail_tweaker.safetensors");
+        assert!((loader["inputs"]["strength_model"].as_f64().unwrap() - 0.65).abs() < 1e-6);
+        assert!((loader["inputs"]["strength_clip"].as_f64().unwrap() - 0.65).abs() < 1e-6);
+        let sampler = prompts[2].as_object().unwrap().values().find(|n| n["class_type"] == "KSampler").unwrap();
+        assert_eq!(sampler["inputs"]["steps"], 31);
+        assert_eq!(sampler["inputs"]["cfg"], 7.5);
+        let mut invalid = step.clone();
+        invalid.loras[0].name = "flux_realism_lora.safetensors".into();
+        req.refine = Some(invalid);
+        ai.generate(&req, &ctl).unwrap();
+        assert!(!classes_of(server.prompts().last().unwrap()).contains(&"LoraLoader".into()), "wrong-family styles are filtered from refinement");
+        let mut invalid = step.clone();
+        invalid.loras[0].strength = f32::NAN;
+        req.refine = Some(invalid);
+        assert!(ai.generate(&req, &ctl).unwrap_err().to_string().contains("Style strength"));
+        let mut old = serde_json::to_value(step).unwrap();
+        old.as_object_mut().unwrap().remove("loras");
+        let old: crate::ops::RefineStep = serde_json::from_value(old).unwrap();
+        assert!(old.loras.is_empty());
+        // The Qwen special instruction-refine path must receive the second pass's styles too.
+        req.refine = Some(crate::ops::RefineStep {
+            model: ModelId::Qwen,
+            variant: crate::catalog::default_variant(ModelId::Qwen).into(),
+            strength: 0.35,
+            steps: None,
+            guidance: None,
+            scale: 1.0,
+            loras: vec![crate::workflows::LoraUse { name: "local-image/qwen-watercolor.safetensors".into(), strength: 0.45 }],
+        });
+        ai.generate(&req, &ctl).unwrap();
+        let graph = server.prompts().last().unwrap().clone();
+        let loader = graph.as_object().unwrap().values().find(|n| n["class_type"] == "LoraLoaderModelOnly").unwrap();
+        assert_eq!(loader["inputs"]["lora_name"], "local-image/qwen-watercolor.safetensors");
+        assert!((loader["inputs"]["strength_model"].as_f64().unwrap() - 0.45).abs() < 1e-6);
+        let sampler = graph.as_object().unwrap().values().find(|n| n["class_type"] == "KSampler").unwrap();
+        assert!((sampler["inputs"]["denoise"].as_f64().unwrap() - 0.35).abs() < 1e-6);
+        crate::catalog::set_installed(Vec::new());
+    }
+
+    #[test]
     fn every_family_runs_against_the_mock() {
+        let _inventory = INVENTORY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let server = MockComfy::start().unwrap();
         server.delay_ms.store(10, Ordering::SeqCst);
         let ai = Ai::new(server.host());
@@ -852,11 +930,19 @@ mod tests {
         let mut req = GenerateRequest::new(ModelId::Klein4B, "a castle");
         req.width = 512;
         req.height = 512;
-        req.refine = Some(crate::ops::RefineStep { model: sdxl, variant: "installed".into(), strength: 0.35, steps: None, guidance: None, scale: 1.5 });
+        req.refine = Some(crate::ops::RefineStep {
+            model: sdxl,
+            variant: "installed".into(),
+            strength: 0.35,
+            steps: None,
+            guidance: None,
+            loras: Vec::new(),
+            scale: 1.5,
+        });
         let before = server.prompts().len();
         let out = ai.generate(&req, &ctl).unwrap();
         assert_eq!(out.dimensions(), (768, 768));
-        assert_eq!(server.prompts().len(), before + 2);
+        assert_eq!(server.prompts().len(), before + 3);
         // Upscale-refine: tiles cover a 2× enlargement.
         let mut req = GenerateRequest::new(sdxl, "");
         req.variant = "installed".into();

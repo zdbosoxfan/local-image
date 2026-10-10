@@ -28,6 +28,9 @@ use crate::for_rows;
 /// darktable's `dl`: width/height of pyramid level `level`.
 #[inline]
 pub fn dl(size: usize, level: usize) -> usize {
+    if size == 0 {
+        return 0;
+    }
     let mut s = size;
     for _ in 0..level {
         s = (s - 1) / 2 + 1;
@@ -202,6 +205,9 @@ pub const CURVE_N: usize = ((CURVE_MAX - CURVE_MIN) as usize) * CURVE_PER_EV + 1
 /// A tone curve (EV → EV change) sampled for [`Remap::Tone`], linearly interpolated.
 #[inline]
 pub fn curve_at(lut: &[f32], ev: f32) -> f32 {
+    if lut.len() < 2 {
+        return lut.first().copied().unwrap_or(0.0);
+    }
     let t = (ev.clamp(CURVE_MIN, CURVE_MAX) - CURVE_MIN) * CURVE_PER_EV as f32;
     let i = (t as usize).min(lut.len() - 2);
     let f = t - i as f32;

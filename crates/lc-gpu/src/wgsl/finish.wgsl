@@ -25,7 +25,7 @@ fn tone_apply(y: f32) -> f32 {
     if (ev < TONE_MIN_EV) {
         return v * (y / (GREY * TONE_MIN_GAIN));
     }
-    return v;
+    return min(v, 1.0);
 }
 
 // The camera chroma curve follows the tone LUT in `aux` (`ToneMap::chroma_scale`).
@@ -136,6 +136,7 @@ fn tone_v2(c0: vec3<f32>) -> vec3<f32> {
 }
 
 fn encode_srgb(v: f32) -> f32 {
+    if (P[F_DEPTH] != 0u) { return linear_to_srgb(clamp(v, 0.0, 1.0)); }
     let o = fu(F_SRGB_OFF);
     let f = clamp(v, 0.0, 1.0) * f32(SRGB_N);
     let i = min(u32(f), SRGB_N - 1u);
@@ -647,6 +648,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
     e = vec3<f32>(out_encode(e.x), out_encode(e.y), out_encode(e.z));
     out[i] = enc8(e.x, x, y, 0u) | (enc8(e.y, x, y, 1u) << 8u) | (enc8(e.z, x, y, 2u) << 16u) | (255u << 24u);
+    if (P[F_DEPTH] != 0u) {
+        // Match finish_deep: rounded encoded RGB, without the preview's 8-bit dither.
+        let q = vec3<u32>(clamp(e, vec3<f32>(0.0), vec3<f32>(1.0)) * 65535.0 + 0.5);
+        out[n + 2u*i] = q.x | (q.y << 16u);
+        out[n + 2u*i + 1u] = q.z;
+    }
 }
 
 // Scene-linear colour selection uses the photo's complete tone map, before primary edits.

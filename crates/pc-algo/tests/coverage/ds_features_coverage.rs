@@ -286,12 +286,13 @@ fn register_translation_alignment() {
     assert!((x - (40.0 + tx as f64)).abs() < 2.0 && (y - (40.0 + ty as f64)).abs() < 2.0, "model {model:?} maps (40,40) to ({x},{y})");
 }
 
-// This currently panics because ransac does not validate that source and
-// destination slices have the same length before indexing them.
+// Both mismatch directions are rejected before sampling/indexing, for every model.
 #[test]
-#[ignore = "BUG: ransac panics when src and dst lengths differ"]
 fn ransac_mismatched_lengths_does_not_panic() {
-    let src = vec![[0.0, 0.0], [1.0, 1.0]];
-    let dst = vec![[0.0, 0.0]];
-    let _ = ransac(Model::Translation, &src, &dst, 1, 1.0, 0);
+    let src = [[0.0, 0.0], [1.0, 1.0], [2.0, 1.0], [1.0, 2.0], [3.0, 2.0]];
+    for model in [Model::Translation, Model::Similarity, Model::Homography] {
+        assert!(ransac(model, &src, &src[..4], 1, 1.0, 0).is_none());
+        assert!(ransac(model, &src[..4], &src, 1, 1.0, 0).is_none());
+        assert!(ransac(model, &src, &[], 1, 1.0, 0).is_none());
+    }
 }

@@ -15,12 +15,13 @@ use serde::{Deserialize, Serialize};
 pub struct SessionSettings {
     pub enabled: bool,
     pub gap_minutes: u32,
+    pub export_folders: bool,
     pub names: BTreeMap<String, String>,
 }
 
 impl Default for SessionSettings {
     fn default() -> Self {
-        Self { enabled: false, gap_minutes: 20, names: BTreeMap::new() }
+        Self { enabled: false, gap_minutes: 20, export_folders: false, names: BTreeMap::new() }
     }
 }
 
@@ -121,6 +122,18 @@ pub fn split_sessions(cat: &Catalog, ids: &[PhotoId], settings: &SessionSettings
 /// The session containing `id`, if any.
 pub fn session_of(sessions: &Sessions, id: PhotoId) -> Option<&SortSession> {
     sessions.sessions.iter().find(|s| s.photos.contains(&id))
+}
+
+/// Stable identity for a session filter; renaming never changes membership.
+pub const NO_TIME: &str = "no-time";
+
+impl Sessions {
+    pub fn key_of(&self, id: PhotoId) -> &str {
+        session_of(self, id).map_or(NO_TIME, |s| s.start.as_str())
+    }
+    pub fn name_of(&self, id: PhotoId) -> &str {
+        session_of(self, id).map_or("No time", |s| s.name.as_str())
+    }
 }
 
 #[cfg(test)]

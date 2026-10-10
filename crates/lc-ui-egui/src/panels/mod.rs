@@ -21,6 +21,7 @@ pub mod library_problem;
 pub mod masking;
 pub mod notices;
 pub mod people;
+pub mod people_workspace;
 pub mod presets;
 pub mod process;
 pub mod profiles;
@@ -29,6 +30,7 @@ pub mod rules_editor;
 pub mod second;
 pub mod settings;
 pub mod strip;
+pub mod tool_tips;
 pub mod topbar;
 
 use egui::{Align2, Rect, pos2, vec2};
@@ -97,3 +99,5 @@ pub fn empty_message(ui: &egui::Ui, rect: Rect, title: &str, body: &str) {
     p.text(rect.center() - vec2(0.0, 12.0), Align2::CENTER_CENTER, crate::i18n::tr(title), t.semibold(18.0), t.text_label);
     p.text(rect.center() + vec2(0.0, 14.0), Align2::CENTER_CENTER, crate::i18n::tr(body), t.font(13.0), t.text_dim);
 }
+
+pub mod smart_sort;

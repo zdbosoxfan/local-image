@@ -6,7 +6,7 @@
 //! | Command | Result |
 //! |---|---|
 //! | `ai.remove` | the stroke (`points`) or the selection repaired, as a new layer above the active one |
-//! | `ai.removeBackground` | a layer mask on the layer (Qwen alpha matte), pixels untouched |
+//! | `ai.removeBackground` | the Qwen matte as a mask (default), transparency, a background plate or a new cutout layer |
 //! | `ai.selectSubject` | the subject as the selection |
 //! | `ai.generativeFill` | the selection regenerated from a prompt, as a new layer |
 //! | `ai.generateBackground` | an empty background plate as a new layer below the active one |
@@ -23,7 +23,7 @@ use std::time::Duration;
 use image::{GrayImage, Luma, Rgb, RgbImage, RgbaImage};
 use li_ai::{JobControl, RemoveEngine, Stage};
 use photocraft_color::{ColorMode, PixelFormat, SampleType};
-use photocraft_doc::{Document, Layer, LayerContent, LayerId, LayerMask};
+use photocraft_doc::{Document, Layer, LayerContent, LayerId};
 use photocraft_geom::{Rect, Size};
 use photocraft_paint::{BrushSettings, Stroke, StrokePoint};
 use photocraft_raster::{Surface, from_rgba_into};
@@ -222,7 +222,8 @@ fn add_layer_above(doc: &mut Document, active: &mut Option<LayerId>, layer: Laye
 }
 
 /// The stroke's coverage (brush footprint) from `points` and the brush params.
-fn stroke_mask(s: &Session, p: &Value, cmd: &str) -> Result<(Rect, Vec<f32>)> {
+/// Brush coverage used by the removal preview and the final command.
+pub fn stroke_mask(s: &Session, p: &Value, cmd: &str) -> Result<(Rect, Vec<f32>)> {
     let pts: Vec<StrokePoint> = p
         .get("points")
         .and_then(Value::as_array)
@@ -264,7 +265,20 @@ fn removal_mask(s: &Session, p: &Value, cmd: &str) -> Result<(Rect, Size, Vec<u8
             mask[i] = mask[i].max((v.clamp(0.0, 1.0) * 255.0).round() as u8);
         }
     };
-    if p.get("points").is_some() {
+    if let Some(bytes) = p.get("mask") {
+        let bytes: Vec<u8> = serde_json::from_value(bytes.clone()).map_err(|_| bad(cmd, "invalid removal mask"))?;
+        if bytes.len() != mask.len() {
+            return Err(bad(cmd, "removal mask must match the document size"));
+        }
+        mask = bytes;
+        for y in 0..size.height {
+            for x in 0..size.width {
+                if mask[(y * size.width + x) as usize] > 0 {
+                    bbox = bbox.union(&Rect::from_xywh(x as i32, y as i32, 1, 1));
+                }
+            }
+        }
+    } else if p.get("points").is_some() {
         let (r, cov) = stroke_mask(s, p, cmd)?;
         for y in r.y0..r.y1 {
             for x in r.x0..r.x1 {
@@ -388,31 +402,24 @@ fn remove_background(s: &mut Session, p: &Value) -> Result<Value> {
             return Err(EngineError::Other(format!("Unlock “{}” first.", l.name)));
         }
     }
+    let output = crate::cutout_cmds::BackgroundOutput::from_params(p, "ai.removeBackground")?;
     let (id, bounds, img, variant, hint, seed) = matte_job(s, p)?;
     let refine = refine_edges(p);
-    crate::jobs::run(
+    crate::jobs::edit_job(
         s,
         "Remove Background (AI)",
-        true,
-        move |ctx| {
+        move |doc, active, ctx| {
             let mut alpha = bridged(ctx, |ctl| li_ai::service().cutout(&img, &variant, &hint, seed, ctl))?;
             if refine {
                 ctx.progress(0.97, "Refining edges");
                 alpha = refine_matte(&img, &alpha);
             }
             // Keep the layer's own transparency out of the matte's job: the mask only hides.
-            Ok(gray_surface(bounds, &alpha))
+            let result = crate::cutout_cmds::apply_output(doc, id, gray_surface(bounds, &alpha), &output, ctx)?;
+            *active = Some(result);
+            Ok(result)
         },
-        move |s, surface| {
-            s.edit("Remove Background (AI)", move |doc, active| {
-                crate::extra_cmds::background_to_layer_for_mask(doc, id);
-                doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?.mask = Some(LayerMask { surface, ..LayerMask::reveal_all() });
-                doc.selection = None;
-                *active = Some(id);
-                Ok(())
-            })?;
-            Ok(json!({ "layer": id.0 }))
-        },
+        |result| json!({ "layer": result.0 }),
     )
 }
 
@@ -673,7 +680,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Remove Background (AI)",
             menu: &[],
             shortcut: None,
-            params: r#"{"layer"?: id, "engine"?: "int8"|"bf16", "hint"?: "what to keep", "sampleAllLayers"?: bool, "seed"?: int}"#,
+            params: r##"{"layer"?: id, "engine"?: "int8"|"bf16"|"qwen-int8"|"qwen-bf16", "hint"?: "what to keep", "sampleAllLayers"?: bool, "seed"?: int, "refineEdges"?: bool=true, "output"?: "mask"|"transparent"|"white"|"color"|"blur"|"newLayer"="mask", "color"?: "#rrggbb[aa]"|[r,g,b,a?], "amount"?: 0..1000=12}"##,
             enabled: has_pixel_layer,
             run: remove_background,
             journal: true,
@@ -726,6 +733,41 @@ mod tests {
     use super::*;
 
     #[test]
+    fn background_output_qwen_request_samples_the_target_and_keeps_hint_and_variant() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 5, "height": 3})).unwrap();
+        s.execute("edit.fill", json!({"color": "#336699"})).unwrap();
+        let id = LayerId(s.execute("layer.new.layer", json!({"name":"Subject"})).unwrap()["layer"].as_u64().unwrap());
+        s.execute("edit.fill", json!({"color":"#cc4400"})).unwrap();
+        for (engine, expected) in [("qwen-int8", "int8"), ("qwen-bf16", "bf16")] {
+            let (target, bounds, img, variant, hint, seed) =
+                matte_job(&s, &json!({"layer":id.0, "engine":engine, "hint":"the red car", "seed":42, "output":"white"})).unwrap();
+            assert_eq!(target, id);
+            assert_eq!(bounds, Rect::new(0, 0, 5, 3));
+            assert_eq!(img.get_pixel(0, 0).0, [204, 68, 0, 255]);
+            assert_eq!(variant, expected);
+            assert_eq!(hint, "the red car");
+            assert_eq!(seed, 42);
+        }
+    }
+
+    #[test]
+    fn explicit_removal_mask_matches_document_and_preserves_subtracted_holes() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 40, "height": 30})).unwrap();
+        let mut bytes = vec![0u8; 40 * 30];
+        bytes[10 * 40 + 10] = 255;
+        bytes[10 * 40 + 12] = 128;
+        let (bounds, size, mask) = removal_mask(&s, &json!({"mask":bytes}), "ai.remove").unwrap();
+        assert_eq!(size, Size::new(40, 30));
+        assert_eq!(bounds, Rect::from_xywh(10, 10, 3, 1));
+        assert_eq!(mask[10 * 40 + 11], 0, "the subtraction hole stays empty");
+        assert_eq!(mask[10 * 40 + 12], 128);
+        assert!(removal_mask(&s, &json!({"mask":[255]}), "ai.remove").is_err());
+        assert!(removal_mask(&s, &json!({"mask":vec![0u8;1200]}), "ai.remove").is_err());
+    }
+
+    #[test]
     fn generation_size_keeps_proportions() {
         let (w, h) = generation_size(Size::new(6000, 4000));
         assert!(w * h <= 1_700_000 && (w as f64 / h as f64 - 1.5).abs() < 0.05, "{w}x{h}");
@@ -759,9 +801,20 @@ mod tests {
 
     /// The real flows against the mock ComfyUI: a stroke becomes an "AI Remove" layer, Remove
     /// Background puts a mask on the layer, Generative Fill adds a layer, Enhance opens a document.
+    /// Like the UI's mock-server tests, skip when the sandbox denies local sockets.
     #[test]
     fn ai_commands_against_the_mock_server() {
-        let server = li_ai::mock::MockComfy::start().expect("mock server");
+        let server = match li_ai::mock::MockComfy::start() {
+            Ok(server) => server,
+            Err(e)
+                if e.kind() == std::io::ErrorKind::PermissionDenied
+                    || e.get_ref().and_then(|e| e.downcast_ref::<std::io::Error>()).is_some_and(|e| e.kind() == std::io::ErrorKind::PermissionDenied) =>
+            {
+                eprintln!("skipped: sandbox denies sockets for the mock HTTP server");
+                return;
+            }
+            Err(e) => panic!("mock server: {e}"),
+        };
         server.delay_ms.store(10, Ordering::SeqCst);
         li_ai::set_service_override(Some(server.host().to_owned()));
         let mut s = Session::new();

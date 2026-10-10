@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 pub struct Store {
     dir: Option<PathBuf>,
     models: BTreeMap<String, Embeddings>,
+    sharpness: BTreeMap<String, f32>,
+    sharpness_dirty: bool,
 }
 
 struct Embeddings {
@@ -40,7 +42,13 @@ pub fn normalized(mut v: Vec<f32>, dim: usize) -> Result<Vec<f32>, String> {
 
 impl Store {
     pub fn new(library_dir: Option<&Path>) -> Self {
-        Self { dir: library_dir.map(|d| d.join("AI")), ..Default::default() }
+        let dir = library_dir.map(|d| d.join("AI"));
+        let sharpness = dir
+            .as_ref()
+            .and_then(|d| std::fs::read(d.join("sharpness.json")).ok())
+            .and_then(|bytes| serde_json::from_slice::<BTreeMap<String, f32>>(&bytes).ok())
+            .unwrap_or_default();
+        Self { dir, sharpness, ..Default::default() }
     }
 
     pub fn ensure(&mut self, model: &str, dim: usize) -> Result<(), String> {
@@ -68,6 +76,17 @@ impl Store {
         self.models.get(model)?.values.get(key).map(Vec::as_slice)
     }
 
+    pub fn sharpness(&self, key: &str) -> Option<f32> {
+        self.sharpness.get(key).copied().filter(|v| v.is_finite())
+    }
+
+    pub fn set_sharpness(&mut self, key: String, value: f32) {
+        if value.is_finite() {
+            self.sharpness.insert(key, value);
+            self.sharpness_dirty = true;
+        }
+    }
+
     pub fn len(&self, model: &str) -> usize {
         self.models.get(model).map_or(0, |m| m.values.len())
     }
@@ -88,10 +107,15 @@ impl Store {
         let Some(dir) = &self.dir else {
             return Ok(());
         };
-        if self.models.values().all(|m| m.pending.is_empty()) {
+        if !self.sharpness_dirty && self.models.values().all(|m| m.pending.is_empty()) {
             return Ok(());
         }
         std::fs::create_dir_all(dir)?;
+        if self.sharpness_dirty {
+            let bytes = serde_json::to_vec(&self.sharpness)?;
+            lightcraft_catalog::safe_file::write_atomic(&dir.join("sharpness.json"), &bytes)?;
+            self.sharpness_dirty = false;
+        }
         for (model, m) in &mut self.models {
             if m.pending.is_empty() {
                 continue;

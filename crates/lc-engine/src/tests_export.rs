@@ -372,3 +372,36 @@ fn exports_are_atomic_without_a_sync() {
     assert!(syncs_on_this_thread() > before, "the durable writer syncs");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn people_names_export_opt_in_metadata_and_original_sidecar() {
+    use lightcraft_catalog::{Op, Photo, Source};
+    use lightcraft_meta::{Rect, Region, RegionKind};
+    let mut s = Session::new();
+    let id = s.catalog.alloc_photo_id();
+    let dir = temp_dir("people-names-export");
+    let path = dir.join("original.png");
+    let image = lightcraft_raster::Rgba8::filled(16, 16, [80, 90, 100, 255]);
+    let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &Default::default()).unwrap();
+    std::fs::write(&path, &bytes).unwrap();
+    let mut p = Photo::new(id, Source::File { path: path.to_string_lossy().into_owned() }, "original.png", "PNG", 16, 16, "2026-10-09");
+    p.meta.regions = vec![Region { kind: RegionKind::Face, name: Some("Jane Doe".into()), rect: Rect::UNIT, description: None, auto: true }];
+    p.meta.keywords = vec!["Event".into()];
+    s.commit("fixture", Op::AddPhoto { photo: Box::new(p) }).unwrap();
+    for on in [false, true] {
+        let opts = ExportOptions::from_json(&json!({"includePeopleNames":on}));
+        let metadata = crate::export::export_metadata(s.catalog.photo(id).unwrap(), &opts).unwrap();
+        assert_eq!(metadata.keywords.contains(&"People|Jane Doe".to_string()), on);
+        assert!(metadata.regions.is_empty());
+        let exported = export_photo(&mut s, id, &ExportOptions { format: ExportFormat::Original, ..opts }, 1).unwrap();
+        assert_eq!(exported.bytes, bytes);
+        let sidecar = std::str::from_utf8(&exported.sidecars[0].1).unwrap();
+        assert_eq!(sidecar.contains("People|Jane Doe"), on);
+        assert!(!sidecar.contains("personIds"));
+        assert!(!sidecar.contains("embedding"));
+    }
+    assert_eq!(s.catalog.photo(id).unwrap().meta.keywords, ["Event"]);
+    let old: ExportOptions = serde_json::from_value(json!({})).unwrap();
+    assert!(!old.include_people_names);
+    std::fs::remove_dir_all(dir).unwrap();
+}

@@ -127,7 +127,7 @@ fn main() {
             [0.5f32, 1.0, 2.0].iter().map(|k| px.iter().map(|q| [(q[0] * k).min(1.0), (q[1] * k).min(1.0), (q[2] * k).min(1.0), 1.0]).collect()).collect();
         let refs: Vec<&[[f32; 4]]> = shots.iter().map(Vec::as_slice).collect();
         let t0 = Instant::now();
-        let mut m = hdr::merge(w, h, &refs, &MergeOptions { exposures: vec![0.5, 1.0, 2.0], remove_ghosts: true, ghost_base: None, response: None });
+        let mut m = hdr::merge(w, h, &refs, &MergeOptions { exposures: vec![0.5, 1.0, 2.0], remove_ghosts: true, ghost_base: None, response: None }).unwrap();
         println!("  merge {:.1} ms", t0.elapsed().as_secs_f64() * 1000.0);
         hdr::tone_map(&mut m.px, w, h, &ToneMethod::LocalAdaptation(HdrToning { radius: 7.0, strength: 0.52, ..Default::default() }));
     });

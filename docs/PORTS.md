@@ -15,6 +15,11 @@ updated to a newer upstream commit, update its row (commit and date) rather than
 | `crates/li-seg/src/faces.rs` | [OpenCV](https://github.com/opencv/opencv) | `modules/objdetect/src/face_detect.cpp` | `52100328d82d0502534323e9524a701baa3a1e2a` | Apache-2.0 | 2026-10-09 |
 | `crates/li-seg/src/faces/geometry.rs` | [OpenCV](https://github.com/opencv/opencv) | `modules/objdetect/src/face_recognize.cpp` | `13c571a801ad5c67a752e5cd58a8a7e7725f99d2` | Apache-2.0 | 2026-10-09 |
 | `crates/li-seg/src/bpe.rs` | [Local Image / LightCraft](https://github.com/zdbosoxfan/local-image) (Apache-2.0 tokenizer port from Hugging Face Transformers) | `crates/lc-segment/src/tokenizer.rs` | `c18d18cf613422fe08d31001e1f803cf8ef7dd68` | Apache-2.0 | 2026-10-09 |
+| `crates/li-seg/src/unigram.rs` | [Hugging Face Transformers](https://github.com/huggingface/transformers) | `src/transformers/models/siglip/tokenization_siglip.py` | `cba5c4a6fcd0f6b73bf591505337ccf08ded3550` | Apache-2.0 | 2026-10-10 |
+| `crates/li-seg/src/unigram.rs` | [transformers.js](https://github.com/huggingface/transformers.js) | `src/tokenizers.js` (Unigram lattice) | `da2688626d7812ad1ea47fd304c2072cc685051b` | Apache-2.0 | 2026-10-10 |
+| `crates/li-seg/src/unigram.rs` | [spm_precompiled](https://github.com/huggingface/spm_precompiled) | `src/lib.rs` (Darts charsmap format) | `c00612e48dda9b8b31a5d2d09530f5caa666d5c0` | Apache-2.0 | 2026-10-10 |
+| `crates/li-seg/src/siglip.rs` | [Hugging Face Transformers](https://github.com/huggingface/transformers) | `src/transformers/models/siglip/image_processing_siglip.py` | `cba5c4a6fcd0f6b73bf591505337ccf08ded3550` | Apache-2.0 | 2026-10-10 |
+| `crates/li-seg/src/siglip.rs` | [Pillow](https://github.com/python-pillow/Pillow) | `src/libImaging/Resample.c` | `bb1d8e8ab8d29048624d96e3ee53cecf7c13d13d` | MIT-CMU | 2026-10-10 |
 | `crates/lc-pipeline/src/detail/nr.rs`, `crates/lc-gpu/src/wgsl/detail.wgsl` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/denoiseprofile.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
 | `crates/lc-pipeline/src/detail/nr.rs`, `crates/lc-gpu/src/wgsl/detail.wgsl` | [darktable](https://github.com/darktable-org/darktable) | `src/common/eaw.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
 | `crates/lc-pipeline/src/detail/nr.rs`, `crates/lc-gpu/src/wgsl/detail.wgsl` | [darktable](https://github.com/darktable-org/darktable) | `src/common/math.h` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
@@ -125,3 +130,38 @@ uniformity design. Texture/Structure use 4–16 and 2–4 original sensor-pixel 
 subpixel bands use a signed guided filter instead of EIGF's mandatory minimum radius.
 Primary tone/colour/detail/skin/CAT layers have native WGSL twins in `lc-gpu/src/wgsl/primary.wgsl`, `primary_colour.wgsl` and `ucs.wgsl`. CPU algorithms and fixture tolerances are unchanged. LI Tone caches four linear response fields before its bounded gain clamp; this changes f32 association only, checked against the unchanged equivalence bounds. The Deriche sweeps use tiled transposes, preserving endpoint and recurrence order.
 The faithful tone equalizer has a CPU spatial/finish stage after GPU geometry/WB/NR.
+
+
+## PhotoCraft Vector V0 sync (2026-10-10)
+
+The initial Local Image import (`c18d18cf613422fe08d31001e1f803cf8ef7dd68`)
+already included #865 (Direct Selection) and #747 (saturated pixel bounds), including their
+upstream tests. Those rows document existing ports audited during V0. #1321 was missing and is
+ported here, with its vector tests and compositor parity test. The previous builder's #1495
+sample-depth port is retained on the current translation-aware, bounded split cache.
+The retained crash checkpoint (`bc6d7e28`) also contains upstream #1807 (issue #992),
+which bakes feather/density into a rasterized vector mask. Its two rows use that newer
+revision, which retains the #865 and #747 changes. These are pinned changes, rather than
+claims that entire files match each revision.
+The inherited PhotoCraft licence notices remain in `licenses/photocraft-*`.
+
+| Our file | Upstream project | Upstream path | Upstream commit | Licence | Date |
+|---|---|---|---|---|---|
+| `crates/pc-vector/src/edit.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/vector/src/edit.rs` | `75ff41a26beb445413f6ee9248eb40b42152bd77` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-engine/src/path_edit_cmds.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/engine/src/path_edit_cmds.rs` | `75ff41a26beb445413f6ee9248eb40b42152bd77` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-engine/src/vector_cmds.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/engine/src/vector_cmds.rs` | `d4884d33fa83486be13172dc7c9a0182a7ac94c3` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-ui-egui/src/direct_select.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/ui-egui/src/direct_select.rs` | `75ff41a26beb445413f6ee9248eb40b42152bd77` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-ui-egui/src/direct_select_tests.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/ui-egui/src/direct_select_tests.rs` | `75ff41a26beb445413f6ee9248eb40b42152bd77` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-ui-egui/src/vector_ui.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/ui-egui/src/vector_ui.rs` | `75ff41a26beb445413f6ee9248eb40b42152bd77` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-ui-egui/src/state.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/ui-egui/src/state.rs` | `75ff41a26beb445413f6ee9248eb40b42152bd77` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-ui-egui/src/canvas.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/ui-egui/src/canvas.rs` | `75ff41a26beb445413f6ee9248eb40b42152bd77` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-vector/src/lib.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/vector/src/lib.rs` | `d438f842256435dba7aa41ca306656a216b98fbf` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-vector/src/tests.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/vector/src/tests.rs` | `d438f842256435dba7aa41ca306656a216b98fbf` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-compose/src/tests.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/compose/src/tests.rs` | `d438f842256435dba7aa41ca306656a216b98fbf` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-vector/src/raster.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/vector/src/raster.rs` | `8302f57190c83439adb961ae23b9b110e819dea3` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-engine/src/vector_cmds/tests.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/engine/src/vector_cmds/tests.rs` | `d4884d33fa83486be13172dc7c9a0182a7ac94c3` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-compose/src/lib.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/compose/src/lib.rs` | `5355221f81e325a8682c7e3a7e03dd66cc00b5e6` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-compose/src/shape_split.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/compose/src/shape_split.rs` | `5355221f81e325a8682c7e3a7e03dd66cc00b5e6` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-compose/src/stroke_tests.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/compose/src/stroke_tests.rs` | `5355221f81e325a8682c7e3a7e03dd66cc00b5e6` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-gpu/src/plan.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/gpu/src/plan.rs` | `5355221f81e325a8682c7e3a7e03dd66cc00b5e6` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-gpu/tests/gpu/parity.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/gpu/tests/parity.rs` | `5355221f81e325a8682c7e3a7e03dd66cc00b5e6` | MIT OR Apache-2.0 | 2026-10-10 |

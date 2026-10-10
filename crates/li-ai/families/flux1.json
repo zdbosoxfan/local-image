@@ -117,5 +117,28 @@
     "flux",
     "base_model:black-forest-labs/FLUX.1-dev"
   ],
+  "file_overrides": [
+    {
+      "patterns": [
+        "flux*schnell"
+      ],
+      "sampling": {
+        "steps": {
+          "default": 4,
+          "min": 1,
+          "max": 100
+        },
+        "cfg": {
+          "default": 1,
+          "min": 1,
+          "max": 1
+        },
+        "denoise": 0.6
+      },
+      "pipeline": {
+        "flux_guidance": null
+      }
+    }
+  ],
   "models": []
 }

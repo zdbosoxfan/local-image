@@ -348,7 +348,7 @@ impl Acc {
             if matches!(layer.get("Enabled"), Some(Plist::Bool(false))) {
                 continue;
             }
-            let opacity = weight * layer.get("Amount").and_then(Plist::num).unwrap_or(1.0).clamp(0.0, 1.0);
+            let opacity = weight * layer.get("Amount").and_then(Plist::num).filter(|a| a.is_finite()).unwrap_or(1.0).clamp(0.0, 1.0);
             if opacity <= 0.0 {
                 continue;
             }
@@ -364,7 +364,8 @@ impl Acc {
                 let id = effect.get("Identifier").and_then(Plist::str).unwrap_or("?");
                 let Some(Plist::Dict(params)) = effect.get("Parameters") else { continue };
                 for (name, pv) in params {
-                    let value = pv.get("Value").and_then(Plist::num).or(pv.num());
+                    // Non-finite sliders (NaN/inf) have no place in a real develop setting.
+                    let value = pv.get("Value").and_then(Plist::num).or(pv.num()).filter(|v| v.is_finite());
                     if literal && id == "MIPLCurveEffect" {
                         let crs = match name.as_str() {
                             "RGB" => Some("ToneCurvePV2012"),

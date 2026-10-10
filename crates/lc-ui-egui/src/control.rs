@@ -54,7 +54,17 @@ fn wrap(r: Result<Value, String>) -> Outcome {
 }
 
 pub fn all_commands(app: &LightcraftApp) -> Value {
-    let mut v: Vec<Value> = app.session.commands().into_iter().map(|c| serde_json::to_value(c).unwrap_or_default()).collect();
+    let mut v: Vec<Value> = app
+        .session
+        .commands()
+        .into_iter()
+        .map(|c| {
+            let enabled = crate::panels::smart_sort::review_history_enabled(app, c.id).unwrap_or(c.enabled);
+            let mut value = serde_json::to_value(c).unwrap_or_default();
+            value["enabled"] = json!(enabled);
+            value
+        })
+        .collect();
     for (id, label, sc, menu) in crate::menus::ui_commands() {
         v.push(json!({"id": id, "label": label, "shortcut": sc, "menu": [menu], "enabled": crate::menus::ui_enabled(app, id), "ui": true}));
     }
@@ -69,6 +79,7 @@ pub fn inspect(app: &LightcraftApp, ctx: &egui::Context) -> Value {
     let r = ctx.content_rect();
     json!({
         "ui": serde_json::to_value(&app.ui).unwrap_or_default(),
+        "people": {"list":app.ui.people.list,"finder":app.ui.people.finder,"pickedFace":app.ui.people.picked,"queue":app.ui.people.queue.as_ref().map(|q|json!({"person":q.person,"cursor":q.cursor,"skipped":q.skipped,"matches":q.rows})),"merge":app.ui.people.merge,"error":app.ui.people.error},
         "window": [r.width(), r.height()],
         "pixelsPerPoint": ctx.pixels_per_point(),
         "canvasRect": app.canvas_rect.map(rect_json),
@@ -87,6 +98,8 @@ pub fn inspect(app: &LightcraftApp, ctx: &egui::Context) -> Value {
         "unsaved": app.session.unsaved().map(|(n, e)| json!({"ops": n, "error": e})),
         "libraryProblem": app.library_problem.as_ref().map(crate::panels::library_problem::LibraryProblem::to_json),
         "scan": app.scan.as_ref().map(crate::import::ScanTask::status),
+        "dialog": app.ui.dialog,
+        "smartSort": app.smart_sort.as_ref().map(crate::smart_sort_task::SmartSortTask::status),
         "export": {"running": app.export.as_ref().map(crate::export_task::ExportTask::status), "last": app.last_export_result},
         "import": app.import.as_ref().map(crate::import::ImportTask::status),
         "tasks": app.tasks.labels(),
@@ -276,6 +289,9 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context, req: &ControlRequest
         }
         "ui.dialog.confirm" => match app.ui.dialog.take() {
             Some(mut d) => {
+                if let crate::state::Dialog::SmartSort { state } = &d {
+                    return wrap(crate::panels::smart_sort::confirm(app, state));
+                }
                 if !crate::panels::export_dialog::ready_to_export(app, &mut d) {
                     app.ui.dialog = Some(d);
                     return ok(json!({"needsConflictChoice": true}));
@@ -299,6 +315,10 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context, req: &ControlRequest
             None => err("no dialog open"),
         },
         "ui.dialog.cancel" => {
+            if let Some(task) = &app.smart_sort {
+                task.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            app.session.smart.tagger = None;
             app.ui.dialog = None;
             ok(Value::Null)
         }
