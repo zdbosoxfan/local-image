@@ -590,6 +590,9 @@ pub fn layer_bounds(layer: &Layer, canvas: Rect) -> Rect {
 /// layers, shapes without fill, empty and inverted paths, and shapes whose vector stroke reaches
 /// past the path (their pixels give the outline: psd-tools double-stroke-effects).
 pub fn effect_outline(layer: &Layer) -> Option<&photocraft_doc::vector::Path> {
+    if !shape_split::uses_legacy_outline(layer) {
+        return None;
+    }
     let LayerContent::Shape(sh) = &layer.content else { return None };
     let stroke_inside = sh.stroke.as_ref().is_none_or(|s| s.width <= 0.0 || s.align == photocraft_doc::vector::StrokeAlign::Inside);
     (sh.fill.is_some() && stroke_inside && !sh.path.is_empty() && !sh.path.inverted).then_some(&sh.path)
@@ -1206,7 +1209,7 @@ fn shape_parts(layer: &Layer, clipped: &[Layer], rect: Rect, cx: &Ctx) -> Option
 fn split_parts(layer: &Layer, rect: Rect, cx: &Ctx) -> Option<(Buffer, Buffer, Option<Vec<f32>>)> {
     let LayerContent::Shape(sh) = &layer.content else { return None };
     sh.stroke.as_ref()?;
-    let (fs, ss) = shape_split::split(sh, cx.canvas, cx.depth)?;
+    let (fs, ss) = shape_split::split_layer(layer, cx.canvas, cx.depth)?;
     Some((surface_to_buffer(&fs, rect), surface_to_buffer(&ss, rect), mask_vals(layer, rect, cx)))
 }
 
