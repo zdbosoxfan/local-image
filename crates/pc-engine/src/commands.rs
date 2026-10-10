@@ -1005,6 +1005,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::vector_api::specs());
     v.extend(crate::vector_packages::specs());
     v.extend(crate::vector_cmds::specs());
+    v.extend(crate::pathops_cmds::specs());
     v.extend(crate::vectorize_cmds::specs());
     v.extend(crate::path_edit_cmds::specs());
     v.extend(crate::smartselect_cmds::specs());

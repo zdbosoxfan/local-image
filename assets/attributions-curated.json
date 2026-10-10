@@ -4,7 +4,10 @@
     "name": "Local Image",
     "used_for": "A layered raster editor, photo library and raw developer with local AI, written in Rust.",
     "licence": "GPL-3.0-or-later",
-    "licence_files": ["LICENSE", "assets/app-icon/LICENSE.txt"],
+    "licence_files": [
+      "LICENSE",
+      "assets/app-icon/LICENSE.txt"
+    ],
     "url": "https://github.com/zdbosoxfan/local-image"
   },
   "sections": [
@@ -20,7 +23,9 @@
           "ours": "crates/lc-pipeline/src/primary.rs, crates/lc-gpu/src/wgsl/primary.wgsl",
           "commit": "afc34256fb22bcaf6dcf6503d19d5f9a6f477af5",
           "licence": "BSD-2-Clause",
-          "licence_files": ["licenses/vkdt-NOTICE.md"],
+          "licence_files": [
+            "licenses/vkdt-NOTICE.md"
+          ],
           "url": "https://github.com/hanatos/vkdt"
         },
         {
@@ -30,7 +35,9 @@
           "upstream": "src/transformers/models/sam3, sam3_tracker",
           "ours": "crates/lc-segment",
           "licence": "Apache-2.0",
-          "licence_files": ["licenses/lightcraft-NOTICE"],
+          "licence_files": [
+            "licenses/lightcraft-NOTICE"
+          ],
           "url": "https://github.com/huggingface/transformers"
         },
         {
@@ -39,7 +46,9 @@
           "used_for": "Per-architecture ComfyUI workflow construction, inpaint geometry, prompt conventions and style presets of the AI tools.",
           "ours": "crates/li-ai/src/{builders,inpaint,custom,presets}.rs, crates/li-ai/families/*.json",
           "licence": "GPL-3.0",
-          "licence_files": ["licenses/model-system-NOTICE.md"],
+          "licence_files": [
+            "licenses/model-system-NOTICE.md"
+          ],
           "url": "https://github.com/Acly/krita-ai-diffusion"
         },
         {
@@ -47,7 +56,9 @@
           "author": "comfyanonymous and contributors",
           "used_for": "The image-generation server the AI tools talk to over its HTTP API (installed separately; no ComfyUI code is included).",
           "licence": "GPL-3.0",
-          "licence_files": ["licenses/model-system-NOTICE.md"],
+          "licence_files": [
+            "licenses/model-system-NOTICE.md"
+          ],
           "url": "https://github.com/comfyanonymous/ComfyUI"
         },
         {
@@ -55,7 +66,9 @@
           "author": "mcmonkeyprojects; Invoke",
           "used_for": "Ideas only (no code): the Model Browser's layout and describing model architectures as data.",
           "licence": "MIT; Apache-2.0",
-          "licence_files": ["licenses/model-system-NOTICE.md"],
+          "licence_files": [
+            "licenses/model-system-NOTICE.md"
+          ],
           "url": "https://github.com/mcmonkeyprojects/SwarmUI"
         }
       ]
@@ -69,7 +82,9 @@
           "author": "The LensFun community (Andrew Zabolotny, Klaus Post and contributors)",
           "used_for": "Lens calibrations for Develop › Optics › Lens Profile (built into the app through the lensfun crate).",
           "licence": "CC-BY-SA-3.0",
-          "licence_files": ["licenses/lensfun-NOTICE.md"],
+          "licence_files": [
+            "licenses/lensfun-NOTICE.md"
+          ],
           "url": "https://lensfun.github.io/"
         },
         {
@@ -77,14 +92,18 @@
           "author": "Harald Hoyer",
           "used_for": "Colour matrix and hue/saturation/value table for the Sony α7 IV, fitted to the contributor's own photos (assets/camera-profiles).",
           "licence": "MIT OR Apache-2.0",
-          "licence_files": ["assets/ATTRIBUTION-lightcraft.md"]
+          "licence_files": [
+            "assets/ATTRIBUTION-lightcraft.md"
+          ]
         },
         {
           "name": "ComfyUI workflow templates",
           "author": "Comfy Org",
           "used_for": "Ten templates and their thumbnails as test fixtures; at run time the Model Browser reads them from the connected ComfyUI.",
           "licence": "MIT",
-          "licence_files": ["licenses/comfyui-workflow-templates-LICENSE"],
+          "licence_files": [
+            "licenses/comfyui-workflow-templates-LICENSE"
+          ],
           "url": "https://github.com/Comfy-Org/workflow_templates"
         },
         {
@@ -92,7 +111,9 @@
           "author": "ltdrdata and contributors",
           "used_for": "Read at run time as a community catalogue of models (not included).",
           "licence": "GPL-3.0",
-          "licence_files": ["licenses/model-system-NOTICE.md"],
+          "licence_files": [
+            "licenses/model-system-NOTICE.md"
+          ],
           "url": "https://github.com/ltdrdata/ComfyUI-Manager"
         }
       ]
@@ -123,7 +144,9 @@
           "author": "The Inter Project Authors (Rasmus Andersson)",
           "used_for": "The interface font.",
           "licence": "OFL-1.1",
-          "licence_files": ["assets/fonts/OFL-Inter.txt"],
+          "licence_files": [
+            "assets/fonts/OFL-Inter.txt"
+          ],
           "url": "https://github.com/rsms/inter"
         },
         {
@@ -132,7 +155,9 @@
           "author": "The JetBrains Mono Project Authors",
           "used_for": "The font for numbers and code.",
           "licence": "OFL-1.1",
-          "licence_files": ["assets/fonts/OFL-JetBrainsMono.txt"],
+          "licence_files": [
+            "assets/fonts/OFL-JetBrainsMono.txt"
+          ],
           "url": "https://github.com/JetBrains/JetBrainsMono"
         },
         {
@@ -140,7 +165,9 @@
           "author": "Lucide Icons and Contributors",
           "used_for": "Toolbar and panel icons (assets/icons), some adapted with added marks.",
           "licence": "ISC",
-          "licence_files": ["assets/icons/LICENSE-lucide.txt"],
+          "licence_files": [
+            "assets/icons/LICENSE-lucide.txt"
+          ],
           "url": "https://github.com/lucide-icons/lucide"
         },
         {
@@ -148,7 +175,9 @@
           "author": "Cole Bemis",
           "used_for": "The Lucide icons derived from Feather (check, chevrons, search, trash, zoom and others).",
           "licence": "MIT",
-          "licence_files": ["assets/icons/LICENSE-lucide.txt"],
+          "licence_files": [
+            "assets/icons/LICENSE-lucide.txt"
+          ],
           "url": "https://github.com/feathericons/feather"
         },
         {
@@ -156,7 +185,9 @@
           "author": "Lil' Seal (Noun Project); adapted by PhotoCraft contributors",
           "used_for": "The Magnetic Lasso tool glyph.",
           "licence": "CC-BY-3.0",
-          "licence_files": ["assets/icons/LICENSE-noun-magnetic-lasso.txt"],
+          "licence_files": [
+            "assets/icons/LICENSE-noun-magnetic-lasso.txt"
+          ],
           "url": "https://thenounproject.com/icon/magnetic-lasso-tool-177513/"
         },
         {
@@ -165,7 +196,9 @@
           "author": "Kevin Atkinson and the SCOWL contributors",
           "used_for": "The dictionary of Check Spelling.",
           "licence": "SCOWL licence (permissive)",
-          "licence_files": ["assets/dict/LICENSE-SCOWL.txt"],
+          "licence_files": [
+            "assets/dict/LICENSE-SCOWL.txt"
+          ],
           "url": "http://wordlist.aspell.net/"
         },
         {
@@ -173,7 +206,9 @@
           "author": "PhotoCraft contributors (generated by photocraft-cms)",
           "used_for": "The built-in CMYK profile; the other built-in profiles and LUT looks are generated by code.",
           "licence": "CC0-1.0",
-          "licence_files": ["licenses/photocraft-ATTRIBUTION.md"]
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md"
+          ]
         },
         {
           "name": "BIZ UDPGothic, BIZ UDMincho, Shippori Mincho (craft-fonts)",
@@ -193,7 +228,12 @@
           "author": "ArtCraft Team and the LightCraft contributors",
           "used_for": "The photo library, raw developer and Develop module (the lc-* crates).",
           "licence": "MIT OR Apache-2.0",
-          "licence_files": ["licenses/lightcraft-NOTICE", "licenses/lightcraft-LICENSE-MIT", "licenses/lightcraft-LICENSE-APACHE", "assets/ATTRIBUTION-lightcraft.md"],
+          "licence_files": [
+            "licenses/lightcraft-NOTICE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-LICENSE-APACHE",
+            "assets/ATTRIBUTION-lightcraft.md"
+          ],
           "url": "https://getartcraft.com"
         },
         {
@@ -201,7 +241,12 @@
           "author": "ArtCraft Team and the PhotoCraft contributors",
           "used_for": "The layered editor of the Compositing module (the pc-* crates).",
           "licence": "MIT OR Apache-2.0",
-          "licence_files": ["licenses/photocraft-NOTICE", "licenses/photocraft-LICENSE-MIT", "licenses/photocraft-LICENSE-APACHE", "licenses/photocraft-ATTRIBUTION.md"],
+          "licence_files": [
+            "licenses/photocraft-NOTICE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-ATTRIBUTION.md"
+          ],
           "url": "https://github.com/storytold/photocraft"
         },
         {
@@ -214,6 +259,21 @@
             "licenses/vectorcraft-NOTICE",
             "licenses/vectorcraft-LICENSE-MIT",
             "licenses/vectorcraft-LICENSE-APACHE",
+            "assets/ATTRIBUTION-vectorcraft.md"
+          ],
+          "url": "https://github.com/storytold/vectorcraft"
+        },
+        {
+          "name": "VectorCraft",
+          "author": "ArtCraft Team and the VectorCraft contributors",
+          "used_for": "Curve geometry, boolean and Pathfinder operations, shape builder, offsets, outline stroke and path editing, adapted to Local Image documents.",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-NOTICE",
             "assets/ATTRIBUTION-vectorcraft.md"
           ],
           "url": "https://github.com/storytold/vectorcraft"

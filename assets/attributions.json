@@ -511,6 +511,342 @@
           "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtdata/dcpprofiles/"
         },
         {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/geom/src/path.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/geom/src/path.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/src/geom/path.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/geom/src/path.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapter for VectorCraft geom/path.rs and pathops operations to pc-doc paths.",
+          "upstream": "crates/geom/src/path.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/src/adapter.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/geom/src/path.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/geom/src/bez.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/geom/src/bez.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/src/geom/bez.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/geom/src/bez.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/geom/src/arc.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/geom/src/arc.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/src/geom/arc.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/geom/src/arc.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/geom/src/hit.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/geom/src/hit.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/src/geom/hit.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/geom/src/hit.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/geom/src/shapes.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/geom/src/shapes.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/src/geom/shapes.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/geom/src/shapes.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/pathops/src/boolean.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/pathops/src/boolean.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/src/boolean.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pathops/src/boolean.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/pathops/src/pathfinder.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/pathops/src/pathfinder.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/src/pathfinder.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pathops/src/pathfinder.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/pathops/src/planar.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/pathops/src/planar.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/src/planar.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pathops/src/planar.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/pathops/src/offset.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/pathops/src/offset.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/src/offset.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pathops/src/offset.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/pathops/src/edit.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/pathops/src/edit.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/src/edit.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pathops/src/edit.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/pathops/src/fit.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/pathops/src/fit.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/src/fit.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pathops/src/fit.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/pathops/tests/ops.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/pathops/tests/ops.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/tests/upstream_ops.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pathops/tests/ops.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/pathops/tests/regressions.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/pathops/tests/regressions.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/tests/upstream_regressions.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pathops/tests/regressions.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/pathops/tests/props.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/pathops/tests/props.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/tests/upstream_props.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pathops/tests/props.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/pathops/tests/common/mod.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/pathops/tests/common/mod.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/tests/common/mod.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pathops/tests/common/mod.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/geom/src/corners.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/geom/src/corners.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/src/geom/corners.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/geom/src/corners.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/testkit/src/geom.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/testkit/src/geom.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/tests/support/geom.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/testkit/src/geom.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/testkit/src/strategies.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/testkit/src/strategies.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/tests/support/strategies.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/testkit/src/strategies.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/pathops/tests/prop_pathops.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/pathops/tests/prop_pathops.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/tests/upstream_prop_pathops.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pathops/tests/prop_pathops.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/geom/tests/prop_geom.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/geom/tests/prop_geom.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/tests/upstream_prop_geom.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/geom/tests/prop_geom.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Tests adapted from VectorCraft crates/engine/src/{tests_pathops,tests_outlinestroke}.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/engine/src/tests_pathops.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/tests/vector_v1.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/engine/src/tests_pathops.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Tests adapted from VectorCraft crates/engine/src/{tests_pathops,tests_outlinestroke}.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/engine/src/tests_outlinestroke.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/tests/vector_v1.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/engine/src/tests_outlinestroke.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/pathops/src/lib.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/pathops/src/lib.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops/src/kernel.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pathops/src/lib.rs"
+        },
+        {
           "name": "visioncortex",
           "used_for": "Hierarchical colour region clustering for image tracing.",
           "upstream": "src/color_clusters/builder.rs",
@@ -798,6 +1134,273 @@
             "licenses/vectorcraft-NOTICE"
           ],
           "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/doc/src/live.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Point-level path editing, Photoshop's Direct Selection and Convert Point tools: move anchors, drag direction handles, reshape a segment by dragging it, convert between smooth and corner points, and hit-test a path's parts.",
+          "upstream": "crates/vector/src/edit.rs",
+          "commit": "75ff41a26beb445413f6ee9248eb40b42152bd77",
+          "ours": "crates/pc-vector/src/edit.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/75ff41a26beb445413f6ee9248eb40b42152bd77/crates/vector/src/edit.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Point-level path edits, what Photoshop's Direct Selection (A) and Convert Point tools do on the canvas: move anchors, drag direction handles, bend segments and convert points.",
+          "upstream": "crates/engine/src/path_edit_cmds.rs",
+          "commit": "75ff41a26beb445413f6ee9248eb40b42152bd77",
+          "ours": "crates/pc-engine/src/path_edit_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/75ff41a26beb445413f6ee9248eb40b42152bd77/crates/engine/src/path_edit_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Vector commands: shape layers (shape.), document paths (path., Paths panel), selection ⇄ path, and layer vector masks (layer.vectorMask.).",
+          "upstream": "crates/engine/src/vector_cmds.rs",
+          "commit": "d4884d33fa83486be13172dc7c9a0182a7ac94c3",
+          "ours": "crates/pc-engine/src/vector_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/d4884d33fa83486be13172dc7c9a0182a7ac94c3/crates/engine/src/vector_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Direct Selection tool (A, #790), and the Pen's ⌘/Ctrl (Direct Selection) and ⌥/Alt (Convert Point) modifiers, as in Photoshop.",
+          "upstream": "crates/ui-egui/src/direct_select.rs",
+          "commit": "75ff41a26beb445413f6ee9248eb40b42152bd77",
+          "ours": "crates/pc-ui-egui/src/direct_select.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/75ff41a26beb445413f6ee9248eb40b42152bd77/crates/ui-egui/src/direct_select.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "#790: paths can be reshaped after they're drawn, as in Photoshop: the Direct Selection tool (A), and the Pen with ⌘/Ctrl (Direct Selection) or ⌥/Alt (Convert Point).",
+          "upstream": "crates/ui-egui/src/direct_select_tests.rs",
+          "commit": "75ff41a26beb445413f6ee9248eb40b42152bd77",
+          "ours": "crates/pc-ui-egui/src/direct_select_tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/75ff41a26beb445413f6ee9248eb40b42152bd77/crates/ui-egui/src/direct_select_tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Vector tools: Shape tools (U), Pen (P), Path Selection (A), path overlays and the Paths panel.",
+          "upstream": "crates/ui-egui/src/vector_ui.rs",
+          "commit": "75ff41a26beb445413f6ee9248eb40b42152bd77",
+          "ours": "crates/pc-ui-egui/src/vector_ui.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/75ff41a26beb445413f6ee9248eb40b42152bd77/crates/ui-egui/src/vector_ui.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "UI state as plain data, so the control channel (and later MCP) can read and drive every aspect of the interface: tools, zoom, panels, dialogs and windows.",
+          "upstream": "crates/ui-egui/src/state.rs",
+          "commit": "75ff41a26beb445413f6ee9248eb40b42152bd77",
+          "ours": "crates/pc-ui-egui/src/state.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/75ff41a26beb445413f6ee9248eb40b42152bd77/crates/ui-egui/src/state.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Document canvas: display texture cache, view transform, tool input, extra document windows.",
+          "upstream": "crates/ui-egui/src/canvas.rs",
+          "commit": "75ff41a26beb445413f6ee9248eb40b42152bd77",
+          "ours": "crates/pc-ui-egui/src/canvas.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/75ff41a26beb445413f6ee9248eb40b42152bd77/crates/ui-egui/src/canvas.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "# photocraft-vector",
+          "upstream": "crates/vector/src/lib.rs",
+          "commit": "d438f842256435dba7aa41ca306656a216b98fbf",
+          "ours": "crates/pc-vector/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/d438f842256435dba7aa41ca306656a216b98fbf/crates/vector/src/lib.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/vector/src/tests.rs",
+          "commit": "d438f842256435dba7aa41ca306656a216b98fbf",
+          "ours": "crates/pc-vector/src/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/d438f842256435dba7aa41ca306656a216b98fbf/crates/vector/src/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/compose/src/tests.rs",
+          "commit": "d438f842256435dba7aa41ca306656a216b98fbf",
+          "ours": "crates/pc-compose/src/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/d438f842256435dba7aa41ca306656a216b98fbf/crates/compose/src/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Anti-aliased polygon rasterizer with exact area coverage and boolean combination.",
+          "upstream": "crates/vector/src/raster.rs",
+          "commit": "8302f57190c83439adb961ae23b9b110e819dea3",
+          "ours": "crates/pc-vector/src/raster.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/8302f57190c83439adb961ae23b9b110e819dea3/crates/vector/src/raster.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/engine/src/vector_cmds/tests.rs",
+          "commit": "d4884d33fa83486be13172dc7c9a0182a7ac94c3",
+          "ours": "crates/pc-engine/src/vector_cmds/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/d4884d33fa83486be13172dc7c9a0182a7ac94c3/crates/engine/src/vector_cmds/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "CPU reference compositor.",
+          "upstream": "crates/compose/src/lib.rs",
+          "commit": "5355221f81e325a8682c7e3a7e03dd66cc00b5e6",
+          "ours": "crates/pc-compose/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/5355221f81e325a8682c7e3a7e03dd66cc00b5e6/crates/compose/src/lib.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "A stroked shape split into fill and stroke, cached independently of integer translation.",
+          "upstream": "crates/compose/src/shape_split.rs",
+          "commit": "5355221f81e325a8682c7e3a7e03dd66cc00b5e6",
+          "ours": "crates/pc-compose/src/shape_split.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/5355221f81e325a8682c7e3a7e03dd66cc00b5e6/crates/compose/src/shape_split.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Stroke effects on shape layers: the outline, the vector stroke's place, gradient frames.",
+          "upstream": "crates/compose/src/stroke_tests.rs",
+          "commit": "5355221f81e325a8682c7e3a7e03dd66cc00b5e6",
+          "ours": "crates/pc-compose/src/stroke_tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/5355221f81e325a8682c7e3a7e03dd66cc00b5e6/crates/compose/src/stroke_tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Planner: walks the layer tree into a linear list of GPU passes over abstract buffer slots.",
+          "upstream": "crates/gpu/src/plan.rs",
+          "commit": "5355221f81e325a8682c7e3a7e03dd66cc00b5e6",
+          "ours": "crates/pc-gpu/src/plan.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/5355221f81e325a8682c7e3a7e03dd66cc00b5e6/crates/gpu/src/plan.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "GPU vs CPU parity: every blend mode, adjustment, group/clip/mask/fill combination must match the reference compositor within 1/255 (premultiplied).",
+          "upstream": "crates/gpu/tests/parity.rs",
+          "commit": "5355221f81e325a8682c7e3a7e03dd66cc00b5e6",
+          "ours": "crates/pc-gpu/tests/gpu/parity.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/5355221f81e325a8682c7e3a7e03dd66cc00b5e6/crates/gpu/tests/parity.rs"
         },
         {
           "name": "vkdt",
@@ -1200,6 +1803,21 @@
             "licenses/vectorcraft-NOTICE",
             "licenses/vectorcraft-LICENSE-MIT",
             "licenses/vectorcraft-LICENSE-APACHE",
+            "assets/ATTRIBUTION-vectorcraft.md"
+          ],
+          "url": "https://github.com/storytold/vectorcraft"
+        },
+        {
+          "name": "VectorCraft",
+          "author": "ArtCraft Team and the VectorCraft contributors",
+          "used_for": "Curve geometry, boolean and Pathfinder operations, shape builder, offsets, outline stroke and path editing, adapted to Local Image documents.",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-NOTICE",
             "assets/ATTRIBUTION-vectorcraft.md"
           ],
           "url": "https://github.com/storytold/vectorcraft"
@@ -3394,6 +4012,13 @@
           "used_for": "Raw resource handle for immutable blobs with dynamic lifetimes.",
           "licence": "Apache-2.0 OR MIT",
           "url": "https://github.com/linebender/raw_resource_handle"
+        },
+        {
+          "name": "linesweeper",
+          "version": "0.4.0",
+          "used_for": "Robust sweep-line algorithm and two-dimensional boolean ops",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/jneem/linesweeper"
         },
         {
           "name": "linux-raw-sys",

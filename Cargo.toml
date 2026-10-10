@@ -14,6 +14,10 @@ rust-version = "1.95"
 repository = "https://github.com/zdbosoxfan/local-image"
 
 [workspace.dependencies]
+kurbo = { version = "=0.13.1" }
+linesweeper = { version = "=0.4.0" }
+polycool = { version = "=0.4.0" }
+photocraft-pathops = { path = "crates/pc-pathops" }
 ab_glyph = { version = "0.2", default-features = false, features = ["std"] }
 anyhow = { version = "1" }
 arc-swap = { version = "1" }
