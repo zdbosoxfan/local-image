@@ -355,6 +355,15 @@ pub fn set_installed(installed: Vec<InstalledModel>) -> bool {
     true
 }
 
+/// The starting denoise for refining with `model`: 1.0 for families that refine by reference (FLUX.2 Klein: the image
+/// is a `ReferenceLatent`, as in Comfy-Org's edit templates), a partial 0.35 for img2img families.
+pub fn refine_default_denoise(model: ModelId) -> f32 {
+    match model.try_info() {
+        Some(i) if i.resolved.pipeline.reference == crate::family::RefMethod::ReferenceLatent => 1.0,
+        _ => 0.35,
+    }
+}
+
 pub fn presets() -> &'static [Preset] {
     &catalog().presets
 }

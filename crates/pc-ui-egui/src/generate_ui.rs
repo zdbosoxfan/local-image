@@ -360,6 +360,9 @@ fn set_model(s: &mut GenerateState, m: ModelId) {
     s.variant = catalog::default_variant(m).into();
     s.steps = info.steps.default as u32;
     s.guidance = info.guidance.default;
+    if s.mode == Mode::Refine {
+        s.denoise = catalog::refine_default_denoise(m);
+    }
     s.sampler.clear();
     s.scheduler.clear();
     if !info.transparent {
@@ -676,7 +679,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let cur = Mode::ALL.iter().position(|m| *m == s.mode).unwrap_or(0);
         if let Some(i) = chips_with(ui, &labels, cur, &tips, &disabled) {
             s.mode = Mode::ALL[i];
-            s.denoise = s.mode.default_strength();
+            s.denoise = if s.mode == Mode::Refine { catalog::refine_default_denoise(model_of(s)) } else { s.mode.default_strength() };
             // A model that can't run the new mode gives way to one that can.
             let m = model_of(s);
             let cloud_ok = cloud_of(s).map(|c| cloud_fits(c, s.mode));
@@ -952,6 +955,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         s.refine_variant = catalog::default_variant(m).into();
                         s.refine_steps = None;
                         s.refine_guidance = None;
+                        s.refine_strength = catalog::refine_default_denoise(m);
                     }
                 }
                 // The refine pass's own sampler settings, bounded only by what ComfyUI reports.

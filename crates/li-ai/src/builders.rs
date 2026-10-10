@@ -226,7 +226,9 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
     // Reference latents: the edited image first, then each reference.
     if pl.reference == RefMethod::ReferenceLatent {
         let mut chain: Vec<String> = Vec::new();
-        if matches!(p.task, Task::Edit)
+        // Edit and Refine both give the model the source image as its first reference: FLUX.2 Klein refines by
+        // reference (Comfy-Org's image_flux2_klein_image_edit templates), not by re-noising an encoded latent.
+        if matches!(p.task, Task::Edit | Task::Refine { .. })
             && let Some(s) = &source
         {
             chain.push(s.clone());
@@ -237,7 +239,9 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
                 let s = g.add("FluxKontextImageScale", json!({ "image": link(&img, 0) }));
                 link(&s, 0)
             } else {
-                link(&img, 0)
+                // The templates scale every reference to about one megapixel first.
+                let s = g.add("ImageScaleToTotalPixels", json!({ "image": link(&img, 0), "upscale_method": "lanczos", "megapixels": 1.0 }));
+                link(&s, 0)
             };
             let enc = g.add("VAEEncode", json!({ "pixels": px, "vae": vae }));
             let rp = g.add("ReferenceLatent", json!({ "conditioning": pos, "latent": link(&enc, 0) }));
@@ -301,6 +305,9 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
             }
             None => empty(&mut g),
         },
+        // Reference refine (FLUX.2): at full denoise an empty latent like the official template; below it, start from
+        // the encoded source as well (the sampler's sigmas are split to the denoise below) to keep even more of it.
+        (Task::Refine { .. }, Some(_)) if pl.reference == RefMethod::ReferenceLatent && denoise >= 0.999 => empty(&mut g),
         (_, Some(s)) if masked && pl.inpaint == InpaintMethod::ModelConditioning => {
             let ic = g.add(
                 "InpaintModelConditioning",
@@ -462,6 +469,31 @@ mod tests {
             .into_iter()
             .map(|r| (r, format!("{r:?}.safetensors")))
             .collect()
+    }
+
+    /// FLUX.2 Klein refines like Comfy-Org's image_flux2_klein_image_edit templates: the source, scaled to ~1 MP, is a
+    /// ReferenceLatent on both conditionings; at full denoise the sampler starts from an empty latent with the full
+    /// Flux2Scheduler schedule; below it, from the encoded source with split sigmas.
+    #[test]
+    fn flux2_klein_refines_by_reference_like_the_official_template() {
+        let f = registry().family("flux2-klein").unwrap();
+        let count = |b: &Built, c: &str| classes(b).iter().filter(|x| *x == c).count();
+        let mut p = Params::create("more realistic textures", 1360, 768, 3, 4, 1.0);
+        p.loras = &[];
+        p.task = Task::Refine { denoise: 1.0 };
+        let b = build(f, &files(), &p);
+        closed(&b.graph);
+        assert_eq!(count(&b, "ReferenceLatent"), 2, "source on positive and negative");
+        assert_eq!(count(&b, "ImageScaleToTotalPixels"), 1);
+        assert_eq!(count(&b, "EmptyFlux2LatentImage"), 1, "official: empty latent at full denoise");
+        assert_eq!(count(&b, "SplitSigmasDenoise"), 0);
+        p.task = Task::Refine { denoise: 0.4 };
+        let b = build(f, &files(), &p);
+        closed(&b.graph);
+        assert_eq!(count(&b, "ReferenceLatent"), 2);
+        assert_eq!(count(&b, "EmptyFlux2LatentImage"), 0);
+        assert_eq!(count(&b, "SplitSigmasDenoise"), 1, "partial: encoded source, split schedule");
+        assert_eq!(crate::catalog::refine_default_denoise(crate::ModelId::Klein9B), 1.0);
     }
 
     #[test]
