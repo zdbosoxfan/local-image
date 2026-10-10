@@ -1584,5 +1584,8 @@
   "Only in session": "仅在会话内",
   "Split into sessions when there is a gap of more than": "间隔超过以下时长时拆分为会话",
   "All sessions": "所有会话",
-  "Export sessions as folders": "将会话导出为文件夹"
+  "Export sessions as folders": "将会话导出为文件夹",
+  "Tagging model": "标签模型",
+  "Fast (CLIP)": "快速（CLIP）",
+  "Accurate (SigLIP)": "精确（SigLIP）"
 }

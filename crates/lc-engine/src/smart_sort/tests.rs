@@ -858,3 +858,131 @@ fn p2b_legacy_embeddings_gain_sharpness_without_model_inference() {
     }
     assert_eq!(s.execute("smartSort.analyze", &json!({"ids":[id]})).unwrap()["skipped"], 1);
 }
+
+#[test]
+fn tagging_model_switch_is_persisted_and_separates_cache_versions() {
+    let dir = temp();
+    let old: SmartSortPrefs = serde_json::from_value(json!({"facesEnabled":true})).unwrap();
+    assert_eq!(old.tagging_model, TaggingModel::Fast);
+    let mut smart = SmartSort { store: Store::new(Some(&dir)), ..Default::default() };
+    for model in TaggingModel::ALL {
+        smart.set_model(model);
+        let (id, dim) = smart.selected();
+        smart.store.ensure(&id, dim).unwrap();
+        assert!(smart.store.get(&id, "same-photo").is_none());
+        let mut v = vec![0.; dim];
+        v[0] = 1.;
+        smart.store.insert(&id, "same-photo".into(), v).unwrap();
+    }
+    smart.store.save().unwrap();
+    let mut reopened = Store::new(Some(&dir));
+    for model in TaggingModel::ALL {
+        reopened.ensure(model.id(), model.dim()).unwrap();
+        assert_eq!(reopened.get(model.id(), "same-photo").unwrap().len(), model.dim());
+        assert!(dir.join(format!("AI/embeddings-{}.bin", model.id())).exists());
+    }
+    let mut s = demo();
+    s.open_library(&dir, true).unwrap();
+    s.smart.prefs.tagging_model = TaggingModel::Accurate;
+    s.execute("smartSort.setModel", &json!({"model":"clip-b32-laion"})).unwrap();
+    assert!(s.smart.tagger.is_none());
+    assert_eq!(s.execute("smartSort.status", &json!({})).unwrap()["tagger"]["id"], "clip-b32-laion");
+    assert!(s.execute("smartSort.setModel", &json!({"model":"unknown"})).is_err());
+    let saved = serde_json::to_value(&s.smart.prefs).unwrap();
+    assert_eq!(serde_json::from_value::<SmartSortPrefs>(saved).unwrap().tagging_model, TaggingModel::Fast);
+    drop(s);
+    let mut library = Session::new();
+    library.open_library(&dir, false).unwrap();
+    assert_eq!(library.smart.prefs.tagging_model, TaggingModel::Fast);
+    drop(library);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn siglip_scores_are_independent_and_cached_tagger_preserves_scoring() {
+    struct Independent;
+    impl Tagger for Independent {
+        fn model_id(&self) -> &str {
+            "siglip-test"
+        }
+        fn dim(&self) -> usize {
+            2
+        }
+        fn scoring(&self) -> Scoring {
+            Scoring::Siglip
+        }
+        fn embed_image(&self, _: &Rgba8) -> Result<Vec<f32>, String> {
+            Ok(vec![1., 0.])
+        }
+        fn embed_text(&self, text: &str) -> Result<Vec<f32>, String> {
+            let c = if text.contains("second") {
+                0.5
+            } else if text.contains("first") {
+                0.4
+            } else if text.contains("strong") {
+                0.12
+            } else if text.contains("weak") {
+                0.1
+            } else {
+                -0.1
+            };
+            Ok(vec![c, (1.0 - c * c).sqrt()])
+        }
+    }
+    let tagger = CachedTagger::new(Arc::new(Independent));
+    assert_eq!(tagger.scoring(), Scoring::Siglip);
+    let store = Store::default();
+    let mut preset = sort(&[("Strong", "strong")], Sensitivity::Balanced);
+    let a = classify::Classifier::new(&tagger, &store, &preset).unwrap().classify("x", Some(&[1., 0.]), None).unwrap();
+    preset.categories.push(Category { name: "Weak".into(), prompts: vec!["weak".into()], ..Default::default() });
+    let b = classify::Classifier::new(&tagger, &store, &preset).unwrap().classify("x", Some(&[1., 0.]), None).unwrap();
+    assert_eq!(a.scores["Strong"], b.scores["Strong"]);
+    assert!((b.scores["Strong"] - li_seg::siglip::probability(0.12)).abs() < 1e-6);
+    assert_eq!(b.assigned, vec!["Strong"]);
+    preset.multi = true;
+    preset.categories[1].prompts = vec!["strong".into()];
+    let both = classify::Classifier::new(&tagger, &store, &preset).unwrap().classify("x", Some(&[1., 0.]), None).unwrap();
+    assert_eq!(both.assigned, vec!["Strong", "Weak"]);
+    let saturated = sort(&[("First", "first"), ("Second", "second")], Sensitivity::Balanced);
+    let row = classify::Classifier::new(&tagger, &store, &saturated).unwrap().classify("x", Some(&[1., 0.]), None).unwrap();
+    assert_eq!(row.scores["First"], 1.);
+    assert_eq!(row.scores["Second"], 1.);
+    assert_eq!(row.ranked, vec!["Second", "First"]);
+    assert_eq!(row.assigned, vec!["Second"]);
+}
+
+#[test]
+fn model_switch_reanalyzes_new_model_and_reuses_only_its_own_cache() {
+    struct Scoped(TaggingModel);
+    impl Tagger for Scoped {
+        fn model_id(&self) -> &str {
+            self.0.id()
+        }
+        fn dim(&self) -> usize {
+            self.0.dim()
+        }
+        fn embed_image(&self, _: &Rgba8) -> Result<Vec<f32>, String> {
+            let mut v = vec![0.; self.dim()];
+            v[0] = 1.;
+            Ok(v)
+        }
+        fn embed_text(&self, _: &str) -> Result<Vec<f32>, String> {
+            self.embed_image(&Rgba8::new(1, 1))
+        }
+    }
+    let mut s = Session::with_demo();
+    let ids: Vec<_> = s.catalog.photos().filter(|p| p.in_library()).take(2).map(|p| p.id).collect();
+    let cancel = AtomicBool::new(false);
+    for (model, count) in [(TaggingModel::Fast, 2), (TaggingModel::Accurate, 2), (TaggingModel::Fast, 0)] {
+        s.smart.set_model(model);
+        s.smart.tagger = Some(Arc::new(Scoped(model)));
+        assert_eq!(analyze(&mut s, &ids, &cancel, &|_, _| {}).unwrap().analysed, count);
+        for id in &ids {
+            let key = crate::media::content_key(s.catalog.photo(*id).unwrap());
+            assert_eq!(s.smart.store.get(model.id(), &key).unwrap().len(), model.dim());
+        }
+    }
+    for model in TaggingModel::ALL {
+        assert_eq!(s.smart.store.len(model.id()), 2);
+    }
+}

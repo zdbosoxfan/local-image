@@ -78,6 +78,7 @@ pub struct Category {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct SmartSortPrefs {
+    pub tagging_model: super::TaggingModel,
     pub presets: Vec<SortPreset>,
     pub last: Option<SortPreset>,
     pub faces_enabled: bool,

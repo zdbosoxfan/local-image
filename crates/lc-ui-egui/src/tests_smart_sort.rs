@@ -320,7 +320,10 @@ fn smart_sort_model_download_uses_host_progress_and_cancel() {
     h.step();
     h.step();
     click(&mut h, "smartSort:downloadCancel");
-    assert_eq!(*calls.lock().unwrap(), vec![("clip-b32-laion".into(), false), ("clip-b32-laion".into(), true)]);
+    assert_eq!(
+        *calls.lock().unwrap(),
+        vec![(lightcraft_engine::smart_sort::DEFAULT_MODEL.into(), false), (lightcraft_engine::smart_sort::DEFAULT_MODEL.into(), true)]
+    );
 }
 
 fn p2b_harness(size: [f32; 2], times: &[Option<&str>], red_count: usize) -> Headless {
@@ -574,4 +577,30 @@ fn smart_sort_p2b_sessions_bursts_layout_at_both_sizes() {
             std::fs::write(dir.join(format!("{step}-features-{}.png", size[0] as u32)), png).unwrap();
         }
     }
+}
+
+#[test]
+fn smart_sort_click_switches_model_and_downloads_selected_bundle() {
+    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let out = calls.clone();
+    let services = Services {
+        download_models: Some(Box::new(move |id, cancel| {
+            out.lock().unwrap().push((id.to_string(), cancel));
+            Ok(())
+        })),
+        ..Default::default()
+    };
+    let mut h = Headless::new(LightcraftApp::new(Session::new(), services), [1280., 800.], 1.);
+    h.request("ui.menu.invoke", json!({"id":"dialog.smartSort"}), T);
+    h.step();
+    h.step();
+    click(&mut h, "smartSort:preset");
+    click(&mut h, "smartSort:preset:3");
+    click(&mut h, "smartSort:model:clip-b32-laion");
+    assert_eq!(h.app.session.smart.prefs.tagging_model, lightcraft_engine::smart_sort::TaggingModel::Fast);
+    click(&mut h, "smartSort:download");
+    click(&mut h, "smartSort:model:siglip-b16-224");
+    assert_eq!(h.app.session.smart.prefs.tagging_model, lightcraft_engine::smart_sort::TaggingModel::Accurate);
+    click(&mut h, "smartSort:download");
+    assert_eq!(*calls.lock().unwrap(), vec![("clip-b32-laion".into(), false), ("siglip-b16-224".into(), false)]);
 }

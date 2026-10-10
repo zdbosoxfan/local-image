@@ -1,0 +1,4903 @@
+{
+  "analysed": 330,
+  "analysis_ms": 17253.117656000002,
+  "classify_ms": 2455.221169,
+  "download_bytes": 815550726,
+  "interactive_reclassify_ms": 3.761646,
+  "load_ms": 981.1282329999999,
+  "metrics": [
+    {
+      "categories": [
+        {
+          "fn": 3,
+          "fp": 0,
+          "name": "Audience reactions",
+          "precision": 1.0,
+          "recall": 0.4,
+          "tp": 2
+        },
+        {
+          "fn": 3,
+          "fp": 0,
+          "name": "Candids & networking",
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        },
+        {
+          "fn": 11,
+          "fp": 0,
+          "name": "Group photos",
+          "precision": 1.0,
+          "recall": 0.08333333333333333,
+          "tp": 1
+        },
+        {
+          "fn": 10,
+          "fp": 0,
+          "name": "Speakers",
+          "precision": 1.0,
+          "recall": 0.375,
+          "tp": 6
+        },
+        {
+          "fn": 8,
+          "fp": 0,
+          "name": "Sponsors & exhibitors",
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        },
+        {
+          "fn": 9,
+          "fp": 0,
+          "name": "Venue & details",
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        }
+      ],
+      "n": 53,
+      "preset": "Conference",
+      "top1": 39,
+      "top1_accuracy": 0.7358490566037735,
+      "top3": 51,
+      "top3_accuracy": 0.9622641509433962
+    },
+    {
+      "categories": [
+        {
+          "fn": 5,
+          "fp": 0,
+          "name": "Ceremony",
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        },
+        {
+          "fn": 5,
+          "fp": 0,
+          "name": "Couple portraits",
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        },
+        {
+          "fn": 4,
+          "fp": 0,
+          "name": "Details",
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        },
+        {
+          "fn": 4,
+          "fp": 0,
+          "name": "Family & group formals",
+          "precision": 1.0,
+          "recall": 0.42857142857142855,
+          "tp": 3
+        },
+        {
+          "fn": 1,
+          "fp": 0,
+          "name": "Getting ready",
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        },
+        {
+          "fn": 5,
+          "fp": 0,
+          "name": "Reception & dancing",
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        },
+        {
+          "fn": 3,
+          "fp": 0,
+          "name": "Speeches & toasts",
+          "precision": 1.0,
+          "recall": 0.4,
+          "tp": 2
+        }
+      ],
+      "n": 32,
+      "preset": "Wedding",
+      "top1": 27,
+      "top1_accuracy": 0.84375,
+      "top3": 31,
+      "top3_accuracy": 0.96875
+    },
+    {
+      "categories": [
+        {
+          "fn": 5,
+          "fp": 0,
+          "name": "Action",
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        },
+        {
+          "fn": 10,
+          "fp": 0,
+          "name": "Celebrations",
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        },
+        {
+          "fn": 3,
+          "fp": 0,
+          "name": "Fans & crowd",
+          "precision": 1.0,
+          "recall": 0.4,
+          "tp": 2
+        },
+        {
+          "fn": 22,
+          "fp": 0,
+          "name": "Team & portraits",
+          "precision": 1.0,
+          "recall": 0.043478260869565216,
+          "tp": 1
+        },
+        {
+          "fn": 10,
+          "fp": 1,
+          "name": "Venue",
+          "precision": 0.875,
+          "recall": 0.4117647058823529,
+          "tp": 7
+        }
+      ],
+      "n": 60,
+      "preset": "Sports",
+      "top1": 45,
+      "top1_accuracy": 0.75,
+      "top3": 58,
+      "top3_accuracy": 0.9666666666666667
+    },
+    {
+      "categories": [
+        {
+          "fn": 33,
+          "fp": 0,
+          "name": "Animals",
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        },
+        {
+          "fn": 23,
+          "fp": 0,
+          "name": "Architecture",
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        },
+        {
+          "fn": 19,
+          "fp": 0,
+          "name": "Events",
+          "precision": 1.0,
+          "recall": 0.05,
+          "tp": 1
+        },
+        {
+          "fn": 49,
+          "fp": 0,
+          "name": "Food",
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        },
+        {
+          "fn": 17,
+          "fp": 0,
+          "name": "Landscape",
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        },
+        {
+          "fn": 43,
+          "fp": 0,
+          "name": "People",
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        }
+      ],
+      "n": 185,
+      "preset": "General",
+      "top1": 172,
+      "top1_accuracy": 0.9297297297297298,
+      "top3": 185,
+      "top3_accuracy": 1.0
+    }
+  ],
+  "model": "siglip-b16-224",
+  "ms_per_photo": 52.28217471515152,
+  "photos": 330,
+  "predictions": [
+    {
+      "assigned": [],
+      "gold": "Audience reactions",
+      "id": "16eb4dc6-886d-4780-9a8e-c91de65d203d",
+      "preset": "Conference",
+      "ranked": [
+        "Speakers",
+        "Audience reactions",
+        "Venue & details",
+        "Candids & networking",
+        "Group photos",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [
+        "Audience reactions"
+      ],
+      "gold": "Audience reactions",
+      "id": "037c7fcf-ff9a-41e6-94a2-f27c12ad4931",
+      "preset": "Conference",
+      "ranked": [
+        "Audience reactions",
+        "Candids & networking",
+        "Speakers",
+        "Venue & details",
+        "Sponsors & exhibitors",
+        "Group photos"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Audience reactions",
+      "id": "ccee9143-46d6-4553-8365-637541827a8b",
+      "preset": "Conference",
+      "ranked": [
+        "Speakers",
+        "Audience reactions",
+        "Venue & details",
+        "Candids & networking",
+        "Group photos",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [
+        "Audience reactions"
+      ],
+      "gold": "Audience reactions",
+      "id": "058a6f2b-3144-4649-af1d-2446baa42bdc",
+      "preset": "Conference",
+      "ranked": [
+        "Audience reactions",
+        "Speakers",
+        "Candids & networking",
+        "Venue & details",
+        "Group photos",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Group photos",
+      "id": "4bc97a8b-f984-4555-888f-29fe199d0158",
+      "preset": "Conference",
+      "ranked": [
+        "Candids & networking",
+        "Audience reactions",
+        "Speakers",
+        "Group photos",
+        "Sponsors & exhibitors",
+        "Venue & details"
+      ]
+    },
+    {
+      "assigned": [
+        "Speakers"
+      ],
+      "gold": "Speakers",
+      "id": "8a9ec054-eee3-4322-8273-c3a9fd1a266c",
+      "preset": "Conference",
+      "ranked": [
+        "Speakers",
+        "Candids & networking",
+        "Audience reactions",
+        "Venue & details",
+        "Group photos",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Speakers",
+      "id": "90107082-1d65-417f-82db-2f391570af08",
+      "preset": "Conference",
+      "ranked": [
+        "Speakers",
+        "Candids & networking",
+        "Audience reactions",
+        "Venue & details",
+        "Group photos",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Audience reactions",
+      "id": "04f87687-450d-4c95-b054-bb78966e7c27",
+      "preset": "Conference",
+      "ranked": [
+        "Audience reactions",
+        "Speakers",
+        "Candids & networking",
+        "Venue & details",
+        "Group photos",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Candids & networking",
+      "id": "33df0d42-2bfb-4b97-8a9a-131ab9af9c87",
+      "preset": "Conference",
+      "ranked": [
+        "Audience reactions",
+        "Candids & networking",
+        "Group photos",
+        "Speakers",
+        "Venue & details",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [
+        "Speakers"
+      ],
+      "gold": "Speakers",
+      "id": "510f2f3b-d4f4-4815-b60c-102ce174b1b6",
+      "preset": "Conference",
+      "ranked": [
+        "Speakers",
+        "Candids & networking",
+        "Audience reactions",
+        "Venue & details",
+        "Group photos",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [
+        "Speakers"
+      ],
+      "gold": "Speakers",
+      "id": "d1291e3c-9a5c-42f7-aeed-942ef580baf9",
+      "preset": "Conference",
+      "ranked": [
+        "Speakers",
+        "Audience reactions",
+        "Candids & networking",
+        "Venue & details",
+        "Group photos",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Speakers",
+      "id": "4c133148-f7ba-41a4-8e99-1b6a307fb200",
+      "preset": "Conference",
+      "ranked": [
+        "Speakers",
+        "Audience reactions",
+        "Candids & networking",
+        "Venue & details",
+        "Group photos",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [
+        "Speakers"
+      ],
+      "gold": "Speakers",
+      "id": "3cac8b7c-7272-4256-8951-545b2fb43bf0",
+      "preset": "Conference",
+      "ranked": [
+        "Speakers",
+        "Candids & networking",
+        "Audience reactions",
+        "Venue & details",
+        "Group photos",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Sponsors & exhibitors",
+      "id": "daf17408-a7cf-451a-8709-d32c4286a857",
+      "preset": "Conference",
+      "ranked": [
+        "Sponsors & exhibitors",
+        "Audience reactions",
+        "Candids & networking",
+        "Group photos",
+        "Venue & details",
+        "Speakers"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Sponsors & exhibitors",
+      "id": "9176c8cc-d884-49b1-a28e-2fc5745f1c2c",
+      "preset": "Conference",
+      "ranked": [
+        "Sponsors & exhibitors",
+        "Venue & details",
+        "Audience reactions",
+        "Speakers",
+        "Group photos",
+        "Candids & networking"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Sponsors & exhibitors",
+      "id": "e2cfed7b-8145-4803-9998-2edd362e733d",
+      "preset": "Conference",
+      "ranked": [
+        "Sponsors & exhibitors",
+        "Speakers",
+        "Venue & details",
+        "Candids & networking",
+        "Group photos",
+        "Audience reactions"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Sponsors & exhibitors",
+      "id": "98330d11-a312-4fe6-b18a-8bd83fd9cf4a",
+      "preset": "Conference",
+      "ranked": [
+        "Speakers",
+        "Venue & details",
+        "Sponsors & exhibitors",
+        "Candids & networking",
+        "Group photos",
+        "Audience reactions"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Sponsors & exhibitors",
+      "id": "3096dc9e-96e1-4091-bda4-d2f4f2dceb49",
+      "preset": "Conference",
+      "ranked": [
+        "Sponsors & exhibitors",
+        "Audience reactions",
+        "Candids & networking",
+        "Speakers",
+        "Venue & details",
+        "Group photos"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Sponsors & exhibitors",
+      "id": "19376225-a1a4-44bd-8f38-c324daa0c0ba",
+      "preset": "Conference",
+      "ranked": [
+        "Speakers",
+        "Venue & details",
+        "Candids & networking",
+        "Sponsors & exhibitors",
+        "Group photos",
+        "Audience reactions"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Venue & details",
+      "id": "4ca12680-e337-470e-a991-11b156a66330",
+      "preset": "Conference",
+      "ranked": [
+        "Venue & details",
+        "Speakers",
+        "Sponsors & exhibitors",
+        "Audience reactions",
+        "Candids & networking",
+        "Group photos"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Sponsors & exhibitors",
+      "id": "742c11f4-5bb5-4bd3-97e1-f9b0d6feb34f",
+      "preset": "Conference",
+      "ranked": [
+        "Sponsors & exhibitors",
+        "Speakers",
+        "Audience reactions",
+        "Venue & details",
+        "Candids & networking",
+        "Group photos"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Sponsors & exhibitors",
+      "id": "2a208b26-c7d7-42f1-aee9-a359c5111b0b",
+      "preset": "Conference",
+      "ranked": [
+        "Sponsors & exhibitors",
+        "Venue & details",
+        "Speakers",
+        "Audience reactions",
+        "Candids & networking",
+        "Group photos"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Group photos",
+      "id": "a6855e71-19a5-40fe-97ba-86a3eb9d48d8",
+      "preset": "Conference",
+      "ranked": [
+        "Group photos",
+        "Candids & networking",
+        "Speakers",
+        "Audience reactions",
+        "Venue & details",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Group photos",
+      "id": "f04d5636-5910-4b78-b5be-d14f80c1fef3",
+      "preset": "Conference",
+      "ranked": [
+        "Group photos",
+        "Speakers",
+        "Audience reactions",
+        "Candids & networking",
+        "Sponsors & exhibitors",
+        "Venue & details"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Group photos",
+      "id": "89c3d284-526c-4c2f-a621-f8ba65742636",
+      "preset": "Conference",
+      "ranked": [
+        "Audience reactions",
+        "Group photos",
+        "Speakers",
+        "Sponsors & exhibitors",
+        "Candids & networking",
+        "Venue & details"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Group photos",
+      "id": "2a2ae229-b9c2-46e3-b8ae-7944e9edd3ae",
+      "preset": "Conference",
+      "ranked": [
+        "Audience reactions",
+        "Group photos",
+        "Candids & networking",
+        "Speakers",
+        "Venue & details",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Group photos",
+      "id": "0a713ad0-b0ce-4f7d-8714-caa1f6c6841c",
+      "preset": "Conference",
+      "ranked": [
+        "Group photos",
+        "Speakers",
+        "Audience reactions",
+        "Venue & details",
+        "Candids & networking",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Group photos",
+      "id": "377f582f-6317-4d61-aba4-74ea63ca18dd",
+      "preset": "Conference",
+      "ranked": [
+        "Group photos",
+        "Audience reactions",
+        "Candids & networking",
+        "Speakers",
+        "Venue & details",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Group photos",
+      "id": "2d63b01a-47d7-425a-ad47-2f3f307d2022",
+      "preset": "Conference",
+      "ranked": [
+        "Audience reactions",
+        "Group photos",
+        "Speakers",
+        "Candids & networking",
+        "Sponsors & exhibitors",
+        "Venue & details"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Group photos",
+      "id": "7cd5f97a-84c8-48ed-a78a-255d326d9b1c",
+      "preset": "Conference",
+      "ranked": [
+        "Group photos",
+        "Audience reactions",
+        "Candids & networking",
+        "Speakers",
+        "Venue & details",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Group photos",
+      "id": "ebeaa23b-0fd2-4352-891c-1f0cc739dc16",
+      "preset": "Conference",
+      "ranked": [
+        "Group photos",
+        "Audience reactions",
+        "Speakers",
+        "Candids & networking",
+        "Venue & details",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Candids & networking",
+      "id": "a8e9ea03-d7bf-4854-9e4a-b971fd33341b",
+      "preset": "Conference",
+      "ranked": [
+        "Venue & details",
+        "Candids & networking",
+        "Speakers",
+        "Audience reactions",
+        "Group photos",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Venue & details",
+      "id": "097c492f-a4ec-41c5-8ca4-dafd5f9f8339",
+      "preset": "Conference",
+      "ranked": [
+        "Venue & details",
+        "Speakers",
+        "Sponsors & exhibitors",
+        "Candids & networking",
+        "Audience reactions",
+        "Group photos"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Venue & details",
+      "id": "0ddbfa91-ab2b-424d-adc0-dfd8665d2500",
+      "preset": "Conference",
+      "ranked": [
+        "Venue & details",
+        "Speakers",
+        "Audience reactions",
+        "Candids & networking",
+        "Sponsors & exhibitors",
+        "Group photos"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Venue & details",
+      "id": "9893e4dd-edf1-4b64-bed0-17a2c90ee6a9",
+      "preset": "Conference",
+      "ranked": [
+        "Venue & details",
+        "Speakers",
+        "Audience reactions",
+        "Candids & networking",
+        "Group photos",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Venue & details",
+      "id": "d990afc4-0c99-4bc5-aa64-e78173fc1816",
+      "preset": "Conference",
+      "ranked": [
+        "Venue & details",
+        "Speakers",
+        "Sponsors & exhibitors",
+        "Candids & networking",
+        "Audience reactions",
+        "Group photos"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Venue & details",
+      "id": "8f89fa7d-8e5f-420f-86ef-ddd6b9f6ef4b",
+      "preset": "Conference",
+      "ranked": [
+        "Venue & details",
+        "Speakers",
+        "Sponsors & exhibitors",
+        "Group photos",
+        "Candids & networking",
+        "Audience reactions"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Venue & details",
+      "id": "d66dd9ab-7c17-429b-9e34-f8ddc0308a4e",
+      "preset": "Conference",
+      "ranked": [
+        "Venue & details",
+        "Speakers",
+        "Sponsors & exhibitors",
+        "Candids & networking",
+        "Audience reactions",
+        "Group photos"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Venue & details",
+      "id": "65145d3a-adf2-4fd3-a1c4-d4dd7c4f9d9b",
+      "preset": "Conference",
+      "ranked": [
+        "Venue & details",
+        "Speakers",
+        "Sponsors & exhibitors",
+        "Candids & networking",
+        "Audience reactions",
+        "Group photos"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Venue & details",
+      "id": "370441ef-6bf7-4b04-b3ec-f991b274acc7",
+      "preset": "Conference",
+      "ranked": [
+        "Venue & details",
+        "Speakers",
+        "Audience reactions",
+        "Candids & networking",
+        "Sponsors & exhibitors",
+        "Group photos"
+      ]
+    },
+    {
+      "assigned": [
+        "Group photos"
+      ],
+      "gold": "Group photos",
+      "id": "bc417d1a-20fb-4af3-9b44-6dbd21248638",
+      "preset": "Conference",
+      "ranked": [
+        "Group photos",
+        "Speakers",
+        "Audience reactions",
+        "Venue & details",
+        "Candids & networking",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Speakers",
+      "id": "commons-173846479",
+      "preset": "Conference",
+      "ranked": [
+        "Audience reactions",
+        "Speakers",
+        "Candids & networking",
+        "Venue & details",
+        "Sponsors & exhibitors",
+        "Group photos"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Speakers",
+      "id": "commons-171982305",
+      "preset": "Conference",
+      "ranked": [
+        "Speakers",
+        "Candids & networking",
+        "Audience reactions",
+        "Venue & details",
+        "Group photos",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Speakers",
+      "id": "commons-197333115",
+      "preset": "Conference",
+      "ranked": [
+        "Speakers",
+        "Venue & details",
+        "Candids & networking",
+        "Sponsors & exhibitors",
+        "Audience reactions",
+        "Group photos"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Candids & networking",
+      "id": "commons-151713457",
+      "preset": "Conference",
+      "ranked": [
+        "Candids & networking",
+        "Sponsors & exhibitors",
+        "Audience reactions",
+        "Speakers",
+        "Group photos",
+        "Venue & details"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Speakers",
+      "id": "commons-151799262",
+      "preset": "Conference",
+      "ranked": [
+        "Audience reactions",
+        "Speakers",
+        "Candids & networking",
+        "Venue & details",
+        "Group photos",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Speakers",
+      "id": "commons-151799260",
+      "preset": "Conference",
+      "ranked": [
+        "Speakers",
+        "Audience reactions",
+        "Venue & details",
+        "Candids & networking",
+        "Sponsors & exhibitors",
+        "Group photos"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Speakers",
+      "id": "commons-151799265",
+      "preset": "Conference",
+      "ranked": [
+        "Speakers",
+        "Candids & networking",
+        "Venue & details",
+        "Audience reactions",
+        "Group photos",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Speakers",
+      "id": "commons-151799308",
+      "preset": "Conference",
+      "ranked": [
+        "Candids & networking",
+        "Audience reactions",
+        "Speakers",
+        "Venue & details",
+        "Group photos",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Speakers",
+      "id": "commons-137865635",
+      "preset": "Conference",
+      "ranked": [
+        "Speakers",
+        "Audience reactions",
+        "Sponsors & exhibitors",
+        "Candids & networking",
+        "Venue & details",
+        "Group photos"
+      ]
+    },
+    {
+      "assigned": [
+        "Speakers"
+      ],
+      "gold": "Speakers",
+      "id": "commons-34721797",
+      "preset": "Conference",
+      "ranked": [
+        "Speakers",
+        "Audience reactions",
+        "Candids & networking",
+        "Venue & details",
+        "Group photos",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Group photos",
+      "id": "commons-151452797",
+      "preset": "Conference",
+      "ranked": [
+        "Speakers",
+        "Group photos",
+        "Candids & networking",
+        "Audience reactions",
+        "Venue & details",
+        "Sponsors & exhibitors"
+      ]
+    },
+    {
+      "assigned": [
+        "Speakers"
+      ],
+      "gold": "Speakers",
+      "id": "commons-138227102",
+      "preset": "Conference",
+      "ranked": [
+        "Speakers",
+        "Candids & networking",
+        "Audience reactions",
+        "Venue & details",
+        "Sponsors & exhibitors",
+        "Group photos"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Getting ready",
+      "id": "8172f547-75e1-495a-9a66-3a38af75e5b1",
+      "preset": "Wedding",
+      "ranked": [
+        "Getting ready",
+        "Couple portraits",
+        "Ceremony",
+        "Details",
+        "Family & group formals",
+        "Speeches & toasts",
+        "Reception & dancing"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Couple portraits",
+      "id": "cd437b45-e9e7-4d53-90e6-01656d9b1153",
+      "preset": "Wedding",
+      "ranked": [
+        "Couple portraits",
+        "Getting ready",
+        "Ceremony",
+        "Family & group formals",
+        "Speeches & toasts",
+        "Details",
+        "Reception & dancing"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Ceremony",
+      "id": "108bf5c9-03ca-46cb-a90b-84c336b203c1",
+      "preset": "Wedding",
+      "ranked": [
+        "Ceremony",
+        "Speeches & toasts",
+        "Getting ready",
+        "Details",
+        "Family & group formals",
+        "Couple portraits",
+        "Reception & dancing"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Family & group formals",
+      "id": "e37179a4-d549-4de8-8cee-0888eb7cf489",
+      "preset": "Wedding",
+      "ranked": [
+        "Family & group formals",
+        "Ceremony",
+        "Getting ready",
+        "Couple portraits",
+        "Speeches & toasts",
+        "Details",
+        "Reception & dancing"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Ceremony",
+      "id": "0a541d4c-b796-4493-ab07-e5a8712359ce",
+      "preset": "Wedding",
+      "ranked": [
+        "Ceremony",
+        "Family & group formals",
+        "Getting ready",
+        "Speeches & toasts",
+        "Details",
+        "Couple portraits",
+        "Reception & dancing"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Ceremony",
+      "id": "aa14bad8-7864-4ff3-b079-f659b2fd1634",
+      "preset": "Wedding",
+      "ranked": [
+        "Ceremony",
+        "Details",
+        "Getting ready",
+        "Speeches & toasts",
+        "Family & group formals",
+        "Couple portraits",
+        "Reception & dancing"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Ceremony",
+      "id": "1fc785c4-c910-4970-812e-ff368c2367ab",
+      "preset": "Wedding",
+      "ranked": [
+        "Ceremony",
+        "Family & group formals",
+        "Speeches & toasts",
+        "Getting ready",
+        "Details",
+        "Couple portraits",
+        "Reception & dancing"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Ceremony",
+      "id": "fd225eb9-4228-4102-8bf9-18bf3ec9cf04",
+      "preset": "Wedding",
+      "ranked": [
+        "Ceremony",
+        "Details",
+        "Speeches & toasts",
+        "Family & group formals",
+        "Getting ready",
+        "Couple portraits",
+        "Reception & dancing"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Couple portraits",
+      "id": "bbdb6ab4-29be-490d-a427-00e3db6b9190",
+      "preset": "Wedding",
+      "ranked": [
+        "Couple portraits",
+        "Family & group formals",
+        "Ceremony",
+        "Details",
+        "Getting ready",
+        "Speeches & toasts",
+        "Reception & dancing"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Couple portraits",
+      "id": "51cf4d61-0b66-4f42-a3e8-0da3306265eb",
+      "preset": "Wedding",
+      "ranked": [
+        "Couple portraits",
+        "Ceremony",
+        "Speeches & toasts",
+        "Details",
+        "Getting ready",
+        "Reception & dancing",
+        "Family & group formals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Couple portraits",
+      "id": "5129911f-1db4-4edc-8b5f-c4e3d342d9e5",
+      "preset": "Wedding",
+      "ranked": [
+        "Couple portraits",
+        "Getting ready",
+        "Ceremony",
+        "Family & group formals",
+        "Details",
+        "Speeches & toasts",
+        "Reception & dancing"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Family & group formals",
+      "id": "f20ad0ab-d92e-4803-80d3-7f28f2d06b51",
+      "preset": "Wedding",
+      "ranked": [
+        "Family & group formals",
+        "Ceremony",
+        "Couple portraits",
+        "Speeches & toasts",
+        "Getting ready",
+        "Details",
+        "Reception & dancing"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Couple portraits",
+      "id": "5ce673c9-9f6f-47f1-8ac4-fbe1fad2744b",
+      "preset": "Wedding",
+      "ranked": [
+        "Couple portraits",
+        "Ceremony",
+        "Family & group formals",
+        "Getting ready",
+        "Speeches & toasts",
+        "Details",
+        "Reception & dancing"
+      ]
+    },
+    {
+      "assigned": [
+        "Family & group formals"
+      ],
+      "gold": "Family & group formals",
+      "id": "e975bb27-d653-4413-9f3a-543ab5e89953",
+      "preset": "Wedding",
+      "ranked": [
+        "Family & group formals",
+        "Ceremony",
+        "Speeches & toasts",
+        "Couple portraits",
+        "Details",
+        "Getting ready",
+        "Reception & dancing"
+      ]
+    },
+    {
+      "assigned": [
+        "Family & group formals"
+      ],
+      "gold": "Family & group formals",
+      "id": "b5a5ab61-7a3e-4032-8e31-1e50f9b29e3b",
+      "preset": "Wedding",
+      "ranked": [
+        "Family & group formals",
+        "Ceremony",
+        "Speeches & toasts",
+        "Getting ready",
+        "Details",
+        "Couple portraits",
+        "Reception & dancing"
+      ]
+    },
+    {
+      "assigned": [
+        "Family & group formals"
+      ],
+      "gold": "Family & group formals",
+      "id": "9fadb9c9-9d45-424f-a60b-7eb96feee75a",
+      "preset": "Wedding",
+      "ranked": [
+        "Family & group formals",
+        "Ceremony",
+        "Couple portraits",
+        "Speeches & toasts",
+        "Getting ready",
+        "Reception & dancing",
+        "Details"
+      ]
+    },
+    {
+      "assigned": [
+        "Speeches & toasts"
+      ],
+      "gold": "Speeches & toasts",
+      "id": "974a7c02-436b-4378-bfd6-bde51c01290f",
+      "preset": "Wedding",
+      "ranked": [
+        "Speeches & toasts",
+        "Reception & dancing",
+        "Family & group formals",
+        "Ceremony",
+        "Details",
+        "Getting ready",
+        "Couple portraits"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Speeches & toasts",
+      "id": "6af3bb9f-2907-46d1-8e17-519c2767713d",
+      "preset": "Wedding",
+      "ranked": [
+        "Speeches & toasts",
+        "Ceremony",
+        "Couple portraits",
+        "Getting ready",
+        "Details",
+        "Family & group formals",
+        "Reception & dancing"
+      ]
+    },
+    {
+      "assigned": [
+        "Speeches & toasts"
+      ],
+      "gold": "Speeches & toasts",
+      "id": "b809a09f-d384-43a6-b3c3-cccd821e982d",
+      "preset": "Wedding",
+      "ranked": [
+        "Speeches & toasts",
+        "Ceremony",
+        "Couple portraits",
+        "Getting ready",
+        "Family & group formals",
+        "Details",
+        "Reception & dancing"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Speeches & toasts",
+      "id": "ad9db22d-74f1-4fbf-9b0b-4b7fc0d300ae",
+      "preset": "Wedding",
+      "ranked": [
+        "Ceremony",
+        "Speeches & toasts",
+        "Reception & dancing",
+        "Family & group formals",
+        "Details",
+        "Getting ready",
+        "Couple portraits"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Speeches & toasts",
+      "id": "3a5184f5-ad02-41eb-9b90-f0f65f959839",
+      "preset": "Wedding",
+      "ranked": [
+        "Ceremony",
+        "Speeches & toasts",
+        "Family & group formals",
+        "Details",
+        "Getting ready",
+        "Couple portraits",
+        "Reception & dancing"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Reception & dancing",
+      "id": "d83370f3-6bcd-406b-b8a0-6058bd4648e1",
+      "preset": "Wedding",
+      "ranked": [
+        "Reception & dancing",
+        "Ceremony",
+        "Family & group formals",
+        "Details",
+        "Speeches & toasts",
+        "Getting ready",
+        "Couple portraits"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Reception & dancing",
+      "id": "f3fb4a49-0a0b-4725-9540-1a6fa00818d8",
+      "preset": "Wedding",
+      "ranked": [
+        "Reception & dancing",
+        "Ceremony",
+        "Speeches & toasts",
+        "Details",
+        "Couple portraits",
+        "Getting ready",
+        "Family & group formals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Reception & dancing",
+      "id": "e87a1c33-cad4-47b0-b290-e32404e9b60f",
+      "preset": "Wedding",
+      "ranked": [
+        "Details",
+        "Ceremony",
+        "Family & group formals",
+        "Speeches & toasts",
+        "Getting ready",
+        "Couple portraits",
+        "Reception & dancing"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Reception & dancing",
+      "id": "b6fd4cf3-4214-4bf5-b356-40cbccbfcdfa",
+      "preset": "Wedding",
+      "ranked": [
+        "Ceremony",
+        "Details",
+        "Reception & dancing",
+        "Family & group formals",
+        "Speeches & toasts",
+        "Getting ready",
+        "Couple portraits"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Family & group formals",
+      "id": "5fad3ec7-6b9f-4ed8-befd-9ff0632cfd78",
+      "preset": "Wedding",
+      "ranked": [
+        "Family & group formals",
+        "Ceremony",
+        "Reception & dancing",
+        "Speeches & toasts",
+        "Details",
+        "Getting ready",
+        "Couple portraits"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Reception & dancing",
+      "id": "7d6fa760-2bec-4def-bfd3-30b9e702a01c",
+      "preset": "Wedding",
+      "ranked": [
+        "Ceremony",
+        "Reception & dancing",
+        "Family & group formals",
+        "Details",
+        "Speeches & toasts",
+        "Getting ready",
+        "Couple portraits"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Details",
+      "id": "383ac0b9-83e5-49d5-8311-f3132b3f843c",
+      "preset": "Wedding",
+      "ranked": [
+        "Details",
+        "Speeches & toasts",
+        "Ceremony",
+        "Family & group formals",
+        "Couple portraits",
+        "Getting ready",
+        "Reception & dancing"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Details",
+      "id": "14e1f1ea-9cda-4bac-9d1c-7fe62369bf0a",
+      "preset": "Wedding",
+      "ranked": [
+        "Details",
+        "Ceremony",
+        "Speeches & toasts",
+        "Couple portraits",
+        "Reception & dancing",
+        "Family & group formals",
+        "Getting ready"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Details",
+      "id": "6dd3fa65-2655-47d4-9fa3-31ae2ee179d0",
+      "preset": "Wedding",
+      "ranked": [
+        "Details",
+        "Ceremony",
+        "Speeches & toasts",
+        "Family & group formals",
+        "Getting ready",
+        "Reception & dancing",
+        "Couple portraits"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Details",
+      "id": "9655d6a8-6703-400b-8569-74f88efdcb51",
+      "preset": "Wedding",
+      "ranked": [
+        "Details",
+        "Speeches & toasts",
+        "Getting ready",
+        "Ceremony",
+        "Couple portraits",
+        "Reception & dancing",
+        "Family & group formals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Family & group formals",
+      "id": "commons-83565431",
+      "preset": "Wedding",
+      "ranked": [
+        "Family & group formals",
+        "Ceremony",
+        "Speeches & toasts",
+        "Couple portraits",
+        "Getting ready",
+        "Details",
+        "Reception & dancing"
+      ]
+    },
+    {
+      "assigned": [
+        "Venue"
+      ],
+      "gold": "Venue",
+      "id": "bf139acd-ba6b-43b2-a2f1-4c5179b9c3b5",
+      "preset": "Sports",
+      "ranked": [
+        "Venue",
+        "Action",
+        "Celebrations",
+        "Team & portraits",
+        "Fans & crowd"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Action",
+      "id": "b6f74260-f285-41f7-b78d-c4d5507edb49",
+      "preset": "Sports",
+      "ranked": [
+        "Action",
+        "Venue",
+        "Team & portraits",
+        "Celebrations",
+        "Fans & crowd"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Venue",
+      "id": "54f1d642-bac8-43e6-be57-94d3ccb6cd6d",
+      "preset": "Sports",
+      "ranked": [
+        "Venue",
+        "Fans & crowd",
+        "Action",
+        "Team & portraits",
+        "Celebrations"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "9e5f8421-d3d8-4c1b-8961-fe84f2a14535",
+      "preset": "Sports",
+      "ranked": [
+        "Team & portraits",
+        "Venue",
+        "Action",
+        "Fans & crowd",
+        "Celebrations"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Action",
+      "id": "802cc38c-6ddf-490b-af7d-22c4947eb0fd",
+      "preset": "Sports",
+      "ranked": [
+        "Action",
+        "Team & portraits",
+        "Celebrations",
+        "Venue",
+        "Fans & crowd"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Action",
+      "id": "e06e4c87-59f0-4b85-be98-8994f11fc94e",
+      "preset": "Sports",
+      "ranked": [
+        "Action",
+        "Team & portraits",
+        "Venue",
+        "Celebrations",
+        "Fans & crowd"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Venue",
+      "id": "54141c47-775f-4112-95d3-cb350cb3f4bf",
+      "preset": "Sports",
+      "ranked": [
+        "Venue",
+        "Action",
+        "Team & portraits",
+        "Fans & crowd",
+        "Celebrations"
+      ]
+    },
+    {
+      "assigned": [
+        "Venue"
+      ],
+      "gold": "Venue",
+      "id": "5f01fa25-648b-4586-9182-a1e549db3c13",
+      "preset": "Sports",
+      "ranked": [
+        "Venue",
+        "Action",
+        "Celebrations",
+        "Fans & crowd",
+        "Team & portraits"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "6de80801-595d-4bd1-a9fd-fae3bdebb2b4",
+      "preset": "Sports",
+      "ranked": [
+        "Team & portraits",
+        "Action",
+        "Celebrations",
+        "Venue",
+        "Fans & crowd"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Action",
+      "id": "90620e91-89db-44f8-bb55-dc0f4a8a32d9",
+      "preset": "Sports",
+      "ranked": [
+        "Venue",
+        "Action",
+        "Team & portraits",
+        "Fans & crowd",
+        "Celebrations"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Celebrations",
+      "id": "6db36474-498a-4f90-9eb7-ad4578b8654e",
+      "preset": "Sports",
+      "ranked": [
+        "Team & portraits",
+        "Action",
+        "Celebrations",
+        "Venue",
+        "Fans & crowd"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "a58686f2-e046-4c1c-940c-e78b6e35c7dc",
+      "preset": "Sports",
+      "ranked": [
+        "Team & portraits",
+        "Celebrations",
+        "Action",
+        "Fans & crowd",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "d050f2b5-5d9c-488e-91f1-28f7d3fd0950",
+      "preset": "Sports",
+      "ranked": [
+        "Team & portraits",
+        "Celebrations",
+        "Action",
+        "Fans & crowd",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "a0515ab1-d047-4e21-ad7c-af3eb63949a3",
+      "preset": "Sports",
+      "ranked": [
+        "Team & portraits",
+        "Celebrations",
+        "Action",
+        "Fans & crowd",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "d46e3ad3-6c3d-44c9-90b9-3fb230a60c30",
+      "preset": "Sports",
+      "ranked": [
+        "Celebrations",
+        "Team & portraits",
+        "Action",
+        "Fans & crowd",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [
+        "Venue"
+      ],
+      "gold": "Venue",
+      "id": "b4bac666-b0e2-46ee-85fe-1d50ce21f1f6",
+      "preset": "Sports",
+      "ranked": [
+        "Venue",
+        "Action",
+        "Celebrations",
+        "Team & portraits",
+        "Fans & crowd"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Fans & crowd",
+      "id": "498890fd-18b3-4020-a1cc-d29dec405a71",
+      "preset": "Sports",
+      "ranked": [
+        "Action",
+        "Celebrations",
+        "Venue",
+        "Fans & crowd",
+        "Team & portraits"
+      ]
+    },
+    {
+      "assigned": [
+        "Fans & crowd"
+      ],
+      "gold": "Fans & crowd",
+      "id": "393651b2-146c-4fe2-b12d-e8cb3b952913",
+      "preset": "Sports",
+      "ranked": [
+        "Fans & crowd",
+        "Venue",
+        "Action",
+        "Celebrations",
+        "Team & portraits"
+      ]
+    },
+    {
+      "assigned": [
+        "Fans & crowd"
+      ],
+      "gold": "Fans & crowd",
+      "id": "4f839715-80fe-42d8-971f-8be4c9318685",
+      "preset": "Sports",
+      "ranked": [
+        "Fans & crowd",
+        "Team & portraits",
+        "Celebrations",
+        "Action",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Fans & crowd",
+      "id": "ef3f9a73-deac-4b17-80f2-a31f37b0dd57",
+      "preset": "Sports",
+      "ranked": [
+        "Fans & crowd",
+        "Action",
+        "Celebrations",
+        "Team & portraits",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Fans & crowd",
+      "id": "fe716b2b-3737-48e7-a607-9401b029c42d",
+      "preset": "Sports",
+      "ranked": [
+        "Action",
+        "Fans & crowd",
+        "Venue",
+        "Celebrations",
+        "Team & portraits"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "fd46afc2-81fb-463f-874a-8e2b5d5dcdf5",
+      "preset": "Sports",
+      "ranked": [
+        "Team & portraits",
+        "Celebrations",
+        "Fans & crowd",
+        "Venue",
+        "Action"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Celebrations",
+      "id": "50cd607a-84ce-47d5-bbc0-55cc176dcd6a",
+      "preset": "Sports",
+      "ranked": [
+        "Action",
+        "Team & portraits",
+        "Celebrations",
+        "Fans & crowd",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "aa2038cc-3834-4662-ab5f-4e6672f5ccc4",
+      "preset": "Sports",
+      "ranked": [
+        "Team & portraits",
+        "Venue",
+        "Action",
+        "Celebrations",
+        "Fans & crowd"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "ddbe5808-7767-460f-940a-18e6e501353a",
+      "preset": "Sports",
+      "ranked": [
+        "Team & portraits",
+        "Action",
+        "Celebrations",
+        "Venue",
+        "Fans & crowd"
+      ]
+    },
+    {
+      "assigned": [
+        "Team & portraits"
+      ],
+      "gold": "Team & portraits",
+      "id": "7ef38e17-6a61-45e8-951e-034134f15af3",
+      "preset": "Sports",
+      "ranked": [
+        "Team & portraits",
+        "Action",
+        "Celebrations",
+        "Fans & crowd",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "451e22ea-667a-4061-86d2-5e69e0626d1a",
+      "preset": "Sports",
+      "ranked": [
+        "Team & portraits",
+        "Action",
+        "Venue",
+        "Celebrations",
+        "Fans & crowd"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "b075c0b3-0817-46c1-a726-7ccea176f3f9",
+      "preset": "Sports",
+      "ranked": [
+        "Team & portraits",
+        "Action",
+        "Fans & crowd",
+        "Celebrations",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "12969069-218e-4127-9a42-eeec7bd369e7",
+      "preset": "Sports",
+      "ranked": [
+        "Team & portraits",
+        "Action",
+        "Celebrations",
+        "Fans & crowd",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "ec48076a-7a82-445d-ac7f-d37ef5bcb337",
+      "preset": "Sports",
+      "ranked": [
+        "Team & portraits",
+        "Action",
+        "Celebrations",
+        "Venue",
+        "Fans & crowd"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "301d8183-8d40-43d4-98de-ceea0037d955",
+      "preset": "Sports",
+      "ranked": [
+        "Team & portraits",
+        "Action",
+        "Celebrations",
+        "Fans & crowd",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "7d034cbc-4a1b-42e7-83a8-e9e4ec04eb01",
+      "preset": "Sports",
+      "ranked": [
+        "Team & portraits",
+        "Action",
+        "Celebrations",
+        "Fans & crowd",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "03380439-aaa9-488e-9d46-e569b16dc90a",
+      "preset": "Sports",
+      "ranked": [
+        "Team & portraits",
+        "Action",
+        "Fans & crowd",
+        "Celebrations",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "52aa5a71-fe62-472f-b93b-c82328ead4d8",
+      "preset": "Sports",
+      "ranked": [
+        "Team & portraits",
+        "Action",
+        "Celebrations",
+        "Fans & crowd",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [
+        "Venue"
+      ],
+      "gold": "Team & portraits",
+      "id": "9904fbb2-6728-44b7-8641-0f31f242f7ee",
+      "preset": "Sports",
+      "ranked": [
+        "Venue",
+        "Action",
+        "Fans & crowd",
+        "Team & portraits",
+        "Celebrations"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Venue",
+      "id": "1f288f58-699d-4acd-9aa1-44071d4645c5",
+      "preset": "Sports",
+      "ranked": [
+        "Venue",
+        "Action",
+        "Celebrations",
+        "Fans & crowd",
+        "Team & portraits"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Venue",
+      "id": "22d91bfb-c275-4120-a35d-a1d2eef9d79b",
+      "preset": "Sports",
+      "ranked": [
+        "Venue",
+        "Celebrations",
+        "Action",
+        "Team & portraits",
+        "Fans & crowd"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Venue",
+      "id": "bcf0c87a-3af8-445c-95de-4e7ed10be78a",
+      "preset": "Sports",
+      "ranked": [
+        "Venue",
+        "Celebrations",
+        "Action",
+        "Fans & crowd",
+        "Team & portraits"
+      ]
+    },
+    {
+      "assigned": [
+        "Venue"
+      ],
+      "gold": "Venue",
+      "id": "944bbb14-d692-484b-8535-26487768f66b",
+      "preset": "Sports",
+      "ranked": [
+        "Venue",
+        "Action",
+        "Fans & crowd",
+        "Celebrations",
+        "Team & portraits"
+      ]
+    },
+    {
+      "assigned": [
+        "Venue"
+      ],
+      "gold": "Venue",
+      "id": "3ec48165-339f-41f4-8c6d-b66283446e16",
+      "preset": "Sports",
+      "ranked": [
+        "Venue",
+        "Action",
+        "Celebrations",
+        "Team & portraits",
+        "Fans & crowd"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Venue",
+      "id": "4749e212-3cbb-4970-9764-30de84335a6c",
+      "preset": "Sports",
+      "ranked": [
+        "Venue",
+        "Action",
+        "Celebrations",
+        "Fans & crowd",
+        "Team & portraits"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Venue",
+      "id": "315de7e5-56bc-4b01-85de-ddca51c40307",
+      "preset": "Sports",
+      "ranked": [
+        "Venue",
+        "Action",
+        "Celebrations",
+        "Team & portraits",
+        "Fans & crowd"
+      ]
+    },
+    {
+      "assigned": [
+        "Venue"
+      ],
+      "gold": "Venue",
+      "id": "10d63222-49ac-409e-98bb-f60641f35bd8",
+      "preset": "Sports",
+      "ranked": [
+        "Venue",
+        "Action",
+        "Fans & crowd",
+        "Celebrations",
+        "Team & portraits"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Venue",
+      "id": "1c47017a-333f-4a18-82c8-e4bfd8d8fee8",
+      "preset": "Sports",
+      "ranked": [
+        "Venue",
+        "Action",
+        "Celebrations",
+        "Fans & crowd",
+        "Team & portraits"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Venue",
+      "id": "9970dd7f-d7a5-448e-92d6-f3bc83e9165e",
+      "preset": "Sports",
+      "ranked": [
+        "Venue",
+        "Action",
+        "Celebrations",
+        "Team & portraits",
+        "Fans & crowd"
+      ]
+    },
+    {
+      "assigned": [
+        "Venue"
+      ],
+      "gold": "Venue",
+      "id": "aeb9fd36-25d1-4748-a17b-96b7b67ac5a4",
+      "preset": "Sports",
+      "ranked": [
+        "Venue",
+        "Action",
+        "Celebrations",
+        "Fans & crowd",
+        "Team & portraits"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Celebrations",
+      "id": "commons-150156973",
+      "preset": "Sports",
+      "ranked": [
+        "Celebrations",
+        "Action",
+        "Fans & crowd",
+        "Team & portraits",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Celebrations",
+      "id": "commons-149952087",
+      "preset": "Sports",
+      "ranked": [
+        "Celebrations",
+        "Action",
+        "Fans & crowd",
+        "Team & portraits",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Celebrations",
+      "id": "commons-130993031",
+      "preset": "Sports",
+      "ranked": [
+        "Action",
+        "Celebrations",
+        "Venue",
+        "Team & portraits",
+        "Fans & crowd"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "commons-36541272",
+      "preset": "Sports",
+      "ranked": [
+        "Action",
+        "Team & portraits",
+        "Celebrations",
+        "Venue",
+        "Fans & crowd"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "commons-86079519",
+      "preset": "Sports",
+      "ranked": [
+        "Team & portraits",
+        "Action",
+        "Celebrations",
+        "Fans & crowd",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "commons-22756050",
+      "preset": "Sports",
+      "ranked": [
+        "Team & portraits",
+        "Action",
+        "Celebrations",
+        "Venue",
+        "Fans & crowd"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Action",
+      "id": "commons-20029194",
+      "preset": "Sports",
+      "ranked": [
+        "Action",
+        "Team & portraits",
+        "Celebrations",
+        "Venue",
+        "Fans & crowd"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Celebrations",
+      "id": "commons-128264886",
+      "preset": "Sports",
+      "ranked": [
+        "Action",
+        "Team & portraits",
+        "Celebrations",
+        "Fans & crowd",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Celebrations",
+      "id": "commons-192574413",
+      "preset": "Sports",
+      "ranked": [
+        "Celebrations",
+        "Action",
+        "Team & portraits",
+        "Fans & crowd",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Celebrations",
+      "id": "commons-131264681",
+      "preset": "Sports",
+      "ranked": [
+        "Action",
+        "Venue",
+        "Celebrations",
+        "Fans & crowd",
+        "Team & portraits"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Celebrations",
+      "id": "commons-30415202",
+      "preset": "Sports",
+      "ranked": [
+        "Action",
+        "Team & portraits",
+        "Celebrations",
+        "Fans & crowd",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Venue",
+      "id": "commons-129891473",
+      "preset": "Sports",
+      "ranked": [
+        "Action",
+        "Venue",
+        "Team & portraits",
+        "Celebrations",
+        "Fans & crowd"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Team & portraits",
+      "id": "commons-129891440",
+      "preset": "Sports",
+      "ranked": [
+        "Action",
+        "Celebrations",
+        "Team & portraits",
+        "Fans & crowd",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Celebrations",
+      "id": "commons-129891798",
+      "preset": "Sports",
+      "ranked": [
+        "Action",
+        "Celebrations",
+        "Team & portraits",
+        "Fans & crowd",
+        "Venue"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "7ecebe9f-bf0c-4ae4-9426-10fb8b482092",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Animals",
+        "Food",
+        "Landscape",
+        "Events",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "8bc2d789-5a52-4306-8f67-aeed3f417f6c",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Food",
+        "Events",
+        "Animals",
+        "Architecture",
+        "Landscape"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "3c78f778-c9e7-4f4f-9fa6-6af2ec45cbb1",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Events",
+        "Animals",
+        "Food",
+        "Landscape",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "8655216e-9d08-4c3d-8df9-e9618eb71cc3",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Animals",
+        "Food",
+        "Events",
+        "Landscape",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "71c9f49d-dd5a-4b87-b6b6-d67d4b53b5f8",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Architecture",
+        "Food",
+        "Animals",
+        "Landscape",
+        "Events"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "77e74ed0-1576-438f-b605-e833b1be6233",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Architecture",
+        "Landscape",
+        "Animals",
+        "Food",
+        "Events"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Landscape",
+      "id": "4e410a41-53a6-40a3-b622-ae2db53c2269",
+      "preset": "General",
+      "ranked": [
+        "Landscape",
+        "Food",
+        "Animals",
+        "Events",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Landscape",
+      "id": "d06f5550-51b8-4ae2-84c3-e3aec6826b3f",
+      "preset": "General",
+      "ranked": [
+        "Landscape",
+        "Events",
+        "Animals",
+        "Food",
+        "Architecture",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Landscape",
+      "id": "5fc59231-bd7c-46c7-837e-51c768209224",
+      "preset": "General",
+      "ranked": [
+        "Landscape",
+        "Animals",
+        "Events",
+        "Food",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Landscape",
+      "id": "04b4ff6d-bd3d-46cf-8824-2dbd6f7fe205",
+      "preset": "General",
+      "ranked": [
+        "Landscape",
+        "Architecture",
+        "Food",
+        "Events",
+        "Animals",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Landscape",
+      "id": "b830d426-6c21-442e-8dba-73ad750bfbc8",
+      "preset": "General",
+      "ranked": [
+        "Landscape",
+        "Architecture",
+        "Food",
+        "Animals",
+        "Events",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Landscape",
+      "id": "a567253b-33b2-4aa1-88e4-062f085296db",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Landscape",
+        "Food",
+        "Events",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Landscape",
+      "id": "0ceb44e6-2509-4abf-ad23-b87cd691b2e3",
+      "preset": "General",
+      "ranked": [
+        "Landscape",
+        "Food",
+        "Events",
+        "Architecture",
+        "People",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Landscape",
+      "id": "cfc37b28-a669-42e8-af1c-6aac2a139a12",
+      "preset": "General",
+      "ranked": [
+        "Landscape",
+        "Animals",
+        "Food",
+        "Events",
+        "Architecture",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Landscape",
+      "id": "d47de980-3647-40b8-bcf9-7a2d7c496a19",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Landscape",
+        "People",
+        "Food",
+        "Architecture",
+        "Events"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Landscape",
+      "id": "ad3f96b3-5197-4d49-9bbd-ec7fdb18cd97",
+      "preset": "General",
+      "ranked": [
+        "Landscape",
+        "People",
+        "Food",
+        "Architecture",
+        "Animals",
+        "Events"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Landscape",
+      "id": "815288ce-62f8-449c-90a9-47b02a153279",
+      "preset": "General",
+      "ranked": [
+        "Landscape",
+        "Animals",
+        "Events",
+        "Food",
+        "Architecture",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Landscape",
+      "id": "8484fcc2-eea4-42bf-94ee-f470ace37774",
+      "preset": "General",
+      "ranked": [
+        "Landscape",
+        "Architecture",
+        "Food",
+        "Animals",
+        "Events",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "ff478077-6a61-4d11-822a-1583d5cc1706",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Animals",
+        "Architecture",
+        "Landscape",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "99d9ca9f-b7ce-4bb0-ab18-a24b1a31c214",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals",
+        "Architecture",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "6ce9c3dd-cfa6-4023-84c8-e19adeadef4c",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "People",
+        "Animals",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "bdeb13a0-d87f-454a-8aaf-f8f0c97056ab",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Animals",
+        "Landscape",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "c135847d-245e-4ce7-a785-d61e072badbf",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Animals",
+        "Landscape",
+        "Architecture",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "43d18bbd-d74e-45a1-825c-659cbba09c9a",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Landscape",
+        "Events",
+        "Animals",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "10b08f80-9dd5-4a3e-b36b-e77381c5538b",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Landscape",
+        "Animals",
+        "People",
+        "Events",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "aba598dd-1984-4355-98de-970fbddbd410",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Animals",
+        "Landscape",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "190b9af9-7293-480a-ad09-ef3823786c71",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Animals",
+        "Events",
+        "Landscape",
+        "Architecture",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "5a2b728a-c5c1-4f2f-bc1e-03f24505343c",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals",
+        "Architecture",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "bfc3498d-7687-41a6-8ff8-60b0013afa93",
+      "preset": "General",
+      "ranked": [
+        "Architecture",
+        "Landscape",
+        "Events",
+        "Food",
+        "Animals",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Landscape",
+      "id": "30aa2ec4-dc47-42b7-b206-a09d442f7f03",
+      "preset": "General",
+      "ranked": [
+        "Landscape",
+        "Architecture",
+        "Events",
+        "Animals",
+        "Food",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "49f787f1-d6be-464f-bdae-a8c0c1428d6b",
+      "preset": "General",
+      "ranked": [
+        "Architecture",
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "606afa4d-a83c-455a-bd99-c008de20fb98",
+      "preset": "General",
+      "ranked": [
+        "Architecture",
+        "Landscape",
+        "Food",
+        "Events",
+        "People",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "320927ba-6ca5-4e00-b1c9-b498791e2ad5",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "Architecture",
+        "People",
+        "Food",
+        "Landscape",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "e82f18aa-008a-4d1f-981a-207b4e2b15a6",
+      "preset": "General",
+      "ranked": [
+        "Architecture",
+        "Landscape",
+        "People",
+        "Events",
+        "Food",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "68b0bbe6-07b7-41e2-8931-9c2c873ac54e",
+      "preset": "General",
+      "ranked": [
+        "Architecture",
+        "Events",
+        "Landscape",
+        "Food",
+        "People",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "c70975c0-af43-4590-88b8-1285ef83d342",
+      "preset": "General",
+      "ranked": [
+        "Architecture",
+        "Events",
+        "Landscape",
+        "Food",
+        "People",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "254481ef-c689-4241-8ee2-0849f0582768",
+      "preset": "General",
+      "ranked": [
+        "Architecture",
+        "Events",
+        "People",
+        "Food",
+        "Animals",
+        "Landscape"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "e6a19668-f209-437a-83fc-93eb91fff45a",
+      "preset": "General",
+      "ranked": [
+        "Architecture",
+        "People",
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "925dd6e7-f776-4ce2-97e9-4c2115ac6225",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Architecture",
+        "Landscape",
+        "Events",
+        "Food",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "09b5c95b-6e64-4b2c-8616-433234d4e5a7",
+      "preset": "General",
+      "ranked": [
+        "Architecture",
+        "Landscape",
+        "Food",
+        "Events",
+        "Animals",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "c1072dc9-3d4e-431f-884f-12144bc5f962",
+      "preset": "General",
+      "ranked": [
+        "Architecture",
+        "Events",
+        "Landscape",
+        "Food",
+        "People",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "fd6f3400-1501-4a8e-85b7-adde52170e2d",
+      "preset": "General",
+      "ranked": [
+        "Architecture",
+        "Landscape",
+        "Events",
+        "People",
+        "Food",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "f6d3b278-426d-4de9-a7fe-84fa57cb7b0e",
+      "preset": "General",
+      "ranked": [
+        "Architecture",
+        "Events",
+        "Landscape",
+        "Food",
+        "People",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "6c1251f0-d9f8-4df1-b5ca-b42df6cd8575",
+      "preset": "General",
+      "ranked": [
+        "Architecture",
+        "Events",
+        "Landscape",
+        "Food",
+        "People",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "4c758ff7-4558-4c24-9f56-aa85da69702e",
+      "preset": "General",
+      "ranked": [
+        "Architecture",
+        "Food",
+        "Landscape",
+        "Events",
+        "Animals",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "c3c7c053-c64f-42ae-ac9d-8450ab3998ed",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Landscape",
+        "Events",
+        "Food",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "bbc78f05-d2ef-4238-84e7-597b9fd3bf0f",
+      "preset": "General",
+      "ranked": [
+        "Landscape",
+        "Animals",
+        "Events",
+        "Food",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "9937f90b-1920-4f41-b128-39dc7734e0cc",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Food",
+        "Landscape",
+        "Events",
+        "Architecture",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "141c0ce9-7cce-42f3-bd20-52d93350f2a1",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Food",
+        "Landscape",
+        "Events",
+        "Architecture",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "c5a77d6a-11b4-4d2b-827a-e1e2729fb6b3",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Food",
+        "Landscape",
+        "People",
+        "Events",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "bc38aca7-2b2d-42f2-b917-8bd1b934fc01",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "People",
+        "Food",
+        "Landscape",
+        "Events",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "7624b993-b1cc-4c58-8147-2129f6924ee5",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Landscape",
+        "Food",
+        "People",
+        "Events",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "3c63dc1c-8f20-4d5a-86f1-1a24f81f30b2",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "People",
+        "Landscape",
+        "Food",
+        "Events",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "2d70ea68-1b96-41ee-87a8-0df375dc6b2a",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "People",
+        "Landscape",
+        "Food",
+        "Events",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "88642762-c4f3-40d6-9963-6773aa137928",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Food",
+        "People",
+        "Events",
+        "Landscape",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "e3f3297e-1193-4890-a61a-a13f548db4f2",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "People",
+        "Food",
+        "Landscape",
+        "Events",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "449c13cb-0d43-4195-b503-ce716ce10bd8",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Animals",
+        "Landscape",
+        "Events",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "ebec82dc-5146-46b9-8ef3-702286cfc4b9",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Animals",
+        "Events",
+        "Landscape",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "ee29e468-d3da-4c7a-992c-ee08bda1e6fb",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Food",
+        "Events",
+        "People",
+        "Landscape",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "24946e12-bd2f-4d32-ad2b-6c55c4467e3f",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Landscape",
+        "Events",
+        "Food",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "b49c4756-f000-47a1-8413-8137dbe1cd66",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Events",
+        "Architecture",
+        "Animals",
+        "Landscape",
+        "Food"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "ba1c782e-1020-46a5-b446-9000f93ebe7a",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Animals",
+        "Food",
+        "Architecture",
+        "Landscape"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "634d59ec-a8e7-4417-bebb-25289b374cdc",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Events",
+        "Animals",
+        "Architecture",
+        "Landscape",
+        "Food"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "97661eaa-19c1-4c42-9192-b038de94cc3f",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Events",
+        "Food",
+        "Landscape",
+        "Animals",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "54a462da-e399-46a3-9dbb-6067bbc8a14b",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Events",
+        "Animals",
+        "Food",
+        "Landscape",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "c7c4ef8d-4bc0-4126-8f50-50e6b90c62a1",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Events",
+        "Animals",
+        "Food",
+        "Landscape",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Events",
+      "id": "cc5f26c2-1ee5-44e4-a75a-c34c41164fb2",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Food",
+        "Animals",
+        "Landscape",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "7ea12a4d-5ef0-4c2a-82ac-50edd1ac958f",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Animals",
+        "Food",
+        "Landscape",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Events",
+      "id": "16c5a339-3b94-4603-b8d3-826966fbaa29",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Food",
+        "Animals",
+        "Landscape",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "2ec430ba-23f4-4e6c-a918-efa97d120049",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Events",
+        "Landscape",
+        "Animals",
+        "Food",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Events",
+      "id": "7228f3c8-3f24-411f-b3b2-b78b3471d2dc",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Food",
+        "Architecture",
+        "Animals",
+        "Landscape"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Events",
+      "id": "c81f7780-2859-46ea-b172-e5bcab866cb5",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "Animals",
+        "Food",
+        "People",
+        "Landscape",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Events",
+      "id": "cebb9fd8-0696-451c-9e7d-cc0df0eafdca",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Food",
+        "Architecture",
+        "Landscape",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Events",
+      "id": "2f1f9eb2-b16c-42ba-8827-2dc5fbb3abc0",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Food",
+        "Animals",
+        "Landscape",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "a812ee29-8d17-4075-9cb1-790994ab53a3",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Animals",
+        "Events",
+        "Food",
+        "Landscape",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "f4a49239-2894-4285-8600-e71609533e5c",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Landscape",
+        "Events",
+        "Architecture",
+        "Food",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "7e671d18-bfbb-46b1-9e03-3290b6d45270",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Architecture",
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "d69cfa49-3fe0-4f76-9a2e-eb559e0a2686",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Animals",
+        "Landscape",
+        "Food",
+        "Architecture",
+        "Events"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "4d7c2acb-677a-48e3-a1f6-6fdd00ef4a97",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Food",
+        "Events",
+        "Animals",
+        "Architecture",
+        "Landscape"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "fad5199d-8b93-4766-aed7-0067783671db",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Events",
+        "Food",
+        "Animals",
+        "Landscape",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "05fa026b-3762-416d-97a4-19003446bc62",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Food",
+        "Animals",
+        "Architecture",
+        "Landscape"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Events",
+      "id": "5773863f-3c51-4f6c-a79f-5f0cc2465f83",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Food",
+        "Architecture",
+        "Animals",
+        "Landscape"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "34badf69-4cba-46a2-9128-b0751a25440a",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Architecture",
+        "Food",
+        "Animals",
+        "Landscape"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Landscape",
+      "id": "87933841-74c5-4f0a-b969-b2a04fbc609d",
+      "preset": "General",
+      "ranked": [
+        "Landscape",
+        "Food",
+        "Events",
+        "Animals",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "d3a4c951-a4ee-42e5-8db6-8e535bcbb337",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Architecture",
+        "Animals",
+        "Food",
+        "Landscape",
+        "Events"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Landscape",
+      "id": "c9e7ed87-d247-409f-b117-b2806eb38f5e",
+      "preset": "General",
+      "ranked": [
+        "Landscape",
+        "Architecture",
+        "Food",
+        "Events",
+        "Animals",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "63c60586-35a0-4956-8436-56799c3c3861",
+      "preset": "General",
+      "ranked": [
+        "Architecture",
+        "Landscape",
+        "Events",
+        "Food",
+        "People",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "47164cf8-2ee6-4ace-8c2a-bbff1068c717",
+      "preset": "General",
+      "ranked": [
+        "Architecture",
+        "Landscape",
+        "Events",
+        "Food",
+        "Animals",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "d803977e-f236-45c6-b33a-6d8cf9c8fdd8",
+      "preset": "General",
+      "ranked": [
+        "Architecture",
+        "Events",
+        "Landscape",
+        "Food",
+        "Animals",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Events",
+      "id": "ca8d8ca4-3a9e-4b54-bd8a-9c24f85b4a3b",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Food",
+        "Animals",
+        "Landscape",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Events",
+      "id": "b82f37b7-63ea-4321-80a0-3fa9a1fb97b1",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Animals",
+        "Food",
+        "Architecture",
+        "Landscape"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-172816060",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Events",
+        "Landscape",
+        "Animals",
+        "Food",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-172814011",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Landscape",
+        "Animals",
+        "Events",
+        "Food",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-159013670",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Food",
+        "Animals",
+        "Events",
+        "Landscape",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-174336582",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Landscape",
+        "Architecture",
+        "Food",
+        "Events",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-171658626",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Food",
+        "Animals",
+        "Events",
+        "Architecture",
+        "Landscape"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-151639355",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Food",
+        "Landscape",
+        "Architecture",
+        "Animals",
+        "Events"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-147130723",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Architecture",
+        "Food",
+        "Landscape",
+        "Animals",
+        "Events"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-129644402",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Architecture",
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-132653636",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Animals",
+        "Landscape",
+        "Events",
+        "Food",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-133935263",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Food",
+        "Landscape",
+        "Architecture",
+        "Animals",
+        "Events"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-147314250",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Landscape",
+        "Animals",
+        "Events",
+        "Food",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-192985038",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Food",
+        "Landscape",
+        "Events",
+        "Animals",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-145376513",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Food",
+        "Architecture",
+        "Events",
+        "Animals",
+        "Landscape"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-146822827",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Architecture",
+        "Food",
+        "Animals",
+        "Landscape",
+        "Events"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-152696743",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Architecture",
+        "Events",
+        "Landscape",
+        "Food",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-146914370",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Landscape",
+        "Architecture",
+        "Animals",
+        "Food",
+        "Events"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103571590",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Architecture",
+        "People",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103571577",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103519216",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "People",
+        "Animals",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103571588",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103571585",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103571596",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Architecture",
+        "Animals",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103571600",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Landscape",
+        "Events",
+        "Animals",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103571578",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Landscape",
+        "Events",
+        "Animals",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103571580",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "People",
+        "Animals",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103265044",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "People",
+        "Animals",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103465882",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Architecture",
+        "Animals",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103443980",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals",
+        "Architecture",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-101872685",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Architecture",
+        "People",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-101987842",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Animals",
+        "Landscape",
+        "Architecture",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103382595",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Landscape",
+        "Events",
+        "Animals",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103617101",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals",
+        "Architecture",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103360081",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "People",
+        "Animals",
+        "Landscape",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-93953686",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Animals",
+        "Landscape",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-129495256",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Animals",
+        "Events",
+        "Landscape",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103649665",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-102143418",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "People",
+        "Animals",
+        "Architecture",
+        "Landscape"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103357061",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Landscape",
+        "Events",
+        "Animals",
+        "Architecture",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103626772",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals",
+        "Architecture",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-115434953",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Animals",
+        "Landscape",
+        "People",
+        "Events",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-102778105",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals",
+        "Architecture",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-101949142",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-102829101",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals",
+        "Architecture",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-102621564",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103594845",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-102285225",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-101674274",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "People",
+        "Animals",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-102282468",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "People",
+        "Architecture",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-102282994",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-101935817",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Landscape",
+        "Events",
+        "People",
+        "Animals",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103579278",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-101822733",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Landscape",
+        "Events",
+        "Architecture",
+        "People",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103398890",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Landscape",
+        "Events",
+        "Animals",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103604673",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Food",
+      "id": "commons-103624096",
+      "preset": "General",
+      "ranked": [
+        "Food",
+        "Events",
+        "Landscape",
+        "Animals",
+        "Architecture",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "commons-158272202",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Landscape",
+        "Food",
+        "People",
+        "Events",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "commons-69690260",
+      "preset": "General",
+      "ranked": [
+        "Landscape",
+        "Architecture",
+        "Animals",
+        "Food",
+        "Events",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "commons-181409892",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Landscape",
+        "Food",
+        "People",
+        "Events",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "commons-175092005",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Landscape",
+        "Food",
+        "Events",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "commons-160939426",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Food",
+        "Landscape",
+        "Events",
+        "Architecture",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Landscape",
+      "id": "commons-117081382",
+      "preset": "General",
+      "ranked": [
+        "Landscape",
+        "Events",
+        "Architecture",
+        "Food",
+        "Animals",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "commons-177678162",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Landscape",
+        "Food",
+        "Events",
+        "Architecture",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "commons-165517847",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Landscape",
+        "Food",
+        "Events",
+        "Architecture",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "commons-123141114",
+      "preset": "General",
+      "ranked": [
+        "Architecture",
+        "Landscape",
+        "Events",
+        "Food",
+        "Animals",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Architecture",
+      "id": "commons-108080229",
+      "preset": "General",
+      "ranked": [
+        "Architecture",
+        "Landscape",
+        "Food",
+        "Events",
+        "Animals",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "commons-181013764",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Landscape",
+        "Food",
+        "People",
+        "Events",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Landscape",
+      "id": "commons-125216709",
+      "preset": "General",
+      "ranked": [
+        "Landscape",
+        "Food",
+        "Animals",
+        "Architecture",
+        "Events",
+        "People"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "commons-180946644",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Landscape",
+        "Food",
+        "Events",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "commons-179084106",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Landscape",
+        "Food",
+        "People",
+        "Events",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "commons-181014990",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Landscape",
+        "Food",
+        "People",
+        "Events",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "commons-181014280",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Landscape",
+        "Food",
+        "Events",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "commons-172594075",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Landscape",
+        "Food",
+        "People",
+        "Events",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "commons-177219938",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Food",
+        "Landscape",
+        "Events",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "commons-175574281",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Landscape",
+        "Food",
+        "People",
+        "Events",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "commons-179116887",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Landscape",
+        "Food",
+        "Events",
+        "People",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "commons-176741399",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Food",
+        "Landscape",
+        "People",
+        "Events",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "commons-177768137",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Landscape",
+        "Food",
+        "People",
+        "Architecture",
+        "Events"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Animals",
+      "id": "commons-175096916",
+      "preset": "General",
+      "ranked": [
+        "Animals",
+        "Landscape",
+        "Food",
+        "People",
+        "Events",
+        "Architecture"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-27662426",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Architecture",
+        "Events",
+        "Landscape",
+        "Food",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-151481577",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Architecture",
+        "Events",
+        "Food",
+        "Landscape",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-151481582",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Architecture",
+        "Events",
+        "Food",
+        "Landscape",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-138227099",
+      "preset": "General",
+      "ranked": [
+        "People",
+        "Architecture",
+        "Events",
+        "Food",
+        "Landscape",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Events",
+      "id": "commons-59807451",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Architecture",
+        "Food",
+        "Animals",
+        "Landscape"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Events",
+      "id": "commons-53957851",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "Food",
+        "People",
+        "Animals",
+        "Architecture",
+        "Landscape"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Events",
+      "id": "commons-114394582",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Architecture",
+        "Food",
+        "Animals",
+        "Landscape"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "People",
+      "id": "commons-79804274",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Food",
+        "Architecture",
+        "Landscape",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Events",
+      "id": "commons-136658196",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Architecture",
+        "Food",
+        "Landscape",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Events",
+      "id": "commons-136660654",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Architecture",
+        "Landscape",
+        "Food",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [
+        "Events"
+      ],
+      "gold": "Events",
+      "id": "commons-136663280",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Architecture",
+        "Food",
+        "Animals",
+        "Landscape"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Events",
+      "id": "commons-136665956",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Architecture",
+        "Food",
+        "Landscape",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Events",
+      "id": "commons-136700445",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Architecture",
+        "Food",
+        "Animals",
+        "Landscape"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Events",
+      "id": "commons-136700917",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Food",
+        "Architecture",
+        "Landscape",
+        "Animals"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Events",
+      "id": "commons-136704283",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Architecture",
+        "Food",
+        "Animals",
+        "Landscape"
+      ]
+    },
+    {
+      "assigned": [],
+      "gold": "Events",
+      "id": "commons-136704389",
+      "preset": "General",
+      "ranked": [
+        "Events",
+        "People",
+        "Architecture",
+        "Food",
+        "Landscape",
+        "Animals"
+      ]
+    }
+  ],
+  "repeat_analysed": 0,
+  "resume_ms": 0.248668,
+  "peak_rss_kib": 1970040,
+  "machine": {
+    "cpu": "AMD Ryzen 7 9800X3D",
+    "logical_cpus": 16,
+    "render_backend": "CPU; LIGHTCRAFT_GPU_BACKEND=off",
+    "inference_backend": "tract 0.23.8 CPU",
+    "profile": "dev opt-level=1; dependencies opt-level=2",
+    "date": "2026-10-10",
+    "shared_machine": true
+  }
+}

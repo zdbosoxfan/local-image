@@ -1584,5 +1584,8 @@
   "Only in session": "Somente na sessão",
   "Split into sessions when there is a gap of more than": "Dividir em sessões quando houver um intervalo de mais de",
   "All sessions": "Todas as sessões",
-  "Export sessions as folders": "Exportar sessões como pastas"
+  "Export sessions as folders": "Exportar sessões como pastas",
+  "Tagging model": "Modelo de classificação",
+  "Fast (CLIP)": "Rápido (CLIP)",
+  "Accurate (SigLIP)": "Preciso (SigLIP)"
 }

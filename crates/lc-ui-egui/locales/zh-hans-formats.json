@@ -138,5 +138,6 @@
   "Show everyone ({n} more)": "Show everyone ({n} more)",
   "Restore {name}": "Restore {name}",
   "Unnamed person {id}": "Unnamed person {id}",
-  "Merge with {name}?": "Merge with {name}?"
+  "Merge with {name}?": "Merge with {name}?",
+  "Smart Sort needs a one-time download of {size} MB. It runs on this computer; your photos are never uploaded.": "智能分类需要一次性下载 {size} MB。它在此计算机上运行；您的照片不会上传。"
 }

@@ -138,5 +138,6 @@
   "Show everyone ({n} more)": "Show everyone ({n} more)",
   "Restore {name}": "Restore {name}",
   "Unnamed person {id}": "Unnamed person {id}",
-  "Merge with {name}?": "Merge with {name}?"
+  "Merge with {name}?": "Merge with {name}?",
+  "Smart Sort needs a one-time download of {size} MB. It runs on this computer; your photos are never uploaded.": "Smart Sort benötigt einen einmaligen Download von {size} MB. Es läuft auf diesem Computer; Ihre Fotos werden niemals hochgeladen."
 }

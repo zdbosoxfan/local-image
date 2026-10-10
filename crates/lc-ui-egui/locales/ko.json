@@ -1584,5 +1584,8 @@
   "Only in session": "세션 내에서만",
   "Split into sessions when there is a gap of more than": "다음보다 큰 간격이 있으면 세션으로 분할",
   "All sessions": "모든 세션",
-  "Export sessions as folders": "세션을 폴더로 내보내기"
+  "Export sessions as folders": "세션을 폴더로 내보내기",
+  "Tagging model": "분류 모델",
+  "Fast (CLIP)": "빠름 (CLIP)",
+  "Accurate (SigLIP)": "정확함 (SigLIP)"
 }
