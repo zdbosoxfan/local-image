@@ -132,7 +132,26 @@ impl std::error::Error for Cancelled {}
 #[derive(Clone, Debug, Default)]
 pub struct ObjectInfo(pub Value);
 
+/// The limits ComfyUI's own sampler node reports for its inputs (`KSampler` in `/object_info`): what the backend accepts.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SamplerLimits {
+    pub steps: (f32, f32),
+    pub cfg: (f32, f32),
+    pub denoise: (f32, f32),
+}
+
 impl ObjectInfo {
+    /// The sampler's input limits as ComfyUI reports them (`KSampler`, else `KSamplerAdvanced`).
+    pub fn sampler_limits(&self) -> Option<SamplerLimits> {
+        let node = ["KSampler", "KSamplerAdvanced"].iter().find_map(|c| self.0.get(*c))?;
+        let input = |name: &str| -> Option<(f32, f32)> {
+            let spec = node.pointer("/input/required").and_then(|r| r.get(name)).or_else(|| node.pointer("/input/optional").and_then(|o| o.get(name)))?;
+            let opts = spec.get(1)?;
+            Some((opts.get("min")?.as_f64()? as f32, opts.get("max")?.as_f64()? as f32))
+        };
+        Some(SamplerLimits { steps: input("steps")?, cfg: input("cfg")?, denoise: input("denoise").unwrap_or((0.0, 1.0)) })
+    }
+
     pub fn has_node(&self, class: &str) -> bool {
         self.0.get(class).is_some()
     }

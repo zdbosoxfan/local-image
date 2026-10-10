@@ -3889,3 +3889,7 @@ ai	New	Nuovi
 	sRGB IEC61966-2.1	sRGB IEC61966-2.1
 	{zoom}%	{zoom}%
 	↑↓ navigate   ↵ run   esc close	↑↓ naviga   ↵ esegui   esc chiudi
+	CPU mode	Modalità CPU
+	GPU acceleration is off after a graphics failure.	L'accelerazione GPU è disattivata dopo un errore grafico.
+	Recommended: {value}	Consigliato: {value}
+	Recommended: {min}–{max} (default {default})	Consigliato: {min}–{max} (predefinito {default})

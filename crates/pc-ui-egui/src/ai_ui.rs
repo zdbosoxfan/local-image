@@ -78,6 +78,8 @@ pub struct EngineStatus {
     pub error: String,
     /// ComfyUI was started by us and is still loading.
     pub starting: bool,
+    /// The sampler limits the connected ComfyUI reports (steps, guidance, denoise).
+    pub limits: Option<li_ai::comfy::SamplerLimits>,
 }
 
 impl EngineStatus {
@@ -165,6 +167,7 @@ fn poll_loop(s: Arc<Shared>) {
         let connected = stats.is_some();
         let gpu = stats.as_ref().and_then(|st| li_ai::setup::gpus_from_stats(st).into_iter().next());
         let mut presets = s.status.lock().map(|x| x.presets.clone()).unwrap_or_default();
+        let mut limits = s.status.lock().ok().and_then(|x| x.limits);
         let mut error = String::new();
         if connected && (forced || !connected_before || last_inventory.is_none_or(|t| t.elapsed() > Duration::from_secs(30))) {
             match ai.client.object_info() {
@@ -173,6 +176,7 @@ fn poll_loop(s: Arc<Shared>) {
                     let settings = AiSettings::load();
                     let model_dir = settings.model_dir();
                     li_ai::inventory::refresh(&info, model_dir.is_dir().then_some(model_dir.as_path()));
+                    limits = info.sampler_limits();
                     presets = catalog::presets()
                         .iter()
                         .map(|p| {
@@ -189,13 +193,14 @@ fn poll_loop(s: Arc<Shared>) {
         }
         if !connected {
             presets.clear();
+            limits = None;
             last_inventory = None;
         }
         let child_alive = s.child.lock().ok().and_then(|mut c| c.as_mut().map(|c| c.try_wait().map(|st| st.is_none()).unwrap_or(false))).unwrap_or(false);
         let changed;
         if let Ok(mut st) = s.status.lock() {
-            let new = EngineStatus { checked: true, connected, host, gpu, presets, error, starting: child_alive && !connected };
-            changed = st.connected != new.connected || st.presets != new.presets || st.starting != new.starting || !st.checked;
+            let new = EngineStatus { checked: true, connected, host, gpu, presets, error, starting: child_alive && !connected, limits };
+            changed = st.connected != new.connected || st.presets != new.presets || st.starting != new.starting || st.limits != new.limits || !st.checked;
             *st = new;
         } else {
             changed = false;

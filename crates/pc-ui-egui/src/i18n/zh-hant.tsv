@@ -3870,3 +3870,7 @@ ai	New	最新
 	{zoom}%	{zoom}%
 	↑↓ navigate   ↵ run   esc close	↑↓ 導覽   ↵ 執行   esc 關閉
 	Opening	正在開啟
+	CPU mode	CPU 模式
+	GPU acceleration is off after a graphics failure.	圖形處理失敗後，GPU 加速已關閉。
+	Recommended: {value}	建議：{value}
+	Recommended: {min}–{max} (default {default})	建議：{min}–{max}（預設 {default}）

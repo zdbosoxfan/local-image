@@ -275,6 +275,53 @@ fn model_of(s: &GenerateState) -> ModelId {
     ModelId::from_key(&s.model).filter(|m| m.try_info().is_some()).unwrap_or(ModelId::Klein4B)
 }
 
+/// Keeps steps and guidance inside what the connected ComfyUI accepts (its sampler's reported limits); with no
+/// engine connected only "at least one step" applies.
+fn fit_to_backend(s: &mut GenerateState, limits: Option<li_ai::comfy::SamplerLimits>) {
+    s.steps = s.steps.max(1);
+    if let Some(l) = limits {
+        s.steps = s.steps.clamp(l.steps.0.max(1.0) as u32, l.steps.1.max(1.0) as u32);
+        s.guidance = s.guidance.clamp(l.cfg.0, l.cfg.1.max(l.cfg.0));
+    }
+}
+
+/// "Recommended: 4–8 (default 6)" or "Recommended: 8" for a model's suggested range.
+fn range_hint(min: f32, max: f32, default: f32, decimals: usize) -> String {
+    let f = |v: f32| format!("{v:.decimals$}");
+    if min == max {
+        crate::i18n::fmt(tl!("Recommended: {value}"), &[("value", &f(default))])
+    } else {
+        crate::i18n::fmt(tl!("Recommended: {min}–{max} (default {default})"), &[("min", &f(min)), ("max", &f(max)), ("default", &f(default))])
+    }
+}
+
+/// A labelled whole-number field bounded only by `lo..=hi`, with an optional hint underneath.
+fn number_row(ui: &mut egui::Ui, label: &str, v: &mut u32, lo: u32, hi: u32, hint: Option<String>) {
+    let t = Tokens::get(ui.ctx());
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(label).color(t.text_dim));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add(egui::DragValue::new(v).range(lo..=hi).speed(0.2));
+        });
+    });
+    if let Some(h) = hint {
+        ui.label(RichText::new(h).size(11.0).color(t.text_faint));
+    }
+}
+
+fn guidance_row(ui: &mut egui::Ui, v: &mut f32, lo: f32, hi: f32, hint: Option<String>) {
+    let t = Tokens::get(ui.ctx());
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(tl!("Guidance")).color(t.text_dim));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add(egui::DragValue::new(v).range(lo..=hi).speed(0.05).fixed_decimals(1));
+        });
+    });
+    if let Some(h) = hint {
+        ui.label(RichText::new(h).size(11.0).color(t.text_faint));
+    }
+}
+
 fn set_model(s: &mut GenerateState, m: ModelId) {
     let info = m.info();
     s.model = m.key().into();
@@ -884,18 +931,19 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         // ---- Advanced.
         let resp = egui::CollapsingHeader::new(RichText::new(tl!("Advanced")).color(t.text_dim)).default_open(s.advanced).show(ui, |ui| {
             let (steps_range, cfg_range) = (info.steps, info.guidance);
-            let show_steps = cloud.is_none() && custom.as_ref().map_or(!steps_range.fixed(), |w| w.has(&li_ai::custom::FieldKind::Steps));
-            if show_steps {
-                let mut v = s.steps as f32;
-                let r = if custom.is_some() { 1.0..=150.0 } else { steps_range.min..=steps_range.max };
-                if widgets::slider_row(ui, tl!("Steps"), &mut v, r, "", None).changed() {
-                    s.steps = v.round() as u32;
-                }
+            // The only limits are the ones the connected ComfyUI reports for its sampler; the model's numbers are
+            // shown as recommendations, never enforced (every model, fixed-step ones included, can change steps).
+            let limits = crate::ai_ui::status().limits;
+            fit_to_backend(s, limits);
+            if cloud.is_none() && custom.as_ref().is_none_or(|w| w.has(&li_ai::custom::FieldKind::Steps)) {
+                let (lo, hi) = limits.map_or((1.0, f32::MAX), |l| l.steps);
+                let recommended = (custom.is_none()).then(|| range_hint(steps_range.min, steps_range.max, steps_range.default, 0));
+                number_row(ui, tl!("Steps"), &mut s.steps, lo as u32, hi as u32, recommended);
             }
-            let show_cfg = cloud.is_none() && custom.as_ref().map_or(!cfg_range.fixed(), |w| w.has(&li_ai::custom::FieldKind::Cfg));
-            if show_cfg {
-                let r = if custom.is_some() { 1.0..=30.0 } else { cfg_range.min..=cfg_range.max };
-                widgets::slider_row(ui, tl!("Guidance"), &mut s.guidance, r, "", None);
+            if cloud.is_none() && custom.as_ref().is_none_or(|w| w.has(&li_ai::custom::FieldKind::Cfg)) {
+                let (lo, hi) = limits.map_or((0.0, f32::MAX), |l| l.cfg);
+                let recommended = (custom.is_none()).then(|| range_hint(cfg_range.min, cfg_range.max, cfg_range.default, 1));
+                guidance_row(ui, &mut s.guidance, lo, hi, recommended);
             }
             if info.init_image && custom.is_none() && cloud.is_none() && s.mode == Mode::Create {
                 let mut pct = s.denoise * 100.0;
@@ -1276,7 +1324,7 @@ pub(crate) fn regenerate_layer(app: &mut PhotocraftApp, ctx: &egui::Context, lay
 
 /// Starts the generation jobs for the current settings.
 fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
-    let s = app.ui.ai.generate.clone();
+    let mut s = app.ui.ai.generate.clone();
     let preset = presets().into_iter().find(|p| p.name == s.preset);
     let prompt = preset.as_ref().map_or_else(|| s.prompt.trim().to_owned(), |p| p.apply(&s.prompt));
     let doc = app.session.active().map(|d| (d.doc.id, photocraft_engine::ai_cmds::flatten_rgba(&d.doc), photocraft_engine::ai_cmds::selection_gray(&d.doc)));
@@ -1335,6 +1383,7 @@ fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
     req.width = s.width;
     req.height = s.height;
     req.transparent = s.transparent && info.transparent;
+    fit_to_backend(&mut s, crate::ai_ui::status().limits);
     req.steps = s.steps;
     req.guidance = s.guidance;
     req.negative = s.negative.clone();
@@ -2179,6 +2228,26 @@ fn start_batch(b: &BatchState) -> std::sync::Arc<std::sync::Mutex<BatchRun>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn steps_and_guidance_follow_the_backend_limits_only() {
+        let limits = li_ai::comfy::SamplerLimits { steps: (1.0, 10000.0), cfg: (0.0, 100.0), denoise: (0.0, 1.0) };
+        // well outside every model's recommendation, but inside what ComfyUI accepts: kept as typed
+        let mut s = GenerateState { steps: 150, guidance: 25.0, ..Default::default() };
+        fit_to_backend(&mut s, Some(limits));
+        assert_eq!((s.steps, s.guidance), (150, 25.0));
+        s.steps = 20000;
+        s.guidance = 500.0;
+        fit_to_backend(&mut s, Some(limits));
+        assert_eq!((s.steps, s.guidance), (10000, 100.0));
+        s.steps = 0;
+        fit_to_backend(&mut s, None);
+        assert_eq!(s.steps, 1);
+        let real = li_ai::comfy::ObjectInfo(serde_json::json!({"KSampler": {"input": {"required": {
+            "steps": ["INT", {"default": 20, "min": 1, "max": 10000}], "cfg": ["FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0}],
+            "denoise": ["FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0}]}}}}));
+        assert_eq!(real.sampler_limits(), Some(limits));
+    }
 
     #[test]
     fn natural_order() {

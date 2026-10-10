@@ -148,8 +148,9 @@ impl GenerateRequest {
         if self.transparent && !info.transparent {
             bail!("{} cannot make transparent images; choose Qwen Image 2.1.", info.label);
         }
-        if (self.steps as f32) < info.steps.min || (self.steps as f32) > info.steps.max {
-            bail!("{} uses {}–{} steps.", info.label, info.steps.min, info.steps.max);
+        // No built-in step range: the model's numbers are recommendations, and ComfyUI checks its own limits.
+        if self.steps == 0 {
+            bail!("Steps must be at least 1.");
         }
         if self.loras.len() > f.lora.max.max(3) as usize {
             bail!("Choose at most {} styles (LoRAs).", f.lora.max.max(3));
@@ -625,7 +626,7 @@ impl Ai {
             width: src.width(),
             height: src.height(),
             seed: req.seed.wrapping_add(1),
-            steps: step.steps.unwrap_or(m.steps.default as u32).clamp(m.steps.min as u32, m.steps.max as u32),
+            steps: step.steps.unwrap_or(m.steps.default as u32).max(1),
             cfg: step.guidance.unwrap_or(m.guidance.default),
             references: 0,
             loras: &[],

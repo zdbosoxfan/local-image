@@ -3893,3 +3893,7 @@ ai	New	Nové
 	shortcut	Zkratka
 	{zoom}%	{zoom}%
 	↑↓ navigate   ↵ run   esc close	↑↓ procházet   ↵ spustit   esc zavřít
+	CPU mode	Režim CPU
+	GPU acceleration is off after a graphics failure.	Akcelerace GPU je po selhání grafiky vypnutá.
+	Recommended: {value}	Doporučeno: {value}
+	Recommended: {min}–{max} (default {default})	Doporučeno: {min}–{max} (výchozí {default})

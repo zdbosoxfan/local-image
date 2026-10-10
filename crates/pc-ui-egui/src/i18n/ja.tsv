@@ -3875,3 +3875,7 @@ ai	New	新着
 	{zoom}%	{zoom}%
 	↑↓ navigate   ↵ run   esc close	↑↓ 移動   ↵ 実行   esc 閉じる
 	Override Action "Save" Commands	アクションの「保存」コマンドを上書き
+	CPU mode	CPUモード
+	GPU acceleration is off after a graphics failure.	グラフィック処理の失敗後、GPUアクセラレーションはオフです。
+	Recommended: {value}	推奨: {value}
+	Recommended: {min}–{max} (default {default})	推奨: {min}–{max} (デフォルト: {default})

@@ -3864,3 +3864,7 @@ ai	New	새 항목
 	shortcut	단축키
 	{zoom}%	{zoom}%
 	↑↓ navigate   ↵ run   esc close	↑↓ 탐색   ↵ 실행   esc 닫기
+	CPU mode	CPU 모드
+	GPU acceleration is off after a graphics failure.	그래픽 오류 후 GPU 가속이 꺼져 있습니다.
+	Recommended: {value}	권장: {value}
+	Recommended: {min}–{max} (default {default})	권장: {min}–{max} (기본값 {default})

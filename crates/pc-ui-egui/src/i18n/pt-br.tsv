@@ -3883,3 +3883,7 @@ ai	New	Novos
 	Wrap	Envolver
 	ZigZag	Zigue-zague
 	Zigzag	Zigue-zague
+	CPU mode	Modo CPU
+	GPU acceleration is off after a graphics failure.	A aceleração de GPU está desativada após uma falha gráfica.
+	Recommended: {value}	Recomendado: {value}
+	Recommended: {min}–{max} (default {default})	Recomendado: {min}–{max} (padrão {default})
