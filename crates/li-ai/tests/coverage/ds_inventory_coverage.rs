@@ -229,7 +229,7 @@ fn listed_as_model_but_lora_header_overrides_neutral_name() {
 }
 
 #[test]
-fn scan_finds_models_by_name_and_skips_unknown_files() {
+fn scan_finds_models_by_name_and_keeps_unknown_files() {
     let reg = li_ai::family::registry();
     let (models, loras) = scan(&info(), None, reg);
 
@@ -238,7 +238,8 @@ fn scan_finds_models_by_name_and_skips_unknown_files() {
     assert_eq!(model_family("ckpt:juggernautXL_v9.safetensors"), Some("sdxl"));
     assert_eq!(model_family("unet:flux1-dev-fp8.safetensors"), Some("flux1"));
     assert_eq!(model_family("unet:qwen_image_edit_2511_bf16.safetensors"), Some("qwen-edit"));
-    assert!(models.iter().all(|m| m.key.as_str() != "ckpt:mystery.safetensors"));
+    // Unknown main weights stay in the catalogue (offered for refine via the universal recipe and self-test).
+    assert!(models.iter().any(|m| m.key.as_str() == "ckpt:mystery.safetensors"));
 
     assert_eq!(loras.len(), 3);
     assert!(loras.iter().any(|l| l.name.as_str() == "pony_style.safetensors" && l.family.as_deref() == Some("pony")));
