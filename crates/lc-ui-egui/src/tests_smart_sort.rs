@@ -696,4 +696,16 @@ fn ds2_smart_sort_setup_failure_does_not_start_face_worker() {
     click(&mut h, "smartSort:analyze");
     assert!(h.app.people_task.is_none());
     assert!(h.app.smart_sort.is_none());
+
+    // Once setup is repaired, the same button starts both analyses exactly once
+    // and reaches Review rather than failing with "Face analysis is already running".
+    h.app.session.smart.store = Default::default();
+    h.step();
+    h.step();
+    click(&mut h, "smartSort:analyze");
+    assert!(state(&h).error.is_empty(), "{}", state(&h).error);
+    assert!(h.step_until(T, |h| h.app.smart_sort.is_none() && h.app.people_task.is_none() && state(h).step == 1));
+    assert!(state(&h).failed.is_empty(), "{:?}", state(&h).failed);
+    assert_eq!(state(&h).analysed, ids.len());
+    assert_eq!(state(&h).rows.len(), ids.len());
 }

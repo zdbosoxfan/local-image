@@ -454,6 +454,19 @@ fn develop_slider_cpu_step_timings() {
 
 #[test]
 fn develop_slider_gpu_step_timings() {
+    // Other headless apps change a process-wide GPU preference when applying settings.
+    // Give this measurement private preference and fallback state, like the CPU one.
+    if std::env::var_os("LC_SLIDER_GPU_TEST_CHILD").is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "tests_slider_speed::develop_slider_gpu_step_timings", "--nocapture"])
+            .env("LC_SLIDER_GPU_TEST_CHILD", "1")
+            .env("LIGHTCRAFT_GPU", "1")
+            .output()
+            .unwrap();
+        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+        assert!(output.status.success(), "GPU timing child failed: {}", String::from_utf8_lossy(&output.stdout));
+        return;
+    }
     lightcraft_engine::gpu::set_enabled(true);
     if !lightcraft_engine::gpu::available() {
         assert!(std::env::var_os("LC_REQUIRE_GPU").is_none(), "hardware GPU required: {:?}", lightcraft_engine::gpu::unavailable_reason());
