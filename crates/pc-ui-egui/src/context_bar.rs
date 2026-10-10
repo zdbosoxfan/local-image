@@ -337,6 +337,9 @@ enum Act {
 
 /// Draws the bar (call every frame after the canvas).
 pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    if app.ai_remove.is_some() {
+        return;
+    }
     reveal_properties(app, ctx);
     let pressed_elsewhere = pressed_elsewhere(ctx);
     let Some((what, bounds)) = context(app) else {
@@ -639,8 +642,8 @@ fn run(app: &mut PhotocraftApp, ctx: &egui::Context, what: Context, a: &str, pro
     let r = match a {
         "path.select" => Ok(Value::Null),
         "remove" => {
-            let engine = app.ui.ai.remove_engine.clone();
-            app.run("ai.remove", json!({ "engine": engine }))
+            crate::ai_remove_ui::selection(app);
+            Ok(Value::Null)
         }
         "fill.open" => {
             with(|s| {

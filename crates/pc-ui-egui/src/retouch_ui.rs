@@ -13,7 +13,7 @@ use crate::theme::Tokens;
 /// Finish a stroke with a retouching tool. Returns false if `tool` isn't one.
 pub fn finish_stroke(app: &mut PhotocraftApp, tool: Tool, points: &[[f64; 3]], mods: egui::Modifiers) -> bool {
     // local-image: the AI tools.
-    if crate::ai_ui::finish_stroke(app, tool, points) {
+    if crate::ai_ui::finish_stroke(app, tool, points, mods) {
         return true;
     }
     let o = app.ui.tool_options.clone();
