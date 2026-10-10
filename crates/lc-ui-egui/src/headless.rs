@@ -1,5 +1,6 @@
 //! Headless UI rendering: run the app's UI in an offscreen [`egui::Context`] and rasterize it on
-//! the CPU ([`crate::softpaint`]) — no window, no GPU, no compositor.
+//! the CPU ([`crate::softpaint`]) — no window or native compositor. Photo render jobs still use
+//! the configured Develop backend (GPU compute or CPU), including in headless timing tests.
 //!
 //! Two users:
 //! - [`Headless`]: a complete windowless app session (`lightcraft-cli snapshot`, tests). It plays

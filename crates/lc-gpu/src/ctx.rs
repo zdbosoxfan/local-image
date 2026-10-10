@@ -465,13 +465,17 @@ impl Gpu {
         Self::new_inner(backends, false)
     }
 
-    /// CPU Vulkan is useful only for numerical kernel tests; never enabled by a renderer.
+    /// Numerical tests prefer hardware, with CPU Vulkan available on CI. LC_REQUIRE_GPU makes
+    /// the hardware run strict: neither a software adapter nor an adapter skip can count.
     #[cfg(test)]
     pub(crate) fn numerical_test_device() -> Result<Gpu, String> {
         // Share the production test device's initialization lock: the combined
         // suite also creates that device and mutates crash-marker configuration.
         let _init = crate::TEST_INIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        Self::new_inner(wgpu::Backends::VULKAN, true)
+        let device = Self::new_inner(wgpu::Backends::VULKAN, false)
+            .or_else(|e| if std::env::var_os("LC_REQUIRE_GPU").is_some() { Err(e) } else { Self::new_inner(wgpu::Backends::VULKAN, true) })?;
+        eprintln!("numerical test device: {} ({:?})", device.info.name, device.info.backend);
+        Ok(device)
     }
 
     fn new_inner(backends: wgpu::Backends, software_test: bool) -> Result<Gpu, String> {
