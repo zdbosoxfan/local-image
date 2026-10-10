@@ -34,9 +34,6 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId]) -> Result<(), String> {
     if app.smart_sort.is_some() {
         return Err(tr("Analysis is already running").to_string());
     }
-    if app.session.smart.prefs.faces_enabled {
-        crate::people_task::start(app, ids, None)?;
-    }
     let (model, dim) = app.session.smart.selected();
     let injected = app.session.smart.tagger.clone();
     app.session.smart.store.ensure(&model, dim)?;
@@ -89,6 +86,7 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId]) -> Result<(), String> {
         let _ = tx.send(Event::Done(result));
     };
     let faces = app.session.smart.prefs.faces_enabled;
+    // Finish tagging setup before starting faces, so setup errors leave no worker running.
     if faces {
         crate::people_task::start(app, ids, None)?;
     }
