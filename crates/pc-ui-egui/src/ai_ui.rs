@@ -1558,6 +1558,7 @@ fn model_row(ui: &mut egui::Ui, t: &Tokens, info: &catalog::ModelInfo, p: &catal
 // ------------------------------------------------------------------------------ menus
 
 const IDS: &[&str] = &[
+    "ai.restore",
     "li.newFromPrompt",
     "li.openFolder",
     "li.batchRemoveBackgrounds",
@@ -1584,7 +1585,7 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> Option<bool> {
     let has_doc = app.session.active().is_some();
     Some(match id {
         "ai.remove" | "li.removeSelection" | "li.generativeFill" => app.session.active().is_some_and(|d| d.doc.selection.is_some()),
-        "li.enhance" | "li.generateBackground" => has_doc,
+        "li.enhance" | "li.generateBackground" | "ai.restore" => has_doc,
         "li.filmstrip" => crate::filmstrip_ui::has_folder(),
         crate::develop_layer::DEVELOP_ID => crate::develop_layer::active_photo(app).is_some(),
         _ if handles(id) => true,
@@ -1621,6 +1622,7 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Val
             });
         }
         "li.draftRefine" => crate::generate_ui::draft_refine::open(app),
+        "ai.restore" => crate::restoration_ui::open(app),
         "li.batchRemoveBackgrounds" => crate::generate_ui::open_batch(),
         "ai.remove" | "li.removeSelection" => crate::ai_remove_ui::selection(app),
         "li.generativeFill" => dialogs_mut(|d| d.fill = true),

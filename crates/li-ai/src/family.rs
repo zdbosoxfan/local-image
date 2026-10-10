@@ -43,6 +43,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("ernie", include_str!("../families/ernie.json")),
     ("hidream", include_str!("../families/hidream.json")),
     ("seedvr2", include_str!("../families/seedvr2.json")),
+    ("restoration", include_str!("../families/restoration.json")),
 ];
 
 /// Where newer profiles are published (this repository's `crates/li-ai/families/`).
@@ -538,6 +539,9 @@ pub fn build(raw: &BTreeMap<String, Value>) -> Result<Vec<Family>> {
 
 /// Rejects profiles a builder could not run.
 pub fn validate(f: &Family) -> Result<()> {
+    if f.id == "restoration" && f != crate::restoration::policy() {
+        bail!("Restoration profiles must match the immutable built-in policy");
+    }
     if f.id.is_empty() || f.label.is_empty() {
         bail!("a family needs an id and a label");
     }
@@ -565,7 +569,7 @@ pub fn validate(f: &Family) -> Result<()> {
                 if file.bytes == 0 {
                     bail!("{}: {} has no size", m.key, file.name);
                 }
-                if !(file.name.ends_with(".safetensors") || file.name.ends_with(".gguf")) {
+                if !(file.name.ends_with(".safetensors") || file.name.ends_with(".gguf") || f.id == "restoration") {
                     bail!("{}: {} is not a .safetensors or .gguf file", m.key, file.name);
                 }
             }
@@ -602,6 +606,11 @@ pub fn load(dir: &Path) -> Registry {
                 continue;
             }
             let Some(id) = p.file_stem().and_then(|s| s.to_str()).map(str::to_owned) else { continue };
+            // Restoration pins and licensing policy are vetted in the binary, never widened
+            // by an editable profile or an online update.
+            if id == "restoration" {
+                continue;
+            }
             let Ok(v) = std::fs::read(&p).map_err(anyhow::Error::from).and_then(|b| Ok(serde_json::from_slice::<Value>(&b)?)) else {
                 log::warn!("family profile {} is unreadable; skipped", p.display());
                 continue;
