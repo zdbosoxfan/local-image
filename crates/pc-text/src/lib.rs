@@ -149,3 +149,5 @@ pub fn shared() -> &'static std::sync::Mutex<TextEngine> {
 mod tests;
 #[cfg(test)]
 mod vertical_tests;
+
+pub mod frame_compose;

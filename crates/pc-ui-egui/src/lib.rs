@@ -1779,3 +1779,6 @@ mod clipboard_tests {
         assert!(h.state().session.clipboard.is_none());
     }
 }
+
+#[path = "vector_packages/frame_compose.rs"]
+pub mod frame_compose;
