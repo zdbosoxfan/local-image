@@ -4,6 +4,9 @@ Until every planned feature is merged, merges are gated on: compiles, clippy cle
 Full workspace + GPU (RTX 5090) suites, benchmarks and these items are handled in the final bug-fixing run.
 
 ## Known issues
+- **ComfyUI left running after V2 quits (owner, 2026-10-09):** the auto-started ComfyUI (`auto_start_comfy`) kept
+  running after Local Image V2 closed and held 29–46 GB of RAM (and ~20 GB VRAM), nearly exhausting the 60 GB PC. Stop
+  the ComfyUI the app started on quit (not one the user started themselves); consider unloading models when idle.
 - Verify PSD v7 slice descriptor enum names (horizontal Left/Cntr/Rght, vertical Top /Cntr/Btom, `bgColorType` "Clr ") against a PSD saved by Photoshop — written from memory in the bug-fix run (`crates/pc-psd`).
 - pc-algo features: `ransac` panics when src and dst lengths differ (ignored test in `crates/pc-algo/tests/coverage/ds_features_coverage.rs`).
 - pc-algo inpaint: `mvc_membrane` caps channels at 8 (test ignored; low impact).
