@@ -115,6 +115,7 @@ fn video_m(v: &photocraft_doc::VideoData, sink: &mut dyn Sink) -> crate::manifes
 
 fn layer_m(l: &Layer, sink: &mut dyn Sink) -> LayerM {
     let content = match &l.content {
+        LayerContent::Symbol(s) => ContentM::Symbol { symbol: s.symbol, transform: s.transform, cache: s.cache.as_ref().map(|c| surface_m(c, sink)) },
         LayerContent::Raster(s) => ContentM::Raster { surface: surface_m(s, sink) },
         LayerContent::Group(g) => {
             ContentM::Group { children: g.children.iter().map(|c| layer_m(c, sink)).collect(), expanded: g.expanded, artboard: g.artboard.clone() }
@@ -398,6 +399,9 @@ impl Loader<'_> {
     #[inline(never)]
     fn layer_with(&mut self, m: &LayerM, children: Vec<Layer>) -> Result<Layer> {
         let content = match &m.content {
+            ContentM::Symbol { symbol, transform, cache } => {
+                LayerContent::Symbol(photocraft_doc::SymbolInstance { symbol: *symbol, transform: *transform, cache: self.opt_surface(cache)? })
+            }
             ContentM::Raster { surface } => LayerContent::Raster(self.surface(surface)?),
             ContentM::Group { expanded, artboard, .. } => LayerContent::Group(Group { artboard: artboard.clone(), children, expanded: *expanded }),
             ContentM::Adjustment { adjustment } => LayerContent::Adjustment(adjustment.clone()),
@@ -501,6 +505,7 @@ impl Loader<'_> {
     }
 
     pub(crate) fn document(&mut self, m: &DocM) -> Result<Document> {
+        validate_symbols_manifest(m)?;
         let layers = m.layers.iter().map(|l| self.layer(l, 0)).collect::<Result<Vec<_>>>()?;
         let mut channels = Vec::with_capacity(m.channels.len());
         for c in &m.channels {
@@ -541,7 +546,7 @@ impl Loader<'_> {
         } else {
             DocId::fresh()
         };
-        Ok(Document {
+        let doc = Document {
             design_units: m.design_units,
             symbols: m
                 .symbols
@@ -583,7 +588,11 @@ impl Loader<'_> {
             notes: m.notes.clone(),
             text_styles: m.text_styles.clone(),
             slices,
-        })
+        };
+        if !doc.symbols.is_empty() || doc.walk().iter().any(|(_, _, l)| matches!(l.content, LayerContent::Symbol(_))) {
+            photocraft_doc::vector_design::symbol_validation::document(&doc).map_err(|e| FormatError::corrupt(e.to_string()))?;
+        }
+        Ok(doc)
     }
 
     fn channel(&mut self, c: &ChannelM) -> Result<AlphaChannel> {
@@ -604,4 +613,143 @@ pub(crate) fn reserve_ids_through(max: u64) -> bool {
     }
     photocraft_doc::ensure_ids_above(max);
     true
+}
+
+/// Symbol variant preflight, before allocating caches or remapping any stored layer IDs.
+fn validate_symbols_manifest(doc: &DocM) -> Result<()> {
+    use photocraft_doc::vector_design::symbol_validation as validation;
+    use std::collections::{BTreeMap, BTreeSet};
+    fn collect(layers: &[LayerM], ids: &mut BTreeSet<u64>, refs: &mut Vec<photocraft_doc::SymbolId>, depth: usize) -> Result<()> {
+        if depth > MAX_GROUP_DEPTH && !layers.is_empty() {
+            return Err(too_deep());
+        }
+        for l in layers {
+            if l.id == 0 || !ids.insert(l.id) {
+                return Err(FormatError::corrupt("duplicate or zero layer ID"));
+            }
+            if ids.len() > validation::MAX_OBJECTS {
+                return Err(FormatError::LimitExceeded("symbol object budget".into()));
+            }
+            match &l.content {
+                ContentM::Group { children, .. } => collect(children, ids, refs, depth + 1)?,
+                ContentM::Symbol { symbol, transform, .. } => {
+                    validation::affine(*transform).map_err(|e| FormatError::corrupt(e.to_string()))?;
+                    refs.push(*symbol);
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+    fn has_instances(layers: &[LayerM]) -> bool {
+        layers.iter().any(|l| match &l.content {
+            ContentM::Symbol { .. } => true,
+            ContentM::Group { children, .. } => has_instances(children),
+            _ => false,
+        })
+    }
+    if doc.symbols.is_empty() && !has_instances(&doc.layers) {
+        return Ok(());
+    }
+    let mut graph = BTreeMap::new();
+    let mut ids = BTreeSet::new();
+    let mut root = Vec::new();
+    collect(&doc.layers, &mut ids, &mut root, 0)?;
+    for d in &doc.symbols {
+        if d.id.0 == 0 || graph.contains_key(&d.id.0) {
+            return Err(FormatError::corrupt("duplicate or zero symbol ID"));
+        }
+        let mut refs = Vec::new();
+        collect(&d.layers, &mut ids, &mut refs, 0)?;
+        graph.insert(d.id.0, refs);
+    }
+    validation::graph_depths(&graph).map_err(|e| FormatError::corrupt(e.to_string()))?;
+    for id in root {
+        if !graph.contains_key(&id.0) {
+            return Err(FormatError::corrupt("dangling symbol instance"));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod symbol_tests {
+    use super::*;
+    use crate::{LoadOptions, PcraftWriter, SaveOptions, load_from_bytes, load_from_bytes_with, load_path, load_path_with, save_to_bytes};
+    use photocraft_doc::{Affine, ColorMode, SampleType, Size, SymbolDef, SymbolId, SymbolInstance};
+    fn fixture() -> Document {
+        let mut d = Document::new("Symbols native", Size::new(24, 24), ColorMode::Rgb, SampleType::U16);
+        let mut art = Layer::raster("Art", d.pixel_format());
+        art.surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(2, 3, 9, 11), &[0.1, 0.2, 0.7, 0.6]);
+        let cache = art.surface().unwrap().clone();
+        d.symbols.push(SymbolDef { id: SymbolId(17), name: "Master".into(), layers: vec![art] });
+        d.layers.push(Layer::new(
+            "Instance",
+            LayerContent::Symbol(SymbolInstance { symbol: SymbolId(17), transform: Affine::translate(2., 3.), cache: Some(cache) }),
+        ));
+        d
+    }
+    #[test]
+    fn symbols_cached_instances_zip_directory_and_layer_id_remap() {
+        let d = fixture();
+        let options = SaveOptions::default();
+        let bytes = save_to_bytes(&d, &options).unwrap();
+        assert_eq!(load_from_bytes(&bytes).unwrap(), d);
+        let remap = load_from_bytes_with(&bytes, &LoadOptions { preserve_ids: false, ..Default::default() }).unwrap();
+        assert_ne!(remap.layers[0].id, d.layers[0].id);
+        assert_ne!(remap.symbols[0].layers[0].id, d.symbols[0].layers[0].id);
+        assert_eq!(remap.layers[0].content, d.layers[0].content);
+        assert_eq!(remap.symbols[0].id, d.symbols[0].id);
+        let dir = std::env::current_dir().unwrap().join("target").join(format!("symbols-native-{}-{}", std::process::id(), d.id.0));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut writer = PcraftWriter::new();
+        writer.save_dir(&d, &dir, &options).unwrap();
+        writer.save_dir(&d, &dir, &options).unwrap();
+        assert_eq!(load_path(&dir).unwrap(), d);
+        let remap = load_path_with(&dir, &LoadOptions { preserve_ids: false, ..Default::default() }).unwrap();
+        assert_ne!(remap.symbols[0].layers[0].id, d.symbols[0].layers[0].id);
+        assert_eq!(remap.layers[0].content, d.layers[0].content);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn symbols_native_rejects_cycles_duplicate_ids_and_dangling_instances_before_remap() {
+        let d = fixture();
+        let bytes = save_to_bytes(&d, &Default::default()).unwrap();
+        let m = crate::read_manifest(&bytes).unwrap();
+        for n in 0..6 {
+            let mut manifest = m.clone();
+            match n {
+                0 => manifest.document.symbols.push(manifest.document.symbols[0].clone()),
+                1 => manifest.document.symbols[0].layers[0].id = manifest.document.layers[0].id,
+                2 => {
+                    if let ContentM::Symbol { symbol, .. } = &mut manifest.document.layers[0].content {
+                        *symbol = SymbolId(999);
+                    }
+                }
+                3 => manifest.document.symbols[0].layers.push(LayerM { id: 991, ..manifest.document.layers[0].clone() }),
+                _ => {
+                    if let ContentM::Symbol { transform, .. } = &mut manifest.document.layers[0].content {
+                        *transform = if n == 4 { Affine::scale(0.) } else { Affine::translate(1e20, 0.) };
+                    }
+                }
+            }
+            let mut zip = crate::zip::ZipWriter::new();
+            zip.add("manifest.json", &serde_json::to_vec(&manifest).unwrap()).unwrap();
+            let bytes = zip.finish().unwrap();
+            let e = load_from_bytes_with(&bytes, &LoadOptions { preserve_ids: false, ..Default::default() }).unwrap_err();
+            assert!(matches!(e, FormatError::Corrupt(_)), "{e:?}");
+            let cause = ["symbol ID", "layer ID", "dangling", "cycle", "transform", "transform"][n];
+            assert!(e.to_string().contains(cause), "graph error must precede the deliberately missing tile payloads: {e}");
+        }
+    }
+    #[test]
+    fn symbols_frozen_v1_fixture_loads_and_v2_writer_is_guarded() {
+        let d = crate::load_from_bytes(include_bytes!("../tests/fixtures/vector-v1.pcraft")).unwrap();
+        assert_eq!(d.layers.len(), 2);
+        assert!(d.symbols.is_empty());
+        assert!(d.layers[0].vector_mask.is_some());
+        assert!(!d.paths.is_empty());
+        let m = crate::read_manifest(&save_to_bytes(&d, &Default::default()).unwrap()).unwrap();
+        assert_eq!(m.format_version, 2);
+    }
 }
