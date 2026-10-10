@@ -678,6 +678,22 @@ fn ds2_people_folder_switch_survives_back_navigation() {
 }
 
 #[test]
+fn smart_sort_face_analysis_starts_once_after_setup() {
+    let mut h = harness([1400., 1100.]);
+    h.app.session.smart.people.tagger = Some(Arc::new(lightcraft_engine::smart_sort::people::MockFaces));
+    h.app.session.smart.prefs.faces_enabled = true;
+    let ids = state(&h).source.clone();
+    crate::smart_sort_task::start(&mut h.app, &ids).unwrap();
+    assert!(h.app.people_task.is_some());
+    assert!(h.app.smart_sort.is_some());
+    assert!(h.step_until(T, |h| h.app.people_task.is_none() && h.app.smart_sort.is_none()));
+    h.step();
+    h.step();
+    assert_eq!(state(&h).step, 1);
+    assert_eq!(state(&h).rows.len(), ids.len());
+}
+
+#[test]
 fn ds2_smart_sort_setup_failure_does_not_start_face_worker() {
     let mut h = harness([1400., 1100.]);
     h.app.session.smart.people.tagger = Some(Arc::new(lightcraft_engine::smart_sort::people::MockFaces));

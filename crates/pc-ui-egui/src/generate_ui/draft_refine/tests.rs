@@ -437,6 +437,7 @@ fn draft_refine_library_use_and_open_actions_are_one_undo_and_a_new_document() {
 #[test]
 fn draft_refine_gpu_design_system_all_themes_and_resolutions() {
     use egui::accesskit::{Role, Toggled};
+    let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/draft-style");
     std::fs::create_dir_all(&dir).unwrap();
     for theme in crate::theme::ThemeKind::ALL {

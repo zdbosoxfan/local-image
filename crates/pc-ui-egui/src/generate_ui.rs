@@ -3219,33 +3219,34 @@ fn ds2_refine_lora_preset_roundtrip_and_invalid_step_limits() {
     fit_to_backend(&mut loaded, Some(li_ai::comfy::SamplerLimits { steps: (20., 4.), cfg: (0., 10.), denoise: (0., 1.) }));
     assert_eq!(loaded.steps, 20);
     crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = None);
+}
 
-    #[test]
-    fn zimage_variety_settings_presets_and_requests_keep_old_defaults() {
-        let old: GenerateState = serde_json::from_value(json!({"model":"z-image-turbo"})).unwrap();
-        assert_eq!(old.variety, 0.0);
-        let old_draft: DraftRefineSettings = serde_json::from_value(json!({"draft":{"model":"z-image-turbo"}})).unwrap();
-        assert_eq!(old_draft.draft.variety, 0.0);
-        let mut s = GenerateState { variety: 75.0, ..old };
-        let restored: GenerateState = serde_json::from_value(serde_json::to_value(&s).unwrap()).unwrap();
-        assert_eq!(restored.variety, 75.0);
-        assert_eq!(local_request(&s, "a fox".into(), None, Vec::new()).unwrap().0.variety, 75.0);
-        s.variety = f32::NAN;
-        assert_eq!(local_request(&s, "a fox".into(), None, Vec::new()).unwrap().0.variety, 0.0);
-        s.variety = 75.0;
-        set_model(&mut s, ModelId::Ernie);
-        assert_eq!(s.variety, 0.0);
-        s.variety = 75.0;
-        assert_eq!(local_request(&s, "a fox".into(), None, Vec::new()).unwrap().0.variety, 0.0);
-        let old_preset: li_ai::presets::GenPreset = serde_json::from_value(json!({"model":"z-image-turbo"})).unwrap();
-        apply_preset(&mut s, &old_preset);
-        assert_eq!(s.variety, 0.0);
-        let preset = li_ai::presets::GenPreset { variety: Some(75.0), ..old_preset };
-        let restored: li_ai::presets::GenPreset = serde_json::from_value(serde_json::to_value(&preset).unwrap()).unwrap();
-        apply_preset(&mut s, &restored);
-        assert_eq!(s.variety, 75.0);
-        s.mode = Mode::Refine;
-        let source = RgbaImage::new(64, 64);
-        assert_eq!(local_request(&s, "a fox".into(), Some((photocraft_doc::DocId(1), source, None)), Vec::new()).unwrap().0.variety, 0.0);
-    }
+#[cfg(test)]
+#[test]
+fn zimage_variety_settings_presets_and_requests_keep_old_defaults() {
+    let old: GenerateState = serde_json::from_value(json!({"model":"z-image-turbo"})).unwrap();
+    assert_eq!(old.variety, 0.0);
+    let old_draft: DraftRefineSettings = serde_json::from_value(json!({"draft":{"model":"z-image-turbo"}})).unwrap();
+    assert_eq!(old_draft.draft.variety, 0.0);
+    let mut s = GenerateState { variety: 75.0, ..old };
+    let restored: GenerateState = serde_json::from_value(serde_json::to_value(&s).unwrap()).unwrap();
+    assert_eq!(restored.variety, 75.0);
+    assert_eq!(local_request(&s, "a fox".into(), None, Vec::new()).unwrap().0.variety, 75.0);
+    s.variety = f32::NAN;
+    assert_eq!(local_request(&s, "a fox".into(), None, Vec::new()).unwrap().0.variety, 0.0);
+    s.variety = 75.0;
+    set_model(&mut s, ModelId::Ernie);
+    assert_eq!(s.variety, 0.0);
+    s.variety = 75.0;
+    assert_eq!(local_request(&s, "a fox".into(), None, Vec::new()).unwrap().0.variety, 0.0);
+    let old_preset: li_ai::presets::GenPreset = serde_json::from_value(json!({"model":"z-image-turbo"})).unwrap();
+    apply_preset(&mut s, &old_preset);
+    assert_eq!(s.variety, 0.0);
+    let preset = li_ai::presets::GenPreset { variety: Some(75.0), ..old_preset };
+    let restored: li_ai::presets::GenPreset = serde_json::from_value(serde_json::to_value(&preset).unwrap()).unwrap();
+    apply_preset(&mut s, &restored);
+    assert_eq!(s.variety, 75.0);
+    s.mode = Mode::Refine;
+    let source = RgbaImage::new(64, 64);
+    assert_eq!(local_request(&s, "a fox".into(), Some((photocraft_doc::DocId(1), source, None)), Vec::new()).unwrap().0.variety, 0.0);
 }

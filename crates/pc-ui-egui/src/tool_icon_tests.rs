@@ -310,6 +310,7 @@ fn gpu_tool_icons_upload_and_switch_styles_on_hardware() {
 fn hardware_gpu_renders_compositing_and_develop_colour_icons_at_both_scales() {
     use eframe::wgpu;
     use egui_kittest::wgpu::{WgpuTestRenderer, create_render_state};
+    let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     for scale in [1.0, 2.0] {
         let rs = create_render_state(crate::gpu_canvas::wgpu_setup(), Default::default());
