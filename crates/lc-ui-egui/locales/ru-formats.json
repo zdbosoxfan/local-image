@@ -129,5 +129,6 @@
   "Delete \"{label}\"": "Удалить \"{label}\"",
   "Delete \"{label}\" (and the mask)": "Удалить \"{label}\" (и маску)",
   "Duplicate \"{label}\"": "Дублировать \"{label}\"",
-  "{n} change{} saved in memory but not written to disk: {e}\nLocal Image retries automatically; quitting now would lose {}.": "Изменений в памяти, не записанных на диск: {n}{:.0}. Ошибка: {e}\nLocal Image повторяет попытку автоматически; если выйти сейчас, изменения будут потеряны{:.0}."
+  "{n} change{} saved in memory but not written to disk: {e}\nLocal Image retries automatically; quitting now would lose {}.": "Изменений в памяти, не записанных на диск: {n}{:.0}. Ошибка: {e}\nLocal Image повторяет попытку автоматически; если выйти сейчас, изменения будут потеряны{:.0}.",
+  "{start}–{end} · {n} photos": "{start}–{end} · {n} фото"
 }

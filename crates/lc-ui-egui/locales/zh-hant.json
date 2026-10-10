@@ -1567,5 +1567,22 @@
   "Analysis is already running": "分析已在進行中",
   "Could not prepare photo": "無法準備照片",
   "Also in this group:": "同樣在此群組中：",
-  "sRGB (AVIF)": "sRGB (AVIF)"
+  "sRGB (AVIF)": "sRGB (AVIF)",
+  "Destination folder pattern": "目的地資料夾樣式",
+  "All photos": "所有照片",
+  "photos": "照片",
+  "+ Folder from Examples…": "+ 從範例新增資料夾…",
+  "Also stack in the Library": "同時在圖庫中堆疊",
+  "Folder tokens: {event}, {folder}, {person}, {session}, {date}, {camera}. File names also accept {original} and {seq:4}.": "資料夾代碼：{event}、{folder}、{person}、{session}、{date}、{camera}。檔案名稱亦接受 {original} 與 {seq:4}。",
+  "Best of each burst": "每個連拍的最佳照片",
+  " minutes": " 分鐘",
+  "Normal": "一般",
+  "Event name": "事件名稱",
+  "No time": "無時間",
+  "File name pattern (optional)": "檔案名稱樣式（選用）",
+  "Group bursts and near-duplicates": "將連拍與近似重複的相片分組",
+  "Only in session": "僅限工作階段",
+  "Split into sessions when there is a gap of more than": "當間隔超過",
+  "All sessions": "所有工作階段",
+  "Export sessions as folders": "將工作階段匯出為資料夾"
 }

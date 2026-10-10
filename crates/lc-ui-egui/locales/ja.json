@@ -1567,5 +1567,22 @@
   "H:": "高さ:",
   "sRGB (AVIF)": "sRGB (AVIF)",
   "日本語": "日本語",
-  "繁體中文（台灣）": "繁體中文（台灣）"
+  "繁體中文（台灣）": "繁體中文（台灣）",
+  "Destination folder pattern": "書き出し先フォルダーパターン",
+  "All photos": "すべての写真",
+  "photos": "写真",
+  "+ Folder from Examples…": "+ 例からフォルダーを追加…",
+  "Also stack in the Library": "ライブラリでもスタック",
+  "Folder tokens: {event}, {folder}, {person}, {session}, {date}, {camera}. File names also accept {original} and {seq:4}.": "フォルダートークン: {event}、{folder}、{person}、{session}、{date}、{camera}。ファイル名には {original} と {seq:4} も使用できます。",
+  "Best of each burst": "各連写のベスト",
+  " minutes": " 分",
+  "Normal": "標準",
+  "Event name": "イベント名",
+  "No time": "時間なし",
+  "File name pattern (optional)": "ファイル名パターン（任意）",
+  "Group bursts and near-duplicates": "連写と類似画像をグループ化",
+  "Only in session": "セッション内のみ",
+  "Split into sessions when there is a gap of more than": "間隔が次の値を超える場合にセッションを分割：",
+  "All sessions": "すべてのセッション",
+  "Export sessions as folders": "セッションをフォルダーに書き出し"
 }

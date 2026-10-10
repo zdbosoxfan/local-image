@@ -1567,5 +1567,22 @@
   "−7 EV": "−7 EV",
   "−8 EV": "−8 EV",
   "日本語": "Японский",
-  "繁體中文（台灣）": "Традиционный китайский (Тайвань)"
+  "繁體中文（台灣）": "Традиционный китайский (Тайвань)",
+  "Destination folder pattern": "Шаблон папки назначения",
+  "All photos": "Все фотографии",
+  "photos": "Фотографии",
+  "+ Folder from Examples…": "+ Папка из примеров…",
+  "Also stack in the Library": "Также группировать в стопку в Библиотеке",
+  "Folder tokens: {event}, {folder}, {person}, {session}, {date}, {camera}. File names also accept {original} and {seq:4}.": "Токены папок: {event}, {folder}, {person}, {session}, {date}, {camera}. Имена файлов также принимают {original} и {seq:4}.",
+  "Best of each burst": "Лучший кадр из каждой серии",
+  " minutes": " мин.",
+  "Normal": "Обычный",
+  "Event name": "Название события",
+  "No time": "Без времени",
+  "File name pattern (optional)": "Шаблон имени файла (необязательно)",
+  "Group bursts and near-duplicates": "Группировать серии и почти дубликаты",
+  "Only in session": "Только в сессии",
+  "Split into sessions when there is a gap of more than": "Разделять на сессии при перерыве более",
+  "All sessions": "Все сессии",
+  "Export sessions as folders": "Экспортировать сессии как папки"
 }

@@ -1567,5 +1567,22 @@
   "−7 EV": "−7 EV",
   "−8 EV": "−8 EV",
   "日本語": "일본어",
-  "繁體中文（台灣）": "중국어(번체, 대만)"
+  "繁體中文（台灣）": "중국어(번체, 대만)",
+  "Destination folder pattern": "대상 폴더 패턴",
+  "All photos": "모든 사진",
+  "photos": "사진",
+  "+ Folder from Examples…": "+ 예제에서 폴더…",
+  "Also stack in the Library": "라이브러리에서도 스택",
+  "Folder tokens: {event}, {folder}, {person}, {session}, {date}, {camera}. File names also accept {original} and {seq:4}.": "폴더 토큰: {event}, {folder}, {person}, {session}, {date}, {camera}. 파일 이름에는 {original} 및 {seq:4}도 사용할 수 있습니다.",
+  "Best of each burst": "연사별 최고",
+  " minutes": " 분",
+  "Normal": "일반",
+  "Event name": "이벤트 이름",
+  "No time": "시간 없음",
+  "File name pattern (optional)": "파일 이름 패턴(선택 사항)",
+  "Group bursts and near-duplicates": "연사 및 유사 중복 그룹화",
+  "Only in session": "세션 내에서만",
+  "Split into sessions when there is a gap of more than": "다음보다 큰 간격이 있으면 세션으로 분할",
+  "All sessions": "모든 세션",
+  "Export sessions as folders": "세션을 폴더로 내보내기"
 }

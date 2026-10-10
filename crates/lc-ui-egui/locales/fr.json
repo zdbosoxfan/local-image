@@ -1567,5 +1567,22 @@
   "This folder is not available (drive disconnected?). Smart previews are not built or used until it is back or you choose another folder.": "Ce dossier n’est pas disponible (lecteur déconnecté ?). Les aperçus dynamiques ne sont ni créés ni utilisés jusqu’à ce qu’il soit de nouveau disponible ou que vous choisissiez un autre dossier.",
   "This photo can't be opened": "Impossible d’ouvrir cette photo",
   "This removal was made on another photo and isn't applied here.": "Cette suppression a été effectuée sur une autre photo et n’est pas appliquée ici.",
-  "Threshold": "Seuil"
+  "Threshold": "Seuil",
+  "Destination folder pattern": "Modèle de dossier de destination",
+  "All photos": "Toutes les photos",
+  "photos": "photos",
+  "+ Folder from Examples…": "+ Dossier à partir d'exemples…",
+  "Also stack in the Library": "Empiler également dans la bibliothèque",
+  "Folder tokens: {event}, {folder}, {person}, {session}, {date}, {camera}. File names also accept {original} and {seq:4}.": "Jetons de dossier : {event}, {folder}, {person}, {session}, {date}, {camera}. Les noms de fichier acceptent également {original} et {seq:4}.",
+  "Best of each burst": "Meilleure photo de chaque rafale",
+  " minutes": " minutes",
+  "Normal": "Normal",
+  "Event name": "Nom de l'événement",
+  "No time": "Aucune heure",
+  "File name pattern (optional)": "Modèle de nom de fichier (facultatif)",
+  "Group bursts and near-duplicates": "Grouper les rafales et les quasi-doublons",
+  "Only in session": "Uniquement dans la session",
+  "Split into sessions when there is a gap of more than": "Diviser en sessions lorsqu'il y a un intervalle de plus de",
+  "All sessions": "Toutes les sessions",
+  "Export sessions as folders": "Exporter les sessions en tant que dossiers"
 }

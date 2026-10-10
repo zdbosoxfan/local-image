@@ -129,5 +129,6 @@
   "· {dups} already in the library": "· {dups} již v knihovně",
   "· {n} photo{}": "· {n} fotografi{0:.0}",
   "… and {more} more": "… a {more} dalších",
-  "{n} change{} saved in memory but not written to disk: {e}\nLocal Image retries automatically; quitting now would lose {}.": "{n} změn{0:.0} je uloženo v paměti, ale nezapsáno na disk: {e}\nLocal Image to automaticky zkouší znovu; ukončením je nyní ztratíte.{1:.0}"
+  "{n} change{} saved in memory but not written to disk: {e}\nLocal Image retries automatically; quitting now would lose {}.": "{n} změn{0:.0} je uloženo v paměti, ale nezapsáno na disk: {e}\nLocal Image to automaticky zkouší znovu; ukončením je nyní ztratíte.{1:.0}",
+  "{start}–{end} · {n} photos": "{start}–{end} · {n} fotografií"
 }
