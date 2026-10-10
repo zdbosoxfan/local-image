@@ -177,9 +177,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let max_edge = app.ui.settings.preview_edge.clamp(512, 8192) as f32;
     let native = [photo.width.max(1) as usize, photo.height.max(1) as usize];
     // two views (before, after): side by side or stacked
-    let split = matches!(app.ui.before_after, BeforeAfter::SideBySide | BeforeAfter::TopBottom);
-    let split_view = matches!(app.ui.before_after, BeforeAfter::Split | BeforeAfter::SplitTopBottom);
-    let areas: Vec<Rect> = match app.ui.before_after {
+    // A Library preview represents the whole layered document, regardless of remembered Develop
+    // before/after or preset-hover state. Develop itself still renders the original photo.
+    let composite = !right.is_edit_tool() && app.host_composites.contains_key(&id);
+    let split = !composite && matches!(app.ui.before_after, BeforeAfter::SideBySide | BeforeAfter::TopBottom);
+    let split_view = !composite && matches!(app.ui.before_after, BeforeAfter::Split | BeforeAfter::SplitTopBottom);
+    let areas: Vec<Rect> = match if composite { BeforeAfter::Off } else { app.ui.before_after } {
         BeforeAfter::SideBySide => {
             let half = area.width() / 2.0 - 6.0;
             vec![
@@ -279,7 +282,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     let shown;
     let mut composite_button = None;
-    if split {
+    if let Some(button) = composite.then(|| super::host_composite::loupe(app, ui, id, main_area)).flatten() {
+        composite_button = Some(button);
+        shown = "compositing";
+    } else if split {
         let br = fit_rect(areas[0], aspect, app.ui.zoom, native, ppp, app.ui.pan);
         draw(Slot::Before, br);
         shown = draw(Slot::Main, img_rect);
@@ -297,10 +303,6 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         p.rect_filled(bg, 4.0, Color32::from_black_alpha(160));
         p.galley(bg.min + vec2(8.0, 4.0), g, Color32::WHITE);
         shown = "hover";
-    } else if let Some(button) = (!right.is_edit_tool()).then(|| super::host_composite::loupe(app, ui, id, main_area)).flatten() {
-        // local-image: being edited in Compositing (unsaved): the Library shows it as it is there
-        composite_button = Some(button);
-        shown = "compositing";
     } else {
         shown = draw(Slot::Main, img_rect);
         if shown == "none" {
@@ -322,7 +324,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         }
     }
     app.loupe_shown = Some((id, shown));
-    if app.ui.before_after == BeforeAfter::Split {
+    if split_view && app.ui.before_after == BeforeAfter::Split {
         let mid = img_rect.center().x;
         if let Some(tex) = app.renderer.textures.get(&Slot::Before).filter(|t| t.photo == id) {
             let left = Rect::from_min_max(img_rect.min, pos2(mid, img_rect.bottom()));
@@ -330,7 +332,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         }
         p.line_segment([pos2(mid, img_rect.top()), pos2(mid, img_rect.bottom())], Stroke::new(1.5, Color32::WHITE));
     }
-    if app.ui.before_after == BeforeAfter::SplitTopBottom {
+    if split_view && app.ui.before_after == BeforeAfter::SplitTopBottom {
         let mid = img_rect.center().y;
         if let Some(tex) = app.renderer.textures.get(&Slot::Before).filter(|t| t.photo == id) {
             let top = Rect::from_min_max(img_rect.min, pos2(img_rect.right(), mid));
