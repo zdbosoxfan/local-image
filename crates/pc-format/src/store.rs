@@ -137,7 +137,14 @@ pub(crate) fn read_manifest(src: &dyn Source, opts: &LoadOptions) -> Result<Mani
     de.end()?;
     crate::migrate::migrate(&mut v)?;
     let layers = take_array(&mut v, "/document/layers");
+    let symbols = take_array(&mut v, "/document/symbols");
     let mut m: Manifest = serde_json::from_value(v)?;
+    for mut symbol in symbols {
+        let layers = layers_from_json(take_array(&mut symbol, "/layers"))?;
+        let mut s: crate::manifest::SymbolDefM = serde_json::from_value(symbol)?;
+        s.layers = layers;
+        m.document.symbols.push(s);
+    }
     m.document.layers = layers_from_json(layers)?;
     Ok(m)
 }
@@ -503,6 +510,9 @@ impl PcraftWriter {
     fn prepare(&mut self, doc: &Document, opts: &SaveOptions) -> Result<Prepared> {
         self.hash_cache.retain(|_, (w, _)| w.strong_count() > 0);
         convert::check_nesting(&doc.layers)?;
+        for symbol in &doc.symbols {
+            convert::check_nesting(&symbol.layers)?;
+        }
         let mut c = Collect { hash_cache: Some(&mut self.hash_cache), ..Default::default() };
         let document = convert::doc_m(doc, &mut c);
         let mut previews = Vec::new();

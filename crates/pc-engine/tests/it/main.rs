@@ -17,3 +17,5 @@ mod smart_psd;
 mod text_gamma;
 mod unicode_colors;
 mod vectorize;
+
+mod vector_foundation_gpu;
