@@ -1,0 +1,7 @@
+# UI fixture provenance
+
+See [engine sources and parameters](../../../../pc-engine/src/vector_packages/selection/SOURCES.md). The UI module adapts VectorCraft wand/selection gesture semantics, preserving the upstream copyright notice; fixtures and the offscreen app harness are original GPL-3.0-or-later Local Image code.
+
+`tests.rs` uses real egui pointer buttons, motion, menu clicks, modifiers, Escape, focus loss, Delete through package 03, and typed tolerance fields. Its small Layers host reads the existing session selection. `app_gpu.rs` separately uses the real PhotocraftApp, real GPU canvas, actual Layers UI and package 00 route hooks. Synthetic document pixels are bounds-limited pc-vector caches. No screenshot goldens or proprietary files were imported.
+
+The app Node fixture uses the four anchors `(5,7)`, `(8,5)`, `(11,7)`, `(8,9)` and a lasso through `(4,4)`, `(9,4)`, `(9,8)`, `(4,8)`, selecting exactly the first two. Its cache is rendered from that same path. The small host uses a rectangle; the app's pre-existing zero-height properties regression for that rectangle is recorded in the integration lane. The 500-object benchmark uses a 1280×800 offscreen app, a 320×240 document, 500 6×4 red rectangles, ordinary Path Selection, four warmup steps and 30 single-event pointer frames including GPU completion/readback. Rulers, legacy Layer Edges and the generic context bar are disabled; geometry properties and Layers remain enabled. Strict adapter/format assertions and pixel gates run before the p95 <16 ms assertion.
