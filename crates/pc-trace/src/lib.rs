@@ -3,6 +3,9 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 pub mod adapter;
+pub mod cleanup;
+#[cfg(test)]
+extern crate self as pc_trace;
 mod boundary;
 pub mod centerline;
 mod colorfit;
@@ -349,7 +352,3 @@ pub fn trace_with_cancel(image: Image<'_>, params: &Params, cancel: impl Fn() ->
 
 // Package 27: shared-boundary cutout evaluator.
 pub mod cutout;
-
-// Shared T1 fixture/oracle helpers imported by the package 27 library tests.
-#[cfg(test)]
-extern crate self as pc_trace;
