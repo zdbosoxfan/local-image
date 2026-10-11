@@ -137,32 +137,48 @@ pub fn shows(app: &PhotocraftApp, mods: Modifiers) -> bool {
 
 /// The paths Direct Selection edits, front first: the targeted vector mask or the active shape
 /// layer's path, then the work path.
-fn candidates(app: &PhotocraftApp) -> Vec<(PathRef, Path)> {
-    let Some(st) = app.session.active() else { return Vec::new() };
-    let mut paths = Vec::new();
-    if let Some((id, p)) = crate::vector_ui::targeted_vector_mask(app) {
-        paths.push((PathRef::Layer(id), p));
+fn visit_candidates<'a>(app: &'a PhotocraftApp, mut visit: impl FnMut(PathRef, &'a Path)) {
+    let Some(st) = app.session.active() else { return };
+    if let Some((id, p)) = crate::vector_ui::targeted_vector_mask_ref(app) {
+        visit(PathRef::Layer(id), p);
     } else {
-        for id in st.selected_layers().into_iter().rev() {
-            if let Some(l) = st.doc.layer(id)
+        let selected = if st.selected_layers.is_empty() { st.active_layer.as_slice() } else { st.selected_layers.as_slice() };
+        for id in selected.iter().rev() {
+            if let Some(l) = st.doc.layer(*id)
                 && let LayerContent::Shape(sh) = &l.content
             {
-                paths.push((PathRef::Layer(id.0), sh.path.clone()));
+                visit(PathRef::Layer(id.0), &sh.path);
             }
         }
     }
-    if let Some(p) = &st.doc.work_path {
-        paths.push((PathRef::Work, p.clone()));
+    if let Some(path) = &st.doc.work_path {
+        visit(PathRef::Work, path);
     }
+}
+fn candidates(app: &PhotocraftApp) -> Vec<(PathRef, Path)> {
+    let mut paths = Vec::new();
+    visit_candidates(app, |r, p| paths.push((r, p.clone())));
     paths
+}
+fn borrowed_path(doc: &Document, r: PathRef) -> Option<&Path> {
+    match r {
+        PathRef::Work => doc.work_path.as_ref(),
+        PathRef::Layer(id) => {
+            let l = doc.layer(photocraft_doc::LayerId(id))?;
+            if let LayerContent::Shape(sh) = &l.content { Some(&sh.path) } else { l.vector_mask.as_ref().map(|m| &m.path) }
+        }
+    }
 }
 
 impl DirectSelection {
     fn anchors_for(&self, target: PathRef) -> Vec<[usize; 2]> {
+        self.anchors_slice(target).to_vec()
+    }
+    fn anchors_slice(&self, target: PathRef) -> &[[usize; 2]] {
         if self.target == Some(target) {
-            return self.anchors.clone();
+            return &self.anchors;
         }
-        self.additional.iter().find(|s| s.target == target).map_or_else(Vec::new, |s| s.anchors.clone())
+        self.additional.iter().find(|s| s.target == target).map_or(&[], |s| s.anchors.as_slice())
     }
     fn select(&mut self, target: PathRef, anchors: Vec<[usize; 2]>, add: bool) {
         if !add {
@@ -303,18 +319,30 @@ fn retracted(k: &photocraft_doc::Knot, h: Handle) -> bool {
 /// The handles shown on `path`: both of every selected anchor and the two of a clicked segment
 /// (retracted handles sit on their anchor and don't show).
 fn shown_handles(ds: &DirectSelection, path: &Path) -> Vec<([usize; 2], Handle)> {
-    let knot = |r: [usize; 2]| path.subpaths.get(r[0]).and_then(|s| s.knots.get(r[1]));
-    let mut out: Vec<([usize; 2], Handle)> = ds.anchors.iter().flat_map(|&r| [(r, Handle::In), (r, Handle::Out)]).collect();
-    if let Some([s, k]) = ds.segment
+    let mut out = Vec::new();
+    visit_handles(&ds.anchors, ds.segment, path, |r, h| out.push((r, h)));
+    out
+}
+fn visit_handles(anchors: &[[usize; 2]], segment: Option<[usize; 2]>, path: &Path, mut visit: impl FnMut([usize; 2], Handle)) {
+    let mut visible = |r: [usize; 2], h| {
+        if path.subpaths.get(r[0]).and_then(|s| s.knots.get(r[1])).is_some_and(|k| !retracted(k, h)) {
+            visit(r, h);
+        }
+    };
+    for &r in anchors {
+        visible(r, Handle::In);
+        visible(r, Handle::Out);
+    }
+    if let Some([s, k]) = segment
         && let Some(sp) = path.subpaths.get(s)
     {
         let n = sp.knots.len();
         let next = k.checked_add(1).filter(|&j| j < n).or((sp.closed && n > 1).then_some(0));
-        out.push(([s, k], Handle::Out));
-        out.extend(next.map(|j| ([s, j], Handle::In)));
+        visible([s, k], Handle::Out);
+        if let Some(j) = next {
+            visible([s, j], Handle::In);
+        }
     }
-    out.retain(|&(r, h)| knot(r).is_some_and(|k| !retracted(k, h)));
-    out
 }
 
 /// Canvas pointer events for Direct Selection and the Pen's ⌘ / ⌥ modes; false when the event is
@@ -741,9 +769,13 @@ fn perform(app: &mut PhotocraftApp, targets: Vec<Target>, op: Operation) {
 pub fn selection_bounds(app: &PhotocraftApp) -> Option<[f64; 4]> {
     let st = app.session.active()?;
     let mut bounds: Option<[f64; 4]> = None;
-    for t in app.ui.direct_selection.targets() {
-        let p = node::path(&st.doc, &t).ok()?;
-        for [s, k] in t.anchors {
+    let ds = &app.ui.direct_selection;
+    for (r, anchors) in ds.target.into_iter().map(|r| (r, ds.anchors_slice(r))).chain(ds.additional.iter().map(|s| (s.target, s.anchors.as_slice()))) {
+        if anchors.is_empty() {
+            continue;
+        }
+        let p = node::path(&st.doc, &target(r, Vec::new())).ok()?;
+        for &[s, k] in anchors {
             let a = p.subpaths.get(s)?.knots.get(k)?.anchor;
             bounds = Some(bounds.map_or([a.x, a.y, a.x, a.y], |b| [b[0].min(a.x), b[1].min(a.y), b[2].max(a.x), b[3].max(a.y)]));
         }
@@ -811,31 +843,27 @@ pub fn context_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 /// place of its path, and the marquee.
 pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, to_scr: &dyn Fn([f64; 2]) -> Pos2, accent: Color32) {
     let ds = &app.ui.direct_selection;
-    for (r, path) in candidates(app) {
+    visit_candidates(app, |r, path| {
         let path = match &ds.drag {
-            Some(Drag::Edit { target, preview: Some(p), .. }) if *target == r => p.clone(),
-            _ => ds.preview_doc.as_ref().and_then(|(doc, _)| node::path(doc, &target(r, Vec::new())).ok()).cloned().unwrap_or(path),
+            Some(Drag::Edit { target, preview: Some(p), .. }) if *target == r => p,
+            _ => ds.preview_doc.as_ref().and_then(|(doc, _)| borrowed_path(doc, r)).unwrap_or(path),
         };
-        crate::vector_ui::draw_outline(painter, &path, to_scr, accent);
-        let local = DirectSelection {
-            target: Some(r),
-            anchors: ds.anchors_for(r),
-            segment: if ds.target == Some(r) { ds.segment } else { None },
-            ..Default::default()
-        };
-        let ours = !local.anchors.is_empty() || local.segment.is_some();
-        for &(k, h) in if ours { shown_handles(&local, &path) } else { Vec::new() }.iter() {
+        crate::vector_ui::draw_outline(painter, path, to_scr, accent);
+        let anchors = ds.anchors_slice(r);
+        let segment = if ds.target == Some(r) { ds.segment } else { None };
+        let ours = !anchors.is_empty() || segment.is_some();
+        visit_handles(anchors, segment, path, |k, h| {
             if let Some(kn) = path.subpaths.get(k[0]).and_then(|s| s.knots.get(k[1])) {
                 let c = if h == Handle::In { kn.in_ctrl } else { kn.out_ctrl };
                 crate::vector_ui::draw_handle(painter, to_scr([kn.anchor.x, kn.anchor.y]), to_scr([c.x, c.y]), accent);
             }
-        }
+        });
         for (s, sp) in path.subpaths.iter().enumerate() {
             for (k, kn) in sp.knots.iter().enumerate() {
-                crate::vector_ui::draw_anchor(painter, to_scr([kn.anchor.x, kn.anchor.y]), ours && local.anchors.contains(&[s, k]), accent);
+                crate::vector_ui::draw_anchor(painter, to_scr([kn.anchor.x, kn.anchor.y]), ours && anchors.contains(&[s, k]), accent);
             }
         }
-    }
+    });
     if ds.transform_mode
         && let Some(b) = selection_bounds(app)
     {

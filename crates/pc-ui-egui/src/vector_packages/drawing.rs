@@ -41,6 +41,10 @@ pub struct State {
     pub parameters: ShapeParameters,
     pub angle: f64,
     #[serde(skip)]
+    pub paint: Option<(Option<photocraft_doc::Fill>, Option<photocraft_doc::ShapeStroke>)>,
+    #[serde(skip)]
+    pub generation: u64,
+    #[serde(skip)]
     pub preview: Option<DesignShape>,
     #[serde(skip)]
     pub preview_layer: Option<Layer>,
@@ -56,6 +60,8 @@ impl Default for State {
         Self {
             parameters: ShapeParameters::Rect { radii: [0.; 4], kinds: [CornerKind::Round; 4] },
             angle: 0.,
+            paint: None,
+            generation: 0,
             preview: None,
             preview_layer: None,
             error: None,
@@ -74,6 +80,7 @@ impl State {
         self.preview = None;
         self.preview_layer = None;
         self.error = None;
+        self.generation = self.generation.wrapping_add(1);
     }
     pub fn begin_new(&mut self, s: &Session, start: Point, above: Option<LayerId>) -> Result<()> {
         self.cancel();
@@ -106,31 +113,28 @@ impl State {
     }
     /// Snap provider 07 supplies a point satisfying the current Shift constraint. Sample modifiers each frame.
     pub fn update(&mut self, s: &Session, p: Point, mods: egui::Modifiers, snap: impl Fn(Point, Point, bool) -> Point) -> Result<()> {
-        let Some(g) = self.gesture.clone() else { return Ok(()) };
+        self.update_checked(s, p, mods, |p, start, shift| Ok(snap(p, start, shift)))
+    }
+    /// Fallible provider queries abort before a preview or commit can be published.
+    pub fn update_checked(&mut self, s: &Session, p: Point, mods: egui::Modifiers, snap: impl Fn(Point, Point, bool) -> Result<Point>) -> Result<()> {
+        let Some(g) = self.gesture.as_ref() else { return Ok(()) };
         g.capture.check(s)?;
         let candidate = if let Some(handle) = g.handle {
-            geometry::drag_handle(&g.original, handle, snap(p, p, false)).map_err(|e| EngineError::Other(e.to_string()))?
+            geometry::drag_handle(&g.original, handle, snap(p, p, false)?).map_err(|e| EngineError::Other(e.to_string()))?
         } else {
-            let mut q = p;
-            let (dx, dy) = (p.x - g.start.x, p.y - g.start.y);
-            if mods.shift {
-                if matches!(g.original.parameters, ShapeParameters::Line { .. } | ShapeParameters::Arrow { .. }) {
-                    let a = (dy.atan2(dx) / std::f64::consts::FRAC_PI_4).round() * std::f64::consts::FRAC_PI_4;
-                    let length = dx.hypot(dy);
-                    q = Point::new(g.start.x + length * a.cos(), g.start.y + length * a.sin());
-                } else {
-                    let d = dx.abs().max(dy.abs());
-                    q = Point::new(g.start.x + if dx < 0. { -d } else { d }, g.start.y + if dy < 0. { -d } else { d });
-                }
-            }
-            q = snap(q, g.start, mods.shift);
-            let a = if mods.alt { Point::new(2. * g.start.x - q.x, 2. * g.start.y - q.y) } else { g.start };
-            let mut d = g.original.clone();
-            d.rect = [a.x.min(q.x), a.y.min(q.y), (a.x - q.x).abs(), (a.y - q.y).abs()];
-            fit_endpoints(&mut d, a, q);
-            d
+            let q = constrained_endpoint(&g.original, g.start, p, mods.shift);
+            design_between(&g.original, g.start, snap(q, g.start, mods.shift)?, mods.alt)
         };
-        self.prepare_preview(s, candidate, &g.targets)
+        if g.handle.is_none() && (candidate.rect[2] < 1e-6 || candidate.rect[3] < 1e-6 || (candidate.rect[2] <= 1e-6 && candidate.rect[3] <= 1e-6)) {
+            // A modifier-only event can arrive before the first motion. Keep capture,
+            // but remove any old geometry so a zero-size release cannot commit it.
+            self.preview = None;
+            self.preview_layer = None;
+            self.generation = self.generation.wrapping_add(1);
+            return Ok(());
+        }
+        let targets = g.targets.clone();
+        self.prepare_preview(s, candidate, &targets)
     }
     fn prepare_preview(&mut self, s: &Session, candidate: DesignShape, targets: &[LayerId]) -> Result<()> {
         let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
@@ -154,17 +158,25 @@ impl State {
         if layer.vector.appearance.is_some() || !layer.vector.corners.is_empty() {
             return Err(EngineError::Other("live shape preview requires appearance/corner projection".into()));
         }
-        let shape = engine::prepare(doc, &candidate, sh.clone())?;
+        let mut base = sh.clone();
+        if targets.is_empty()
+            && let Some((fill, stroke)) = &self.paint
+        {
+            base.fill = fill.clone();
+            base.stroke = stroke.clone();
+        }
+        let shape = engine::prepare(doc, &candidate, base)?;
         layer.content = LayerContent::Shape(shape);
         layer.vector.live_shape = Some(candidate.clone());
         self.preview = Some(candidate);
         self.preview_layer = Some(layer);
+        self.generation = self.generation.wrapping_add(1);
         Ok(())
     }
     pub fn commit(&mut self, s: &mut Session) -> Result<()> {
         let g = self.gesture.take();
         let preview = self.preview.take();
-        self.preview_layer = None;
+        let paint = self.preview_layer.take().and_then(|layer| if let LayerContent::Shape(sh) = layer.content { Some((sh.fill, sh.stroke)) } else { None });
         self.numeric = None;
         let (Some(g), Some(d)) = (g, preview) else { return Ok(()) };
         g.capture.check(s)?;
@@ -173,6 +185,10 @@ impl State {
         if g.targets.is_empty() {
             params["design"] = json!(d);
             params["above"] = json!(g.above.map(|id| id.0));
+            if let Some((fill, stroke)) = paint {
+                params["fill"] = json!(fill);
+                params["stroke"] = json!(stroke);
+            }
             s.execute("shape.design.create", params)?;
         } else {
             params["edits"] = json!(g.targets.iter().map(|id| json!({"layer":id.0,"design":d})).collect::<Vec<_>>());
@@ -211,6 +227,34 @@ impl State {
             self.error = None;
         }
     }
+}
+/// One geometry implementation for legacy and design-shape frontends in either persona.
+/// Snapping runs after constraining; its provider must preserve the current construction ray.
+pub fn drag_design(original: &DesignShape, start: Point, p: Point, mods: egui::Modifiers, snap: impl Fn(Point, Point, bool) -> Point) -> DesignShape {
+    let q = constrained_endpoint(original, start, p, mods.shift);
+    design_between(original, start, snap(q, start, mods.shift), mods.alt)
+}
+fn constrained_endpoint(original: &DesignShape, start: Point, p: Point, shift: bool) -> Point {
+    let mut q = p;
+    let (dx, dy) = (p.x - start.x, p.y - start.y);
+    if shift {
+        if matches!(original.parameters, ShapeParameters::Line { .. } | ShapeParameters::Arrow { .. }) {
+            let a = (dy.atan2(dx) / std::f64::consts::FRAC_PI_4).round() * std::f64::consts::FRAC_PI_4;
+            let length = dx.hypot(dy);
+            q = Point::new(start.x + length * a.cos(), start.y + length * a.sin());
+        } else {
+            let d = dx.abs().max(dy.abs());
+            q = Point::new(start.x + if dx < 0. { -d } else { d }, start.y + if dy < 0. { -d } else { d });
+        }
+    }
+    q
+}
+fn design_between(original: &DesignShape, start: Point, q: Point, centered: bool) -> DesignShape {
+    let a = if centered { Point::new(2. * start.x - q.x, 2. * start.y - q.y) } else { start };
+    let mut d = original.clone();
+    d.rect = [a.x.min(q.x), a.y.min(q.y), (a.x - q.x).abs(), (a.y - q.y).abs()];
+    fit_endpoints(&mut d, a, q);
+    d
 }
 fn fit_endpoints(d: &mut DesignShape, a: Point, b: Point) {
     match &mut d.parameters {
@@ -261,16 +305,20 @@ pub fn canvas(
     paint(ui.painter(), state, view, s, selected);
 }
 pub fn paint(painter: &egui::Painter, state: &State, view: View, s: &Session, selected: Option<LayerId>) {
-    if let Some(d) = &state.preview
-        && let Ok(path) = geometry::generate(d)
+    paint_mapped(painter, state, |p| view.screen(p), s, selected);
+}
+/// Borrow the prepared preview geometry and use the host transform (including view flips).
+pub fn paint_mapped(painter: &egui::Painter, state: &State, screen: impl Fn(Point) -> Pos2, s: &Session, selected: Option<LayerId>) {
+    if let Some(layer) = &state.preview_layer
+        && let LayerContent::Shape(shape) = &layer.content
     {
-        for sp in &path.subpaths {
+        for sp in &shape.path.subpaths {
             for q in sp.segments() {
                 let mut pts = Vec::new();
                 for i in 0..=24 {
                     let t = i as f64 / 24.;
                     let u = 1. - t;
-                    pts.push(view.screen(Point::new(
+                    pts.push(screen(Point::new(
                         u * u * u * q[0].x + 3. * u * u * t * q[1].x + 3. * u * t * t * q[2].x + t * t * t * q[3].x,
                         u * u * u * q[0].y + 3. * u * u * t * q[1].y + 3. * u * t * t * q[2].y + t * t * t * q[3].y,
                     )));
@@ -284,7 +332,7 @@ pub fn paint(painter: &egui::Painter, state: &State, view: View, s: &Session, se
         && let Ok(handles) = geometry::handles(d)
     {
         for h in handles {
-            painter.circle_filled(view.screen(h.position), 4., Color32::from_rgb(220, 40, 40));
+            painter.circle_filled(screen(h.position), 4., Color32::from_rgb(220, 40, 40));
         }
     }
 }
@@ -506,11 +554,26 @@ pub fn pointer(
     handle_tolerance: f64,
     snap: impl Fn(Point, Point, bool) -> Point,
 ) -> bool {
+    let result = pointer_checked(s, state, event, mods, selected, enabled, handle_tolerance, |p, start, shift| Ok(snap(p, start, shift)));
+    state.record(result.map(|_| ()));
+    enabled
+}
+/// Shared pointer implementation; errors from the snap provider cannot become raw commits.
+pub fn pointer_checked(
+    s: &mut Session,
+    state: &mut State,
+    event: Event,
+    mods: egui::Modifiers,
+    selected: Option<LayerId>,
+    enabled: bool,
+    handle_tolerance: f64,
+    snap: impl Fn(Point, Point, bool) -> Result<Point>,
+) -> Result<bool> {
     if !enabled {
         state.cancel();
-        return false;
+        return Ok(false);
     }
-    let result = match event {
+    let result = (|| match event {
         Event::Cancel => {
             state.cancel();
             Ok(())
@@ -520,25 +583,52 @@ pub fn pointer(
                 .and_then(|id| s.active()?.doc.layer(id)?.vector.live_shape.as_ref())
                 .and_then(|d| geometry::handles(d).ok())
                 .and_then(|handles| handles.into_iter().find(|h| (h.position.x - p.x).hypot(h.position.y - p.y) <= handle_tolerance));
-            if let (Some(id), Some(hit)) = (selected, hit) { state.begin_handle(s, id, hit.kind) } else { state.begin_new(s, snap(p, p, false), selected) }
+            if let (Some(id), Some(hit)) = (selected, hit) { state.begin_handle(s, id, hit.kind) } else { state.begin_new(s, snap(p, p, false)?, selected) }
         }
-        Event::Move(p) => state.update(s, p, mods, &snap),
+        Event::Move(p) => state.update_checked(s, p, mods, &snap),
         Event::Up(p) => {
-            let result = state.update(s, p, mods, &snap);
-            if result.is_err() {
-                state.cancel();
-                result
-            } else {
-                state.commit(s)
-            }
+            state.update_checked(s, p, mods, &snap)?;
+            state.commit(s)
         }
-    };
-    state.record(result);
-    true
+    })();
+    if result.is_err() {
+        state.cancel();
+    }
+    result.map(|()| true)
 }
 /// Existing persona/tool registry 01 selects these defaults; no new registry is created here.
 pub fn parameters_for(id: &str) -> Option<ShapeParameters> {
     use ShapeParameters::*;
+    let id = if id.eq_ignore_ascii_case("EllipseShape") { "ellipse" } else { id };
+    const IDS: &[&str] = &[
+        "rectangle",
+        "roundedRectangle",
+        "ellipse",
+        "polygon",
+        "star",
+        "doubleStar",
+        "squareStar",
+        "triangle",
+        "trapezoid",
+        "diamond",
+        "donut",
+        "pie",
+        "segment",
+        "arrow",
+        "callout",
+        "ellipseCallout",
+        "cog",
+        "heart",
+        "tear",
+        "crescent",
+        "cloud",
+        "spiral",
+        "arc",
+        "line",
+        "rectGrid",
+        "polarGrid",
+    ];
+    let id = IDS.iter().copied().find(|name| name.eq_ignore_ascii_case(id))?;
     Some(match id {
         "rectangle" => Rect { radii: [0.; 4], kinds: [CornerKind::Round; 4] },
         "roundedRectangle" => Rect { radii: [12.; 4], kinds: [CornerKind::Round; 4] },

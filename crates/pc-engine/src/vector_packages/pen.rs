@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 mod gesture;
-pub use gesture::{Gesture, Mode, Modifiers, Outcome};
+pub use gesture::{Gesture, Mode, Modifiers, Outcome, constrain};
 
 pub const MAX_COORDINATE: f64 = 1_000_000.0;
 pub const MAX_KNOTS: usize = 16_384;
@@ -108,7 +108,7 @@ fn bounded_numbers(v: &Value) -> bool {
     }
 }
 
-fn check_paint(c: &Commit) -> Result<()> {
+pub fn check_paint(c: &Commit) -> Result<()> {
     let paint = serde_json::to_value((&c.fill, &c.stroke)).map_err(|e| error(&e.to_string()))?;
     // serde_json turns nonfinite floats into null; null is valid only for the two
     // top-level optional paints, never inside a paint record.
@@ -155,6 +155,44 @@ fn prepare(s: &Session, c: &Commit) -> Result<(Document, Option<LayerId>)> {
 /// Prepare a detached document with bounds-limited pc-vector caches. Nothing is published.
 pub fn preview_document(s: &Session, c: &Commit) -> Result<Document> {
     prepare(s, c).map(|p| p.0)
+}
+
+/// Refresh only the gesture's detached target. Clone the document once at begin;
+/// subsequent pointer changes reuse it and copy only the original edited layer.
+/// `layer` is the preview insertion ID returned by the first update.
+pub fn update_preview(s: &Session, c: &Commit, preview: &mut Option<Document>, layer: &mut Option<LayerId>) -> Result<()> {
+    check_fresh(s, c.document, c.revision)?;
+    let source = &s.active().ok_or(EngineError::NoDocument)?.doc;
+    check_target(source, &c.target)?;
+    validate(&c.path)?;
+    check_paint(c)?;
+    if preview.is_none() {
+        let mut doc = (**source).clone();
+        *layer = apply(&mut doc, c)?;
+        *preview = Some(doc);
+        return Ok(());
+    }
+    let doc = preview.as_mut().ok_or_else(|| error("missing pen preview"))?;
+    if doc.id != source.id {
+        return Err(error("stale pen preview"));
+    }
+    match c.target {
+        Target::NewShape { .. } => {
+            let id = layer.ok_or_else(|| error("missing pen preview layer"))?;
+            let mut shape = ShapeLayer { path: c.path.clone(), fill: c.fill.clone(), stroke: c.stroke.clone(), ..Default::default() };
+            crate::vector_cmds::refresh_shape(doc, &mut shape);
+            doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?.content = LayerContent::Shape(shape);
+        }
+        Target::Shape { layer: id } | Target::VectorMask { layer: id } => {
+            let original = source.layer(id).ok_or(EngineError::NoLayer(id))?.clone();
+            *doc.layer_mut(id).ok_or(EngineError::NoLayer(id))? = original;
+            apply(doc, c)?;
+        }
+        Target::Work => {
+            doc.work_path = Some(c.path.clone());
+        }
+    }
+    Ok(())
 }
 
 fn apply(doc: &mut Document, c: &Commit) -> Result<Option<LayerId>> {

@@ -392,9 +392,26 @@ impl Cache {
         }
         result.delta = subtract(result.point, point);
         let axis_dist = length(result.delta);
+        let ray = angle.filter(|_| settings.angle).map(|angle| {
+            let d = subtract(point, angle.origin);
+            let theta = ((d[1].atan2(d[0]) - angle.offset) / angle.step).round() * angle.step + angle.offset;
+            let unit = [theta.cos(), theta.sin()];
+            let projection = d[0] * unit[0] + d[1] * unit[1];
+            let projected = [angle.origin[0] + projection * unit[0], angle.origin[1] + projection * unit[1]];
+            (angle, unit, projected)
+        });
+        let on_ray = |p: [f64; 2]| {
+            ray.is_none_or(|(angle, unit, _)| {
+                let d = subtract(p, angle.origin);
+                (d[0] * unit[1] - d[1] * unit[0]).abs() <= 1e-8 && d[0] * unit[0] + d[1] * unit[1] >= -1e-8
+            })
+        };
+        if !on_ray(result.point) {
+            result = SnapResult::unchanged(point);
+        }
         let mut best: Option<PointCandidate> = None;
         if settings.nodes {
-            for n in &self.nodes {
+            for n in self.nodes.iter().filter(|n| on_ray(n.point)) {
                 consider_point(&mut best, PointCandidate { point: n.point, hit: n.hit.clone() }, point, tol);
             }
         }
@@ -411,23 +428,23 @@ impl Cache {
                     if i >= count {
                         return Err(error("invalid V1 nearest segment"));
                     }
-                    consider_point(
-                        &mut best,
-                        PointCandidate { point: [p.x, p.y], hit: Hit { kind: Kind::Curve, source: curve.source, subpath: s, index: i, t: Some(t) } },
-                        point,
-                        tol,
-                    );
+                    if on_ray([p.x, p.y]) {
+                        consider_point(
+                            &mut best,
+                            PointCandidate { point: [p.x, p.y], hit: Hit { kind: Kind::Curve, source: curve.source, subpath: s, index: i, t: Some(t) } },
+                            point,
+                            tol,
+                        );
+                    }
                 }
             }
         }
-        if settings.angle
-            && let Some(angle) = angle
+        // A real target on the construction ray beats a zero-distance angle guide.
+        // Otherwise a pointer already on a ray would never snap to a nearby grid/node.
+        if best.is_none()
+            && result.guides.is_empty()
+            && let Some((_, _, p)) = ray
         {
-            let d = subtract(point, angle.origin);
-            let theta = ((d[1].atan2(d[0]) - angle.offset) / angle.step).round() * angle.step + angle.offset;
-            let unit = [theta.cos(), theta.sin()];
-            let projection = d[0] * unit[0] + d[1] * unit[1];
-            let p = [angle.origin[0] + projection * unit[0], angle.origin[1] + projection * unit[1]];
             consider_point(&mut best, PointCandidate { point: p, hit: Hit::new(Kind::Angle, Source::Construction, 0) }, point, tol);
         }
         if let Some(c) = best {

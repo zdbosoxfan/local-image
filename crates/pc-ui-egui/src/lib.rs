@@ -1838,3 +1838,6 @@ pub mod mesh;
 
 #[path = "vector_packages/fill_stroke_proxy.rs"]
 pub mod fill_stroke_proxy;
+
+pub mod shared_tools;
+pub mod vector_packages;

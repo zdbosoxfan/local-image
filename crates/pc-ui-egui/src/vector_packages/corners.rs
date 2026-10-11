@@ -127,6 +127,12 @@ impl State {
             self.cancel_if_stale(session);
         }
     }
+    pub fn preview_generation(&self) -> u64 {
+        self.preview_key
+    }
+    pub fn preview_document(&self) -> Option<&Document> {
+        self.preview.as_deref()
+    }
     pub fn display_document(&self, session: &Session) -> Option<(Arc<Document>, u64)> {
         let d = self.drag.as_ref()?;
         if !d.gesture.is_current(session) {

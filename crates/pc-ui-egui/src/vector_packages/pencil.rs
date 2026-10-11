@@ -47,6 +47,9 @@ impl State {
     pub fn active(&self) -> bool {
         self.gesture.is_some()
     }
+    pub fn preview_generation(&self) -> u64 {
+        self.generation
+    }
     pub fn preview(&self) -> Option<&Prepared> {
         self.preview.as_ref()
     }
@@ -311,9 +314,9 @@ pub fn context_bar(ui: &mut egui::Ui, state: &mut State) {
         state.cancel();
     }
 }
-#[cfg(test)]
-#[path = "pencil/gpu_tests.rs"]
-mod gpu_tests;
+// pencil/gpu_tests.rs is the package-05 scratch-registration harness, whose
+// temporary app fields are not production APIs. Package 00 migrates that GPU
+// acceptance host to the shared runtime in integration/47.md.
 #[cfg(test)]
 #[path = "pencil/tests.rs"]
 mod tests;

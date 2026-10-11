@@ -51,6 +51,7 @@ pub struct Gesture {
     auto: Vec<bool>,
     drag: Option<Drag>,
     hover: Option<Point>,
+    generation: u64,
 }
 
 fn distance(a: Point, b: Point) -> f64 {
@@ -62,7 +63,8 @@ fn point(p: Point) -> Result<Point> {
     }
     Ok(p)
 }
-fn constrain(origin: Point, p: Point, shift: bool) -> Point {
+/// Shared construction constraint, applied before snapping and inside the gesture.
+pub fn constrain(origin: Point, p: Point, shift: bool) -> Point {
     if !shift {
         return p;
     }
@@ -121,7 +123,12 @@ impl Gesture {
             auto,
             drag,
             hover: Some(at),
+            generation: 1,
         })
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     pub fn path(&self) -> &Path {
@@ -209,6 +216,7 @@ impl Gesture {
             self.smart_handles();
         }
         self.hover = Some(at);
+        self.generation = self.generation.wrapping_add(1);
         Ok(())
     }
 
@@ -223,6 +231,10 @@ impl Gesture {
             let origin = sp.knots[0].anchor;
             let at = point(constrain(origin, at, mods.shift))?;
             let k = Knot::corner(at.x, at.y);
+            if sp.knots.len() == 2 && sp.knots[1] == k {
+                return Ok(());
+            }
+            self.generation = self.generation.wrapping_add(1);
             if sp.knots.len() == 1 && distance(at, origin) > 1e-9 {
                 if count >= MAX_KNOTS {
                     return Err(error("pen node budget exhausted"));
@@ -241,6 +253,7 @@ impl Gesture {
         if !drag.moved && distance(drag.pointer, at) < 1e-9 {
             return Ok(());
         }
+        let previous = *k;
         drag.moved = true;
         let out = point(constrain(k.anchor, at, mods.shift))?;
         let reflected = point(Point::new(2.0 * k.anchor.x - out.x, 2.0 * k.anchor.y - out.y))?;
@@ -271,6 +284,9 @@ impl Gesture {
         }
         k.smooth = !mods.alt && !drag.outgoing_only;
         self.auto[drag.knot] = false;
+        if *k != previous {
+            self.generation = self.generation.wrapping_add(1);
+        }
         Ok(())
     }
 

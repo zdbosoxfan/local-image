@@ -476,6 +476,8 @@ pub struct ToolOptions {
     /// Shape tools: fill with the foreground colour, stroke width (0 = none), rectangle corner
     /// radius, polygon sides, line weight.
     pub shape_fill: bool,
+    #[serde(default)]
+    pub pen_options: crate::vector_packages::pen::Options,
     pub stroke_width: f32,
     pub corner_radius: f32,
     pub polygon_sides: u32,
@@ -585,6 +587,7 @@ impl Default for ToolOptions {
             quick_subject_assist: true,
             vector_mode: "path".into(),
             shape_fill: true,
+            pen_options: Default::default(),
             stroke_width: 0.0,
             corner_radius: 0.0,
             polygon_sides: 5,
