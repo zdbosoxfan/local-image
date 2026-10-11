@@ -368,10 +368,10 @@ fn luminance_range_controls_and_map() {
 }
 
 #[test]
-fn b_adds_to_quick_collection_in_the_grid_and_brushes_in_edit() {
+fn b_adds_to_quick_collection_in_the_grid_and_k_brushes_in_edit() {
     let mut h = detail("panel.edit");
-    // in the loupe B is the masking brush
-    let r = h.request("ui.key", json!({"key": "b"}), T);
+    // in Develop K is the masking brush
+    let r = h.request("ui.key", json!({"key": "k"}), T);
     assert_eq!(r["ok"], true, "{r}");
     assert_eq!(h.app.ui.tool, "brush");
     assert!(h.app.session.catalog.quick_collection().is_none());

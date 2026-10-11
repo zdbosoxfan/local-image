@@ -13,7 +13,10 @@ const THUMB: u32 = 48;
 
 /// The layers of the document at `path` (runs on the Library's worker thread).
 pub fn load(path: &str) -> Result<DocLayers, String> {
-    crate::crash_guard::guard("Layers preview", || load_inner(path))
+    crate::crash_guard::guard("Layers preview", || guarded_load(|| load_inner(path)))
+}
+fn guarded_load(f: impl FnOnce() -> Result<DocLayers, String>) -> Result<DocLayers, String> {
+    lightcraft_engine::guard::catch("Read document layers", f)?
 }
 fn load_inner(path: &str) -> Result<DocLayers, String> {
     let bytes = photocraft_format::read_file(std::path::Path::new(path)).map_err(|e| e.to_string())?;
@@ -156,5 +159,14 @@ mod tests {
         }
         assert!(load(&dir.join("missing.psd").to_string_lossy()).is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod bugfix_develop_tests {
+    #[test]
+    fn bugfix_develop_layer_reader_survives_decoder_panic() {
+        let result = super::guarded_load(|| panic!("damaged layered file"));
+        assert!(result.err().unwrap().contains("damaged layered file"));
     }
 }

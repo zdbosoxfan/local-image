@@ -47,6 +47,51 @@ fn magenta(c: [u8; 4]) -> bool {
 }
 
 #[test]
+fn bugfix_develop_regenerate_follows_patch_after_earlier_spot_deleted() {
+    let mut s = session();
+    s.execute("spot.add", &json!({"mode": "heal", "points": [[0.2, 0.2]]})).unwrap();
+    s.execute("spot.add", &json!({"mode": "ai", "points": [[0.5, 0.5]], "engine": "mock", "seed": 7, "wait": true})).unwrap();
+    let stroke =
+        crate::enhance::AiStroke { points: spots(&s)[1].points.clone(), polygon: vec![], size: 0.02, feather: 50.0, opacity: 100.0, mask: None };
+    // Inline worker completion is deliberately left unpolled while the user deletes another spot.
+    s.start_ai_remove(s.active().unwrap(), stroke, Some("mock"), Some(8), Some(1), true).unwrap();
+    s.execute("spot.delete", &json!({"index": 0})).unwrap();
+    let polled = s.enhance_poll();
+    assert!(polled.changed && polled.errors.is_empty(), "{polled:?}");
+    assert_eq!(spots(&s)[0].patch.as_ref().unwrap().seed, 8);
+}
+
+#[test]
+fn bugfix_develop_remove_rejects_replaced_source() {
+    let mut s = session();
+    let id = s.active().unwrap();
+    let stroke = crate::enhance::AiStroke {
+        points: vec![lightcraft_geom::Point::new(0.5, 0.5)],
+        polygon: vec![],
+        size: 0.02,
+        feather: 50.0,
+        opacity: 100.0,
+        mask: None,
+    };
+    s.start_ai_remove(id, stroke, Some("mock"), Some(7), None, true).unwrap();
+    let mut photo = (**s.catalog.photo(id).unwrap()).clone();
+    photo.file_size += 1;
+    photo.content_hash = Some("replacement-photo".into());
+    s.catalog
+        .apply(lightcraft_catalog::Op::SetContent {
+            id,
+            width: photo.width,
+            height: photo.height,
+            file_size: photo.file_size,
+            content_hash: photo.content_hash,
+            preview_only: photo.preview_only,
+        })
+        .unwrap();
+    s.enhance_poll();
+    assert!(spots(&s).is_empty(), "a result from the previous source must be discarded");
+}
+
+#[test]
 fn ai_remove_is_one_undo_step_and_regenerates() {
     let mut s = session();
     let before = centre(&mut s);
@@ -235,7 +280,7 @@ fn final_review_remove_rejects_replaced_photo_and_library_jobs_are_discarded() {
         rect: [0.2, 0.2, 0.4, 0.4],
         engine: "mock".into(),
         seed: 1,
-        geometry: "g".into(),
+        geometry: crate::enhance::remove::geometry_tag(&s.develop_of(id).unwrap()),
     });
     s.enhance.spawn(id, JobKind::Remove { stroke: stroke.clone() }, "AI Remove", true, Box::new(move |_| Ok(outcome)));
     let mut replacement = (**s.catalog.photo(id).unwrap()).clone();
@@ -324,7 +369,7 @@ fn final_review_changing_selection_keeps_the_original_remove_target() {
         rect: [0.2, 0.2, 0.4, 0.4],
         engine: "mock".into(),
         seed: 42,
-        geometry: "g".into(),
+        geometry: crate::enhance::remove::geometry_tag(&s.develop_of(a).unwrap()),
     });
     s.enhance.spawn(a, JobKind::Remove { stroke }, "AI Remove", true, Box::new(move |_| Ok(outcome)));
     s.execute("library.select", &json!({"ids":[b.0]})).unwrap();

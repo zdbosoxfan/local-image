@@ -298,7 +298,9 @@ pub fn body(app: &mut LightcraftApp, ui: &mut Ui, dlg: &mut Dialog) -> bool {
     let before = choices(dlg);
     let t = Tokens::get(ui.ctx());
     let n = crate::control::export_targets(app).len();
-    let body_h = (ui.available_height() - 100.0).clamp(220.0, (ui.ctx().content_rect().height() - 180.0).max(220.0));
+    // Reserve the title, footer and margins measured from the complete window.
+    let chrome = ui.ctx().data(|d| d.get_temp::<f32>(egui::Id::new("export-window-overhead"))).unwrap_or(260.0);
+    let body_h = (ui.available_height() - 100.0).min(ui.ctx().content_rect().height() - chrome - 64.0).max(40.0);
     // header: where to (Lightroom's "Export To: Hard Drive") and how many
     ui.horizontal(|ui| {
         ui.label(RichText::new(crate::i18n::tr("Export To:")).color(t.text_label));
@@ -308,7 +310,8 @@ pub fn body(app: &mut LightcraftApp, ui: &mut Ui, dlg: &mut Dialog) -> bool {
         });
     });
     ui.separator();
-    ui.horizontal_top(|ui| {
+    let body_width = ui.available_width();
+    let body = ui.allocate_ui_with_layout(vec2(body_width, body_h), Layout::left_to_right(Align::Min), |ui| {
         ui.allocate_ui_with_layout(vec2(PRESETS_W, body_h), Layout::top_down(Align::Min), |ui| {
             ui.set_width(PRESETS_W);
             ui.set_height(body_h);
@@ -334,12 +337,19 @@ pub fn body(app: &mut LightcraftApp, ui: &mut Ui, dlg: &mut Dialog) -> bool {
             });
         });
     });
+    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("export-body-height"), body.response.rect.height()));
     if before != choices(dlg)
         && let Dialog::Export { existing, .. } = dlg
     {
         *existing = None;
     }
-    existing_prompt(ui, dlg)
+    // Keep the question's slot stable: centering a growing window moves its buttons between
+    // pointer press and release when the conflict question first appears.
+    ui.allocate_ui_with_layout(vec2(ui.available_width(), 88.0), Layout::top_down(Align::Min), |ui| {
+        ui.set_min_height(88.0);
+        existing_prompt(ui, dlg)
+    })
+    .inner
 }
 
 /// Existing Files ▸ Ask what to do: files are already there; choose, then the export starts.
@@ -556,10 +566,9 @@ fn location(app: &mut LightcraftApp, ui: &mut Ui, dlg: &mut Dialog) {
         row(ui, "Folder:", |ui| {
             let h = ui.spacing().interact_size.y.max(22.0);
             ui.allocate_ui_with_layout(vec2(ui.available_width(), h), Layout::right_to_left(Align::Center), |ui| {
-                if app.services.pick_folder.is_some()
+                if app.services.has_folder_picker()
                     && crate::widgets::text_button(ui, "exportChooseFolder", "Choose…", false).clicked()
-                    && let Some(pick) = app.services.pick_folder.as_mut()
-                    && let Some(d) = pick()
+                    && let Some(d) = app.services.choose_folder("Choose Export Folder")
                 {
                     *dir = d;
                 }

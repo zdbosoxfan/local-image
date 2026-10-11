@@ -1289,7 +1289,7 @@ mod tests {
         assert_eq!(exposure(&h), 1.0);
     }
 
-    /// ↑ / ↓ over a slider nudge it (one undo step each); ⇧Z picks and moves to the next photo.
+    /// ↑ / ↓ over a slider nudge it (one undo step each); ⇧P picks and moves to the next photo.
     #[test]
     fn slider_nudge_and_pick_advance() {
         let mut h = demo([1300.0, 900.0]);
@@ -1304,7 +1304,7 @@ mod tests {
         h.request("ui.key", json!({"key": "Down"}), t);
         assert!((exposure(&h) - 0.25).abs() < 1e-9, "{}", exposure(&h));
         let first = h.app.session.active().unwrap();
-        h.request("ui.key", json!({"key": "Z", "shift": true}), t);
+        h.request("ui.key", json!({"key": "P", "shift": true}), t);
         assert_eq!(h.app.session.catalog.photo(first).unwrap().flag, lightcraft_catalog::Flag::Pick);
         assert_ne!(h.app.session.active(), Some(first), "advanced");
     }
@@ -2315,5 +2315,59 @@ mod tests {
         h.app.ui.remove_overlay = crate::state::SpotOverlay::Always;
         h.step();
         assert!(h.view.shapes.iter().any(|s| matches!(&s.shape,egui::Shape::Circle(c) if c.fill==pin_color && c.radius==6.)));
+    }
+    #[test]
+    fn bugfix_develop_classic_keys_and_sync_button_execute() {
+        let mut h = demo([1440., 900.]);
+        let t = Duration::from_secs(10);
+        for (key, right) in [
+            ("d", crate::state::RightPanel::Edit),
+            ("r", crate::state::RightPanel::Crop),
+            ("q", crate::state::RightPanel::Remove),
+            ("k", crate::state::RightPanel::Masking),
+        ] {
+            h.request("ui.key", json!({"key":key}), t);
+            assert_eq!(h.app.ui.view, crate::state::ViewMode::Detail);
+            assert_eq!(h.app.ui.right, right, "{key}");
+        }
+        h.request("ui.key", json!({"key":"e"}), t);
+        assert_eq!(h.app.ui.right, crate::state::RightPanel::None);
+        for expected in [1, 2, 0] {
+            h.request("ui.key", json!({"key":"l"}), t);
+            assert_eq!(h.app.ui.lights_out, expected);
+        }
+        let ids = h.app.session.visible_cloned();
+        h.app.run("library.select", json!({"ids":[ids[0].0]})).unwrap();
+        h.app.run("develop.set", json!({"control":"light.exposure","value":1.1})).unwrap();
+        h.app.run("library.select", json!({"ids":[ids[0].0,ids[1].0],"active":ids[0].0})).unwrap();
+        h.request("ui.key", json!({"key":"s","cmd":true,"shift":true}), t);
+        assert!(matches!(h.app.ui.dialog, Some(crate::state::Dialog::SyncSettings { .. })));
+        h.request("ui.clickWidget", json!({"id":"button:dialogOk"}), t);
+        assert_eq!(h.app.session.develop_of(ids[1]).unwrap().light.exposure, 1.1);
+        h.request("ui.key", json!({"key":"d"}), t);
+        h.step();
+        h.step();
+        h.request("ui.clickWidget", json!({"id":"button:syncSettings"}), t);
+        assert!(matches!(h.app.ui.dialog, Some(crate::state::Dialog::SyncSettings { .. })));
+    }
+
+    #[test]
+    fn bugfix_develop_export_fits_viewport_and_cancel_is_clickable() {
+        for (size, scale) in [([900., 600.], 1.), ([1440., 900.], 1.), ([900., 600.], 2.), ([1440., 900.], 1.25)] {
+            let mut h = demo(size);
+            h.pixels_per_point = scale;
+            h.app.run("dialog.export", json!({})).unwrap();
+            for _ in 0..5 {
+                h.step();
+            }
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(size[0], size[1]));
+            for id in ["dialog:window", "button:dialogCancel", "button:dialogOk"] {
+                let rect = h.app.widgets.iter().find(|(w, _)| w == id).unwrap().1;
+                assert!(screen.contains_rect(rect), "{size:?} @ {scale}: {id} {rect:?}");
+            }
+            let r = h.request("ui.clickWidget", json!({"id":"button:dialogCancel"}), Duration::from_secs(10));
+            assert_eq!(r["ok"], true, "{r}");
+            assert!(h.app.ui.dialog.is_none());
+        }
     }
 }

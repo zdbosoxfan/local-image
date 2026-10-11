@@ -1083,6 +1083,7 @@ fn settings_for_source<'a>(
 fn ds_finding_dust_source_settings_filter_foreign_once() {
     use lightcraft_develop::{AiPatch, DevelopSettings};
     let patch = |source: &str| AiPatch {
+        orientation: Default::default(),
         key: "k".into(),
         source: source.into(),
         rect: [0., 0., 1., 1.],

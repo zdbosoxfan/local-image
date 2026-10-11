@@ -93,6 +93,7 @@ pub type SharedWrite = std::sync::Arc<dyn Fn(&str, &[u8]) -> Result<(), String> 
 pub type PngEncode = Box<dyn Fn(&lightcraft_raster::Rgba8) -> Vec<u8>>;
 /// A folder chooser (`None` = cancelled).
 pub type PickFolder = Box<dyn FnMut() -> Option<String>>;
+pub type PickFolderTitled = Box<dyn FnMut(&str) -> Option<String>>;
 /// Reveal a file in the system file manager (Finder / Explorer / the folder on Linux).
 pub type RevealFn = Box<dyn FnMut(&str) -> Result<(), String>>;
 /// Open a URL in the user's browser.
@@ -131,6 +132,7 @@ pub struct Services {
     pub reveal: Option<RevealFn>,
     /// Choose a folder (Settings → General → Open Library…; desktop only).
     pub pick_folder: Option<PickFolder>,
+    pub pick_folder_titled: Option<PickFolderTitled>,
     /// Host bridge; UI stays independent of li-ai and its downloader.
     pub download_models: Option<Box<dyn Fn(&str, bool) -> Result<(), String>>>,
     pub model_download_status: Option<Box<dyn Fn(&str) -> ModelDownloadStatus>>,
@@ -817,7 +819,7 @@ impl LightcraftApp {
             }
             // read and added on a worker thread (dropped folders can be large, or on a slow drive)
             if !photos.is_empty()
-                && let Err(e) = import::start_paths(self, photos)
+                && let Err(e) = import::open(self, photos)
             {
                 self.toast(ctx, e);
             }
@@ -975,6 +977,7 @@ impl LightcraftApp {
             state::ViewMode::Reference => panels::compare::show_reference(self, ui),
             state::ViewMode::People => panels::people::show(self, ui),
         });
+        self.paint_lights_out(&ctx);
         panels::second::show(self, &ctx);
         panels::notices::show(self, &ctx);
         panels::dialogs::show(self, &ctx);
@@ -982,6 +985,7 @@ impl LightcraftApp {
         panels::library_problem::show(self, &ctx);
         import::progress(self, &ctx);
         import::scan_progress(self, &ctx);
+        tasks::progress(self, &ctx);
         export_task::poll(self, &ctx);
         smart_sort_task::poll(self, &ctx);
         panels::grid::drag_feedback(self, &ctx);
@@ -1294,5 +1298,34 @@ mod cache_tests {
         c.album_counts(&cat, "2026-09-30T12:00:00");
         c.album_counts(&cat, "2027-01-01T00:00:00");
         assert_eq!(c.album_count_scans, 1);
+    }
+}
+
+impl LightcraftApp {
+    fn paint_lights_out(&self, ctx: &egui::Context) {
+        if self.ui.lights_out == 0 || self.ui.dialog.is_some() {
+            return;
+        }
+        let screen = ctx.content_rect();
+        let photo = self.canvas_rect.unwrap_or(screen).intersect(screen);
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("lights-out")));
+        let fill = egui::Color32::from_black_alpha(if self.ui.lights_out == 1 { 190 } else { 255 });
+        for rect in [
+            egui::Rect::from_min_max(screen.min, egui::pos2(screen.right(), photo.top())),
+            egui::Rect::from_min_max(egui::pos2(screen.left(), photo.bottom()), screen.max),
+            egui::Rect::from_min_max(egui::pos2(screen.left(), photo.top()), egui::pos2(photo.left(), photo.bottom())),
+            egui::Rect::from_min_max(egui::pos2(photo.right(), photo.top()), egui::pos2(screen.right(), photo.bottom())),
+        ] {
+            painter.rect_filled(rect, 0., fill);
+        }
+    }
+}
+
+impl Services {
+    pub fn choose_folder(&mut self, title: &str) -> Option<String> {
+        if let Some(picker) = self.pick_folder_titled.as_mut() { picker(title) } else { self.pick_folder.as_mut().and_then(|picker| picker()) }
+    }
+    pub fn has_folder_picker(&self) -> bool {
+        self.pick_folder_titled.is_some() || self.pick_folder.is_some()
     }
 }

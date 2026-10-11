@@ -248,8 +248,8 @@ fn local_section(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         let reveal = local.owner == Some(i);
         folder_tree(app, ui, name, path, 0.0, current.as_deref(), reveal, transient);
     }
-    if app.services.pick_folder.is_some() && row(app, ui, "local:browse", Icon::Plus, "Browse Folder…", None, false, 0.0).clicked() {
-        let picked = app.services.pick_folder.as_mut().and_then(|f| f());
+    if app.services.has_folder_picker() && row(app, ui, "local:browse", Icon::Plus, "Browse Folder…", None, false, 0.0).clicked() {
+        let picked = app.services.choose_folder("Choose Browse Folder");
         if let Some(path) = picked {
             match app.run("library.browse", json!({"path": path})) {
                 // the picked folder stays in Local (and comes back if it was hidden)
@@ -521,8 +521,8 @@ fn folder_tree(
                 key: "name".into(),
             });
         }
-        if app.services.pick_folder.is_some() && ui.button(crate::i18n::tr("Move Folder To…")).clicked() {
-            let into = app.services.pick_folder.as_mut().and_then(|f| f());
+        if app.services.has_folder_picker() && ui.button(crate::i18n::tr("Move Folder To…")).clicked() {
+            let into = app.services.choose_folder("Choose Move Destination");
             if let Some(into) = into {
                 match app.run("folder.move", json!({"path": path, "into": into})) {
                     Ok(r) => app.toast(ui.ctx(), format!("Moved; {} photo(s) relinked", r["relinked"])),

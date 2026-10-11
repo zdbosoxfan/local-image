@@ -32,6 +32,7 @@ fn ai() -> DevelopSettings {
         polygon: vec![],
         mask: Some(3),
         patch: Some(AiPatch {
+            orientation: Default::default(),
             key: "ab".repeat(16),
             source: "cd".repeat(16),
             rect: [0.4, 0.4, 0.6, 0.6],

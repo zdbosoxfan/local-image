@@ -1,0 +1,122 @@
+    Blocking waiting for file lock on build directory
+   Compiling photocraft-format v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-format)
+    Finished `test` profile [optimized + debuginfo] target(s) in 2m 02s
+     Running tests/coverage/main.rs (target/debug/deps/coverage-9a8b069508cb32e8)
+
+running 39 tests
+test ds_autosave_coverage::discard_recovery_missing_entry_is_ok ... ok
+test ds_autosave_coverage::list_recovery_ignores_non_json_files ... ok
+test ds_autosave_coverage::list_recovery_returns_valid_entry ... ok
+test ds_autosave_coverage::recovery_info_serde_roundtrip ... ok
+test ds_autosave_coverage::recover_malformed_bundle_returns_err ... ok
+test ds_autosave_coverage::list_recovery_sorts_equal_saved_at_by_key_ascending ... ok
+test ds_autosave_coverage::list_recovery_requires_manifest_file ... ok
+test ds_autosave_coverage::autosaver_bundle_path_is_sanitized ... ok
+test ds_autosave_coverage::list_recovery_empty_dir ... ok
+test ds_manifest_coverage::effects_m_missing_reference_defaults_none ... ok
+test ds_manifest_coverage::content_m_missing_kind_errors ... ok
+test ds_manifest_coverage::channel_m_older_json_gets_defaults ... ok
+test ds_manifest_coverage::content_m_raster_round_trip ... ok
+test ds_manifest_coverage::manifest_missing_required_field_errors ... ok
+test ds_manifest_coverage::effects_m_round_trip ... ok
+test ds_manifest_coverage::manifest_malformed_json_errors ... ok
+test ds_autosave_coverage::list_recovery_sorts_newest_first ... ok
+test ds_manifest_coverage::format_version_is_one ... ok
+test ds_manifest_coverage::mask_m_nan_serializes_as_null ... ok
+test ds_autosave_coverage::recovery_store_discard_without_savers_is_ok ... ok
+test ds_autosave_coverage::recovery_store_adopt_and_discard_removes_adopted_entry ... ok
+test ds_autosave_coverage::recovery_store_recover_skips_invalid_bundles ... ok
+test ds_manifest_coverage::layer_comp_m_round_trip ... ok
+test ds_manifest_coverage::metadata_m_empty_object_errors_on_missing_required_vectors ... ok
+test ds_manifest_coverage::metadata_m_round_trip ... ok
+test ds_manifest_coverage::pattern_m_round_trip ... ok
+test ds_manifest_coverage::surface_m_rejects_missing_format ... ok
+test ds_manifest_coverage::smart_source_m_missing_kind_errors ... ok
+test ds_manifest_coverage::smart_source_m_embedded_and_linked_round_trip ... ok
+test ds_manifest_coverage::surface_m_round_trip ... ok
+test ds_autosave_coverage::autosaver_flush_without_requests_returns_none ... ok
+test ds_manifest_coverage::surface_m_with_tile_round_trip ... ok
+test ds_manifest_coverage::surface_m_rejects_bad_tile ... ok
+test ds_manifest_coverage::tile_ref_extreme_coordinates_round_trip ... ok
+test ds_manifest_coverage::tile_ref_round_trip ... ok
+test ds_autosave_coverage::discard_recovery_removes_bundle_and_sidecar ... ok
+test ds_autosave_coverage::list_recovery_rejects_malformed_sidecar_json ... ok
+test ds_autosave_coverage::list_recovery_rejects_sidecar_with_mismatched_key ... ok
+test ds_manifest_coverage::layer_comp_m_missing_states_defaults_empty ... ok
+
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/it/main.rs (target/debug/deps/it-2ad3752802e6729d)
+
+running 68 tests
+test autosave::list_ignores_junk ... ok
+test analysis::measurement_and_notes_roundtrip_and_default_when_absent ... ok
+test autosave::discard_removes_everything ... ok
+test corruption::random_bytes_never_panic ... ok
+test corruption::bad_manifest_json ... ok
+test corruption::random_manifest_never_panics ... ok
+test corruption::missing_manifest_is_error ... ok
+test corruption::invalid_hash_strings_rejected ... ok
+test corruption::missing_tile_is_error ... ok
+test corruption::manifest_size_limit ... ok
+test corruption::total_size_limit ... ok
+test autosave::repeated_autosaves_are_incremental_and_coalesced ... ok
+test corruption::too_new_version_rejected ... ok
+test corruption::swapped_tile_content_fails_hash_check ... ok
+test corruption::deflated_zip_entries_are_readable ... ok
+test corruption::over_deep_manifest_fails_cleanly ... ok
+test roundtrip::channel_restrictions_and_bevel_elements_roundtrip ... ok
+test corruption::rolling_reverify_reaches_every_object_with_a_tiny_budget ... ok
+test autosave::sidecars_cannot_point_at_other_bundles ... ok
+test corruption::truncation_never_panics_and_fails ... ok
+test roundtrip::cmyk_u16 ... ok
+test roundtrip::empty_document_roundtrips ... ok
+test roundtrip::blend_if_roundtrips ... ok
+test roundtrip::exhausted_document_ids_and_maximal_text_runs_roundtrip ... ok
+test autosave::recovered_entries_survive_a_second_crash_until_saved_or_closed ... ok
+test roundtrip::cmyk_u8 ... ok
+test autosave::autosave_then_recover ... ok
+test roundtrip::identical_tiles_are_stored_once ... ok
+test corruption::same_size_same_mtime_tamper_is_repaired_on_the_next_save ... ok
+test roundtrip::develop_links_roundtrip ... ok
+test roundtrip::generated_layers_keep_their_prompt_seed_and_engine ... ok
+test roundtrip::gray_u8 ... ok
+test roundtrip::fresh_ids_option ... ok
+test roundtrip::gray_u16 ... ok
+test roundtrip::not_pcraft ... ok
+test roundtrip::nesting_beyond_the_load_limit_is_refused_at_save ... ok
+test roundtrip::directory_incremental_and_gc ... ok
+test roundtrip::lab_u8 ... ok
+test roundtrip::old_layer_manifests_load_without_generation_metadata ... ok
+test roundtrip::ids_preserved_and_counter_advanced ... ok
+test roundtrip::cmyk_f32 ... ok
+test roundtrip::gray_f32 ... ok
+test roundtrip::manifest_is_human_readable_json ... ok
+test roundtrip::lab_u16 ... ok
+test corruption::directory_bundle_resave_repairs_tampered_objects ... ok
+test roundtrip::previews_embedded_and_readable ... ok
+test vector_foundations::old_v1_documents_load ... ok
+test roundtrip::video_layer_frames_survive_roundtrip ... ok
+test vector_foundations::vector_foundations_empty_fields_are_absent_in_v1_output ... ok
+test vector_foundations::vector_foundations_directory_storage_keeps_symbol_tiles ... ok
+test vector_foundations::vector_foundations_symbol_depth_uses_the_existing_limit ... ok
+test vector_foundations::vector_integration_native_rejects_duplicate_names_bad_frame_and_mesh ... ok
+test roundtrip::rgb_u8 ... ok
+test vector_foundations::vector_foundations_native_roundtrip_and_id_remapping ... ok
+test roundtrip::save_path_zip_file ... ok
+test roundtrip::text_kerning_roundtrips_and_defaults ... ok
+test vector_foundations::vector_integration_repeat_envelope_styles_swatches_frame_native_roundtrip ... ok
+test roundtrip::rgb_u16 ... ok
+test roundtrip::save_is_deterministic ... ok
+test roundtrip::rgb_f32 ... ok
+test roundtrip::vector_fields_roundtrip_and_default_when_absent ... ok
+test autosave::new_documents_never_overwrite_surviving_entries ... ok
+test roundtrip::lab_f32 ... ok
+test roundtrip::zip_incremental_only_new_tiles ... ok
+test roundtrip::deeply_nested_groups_roundtrip ... ok
+test corruption::byte_flips_detected ... ok
+test corruption::random_tile_payload_never_panics ... ok
+test roundtrip::directory_bundle_roundtrip_all_modes ... ok
+
+test result: ok. 68 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.79s
+

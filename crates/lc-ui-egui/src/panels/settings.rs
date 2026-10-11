@@ -106,7 +106,7 @@ fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         ui.label(RichText::new(location).color(t.text));
     });
     row(ui, t, "", |ui| {
-        let can = app.services.pick_folder.is_some();
+        let can = app.services.has_folder_picker();
         let r = ui.add_enabled(can, egui::Button::new(crate::i18n::tr("Open Library…")));
         register(ui.ctx(), "button:settingsOpenLibrary", r.rect);
         if r.clicked() {
@@ -235,7 +235,7 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         } else {
             ui.data_mut(|data| data.remove::<String>(edit_id));
         }
-        let (choose, choosing) = if app.services.pick_folder.is_some() {
+        let (choose, choosing) = if app.services.has_folder_picker() {
             let r = ui.button(crate::i18n::tr("Choose…"));
             crate::widgets::register(ui.ctx(), "settings:cameraFolderChoose", r.rect);
             (r.clicked(), r.is_pointer_button_down_on())
@@ -243,7 +243,7 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             (false, false)
         };
         if choose {
-            if let Some(folder) = app.services.pick_folder.as_mut().and_then(|f| f()) {
+            if let Some(folder) = app.services.choose_folder("Choose Camera Profiles Folder") {
                 let _ = app.run("library.preferences", json!({"import":{"cameraProfilesFolder":folder}}));
             }
             ui.data_mut(|data| data.remove::<String>(edit_id));
@@ -368,11 +368,11 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         hint(ui, t, crate::i18n::tr("Photos that arrive in this folder (tethering, a scanner, a sync app) are added as soon as they're complete."));
         row(ui, t, crate::i18n::tr("Watched folder"), |ui| {
             ui.label(RichText::new(d.auto_folder.clone().unwrap_or_else(|| "Off".into())).color(t.text));
-            let can = app.services.pick_folder.is_some();
+            let can = app.services.has_folder_picker();
             let r = ui.add_enabled(can, egui::Button::new(crate::i18n::tr("Choose…")));
             register(ui.ctx(), "button:settingsAutoFolder", r.rect);
             if r.clicked()
-                && let Some(f) = app.services.pick_folder.as_mut().and_then(|f| f())
+                && let Some(f) = app.services.choose_folder("Choose Auto Import Folder")
                 && let Err(e) = app.run("library.autoImport", json!({"folder": f}))
             {
                 app.toast(ui.ctx(), e);
@@ -528,11 +528,11 @@ fn smart_previews(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     let mut result = None;
     ui.horizontal(|ui| {
         ui.add_space(LABEL_W);
-        if app.services.pick_folder.is_some() {
+        if app.services.has_folder_picker() {
             let r = ui.button(crate::i18n::tr("Choose Folder…"));
             register(ui.ctx(), "button:settingsSmartChoose", r.rect);
             if r.clicked()
-                && let Some(dir) = app.services.pick_folder.as_mut().and_then(|f| f())
+                && let Some(dir) = app.services.choose_folder("Choose Smart Preview Folder")
             {
                 result = Some(app.run("library.smartPreviewsLocation", json!({"path": dir, "existing": existing})));
             }
@@ -606,12 +606,12 @@ fn interface_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
 pub fn open_library(app: &mut LightcraftApp, p: &Value) -> Result<Value, String> {
     let path = match p.get("path").and_then(Value::as_str) {
         Some(x) => x.to_string(),
-        None => match app.services.pick_folder.as_mut() {
-            Some(pick) => match pick() {
+        None => match app.services.has_folder_picker() {
+            true => match app.services.choose_folder("Choose Library Folder") {
                 Some(x) => x,
                 None => return Ok(Value::Null),
             },
-            None => return Err("no folder dialog on this platform".into()),
+            false => return Err("no folder dialog on this platform".into()),
         },
     };
     app.session.close_library().map_err(|e| e.to_string())?;

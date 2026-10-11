@@ -1,0 +1,127 @@
+    Blocking waiting for file lock on build directory
+   Compiling log v0.4.34
+   Compiling smallvec v1.16.2
+   Compiling serde_core v1.0.229
+   Compiling bytemuck v1.25.2
+   Compiling polycool v0.4.0
+   Compiling euclid v0.22.14
+   Compiling linebender_resource_handle v0.1.1
+   Compiling ahash v0.8.12
+   Compiling unicode-general-category v1.1.0
+   Compiling float-cmp v0.9.0
+   Compiling fearless_simd v0.4.1
+   Compiling emath v0.36.2
+   Compiling arrayref v0.3.9
+   Compiling unicode-segmentation v1.13.3
+   Compiling epaint_default_fonts v0.36.2
+   Compiling winnow v1.0.4
+   Compiling bitflags v1.3.2
+   Compiling wgpu-types v30.0.1
+   Compiling parking_lot_core v0.9.12
+   Compiling naga v30.0.1
+   Compiling color v0.3.3
+   Compiling font-types v0.12.5
+   Compiling kurbo v0.13.1
+   Compiling gpu-allocator v0.28.0
+   Compiling rgb v0.8.53
+   Compiling strict-num v0.1.1
+   Compiling parking_lot v0.12.5
+   Compiling av1-grain v0.2.5
+   Compiling av-scenechange v0.14.1
+   Compiling read-fonts v0.41.0
+   Compiling guillotiere v0.7.0
+   Compiling image v0.25.10
+   Compiling tiny-skia-path v0.11.4
+   Compiling tract-data v0.23.8
+   Compiling peniko v0.6.1
+   Compiling ecolor v0.36.2
+   Compiling rav1e v0.8.1
+   Compiling kurbo v0.11.3
+   Compiling jxl-render v0.12.4
+   Compiling nohash-hasher v0.2.0
+   Compiling uuid v1.26.1
+   Compiling self_cell v1.3.0
+   Compiling accesskit v0.24.1
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling png v0.17.16
+   Compiling simplecss v0.2.2
+   Compiling imagesize v0.13.0
+   Compiling data-url v0.3.2
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.151
+   Compiling vello_common v0.1.0
+   Compiling serde_spanned v1.1.1
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling svgtypes v0.15.3
+   Compiling toml_writer v1.1.2+spec-1.1.0
+   Compiling pico-args v0.5.0
+   Compiling minijinja v2.24.0
+   Compiling jxl-oxide v0.12.6
+   Compiling base64 v0.22.1
+   Compiling xmlwriter v0.1.0
+   Compiling toml v1.1.6+spec-1.1.0
+   Compiling tiny-skia v0.11.4
+   Compiling usvg v0.45.1
+   Compiling enum-map-derive v0.17.0
+   Compiling vello_cpu v0.1.0
+   Compiling lightcraft-catalog v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-catalog)
+   Compiling harfrust v0.12.0
+   Compiling skrifa v0.44.0
+   Compiling wgpu-naga-bridge v30.0.1
+   Compiling wgpu-hal v30.0.1
+   Compiling ravif v0.13.0
+   Compiling li-attributions v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/li-attributions)
+   Compiling epaint v0.36.2
+   Compiling enum-map v2.7.3
+   Compiling lightcraft-ui-egui v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-ui-egui)
+   Compiling lightcraft-codecs v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-codecs)
+   Compiling egui v0.36.2
+   Compiling wgpu-core-deps-windows-linux-android v30.0.1
+   Compiling wgpu-core v30.0.1
+   Compiling wgpu v30.0.1
+   Compiling lightcraft-merge v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-merge)
+   Compiling resvg v0.45.1
+warning: lightcraft-engine@2.0.0-alpha.1: no craft-fonts embedded: Chinese and Japanese text will render as empty boxes. Clone https://github.com/storytold/craft-fonts next to this repo and rebuild with CRAFT_FONTS_DIR=../craft-fonts
+   Compiling lightcraft-preview v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-preview)
+   Compiling egui_extras v0.36.2
+   Compiling tract-linalg v0.23.8
+   Compiling tract-core v0.23.8
+   Compiling tract-nnef v0.23.8
+   Compiling tract-hir v0.23.8
+   Compiling tract-extra v0.23.8
+   Compiling tract-onnx-opl v0.23.8
+   Compiling tract-transformers v0.23.8
+   Compiling tract-onnx v0.23.8
+   Compiling li-seg v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/li-seg)
+   Compiling lightcraft-gpu v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-gpu)
+   Compiling lightcraft-engine v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-engine)
+    Finished `test` profile [optimized + debuginfo] target(s) in 5m 41s
+     Running unittests src/lib.rs (target/debug/deps/lightcraft_ui_egui-18f70eb28d7b50bd)
+
+running 3 tests
+
+thread 'shortcuts::tests::bugfix_develop_classic_keymap' (2358218) panicked at crates/lc-ui-egui/src/shortcuts.rs:306:13:
+assertion `left == right` failed: view.detail
+  left: Some("D")
+ right: Some("E")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test shortcuts::tests::bugfix_develop_classic_keymap ... FAILED
+
+thread 'shortcuts::tests::bugfix_develop_effective_chords_have_one_action' (2358219) panicked at crates/lc-ui-egui/src/shortcuts.rs:318:21:
+Modifiers { ctrl: true, shift: true, command: true } H: ["view.histogram", "merge.hdrLast"]
+test shortcuts::tests::bugfix_develop_effective_chords_have_one_action ... FAILED
+
+thread 'headless::tests::bugfix_develop_export_fits_viewport_and_cancel_is_clickable' (2358217) panicked at crates/lc-ui-egui/src/headless.rs:2329:17:
+[900.0, 600.0] @ 1: dialog:window [[5.0 32.0] - [895.0 602.0]]
+test headless::tests::bugfix_develop_export_fits_viewport_and_cancel_is_clickable ... FAILED
+
+failures:
+
+failures:
+    headless::tests::bugfix_develop_export_fits_viewport_and_cancel_is_clickable
+    shortcuts::tests::bugfix_develop_classic_keymap
+    shortcuts::tests::bugfix_develop_effective_chords_have_one_action
+
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 268 filtered out; finished in 0.28s
+
+error: test failed, to rerun pass `-p lightcraft-ui-egui --lib`

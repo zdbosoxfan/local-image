@@ -330,6 +330,41 @@ pub const PENDING_FILE_INPUT_TRANSLATIONS: &[&str] = &[
     "NEF predictor overflow",
 ];
 
+/// Library/Develop final-review additions awaiting translation.
+pub const PENDING_DEVELOP_TRANSLATIONS: &[&str] = &[
+    "Loupe",
+    "Develop",
+    "Lights Out",
+    "Sync Settings…",
+    "Sync Settings",
+    "Edit In…",
+    "Choose Import Source",
+    "Choose Export Folder",
+    "Choose Library Folder",
+    "Choose Import Destination",
+    "Choose Search Folder",
+    "Choose Backup Folder",
+    "Choose Restore Folder",
+    "Choose Folder",
+    "Choose Camera Profiles Folder",
+    "Choose Auto Import Folder",
+    "Choose Smart Preview Folder",
+    "Choose Browse Folder",
+    "Choose Move Destination",
+    "Scan failed: {error}",
+    "scan worker disconnected",
+    "Assisted Culling cancelled",
+    "Assisted Culling is already running",
+    "Assisted Culling complete: {scored} scored, {failed} failed",
+    "The photo geometry changed while AI Remove was running; try again.",
+    "The job is no longer in ComfyUI's queue or history. The server may have restarted; try again.",
+    "Cannot read the ComfyUI queue: {error}",
+    "Cannot read ComfyUI job history: {error}",
+    "Read document layers failed unexpectedly: {error}",
+    "Read clipboard image failed unexpectedly: {error}",
+    "Could not read people data. A copy of the damaged file was kept.",
+];
+
 /// Final-review saving/data-safety additions awaiting translation.
 pub const PENDING_SAVE_TRANSLATIONS: &[&str] = &[
     "Add Photos",

@@ -1771,7 +1771,7 @@ fn patch_stage(cx: &mut Cx<'_>, img: &Buf, plan: &Plan<'_>) -> Option<Buf> {
     for spot in plan.settings.spots.iter().filter(|s| s.is_ai()) {
         let opacity = (spot.opacity / 100.0).clamp(0.0, 1.0) as f32;
         let Some(placement) = spot.patch.as_ref().filter(|_| opacity > 0.0) else { continue };
-        let Some(patch) = lightcraft_pipeline::patches::lookup(&placement.key) else { continue };
+        let Some(patch) = lightcraft_pipeline::patches::lookup_oriented(&placement.key, placement.orientation) else { continue };
         let [x0, y0, x1, y1] = placement.rect;
         if patch.width == 0 || patch.height == 0 || x1 <= x0 || y1 <= y0 {
             continue;

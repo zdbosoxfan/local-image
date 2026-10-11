@@ -1,0 +1,5 @@
+RUSTC_WRAPPER=/home/zdavidson/.local/share/local-image-dev/bin/li-rustc-gate
+CARGO_BUILD_JOBS=(unset)
+GUI tools used: none
+No Local Image or ComfyUI process was stopped.
+rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)

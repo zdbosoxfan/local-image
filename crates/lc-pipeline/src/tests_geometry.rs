@@ -506,3 +506,28 @@ fn level_degrees_sign_matches_crop_angle() {
     let deg = crate::upright::level_degrees(&src, &SourceInfo::default(), &DevelopSettings::default()).expect("lines found");
     assert!((deg + 6.0).abs() < 0.5, "{deg}");
 }
+
+#[test]
+fn bugfix_develop_rotation_preserves_manual_and_upright_perspective() {
+    use lightcraft_geom::{Homography, Point};
+    for clockwise in [true, false] {
+        let mut settings = DevelopSettings::default();
+        settings.geometry.vertical = 32.;
+        settings.geometry.horizontal = -21.;
+        settings.geometry.rotate = 7.;
+        settings.geometry.aspect = 38.;
+        settings.geometry.offset_x = 11.;
+        settings.geometry.offset_y = -9.;
+        settings.geometry.upright = lightcraft_develop::Upright::Full;
+        settings.geometry.upright_transform = Some(Homography([1., 0.03, 0., -0.01, 1., 0., 0.02, -0.04, 1.]));
+        let before = crate::geometry::perspective(&settings, 400., 240.);
+        settings.rotate_content(clockwise);
+        let after = crate::geometry::perspective(&settings, 240., 400.);
+        let turn = |p: Point| if clockwise { Point::new(-p.y, p.x) } else { Point::new(p.y, -p.x) };
+        for p in [Point::new(0.3, -0.2), Point::new(-0.7, 0.4), Point::new(0., 0.)] {
+            let expected = turn(before.apply(p));
+            let actual = after.apply(turn(p));
+            assert!((actual.x - expected.x).abs() < 1e-4 && (actual.y - expected.y).abs() < 1e-4, "{clockwise}: {actual:?} vs {expected:?}");
+        }
+    }
+}

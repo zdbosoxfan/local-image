@@ -101,6 +101,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         Dialog::AutoStack { .. } => "Auto-Stack by Capture Time",
         Dialog::CreatePreset { .. } => "Create Preset",
         Dialog::CopySettings { .. } => "Choose Edit Settings to Copy",
+        Dialog::SyncSettings { .. } => "Sync Settings",
         Dialog::PasteSettings { .. } => "Paste Selected Settings",
         Dialog::Export { .. } => "Export",
         Dialog::SaveOverOriginal { plan, .. } if plan["mode"] == "beside" => "Save JPEG Beside Original",
@@ -121,10 +122,12 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         .resizable(matches!(dlg, Dialog::Export { .. }))
         .frame(frame)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .max_height(if exporting {(screen.height()-64.0).max(100.0)} else {f32::INFINITY})
+        .max_width(if exporting {(screen.width()-24.0).max(100.0)} else {f32::INFINITY})
         .default_height(if exporting { (screen.height() * 0.78).min(780.0) } else { 0.0 })
         .min_width(if exporting { 800.0_f32.min(screen.width() - 60.0) } else { 0.0 })
         .default_width(match dlg {
-            Dialog::Export { .. } => 900.0,
+            Dialog::Export { .. } => 900.0_f32.min((screen.width()-48.0).max(100.0)),
             Dialog::SaveOverOriginal { .. } => 480.0,
             Dialog::Import { .. } => 760.0,
             Dialog::SmartRules { .. } => 680.0,
@@ -466,7 +469,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     group_checklist(ui, "presetInclude", groups);
                 }
                 Dialog::CopySettings { groups } => group_checklist(ui, "copyGroup", groups),
-                Dialog::PasteSettings { groups } => {
+                Dialog::SyncSettings { groups } | Dialog::PasteSettings { groups } => {
                     let n = app.session.targets(&json!({})).len();
                     ui.label(
                         egui::RichText::new(crate::i18n::tr_format!("Paste into {n} photo{} — only settings that were copied are pasted", if n == 1 { "" } else { "s" }, n = n))
@@ -634,8 +637,20 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     }
                 }
             });
+            if exporting {
+                ctx.data_mut(|d|d.insert_temp(egui::Id::new("export-content-height"),(ui.min_rect().height(),ui.max_rect().height())));
+            }
         });
     if let Some(w) = shown {
+        if exporting
+            && let Some(body) = ctx.data(|d| d.get_temp::<f32>(egui::Id::new("export-body-height")))
+            && let Some((needed, allocated)) = ctx.data(|d| d.get_temp::<(f32, f32)>(egui::Id::new("export-content-height")))
+        {
+            // Exclude empty space in a resized window from its non-body chrome.
+            let overhead = (w.response.rect.height() - allocated + needed - body).max(260.0);
+            ctx.data_mut(|d| d.insert_temp(egui::Id::new("export-window-overhead"), overhead));
+        }
+
         ctx.move_to_top(w.response.layer_id);
         crate::widgets::register(ctx, "dialog:window", w.response.rect);
     }
@@ -875,7 +890,7 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
             if *reject_below > 0.0 {
                 p["rejectBelow"] = json!(reject_below);
             }
-            app.run("photo.analyze", p)
+            crate::tasks::start_culling(app, p)
         }
         Dialog::SmartRules { id, name, rules } => {
             let name = if name.trim().is_empty() { "Smart Album".to_string() } else { name.trim().to_string() };
@@ -899,6 +914,7 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
             }),
         ),
         Dialog::CopySettings { groups } => app.run("develop.copy", json!({"groups": groups})),
+        Dialog::SyncSettings { groups } => app.run("develop.sync", json!({"groups":groups})),
         Dialog::PasteSettings { groups } => app.run("develop.paste", json!({"groups": groups})),
         Dialog::Export { dir, .. } => {
             let mut p = crate::panels::export_dialog::export_dialog_params(dlg);

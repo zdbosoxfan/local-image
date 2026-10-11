@@ -883,3 +883,49 @@ fn missing_photos_skip_local_browse_records() {
     s.execute("library.source", &json!({"kind": "missing"})).unwrap();
     assert_eq!(s.visible_cloned().len(), 4, "the view lists what the count counts");
 }
+
+#[test]
+fn bugfix_develop_relink_moves_virtual_copies_together() {
+    let mut s = Session::new();
+    let dir = temp_dir("relink-copies");
+    let path = dir.join("found.jpg");
+    std::fs::write(&path, b"fixture").unwrap();
+    let id = lightcraft_catalog::PhotoId(1);
+    let photo = lightcraft_catalog::Photo::new(
+        id,
+        lightcraft_catalog::Source::File { path: dir.join("missing.jpg").to_string_lossy().into() },
+        "missing.jpg",
+        "JPEG",
+        60,
+        40,
+        "2026-01-01",
+    );
+    s.catalog.apply(lightcraft_catalog::Op::AddPhoto { photo: Box::new(photo) }).unwrap();
+    s.execute("library.select", &json!({"ids":[1]})).unwrap();
+    let r = s.execute("photo.virtualCopy", &json!({})).unwrap();
+    let copy = lightcraft_catalog::PhotoId(r["ids"][0].as_u64().unwrap());
+    s.execute("photo.relink", &json!({"id":1,"path":path.to_string_lossy()})).unwrap();
+    assert_eq!(s.catalog.photo(copy).unwrap().source, s.catalog.photo(id).unwrap().source);
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(s.catalog.photo(copy).unwrap().source, s.catalog.photo(id).unwrap().source);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn bugfix_develop_smart_preview_alias_keeps_proxy() {
+    let dir = temp_dir("smart-alias");
+    let lib = dir.join("Library");
+    let mut s = Session::with_demo();
+    s.open_library(&lib, true).unwrap();
+    // A no-op move must preserve even a damaged cache file so it can be rebuilt later.
+    let current = lib.join("Smart Previews");
+    std::fs::create_dir_all(&current).unwrap();
+    std::fs::write(current.join("one.lcsp"), b"existing cache").unwrap();
+    let alias = dir.join("alias");
+    std::os::unix::fs::symlink(&current, &alias).unwrap();
+    s.execute("library.smartPreviewsLocation", &json!({"path":alias.to_string_lossy(),"existing":"discard"})).unwrap();
+    assert!(current.join("one.lcsp").exists());
+    drop(s);
+    let _ = std::fs::remove_dir_all(dir);
+}

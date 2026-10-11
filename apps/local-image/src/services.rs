@@ -123,25 +123,31 @@ fn recovery_services(dir: Option<PathBuf>) -> Services {
 /// The pixels to paste when the clipboard holds copied files rather than an image (Copy in
 /// Files, Finder or Explorer puts paths on the clipboard, #338): the first file that decodes,
 /// upright, as RGBA8. Files that aren't images are skipped after reading only their header.
+fn guarded_clipboard<T>(f: impl FnOnce() -> Option<T>) -> Option<T> {
+    lightcraft_engine::guard::catch("Read clipboard image", f).ok().flatten()
+}
+
 #[cfg(test)]
 fn image_from_files(paths: &[PathBuf]) -> Option<(u32, u32, Vec<u8>)> {
     use std::io::Read;
     paths.iter().find_map(|path| {
-        // text/uri-list lines end in CRLF (RFC 2483, and GTK writes them so), but arboard splits
-        // on LF only, so a path copied in GNOME Files arrives with a trailing '\r'.
-        let path = path.to_str().map_or_else(|| path.clone(), |s| PathBuf::from(s.trim_end_matches('\r')));
-        let mut head = Vec::with_capacity(256);
-        photocraft_format::read::validate_path(&path).ok()?;
-        std::fs::File::open(&path).ok()?.take(256).read_to_end(&mut head).ok()?;
-        // TGA has no magic number and is only guessed from the header, so trust the extension
-        // too before reading what may be a large non-image file.
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        match photocraft_codecs::detect(&head)? {
-            photocraft_codecs::Format::Tga if photocraft_codecs::from_extension(ext) != Some(photocraft_codecs::Format::Tga) => return None,
-            _ => {}
-        }
-        let img = photocraft_codecs::decode(&photocraft_format::read_file(&path).ok()?).ok()?;
-        Some((img.width(), img.height(), img.to_rgba8()))
+        guarded_clipboard(|| {
+            // text/uri-list lines end in CRLF (RFC 2483, and GTK writes them so), but arboard splits
+            // on LF only, so a path copied in GNOME Files arrives with a trailing '\r'.
+            let path = path.to_str().map_or_else(|| path.clone(), |s| PathBuf::from(s.trim_end_matches('\r')));
+            let mut head = Vec::with_capacity(256);
+            photocraft_format::read::validate_path(&path).ok()?;
+            std::fs::File::open(&path).ok()?.take(256).read_to_end(&mut head).ok()?;
+            // TGA has no magic number and is only guessed from the header, so trust the extension
+            // too before reading what may be a large non-image file.
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            match photocraft_codecs::detect(&head)? {
+                photocraft_codecs::Format::Tga if photocraft_codecs::from_extension(ext) != Some(photocraft_codecs::Format::Tga) => return None,
+                _ => {}
+            }
+            let img = photocraft_codecs::decode(&photocraft_format::read_file(&path).ok()?).ok()?;
+            Some((img.width(), img.height(), img.to_rgba8()))
+        })
     })
 }
 
@@ -254,13 +260,15 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
         clipboard_get_image: Some({
             let clip = clip.clone();
             Box::new(move || {
-                let mut slot = clip.try_borrow_mut().ok()?;
-                let cb = match slot.as_mut() {
-                    Some(c) => c,
-                    None => slot.insert(arboard::Clipboard::new().ok()?),
-                };
-                let img = cb.get_image().ok()?;
-                Some((img.width as u32, img.height as u32, img.bytes.into_owned()))
+                guarded_clipboard(|| {
+                    let mut slot = clip.try_borrow_mut().ok()?;
+                    let cb = match slot.as_mut() {
+                        Some(c) => c,
+                        None => slot.insert(arboard::Clipboard::new().ok()?),
+                    };
+                    let img = cb.get_image().ok()?;
+                    Some((img.width as u32, img.height as u32, img.bytes.into_owned()))
+                })
             })
         }),
         load_prefs: Some(Box::new(|| std::fs::read_to_string(prefs_file()?).ok())),
@@ -403,6 +411,13 @@ mod tests {
         prefs_ui::tick(app, ctx);
     }
 
+    fn wait_for_recovery_count(dir: &Path, expected: usize) {
+        let started = std::time::Instant::now();
+        while list_recovery(dir).len() != expected && started.elapsed() < std::time::Duration::from_secs(10) {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+
     #[test]
     fn recovered_documents_survive_a_second_crash_until_saved_or_closed() {
         let dir = std::env::temp_dir().join(format!("photocraft-recovery-{}", std::process::id()));
@@ -445,12 +460,14 @@ mod tests {
         let st = app.session.active_mut().unwrap();
         st.saved_revision = st.revision;
         prefs_ui::tick(&mut app, &ctx);
+        wait_for_recovery_count(&dir, 1);
         let left = list_recovery(&dir);
         assert_eq!(left.len(), 1);
         assert_eq!(photocraft_compose::flatten(&photocraft_format::recover(&left[0]).unwrap()).px.first().copied(), Some(GREEN));
         let green = index_of(&app, GREEN);
         app.run("file.close", json!({"document": green})).unwrap();
         prefs_ui::tick(&mut app, &ctx);
+        wait_for_recovery_count(&dir, 0);
         assert!(list_recovery(&dir).is_empty());
         drop(app);
         let _ = std::fs::remove_dir_all(&dir);
@@ -526,5 +543,13 @@ mod tests {
         std::fs::write(&bin, tga_1x1()).unwrap();
         assert_eq!(image_from_files(&[tga]), Some((1, 1, vec![255, 0, 0, 255])));
         assert!(image_from_files(&[bin]).is_none());
+    }
+}
+
+#[cfg(test)]
+mod bugfix_develop_tests {
+    #[test]
+    fn bugfix_develop_clipboard_reader_survives_decoder_panic() {
+        assert!(super::guarded_clipboard::<()>(|| panic!("damaged clipboard file")).is_none());
     }
 }

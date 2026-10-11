@@ -1,0 +1,205 @@
+    Checking unicode-width v0.2.2
+warning: lightcraft-engine@2.0.0-alpha.1: no craft-fonts embedded: Chinese and Japanese text will render as empty boxes. Clone https://github.com/storytold/craft-fonts next to this repo and rebuild with CRAFT_FONTS_DIR=../craft-fonts
+    Checking bumpalo v3.20.3
+    Checking lightcraft-pipeline v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-pipeline)
+    Checking li-ai v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/li-ai)
+    Checking codespan-reporting v0.13.1
+    Checking getopts v0.2.24
+    Checking krilla v0.8.2
+    Checking wast v261.0.0
+    Checking dify v0.8.0
+error[E0514]: found crate `pdf_writer` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/krilla-0.8.2/src/chunk_container.rs:1:5
+  |
+1 | use pdf_writer::{Chunk, Finish, Name, Pdf, Ref, Str, TextStr};
+  |     ^^^^^^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `pdf_writer` compiled by rustc 1.98.1 (48a229cea 2026-09-01): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libpdf_writer-4e75e4e7ace0aaae.rmeta
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `xmp_writer` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/krilla-0.8.2/src/chunk_container.rs:4:5
+  |
+4 | use xmp_writer::{RenditionClass, XmpWriter};
+  |     ^^^^^^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `xmp_writer` compiled by rustc 1.98.1 (48a229cea 2026-09-01): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libxmp_writer-670be7b12396caab.rmeta
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `float_cmp` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/krilla-0.8.2/src/content.rs:8:5
+  |
+8 | use float_cmp::approx_eq;
+  |     ^^^^^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `float_cmp` compiled by rustc 1.98.1 (48a229cea 2026-09-01): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libfloat_cmp-a63da48b316e18c6.rmeta
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `tiny_skia_path` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/krilla-0.8.2/src/content.rs:11:5
+   |
+11 | use tiny_skia_path::{Path, PathSegment, PathVerb};
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: the following crate versions were found:
+           crate `tiny_skia_path` compiled by rustc 1.98.1 (48a229cea 2026-09-01): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libtiny_skia_path-589f234cfbea83b3.rmeta
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `skrifa` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/krilla-0.8.2/src/text/glyph/bitmap.rs:1:5
+  |
+1 | use skrifa::bitmap::{BitmapData, BitmapFormat, BitmapGlyph, Origin};
+  |     ^^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `skrifa` compiled by rustc 1.98.1 (48a229cea 2026-09-01): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libskrifa-6fedd535f3a9d484.rmeta
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `base64` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/krilla-0.8.2/src/util.rs:12:5
+   |
+12 | use base64::Engine;
+   |     ^^^^^^
+   |
+   = note: the following crate versions were found:
+           crate `base64` compiled by rustc 1.98.1 (48a229cea 2026-09-01): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libbase64-3b2da3e0a19facd2.rmeta
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `siphasher` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/krilla-0.8.2/src/util.rs:15:5
+   |
+15 | use siphasher::sip128::{Hasher128, SipHasher13};
+   |     ^^^^^^^^^
+   |
+   = note: the following crate versions were found:
+           crate `siphasher` compiled by rustc 1.98.1 (48a229cea 2026-09-01): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libsiphasher-2e1256f42057d9e6.rmeta
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `png` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/krilla-0.8.2/src/graphics/image.rs:18:5
+   |
+18 | use png::{BitDepth, ColorType, Transformations};
+   |     ^^^
+   |
+   = note: the following crate versions were found:
+           crate `png` compiled by rustc 1.98.1 (48a229cea 2026-09-01): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libpng-7751584041f324ec.rmeta
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `zune_jpeg` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/krilla-0.8.2/src/graphics/image.rs:19:5
+   |
+19 | use zune_jpeg::zune_core::colorspace::ColorSpace;
+   |     ^^^^^^^^^
+   |
+   = note: the following crate versions were found:
+           crate `zune_jpeg` compiled by rustc 1.98.1 (48a229cea 2026-09-01): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libzune_jpeg-94ea1f8f1c8e98b7.rmeta
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `smallvec` compiled by an incompatible version of rustc
+   --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/krilla-0.8.2/src/interchange/tagging/mod.rs:137:5
+    |
+137 | use smallvec::SmallVec;
+    |     ^^^^^^^^
+    |
+    = note: the following crate versions were found:
+            crate `smallvec` compiled by rustc 1.98.1 (48a229cea 2026-09-01): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libsmallvec-a505168fee85cd2c.rmeta
+    = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `indexmap` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/krilla-0.8.2/src/serialize.rs:8:5
+  |
+8 | use indexmap::IndexMap;
+  |     ^^^^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `indexmap` compiled by rustc 1.98.1 (48a229cea 2026-09-01): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libindexmap-5174120f76d97afa.rmeta
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `flate2` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/krilla-0.8.2/src/stream.rs:30:5
+   |
+30 | use flate2::write::ZlibEncoder;
+   |     ^^^^^^
+   |
+   = note: the following crate versions were found:
+           crate `flate2` compiled by rustc 1.98.1 (48a229cea 2026-09-01): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libflate2-7c70bb4abadfb5b2.rmeta
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `rustc_hash` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/krilla-0.8.2/src/text/cid.rs:4:5
+  |
+4 | use rustc_hash::FxHashMap;
+  |     ^^^^^^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `rustc_hash` compiled by rustc 1.98.1 (48a229cea 2026-09-01): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/librustc_hash-14d83cd70c2d8353.rmeta
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `subsetter` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/krilla-0.8.2/src/text/cid.rs:13:5
+   |
+13 | use subsetter::GlyphRemapper;
+   |     ^^^^^^^^^
+   |
+   = note: the following crate versions were found:
+           crate `subsetter` compiled by rustc 1.98.1 (48a229cea 2026-09-01): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libsubsetter-8afaf24cab8b5855.rmeta
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `yoke` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/krilla-0.8.2/src/text/font.rs:12:5
+   |
+12 | use yoke::{Yoke, Yokeable};
+   |     ^^^^
+   |
+   = note: the following crate versions were found:
+           crate `yoke` compiled by rustc 1.98.1 (48a229cea 2026-09-01): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libyoke-f29e7fea14c63dda.rmeta
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)) (consider running `cargo clean` first)
+
+For more information about this error, try `rustc --explain E0514`.
+error: could not compile `krilla` (lib) due to 15 previous errors
+warning: build failed, waiting for other jobs to finish...
+error[E0514]: found crate `colored` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dify-0.8.0/src/cli.rs:2:5
+  |
+2 | use colored::*;
+  |     ^^^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `colored` compiled by rustc 1.98.1 (48a229cea 2026-09-01): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libcolored-856b115eb85e7c24.rmeta
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `image` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dify-0.8.0/src/lib.rs:6:5
+  |
+6 | use image::{Pixel, RgbaImage};
+  |     ^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `image` compiled by rustc 1.98.1 (48a229cea 2026-09-01): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libimage-c57fc2ac7ed622bb.rmeta
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `anyhow` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dify-0.8.0/src/cli.rs:1:5
+  |
+1 | use anyhow::{Context, Result, anyhow};
+  |     ^^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `anyhow` compiled by rustc 1.98.1 (48a229cea 2026-09-01): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libanyhow-42a6b29d49213f64.rmeta
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)) (consider running `cargo clean` first)
+
+error: could not compile `dify` (lib) due to 3 previous errors
+error[E0514]: found crate `memchr` compiled by an incompatible version of rustc
+   --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/wast-261.0.0/src/lexer.rs:481:36
+    |
+481 |                     let byte_pos = memchr::memchr2(b'\n', b'\r', remaining.as_bytes())
+    |                                    ^^^^^^
+    |
+    = note: the following crate versions were found:
+            crate `memchr` compiled by rustc 1.98.1 (48a229cea 2026-09-01): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libmemchr-9264da78d536f49b.rmeta
+    = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)) (consider running `cargo clean` first)
+
+error: could not compile `wast` (lib) due to 1 previous error

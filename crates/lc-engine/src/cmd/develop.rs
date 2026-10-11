@@ -272,7 +272,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 Ok(json!({"mix": m}))
             }
         ),
-        cmd!("develop.auto", "Auto Settings", ["Photo"], Some("Shift+A"), "{}", has_active, |s, _| {
+        cmd!("develop.auto", "Auto Settings", ["Photo"], Some("Cmd+U"), "{}", has_active, |s, _| {
             let id = active(s, "develop.auto")?;
             let src = s.source_now(id, SourceLevel::Thumb).map_err(|e| bad("develop.auto", e))?;
             let info = s.source_info(id);
@@ -687,14 +687,10 @@ pub fn specs() -> Vec<CommandSpec> {
                 let groups = groups_param(p).unwrap_or_else(SettingsGroup::default_copy);
                 let d = s.develop_of(id).unwrap_or_default();
                 let partial = lightcraft_develop::extract_groups(&d, &groups);
-                let ops = s
-                    .selection
-                    .ids
-                    .clone()
+                let targets: Vec<_> = s.selection.ids.iter().copied().filter(|x| *x != id).filter_map(|x| s.develop_of(x).map(|d| (x, d))).collect();
+                let ops = targets
                     .into_iter()
-                    .filter(|x| *x != id)
-                    .filter_map(|x| {
-                        let d = s.develop_of(x)?;
+                    .filter_map(|(x, d)| {
                         let settings = s.transfer_settings(x, &d, &partial);
                         s.develop_op(x, settings, "Sync Settings")
                     })
@@ -878,7 +874,7 @@ pub fn specs() -> Vec<CommandSpec> {
             }
         ),
         // ---- versions & history
-        cmd!("version.create", "Create Version", ["Photo"], Some("Cmd+Shift+S"), "{name?}", has_active, |s, p| {
+        cmd!("version.create", "Create Version", ["Photo"], Some("Cmd+N"), "{name?}", has_active, |s, p| {
             let id = active(s, "version.create")?;
             let ph = s.catalog.photo(id).cloned().ok_or_else(|| bad("version.create", "no photo"))?;
             let mut versions = ph.versions.clone();

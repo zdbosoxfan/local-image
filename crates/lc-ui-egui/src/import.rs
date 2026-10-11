@@ -55,6 +55,53 @@ pub struct ImportDialog {
     pub dng: bool,
 }
 
+/// Import choices remembered across reviews and launches; sources and Library ids stay per import.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ImportPreferences {
+    pub copy: bool,
+    pub move_files: bool,
+    pub preset: String,
+    pub keywords: String,
+    pub destination: String,
+    pub organize: String,
+    pub folder_template: String,
+    pub rename: String,
+    pub metadata_preset: String,
+    pub dng: bool,
+}
+impl ImportPreferences {
+    pub fn from_dialog(d: &ImportDialog) -> Self {
+        Self {
+            copy: d.copy,
+            move_files: d.move_files,
+            preset: d.preset.clone(),
+            keywords: d.keywords.clone(),
+            destination: d.destination.clone(),
+            organize: d.organize.clone(),
+            folder_template: d.folder_template.clone(),
+            rename: d.rename.clone(),
+            metadata_preset: d.metadata_preset.clone(),
+            dng: d.dng,
+        }
+    }
+    pub fn review(&self, candidates: Vec<ImportCandidate>) -> ImportDialog {
+        ImportDialog {
+            copy: self.copy,
+            move_files: self.move_files,
+            preset: self.preset.clone(),
+            keywords: self.keywords.clone(),
+            destination: self.destination.clone(),
+            organize: self.organize.clone(),
+            folder_template: self.folder_template.clone(),
+            rename: self.rename.clone(),
+            metadata_preset: self.metadata_preset.clone(),
+            dng: self.dng,
+            ..ImportDialog::new(candidates)
+        }
+    }
+}
+
 impl ImportDialog {
     pub fn new(candidates: Vec<ImportCandidate>) -> Self {
         let checked = candidates.iter().map(|c| c.duplicate.is_none() && c.error.is_none()).collect();
@@ -272,7 +319,7 @@ impl ImportRun {
 /// window must keep answering meanwhile).
 pub struct ScanTask {
     progress: std::sync::Arc<ScanProgress>,
-    rx: std::sync::mpsc::Receiver<ScanOutput>,
+    rx: std::sync::mpsc::Receiver<Result<ScanOutput, String>>,
     /// Open the review with "copy into the library" checked (a camera / card).
     pub copy: bool,
     /// Browsing a folder (Local): the photos are read in place instead of opening the review.
@@ -292,7 +339,7 @@ pub fn open(app: &mut LightcraftApp, paths: Vec<String>) -> Result<Value, String
     let (tx, rx) = std::sync::mpsc::channel();
     let p = progress.clone();
     let job = move || {
-        let _ = tx.send(scan_with(input, &paths, &p));
+        let _ = tx.send(lightcraft_engine::guard::catch("Scan", || scan_with(input, &paths, &p)));
     };
     #[cfg(not(target_arch = "wasm32"))]
     std::thread::spawn(job);
@@ -353,7 +400,7 @@ pub fn browse(app: &mut LightcraftApp, path: &str, subfolders: Option<bool>) -> 
             v.sort();
             v
         };
-        let _ = tx.send(scan_with(input, &files, &p));
+        let _ = tx.send(lightcraft_engine::guard::catch("Scan", || scan_with(input, &files, &p)));
     };
     #[cfg(not(target_arch = "wasm32"))]
     std::thread::spawn(job);
@@ -369,11 +416,16 @@ pub fn poll_scan(app: &mut LightcraftApp, ctx: &egui::Context) {
     let Some(task) = app.scan.as_ref() else { return };
     ctx.request_repaint_after(std::time::Duration::from_millis(100));
     let out = match task.rx.try_recv() {
-        Ok(o) => o,
+        Ok(Ok(o)) => o,
+        Ok(Err(error)) => {
+            app.scan = None;
+            app.toast_error(ctx, format!("Scan failed: {error}"));
+            return;
+        }
         Err(std::sync::mpsc::TryRecvError::Empty) => return,
         Err(_) => {
             app.scan = None;
-            app.toast(ctx, "Scan failed");
+            app.toast_error(ctx, "Scan failed: scan worker disconnected");
             return;
         }
     };
@@ -399,8 +451,8 @@ pub fn poll_scan(app: &mut LightcraftApp, ctx: &egui::Context) {
         return;
     }
     app.renderer.forget_imports();
-    let mut d = ImportDialog::new(out.candidates);
-    d.copy = task.copy;
+    let mut d = app.ui.settings.import_defaults.review(out.candidates);
+    d.copy |= task.copy;
     d.sources = task.sources;
     app.ui.dialog = Some(crate::state::Dialog::Import { opts: Box::new(d) });
 }
@@ -484,6 +536,7 @@ pub fn start(app: &mut LightcraftApp, d: &ImportDialog) -> Result<Value, String>
         }
     }
     let total = queue.len();
+    app.ui.settings.import_defaults = ImportPreferences::from_dialog(d);
     app.import = Some(ImportTask::new(queue, params, undo0, false));
     app.renderer.forget_imports();
     Ok(json!({"importing": total}))
@@ -763,7 +816,7 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
             d.copy = false;
             d.move_files = false;
         }
-        let can_copy = app.session.library.as_ref().is_some_and(|l| l.on_disk) || app.services.pick_folder.is_some();
+        let can_copy = app.session.library.as_ref().is_some_and(|l| l.on_disk) || app.services.has_folder_picker();
         let r =
             ui.add_enabled_ui(can_copy, |ui| crate::widgets::text_button(ui, "importCopy", crate::i18n::tr("Copy"), d.copy && !d.move_files)).inner;
         if r.on_hover_text(crate::i18n::tr("Copy the files (into the library's Originals/, or a folder you choose)")).clicked() {
@@ -798,9 +851,9 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
             ui.spacing_mut().item_spacing.x = 4.0;
             let shown = if d.destination.trim().is_empty() { "Library Originals".to_string() } else { d.destination.clone() };
             ui.label(egui::RichText::new(shown).color(Tokens::get(ui.ctx()).text_label));
-            if app.services.pick_folder.is_some()
+            if app.services.has_folder_picker()
                 && crate::widgets::text_button(ui, "importDest", crate::i18n::tr("Choose…"), false).clicked()
-                && let Some(f) = app.services.pick_folder.as_mut().and_then(|f| f())
+                && let Some(f) = app.services.choose_folder("Choose Import Destination")
             {
                 d.destination = f;
             }
@@ -954,6 +1007,7 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
         let r = ui.add(egui::TextEdit::singleline(&mut d.keywords).hint_text(crate::i18n::tr("comma, separated")).desired_width(f32::INFINITY));
         register(ui.ctx(), "field:importKeywords", r.rect);
     });
+    app.ui.settings.import_defaults = ImportPreferences::from_dialog(d);
 }
 
 fn candidate_cell(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog, i: usize, rect: Rect) {
@@ -1272,5 +1326,72 @@ mod bugfix_save_tests {
         assert_eq!(app.session.selection, selection);
         assert_eq!(app.session.interaction.as_ref().unwrap().photo, selection.active.unwrap());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod bugfix_develop_tests {
+    use super::*;
+    #[test]
+    fn bugfix_develop_folder_picker_title_reaches_import_destination() {
+        let title = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let chosen = title.clone();
+        let mut app = LightcraftApp::new(lightcraft_engine::Session::new(), Default::default());
+        app.services.pick_folder_titled = Some(Box::new(move |purpose| {
+            *chosen.lock().unwrap() = purpose.to_string();
+            Some("/photos/imported".into())
+        }));
+        app.ui.dialog = Some(crate::state::Dialog::Import { opts: Box::new(ImportDialog { copy: true, ..Default::default() }) });
+        let mut h = crate::headless::Headless::new(app, [1400., 1100.], 1.);
+        for _ in 0..5 {
+            h.step();
+        }
+        let result = h.request("ui.clickWidget", json!({"id":"button:importDest"}), std::time::Duration::from_secs(10));
+        assert_eq!(result["ok"], true, "{result}");
+        assert_eq!(*title.lock().unwrap(), "Choose Import Destination");
+        let Some(crate::state::Dialog::Import { opts }) = &h.app.ui.dialog else { panic!("review closed") };
+        assert_eq!(opts.destination, "/photos/imported");
+    }
+
+    #[test]
+    fn bugfix_develop_import_choices_survive_settings_roundtrip_and_new_scan() {
+        let d = ImportDialog {
+            copy: true,
+            move_files: true,
+            destination: "/photos/2026".into(),
+            organize: "custom".into(),
+            folder_template: "{date:%Y}".into(),
+            rename: "trip-{sequence}".into(),
+            dng: true,
+            ..Default::default()
+        };
+        let settings = crate::state::AppSettings { import_defaults: ImportPreferences::from_dialog(&d), ..Default::default() };
+        let settings: crate::state::AppSettings = serde_json::from_value(serde_json::to_value(settings).unwrap()).unwrap();
+        let mut app = LightcraftApp::new(lightcraft_engine::Session::new(), Default::default());
+        app.ui.settings = settings;
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(Ok(ScanOutput {
+            candidates: vec![ImportCandidate {
+                path: "new/photo.png".into(),
+                name: "photo.png".into(),
+                format: "PNG".into(),
+                kind: Default::default(),
+                width: 10,
+                height: 10,
+                file_size: 100,
+                captured: None,
+                duplicate: None,
+                existing: None,
+                error: None,
+                preview_only: None,
+            }],
+            probes: Default::default(),
+        }))
+        .unwrap();
+        app.scan = Some(ScanTask { progress: Default::default(), rx, copy: false, browse: false, sources: vec!["new source".into()] });
+        poll_scan(&mut app, &egui::Context::default());
+        let Some(crate::state::Dialog::Import { opts: state }) = &app.ui.dialog else { panic!("review missing") };
+        assert_eq!(ImportPreferences::from_dialog(state), ImportPreferences::from_dialog(&d));
+        assert_eq!(state.sources, vec!["new source"]);
     }
 }

@@ -9,13 +9,12 @@ use crate::LightcraftApp;
 /// They complement the primary shortcut declared on the command (Lightroom-desktop keys that our
 /// primary keymap assigns elsewhere, see docs/parity.md → Shortcuts). Shown in Help → Keyboard Shortcuts.
 pub const ALIASES: &[(&str, &str, &str)] = &[
+    ("B", "album.toggleTarget", "{}"),
     ("Cmd+D", "library.selectNone", "{}"),
     ("Shift+E", "dialog.export", "{}"),
-    ("Cmd+E", "app.exportPrevious", "{}"),
     ("Space", "view.zoomToggle", "{}"),
-    ("Shift+M", "version.create", "{}"),
     ("Shift+X", "photo.flag", r#"{"flag": "reject", "advance": true}"#),
-    ("Shift+Z", "photo.flag", r#"{"flag": "pick", "advance": true}"#),
+    ("Shift+P", "photo.flag", r#"{"flag": "pick", "advance": true}"#),
     ("Shift+U", "photo.flag", r#"{"flag": "none", "advance": true}"#),
     // Shift+[ / Shift+] arrive as { / } on most layouts
     ("Shift+{", "brush.featherLess", "{}"),
@@ -155,9 +154,17 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
     // Auto Advance then moves on (next candidate in Compare, next photo elsewhere)
     let cull = |app: &mut LightcraftApp, id: &str, mut params: serde_json::Value, advance: bool| {
         compare::target_active(app, &mut params);
-        let ok = app.run(id, params).is_ok();
-        if ok && (advance || app.ui.auto_advance) {
-            compare::advance(app);
+        match app.run(id, params) {
+            Ok(result) => {
+                if advance || app.ui.auto_advance {
+                    compare::advance(app);
+                }
+                result.get("changed").and_then(serde_json::Value::as_u64).unwrap_or(0) > 0
+            }
+            Err(e) => {
+                app.toast_error(ctx, e);
+                false
+            }
         }
     };
     for (id, params) in aliased {
@@ -179,9 +186,7 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
                 o.remove("advance");
             }
             cull(app, id, params, advance);
-        } else if let Err(e) = app.run(id, params)
-            && matches!(id, "app.export" | "app.exportPrevious")
-        {
+        } else if let Err(e) = app.run(id, params) {
             // an export that can't start (e.g. no folder) says why instead of doing nothing
             app.toast(ctx, e);
         }
@@ -189,10 +194,12 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
     for f in fire {
         if let Some(rest) = f.strip_prefix("rate:") {
             let (n, adv) = rest.split_once(':').unwrap_or(("0", "0"));
-            cull(app, "photo.rate", json!({"rating": n.parse::<u8>().unwrap_or(0)}), adv == "1");
+            let changed = cull(app, "photo.rate", json!({"rating": n.parse::<u8>().unwrap_or(0)}), adv == "1");
             let label =
                 if n == "0" { "Rating cleared".to_string() } else { crate::i18n::tr_format!("Rated {}", "★".repeat(n.parse().unwrap_or(0))) };
-            app.toast(ctx, label);
+            if changed {
+                app.toast(ctx, label);
+            }
         } else if let Some(l) = f.strip_prefix("label:") {
             cull(app, "photo.label", json!({"label": l}), false);
         } else if f == "view.softProof" && matches!(app.ui.view, crate::state::ViewMode::PhotoGrid | crate::state::ViewMode::SquareGrid) {
@@ -202,7 +209,9 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
             let d = if f == "library.next" { 1 } else { -1 };
             let _ = if app.ui.view == crate::state::ViewMode::Compare { compare::compare_step(app, d) } else { compare::survey_step(app, d) };
         } else if matches!(f.as_str(), "photo.pick" | "photo.reject" | "photo.unflag") && app.ui.right != crate::state::RightPanel::Crop {
-            cull(app, &f, json!({}), false);
+            if !cull(app, &f, json!({}), false) {
+                continue;
+            }
             match f.as_str() {
                 "photo.pick" => app.toast(ctx, "Flagged as Pick"),
                 "photo.reject" => app.toast(ctx, "Flagged as Reject"),
@@ -238,16 +247,6 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
                     continue;
                 }
             }
-            // B: the brush while editing; in the grids, add to the target album (Quick Collection)
-            if f == "tool.brush" && matches!(app.ui.view, crate::state::ViewMode::PhotoGrid | crate::state::ViewMode::SquareGrid) {
-                if let Ok(r) = app.run("album.toggleTarget", json!({})) {
-                    let n = app.session.targets(&json!({})).len();
-                    let what = if n == 1 { "photo".to_string() } else { crate::i18n::tr_format!("{n} photos", n = n) };
-                    let name = r["name"].as_str().unwrap_or("Quick Collection").to_string();
-                    app.toast(ctx, if r["added"] == true { format!("Added {what} to {name}") } else { format!("Removed {what} from {name}") });
-                }
-                continue;
-            }
             // X is both reject (library) and swap crop aspect (crop tool)
             if f == "photo.reject" && app.ui.right == crate::state::RightPanel::Crop {
                 let _ = app.run("crop.rotateAspect", json!({}));
@@ -279,11 +278,17 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
                     continue;
                 }
             }
-            // an export that can't start (e.g. no folder) says why instead of doing nothing
-            if let Err(e) = app.run(&f, json!({}))
-                && matches!(f.as_str(), "app.export" | "app.exportPrevious")
+            let result = match app.run(&f, json!({})) {
+                Ok(result) => result,
+                Err(e) => {
+                    app.toast_error(ctx, e);
+                    continue;
+                }
+            };
+            if matches!(f.as_str(), "photo.pick" | "photo.reject" | "photo.unflag")
+                && result.get("changed").and_then(serde_json::Value::as_u64).unwrap_or(0) == 0
             {
-                app.toast(ctx, e);
+                continue;
             }
             match f.as_str() {
                 "photo.pick" => app.toast(ctx, "Flagged as Pick"),
@@ -299,6 +304,63 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn bugfix_develop_failed_rating_never_shows_success() {
+        let mut app = LightcraftApp::new(lightcraft_engine::Session::new(), Default::default());
+        let ctx = egui::Context::default();
+        let mut out = ctx.run_ui(
+            egui::RawInput {
+                events: vec![egui::Event::Key { key: Key::Num3, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE }],
+                ..Default::default()
+            },
+            |ui| handle(&mut app, ui.ctx()),
+        );
+        out.textures_delta.clear();
+        let text = &app.ui.toast.as_ref().expect("failure is explained").0;
+        assert!(!text.starts_with("Rated"), "{text}");
+    }
+
+    #[test]
+    fn bugfix_develop_classic_keymap() {
+        for (command, chord) in [
+            ("view.detail", "E"),
+            ("view.develop", "D"),
+            ("view.compare", "C"),
+            ("panel.crop", "R"),
+            ("panel.remove", "Q"),
+            ("tool.brush", "K"),
+            ("view.lightsOut", "L"),
+            ("dialog.export", "Cmd+Shift+E"),
+            ("photo.editInExternal", "Cmd+E"),
+            ("dialog.syncSettings", "Cmd+Shift+S"),
+        ] {
+            assert_eq!(crate::menus::ui_commands().find(|c| c.0 == command).and_then(|c| c.2), Some(chord), "{command}");
+        }
+    }
+
+    #[test]
+    fn bugfix_develop_effective_chords_have_one_action() {
+        // Windows/Linux publish Ctrl as both physical Control and logical Command.
+        for modifiers in [Modifiers::CTRL | Modifiers::COMMAND, Modifiers::CTRL | Modifiers::COMMAND | Modifiers::SHIFT] {
+            for key in [Key::H, Key::E, Key::S] {
+                let ctx = egui::Context::default();
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        events: vec![egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers }],
+                        ..Default::default()
+                    },
+                    |ui| {
+                        let fired: Vec<_> = crate::menus::ui_commands()
+                            .filter(|c| c.2.and_then(parse).is_some_and(|(m, k)| ui.input(|i| matches(i, m, k))))
+                            .map(|c| c.0)
+                            .collect();
+                        assert!(fired.len() <= 1, "{modifiers:?} {key:?}: {fired:?}");
+                    },
+                );
+                output.textures_delta.clear();
+            }
+        }
+    }
 
     #[test]
     fn delete_means_the_backspace_key() {

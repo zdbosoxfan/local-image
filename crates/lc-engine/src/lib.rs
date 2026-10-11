@@ -174,6 +174,8 @@ pub struct Session {
     pub active_spot: Option<usize>,
     /// The persistent library this session writes to (`None` = in-memory only).
     pub library: Option<library::Library>,
+    /// Invalidates background work when a library is opened or closed.
+    pub library_generation: u64,
     /// XMP sidecar preferences (persisted with the library).
     pub xmp: sidecar::XmpPrefs,
     /// Parameters of the last export (`app.export` params, minus targets), persisted in prefs.json.
@@ -279,6 +281,7 @@ impl Session {
             quick_seg_dir: None,
             active_spot: None,
             library: None,
+            library_generation: 0,
             xmp: sidecar::XmpPrefs::default(),
             last_export: None,
             export_presets: Vec::new(),

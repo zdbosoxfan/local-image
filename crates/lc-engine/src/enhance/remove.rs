@@ -128,6 +128,9 @@ impl Session {
             Some(m) => Some(settings.masks.iter().find(|x| x.id == m).cloned().ok_or("no such mask")?),
             None => None,
         };
+        let target_patch = regenerate
+            .map(|i| settings.spots.get(i).and_then(|spot| spot.patch.as_ref()).map(|patch| patch.key.clone()).ok_or("the AI removal was deleted"))
+            .transpose()?;
         let seed = seed.unwrap_or_else(|| new_seed(id.0 ^ self.enhance.jobs().len() as u64));
         install();
         let job = Prepared {
@@ -148,7 +151,7 @@ impl Session {
             None if job.engine == LOCAL => (JobKind::Remove { stroke }, HEAL_LABEL),
             None => (JobKind::Remove { stroke }, "AI Remove"),
         };
-        Ok(self.enhance.spawn(id, kind, label, wait, Box::new(move |ctl| job.run(ctl))))
+        Ok(self.enhance.spawn_target(id, kind, label, wait, Box::new(move |ctl| job.run(ctl)), target_patch))
     }
 }
 

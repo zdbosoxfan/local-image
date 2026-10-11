@@ -1,0 +1,15 @@
+Auto-merging crates/lc-develop/src/presets.rs
+Auto-merging crates/lc-develop/src/tests_ai.rs
+Auto-merging crates/lc-engine/src/cmd/develop.rs
+CONFLICT (content): Merge conflict in crates/lc-engine/src/cmd/develop.rs
+Auto-merging crates/lc-engine/src/enhance/mod.rs
+Auto-merging crates/lc-engine/src/enhance/session.rs
+Auto-merging crates/lc-engine/src/lib.rs
+CONFLICT (content): Merge conflict in crates/lc-engine/src/lib.rs
+Auto-merging crates/lc-engine/src/library.rs
+CONFLICT (content): Merge conflict in crates/lc-engine/src/library.rs
+Auto-merging crates/lc-engine/src/quickseg.rs
+Auto-merging crates/lc-engine/src/tests_enhance.rs
+Auto-merging crates/pc-ui-egui/src/i18n/mod.rs
+CONFLICT (content): Merge conflict in crates/pc-ui-egui/src/i18n/mod.rs
+Automatic merge failed; fix conflicts and then commit the result.

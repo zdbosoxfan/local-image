@@ -1,0 +1,455 @@
+   Compiling serde_derive v1.0.229
+   Compiling bytemuck_derive v1.12.1
+   Compiling zerocopy-derive v0.8.59
+   Compiling thiserror-impl v2.0.21
+   Compiling zeroize_derive v1.5.0
+    Checking num-integer v0.1.47
+   Compiling fax_derive v0.2.0
+    Checking moxcms v0.8.1
+   Compiling tracing-attributes v0.1.31
+   Compiling num-traits v0.2.19
+   Compiling derive-new v0.7.0
+   Compiling profiling-procmacros v1.0.18
+    Checking photocraft-cms v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-cms)
+   Compiling prost-derive v0.14.4
+    Checking rand_distr v0.6.0
+    Checking ordered-float v5.5.0
+error[E0514]: found crate `proc_macro2` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_derive-1.0.229/src/lib.rs:69:1
+   |
+69 | extern crate proc_macro2;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: the following crate versions were found:
+           crate `proc_macro2` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libproc_macro2-0b154b8256e1dcad.rlib
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `quote` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_derive-1.0.229/src/lib.rs:70:1
+   |
+70 | extern crate quote;
+   | ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: the following crate versions were found:
+           crate `quote` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libquote-60390f34acaf70db.rlib
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `syn` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_derive-1.0.229/src/lib.rs:71:1
+   |
+71 | extern crate syn;
+   | ^^^^^^^^^^^^^^^^^
+   |
+   = note: the following crate versions were found:
+           crate `syn` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libsyn-83197786dbe83218.rlib
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `proc_macro2` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerocopy-derive-0.8.59/src/derive/from_bytes.rs:3:5
+  |
+3 | use proc_macro2::{Span, TokenStream};
+  |     ^^^^^^^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `proc_macro2` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libproc_macro2-0b154b8256e1dcad.rlib
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `syn` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerocopy-derive-0.8.59/src/derive/from_bytes.rs:4:5
+  |
+4 | use syn::{
+  |     ^^^
+  |
+  = note: the following crate versions were found:
+          crate `syn` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libsyn-8f9108d4235fe0d2.rlib
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `quote` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerocopy-derive-0.8.59/src/derive/into_bytes.rs:4:5
+  |
+4 | use quote::quote;
+  |     ^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `quote` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libquote-60390f34acaf70db.rlib
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `proc_macro2` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-impl-2.0.21/src/expand.rs:7:5
+  |
+7 | use proc_macro2::{Ident, Span, TokenStream};
+  |     ^^^^^^^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `proc_macro2` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libproc_macro2-0b154b8256e1dcad.rlib
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+For more information about this error, try `rustc --explain E0514`.
+error[E0514]: found crate `quote` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-impl-2.0.21/src/expand.rs:8:5
+  |
+8 | use quote::{format_ident, quote, quote_spanned, ToTokens};
+  |     ^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `quote` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libquote-60390f34acaf70db.rlib
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `syn` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-impl-2.0.21/src/expand.rs:10:5
+   |
+10 | use syn::{DeriveInput, GenericArgument, PathArguments, Result, Token, Type};
+   |     ^^^
+   |
+   = note: the following crate versions were found:
+           crate `syn` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libsyn-83197786dbe83218.rlib
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error: could not compile `zerocopy-derive` (lib) due to 3 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `thiserror-impl` (lib) due to 3 previous errors
+error[E0514]: found crate `proc_macro2` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bytemuck_derive-1.12.1/src/lib.rs:7:5
+  |
+7 | use proc_macro2::TokenStream;
+  |     ^^^^^^^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `proc_macro2` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libproc_macro2-0b154b8256e1dcad.rlib
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `quote` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bytemuck_derive-1.12.1/src/lib.rs:8:5
+  |
+8 | use quote::quote;
+  |     ^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `quote` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libquote-60390f34acaf70db.rlib
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `syn` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bytemuck_derive-1.12.1/src/lib.rs:9:5
+  |
+9 | use syn::{parse_macro_input, DeriveInput, Result};
+  |     ^^^
+  |
+  = note: the following crate versions were found:
+          crate `syn` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libsyn-83197786dbe83218.rlib
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error: could not compile `serde_derive` (lib) due to 3 previous errors
+error[E0514]: found crate `proc_macro2` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize_derive-1.5.0/src/lib.rs:7:5
+  |
+7 | use proc_macro2::{Ident, TokenStream};
+  |     ^^^^^^^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `proc_macro2` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libproc_macro2-0b154b8256e1dcad.rlib
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `quote` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize_derive-1.5.0/src/lib.rs:8:5
+  |
+8 | use quote::{format_ident, quote};
+  |     ^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `quote` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libquote-60390f34acaf70db.rlib
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `syn` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize_derive-1.5.0/src/lib.rs:9:5
+  |
+9 | use syn::{
+  |     ^^^
+  |
+  = note: the following crate versions were found:
+          crate `syn` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libsyn-8f9108d4235fe0d2.rlib
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error: could not compile `bytemuck_derive` (lib) due to 3 previous errors
+error: could not compile `zeroize_derive` (lib) due to 3 previous errors
+error[E0514]: found crate `proc_macro2` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax_derive-0.2.0/src/lib.rs:1:5
+  |
+1 | use proc_macro2::{TokenStream, Span, Literal};
+  |     ^^^^^^^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `proc_macro2` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libproc_macro2-0b154b8256e1dcad.rlib
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `quote` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax_derive-0.2.0/src/lib.rs:2:5
+  |
+2 | use quote::{quote, ToTokens};
+  |     ^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `quote` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libquote-60390f34acaf70db.rlib
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `syn` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax_derive-0.2.0/src/lib.rs:3:5
+  |
+3 | use syn::{
+  |     ^^^
+  |
+  = note: the following crate versions were found:
+          crate `syn` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libsyn-8f9108d4235fe0d2.rlib
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `num_traits` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-integer-0.1.47/src/lib.rs:23:5
+   |
+23 | use num_traits::{Num, Signed, Zero};
+   |     ^^^^^^^^^^
+   |
+   = note: the following crate versions were found:
+           crate `num_traits` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libnum_traits-3f1f8c4734908219.rmeta
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error: could not compile `fax_derive` (lib) due to 3 previous errors
+error: could not compile `num-integer` (lib) due to 1 previous error
+error[E0514]: found crate `proc_macro2` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tracing-attributes-0.1.31/src/lib.rs:83:5
+   |
+83 | use proc_macro2::TokenStream;
+   |     ^^^^^^^^^^^
+   |
+   = note: the following crate versions were found:
+           crate `proc_macro2` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libproc_macro2-0b154b8256e1dcad.rlib
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `quote` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tracing-attributes-0.1.31/src/lib.rs:85:5
+   |
+85 | use quote::{quote, ToTokens};
+   |     ^^^^^
+   |
+   = note: the following crate versions were found:
+           crate `quote` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libquote-60390f34acaf70db.rlib
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `syn` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tracing-attributes-0.1.31/src/lib.rs:86:5
+   |
+86 | use syn::parse::{Parse, ParseStream};
+   |     ^^^
+   |
+   = note: the following crate versions were found:
+           crate `syn` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libsyn-8f9108d4235fe0d2.rlib
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error: could not compile `tracing-attributes` (lib) due to 3 previous errors
+error[E0514]: found crate `proc_macro2` compiled by an incompatible version of rustc
+   --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive-new-0.7.0/src/lib.rs:195:1
+    |
+195 | extern crate proc_macro2;
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: the following crate versions were found:
+            crate `proc_macro2` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libproc_macro2-0b154b8256e1dcad.rlib
+    = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `quote` compiled by an incompatible version of rustc
+   --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive-new-0.7.0/src/lib.rs:197:1
+    |
+197 | extern crate quote;
+    | ^^^^^^^^^^^^^^^^^^^
+    |
+    = note: the following crate versions were found:
+            crate `quote` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libquote-60390f34acaf70db.rlib
+    = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `syn` compiled by an incompatible version of rustc
+   --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive-new-0.7.0/src/lib.rs:198:1
+    |
+198 | extern crate syn;
+    | ^^^^^^^^^^^^^^^^^
+    |
+    = note: the following crate versions were found:
+            crate `syn` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libsyn-8f9108d4235fe0d2.rlib
+    = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error: could not compile `derive-new` (lib) due to 3 previous errors
+error[E0514]: found crate `quote` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/profiling-procmacros-1.0.18/src/lib.rs:3:5
+  |
+3 | use quote::{quote, ToTokens};
+  |     ^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `quote` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libquote-60390f34acaf70db.rlib
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `syn` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/profiling-procmacros-1.0.18/src/lib.rs:4:5
+  |
+4 | use syn::{parse_macro_input, parse_quote, ImplItem, ItemFn, ItemImpl};
+  |     ^^^
+  |
+  = note: the following crate versions were found:
+          crate `syn` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libsyn-8f9108d4235fe0d2.rlib
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error: could not compile `profiling-procmacros` (lib) due to 2 previous errors
+error[E0514]: found crate `libm` compiled by an incompatible version of rustc
+   --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-traits-0.2.19/src/float.rs:849:9
+    |
+849 |         libm::floorf as floor(self) -> Self;
+    |         ^^^^
+    |
+    = note: the following crate versions were found:
+            crate `libm` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/liblibm-c60399806fab7216.rmeta
+    = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `anyhow` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/prost-derive-0.14.4/src/lib.rs:8:5
+  |
+8 | use anyhow::{bail, Context, Error};
+  |     ^^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `anyhow` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libanyhow-17455ba8bf372805.rlib
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `itertools` compiled by an incompatible version of rustc
+ --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/prost-derive-0.14.4/src/lib.rs:9:5
+  |
+9 | use itertools::Itertools;
+  |     ^^^^^^^^^
+  |
+  = note: the following crate versions were found:
+          crate `itertools` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libitertools-6c6b35020ddbae83.rlib
+  = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `proc_macro2` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/prost-derive-0.14.4/src/lib.rs:10:5
+   |
+10 | use proc_macro2::{Span, TokenStream};
+   |     ^^^^^^^^^^^
+   |
+   = note: the following crate versions were found:
+           crate `proc_macro2` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libproc_macro2-0b154b8256e1dcad.rlib
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `quote` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/prost-derive-0.14.4/src/lib.rs:11:5
+   |
+11 | use quote::quote;
+   |     ^^^^^
+   |
+   = note: the following crate versions were found:
+           crate `quote` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libquote-60390f34acaf70db.rlib
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `syn` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/prost-derive-0.14.4/src/lib.rs:12:5
+   |
+12 | use syn::{
+   |     ^^^
+   |
+   = note: the following crate versions were found:
+           crate `syn` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libsyn-8f9108d4235fe0d2.rlib
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error: could not compile `prost-derive` (lib) due to 5 previous errors
+error[E0514]: found crate `rayon` compiled by an incompatible version of rustc
+   --> crates/pc-cms/src/synth.rs:367:9
+    |
+367 |     use rayon::prelude::*;
+    |         ^^^^^
+    |
+    = note: the following crate versions were found:
+            crate `rayon` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/librayon-1e346f5afccd0eb3.rmeta
+    = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error: could not compile `photocraft-cms` (lib) due to 1 previous error
+error[E0514]: found crate `num_traits` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ordered-float-5.5.0/src/lib.rs:28:9
+   |
+28 | pub use num_traits::float::FloatCore;
+   |         ^^^^^^^^^^
+   |
+   = note: the following crate versions were found:
+           crate `num_traits` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libnum_traits-3f1f8c4734908219.rmeta
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `rand` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rand_distr-0.6.0/src/lib.rs:90:5
+   |
+90 | use rand::Rng;
+   |     ^^^^
+   |
+   = note: the following crate versions were found:
+           crate `rand` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/librand-e44f0598675d1c60.rmeta
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `num_traits` compiled by an incompatible version of rustc
+   --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rand_distr-0.6.0/src/lib.rs:127:9
+    |
+127 | pub use num_traits;
+    |         ^^^^^^^^^^
+    |
+    = note: the following crate versions were found:
+            crate `num_traits` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libnum_traits-3f1f8c4734908219.rmeta
+    = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error: could not compile `ordered-float` (lib) due to 1 previous error
+error[E0432]: unresolved import `super::Error`
+   --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rand_distr-0.6.0/src/weighted/weighted_alias.rs:12:5
+    |
+ 12 | use super::Error;
+    |     ^^^^^^^-----
+    |            |
+    |            no `Error` in `weighted`
+    |
+note: enum `crate::multi::dirichlet::Error` exists but is inaccessible
+   --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rand_distr-0.6.0/src/multi/dirichlet.rs:236:1
+    |
+236 | pub enum Error {
+    | ^^^^^^^^^^^^^^ not accessible
+help: consider importing one of these items instead
+    |
+ 12 - use super::Error;
+ 12 + use crate::beta::Error;
+    |
+ 12 - use super::Error;
+ 12 + use crate::binomial::Error;
+    |
+ 12 - use super::Error;
+ 12 + use crate::cauchy::Error;
+    |
+ 12 - use super::Error;
+ 12 + use crate::chi_squared::Error;
+    |
+    = and 24 other candidates
+
+Some errors have detailed explanations: E0432, E0514.
+For more information about an error, try `rustc --explain E0432`.
+error: could not compile `rand_distr` (lib) due to 3 previous errors
+error[E0514]: found crate `num_traits` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/moxcms-0.8.1/src/conversions/prelude_lut_xyz_rgb.rs:37:5
+   |
+37 | use num_traits::AsPrimitive;
+   |     ^^^^^^^^^^
+   |
+   = note: the following crate versions were found:
+           crate `num_traits` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libnum_traits-3f1f8c4734908219.rmeta
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error[E0514]: found crate `pxfm` compiled by an incompatible version of rustc
+  --> /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/moxcms-0.8.1/src/defaults.rs:37:5
+   |
+37 | use pxfm::{copysignk, exp, floor, pow};
+   |     ^^^^
+   |
+   = note: the following crate versions were found:
+           crate `pxfm` compiled by rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44): /home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/target/debug/deps/libpxfm-de68a5ce216d9d8f.rmeta
+   = help: please recompile that crate using this compiler (rustc 1.98.1 (48a229cea 2026-09-01)) (consider running `cargo clean` first)
+
+error: could not compile `moxcms` (lib) due to 2 previous errors
+error: could not compile `num-traits` (lib) due to 1 previous error

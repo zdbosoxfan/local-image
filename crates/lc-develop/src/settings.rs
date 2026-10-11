@@ -1462,6 +1462,9 @@ impl Spot {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiPatch {
+    /// Rotation of the immutable stored patch pixels into this photo's current frame.
+    #[serde(default, skip_serializing_if = "is_normal_orientation")]
+    pub orientation: Orientation,
     /// Store key (content address of the inputs).
     pub key: String,
     /// Content hash of the photo it was made from: a patch never applies to another photo.
@@ -1603,4 +1606,8 @@ fn ds2_denoise_references_reject_invalid_non_null_values() {
     assert!(serde_json::from_value::<Enhance>(json!({"ai":null})).unwrap().ai.is_none());
     let value = Enhance { ai: Some(DenoiseRef { model: DenoiseModel::Raw, preview: false, key: AiKey(7), source: AiKey(9) }), ..Default::default() };
     assert_eq!(serde_json::from_value::<Enhance>(serde_json::to_value(value).unwrap()).unwrap(), value);
+}
+
+fn is_normal_orientation(value: &Orientation) -> bool {
+    *value == Orientation::Normal
 }

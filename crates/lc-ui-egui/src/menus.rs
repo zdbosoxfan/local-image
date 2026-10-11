@@ -61,8 +61,10 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     // G: Photo Grid ↔ Square Grid (from other views: the photo grid)
     ("view.gridToggle", "Grid", Some("G"), ""),
     ("tool.guidedUpright", "Guided Upright", Some("Shift+G"), "Window>Tools"),
-    ("view.detail", "Detail", Some("D"), "View"),
-    ("view.compare", "Compare", Some("Shift+C"), "View"),
+    ("view.detail", "Loupe", Some("E"), "View"),
+    ("view.develop", "Develop", Some("D"), "View"),
+    ("view.lightsOut", "Lights Out", Some("L"), "View"),
+    ("view.compare", "Compare", Some("C"), "View"),
     ("view.survey", "Survey", Some("N"), "View"),
     ("view.people", "People", None, "View"),
     ("view.faceBoxes", "Face Boxes", None, "View"),
@@ -88,7 +90,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("view.clipping", "Show Clipping", Some("J"), "View"),
     // in grids S expands/collapses stacks (the engine command it shadows)
     ("view.softProof", "Soft Proofing", Some("S"), "View"),
-    ("view.histogram", "Histogram", Some("Cmd+Shift+H"), "View"),
+    ("view.histogram", "Histogram", None, "View"),
     ("view.maskOverlay", "Show Mask Overlay", Some("O"), "View"),
     // Shift+O in the Masking panel (elsewhere it cycles the crop overlay)
     ("view.maskOverlayMode", "Cycle Mask Overlay Mode", None, "View"),
@@ -107,15 +109,15 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("view.enterFullScreen", "Enter Full Screen", Some("Cmd+Shift+F"), "View"),
     ("view.infoOverlay", "Cycle Info Overlay", Some("Cmd+I"), "View"),
     ("view.navigator", "Navigator", None, "View"),
-    ("panel.edit", "Edit", Some("E"), "Window"),
+    ("panel.edit", "Edit", None, "Window"),
     ("panel.profiles", "Profile Browser", None, "Window"),
-    ("panel.crop", "Crop & Rotate", Some("C"), "Window"),
-    ("panel.remove", "Remove", Some("H"), "Window"),
-    ("panel.masking", "Masking", Some("M"), "Window"),
+    ("panel.crop", "Crop & Rotate", Some("R"), "Window"),
+    ("panel.remove", "Remove", Some("Q"), "Window"),
+    ("panel.masking", "Masking", Some("Shift+W"), "Window"),
     ("panel.redeye", "Red Eye", None, "Window"),
-    ("panel.presets", "Presets", Some("Shift+P"), "Window"),
+    ("panel.presets", "Presets", None, "Window"),
     ("panel.info", "Info", Some("I"), "Window"),
-    ("panel.keywords", "Keywords", Some("K"), "Window"),
+    ("panel.keywords", "Keywords", None, "Window"),
     ("panel.versions", "Versions", Some("Shift+V"), "Window"),
     ("panel.activity", "History", None, "Window"),
     ("panel.close", "Close Panel", None, ""),
@@ -124,9 +126,9 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("section.effects", "Effects", Some("Cmd+3"), "Window>Edit Sections"),
     ("section.detail", "Detail", Some("Cmd+4"), "Window>Edit Sections"),
     ("section.optics", "Optics", Some("Cmd+5"), "Window>Edit Sections"),
-    ("tool.brush", "Brush", Some("B"), "Window>Tools"),
-    ("tool.linear", "Linear Gradient", Some("L"), "Window>Tools"),
-    ("tool.radial", "Radial Gradient", Some("R"), "Window>Tools"),
+    ("tool.brush", "Brush", Some("K"), "Window>Tools"),
+    ("tool.linear", "Linear Gradient", Some("M"), "Window>Tools"),
+    ("tool.radial", "Radial Gradient", Some("Shift+M"), "Window>Tools"),
     ("tool.wbPicker", "White Balance Selector", Some("W"), "Window>Tools"),
     ("tool.none", "No Tool", None, ""),
     // brush size / feather of the active brush (Masking brush, Remove tool and its selected spot)
@@ -134,7 +136,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("brush.larger", "Increase Brush Size", Some("]"), "Window>Tools"),
     ("brush.featherLess", "Decrease Brush Feather", Some("Shift+["), "Window>Tools"),
     ("brush.featherMore", "Increase Brush Feather", Some("Shift+]"), "Window>Tools"),
-    ("dialog.newAlbum", "New Album…", Some("Cmd+N"), "File"),
+    ("dialog.newAlbum", "New Album…", None, "File"),
     ("dialog.newFolder", "New Folder…", Some("Cmd+Shift+N"), "File"),
     ("dialog.smartAlbum", "New Smart Album…", None, "File"),
     ("view.photoCounts", "Show Photo Counts", None, "View"),
@@ -148,20 +150,21 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("dialog.autoStack", "Auto-Stack by Capture Time…", None, "Photo>Stack"),
     ("dialog.copySettings", "Choose Edit Settings to Copy…", Some("Cmd+Shift+C"), "Edit"),
     ("dialog.pasteSettings", "Paste Selected Settings…", Some("Cmd+Shift+V"), "Edit"),
+    ("dialog.syncSettings", "Sync Settings…", Some("Cmd+Shift+S"), "Photo"),
     ("view.focusSearch", "Find…", Some("Cmd+F"), "Edit"),
-    ("dialog.export", "Export…", None, "File"),
+    ("dialog.export", "Export…", Some("Cmd+Shift+E"), "File"),
     ("dialog.smartSort", "Smart Sort & Export…", None, "File"),
     // replace the original with the edited render (asks first; raws get a JPEG beside them)
     ("dialog.saveOverOriginal", "Save Over Original…", Some("Cmd+Alt+S"), "File"),
-    ("photo.editInExternal", "Edit in External Editor", Some("Cmd+Shift+E"), "Photo"),
+    ("photo.editInExternal", "Edit In…", Some("Cmd+E"), "Photo"),
     ("dialog.mergeHdr", "HDR…", Some("Ctrl+H"), "Photo>Photo Merge"),
     ("dialog.mergePanorama", "Panorama…", Some("Ctrl+M"), "Photo>Photo Merge"),
     ("dialog.mergeHdrPanorama", "HDR Panorama…", None, "Photo>Photo Merge"),
     ("merge.hdrLast", "HDR with Last Settings", Some("Ctrl+Shift+H"), "Photo>Photo Merge"),
     ("merge.panoramaLast", "Panorama with Last Settings", Some("Ctrl+Shift+M"), "Photo>Photo Merge"),
     ("merge.hdrPanoramaLast", "HDR Panorama with Last Settings", None, "Photo>Photo Merge"),
-    ("file.addPhotos", "Import Photos…", Some("Cmd+Shift+I"), "File"),
-    ("file.addFolder", "Import from Folder…", None, "File"),
+    ("file.addPhotos", "Import Photos…", None, "File"),
+    ("file.addFolder", "Import from Folder…", Some("Cmd+Shift+I"), "File"),
     ("file.addFromDevice", "Import from Device", None, ""),
     ("file.findMissing", "Find Missing Photos…", None, "File"),
     ("file.backupLibrary", "Back Up Library…", None, "File"),
@@ -312,8 +315,24 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             Ok(Value::Null)
         }
         "view.detail" => {
+            let _ = app.session.end_interaction();
+            app.ui.right = RightPanel::None;
+            app.ui.tool.clear();
             app.ui.view = ViewMode::Detail;
             Ok(Value::Null)
+        }
+        "view.develop" => {
+            if let Err(e) = app.session.end_interaction() {
+                return Some(Err(e.to_string()));
+            }
+            app.ui.view = ViewMode::Detail;
+            app.ui.right = RightPanel::Edit;
+            app.ui.tool.clear();
+            Ok(Value::Null)
+        }
+        "view.lightsOut" => {
+            app.ui.lights_out = (app.ui.lights_out + 1) % 3;
+            Ok(json!({"mode":app.ui.lights_out}))
         }
         "view.compare" => crate::panels::compare::enter_compare(app),
         "view.faceBoxes" => {
@@ -868,6 +887,12 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             app.ui.dialog = Some(Dialog::create_preset());
             Ok(Value::Null)
         }
+        "dialog.syncSettings" => {
+            let groups =
+                app.session.copy_groups.iter().filter_map(|g| serde_json::to_value(g).ok().and_then(|v| v.as_str().map(str::to_string))).collect();
+            app.ui.dialog = Some(Dialog::SyncSettings { groups });
+            Ok(Value::Null)
+        }
         "dialog.pasteSettings" => {
             let groups =
                 app.session.copy_groups.iter().filter_map(|g| serde_json::to_value(g).ok().and_then(|v| v.as_str().map(str::to_string))).collect();
@@ -1011,7 +1036,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         "file.findMissing" => {
             let folder = match p.get("folder").and_then(Value::as_str) {
                 Some(f) => Some(f.to_string()),
-                None => app.services.pick_folder.as_mut().and_then(|f| f()),
+                None => app.services.choose_folder(if id == "file.addFolder" { "Choose Import Source" } else { "Choose Search Folder" }),
             };
             let Some(folder) = folder else { return Some(Ok(Value::Null)) };
             // the search (checking every photo's file, walking the folder) runs on a worker thread;
@@ -1123,7 +1148,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             // a folder (searched recursively) into the import review
             let path = match p.get("path").and_then(Value::as_str) {
                 Some(x) => Some(x.to_string()),
-                None => app.services.pick_folder.as_mut().and_then(|f| f()),
+                None => app.services.choose_folder(if id == "file.addFolder" { "Choose Import Source" } else { "Choose Search Folder" }),
             };
             match path {
                 Some(path) => crate::import::open(app, vec![path]),
@@ -1330,6 +1355,7 @@ pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
         }),
         "photo.tagFromTracklog" => app.session.active().is_some() && app.services.pick_tracklog.is_some(),
         "app.exportPrevious" => app.session.active().is_some() && app.session.last_export.is_some(),
+        "dialog.syncSettings" => app.session.active().is_some() && app.session.selection.ids.len() > 1,
         "dialog.pasteSettings" => app.session.active().is_some() && app.session.clipboard.is_some(),
         "app.showInFinder" => {
             app.services.reveal.is_some()
@@ -1343,7 +1369,7 @@ pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
         "file.exportCurvePresets" => !app.session.curve_presets.is_empty(),
         "view.compare" => app.session.catalog.len() > 1,
         "view.fullScreenPreview" | "view.infoOverlay" | "view.navigator" => app.session.active().is_some() || app.ui.fullscreen,
-        "app.openLibrary" | "file.addFolder" => app.services.pick_folder.is_some(),
+        "app.openLibrary" | "file.addFolder" => app.services.has_folder_picker(),
         "file.backupLibrary" => app.services.backup_library.is_some(),
         "file.restoreLibrary" => app.services.restore_library.is_some(),
         "compare.swap" | "compare.makeSelect" => app.ui.view == ViewMode::Compare,

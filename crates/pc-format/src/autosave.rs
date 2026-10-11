@@ -12,6 +12,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -56,6 +57,7 @@ pub struct Autosaver {
     tx: Option<Sender<Job>>,
     handle: Option<JoinHandle<()>>,
     last: Arc<Mutex<Option<Result<SaveStats>>>>,
+    discard: Arc<AtomicBool>,
 }
 
 fn sanitize(key: &str) -> String {
@@ -73,8 +75,10 @@ impl Autosaver {
         let bundle = dir.join(format!("{key}.pcraft"));
         let sidecar = dir.join(format!("{key}.json"));
         let last2 = last.clone();
-        let handle = std::thread::Builder::new().name(format!("autosave-{key}")).spawn(move || worker(rx, bundle, sidecar, last2)).ok();
-        Autosaver { dir, key, tx: Some(tx), handle, last }
+        let discard = Arc::new(AtomicBool::new(false));
+        let discarded = discard.clone();
+        let handle = std::thread::Builder::new().name(format!("autosave-{key}")).spawn(move || worker(rx, bundle, sidecar, last2, discarded)).ok();
+        Autosaver { dir, key, tx: Some(tx), handle, last, discard }
     }
 
     pub fn bundle_path(&self) -> PathBuf {
@@ -108,9 +112,12 @@ impl Autosaver {
     }
 
     /// The document was saved normally or closed: drop its recovery data.
-    pub fn discard(mut self) -> Result<()> {
-        self.shutdown();
-        remove_entry(&self.dir, &self.key)
+    pub fn discard(mut self) -> Result<Discard> {
+        self.discard.store(true, Ordering::SeqCst);
+        self.tx.take();
+        // The writer owns final deletion, after any atomic write already in flight.
+        // Detach it so neither this call nor Drop joins it on the UI thread.
+        if let Some(handle) = self.handle.take() { Ok(Discard { handle: Some(handle) }) } else { discard_entry_async(self.dir.clone(), self.key.clone()) }
     }
 
     fn shutdown(&mut self) {
@@ -127,12 +134,15 @@ impl Drop for Autosaver {
     }
 }
 
-fn worker(rx: Receiver<Job>, bundle: PathBuf, sidecar: PathBuf, last: Arc<Mutex<Option<Result<SaveStats>>>>) {
+fn worker(rx: Receiver<Job>, bundle: PathBuf, sidecar: PathBuf, last: Arc<Mutex<Option<Result<SaveStats>>>>, discard: Arc<AtomicBool>) {
     let mut writer = PcraftWriter::new();
     while let Ok(mut job) = rx.recv() {
         // Coalesce: skip to the newest queued snapshot.
         while let Ok(newer) = rx.try_recv() {
             job = newer;
+        }
+        if discard.load(Ordering::SeqCst) {
+            break;
         }
         let r = (|| {
             std::fs::create_dir_all(&bundle)?;
@@ -142,6 +152,13 @@ fn worker(rx: Receiver<Job>, bundle: PathBuf, sidecar: PathBuf, last: Arc<Mutex<
         })();
         if let Ok(mut g) = last.lock() {
             *g = Some(r);
+        }
+    }
+    if discard.load(Ordering::SeqCst) {
+        let dir = bundle.parent().unwrap_or_else(|| Path::new("."));
+        let key = bundle.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+        if let Err(e) = remove_entry(dir, key) {
+            eprintln!("autosave cleanup: {e}");
         }
     }
 }
@@ -232,11 +249,34 @@ impl RecoveryStore {
 
     /// Document `doc_id` was saved or closed: remove its recovery data, both its own autosaves
     /// and the entry it adopted.
-    pub fn discard(&mut self, doc_id: u64) -> Result<()> {
-        let own = self.savers.remove(&doc_id).map_or(Ok(()), Autosaver::discard);
-        let adopted = self.adopted.remove(&doc_id).map_or(Ok(()), |key| remove_entry(&self.dir, &key));
-        own.and(adopted)
+    pub fn discard(&mut self, doc_id: u64) -> Result<Discard> {
+        let adopted = self.adopted.remove(&doc_id);
+        match self.savers.remove(&doc_id) {
+            Some(saver) => saver.discard(),
+            None => adopted.map_or(Ok(Discard { handle: None }), |key| discard_entry_async(self.dir.clone(), key)),
+        }
     }
+}
+
+/// Completion receipt for asynchronous recovery cleanup. Dropping it detaches the worker.
+/// Tests and non-UI callers can wait explicitly; closing a document never waits.
+pub struct Discard {
+    handle: Option<JoinHandle<()>>,
+}
+impl Discard {
+    pub fn wait(self) {
+        if let Some(handle) = self.handle {
+            let _ = handle.join();
+        }
+    }
+}
+fn discard_entry_async(dir: PathBuf, key: String) -> Result<Discard> {
+    let handle = std::thread::Builder::new().name("autosave-cleanup".into()).spawn(move || {
+        if let Err(e) = remove_entry(&dir, &key) {
+            eprintln!("autosave cleanup: {e}");
+        }
+    })?;
+    Ok(Discard { handle: Some(handle) })
 }
 
 fn remove_entry(dir: &Path, key: &str) -> Result<()> {
@@ -249,4 +289,27 @@ fn remove_entry(dir: &Path, key: &str) -> Result<()> {
         std::fs::remove_file(sidecar)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn bugfix_develop_discard_returns_before_busy_writer_finishes() {
+        let dir = std::env::temp_dir().join(format!("li-discard-{}", std::process::id()));
+        let (release, wait) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            wait.recv().unwrap();
+        });
+        let saver = Autosaver { dir, key: "busy".into(), tx: None, handle: Some(handle), last: Arc::default(), discard: Arc::default() };
+        let (returned, completed) = mpsc::channel();
+        let caller = std::thread::spawn(move || {
+            returned.send(saver.discard()).unwrap();
+        });
+        let early = completed.recv_timeout(std::time::Duration::from_millis(250));
+        release.send(()).unwrap();
+        caller.join().unwrap();
+        assert!(early.is_ok(), "discard blocked on the busy writer");
+        early.unwrap().unwrap();
+    }
 }

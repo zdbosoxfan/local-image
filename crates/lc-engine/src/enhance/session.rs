@@ -56,12 +56,15 @@ impl Session {
             }
             let kind = job.kind.clone();
             let label = job.label.clone();
-            let r = self.execute_fn("enhance.apply", |s| s.apply_outcome(photo, &kind, outcome, &label).map(|_| serde_json::Value::Null));
+            let r = self.execute_fn("enhance.apply", |s| {
+                s.apply_outcome(photo, &kind, job.target_patch.as_deref(), outcome, &label).map(serde_json::Value::Bool)
+            });
             match r {
-                Ok(_) => {
+                Ok(serde_json::Value::Bool(true)) => {
                     polled.changed = true;
                     polled.done.push(label);
                 }
+                Ok(_) => {}
                 Err(e) => {
                     let error = format!("{label}: {e}");
                     polled.job_errors.push((job.id, error.clone()));
@@ -72,7 +75,7 @@ impl Session {
         polled
     }
 
-    fn apply_outcome(&mut self, photo: PhotoId, kind: &JobKind, outcome: Outcome, label: &str) -> crate::Result<()> {
+    fn apply_outcome(&mut self, photo: PhotoId, kind: &JobKind, target_patch: Option<&str>, outcome: Outcome, label: &str) -> crate::Result<bool> {
         let mut d = (*self.develop_of(photo).ok_or_else(|| crate::EngineError::Other("the photo is gone".into()))?).clone();
         match outcome {
             Outcome::Denoise(r) => {
@@ -80,7 +83,7 @@ impl Session {
                 let source = lightcraft_develop::AiKey::parse(&r.source).ok_or_else(|| crate::EngineError::Other("invalid denoise source".into()))?;
                 // A reloaded/replaced photo must never receive the old worker's result.
                 if self.catalog.photo(photo).is_none_or(|p| super::denoise::source_hash(p) != r.source) {
-                    return Ok(());
+                    return Ok(false);
                 }
                 let first_result = d.enhance.ai.is_none();
                 d.enhance.ai = Some(lightcraft_develop::DenoiseRef { key, source, model: r.family, preview: r.preview });
@@ -89,15 +92,29 @@ impl Session {
                 }
                 self.set_develop(photo, d, label)?;
             }
-            Outcome::DenoiseExport(_) => {}
+            Outcome::DenoiseExport(_) => return Ok(false),
             Outcome::Remove(r) => {
-                let patch = AiPatch { key: r.key, source: r.source, rect: r.rect, engine: r.engine, seed: r.seed, geometry: r.geometry };
+                if self.catalog.photo(photo).is_none_or(|p| super::source_hash(p) != r.source) {
+                    return Ok(false);
+                }
+                if r.geometry != remove::geometry_tag(&d) {
+                    return Err(crate::EngineError::Other("The photo geometry changed while AI Remove was running; try again.".into()));
+                }
+                let patch = AiPatch {
+                    key: r.key,
+                    source: r.source,
+                    rect: r.rect,
+                    engine: r.engine,
+                    seed: r.seed,
+                    geometry: r.geometry,
+                    orientation: Default::default(),
+                };
                 match kind {
-                    JobKind::Regenerate { spot } => {
+                    JobKind::Regenerate { .. } => {
                         let sp = d
                             .spots
-                            .get_mut(*spot)
-                            .filter(|s| s.is_ai())
+                            .iter_mut()
+                            .find(|s| s.is_ai() && s.patch.as_ref().is_some_and(|p| Some(p.key.as_str()) == target_patch))
                             .ok_or_else(|| crate::EngineError::Other("the AI removal was deleted".into()))?;
                         sp.patch = Some(patch);
                     }
@@ -123,7 +140,7 @@ impl Session {
                 }
             }
         }
-        Ok(())
+        Ok(true)
     }
 }
 

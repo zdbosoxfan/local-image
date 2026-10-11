@@ -56,6 +56,11 @@ fn relink_op(id: PhotoId, path: &str) -> Op {
     Op::Relink { id, file_name, source: Source::File { path: path.to_string() }, format: None }
 }
 
+pub(crate) fn family_ids(s: &Session, id: PhotoId) -> Vec<PhotoId> {
+    let root = s.catalog.photo(id).and_then(|p| p.copy_of).unwrap_or(id);
+    s.catalog.photos().filter(|p| p.id == root || p.copy_of == Some(root)).map(|p| p.id).collect()
+}
+
 fn relink(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = "photo.relink";
     let id = p.get("id").and_then(Value::as_u64).map(PhotoId).or(s.active()).ok_or_else(|| bad(C, "no photo (give `id`)"))?;
@@ -70,18 +75,23 @@ fn relink(s: &mut Session, p: &Value) -> Result<Value> {
     let abs = abs.to_string_lossy().to_string();
     // the file may differ from the one imported (another export, a raw that decodes now or not):
     // its size, dimensions and preview-only state follow it
-    let mut ops = vec![relink_op(id, &abs)];
-    if s.media.file_probe.is_some()
-        && let (Some(Ok(info)), Some(ph)) = (crate::import::probe_paths(s, std::slice::from_ref(&abs)).pop(), s.catalog.photo(id))
-    {
-        ops.extend(crate::cmd::convert::content_op(id, ph, info));
+    let family = family_ids(s, id);
+    let info = if s.media.file_probe.is_some() { crate::import::probe_paths(s, std::slice::from_ref(&abs)).pop().and_then(|r| r.ok()) } else { None };
+    let mut ops = Vec::new();
+    for member in &family {
+        ops.push(relink_op(*member, &abs));
+        if let (Some(info), Some(ph)) = (&info, s.catalog.photo(*member)) {
+            ops.extend(crate::cmd::convert::content_op(*member, ph, info.clone()));
+        }
     }
     let op = match <[Op; 1]>::try_from(ops) {
         Ok([op]) => op,
         Err(ops) => Op::Batch { ops },
     };
     s.commit("Relink Photo", op)?;
-    s.media.forget(id);
+    for member in family {
+        s.media.forget(member);
+    }
     Ok(json!({"id": id.0, "path": abs}))
 }
 
@@ -315,9 +325,12 @@ fn commit_find(s: &mut Session, plan: FindPlan) -> Result<Value> {
     // ambiguous photos relinked meanwhile aren't missing any more
     missing = missing.saturating_sub(planned - ambiguous.len());
     if !found.is_empty() {
-        s.commit("Find Missing Photos", Op::Batch { ops: found.iter().map(|f| relink_op(f.id, &f.to)).collect() })?;
+        let ops = found.iter().flat_map(|f| family_ids(s, f.id).into_iter().map(|id| relink_op(id, &f.to))).collect();
+        s.commit("Find Missing Photos", Op::Batch { ops })?;
         for f in &found {
-            s.media.forget(f.id);
+            for id in family_ids(s, f.id) {
+                s.media.forget(id);
+            }
         }
     }
     Ok(FindPlan { found, missing, ambiguous }.to_json())

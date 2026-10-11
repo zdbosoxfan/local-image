@@ -278,7 +278,7 @@ fn smart_location(s: &mut Session, p: &Value) -> Result<Value> {
         }
         _ => (default, None),
     };
-    if new_dir == current {
+    if new_dir == current || current.canonicalize().ok().is_some_and(|path| new_dir.canonicalize().ok() == Some(path)) {
         return Ok(location_json(s));
     }
     // the new place must work before anything moves; there is no fallback to another drive

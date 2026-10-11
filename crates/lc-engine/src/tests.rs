@@ -99,6 +99,36 @@ fn copy_paste_sync_presets() {
 }
 
 #[test]
+fn bugfix_develop_redo_ends_slider_interaction() {
+    let mut s = demo();
+    s.execute("develop.set", &json!({"control": "light.exposure", "value": 1.0})).unwrap();
+    s.execute("edit.undo", &json!({})).unwrap();
+    s.begin_interaction("Exposure").unwrap();
+    s.execute("develop.set", &json!({"control": "light.exposure", "value": 0.5})).unwrap();
+    let _ = s.execute("edit.redo", &json!({}));
+    assert!(s.interaction.is_none());
+    assert_eq!(active_dev(&s).light.exposure, 0.5);
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(active_dev(&s).light.exposure, 0.0);
+}
+
+#[test]
+fn bugfix_develop_rotation_keeps_crop_and_spots_on_content() {
+    let mut s = demo();
+    s.execute("crop.set", &json!({"rect": [0.1, 0.2, 0.7, 0.8]})).unwrap();
+    s.execute("spot.add", &json!({"mode": "clone", "points": [[0.2, 0.3]], "sourceOffset": [0.1, 0.2]})).unwrap();
+    let before = active_dev(&s);
+    s.execute("photo.rotateRight", &json!({})).unwrap();
+    let after = active_dev(&s);
+    assert!((after.crop.geometry.rect.x0 - 0.2).abs() < 1e-9);
+    assert!((after.crop.geometry.rect.y0 - 0.1).abs() < 1e-9);
+    assert!((after.spots[0].points[0].x - 0.7).abs() < 1e-9);
+    assert!((after.spots[0].points[0].y - 0.2).abs() < 1e-9);
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(active_dev(&s), before);
+}
+
+#[test]
 fn albums_crud() {
     let mut s = demo();
     let f = s.execute("album.create", &json!({"name": "Trips", "folder": true})).unwrap()["id"].as_u64().unwrap();
@@ -894,4 +924,51 @@ fn ds_finding_reset_restores_import_preset_look() {
     s.execute("develop.look", &json!({"look":"sigmoid"})).unwrap();
     s.execute("develop.reset", &json!({})).unwrap();
     assert_eq!(s.develop_of(PhotoId(900)).unwrap().look, Look::Camera);
+}
+
+#[test]
+fn bugfix_develop_settings_transfer_recomputes_photo_bound_masks() {
+    use lightcraft_develop::{Mask, MaskComponent, MaskOp, MaskShape, SegMask, SettingsGroup};
+    let mut s = Session::with_demo();
+    let ids = s.visible_cloned();
+    let a = ids[0];
+    let b = ids[1];
+    let mut d = (*s.develop_of(a).unwrap()).clone();
+    d.masks.push(Mask {
+        name: "Subject".into(),
+        components: vec![MaskComponent {
+            name: None,
+            op: MaskOp::Add,
+            invert: false,
+            shape: MaskShape::Subject { seg: Some(SegMask::from_logits(2, &[10., -10., 10., -10.])) },
+        }],
+        ..Default::default()
+    });
+    s.set_develop(a, d.clone(), "Source mask").unwrap();
+    s.execute("library.select", &json!({"ids":[a.0,b.0],"active":a.0})).unwrap();
+    s.execute("develop.sync", &json!({"groups":["masks"]})).unwrap();
+    let check = |s: &Session| {
+        let d = s.develop_of(b).unwrap();
+        assert!(matches!(d.masks[0].components[0].shape, MaskShape::Subject { seg: None }));
+    };
+    check(&s);
+    // An old clipboard and an old preset still contain cached source pixels.
+    s.clipboard = Some(json!({"masks":d.masks}));
+    s.copy_groups = vec![SettingsGroup::Masks];
+    s.execute("develop.paste", &json!({"ids":[b.0]})).unwrap();
+    check(&s);
+    s.presets.push(lightcraft_develop::Preset {
+        id: "legacy-ai".into(),
+        name: "Legacy".into(),
+        group: "User".into(),
+        settings: json!({"masks":d.masks}),
+        favorite: false,
+        builtin: false,
+    });
+    s.execute("preset.apply", &json!({"id":"legacy-ai","ids":[b.0]})).unwrap();
+    check(&s);
+    s.auto_sync = true;
+    d.masks[0].adjust.exposure = 1.;
+    s.set_develop(a, d, "Mask edit").unwrap();
+    check(&s);
 }

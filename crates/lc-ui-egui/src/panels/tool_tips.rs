@@ -153,7 +153,7 @@ impl StripTool {
     pub fn command(self) -> Option<&'static str> {
         match self {
             Self::Presets => Some("panel.presets"),
-            Self::Edit => Some("panel.edit"),
+            Self::Edit => Some("view.develop"),
             Self::Crop => Some("panel.crop"),
             Self::Remove => Some("panel.remove"),
             Self::Masking => Some("panel.masking"),
@@ -609,8 +609,8 @@ mod tests {
 
     #[test]
     fn shortcuts_come_from_the_command_table() {
-        assert_eq!(StripTool::Edit.shortcut().as_deref(), Some("E"));
+        assert_eq!(StripTool::Edit.shortcut().as_deref(), Some("D"));
         assert_eq!(StripTool::RedEye.shortcut(), None);
-        assert!(StripTool::Presets.shortcut().unwrap().contains('P'));
+        assert_eq!(StripTool::Presets.shortcut(), None);
     }
 }

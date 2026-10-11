@@ -85,16 +85,27 @@ fn convert(s: &mut Session, p: &Value) -> Result<Value> {
         match write_dng_for(s, path, packet) {
             Ok(out) => {
                 let file_name = Path::new(&out).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                // virtual copies of this photo follow it to the DNG
-                for c in s.catalog.photos().filter(|c| c.copy_of == Some(id)) {
+                let bytes = std::fs::read(&out).map_err(|e| bad(C, e.to_string()))?;
+                let size = bytes.len() as u64;
+                let hash = lightcraft_preview::hash_bytes(&bytes).to_string();
+                drop(bytes);
+                let info = crate::import::probe_paths(s, std::slice::from_ref(&out)).pop().and_then(|r| r.ok());
+                for member in super::missing::family_ids(s, id) {
                     ops.push(Op::Relink {
-                        id: c.id,
+                        id: member,
                         file_name: file_name.clone(),
                         source: Source::File { path: out.clone() },
                         format: Some("DNG".into()),
                     });
+                    ops.push(Op::SetContent {
+                        id: member,
+                        width: info.as_ref().map_or(ph.width, |i| i.width),
+                        height: info.as_ref().map_or(ph.height, |i| i.height),
+                        file_size: size,
+                        content_hash: Some(hash.clone()),
+                        preview_only: None,
+                    });
                 }
-                ops.push(Op::Relink { id, file_name, source: Source::File { path: out.clone() }, format: Some("DNG".into()) });
                 converted.push(json!({"id": id.0, "path": out, "original": path}));
             }
             Err(e) => skipped.push(json!([id.0, e])),

@@ -182,6 +182,7 @@ pub struct Job {
     pub kind: JobKind,
     pub label: String,
     pub ctl: Arc<JobCtl>,
+    pub(crate) target_patch: Option<String>,
     result: Mutex<Option<Result<Outcome, String>>>,
     finished: AtomicBool,
 }
@@ -236,6 +237,18 @@ impl Enhance {
     /// Start `work` as a job: on a worker thread, or (with `wait`, and always on the web) right
     /// here. A panic in the work is the job's error.
     pub fn spawn(&mut self, photo: PhotoId, kind: JobKind, label: &str, wait: bool, work: Work) -> Arc<Job> {
+        self.spawn_target(photo, kind, label, wait, work, None)
+    }
+
+    pub(crate) fn spawn_target(
+        &mut self,
+        photo: PhotoId,
+        kind: JobKind,
+        label: &str,
+        wait: bool,
+        work: Work,
+        target_patch: Option<String>,
+    ) -> Arc<Job> {
         self.next += 1;
         let job = Arc::new(Job {
             id: self.next,
@@ -243,6 +256,7 @@ impl Enhance {
             kind,
             label: label.to_owned(),
             ctl: JobCtl::new(),
+            target_patch,
             result: Mutex::new(None),
             finished: AtomicBool::new(false),
         });
@@ -267,6 +281,11 @@ impl Enhance {
         let _ = wait;
         run();
         job
+    }
+
+    /// Discard all work when its Library closes or is replaced.
+    pub fn clear(&mut self) {
+        self.discard();
     }
 
     /// Jobs not yet picked up (running or finished), oldest first.

@@ -1,0 +1,26 @@
+Restore pre-fix default review choices.
+cargo test --offline -p lightcraft-ui-egui --lib bugfix_develop_import_choices -- --nocapture
+warning: lightcraft-engine@2.0.0-alpha.1: no craft-fonts embedded: Chinese and Japanese text will render as empty boxes. Clone https://github.com/storytold/craft-fonts next to this repo and rebuild with CRAFT_FONTS_DIR=../craft-fonts
+   Compiling lightcraft-engine v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-engine)
+   Compiling lightcraft-ui-egui v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-ui-egui)
+    Finished `test` profile [optimized + debuginfo] target(s) in 12.34s
+     Running unittests src/lib.rs (target/debug/deps/lightcraft_ui_egui-18f70eb28d7b50bd)
+
+running 1 test
+
+thread 'import::bugfix_develop_tests::bugfix_develop_import_choices_survive_settings_roundtrip_and_new_scan' (2581353) panicked at crates/lc-ui-egui/src/import.rs:1356:9:
+assertion `left == right` failed
+  left: ImportPreferences { copy: false, move_files: false, preset: "", keywords: "", destination: "", organize: "", folder_template: "", rename: "", metadata_preset: "", dng: false }
+ right: ImportPreferences { copy: true, move_files: true, preset: "", keywords: "", destination: "/photos/2026", organize: "custom", folder_template: "{date:%Y}", rename: "trip-{sequence}", metadata_preset: "", dng: true }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test import::bugfix_develop_tests::bugfix_develop_import_choices_survive_settings_roundtrip_and_new_scan ... FAILED
+
+failures:
+
+failures:
+    import::bugfix_develop_tests::bugfix_develop_import_choices_survive_settings_roundtrip_and_new_scan
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 275 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p lightcraft-ui-egui --lib`
+Exit code: 101

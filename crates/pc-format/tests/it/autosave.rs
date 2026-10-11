@@ -52,7 +52,7 @@ fn discard_removes_everything() {
     saver.request(Arc::new(rich_doc(ColorMode::Grayscale, SampleType::U8)), 1, None, SaveOptions::default());
     let path = saver.bundle_path();
     assert!(path.file_name().unwrap().to_string_lossy().starts_with("x_y_z"));
-    saver.discard().unwrap();
+    saver.discard().unwrap().wait();
     assert!(list_recovery(&dir).is_empty());
     assert!(!path.exists());
     std::fs::remove_dir_all(dir).unwrap();
@@ -135,7 +135,7 @@ fn recovered_entries_survive_a_second_crash_until_saved_or_closed() {
         launch.adopt(20, &keys[0]);
         launch.adopt(21, &keys[1]);
         launch.autosave(&Arc::new(edited.clone()), 9, None);
-        launch.discard(21).unwrap();
+        launch.discard(21).unwrap().wait();
         assert_eq!(list_recovery(&dir).len(), 1, "closing removes the adopted entry");
     }
     // The autosave replaced the adopted entry in place: no duplicate, newest content.
@@ -146,7 +146,7 @@ fn recovered_entries_survive_a_second_crash_until_saved_or_closed() {
     let mut launch = RecoveryStore::new(&dir);
     assert_eq!(recovered(&launch).into_values().collect::<Vec<_>>(), vec![same(edited)]);
     launch.adopt(30, &keys[0]);
-    launch.discard(30).unwrap();
+    launch.discard(30).unwrap().wait();
     assert!(list_recovery(&dir).is_empty());
     drop(launch);
     std::fs::remove_dir_all(dir).unwrap();
@@ -178,9 +178,9 @@ fn new_documents_never_overwrite_surviving_entries() {
     let mut launch = RecoveryStore::new(&dir);
     launch.adopt(5, "doc-1");
     launch.autosave(&Arc::new(fresh), 3, None);
-    launch.discard(1).unwrap();
+    launch.discard(1).unwrap().wait();
     assert_eq!(list_recovery(&dir).len(), 3);
-    launch.discard(5).unwrap();
+    launch.discard(5).unwrap().wait();
     assert_eq!(list_recovery(&dir).len(), 2);
     drop(launch);
     std::fs::remove_dir_all(dir).unwrap();

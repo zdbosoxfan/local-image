@@ -19,6 +19,7 @@ struct Task {
 #[derive(Default)]
 pub struct Tasks {
     running: Vec<Task>,
+    culling: Option<std::sync::Arc<lightcraft_engine::cmd::cull::Control>>,
     /// Repaints the window when a task finishes (set every frame).
     pub(crate) repaint: Option<egui::Context>,
 }
@@ -86,6 +87,22 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
     }
 }
 
+/// Paint culling progress once per UI frame; polling/explicit waits only collect results.
+pub fn progress(app: &LightcraftApp, ctx: &egui::Context) {
+    if let Some(control) = app.tasks.culling.clone() {
+        use std::sync::atomic::Ordering;
+        egui::Window::new(crate::i18n::tr("Assisted Culling")).collapsible(false).resizable(false).show(ctx, |ui| {
+            let completed = control.completed.load(Ordering::Relaxed);
+            ui.add(egui::ProgressBar::new(completed as f32 / control.total.max(1) as f32).text(format!("{completed} / {}", control.total)));
+            let cancel = ui.button(crate::i18n::tr("Cancel"));
+            crate::widgets::register(ctx, "button:cullCancel", cancel.rect);
+            if cancel.clicked() {
+                control.cancel.store(true, Ordering::Relaxed);
+            }
+        });
+    }
+}
+
 /// Wait for every task and apply it (tests, and commands asked to `wait`). `false` on timeout.
 pub fn wait(app: &mut LightcraftApp, ctx: &egui::Context, timeout: std::time::Duration) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
@@ -108,5 +125,62 @@ pub fn wait(app: &mut LightcraftApp, ctx: &egui::Context, timeout: std::time::Du
         let _ = timeout;
         poll(app, ctx);
         app.tasks.is_empty()
+    }
+}
+
+pub fn start_culling(app: &mut LightcraftApp, params: serde_json::Value) -> Result<serde_json::Value, String> {
+    if app.tasks.culling.is_some() {
+        return Err("Assisted Culling is already running".into());
+    }
+    let work = lightcraft_engine::cmd::cull::prepare(&mut app.session, &params);
+    let control = std::sync::Arc::new(lightcraft_engine::cmd::cull::Control { total: work.len(), ..Default::default() });
+    let worker_control = control.clone();
+    let finish_control = control.clone();
+    spawn(
+        app,
+        "Assisted Culling",
+        move || lightcraft_engine::guard::catch("Assisted Culling", || work.run(&worker_control)),
+        move |app, ctx, result| {
+            app.tasks.culling = None;
+            if finish_control.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                app.toast(ctx, "Assisted Culling cancelled");
+                return;
+            }
+            match result {
+                Ok(measured) => match app.session.execute_fn("photo.analyze", |s| lightcraft_engine::cmd::cull::apply(s, measured, &params)) {
+                    Ok(r) if r["discarded"] != true => {
+                        app.toast(
+                            ctx,
+                            format!(
+                                "Assisted Culling complete: {} scored, {} failed",
+                                r["photos"].as_array().map_or(0, Vec::len),
+                                r["failed"].as_array().map_or(0, Vec::len)
+                            ),
+                        );
+                    }
+                    Ok(_) => {}
+                    Err(e) => app.toast_error(ctx, e.to_string()),
+                },
+                Err(e) => app.toast_error(ctx, e),
+            }
+        },
+    )?;
+    app.tasks.culling = Some(control);
+    Ok(serde_json::json!({"running":true}))
+}
+#[cfg(test)]
+mod bugfix_develop_tests {
+    #[test]
+    fn bugfix_develop_culling_runs_as_cancellable_background_task() {
+        let mut app = crate::LightcraftApp::new(lightcraft_engine::Session::with_demo(), Default::default());
+        super::start_culling(&mut app, serde_json::json!({})).unwrap();
+        assert!(app.tasks.is_running("Assisted Culling"));
+        let revision = app.session.catalog.revision;
+        app.tasks.culling.as_ref().unwrap().cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(Default::default(), |_| {});
+        output.textures_delta.clear();
+        assert!(super::wait(&mut app, &ctx, std::time::Duration::from_secs(20)));
+        assert_eq!(app.session.catalog.revision, revision);
     }
 }

@@ -1,0 +1,146 @@
+    Blocking waiting for file lock on build directory
+   Compiling lightcraft-develop v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-develop)
+warning: lightcraft-engine@2.0.0-alpha.1: no craft-fonts embedded: Chinese and Japanese text will render as empty boxes. Clone https://github.com/storytold/craft-fonts next to this repo and rebuild with CRAFT_FONTS_DIR=../craft-fonts
+   Compiling photocraft-format v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-format)
+   Compiling li-ai v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/li-ai)
+   Compiling lightcraft-pipeline v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-pipeline)
+   Compiling lightcraft-catalog v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-catalog)
+   Compiling lightcraft-gpu v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-gpu)
+   Compiling lightcraft-engine v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-engine)
+   Compiling photocraft-io v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-io)
+   Compiling lightcraft-ui-egui v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-ui-egui)
+   Compiling photocraft-engine v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-engine)
+   Compiling photocraft-automation v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-automation)
+   Compiling photocraft-ui-egui v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-ui-egui)
+   Compiling local-image v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/apps/local-image)
+    Finished `test` profile [optimized + debuginfo] target(s) in 2m 48s
+     Running unittests src/main.rs (target/debug/deps/local_image-5a8e72f02ae5087e)
+
+running 97 tests
+test app_dirs::tests::missing_exe_dir_or_env_never_panics ... ok
+test app_icon::tests::exe_icon_has_every_shell_size ... ok
+test app_dirs::tests::a_marker_folder_is_not_a_marker ... ok
+test app_icon::tests::msi_shortcut_icons_keep_the_exe_extension ... ok
+test app_log::tests::levels_keep_app_info_and_others_warnings ... ok
+test app_dirs::tests::no_marker_uses_the_platform_dir ... ok
+test app_log::tests::lines_have_a_utc_timestamp ... ok
+test app_log::tests::log_dir_follows_the_data_dir_mode ... ok
+test control_port_tests::control_port_accepts_valid_numbers ... ok
+test app_dirs::tests::unwritable_portable_folder_falls_back_with_a_warning ... ok
+test app_dirs::tests::override_wins_over_portable ... ok
+test app_dirs::tests::either_marker_keeps_everything_beside_the_exe ... ok
+test control_port_tests::control_port_errors_exit_non_zero ... ok
+test control_port_tests::control_port_rejects_unparseable_values_naming_them ... ok
+test cursor::tests::client_points_on_a_second_monitor_at_another_scale ... ok
+test desktop_install::tests::the_desktop_entry_names_the_app_id_and_icons_are_pngs ... ok
+test crash_guard::tests::guard_turns_a_panic_into_an_error ... ok
+test develop_ai::tests::ds2_upscale_rejects_overflow_and_zero_dimensions ... ok
+test doc_layers::bugfix_develop_tests::bugfix_develop_layer_reader_survives_decoder_panic ... ok
+test develop_ai::tests::ds2_progress_thread_exits_when_service_panics ... ok
+test ds_finding_gpu_retry_clears_inherited_cpu_failure_reason ... ok
+test gpu_startup::tests::adapters_must_present_even_when_none_support_the_surface ... ok
+test gpu_startup::tests::cpu_policy_ignores_hardware_backend_override ... ok
+test gpu_startup::tests::cpu_prefers_software_adapters ... ok
+test gpu_startup::tests::env_override_beats_everything ... ok
+test gpu_startup::tests::a_crash_moves_down_each_chain_and_is_remembered ... ok
+test gpu_startup::tests::explicit_policy_overrides_legacy_cpu_backend ... ok
+test gpu_startup::tests::intel_on_windows_defaults_to_dx12 ... ok
+test gpu_startup::tests::no_marker_uses_the_preference ... ok
+test gpu_startup::tests::dx12_compiler_is_fxc_or_dxc_beside_the_exe ... ok
+test gpu_startup::tests::linux_compatible_set_presents_and_skips_the_failed_adapter ... ok
+test gpu_startup::tests::safe_gpu_forces_the_cpu_for_one_launch ... ok
+test gpu_startup::tests::renderer_init_failure_tries_the_compatible_set_before_the_cpu_on_linux ... ok
+test library_host::tests::bench_develop_host_switch ... ignored, set LOCAL_IMAGE_TEST_RAW to a corpus raw file
+test gpu_startup::tests::unwritable_config_dir_is_not_fatal ... ok
+test gpu_startup::tests::recovery_round_trips_and_applies_while_the_fallback_is_in_use ... ok
+test gpu_startup::tests::marker_round_trip_and_lenient_parse ... ok
+test gpu_startup::tests::prefs_are_read_leniently ... ok
+test library_host::tests::bugfix_develop_startup_defaults_to_library_and_restores_develop ... ok
+test gpu_startup::tests::sentinel_detects_a_crash_and_clears_on_success ... ok
+test doc_layers::tests::layers_are_listed_top_first_with_develop_links_and_thumbnails ... ok
+test app_icon::tests::window_icon_decodes ... ok
+test library_host::bugfix_save_tests::bugfix_save_o022_bad_library_setting_preserves_path_other_fields_and_original_backup ... ok
+test library_host::tests::render_titlebars_probe ... ignored, writes the full host screenshot matrix to target/titlebar; run explicitly for visual QA
+test app_log::tests::each_run_keeps_the_previous_one_and_the_size_is_capped ... ok
+test library_host::tests::opening_a_document_twice_brings_it_forward ... ok
+test doc_layers::tests::psd_and_pcraft_files_load ... ok
+test control_server::tests::oversized_reply_preserves_framing_id_and_the_next_control_request ... ok
+test library_host::tests::quitting_from_the_library_asks_about_unsaved_work ... ok
+test library_host::tests::new_develop_edits_come_back_as_a_new_layer ... ok
+test library_host::tests::bugfix_save_o009_overwrite_resets_master_virtual_copy_and_its_develop_link ... ok
+test linux_libs::tests::complete_systems_pass ... ok
+test linux_libs::tests::distro_detection ... ok
+test linux_libs::tests::gpu_needs_vulkan_or_egl ... ok
+test linux_libs::tests::ldconfig_parsing_matches_name_and_architecture ... ok
+test linux_libs::tests::library_dirs_count_and_unread_cache_only_warns ... ok
+test linux_libs::tests::session_follows_winit_order ... ok
+test linux_libs::tests::x11_without_xkbcommon_x11_is_reported ... ok
+test library_host::tests::save_and_return_shows_the_edit_in_the_library ... ok
+test monitor_profile::tests::base64 ... ok
+test monitor_profile::tests::detected_displays_parse ... ok
+test monitor_profile::tests::helper_replies ... ok
+test services::bugfix_develop_tests::bugfix_develop_clipboard_reader_survives_decoder_panic ... ok
+test services::tests::a_damaged_image_is_skipped_not_a_panic ... ok
+test services::tests::copied_image_file_pastes_its_pixels ... ok
+test services::tests::crlf_from_a_uri_list_is_ignored ... ok
+test library_host::tests::saving_a_photo_from_the_library_adds_it_stacked_on_the_original ... ok
+test services::tests::non_images_are_skipped_for_the_first_image ... ok
+test library_host::tests::the_library_shows_unsaved_compositing_work ... ok
+test services::tests::save_filters_lead_with_every_export_format ... ok
+test services::tests::tga_is_trusted_only_with_its_extension ... ok
+test services::tests::hotfix_native_roundtrip_export_supports_placed_vector_crop ... ok
+test services::tests::recovered_documents_survive_a_second_crash_until_saved_or_closed ... FAILED
+test tablet::tests::samples_map_and_sanitize ... ok
+test tablet::tests::eraser_end_switches_to_the_eraser_and_back ... ok
+test tablet::tests::use_tablet_pressure_off_paints_like_a_mouse ... ok
+test tests::the_window_opens_centred_at_its_default_size ... ok
+test tests::window_and_panel_geometry_survive_a_restart ... ok
+test ui_state::tests::a_saved_layout_is_kept ... ok
+test ui_state::tests::sanitize_removes_only_a_bad_file ... ok
+test ui_state::tests::unreadable_files_are_left_to_eframe ... ok
+test ui_state::tests::values_that_abort_startup_are_rejected ... ok
+test tablet::tests::appkit_tablet_pressure_drives_stroke_width_and_opacity ... ok
+test library_host::tests::roundtrip_single_layer_edits_are_previewed_and_closing_drops_the_preview ... ok
+test tablet::tests::xinput_tablet_pressure_drives_stroke_width_and_opacity ... ok
+test library_host::tests::overwrite_original_notice_saves_its_document_when_another_tab_is_active ... ok
+test library_host::tests::overwrite_original_raw_disabled_and_failed_trash_preserves_edit ... ok
+test library_host::tests::overwrite_original_cancel_and_dont_ask_again_persist ... ok
+test library_host::tests::roundtrip_notice_actions_keep_editing_retry_save_and_dismiss ... ok
+test library_host::tests::roundtrip_cpu_grid_loupe_and_save_shortcut_show_the_edited_pixels ... FAILED
+test library_host::tests::background_develop_round_trip_keeps_switches_free_of_render_work ... ok
+test library_host::tests::unsaved_composites_on_a_big_library_find_the_photo_cheaply ... ok
+test library_host::tests::overwrite_original_jpeg_png_pixels_trash_atomic_reload_and_history ... ok
+test monitor_profile::tests::a_hung_helper_is_stopped_and_big_replies_dont_block ... ok
+test library_host::tests::roundtrip_gpu_grid_loupe_and_save_shortcut_show_the_edited_pixels ... FAILED
+test library_host::tests::overwrite_original_gpu_real_canvas_and_library_reload ... ok
+test library_host::tests::hosted_titlebars_drag_captions_and_top_resize_in_every_theme_and_size ... ok
+
+failures:
+
+---- services::tests::recovered_documents_survive_a_second_crash_until_saved_or_closed stdout ----
+
+thread 'services::tests::recovered_documents_survive_a_second_crash_until_saved_or_closed' (2642587) panicked at apps/local-image/src/services.rs:444:9:
+assertion `left == right` failed
+  left: 3
+ right: 1
+
+---- library_host::tests::roundtrip_cpu_grid_loupe_and_save_shortcut_show_the_edited_pixels stdout ----
+
+thread 'library_host::tests::roundtrip_cpu_grid_loupe_and_save_shortcut_show_the_edited_pixels' (2642076) panicked at apps/local-image/src/library_host.rs:1944:9:
+loupe: #75_74_3C_FF
+
+---- library_host::tests::roundtrip_gpu_grid_loupe_and_save_shortcut_show_the_edited_pixels stdout ----
+round-trip GPU test: NVIDIA GeForce RTX 5090 (Vulkan, DiscreteGpu)
+
+thread 'library_host::tests::roundtrip_gpu_grid_loupe_and_save_shortcut_show_the_edited_pixels' (2642077) panicked at apps/local-image/src/library_host.rs:1944:9:
+loupe: #75_74_3C_FF
+
+
+failures:
+    library_host::tests::roundtrip_cpu_grid_loupe_and_save_shortcut_show_the_edited_pixels
+    library_host::tests::roundtrip_gpu_grid_loupe_and_save_shortcut_show_the_edited_pixels
+    services::tests::recovered_documents_survive_a_second_crash_until_saved_or_closed
+
+test result: FAILED. 92 passed; 3 failed; 2 ignored; 0 measured; 0 filtered out; finished in 5.66s
+
+error: test failed, to rerun pass `-p local-image --bin local-image`

@@ -169,3 +169,26 @@ pub fn overlay(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, xf: &Vi
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn bugfix_develop_closed_document_releases_view_policy() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", serde_json::json!({"width":32,"height":24})).unwrap();
+        let doc = app.session.active().unwrap().doc.clone();
+        let weak = Arc::downgrade(&doc);
+        app.canvases.insert(
+            (doc.id, 0),
+            crate::canvas::CanvasCache { revision: 0, texture: None, scale: 1., preview_key: 0, on_gpu: false, tex_revision: 0, tex_preview_key: 0 },
+        );
+        display(&mut app, 0, doc.clone(), doc.clone(), 0).unwrap();
+        drop(doc);
+        app.run("file.close", serde_json::json!({})).unwrap();
+        crate::canvas::retain_gpu_documents(&mut app);
+        assert!(app.vector_runtime.views.documents.is_empty());
+        assert!(app.canvases.is_empty());
+        assert!(weak.upgrade().is_none());
+    }
+}
