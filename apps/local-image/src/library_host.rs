@@ -51,6 +51,7 @@ pub struct Host {
     /// The module whose visuals are applied to the context (Library and Develop share LightCraft's).
     styled: Option<bool>,
     opens: Opens,
+    preserve_library_vectorize_return: bool,
     frames: u64,
     /// The Library's active photo when Compositing was last left: coming back with the same photo
     /// returns to what was open there instead of bringing the photo forward again.
@@ -109,6 +110,7 @@ impl Host {
             mode,
             styled: None,
             opens: Arc::default(),
+            preserve_library_vectorize_return: false,
             frames: 0,
             left_compositing_with: None,
             camera_raw: None,
@@ -469,6 +471,16 @@ impl Host {
             return;
         }
         let from = self.mode;
+        let preserve_library = from == Module::Compositing
+            && to == Module::Library
+            && (self.preserve_library_vectorize_return || self.editor.library_vectorize.preserves_library_state(&self.editor.session));
+        if from == Module::Compositing {
+            let mut handoff = std::mem::take(&mut self.editor.library_vectorize);
+            handoff.cancel(&mut self.editor);
+            self.editor.library_vectorize = handoff;
+            self.editor.trace_dialog.cancel(&mut self.editor.session);
+            photocraft_ui_egui::vector_integration::cancel(&mut self.editor);
+        }
         // Compositing → Develop on a layered document with no Develop layer: ask how (or apply
         // the remembered answer); the session or the switch follows.
         if from == Module::Compositing
@@ -488,7 +500,7 @@ impl Host {
                 .then(|| self.editor.session.active()?.path.as_deref().and_then(|p| self.library.as_ref().and_then(|l| photo_at_path(&l.session, p))))
                 .flatten()
                 .map(|p| p.0);
-            if let Some(id) = saved.or_else(|| photocraft_ui_egui::develop_layer::active_photo(&self.editor)) {
+            if !preserve_library && let Some(id) = saved.or_else(|| photocraft_ui_egui::develop_layer::active_photo(&self.editor)) {
                 let lib = self.library();
                 let _ = lib.run("library.select", serde_json::json!({ "ids": [id], "active": id }));
                 self.left_compositing_with = Some(id);
@@ -515,7 +527,9 @@ impl Host {
                 {
                     lib.toast(ctx, "Updated the edits saved in Compositing");
                 }
-                set_library_view(lib, develop);
+                if !preserve_library {
+                    set_library_view(lib, develop);
+                }
             }
             Module::Compositing => {
                 self.sync_develop_layers();
@@ -530,6 +544,9 @@ impl Host {
                     self.editor.ui.status_error = true;
                 }
             }
+        }
+        if to == Module::Library {
+            self.preserve_library_vectorize_return = false;
         }
         self.styled = None;
         ctx.request_repaint();
@@ -708,6 +725,27 @@ impl eframe::App for Host {
         if self.quit_review(ctx) {
             self.editor.logic(ctx, frame);
         }
+        if let Some(request) = lightcraft_ui_egui::vectorize_handoff::take_request(ctx) {
+            let checked = request.check(self.library());
+            let mut handoff = std::mem::take(&mut self.editor.library_vectorize);
+            let started = checked.and_then(|()| handoff.open_path(&mut self.editor, request.photo.0, &request.path));
+            self.editor.library_vectorize = handoff;
+            match started {
+                Ok(()) => {
+                    photocraft_ui_egui::vector_integration::cancel(&mut self.editor);
+                    self.mode = Module::Compositing;
+                    self.editor.current_module = Module::Compositing;
+                    self.preserve_library_vectorize_return = true;
+                    remember_module(Module::Compositing);
+                    self.styled = None;
+                    ctx.request_repaint();
+                }
+                Err(error) => {
+                    self.library().toast_error(ctx, error.clone());
+                    self.editor.open_failed(&photocraft_ui_egui::file_open::display_name(&request.path), &error);
+                }
+            }
+        }
         let opened: Vec<String> = std::mem::take(&mut *self.opens.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         if !opened.is_empty() {
             // a document already open (Open in Compositing twice) comes forward instead
@@ -814,6 +852,10 @@ impl eframe::App for Host {
     }
 
     fn on_exit(&mut self) {
+        let mut handoff = std::mem::take(&mut self.editor.library_vectorize);
+        handoff.cancel(&mut self.editor);
+        self.editor.library_vectorize = handoff;
+        self.editor.trace_dialog.cancel(&mut self.editor.session);
         self.editor.on_exit();
         // Saved while quitting (the unsaved-changes prompt): the Library still takes the files.
         self.take_library_saves(None);

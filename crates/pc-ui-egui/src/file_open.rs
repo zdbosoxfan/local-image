@@ -52,13 +52,22 @@ impl PhotocraftApp {
         if let Some(r) = crate::preset_files_ui::open(self, path, bytes) {
             return r.map(|()| Vec::new());
         }
+        if crate::pdf_import::offer(self, &display_name(path), bytes)? {
+            self.push_recent(path);
+            return Ok(Vec::new());
+        }
         if self.background_jobs {
             // The path and Open Recent are recorded when the background open finishes.
             crate::jobs_ui::start_open(self, &display_name(path), Some(path.to_string()), crate::jobs_ui::bytes(bytes))?;
             return Ok(Vec::new());
         }
         let warnings = self.open_bytes(&display_name(path), bytes)?;
-        self.opened_from(path);
+        if photocraft_engine::vector_integration::is_native_vector_file(bytes) || bytes.starts_with(b"%PDF-") {
+            self.push_recent(path);
+            crate::filmstrip_ui::follow_file(self, path);
+        } else {
+            self.opened_from(path);
+        }
         Ok(warnings)
     }
 
@@ -89,6 +98,10 @@ impl PhotocraftApp {
     pub fn open_path(&mut self, path: &str) -> Result<Vec<String>, String> {
         // Documents opening in the background are read on the worker too (a 2 GB PSB read
         // would block the window). Preset files (brushes, gradients) go the usual way.
+        if crate::pdf_import::offer_path(self, path)? {
+            self.push_recent(path);
+            return Ok(Vec::new());
+        }
         let ext = std::path::Path::new(path).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
         if self.background_jobs && !crate::preset_files_ui::PRESET_EXTS.contains(&ext.as_str()) {
             crate::jobs_ui::start_open(self, &display_name(path), Some(path.to_string()), photocraft_engine::jobs::OpenSource::Path(path.to_string()))?;

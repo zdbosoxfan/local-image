@@ -7,8 +7,8 @@ use egui_kittest::Harness;
 use serde_json::json;
 
 use crate::PhotocraftApp;
+use crate::canvas::ToolEvent;
 use crate::state::Tool;
-use crate::vector_ui::PenPath;
 
 fn harness() -> Harness<'static, PhotocraftApp> {
     let mut s = photocraft_engine::Session::new();
@@ -65,18 +65,27 @@ fn cmd_enter_with_the_pen_loads_the_work_path() {
 fn cmd_enter_while_drawing_finishes_the_path_and_loads_it() {
     let mut h = harness();
     h.state_mut().ui.tool = Tool::Pen;
-    let p = |x: f64, y: f64| [[x, y], [x, y], [x, y]];
-    h.state_mut().ui.pen = Some(PenPath { knots: vec![p(20.0, 20.0), p(120.0, 20.0), p(120.0, 80.0)], dragging: false });
+    h.run_steps(2);
+    for [x, y] in [[20., 20.], [120., 20.], [120., 80.]] {
+        crate::canvas::tool_event(h.state_mut(), ToolEvent::Down { x, y, pressure: 1. }, Modifiers::NONE);
+        crate::canvas::tool_event(h.state_mut(), ToolEvent::Up { x, y }, Modifiers::NONE);
+    }
+    assert!(h.state().shared_tools.pen.gesture.is_some());
     h.run_steps(2);
     press(&mut h, Key::Enter, command());
     let app = h.state();
-    assert!(app.ui.pen.is_none(), "the pen path was finished");
+    assert!(app.shared_tools.pen.gesture.is_none(), "the pen path was finished");
     assert!(app.session.active().unwrap().doc.work_path.is_some(), "into the work path");
     assert!(app.session.active().unwrap().doc.selection.is_some(), "and loaded as a selection: {}", app.ui.status);
     // Plain ↩ still only finishes a path.
     let mut h = harness();
     h.state_mut().ui.tool = Tool::Pen;
-    h.state_mut().ui.pen = Some(PenPath { knots: vec![p(20.0, 20.0), p(120.0, 20.0), p(120.0, 80.0)], dragging: false });
+    h.run_steps(2);
+    for [x, y] in [[20., 20.], [120., 20.], [120., 80.]] {
+        crate::canvas::tool_event(h.state_mut(), ToolEvent::Down { x, y, pressure: 1. }, Modifiers::NONE);
+        crate::canvas::tool_event(h.state_mut(), ToolEvent::Up { x, y }, Modifiers::NONE);
+    }
+    assert!(h.state().shared_tools.pen.gesture.is_some());
     h.run_steps(2);
     press(&mut h, Key::Enter, Modifiers::NONE);
     assert!(h.state().session.active().unwrap().doc.work_path.is_some());

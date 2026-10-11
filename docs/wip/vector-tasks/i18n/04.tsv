@@ -1,0 +1,7 @@
+key	en
+vector.pen.mode.pen	Pen
+vector.pen.mode.smart	Smart
+vector.pen.mode.polygon	Polygon
+vector.pen.mode.line	Line
+vector.pen.rubberBand	Rubber band
+vector.pen.addToSelected	Add to selected curve

@@ -287,6 +287,16 @@
           "used_for": "Japanese UI and Type fallback fonts, embedded only in builds made with craft-fonts (all official releases).",
           "licence": "OFL-1.1",
           "url": "https://github.com/storytold/craft-fonts/blob/main/ATTRIBUTION.md"
+        },
+        {
+          "name": "Original Local Image vector toolbar artwork",
+          "author": "Local Image contributors",
+          "used_for": "70 original vector glyphs in colour and monochrome, hand-authored in xtask/src/tool_art_vector.rs on the 24px grid. Glossy Duotone family materials and matching theme-tinted silhouettes. Recognition inventory and labelled 16/20/40px sheet in docs/design/vector-tool-icons-recognition.tsv and vector-tool-icons.png. No copied or traced vendor artwork.",
+          "ours": "assets/icons/{color,tools}/vector-*.svg, docs/design/vector-tool-icons.png, xtask/src/tool_art_vector.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "LICENSE"
+          ]
         }
       ]
     },
@@ -319,6 +329,35 @@
             "licenses/photocraft-ATTRIBUTION.md"
           ],
           "url": "https://github.com/storytold/photocraft"
+        },
+        {
+          "name": "VectorCraft",
+          "author": "ArtCraft Team and the VectorCraft contributors",
+          "used_for": "The vector appearance and live-group data designs, adapted to Local Image's layers and paint model.",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-NOTICE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "assets/ATTRIBUTION-vectorcraft.md"
+          ],
+          "url": "https://github.com/storytold/vectorcraft"
+        },
+        {
+          "name": "VectorCraft",
+          "author": "ArtCraft Team and the VectorCraft contributors",
+          "used_for": "Curve geometry, boolean and Pathfinder operations, shape builder, offsets, outline stroke and path editing, adapted to Local Image documents.",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-NOTICE",
+            "assets/ATTRIBUTION-vectorcraft.md"
+          ],
+          "url": "https://github.com/storytold/vectorcraft"
         }
       ]
     },

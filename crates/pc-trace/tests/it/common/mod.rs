@@ -108,7 +108,7 @@ pub fn truth(index: usize, size: u32) -> TestResult<Trace> {
         l.path = l.path.transform(&scale);
     }
     let nodes = layers.iter().map(|l| metrics::node_count(&l.path)).sum();
-    Ok(Trace { width: size, height: size, layers, nodes })
+    Ok(Trace { strokes: Vec::new(), width: size, height: size, layers, nodes })
 }
 pub fn render(trace: &Trace) -> RgbImage {
     let mut out = RgbImage::from_pixel(trace.width, trace.height, Rgb([255; 3]));
@@ -386,7 +386,8 @@ pub fn external_cases() -> TestResult<Vec<Case>> {
         let is_svg = path.extension().is_some_and(|s| s == "svg");
         let clean = if is_svg { render_svg(&path)? } else { image::open(&path)?.to_rgb8() };
         let input = image::DynamicImage::ImageRgb8(clean.clone()).into_rgba8();
-        let truth = if is_svg { svg_truth(&path)? } else { Trace { width: clean.width(), height: clean.height(), layers: Vec::new(), nodes: 0 } };
+        let truth =
+            if is_svg { svg_truth(&path)? } else { Trace { strokes: Vec::new(), width: clean.width(), height: clean.height(), layers: Vec::new(), nodes: 0 } };
         let stem = path.file_stem().and_then(|s| s.to_str()).ok_or("invalid case name")?;
         cases.push(Case { id: format!("external-{stem}"), clean, input, truth });
     }
@@ -444,5 +445,5 @@ fn svg_truth(path: &FsPath) -> TestResult<Trace> {
     }
     visit(tree.root(), &mut layers)?;
     let nodes = layers.iter().map(|l| metrics::node_count(&l.path)).sum();
-    Ok(Trace { width: size.width(), height: size.height(), layers, nodes })
+    Ok(Trace { strokes: Vec::new(), width: size.width(), height: size.height(), layers, nodes })
 }

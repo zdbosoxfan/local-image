@@ -3,18 +3,23 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 pub mod adapter;
+pub mod cleanup;
+#[cfg(test)]
+extern crate self as pc_trace;
 mod boundary;
+pub mod centerline;
 mod colorfit;
 mod error;
 mod frontend;
 mod ir;
 mod potrace;
 mod spline;
+#[cfg(test)]
+#[path = "../tests/it/common/mod.rs"]
+mod test_common;
 mod topology;
 mod vc;
-use colorfit::ColorFitter;
 pub use error::Error;
-use frontend::Frontend;
 pub use frontend::Threshold;
 use photocraft_doc::{Path, PathOp};
 use serde::{Deserialize, Serialize};
@@ -39,6 +44,12 @@ pub enum Preset {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum Mode {
+    Fill,
+    Centerline,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Fitter {
     Potrace,
     Spline,
@@ -47,7 +58,10 @@ pub enum Fitter {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Params {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<Mode>,
     pub preset: Preset,
+    pub layering: cutout::Layering,
     pub fitter: Fitter,
     pub max_colors: usize,
     pub palette: Vec<[u8; 3]>,
@@ -73,7 +87,9 @@ impl Default for Params {
 impl Params {
     pub fn for_preset(preset: Preset) -> Self {
         let mut p = Self {
+            mode: None,
             preset,
+            layering: cutout::Layering::Stacked,
             fitter: Fitter::Potrace,
             max_colors: 8,
             palette: Vec::new(),
@@ -100,6 +116,10 @@ impl Params {
             Preset::Silhouette => p.max_colors = 1,
             Preset::LineArt | Preset::Sketch => {
                 p.adaptive = true;
+                p.speckle = 0;
+                if preset == Preset::Sketch {
+                    p.detail = 0.8;
+                }
                 p.max_colors = 1;
             }
             Preset::Photo => {
@@ -119,9 +139,15 @@ impl Params {
         }
         p
     }
+    pub fn resolved_mode(&self) -> Mode {
+        self.mode.unwrap_or(if matches!(self.preset, Preset::LineArt | Preset::Sketch) { Mode::Centerline } else { Mode::Fill })
+    }
     pub fn validate(&self) -> Result<(), Error> {
-        if matches!(self.preset, Preset::LineArt | Preset::Sketch) {
-            return Err(Error::InvalidParams("centreline tracing is not available"));
+        if self.resolved_mode() == Mode::Centerline && !matches!(self.preset, Preset::LineArt | Preset::Sketch | Preset::BlackWhite) {
+            return Err(Error::InvalidParams("centreline requires Line Art, Sketch or Black & White"));
+        }
+        if self.resolved_mode() == Mode::Fill && matches!(self.preset, Preset::LineArt | Preset::Sketch) {
+            return Err(Error::InvalidParams("Line Art and Sketch require centreline mode"));
         }
         if !(1..=64).contains(&self.max_colors) || self.palette.len() > 64 {
             return Err(Error::InvalidParams("colours must be 1..64"));
@@ -150,6 +176,8 @@ pub struct ColorPath {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Trace {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub strokes: Vec<centerline::StrokePath>,
     pub width: u32,
     pub height: u32,
     pub layers: Vec<ColorPath>,
@@ -188,66 +216,15 @@ pub fn trace_cancellable(image: Image<'_>, params: &Params, cancel: &AtomicBool)
 pub fn trace_with_cancel(image: Image<'_>, params: &Params, cancel: impl Fn() -> bool) -> Result<Trace, Error> {
     image.validate()?;
     params.validate()?;
+    if params.resolved_mode() == Mode::Centerline {
+        let out = centerline::trace_with_cancel(image, params, cancel)?;
+        return Ok(Trace { width: out.width, height: out.height, layers: Vec::new(), strokes: out.strokes, nodes: out.nodes });
+    }
     let check = || if cancel() { Err(Error::Cancelled) } else { Ok(()) };
     check()?;
-    let mut img = vc::ColorImage { width: image.width as usize, height: image.height as usize, pixels: image.rgba.to_vec() };
-    let mut has_alpha = false;
-    for px in img.pixels.as_chunks_mut::<4>().0 {
-        if !params.use_alpha {
-            px[3] = 255;
-        }
-        if params.ignore_color == Some([px[0], px[1], px[2]]) {
-            px[3] = 0;
-        }
-        if px[3] < 128 {
-            has_alpha = true;
-            px[3] = 0;
-        } else {
-            px[3] = 255;
-        }
-    }
-    if img.pixels.as_chunks::<4>().0.iter().all(|p| p[3] == 0) {
-        return Ok(Trace { width: image.width, height: image.height, layers: Vec::new(), nodes: 0 });
-    }
-    let binary = matches!(params.preset, Preset::BlackWhite | Preset::Silhouette);
-    let mut seg = if binary {
-        if params.preset == Preset::Silhouette && has_alpha {
-            for p in img.pixels.as_chunks_mut::<4>().0 {
-                let v = if p[3] == 0 { 255 } else { 0 };
-                p[..3].fill(v);
-            }
-        } else {
-            for p in img.pixels.as_chunks_mut::<4>().0 {
-                if p[3] == 0 {
-                    p[..3].fill(255);
-                }
-            }
-        }
-        frontend::BinaryFrontend {
-            threshold: if params.adaptive {
-                Threshold::Adaptive { window: params.adaptive_window, t: params.adaptive_sensitivity }
-            } else {
-                Threshold::Fixed(params.threshold)
-            },
-            diagonal: false,
-            min_area: params.speckle,
-        }
-        .segment_cancellable(&img, &cancel)?
-    } else if params.preset == Preset::Photo && !has_alpha {
-        frontend::WatershedFrontend { detail: params.watershed_detail, min_area: params.speckle }.segment_cancellable(&img, &cancel)?
-    } else {
-        frontend::ColorClusterFrontend {
-            color_precision_loss: params.color_precision_loss,
-            layer_difference: params.layer_difference,
-            good_min_area: params.speckle,
-        }
-        .segment_cancellable(&img, &cancel)?
-    };
-    check()?;
-    if !params.palette.is_empty() {
-        colorfit::FixedPalette::new(params.palette.iter().map(|c| vc::Color::new(c[0], c[1], c[2])).collect()).fit(&mut seg);
-    } else if !binary {
-        colorfit::AutoQuantize { max_colors: params.max_colors }.fit(&mut seg);
+    let seg = frontend::segment(image, params, &cancel)?;
+    if params.layering == cutout::Layering::Cutout {
+        return cutout::evaluate(&seg, params, BOUNDARY_BUDGET, &cancel);
     }
     let mut layers: Vec<ColorPath> = Vec::new();
     let mut boundary_budget = BOUNDARY_BUDGET;
@@ -318,5 +295,8 @@ pub fn trace_with_cancel(image: Image<'_>, params: &Params, cancel: impl Fn() ->
         }
     }
     let nodes = layers.iter().flat_map(|l| &l.path.subpaths).map(|s| s.knots.len()).sum();
-    Ok(Trace { width: image.width, height: image.height, layers, nodes })
+    Ok(Trace { width: image.width, height: image.height, strokes: Vec::new(), layers, nodes })
 }
+
+// Package 27: shared-boundary cutout evaluator.
+pub mod cutout;

@@ -4,3 +4,5 @@ mod autosave;
 mod common;
 mod corruption;
 mod roundtrip;
+
+mod vector_foundations;

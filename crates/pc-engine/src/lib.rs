@@ -86,6 +86,7 @@ pub mod render_cmds;
 pub mod retouch_cmds;
 pub mod toolsets;
 // local-image: Edit › Paste Special › Paste Seamless.
+pub mod pathops_cmds;
 pub mod seamless_cmds;
 pub mod select_extra_cmds;
 pub mod selection_cmds;
@@ -104,7 +105,9 @@ pub mod type_extra_cmds;
 pub mod type_spell_cmds;
 pub mod type_styles_cmds;
 mod variables_cmds;
+pub mod vector_api;
 pub mod vector_cmds;
+pub mod vector_packages;
 pub mod vectorize_cmds;
 mod video_cmds;
 pub mod vp_cmds;
@@ -160,6 +163,10 @@ pub(crate) fn active_layer_of(s: &Session) -> std::result::Result<&photocraft_do
 /// Per-document editing state.
 #[derive(Clone, Debug)]
 pub struct DocState {
+    pub vector_selection: vector_packages::selection::Memory,
+    pub vector_selection_scope: vector_packages::selection::Scope,
+    pub vector_isolation: vector_packages::isolation::State,
+    pub vector_view: vector_packages::isolation::ViewState,
     pub doc: Arc<Document>,
     pub history: History,
     /// The primary ("key") layer: what single-layer commands act on. Always a member of
@@ -204,6 +211,10 @@ impl DocState {
         let mut history = History::default();
         history.set_current_layers(LayerTarget { active: active_layer, selected: active_layer.into_iter().collect() });
         Self {
+            vector_selection: Default::default(),
+            vector_selection_scope: Default::default(),
+            vector_isolation: Default::default(),
+            vector_view: Default::default(),
             doc: Arc::new(doc),
             history,
             active_layer,
@@ -229,7 +240,20 @@ impl DocState {
     pub fn selected_layers(&self) -> Vec<LayerId> {
         let Some(active) = self.active_layer else { return Vec::new() };
         let set: &[LayerId] = if self.selected_layers.contains(&active) { &self.selected_layers } else { std::slice::from_ref(&active) };
-        self.doc.walk().into_iter().map(|(_, _, l)| l.id).filter(|id| set.contains(id)).collect()
+        let members = (set.len() > 8).then(|| set.iter().copied().collect::<std::collections::HashSet<_>>());
+        fn collect(layers: &[photocraft_doc::Layer], set: &[LayerId], members: Option<&std::collections::HashSet<LayerId>>, out: &mut Vec<LayerId>) {
+            for layer in layers {
+                if members.map_or_else(|| set.contains(&layer.id), |ids| ids.contains(&layer.id)) {
+                    out.push(layer.id);
+                }
+                if let Some(children) = layer.children() {
+                    collect(children, set, members, out);
+                }
+            }
+        }
+        let mut out = Vec::with_capacity(set.len());
+        collect(&self.doc.layers, set, members.as_ref(), &mut out);
+        out
     }
     pub fn is_layer_selected(&self, id: LayerId) -> bool {
         self.active_layer == Some(id) || (self.active_layer.is_some_and(|a| self.selected_layers.contains(&a)) && self.selected_layers.contains(&id))
@@ -281,6 +305,8 @@ impl Default for ToolState {
 
 #[derive(Default)]
 pub struct Session {
+    /// Captured insertion policy for the active vector drawing gesture; never persisted.
+    pub vector_insertion: Option<vector_integration::Insertion>,
     docs: Vec<DocState>,
     active: Option<usize>,
     pub tools: ToolState,
@@ -350,6 +376,7 @@ pub fn move_item<T>(v: &mut Vec<T>, i: usize, to: usize) -> Option<usize> {
 
 impl Session {
     pub fn new() -> Self {
+        vector_integration::initialize();
         Self::default()
     }
 
@@ -408,6 +435,7 @@ impl Session {
     /// Preserve its identity unless another open document already owns it.
     /// Identity-dependent callers must read the admitted document at the returned index.
     pub fn add_document(&mut self, mut doc: Document, path: Option<String>) -> usize {
+        vector_integration::initialize();
         // Persisted IDs can overlap the allocator, so check every replacement too.
         while self.docs.iter().any(|st| st.doc.id == doc.id) {
             doc.id = photocraft_doc::DocId::fresh();
@@ -443,6 +471,7 @@ impl Session {
     /// Runs synchronously, including job-capable commands (see [`jobs`]; [`Session::start`] runs
     /// those in the background).
     pub fn execute(&mut self, id: &str, params: Value) -> Result<Value> {
+        vector_integration::initialize();
         match self.dispatch(id, params, false)? {
             jobs::Started::Done(v) => Ok(v),
             // Not reached: inline dispatch never starts a job. Waiting is still correct.
@@ -492,6 +521,9 @@ impl Session {
         if let (Some(k), Some(id)) = (restrict, active) {
             channel_cmds::restrict_to_color(&before, &mut doc, id, k);
         }
+        vector_integration::maintain_metadata(&mut doc)?;
+        // Preserve the current non-editing selection as the undo target.
+        st.history.set_current_layers(st.layer_target());
         st.doc = Arc::new(doc);
         st.active_layer = active;
         fix_selection(st);
@@ -607,3 +639,13 @@ pub(crate) fn fix_selection(st: &mut DocState) {
 
 #[cfg(test)]
 mod tests;
+
+// Package 46 layout; shared shell/router hookup is supplied in integration/46.md.
+pub mod vector_toolbar_layout;
+
+pub mod shared_tools;
+
+pub mod vector_integration;
+
+#[cfg(test)]
+mod gpu_test_support;

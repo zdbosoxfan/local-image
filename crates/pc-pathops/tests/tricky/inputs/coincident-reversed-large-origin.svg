@@ -1,0 +1,5 @@
+<!-- Original Local Image synthetic input. SPDX-License-Identifier: CC0-1.0 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="1000000 1000000 96 96">
+<g transform="matrix(1 0 0 1 1000000 1000000)" fill-rule="nonzero" fill="black">
+<path id="a" d="M16 16 H64 V64 H16 Z"/><path id="b" d="M16 16 V64 H64 V16 Z"/>
+</g></svg>

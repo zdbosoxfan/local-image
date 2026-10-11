@@ -159,11 +159,13 @@ pub struct Artboard {
     /// Size preset the board was made from ("" = custom).
     #[serde(default)]
     pub preset: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drawing_scale: Option<crate::vector_design::structure::DrawingScale>,
 }
 
 impl Artboard {
     pub fn new(rect: Rect) -> Self {
-        Self { rect, background: ArtboardBackground::White, preset: String::new() }
+        Self { rect, background: ArtboardBackground::White, preset: String::new(), drawing_scale: None }
     }
 }
 

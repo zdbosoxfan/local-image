@@ -27,3 +27,4 @@ wgpu = { version = "30" }
 pollster = "1"
 # Shape layers in the effect parity tests.
 photocraft-vector = { workspace = true }
+photocraft-pathops.workspace = true

@@ -196,7 +196,9 @@ pub(crate) fn transform_layer_map(doc_sel: Option<&Surface>, group: Locks, l: &m
     }
     // With a selection only the selected pixels move, and so only the same region of a linked
     // mask (#205). Groups, type, shapes and smart objects move whole.
-    let mask_sel = doc_sel.filter(|_| !matches!(l.content, LayerContent::Group(_) | LayerContent::Text(_) | LayerContent::Shape(_) | LayerContent::Smart(_)));
+    let mask_sel = doc_sel.filter(|_| {
+        !matches!(l.content, LayerContent::Group(_) | LayerContent::Text(_) | LayerContent::Shape(_) | LayerContent::Smart(_) | LayerContent::Symbol(_))
+    });
     match &mut l.content {
         LayerContent::Group(g) => {
             for c in g.children.iter_mut() {
@@ -214,6 +216,10 @@ pub(crate) fn transform_layer_map(doc_sel: Option<&Surface>, group: Locks, l: &m
                 return Err(EngineError::Other("Distort and Perspective need a rasterized shape (Layer › Rasterize › Shape)".into()));
             };
             crate::vector_cmds::transform_shape(sh, &a);
+        }
+        LayerContent::Symbol(s) => {
+            let a = affine.ok_or_else(|| EngineError::Other("Perspective needs detached or rasterized symbols".into()))?;
+            crate::vector_packages::symbols::transform_cached_instance(s, a)?;
         }
         LayerContent::Smart(sm) => {
             let Some(h) = m.homography() else {
@@ -262,6 +268,11 @@ pub(crate) fn transform_layer_map(doc_sel: Option<&Surface>, group: Locks, l: &m
             None => warp_gray_map(&mask.surface, m, interp),
         };
     }
+    if let Some(clip) = &mut l.vector.clip
+        && let Some(a) = affine
+    {
+        *clip = clip.transform(&a);
+    }
     if let Some(vm) = l.vector_mask.as_mut()
         && vm.linked
         && let Some(a) = affine
@@ -298,17 +309,27 @@ pub fn split_selected(surf: &Surface, sel: &Surface) -> (Surface, Surface) {
     (lifted, rest)
 }
 
-pub(crate) fn refresh_text(doc: &Document, l: &mut Layer) {
+pub(crate) fn refresh_text(doc: &Document, l: &mut Layer) -> Result<()> {
     match &mut l.content {
-        LayerContent::Text(t) => crate::type_cmds::refresh(doc, t),
+        LayerContent::Text(t) => crate::vector_integration::refresh_text(doc, t, &l.vector)?,
         LayerContent::Shape(sh) => crate::vector_cmds::refresh_shape(doc, sh),
         LayerContent::Smart(_) => {
             // Unavailable sources keep the warped cache.
             let _ = crate::smart_cmds::refresh_layer(doc, l);
         }
-        LayerContent::Group(g) => g.children.iter_mut().for_each(|c| refresh_text(doc, c)),
+        LayerContent::Group(g) => {
+            for child in &mut g.children {
+                refresh_text(doc, child)?;
+            }
+        }
+        LayerContent::Symbol(s) => {
+            if let Ok(cache) = crate::vector_packages::symbols::render_instance(doc, s) {
+                s.cache = Some(cache);
+            }
+        }
         _ => {}
     }
+    Ok(())
 }
 
 /// Normal-blend `top` over `dst` (both straight alpha, same format).
@@ -446,7 +467,7 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
         let snapshot = doc.clone();
         for id in ids {
             if let Some(l) = doc.layer_mut(id) {
-                refresh_text(&snapshot, l);
+                refresh_text(&snapshot, l)?;
             }
         }
         // The selection outline moves with the pixels.

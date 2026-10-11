@@ -10,9 +10,11 @@ fn white_icons() -> &'static HashMap<&'static str, Arc<[u8]>> {
     MAP.get_or_init(|| {
         TOOL_ICONS
             .iter()
+            .copied()
+            .chain(crate::vector_tool_icon_data::ICONS.iter().map(|(_, name, _, mono)| (*name, *mono)))
             .map(|(name, bytes)| {
                 let svg = String::from_utf8_lossy(bytes).replace("currentColor", "#ffffff");
-                (*name, Arc::from(svg.into_bytes().into_boxed_slice()))
+                (name, Arc::from(svg.into_bytes().into_boxed_slice()))
             })
             .collect()
     })

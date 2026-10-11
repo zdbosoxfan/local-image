@@ -289,6 +289,10 @@ impl skrifa::outline::OutlinePen for Recorder<'_> {
 /// warp, control points are mapped directly, which is exact for straight segments and a close
 /// approximation for curves.
 pub fn outlines(layout: &TextLayout, transform: &Affine, warp: Option<&Warp>) -> Vec<Vec<PathEl>> {
+    painted_outlines(layout, transform, warp).into_iter().map(|(_, outline)| outline).collect()
+}
+/// Preserve source glyph paints without relying on output count after missing outlines.
+pub fn painted_outlines(layout: &TextLayout, transform: &Affine, warp: Option<&Warp>) -> Vec<(photocraft_doc::Color, Vec<PathEl>)> {
     let mut glyphs = Vec::new();
     for g in &layout.glyphs {
         let face = &layout.faces[g.face as usize];
@@ -303,7 +307,7 @@ pub fn outlines(layout: &TextLayout, transform: &Affine, warp: Option<&Warp>) ->
         let mut rec = Recorder { glyph, post: Xform(transform.m), warp, out: Vec::new() };
         let settings = DrawSettings::unhinted(Size::new(face.size_px), LocationRef::new(&coords));
         if outline.draw(settings, &mut rec).is_ok() && !rec.out.is_empty() {
-            glyphs.push(rec.out);
+            glyphs.push((layout.styles[g.style as usize].color, rec.out));
         }
     }
     glyphs

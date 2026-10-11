@@ -105,6 +105,7 @@ pub(crate) fn transform_layer_geometry(l: &mut Layer, a: &Affine, content: bool,
             retag_text(dpi, t);
         }
         LayerContent::Smart(sm) if content => crate::smart_cmds::transform_placement(sm, a),
+        LayerContent::Symbol(s) if content => s.transform = a.mul(&s.transform),
         LayerContent::Group(g) => {
             if let Some(ab) = &mut g.artboard {
                 ab.rect = map_rect(a, ab.rect);
@@ -181,22 +182,28 @@ pub(crate) enum Refresh {
     All,
 }
 
-pub(crate) fn refresh(doc: &mut Document, what: Refresh) {
-    fn rec(snapshot: &Document, layers: &mut [Layer], what: Refresh) {
+pub(crate) fn refresh(doc: &mut Document, what: Refresh) -> crate::Result<()> {
+    fn rec(snapshot: &Document, layers: &mut [Layer], what: Refresh) -> crate::Result<()> {
         for l in layers {
             match &mut l.content {
-                LayerContent::Group(g) => rec(snapshot, &mut g.children, what),
+                LayerContent::Group(g) => rec(snapshot, &mut g.children, what)?,
                 LayerContent::Shape(sh) => crate::vector_cmds::refresh_shape(snapshot, sh),
-                LayerContent::Text(t) if what == Refresh::All => crate::type_cmds::refresh(snapshot, t),
+                LayerContent::Symbol(s) => {
+                    if let Ok(cache) = crate::vector_packages::symbols::render_instance(snapshot, s) {
+                        s.cache = Some(cache);
+                    }
+                }
+                LayerContent::Text(t) if what == Refresh::All => crate::vector_integration::refresh_text(snapshot, t, &l.vector)?,
                 LayerContent::Smart(_) if what == Refresh::All => {
                     let _ = crate::smart_cmds::refresh_layer(snapshot, l);
                 }
                 _ => {}
             }
         }
+        Ok(())
     }
     let snapshot = doc.clone();
-    rec(&snapshot, &mut doc.layers, what);
+    rec(&snapshot, &mut doc.layers, what)
 }
 
 /// Image › Image Rotation by a right angle or a flip.
@@ -253,6 +260,7 @@ fn remap_pixels(doc: &mut Document, map: &dyn Fn(i32, i32) -> (i32, i32)) {
                 LayerContent::Raster(s) => re(s),
                 LayerContent::Text(t) => t.cache.iter_mut().for_each(re),
                 LayerContent::Shape(sh) => sh.cache.iter_mut().for_each(re),
+                LayerContent::Symbol(s) => s.cache.iter_mut().for_each(re),
                 LayerContent::Smart(sm) => {
                     sm.cache.iter_mut().for_each(re);
                     if let Some(m) = &mut sm.filter_mask {

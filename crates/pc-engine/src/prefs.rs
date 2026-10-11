@@ -747,6 +747,7 @@ pub struct MenuCustomization {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ToolbarCustomization {
+    pub vector_keyboard: crate::vector_toolbar_layout::Settings,
     /// Before tool sets: hidden tools. Read once and turned into the set "My Tools"
     /// ([`ToolbarCustomization::migrate`]); cleared after migration.
     pub hidden: Vec<String>,
@@ -756,6 +757,16 @@ pub struct ToolbarCustomization {
     pub active_set: String,
     /// The user's own tool sets (the built-ins are in [`crate::toolsets`]).
     pub sets: Vec<crate::toolsets::ToolSet>,
+    /// Global Compositing persona. Old settings start in Pixel.
+    #[serde(default)]
+    pub persona: crate::toolsets::Persona,
+    /// Vector's last set; `active_set` continues to store Pixel's original set id.
+    #[serde(default)]
+    pub vector_set: String,
+    #[serde(default)]
+    pub pixel_tool: String,
+    #[serde(default)]
+    pub vector_tool: String,
 }
 
 /// All preferences. JSON keys are the `edit.preferences.<section>` ids.
@@ -1602,11 +1613,14 @@ fn menus(s: &mut Session, p: &Value) -> Result<Value> {
 /// Edit › Toolbar: hide tools and reorder the toolbar. The change lands in the active custom
 /// tool set; with a built-in set (read-only) active it first becomes a copy, "My Tools".
 fn toolbar(s: &mut Session, p: &Value) -> Result<Value> {
-    use crate::toolsets::{ALL_TOOLS, Persona, ToolSet};
+    use crate::toolsets::{Persona, ToolSet};
     let ids = |k: &str| -> Option<Vec<String>> { p.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()) };
     s.edit_prefs(|pr| {
         if p.get("reset").and_then(Value::as_bool) == Some(true) {
-            pr.toolbar.active_set = crate::toolsets::DEFAULT_ID.into();
+            match pr.toolbar.persona {
+                Persona::Pixel => pr.toolbar.active_set = crate::toolsets::DEFAULT_ID.into(),
+                Persona::Vector => pr.toolbar.vector_set = pr.toolbar.persona.default_set().into(),
+            }
         }
         let (hidden, order) = (ids("hidden"), ids("order"));
         if hidden.is_none() && order.is_none() {
@@ -1616,14 +1630,21 @@ fn toolbar(s: &mut Session, p: &Value) -> Result<Value> {
         if ToolbarCustomization::is_builtin(&active.id) {
             let id = (1u32..).map(|n| format!("custom-{n}")).find(|id| !pr.toolbar.sets.iter().any(|x| &x.id == id)).unwrap_or_default();
             let name = pr.toolbar.unique_name("My Tools");
-            pr.toolbar.sets.push(ToolSet { id: id.clone(), name, persona: Persona::Pixel, tools: active.tools.clone() });
-            pr.toolbar.active_set = id;
+            pr.toolbar.sets.push(ToolSet { id: id.clone(), name, persona: pr.toolbar.persona, tools: active.tools.clone() });
+            match pr.toolbar.persona {
+                Persona::Pixel => pr.toolbar.active_set = id,
+                Persona::Vector => pr.toolbar.vector_set = id,
+            }
         }
-        let canon = |t: &str| ALL_TOOLS.iter().find(|a| a.eq_ignore_ascii_case(t)).map(|a| a.to_string());
-        let id = pr.toolbar.active_set.clone();
+        let available = crate::toolsets::tools_for(pr.toolbar.persona);
+        let canon = |t: &str| crate::toolsets::canonical_tool(t).filter(|id| available.contains(id)).map(str::to_owned);
+        let id = match pr.toolbar.persona {
+            Persona::Pixel => pr.toolbar.active_set.clone(),
+            Persona::Vector => pr.toolbar.vector_set.clone(),
+        };
         if let Some(set) = pr.toolbar.sets.iter_mut().find(|x| x.id == id) {
             let mut tools: Vec<String> = Vec::new();
-            for t in order.iter().flatten().filter_map(|t| canon(t)).chain(set.tools.iter().cloned()).chain(ALL_TOOLS.iter().map(|t| t.to_string())) {
+            for t in order.iter().flatten().filter_map(|t| canon(t)).chain(set.tools.iter().cloned()).chain(available.iter().map(|t| t.to_string())) {
                 if !tools.contains(&t) {
                     tools.push(t);
                 }

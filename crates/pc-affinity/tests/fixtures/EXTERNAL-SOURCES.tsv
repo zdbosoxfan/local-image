@@ -1,0 +1,5 @@
+file	bytes	sha256	license	url
+afdesignload-shape_test.afdesign	49163	08946c60c0da1c8aeea92d65acfb244721eeb3b480ed358609f4a48bbecfc5b9	MIT	https://raw.githubusercontent.com/NickBeeuwsaert/AFDesignLoad/a18dd50a7079fb861a28835eeefa0d015f03f4a1/testDesigns/shape_test.afdesign
+afdesignload-raster_test.afdesign	24569	35afa31b89f2b9970eb3701ee64e2a19476383637e8b07689334d6ffe556b593	MIT	https://raw.githubusercontent.com/NickBeeuwsaert/AFDesignLoad/a18dd50a7079fb861a28835eeefa0d015f03f4a1/testDesigns/raster_test.afdesign
+patchy-text-runs.af	20175	07c54ed90e49c4d791964228bee638fbff95a7b06dc3eccbedb3016f9fcef05e	MIT	https://raw.githubusercontent.com/SethRobinson/Patchy/de84eab550758b30fa062e479f5778cce7693b73/test-fixtures/af/tiny-text-runs.af
+patchy-rgba8.af	18159	9f2a838484399dfc4da4af893facf9d0cd33ed40173aa88264fe8f3756d81a42	MIT	https://raw.githubusercontent.com/SethRobinson/Patchy/de84eab550758b30fa062e479f5778cce7693b73/test-fixtures/af/tiny-rgba8.af

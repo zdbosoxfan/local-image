@@ -14,4 +14,6 @@ pub enum Error {
     Cancelled,
     #[error("tracing complexity exceeds the boundary budget")]
     BoundaryBudget,
+    #[error("tracing produced an invalid shared boundary arrangement")]
+    Topology,
 }

@@ -34,6 +34,7 @@ fn mean(v: &[f64]) -> f64 {
 #[test]
 #[ignore = "continuous 120-step timing benchmark; optional LC_SLIDER_BENCH_FILE"]
 fn develop_slider_drag_latency() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let ppp: f32 = std::env::var("LC_SLIDER_BENCH_PPP").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0);
     let control = std::env::var("LC_SLIDER_BENCH_CONTROL").unwrap_or_else(|_| "light.exposure".into());
     let gpu = lightcraft_engine::gpu::available();
@@ -261,6 +262,7 @@ impl crate::render::RenderOffload for Capture {
 
 #[test]
 fn slider_drag_caps_hidpi_zoom_jobs_and_release_restores_full_quality() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut app = LightcraftApp::new(procedural_session(), crate::Services { png: None, ..Default::default() });
     app.ui.settings.gpu = false;
     app.ui.settings.preview_edge = 8192;
@@ -316,6 +318,7 @@ fn slider_drag_caps_hidpi_zoom_jobs_and_release_restores_full_quality() {
 
 #[test]
 fn slider_fine_drag_accumulates_substep_motion_and_missing_widget_releases() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = headless(false, [1200.0, 1000.0], 1.0);
     let work = Capture(Default::default());
     h.app.renderer.set_offload(Box::new(work));
@@ -342,6 +345,7 @@ fn slider_fine_drag_accumulates_substep_motion_and_missing_widget_releases() {
 
 #[test]
 fn slider_gesture_cannot_continue_into_another_photo_after_selection() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     use lightcraft_catalog::{Op, Photo, PhotoId, Source};
     let mut h = headless(false, [1200.0, 1000.0], 1.0);
     h.app.renderer.set_offload(Box::new(Capture(Default::default())));
@@ -366,6 +370,7 @@ fn slider_gesture_cannot_continue_into_another_photo_after_selection() {
 }
 
 fn slider_step_timings(gpu: bool) {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = headless(gpu, [1800.0, 1600.0], 1.0);
     wait_main(&mut h);
     let backend = if gpu { lightcraft_engine::gpu::adapter_name().unwrap() } else { "CPU".into() };

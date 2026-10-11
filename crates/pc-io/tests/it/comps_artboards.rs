@@ -128,11 +128,15 @@ fn synthetic(depth: SampleType) -> Document {
     let mut g1 = Layer::group("Board 1", vec![a]);
     let mut g2 = Layer::group("Board 2", vec![b]);
     if let LayerContent::Group(g) = &mut g1.content {
-        g.artboard = Some(Artboard { rect: Rect::new(0, 0, 40, 40), background: ArtboardBackground::White, preset: "Custom".into() });
+        g.artboard = Some(Artboard { rect: Rect::new(0, 0, 40, 40), background: ArtboardBackground::White, preset: "Custom".into(), drawing_scale: None });
     }
     if let LayerContent::Group(g) = &mut g2.content {
-        g.artboard =
-            Some(Artboard { rect: Rect::new(40, 0, 80, 40), background: ArtboardBackground::Custom(Color::rgb(0.0, 1.0, 0.0)), preset: String::new() });
+        g.artboard = Some(Artboard {
+            rect: Rect::new(40, 0, 80, 40),
+            background: ArtboardBackground::Custom(Color::rgb(0.0, 1.0, 0.0)),
+            preset: String::new(),
+            drawing_scale: None,
+        });
     }
     d.layers = vec![g1, g2];
     let states = capture_states(&d);

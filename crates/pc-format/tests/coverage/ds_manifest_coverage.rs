@@ -13,7 +13,7 @@ fn surface_value() -> Value {
 
 #[test]
 fn format_version_is_one() {
-    assert_eq!(FORMAT_VERSION, 1);
+    assert_eq!(FORMAT_VERSION, 2);
 }
 
 #[test]

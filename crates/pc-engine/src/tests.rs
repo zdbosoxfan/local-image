@@ -699,3 +699,24 @@ fn move_document_reorders_tabs_and_keeps_the_active_one() {
     }
     assert_eq!(names(&s), first);
 }
+
+#[test]
+fn selected_layers_preserve_document_order_and_skip_stale_ids() {
+    let mut s = session_with_doc();
+    let children: Vec<_> = (0..12).map(|i| photocraft_doc::Layer::raster(format!("Child {i}"), photocraft_doc::PixelFormat::RGBA8)).collect();
+    let child_ids: Vec<_> = children.iter().map(|l| l.id).collect();
+    let group = photocraft_doc::Layer::group("Group", children);
+    let group_id = group.id;
+    let a = s.active_mut().unwrap();
+    Arc::make_mut(&mut a.doc).layers = vec![group];
+    a.active_layer = Some(child_ids[5]);
+    a.selected_layers = child_ids.iter().rev().copied().chain([group_id, LayerId(u64::MAX)]).collect();
+    let expected: Vec<_> = std::iter::once(group_id).chain(child_ids.iter().copied()).collect();
+    assert_eq!(a.selected_layers(), expected);
+    a.selected_layers = vec![child_ids[9], child_ids[5], LayerId(u64::MAX)];
+    assert_eq!(a.selected_layers(), vec![child_ids[5], child_ids[9]]);
+    a.active_layer = Some(child_ids[2]);
+    assert_eq!(a.selected_layers(), vec![child_ids[2]]);
+    a.active_layer = None;
+    assert!(a.selected_layers().is_empty());
+}

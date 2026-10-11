@@ -1014,40 +1014,42 @@ fn stroke_effects_on_filled_and_stroked_shapes() {
     // clipped layers and a mask.
     let Some(mut g) = gpu() else { return };
     use photocraft_doc::vector::{Path, ShapeLayer, ShapeStroke, StrokeAlign, Subpath};
-    for (fill_kind, vector_stroke, masked) in [(0, false, false), (1, false, true), (0, true, false), (1, true, true)] {
-        let mut d = fx_doc(90, 70, SampleType::U8);
-        let path = Path::new(vec![Subpath::polygon(&[(14.3, 12.6), (70.2, 18.1), (60.7, 58.4), (24.9, 50.2)])]);
-        let mut clear = Color::rgb(0.9, 0.3, 0.1);
-        clear.alpha = 0.0;
-        let fill = if fill_kind == 0 {
-            Fill::Solid(Color::rgb(0.3, 0.6, 0.9))
-        } else {
-            Fill::gradient(vec![(0.0, Color::rgb(0.9, 0.3, 0.1)), (1.0, clear)], 20.0, 1.0, GradientStyle::Linear, false)
-        };
-        let stroke_v = vector_stroke.then(|| ShapeStroke {
-            width: 3.0,
-            align: StrokeAlign::Inside,
-            paint: Fill::Solid(Color::rgb(0.1, 0.8, 0.2)),
-            ..ShapeStroke::default()
-        });
-        let mut sh = ShapeLayer { path, fill: Some(fill), stroke: stroke_v, live: None, cache: None, psd_raw: None };
-        sh.cache = Some(photocraft_vector::render_shape(&sh, d.pixel_format(), d.bounds()));
-        let mut l = Layer::new("shape", LayerContent::Shape(sh));
-        if masked {
-            l.mask = Some(mask(Rect::new(0, 0, 90, 70), 7, 0.6));
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        for (fill_kind, vector_stroke, masked) in [(0, false, false), (1, false, true), (0, true, false), (1, true, true)] {
+            let mut d = fx_doc(90, 70, depth);
+            let path = Path::new(vec![Subpath::polygon(&[(14.3, 12.6), (70.2, 18.1), (60.7, 58.4), (24.9, 50.2)])]);
+            let mut clear = Color::rgb(0.9, 0.3, 0.1);
+            clear.alpha = 0.0;
+            let fill = if fill_kind == 0 {
+                Fill::Solid(Color::rgb(0.3, 0.6, 0.9))
+            } else {
+                Fill::gradient(vec![(0.0, Color::rgb(0.9, 0.3, 0.1)), (1.0, clear)], 20.0, 1.0, GradientStyle::Linear, false)
+            };
+            let stroke_v = vector_stroke.then(|| ShapeStroke {
+                width: 3.0,
+                align: StrokeAlign::Inside,
+                paint: Fill::Solid(Color::rgb(0.1, 0.8, 0.2)),
+                ..ShapeStroke::default()
+            });
+            let mut sh = ShapeLayer { path, fill: Some(fill), stroke: stroke_v, live: None, cache: None, psd_raw: None };
+            sh.cache = Some(photocraft_vector::render_shape(&sh, d.pixel_format(), d.bounds()));
+            let mut l = Layer::new("shape", LayerContent::Shape(sh));
+            if masked {
+                l.mask = Some(mask(Rect::new(0, 0, 90, 70), 7, 0.6));
+            }
+            l.effects.items = vec![
+                Effect::Stroke(stroke(2.0, StrokePosition::Outside, FxPaint::Color(Color::rgb(1.0, 1.0, 1.0)))),
+                Effect::Stroke(stroke(5.0, StrokePosition::Outside, FxPaint::Gradient(gradient()))),
+                Effect::Stroke(stroke(3.0, StrokePosition::Inside, FxPaint::Gradient(gradient()))),
+                Effect::ColorOverlay { common: photocraft_doc::FxCommon::new(BlendMode::Multiply, 0.7), color: Color::rgb(0.2, 0.2, 0.9) },
+                Effect::DropShadow(shadow(BlendMode::Multiply, 0.7, 120.0, 4.0, 5.0, 0.0)),
+            ];
+            d.layers.push(l);
+            let mut c = noise_layer("clip", d.pixel_format(), Rect::new(30, 0, 60, 70), 9, 0.5);
+            c.clipped = true;
+            d.layers.push(c);
+            fx_check(&mut g, &d, &format!("{depth:?} fill {fill_kind} vector stroke {vector_stroke} masked {masked}"));
         }
-        l.effects.items = vec![
-            Effect::Stroke(stroke(2.0, StrokePosition::Outside, FxPaint::Color(Color::rgb(1.0, 1.0, 1.0)))),
-            Effect::Stroke(stroke(5.0, StrokePosition::Outside, FxPaint::Gradient(gradient()))),
-            Effect::Stroke(stroke(3.0, StrokePosition::Inside, FxPaint::Gradient(gradient()))),
-            Effect::ColorOverlay { common: photocraft_doc::FxCommon::new(BlendMode::Multiply, 0.7), color: Color::rgb(0.2, 0.2, 0.9) },
-            Effect::DropShadow(shadow(BlendMode::Multiply, 0.7, 120.0, 4.0, 5.0, 0.0)),
-        ];
-        d.layers.push(l);
-        let mut c = noise_layer("clip", PixelFormat::RGBA8, Rect::new(30, 0, 60, 70), 9, 0.5);
-        c.clipped = true;
-        d.layers.push(c);
-        fx_check(&mut g, &d, &format!("fill {fill_kind} vector stroke {vector_stroke} masked {masked}"));
     }
 }
 
@@ -1204,25 +1206,88 @@ fn blend_mode_extremes() {
 fn stroked_shapes_with_clipped_layers() {
     let Some(mut g) = gpu() else { return };
     use photocraft_doc::vector::{Path, ShapeLayer, ShapeStroke, Subpath};
-    for (blend, masked) in [(BlendMode::Normal, false), (BlendMode::Multiply, true)] {
-        let mut d = base_doc(80, 64);
-        let path = Path::new(vec![Subpath::polygon(&[(10.3, 8.6), (66.2, 12.1), (58.7, 54.4), (16.9, 48.2)])]);
-        let stroke = ShapeStroke { width: 5.0, paint: Fill::Solid(Color::rgb(0.9, 0.9, 0.1)), ..Default::default() };
-        let mut sh = ShapeLayer { path, fill: Some(Fill::Solid(Color::rgb(0.2, 0.3, 0.8))), stroke: Some(stroke), live: None, cache: None, psd_raw: None };
-        sh.cache = Some(photocraft_vector::render_shape(&sh, d.pixel_format(), d.bounds()));
-        let mut l = Layer::new("shape", LayerContent::Shape(sh));
-        l.blend = blend;
-        l.opacity = 0.9;
-        if masked {
-            l.mask = Some(mask(Rect::new(0, 0, 80, 64), 41, 1.0));
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        for (blend, masked) in [(BlendMode::Normal, false), (BlendMode::Multiply, true)] {
+            let mut d = Document::new("t", Size::new(80, 64), ColorMode::Rgb, depth);
+            d.layers.push(noise_layer("bg", d.pixel_format(), Rect::from_xywh(0, 0, 80, 64), 1, 0.3));
+            let path = Path::new(vec![Subpath::polygon(&[(10.3, 8.6), (66.2, 12.1), (58.7, 54.4), (16.9, 48.2)])]);
+            let stroke = ShapeStroke { width: 5.0, paint: Fill::Solid(Color::rgb(0.9, 0.9, 0.1)), ..Default::default() };
+            let mut sh = ShapeLayer { path, fill: Some(Fill::Solid(Color::rgb(0.2, 0.3, 0.8))), stroke: Some(stroke), live: None, cache: None, psd_raw: None };
+            sh.cache = Some(photocraft_vector::render_shape(&sh, d.pixel_format(), d.bounds()));
+            let mut l = Layer::new("shape", LayerContent::Shape(sh));
+            l.blend = blend;
+            l.opacity = 0.9;
+            if masked {
+                l.mask = Some(mask(Rect::new(0, 0, 80, 64), 41, 1.0));
+            }
+            let mut c = noise_layer("clip", d.pixel_format(), Rect::new(0, 0, 80, 64), 42, 0.5);
+            c.clipped = true;
+            c.blend = BlendMode::Screen;
+            d.layers.extend([l, c]);
+            let st = photocraft_gpu::render_to_vec_stats(&mut g.comp, &g.device, &g.queue, &d, d.bounds());
+            assert!(st.is_ok(), "planned on the GPU");
+            check(&mut g, &d, &format!("{depth:?} stroked shape + clipped {blend:?} masked {masked}"));
         }
-        let mut c = noise_layer("clip", PixelFormat::RGBA8, Rect::new(0, 0, 80, 64), 42, 0.5);
-        c.clipped = true;
-        c.blend = BlendMode::Screen;
-        d.layers.extend([l, c]);
-        let st = photocraft_gpu::render_to_vec_stats(&mut g.comp, &g.device, &g.queue, &d, d.bounds());
-        assert!(st.is_ok(), "planned on the GPU");
-        check(&mut g, &d, &format!("stroked shape + clipped {blend:?} masked {masked}"));
+    }
+}
+
+/// PhotoCraft #1321 through both GPU paths, including the split used by clipped layers and
+/// layer effects. Reusing the compositor across movement and depth changes exercises keys.
+#[test]
+fn shape_gradient_fields_strokes_clips_and_effects() {
+    let mut g = gpu().expect("vector sync parity requires a GPU adapter");
+    use photocraft_doc::vector::{ShapeLayer, ShapeStroke};
+    use photocraft_doc::{Effect, FxCommon, FxPaint, StrokeFx, StrokePosition};
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        for style in [GradientStyle::Linear, GradientStyle::Radial, GradientStyle::Angle, GradientStyle::Reflected, GradientStyle::Diamond] {
+            for align in [false, true] {
+                // Cross the paged compositor's 256-pixel seam with the gradient shape itself.
+                let mut d = Document::new("gradient sync", Size::new(320, 72), ColorMode::Rgb, depth);
+                d.layers.push(noise_layer("bg", d.pixel_format(), d.bounds(), 71, 0.5));
+                let paint = Fill::Gradient {
+                    stops: vec![(1.0, Color::WHITE), (0.5, Color::rgb(0.9, 0.2, 0.4)), (0.0, Color::BLACK)],
+                    angle: 31.0,
+                    scale: 1.3,
+                    style,
+                    reverse: true,
+                    opacity_stops: vec![(1.0, 0.4), (0.0, 0.9)],
+                    midpoints: vec![0.25, 0.75],
+                    offset: (0.1, -0.15),
+                    dither: true,
+                    align,
+                };
+                let mut sh = ShapeLayer {
+                    path: photocraft_vector::shapes::rect(240.25, 14.5, 55.5, 38.0),
+                    fill: Some(paint.clone()),
+                    stroke: Some(ShapeStroke { width: 4.5, paint, ..ShapeStroke::default() }),
+                    ..ShapeLayer::default()
+                };
+                sh.cache = Some(photocraft_vector::render_shape(&sh, d.pixel_format(), d.bounds()));
+                let mut layer = Layer::new("shape", LayerContent::Shape(sh));
+                layer.effects.items.push(Effect::Stroke(StrokeFx {
+                    common: FxCommon::new(BlendMode::Normal, 0.7),
+                    size: 2.0,
+                    position: StrokePosition::Outside,
+                    paint: FxPaint::Color(Color::rgb(0.2, 0.5, 0.9)),
+                }));
+                d.layers.push(layer);
+                let mut clip = noise_layer("clip", d.pixel_format(), d.bounds(), 73, 0.2);
+                clip.clipped = true;
+                clip.blend = BlendMode::Screen;
+                d.layers.push(clip);
+                check(&mut g, &d, &format!("{depth:?} {style:?} align={align}"));
+                if let LayerContent::Shape(sh) = &mut d.layers[1].content {
+                    sh.path = sh.path.transform(&photocraft_geom::Affine::translate(11.0, 7.0));
+                    sh.cache = None;
+                }
+                let canvas = d.bounds();
+                let fmt = d.pixel_format();
+                if let LayerContent::Shape(sh) = &mut d.layers[1].content {
+                    sh.cache = Some(photocraft_vector::render_shape(sh, fmt, canvas));
+                }
+                check(&mut g, &d, &format!("moved {depth:?} {style:?} align={align}"));
+            }
+        }
     }
 }
 
@@ -1249,13 +1314,14 @@ fn artboards() {
             let mut ab = Layer::group("Artboard", vec![child, fx]);
             ab.blend = blend;
             if let LayerContent::Group(gr) = &mut ab.content {
-                gr.artboard = Some(Artboard { rect: Rect::new(12, 6, 60, 40), background: bg, preset: String::new() });
+                gr.artboard = Some(Artboard { rect: Rect::new(12, 6, 60, 40), background: bg, preset: String::new(), drawing_scale: None });
             }
             d.layers.push(ab);
             // A second, partly off-canvas board.
             let mut ab2 = Layer::group("Artboard 2", vec![noise_layer("c2", PixelFormat::RGBA8, Rect::new(0, 0, 72, 48), 52, 0.3)]);
             if let LayerContent::Group(gr) = &mut ab2.content {
-                gr.artboard = Some(Artboard { rect: Rect::new(50, 30, 90, 70), background: ArtboardBackground::Black, preset: String::new() });
+                gr.artboard =
+                    Some(Artboard { rect: Rect::new(50, 30, 90, 70), background: ArtboardBackground::Black, preset: String::new(), drawing_scale: None });
             }
             d.layers.push(ab2);
             fx_check(&mut g, &d, &format!("artboard {bg:?} {blend:?}"));

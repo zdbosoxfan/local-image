@@ -118,10 +118,83 @@ pub enum Tool {
     // local-image: AI tools (see ai_ui.rs).
     AiRemove,
     AiCutout,
+    PointTransform,
+    VectorPencil,
+    VectorBrush,
+    Smooth,
+    PathEraser,
+    Join,
+    Corner,
+    RoundedRectangle,
+    Star,
+    DoubleStar,
+    SquareStar,
+    Trapezoid,
+    Diamond,
+    Donut,
+    Pie,
+    Segment,
+    Arrow,
+    Callout,
+    Cog,
+    Heart,
+    Tear,
+    Crescent,
+    Cloud,
+    Spiral,
+    Arc,
+    RectGrid,
+    PolarGrid,
+    VectorFill,
+    Transparency,
+    ShapeBuilder,
+    Contour,
+    Knife,
+    Scissors,
+    LineCut,
+    Width,
+    ArtText,
+    FrameText,
+    TextOnPath,
+    Blend,
+    Repeat,
+    Envelope,
+    VectorCrop,
+    Artboard,
+    GroupSelection,
+    VectorMagicWand,
+    VectorLasso,
+    Curvature,
+    AddAnchor,
+    DeleteAnchor,
+    AnchorPoint,
+    Rotate,
+    Reflect,
+    Scale,
+    Shear,
+    Reshape,
+    FreeTransform,
+    StylePicker,
+    BlobBrush,
+    VectorEraser,
+    VectorWarp,
+    VectorTwirl,
+    VectorPucker,
+    VectorBloat,
+    Scallop,
+    Crystallize,
+    Wrinkle,
+    VectorPuppetWarp,
+    LivePaintBucket,
+    VectorFloodFill,
+    LivePaintSelection,
+    Mesh,
+    Measure,
+    Area,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 53] = [
+    pub const ALL: [Tool; 126] = [
         Tool::Move,
         Tool::RectMarquee,
         Tool::EllipseMarquee,
@@ -175,6 +248,79 @@ impl Tool {
         Tool::SliceSelect,
         Tool::AiRemove,
         Tool::AiCutout,
+        Tool::PointTransform,
+        Tool::VectorPencil,
+        Tool::VectorBrush,
+        Tool::Smooth,
+        Tool::PathEraser,
+        Tool::Join,
+        Tool::Corner,
+        Tool::RoundedRectangle,
+        Tool::Star,
+        Tool::DoubleStar,
+        Tool::SquareStar,
+        Tool::Trapezoid,
+        Tool::Diamond,
+        Tool::Donut,
+        Tool::Pie,
+        Tool::Segment,
+        Tool::Arrow,
+        Tool::Callout,
+        Tool::Cog,
+        Tool::Heart,
+        Tool::Tear,
+        Tool::Crescent,
+        Tool::Cloud,
+        Tool::Spiral,
+        Tool::Arc,
+        Tool::RectGrid,
+        Tool::PolarGrid,
+        Tool::VectorFill,
+        Tool::Transparency,
+        Tool::ShapeBuilder,
+        Tool::Contour,
+        Tool::Knife,
+        Tool::Scissors,
+        Tool::LineCut,
+        Tool::Width,
+        Tool::ArtText,
+        Tool::FrameText,
+        Tool::TextOnPath,
+        Tool::Blend,
+        Tool::Repeat,
+        Tool::Envelope,
+        Tool::VectorCrop,
+        Tool::Artboard,
+        Tool::GroupSelection,
+        Tool::VectorMagicWand,
+        Tool::VectorLasso,
+        Tool::Curvature,
+        Tool::AddAnchor,
+        Tool::DeleteAnchor,
+        Tool::AnchorPoint,
+        Tool::Rotate,
+        Tool::Reflect,
+        Tool::Scale,
+        Tool::Shear,
+        Tool::Reshape,
+        Tool::FreeTransform,
+        Tool::StylePicker,
+        Tool::BlobBrush,
+        Tool::VectorEraser,
+        Tool::VectorWarp,
+        Tool::VectorTwirl,
+        Tool::VectorPucker,
+        Tool::VectorBloat,
+        Tool::Scallop,
+        Tool::Crystallize,
+        Tool::Wrinkle,
+        Tool::VectorPuppetWarp,
+        Tool::LivePaintBucket,
+        Tool::VectorFloodFill,
+        Tool::LivePaintSelection,
+        Tool::Mesh,
+        Tool::Measure,
+        Tool::Area,
     ];
 
     pub fn label(self) -> &'static str {
@@ -232,10 +378,83 @@ impl Tool {
             Tool::CustomShape => "Custom Shape Tool",
             Tool::AiRemove => "AI Remove Brush Tool",
             Tool::AiCutout => "AI Cutout Tool",
+            Tool::PointTransform => "Point Transform Tool",
+            Tool::VectorPencil => "Vector Pencil Tool",
+            Tool::VectorBrush => "Vector Brush Tool",
+            Tool::Smooth => "Smooth Tool",
+            Tool::PathEraser => "Path Eraser Tool",
+            Tool::Join => "Join Tool",
+            Tool::Corner => "Corner Tool",
+            Tool::RoundedRectangle => "Rounded Rectangle Tool",
+            Tool::Star => "Star Tool",
+            Tool::DoubleStar => "Double Star Tool",
+            Tool::SquareStar => "Square Star Tool",
+            Tool::Trapezoid => "Trapezoid Tool",
+            Tool::Diamond => "Diamond Tool",
+            Tool::Donut => "Donut Tool",
+            Tool::Pie => "Pie Tool",
+            Tool::Segment => "Segment Tool",
+            Tool::Arrow => "Arrow Tool",
+            Tool::Callout => "Callout Tool",
+            Tool::Cog => "Cog Tool",
+            Tool::Heart => "Heart Tool",
+            Tool::Tear => "Tear Tool",
+            Tool::Crescent => "Crescent Tool",
+            Tool::Cloud => "Cloud Tool",
+            Tool::Spiral => "Spiral Tool",
+            Tool::Arc => "Arc Tool",
+            Tool::RectGrid => "Rectangular Grid Tool",
+            Tool::PolarGrid => "Polar Grid Tool",
+            Tool::VectorFill => "Vector Fill Tool",
+            Tool::Transparency => "Transparency Tool",
+            Tool::ShapeBuilder => "Shape Builder Tool",
+            Tool::Contour => "Contour Tool",
+            Tool::Knife => "Knife Tool",
+            Tool::Scissors => "Scissors Tool",
+            Tool::LineCut => "Line Cut Tool",
+            Tool::Width => "Width Tool",
+            Tool::ArtText => "Artistic Text Tool",
+            Tool::FrameText => "Frame Text Tool",
+            Tool::TextOnPath => "Text on Path Tool",
+            Tool::Blend => "Blend Tool",
+            Tool::Repeat => "Repeat Tool",
+            Tool::Envelope => "Envelope Tool",
+            Tool::VectorCrop => "Vector Crop Tool",
+            Tool::Artboard => "Artboard Tool",
+            Tool::GroupSelection => "Group Selection Tool",
+            Tool::VectorMagicWand => "Vector Magic Wand Tool",
+            Tool::VectorLasso => "Vector Lasso Tool",
+            Tool::Curvature => "Curvature Tool",
+            Tool::AddAnchor => "Add Anchor Tool",
+            Tool::DeleteAnchor => "Delete Anchor Tool",
+            Tool::AnchorPoint => "Anchor Point Tool",
+            Tool::Rotate => "Rotate Tool",
+            Tool::Reflect => "Reflect Tool",
+            Tool::Scale => "Scale Tool",
+            Tool::Shear => "Shear Tool",
+            Tool::Reshape => "Reshape Tool",
+            Tool::FreeTransform => "Free Transform Tool",
+            Tool::StylePicker => "Style Picker Tool",
+            Tool::BlobBrush => "Blob Brush Tool",
+            Tool::VectorEraser => "Vector Eraser Tool",
+            Tool::VectorWarp => "Warp Tool",
+            Tool::VectorTwirl => "Twirl Tool",
+            Tool::VectorPucker => "Pucker Tool",
+            Tool::VectorBloat => "Bloat Tool",
+            Tool::Scallop => "Scallop Tool",
+            Tool::Crystallize => "Crystallize Tool",
+            Tool::Wrinkle => "Wrinkle Tool",
+            Tool::VectorPuppetWarp => "Puppet Warp Tool",
+            Tool::LivePaintBucket => "Live Paint Bucket Tool",
+            Tool::VectorFloodFill => "Vector Flood Fill Tool",
+            Tool::LivePaintSelection => "Live Paint Selection Tool",
+            Tool::Mesh => "Mesh Tool",
+            Tool::Measure => "Measure Tool",
+            Tool::Area => "Area Tool",
         }
     }
     pub fn is_type(self) -> bool {
-        matches!(self, Self::Type | Self::VerticalType)
+        matches!(self, Self::Type | Self::VerticalType | Self::ArtText | Self::FrameText | Self::TextOnPath)
     }
 
     /// Retouching and painting tools that stroke with the brush (share the brush cursor and chip).
@@ -288,6 +507,79 @@ impl Tool {
             Tool::Pen => 'P',
             Tool::PathSelection | Tool::DirectSelection => 'A',
             Tool::Rectangle | Tool::EllipseShape | Tool::Triangle | Tool::Polygon | Tool::Line | Tool::CustomShape => 'U',
+            Tool::PointTransform => '\0',
+            Tool::VectorPencil => '\0',
+            Tool::VectorBrush => '\0',
+            Tool::Smooth => '\0',
+            Tool::PathEraser => '\0',
+            Tool::Join => '\0',
+            Tool::Corner => '\0',
+            Tool::RoundedRectangle => '\0',
+            Tool::Star => '\0',
+            Tool::DoubleStar => '\0',
+            Tool::SquareStar => '\0',
+            Tool::Trapezoid => '\0',
+            Tool::Diamond => '\0',
+            Tool::Donut => '\0',
+            Tool::Pie => '\0',
+            Tool::Segment => '\0',
+            Tool::Arrow => '\0',
+            Tool::Callout => '\0',
+            Tool::Cog => '\0',
+            Tool::Heart => '\0',
+            Tool::Tear => '\0',
+            Tool::Crescent => '\0',
+            Tool::Cloud => '\0',
+            Tool::Spiral => '\0',
+            Tool::Arc => '\0',
+            Tool::RectGrid => '\0',
+            Tool::PolarGrid => '\0',
+            Tool::VectorFill => '\0',
+            Tool::Transparency => '\0',
+            Tool::ShapeBuilder => '\0',
+            Tool::Contour => '\0',
+            Tool::Knife => '\0',
+            Tool::Scissors => '\0',
+            Tool::LineCut => '\0',
+            Tool::Width => '\0',
+            Tool::ArtText => '\0',
+            Tool::FrameText => '\0',
+            Tool::TextOnPath => '\0',
+            Tool::Blend => '\0',
+            Tool::Repeat => '\0',
+            Tool::Envelope => '\0',
+            Tool::VectorCrop => '\0',
+            Tool::Artboard => '\0',
+            Tool::GroupSelection => '\0',
+            Tool::VectorMagicWand => '\0',
+            Tool::VectorLasso => '\0',
+            Tool::Curvature => '\0',
+            Tool::AddAnchor => '\0',
+            Tool::DeleteAnchor => '\0',
+            Tool::AnchorPoint => '\0',
+            Tool::Rotate => '\0',
+            Tool::Reflect => '\0',
+            Tool::Scale => '\0',
+            Tool::Shear => '\0',
+            Tool::Reshape => '\0',
+            Tool::FreeTransform => '\0',
+            Tool::StylePicker => '\0',
+            Tool::BlobBrush => '\0',
+            Tool::VectorEraser => '\0',
+            Tool::VectorWarp => '\0',
+            Tool::VectorTwirl => '\0',
+            Tool::VectorPucker => '\0',
+            Tool::VectorBloat => '\0',
+            Tool::Scallop => '\0',
+            Tool::Crystallize => '\0',
+            Tool::Wrinkle => '\0',
+            Tool::VectorPuppetWarp => '\0',
+            Tool::LivePaintBucket => '\0',
+            Tool::VectorFloodFill => '\0',
+            Tool::LivePaintSelection => '\0',
+            Tool::Mesh => '\0',
+            Tool::Measure => '\0',
+            Tool::Area => '\0',
         }
     }
     /// Glyph drawn in the toolbar (vector icons come later).
@@ -308,6 +600,16 @@ impl Tool {
             Tool::Hand => "✋",
             Tool::Zoom => "🔍",
             _ => "•",
+        }
+    }
+    pub fn personas(self) -> &'static [photocraft_engine::toolsets::Persona] {
+        use photocraft_engine::toolsets::{Persona, supports};
+        let name = format!("{self:?}");
+        match (supports(&name, Persona::Pixel), supports(&name, Persona::Vector)) {
+            (true, true) => &[Persona::Pixel, Persona::Vector],
+            (true, false) => &[Persona::Pixel],
+            (false, true) => &[Persona::Vector],
+            _ => &[],
         }
     }
     pub fn from_name(s: &str) -> Option<Tool> {
@@ -476,6 +778,8 @@ pub struct ToolOptions {
     /// Shape tools: fill with the foreground colour, stroke width (0 = none), rectangle corner
     /// radius, polygon sides, line weight.
     pub shape_fill: bool,
+    #[serde(default)]
+    pub pen_options: crate::vector_packages::pen::Options,
     pub stroke_width: f32,
     pub corner_radius: f32,
     pub polygon_sides: u32,
@@ -585,6 +889,7 @@ impl Default for ToolOptions {
             quick_subject_assist: true,
             vector_mode: "path".into(),
             shape_fill: true,
+            pen_options: Default::default(),
             stroke_width: 0.0,
             corner_radius: 0.0,
             polygon_sides: 5,
@@ -749,6 +1054,20 @@ pub struct ColorPanelState {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UiState {
+    #[serde(default)]
+    pub symbols: crate::symbols::State,
+    #[serde(skip)]
+    pub persona_pointer: Runtime<crate::toolsets_ui::persona::PointerGuard>,
+    #[serde(skip)]
+    pub vector_blend: Runtime<crate::blend::State>,
+    #[serde(skip)]
+    pub svg_export: Runtime<crate::vector_packages::svg_export::State>,
+    #[serde(skip)]
+    pub pdf_export: Runtime<crate::vector_packages::pdf_export::State>,
+    #[serde(skip)]
+    pub frame_compose: Runtime<crate::frame_compose::State>,
+    #[serde(skip)]
+    pub fill_stroke_proxy: Runtime<crate::fill_stroke_proxy::State>,
     pub tool: Tool,
     /// local-image: AI tool options and the Generate panel (ai_ui.rs, generate_ui.rs).
     #[serde(default)]
@@ -858,6 +1177,10 @@ pub struct UiState {
     pub selection_mode: u8,
     #[serde(default)]
     pub tool_options: ToolOptions,
+    #[serde(default)]
+    pub trace_preferences: crate::trace_dialog::Preferences,
+    #[serde(default)]
+    pub vector_snapping: photocraft_engine::vector_packages::snapping::query::Settings,
     /// In-progress polygonal lasso vertices (document coordinates).
     #[serde(default)]
     pub polygon: Vec<[f64; 2]>,
@@ -895,6 +1218,13 @@ pub struct UiState {
 impl Default for UiState {
     fn default() -> Self {
         Self {
+            symbols: Default::default(),
+            persona_pointer: Default::default(),
+            vector_blend: Default::default(),
+            svg_export: Default::default(),
+            pdf_export: Default::default(),
+            frame_compose: Default::default(),
+            fill_stroke_proxy: Default::default(),
             tool: Tool::Brush,
             ai: Default::default(),
             recent_files: Vec::new(),
@@ -938,6 +1268,8 @@ impl Default for UiState {
             brushes_panel: Default::default(),
             selection_mode: 0,
             tool_options: ToolOptions::default(),
+            trace_preferences: Default::default(),
+            vector_snapping: Default::default(),
             polygon: Vec::new(),
             polygon_mode: String::new(),
             magnetic: Default::default(),
@@ -979,6 +1311,40 @@ impl UiState {
     pub fn new_document_fields() -> serde_json::Map<String, serde_json::Value> {
         let v = serde_json::json!({"name": "Untitled-1", "width": 1920, "height": 1080, "mode": "rgb", "depth": 8, "background": "white"});
         v.as_object().cloned().unwrap_or_default()
+    }
+}
+
+/// Transient runtime excluded from persistent UI snapshots and their equality.
+pub struct Runtime<T: Default>(pub T);
+impl<T: Default> Default for Runtime<T> {
+    fn default() -> Self {
+        Self(T::default())
+    }
+}
+impl<T: Default> Clone for Runtime<T> {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+impl<T: Default> std::fmt::Debug for Runtime<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Runtime")
+    }
+}
+impl<T: Default> PartialEq for Runtime<T> {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+impl<T: Default> std::ops::Deref for Runtime<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+impl<T: Default> std::ops::DerefMut for Runtime<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.0
     }
 }
 

@@ -19,3 +19,6 @@ pub trait Frontend {
         Ok(result)
     }
 }
+
+mod prepare;
+pub(crate) use prepare::segment;

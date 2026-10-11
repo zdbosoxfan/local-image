@@ -41,3 +41,6 @@ mod tiff_layers;
 mod tiff_pages;
 mod vector;
 mod xmp_export;
+
+#[path = "../vector_fallback/roundtrip.rs"]
+mod vector_fallback;

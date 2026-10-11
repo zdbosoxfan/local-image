@@ -14,6 +14,7 @@ use crate::adjust_map;
 use crate::blocks;
 use crate::pixels::{deinterleave, encode_be, psd_depth};
 use crate::psd_import::REGENERATED;
+use crate::vector_map::fallback;
 
 const PSD_MAX_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024;
 const PSD_ESTIMATE_FIXED_OVERHEAD: u64 = 1024 * 1024;
@@ -399,8 +400,21 @@ impl Ex {
     /// overrides) plus regenerated adjustment/fill blocks. A preserved
     /// adjustment or fill block is reused verbatim while it still decodes to
     /// the layer's current parameters; otherwise it is regenerated.
-    fn content_blocks(&mut self, l: &Layer) -> Vec<TaggedBlock> {
+    fn content_blocks(&mut self, l: &Layer, cache: Option<&Surface>) -> Vec<TaggedBlock> {
         let mut raw: Vec<([u8; 4], Vec<u8>)> = l.psd_blocks.iter().filter(|(k, _)| !REGENERATED.contains(&k)).map(|(k, d)| (*k, d.to_vec())).collect();
+        let cached_proxy = matches!(l.content, LayerContent::Raster(_)) && fallback::cache_matches(l);
+        if !matches!(l.content, LayerContent::Raster(_)) && !fallback::needs_cache(l) {
+            // A later conversion to an ordinary editable layer leaves the cache-only contract.
+            raw.retain(|(k, _)| k != &fallback::CACHE_KEY);
+        }
+        if matches!(l.content, LayerContent::Raster(_)) && raw.iter().any(|(k, d)| k == &fallback::CACHE_KEY && fallback::is_cache_block(d)) && !cached_proxy {
+            // A raster edit invalidates the former vector proxy; unrelated raw blocks survive.
+            let marker = fallback::refreshed_cache_block(l);
+            raw.retain(|(k, _)| k != &fallback::CACHE_KEY && !fallback::proxy_key(k));
+            if let Some(marker) = marker {
+                raw.push((fallback::CACHE_KEY, marker));
+            }
+        }
         // A stale multi-effects block would override the regenerated lfx2.
         if effects_unchanged(l) == Some(false) {
             raw.retain(|(k, _)| k != b"lmfx");
@@ -445,21 +459,33 @@ impl Ex {
             }
             LayerContent::Fill(f) => fill_rule(&mut raw, &mut regenerated, f),
             LayerContent::Shape(sh) => {
+                let mirror = fallback::shape_mirror(l, sh);
+                let sh = &mirror;
                 if let Some(f) = &sh.fill {
                     fill_rule(&mut raw, &mut regenerated, f);
+                }
+                if l.vector.appearance.is_some() && sh.fill.is_none() {
+                    // Explicit stack paint-off is an edit, even when an imported fill was
+                    // undecodable. Do not let the legacy raw-preservation exception re-enable it.
+                    upsert(&mut raw, b"vstk", crate::vector_map::vstk_bytes(sh.stroke.as_ref(), false, self.dpi), None);
                 }
                 let (w, h) = (self.canvas.width(), self.canvas.height());
                 crate::vector_map::shape_blocks(sh, &mut raw, w, h, self.dpi);
             }
             LayerContent::Text(t) => {
-                // Text layers without PSD data (created here) get a generated TySh.
-                let generated = t.psd_raw.is_none().then(|| std::sync::Arc::new(photocraft_text::psd::build_tysh(t, self.dpi, None)));
-                let src = t.psd_raw.as_ref().or(generated.as_ref());
-                // Character/paragraph style sheets from the document's styles.
-                let styled = src.and_then(|d| crate::text_styles_map::export_tysh(d, t, &self.text_styles, self.dpi)).map(std::sync::Arc::new);
-                set_principal(&mut raw, &[b"TySh"], styled.as_ref().or(src));
-                if !raw.iter().any(|(k, _)| k == b"TySh") {
-                    self.warnings.push(format!("layer \"{}\": text layer written as pixels (no TySh data)", l.name));
+                if l.vector.on_path.is_some() {
+                    // An ordinary TySh would advertise unrelated straight-line editable type.
+                    raw.retain(|(k, _)| !matches!(k, b"TySh" | b"Txt2" | b"tySh"));
+                } else {
+                    // Text layers without PSD data (created here) get a generated TySh.
+                    let generated = t.psd_raw.is_none().then(|| std::sync::Arc::new(photocraft_text::psd::build_tysh(t, self.dpi, None)));
+                    let src = t.psd_raw.as_ref().or(generated.as_ref());
+                    // Character/paragraph style sheets from the document's styles.
+                    let styled = src.and_then(|d| crate::text_styles_map::export_tysh(d, t, &self.text_styles, self.dpi)).map(std::sync::Arc::new);
+                    set_principal(&mut raw, &[b"TySh"], styled.as_ref().or(src));
+                    if !raw.iter().any(|(k, _)| k == b"TySh") {
+                        self.warnings.push(format!("layer \"{}\": text layer written as pixels (no TySh data)", l.name));
+                    }
                 }
             }
             LayerContent::Smart(sm) => {
@@ -471,6 +497,10 @@ impl Ex {
                 } else {
                     self.smart_blocks(l, sm, parsed, &mut raw);
                 }
+            }
+            LayerContent::Symbol(_) => {
+                // Instances export their prepared cache, never stale placed/type/shape identity.
+                raw.retain(|(k, _)| !fallback::proxy_key(k) && !matches!(k, b"TySh" | b"Txt2" | b"SoLd" | b"SoLE" | b"PlLd"));
             }
             LayerContent::Raster(_) | LayerContent::Group(_) => {}
         }
@@ -493,8 +523,22 @@ impl Ex {
             },
             None => raw.retain(|(k, _)| k != b"brst"),
         }
-        if !matches!(l.content, LayerContent::Shape(_)) {
+        let cached_shape_proxy = cached_proxy && raw.iter().any(|(k, d)| k == &fallback::CACHE_KEY && fallback::cache_has_shape_proxy(d));
+        if !matches!(l.content, LayerContent::Shape(_)) && !cached_shape_proxy {
             self.vector_mask_block(l, &mut raw);
+        }
+        if let Some(cache) = cache {
+            let kind = match l.content {
+                LayerContent::Shape(_) => fallback::CacheKind::Shape,
+                LayerContent::Text(_) => fallback::CacheKind::PathText,
+                _ => fallback::CacheKind::Raster,
+            };
+            upsert(
+                &mut raw,
+                &fallback::CACHE_KEY,
+                fallback::cache_block(cache, kind, kind == fallback::CacheKind::Shape, photocraft_compose::paint_bounds(l)),
+                None,
+            );
         }
         crate::comps_map::artboard_block(&self.guides, l, &mut raw);
         if let Some((comps, last)) = &self.comps {
@@ -759,7 +803,8 @@ impl Ex {
 
     fn emit(&mut self, layers: &[Layer]) {
         for l in layers {
-            let extra = self.content_blocks(l);
+            let cache = fallback::needs_cache(l).then(|| fallback::bounded_cache(l, self.canvas)).flatten();
+            let extra = self.content_blocks(l, cache.as_ref());
             match &l.content {
                 LayerContent::Group(g) => {
                     let id = self.fresh_id();
@@ -794,15 +839,19 @@ impl Ex {
                     self.records.push(r);
                 }
                 LayerContent::Text(t) => {
-                    let r = self.record(l, extra, t.cache.as_ref());
+                    let r = self.record(l, extra, cache.as_ref().or(t.cache.as_ref()));
                     self.records.push(r);
                 }
                 LayerContent::Shape(sh) => {
-                    let r = self.record(l, extra, sh.cache.as_ref());
+                    let r = self.record(l, extra, cache.as_ref().or(sh.cache.as_ref()));
                     self.records.push(r);
                 }
                 LayerContent::Smart(sm) => {
                     let r = self.record(l, extra, sm.cache.as_ref());
+                    self.records.push(r);
+                }
+                LayerContent::Symbol(s) => {
+                    let r = self.record(l, extra, cache.as_ref().or(s.cache.as_ref()));
                     self.records.push(r);
                 }
             }
@@ -1125,6 +1174,9 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
     }
     if fmt.mode != doc.mode {
         ex.warnings.push(format!("{:?} document written as {:?}", doc.mode, fmt.mode));
+    }
+    if let Some(notice) = fallback::LossCollector::document(doc).notice() {
+        ex.warnings.push(notice);
     }
     // Assign layer ids up front (stable across round trips): keep unique
     // `psd_id`s, number the rest after them; dividers come after all.

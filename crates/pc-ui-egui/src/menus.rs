@@ -119,6 +119,9 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Va
 
 /// [`invoke`] without the unsaved-changes prompt, for once the user has already answered it.
 pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Value) -> Result<Value, String> {
+    if let Some(result) = crate::vector_integration::menu(app, ctx, id, &params) {
+        return result;
+    }
     // local-image: AI, Generate, folder and Local AI commands.
     if let Some(r) = crate::ai_ui::menu(app, ctx, id, &params) {
         return r;
@@ -200,6 +203,10 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
         // View › Proof Setup presets: set the proof profile and turn Proof Colors on.
         app.run("view.proofSetup", json!({"profile": profile}))?;
         return app.run("view.proofColors", json!({"on": true}));
+    }
+    if id == "window.panel.symbols" {
+        crate::symbols::open_panel(app);
+        return Ok(json!({}));
     }
     if let Some(alias) = panel_alias(id) {
         return invoke(app, ctx, alias, params);
@@ -489,6 +496,12 @@ fn open_path(app: &mut PhotocraftApp, path: &str) -> Result<Value, String> {
 }
 
 pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
+    if matches!(id, "ui.pdf.export" | "file.export.pdf") {
+        return app.session.active().is_some() && app.services.pick_save.is_some() && app.services.write.is_some();
+    }
+    if crate::vector_integration::handles(id) {
+        return app.session.active().is_some();
+    }
     // Photoshop greys these for the Background layer, other layer kinds or single-layer documents.
     if crate::enable_rules::disabled(app, id) {
         return false;
@@ -515,7 +528,7 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
         return e;
     }
     match id {
-        "file.open" | "file.exit" | "file.clearRecent" | "help.about" | "help.systemInfo" | "edit.search" => true,
+        "window.panel.symbols" | "file.open" | "file.exit" | "file.clearRecent" | "help.about" | "help.systemInfo" | "edit.search" => true,
         i if i.starts_with("file.openRecent.") => true,
         i if crate::toolsets_ui::handles(i) => true,
         i if crate::links::url_for(i).is_some() => true,
@@ -571,6 +584,11 @@ const MODE_CHECKS: [&str; 11] = ["rgb", "grayscale", "cmyk", "lab", "multichanne
 /// Is a UI-level panel toggle currently on (for checkmarks)?
 fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
     use photocraft_doc::{ColorMode, SampleType};
+    if id == "window.panel.symbols" {
+        return Some(
+            app.ui.panels.layers && crate::dock::active_tab(app, crate::dock::Place::Docked(crate::dock::Group::Layers)) == Some(crate::dock::Tab::Symbols),
+        );
+    }
     if let Some(name) = id.strip_prefix("window.theme.").filter(|n| *n != "toggle") {
         return Some(crate::theme::ThemeKind::from_name(name) == Some(app.ui.theme));
     }
@@ -671,11 +689,13 @@ pub struct MenuItem {
 /// Is `id` implemented by the engine or the shell (a live menu item)? Shared by the menus and
 /// the parity report ([`crate::parity`]).
 pub fn is_live(id: &str) -> bool {
-    photocraft_engine::commands::find(id).is_some()
+    crate::vector_integration::handles(id)
+        || photocraft_engine::commands::find(id).is_some()
         || UI_COMMANDS.iter().any(|c| c.0 == id)
         || panel_alias(id).is_some()
         || workspace_name(id).is_some()
         || proof_preset(id).is_some()
+        || id == "window.panel.symbols"
         || id == "view.proofSetup.custom"
         || crate::view_cmds::handles(id)
         || crate::analysis_ui::handles(id)
@@ -757,6 +777,13 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             let after = PLACE_AFTER.iter().find(|(id, _)| *id == e.id).and_then(|(_, a)| items.iter().position(|i| i.id == *a));
             let at = after.or_else(|| items.iter().rposition(|i| i.path.first() == top.as_ref())).map_or(items.len(), |p| p + 1);
             items.insert(at, e);
+        }
+    }
+    for item in crate::vector_integration::menu_items(app) {
+        if let Some(old) = items.iter_mut().find(|old| old.id == item.id || old.path == item.path && old.label == item.label) {
+            *old = item;
+        } else {
+            items.push(item);
         }
     }
     crate::plugin_ui::insert_menu_items(app, &mut items);
@@ -881,7 +908,8 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
             ui.spacing_mut().button_padding = egui::vec2(6.0, 3.0);
             nav.bar_bottom = Some(ui.max_rect().bottom());
             let mut buttons = Vec::with_capacity(TOP_MENUS.len());
-            for top in TOP_MENUS {
+            let vector = app_ref.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector;
+            for top in TOP_MENUS.into_iter().chain(vector.then_some("Object")).chain(vector.then_some("Effect")) {
                 // egui's menu_button toggles on release; these titles open on the press (one
                 // gesture can press, drag to an item and release), so each drives its popup.
                 let title = ui.add(egui::Button::new(egui::RichText::new(crate::i18n::tr(lang, top)).color(t.text_dim)));
@@ -924,6 +952,7 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
             nav.keys(ui.ctx(), &tops, &mut clicked);
         });
     });
+    crate::vector_integration::menus(app, ui);
     nav.store(ui.ctx());
     // The press-drag gesture ends with the button (its release was handled by the rows above).
     if ui.input(|i| i.pointer.primary_released() || !i.pointer.primary_down()) {

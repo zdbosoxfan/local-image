@@ -48,6 +48,80 @@ fn e(blurb: &str, how: &[&str]) -> Entry {
 /// The tip text of `tool`. Exhaustive, so a new tool cannot ship without one.
 pub fn entry(tool: Tool) -> Entry {
     let mut entry = match tool {
+        Tool::PointTransform => e(crate::i18n::t("Point Transform Tool"), &[]),
+        Tool::VectorPencil => e(crate::i18n::t("Vector Pencil Tool"), &[]),
+        Tool::VectorBrush => e(crate::i18n::t("Vector Brush Tool"), &[]),
+        Tool::Smooth => e(crate::i18n::t("Smooth Tool"), &[]),
+        Tool::PathEraser => e(crate::i18n::t("Path Eraser Tool"), &[]),
+        Tool::Join => e(crate::i18n::t("Join Tool"), &[]),
+        Tool::Corner => e(crate::i18n::t("Corner Tool"), &[]),
+        Tool::RoundedRectangle => e(crate::i18n::t("Rounded Rectangle Tool"), &[]),
+        Tool::Star => e(crate::i18n::t("Star Tool"), &[]),
+        Tool::DoubleStar => e(crate::i18n::t("Double Star Tool"), &[]),
+        Tool::SquareStar => e(crate::i18n::t("Square Star Tool"), &[]),
+        Tool::Trapezoid => e(crate::i18n::t("Trapezoid Tool"), &[]),
+        Tool::Diamond => e(crate::i18n::t("Diamond Tool"), &[]),
+        Tool::Donut => e(crate::i18n::t("Donut Tool"), &[]),
+        Tool::Pie => e(crate::i18n::t("Pie Tool"), &[]),
+        Tool::Segment => e(crate::i18n::t("Segment Tool"), &[]),
+        Tool::Arrow => e(crate::i18n::t("Arrow Tool"), &[]),
+        Tool::Callout => e(crate::i18n::t("Callout Tool"), &[]),
+        Tool::Cog => e(crate::i18n::t("Cog Tool"), &[]),
+        Tool::Heart => e(crate::i18n::t("Heart Tool"), &[]),
+        Tool::Tear => e(crate::i18n::t("Tear Tool"), &[]),
+        Tool::Crescent => e(crate::i18n::t("Crescent Tool"), &[]),
+        Tool::Cloud => e(crate::i18n::t("Cloud Tool"), &[]),
+        Tool::Spiral => e(crate::i18n::t("Spiral Tool"), &[]),
+        Tool::Arc => e(crate::i18n::t("Arc Tool"), &[]),
+        Tool::RectGrid => e(crate::i18n::t("Rectangular Grid Tool"), &[]),
+        Tool::PolarGrid => e(crate::i18n::t("Polar Grid Tool"), &[]),
+        Tool::VectorFill => e(crate::i18n::t("Vector Fill Tool"), &[]),
+        Tool::Transparency => e(crate::i18n::t("Transparency Tool"), &[]),
+        Tool::ShapeBuilder => e(crate::i18n::t("Shape Builder Tool"), &[]),
+        Tool::Contour => e(crate::i18n::t("Contour Tool"), &[]),
+        Tool::Knife => e(crate::i18n::t("Knife Tool"), &[]),
+        Tool::Scissors => e(crate::i18n::t("Scissors Tool"), &[]),
+        Tool::LineCut => e(crate::i18n::t("Line Cut Tool"), &[]),
+        Tool::Width => e(crate::i18n::t("Width Tool"), &[]),
+        Tool::ArtText => e(crate::i18n::t("Artistic Text Tool"), &[]),
+        Tool::FrameText => e(crate::i18n::t("Frame Text Tool"), &[]),
+        Tool::TextOnPath => e(crate::i18n::t("Text on Path Tool"), &[]),
+        Tool::Blend => e(crate::i18n::t("Blend Tool"), &[]),
+        Tool::Repeat => e(crate::i18n::t("Repeat Tool"), &[]),
+        Tool::Envelope => e(crate::i18n::t("Envelope Tool"), &[]),
+        Tool::VectorCrop => e(crate::i18n::t("Vector Crop Tool"), &[]),
+        Tool::Artboard => e(crate::i18n::t("Artboard Tool"), &[]),
+        Tool::GroupSelection => e(crate::i18n::t("Group Selection Tool"), &[]),
+        Tool::VectorMagicWand => e(crate::i18n::t("Vector Magic Wand Tool"), &[]),
+        Tool::VectorLasso => e(crate::i18n::t("Vector Lasso Tool"), &[]),
+        Tool::Curvature => e(crate::i18n::t("Curvature Tool"), &[]),
+        Tool::AddAnchor => e(crate::i18n::t("Add Anchor Tool"), &[]),
+        Tool::DeleteAnchor => e(crate::i18n::t("Delete Anchor Tool"), &[]),
+        Tool::AnchorPoint => e(crate::i18n::t("Anchor Point Tool"), &[]),
+        Tool::Rotate => e(crate::i18n::t("Rotate Tool"), &[]),
+        Tool::Reflect => e(crate::i18n::t("Reflect Tool"), &[]),
+        Tool::Scale => e(crate::i18n::t("Scale Tool"), &[]),
+        Tool::Shear => e(crate::i18n::t("Shear Tool"), &[]),
+        Tool::Reshape => e(crate::i18n::t("Reshape Tool"), &[]),
+        Tool::FreeTransform => e(crate::i18n::t("Free Transform Tool"), &[]),
+        Tool::StylePicker => e(crate::i18n::t("Style Picker Tool"), &[]),
+        Tool::BlobBrush => e(crate::i18n::t("Blob Brush Tool"), &[]),
+        Tool::VectorEraser => e(crate::i18n::t("Vector Eraser Tool"), &[]),
+        Tool::VectorWarp => e(crate::i18n::t("Warp Tool"), &[]),
+        Tool::VectorTwirl => e(crate::i18n::t("Twirl Tool"), &[]),
+        Tool::VectorPucker => e(crate::i18n::t("Pucker Tool"), &[]),
+        Tool::VectorBloat => e(crate::i18n::t("Bloat Tool"), &[]),
+        Tool::Scallop => e(crate::i18n::t("Scallop Tool"), &[]),
+        Tool::Crystallize => e(crate::i18n::t("Crystallize Tool"), &[]),
+        Tool::Wrinkle => e(crate::i18n::t("Wrinkle Tool"), &[]),
+        Tool::VectorPuppetWarp => e(crate::i18n::t("Puppet Warp Tool"), &[]),
+        Tool::LivePaintBucket => e(crate::i18n::t("Live Paint Bucket Tool"), &[]),
+        Tool::VectorFloodFill => e(crate::i18n::t("Vector Flood Fill Tool"), &[]),
+        Tool::LivePaintSelection => e(crate::i18n::t("Live Paint Selection Tool"), &[]),
+        Tool::Mesh => e(crate::i18n::t("Mesh Tool"), &[]),
+        Tool::Measure => e(crate::i18n::t("Measure Tool"), &[]),
+        Tool::Area => e(crate::i18n::t("Area Tool"), &[]),
+
         Tool::Move => e(
             tl!("Moves the selected layers or the selection."),
             &[
@@ -275,6 +349,36 @@ pub fn entry(tool: Tool) -> Entry {
     if entry.how.len() < 2 && tool.is_brushlike() {
         entry.how.push(tl!("Set the brush size in the options bar before painting.").into());
     }
+    if entry.how.is_empty() {
+        use photocraft_engine::shared_tools::Handler;
+        let id = format!("{tool:?}");
+        entry = match photocraft_engine::shared_tools::handler(&id) {
+            Some(Handler::Shape) => e(
+                tl!("Draws an editable vector shape."),
+                &[tl!("Drag on the canvas to draw the shape."), tl!("Adjust the shape parameters in the context bar.")],
+            ),
+            Some(Handler::Pen) => e(
+                tl!("Draws an editable path with anchors and handles."),
+                &[tl!("Click to add an anchor; drag to draw direction handles."), tl!("Press Enter to finish the path or Escape to cancel.")],
+            ),
+            Some(Handler::VectorPencil) => e(
+                tl!("Fits an editable vector path to a freehand stroke."),
+                &[tl!("Drag on the canvas to draw a path."), tl!("Adjust fitting and smoothing in the context bar.")],
+            ),
+            Some(Handler::VectorPaint) => e(
+                tl!("Edits the selected object's vector paint."),
+                &[tl!("Select a vector object to edit its paint."), tl!("Drag the paint handles to change the gradient.")],
+            ),
+            Some(Handler::Text) => e(
+                tl!("Creates editable vector text."),
+                &[tl!("Click for artistic text or drag a frame for paragraph text."), tl!("Type the text and adjust its style in the context bar.")],
+            ),
+            _ => e(
+                tl!("Edits vector objects with the selected tool."),
+                &[tl!("Select the vector objects you want to edit."), tl!("Use the tool's controls in the context bar.")],
+            ),
+        };
+    }
     entry
 }
 
@@ -316,7 +420,7 @@ pub fn spec(session: &photocraft_engine::Session, tool: Tool, group: &[Tool]) ->
     Spec {
         title: tl!(tool.label()).to_string(),
         key: shortcut(session, tool),
-        icon: icons::tool_icon_name(tool),
+        icon: icons::tool_icon_name_for(tool, session.prefs().toolbar.persona),
         entry,
         group: group.iter().filter(|g| **g != tool).map(|g| tl!(g.label()).to_string()).collect(),
     }

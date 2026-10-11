@@ -748,7 +748,10 @@ pub use super::filterbar::label_color;
 
 /// "Set Color Label" items (coloured dot + the label's name), shared by context menus.
 pub fn label_menu(app: &mut LightcraftApp, ui: &mut egui::Ui) {
-    let current = app.session.active().and_then(|id| app.session.catalog.photo(id)).and_then(|p| p.label);
+    label_menu_for(app, ui, None);
+}
+fn label_menu_for(app: &mut LightcraftApp, ui: &mut egui::Ui, context: Option<PhotoId>) {
+    let current = context.or_else(|| app.session.active()).and_then(|id| app.session.catalog.photo(id)).and_then(|p| p.label);
     for l in ColorLabel::ALL {
         let name = app.session.catalog.label_name(l);
         let resp = ui.horizontal(|ui| {
@@ -757,16 +760,28 @@ pub fn label_menu(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             ui.selectable_label(current == Some(l), name)
         });
         if resp.inner.clicked() {
-            let _ = app.run("photo.label", json!({"label": format!("{l:?}").to_lowercase()}));
+            let _ = run_label_context(app, context, "photo.label", json!({"label": format!("{l:?}").to_lowercase()}));
             ui.close();
         }
     }
     if ui.selectable_label(current.is_none(), crate::i18n::tr("None")).clicked() {
-        let _ = app.run("photo.label", json!({"label": "none"}));
+        let _ = run_label_context(app, context, "photo.label", json!({"label": "none"}));
     }
     ui.separator();
     if ui.button(crate::i18n::tr("Edit Label Names…")).clicked() {
-        let _ = app.run("dialog.labelNames", json!({}));
+        let _ = run_label_context(app, context, "dialog.labelNames", json!({}));
+    }
+}
+
+fn run_label_context(
+    app: &mut LightcraftApp,
+    context: Option<PhotoId>,
+    command: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    match context {
+        Some(id) => run_context(app, id, command, params),
+        None => app.run(command, params),
     }
 }
 
@@ -800,15 +815,24 @@ pub fn stack_badge(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, sid:
     }
 }
 
-pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
+fn run_context(app: &mut LightcraftApp, id: PhotoId, command: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
     if !app.session.selection.contains(id) {
-        let _ = app.run("library.select", json!({"ids": [id.0]}));
+        app.run("library.select", json!({"ids":[id.0]}))?;
     }
+    app.run(command, params)
+}
+
+pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
+    if crate::vectorize_handoff::context_action(app, ui, id) {
+        return;
+    }
+    let targets = if app.session.selection.contains(id) { app.session.targets(&json!({})) } else { vec![id] };
+    let deleted = targets.iter().any(|id| app.session.catalog.photo(*id).is_some_and(|p| p.deleted));
     if ui.button(crate::i18n::tr("Open in Detail")).clicked() {
-        let _ = app.run("view.detail", json!({}));
+        let _ = run_context(app, id, "view.detail", json!({}));
     }
     if ui.button(crate::i18n::tr("Find Similar Photos")).clicked() {
-        match app.run("library.findSimilar", json!({"id": id.0})) {
+        match run_context(app, id, "library.findSimilar", json!({"id": id.0})) {
             Ok(r) => {
                 let n = r["photos"].as_array().map_or(0, Vec::len);
                 app.ui.view = crate::state::ViewMode::PhotoGrid;
@@ -820,33 +844,34 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     let finder = ui.button(crate::i18n::tr("Find This Person…"));
     register(ui.ctx(), "photo:findPerson", finder.rect);
     if finder.clicked() {
+        let _ = run_context(app, id, "library.select", json!({"ids":[id.0]}));
         super::people_workspace::finder(app, id);
         ui.close();
     }
     if ui.button(crate::i18n::tr("Set as Reference Photo")).clicked() {
-        let _ = app.run("photo.setReference", json!({"id": id.0}));
+        let _ = run_context(app, id, "photo.setReference", json!({"id": id.0}));
     }
     ui.separator();
     ui.menu_button(crate::i18n::tr("Set Rating"), |ui| {
         for r in 0..=5 {
             if ui.button(if r == 0 { crate::i18n::tr("No Stars").to_string() } else { "★".repeat(r) }).clicked() {
-                let _ = app.run("photo.rate", json!({"rating": r}));
+                let _ = run_context(app, id, "photo.rate", json!({"rating": r}));
             }
         }
     });
     ui.menu_button(crate::i18n::tr("Set Flag"), |ui| {
         for (l, f) in [("Pick", "pick"), ("Reject", "reject"), ("Unflagged", "none")] {
             if ui.button(l).clicked() {
-                let _ = app.run("photo.flag", json!({"flag": f}));
+                let _ = run_context(app, id, "photo.flag", json!({"flag": f}));
             }
         }
     });
-    ui.menu_button(crate::i18n::tr("Set Color Label"), |ui| label_menu(app, ui));
+    ui.menu_button(crate::i18n::tr("Set Color Label"), |ui| label_menu_for(app, ui, Some(id)));
     ui.menu_button(crate::i18n::tr("Add to Album"), |ui| {
         let albums: Vec<_> = app.session.catalog.albums().filter(|a| !a.folder && !a.is_smart()).map(|a| (a.id.0, a.name.clone())).collect();
         for (aid, name) in albums {
             if ui.button(name).clicked() {
-                let _ = app.run("album.addPhotos", json!({"id": aid}));
+                let _ = run_context(app, id, "album.addPhotos", json!({"id": aid}));
             }
         }
     });
@@ -855,27 +880,27 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         && app.session.catalog.album(aid).is_some_and(|a| !a.folder && !a.is_smart())
     {
         if ui.button(crate::i18n::tr("Remove from Album")).clicked() {
-            let _ = app.run("album.removePhotos", json!({"id": aid.0}));
+            let _ = run_context(app, id, "album.removePhotos", json!({"id": aid.0}));
         }
         if ui.button(crate::i18n::tr("Set as Album Cover")).clicked() {
-            let _ = app.run("album.setCover", json!({"id": aid.0, "photo": id.0}));
+            let _ = run_context(app, id, "album.setCover", json!({"id": aid.0, "photo": id.0}));
         }
     }
     if ui.button(crate::i18n::tr("Rename…")).clicked() {
-        let _ = app.run("dialog.rename", json!({}));
+        let _ = run_context(app, id, "dialog.rename", json!({}));
     }
     if ui.button(crate::i18n::tr("Reload from Disk")).clicked() {
-        let _ = app.run("photo.reload", json!({}));
+        let _ = run_context(app, id, "photo.reload", json!({}));
     }
     if ui.button(crate::i18n::tr("Create Virtual Copy")).clicked() {
-        let _ = app.run("photo.virtualCopy", json!({}));
+        let _ = run_context(app, id, "photo.virtualCopy", json!({}));
     }
     if ui.button(crate::i18n::tr("Create Version")).clicked() {
-        let _ = app.run("version.create", json!({}));
+        let _ = run_context(app, id, "version.create", json!({}));
     }
     ui.menu_button(crate::i18n::tr("Stack"), |ui| {
         let stacked = app.session.catalog.stack_of(id).is_some();
-        let several = app.session.selection.ids.len() > 1;
+        let several = targets.len() > 1;
         for (label, cmd, on) in [
             ("Group into Stack", "stack.group", several),
             ("Ungroup Stack", "stack.ungroup", stacked),
@@ -887,65 +912,73 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             ("Expand/Collapse Stack", "stack.toggle", stacked),
         ] {
             if ui.add_enabled(on, egui::Button::new(label)).clicked() {
-                let _ = app.run(cmd, json!({}));
+                let _ = run_context(app, id, cmd, json!({}));
             }
         }
         ui.separator();
         if ui.button(crate::i18n::tr("Auto-Stack by Capture Time…")).clicked() {
-            let _ = app.run("dialog.autoStack", json!({}));
+            let _ = run_context(app, id, "dialog.autoStack", json!({}));
         }
     });
     ui.separator();
     if ui.button(crate::i18n::tr("Copy Edit Settings")).clicked() {
-        let _ = app.run("develop.copy", json!({}));
+        let _ = run_context(app, id, "develop.copy", json!({}));
     }
     if ui.add_enabled(app.session.clipboard.is_some(), egui::Button::new(crate::i18n::tr("Paste Edit Settings"))).clicked() {
-        let _ = app.run("develop.paste", json!({}));
+        let _ = run_context(app, id, "develop.paste", json!({}));
     }
     if ui.add_enabled(app.session.clipboard.is_some(), egui::Button::new(crate::i18n::tr("Paste Selected Settings…"))).clicked() {
-        let _ = app.run("dialog.pasteSettings", json!({}));
+        let _ = run_context(app, id, "dialog.pasteSettings", json!({}));
     }
     if ui.button(crate::i18n::tr("Reset Edits")).clicked() {
-        let _ = app.run("develop.reset", json!({}));
+        let _ = run_context(app, id, "develop.reset", json!({}));
     }
     ui.menu_button(crate::i18n::tr("Photo Merge"), |ui| {
-        let n = app.session.targets(&json!({})).len();
-        for (id, label) in [("dialog.mergeHdr", "HDR…"), ("dialog.mergePanorama", "Panorama…"), ("dialog.mergeHdrPanorama", "HDR Panorama…")] {
+        let n = targets.len();
+        for (command, label) in [("dialog.mergeHdr", "HDR…"), ("dialog.mergePanorama", "Panorama…"), ("dialog.mergeHdrPanorama", "HDR Panorama…")]
+        {
             if ui.add_enabled(n >= 2, egui::Button::new(label)).clicked() {
-                let _ = app.run(id, json!({}));
+                let _ = run_context(app, id, command, json!({}));
             }
         }
     });
     ui.separator();
     if ui.button(crate::i18n::tr("Rotate Left")).clicked() {
-        let _ = app.run("photo.rotateLeft", json!({}));
+        let _ = run_context(app, id, "photo.rotateLeft", json!({}));
     }
     if ui.button(crate::i18n::tr("Rotate Right")).clicked() {
-        let _ = app.run("photo.rotateRight", json!({}));
+        let _ = run_context(app, id, "photo.rotateRight", json!({}));
     }
     ui.separator();
     // the original moved or its drive is gone: point the photo at the file again
     // (a cached answer, checked off the UI thread)
     let missing = matches!(&app.session.catalog.photo(id).map(|p| p.source.clone()), Some(lightcraft_catalog::Source::File { path }) if app.session.media.availability.is_offline(path));
     if missing && ui.button(crate::i18n::tr("Locate Missing File…")).clicked() {
-        let _ = app.run("photo.locate", json!({}));
+        let _ = run_context(app, id, "photo.locate", json!({}));
     }
-    if ui.add_enabled(crate::menus::ui_enabled(app, "app.showInFinder"), egui::Button::new(crate::i18n::tr("Show in Finder"))).clicked() {
-        let _ = app.run("app.showInFinder", json!({}));
+    if ui
+        .add_enabled(
+            app.services.reveal.is_some()
+                && app.session.catalog.photo(id).is_some_and(|p| matches!(p.source, lightcraft_catalog::Source::File { .. })),
+            egui::Button::new(crate::i18n::tr("Show in Finder")),
+        )
+        .clicked()
+    {
+        let _ = run_context(app, id, "app.showInFinder", json!({}));
     }
     let smart_sort = ui.button(crate::i18n::tr("Smart Sort Selected…"));
     register(ui.ctx(), "menu:smartSortSelected", smart_sort.rect);
     if smart_sort.clicked() {
-        let _ = app.run("dialog.smartSort", json!({"selectedOnly":true}));
+        let _ = run_context(app, id, "dialog.smartSort", json!({"selectedOnly":true}));
         ui.close();
     }
     if ui.button(crate::i18n::tr("Export…")).clicked() {
-        let _ = app.run("dialog.export", json!({}));
+        let _ = run_context(app, id, "dialog.export", json!({}));
     }
     ui.menu_button(crate::i18n::tr("Export with Preset"), |ui| {
         for (p, _) in app.session.all_export_presets() {
             if ui.button(&p.name).clicked() {
-                match app.run("app.export", json!({"preset": p.name, "background": true})) {
+                match run_context(app, id, "app.export", json!({"preset": p.name, "background": true})) {
                     Ok(r) if r.get("background").is_some() => {}
                     Ok(r) => {
                         let n = r["files"].as_array().map_or(0, Vec::len);
@@ -957,15 +990,15 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         }
     });
     ui.separator();
-    if crate::menubar::selection_deleted(app) {
+    if deleted {
         if ui.button(crate::i18n::tr("Restore")).clicked() {
-            let _ = app.run("photo.restore", json!({}));
+            let _ = run_context(app, id, "photo.restore", json!({}));
         }
         if ui.button(crate::i18n::tr("Delete Permanently")).clicked() {
-            let _ = app.run("photo.deletePermanently", json!({}));
+            let _ = run_context(app, id, "photo.deletePermanently", json!({}));
         }
     } else if ui.button(crate::i18n::tr("Delete Photo")).clicked() {
-        let _ = app.run("photo.delete", json!({}));
+        let _ = run_context(app, id, "photo.delete", json!({}));
     }
 }
 

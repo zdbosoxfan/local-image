@@ -1,0 +1,181 @@
+# language	English lookup key	translation (00 merges catalogs)
+cs	Vector Brush	Vektorový štětec
+cs	Apply Vector Brush	Použít vektorový štětec
+cs	Expand Vector Brush	Rozšířit vektorový štětec
+cs	Calligraphic	Kaligrafický
+cs	Round	Kulatý
+cs	Art	Umělecký
+cs	Scatter	Rozptyl
+cs	Pattern	Vzor
+cs	Brush width	Šířka štětce
+cs	Pressure	Tlak
+cs	Brush tolerance	Tolerance štětce
+cs	Rope length	Délka lana
+cs	Nib angle	Úhel hrotu
+cs	Roundness	Kulatost
+cs	Scatter seed	Semínko rozptylu
+de	Vector Brush	Vektorpinsel
+de	Apply Vector Brush	Vektorpinsel anwenden
+de	Expand Vector Brush	Vektorpinsel umwandeln
+de	Calligraphic	Kalligrafisch
+de	Round	Rund
+de	Art	Kunst
+de	Scatter	Streuung
+de	Pattern	Muster
+de	Brush width	Pinselbreite
+de	Pressure	Druck
+de	Brush tolerance	Pinseltoleranz
+de	Rope length	Seillänge
+de	Nib angle	Spitzenwinkel
+de	Roundness	Rundheit
+de	Scatter seed	Startwert für Streuung
+es	Vector Brush	Pincel vectorial
+es	Apply Vector Brush	Aplicar pincel vectorial
+es	Expand Vector Brush	Expandir pincel vectorial
+es	Calligraphic	Caligráfico
+es	Round	Redondo
+es	Art	Artístico
+es	Scatter	Dispersión
+es	Pattern	Patrón
+es	Brush width	Anchura del pincel
+es	Pressure	Presión
+es	Brush tolerance	Tolerancia del pincel
+es	Rope length	Longitud de cuerda
+es	Nib angle	Ángulo de la punta
+es	Roundness	Redondez
+es	Scatter seed	Semilla de dispersión
+fr	Vector Brush	Pinceau vectoriel
+fr	Apply Vector Brush	Appliquer le pinceau vectoriel
+fr	Expand Vector Brush	Décomposer le pinceau vectoriel
+fr	Calligraphic	Calligraphique
+fr	Round	Rond
+fr	Art	Artistique
+fr	Scatter	Dispersion
+fr	Pattern	Motif
+fr	Brush width	Largeur du pinceau
+fr	Pressure	Pression
+fr	Brush tolerance	Tolérance du pinceau
+fr	Rope length	Longueur de corde
+fr	Nib angle	Angle de la pointe
+fr	Roundness	Rondeur
+fr	Scatter seed	Graine de dispersion
+id	Vector Brush	Kuas vektor
+id	Apply Vector Brush	Terapkan kuas vektor
+id	Expand Vector Brush	Uraikan kuas vektor
+id	Calligraphic	Kaligrafi
+id	Round	Bulat
+id	Art	Artistika
+id	Scatter	Sebaran
+id	Pattern	Pola
+id	Brush width	Lebar kuas
+id	Pressure	Tekanan
+id	Brush tolerance	Toleransi kuas
+id	Rope length	Panjang tali
+id	Nib angle	Sudut ujung
+id	Roundness	Kebulatan
+id	Scatter seed	Benih sebaran
+it	Vector Brush	Pennello vettoriale
+it	Apply Vector Brush	Applica pennello vettoriale
+it	Expand Vector Brush	Espandi pennello vettoriale
+it	Calligraphic	Calligrafico
+it	Round	Rotondo
+it	Art	Artistico
+it	Scatter	Dispersione
+it	Pattern	Motivo
+it	Brush width	Larghezza pennello
+it	Pressure	Pressione
+it	Brush tolerance	Tolleranza pennello
+it	Rope length	Lunghezza corda
+it	Nib angle	Angolo punta
+it	Roundness	Rotondità
+it	Scatter seed	Seme di dispersione
+ja	Vector Brush	ベクトルブラシ
+ja	Apply Vector Brush	ベクトルブラシを適用
+ja	Expand Vector Brush	ベクトルブラシを展開
+ja	Calligraphic	カリグラフィ
+ja	Round	円形
+ja	Art	アート
+ja	Scatter	散布
+ja	Pattern	パターン
+ja	Brush width	ブラシの幅
+ja	Pressure	筆圧
+ja	Brush tolerance	ブラシの許容誤差
+ja	Rope length	ロープの長さ
+ja	Nib angle	ペン先の角度
+ja	Roundness	真円率
+ja	Scatter seed	散布のシード
+ko	Vector Brush	벡터 브러시
+ko	Apply Vector Brush	벡터 브러시 적용
+ko	Expand Vector Brush	벡터 브러시 확장
+ko	Calligraphic	캘리그래피
+ko	Round	원형
+ko	Art	아트
+ko	Scatter	산포
+ko	Pattern	패턴
+ko	Brush width	브러시 너비
+ko	Pressure	압력
+ko	Brush tolerance	브러시 허용 오차
+ko	Rope length	로프 길이
+ko	Nib angle	펜촉 각도
+ko	Roundness	원형률
+ko	Scatter seed	산포 시드
+pt-br	Vector Brush	Pincel vetorial
+pt-br	Apply Vector Brush	Aplicar pincel vetorial
+pt-br	Expand Vector Brush	Expandir pincel vetorial
+pt-br	Calligraphic	Caligráfico
+pt-br	Round	Redondo
+pt-br	Art	Artístico
+pt-br	Scatter	Dispersão
+pt-br	Pattern	Padrão
+pt-br	Brush width	Largura do pincel
+pt-br	Pressure	Pressão
+pt-br	Brush tolerance	Tolerância do pincel
+pt-br	Rope length	Comprimento da corda
+pt-br	Nib angle	Ângulo da ponta
+pt-br	Roundness	Arredondamento
+pt-br	Scatter seed	Semente de dispersão
+ru	Vector Brush	Векторная кисть
+ru	Apply Vector Brush	Применить векторную кисть
+ru	Expand Vector Brush	Разобрать векторную кисть
+ru	Calligraphic	Каллиграфическая
+ru	Round	Круглая
+ru	Art	Художественная
+ru	Scatter	Рассеивание
+ru	Pattern	Узор
+ru	Brush width	Ширина кисти
+ru	Pressure	Нажим
+ru	Brush tolerance	Допуск кисти
+ru	Rope length	Длина верёвки
+ru	Nib angle	Угол наконечника
+ru	Roundness	Округлость
+ru	Scatter seed	Зерно рассеивания
+zh-hans	Vector Brush	矢量画笔
+zh-hans	Apply Vector Brush	应用矢量画笔
+zh-hans	Expand Vector Brush	扩展矢量画笔
+zh-hans	Calligraphic	书法
+zh-hans	Round	圆形
+zh-hans	Art	艺术
+zh-hans	Scatter	散布
+zh-hans	Pattern	图案
+zh-hans	Brush width	画笔宽度
+zh-hans	Pressure	压力
+zh-hans	Brush tolerance	画笔容差
+zh-hans	Rope length	绳索长度
+zh-hans	Nib angle	笔尖角度
+zh-hans	Roundness	圆度
+zh-hans	Scatter seed	散布种子
+zh-hant	Vector Brush	向量筆刷
+zh-hant	Apply Vector Brush	套用向量筆刷
+zh-hant	Expand Vector Brush	展開向量筆刷
+zh-hant	Calligraphic	書法
+zh-hant	Round	圓形
+zh-hant	Art	藝術
+zh-hant	Scatter	散佈
+zh-hant	Pattern	圖案
+zh-hant	Brush width	筆刷寬度
+zh-hant	Pressure	壓力
+zh-hant	Brush tolerance	筆刷容差
+zh-hant	Rope length	繩索長度
+zh-hant	Nib angle	筆尖角度
+zh-hant	Roundness	圓度
+zh-hant	Scatter seed	散佈種子

@@ -1,23 +1,32 @@
 //! Local flattened-segment topology guard, pending the shared V1-Q checker.
 //! A fitted region that crosses itself is replaced by its exact lattice boundaries.
-use kurbo::{BezPath, PathEl, Point};
+use kurbo::{CubicBez, ParamCurve, Point};
 use photocraft_doc::Path;
 pub fn crosses(path: &Path) -> bool {
     let mut lines: Vec<(Point, Point)> = Vec::new();
     for s in &path.subpaths {
         for c in s.segments() {
-            let mut bez = BezPath::new();
-            bez.move_to((c[0].x, c[0].y));
-            bez.curve_to((c[1].x, c[1].y), (c[2].x, c[2].y), (c[3].x, c[3].y));
-            let mut last = Point::new(c[0].x, c[0].y);
-            kurbo::flatten(bez, 0.025, |el| {
-                if let PathEl::LineTo(p) = el {
-                    if p != last {
-                        lines.push((last, p));
+            let cubic = CubicBez::new((c[0].x, c[0].y), (c[1].x, c[1].y), (c[2].x, c[2].y), (c[3].x, c[3].y));
+            let mut stack = vec![(cubic, 0u8)];
+            while let Some((part, depth)) = stack.pop() {
+                let chord = part.p3 - part.p0;
+                let length = chord.hypot();
+                let flatness = if length < 1e-12 {
+                    part.p0.distance(part.p1).max(part.p0.distance(part.p2))
+                } else {
+                    (part.p1 - part.p0).cross(chord).abs().max((part.p2 - part.p0).cross(chord).abs()) / length
+                };
+                let along = |p: Point| (p - part.p0).dot(chord);
+                let monotone = along(part.p1) >= 0. && along(part.p2) >= along(part.p1) && along(part.p2) <= length * length;
+                if depth >= 20 || flatness <= 0.001 && monotone {
+                    if part.p0 != part.p3 {
+                        lines.push((part.p0, part.p3));
                     }
-                    last = p;
+                } else {
+                    stack.push((part.subsegment(0.5..1.), depth + 1));
+                    stack.push((part.subsegment(0.0..0.5), depth + 1));
                 }
-            });
+            }
         }
     }
     lines.sort_by(|a, b| a.0.x.min(a.1.x).total_cmp(&b.0.x.min(b.1.x)));

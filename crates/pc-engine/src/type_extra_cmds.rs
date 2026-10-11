@@ -75,7 +75,7 @@ fn with_text<R>(s: &mut Session, p: &Value, label: &str, f: impl FnOnce(&mut Tex
             return Err(EngineError::Other(format!("layer {} is a {} layer, not a type layer", id.0, l.content.kind_name())));
         };
         let r = f(t, &snapshot)?;
-        refresh(&snapshot, t);
+        crate::vector_integration::refresh_text(&snapshot, t, &l.vector)?;
         let name = auto_named.then(|| layer_name(&t.text));
         if let Some(n) = name {
             l.name = n;
@@ -275,7 +275,13 @@ fn contours(els: &[PathEl]) -> Vec<Vec<Knot>> {
 /// like its largest contour combine and the others (counters such as the hole in "o") subtract,
 /// which reproduces the nonzero fill under Photoshop's per-subpath path operations.
 pub fn text_path(doc: &Document, t: &TextLayer) -> Path {
-    let l = layout(doc, t);
+    path_from_layout(t, layout(doc, t))
+}
+pub(crate) fn text_path_with_vector(doc: &Document, t: &TextLayer, vector: &photocraft_doc::VectorData) -> Result<Path> {
+    let mut engine = photocraft_text::shared().lock().map_err(|_| EngineError::Other("text engine unavailable".into()))?;
+    Ok(path_from_layout(t, crate::vector_integration::text_layout(&mut engine, doc, t, vector)?))
+}
+fn path_from_layout(t: &TextLayer, l: photocraft_text::TextLayout) -> Path {
     let warp = photocraft_text::render::layout_warp(&l, t.warp.as_ref());
     let mut subpaths = Vec::new();
     for glyph in photocraft_text::render::outlines(&l, &t.transform, warp.as_ref()) {
@@ -292,7 +298,17 @@ fn create_work_path(s: &mut Session, p: &Value) -> Result<Value> {
     let id = layer_param(s, p)?;
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let Some(LayerContent::Text(t)) = d.doc.layer(id).map(|l| &l.content) else { return Err(EngineError::Other("not a type layer".into())) };
-    let path = text_path(&d.doc, t);
+    let layer = d.doc.layer(id).ok_or(EngineError::NoLayer(id))?;
+    let path = if let Some(path) = &layer.vector.on_path {
+        let mut engine = photocraft_text::shared().lock().map_err(|_| EngineError::Other("text engine unavailable".into()))?;
+        let layout = crate::vector_packages::path_text::project(&mut engine, &d.doc, t, path)?;
+        let paints = photocraft_text::on_path::validated_outlines(&layout, &t.transform).map_err(|e| EngineError::Other(e.to_string()))?;
+        Path::new(crate::vector_packages::path_text::curves::paths(&paints).into_iter().flat_map(|(_, p)| p.subpaths).collect())
+    } else if crate::vector_integration::frame_options(&layer.vector).enabled {
+        text_path_with_vector(&d.doc, t, &layer.vector)?
+    } else {
+        text_path(&d.doc, t)
+    };
     let n = path.subpaths.len();
     s.edit("Create Work Path", |doc, _| {
         doc.work_path = Some(path);
@@ -303,12 +319,18 @@ fn create_work_path(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn convert_to_shape(s: &mut Session, p: &Value) -> Result<Value> {
     let id = layer_param(s, p)?;
+    if let Some(st) = s.active()
+        && st.doc.layer(id).is_some_and(|layer| layer.vector.on_path.is_some())
+    {
+        let request = serde_json::json!({"document":st.doc.id.0,"revision":st.revision,"layers":[id.0]});
+        return crate::vector_packages::path_text::convert(s, &request);
+    }
     let n = s.edit("Convert to Shape", |doc, _| {
         let snapshot = doc.clone();
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         let LayerContent::Text(t) = &l.content else { return Err(EngineError::Other("not a type layer".into())) };
         let color = t.char_runs().first().map_or(t.color, |r| r.style.color);
-        let mut sh = ShapeLayer { path: text_path(&snapshot, t), fill: Some(Fill::Solid(color)), ..Default::default() };
+        let mut sh = ShapeLayer { path: text_path_with_vector(&snapshot, t, &l.vector)?, fill: Some(Fill::Solid(color)), ..Default::default() };
         crate::vector_cmds::refresh_shape(&snapshot, &mut sh);
         let n = sh.path.subpaths.len();
         l.content = LayerContent::Shape(sh);

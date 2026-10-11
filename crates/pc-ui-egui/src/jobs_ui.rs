@@ -109,9 +109,7 @@ pub fn start_open(app: &mut PhotocraftApp, name: &str, path: Option<String>, sou
 /// Per frame: apply finished jobs and react to them; keep frames coming while jobs run; Esc
 /// cancels the job in view.
 pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
-    for e in app.session.poll_jobs() {
-        on_event(app, e);
-    }
+    dispatch_batch(app);
     // A focused open tab that ended (or was cancelled elsewhere) gives way to the documents.
     if app.jobs.focus.is_some_and(|j| !app.jobs.opens.iter().any(|o| o.job == j)) {
         app.jobs.focus = app.jobs.opens.last().map(|o| o.job);
@@ -131,11 +129,22 @@ pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
 
 /// local-image: [`tick`] while the editor is hidden: apply finished jobs, no key handling.
 pub fn tick_background(app: &mut PhotocraftApp, ctx: &egui::Context) {
-    for e in app.session.poll_jobs() {
-        on_event(app, e);
-    }
+    dispatch_batch(app);
     if app.session.has_jobs() {
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
+    }
+}
+
+fn dispatch_batch(app: &mut PhotocraftApp) {
+    let events = app.session.poll_jobs();
+    let mut handoff = std::mem::take(&mut app.library_vectorize);
+    let errors: Vec<_> = events.iter().filter_map(|event| handoff.on_job_event(app, event).err()).collect();
+    app.library_vectorize = handoff;
+    for event in events {
+        on_event(app, event);
+    }
+    for error in errors {
+        notices::error(app, error);
     }
 }
 
@@ -241,7 +250,12 @@ fn finish_open(app: &mut PhotocraftApp, name: &str, path: Option<&str>, v: &Valu
         v.get("warnings").and_then(Value::as_array).map(|a| a.iter().filter_map(|w| w.as_str().map(str::to_string)).collect()).unwrap_or_default();
     app.session.set_active(index);
     if let Some(p) = path {
-        app.opened_from(p);
+        if v["nativeImport"] == true {
+            app.push_recent(p);
+            crate::filmstrip_ui::follow_file(app, p);
+        } else {
+            app.opened_from(p);
+        }
     }
     app.sync_views();
     app.ui.status = format!("Opened {name}");

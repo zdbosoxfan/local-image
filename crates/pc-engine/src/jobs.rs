@@ -79,6 +79,10 @@ impl JobCtx {
         self.shared.cancel.load(Ordering::Relaxed)
     }
 
+    pub fn cancellation_flag(&self) -> &AtomicBool {
+        &self.shared.cancel
+    }
+
     /// Ask the job to stop (idempotent).
     pub fn cancel(&self) {
         self.shared.cancel.store(true, Ordering::Relaxed);
@@ -462,14 +466,19 @@ impl Session {
                 };
                 ctx.check()?;
                 ctx.progress(0.02, "Decoding");
-                ctx.stage(0.02, 1.0, "Decoding", |ctl| photocraft_io::import_with(&name_w, &bytes, ctl)).map_err(|e| match e {
-                    photocraft_io::IoError::Cancelled => EngineError::Cancelled,
-                    e => EngineError::Other(e.to_string()),
-                })
+                if let Some(result) = crate::vector_integration::read_vector_file(&name_w, &bytes, ctx.cancellation_flag()) {
+                    return result.map(|r| (r, true));
+                }
+                ctx.stage(0.02, 1.0, "Decoding", |ctl| photocraft_io::import_with(&name_w, &bytes, ctl))
+                    .map_err(|e| match e {
+                        photocraft_io::IoError::Cancelled => EngineError::Cancelled,
+                        e => EngineError::Other(e.to_string()),
+                    })
+                    .map(|r| (r, false))
             },
-            move |s, r: photocraft_io::ImportResult| {
+            move |s, (r, native_import): (photocraft_io::ImportResult, bool)| {
                 let (index, color) = s.open_document(r.document, None);
-                Ok(json!({"document": index, "name": name_a, "warnings": r.warnings, "color": color}))
+                Ok(json!({"document": index, "name": name_a, "warnings": r.warnings, "color": color, "nativeImport": native_import}))
             },
         )
     }

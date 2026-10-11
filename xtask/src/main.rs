@@ -45,6 +45,7 @@ use anyhow::{Context, Result, bail};
 mod assets;
 mod attributions;
 mod tool_art;
+mod tool_art_vector;
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("xtask sits in the workspace").to_path_buf()
@@ -467,6 +468,7 @@ fn main() -> Result<()> {
         Some("upstream-check") => upstream_check(flag("--offline")),
         Some("assets") => assets::run(&root()),
         Some("redraw-tool-icons") => tool_art::run(&root()),
+        Some("redraw-vector-tool-icons") => Ok(tool_art_vector::run(&root())?),
         Some("tool-icons") => run("render tool icon contact sheet", &mut tool_icon_command(&root())),
         Some("attributions") => attributions::run(&root(), flag("--fetch")),
         Some("sign") if args.len() > 1 => sign(&args[1..].iter().map(PathBuf::from).collect::<Vec<_>>()),

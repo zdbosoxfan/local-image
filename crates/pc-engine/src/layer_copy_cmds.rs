@@ -105,6 +105,7 @@ fn copy_to_document(s: &mut Session, p: &Value) -> Result<Value> {
         }
         copies.layers.push(l);
     }
+    crate::vector_packages::symbols::transfer_definitions(&sdoc, &ddoc, &mut copies)?;
     if (copies.mode, &copies.icc_profile) != (ddoc.mode, &ddoc.icc_profile) {
         let profile = crate::color_cmds::document_profile(&ddoc);
         crate::color_cmds::convert_document(&mut copies, &profile, s.color.settings.intent(), s.color.settings.bpc)?;
@@ -114,6 +115,13 @@ fn copy_to_document(s: &mut Session, p: &Value) -> Result<Value> {
             let f = surf.format().with_sample(ddoc.depth);
             *surf = surf.convert(f);
         });
+    }
+    if copies.depth != ddoc.depth {
+        for master in &mut copies.symbols {
+            crate::image_cmds::for_each_surface(&mut master.layers, true, &mut |surf, _| {
+                *surf = surf.convert(surf.format().with_sample(ddoc.depth));
+            });
+        }
     }
     // Placement: centred on the destination's canvas, centred on a point, or offset from where
     // the layers are in the source (default: the same canvas position).
@@ -132,15 +140,19 @@ fn copy_to_document(s: &mut Session, p: &Value) -> Result<Value> {
     if dx != 0 || dy != 0 {
         let snapshot = copies.clone();
         for l in &mut copies.layers {
-            crate::commands::translate_layer(&snapshot, l, dx, dy);
+            crate::commands::translate_layer(&snapshot, l, dx, dy)?;
             crate::vector_cmds::translate_vectors(&snapshot, l, f64::from(dx), f64::from(dy));
         }
+    }
+    if !copies.symbols.is_empty() {
+        crate::vector_packages::symbols::validation::document(&copies).map_err(|e| EngineError::Other(e.to_string()))?;
     }
     let patterns: Vec<_> = sdoc.patterns.iter().filter(|pat| !ddoc.patterns.iter().any(|d| d.id == pat.id)).cloned().collect();
     s.set_active(dest);
     let label = if ids.len() == 1 { "Duplicate Layer" } else { "Duplicate Layers" };
     let edited = s.edit(label, |doc, active| {
         doc.patterns.extend(patterns);
+        doc.symbols.extend(copies.symbols);
         let mut above = *active;
         let mut new = Vec::with_capacity(copies.layers.len());
         for l in copies.layers {

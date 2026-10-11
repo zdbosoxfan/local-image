@@ -8,10 +8,16 @@ license.workspace = true
 workspace = true
 
 [features]
+svg-import-integrated = ["photocraft-svg/svg-import-integrated"]
+pdf-import-integrated = []
 # Real-file corpus tests (opt-in; `cargo xtask test-corpus`). Fail when the corpus is missing.
 corpus = []
 
 [dependencies]
+photocraft-vecfx.workspace = true
+photocraft-affinity.workspace = true
+photocraft-pdf.workspace = true
+photocraft-svg.workspace = true
 pc-trace.workspace = true
 # local-image: AI services (ComfyUI client, workflows) and the image buffers they use.
 li-ai = { workspace = true }
@@ -32,6 +38,7 @@ rayon = { workspace = true }
 photocraft-paint = { workspace = true }
 photocraft-algo = { workspace = true }
 photocraft-text = { workspace = true }
+photocraft-pathops.workspace = true
 photocraft-vector = { workspace = true }
 photocraft-io = { workspace = true }
 photocraft-psd = { workspace = true }
@@ -46,3 +53,8 @@ flate2 = { workspace = true }
 photocraft-raw = { workspace = true, features = ["testgen"] }
 # WebAssembly text -> binary for plug-in test modules (Apache-2.0 WITH LLVM-exception).
 wat = "1.228"
+
+# Existing locked crates: real-GPU verification of the vector transaction/cache boundary.
+photocraft-gpu = { workspace = true }
+wgpu = { workspace = true }
+pollster = { workspace = true }

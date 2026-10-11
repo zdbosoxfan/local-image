@@ -180,6 +180,8 @@ fn interleave(planes: &[u8], w: u32, h: u32, channels: usize, color_channels: us
 /// Saves `doc` as a layered TIFF. Documents whose colour mode a TIFF cannot hold in our
 /// codec (Lab) are saved flat, with a warning.
 pub(crate) fn export_layered(doc: &Document, opts: &ExportOptions) -> Result<ExportResult, IoError> {
+    let prepared = crate::vector_map::fallback::prepare(doc, None)?;
+    let doc = &prepared;
     if !layered_mode(doc) {
         let mut r = crate::flat::export_flat(doc, Format::Tiff, opts)?;
         if !doc.layers.is_empty() {

@@ -1,9 +1,16 @@
 # Competitor references (coordinator)
 
-No competitor output was available in the sandbox. Normal tests explicitly print
-which competitor/preset gates are skipped. A complete tool suite is required to
-compare its medians; partial files do not silently change the image population.
-Other assertions and robustness properties still run.
+The inherited branch contains 54 matched Logo SVGs from each of vtracer-alpha4 and
+vtracer-065: three synthetic cases, three sizes (256/512/1024), six variants.
+The alpha4 directory also contains one additional unmatched SVG. Integration
+re-scores the explicitly scoped 18-case Cutout gate (three cases, 256px, six
+variants) against these raw SVGs; this does not establish the complete B.4
+population or the other presets. The original generation parameter record and
+`scores.json` were not supplied, so their provenance is not reconstructed.
+No new competitor reference SVGs were generated during integration.
+Normal tests explicitly print which competitor/preset gates are unavailable.
+A complete tool suite is required to compare its medians; partial files do not
+silently change the image population. Other robustness properties still run.
 
 Expected layout: `<vtracer-alpha4|vtracer-065|potrace-116>/<preset>/<case-id>.svg`.
 Presets: logo, black_white, few_colors, silhouette, photo, pixel_art. Potrace uses
@@ -16,7 +23,7 @@ Run outside the sandbox, with vtracer 1.0.0-alpha.4, potrace 1.16 and Inkscape
 1.4.4 on PATH (no GUI window is opened):
 
 ```
-PATH=~/.cargo/bin:$PATH CARGO_BUILD_JOBS=3 TRACE_REF_FAST=1 cargo +1.98.1 test --offline -p pc-trace --test regenerate -- --ignored --nocapture
+PATH=~/.cargo/bin:$PATH CARGO_BUILD_JOBS=3 TRACE_REF_FAST=1 cargo +1.98.1 test --offline -p pc-trace --test it regenerate_competitor_references -- --ignored --nocapture
 ```
 
 Omit TRACE_REF_FAST for the full matrix. Set VTRACER_065 to a separate vtracer
@@ -31,8 +38,8 @@ Commit the SVGs and scores.json with this source record updated to the exact
 versions printed. Then run:
 
 ```
-PATH=~/.cargo/bin:$PATH CARGO_BUILD_JOBS=3 cargo +1.98.1 test --offline --release -p pc-trace --test benchmark full_quality_benchmark -- --ignored --nocapture
-PATH=~/.cargo/bin:$PATH CARGO_BUILD_JOBS=3 cargo +1.98.1 test --offline --release -p pc-trace --test benchmark release_performance_gates -- --ignored --nocapture
+PATH=~/.cargo/bin:$PATH CARGO_BUILD_JOBS=3 cargo +1.98.1 test --offline --release -p pc-trace --test it full_quality_benchmark -- --ignored --nocapture
+PATH=~/.cargo/bin:$PATH CARGO_BUILD_JOBS=3 cargo +1.98.1 test --offline --release -p pc-trace --test it release_performance_gates -- --ignored --nocapture
 ```
 
 Gates: median fidelity within 0.005 of the best competitor; per-image wins at

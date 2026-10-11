@@ -1,0 +1,15 @@
+context	English	note
+mesh43	Mesh	Tool label; vector persona; U; original mesh grid icon supplied by 46
+mesh43	Create Gradient Mesh…	Object menu and context bar
+mesh43	Edit Gradient Mesh	Undo label
+mesh43	Preview Gradient Mesh	Non-journaled command
+mesh43	Gradient Mesh	Non-journaled query
+mesh43	Mesh rows	Patch rows, 1–50
+mesh43	Mesh columns	Patch columns, 1–50
+mesh43	Flat	Creation appearance
+mesh43	To Center	Creation appearance
+mesh43	To Edge	Creation appearance
+mesh43	Highlight	Creation highlight, 0–100 percent
+mesh43	Mesh point colour	Selected point sRGB colour
+mesh43	Mesh point opacity	Selected point opacity, 0–1
+mesh43	Apply mesh swatch	Swatch button accessibility label

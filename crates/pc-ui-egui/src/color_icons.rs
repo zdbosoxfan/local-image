@@ -7,8 +7,11 @@ use egui::{Color32, ColorImage, Context, Image, TextureHandle, Vec2};
 
 use crate::color_icon_data::COLOR_ICONS;
 
+fn assets() -> impl Iterator<Item = (&'static str, &'static [u8])> {
+    COLOR_ICONS.iter().copied().chain(crate::vector_tool_icon_data::ICONS.iter().map(|(_, name, color, _)| (*name, *color)))
+}
 pub fn exists(name: &str) -> bool {
-    COLOR_ICONS.iter().any(|(n, _)| *n == name)
+    assets().any(|(n, _)| n == name)
 }
 
 pub fn set_enabled(ctx: &Context, enabled: bool) {
@@ -21,7 +24,7 @@ pub fn enabled(ctx: &Context) -> bool {
 
 /// Parse with usvg and render with resvg, at the physical pixel size. No SVG rewriting/tint.
 pub fn raster(name: &str, pixels: u32, disabled: bool) -> Result<ColorImage, String> {
-    let bytes = COLOR_ICONS.iter().find(|(n, _)| *n == name).ok_or_else(|| format!("unknown colour icon: {name}"))?.1;
+    let bytes = assets().find(|(n, _)| *n == name).ok_or_else(|| format!("unknown colour icon: {name}"))?.1;
     let mut image = egui_extras::image::load_svg_bytes_with_size(bytes, egui::load::SizeHint::Width(pixels), &Default::default())?;
     if disabled {
         for p in &mut image.pixels {
@@ -48,7 +51,7 @@ pub fn image(ui: &egui::Ui, name: &str, size: f32, disabled: bool) -> Option<Ima
     if !exists(name) {
         return None;
     }
-    let name = COLOR_ICONS.iter().find(|(n, _)| *n == name)?.0;
+    let name = assets().find(|(n, _)| *n == name)?.0;
     let scale = ui.ctx().pixels_per_point();
     let size = size.clamp(1.0, 512.0);
     let key = Key { name, size: size.to_bits(), scale: scale.to_bits(), disabled };

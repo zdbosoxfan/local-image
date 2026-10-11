@@ -230,8 +230,9 @@ pub(crate) fn move_layers(doc: &mut Document, moves: &[(LayerId, i32, i32)]) -> 
         if locks.position || locks.all {
             return Err(EngineError::Other(format!("layer \"{}\" is position-locked", l.name)));
         }
-        crate::commands::translate_layer(&snapshot, l, dx, dy);
+        crate::commands::translate_layer(&snapshot, l, dx, dy)?;
         crate::vector_cmds::translate_vectors(&snapshot, l, dx as f64, dy as f64);
+        crate::vector_packages::symbols::refresh_layer_symbols(&snapshot, l)?;
     }
     Ok(())
 }
@@ -387,6 +388,10 @@ fn shift_shown(doc: &Document, l: &mut Layer, dx: i32, dy: i32) {
             }
         }
         LayerContent::Smart(sm) => crate::smart_cmds::shift_smart(sm, dx, dy),
+        LayerContent::Symbol(s) => {
+            s.transform = photocraft_geom::Affine::translate(f64::from(dx), f64::from(dy)).mul(&s.transform);
+            s.cache = s.cache.as_ref().map(|c| translate_surface(c, dx, dy));
+        }
         LayerContent::Group(g) => {
             if let Some(ab) = &mut g.artboard {
                 ab.rect = ab.rect.translate(dx, dy);

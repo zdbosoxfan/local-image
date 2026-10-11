@@ -738,6 +738,8 @@ mod tests {
         "−",
     ];
 
+    const PENDING_VECTOR_TRANSLATIONS: &[&str] = include!("pending_vector.rs");
+
     /// Languages that claim complete menus have an entry for every label and path segment.
     #[test]
     fn complete_languages_translate_every_menu_string() {
@@ -759,7 +761,12 @@ mod tests {
             let cat = l.catalog();
             let missing: Vec<_> = strings
                 .iter()
-                .filter(|s| !PENDING_AI_TRANSLATIONS.contains(s) && !PENDING_OVERWRITE_TRANSLATIONS.contains(s) && cat.plain(s).is_none())
+                .filter(|s| {
+                    !PENDING_AI_TRANSLATIONS.contains(s)
+                        && !PENDING_OVERWRITE_TRANSLATIONS.contains(s)
+                        && !PENDING_VECTOR_TRANSLATIONS.contains(s)
+                        && cat.plain(s).is_none()
+                })
                 .collect();
             assert!(missing.is_empty(), "{}: untranslated menu strings: {missing:#?}", l.code);
         }
@@ -834,6 +841,7 @@ mod tests {
                         && !PENDING_BACKGROUND_TRANSLATIONS.contains(&s.as_str())
                         && !PENDING_AI_TRANSLATIONS.contains(&s.as_str())
                         && !PENDING_OVERWRITE_TRANSLATIONS.contains(&s.as_str())
+                        && !PENDING_VECTOR_TRANSLATIONS.contains(&s.as_str())
                         && cat.plain(s).is_none()
                 })
                 .collect();

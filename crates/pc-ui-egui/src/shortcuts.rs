@@ -55,7 +55,7 @@ pub fn pretty(s: &str) -> String {
 /// The command's effective shortcut in the platform's notation (`Ctrl+N`), or `None` when
 /// the command has no binding (the user removed it in Edit › Keyboard Shortcuts).
 pub fn shortcut_label(app: &PhotocraftApp, command: &str) -> Option<String> {
-    effective_shortcut(app, command, default_shortcut(command).as_deref()).map(|s| pretty(&s))
+    crate::shortcut_dispatch::binding_strings(app).into_iter().find(|(id, _)| id == command).map(|(_, sc)| pretty(&sc))
 }
 
 /// `label` (English, shown in the UI language) followed by the command's effective shortcut
@@ -284,6 +284,9 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
         // A focused field keeps its typing and editing keys; menu shortcuts (⌘J, ⌘S, F7…) still
         // fire, as in Photoshop.
         dispatch_pressed(app, ctx, focus, false);
+        return;
+    }
+    if crate::vector_integration::keys(app, ctx) {
         return;
     }
     // Liquify / Puppet Warp / Perspective Warp: ↩ commits, Esc cancels.

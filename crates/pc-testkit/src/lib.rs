@@ -5,3 +5,4 @@
 pub mod perf;
 
 pub mod vector;
+pub mod vector_geometry;

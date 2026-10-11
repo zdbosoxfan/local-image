@@ -657,9 +657,8 @@ impl<'a> Planner<'a> {
             return self.effects(layer, &visible_clipped, backdrop, false);
         }
 
-        if let LayerContent::Shape(sh) = &layer.content
-            && !visible_clipped.is_empty()
-            && let Some((fill, stroke)) = photocraft_compose::shape_split::split(sh, self.cx.canvas)
+        if !visible_clipped.is_empty()
+            && let Some((fill, stroke)) = photocraft_compose::shape_split::split_layer(layer, self.cx.canvas, self.cx.depth)
         {
             // The vector stroke goes above the clipped layers: the fill is the clipping base,
             // the stroke is laid over the clipped result, then the masks apply to both
@@ -764,6 +763,19 @@ impl<'a> Planner<'a> {
 
     /// render_content for non-adjustment layers.
     fn content(&mut self, layer: &'a Layer) -> Result<Slot, Unsupported> {
+        if photocraft_doc::vector_design::mosaic::active(layer) {
+            let rect = bounds::layer_bounds(layer, self.cx.canvas).intersect(&self.cx.canvas);
+            if u64::from(rect.width()) * u64::from(rect.height()) > photocraft_compose::scaled_view::MAX_VIEW_PIXELS {
+                return Err(Unsupported("mosaic coverage exceeds bounded projection budget".into()));
+            }
+            let surface = photocraft_compose::mosaic::surface(layer, rect, 1.0, photocraft_color::PixelFormat::RGBA32F)
+                .ok_or_else(|| Unsupported("invalid mosaic coverage partition".into()))?;
+            let mut p = Pass::new(Kernel::Content, 0);
+            p.color = photocraft_raster::to_rgba(&surface.format(), &surface.default_pixel());
+            p.tex = Some(TexUse { layer: layer.id, role: Role::Content, surface: SurfaceRef::Derived(std::sync::Arc::new(surface)) });
+            p.mask = self.mask_use(layer);
+            return Ok(self.emit(p));
+        }
         match &layer.content {
             LayerContent::Group(g) => {
                 let empty = self.clear();
@@ -923,10 +935,7 @@ impl<'a> Planner<'a> {
         let clip = if bounds::transparent_outside(layer) { region } else { canvas };
         // A stroked shape's vector stroke goes above its clipped layers and interior effects
         // (compose::split_parts): the fill and the stroke unmasked, the masks applied after.
-        let split = match &layer.content {
-            LayerContent::Shape(sh) if sh.stroke.is_some() => photocraft_compose::shape_split::split(sh, canvas),
-            _ => None,
-        };
+        let split = photocraft_compose::shape_split::split_layer(layer, canvas, self.cx.depth);
         let (mut content, vstroke) = match split {
             Some((fill, stroke)) => {
                 let f = self.shape_part(layer, Role::Content, fill);
@@ -984,7 +993,7 @@ impl<'a> Planner<'a> {
         let items: Vec<&'a Effect> = layer.effects.items.iter().filter(|e| e.enabled()).collect();
         // Linked patterns tile from the effects reference point (else the layer's top-left).
         let anchor = layer.effects.reference.unwrap_or((f64::from(sb.x0), f64::from(sb.y0)));
-        let vector_shape = matches!(layer.content, LayerContent::Shape(_)) && !outline;
+        let vector_shape = photocraft_compose::vector_effects(layer) && !outline;
         let map = |item: usize, map: usize| MapRef { fx, item, map };
         let rev: Vec<(usize, &'a Effect)> = items.iter().copied().enumerate().rev().collect();
         let init = |s: &mut Self, src: Slot, b: Option<Slot>, kind: i32, opacity: f32| {
