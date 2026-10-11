@@ -579,6 +579,19 @@ impl RenderJob {
     }
 
     pub fn run(self) -> RenderResult {
+        let failure = RenderResult {
+            request_id: self.request_id,
+            source_key: self.source_key,
+            photo: self.photo,
+            level: self.level,
+            key: self.key,
+            rendered: Err("Preview decoder failed unexpectedly".into()),
+            loaded: None,
+            quick: None,
+        };
+        crate::guard::catch("preview", || self.run_inner()).unwrap_or(failure)
+    }
+    fn run_inner(self) -> RenderResult {
         if let Some((cache, key)) = &self.cache
             && let Some(img) = cache.get_at(self.cache_generation, *key)
         {
@@ -715,6 +728,19 @@ pub struct QuickJob {
 
 impl QuickJob {
     pub fn run(self) -> RenderResult {
+        let failure = RenderResult {
+            request_id: self.request_id,
+            source_key: None,
+            photo: self.photo,
+            level: SourceLevel::Thumb,
+            key: self.key,
+            rendered: Err("Preview decoder failed unexpectedly".into()),
+            loaded: None,
+            quick: None,
+        };
+        crate::guard::catch("preview", || self.run_inner()).unwrap_or(failure)
+    }
+    fn run_inner(self) -> RenderResult {
         let (photo, key) = (self.photo, self.key);
         let request_id = self.request_id;
         let done = |rendered: Result<Rendered, String>, quick| RenderResult {

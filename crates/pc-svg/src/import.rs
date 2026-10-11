@@ -40,38 +40,41 @@ pub fn import(bytes: &[u8], options: &ImportOptions) -> Result<ImportedScene> {
 /// A caller may explicitly supply its already populated pc-text engine. No font scanning
 /// or resource fetching is initiated here. Cancellation never publishes partial layers.
 pub fn import_with(bytes: &[u8], options: &ImportOptions, mut fonts: Option<&mut photocraft_text::TextEngine>, cancel: &AtomicBool) -> Result<ImportedScene> {
-    cancelled(cancel)?;
-    let source = preflight::source(bytes, options)?;
-    let xml = preflight::xml(&source, options, cancel)?;
-    let mut warnings = Vec::new();
-    preflight::warnings(&xml, &mut warnings);
-    let (prepared, slots) = text::prepare(&source, &xml, options, fonts.as_deref_mut(), &mut warnings)?;
-    cancelled(cancel)?;
-    let limit = options.limits.decompressed_bytes;
-    let opt = usvg::Options {
-        dpi: options.dpi,
-        // usvg's default string resolver opens files, even with resources_dir=None.
-        image_href_resolver: usvg::ImageHrefResolver {
-            resolve_string: Box::new(|_, _| None),
-            resolve_data: Box::new(move |mime, data, _| {
-                if data.len() as u64 > limit {
-                    return None;
-                }
-                // Nested SVG/SVGZ images have their own expansion graph. They are deliberately
-                // excluded rather than calling usvg's unbounded recursive default resolver.
-                match mime {
-                    "image/png" => Some(usvg::ImageKind::PNG(data)),
-                    "image/jpeg" | "image/jpg" => Some(usvg::ImageKind::JPEG(data)),
-                    "image/webp" => Some(usvg::ImageKind::WEBP(data)),
-                    _ => None,
-                }
-            }),
-        },
-        ..Default::default()
-    };
-    let normalized = usvg::Tree::from_str(&prepared, &opt).map_err(|e| ImportError::Invalid(e.to_string()))?;
-    cancelled(cancel)?;
-    tree::convert(&normalized, &xml, slots, options, fonts, cancel, warnings)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        cancelled(cancel)?;
+        let source = preflight::source(bytes, options)?;
+        let xml = preflight::xml(&source, options, cancel)?;
+        let mut warnings = Vec::new();
+        preflight::warnings(&xml, &mut warnings);
+        let (prepared, slots) = text::prepare(&source, &xml, options, fonts.as_deref_mut(), &mut warnings)?;
+        cancelled(cancel)?;
+        let limit = options.limits.decompressed_bytes;
+        let opt = usvg::Options {
+            dpi: options.dpi,
+            // usvg's default string resolver opens files, even with resources_dir=None.
+            image_href_resolver: usvg::ImageHrefResolver {
+                resolve_string: Box::new(|_, _| None),
+                resolve_data: Box::new(move |mime, data, _| {
+                    if data.len() as u64 > limit {
+                        return None;
+                    }
+                    // Nested SVG/SVGZ images have their own expansion graph. They are deliberately
+                    // excluded rather than calling usvg's unbounded recursive default resolver.
+                    match mime {
+                        "image/png" => Some(usvg::ImageKind::PNG(data)),
+                        "image/jpeg" | "image/jpg" => Some(usvg::ImageKind::JPEG(data)),
+                        "image/webp" => Some(usvg::ImageKind::WEBP(data)),
+                        _ => None,
+                    }
+                }),
+            },
+            ..Default::default()
+        };
+        let normalized = usvg::Tree::from_str(&prepared, &opt).map_err(|e| ImportError::Invalid(e.to_string()))?;
+        cancelled(cancel)?;
+        tree::convert(&normalized, &xml, slots, options, fonts, cancel, warnings)
+    }))
+    .map_err(|_| ImportError::Invalid("SVG decoder rejected malformed data".into()))?
 }
 
 pub(super) fn cancelled(cancel: &AtomicBool) -> Result<()> {
@@ -94,5 +97,21 @@ pub fn recognizes(bytes: &[u8]) -> bool {
         return true;
     }
     let header = &bytes[..bytes.len().min(4096)];
+    let Ok(header) = std::str::from_utf8(header) else { return false };
+    let header = header.trim_start_matches('\u{feff}').trim_start();
+    if !header.starts_with('<') {
+        return false;
+    }
+    let header = header.as_bytes();
     header.windows(4).any(|s| s == b"<svg")
+}
+
+#[cfg(test)]
+mod sniff_regressions {
+    #[test]
+    fn raster_metadata_cannot_select_svg_decoder() {
+        assert!(!super::recognizes(b"8BPS\0\x01metadata <svg>"));
+        assert!(!super::recognizes(b"GIF89a<svg"));
+        assert!(super::recognizes(b"<?xml version=\"1.0\"?><svg xmlns=\"http://www.w3.org/2000/svg\"/>"));
+    }
 }

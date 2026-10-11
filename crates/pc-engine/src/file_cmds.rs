@@ -367,24 +367,121 @@ pub const PLACE_EMBEDDED: &str = "Place Embedded";
 /// Place a file's bytes as a smart object layer, centred and (when larger than the canvas)
 /// scaled down to fit, like Photoshop's Place with "Resize Image During Place". `linked` makes it
 /// a linked smart object that refers to that path instead of embedding the bytes.
+struct PreparedPlace {
+    document: Document,
+    active: Option<photocraft_doc::LayerId>,
+    response: Value,
+}
+#[allow(clippy::too_many_arguments)]
+fn prepare_place(
+    destination: Arc<Document>,
+    active: Option<photocraft_doc::LayerId>,
+    selected: Vec<photocraft_doc::LayerId>,
+    name: String,
+    source: crate::jobs::OpenSource,
+    linked: Option<String>,
+    params: Value,
+    ctx: &crate::jobs::JobCtx,
+) -> Result<PreparedPlace> {
+    ctx.progress(0.0, "Reading");
+    let bytes = match source {
+        crate::jobs::OpenSource::Bytes(b) => Arc::unwrap_or_clone(b),
+        crate::jobs::OpenSource::Path(p) => crate::jobs::read_path(&p)?,
+    };
+    ctx.check()?;
+    let mut detached = Session::new();
+    detached.add_document((*destination).clone(), None);
+    let state = detached.active_mut().ok_or(EngineError::NoDocument)?;
+    state.active_layer = active;
+    state.selected_layers = selected;
+    ctx.progress(0.05, "Decoding");
+    let response = place_decoded_with(&mut detached, &name, bytes, linked, &params, ctx)?;
+    ctx.check()?;
+    let state = detached.active().ok_or(EngineError::NoDocument)?;
+    Ok(PreparedPlace { document: (*state.doc).clone(), active: state.active_layer, response })
+}
+fn apply_place(s: &mut Session, prepared: PreparedPlace, label: &str) -> Result<Value> {
+    s.edit(label, |doc, active| {
+        *doc = prepared.document;
+        *active = prepared.active;
+        Ok(())
+    })?;
+    Ok(prepared.response)
+}
+/// Read and decode Place on the established cancellable job worker.
+pub fn start_place(s: &mut Session, name: &str, source: crate::jobs::OpenSource, linked: Option<String>, p: Value) -> Result<crate::jobs::Started> {
+    let state = s.active().ok_or(EngineError::NoDocument)?;
+    let (doc, active, selected) = (state.doc.clone(), state.active_layer, state.selected_layers.clone());
+    let label = if linked.is_some() { "Place Linked" } else { PLACE_EMBEDDED };
+    let name = name.to_string();
+    s.start_job(
+        "file.placeEmbedded",
+        serde_json::json!({"name":name}),
+        label,
+        true,
+        move |ctx| prepare_place(doc, active, selected, name, source, linked, p, ctx),
+        move |s, prepared| apply_place(s, prepared, label),
+    )
+}
+fn place_source(s: &mut Session, name: &str, source: crate::jobs::OpenSource, linked: Option<String>, p: &Value) -> Result<Value> {
+    let state = s.active().ok_or(EngineError::NoDocument)?;
+    let (doc, active, selected) = (state.doc.clone(), state.active_layer, state.selected_layers.clone());
+    let (name, params) = (name.to_string(), p.clone());
+    let label = if linked.is_some() { "Place Linked" } else { PLACE_EMBEDDED };
+    crate::jobs::run(
+        s,
+        label,
+        true,
+        move |ctx| prepare_place(doc, active, selected, name, source, linked, params, ctx),
+        move |s, prepared| apply_place(s, prepared, label),
+    )
+}
+/// Synchronous for scripts; job-capable when dispatched with Session::start.
 pub fn place_bytes(s: &mut Session, name: &str, bytes: Vec<u8>, linked: Option<String>, p: &Value) -> Result<Value> {
+    place_source(s, name, crate::jobs::OpenSource::Bytes(Arc::new(bytes)), linked, p)
+}
+
+fn place_decoded_with(s: &mut Session, name: &str, bytes: Vec<u8>, linked: Option<String>, p: &Value, ctx: &crate::jobs::JobCtx) -> Result<Value> {
+    if bytes.starts_with(b"%PDF-") {
+        let request = crate::vector_packages::pdf_import::capture(s, bytes)?;
+        let dpi = s.active().ok_or(EngineError::NoDocument)?.doc.resolution_dpi;
+        let scene = photocraft_pdf::import_with(
+            &request.pdf,
+            &photocraft_doc::vector_design::exchange::ImportOptions { dpi, ..Default::default() },
+            &Default::default(),
+            ctx.cancellation_flag(),
+        )
+        .map_err(|e| EngineError::Other(e.to_string()))?;
+        ctx.check()?;
+        return crate::vector_packages::pdf_import::publish(s, &request, &scene);
+    }
     if photocraft_affinity::is_affinity(&bytes) {
         let mut request = crate::vector_packages::affinity::capture(s, bytes)?;
         request.name = name.into();
-        let scene = crate::vector_packages::affinity::decode(s, &request)?;
+        let scene = crate::vector_packages::affinity::decode_with(s, &request, ctx.cancellation_flag())?;
+        ctx.check()?;
         let id = crate::vector_packages::affinity::commit(s, &request, &scene)?;
         return Ok(json!({"layer": id.0, "warnings": scene.warnings, "nativeImport": true}));
     }
     if photocraft_svg::import::recognizes(&bytes) {
         let source = photocraft_svg::import::source(&bytes, &Default::default()).map_err(|e| EngineError::Other(e.to_string()))?;
         let request = crate::vector_packages::svg_import::capture(s, source)?;
-        let scene = crate::vector_packages::svg_import::decode(s, &request)?;
+        let dpi = s.active().ok_or(EngineError::NoDocument)?.doc.resolution_dpi;
+        let scene = photocraft_svg::import_with(
+            request.svg.as_bytes(),
+            &photocraft_doc::vector_design::exchange::ImportOptions { dpi, ..Default::default() },
+            None,
+            ctx.cancellation_flag(),
+        )
+        .map_err(|e| EngineError::Other(e.to_string()))?;
+        ctx.check()?;
         return crate::vector_packages::svg_import::commit_prepared(s, &request, &scene);
     }
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let (cw, ch) = (d.doc.size.width as f64, d.doc.size.height as f64);
     let fmt = d.doc.pixel_format();
-    let src = import(name, &bytes)?;
+    let src = ctx.stage(0.05, 0.8, "Decoding", |ctl| photocraft_io::import_with(name, &bytes, ctl)).map_err(|e| EngineError::Other(e.to_string()))?.document;
+    ctx.check()?;
     let (w, h) = (src.size.width as f64, src.size.height as f64);
     let scale = match f64_param(p, "scale") {
         Some(k) => (k / 100.0).max(1e-4),
@@ -402,7 +499,10 @@ pub fn place_bytes(s: &mut Session, name: &str, bytes: Vec<u8>, linked: Option<S
     }
     let px = translate_surface(&px, dx as i32, dy as i32);
     let source = match linked {
-        Some(path) => SmartSource::Linked { path },
+        Some(path) => {
+            crate::smart_cmds::approve_link(&path)?;
+            SmartSource::Linked { path }
+        }
         None => SmartSource::Embedded { file_name: file_name(name), bytes: Arc::new(bytes) },
     };
     let so = SmartObject::new(source, Affine { m: [scale, 0.0, 0.0, scale, dx, dy] }, Some(px));
@@ -419,8 +519,7 @@ pub fn place_bytes(s: &mut Session, name: &str, bytes: Vec<u8>, linked: Option<S
 fn place(s: &mut Session, p: &Value, linked: bool) -> Result<Value> {
     let cmd = if linked { "file.placeLinked" } else { "file.placeEmbedded" };
     let path = str_param(p, "path", cmd)?.to_string();
-    let bytes = read_file(&path)?;
-    place_bytes(s, &path, bytes, linked.then(|| path.clone()), p)
+    place_source(s, &path, crate::jobs::OpenSource::Path(path.clone()), linked.then(|| path.clone()), p)
 }
 
 // ---------- File Info (XMP) ----------
@@ -1258,3 +1357,33 @@ pub fn specs() -> Vec<CommandSpec> {
 #[cfg(test)]
 #[path = "file_cmds/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod file_worker_regressions {
+    use super::*;
+    #[test]
+    fn svg_place_is_a_job_and_cancel_never_adds_layers() {
+        let mut session = Session::new();
+        session.execute("file.new", json!({"width":16,"height":16})).unwrap();
+        let before = session.active().unwrap().doc.layer_count();
+        let bytes = br#"<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="red"/></svg>"#.to_vec();
+        let job = start_place(&mut session, "art.svg", crate::jobs::OpenSource::Bytes(Arc::new(bytes)), None, json!({})).unwrap();
+        let crate::jobs::Started::Job(job) = job else { panic!("Place must run off the caller thread") };
+        assert_eq!(session.active().unwrap().doc.layer_count(), before);
+        assert!(session.cancel_job(job));
+        session.poll_jobs();
+        assert_eq!(session.active().unwrap().doc.layer_count(), before);
+    }
+    #[test]
+    fn synchronous_place_is_one_undo_step() {
+        let mut session = Session::new();
+        session.execute("file.new", json!({"width":16,"height":16})).unwrap();
+        let before = session.active().unwrap().doc.layer_count();
+        let bytes = br#"<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="red"/></svg>"#.to_vec();
+        place_bytes(&mut session, "art.svg", bytes, None, &json!({})).unwrap();
+        assert!(session.active().unwrap().doc.layer_count() > before);
+        assert!(session.undo());
+        assert_eq!(session.active().unwrap().doc.layer_count(), before);
+    }
+}

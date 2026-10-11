@@ -123,6 +123,7 @@ fn recovery_services(dir: Option<PathBuf>) -> Services {
 /// The pixels to paste when the clipboard holds copied files rather than an image (Copy in
 /// Files, Finder or Explorer puts paths on the clipboard, #338): the first file that decodes,
 /// upright, as RGBA8. Files that aren't images are skipped after reading only their header.
+#[cfg(test)]
 fn image_from_files(paths: &[PathBuf]) -> Option<(u32, u32, Vec<u8>)> {
     use std::io::Read;
     paths.iter().find_map(|path| {
@@ -130,6 +131,7 @@ fn image_from_files(paths: &[PathBuf]) -> Option<(u32, u32, Vec<u8>)> {
         // on LF only, so a path copied in GNOME Files arrives with a trailing '\r'.
         let path = path.to_str().map_or_else(|| path.clone(), |s| PathBuf::from(s.trim_end_matches('\r')));
         let mut head = Vec::with_capacity(256);
+        photocraft_format::read::validate_path(&path).ok()?;
         std::fs::File::open(&path).ok()?.take(256).read_to_end(&mut head).ok()?;
         // TGA has no magic number and is only guessed from the header, so trust the extension
         // too before reading what may be a large non-image file.
@@ -138,7 +140,7 @@ fn image_from_files(paths: &[PathBuf]) -> Option<(u32, u32, Vec<u8>)> {
             photocraft_codecs::Format::Tga if photocraft_codecs::from_extension(ext) != Some(photocraft_codecs::Format::Tga) => return None,
             _ => {}
         }
-        let img = photocraft_codecs::decode(&std::fs::read(&path).ok()?).ok()?;
+        let img = photocraft_codecs::decode(&photocraft_format::read_file(&path).ok()?).ok()?;
         Some((img.width(), img.height(), img.to_rgba8()))
     })
 }
@@ -235,6 +237,20 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
                 cb.set_image(arboard::ImageData { width: w as usize, height: h as usize, bytes: std::borrow::Cow::Borrowed(px) }).map_err(|e| e.to_string())
             })
         }),
+        clipboard_get_files: Some({
+            let clip = clip.clone();
+            Box::new(move || {
+                let Ok(mut slot) = clip.try_borrow_mut() else { return vec![] };
+                let cb = match slot.as_mut() {
+                    Some(c) => c,
+                    None => match arboard::Clipboard::new() {
+                        Ok(c) => slot.insert(c),
+                        Err(_) => return vec![],
+                    },
+                };
+                cb.get().file_list().unwrap_or_default().iter().map(|p| p.to_string_lossy().trim_end_matches('\r').to_string()).collect()
+            })
+        }),
         clipboard_get_image: Some({
             let clip = clip.clone();
             Box::new(move || {
@@ -243,11 +259,6 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
                     Some(c) => c,
                     None => slot.insert(arboard::Clipboard::new().ok()?),
                 };
-                // Copied files first: Finder also puts the file's icon on the clipboard as an
-                // image, which would otherwise paste instead of the file.
-                if let Some(img) = cb.get().file_list().ok().and_then(|paths| image_from_files(&paths)) {
-                    return Some(img);
-                }
                 let img = cb.get_image().ok()?;
                 Some((img.width as u32, img.height as u32, img.bytes.into_owned()))
             })

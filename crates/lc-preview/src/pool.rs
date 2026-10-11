@@ -49,9 +49,17 @@ pub struct Done<S, R> {
     pub ms: f64,
 }
 
+/// Failed jobs always release their slot and are reported to the owner.
+pub struct Failure<S> {
+    pub slot: S,
+    pub key: u64,
+    pub message: String,
+}
 pub struct JobPool<S, R> {
     shared: Arc<Shared<S, R>>,
     tx: Sender<Done<S, R>>,
+    failure_tx: Sender<Failure<S>>,
+    failure_rx: Receiver<Failure<S>>,
     rx: Receiver<Done<S, R>>,
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     threads: usize,
@@ -66,6 +74,7 @@ impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
     /// A pool with `threads` workers (none on wasm; `0` = jobs only run via [`JobPool::run_inline`]).
     pub fn new(threads: usize) -> Self {
         let (tx, rx) = channel();
+        let (failure_tx, failure_rx) = channel();
         JobPool {
             shared: Arc::new(Shared {
                 queue: Mutex::new(State { queued: Vec::new(), running: Vec::new() }),
@@ -74,6 +83,8 @@ impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
             }),
             tx,
             rx,
+            failure_tx,
+            failure_rx,
             threads,
             started: false,
             seq: 0,
@@ -103,11 +114,18 @@ impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
         for i in 0..self.threads {
             let shared = self.shared.clone();
             let tx = self.tx.clone();
+            let failure_tx = self.failure_tx.clone();
             let spawned = std::thread::Builder::new().name(format!("lc-job-{i}")).spawn(move || {
                 while let Some(e) = take(&shared, true) {
                     let _running = Running { shared: &shared, slot: e.slot };
                     let t0 = std::time::Instant::now();
-                    let result = (e.job)();
+                    let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(e.job)) {
+                        Ok(result) => result,
+                        Err(_) => {
+                            let _ = failure_tx.send(Failure { slot: e.slot, key: e.key, message: "Preview decoder failed unexpectedly".into() });
+                            continue;
+                        }
+                    };
                     let done = Done { slot: e.slot, key: e.key, result, ms: t0.elapsed().as_secs_f64() * 1000.0 };
                     if tx.send(done).is_err() {
                         break;
@@ -159,6 +177,10 @@ impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
         self.shared.queue.lock().map(|q| q.queued.iter().any(|e| e.slot == slot)).unwrap_or(false)
     }
 
+    pub fn try_recv_failure(&self) -> Option<Failure<S>> {
+        self.failure_rx.try_recv().ok()
+    }
+
     /// A finished job, if any.
     pub fn try_recv(&self) -> Option<Done<S, R>> {
         self.rx.try_recv().ok()
@@ -170,7 +192,14 @@ impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
         while ran < n {
             let Some(e) = take(&self.shared, false) else { break };
             let _running = Running { shared: &self.shared, slot: e.slot };
-            let result = (e.job)();
+            let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(e.job)) {
+                Ok(result) => result,
+                Err(_) => {
+                    let _ = self.failure_tx.send(Failure { slot: e.slot, key: e.key, message: "Preview decoder failed unexpectedly".into() });
+                    ran += 1;
+                    continue;
+                }
+            };
             let _ = self.tx.send(Done { slot: e.slot, key: e.key, result, ms: 0.0 });
             ran += 1;
         }
@@ -238,6 +267,41 @@ impl<S, R> Drop for JobPool<S, R> {
             if h.thread().id() != std::thread::current().id() {
                 let _ = h.join();
             }
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod panic_regressions {
+    use super::*;
+    #[test]
+    fn inline_panic_reports_completion_and_releases_slot() {
+        let mut pool = JobPool::<u8, u8>::new(0);
+        pool.submit(1, 2, 0, Box::new(|| panic!("damaged image")));
+        assert_eq!(pool.run_inline(1), 1);
+        assert_eq!(pool.try_recv_failure().unwrap().key, 2);
+        pool.submit(1, 3, 0, Box::new(|| 7));
+        pool.run_inline(1);
+        assert_eq!(pool.try_recv().unwrap().result, 7);
+    }
+    #[test]
+    fn native_worker_survives_panic_and_runs_next_job() {
+        let mut pool = JobPool::<u8, u8>::new(1);
+        pool.submit(1, 2, 0, Box::new(|| panic!("damaged raw")));
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while pool.try_recv_failure().is_none() {
+            assert!(std::time::Instant::now() < until);
+            std::thread::yield_now();
+        }
+        pool.submit(1, 3, 0, Box::new(|| 7));
+        loop {
+            if let Some(done) = pool.try_recv() {
+                assert_eq!(done.result, 7);
+                break;
+            }
+            assert!(std::time::Instant::now() < until);
+            std::thread::yield_now();
         }
     }
 }

@@ -145,9 +145,12 @@ impl BrushContext {
     pub fn dab_rect(&self, d: &Dab, dual: bool) -> Rect {
         let sampled = if dual { self.dual_tip.is_some() } else { self.tip.is_some() };
         let reach = if sampled { d.radius * std::f32::consts::SQRT_2 } else { d.radius };
-        let rr = reach.ceil() as i32 + 1;
+        let rr = (reach.ceil() as i32).saturating_add(1);
         let (cx, cy) = (d.center.x.floor() as i32, d.center.y.floor() as i32);
-        Rect::new(cx - rr, cy - rr, cx + rr + 1, cy + rr + 1)
+        if !d.center.x.is_finite() || !d.center.y.is_finite() || !d.radius.is_finite() || d.radius < 0.0 || d.radius > 5000.0 {
+            return Rect::EMPTY;
+        }
+        Rect::new(cx.saturating_sub(rr), cy.saturating_sub(rr), cx.saturating_add(rr).saturating_add(1), cy.saturating_add(rr).saturating_add(1))
     }
 
     /// Rasterise a dab over `rect` into `out` (tip shape × noise × per-tip texture × wet edges × flow).

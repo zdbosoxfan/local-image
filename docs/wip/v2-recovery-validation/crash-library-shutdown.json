@@ -45,5 +45,34 @@
   },
   "started": "2026-10-11T20:31:27.512335+00:00",
   "log": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/docs/wip/v2-recovery-validation/crash-library-shutdown.log",
-  "status": "running"
+  "status": "finished",
+  "exit": 0,
+  "elapsed_seconds": 119.4178022469996,
+  "finished": "2026-10-11T20:33:26.930230+00:00",
+  "log_sha256": "197ea8563e086568765c73d316fdff9497478760de44432b80569d098b81f0cd",
+  "test_summaries": [
+    [
+      "ok",
+      "1",
+      "0",
+      "0",
+      "0",
+      "267"
+    ]
+  ],
+  "counts": {
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0,
+    "measured": 0,
+    "filtered": 267
+  },
+  "cargo_finish_lines": [
+    "    Finished `test` profile [optimized + debuginfo] target(s) in 1m 56s"
+  ],
+  "test_elapsed_seconds": [
+    2.32
+  ],
+  "resource_wait_seconds": null,
+  "resource_wait_note": "Pinned compiler gate retained; separate telemetry unavailable, no zero wait inferred."
 }

@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 #[derive(Default)]
 pub struct State {
+    pub background: bool,
     pub source: Vec<u8>,
     pub name: String,
     pub preview: Option<Arc<Document>>,
@@ -19,6 +20,8 @@ pub struct State {
     pub warnings: Vec<VectorWarning>,
     pub error: Option<String>,
     request: Option<Place>,
+    worker: Option<crate::import_worker::Task<(Option<Place>, ImportedScene)>>,
+    worker_action: u8,
     scene: Option<ImportedScene>,
     drag: Option<(Pos2, [i32; 2])>,
     context: Option<(crate::state::Tool, crate::Module)>,
@@ -26,6 +29,7 @@ pub struct State {
 }
 impl State {
     pub fn cancel(&mut self) {
+        self.worker = None;
         self.preview = None;
         self.request = None;
         self.scene = None;
@@ -62,6 +66,54 @@ impl State {
         self.warnings.clear();
         self.warning_scope = None;
         self.error = None;
+        Ok(())
+    }
+    fn begin_worker(&mut self, session: &Session, action: u8) -> Result<()> {
+        self.cancel();
+        let mut request = if action == 3 { None } else { Some(affinity::capture(session, self.source.clone())?) };
+        if let Some(r) = &mut request
+            && !self.name.is_empty()
+        {
+            r.name = self.name.clone();
+        }
+        let dpi = if action == 3 { 72.0 } else { session.active().ok_or(EngineError::NoDocument)?.doc.resolution_dpi };
+        let options = photocraft_doc::vector_design::exchange::ImportOptions { dpi, ..Default::default() };
+        let bytes = self.source.clone();
+        self.worker = Some(crate::import_worker::Task::start(move |cancel| {
+            let scene = photocraft_affinity::import_with(&bytes, &options, None, cancel).map_err(|e| EngineError::Other(e.to_string()))?;
+            Ok((request, scene))
+        })?);
+        self.worker_action = action;
+        self.error = None;
+        Ok(())
+    }
+    fn poll_worker(&mut self, session: &mut Session) -> Result<()> {
+        let Some(result) = self.worker.as_ref().and_then(|w| w.poll()) else { return Ok(()) };
+        self.worker = None;
+        let (request, scene) = result?;
+        self.warnings = scene.warnings.clone();
+        if self.worker_action == 3 {
+            let (doc, warnings) = affinity::document(scene, &self.name);
+            session.add_document(doc, None);
+            self.warnings = warnings;
+            if let Some(active) = session.active() {
+                self.warning_scope = Some((active.doc.id.0, active.doc.walk().into_iter().map(|(_, _, l)| l.id).collect()));
+            }
+            return Ok(());
+        }
+        let request = request.ok_or_else(|| EngineError::Other("Missing import destination".into()))?;
+        affinity::check(session, &request)?;
+        if self.worker_action != 0 {
+            affinity::commit(session, &request, &scene)?;
+            self.warning_scope =
+                Some((request.document, session.active().map(|a| a.doc.walk().into_iter().map(|(_, _, l)| l.id).collect()).unwrap_or_default()));
+            return Ok(());
+        }
+        let (preview, _) = affinity::preview(session, &request, &scene)?;
+        self.request = Some(request);
+        self.scene = Some(scene);
+        self.preview = Some(Arc::new(preview));
+        self.generation = self.generation.wrapping_add(1);
         Ok(())
     }
     pub fn stage(&mut self, session: &Session) -> Result<()> {
@@ -111,7 +163,7 @@ impl State {
         Ok(())
     }
     pub fn pending(&self) -> bool {
-        self.request.is_some()
+        self.request.is_some() || self.worker.is_some()
     }
     fn motion(&mut self, session: &Session, at: Pos2) -> Result<()> {
         let Some((origin, base)) = self.drag else { return Ok(()) };
@@ -131,6 +183,13 @@ impl State {
 /// Controls are hosted by the existing bounded binary File/Open and Place routes.
 /// Bytes arrive from the host's bounded Open/Place file reader; never resolve linked resources.
 pub fn controls(ui: &mut Ui, state: &mut State, session: &mut Session) {
+    if let Err(error) = state.poll_worker(session) {
+        state.error = Some(error.to_string());
+    }
+    if state.worker.is_some() {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
+    }
+
     ui.label(tl!("Affinity document"));
     if ui.add(egui::TextEdit::singleline(&mut state.name).hint_text(tl!("Document name")).char_limit(4096)).changed() {
         state.cancel();
@@ -151,10 +210,23 @@ pub fn controls(ui: &mut Ui, state: &mut State, session: &mut Session) {
         }
     });
     if let Some(action) = action {
-        let result = match action {
-            0 => state.open(session),
-            1 => state.stage(session),
-            _ => state.place(session),
+        let result = if !state.background {
+            match action {
+                0 => state.open(session),
+                1 => state.stage(session),
+                _ => state.place(session),
+            }
+        } else if action >= 2 && state.request.is_some() {
+            state.place(session)
+        } else {
+            state.begin_worker(
+                session,
+                match action {
+                    0 => 3,
+                    1 => 0,
+                    _ => 1,
+                },
+            )
         };
         state.error = result.err().map(|e| e.to_string());
     }
@@ -191,6 +263,13 @@ fn warning_target(state: &State, session: &Session, warning: &VectorWarning) -> 
 /// Offscreen/full app input entrypoint. to_doc supplies the established canvas affine.
 /// Every pointer frame remains detached; a captured release commits once.
 pub fn input(state: &mut State, session: &mut Session, ctx: &Context, canvas: Rect, to_doc: impl Fn(Pos2) -> Pos2, enabled: bool) -> Result<()> {
+    if let Err(error) = state.poll_worker(session) {
+        state.error = Some(error.to_string());
+    }
+    if state.worker.is_some() {
+        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+    }
+
     state.synchronize(session, enabled);
     if !state.pending() {
         return Ok(());
@@ -233,3 +312,23 @@ pub fn input(state: &mut State, session: &mut Session, ctx: &Context, canvas: Re
 #[cfg(test)]
 #[path = "affinity/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod worker_regressions {
+    use super::*;
+    #[test]
+    fn affinity_worker_cancel_never_publishes() {
+        let _serial = crate::import_worker::test_serial();
+        let mut session = Session::new();
+        session.execute("file.new", serde_json::json!({"width":64,"height":64})).unwrap();
+        let before = session.active().unwrap().doc.clone();
+        let mut state =
+            State { source: include_bytes!("../../../pc-affinity/tests/fixtures/warnings.afphoto").to_vec(), background: true, ..Default::default() };
+        state.begin_worker(&session, 1).unwrap();
+        assert!(state.worker.is_some());
+        state.cancel();
+        state.poll_worker(&mut session).unwrap();
+        assert_eq!(session.active().unwrap().doc, before);
+    }
+}

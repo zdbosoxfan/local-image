@@ -4,7 +4,7 @@ A standalone reader and writer for Adobe Photoshop **PSD** (version 1) and **PSB
 
 * Clean-room implementation from Adobe's public *Photoshop File Formats Specification*. Where the spec is silent, behavior follows MIT-licensed psd-tools / ag-psd documentation, and the code comments say so.
 * `#![forbid(unsafe_code)]`. Builds for `wasm32-unknown-unknown`. The core API works on byte slices; the file helpers only exist on native targets.
-* Parsing never panics on malformed input. Limits: dimensions ≤ 300 000; allocations are checked against the remaining input; a single decode produces at most `MAX_DECODED_BYTES` (2 GiB); descriptor nesting depth ≤ 64.
+* Parsing never panics on malformed input. Limits: dimensions ≤ 300 000; allocations are checked against the remaining input; a single decode produces at most `MAX_IMPORT_DECODED_BYTES` (512 MiB); descriptor nesting depth ≤ 64.
 
 ## Guarantees
 

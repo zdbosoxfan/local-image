@@ -405,15 +405,29 @@ fn draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened
         }
         Err(e) => panic!("{e}"),
     };
-    struct Reset;
+    // Use the same Klein family with a mock-only filename. Built-in filenames can
+    // resolve to the user's multi-GB weights during refine discovery and hashing.
+    let name = format!("flux2-klein-9b-fp8-draft-refine-{}.safetensors", server.host().replace(':', "-"));
+    let dir = std::env::temp_dir().join(format!("photocraft-draft-refine-{}-{}", std::process::id(), server.host().replace(':', "-")));
+    std::fs::create_dir_all(dir.join("diffusion_models")).unwrap();
+    std::fs::write(dir.join("diffusion_models").join(&name), b"mock Klein weights").unwrap();
+    server.set_model_dir(&dir);
+    let client = li_ai::ComfyClient::new(server.host());
+    li_ai::inventory::refresh(&client.object_info().unwrap(), Some(&dir));
+    let model = ModelId::from_key(&format!("unet:{name}")).unwrap();
+    assert_eq!(model.info().family, ModelId::Klein9B.info().family);
+    struct Reset(std::path::PathBuf);
     impl Drop for Reset {
         fn drop(&mut self) {
             li_ai::set_service_override(None);
+            li_ai::catalog::set_installed(Vec::new());
+            let _ = std::fs::remove_dir_all(&self.0);
         }
     }
     li_ai::set_service_override(Some(server.host().to_owned()));
-    let _reset = Reset;
+    let _reset = Reset(dir);
     let mut h = harness(vec2(1280.0, 800.0));
+    set_model(&mut h.state_mut().ui.ai.draft_refine.refinement, model);
     open_from_menu(&mut h);
     h.get_by_label("Refine image").click();
     h.run_steps(3);
@@ -425,16 +439,32 @@ fn draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened
         std::thread::sleep(Duration::from_millis(10));
         h.run_steps(2);
     }
-    assert!(h.state().draft_refine.refinement_entry.is_some(), "{}", h.state().ui.status);
+    assert!(
+        h.state().draft_refine.refinement_entry.is_some(),
+        "status: {}; jobs: {:?}; submitted prompts: {}",
+        h.state().ui.status,
+        h.state().session.jobs_with_recent(),
+        server.prompts().len()
+    );
     let graph = server.prompts().last().unwrap().clone();
     assert!(graph.as_object().unwrap().values().any(|n| n["class_type"] == "LoadImage"));
     assert!(graph.as_object().unwrap().values().any(|n| n["class_type"] == "VAEEncode"));
+    assert!(graph.as_object().unwrap().values().any(|n| n["class_type"] == "UNETLoader" && n["inputs"]["unet_name"] == name));
     let entry = h.state().draft_refine.refinement_entry.as_ref().unwrap().clone();
     assert!(crate::generate_ui::library().image_path(&entry.id).is_file());
+    // The completion frame introduces result controls and resizes the modal.
+    // Settle the result layout before querying/clicking Use (saved vector fixture).
+    h.run_steps(3);
     let before = h.state().session.active().unwrap().history.past_len();
     h.get_by_label("Use").click();
     h.run_steps(3);
-    assert_eq!(h.state().session.active().unwrap().history.past_len(), before + 1);
+    assert_eq!(
+        h.state().session.active().unwrap().history.past_len(),
+        before + 1,
+        "status: {}; Use rect: {:?}",
+        h.state().ui.status,
+        h.get_by_label("Use").rect()
+    );
     h.state_mut().run("edit.undo", json!({})).unwrap();
     let docs = h.state().session.documents().len();
     h.get_by_label("Open as new document").click();

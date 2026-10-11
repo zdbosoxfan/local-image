@@ -95,7 +95,7 @@ impl<'a> Rd<'a> {
     }
 }
 
-fn read_pattern(r: &mut Rd) -> Result<PsdPattern> {
+fn read_pattern(r: &mut Rd, remaining: &mut u64) -> Result<PsdPattern> {
     let version = r.u32()?;
     if version != 1 {
         return Err(PsdError::invalid(format!("pattern version {version}")));
@@ -181,6 +181,12 @@ fn read_pattern(r: &mut Rd) -> Result<PsdPattern> {
         if decoded_bytes > MAX_DECODED_BYTES {
             return Err(PsdError::LimitExceeded("pattern data exceeds MAX_DECODED_BYTES"));
         }
+        // Charge the destination plane, including uncovered pixels, before allocation.
+        // Offset channel rectangles cannot justify gigabytes of blank padding.
+        if plane_bytes > channel_bytes.saturating_mul(16).saturating_add(4096) || plane_bytes > *remaining {
+            return Err(PsdError::LimitExceeded("pattern import byte budget"));
+        }
+        *remaining -= plane_bytes;
         let _ = layout.decoded_len()?;
         let compression = if comp == 1 {
             Compression::Rle
@@ -232,7 +238,10 @@ fn place_channel_plane(plane: &[u8], source: &PlaneLayout, x: usize, y: usize, d
     if plane.len() != source_len {
         return Err(PsdError::invalid("pattern channel payload does not match its rectangle"));
     }
-    let mut out = vec![0; destination.decoded_len()?];
+    let len = destination.decoded_len()?;
+    let mut out = Vec::new();
+    out.try_reserve_exact(len).map_err(|_| PsdError::LimitExceeded("pattern allocation"))?;
+    out.resize(len, 0);
     if source.depth == 1 {
         let source_row_bytes = source.row_bytes();
         let destination_row_bytes = destination.row_bytes();
@@ -345,6 +354,11 @@ fn write_pattern(p: &PsdPattern, out: &mut Vec<u8>) -> Result<()> {
 
 /// Parses the data of a `Patt` / `Pat2` / `Pat3` global block.
 pub fn parse_pattern_block(data: &[u8]) -> Result<Vec<PsdPattern>> {
+    parse_pattern_block_with_budget(data, &mut (128 << 20))
+}
+
+/// Shared decoded-plane budget for containers holding multiple pattern sections.
+pub fn parse_pattern_block_with_budget(data: &[u8], remaining: &mut u64) -> Result<Vec<PsdPattern>> {
     let mut r = Rd { b: data, p: 0 };
     let mut out = Vec::new();
     while r.p + 4 <= data.len() {
@@ -352,8 +366,11 @@ pub fn parse_pattern_block(data: &[u8]) -> Result<Vec<PsdPattern>> {
         if len == 0 {
             break;
         }
+        if out.len() >= 4096 {
+            return Err(PsdError::LimitExceeded("pattern count"));
+        }
         let body = r.take(len)?;
-        out.push(read_pattern(&mut Rd { b: body, p: 0 })?);
+        out.push(read_pattern(&mut Rd { b: body, p: 0 }, remaining)?);
         let pad = (4 - len % 4) % 4;
         r.p = (r.p + pad).min(data.len());
     }
@@ -393,8 +410,12 @@ pub fn parse_pat_file(data: &[u8]) -> Result<Vec<PsdPattern>> {
     let _version = r.u16()?;
     let count = r.u32()?;
     let mut out = Vec::new();
-    for _ in 0..count.min(100_000) {
-        out.push(read_pattern(&mut r)?);
+    if count > 4096 || count as usize > data.len().saturating_sub(r.p) / 24 {
+        return Err(PsdError::LimitExceeded("pattern count"));
+    }
+    let mut remaining = 128 << 20;
+    for _ in 0..count {
+        out.push(read_pattern(&mut r, &mut remaining)?);
     }
     Ok(out)
 }
@@ -579,5 +600,38 @@ mod tests {
         let vma = pattern_vma_rect_offset(4, &p);
         set_i32(&mut block, vma + 8, 0);
         assert!(parse_pattern_block(&block).is_err());
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod pattern_budget_tests {
+    use super::*;
+    fn small() -> PsdPattern {
+        PsdPattern { mode: 1, width: 1, height: 1, name: "x".into(), id: "x".into(), palette: None, depth: 8, channels: vec![vec![255]], alpha: None }
+    }
+    #[test]
+    fn pattern_sections_share_a_decoded_plane_budget() {
+        let data = write_pattern_block(&[small()]).unwrap();
+        let mut remaining = 1;
+        assert!(parse_pattern_block_with_budget(&data, &mut remaining).is_ok());
+        assert_eq!(remaining, 0);
+        assert!(parse_pattern_block_with_budget(&data, &mut remaining).is_err());
+    }
+    #[test]
+    fn tiny_plane_cannot_expand_to_huge_blank_pattern() {
+        let p = small();
+        let mut bytes = write_pattern_block(&[p]).unwrap();
+        // 16-byte header, 2 UTF16 units, Pascal id, VMA header then rectangle.
+        let rect = 4 + 16 + 4 + 2 + 8;
+        bytes[rect + 8..rect + 12].copy_from_slice(&512i32.to_be_bytes());
+        bytes[rect + 12..rect + 16].copy_from_slice(&512i32.to_be_bytes());
+        assert!(parse_pattern_block(&bytes).is_err());
+    }
+    #[test]
+    fn pattern_count_is_bounded_for_standalone_and_global_blocks() {
+        let patterns = vec![small(); 4097];
+        assert!(parse_pat_file(&write_pat_file(&patterns).unwrap()).is_err());
+        assert!(parse_pattern_block(&write_pattern_block(&patterns).unwrap()).is_err());
     }
 }

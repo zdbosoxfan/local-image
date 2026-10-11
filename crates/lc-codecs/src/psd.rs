@@ -88,33 +88,6 @@ pub(crate) fn decode(bytes: &[u8], opts: &DecodeOptions) -> Result<Decoded> {
         1 => return Err(Error::Unsupported(F, "1-bit bitmap PSD")),
         _ => return Err(err("bad depth")),
     };
-    let plane = width * height * bpc;
-    let row_bytes = width * bpc;
-    let mut planes: Vec<Vec<u8>> = Vec::with_capacity(channels);
-    match compression {
-        0 => {
-            for _ in 0..channels {
-                planes.push(r.take(plane)?.to_vec());
-            }
-        }
-        1 => {
-            let counts_len = channels * height;
-            let mut counts = Vec::with_capacity(counts_len);
-            for _ in 0..counts_len {
-                counts.push(if psb { r.u32()? as usize } else { r.u16()? as usize });
-            }
-            for c in 0..channels {
-                let mut out = Vec::with_capacity(plane);
-                for y in 0..height {
-                    let src = r.take(counts[c * height + y])?;
-                    unpackbits(src, row_bytes, &mut out);
-                }
-                planes.push(out);
-            }
-        }
-        _ => return Err(Error::Unsupported(F, "ZIP-compressed merged image data")),
-    }
-
     let (model, n_color) = match mode {
         1 | 8 => (Model::Gray, 1),
         2 => (Model::Rgb, 1),
@@ -130,6 +103,52 @@ pub(crate) fn decode(bytes: &[u8], opts: &DecodeOptions) -> Result<Decoded> {
     let alpha = merged_transparency && channels > n_color && mode != 2;
     let used = n_color + alpha as usize;
     let n = width * height;
+
+    let plane = width * height * bpc;
+    let row_bytes = width * bpc;
+    if plane.saturating_mul(used).saturating_mul(2).saturating_add(n.saturating_mul(16)) > 512 << 20 {
+        return Err(err("decoded PSD exceeds memory limit"));
+    }
+    let mut planes: Vec<Vec<u8>> = Vec::with_capacity(used);
+    match compression {
+        0 => {
+            for c in 0..channels {
+                let src = r.take(plane)?;
+                if c < used {
+                    planes.push(src.to_vec());
+                }
+            }
+        }
+        1 => {
+            let counts_len = channels * height;
+            if counts_len > r.b.len().saturating_sub(r.p) / if psb { 4 } else { 2 } {
+                return Err(err("truncated RLE counts"));
+            }
+            let mut counts = Vec::with_capacity(counts_len);
+            for _ in 0..counts_len {
+                counts.push(if psb { r.u32()? as usize } else { r.u16()? as usize });
+            }
+            for c in 0..channels {
+                let mut out = Vec::new();
+                if c < used {
+                    out.try_reserve_exact(plane).map_err(|_| err("PSD allocation failed"))?;
+                }
+                for y in 0..height {
+                    let src = r.take(counts[c * height + y])?;
+                    if c < used {
+                        if row_bytes > src.len().saturating_mul(64) {
+                            return Err(err("implausible RLE expansion"));
+                        }
+                        unpackbits(src, row_bytes, &mut out);
+                    }
+                }
+                if c < used {
+                    planes.push(out);
+                }
+            }
+        }
+        _ => return Err(Error::Unsupported(F, "ZIP-compressed merged image data")),
+    }
 
     // Interleave to device samples.
     let buf = if mode == 2 {
@@ -240,5 +259,41 @@ mod tests {
         let mut out = Vec::new();
         unpackbits(&[0x05, 1], 4, &mut out);
         assert_eq!(out, vec![1, 0, 0, 0]);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod hostile_psd_tests {
+    use super::*;
+    fn compressed(row: u16) -> Vec<u8> {
+        let mut b = b"8BPS\0\x01\0\0\0\0\0\0\0\x03".to_vec();
+        b.extend(1u32.to_be_bytes());
+        b.extend(1000u32.to_be_bytes());
+        b.extend(8u16.to_be_bytes());
+        b.extend(3u16.to_be_bytes());
+        b.extend([0; 12]);
+        b.extend(1u16.to_be_bytes());
+        for _ in 0..3 {
+            b.extend(row.to_be_bytes());
+        }
+        b.extend([0; 6]);
+        b
+    }
+    #[test]
+    fn tiny_rle_payload_cannot_claim_large_zero_padded_planes() {
+        assert!(decode(&compressed(2), &DecodeOptions::default()).is_err());
+    }
+    #[test]
+    fn unused_raw_channels_are_consumed_without_decoding() {
+        let mut b = b"8BPS\0\x01\0\0\0\0\0\0\0\x38".to_vec();
+        b.extend(1u32.to_be_bytes());
+        b.extend(1u32.to_be_bytes());
+        b.extend(8u16.to_be_bytes());
+        b.extend(3u16.to_be_bytes());
+        b.extend([0; 12]);
+        b.extend(0u16.to_be_bytes());
+        b.extend([255; 56]);
+        assert!(decode(&b, &DecodeOptions::default()).is_ok());
     }
 }

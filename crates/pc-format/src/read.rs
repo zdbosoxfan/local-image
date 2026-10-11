@@ -16,6 +16,26 @@ use std::path::Path;
 /// Largest single read: big enough that a 5 GB file takes under a hundred reads.
 pub const READ_CHUNK: usize = 64 << 20;
 
+/// Input bytes retained by one import.
+pub const MAX_FILE_BYTES: u64 = 512 << 20;
+
+/// Reject network/device paths and non-regular files before opening.
+pub fn validate_path(path: &Path) -> io::Result<()> {
+    let text = path.to_string_lossy();
+    if text.starts_with("\\\\") || text.starts_with("//") || text.starts_with("/dev/") || text.starts_with("/proc/") || text.starts_with("/sys/") {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "Network and device input paths are unavailable"));
+    }
+    let meta = std::fs::metadata(path)?;
+    if !meta.is_file() || meta.len() > MAX_FILE_BYTES {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "Input must be a regular file within the file memory limit"));
+    }
+    let resolved = std::fs::canonicalize(path)?;
+    if resolved != path && ["/dev", "/proc", "/sys"].iter().any(|root| resolved.starts_with(root)) {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "Device input paths are unavailable"));
+    }
+    Ok(())
+}
+
 /// Read all of `path`, in reads of at most [`READ_CHUNK`] bytes.
 pub fn read_file(path: &Path) -> io::Result<Vec<u8>> {
     read_file_with(path, READ_CHUNK)
@@ -23,8 +43,20 @@ pub fn read_file(path: &Path) -> io::Result<Vec<u8>> {
 
 /// [`read_file`] with a chosen read size (tests use small ones to exercise the loop).
 pub fn read_file_with(path: &Path, chunk: usize) -> io::Result<Vec<u8>> {
-    let mut f = std::fs::File::open(path)?;
-    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    validate_path(path)?;
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let mut f = options.open(path)?;
+    let meta = f.metadata()?;
+    if !meta.is_file() || meta.len() > MAX_FILE_BYTES {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "Input must be a regular file within the file memory limit"));
+    }
+    let len = meta.len();
     read_all_with(&mut f, len, chunk)
 }
 
@@ -37,9 +69,24 @@ pub fn read_all(reader: &mut impl Read, size_hint: u64) -> io::Result<Vec<u8>> {
 fn read_all_with(reader: &mut impl Read, size_hint: u64, chunk: usize) -> io::Result<Vec<u8>> {
     // The hint only sizes the buffer: a file that grows or shrinks while being read is still read
     // to its end.
+    if size_hint > MAX_FILE_BYTES {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "Input exceeds the file memory limit"));
+    }
     let mut buf = buffer_for(size_hint)?;
     let chunk = u64::try_from(chunk.max(1)).unwrap_or(u64::MAX);
-    while reader.take(chunk).read_to_end(&mut buf)? > 0 {}
+    loop {
+        let room = MAX_FILE_BYTES.saturating_sub(buf.len() as u64);
+        if room == 0 {
+            let mut probe = [0];
+            if reader.read(&mut probe)? != 0 {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, "Input exceeds the file memory limit"));
+            }
+            break;
+        }
+        if reader.take(chunk.min(room)).read_to_end(&mut buf)? == 0 {
+            break;
+        }
+    }
     Ok(buf)
 }
 
@@ -118,5 +165,32 @@ mod tests {
         assert_eq!(size_text(512), "512 bytes");
         assert_eq!(size_text(4_750_000_000), "4.75 GB");
         assert_eq!(size_text(759_000_000), "759.00 MB");
+    }
+}
+
+#[cfg(test)]
+mod bounded_read_regressions {
+    use super::*;
+    #[test]
+    fn devices_and_network_paths_are_rejected_before_open() {
+        for path in ["/dev/zero", "/proc/self/mem", "//server/share", "\\\\server\\share"] {
+            assert!(read_file(Path::new(path)).is_err());
+        }
+    }
+    #[test]
+    fn sparse_oversized_file_is_rejected_before_reservation() {
+        let path = std::env::temp_dir().join(format!("li-input-budget-{}", std::process::id()));
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len(MAX_FILE_BYTES + 1).unwrap();
+        assert!(read_file(&path).is_err());
+        std::fs::remove_file(path).unwrap();
+    }
+    #[cfg(unix)]
+    #[test]
+    fn fifo_is_rejected_without_waiting_for_a_writer() {
+        let path = std::env::temp_dir().join(format!("li-input-fifo-{}", std::process::id()));
+        assert!(std::process::Command::new("mkfifo").arg(&path).status().unwrap().success());
+        assert!(read_file(&path).is_err());
+        std::fs::remove_file(path).unwrap();
     }
 }

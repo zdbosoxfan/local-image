@@ -130,6 +130,20 @@ pub fn commit_prepared(session: &mut Session, request: &Place, scene: &ImportedS
     })?;
     Ok(json!({"layer":id.0,"warnings":scene.warnings}))
 }
+/// Publish an already decoded dialog scene with the normal command bookkeeping.
+/// The command dispatcher uses `commit_prepared` and records its own bookkeeping.
+pub fn publish_prepared(session: &mut Session, request: &Place, scene: &ImportedScene, paste: bool) -> Result<Value> {
+    crate::vector_integration::initialize();
+    let command = if paste { "file.svg.paste" } else { "file.svg.place" };
+    let params = serde_json::to_value(request).map_err(error)?;
+    if let Some(why) = session.disabled_reason_with(command, &params) {
+        return Err(EngineError::Disabled(command.to_string(), why));
+    }
+    let result = commit_prepared(session, request, scene)?;
+    session.after_command(command, params, true);
+    Ok(result)
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Open {
@@ -200,3 +214,25 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
 #[cfg(test)]
 #[path = "svg_import/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod prepared_publication_regressions {
+    use super::*;
+    #[test]
+    fn prepared_svg_publication_records_one_command_without_redecoding() {
+        let mut session = Session::new();
+        session.execute("file.new", json!({"width":16,"height":16})).unwrap();
+        let mut request =
+            capture(&session, r#"<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8"/></svg>"#.into()).unwrap();
+        let scene = decode(&session, &request).unwrap();
+        let before = session.active().unwrap().doc.layer_count();
+        let journal = session.journal.len();
+        // Publication must consume the prepared scene, not parse the source again.
+        request.svg = "already decoded".into();
+        publish_prepared(&mut session, &request, &scene, true).unwrap();
+        assert_eq!(session.journal.len(), journal + 1);
+        assert_eq!(session.journal.last().unwrap().0, "file.svg.paste");
+        assert!(session.undo());
+        assert_eq!(session.active().unwrap().doc.layer_count(), before);
+    }
+}

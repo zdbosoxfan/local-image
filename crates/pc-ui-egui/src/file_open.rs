@@ -201,7 +201,7 @@ impl PhotocraftApp {
     /// Place the next file dropped on the canvas and start Free Transform on it, once no other
     /// transform is in progress (so several files are placed and transformed one after another).
     pub(crate) fn place_next_dropped(&mut self, ctx: &egui::Context) {
-        while self.ui.transform.is_none() {
+        while self.ui.transform.is_none() && self.session.active_job().is_none() {
             let Some(f) = self.drop_places.pop_front() else { return };
             let placed = if f.path().is_absolute() {
                 self.run("file.placeEmbedded", serde_json::json!({"path": f.path().to_string_lossy()}))
@@ -209,7 +209,10 @@ impl PhotocraftApp {
                 crate::read_dropped(&*f).and_then(|bytes| self.place_bytes(&dropped_name(&f), bytes, None))
             };
             match placed {
-                Ok(_) => {
+                Ok(value) => {
+                    if value["pending"] == true {
+                        return;
+                    }
                     if let Err(e) = crate::transform_tool::begin_placed(self, ctx) {
                         self.ui.status = e;
                     }
@@ -222,6 +225,17 @@ impl PhotocraftApp {
     /// Place a file's bytes as a smart object layer (File › Place; `linked`: Place Linked, to that
     /// path), for files that weren't read from a path the command can read.
     pub(crate) fn place_bytes(&mut self, name: &str, bytes: Vec<u8>, linked: Option<String>) -> Result<serde_json::Value, String> {
+        if self.background_jobs {
+            let started = photocraft_engine::file_cmds::start_place(&mut self.session, name, crate::jobs_ui::bytes(&bytes), linked, serde_json::json!({}))
+                .map_err(|e| e.to_string())?;
+            return Ok(match started {
+                photocraft_engine::jobs::Started::Done(v) => v,
+                photocraft_engine::jobs::Started::Job(job) => {
+                    self.jobs.last_started = Some(job);
+                    serde_json::json!({"job":job.0,"pending":true})
+                }
+            });
+        }
         let r = photocraft_engine::file_cmds::place_bytes(&mut self.session, name, bytes, linked, &serde_json::json!({})).map_err(|e| e.to_string());
         self.sync_views();
         r

@@ -83,7 +83,8 @@ pub fn embedded_preview(bytes: &[u8]) -> Option<Vec<u8>> {
         if let Some(mn) = makernote::parse_makernote(bytes, e.offset, e.count() as u64, tiff.order, &make) {
             candidates(bytes, &mn.ifd, mn.base, &mut found);
             if let Some(off) = mn.ifd.u64(0x0011)
-                && let Ok((pifd, _)) = lightcraft_tiff::parse_ifd_at(bytes, mn.base + off, mn.order, mn.base, false, &Default::default())
+                && let Ok((pifd, _)) =
+                    lightcraft_tiff::parse_ifd_at(bytes, mn.base.saturating_add(off), mn.order, mn.base, false, &Default::default())
             {
                 candidates(bytes, &pifd, mn.base, &mut found);
             }
@@ -152,6 +153,29 @@ mod tests {
         j
     }
 
+    #[test]
+    fn nikon_preview_offset_cannot_wrap_its_maker_note_base() {
+        let mut note = b"Nikon\0\x02\0\0\0II*\0\x08\0\0\0".to_vec();
+        note.extend_from_slice(&1u16.to_le_bytes());
+        note.extend_from_slice(&0x0011u16.to_le_bytes());
+        note.extend_from_slice(&16u16.to_le_bytes()); // LONG8 out of line in classic TIFF
+        note.extend_from_slice(&1u32.to_le_bytes());
+        note.extend_from_slice(&26u32.to_le_bytes());
+        note.extend_from_slice(&0u32.to_le_bytes());
+        note.extend_from_slice(&u64::MAX.to_le_bytes());
+        let mut exif = IfdBuilder::new();
+        exif.set(t::MAKER_NOTE, Value::Undefined(note));
+        let mut root = IfdBuilder::new();
+        root.set(t::MAKE, Value::Ascii("Nikon".into()));
+        root.set_child(t::EXIF_IFD, exif);
+        let bytes = TiffWriter::default().write(&[root]).unwrap();
+        let tiff = Tiff::parse(&bytes).unwrap();
+        let entry = tiff.exif().unwrap().get(t::MAKER_NOTE).unwrap();
+        let mn = makernote::parse_makernote(&bytes, entry.offset, entry.count() as u64, tiff.order, "Nikon").unwrap();
+        assert_eq!(mn.ifd.u64(0x0011), Some(u64::MAX));
+        assert!(mn.base > 0);
+        assert!(embedded_preview(&bytes).is_none());
+    }
     #[test]
     fn picks_largest_dct_jpeg() {
         let small = fake_jpeg(10);

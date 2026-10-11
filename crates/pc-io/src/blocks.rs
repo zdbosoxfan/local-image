@@ -518,7 +518,10 @@ pub fn parse_smart(key: &[u8; 4], data: &[u8]) -> (String, Affine) {
     let desc = if key == b"SoLd" || key == b"SoLE" { data.get(8..).and_then(parse_prefix_versioned) } else { None };
     let Some(d) = desc else { return (String::new(), Affine::IDENTITY) };
     let id = match d.get("Idnt") {
-        Some(Value::Text(t)) => t.to_string_lossy(),
+        Some(Value::Text(t)) => {
+            let id = t.to_string_lossy();
+            if id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'$')) { id } else { String::new() }
+        }
         _ => String::new(),
     };
     let mut affine = Affine::IDENTITY;
@@ -784,5 +787,20 @@ mod more_tests {
     #[test]
     fn tysh_garbage_is_none() {
         assert!(parse_tysh(&[0; 10]).is_none());
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod hostile_smart_id_tests {
+    use super::*;
+    #[test]
+    fn psd_identifiers_never_become_paths() {
+        for id in ["/tmp/private.png", "../../secret", "\\\\server\\share", "C:\\secret", "/dev/zero"] {
+            let descriptor = Descriptor::new("smartObject").with("Idnt", Value::Text(photocraft_psd::descriptor::UnicodeString::new_nul(id)));
+            let mut data = b"soLD\0\0\0\x04".to_vec();
+            data.extend(VersionedDescriptor::new(descriptor).to_bytes());
+            assert!(parse_smart(b"SoLd", &data).0.is_empty());
+        }
     }
 }

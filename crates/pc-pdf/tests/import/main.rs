@@ -388,3 +388,31 @@ fn pdf_import_sampled_functions_and_predictor_rows_are_bounded() {
     let data = fixture::page("", "", "", &[fixture::stream("/DecodeParms << /Predictor 12 /Columns 1000000 /Colors 1000000 /BitsPerComponent 8 >>", &[])]);
     assert!(matches!(import(&data, &ImportOptions::default()), Err(ImportError::Limit("predictor row"))));
 }
+
+#[test]
+fn pdf_unresolved_content_references_are_not_zero_cost() {
+    let bytes = fixture::page("/Missing Do", "/XObject << /Missing 99 0 R >>", "", &[]);
+    assert!(import(&bytes, &ImportOptions::default()).is_err());
+}
+#[test]
+fn pdf_duplicate_object_identity_is_rejected() {
+    let mut bytes = fixture::artwork();
+    let at = bytes.windows(4).position(|s| s == b"xref").unwrap();
+    // A second root with duplicate identity is an ambiguous update, not an admitted graph.
+    bytes.splice(at..at, b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n".iter().copied());
+    assert!(import(&bytes, &ImportOptions::default()).is_err());
+}
+
+#[test]
+fn pdf_xref_hidden_content_cannot_bypass_preflight() {
+    // xref redirects the page content to an object header inside an unused string.
+    // Only the actual, lexically admitted page stream may execute.
+    let hidden = b"(4 0 obj << /Length 8 >> stream\n/Bad Do\nendstream endobj)".to_vec();
+    let mut bytes = fixture::page("1 0 0 rg 0 0 64 64 re f", "", "", &[hidden]);
+    let hidden_at = bytes.windows(5).rposition(|s| s == b"4 0 o").unwrap();
+    let xref_at = bytes.windows(5).position(|s| s == b"xref\n").unwrap();
+    let entry = xref_at + b"xref\n0 6\n".len() + 4 * 20;
+    bytes[entry..entry + 10].copy_from_slice(format!("{hidden_at:010}").as_bytes());
+    let result = render(&bytes);
+    assert_eq!(result.get(16, 16), [1.0, 0.0, 0.0, 1.0]);
+}

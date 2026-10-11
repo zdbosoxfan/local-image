@@ -437,6 +437,43 @@ fn is_eof(e: &tiff::TiffError) -> bool {
     matches!(e, tiff::TiffError::IoError(io) if io.kind() == io::ErrorKind::UnexpectedEof)
 }
 
+/// Read SOF without allocating, including abbreviated JPEG with external tables.
+fn jpeg_dimensions(data: &[u8]) -> Result<(u16, u16), CodecError> {
+    if !data.starts_with(&[0xff, 0xd8]) {
+        return Err(err("JPEG chunk header"));
+    }
+    let mut at = 2usize;
+    while at < data.len() {
+        if data.get(at) != Some(&0xff) {
+            return Err(err("JPEG chunk marker"));
+        }
+        while data.get(at) == Some(&0xff) {
+            at += 1;
+        }
+        let marker = *data.get(at).ok_or_else(|| err("JPEG chunk header"))?;
+        at += 1;
+        if matches!(marker, 0xd9 | 0xda) {
+            break;
+        }
+        if matches!(marker, 0x01 | 0xd0..=0xd8) {
+            continue;
+        }
+        let length = data.get(at..at + 2).ok_or_else(|| err("JPEG chunk header"))?;
+        let length = usize::from(u16::from_be_bytes([length[0], length[1]]));
+        let end = at.checked_add(length).filter(|&end| length >= 2 && end <= data.len()).ok_or_else(|| err("JPEG chunk header"))?;
+        if matches!(marker, 0xc0..=0xc3 | 0xc5..=0xc7 | 0xc9..=0xcb | 0xcd..=0xcf) {
+            let sof = data.get(at + 2..end).filter(|s| s.len() >= 6).ok_or_else(|| err("JPEG chunk SOF"))?;
+            let (h, w) = (u16::from_be_bytes([sof[1], sof[2]]), u16::from_be_bytes([sof[3], sof[4]]));
+            if w == 0 || h == 0 {
+                return Err(err("JPEG chunk dimensions"));
+            }
+            return Ok((w, h));
+        }
+        at = end;
+    }
+    Err(err("JPEG chunk without SOF"))
+}
+
 /// Decodes the pixels of one directory.
 fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits) -> Result<Image, CodecError> {
     // The values the `tiff` crate reads must exist: a count past the end of the file is
@@ -488,6 +525,18 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits) -> Result<Image, CodecEr
     let counts = (dir.get(offsets_tag).map(|e| e.count), dir.get(counts_tag).map(|e| e.count));
     if counts != (Some(expected), Some(expected)) {
         return Err(err(format!("{expected} strips or tiles expected, the tables list {counts:?}")));
+    }
+    if f.tag_uint(dir, 259) == Some(7) {
+        for i in 0..expected {
+            let offset = dir.get(offsets_tag).and_then(|e| f.uint(e, i)).ok_or_else(|| err("JPEG chunk offset"))?;
+            let count = dir.get(counts_tag).and_then(|e| f.uint(e, i)).ok_or_else(|| err("JPEG chunk length"))?;
+            let data =
+                offset.checked_add(count).and_then(|end| f.b.get(offset as usize..usize::try_from(end).ok()?)).ok_or_else(|| err("JPEG chunk outside file"))?;
+            let (jw, jh) = jpeg_dimensions(data)?;
+            if u64::from(jw) > cw || u64::from(jh) > ch {
+                return Err(err("JPEG dimensions exceed TIFF chunk"));
+            }
+        }
     }
     let src = match (format, bits) {
         (1, 1 | 2 | 4) => Src::Bits(bits as u8),

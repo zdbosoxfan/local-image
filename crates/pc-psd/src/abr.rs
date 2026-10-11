@@ -29,7 +29,7 @@ use crate::compression::{Compression, PlaneLayout, decode_planes, encode_planes}
 use crate::descriptor::{Descriptor, Value, VersionedDescriptor};
 use crate::error::{PsdError, Result};
 use crate::header::Version;
-use crate::patterns::{PsdPattern, parse_pattern_block, write_pattern_block};
+use crate::patterns::{PsdPattern, parse_pattern_block_with_budget, write_pattern_block};
 
 /// Largest sampled tip edge accepted (Photoshop's own limit is 5000 px).
 pub const MAX_EDGE: u32 = 8192;
@@ -293,10 +293,13 @@ fn read_samp(data: &[u8], subversion: u16, out: &mut AbrFile, budget: &mut Budge
 }
 
 fn read_desc(data: &[u8], out: &mut AbrFile) {
+    if out.presets.len() >= MAX_BRUSHES {
+        return;
+    }
     match VersionedDescriptor::parse_prefix(data) {
         Ok((vd, _)) => match vd.descriptor.get("Brsh") {
             Some(Value::List(items)) => {
-                for v in items.iter().take(MAX_BRUSHES) {
+                for v in items.iter().take(MAX_BRUSHES.saturating_sub(out.presets.len())) {
                     if let Value::Descriptor(d) = v {
                         out.presets.push(d.clone());
                     }
@@ -314,6 +317,7 @@ fn parse_v6(r: &mut Rd, out: &mut AbrFile) -> Result<()> {
         return Err(PsdError::Unsupported(format!("brush file subversion {}", out.subversion)));
     }
     let mut budget = Budget(MAX_TOTAL_BYTES);
+    let mut pattern_budget = 128 << 20;
     while r.left() >= 12 {
         let sig = r.arr::<4>()?;
         if &sig != b"8BIM" {
@@ -336,8 +340,9 @@ fn parse_v6(r: &mut Rd, out: &mut AbrFile) -> Result<()> {
         }
         match &key {
             b"samp" => read_samp(data, out.subversion, out, &mut budget)?,
-            b"patt" => match parse_pattern_block(data) {
-                Ok(p) => out.patterns.extend(p),
+            b"patt" => match parse_pattern_block_with_budget(data, &mut pattern_budget) {
+                Ok(p) if out.patterns.len() + p.len() <= 4096 => out.patterns.extend(p),
+                Ok(_) => return Err(PsdError::LimitExceeded("pattern count")),
                 Err(e) => out.warnings.push(format!("embedded patterns unreadable: {e}")),
             },
             b"desc" => read_desc(data, out),
@@ -484,6 +489,15 @@ mod tests {
         AbrSample { id: id.into(), width: w, height: h, depth, data }
     }
 
+    #[test]
+    fn descriptor_sections_share_the_brush_count_limit() {
+        let preset = Value::Descriptor(Descriptor::new("brushPreset"));
+        let section = |items| VersionedDescriptor::new(Descriptor::new("brushes").with("Brsh", Value::List(items))).to_bytes();
+        let mut out = AbrFile::default();
+        read_desc(&section(vec![preset.clone(); MAX_BRUSHES]), &mut out);
+        read_desc(&section(vec![preset]), &mut out);
+        assert_eq!(out.presets.len(), MAX_BRUSHES);
+    }
     #[test]
     fn v1_v2_round_trip_raw_and_rle() {
         for version in [1u16, 2] {

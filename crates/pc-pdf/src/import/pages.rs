@@ -25,8 +25,7 @@ pub struct PdfInfo {
     pub pages: Vec<PageInfo>,
 }
 pub(super) fn open(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) -> Result<Pdf> {
-    preflight::check(bytes, options, cancel)?;
-    let pdf = Pdf::new(bytes.to_vec()).map_err(|e| ImportError::Invalid(format!("{e:?}")))?;
+    let pdf = preflight::check(bytes, options, cancel)?;
     cancelled(cancel)?;
     if pdf.len() > options.limits.objects || pdf.pages().len() > options.limits.objects {
         return Err(ImportError::Limit("parsed object/page"));

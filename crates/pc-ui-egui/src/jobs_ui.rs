@@ -49,6 +49,7 @@ pub struct JobsUi {
     pub focus: Option<JobId>,
     /// The job the latest [`run`] started (the control channel waits on it).
     pub(crate) last_started: Option<JobId>,
+    place_finished: bool,
 }
 
 /// Run command `id`: in the background when background jobs are on and the command is a job
@@ -110,6 +111,11 @@ pub fn start_open(app: &mut PhotocraftApp, name: &str, path: Option<String>, sou
 /// cancels the job in view.
 pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
     dispatch_batch(app);
+    if std::mem::take(&mut app.jobs.place_finished)
+        && let Err(error) = crate::transform_tool::begin_placed(app, ctx)
+    {
+        notices::error(app, error);
+    }
     // A focused open tab that ended (or was cancelled elsewhere) gives way to the documents.
     if app.jobs.focus.is_some_and(|j| !app.jobs.opens.iter().any(|o| o.job == j)) {
         app.jobs.focus = app.jobs.opens.last().map(|o| o.job);
@@ -141,6 +147,9 @@ fn dispatch_batch(app: &mut PhotocraftApp) {
     let errors: Vec<_> = events.iter().filter_map(|event| handoff.on_job_event(app, event).err()).collect();
     app.library_vectorize = handoff;
     for event in events {
+        if matches!(event.command.as_str(), "file.placeEmbedded" | "file.placeLinked") && matches!(event.outcome, JobOutcome::Done(_)) {
+            app.jobs.place_finished = true;
+        }
         on_event(app, event);
     }
     for error in errors {

@@ -55,7 +55,7 @@ pub fn map_file(f: &AbrFile, group: &str) -> AbrImport {
 /// [`map_file`] that checks `ctl` before each brush.
 pub fn map_file_with(f: &AbrFile, group: &str, ctl: &photocraft_raster::Interrupt) -> Result<AbrImport, photocraft_raster::Cancelled> {
     let mut out = AbrImport { version: f.version, warnings: f.warnings.clone(), ..Default::default() };
-    let mut m = Mapper { file: f, warnings: BTreeSet::new(), unknown: BTreeSet::new() };
+    let mut m = Mapper { file: f, warnings: BTreeSet::new(), unknown: BTreeSet::new(), remaining: 128 << 20 };
     let total = f.legacy.len().max(f.samples.len()).max(f.presets.len()).max(1) as f32;
     let step = |i: usize| -> Result<(), photocraft_raster::Cancelled> {
         ctl.check()?;
@@ -131,7 +131,7 @@ fn num(d: &Descriptor, k: &str) -> Option<f64> {
 }
 /// A percentage as a 0..1 fraction.
 fn pct(d: &Descriptor, k: &str) -> Option<f32> {
-    num(d, k).map(|v| (v / 100.0) as f32)
+    num(d, k).map(|v| (v / 100.0).clamp(-10.0, 10.0) as f32)
 }
 fn boolean(d: &Descriptor, k: &str) -> Option<bool> {
     match get(d, k)? {
@@ -241,11 +241,18 @@ struct Mapper<'a> {
     file: &'a AbrFile,
     warnings: BTreeSet<String>,
     unknown: BTreeSet<String>,
+    remaining: usize,
 }
 
 impl Mapper<'_> {
     /// A sampled tip (downsampled to [`MAX_TIP_EDGE`]) and its size (larger side).
     fn tip(&mut self, s: &AbrSample) -> (TipShape, f32) {
+        let cost = (s.width as usize).saturating_mul(s.height as usize).saturating_mul(8);
+        if cost > self.remaining {
+            self.warnings.insert("Brush import exceeds the image memory limit; a round tip stands in".into());
+            return (TipShape::Round, 1.0);
+        }
+        self.remaining -= cost;
         let v = s.to_unit();
         let (w, h, v) = fit(s.width, s.height, v, MAX_TIP_EDGE);
         if (w, h) != (s.width, s.height) {
@@ -297,6 +304,14 @@ impl Mapper<'_> {
         let name = text(t, "Nm  ").unwrap_or_default();
         let found =
             self.file.patterns.iter().find(|p| !id.is_empty() && p.id == id).or_else(|| self.file.patterns.iter().find(|p| !name.is_empty() && p.name == name));
+        let found = found.filter(|p| {
+            let cost = crate::pattern_map::import_cost(p);
+            if cost > self.remaining {
+                return false;
+            }
+            self.remaining -= cost;
+            true
+        });
         match found.and_then(pattern_tile) {
             Some(tile) => Pattern::Tile(tile),
             None => {
@@ -341,7 +356,7 @@ impl Mapper<'_> {
             if let Some(v) = pct(t, "Hrdn") {
                 b.hardness = v.clamp(0.0, 1.0);
             }
-            b.angle = num(t, "Angl").unwrap_or(0.0) as f32;
+            b.angle = num(t, "Angl").unwrap_or(0.0).rem_euclid(360.0) as f32;
             b.roundness = pct(t, "Rndn").unwrap_or(1.0).clamp(0.01, 1.0);
             // `Intr` off = the Spacing checkbox is off: the pointer's speed sets the spacing.
             b.spacing = pct(t, "Spcn").unwrap_or(0.25).clamp(0.01, 10.0);
@@ -408,7 +423,7 @@ impl Mapper<'_> {
                 }
                 dual.hardness = pct(t, "Hrdn").unwrap_or(1.0).clamp(0.0, 1.0);
                 dual.roundness = pct(t, "Rndn").unwrap_or(1.0).clamp(0.01, 1.0);
-                dual.angle = num(t, "Angl").unwrap_or(0.0) as f32;
+                dual.angle = num(t, "Angl").unwrap_or(0.0).rem_euclid(360.0) as f32;
                 dual.spacing = pct(t, "Spcn").unwrap_or(dual.spacing).clamp(0.01, 10.0);
             }
             dual.mode = mask_mode(enum_value(db, "BlnM")).unwrap_or(MaskMode::Multiply);
@@ -573,3 +588,25 @@ fn pattern_tile(p: &PsdPattern) -> Option<GrayTile> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod hostile_brush_tests {
+    use super::*;
+    #[test]
+    fn finite_huge_percentages_stay_finite() {
+        let d = Descriptor::new("scatterDynamics").with("jitter", Value::Double(f64::MAX));
+        assert!(pct(&d, "jitter").unwrap().is_finite());
+        assert!(pct(&d, "jitter").unwrap() <= 10.0);
+    }
+    #[test]
+    fn tip_duplicates_consume_one_running_budget() {
+        let file = AbrFile::default();
+        let mut mapper = Mapper { file: &file, warnings: BTreeSet::new(), unknown: BTreeSet::new(), remaining: 64 };
+        let sample = AbrSample { id: "a".into(), width: 2, height: 2, depth: 8, data: vec![255; 4] };
+        assert!(matches!(mapper.tip(&sample).0, TipShape::Sampled(_)));
+        assert!(matches!(mapper.tip(&sample).0, TipShape::Sampled(_)));
+        assert!(matches!(mapper.tip(&sample).0, TipShape::Round));
+        assert!(!mapper.warnings.is_empty());
+    }
+}

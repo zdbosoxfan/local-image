@@ -186,11 +186,11 @@ pub(crate) fn decode(src: &[u8], w: usize, h: usize, bits: u32, table: &DecodeTa
             let d = diff(&mut stream, &huff).ok_or_else(|| RawError::Corrupt(format!("NEF: invalid Huffman code at row {y}")))?;
             let p = if x < 2 {
                 let s = seeds.get_mut(x).ok_or(RawError::Limit("NEF column"))?;
-                *s += d;
+                *s = s.checked_add(d).ok_or_else(|| RawError::Corrupt("NEF predictor overflow".into()))?;
                 hpred[x & 1] = *s;
                 *s
             } else {
-                hpred[x & 1] += d;
+                hpred[x & 1] = hpred[x & 1].checked_add(d).ok_or_else(|| RawError::Corrupt("NEF predictor overflow".into()))?;
                 hpred[x & 1]
             };
             let v = p.clamp(0, max);
@@ -477,5 +477,14 @@ mod tests {
         assert!(decode(&src, usize::MAX, 2, 14, &t).is_err());
         assert!(decode(&src, 1 << 20, 1 << 20, 14, &t).is_err());
         assert!(decode(&src, 0, 2, 14, &t).is_err());
+    }
+    #[test]
+    fn damaged_nef_predictor_is_an_error_at_integer_overflow() {
+        let mut writer = Writer::default();
+        let (word, length) = LOSSLESS_12.codes()[1];
+        writer.put(u32::from(word) >> (12 - length), u32::from(length));
+        writer.put(1, 1);
+        let table = DecodeTable { encoding: Encoding::Lossless, seeds: [[i32::MAX, 0], [0, 0]] };
+        assert!(matches!(decode(&writer.finish(), 1, 1, 12, &table), Err(RawError::Corrupt(s)) if s.contains("predictor overflow")));
     }
 }

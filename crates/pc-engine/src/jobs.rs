@@ -299,7 +299,8 @@ pub fn run<T: Send + 'static>(
     apply: impl FnOnce(&mut Session, T) -> Result<Value> + Send + 'static,
 ) -> Result<Value> {
     if !s.jobs.spawn || cfg!(target_arch = "wasm32") {
-        let t = work(&JobCtx::new())?;
+        let t = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&JobCtx::new())))
+            .map_err(|_| EngineError::Other("Import or job failed unexpectedly; the document is unchanged".into()))??;
         return apply(s, t);
     }
     if s.jobs.pending.is_some() {
@@ -697,7 +698,7 @@ impl Session {
     }
 
     /// Bookkeeping after a command (or a job's apply) succeeded.
-    fn after_command(&mut self, id: &str, params: Value, journal: bool) {
+    pub(crate) fn after_command(&mut self, id: &str, params: Value, journal: bool) {
         // A layer-mask view ends when another layer becomes active (#196).
         if let Some(st) = self.active_mut() {
             crate::mask_view_cmds::fix(st);

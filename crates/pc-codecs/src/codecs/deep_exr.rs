@@ -225,7 +225,7 @@ pub(crate) fn decode_deep(meta: &MetaData, bytes: &[u8], limits: &Limits) -> Res
     }
     let y0 = dw.position.1;
     let npixels = w.checked_mul(h).ok_or_else(|| err("the data window is too large"))?;
-    limits.check_bytes(w as u32, h as u32, (header.channels.list.len().max(1) as u64) * 4)?;
+    limits.check_bytes(w as u32, h as u32, (header.channels.list.len().max(1) as u64) * 4 + 32)?;
 
     let exr_types: Vec<ExrSample> = header.channels.list.iter().map(|c| c.sample_type).collect();
     let bytes_per_sample: usize = exr_types.iter().map(|t| sample_bytes(*t)).sum();
@@ -370,7 +370,7 @@ pub(crate) fn decode_deep(meta: &MetaData, bytes: &[u8], limits: &Limits) -> Res
     }
     let total_samples = acc;
     let sample_bytes_total = total_samples.checked_mul(exr_types.len() as u64 * 4).ok_or_else(|| err("the sample buffer size overflows"))?;
-    if sample_bytes_total > limits.max_alloc {
+    if sample_bytes_total.saturating_add((npixels as u64).saturating_mul(32)) > limits.max_alloc {
         return Err(CodecError::LimitExceeded(format!("deep samples need {sample_bytes_total} bytes, exceeding max_alloc {}", limits.max_alloc)));
     }
 

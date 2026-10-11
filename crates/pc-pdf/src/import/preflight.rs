@@ -11,7 +11,7 @@ use std::{
     sync::atomic::AtomicBool,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 enum Value {
     Number(f64),
     Bool(bool),
@@ -270,7 +270,9 @@ impl Guard<'_> {
             return Err(ImportError::Limit("object number"));
         }
         self.inspect(&value)?;
-        self.objects.insert(id, Record { value, work, calls });
+        if self.objects.insert(id, Record { value, work, calls }).is_some() {
+            return Err(invalid("ambiguous duplicate PDF object"));
+        }
         if self.objects.len() > self.options.limits.objects {
             return Err(ImportError::Limit("object"));
         }
@@ -568,7 +570,7 @@ impl Guard<'_> {
             if let Some(&w) = done.get(&id) {
                 return Ok(w);
             }
-            let Some(r) = g.objects.get(&id) else { return Ok((0, 0)) };
+            let r = g.objects.get(&id).ok_or_else(|| invalid("unresolved PDF resource reference"))?;
             active.insert(id);
             let mut refs = vec![];
             r.value.refs(&mut refs);
@@ -602,7 +604,7 @@ impl Guard<'_> {
         Ok(())
     }
 }
-pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) -> Result<()> {
+pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) -> Result<hayro_syntax::Pdf> {
     cancelled(cancel)?;
     if bytes.len() > options.limits.bytes {
         return Err(ImportError::Limit("input byte"));
@@ -616,6 +618,17 @@ pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) 
     let mut g = Guard { options, cancel, objects: BTreeMap::new(), bytes: 0, streams: vec![], binary: BTreeSet::new() };
     let mut l = Lexer::new(bytes, options, cancel);
     let mut words: Vec<Vec<u8>> = Vec::new();
+    let mut bodies = BTreeMap::new();
+    let mut root = None;
+    fn set_root(root: &mut Option<(u32, u16)>, value: &Value) -> Result<()> {
+        if let Some(Value::Ref(a, b)) = value.get(b"Root") {
+            if root.is_some_and(|old| old != (*a, *b)) {
+                return Err(invalid("ambiguous PDF root"));
+            }
+            *root = Some((*a, *b));
+        }
+        Ok(())
+    }
     while let Some(t) = l.next()? {
         match t {
             Token::Word(w) if w == b"obj" => {
@@ -626,9 +639,14 @@ pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) 
                     .zip(words.iter().rev().nth(1).and_then(|s| std::str::from_utf8(s).ok()).and_then(|s| s.parse::<u32>().ok()))
                     .map(|(b, a)| (a, b))
                     .ok_or_else(|| invalid("indirect object header"))?;
+                let body_start = l.at;
                 let t = l.next()?.ok_or_else(|| invalid("object value"))?;
                 let value = l.value(t, 0)?;
                 g.inspect(&value)?;
+                if value.get(b"Type").and_then(Value::name) == Some(b"XRef") {
+                    set_root(&mut root, &value)?;
+                }
+                let value_end = l.at;
                 let next = l.next()?;
                 let work = 0;
                 let calls = vec![];
@@ -669,6 +687,7 @@ pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) 
                             let mut v = Lexer::new(&data[at..], options, cancel);
                             let t = v.next()?.ok_or_else(|| invalid("object stream member"))?;
                             let value = v.value(t, 0)?;
+                            bodies.insert((u32::try_from(id).map_err(|_| ImportError::Limit("object number"))?, 0), data[at..at + v.at].to_vec());
                             g.record((u32::try_from(id).map_err(|_| ImportError::Limit("object number"))?, 0), value, 0, vec![])?;
                         }
                     } else if value.get(b"Subtype").and_then(Value::name) == Some(b"Form")
@@ -684,12 +703,15 @@ pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) 
                     } else {
                         g.binary.insert(id);
                     }
+                    let body_end = l.at;
+                    bodies.insert(id, bytes[body_start..body_end].to_vec());
                     if !matches!(l.next()?,Some(Token::Word(w)) if w==b"endobj") {
                         return Err(invalid("object terminator"));
                     }
                 } else if !matches!(next,Some(Token::Word(w)) if w==b"endobj") {
                     return Err(invalid("object terminator"));
                 }
+                bodies.entry(id).or_insert_with(|| bytes[body_start..value_end].to_vec());
                 g.record(id, value, work, calls)?;
                 words.clear();
             }
@@ -702,6 +724,7 @@ pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) 
             Token::OpenDict => {
                 let v = l.value(Token::OpenDict, 0)?;
                 g.inspect(&v)?;
+                set_root(&mut root, &v)?;
                 words.clear();
             }
             _ => words.clear(),
@@ -781,5 +804,53 @@ pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) 
             }
         }
     }
-    g.graph()
+    g.graph()?;
+    // hayro builds its page tree during Pdf::new, before we can inspect its xref.
+    // Supply a canonical table pointing only at the exact bodies admitted above.
+    // This also removes repair-parser discrepancies and hidden-object offsets.
+    let root = root.filter(|id| g.objects.contains_key(id)).ok_or_else(|| invalid("PDF root was not admitted by preflight"))?;
+    let mut admitted = b"%PDF-1.7\n".to_vec();
+    let mut offsets = BTreeMap::new();
+    for (id, body) in &bodies {
+        cancelled(cancel)?;
+        offsets.insert(*id, admitted.len());
+        admitted.extend_from_slice(format!("{} {} obj\n", id.0, id.1).as_bytes());
+        admitted.extend_from_slice(body);
+        admitted.extend_from_slice(b"\nendobj\n");
+    }
+    let xref = admitted.len();
+    admitted.extend_from_slice(b"xref\n0 1\n0000000000 65535 f \n");
+    for (id, offset) in offsets {
+        admitted.extend_from_slice(format!("{} 1\n{offset:010} {:05} n \n", id.0, id.1).as_bytes());
+    }
+    let size = bodies.keys().map(|id| id.0).max().unwrap_or(0).saturating_add(1);
+    admitted.extend_from_slice(format!("trailer\n<< /Size {size} /Root {} {} R >>\nstartxref\n{xref}\n%%EOF\n", root.0, root.1).as_bytes());
+    let pdf = hayro_syntax::Pdf::new(admitted).map_err(|e| invalid(&format!("{e:?}")))?;
+    if pdf.len() > options.limits.objects {
+        return Err(ImportError::Limit("xref object"));
+    }
+    let root = pdf.xref().root_id();
+    if !g.objects.contains_key(&(root.obj_number as u32, root.gen_number as u16)) {
+        return Err(invalid("xref root was not admitted by preflight"));
+    }
+    for object in pdf.objects() {
+        cancelled(cancel)?;
+        let dict = match object {
+            hayro_syntax::object::Object::Dict(d) => Some(d),
+            hayro_syntax::object::Object::Stream(s) => Some(s.dict().clone()),
+            _ => None,
+        };
+        if let Some(dict) = dict {
+            let mut lexer = Lexer::new(dict.data(), options, cancel);
+            let token = lexer.next()?.ok_or_else(|| invalid("empty xref dictionary"))?;
+            let value = lexer.value(token, 0)?;
+            g.inspect(&value)?;
+            let id = dict.obj_id().ok_or_else(|| invalid("xref dictionary without identity"))?;
+            let record = g.objects.get(&(id.obj_number as u32, id.gen_number as u16)).ok_or_else(|| invalid("xref object was not admitted by preflight"))?;
+            if value != record.value {
+                return Err(invalid("xref/preflight object mismatch"));
+            }
+        }
+    }
+    Ok(pdf)
 }

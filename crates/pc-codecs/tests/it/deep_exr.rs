@@ -625,3 +625,10 @@ fn real_deep_files_decode() {
         assert!(img.warnings.iter().any(|w| matches!(w, photocraft_codecs::DecodeWarning::DeepFlattened { .. })));
     }
 }
+
+#[test]
+fn deep_exr_per_pixel_tables_share_the_sample_budget() {
+    let bytes = gen_deep(4, 4, &RGBAZ, 0, None, COUNTS_ONE, &sample_rgba);
+    let limits = Limits { max_alloc: 400, ..Limits::default() };
+    assert!(matches!(decode_deep_exr(&bytes, &limits), Err(CodecError::LimitExceeded(_))));
+}

@@ -27,9 +27,19 @@ fn psd_mode(m: ColorMode) -> u32 {
 }
 
 /// A PSD pattern as a document pattern (indexed patterns become RGB through their palette).
+pub(crate) fn import_cost(p: &PsdPattern) -> usize {
+    let (w, h) = (p.width as usize, p.height as usize);
+    w.div_ceil(128)
+        .saturating_mul(128)
+        .saturating_mul(h.div_ceil(128))
+        .saturating_mul(128)
+        .saturating_mul(32)
+        .saturating_add(w.saturating_mul(h).saturating_mul(32))
+}
+
 pub fn from_psd(p: &PsdPattern) -> Option<Pattern> {
     let (w, h) = (p.width as usize, p.height as usize);
-    if w == 0 || h == 0 {
+    if w == 0 || h == 0 || import_cost(p) > 128 << 20 {
         return None;
     }
     // 1-bit patterns: expand to 8-bit grey.
@@ -112,14 +122,25 @@ pub fn to_psd(p: &Pattern) -> PsdPattern {
 
 /// Patterns decoded from the document's raw pattern blocks (malformed blocks are skipped).
 pub fn from_global_blocks(doc: &Document) -> Vec<Pattern> {
-    doc.metadata
-        .psd_global_blocks
-        .iter()
-        .filter(|(_, k, _)| PATTERN_KEYS.contains(k))
-        .filter_map(|(_, _, d)| parse_pattern_block(d).ok())
-        .flatten()
-        .filter_map(|p| from_psd(&p))
-        .collect()
+    let mut remaining = 128usize << 20;
+    let mut out = Vec::new();
+    for (_, key, data) in &doc.metadata.psd_global_blocks {
+        if !PATTERN_KEYS.contains(key) {
+            continue;
+        }
+        let Ok(patterns) = parse_pattern_block(data) else { continue };
+        for p in patterns {
+            let cost = import_cost(&p);
+            if cost > remaining || out.len() >= 4096 {
+                return out;
+            }
+            remaining -= cost;
+            if let Some(pattern) = from_psd(&p) {
+                out.push(pattern);
+            }
+        }
+    }
+    out
 }
 
 /// Global blocks to write: the raw ones while they still match [`Document::patterns`], else the

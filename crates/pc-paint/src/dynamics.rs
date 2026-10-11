@@ -561,7 +561,7 @@ impl DabBuilder {
             let mut c = Point::new(s.point.x, s.point.y);
             if sc.enabled && sc.scatter.jitter > 0.0 {
                 let cv = control_value(sc.scatter.control, sc.scatter.fade_steps, s);
-                let amt = f64::from(sc.scatter.jitter * cv * radius);
+                let amt = f64::from(sc.scatter.jitter.clamp(0.0, 10.0) * cv * radius);
                 let (ox, oy) = (rand_signed(seed, i, stream::SCATTER_X) as f64 * amt, rand_signed(seed, i, stream::SCATTER_Y) as f64 * amt);
                 if sc.both_axes {
                     c.x += ox;
@@ -637,7 +637,7 @@ impl DualBuilder {
             let i = self.next_index;
             self.next_index += 1;
             let radius = (d.size / 2.0).max(0.5);
-            let amt = f64::from(d.scatter * radius);
+            let amt = f64::from(d.scatter.clamp(0.0, 10.0) * radius);
             let (ox, oy) = (rand_signed(seed, i, stream::DUAL_X) as f64 * amt, rand_signed(seed, i, stream::DUAL_Y) as f64 * amt);
             let mut c = Point::new(s.point.x, s.point.y);
             if d.both_axes {

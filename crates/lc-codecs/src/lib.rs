@@ -68,7 +68,7 @@ pub struct DecodeOptions {
 
 impl Default for DecodeOptions {
     fn default() -> Self {
-        DecodeOptions { max_size: None, max_pixels: 1 << 30 }
+        DecodeOptions { max_size: None, max_pixels: 32 << 20 }
     }
 }
 

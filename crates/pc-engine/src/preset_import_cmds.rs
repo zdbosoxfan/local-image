@@ -40,18 +40,38 @@ pub(crate) fn file_bytes(p: &Value, cmd: &str, what: &str) -> Result<(Vec<u8>, S
     if len > MAX_FILE_BYTES {
         return Err(bad(cmd, format!("{path}: file too large ({len} bytes)")));
     }
-    let bytes = std::fs::read(path).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
+    let bytes = photocraft_format::read_file(std::path::Path::new(path)).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
     let stem = std::path::Path::new(path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
     Ok((bytes, stem))
 }
 
 /// A name not used by any preset in `taken` (case-insensitive): `name`, `name 2`, `name 3`…
-fn unique(name: &str, taken: &[String]) -> String {
-    let free = |n: &str| !taken.iter().any(|t| t.eq_ignore_ascii_case(n));
-    if free(name) {
-        return name.to_string();
+#[derive(Default)]
+struct Names {
+    taken: std::collections::HashSet<String>,
+    next: std::collections::HashMap<String, usize>,
+}
+impl Names {
+    fn add(&mut self, name: &str) -> String {
+        let key = name.to_ascii_lowercase();
+        if self.taken.insert(key.clone()) {
+            return name.to_string();
+        }
+        let next = self.next.entry(key).or_insert(2);
+        loop {
+            let candidate = format!("{name} {next}");
+            *next += 1;
+            if self.taken.insert(candidate.to_ascii_lowercase()) {
+                return candidate;
+            }
+        }
     }
-    (2..).map(|i| format!("{name} {i}")).find(|n| free(n)).unwrap_or_else(|| name.to_string())
+}
+#[cfg(test)]
+fn unique(name: &str, taken: &[String]) -> String {
+    let mut names = Names::default();
+    names.taken.extend(taken.iter().map(|n| n.to_ascii_lowercase()));
+    names.add(name)
 }
 
 fn import_abr(s: &mut Session, p: &Value) -> Result<Value> {
@@ -89,11 +109,11 @@ fn add_abr_presets(s: &mut Session, p: &Value, group: String, imp: photocraft_io
     if p.get("replace").and_then(Value::as_bool).unwrap_or(true) {
         s.tools.presets.retain(|x| x.builtin || x.group != group);
     }
-    let mut taken: Vec<String> = s.tools.presets.iter().map(|x| x.name.clone()).collect();
+    let mut taken = Names::default();
+    taken.taken.extend(s.tools.presets.iter().map(|x| x.name.to_ascii_lowercase()));
     let mut names = Vec::with_capacity(imp.presets.len());
     for mut preset in imp.presets {
-        preset.name = unique(&preset.name, &taken);
-        taken.push(preset.name.clone());
+        preset.name = taken.add(&preset.name);
         names.push(preset.name.clone());
         s.tools.presets.push(preset);
     }
@@ -256,6 +276,15 @@ mod tests {
         .unwrap()
     }
 
+    #[test]
+    fn duplicate_name_suffixes_advance_without_rescanning_the_group() {
+        let mut names = Names::default();
+        assert_eq!(names.add("Tip"), "Tip");
+        for n in 2..=20_000 {
+            assert_eq!(names.add("Tip"), format!("Tip {n}"));
+        }
+        assert_eq!(names.next.get("tip"), Some(&20_001));
+    }
     #[test]
     fn import_adds_a_group_and_paints() {
         let mut s = Session::new();

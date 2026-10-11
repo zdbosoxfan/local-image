@@ -13,6 +13,9 @@ const THUMB: u32 = 48;
 
 /// The layers of the document at `path` (runs on the Library's worker thread).
 pub fn load(path: &str) -> Result<DocLayers, String> {
+    crate::crash_guard::guard("Layers preview", || load_inner(path))
+}
+fn load_inner(path: &str) -> Result<DocLayers, String> {
     let bytes = photocraft_format::read_file(std::path::Path::new(path)).map_err(|e| e.to_string())?;
     let doc = if photocraft_format::is_pcraft(&bytes) {
         photocraft_format::load_from_bytes(&bytes).map_err(|e| e.to_string())?

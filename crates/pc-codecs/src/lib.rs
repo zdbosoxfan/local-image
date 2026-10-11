@@ -53,6 +53,10 @@ pub fn decode_as(format: Format, bytes: &[u8]) -> Result<Image, CodecError> {
 
 /// Decode as a specific format.
 pub fn decode_as_with(format: Format, bytes: &[u8], opts: &DecodeOptions) -> Result<Image, CodecError> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| decode_as_inner(format, bytes, opts)))
+        .unwrap_or_else(|_| Err(CodecError::InvalidImage("Image decoder rejected malformed data".into())))
+}
+fn decode_as_inner(format: Format, bytes: &[u8], opts: &DecodeOptions) -> Result<Image, CodecError> {
     // HEIF without the `heif` feature: its decoder stub says what is missing from this build.
     if !caps(format).read && format != Format::Heif {
         return Err(CodecError::unsupported(format, "decoding is not available for this format"));
@@ -89,6 +93,10 @@ pub fn tiff_info(bytes: &[u8]) -> Result<TiffInfo, CodecError> {
 /// Decodes page `page` (an index into [`tiff_info`]'s `pages`) of a TIFF or BigTIFF file,
 /// applying that page's orientation unless `opts.keep_orientation`.
 pub fn decode_tiff_page(bytes: &[u8], page: usize, opts: &DecodeOptions) -> Result<Image, CodecError> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| decode_tiff_page_inner(bytes, page, opts)))
+        .unwrap_or_else(|_| Err(CodecError::InvalidImage("Image decoder rejected malformed data".into())))
+}
+fn decode_tiff_page_inner(bytes: &[u8], page: usize, opts: &DecodeOptions) -> Result<Image, CodecError> {
     let img = tiff::decode_page(bytes, Some(page), &opts.limits)?;
     finish_decode(img, tiff::orientation(bytes, Some(page)), opts)
 }
@@ -126,9 +134,12 @@ fn finish_decode(img: Image, o: u16, opts: &DecodeOptions) -> Result<Image, Code
 /// [`decode_as_with`] instead flattens a deep file into a normal [`Image`] with a
 /// [`DecodeWarning::DeepFlattened`]. `Err(Unsupported)` when the file has no deep part.
 pub fn decode_deep_exr(bytes: &[u8], limits: &Limits) -> Result<DeepImage, CodecError> {
-    let mut cur = std::io::Cursor::new(bytes);
-    let meta = ::exr::meta::MetaData::read_from_buffered(&mut cur, false).map_err(|e| CodecError::malformed(Format::OpenExr, e))?;
-    codecs::deep_exr::decode_deep(&meta, bytes, limits)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut cur = std::io::Cursor::new(bytes);
+        let meta = ::exr::meta::MetaData::read_from_buffered(&mut cur, false).map_err(|e| CodecError::malformed(Format::OpenExr, e))?;
+        codecs::deep_exr::decode_deep(&meta, bytes, limits)
+    }))
+    .unwrap_or_else(|_| Err(CodecError::malformed(Format::OpenExr, "image decoder panicked")))
 }
 
 /// Encode `image` as `format`. Conversions follow the same plan that
