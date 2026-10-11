@@ -8,3 +8,6 @@ pub mod width;
 
 pub mod blend;
 pub mod sweep;
+
+pub mod liquify;
+pub mod puppet;

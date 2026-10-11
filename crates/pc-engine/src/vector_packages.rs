@@ -78,3 +78,6 @@ pub mod path_commands;
 pub mod isolation;
 pub mod styles;
 pub mod transform_tools;
+
+// Package 41 command aggregate fragment: integration/41.md.
+pub mod distort_tools;
